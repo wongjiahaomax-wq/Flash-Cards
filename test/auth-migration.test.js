@@ -113,8 +113,8 @@ test('Better Auth migration enforces uniqueness, indexes, and cascading auth rec
 
     db.prepare('DELETE FROM `user` WHERE `id` = ?').run('user-1');
 
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM `session`').get().count, 0);
-    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM `account`').get().count, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM `session`').get()?.count, 0);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM `account`').get()?.count, 0);
   } finally {
     db.close();
   }
