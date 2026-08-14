@@ -31,3 +31,6 @@ jobs:
 
       - name: Build application
         run: npm run build
+
+      - name: Smoke test local D1 and Better Auth
+        run: node scripts/local-auth-smoke.mjs
