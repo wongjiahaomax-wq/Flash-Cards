@@ -50,14 +50,15 @@ Definition of done:
 
 Status: **partially complete**
 
-Goal: the domain model exists as executable migrations.
+Goal: the learning-domain model exists as executable migrations and representative seed data.
 
 Completed:
 
 - Drizzle ORM and Drizzle Kit added;
 - Version 1 learning-domain schema implemented;
 - D1 configured locally and in production;
-- initial learning-domain migration generated and committed;
+- learning-domain migration generated and committed;
+- Better Auth D1 migration committed separately;
 - database access helper added;
 - core Case/question selection helpers implemented and tested.
 
@@ -88,35 +89,35 @@ Definition of done:
 
 ## Milestone 3 — Authentication and permissions
 
-Status: **in progress — current blocker**
+Status: **substantially complete — production auth live; learner-management verification remains**
 
 Goal: private learner/admin access works.
 
-Completed in application code:
+Completed:
 
-- Better Auth added and pinned;
+- Better Auth 1.6.25 added and pinned;
 - D1 persistence configured in the auth factory;
+- Better Auth user/account/session/verification migration committed as `drizzle/0001_better_auth.sql`;
 - email/password authentication enabled;
 - Better Auth Admin plugin added;
 - public sign-up disabled;
 - `/study` protected for authenticated users;
 - `/admin` protected by admin role;
-- sign-in/sign-out UI added.
+- sign-in/sign-out UI added;
+- local D1 + Better Auth smoke test implemented and passing;
+- local smoke test covers disabled sign-up, real credential sign-in, session cookie creation, session lookup, and admin access;
+- reviewed auth migration applied to production D1;
+- auth-enabled Worker deployed to production;
+- production `/sign-in`, anonymous `/study`, anonymous `/admin`, and `GET /api/auth/get-session` verified;
+- secure `npm run admin:bootstrap` command added and tested;
+- first production administrator account bootstrapped.
 
 Remaining:
 
-- generate and review Better Auth's D1 tables/migration;
-- apply the auth migration to a fresh local D1 database;
-- test the complete auth flow in the local Workers runtime;
-- apply the reviewed migration to production;
-- deploy the auth-enabled source;
-- bootstrap the first application administrator account;
-- verify learner/admin role boundaries end-to-end;
-- verify an admin can create learner accounts.
-
-The first administrator account will be created by the project owner after the Better Auth schema is
-ready. This is an application user managed by Better Auth; no separate hosted Better Auth service
-account is required for this architecture.
+- verify the bootstrapped administrator signs in through the browser and reaches `/admin`;
+- implement or expose an administrator flow for creating learner accounts;
+- create a test learner account;
+- verify learner can access `/study` but is redirected away from `/admin`.
 
 Definition of done:
 
@@ -125,11 +126,14 @@ Definition of done:
 - admin can access both;
 - admin can create a learner account.
 
+Public user sign-up must remain disabled. Better Auth is an embedded application library; no separate
+hosted Better Auth account is required.
+
 ---
 
 ## Milestone 4 — Core learner study flow
 
-Status: **partially implemented at the logic layer**
+Status: **partially implemented at the logic layer — next primary product milestone**
 
 Goal: prove the educational model before building a large admin interface.
 
@@ -156,7 +160,7 @@ Definition of done:
 
 A learner can repeatedly study seeded content and the system correctly varies compatible questions while keeping Case-specific answers attached to the correct Case.
 
-This is the most important V1 product milestone.
+This is the most important remaining V1 product milestone.
 
 ---
 
@@ -249,25 +253,30 @@ Admin can inspect the V1 review data requested in the product goal without a sep
 
 ## Milestone 8 — Deployment and acceptance test
 
-Status: **infrastructure partially complete; private V1 deployment not complete**
+Status: **private authentication deployment complete; V1 acceptance demo incomplete**
 
 Goal: a usable private demo is live.
 
-Already completed:
+Completed:
 
 - production D1 database created and bound;
 - production R2 bucket created and bound;
 - Worker bindings/secrets configured;
-- public technical scaffold deployed;
+- Better Auth migration applied to production D1;
+- auth-enabled Worker deployed over HTTPS;
+- `/sign-in` verified live;
+- anonymous `/study` and `/admin` verified to redirect to sign-in;
+- Better Auth session endpoint verified with a normal GET;
+- first production administrator account bootstrapped;
 - R2 cost guardrails added.
 
 Remaining:
 
-- apply Better Auth migration to production;
-- deploy and verify private auth-enabled application;
-- bootstrap production admin;
-- create test learner accounts;
+- verify authenticated administrator access in-browser;
+- create and verify a test learner account;
 - enter/seed acceptance content;
+- connect learner study flow to production data;
+- verify image persistence/serving when R2 upload is added;
 - execute V1 acceptance test from `V1_SPEC.md`;
 - record bugs as GitHub issues.
 
@@ -308,14 +317,24 @@ Only after this milestone should we revisit:
 
 ## Immediate next task
 
-The next implementation action is to **finish Milestone 3's database integration before deploying the auth-enabled source**:
+The infrastructure blocker is resolved. The next implementation action is to build the **tiny STEMI
+vertical slice**:
 
-1. generate and review the Better Auth D1 schema/migration for the pinned Better Auth version;
-2. apply all migrations to a fresh local D1 database;
-3. test `/`, `/sign-in`, `/study`, `/admin`, and Better Auth API routes locally;
-4. apply the reviewed auth migration to production and deploy;
-5. bootstrap the first administrator account;
-6. resume Milestone 2 with the tiny STEMI seed dataset;
-7. connect that dataset to the Milestone 4 learner study flow.
+1. verify the bootstrapped production administrator can sign in and reach `/admin`;
+2. add the representative STEMI seed dataset described in Milestone 2;
+3. add server-side D1 queries for Concepts, Cases, assets, and resolved compatible questions;
+4. connect those queries to `/study` using the existing selection engine;
+5. snapshot Review, Review Question, and Review Asset records;
+6. implement reveal + `Again`/`Good` + next Case;
+7. add the smallest administrator learner-account creation flow needed to test role boundaries;
+8. add the minimum R2 upload/serving path once the seeded learner flow needs real images.
 
-Do not start with the full admin dashboard or Anki importer. The first product objective remains a thin, working learner path using representative seeded content.
+Do not start with the full admin dashboard or Anki importer. The first product objective remains a thin,
+working learner path using representative seeded content.
+
+## Known technical debt
+
+`package.json` still pins Wrangler 4.115.0, while the project uses compatibility date `2026-08-14`.
+The local auth smoke test and production release were validated with Wrangler 4.123.0 because the older
+bundled runtime did not support that compatibility date. Update the Wrangler dependency/lockfile before
+relying on `npm run deploy` or other scripts that use the pinned binary.
