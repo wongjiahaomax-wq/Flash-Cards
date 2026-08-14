@@ -1,7 +1,8 @@
 import { redirect } from '@sveltejs/kit';
 
+/** @param {NonNullable<App.Locals['user']>} user */
 function hasAdminRole(user) {
-  const roles = String(user?.role ?? '')
+  const roles = String(user.role ?? '')
     .split(',')
     .map((role) => role.trim())
     .filter(Boolean);
