@@ -47,6 +47,21 @@ function cookieHeader(response) {
   return cookies.map((cookie) => cookie.split(';', 1)[0]).join('; ');
 }
 
+function stopWorker(processHandle) {
+  if (processHandle.exitCode !== null) return;
+
+  if (process.platform === 'win32') {
+    processHandle.kill('SIGTERM');
+    return;
+  }
+
+  try {
+    process.kill(-processHandle.pid, 'SIGTERM');
+  } catch {
+    processHandle.kill('SIGTERM');
+  }
+}
+
 rmSync(stateDir, { recursive: true, force: true });
 mkdirSync(stateDir, { recursive: true });
 
@@ -102,7 +117,10 @@ const worker = spawn(
     '--show-interactive-dev-session',
     'false'
   ],
-  { stdio: ['ignore', 'pipe', 'pipe'] }
+  {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: process.platform !== 'win32'
+  }
 );
 
 worker.stdout.on('data', (chunk) => logs.push(chunk.toString()));
@@ -175,5 +193,8 @@ try {
   console.error(logs.join(''));
   throw error;
 } finally {
-  worker.kill('SIGTERM');
+  stopWorker(worker);
+  worker.stdout.destroy();
+  worker.stderr.destroy();
+  worker.unref();
 }
