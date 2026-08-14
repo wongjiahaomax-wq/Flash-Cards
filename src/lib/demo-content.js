@@ -222,6 +222,9 @@ export const demoCases = {
   },
 };
 
+/**
+ * @param {string} id
+ */
 export function getDemoCase(id) {
-  return demoCases[id] ?? null;
+  return Reflect.get(demoCases, id) ?? null;
 }
