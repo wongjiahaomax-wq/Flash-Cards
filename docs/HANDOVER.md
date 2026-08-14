@@ -1,20 +1,28 @@
 # Flash-Cards agent handover
 
-_Prepared: 14 August 2026 (UTC)_
+_Refreshed: 15 August 2026_
 
-## Outcome so far
+## Current outcome
 
-The SvelteKit application has a working Cloudflare Workers deployment with static
-assets, D1, and R2. Cloudflare authentication is configured locally through Wrangler,
-and a production Better Auth secret exists. The current deployed site is reachable at:
+The project has moved beyond the initial scaffold. The repository contains a SvelteKit application
+for Cloudflare Workers with D1, R2, Better Auth integration code, protected learner/admin routes,
+and tested learning-selection logic.
+
+Latest application-code commit before this documentation refresh:
+
+```text
+c81631f Add R2 storage cost guardrails
+```
+
+GitHub Actions passed on that commit, including the learning/storage tests, Svelte checks, and
+application build.
+
+The last verified public technical scaffold was deployed at:
 
 <https://flash-cards.mmed-fm-flashcardstest.workers.dev/>
 
-Last verified deployment version:
-
-```text
-ee17d35c-156a-4377-83e1-abe695e2ff16
-```
+Do not assume that live deployment contains the current auth-enabled repository source until the
+Better Auth database migration has been applied and a new deployment has been verified.
 
 ## Cloudflare resources
 
@@ -36,116 +44,124 @@ Worker name:
 flash-cards
 ```
 
-Production configuration also includes:
+Production configuration includes:
 
-- `BETTER_AUTH_URL=https://flash-cards.mmed-fm-flashcardstest.workers.dev` as a
-  non-secret Worker variable;
-- `BETTER_AUTH_SECRET` as an encrypted Worker secret (the value was never committed or
-  printed);
+- `BETTER_AUTH_URL=https://flash-cards.mmed-fm-flashcardstest.workers.dev` as a non-secret Worker variable;
+- `BETTER_AUTH_SECRET` in Cloudflare's encrypted Worker secret store;
 - Workers observability enabled;
 - `workers.dev` enabled;
 - per-version public preview URLs disabled.
 
-R2 was enabled through Cloudflare's subscription checkout. It has included free usage,
-but future agents should treat it as a billable service if usage exceeds the free tier.
-
-## Verification completed
-
-These checks passed after the Cloudflare work:
-
-```text
-npm run cf-typegen
-npm run check                 # 0 errors, 0 warnings
-npm test                      # 7 passing tests
-npm run build
-npm run deploy
-npm run db:migrate:local
-npm run db:migrate:remote
-npx wrangler secret list      # BETTER_AUTH_SECRET exists
-npx wrangler d1 migrations list DB --remote
-                               # no pending domain migrations
-```
-
-The live root endpoint returned HTTP 200.
-
-## Critical deployment/authentication caveat
-
-The live deployment currently behaves like the earlier public scaffold:
-
-```text
-GET /         -> 200
-GET /study    -> 200
-GET /sign-in  -> 404
-```
-
-However, current repository `HEAD` contains later authentication work, including:
-
-- `src/hooks.server.js` mounting Better Auth;
-- the `/sign-in` route;
-- protected `/study` and `/admin` server layouts;
-- the Better Auth browser client and sign-out component.
-
-Do **not** blindly redeploy those auth-enabled sources yet. The committed/generated D1
-migration currently contains the learning-domain tables only. It does not contain the
-Better Auth user, account, session, and verification tables. Deploying the request hook
-before those tables exist may cause every request to fail when `getSession()` queries D1.
-
-The next agent should first generate a Better Auth schema/migration compatible with the
-pinned `better-auth@1.6.25`, review it, apply it locally, and test the complete request
-flow in the local Workers runtime. Apply that migration remotely before deploying the
-auth-enabled build.
-
-Until that is complete, consider the live site a public technical scaffold—not a private
-medical-learning application.
+Never commit or print the Better Auth secret.
 
 ## Repository state
 
-Current `HEAD` when this handover was written:
+The earlier Cloudflare/D1 setup work that was described as staged/uncommitted in the original
+handover has now been committed to `main`.
 
-```text
-a7e4b21 Update administrator scaffold page
-```
+The repository currently includes:
 
-The Cloudflare/D1 setup changes are present in the worktree and were staged, but not
-committed, at handover time. Preserve and review them; do not reset or discard them.
-They include:
-
-- `wrangler.jsonc` production bindings and routing settings;
-- `package.json` Cloudflare and migration scripts;
-- `package-lock.json`;
-- `worker-configuration.d.ts` generated binding/runtime types;
-- `.assetsignore` and `.dev.vars.example`;
-- `docs/CLOUDFLARE.md`;
+- SvelteKit + Cloudflare Workers configuration;
+- production D1 and R2 bindings in `wrangler.jsonc`;
+- Drizzle ORM and the learning-domain schema;
 - the initial Drizzle migration under `drizzle/`;
-- JavaScript/JSDoc typing fixes needed by strict `checkJs`;
-- `scripts/normalize-cloudflare-types.js`.
+- Better Auth server/client integration;
+- `/sign-in`, protected `/study`, and admin-role-protected `/admin` routes;
+- Case-selection and reusable-question-resolution helpers with tests;
+- R2 teaching-image guardrails and tests;
+- Cloudflare type-generation normalization needed by strict `checkJs`.
 
-Run `git status --short` before editing. The worktree may continue to contain user-owned
-or concurrently created changes.
+There are currently no open GitHub issues. The R2 guardrail work was merged through PR #1.
 
-## Type generation detail
+## Authentication: current blocker
 
-`npm run cf-typegen` runs Wrangler and then
-`scripts/normalize-cloudflare-types.js`. Once SvelteKit has been built, Wrangler emits a
-type-only `GlobalProps.mainModule` import pointing at the generated JavaScript Worker.
-With this repository's `allowJs + checkJs` settings, TypeScript follows that import and
-incorrectly checks the compiled Svelte bundle as source, producing hundreds of errors.
-The normalization script removes only that generated build-artifact import; runtime and
-binding declarations remain generated by Wrangler.
+This remains the most important deployment caveat.
+
+The current committed Drizzle migration contains the **learning-domain tables only**. It does not
+contain Better Auth's required user/account/session/verification tables.
+
+Current application code already calls Better Auth from the server request lifecycle. Therefore,
+do **not** deploy the auth-enabled current source as the private production application before the
+Better Auth D1 migration is ready. A request that calls `getSession()` against a database without
+the auth tables can fail.
+
+Required sequence:
+
+1. Generate the Better Auth schema/migration compatible with the pinned `better-auth@1.6.25`.
+2. Review the generated database changes before applying them.
+3. Apply all migrations to a fresh local D1 database.
+4. Test `/`, `/sign-in`, `/study`, `/admin`, and the Better Auth API routes in the local Workers runtime.
+5. Apply the reviewed auth migration to production.
+6. Deploy the auth-enabled source and verify redirects/session handling/role boundaries.
+7. Bootstrap the first application administrator account.
+
+The project owner intends to create the first administrator account once the schema is ready.
+This means an **application user stored and managed through Better Auth**. Better Auth is being used
+as an application library here; this architecture does not depend on a separate hosted Better Auth
+service account.
+
+Public user sign-up must remain disabled. Learner accounts should ultimately be created by an
+administrator.
+
+## D1 / Drizzle progress
+
+The Version 1 learning-domain schema is implemented, including Concepts, Cases, Assets, reusable
+questions, Case-specific questions, Reviews, Review Questions, and Review Assets.
+
+The remaining Milestone 2 work is primarily:
+
+- seed a tiny representative STEMI dataset;
+- add/finish runtime ID/timestamp support needed for writes;
+- add server-side queries that read the seeded Cases/questions.
+
+The seed should exercise the educational model rather than merely populate tables. It should include
+alternative Anterior STEMI Cases, inherited and Case-specific questions, different answers to a
+shared `Describe this ECG` prompt, and a multi-image Case.
+
+## Learning logic progress
+
+The backend logic is ahead of the UI.
+
+Implemented/tested behaviour includes:
+
+- Case selection with immediate-repeat avoidance;
+- reusable-question resolution;
+- duplicate prompt precedence of Case > primary Concept > nearest inheritable ancestor > more distant ancestor;
+- randomized question selection with a target of three and a maximum of four.
+
+The `/study` page is still a scaffold. The next learner work is to connect these helpers to D1 and
+build the Concept selector + seeded Case review workflow.
+
+## R2 progress and cost guardrails
+
+The `MEDIA` R2 binding exists and `src/lib/server/storage/media.js` is now the required teaching-image
+write path.
+
+The helper enforces:
+
+- maximum image size: 5 MiB;
+- maximum application-managed bucket storage: 5 GiB;
+- Standard R2 storage class;
+- immutable teaching-image object keys.
+
+The storage guardrails have automated tests. The actual administrator upload endpoint/UI does not
+exist yet.
+
+Future upload code must call `putTeachingImage()` instead of `env.MEDIA.put()` directly.
+See `docs/R2_COST_GUARDRAILS.md` for the billing/operations checklist.
 
 ## Recommended next sequence
 
-1. Inspect `git status`, the staged diff, and this handover; commit the completed
-   Cloudflare setup intentionally.
-2. Generate and review Better Auth's D1 tables/migration for `better-auth@1.6.25`.
-3. Apply all migrations to a fresh local D1 database and test `/`, `/sign-in`, `/study`,
-   `/admin`, and Better Auth's API routes through `npm run preview`.
-4. Apply the reviewed auth migration to production with
-   `npm run db:migrate:remote`.
-5. Deploy current `HEAD`, then verify redirects and role boundaries on the live URL.
-6. Bootstrap the first administrator without enabling public sign-up.
-7. Continue Milestone 2 by adding the STEMI seed dataset and server-side read queries.
-8. Later, implement the R2 wrapper/upload path described in Milestone 5.
+1. Finish the Better Auth D1 migration and local authentication verification.
+2. Apply the reviewed auth migration remotely and deploy the private auth-enabled build.
+3. Bootstrap the first administrator account and verify admin/learner boundaries.
+4. Add the tiny STEMI seed dataset and server-side read queries.
+5. Connect the seeded data to `/study` for the first end-to-end learner flow.
+6. Add Review/Review Question/Review Asset snapshot writes plus answer reveal and `Again`/`Good` completion.
+7. Only after the learner path works, expand the admin content-management interface.
+8. Add the R2 upload/serving path when Case Assets are needed by that end-to-end flow.
+
+Do not start with the full admin dashboard or Anki importer.
 
 ## Useful commands
 
@@ -163,22 +179,24 @@ npm run check
 npm test
 npm run preview
 
-# Production release (after reviewing migrations)
+# Production release, only after migration review
 npm run db:migrate:remote
 npm run deploy:dry-run
 npm run deploy
 ```
 
-Never place the Better Auth secret in source, `wrangler.jsonc`, logs, or this handover.
-Local secrets belong in ignored `.dev.vars`; production secrets must remain in
-Cloudflare's encrypted secret store.
+## Type generation detail
+
+`npm run cf-typegen` runs Wrangler and then `scripts/normalize-cloudflare-types.js`. Once SvelteKit
+has been built, Wrangler may emit a type-only `GlobalProps.mainModule` import pointing at the
+generated JavaScript Worker. With this repository's `allowJs + checkJs` settings, TypeScript can
+follow that import and incorrectly check the compiled Svelte bundle as source. The normalization
+script removes only that generated build-artifact import; runtime and binding declarations remain
+Wrangler-generated.
 
 ## Other notes
 
-- `npm install` reported nine dependency advisories. No force-fix was applied because it
-  could introduce breaking dependency changes. Audit and upgrade deliberately.
-- The `workers.dev` account subdomain can be renamed later in the Cloudflare dashboard,
-  but doing so changes the URL for every Worker on this Cloudflare account.
+- Dependency advisories should be reviewed deliberately; do not apply breaking force-upgrades casually.
 - No custom production domain is configured yet.
-- Detailed operator instructions are in `docs/CLOUDFLARE.md`; product sequencing is in
-  `docs/IMPLEMENTATION_PLAN.md`.
+- Detailed Cloudflare operator instructions are in `docs/CLOUDFLARE.md`.
+- Product sequencing and milestone status are in `docs/IMPLEMENTATION_PLAN.md`.
