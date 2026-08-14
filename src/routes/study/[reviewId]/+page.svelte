@@ -2,7 +2,7 @@
   let { data } = $props();
 
   let revealed = $state(false);
-  let rating = $state(null);
+  let rating = $state(/** @type {'Again' | 'Good' | null} */ (null));
   let caseStudy = $derived(data.caseStudy);
 
   $effect(() => {
@@ -15,6 +15,9 @@
     revealed = true;
   }
 
+  /**
+   * @param {'Again' | 'Good'} value
+   */
   function rateCase(value) {
     rating = value;
   }
