@@ -1,7 +1,9 @@
 type Auth = ReturnType<typeof import('./lib/server/auth.js').createAuth>;
 type AuthSession = Awaited<ReturnType<Auth['api']['getSession']>>;
 type Session = NonNullable<AuthSession>['session'];
-type User = NonNullable<AuthSession>['user'];
+type User = NonNullable<AuthSession>['user'] & {
+  role?: string | null;
+};
 
 declare global {
   namespace App {
