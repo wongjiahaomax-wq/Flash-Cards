@@ -11,9 +11,10 @@ const password = 'LocalSmokePassword123!';
 const userId = '00000000-0000-4000-8000-000000000001';
 const accountId = '00000000-0000-4000-8000-000000000002';
 const secret = 'local-auth-smoke-secret-32-characters-minimum';
+const wrangler = ['--yes', 'wrangler@4.123.0'];
 
-function run(command, args) {
-  execFileSync(command, args, { stdio: 'inherit' });
+function runWrangler(args) {
+  execFileSync('npx', [...wrangler, ...args], { stdio: 'inherit' });
 }
 
 function sqlString(value) {
@@ -49,8 +50,7 @@ function cookieHeader(response) {
 rmSync(stateDir, { recursive: true, force: true });
 mkdirSync(stateDir, { recursive: true });
 
-run('npx', [
-  'wrangler',
+runWrangler([
   'd1',
   'migrations',
   'apply',
@@ -71,8 +71,7 @@ writeFileSync(
   ].join('\n')
 );
 
-run('npx', [
-  'wrangler',
+runWrangler([
   'd1',
   'execute',
   'DB',
@@ -87,7 +86,7 @@ const logs = [];
 const worker = spawn(
   'npx',
   [
-    'wrangler',
+    ...wrangler,
     'dev',
     '--local',
     '--ip',
