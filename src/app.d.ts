@@ -1,0 +1,25 @@
+type Auth = ReturnType<typeof import('./lib/server/auth.js').createAuth>;
+type AuthSession = Awaited<ReturnType<Auth['api']['getSession']>>;
+type Session = NonNullable<AuthSession>['session'];
+type User = NonNullable<AuthSession>['user'];
+
+declare global {
+  namespace App {
+    interface Locals {
+      auth: Auth | null;
+      session: Session | null;
+      user: User | null;
+    }
+
+    interface Platform {
+      env: Cloudflare.Env & {
+        BETTER_AUTH_SECRET: string;
+      };
+      cf?: CfProperties;
+      ctx?: ExecutionContext;
+      caches?: CacheStorage;
+    }
+  }
+}
+
+export {};
