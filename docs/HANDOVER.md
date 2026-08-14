@@ -4,32 +4,59 @@ _Refreshed: 15 August 2026_
 
 ## Current outcome
 
-The project is past the infrastructure/authentication blocker. The repository contains a SvelteKit
-application for Cloudflare Workers with D1, R2, Better Auth, protected learner/admin routes, tested
-learning-selection logic, and a secure one-time production administrator bootstrap command.
+The project is past the infrastructure/authentication blocker and now also has an approved learner-facing study prototype merged into `main`.
 
-Latest `main` commit before this documentation refresh:
+The repository contains a SvelteKit application for Cloudflare Workers with D1, R2, Better Auth, protected learner/admin routes, tested learning-selection logic, R2 storage guardrails, and a learner study UI prototype covering single-image and multi-image Cases.
+
+Latest learner-product merge:
 
 ```text
-3a8836c Merge PR #4: Add production admin bootstrap command
+PR #6 — Add Anki-derived learner study demo
+Merge commit: 077b0364aba3557f706907a86059fcd59714b390
 ```
 
-PR #4 CI passed after a type-check fix. The successful workflow covered database migration checks,
-all unit tests, Svelte checks, a production build, and the local D1 + Better Auth smoke test.
+PR #6 CI passed after route/type fixes. The successful workflow covered dependency installation, database migration checks, all 18 tests, Svelte checks, production build, and the local D1 + Better Auth smoke test.
 
-The production Worker is live at:
+The production Worker remains live at:
 
 <https://flash-cards.mmed-fm-flashcardstest.workers.dev/>
 
-The auth-enabled application was deployed successfully on 15 August 2026. The release that was
-verified from the operator terminal reported Cloudflare Worker version:
+The learner prototype merged in PR #6 has not yet been deliberately deployed to production as part of this handover update.
 
-```text
-22c2e687-b1de-4d6d-833c-1057202bce7e
-```
+## Learner UI baseline now approved
 
-PR #4 only added the local bootstrap utility/tests/package command, so that repository merge did not
-require another Worker deployment before the administrator bootstrap was run.
+The merged `/study` prototype establishes the intended V1 learner interaction pattern:
+
+1. learner chooses study content;
+2. one Case is shown;
+3. all Case images are displayed together;
+4. all selected question parts remain visible together;
+5. learner reveals all answers;
+6. learner rates the whole Case `Again` or `Good`;
+7. learner moves to the next Case.
+
+The current demo includes reconstructed examples from the earlier Anki design review:
+
+- three alternative Anterior STEMI ECG Cases;
+- Pityriasis rosea as a multi-image Case;
+- Lichen planus as a multi-site/multi-image Case.
+
+The current learner demo still uses temporary in-code demo data and image placeholders. It does not yet read Cases/questions from D1, persist Reviews, or display R2-backed teaching images.
+
+## Image provenance decision
+
+`docs/IMAGE_PROVENANCE.md` now records the agreed V1 image-source behaviour:
+
+- the learner-visible image is stored in R2;
+- external source URLs are attribution/reference metadata only and must not be used as the runtime image source;
+- attribution is optional;
+- source information belongs to each Asset, not to the whole Case;
+- different images in one multi-image Case may have different sources;
+- an unknown original source is valid and must not require invented attribution;
+- own/original teaching images may be labelled explicitly;
+- unknown-source internal provenance notes should not be shown to learners by default.
+
+The existing `assets` schema already contains `source_label`, `source_url`, and `licence`, so no new migration is required merely to support optional learner-facing attribution.
 
 ## Production verification completed
 
@@ -42,9 +69,7 @@ The following live checks have passed:
 - `BETTER_AUTH_SECRET` is present in Cloudflare's encrypted Worker secret store;
 - the first production administrator account has been bootstrapped with `npm run admin:bootstrap`.
 
-Important test detail: `curl -I` sends a HEAD request. Better Auth's `get-session` route returned 404
-under that HEAD check even though a normal GET was healthy. Use `curl -i`, not `curl -I`, when checking
-Better Auth GET API routes.
+Important test detail: `curl -I` sends a HEAD request. Better Auth's `get-session` route returned 404 under that HEAD check even though a normal GET was healthy. Use `curl -i`, not `curl -I`, when checking Better Auth GET API routes.
 
 Still to verify at the product level:
 
@@ -94,111 +119,68 @@ The repository currently includes:
 - Better Auth migration `drizzle/0001_better_auth.sql`;
 - Better Auth server/client integration;
 - `/sign-in`, protected `/study`, and admin-role-protected `/admin` routes;
+- approved learner study UI prototype merged from PR #6;
+- temporary learner demo content in code for UI evaluation;
 - local D1 + Better Auth end-to-end smoke test in `scripts/local-auth-smoke.mjs`;
 - secure first-admin bootstrap utility in `scripts/bootstrap-admin.mjs`;
 - Case-selection and reusable-question-resolution helpers with tests;
 - R2 teaching-image guardrails and tests;
+- image-provenance rules in `docs/IMAGE_PROVENANCE.md`;
 - Cloudflare type-generation normalization needed by strict `checkJs`.
 
-Merged infrastructure/auth PRs:
+Merged PRs of note:
 
 - PR #1 — R2 storage cost guardrails;
 - PR #2 — Better Auth D1 schema;
 - PR #3 — local D1 + Better Auth smoke validation;
-- PR #4 — production administrator bootstrap command.
+- PR #4 — production administrator bootstrap command;
+- PR #6 — approved learner study prototype and image-provenance documentation.
 
 ## Authentication status
 
 The previous authentication database blocker is resolved.
 
-Better Auth 1.6.25 is configured with direct Cloudflare D1 persistence and the Admin plugin. The
-committed auth migration creates the `user`, `session`, `account`, and `verification` tables plus the
-Admin plugin fields/indexes expected by the pinned version.
+Better Auth 1.6.25 is configured with direct Cloudflare D1 persistence and the Admin plugin. Public user sign-up remains disabled; learner accounts should be created by an administrator.
 
-The local smoke test performs a full disposable auth exercise:
-
-1. applies migrations to local D1;
-2. seeds a synthetic admin credential with Better Auth's password hashing;
-3. starts the local built Worker;
-4. verifies sign-in page and anonymous route protection;
-5. confirms public sign-up is disabled;
-6. signs in through the real Better Auth API;
-7. verifies the session cookie/session endpoint;
-8. verifies authenticated access to `/study` and `/admin`.
-
-Production then followed the reviewed release order: remote migration first, current Worker build
-second, live route verification third, administrator bootstrap fourth.
-
-Public user sign-up must remain disabled. Learner accounts should be created by an administrator.
-
-The first-admin command intentionally:
-
-- refuses to run if an administrator already exists;
-- prompts locally for name/email and requires the exact confirmation word `CREATE`;
-- hides the password during entry;
-- hashes the password locally with Better Auth;
-- writes only the resulting credential hash to D1;
-- stores temporary SQL only under ignored `.wrangler/` and deletes it afterward;
-- verifies the created credential/admin role after the write.
-
-## Deployment lesson from the auth rollout
-
-An earlier production check still showed the old public scaffold even after a deploy command. The
-cause was resolved by explicitly confirming the local checkout was current before rebuilding/deploying.
-For future releases, verify the commit before a production deployment:
-
-```sh
-git fetch origin
-git switch main
-git pull --ff-only origin main
-git rev-parse HEAD
-```
-
-Then build and deploy from that confirmed checkout. Do not assume a successful Wrangler command means
-the intended Git commit was published; verify the live routes afterward.
-
-## Wrangler version caveat
-
-`package.json` still pins Wrangler 4.115.0. The project compatibility date is `2026-08-14`, but the
-local workerd bundled with Wrangler 4.115.0 only supported compatibility dates through `2026-07-29`
-during validation. The smoke test and successful production deployment used Wrangler 4.123.0.
-
-Until the package dependency and lockfile are deliberately updated, use explicit Wrangler 4.123.0
-for release-critical commands rather than relying on the pinned `wrangler` executable.
+Remaining auth/product verification is to confirm the production administrator browser login and implement the smallest learner-account creation flow needed for role-boundary testing.
 
 ## D1 / Drizzle progress
 
-The Version 1 learning-domain schema is implemented, including Concepts, Cases, Assets, reusable
-questions, Case-specific questions, Reviews, Review Questions, and Review Assets.
+The Version 1 learning-domain schema is implemented, including Concepts, Cases, Assets, reusable questions, Case-specific questions, Reviews, Review Questions, and Review Assets.
 
-The remaining Milestone 2 work is primarily:
+The next D1 work is now directly tied to replacing the temporary learner demo data:
 
-- seed a tiny representative STEMI dataset;
+- seed a tiny representative dataset matching the approved UI examples;
 - add/finish runtime ID/timestamp support needed for writes;
-- add server-side queries that read the seeded Cases/questions.
+- add server-side queries for Concept selection, Case selection, question resolution, and Case Assets;
+- create Review/Review Question/Review Asset snapshots;
+- persist reveal/completion state and `Again`/`Good` ratings.
 
-The seed should exercise the educational model rather than merely populate tables. It should include
-alternative Anterior STEMI Cases, inherited and Case-specific questions, different answers to a
-shared `Describe this ECG` prompt, and a multi-image Case.
+The seed should exercise the educational model rather than merely populate tables. It should include alternative Anterior STEMI Cases, inherited and Case-specific questions, different answers to a shared `Describe this ECG` prompt, and at least one multi-image Case.
 
-## Learning logic progress
+## Learning logic and UI progress
 
-The backend logic is ahead of the UI.
-
-Implemented/tested behaviour includes:
+Implemented/tested backend behaviour includes:
 
 - Case selection with immediate-repeat avoidance;
 - reusable-question resolution;
 - duplicate prompt precedence of Case > primary Concept > nearest inheritable ancestor > more distant ancestor;
 - randomized question selection with a target of three and a maximum of four.
 
-The `/study` page is still a scaffold. The next learner work is to connect these helpers to D1 and
-build the Concept selector + seeded Case review workflow.
+Implemented learner UI baseline includes:
+
+- single-image and multi-image Case layouts;
+- all questions visible together;
+- reveal-all answers;
+- whole-Case `Again` / `Good` controls;
+- next-Case navigation;
+- responsive presentation suitable for phone-based review.
+
+The next learner milestone is not a redesign. It is to replace the temporary demo data underneath this approved interface with real D1-backed Review data.
 
 ## R2 progress and cost guardrails
 
-The `MEDIA` R2 binding exists and `src/lib/server/storage/media.js` is the required teaching-image
-write path.
+The `MEDIA` R2 binding exists and `src/lib/server/storage/media.js` is the required teaching-image write path.
 
 The helper enforces:
 
@@ -207,38 +189,62 @@ The helper enforces:
 - Standard R2 storage class;
 - immutable teaching-image object keys.
 
-The storage guardrails have automated tests. The actual administrator upload endpoint/UI does not
-exist yet.
-
 Future upload code must call `putTeachingImage()` instead of `env.MEDIA.put()` directly.
-See `docs/R2_COST_GUARDRAILS.md` for the billing/operations checklist.
+
+The next R2 slice should add a minimal admin Asset workflow: upload an image to R2, create/update Asset metadata, optionally record source attribution, and securely serve the stored image to the learner UI.
+
+## Parallel implementation plan
+
+The next implementation phase is deliberately split between two parallel agents. See `docs/PARALLEL_WORK_PLAN.md` for exact branch/file ownership and integration rules.
+
+High-level split:
+
+### Agent A — D1 learner/review vertical slice
+
+Owns:
+
+- representative seed data;
+- server-side D1 read/write queries;
+- Review snapshot creation;
+- persisted reveal and `Again`/`Good` completion;
+- adapting the approved learner UI to real D1 data.
+
+Should avoid R2 upload/admin Asset implementation except for consuming a stable Asset-read interface if available.
+
+### Agent B — R2 Asset/admin vertical slice
+
+Owns:
+
+- minimal admin Asset upload/edit UI;
+- R2 write via `putTeachingImage()`;
+- Asset metadata including optional source attribution;
+- secure image-serving route/helper;
+- tests for upload validation and attribution behaviour.
+
+Should avoid changing the learner review-selection algorithm or Review persistence.
+
+Both agents must branch from current `main`, use separate branches/PRs, and avoid editing the same files unless explicitly coordinated.
 
 ## Recommended next sequence
 
-1. Verify the production administrator can sign in through the browser and access `/admin`.
-2. Add the tiny representative STEMI seed dataset and server-side read queries.
-3. Connect seeded data to `/study` for the first end-to-end learner flow.
-4. Add Review/Review Question/Review Asset snapshot writes plus answer reveal and `Again`/`Good` completion.
-5. Add the minimum administrator learner-account creation flow and verify learner/admin boundaries.
-6. Add the R2 upload/serving path when Case Assets are needed by that end-to-end flow.
-7. Only after the learner path works, expand the admin content-management interface.
+1. Run Agent A and Agent B in parallel according to `docs/PARALLEL_WORK_PLAN.md`.
+2. Merge the lower-conflict PR first if both are green; rebase/update the second PR against the new `main`.
+3. Integrate R2-backed Asset rendering into the D1 learner flow if that is not already achieved by the two PRs through stable interfaces.
+4. Verify production administrator browser login and add the minimum learner-account creation workflow.
+5. Deploy the integrated learner vertical slice deliberately to production.
+6. Run the V1 acceptance test with representative ECG + Dermatology content.
+7. Only then expand the broader admin content-management interface or attempt bulk Anki import.
 
-Do not start with the full admin dashboard or Anki importer.
+Do not start with FSRS, full analytics, a full admin dashboard, or a bulk Anki importer.
 
 ## Useful commands
 
 ```sh
-# Confirm repo state before production work
+# Confirm repo state before new branch work
 git fetch origin
 git switch main
 git pull --ff-only origin main
 git rev-parse HEAD
-
-# Confirm Cloudflare identity/resources
-npx --yes wrangler@4.123.0 whoami
-npx --yes wrangler@4.123.0 d1 list
-npx --yes wrangler@4.123.0 r2 bucket list
-npx --yes wrangler@4.123.0 secret list
 
 # Local verification
 npm run db:migrate:local
@@ -247,33 +253,15 @@ npm test
 npm run build
 node scripts/local-auth-smoke.mjs
 
-# Production migration/release while Wrangler remains pinned to 4.115.0
-npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
-npm run build
-npx --yes wrangler@4.123.0 deploy
-
-# First admin bootstrap (normally only once)
-npm run admin:bootstrap
-
-# Live auth checks
-curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/sign-in
-curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/study
-curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/admin
-curl -i https://flash-cards.mmed-fm-flashcardstest.workers.dev/api/auth/get-session
+# Cloudflare identity/resources
+npx --yes wrangler@4.123.0 whoami
+npx --yes wrangler@4.123.0 d1 list
+npx --yes wrangler@4.123.0 r2 bucket list
+npx --yes wrangler@4.123.0 secret list
 ```
 
-## Type generation detail
+## Known technical debt
 
-`npm run cf-typegen` runs Wrangler and then `scripts/normalize-cloudflare-types.js`. Once SvelteKit
-has been built, Wrangler may emit a type-only `GlobalProps.mainModule` import pointing at the
-generated JavaScript Worker. With this repository's `allowJs + checkJs` settings, TypeScript can
-follow that import and incorrectly check the compiled Svelte bundle as source. The normalization
-script removes only that generated build-artifact import; runtime and binding declarations remain
-Wrangler-generated.
+`package.json` still pins Wrangler 4.115.0, while the project uses compatibility date `2026-08-14`. The local auth smoke test and production release were validated with Wrangler 4.123.0 because the older bundled runtime did not support that compatibility date. Update the Wrangler dependency/lockfile before relying on release scripts that use the pinned binary.
 
-## Other notes
-
-- Dependency advisories should be reviewed deliberately; do not apply `npm audit fix --force` casually.
-- No custom production domain is configured yet.
-- Detailed Cloudflare operator instructions are in `docs/CLOUDFLARE.md`.
-- Product sequencing and milestone status are in `docs/IMPLEMENTATION_PLAN.md`.
+Dependency advisories should be reviewed deliberately; do not apply `npm audit fix --force` casually.
