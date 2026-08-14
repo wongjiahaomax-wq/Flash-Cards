@@ -1,14 +1,15 @@
 # Cloudflare setup
 
-The SvelteKit application deploys as a Cloudflare Worker with static assets and two private runtime bindings:
+The SvelteKit application deploys as a Cloudflare Worker with static assets and private runtime bindings:
 
 - `DB`: Cloudflare D1, used by Drizzle and Better Auth;
 - `MEDIA`: Cloudflare R2, used for teaching images;
 - `ASSETS`: generated SvelteKit static assets.
 
-Production resources are already provisioned and recorded in `wrangler.jsonc`:
+Production resources are provisioned and recorded in `wrangler.jsonc`:
 
 - D1 database: `flash-cards-db`;
+- D1 database ID: `ea6f3ec4-eb09-4fb1-8314-cd027436a2f8`;
 - R2 bucket: `flash-cards-media`;
 - Worker: `flash-cards`.
 
@@ -17,6 +18,28 @@ The current Worker origin is:
 ```text
 https://flash-cards.mmed-fm-flashcardstest.workers.dev
 ```
+
+## Production authentication status
+
+Better Auth is live in production. The reviewed Better Auth migration has been applied to production
+D1, the auth-enabled Worker has been deployed, and the first production administrator has been
+bootstrapped.
+
+Verified live behaviour on 15 August 2026:
+
+- `/sign-in` -> HTTP 200;
+- anonymous `/study` -> HTTP 303 redirect to `/sign-in?redirect=%2Fstudy`;
+- anonymous `/admin` -> HTTP 303 redirect to `/sign-in?redirect=%2Fadmin`;
+- normal `GET /api/auth/get-session` -> HTTP 200 with JSON `null` while signed out.
+
+The successful auth-enabled deployment reported Worker version:
+
+```text
+22c2e687-b1de-4d6d-833c-1057202bce7e
+```
+
+Public sign-up remains intentionally disabled. Better Auth is used as an application library; there
+is no separate hosted Better Auth service account in this architecture.
 
 ## Local development
 
@@ -42,29 +65,29 @@ Local D1 and R2 simulations are stored beneath `.wrangler/` and are ignored by G
 Do not intentionally point local development at production resources unless that behaviour has
 been reviewed.
 
-## Current authentication migration caveat
+For the repeatable local authentication validation used by CI:
 
-The application contains Better Auth integration code, but the currently committed Drizzle migration
-contains the learning-domain tables only. Better Auth's user/account/session/verification tables must
-be generated, reviewed, and applied before the current auth-enabled source is treated as production-ready.
+```sh
+node scripts/local-auth-smoke.mjs
+```
 
-Required release order:
-
-1. generate/review the Better Auth D1 migration for the pinned Better Auth version;
-2. apply all migrations to a fresh local D1 database;
-3. test sign-in, session handling, `/study`, and `/admin` in the local Workers runtime;
-4. apply the reviewed migration to production;
-5. deploy the auth-enabled build;
-6. bootstrap the first application administrator account;
-7. verify learner/admin role boundaries.
-
-Public sign-up is intentionally disabled.
-
-Better Auth is used as an application library in this project. The administrator account is an
-application user stored through Better Auth; there is no separate hosted Better Auth service account
-required by this architecture.
+The smoke test uses disposable local D1 state, seeds a synthetic admin credential, verifies disabled
+public sign-up, performs a real Better Auth sign-in, verifies the session, and checks authenticated
+`/study` + `/admin` access.
 
 ## Migrations
+
+Learning-domain migration:
+
+```text
+drizzle/0000_dashing_centennial.sql
+```
+
+Better Auth migration for the pinned Better Auth 1.6.25 schema:
+
+```text
+drizzle/0001_better_auth.sql
+```
 
 After changing `src/lib/server/db/schema.js`, generate and validate a learning-domain migration:
 
@@ -76,10 +99,11 @@ npm run db:migrate:local
 
 Review and commit generated SQL in `drizzle/`.
 
-Production migration application is always an explicit release step:
+Production migration application is always an explicit release step. While the repository is still
+pinned to Wrangler 4.115.0, prefer the validated Wrangler 4.123.0 command:
 
 ```sh
-npm run db:migrate:remote
+npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
 ```
 
 Do not apply a newly generated production migration without reviewing its SQL and testing it locally first.
@@ -92,42 +116,120 @@ Do not apply a newly generated production migration without reviewing its SQL an
 BETTER_AUTH_URL=https://flash-cards.mmed-fm-flashcardstest.workers.dev
 ```
 
-`BETTER_AUTH_SECRET` must remain an encrypted Cloudflare Worker secret. Verify its presence with:
+`BETTER_AUTH_SECRET` is stored as an encrypted Cloudflare Worker secret. Verify only its presence/name:
 
 ```sh
-npx wrangler secret list
+npx --yes wrangler@4.123.0 secret list
+```
+
+Expected secret name:
+
+```text
+BETTER_AUTH_SECRET
 ```
 
 If it needs to be replaced, set it interactively:
 
 ```sh
-npx wrangler secret put BETTER_AUTH_SECRET
+npx --yes wrangler@4.123.0 secret put BETTER_AUTH_SECRET
 ```
 
 Never place the secret value in source, `wrangler.jsonc`, documentation, screenshots, or logs.
 
-## Deployment
+## Wrangler version caveat
 
-Confirm Cloudflare identity and run local validation first:
+The project compatibility date is `2026-08-14`. `package.json` still pins Wrangler 4.115.0, whose
+bundled local runtime only supported compatibility dates through `2026-07-29` during validation.
+Wrangler 4.123.0 successfully ran the local auth smoke test and the production deployment.
+
+Until the package dependency/lockfile is updated, use explicit Wrangler 4.123.0 for release-critical
+operations. Do not assume `npm run deploy` is using the validated version.
+
+## Production deployment procedure
+
+First confirm that the local checkout is actually the intended `main` commit:
 
 ```sh
-npx wrangler whoami
-npm run cf-typegen
+git fetch origin
+git switch main
+git pull --ff-only origin main
+git rev-parse HEAD
+```
+
+This check matters. During the auth rollout an earlier deploy served the old public scaffold because
+the intended current build had not reached production. The corrected release explicitly confirmed
+the Git commit, rebuilt, and then deployed.
+
+Run validation:
+
+```sh
+npm ci
 npm run check
 npm test
-npm run deploy:dry-run
+npm run build
 ```
 
-For an auth-enabled release, apply the reviewed database migration before deploying code that expects
-those tables:
+If the release includes a reviewed migration, apply it **before** deploying code that requires the new schema:
 
 ```sh
-npm run db:migrate:remote
-npm run deploy
+npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
 ```
 
-After deployment, verify the live behaviour rather than assuming a successful build means the auth
-flow is correct.
+Deploy the freshly built Worker:
+
+```sh
+npx --yes wrangler@4.123.0 deploy
+```
+
+Do not rely only on Wrangler's success message. Verify live behaviour after every production release.
+
+## Live authentication checks
+
+Use HEAD for SvelteKit page/redirect checks:
+
+```sh
+curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/sign-in
+curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/study
+curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/admin
+```
+
+Expected while signed out:
+
+- `/sign-in`: 200;
+- `/study`: 303 to `/sign-in?redirect=%2Fstudy`;
+- `/admin`: 303 to `/sign-in?redirect=%2Fadmin`.
+
+For Better Auth GET API routes, use a normal GET rather than `curl -I`:
+
+```sh
+curl -i https://flash-cards.mmed-fm-flashcardstest.workers.dev/api/auth/get-session
+```
+
+Expected while signed out: HTTP 200 and body `null`.
+
+`curl -I` sends HEAD, and the Better Auth route returned 404 under that HEAD request during rollout;
+that did not indicate a broken GET endpoint.
+
+## First administrator bootstrap
+
+The repository includes a secure operator command:
+
+```sh
+npm run admin:bootstrap
+```
+
+It is intended for the first production administrator and normally should only succeed once. It:
+
+- queries production D1 and refuses to continue if an admin already exists;
+- prompts for administrator name/email;
+- requires the exact confirmation word `CREATE`;
+- reads the password without echoing it;
+- hashes the password locally with Better Auth;
+- writes the Better Auth `user` + credential `account` records to remote D1;
+- removes its temporary SQL file after execution;
+- verifies the resulting admin credential row.
+
+Never paste the administrator password into chat, GitHub, source files, or shell commands.
 
 ## R2 teaching images
 
@@ -148,11 +250,12 @@ directly. See `R2_COST_GUARDRAILS.md` for the full checklist and billing-warning
 ## Routine checks
 
 ```sh
-npm run cf-typegen
+npm run db:check
 npm run check
 npm test
 npm run build
-npm run deploy:dry-run
+node scripts/local-auth-smoke.mjs
 ```
 
-Keep production migration application and production deployment as deliberate, reviewable release steps.
+Keep production migration application, administrator bootstrap, and production deployment as deliberate,
+reviewable operator actions.
