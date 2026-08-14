@@ -4,23 +4,25 @@ Private case-based medical learning application.
 
 ## Current status
 
-The Version 1 educational model is documented and the application scaffold is implemented.
-The repository now contains:
+The Version 1 educational model is documented and the core infrastructure is now running in production.
+The repository contains:
 
 - a SvelteKit application targeting Cloudflare Workers;
-- Cloudflare D1 + Drizzle domain schema and migrations;
+- Cloudflare D1 + Drizzle learning-domain schema and migrations;
+- Better Auth 1.6.25 with D1-backed user/account/session/verification tables;
+- protected learner/admin routes with public sign-up disabled;
+- a tested first-administrator bootstrap command;
 - Cloudflare R2 production binding plus application-level storage guardrails;
-- Better Auth integration code, protected learner/admin routes, and sign-in/sign-out UI;
 - tested Case-selection and reusable-question resolution logic.
 
-The main unfinished infrastructure item is the **Better Auth database schema/migration**.
-The current committed D1 migration contains the learning-domain tables but not Better Auth's
-user/account/session/verification tables. Do not deploy the auth-enabled current source as a
-private production application until that migration has been generated, reviewed, applied, and
-tested.
+Production authentication was deployed and checked on 15 August 2026. Anonymous requests to `/study`
+and `/admin` redirect to `/sign-in`, `/sign-in` is live, and a normal GET to
+`/api/auth/get-session` returns HTTP 200 with a null session when signed out. The first production
+administrator account has been bootstrapped through the local secure operator command.
 
-After authentication is database-ready, the next product milestone is a small seeded STEMI
-learner flow.
+The main product milestone is now the **small seeded STEMI learner flow**: seed representative Cases
+and reusable questions, read them from D1, connect them to `/study`, snapshot Reviews, reveal answers,
+and record `Again`/`Good` ratings.
 
 ## Documentation
 
@@ -43,28 +45,44 @@ SvelteKit
     └── Cloudflare R2
 ```
 
+Better Auth is embedded as an application library; it is not a separate hosted service in this
+architecture. Application users and sessions are stored in the same D1 database as the learning data.
+
 ## Immediate next steps
 
-1. Generate and review the Better Auth D1 schema/migration for the pinned Better Auth version.
-2. Apply all migrations to a fresh local D1 database.
-3. Test `/`, `/sign-in`, `/study`, `/admin`, and authentication API routes in the local Workers runtime.
-4. Apply the reviewed auth migration to production and deploy the auth-enabled build.
-5. Bootstrap the first application administrator account; public sign-up remains disabled.
-6. Add the tiny STEMI seed dataset and connect it to the learner study flow.
+1. Verify the bootstrapped production administrator can sign in and access `/admin` in a browser.
+2. Add the tiny representative STEMI seed dataset.
+3. Add server-side D1 queries for topic descendants, Cases, assets, and resolved compatible questions.
+4. Connect `/study` to the existing selection engine.
+5. Create Review, Review Question, and Review Asset snapshots; add answer reveal and `Again`/`Good` completion.
+6. Add an administrator flow for creating learner accounts and verify learner/admin role boundaries.
+7. Add the minimum R2 upload/serving path needed for real teaching images.
 
-The administrator account is an **application user managed by Better Auth**; Better Auth itself is
-a library and does not require a separate hosted-service account for this architecture.
+Do not start with a full Anki importer or advanced scheduling. The current objective is one thin,
+working learner path using representative seeded content.
 
 ## Cloudflare development
 
-The Worker is configured with D1 (`DB`) and R2 (`MEDIA`) bindings. Wrangler persists local
-simulations under `.wrangler/`.
+The Worker is configured with D1 (`DB`), R2 (`MEDIA`), and static-asset (`ASSETS`) bindings. Wrangler
+persists local simulations under `.wrangler/`.
 
 ```sh
 npm install
 npm run db:migrate:local
 cp .dev.vars.example .dev.vars
 npm run dev
+```
+
+### Wrangler version note
+
+`package.json` is still pinned to Wrangler 4.115.0, whose bundled local runtime does not support the
+project compatibility date `2026-08-14`. Production release work has therefore been validated with
+Wrangler 4.123.0. Until the dependency pin is updated, prefer explicit release commands such as:
+
+```sh
+npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
+npm run build
+npx --yes wrangler@4.123.0 deploy
 ```
 
 See [`docs/CLOUDFLARE.md`](docs/CLOUDFLARE.md) before applying production migrations or deploying.
