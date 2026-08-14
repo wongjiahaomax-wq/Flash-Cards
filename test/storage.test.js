@@ -11,14 +11,26 @@ import {
   putTeachingImage
 } from '../src/lib/server/storage/media.js';
 
-function mockBucket({ pages = [], existing = null } = {}) {
-  const calls = { list: 0, head: 0, put: 0, putOptions: null };
+/**
+ * @typedef {{ objects: Array<{ size: number }>, truncated: boolean }} MockPage
+ * @typedef {{ pages?: MockPage[], existing?: unknown }} MockBucketOptions
+ */
+
+/**
+ * @param {MockBucketOptions} [options]
+ */
+function mockBucket(options = {}) {
+  const { pages = [], existing = null } = options;
+  /** @type {{ list: number, head: number, put: number, putOptions: R2PutOptions | undefined }} */
+  const calls = { list: 0, head: 0, put: 0, putOptions: undefined };
 
   /** @type {R2Bucket} */
   const bucket = /** @type {any} */ ({
-    async list({ cursor } = {}) {
+    /** @param {R2ListOptions} [listOptions] */
+    async list(listOptions = {}) {
       calls.list += 1;
-      const index = cursor ? Number(cursor) : 0;
+      const index = listOptions.cursor ? Number(listOptions.cursor) : 0;
+      /** @type {MockPage} */
       const page = pages[index] ?? { objects: [], truncated: false };
       return {
         objects: page.objects,
@@ -27,13 +39,19 @@ function mockBucket({ pages = [], existing = null } = {}) {
         delimitedPrefixes: []
       };
     },
-    async head() {
+    /** @param {string} _key */
+    async head(_key) {
       calls.head += 1;
       return existing;
     },
-    async put(key, value, options) {
+    /**
+     * @param {string} key
+     * @param {Blob} value
+     * @param {R2PutOptions} [putOptions]
+     */
+    async put(key, value, putOptions = {}) {
       calls.put += 1;
-      calls.putOptions = options;
+      calls.putOptions = putOptions;
       return {
         key,
         version: 'test-version',
@@ -41,10 +59,10 @@ function mockBucket({ pages = [], existing = null } = {}) {
         etag: 'test-etag',
         httpEtag: '"test-etag"',
         uploaded: new Date(),
-        httpMetadata: options?.httpMetadata ?? {},
+        httpMetadata: putOptions.httpMetadata ?? {},
         customMetadata: {},
         checksums: {},
-        storageClass: options?.storageClass ?? 'Standard',
+        storageClass: putOptions.storageClass ?? 'Standard',
         writeHttpMetadata() {}
       };
     }
