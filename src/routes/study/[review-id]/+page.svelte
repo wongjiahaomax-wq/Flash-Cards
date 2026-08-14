@@ -3,8 +3,13 @@
 
   let revealed = $state(false);
   let rating = $state(null);
+  let caseStudy = $derived(data.caseStudy);
 
-  const caseStudy = data.caseStudy;
+  $effect(() => {
+    caseStudy.id;
+    revealed = false;
+    rating = null;
+  });
 
   function revealAnswers() {
     revealed = true;
@@ -46,7 +51,7 @@
       {/if}
     </div>
 
-    <div class:single-asset={caseStudy.assets.length === 1} class="asset-grid">
+    <div class:singleAsset={caseStudy.assets.length === 1} class="asset-grid">
       {#each caseStudy.assets as asset}
         <figure class="asset-placeholder">
           <div class="asset-stage" role="img" aria-label={`${asset.type} placeholder: ${asset.caption}`}>
@@ -212,7 +217,7 @@
     gap: 1rem;
   }
 
-  .asset-grid.single-asset {
+  .asset-grid.singleAsset {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -239,7 +244,7 @@
     text-align: center;
   }
 
-  .single-asset .asset-stage {
+  .singleAsset .asset-stage {
     min-height: 390px;
   }
 
@@ -394,7 +399,7 @@
     }
 
     .asset-stage,
-    .single-asset .asset-stage {
+    .singleAsset .asset-stage {
       min-height: 260px;
     }
 
