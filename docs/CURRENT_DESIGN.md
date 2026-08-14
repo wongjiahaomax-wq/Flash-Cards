@@ -4,9 +4,9 @@ _Last updated: 14 August 2026_
 
 ## Purpose of this document
 
-This is a living design summary for the Flash-Cards project. It records the current educational model, technical direction, assumptions, and open questions before we lock down a formal Version 1 specification.
+This is the living design summary for the Flash-Cards project. It records the current educational model, technical direction, assumptions, and open questions before we lock down a formal Version 1 specification.
 
-The aim is to keep the project simple enough to build as a low-cost demo while preserving a data model that can later support more sophisticated medical case-based learning.
+The aim is to keep the demo simple and inexpensive while preserving a data model that can later support richer case-based medical learning.
 
 ---
 
@@ -14,43 +14,69 @@ The aim is to keep the project simple enough to build as a low-cost demo while p
 
 Build a private medical learning web application where:
 
-- learners log in and review image-based medical questions;
-- an administrator can add and edit conditions, images, questions, and answers;
-- learner progress is recorded;
-- images and questions can be reused and dynamically combined rather than permanently fixed into traditional front/back flashcards;
+- learners log in and review medical cases;
+- each case may contain one or more images/stimuli shown together;
+- each case may present several related question parts;
+- administrators can add/edit concepts, cases, images, questions, and answers;
+- questions can be reused across compatible cases rather than permanently tied to one image;
+- some questions and answers can still be specific to one case;
+- learner review history and progress are recorded;
 - the system can later support smarter scheduling, richer analytics, and more sophisticated question selection.
 
-The initial use case is ECG teaching, but the design should not be ECG-specific. The same model should later work for radiographs, dermatology images, clinical photographs, diagrams, laboratory results, and other medical stimuli.
+The initial material includes ECG, ENT, Eye, and Dermatology teaching content, but the design should remain generic enough for radiographs, clinical photographs, diagrams, laboratory results, and other medical stimuli.
 
 ---
 
-## 2. Core educational idea
+## 2. Core educational model: the Case is the study unit
 
-The application should **not treat a flashcard as a permanently fixed image + question + answer**.
+The application should **not treat a flashcard as a permanently fixed front + back**.
 
-Instead, the system stores reusable educational objects separately and assembles a study item dynamically.
+Instead, the main learner-facing unit is a **Case**.
 
 Conceptually:
 
 ```text
-Condition / topic
-      +
-Image or stimulus
-      +
-Eligible question
-      +
-Correct answer for that context
-      =
-Study item shown to learner
+Concept / topic
+      ↓
+Choose a Case
+      ↓
+Show all assets belonging to that Case
+      ↓
+Select several compatible questions
+      ↓
+Learner reviews the case and questions
+      ↓
+Show answers
+      ↓
+Again / Good
 ```
 
-This allows the same concept to be tested using different examples and reduces memorisation of a particular fixed card.
+A case may contain:
+
+- a clinical vignette;
+- one image;
+- several images that must be interpreted together;
+- other contextual information later, such as laboratory results.
+
+The database still stores individual assets and questions separately so they can be reused where appropriate.
 
 ---
 
-## 3. Condition hierarchy
+## 3. Concept hierarchy
 
-Conditions should support parent/child relationships.
+The underlying taxonomy should use a generic **Concept** rather than forcing everything to be a disease.
+
+Concepts may include:
+
+- diseases/diagnoses;
+- syndromes;
+- signs;
+- investigation patterns;
+- procedures/devices;
+- physiological abnormalities;
+- learning objectives.
+
+Concepts can have parent/child relationships.
 
 Example:
 
@@ -62,40 +88,98 @@ Acute coronary syndrome
     └── Lateral STEMI
 ```
 
-This hierarchy allows a more specific condition to inherit appropriate questions from a broader condition.
+This allows broader question banks to be reused by more specific cases, subject to explicit compatibility rules.
 
-For example, an **Anterior STEMI** case may be eligible for:
-
-- general STEMI questions;
-- anterior-STEMI-specific questions;
-- questions specific to the exact ECG being displayed.
+Parent-question inheritance should **not be blindly automatic**. A broad question may be made available to descendants only when appropriate.
 
 ---
 
-## 4. Reusable image pools
+## 4. Cases versus alternative examples
 
-A condition can have multiple images.
+This distinction is fundamental.
+
+### Multiple assets that belong together
+
+If several images are required to understand one clinical case, they belong to **one Case** and should be presented together to the learner.
+
+Examples:
+
+```text
+Pityriasis rosea case
+├── Herald patch image
+└── Later truncal eruption image
+```
+
+```text
+Lichen planus case
+├── Wrist lesions
+└── Oral mucosal lesions
+```
+
+To the learner, these should appear as one visual stimulus, for example side-by-side or in a simple gallery.
+
+### Alternative examples of the same condition
+
+If several images are different patients/examples of the same concept, they should remain **separate Cases**.
 
 Example:
 
 ```text
 Anterior STEMI
-├── ECG 001
-├── ECG 002
-└── ECG 003
+├── Case A → ECG A
+├── Case B → ECG B
+└── Case C → ECG C
 ```
 
-The learner should not always see the same ECG for a given learning objective.
+This is what allows the learner to see a different anterior STEMI ECG on a later attempt while still drawing from similar question banks.
 
-For example, the learner may be asked "What is the diagnosis?" with ECG 001 today and ECG 003 during a later review.
+### Simple rule
 
-This is intended to test recognition of the underlying condition rather than memorisation of one image.
+> **Images that must be interpreted together → one Case.**
+>
+> **Images that are alternative examples of the same concept → separate Cases.**
 
 ---
 
-## 5. Reusable question pools
+## 5. Assets
 
-Questions are stored separately from images wherever possible.
+An **Asset** is an individual reusable piece of case material.
+
+Initially this will usually be an image, but the term is intentionally generic.
+
+Examples:
+
+- ECG;
+- fundoscopy image;
+- dermatology photograph;
+- otoscopy image;
+- audiogram;
+- diagram;
+- later: laboratory table or another structured stimulus.
+
+A Case may contain one or several Assets.
+
+The learner interface should group all assets in a case into one coherent presentation.
+
+---
+
+## 6. Reusable question banks
+
+Questions should be stored separately from Cases wherever possible.
+
+A selected Case may draw questions from several sources.
+
+For an anterior STEMI case:
+
+```text
+Case-specific questions
+        +
+Anterior STEMI questions
+        +
+Compatible general STEMI questions
+        =
+Eligible question pool
+```
 
 Example general STEMI questions:
 
@@ -103,315 +187,341 @@ Example general STEMI questions:
 - What reperfusion strategy is preferred?
 - What important complications should be considered?
 
-Example anterior-STEMI-specific questions:
+Example anterior-STEMI questions:
 
 - Which coronary artery is most likely involved?
 - Which territory is affected?
-- What ECG leads are typically involved?
+- Which ECG leads are typically involved?
 
-These questions can potentially be paired with multiple compatible images.
+Example Case-specific question:
+
+- What additional conduction abnormality is present on this particular ECG?
 
 ---
 
-## 6. Three question scopes
+## 7. Question scopes
 
-The current model recognises at least three important scopes of question.
+The current model recognises three main scopes.
 
-### A. General condition questions
+### A. General concept question
 
-Apply to a broad condition.
+Applies to a broad concept.
 
 Example:
 
 > What is the preferred reperfusion strategy for STEMI?
 
-This can be asked in the context of anterior, inferior, or other STEMI images.
+It may be used across compatible anterior, inferior, and other STEMI cases.
 
-### B. Subtype-specific questions
+### B. Subtype-specific question
 
-Apply only to a more specific condition.
+Applies only to a narrower concept.
 
 Example:
 
 > Which coronary artery is most commonly involved in anterior STEMI?
 
-This belongs to the anterior STEMI question pool rather than every STEMI case.
+### C. Case-specific question
 
-### C. Image-specific questions
-
-Apply only to one particular image or stimulus.
+Applies only to one particular case/context.
 
 Example:
 
 > What additional conduction abnormality is present on this ECG?
 
-If only one ECG demonstrates that abnormality, the question must never be presented with another ECG.
+If only Case C demonstrates that abnormality, the question must not appear with Cases A or B.
 
 ---
 
-## 7. Image-dependent answers
+## 8. Reusable prompts with Case-specific answers
 
-A major requirement is that the **same question wording may have a different correct answer depending on the image**.
-
-For example, the prompt:
-
-> Describe this ECG.
-
-may be reused across many ECGs, but the answer is necessarily image-specific.
+The **same prompt may have a different correct answer for each Case**.
 
 Example:
 
-```text
-Prompt: Describe this ECG.
+> Describe this ECG.
 
-ECG A
+The wording can be reused, but the answer depends on the selected ECG.
+
+```text
+Case A / ECG A
 → ST elevation in V1–V4 with reciprocal inferior ST depression.
 
-ECG B
+Case B / ECG B
 → Hyperacute anterior T waves with subtle anterior ST elevation.
 
-ECG C
+Case C / ECG C
 → Extensive anterior ST elevation with associated right bundle branch block.
 ```
 
-Therefore the data model must distinguish between:
+Therefore the system should distinguish between:
 
-1. the reusable **question prompt**; and
-2. the **question–image pairing**, which can contain an image-specific answer.
+1. the reusable **Question Prompt**; and
+2. the **Case–Question relationship**, which may contain a Case-specific answer override.
 
-This avoids duplicating the same prompt dozens of times while still allowing the correct answer to depend on the image.
-
----
-
-## 8. Proposed compatibility model
-
-For a particular image, the system can build an eligible question pool from several sources.
-
-Example for an anterior STEMI ECG:
-
-```text
-Questions explicitly linked to this ECG
-              +
-Questions linked to Anterior STEMI
-              +
-Questions inherited from STEMI
-              =
-Eligible question pool
-```
-
-The question-selection engine can then choose from that pool according to the study mode and learner history.
-
-For the initial demo this selection can be simple and random. More sophisticated weighting can come later.
+This model is more general than an image-specific answer because the correct answer may depend on the whole vignette or multi-image case, not just one image.
 
 ---
 
-## 9. Example generated learning session
+## 9. Several questions may be shown for one Case
 
-Suppose Anterior STEMI has three ECG images, five anterior-STEMI-specific questions, and several inherited general STEMI questions.
+The intended learner experience is now **case-based rather than one-question-per-image**.
 
-A learner could receive:
-
-```text
-ECG 002
-
-Question:
-Which coronary artery is most likely involved?
-```
-
-Later:
-
-```text
-ECG 001
-
-Question:
-What is the preferred reperfusion strategy?
-```
-
-And later:
-
-```text
-ECG 003
-
-Question:
-Describe the ECG.
-```
-
-The last question may use an answer stored specifically for the ECG 003 + "Describe this ECG" pairing.
-
-A future version may keep one image on screen and ask a small group of questions, for example:
-
-- one image-specific question;
-- one subtype-specific question;
-- one general condition question.
-
-This is not required for the first demo, but the data model should not prevent it.
-
----
-
-## 10. Learner progress
-
-The initial learner rating system should remain simple.
-
-Proposed first version:
-
-- **Again** — learner did not know the answer;
-- **Good** — learner knew the answer.
-
-A more complex Anki/FSRS-style scheduler can be added later.
-
-Progress may need to be tracked differently depending on the type of question.
-
-### Concept-level question
+A Case may present several question parts together.
 
 Example:
 
-> What is the preferred reperfusion strategy for STEMI?
+```text
+CASE: Anterior STEMI
 
-Performance may primarily represent mastery of the question/concept itself, regardless of which compatible STEMI image was displayed.
+[ ECG ]
 
-### Image-dependent question
+1. Describe the ECG findings.
+2. What is the diagnosis?
+3. What is the likely culprit artery?
+4. How would you manage this patient?
 
-Example:
+[ Show answers ]
+```
 
-> Describe this ECG.
+The system may choose a different compatible set of questions the next time the same Case appears.
 
-Performance should include the image context because successfully describing ECG A does not prove the learner can describe ECG B.
+For example:
 
-Therefore review records should be capable of storing at least:
+```text
+Case A / ECG A
+
+Attempt 1
+- Describe the ECG.
+- Which artery is involved?
+- What is the immediate management?
+
+Attempt 2
+- What reciprocal changes are present?
+- What complications would you monitor for?
+- What reperfusion strategy is preferred?
+```
+
+The exact number of questions per case will be set in the V1 specification; approximately 2–4 is a reasonable current design assumption.
+
+---
+
+## 10. Question order and exam behaviour
+
+The target examination allows learners to move back and forth between different parts of a question.
+
+Therefore the platform **does not need pre-diagnosis/post-diagnosis gating**.
+
+It is acceptable if a later question gives a clue to an earlier diagnosis question, because this reflects the target examination format.
+
+For the initial version:
+
+- all selected questions for a case can be visible together;
+- the learner can review them in any order;
+- we do not need branching logic or enforced sequential answering.
+
+This deliberately simplifies the system.
+
+---
+
+## 11. Example: Anterior STEMI model
+
+```text
+Concept: STEMI
+└── Concept: Anterior STEMI
+    ├── Case A
+    │   └── ECG A
+    ├── Case B
+    │   └── ECG B
+    └── Case C
+        └── ECG C
+```
+
+Potential question pools:
+
+```text
+General STEMI
+- What is the immediate management?
+- What reperfusion strategy is preferred?
+- What complications should be considered?
+
+Anterior STEMI
+- Which artery is most likely involved?
+- Which territory is affected?
+- Which leads are involved?
+
+Case A only
+- What reciprocal changes are visible?
+```
+
+The Case–Question link allows the prompt `Describe this ECG` to be used with Cases A, B, and C while storing a different answer for each.
+
+---
+
+## 12. Learner progress
+
+The initial rating system should remain simple:
+
+- **Again** — learner did not know the case/questions sufficiently;
+- **Good** — learner felt they knew them.
+
+For the demo, the learner may rate the **whole Case** rather than every individual question.
+
+However, every review record should retain enough context to support finer-grained analysis later.
+
+At minimum:
 
 ```text
 Learner
-Question
-Image/stimulus used
-Result
+Case
+Questions shown
+Result/rating
 Date/time
 ```
 
-The scheduling/mastery model can be refined after testing real examples.
+Later we may derive:
+
+- mastery of a reusable question/concept;
+- difficulty with a specific Case;
+- performance across different examples of one condition;
+- performance by question type.
+
+We do not need to finalise sophisticated Anki/FSRS scheduling for V1.
 
 ---
 
-## 11. Current likely data objects
+## 13. Current likely data objects
 
-The exact database schema is not yet final, but the current conceptual objects are:
+The exact database schema is not yet final, but the current conceptual model is:
 
 ### User / Learner
 
-Stores learner identity and role.
+Identity, role, and learner profile.
 
-### Condition
+### Concept
 
-Stores conditions/topics and optional parent-child hierarchy.
+Medical concepts/topics and optional parent-child relationships.
 
-### Image / Stimulus
+### Case
 
-Stores the medical image and its associated condition(s) or classification.
+The coherent clinical study unit presented to the learner.
 
-Although ECG is the initial example, this should remain a generic `stimulus` concept where practical so future cases can include other media or clinical data.
+May contain a vignette/context and links to one or several Assets.
+
+### Asset
+
+An individual image or other reusable stimulus.
+
+### Case–Asset relationship
+
+Links one or several Assets into a Case and can later store display order/caption information.
 
 ### Question Prompt
 
-Stores reusable question wording such as:
+Reusable wording such as:
 
 > Describe this ECG.
 
-### Condition–Question relationship
+### Concept–Question relationship
 
-Defines questions that are valid for a condition or subtype.
+Defines reusable questions valid for a concept/subtype and whether broader questions may be reused in descendants.
 
-### Image–Question relationship
+### Case–Question relationship
 
-Defines questions valid for a specific image and can hold the correct answer for that exact image/question combination.
+Defines that a question is valid for a particular Case and may contain:
+
+- a Case-specific answer override;
+- future metadata such as selection weighting if required.
 
 ### Review / Attempt
 
-Records what the learner was shown and how they rated/performed on it.
+Records the Case, questions shown, rating, and timestamp.
 
 ### Learner Progress
 
-Stores scheduling/mastery information derived from review history.
+Derived scheduling/mastery information.
 
 ---
 
-## 12. Administration requirements
+## 14. Administration requirements
 
-Eventually the administrator should be able to manage content without editing code.
+The administrator should eventually be able to:
 
-Likely functions include:
-
-- create/edit/deactivate conditions;
-- create condition hierarchies;
-- upload images;
-- assign images to conditions;
-- create reusable question prompts;
-- attach questions to conditions;
-- attach questions to individual images;
-- enter image-specific answers where required;
+- create/edit/deactivate Concepts;
+- create Concept hierarchies;
+- create Cases;
+- upload one or multiple Assets into a Case;
+- order/group the Assets so they appear as one coherent stimulus;
+- create reusable Question Prompts;
+- attach questions to Concepts;
+- attach questions specifically to Cases;
+- enter Case-specific answer overrides;
 - review learner progress.
 
-For the demo, the administrator interface can be simple. A polished custom admin portal is not required initially.
+For the demo, the admin interface can be simple. A polished custom content-management system is not required initially.
 
-Questions/content should preferably be deactivated rather than permanently deleted so historical learner review records remain meaningful.
-
----
-
-## 13. Existing Anki material
-
-Existing Anki material should be treated as seed content and as a source of real-world examples against which to test this model.
-
-The ECG deck examined so far contains many case-style cards combining:
-
-- a clinical vignette;
-- an ECG image;
-- multiple related questions;
-- combined answers;
-- diagnostic/topic tags.
-
-Common question types observed include:
-
-- ECG description;
-- diagnosis;
-- causes/risk factors;
-- differential diagnosis;
-- investigations;
-- management;
-- pathophysiology;
-- complications/clinical consequences.
-
-The intention is **not** simply to recreate these Anki cards one-for-one. We should use the existing material to identify the underlying reusable images, concepts, prompts, answers, and relationships.
-
-A future importer may help migrate existing `.apkg` content into the new system, followed by administrator cleanup where a multi-question Anki card needs to be split into structured questions.
+Content should preferably be deactivated rather than permanently deleted so historical review data remains meaningful.
 
 ---
 
-## 14. Version 1 / demo philosophy
+## 15. Findings from existing Anki material
 
-The demo should prove the core educational idea with the fewest moving parts possible.
+The existing ECG, ENT, Eye, and Dermatology decks have been used to stress-test the model.
 
-A likely first learner workflow is:
+Important patterns identified include:
+
+- a clinical vignette plus one image;
+- several images forming one coherent clinical case;
+- different images representing alternative examples of the same condition;
+- reusable management/causes/investigation questions;
+- prompts such as `Describe this ECG` whose answers differ by Case;
+- Case-specific questions that must not be mixed with other examples;
+- comparison cases containing more than one diagnosis;
+- investigation images such as audiograms rather than only disease photographs;
+- contextual questions dependent on the vignette as well as the image;
+- source images that may reveal answers through labels/text.
+
+The Anki decks should be treated as seed content and as real-world test material, not imported blindly as fixed front/back cards.
+
+A future importer may extract the notes, images, tags, stems, and answers, followed by administrator cleanup into the structured Case/Concept/Question model.
+
+Original Anki tags should be preserved for traceability but should not automatically become the final medical taxonomy.
+
+---
+
+## 16. Current demo / V1 philosophy
+
+The demo should prove the core educational model using the fewest moving parts possible.
+
+Likely learner workflow:
 
 ```text
 Login
   ↓
-Choose topic/condition
+Choose topic/concept
   ↓
-System chooses a compatible image
+System chooses a Case
   ↓
-System chooses one eligible question
+Show all Assets belonging to that Case as one stimulus
   ↓
-Learner thinks of answer
+Select 2–4 compatible questions
   ↓
-Show answer
+Learner reviews all parts
+  ↓
+Show answers
   ↓
 Again / Good
   ↓
-Next item
+Next Case
 ```
 
-The demo does **not** initially need:
+The initial demo does **not** need:
 
 - sophisticated FSRS scheduling;
 - AI-generated questions;
+- branching/sequential question logic;
+- pre/post-diagnosis gating;
+- automated free-text marking;
 - gamification;
 - leaderboards;
 - payments/subscriptions;
@@ -419,15 +529,15 @@ The demo does **not** initially need:
 - offline mode;
 - institutional multi-tenancy;
 - sophisticated cohort analytics;
-- custom notifications;
-- complicated question weighting;
+- notifications;
+- complex question weighting;
 - a highly polished administrator interface.
 
 These can be considered after the core model is validated.
 
 ---
 
-## 15. Current technical direction
+## 17. Current technical direction
 
 ### Demo / budget phase
 
@@ -438,7 +548,7 @@ GitHub
 │
 └── Application
     ├── Web interface
-    ├── Learning/question-selection logic
+    ├── Case/question-selection logic
     ├── Database abstraction
     │   └── Cloudflare D1
     ├── Authentication
@@ -447,7 +557,7 @@ GitHub
         └── Cloudflare R2
 ```
 
-The intention is to keep the demo close to zero infrastructure cost where possible.
+The goal is to keep the demo near zero infrastructure cost where practical.
 
 ### Future production option
 
@@ -461,37 +571,43 @@ Storage abstraction
 └── Supabase Storage
 ```
 
-The project should therefore minimise Cloudflare-specific assumptions in the core medical-learning logic.
+The project should minimise Cloudflare-specific assumptions in the core learning logic.
 
 ---
 
-## 16. Migration-friendly principles
+## 18. Migration-friendly principles
 
-To make a later Cloudflare → Supabase migration practical:
+To make a future Cloudflare → Supabase migration practical:
 
-- keep the learning model independent of the infrastructure provider;
+- keep the educational model independent of the infrastructure provider;
 - use conventional relational database structures;
-- avoid unnecessary database-vendor-specific features;
-- keep database schema changes in version-controlled migration files;
-- store image keys/identifiers rather than hard-coding provider-specific URLs throughout the learning data;
+- avoid unnecessary vendor-specific database features;
+- keep schema changes in version-controlled migration files;
+- store asset keys/identifiers rather than hard-coding provider-specific URLs throughout the learning data;
 - isolate storage operations behind a small application layer;
-- keep authentication identity separate from the learner's medical-learning/profile records;
-- keep question-selection and scheduling logic in application code rather than tying it to a particular database service.
+- keep authentication identity separate from learner profile/progress records;
+- keep Case/question-selection and scheduling logic in application code rather than tying it to a database service.
 
-Drizzle is currently being considered as the database access layer because it can work with both SQLite/D1 and PostgreSQL, although this choice is not yet permanently locked in.
+Drizzle remains a candidate database access layer because it can work with both SQLite/D1 and PostgreSQL, but this choice is not yet permanently locked in.
 
 ---
 
-## 17. Current project status
+## 19. Current project status
 
-Completed:
+Completed/agreed:
 
-- GitHub account connected to ChatGPT;
-- private repository created: `wongjiahaomax-wq/Flash-Cards`;
-- Python/Django-era `.gitignore` was added early in the project and can be revised when the final JavaScript/Cloudflare project structure is created;
-- first Anki ECG package reviewed for educational structure;
-- core reusable image/question concept identified;
-- image-specific questions and answers identified as a required feature;
+- private GitHub repository created and connected to ChatGPT;
+- `.gitignore` added;
+- ECG Anki deck reviewed;
+- ENT Anki deck reviewed;
+- Eye Anki deck reviewed;
+- Dermatology Anki deck reviewed;
+- Case-based learner model agreed;
+- multi-image single Cases agreed;
+- alternative examples stored as separate Cases agreed;
+- reusable question banks agreed;
+- Case-specific questions and Case-specific answer overrides agreed;
+- no pre/post-diagnosis gating required for the target examination;
 - Cloudflare-first, migration-aware technical direction agreed in principle.
 
 Not yet done:
@@ -502,7 +618,7 @@ Not yet done:
 - Cloudflare project setup;
 - authentication setup;
 - D1 database creation;
-- R2 image storage setup;
+- R2 storage setup;
 - learner interface;
 - admin interface;
 - scheduling engine;
@@ -510,104 +626,63 @@ Not yet done:
 
 ---
 
-## 18. Model assumptions to challenge with more Anki examples
+## 20. Model assumptions to continue challenging
 
-Before locking the database schema or V1 specification, additional real cards should be reviewed to look for cases that the current model does not represent cleanly.
+Before locking the V1 schema, continue testing additional Anki material against the model.
 
-Specific blind spots to test include:
+Important remaining questions include:
 
-### Multiple images in one question
+### Comparison Cases
 
-Can a question require comparison of two or more images rather than one image?
+Some cases may deliberately show multiple conditions side-by-side. Confirm whether one Case with multiple Concept links is sufficient.
 
-Examples might include serial ECGs, before/after treatment, or comparison of two diagnostic possibilities.
+### Non-image stimuli
 
-### One case containing several different stimulus types
+Determine how best to represent laboratory results, clinical observations, or text-only cases while keeping the generic Asset model simple.
 
-A case may eventually contain an ECG plus a chest radiograph, laboratory results, vital signs, or a clinical photograph.
+### Multiple-answer / marking-point questions
 
-We need to determine whether `Image` should become a more generic `Stimulus` / `Case Asset` concept.
+Questions such as `Give three causes` may eventually benefit from structured marking points, although V1 can store one answer block.
 
-### Clinical vignette dependence
+### Reusable question compatibility
 
-Some questions may depend not only on an image but also on a particular history/examination vignette.
+Determine how much explicit inclusion/exclusion control is needed when a broad Concept question is inherited by narrower subtypes.
 
-We need to determine whether a vignette belongs to the image, to a case, or to an individual question presentation.
+### Ambiguous or multiple defensible answers
 
-### Shared image but different clinical context
+Some clinical images may have more than one reasonable interpretation. The answer model may eventually need teaching notes or acceptable alternatives.
 
-The same image may theoretically be usable in more than one clinical scenario. We should check whether image identity and case identity need to be separate objects.
+### Question difficulty / curriculum level
 
-### Questions requiring several linked answers
+Later versions may need difficulty, learner level, curriculum, or learning-objective metadata.
 
-Some prompts may need multiple marking points rather than one answer block, for example:
+### Asset licensing/source metadata
 
-> Give three causes.
+Before public/commercial deployment, images may need source, attribution, and licensing metadata.
 
-This may matter if we later support self-marking by component or automated marking.
+### Answer-revealing image labels
 
-### Conditional follow-up questions
-
-A later question may depend on the answer to an earlier question.
-
-Example:
-
-1. What is the diagnosis?
-2. Given this diagnosis, what is the next management step?
-
-We should determine whether question sequences/groups are required.
-
-### Mutually incompatible inherited questions
-
-A broad parent condition question may not actually be appropriate for every child subtype. We may need explicit inclusion/exclusion rules rather than assuming all parent questions are inherited automatically.
-
-### Multiple valid diagnoses / ambiguity
-
-Some real-world images may have more than one defensible interpretation. The answer model may need notes, alternative answers, or teaching commentary.
-
-### Question wording dependent on modality
-
-Prompts such as "Describe this ECG" are modality-specific. If the platform expands beyond ECGs, we should decide how reusable prompts are classified.
-
-### Question difficulty and curriculum level
-
-The same condition may need beginner, intermediate, and advanced questions. We may eventually need metadata such as difficulty, learner level, curriculum, or learning objective.
-
-### Negative findings
-
-Some questions may specifically test what is **not** present on an image. This may affect how image-specific answers and marking points are represented.
-
-### Non-image questions
-
-Some useful condition questions may not need an image at all. The architecture should not force every study item to display a medical image.
+Imported assets may contain captions or labels that reveal the answer. The content workflow should eventually allow these to be flagged, replaced, cropped, or masked.
 
 ### Progress granularity
 
-We still need to decide exactly what is being scheduled/mastered:
-
-- the question concept;
-- the image;
-- the image–question pairing;
-- the condition;
-- or some combination of these.
-
-Real Anki examples should help determine the most educationally meaningful level.
+V1 can rate the whole Case, but real learner data should later inform whether scheduling should operate at Case, Question, Case–Question pairing, or combined mastery levels.
 
 ---
 
-## 19. Next design step
+## 21. Next design step
 
-Before writing the formal V1 specification, review additional existing Anki decks/cards and classify each example against the current model.
+Continue reviewing additional Anki decks/cards as stress tests.
 
-For each example, ask:
+For each unusual example, ask:
 
-1. What is the underlying condition/topic?
-2. What is the stimulus or case context?
-3. Is the question general, subtype-specific, case-specific, or image-specific?
-4. Can the prompt be reused with another image?
-5. Does the answer change with the image/context?
-6. Does the question require another question to come first?
-7. Should learner mastery be tracked by question, image, pairing, or broader learning objective?
-8. Does the example reveal a relationship or object not represented in the current design?
+1. What Concept(s) does this Case represent?
+2. Which Assets must be shown together?
+3. Are alternative images actually separate Cases?
+4. Which questions are broadly reusable?
+5. Which questions are Case-specific?
+6. Does a shared prompt require a Case-specific answer override?
+7. Can the current Case + Asset + Concept + Question model represent it cleanly?
+8. Does the example reveal a genuinely new object/relationship, or can it be handled with the existing model?
 
-Any new patterns discovered should be added to this document before the database schema is finalised.
+Once this model survives enough real material, the next step is to freeze a deliberately small V1 specification and begin implementation.
