@@ -15,6 +15,7 @@ Deliverables:
 - `CURRENT_DESIGN.md` — broader design rationale and open future questions;
 - `V1_SPEC.md` — frozen V1 behaviour/scope;
 - `V1_DATA_MODEL.md` — V1 relational model and selection rules;
+- `IMAGE_PROVENANCE.md` — V1 image storage/attribution rules;
 - this implementation plan.
 
 Do not add deferred features unless they are required to make the V1 acceptance test work.
@@ -34,15 +35,9 @@ Completed:
 - Wrangler configuration;
 - environment-variable handling;
 - public landing and sign-in routes;
-- placeholder `/study` and `/admin` routes;
+- protected `/study` and `/admin` routes;
 - automated test/check/build scripts;
 - working Cloudflare Workers deployment scaffold.
-
-Definition of done:
-
-- repository contains runnable application code;
-- local development starts without production infrastructure credentials;
-- production build passes.
 
 ---
 
@@ -65,25 +60,19 @@ Completed:
 Remaining:
 
 - add ID/timestamp helpers where needed by runtime writes;
-- add a seed script with a tiny STEMI dataset;
-- add server-side read queries that exercise the seeded data.
+- add a representative seed dataset;
+- add server-side read/write queries that exercise the seeded data.
 
-Seed content should include:
+The seed should include:
 
 - `STEMI` parent Concept;
 - `Anterior STEMI` child Concept;
-- two alternative Anterior STEMI Cases;
-- at least one multi-image Case somewhere in the seed data;
+- multiple alternative Anterior STEMI Cases;
+- at least one multi-image Dermatology Case;
 - one inherited STEMI question;
 - one Anterior-STEMI-specific question;
-- `Describe this ECG` attached to both Cases with different answers;
+- `Describe this ECG` attached to more than one Case with different answers;
 - one Case-only question.
-
-Definition of done:
-
-- migrations apply cleanly to a fresh local D1 database;
-- seed script produces a valid V1 dataset;
-- simple server-side queries can read the seeded Cases/questions.
 
 ---
 
@@ -91,84 +80,71 @@ Definition of done:
 
 Status: **substantially complete — production auth live; learner-management verification remains**
 
-Goal: private learner/admin access works.
-
 Completed:
 
 - Better Auth 1.6.25 added and pinned;
-- D1 persistence configured in the auth factory;
-- Better Auth user/account/session/verification migration committed as `drizzle/0001_better_auth.sql`;
-- email/password authentication enabled;
+- D1 persistence configured;
 - Better Auth Admin plugin added;
 - public sign-up disabled;
 - `/study` protected for authenticated users;
 - `/admin` protected by admin role;
 - sign-in/sign-out UI added;
-- local D1 + Better Auth smoke test implemented and passing;
-- local smoke test covers disabled sign-up, real credential sign-in, session cookie creation, session lookup, and admin access;
-- reviewed auth migration applied to production D1;
+- local auth smoke test implemented and passing;
 - auth-enabled Worker deployed to production;
-- production `/sign-in`, anonymous `/study`, anonymous `/admin`, and `GET /api/auth/get-session` verified;
-- secure `npm run admin:bootstrap` command added and tested;
 - first production administrator account bootstrapped.
 
 Remaining:
 
-- verify the bootstrapped administrator signs in through the browser and reaches `/admin`;
-- implement or expose an administrator flow for creating learner accounts;
+- verify administrator browser sign-in and `/admin` access;
+- implement the smallest administrator learner-account creation flow;
 - create a test learner account;
-- verify learner can access `/study` but is redirected away from `/admin`.
-
-Definition of done:
-
-- unauthenticated users cannot access `/study` or `/admin`;
-- learner can access `/study` but not `/admin`;
-- admin can access both;
-- admin can create a learner account.
-
-Public user sign-up must remain disabled. Better Auth is an embedded application library; no separate
-hosted Better Auth account is required.
+- verify learner can access `/study` but not `/admin`.
 
 ---
 
 ## Milestone 4 — Core learner study flow
 
-Status: **partially implemented at the logic layer — next primary product milestone**
+Status: **learner UI prototype complete; D1 persistence/integration next**
 
-Goal: prove the educational model before building a large admin interface.
+Goal: prove the educational model with a real D1-backed learner workflow.
 
-Already implemented/tested:
+Completed:
 
 - Case-selection helper with immediate-repeat avoidance;
 - reusable-question resolution;
 - Case > primary Concept > nearest ancestor precedence/deduplication;
-- randomized review-question selection, capped at four.
+- randomized review-question selection, capped at four;
+- learner study selector prototype;
+- single-image and multi-image Case presentation;
+- all questions visible together;
+- reveal-all answers interaction;
+- whole-Case `Again`/`Good` interaction;
+- next-Case navigation;
+- PR #6 merged after full CI validation.
 
 Remaining:
 
-- Concept/topic selection page;
+- Concept/topic selection backed by D1;
 - descendant Concept database lookup;
-- connect selection helpers to D1 queries;
+- replace temporary demo Cases/questions with D1 queries;
 - Review + Review Question snapshot creation;
 - Review Asset snapshot creation;
-- Case study page;
-- answer reveal;
-- `Again`/`Good` completion;
-- next-Case action.
+- persist reveal timestamp/status;
+- persist `Again`/`Good` completion;
+- use persisted history for immediate-repeat avoidance;
+- preserve the approved learner UI while replacing its data source.
 
 Definition of done:
 
-A learner can repeatedly study seeded content and the system correctly varies compatible questions while keeping Case-specific answers attached to the correct Case.
-
-This is the most important remaining V1 product milestone.
+A learner can repeatedly study seeded D1 content, receive valid randomized compatible questions, reveal answers, rate the whole Case, and produce durable Review history.
 
 ---
 
 ## Milestone 5 — R2 image storage
 
-Status: **partially complete — infrastructure/guardrails ready**
+Status: **infrastructure/guardrails complete; product integration next**
 
-Goal: Cases display real uploaded teaching images.
+Goal: Cases display real uploaded teaching images with optional source attribution.
 
 Completed:
 
@@ -179,25 +155,23 @@ Completed:
 - Standard storage-class enforcement;
 - immutable object-key enforcement;
 - automated tests for storage guardrails;
-- R2 cost/operations guidance in `R2_COST_GUARDRAILS.md`.
+- image provenance policy documented;
+- Asset schema already includes `source_label`, `source_url`, and `licence`.
 
 Remaining:
 
-- implement admin upload endpoint;
-- validate permitted image MIME types at the route boundary;
-- generate immutable object keys;
-- create Asset records;
-- render images securely in learner/admin UI;
-- support multiple ordered Case Assets;
-- add caching/serving behaviour appropriate for private learner access.
+- minimal admin upload endpoint/UI;
+- MIME validation at route boundary;
+- immutable object-key generation;
+- Asset record creation/editing;
+- optional source label/URL/licence entry;
+- unknown-source support without invented attribution;
+- secure R2 image-serving path;
+- multiple ordered Case Assets;
+- learner display of optional attribution per image;
+- Review Asset snapshots retaining the exact object key shown.
 
 All teaching-image writes must go through `putTeachingImage()` rather than calling `MEDIA.put()` directly.
-
-Definition of done:
-
-- admin can upload at least JPEG/PNG images;
-- multi-image Case displays assets together in configured order;
-- review snapshots retain the exact object keys shown.
 
 ---
 
@@ -207,7 +181,7 @@ Status: **not started beyond protected admin scaffold**
 
 Goal: the administrator no longer needs seed scripts for routine content entry.
 
-Implement in this order:
+Implement in this order after the learner vertical slice is functioning:
 
 1. Concepts
 2. Question Prompts + Concept Questions
@@ -215,18 +189,7 @@ Implement in this order:
 4. Case Questions
 5. Case Assets/order
 
-Tasks:
-
-- list/create/edit/deactivate forms;
-- validation for required relationships;
-- Concept parent cycle prevention;
-- exactly-one-primary-Concept enforcement for learner-ready Cases;
-- duplicate-link prevention;
-- simple search/filtering where lists become cumbersome.
-
-Definition of done:
-
-An admin can recreate the acceptance-test content from the web interface without editing database rows manually.
+Do not expand into a large dashboard before the learner flow and image pipeline are proven.
 
 ---
 
@@ -245,48 +208,21 @@ Tasks:
 - counts of `Again` and `Good`;
 - highlight repeated `Again` ratings for a Case.
 
-Definition of done:
-
-Admin can inspect the V1 review data requested in the product goal without a separate analytics platform.
-
 ---
 
 ## Milestone 8 — Deployment and acceptance test
 
-Status: **private authentication deployment complete; V1 acceptance demo incomplete**
-
-Goal: a usable private demo is live.
-
-Completed:
-
-- production D1 database created and bound;
-- production R2 bucket created and bound;
-- Worker bindings/secrets configured;
-- Better Auth migration applied to production D1;
-- auth-enabled Worker deployed over HTTPS;
-- `/sign-in` verified live;
-- anonymous `/study` and `/admin` verified to redirect to sign-in;
-- Better Auth session endpoint verified with a normal GET;
-- first production administrator account bootstrapped;
-- R2 cost guardrails added.
+Status: **private auth deployment complete; learner V1 acceptance demo incomplete**
 
 Remaining:
 
-- verify authenticated administrator access in-browser;
+- verify authenticated administrator browser access;
 - create and verify a test learner account;
-- enter/seed acceptance content;
-- connect learner study flow to production data;
-- verify image persistence/serving when R2 upload is added;
-- execute V1 acceptance test from `V1_SPEC.md`;
+- seed representative acceptance content;
+- deploy the D1-backed learner flow;
+- verify R2 image persistence/serving;
+- execute the V1 acceptance test from `V1_SPEC.md`;
 - record bugs as GitHub issues.
-
-Definition of done:
-
-- application is accessible over HTTPS;
-- admin and learner role boundaries work;
-- content and images persist;
-- repeated study attempts produce valid combinations and review records;
-- acceptance-test defects are either fixed or explicitly documented.
 
 ---
 
@@ -304,37 +240,55 @@ Tasks:
 - collect learner/admin friction points;
 - identify any real content pattern the V1 data model cannot represent cleanly.
 
-Only after this milestone should we revisit:
-
-- FSRS/scheduling;
-- Anki importer;
-- richer analytics;
-- structured answers/marking points;
-- question difficulty/weighting;
-- broader non-image stimulus types.
+Only after this milestone should we revisit FSRS/scheduling, bulk Anki import, richer analytics, structured marking points, question weighting, or broader stimulus types.
 
 ---
 
-## Immediate next task
+## Immediate next phase — two-agent parallel implementation
 
-The infrastructure blocker is resolved. The next implementation action is to build the **tiny STEMI
-vertical slice**:
+The approved learner UI is now merged. The next phase should run two agents in parallel from the same current `main`, with separate branches and PRs.
 
-1. verify the bootstrapped production administrator can sign in and reach `/admin`;
-2. add the representative STEMI seed dataset described in Milestone 2;
-3. add server-side D1 queries for Concepts, Cases, assets, and resolved compatible questions;
-4. connect those queries to `/study` using the existing selection engine;
-5. snapshot Review, Review Question, and Review Asset records;
-6. implement reveal + `Again`/`Good` + next Case;
-7. add the smallest administrator learner-account creation flow needed to test role boundaries;
-8. add the minimum R2 upload/serving path once the seeded learner flow needs real images.
+### Track A — D1 learner/review vertical slice
 
-Do not start with the full admin dashboard or Anki importer. The first product objective remains a thin,
-working learner path using representative seeded content.
+Primary goal: replace temporary demo data underneath the approved learner UI with real D1 data and durable Review records.
+
+Scope:
+
+1. representative seed data;
+2. server-side D1 queries for Concept/Case/question/Asset metadata reads;
+3. create Review/Review Question/Review Asset snapshots;
+4. adapt `/study` to real D1-backed selection while preserving the approved UI;
+5. persist reveal and `Again`/`Good` completion;
+6. tests for the end-to-end learning-domain behaviour.
+
+### Track B — R2 Asset/admin vertical slice
+
+Primary goal: establish the real teaching-image pipeline independently of Review persistence.
+
+Scope:
+
+1. minimal protected admin Asset upload page/endpoint;
+2. MIME/size validation;
+3. R2 upload through `putTeachingImage()` only;
+4. Asset metadata persistence including optional source attribution;
+5. secure image-serving path;
+6. tests for upload/metadata/serving behaviour.
+
+Detailed branch and ownership rules are in `docs/PARALLEL_WORK_PLAN.md`.
+
+### Integration order
+
+- both branches start from the same `main` commit;
+- each opens its own draft PR;
+- neither agent merges its own PR;
+- when both are green, merge the lower-conflict PR first;
+- update/rebase the second PR on the new `main` and resolve only integration conflicts;
+- finish any thin glue required for learner pages to render the new R2 Asset-serving URL.
+
+---
 
 ## Known technical debt
 
-`package.json` still pins Wrangler 4.115.0, while the project uses compatibility date `2026-08-14`.
-The local auth smoke test and production release were validated with Wrangler 4.123.0 because the older
-bundled runtime did not support that compatibility date. Update the Wrangler dependency/lockfile before
-relying on `npm run deploy` or other scripts that use the pinned binary.
+`package.json` still pins Wrangler 4.115.0, while the project uses compatibility date `2026-08-14`. Local auth smoke tests and production release were validated with Wrangler 4.123.0. Update the dependency/lockfile deliberately before relying on release scripts that use the pinned binary.
+
+Do not apply `npm audit fix --force` casually.
