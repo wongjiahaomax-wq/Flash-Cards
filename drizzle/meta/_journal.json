@@ -8,6 +8,13 @@
       "when": 1786718139474,
       "tag": "0000_dashing_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1786745807620,
+      "tag": "0001_better_auth",
+      "breakpoints": true
     }
   ]
 }
