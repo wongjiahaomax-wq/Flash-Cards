@@ -9,6 +9,7 @@
   let errorMessage = $state('');
   let submitting = $state(false);
 
+  /** @param {SubmitEvent} event */
   async function signIn(event) {
     event.preventDefault();
     errorMessage = '';
