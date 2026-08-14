@@ -1,6 +1,6 @@
 # Flash-Cards — V1 Implementation Plan
 
-_Last updated: 14 August 2026_
+_Last updated: 15 August 2026_
 
 This is the execution order for `V1_SPEC.md` and `V1_DATA_MODEL.md`.
 
@@ -23,40 +23,49 @@ Do not add deferred features unless they are required to make the V1 acceptance 
 
 ## Milestone 1 — Scaffold the application
 
+Status: **complete**
+
 Goal: a SvelteKit app runs locally and is deployable to Cloudflare Workers.
 
-Tasks:
+Completed:
 
-- initialise SvelteKit in the repository;
-- configure the Cloudflare adapter/runtime;
-- configure Wrangler;
-- add base environment-variable handling;
-- add a simple public landing/sign-in route;
-- add placeholder `/study` and `/admin` routes;
-- add formatting/linting/test scripts;
-- confirm `npm run dev` and production build succeed.
+- SvelteKit application scaffold;
+- Cloudflare adapter/runtime;
+- Wrangler configuration;
+- environment-variable handling;
+- public landing and sign-in routes;
+- placeholder `/study` and `/admin` routes;
+- automated test/check/build scripts;
+- working Cloudflare Workers deployment scaffold.
 
 Definition of done:
 
 - repository contains runnable application code;
-- local development starts without infrastructure credentials for basic pages;
+- local development starts without production infrastructure credentials;
 - production build passes.
 
 ---
 
 ## Milestone 2 — D1 + Drizzle schema
 
+Status: **partially complete**
+
 Goal: the domain model exists as executable migrations.
 
-Tasks:
+Completed:
 
-- add Drizzle and Drizzle Kit;
-- define domain schema from `V1_DATA_MODEL.md`;
-- configure a local D1 database;
-- generate and commit migrations;
-- add database access helper;
-- add ID/timestamp helpers;
-- add a seed script with a tiny STEMI dataset.
+- Drizzle ORM and Drizzle Kit added;
+- Version 1 learning-domain schema implemented;
+- D1 configured locally and in production;
+- initial learning-domain migration generated and committed;
+- database access helper added;
+- core Case/question selection helpers implemented and tested.
+
+Remaining:
+
+- add ID/timestamp helpers where needed by runtime writes;
+- add a seed script with a tiny STEMI dataset;
+- add server-side read queries that exercise the seeded data.
 
 Seed content should include:
 
@@ -79,19 +88,35 @@ Definition of done:
 
 ## Milestone 3 — Authentication and permissions
 
+Status: **in progress — current blocker**
+
 Goal: private learner/admin access works.
 
-Tasks:
+Completed in application code:
 
-- add Better Auth;
-- configure D1 persistence;
-- enable email/password authentication;
-- add Better Auth Admin plugin;
-- disable public sign-up;
-- bootstrap first admin account;
-- protect learner routes;
-- protect admin routes by role;
-- add sign-in/sign-out UI.
+- Better Auth added and pinned;
+- D1 persistence configured in the auth factory;
+- email/password authentication enabled;
+- Better Auth Admin plugin added;
+- public sign-up disabled;
+- `/study` protected for authenticated users;
+- `/admin` protected by admin role;
+- sign-in/sign-out UI added.
+
+Remaining:
+
+- generate and review Better Auth's D1 tables/migration;
+- apply the auth migration to a fresh local D1 database;
+- test the complete auth flow in the local Workers runtime;
+- apply the reviewed migration to production;
+- deploy the auth-enabled source;
+- bootstrap the first application administrator account;
+- verify learner/admin role boundaries end-to-end;
+- verify an admin can create learner accounts.
+
+The first administrator account will be created by the project owner after the Better Auth schema is
+ready. This is an application user managed by Better Auth; no separate hosted Better Auth service
+account is required for this architecture.
 
 Definition of done:
 
@@ -104,16 +129,22 @@ Definition of done:
 
 ## Milestone 4 — Core learner study flow
 
+Status: **partially implemented at the logic layer**
+
 Goal: prove the educational model before building a large admin interface.
 
-Tasks:
+Already implemented/tested:
+
+- Case-selection helper with immediate-repeat avoidance;
+- reusable-question resolution;
+- Case > primary Concept > nearest ancestor precedence/deduplication;
+- randomized review-question selection, capped at four.
+
+Remaining:
 
 - Concept/topic selection page;
-- descendant Concept lookup;
-- Case selection with immediate-repeat avoidance;
-- reusable-question resolution;
-- precedence/deduplication rules;
-- random 2–4-question selection (target 3);
+- descendant Concept database lookup;
+- connect selection helpers to D1 queries;
 - Review + Review Question snapshot creation;
 - Review Asset snapshot creation;
 - Case study page;
@@ -125,23 +156,38 @@ Definition of done:
 
 A learner can repeatedly study seeded content and the system correctly varies compatible questions while keeping Case-specific answers attached to the correct Case.
 
-This is the most important V1 milestone.
+This is the most important V1 product milestone.
 
 ---
 
 ## Milestone 5 — R2 image storage
 
+Status: **partially complete — infrastructure/guardrails ready**
+
 Goal: Cases display real uploaded teaching images.
 
-Tasks:
+Completed:
 
-- create R2 binding/service wrapper;
+- production R2 `MEDIA` binding;
+- server-side R2 storage helper;
+- 5 MiB per-image application limit;
+- 5 GiB managed-storage ceiling;
+- Standard storage-class enforcement;
+- immutable object-key enforcement;
+- automated tests for storage guardrails;
+- R2 cost/operations guidance in `R2_COST_GUARDRAILS.md`.
+
+Remaining:
+
 - implement admin upload endpoint;
-- validate permitted image MIME types and reasonable file size;
+- validate permitted image MIME types at the route boundary;
 - generate immutable object keys;
 - create Asset records;
 - render images securely in learner/admin UI;
-- support multiple ordered Case Assets.
+- support multiple ordered Case Assets;
+- add caching/serving behaviour appropriate for private learner access.
+
+All teaching-image writes must go through `putTeachingImage()` rather than calling `MEDIA.put()` directly.
 
 Definition of done:
 
@@ -152,6 +198,8 @@ Definition of done:
 ---
 
 ## Milestone 6 — Minimal content administration
+
+Status: **not started beyond protected admin scaffold**
 
 Goal: the administrator no longer needs seed scripts for routine content entry.
 
@@ -180,6 +228,8 @@ An admin can recreate the acceptance-test content from the web interface without
 
 ## Milestone 7 — Users and basic progress
 
+Status: **not started**
+
 Goal: administrators can see whether learners are using the system and where they struggle.
 
 Tasks:
@@ -199,16 +249,23 @@ Admin can inspect the V1 review data requested in the product goal without a sep
 
 ## Milestone 8 — Deployment and acceptance test
 
+Status: **infrastructure partially complete; private V1 deployment not complete**
+
 Goal: a usable private demo is live.
 
-Tasks:
+Already completed:
 
-- create production D1 database;
-- create production R2 bucket;
-- configure Worker bindings/secrets;
-- apply production migrations;
+- production D1 database created and bound;
+- production R2 bucket created and bound;
+- Worker bindings/secrets configured;
+- public technical scaffold deployed;
+- R2 cost guardrails added.
+
+Remaining:
+
+- apply Better Auth migration to production;
+- deploy and verify private auth-enabled application;
 - bootstrap production admin;
-- deploy application;
 - create test learner accounts;
 - enter/seed acceptance content;
 - execute V1 acceptance test from `V1_SPEC.md`;
@@ -225,6 +282,8 @@ Definition of done:
 ---
 
 ## Milestone 9 — Pilot content and feedback
+
+Status: **not started**
 
 Goal: validate the model with real teaching material before adding scheduling complexity.
 
@@ -249,6 +308,14 @@ Only after this milestone should we revisit:
 
 ## Immediate next task
 
-The next implementation action is **Milestone 1: scaffold the SvelteKit/Cloudflare Workers application in this repository**.
+The next implementation action is to **finish Milestone 3's database integration before deploying the auth-enabled source**:
 
-Do not start with the admin dashboard or importer. The first engineering objective is a runnable skeleton, followed immediately by the D1 schema and a seeded learner study flow.
+1. generate and review the Better Auth D1 schema/migration for the pinned Better Auth version;
+2. apply all migrations to a fresh local D1 database;
+3. test `/`, `/sign-in`, `/study`, `/admin`, and Better Auth API routes locally;
+4. apply the reviewed auth migration to production and deploy;
+5. bootstrap the first administrator account;
+6. resume Milestone 2 with the tiny STEMI seed dataset;
+7. connect that dataset to the Milestone 4 learner study flow.
+
+Do not start with the full admin dashboard or Anki importer. The first product objective remains a thin, working learner path using representative seeded content.
