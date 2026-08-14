@@ -11,10 +11,21 @@ const database = 'DB';
 const tempDir = '.wrangler/bootstrap-admin';
 const seedFile = `${tempDir}/bootstrap-admin.sql`;
 
+/** @param {unknown} value */
 export function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
+/**
+ * @param {{
+ *   userId: string,
+ *   accountId: string,
+ *   name: string,
+ *   email: string,
+ *   passwordHash: string,
+ *   now: number
+ * }} values
+ */
 export function buildBootstrapSql({ userId, accountId, name, email, passwordHash, now }) {
   return [
     'PRAGMA foreign_keys = ON;',
@@ -23,12 +34,21 @@ export function buildBootstrapSql({ userId, accountId, name, email, passwordHash
   ].join('\n');
 }
 
+/**
+ * @param {string} jsonText
+ * @returns {Array<Record<string, unknown>>}
+ */
 export function extractRows(jsonText) {
   const parsed = JSON.parse(jsonText);
+  /** @type {Array<{ results?: Array<Record<string, unknown>> }>} */
   const batches = Array.isArray(parsed) ? parsed : [parsed];
   return batches.flatMap((batch) => (Array.isArray(batch?.results) ? batch.results : []));
 }
 
+/**
+ * @param {string[]} args
+ * @param {{ capture?: boolean }} [options]
+ */
 function runWrangler(args, { capture = false } = {}) {
   if (capture) {
     return execFileSync('npx', [...wrangler, ...args], {
@@ -41,6 +61,10 @@ function runWrangler(args, { capture = false } = {}) {
   return '';
 }
 
+/**
+ * @param {string} sql
+ * @returns {Array<Record<string, unknown>>}
+ */
 function queryRemote(sql) {
   return extractRows(
     runWrangler(
@@ -50,6 +74,7 @@ function queryRemote(sql) {
   );
 }
 
+/** @param {unknown} role */
 function hasAdminRole(role) {
   return String(role ?? '')
     .split(',')
@@ -58,6 +83,10 @@ function hasAdminRole(role) {
     .includes('admin');
 }
 
+/**
+ * @param {string} label
+ * @returns {Promise<string>}
+ */
 function readHidden(label) {
   if (!stdin.isTTY || !stdout.isTTY || typeof stdin.setRawMode !== 'function') {
     throw new Error('A terminal (TTY) is required so the password can be entered without echoing it.');
@@ -73,6 +102,7 @@ function readHidden(label) {
       stdin.pause();
     };
 
+    /** @param {string} chunk */
     const onData = (chunk) => {
       for (const char of chunk) {
         if (char === '\u0003') {
@@ -124,8 +154,8 @@ async function main() {
   }
 
   const prompts = createInterface({ input: stdin, output: stdout });
-  let name;
-  let email;
+  let name = '';
+  let email = '';
 
   try {
     name = (await prompts.question('Administrator name: ')).trim();
