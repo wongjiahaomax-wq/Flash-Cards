@@ -10,12 +10,18 @@
     "prepare": "svelte-kit sync",
     "check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json",
     "deploy": "npm run build && wrangler deploy",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "db:generate": "drizzle-kit generate",
+    "db:check": "drizzle-kit check"
+  },
+  "dependencies": {
+    "drizzle-orm": "0.45.2"
   },
   "devDependencies": {
     "@sveltejs/adapter-cloudflare": "7.2.9",
     "@sveltejs/kit": "2.70.1",
     "@sveltejs/vite-plugin-svelte": "7.2.0",
+    "drizzle-kit": "0.31.10",
     "svelte": "5.56.8",
     "svelte-check": "4.7.4",
     "vite": "8.1.5",
