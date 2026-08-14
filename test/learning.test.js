@@ -126,6 +126,7 @@ test('case selection avoids the immediately previous Case when another Case exis
     { lastCompletedCaseId: 'case-a', rng: () => 0 }
   );
 
+  assert.ok(selected);
   assert.equal(selected.id, 'case-b');
 });
 
@@ -138,5 +139,6 @@ test('case selection may repeat when it is the only active Case', () => {
     { lastCompletedCaseId: 'case-a', rng: () => 0 }
   );
 
+  assert.ok(selected);
   assert.equal(selected.id, 'case-a');
 });

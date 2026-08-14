@@ -1,7 +1,34 @@
+/**
+ * @typedef {object} QuestionInput
+ * @property {string} questionPromptId
+ * @property {string} promptMd
+ * @property {string} answerMd
+ * @property {boolean} [isActive]
+ * @property {boolean} [inheritToDescendants]
+ * @property {number} [distance]
+ * @property {string | null} [sourceConceptId]
+ */
+
+/**
+ * @typedef {object} ResolvedQuestion
+ * @property {string} questionPromptId
+ * @property {string} promptMd
+ * @property {string} answerMd
+ * @property {string} sourceType
+ * @property {string | null} sourceConceptId
+ * @property {number} [displayOrder]
+ */
+
+/** @param {{ isActive?: boolean } | null | undefined} item */
 function isActive(item) {
   return item?.isActive !== false;
 }
 
+/**
+ * @param {Partial<QuestionInput> | null | undefined} item
+ * @param {string} label
+ * @returns {asserts item is QuestionInput}
+ */
 function assertQuestion(item, label) {
   if (!item?.questionPromptId) {
     throw new Error(`${label} is missing questionPromptId.`);
@@ -12,6 +39,12 @@ function assertQuestion(item, label) {
   }
 }
 
+/**
+ * @param {QuestionInput} item
+ * @param {string} sourceType
+ * @param {string | null} [sourceConceptId]
+ * @returns {ResolvedQuestion}
+ */
 function resolvedQuestion(item, sourceType, sourceConceptId = null) {
   return {
     questionPromptId: item.questionPromptId,
@@ -30,12 +63,16 @@ function resolvedQuestion(item, sourceType, sourceConceptId = null) {
  *
  * `ancestorConceptQuestions` must include a positive integer `distance`, where
  * 1 is the primary Concept's parent, 2 is its grandparent, and so on.
+ *
+ * @param {{ caseQuestions?: QuestionInput[], primaryConceptQuestions?: QuestionInput[], ancestorConceptQuestions?: QuestionInput[] }} [input]
+ * @returns {ResolvedQuestion[]}
  */
 export function resolveQuestionPool({
   caseQuestions = [],
   primaryConceptQuestions = [],
   ancestorConceptQuestions = []
 } = {}) {
+  /** @type {Map<string, ResolvedQuestion>} */
   const byPrompt = new Map();
 
   const ancestors = ancestorConceptQuestions
@@ -44,11 +81,15 @@ export function resolveQuestionPool({
     .map((question, index) => {
       assertQuestion(question, `ancestorConceptQuestions[${index}]`);
 
-      if (!Number.isInteger(question.distance) || question.distance < 1) {
+      if (
+        typeof question.distance !== 'number' ||
+        !Number.isInteger(question.distance) ||
+        question.distance < 1
+      ) {
         throw new Error(`ancestorConceptQuestions[${index}] must have a positive integer distance.`);
       }
 
-      return question;
+      return /** @type {QuestionInput & { distance: number }} */ (question);
     })
     // Distant ancestors first so nearer ancestors overwrite them.
     .sort((a, b) => b.distance - a.distance);
@@ -81,6 +122,11 @@ export function resolveQuestionPool({
  *
  * V1 targets 3 questions and never displays more than 4. Injecting `rng`
  * keeps the function deterministic in tests without changing production use.
+ *
+ * @template {{ questionPromptId: string }} T
+ * @param {T[]} pool
+ * @param {{ count?: number, rng?: () => number }} [options]
+ * @returns {(T & { displayOrder: number })[]}
  */
 export function pickReviewQuestions(pool, { count = 3, rng = Math.random } = {}) {
   if (!Array.isArray(pool)) {

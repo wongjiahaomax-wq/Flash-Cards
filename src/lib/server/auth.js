@@ -6,6 +6,8 @@ import { sveltekitCookies } from 'better-auth/svelte-kit';
 /**
  * Better Auth is created from the Cloudflare request environment because D1 is
  * provided as a Worker binding rather than as a process-global connection.
+ *
+ * @param {Cloudflare.Env & { BETTER_AUTH_SECRET: string, BETTER_AUTH_URL?: string }} env
  */
 export function createAuth(env) {
   if (!env?.DB) {
@@ -16,6 +18,7 @@ export function createAuth(env) {
     throw new Error('BETTER_AUTH_SECRET is required for authentication.');
   }
 
+  /** @type {import('better-auth').BetterAuthOptions} */
   const options = {
     database: env.DB,
     secret: env.BETTER_AUTH_SECRET,

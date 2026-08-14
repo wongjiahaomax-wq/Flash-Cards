@@ -1,0 +1,4 @@
+# Copy this file to .dev.vars for local development. Never commit .dev.vars.
+# Generate a secret with: openssl rand -base64 32
+BETTER_AUTH_SECRET=replace-with-at-least-32-random-characters
+BETTER_AUTH_URL=http://localhost:5173

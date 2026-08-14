@@ -1,3 +1,10 @@
+/**
+ * @typedef {object} CaseCandidate
+ * @property {string} id
+ * @property {boolean} [isActive]
+ */
+
+/** @param {{ isActive?: boolean } | null | undefined} item */
 function isActive(item) {
   return item?.isActive !== false;
 }
@@ -7,6 +14,10 @@ function isActive(item) {
  *
  * The caller is responsible for supplying Cases already matched to the learner's
  * selected Concept/descendants. This function only applies V1 repeat/random rules.
+ *
+ * @param {CaseCandidate[]} cases
+ * @param {{ lastCompletedCaseId?: string | null, rng?: () => number }} [options]
+ * @returns {CaseCandidate | null}
  */
 export function pickCase(cases, { lastCompletedCaseId = null, rng = Math.random } = {}) {
   if (!Array.isArray(cases)) {

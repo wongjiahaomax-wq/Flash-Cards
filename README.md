@@ -27,3 +27,19 @@ SvelteKit
 ## Next implementation milestone
 
 Scaffold the SvelteKit/Cloudflare Workers application, then implement the D1/Drizzle schema and a small seeded learner study flow before building the full admin interface.
+
+## Cloudflare development
+
+The Worker is configured with a local D1 database (`DB`) and R2 bucket (`MEDIA`).
+Wrangler persists both local simulations under `.wrangler/`; no Cloudflare account is
+needed for local development.
+
+```sh
+npm install
+npm run db:migrate:local
+cp .dev.vars.example .dev.vars
+npm run dev
+```
+
+See [`docs/CLOUDFLARE.md`](docs/CLOUDFLARE.md) for local preview, secrets, first
+deployment, migrations, and resource provisioning.

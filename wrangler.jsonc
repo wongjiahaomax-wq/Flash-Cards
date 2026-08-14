@@ -4,10 +4,33 @@
   "main": ".svelte-kit/cloudflare/_worker.js",
   "compatibility_date": "2026-08-14",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    "BETTER_AUTH_URL": "https://flash-cards.mmed-fm-flashcardstest.workers.dev"
+  },
   "assets": {
+    "binding": "ASSETS",
     "directory": ".svelte-kit/cloudflare"
   },
   "observability": {
-    "enabled": true
-  }
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  // Wrangler creates persistent local resources during development and
+  // automatically provisions the production resources on first deploy.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "flash-cards-db",
+      "database_id": "ea6f3ec4-eb09-4fb1-8314-cd027436a2f8",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "flash-cards-media"
+    }
+  ]
 }

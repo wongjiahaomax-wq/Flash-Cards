@@ -9,6 +9,7 @@ import {
   uniqueIndex
 } from 'drizzle-orm/sqlite-core';
 
+/** @param {string} name */
 const timestamp = (name) =>
   integer(name, { mode: 'timestamp_ms' })
     .notNull()
@@ -23,7 +24,10 @@ export const concepts = sqliteTable(
     name: text('name').notNull(),
     slug: text('slug').notNull(),
     descriptionMd: text('description_md'),
-    parentId: text('parent_id').references(() => concepts.id, { onDelete: 'restrict' }),
+    parentId: text('parent_id').references(
+      /** @returns {import('drizzle-orm/sqlite-core').AnySQLiteColumn} */ () => concepts.id,
+      { onDelete: 'restrict' }
+    ),
     isActive: activeFlag(),
     createdAt: timestamp('created_at'),
     updatedAt: timestamp('updated_at')
