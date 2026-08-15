@@ -66,7 +66,7 @@
   </section>
 
   <section id="images" class="panel stack">
-    <div><p class="eyebrow">Always shown with this Case</p><h2>Fixed images <span class="count">{selectedCase.attached.length}</span></h2><p class="muted">Keep an image fixed when it should appear in every Review of this Case. If several images are interchangeable examples, move them into an Alternative image set below.</p></div>
+    <div><p class="eyebrow">Always shown with this Case</p><h2>Fixed images <span class="count">{selectedCase.attached.length}</span></h2><p class="muted">Keep an image fixed when it should appear in every Review of this Case. If several images are interchangeable examples, start an alternative set directly from one of the fixed images below.</p></div>
     <div class="image-columns">
       <div class="stack">
         <h3>Fixed images</h3>
@@ -76,7 +76,12 @@
             <div class="asset-topline"><span class="order-badge">{index + 1}</span>{#if asset.imageUrl}<img src={asset.imageUrl} alt={asset.altText ?? ''} width="140" height="100" />{:else}<div class="inactive-image">Inactive image</div>{/if}<div class="asset-details"><strong>{asset.originalFilename ?? asset.assetId}</strong><span class="muted">{asset.altText || 'No alt text'}</span>{#if asset.sourceLabel}<span class="muted">Source: {asset.sourceLabel}</span>{/if}</div></div>
             <form method="POST" action="?/caption" class="stack"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><label>Case-specific caption<textarea name="caption" rows="2" maxlength="1000">{asset.captionMd ?? ''}</textarea></label><button class="button small" type="submit">Save caption</button></form>
             <div class="actions"><form method="POST" action="?/reorder"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><input type="hidden" name="direction" value="up" /><button class="button small" type="submit" disabled={index === 0}>Move up</button></form><form method="POST" action="?/reorder"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><input type="hidden" name="direction" value="down" /><button class="button small" type="submit" disabled={index === selectedCase.attached.length - 1}>Move down</button></form><form method="POST" action="?/detach"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><button class="button danger small" type="submit">Detach</button></form></div>
-            {#if selectedCase.stimulusGroups.length > 0}<form method="POST" action="?/addStimulusOption" class="move-to-alternatives"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><input type="hidden" name="convert_fixed" value="on" /><label>Make this image an alternative<select name="group_id" required><option value="">Choose alternative set</option>{#each selectedCase.stimulusGroups as group}<option value={group.id}>{group.name}</option>{/each}</select></label><button class="button small" type="submit">Move into set</button></form>{/if}
+            <form method="POST" action="?/startAlternativeSet" class="move-to-alternatives">
+              <input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} />
+              <label>Start a new alternative set from this image<input name="set_name" required placeholder="e.g. ECG" /></label>
+              <button class="button small" type="submit">Start alternative set</button>
+            </form>
+            {#if selectedCase.stimulusGroups.length > 0}<form method="POST" action="?/addStimulusOption" class="move-to-alternatives"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><input type="hidden" name="convert_fixed" value="on" /><label>Or move into an existing set<select name="group_id" required><option value="">Choose alternative set</option>{#each selectedCase.stimulusGroups as group}<option value={group.id}>{group.name}</option>{/each}</select></label><button class="button small" type="submit">Move into set</button></form>{/if}
           </article>
         {/each}
       </div>
@@ -97,12 +102,12 @@
     <form method="POST" action="?/createStimulusGroup" class="start-alternative-form">
       <input type="hidden" name="case_id" value={selectedCase.case.id} />
       <input type="hidden" name="specific_question_mode" value="none" />
-      <label>New alternative image set<input name="name" required placeholder="e.g. ECG" /></label>
-      <button class="button primary" type="submit">Create alternative set</button>
+      <label>Create an empty alternative image set<input name="name" required placeholder="e.g. ECG" /></label>
+      <button class="button" type="submit">Create empty set</button>
     </form>
-    <p class="muted helper-copy">After creating a set, move an existing fixed image into it above or add an image from the library below. Each Review selects one active image from each active set.</p>
+    <p class="muted helper-copy">The quickest path is to start a set from a fixed image above, then add another image here. Creating an empty set is useful when none of the current fixed images should become an alternative. Each Review selects one active image from each active set.</p>
 
-    {#if selectedCase.stimulusGroups.length === 0}<p class="empty-state">No alternative image sets yet. This Case currently uses only fixed images.</p>{/if}
+    {#if selectedCase.stimulusGroups.length === 0}<p class="empty-state">No alternative image sets yet. Start one from a fixed image above, or create an empty set here.</p>{/if}
     {#each selectedCase.stimulusGroups as group}
       <article class="alternative-set">
         <div class="card-heading"><div><p class="eyebrow">Alternative set</p><h3>{group.name} <span class="count">{group.options.length} images</span></h3></div><span class:inactive={!group.isActive} class="status-badge">{group.isActive ? 'Active' : 'Inactive'}</span></div>
