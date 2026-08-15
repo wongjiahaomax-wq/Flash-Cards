@@ -1,12 +1,8 @@
 <script>
   let { form } = /** @type {any} */ ($props());
-  /** @type {File | null} */
-  let selectedFile = $state(null);
   let confirmImport = $state(false);
 
-  /** @param {Event & { currentTarget: HTMLInputElement }} event */
-  function fileChanged(event) {
-    selectedFile = event.currentTarget.files?.[0] ?? null;
+  function fileChanged() {
     confirmImport = false;
   }
 </script>
@@ -25,6 +21,7 @@
   <section class="panel preview" aria-live="polite">
     <p class="eyebrow">Dry run preview{form.packageId ? ` · ${form.packageId}` : ''}</p>
     <h2>No database writes occurred</h2>
+    <p class="muted">This successful preview authorizes only this exact ZIP, for a short period. The confirm step rejects a different file.</p>
     <div class="count-grid">
       <span>Topics <strong>{form.preview.topics.create} create · {form.preview.topics.use} use · {form.preview.topics.skip} skip</strong></span>
       <span>Cases <strong>{form.preview.cases.create} create · {form.preview.cases.use} use · {form.preview.cases.skip} skip</strong></span>
@@ -39,7 +36,7 @@
 {/if}
 
 {#if form?.result}
-  <section class="panel success" aria-live="polite"><h2>Import complete</h2><p>Package <strong>{form.result.packageId}</strong> uploaded {form.result.uploadedImages} image(s) and applied {form.result.created} database operation(s).</p><p class="muted">If a retry is needed, submit the same reviewed package. Stable package IDs and conflict checks prevent accidental duplication.</p></section>
+  <section class="panel success" aria-live="polite"><h2>Import complete</h2><p>Package <strong>{form.result.packageId}</strong> uploaded {form.result.uploadedImages} image(s) and applied {form.result.created} database operation(s).</p><p class="muted">If a retry is needed, run a fresh dry-run preview first. Stable package IDs and conflict checks prevent accidental duplication.</p></section>
 {/if}
 
 <section class="panel">
@@ -53,9 +50,9 @@
 
 <section class="panel">
   <h2>2. Confirm and import</h2>
-  <p class="muted">Select the package again. Validation runs again immediately before any writes. Existing objects are never silently overwritten.</p>
-  <form method="POST" action="?/import" enctype="multipart/form-data" class="form-grid" onsubmit={() => { confirmImport = true; }}>
-    <label>Package ZIP<input name="package" type="file" accept=".zip,application/zip" required /></label>
+  <p class="muted">Select the exact ZIP that most recently passed preview. Its SHA-256 digest must match; validation then runs again immediately before any writes. Existing objects are never silently overwritten.</p>
+  <form method="POST" action="?/import" enctype="multipart/form-data" class="form-grid">
+    <label>Package ZIP<input name="package" type="file" accept=".zip,application/zip" required onchange={fileChanged} /></label>
     <label class="confirmation"><input name="confirm" type="checkbox" value="on" required bind:checked={confirmImport} /> I have reviewed the dry-run preview and explicitly confirm this import.</label>
     <div class="actions"><button class="button danger" type="submit">Import reviewed package</button></div>
   </form>
