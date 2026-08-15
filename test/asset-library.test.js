@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
@@ -13,6 +14,18 @@ import {
 } from '../src/lib/server/db/asset-library.js';
 
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith('$lib/')) {
+      return {
+        url: new URL(`../src/lib/${specifier.slice('$lib/'.length)}`, import.meta.url).href,
+        shortCircuit: true
+      };
+    }
+    return nextResolve(specifier, context);
+  }
+});
 
 const migrationSql = readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8').replaceAll('--> statement-breakpoint', '');
 
@@ -39,7 +52,40 @@ function createLearningDb() {
       };
     }
   };
-  return { db: /** @type {LearningDb} */ (createDb(/** @type {D1Database} */ (/** @type {unknown} */ (d1)))), sqlite };
+  return {
+    db: /** @type {LearningDb} */ (createDb(/** @type {D1Database} */ (/** @type {unknown} */ (d1)))),
+    d1,
+    sqlite
+  };
+}
+
+function createR2Bucket() {
+  const objects = new Map();
+  let putCount = 0;
+  return {
+    get putCount() { return putCount; },
+    async head(key) { return objects.get(key) ?? null; },
+    async list() { return { objects: [...objects.values()], truncated: false }; },
+    async put(key, file) {
+      putCount += 1;
+      const object = { key, size: file.size };
+      objects.set(key, object);
+      return object;
+    },
+    async delete(key) { objects.delete(key); }
+  };
+}
+
+/** @param {{ sourceUrl?: string, size?: number }} [options] */
+function createUploadRequest(options = {}) {
+  const formData = new FormData();
+  formData.set('image', new File([new Uint8Array(options.size ?? 16)], 'teaching-image.png', { type: 'image/png' }));
+  formData.set('image_name', 'Teaching image.png');
+  formData.set('alt_text', 'A teaching image');
+  formData.set('source_label', 'Teaching source');
+  formData.set('source_url', options.sourceUrl ?? 'https://example.com/source');
+  formData.set('licence', 'Test licence');
+  return new Request('http://localhost/admin/images/new?/upload', { method: 'POST', body: formData });
 }
 
 test('Asset metadata renaming changes D1 metadata only and preserves storage relationships', async () => {
@@ -107,6 +153,65 @@ test('Asset Library searches metadata and filters usage, status, and provenance'
       () => updateAssetMetadata(fixture.db, 'seed-asset-pityriasis-herald', { sourceUrl: 'javascript:alert(1)', isActive: true }),
       (error) => error instanceof AssetLibraryInputError && /valid http\(s\)/.test(error.message)
     );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('new Image Library upload action redirects after a successful upload', async () => {
+  const fixture = createLearningDb();
+  const bucket = createR2Bucket();
+  try {
+    const { actions } = await import('../src/routes/admin/images/new/+page.server.js');
+    let redirectLocation = '';
+
+    await assert.rejects(
+      () => actions.upload({
+        request: createUploadRequest(),
+        locals: { user: { role: 'admin' } },
+        platform: { env: { DB: fixture.d1, MEDIA: bucket } }
+      }),
+      (error) => {
+        assert.equal(error?.status, 303);
+        assert.match(error?.location ?? '', /^\/admin\/images\/[^?]+\?status=uploaded$/);
+        redirectLocation = error.location;
+        return true;
+      }
+    );
+
+    const assetId = decodeURIComponent(redirectLocation.slice('/admin/images/'.length).split('?')[0]);
+    const stored = fixture.sqlite.prepare('SELECT id, storage_key, original_filename, source_url FROM assets WHERE id = ?').get(assetId);
+    assert.ok(stored);
+    assert.equal(stored.original_filename, 'Teaching image.png');
+    assert.equal(stored.source_url, 'https://example.com/source');
+    assert.equal(bucket.putCount, 1);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('new Image Library upload action preserves input and storage validation failures', async () => {
+  const fixture = createLearningDb();
+  const bucket = createR2Bucket();
+  try {
+    const { actions } = await import('../src/routes/admin/images/new/+page.server.js');
+
+    const badSource = await actions.upload({
+      request: createUploadRequest({ sourceUrl: 'javascript:alert(1)' }),
+      locals: { user: { role: 'admin' } },
+      platform: { env: { DB: fixture.d1, MEDIA: bucket } }
+    });
+    assert.equal(badSource.status, 400);
+    assert.match(badSource.data.error, /valid http\(s\) URL/);
+
+    const tooLarge = await actions.upload({
+      request: createUploadRequest({ size: 5 * 1024 * 1024 + 1 }),
+      locals: { user: { role: 'admin' } },
+      platform: { env: { DB: fixture.d1, MEDIA: bucket } }
+    });
+    assert.equal(tooLarge.status, 400);
+    assert.match(tooLarge.data.error, /upload limit/);
+    assert.equal(bucket.putCount, 0);
   } finally {
     fixture.sqlite.close();
   }
