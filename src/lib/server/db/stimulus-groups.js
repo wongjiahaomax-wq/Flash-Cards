@@ -53,6 +53,19 @@ function coverage(value, minimum) {
   return { mode, minimum: count };
 }
 
+/** @param {LearningDb} db @param {string} caseId @param {string | null} replacingGroupId @param {{ mode: string, minimum: number | null }} selected */
+async function validateCoverageFitsCase(db, caseId, replacingGroupId, selected) {
+  const caseRow = (await db.select({ mode: cases.questionSelectionMode, count: cases.questionCount }).from(cases).where(eq(cases.id, caseId)).limit(1))[0];
+  if (caseRow?.mode !== 'fixed' || !caseRow.count) return;
+  const groups = await db.select({ id: stimulusGroups.id, mode: stimulusGroups.specificQuestionMode, minimum: stimulusGroups.minimumSpecificQuestions }).from(stimulusGroups).where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroups.isActive, true)));
+  const minimumTotal = groups
+    .filter((group) => group.id !== replacingGroupId)
+    .reduce((total, group) => total + (group.mode === 'minimum' ? group.minimum ?? 0 : 0), 0) + (selected.mode === 'minimum' ? selected.minimum ?? 0 : 0);
+  if (minimumTotal > caseRow.count) {
+    throw new StimulusGroupInputError(`This Stimulus Group coverage requires at least ${minimumTotal} questions, but the Case is configured for ${caseRow.count}.`);
+  }
+}
+
 /** @param {LearningDb} db @param {string} caseId */
 async function requireCase(db, caseId) {
   const row = (await db.select({ id: cases.id }).from(cases).where(and(eq(cases.id, caseId), eq(cases.isActive, true))).limit(1))[0];
@@ -133,6 +146,7 @@ export async function createStimulusGroup(db, input) {
   await requireCase(db, caseId);
   const name = requiredText(input.name, 'Stimulus Group name');
   const selected = coverage(input.specificQuestionMode, input.minimumSpecificQuestions);
+  await validateCoverageFitsCase(db, caseId, null, selected);
   const last = await db.select({ displayOrder: stimulusGroups.displayOrder }).from(stimulusGroups).where(eq(stimulusGroups.caseId, caseId)).orderBy(desc(stimulusGroups.displayOrder)).limit(1);
   const id = crypto.randomUUID();
   await db.insert(stimulusGroups).values({ id, caseId, name, displayOrder: (last[0]?.displayOrder ?? -1) + 1, selectionCount: 1, specificQuestionMode: selected.mode, minimumSpecificQuestions: selected.minimum, isActive: input.isActive == null ? true : activeValue(input.isActive) });
@@ -143,6 +157,7 @@ export async function createStimulusGroup(db, input) {
 export async function updateStimulusGroup(db, input) {
   const group = await requireGroup(db, requiredText(input.groupId, 'Stimulus Group'));
   const selected = coverage(input.specificQuestionMode, input.minimumSpecificQuestions);
+  await validateCoverageFitsCase(db, group.caseId, group.id, selected);
   await db.update(stimulusGroups).set({ name: requiredText(input.name, 'Stimulus Group name'), specificQuestionMode: selected.mode, minimumSpecificQuestions: selected.minimum, isActive: input.isActive == null ? group.isActive : activeValue(input.isActive), updatedAt: new Date() }).where(eq(stimulusGroups.id, group.id));
 }
 

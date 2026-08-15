@@ -1,6 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm';
 
-import { caseConcepts, cases, concepts } from './schema.js';
+import { caseConcepts, cases, concepts, stimulusGroups } from './schema.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -37,6 +37,14 @@ function questionSelection(mode, count) {
     throw new AdminContentInputError('Choose N questions requires a positive integer.');
   }
   return { mode: selectedMode, count: selectedCount };
+}
+
+/** @param {LearningDb} db @param {string} caseId @param {{ mode: string, count: number | null }} selection */
+async function validateCaseQuestionCoverage(db, caseId, selection) {
+  if (selection.mode !== 'fixed' || !selection.count) return;
+  const groups = await db.select({ mode: stimulusGroups.specificQuestionMode, minimum: stimulusGroups.minimumSpecificQuestions }).from(stimulusGroups).where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroups.isActive, true)));
+  const minimumTotal = groups.reduce((total, group) => total + (group.mode === 'minimum' ? group.minimum ?? 0 : 0), 0);
+  if (minimumTotal > selection.count) throw new AdminContentInputError(`This Case needs at least ${minimumTotal} questions to satisfy its active Stimulus Group guarantees, but Choose N is ${selection.count}.`);
 }
 
 /** @param {string} name */
@@ -171,6 +179,7 @@ export async function updateCase(db, input) {
     .where(and(eq(cases.id, caseId), eq(cases.isActive, true)))
     .limit(1);
   if (!existing[0]) throw new AdminContentInputError('The selected Case is missing or inactive.');
+  await validateCaseQuestionCoverage(db, caseId, selection);
 
   await db
     .update(cases)
