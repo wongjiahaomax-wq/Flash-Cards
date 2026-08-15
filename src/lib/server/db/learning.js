@@ -247,7 +247,8 @@ async function loadCaseSource(db, caseId) {
       isActive: caseQuestions.isActive
     })
     .from(caseQuestions)
-    .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.isActive, true)));
+    .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.isActive, true)))
+    .orderBy(asc(caseQuestions.createdAt), asc(caseQuestions.questionPromptId));
   const caseQuestionInputs = caseQuestionRows
     .filter((question) => prompts.has(question.questionPromptId))
     .map((question) => ({

@@ -10,6 +10,13 @@ import {
   updateCaseVignette
 } from '$lib/server/db/admin-content.js';
 import {
+  CaseQuestionInputError,
+  listCaseQuestions,
+  moveCaseQuestion,
+  removeCaseQuestion,
+  saveCaseQuestion
+} from '$lib/server/db/case-questions.js';
+import {
   attachAssetToCase,
   canManageCaseAssets,
   CaseAssetInputError,
@@ -83,6 +90,7 @@ export async function load({ locals, platform, url }) {
   const requestedId = url.searchParams.get('case');
   const selectedId = caseRows.some((item) => item.id === requestedId) ? requestedId : caseRows[0]?.id;
   const manager = selectedId ? await getAdminCaseData(db, selectedId) : null;
+  const questionRows = selectedId ? await listCaseQuestions(db, selectedId) : [];
   const requestedConceptId = url.searchParams.get('concept');
   const selectedConceptId = conceptRows.some((item) => item.id === requestedConceptId)
     ? requestedConceptId
@@ -99,6 +107,7 @@ export async function load({ locals, platform, url }) {
     selectedCase: manager
       ? {
           ...manager,
+          questions: questionRows,
           attached: manager.attached.map((asset) => ({
             ...asset,
             imageUrl: asset.isActive ? getTeachingImageUrl(asset.assetId) : null
@@ -114,7 +123,7 @@ export async function load({ locals, platform, url }) {
 
 /** @param {unknown} error */
 function actionError(error) {
-  return error instanceof CaseAssetInputError || error instanceof AdminContentInputError
+  return error instanceof CaseAssetInputError || error instanceof AdminContentInputError || error instanceof CaseQuestionInputError
     ? error.message
     : 'Unable to update Case content.';
 }
@@ -172,6 +181,55 @@ export const actions = {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
     }
     redirect(303, selectedCaseRedirect(caseId, 'vignette-saved'));
+  },
+
+  saveQuestion: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    try {
+      await saveCaseQuestion(createDb(platform.env.DB), {
+        caseId,
+        originalPromptId: formText(formData, 'original_prompt_id') || null,
+        promptMd: formText(formData, 'prompt_md'),
+        answerMd: formText(formData, 'answer_md'),
+        reusableForTopic: formData.get('reusable_for_topic')
+      });
+    } catch (error) {
+      return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
+    }
+    redirect(303, selectedCaseRedirect(caseId, 'question-saved'));
+  },
+
+  removeQuestion: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    try {
+      await removeCaseQuestion(createDb(platform.env.DB), caseId, formText(formData, 'prompt_id'));
+    } catch (error) {
+      return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
+    }
+    redirect(303, selectedCaseRedirect(caseId, 'question-removed'));
+  },
+
+  reorderQuestion: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    const direction = formText(formData, 'direction');
+    if (direction !== 'up' && direction !== 'down') {
+      return fail(400, { error: 'A valid movement direction is required.', caseId });
+    }
+    try {
+      await moveCaseQuestion(createDb(platform.env.DB), caseId, formText(formData, 'prompt_id'), direction);
+    } catch (error) {
+      return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
+    }
+    redirect(303, selectedCaseRedirect(caseId, 'question-reordered'));
   },
 
   upload: async ({ request, locals, platform }) => {

@@ -272,6 +272,92 @@
           <a class="button" href="/study">Preview in Study</a>
         </div>
 
+        <section class="question-panel" aria-labelledby="questions-heading">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Case questions</p>
+              <h3 id="questions-heading">Questions <span class="count">{selectedCase.questions.length}</span></h3>
+            </div>
+            <span class="muted">Case-specific answers take precedence over topic answers.</span>
+          </div>
+
+          <form method="POST" action="?/saveQuestion" class="question-form">
+            <input type="hidden" name="case_id" value={selectedCase.case.id} />
+            <label>
+              Add question prompt
+              <textarea name="prompt_md" rows="2" maxlength="2000" required placeholder="e.g. ECG finding"></textarea>
+            </label>
+            <label>
+              Answer
+              <textarea name="answer_md" rows="3" maxlength="5000" required placeholder="e.g. Prolonged QTc"></textarea>
+            </label>
+            <label class="checkbox-label">
+              <input name="reusable_for_topic" type="checkbox" />
+              <span>Reusable for this topic</span>
+            </label>
+            <p class="muted form-note">When selected, the answer is also saved for this Case's primary topic.</p>
+            <button class="button primary" type="submit">Add question</button>
+          </form>
+
+          {#if selectedCase.questions.length === 0}
+            <p class="muted empty-state">No questions yet. Add the prompts and answers learners should review.</p>
+          {:else}
+            <div class="question-list">
+              {#each selectedCase.questions as question, index}
+                <article class="question-card">
+                  <div class="question-heading">
+                    <span class="order-badge">{index + 1}</span>
+                    <div>
+                      <strong>Question {index + 1}</strong>
+                      {#if question.reusableForTopic}<span class="topic-badge">Reusable for {selectedCase.case.conceptName}</span>{/if}
+                    </div>
+                  </div>
+                  <form method="POST" action="?/saveQuestion" class="question-form">
+                    <input type="hidden" name="case_id" value={selectedCase.case.id} />
+                    <input type="hidden" name="original_prompt_id" value={question.questionPromptId} />
+                    <label>
+                      Prompt
+                      <textarea name="prompt_md" rows="2" maxlength="2000" required>{question.promptMd}</textarea>
+                    </label>
+                    <label>
+                      Answer
+                      <textarea name="answer_md" rows="3" maxlength="5000" required>{question.answerMd}</textarea>
+                    </label>
+                    <label class="checkbox-label">
+                      <input name="reusable_for_topic" type="checkbox" checked={question.reusableForTopic} />
+                      <span>Reusable for this topic</span>
+                    </label>
+                    <div class="question-actions">
+                      <button class="button small" type="submit">Save question</button>
+                    </div>
+                  </form>
+                  <div class="question-actions">
+                    <div class="move-actions">
+                      <form method="POST" action="?/reorderQuestion">
+                        <input type="hidden" name="case_id" value={selectedCase.case.id} />
+                        <input type="hidden" name="prompt_id" value={question.questionPromptId} />
+                        <input type="hidden" name="direction" value="up" />
+                        <button class="button small" type="submit" disabled={index === 0}>Move up</button>
+                      </form>
+                      <form method="POST" action="?/reorderQuestion">
+                        <input type="hidden" name="case_id" value={selectedCase.case.id} />
+                        <input type="hidden" name="prompt_id" value={question.questionPromptId} />
+                        <input type="hidden" name="direction" value="down" />
+                        <button class="button small" type="submit" disabled={index === selectedCase.questions.length - 1}>Move down</button>
+                      </form>
+                    </div>
+                    <form method="POST" action="?/removeQuestion">
+                      <input type="hidden" name="case_id" value={selectedCase.case.id} />
+                      <input type="hidden" name="prompt_id" value={question.questionPromptId} />
+                      <button class="button danger" type="submit">Remove</button>
+                    </form>
+                  </div>
+                </article>
+              {/each}
+            </div>
+          {/if}
+        </section>
+
         <div class="manager-grid">
           <section class="manager-panel" aria-labelledby="attached-heading">
             <div class="panel-heading">
@@ -437,6 +523,17 @@
   .topic-form { display: grid; gap: 0.4rem; }
   .topic-form label { font-size: 0.9rem; }
   .vignette-form { display: grid; gap: 0.65rem; max-width: 680px; margin-top: 1rem; }
+  .question-panel { display: grid; gap: 0.85rem; padding: 1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #f8fafc; }
+  .question-form { display: grid; gap: 0.65rem; }
+  .question-list { display: grid; gap: 0.8rem; }
+  .question-card { display: grid; gap: 0.75rem; padding: 0.8rem; border: 1px solid #eaecf0; border-radius: 10px; background: #fff; }
+  .question-heading { display: flex; align-items: center; gap: 0.65rem; }
+  .question-heading > div { display: grid; gap: 0.2rem; }
+  .topic-badge { color: #475467; font-size: 0.8rem; }
+  .checkbox-label { display: flex; grid-template-columns: auto 1fr; align-items: center; gap: 0.5rem; font-weight: 500; }
+  .checkbox-label input { width: auto; }
+  .form-note { margin: -0.35rem 0 0; font-size: 0.82rem; }
+  .question-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
   .case-header { display: flex; justify-content: space-between; align-items: start; gap: 1rem; padding: 1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #f8fafc; }
   .case-header p { margin-bottom: 0; }
   .manager-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
