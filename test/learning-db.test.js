@@ -95,3 +95,27 @@ test('reveal and whole-case rating persist, and history avoids an immediate repe
     fixture.sqlite.close();
   }
 });
+
+test('Review snapshot contains every attached Asset in configured order', async () => {
+  const fixture = createLearningDb();
+  try {
+    const reviewId = await startReview({
+      db: fixture.db,
+      userId: 'learner-1',
+      conceptId: 'seed-pityriasis-rosea',
+      rng: () => 0
+    });
+    assert.ok(reviewId);
+    const review = await getReview(fixture.db, reviewId, 'learner-1');
+    assert.ok(review);
+    assert.deepEqual(
+      review.assets.map((asset) => ({ assetId: asset.assetId, displayOrder: asset.displayOrder, caption: asset.caption })),
+      [
+        { assetId: 'seed-asset-pityriasis-herald', displayOrder: 0, caption: 'Herald patch' },
+        { assetId: 'seed-asset-pityriasis-trunk', displayOrder: 1, caption: 'Later truncal eruption' }
+      ]
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
