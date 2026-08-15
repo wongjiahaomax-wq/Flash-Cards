@@ -215,17 +215,17 @@ Topics remain parent-first even across request boundaries.
 ### Chunk budget
 
 ```text
-IMPORT_ITEMS_PER_REQUEST = 8
+IMPORT_ITEMS_PER_REQUEST = 7
 IMPORT_D1_OPERATION_BUDGET = 40
 ```
 
-Cloudflare currently documents a 50 D1-query limit per Worker invocation on Workers Free. The implementation leaves headroom for job claim/checkpoint operations and uses tests that instrument representative worst-case D1 operation counts. The goal is predictable bounded work rather than throughput.
+Cloudflare currently documents a 50 D1-query limit per Worker invocation on Workers Free. Seven items leaves headroom for a parent-linked Topic create chunk plus job claim/checkpoint operations. The implementation uses tests that instrument bounded D1 operation counts. The goal is predictable bounded work rather than throughput.
 
 ### Pause/resume
 
 Automatic processing occurs only while the Admin page is actively sending sequential process requests. **Pause**, refresh, browser close, sleep, or network loss merely stops new requests. Returning later loads the persisted job and Resume continues from its D1 checkpoint.
 
-A short conditional D1 lease prevents two tabs from processing the same cursor simultaneously.
+A short conditional D1 lease prevents two tabs from processing the same cursor simultaneously. Cancellation refuses to race an active lease.
 
 ### Failure/atomicity
 
@@ -234,6 +234,8 @@ Whole-package atomicity is not promised. Earlier import chunks may already be co
 A failed job records phase/cursor/error and keeps its staged package for Retry/Resume. Cancel stops future processing and removes staging; after writes begin it does not roll back committed content.
 
 For teaching-image writes, an orphaned deterministic R2 object without the expected D1 Asset row fails explicitly rather than being overwritten. R2 upload followed by D1 failure retains the existing cleanup path.
+
+Finalization is also crash-tolerant: once the checkpoint reaches `finalize`, package deletion can be retried without re-reading the staged ZIP, so a lost response between R2 deletion and the final D1 status update does not strand the job.
 
 ### Completion
 
