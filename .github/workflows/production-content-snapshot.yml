@@ -17,26 +17,34 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      # Prefer a dedicated read-only token when configured. The existing deploy
-      # token is a compatibility fallback so the workflow can be adopted before
-      # a separate CLOUDFLARE_D1_READ_TOKEN secret is created.
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+      CLOUDFLARE_DEPLOY_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
-      - name: Verify Cloudflare credentials
+      - name: Select and verify Cloudflare credentials
         shell: bash
         run: |
           set -euo pipefail
-          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
-            echo "::error::Configure CLOUDFLARE_D1_READ_TOKEN (preferred) or CLOUDFLARE_API_TOKEN in repository secrets."
-            exit 1
-          fi
+
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
             echo "::error::Configure CLOUDFLARE_ACCOUNT_ID in repository secrets."
+            exit 1
+          fi
+
+          if [ -n "${CLOUDFLARE_D1_READ_TOKEN:-}" ]; then
+            echo "::notice::Using dedicated CLOUDFLARE_D1_READ_TOKEN for the production snapshot."
+            echo "CLOUDFLARE_API_TOKEN=${CLOUDFLARE_D1_READ_TOKEN}" >> "$GITHUB_ENV"
+            echo "SNAPSHOT_AUTH_SOURCE=dedicated D1 read token" >> "$GITHUB_ENV"
+          elif [ -n "${CLOUDFLARE_DEPLOY_TOKEN:-}" ]; then
+            echo "::warning::CLOUDFLARE_D1_READ_TOKEN is not configured; using CLOUDFLARE_API_TOKEN as a compatibility fallback."
+            echo "CLOUDFLARE_API_TOKEN=${CLOUDFLARE_DEPLOY_TOKEN}" >> "$GITHUB_ENV"
+            echo "SNAPSHOT_AUTH_SOURCE=deployment token fallback" >> "$GITHUB_ENV"
+          else
+            echo "::error::Configure CLOUDFLARE_D1_READ_TOKEN (preferred) or CLOUDFLARE_API_TOKEN in repository secrets."
             exit 1
           fi
 
@@ -48,15 +56,35 @@ jobs:
           run_query() {
             local label="$1"
             local sql="$2"
+            local output
+            local status
+
             echo "::group::${label}"
-            npx --yes wrangler@4.123.0 d1 execute DB --remote --json --command "$sql"
+            set +e
+            output=$(npx --yes wrangler@4.123.0 d1 execute DB --remote --json --command "$sql" 2>&1)
+            status=$?
+            set -e
+            printf '%s\n' "$output"
             echo "::endgroup::"
+
+            if [ "$status" -ne 0 ]; then
+              if printf '%s\n' "$output" | grep -q "code: 7403"; then
+                echo "::error::Cloudflare rejected access to the configured D1 account/database (error 7403)."
+                if [ "${SNAPSHOT_AUTH_SOURCE:-}" = "deployment token fallback" ]; then
+                  echo "::error::The fallback deployment token may not have D1 Read access. Create a least-privilege Cloudflare token with D1 Read permission for the account that owns flash-cards-db, then save it as the GitHub secret CLOUDFLARE_D1_READ_TOKEN. Also verify CLOUDFLARE_ACCOUNT_ID is the owning account ID."
+                else
+                  echo "::error::Verify CLOUDFLARE_D1_READ_TOKEN has D1 Read permission for the account that owns flash-cards-db and verify CLOUDFLARE_ACCOUNT_ID is that same account ID."
+                fi
+              fi
+              return "$status"
+            fi
           }
 
           echo "Production D1 content snapshot"
           echo "Generated at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "Repository: ${GITHUB_REPOSITORY}"
           echo "Commit: ${GITHUB_SHA}"
+          echo "Credential source: ${SNAPSHOT_AUTH_SOURCE}"
           echo
 
           run_query "TOPICS" "
