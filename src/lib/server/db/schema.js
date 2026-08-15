@@ -281,6 +281,9 @@ export const reviews = sqliteTable(
     primaryConceptId: text('primary_concept_id')
       .notNull()
       .references(() => concepts.id, { onDelete: 'restrict' }),
+    studyConceptId: text('study_concept_id')
+      .notNull()
+      .references(() => concepts.id, { onDelete: 'restrict' }),
     caseTitleSnapshot: text('case_title_snapshot').notNull(),
     vignetteSnapshotMd: text('vignette_snapshot_md'),
     status: text('status').notNull().default('started'),
@@ -293,6 +296,7 @@ export const reviews = sqliteTable(
     index('reviews_user_completed_idx').on(table.userId, table.completedAt),
     index('reviews_case_completed_idx').on(table.caseId, table.completedAt),
     index('reviews_concept_completed_idx').on(table.primaryConceptId, table.completedAt),
+    index('reviews_study_concept_completed_idx').on(table.studyConceptId, table.completedAt),
     check('reviews_status_check', sql`${table.status} in ('started', 'completed')`),
     check('reviews_rating_check', sql`${table.rating} is null or ${table.rating} in ('again', 'good')`)
   ]

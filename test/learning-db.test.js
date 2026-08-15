@@ -10,7 +10,11 @@ import { buildSeedSql } from '../scripts/seed-content.mjs';
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
 /** @typedef {{ prepare: (sql: string) => any, batch: (statements: any[]) => Promise<any[]> }} TestD1 */
 
-const migrationSql = [readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'), readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8')].join('\n').replaceAll('--> statement-breakpoint', '');
+const migrationSql = [
+  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8')
+].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
@@ -64,6 +68,8 @@ test('startReview batches and persists ordered questions/assets as snapshots', a
     const review = await getReview(fixture.db, reviewId, 'learner-1');
     assert.ok(review);
     assert.equal(review.status, 'started');
+    assert.equal(review.primaryConceptId, 'seed-anterior-stemi');
+    assert.equal(review.studyConceptId, 'seed-anterior-stemi');
     assert.equal(review.assets.length, 1);
     assert.equal(review.assets[0].storageKey, 'seed/anterior-stemi-a.png');
     assert.equal(review.questions.length, 3);

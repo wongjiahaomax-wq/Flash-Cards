@@ -19,7 +19,8 @@ import { buildSeedSql } from '../scripts/seed-content.mjs';
 
 const migrationSql = [
   readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -68,7 +69,7 @@ test('administrator can create Concepts with unique generated slugs', async () =
   }
 });
 
-test('administrator can create a Case with vignette and primary topic association', async () => {
+test('administrator can create a Case and change its default Topic without losing attached Topics', async () => {
   const fixture = createLearningDb();
   try {
     const created = await createCase(fixture.db, {
@@ -95,6 +96,7 @@ test('administrator can create a Case with vignette and primary topic associatio
     assert.ok(updated);
     assert.equal(updated.vignette_md, 'Updated case stem.');
 
+    fixture.sqlite.prepare("INSERT INTO case_concepts (case_id, concept_id, role) VALUES (?, 'seed-pityriasis-rosea', 'secondary')").run(created.id);
     await updateCase(fixture.db, {
       caseId: created.id,
       title: 'Renamed Case label',
@@ -104,8 +106,11 @@ test('administrator can create a Case with vignette and primary topic associatio
     const revised = fixture.sqlite.prepare('SELECT title, vignette_md FROM cases WHERE id = ?').get(created.id);
     assert.deepEqual({ ...revised }, { title: 'Renamed Case label', vignette_md: 'Revised case stem.' });
     assert.deepEqual(
-      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id = ?').all(created.id).map((row) => ({ ...row })),
-      [{ concept_id: 'seed-pityriasis-rosea', role: 'primary' }]
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id = ? ORDER BY concept_id').all(created.id).map((row) => ({ ...row })),
+      [
+        { concept_id: 'seed-anterior-stemi', role: 'secondary' },
+        { concept_id: 'seed-pityriasis-rosea', role: 'primary' }
+      ]
     );
   } finally {
     fixture.sqlite.close();

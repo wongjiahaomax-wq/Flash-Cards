@@ -4,15 +4,15 @@ _Last updated: 15 August 2026_
 
 ## Status
 
-**Architecture approved for implementation planning. No learner/admin implementation or migration is included in this document.**
+**Learner multi-Topic routing and Review provenance are implemented in draft PR #18. Admin multi-Topic Case authoring remains a separate follow-up milestone.**
 
-This design is the preferred next step before introducing any Asset-to-Topic relationship.
+This design remains the preferred intermediate model before introducing any Asset-to-Topic relationship.
 
 The key decision is:
 
 > **A Case may belong to multiple existing Topics/Concepts, and every attached Topic may be a valid learner entry route. The existing `primary` role remains only the Case's canonical/default administrative classification.**
 
-The implementation should reuse the existing `case_concepts` table rather than add a parallel Topic or Case-Topic model.
+The implementation reuses the existing `case_concepts` table rather than adding a parallel Topic or Case-Topic model.
 
 ---
 
@@ -30,7 +30,7 @@ Topics:
 - Prolonged QTc        [additional / secondary]
 ```
 
-The desired learner behaviour is:
+The learner behaviour is:
 
 ```text
 Study Hypocalcaemia
@@ -52,9 +52,9 @@ The Case, stem, Assets, stimulus groups, Question Prompts, and Case-specific ans
 
 ## 2. Primary versus secondary Topic semantics
 
-The database currently distinguishes `case_concepts.role = primary | secondary`.
+The database distinguishes `case_concepts.role = primary | secondary`.
 
-Keep that storage distinction, but change its product meaning.
+Keep that storage distinction, but use the following product meaning.
 
 ### Primary / default Topic
 
@@ -73,7 +73,7 @@ Secondary Topics are additional clinically valid study routes.
 
 They should not be treated as weaker or non-learning metadata.
 
-For learner Case eligibility, primary and secondary Topics should be interchangeable.
+For learner Case eligibility, primary and secondary Topics are interchangeable.
 
 Product-facing Admin language should prefer something like:
 
@@ -85,7 +85,7 @@ Topics
 
 rather than emphasizing a strong `Primary Topic` / weak `Secondary Topic` hierarchy.
 
-Changing which attached Topic is marked default should not change whether the Case remains eligible from any other attached Topic.
+Changing which attached Topic is marked default should not change whether the Case remains eligible from any other attached Topic. PR #18 hardens the existing default-Topic update path so it preserves attached Topic relationships; the full multi-Topic editor is still separate.
 
 ---
 
@@ -93,7 +93,7 @@ Changing which attached Topic is marked default should not change whether the Ca
 
 Do **not** automatically combine reusable questions from every Topic attached to the Case.
 
-The Topic through which the learner entered the Case should supply the reusable Topic-question layer for that Review.
+The Topic route resolved for the selected Case supplies the reusable Topic-question layer for that Review.
 
 Example:
 
@@ -103,7 +103,7 @@ Case Topics:
 - Prolonged QTc
 ```
 
-If the learner selected `Hypocalcaemia`, resolve:
+If the learner studies through `Hypocalcaemia`, resolve:
 
 ```text
 Hypocalcaemia Topic questions
@@ -113,7 +113,7 @@ Hypocalcaemia Topic questions
 + selected exact-option questions
 ```
 
-If the learner selected `Prolonged QTc`, resolve:
+If the learner studies through `Prolonged QTc`, resolve:
 
 ```text
 Prolonged-QTc Topic questions
@@ -123,7 +123,7 @@ Prolonged-QTc Topic questions
 + selected exact-option questions
 ```
 
-The Case's default Topic should not automatically inject its Topic questions when the learner entered through a different attached Topic.
+The Case's default Topic does not automatically inject its Topic questions when the learner entered through a different attached Topic.
 
 The existing more-specific contextual precedence remains:
 
@@ -308,11 +308,9 @@ No duplicate Cases or Assets are required.
 
 ## 7. Review provenance
 
-The current `reviews.primary_concept_id` records the Case's canonical primary Concept.
+`reviews.primary_concept_id` records the Case's canonical primary Concept at Review creation.
 
-Once non-primary Topics become real learner entry routes, a Review should also preserve the Topic the learner actually selected.
-
-Preferred additive field for implementation review:
+PR #18 adds:
 
 ```text
 reviews.study_concept_id
@@ -325,7 +323,7 @@ primary_concept_id
 = canonical/default Topic of the selected Case at Review creation
 
 study_concept_id
-= Topic route selected by the learner that made this Case eligible
+= attached Case Topic used as the reusable Topic-question route for this Review
 ```
 
 Example:
@@ -335,35 +333,46 @@ primary_concept_id = Hypocalcaemia
 study_concept_id   = Prolonged QTc
 ```
 
-This distinction is important for later progress reporting and historical interpretation.
+`study_concept_id` is non-null, references `concepts.id`, and uses `ON DELETE RESTRICT`.
 
-Do not create a migration until the implementation PR is reviewed.
+Migration `0003_multi_topic_study_routing.sql` safely backfills historical Reviews as:
+
+```text
+study_concept_id = primary_concept_id
+```
+
+because all historical Reviews used primary-Concept routing. Existing Review Question and Review Asset snapshots are preserved.
 
 ---
 
 ## 8. Learner selection changes
 
-Current behaviour uses only primary Case Concept links.
-
-The intended future behaviour is:
+Implemented learner behaviour in PR #18:
 
 1. learner selects a Topic;
-2. find active selected Topic + active descendants as today;
-3. find active Cases with **any active `case_concepts` relationship** to those Topics, regardless of primary/secondary role;
-4. select a Case using existing repeat-avoidance behaviour;
-5. preserve the learner-selected study Topic separately from the Case's default Topic;
-6. select/freeze stimulus alternatives as today;
-7. resolve reusable Topic questions from the selected study Topic rather than automatically from the Case default Topic;
-8. add Case/group/option questions and apply existing precedence/coverage/count rules;
-9. snapshot the Review.
+2. include that active selected Topic + active descendants as before;
+3. find active Cases with **any `case_concepts` relationship** to those Topics, regardless of primary/secondary role;
+4. deduplicate by Case ID before random selection so multiple matching links do not increase selection weight;
+5. resolve one Study Concept for each Case candidate deterministically:
+   1. exact Case link to the explicitly selected Topic;
+   2. otherwise the Case primary/default Concept if it lies in the selected subtree;
+   3. otherwise the most-specific/deepest matching secondary Concept in the subtree;
+   4. stable Concept-ID tie-break;
+6. select a Case using the existing repeat-avoidance behaviour;
+7. select/freeze stimulus alternatives as before;
+8. resolve reusable Topic questions from the Study Concept rather than automatically from the Case default Topic;
+9. add Case/group/option questions and apply existing precedence/coverage/count rules;
+10. snapshot the Review with both primary/default and Study Concept provenance.
 
-The exact descendant semantics should remain consistent with the existing Concept hierarchy unless implementation testing reveals an ambiguity.
+The descendant semantics remain consistent with the existing active Concept hierarchy.
+
+The `/study` selector uses the same relationship logic and counts unique Cases rather than relationship rows.
 
 ---
 
 ## 9. Admin authoring UX
 
-The simplest Case editor should expose:
+The full multi-Topic Case editor remains the next separate milestone. The intended surface is:
 
 ```text
 Topics
@@ -385,6 +394,8 @@ The administrator should be able to:
 Suggested helper text:
 
 > Add a Topic when this Case is a valid example of that Topic regardless of which alternative images are selected. Image-only findings that vary between alternatives should remain image-specific questions.
+
+PR #18 does **not** build this UI. It only makes the minimum correctness change needed so the existing default-Topic update path does not discard unrelated secondary relationships and can promote an already-attached secondary Topic safely.
 
 Do not add Asset-level Topic editing in this milestone.
 
@@ -457,18 +468,20 @@ Do not add now:
 
 ---
 
-## 13. Recommended implementation sequence
+## 13. Implementation sequence
 
-### PR 1 — Multi-Topic learner routing + provenance
+### PR #18 — Multi-Topic learner routing + provenance
 
-- make all attached Case Topics valid learner routes;
-- retain one default/primary Topic internally;
-- resolve reusable Topic questions from the selected study route;
-- preserve `study_concept_id` in Review provenance if the reviewed migration shape is accepted;
-- cover primary and secondary entry routes with tests;
-- preserve existing repeat avoidance, stimulus selection, question precedence, snapshots, and ordinary single-Topic Cases.
+Status: **implemented in draft; pending review/merge**
 
-### PR 2 — Admin multi-Topic authoring
+- all attached Case Topics are valid learner routes;
+- one default/primary Topic remains canonical internally;
+- reusable Topic questions resolve from one deterministic Study Concept;
+- `study_concept_id` is preserved in Review provenance;
+- primary and secondary entry routes are regression-tested;
+- existing repeat avoidance, stimulus selection, question precedence, snapshots, and ordinary single-Topic Cases are preserved.
+
+### Next PR — Admin multi-Topic authoring
 
 - expose attached Topics in the Case editor;
 - add/remove additional Topics;
@@ -476,7 +489,7 @@ Do not add now:
 - show the Case-Topic validity authoring guidance;
 - keep the existing Topics dashboard and Topic terminology.
 
-### PR 3 — Pilot-content validation / polish only if needed
+### Later — Pilot-content validation / polish only if needed
 
 Use representative ECG and mixed-modality Cases to verify:
 
@@ -492,15 +505,21 @@ Only then reconsider Asset/Stimulus-to-Topic relationships.
 
 ## 14. Final decision
 
-Implement next:
+Implemented in PR #18:
 
 ```text
 multiple attached Topics -> same Case
-all attached Topics are learner entry routes
+all valid attached Topics are learner entry routes
 one attached Topic remains default/canonical
-selected study Topic supplies reusable Topic questions
+one deterministic Study Topic supplies reusable Topic questions
 Case/group/exact-option questions remain shared
-Review preserves selected study route
+Review preserves both canonical/default and Study Topic provenance
+```
+
+Next separate milestone:
+
+```text
+Admin multi-Topic add/remove/default authoring
 ```
 
 Document for later:
