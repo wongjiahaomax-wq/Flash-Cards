@@ -54,7 +54,7 @@ PR #22 established `/admin/import` and the strict Flash-Cards Import Package v1 
 - explicit `create`, `use`, and `skip`;
 - fail-closed skip dependencies;
 - deterministic retry/conflict checks;
-- dry-run database conflict rules;
+- database conflict rules;
 - parent-first Topic ordering;
 - R2 cleanup after D1 Asset failure.
 
@@ -133,11 +133,11 @@ All database validation must finish before any domain writes begin.
 ### Request budget
 
 ```text
-IMPORT_ITEMS_PER_REQUEST = 8
+IMPORT_ITEMS_PER_REQUEST = 7
 IMPORT_D1_OPERATION_BUDGET = 40
 ```
 
-Cloudflare Workers Free currently permits 50 D1 queries per Worker invocation. The 40-operation internal test budget leaves headroom for job claim/checkpoint work instead of optimizing throughput.
+Cloudflare Workers Free currently permits 50 D1 queries per Worker invocation. Seven items keeps a parent-linked Topic create chunk, plus lease/checkpoint work, below the project's conservative internal budget rather than merely below the platform maximum.
 
 ### Private package staging
 
@@ -147,9 +147,9 @@ The exact confirmed ZIP is stored under:
 imports/staging/<job-id>.zip
 ```
 
-It is private, not an Asset, never learner-served, and does not go through `putTeachingImage()`. It still participates in the existing 5 GiB managed R2 ceiling and preserves the package-size limit. Staging keys are server-derived and immutable.
+It is private, not an Asset, never learner-served, and does not go through `putTeachingImage()`. It participates in the existing 5 GiB managed R2 ceiling and preserves the package-size limit. Staging keys are server-derived and immutable.
 
-Successful completion removes the staged ZIP. Cancel removes staging because the job is intentionally stopped. Failed jobs retain staging so Retry/Resume can safely use the original bytes.
+Successful completion removes the staged ZIP. Finalization can be retried safely if the response is lost after deletion because it does not require the package to be re-read. Cancel removes staging because the job is intentionally stopped. Failed jobs retain staging so Retry/Resume can safely use the original bytes.
 
 ### Idempotency/recovery
 
@@ -165,7 +165,7 @@ Imports are not whole-package atomic. Earlier chunks may already be committed wh
 
 ### Concurrency
 
-A short D1 lease plus conditional phase/cursor checkpoint protects against two tabs processing the same job. A competing tab receives a harmless busy result and should stop its local processing loop.
+A short D1 lease plus conditional phase/cursor checkpoint protects against two tabs processing the same job. A competing tab receives a harmless busy result and should stop its local processing loop. Cancellation also refuses to race an actively leased process request.
 
 ## Admin UI state
 
