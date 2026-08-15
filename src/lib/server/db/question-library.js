@@ -39,6 +39,22 @@ function expectedCount(value) {
   return count;
 }
 
+function activeConceptUsageCondition() {
+  return and(
+    eq(questionPrompts.isActive, true),
+    eq(conceptQuestions.isActive, true),
+    eq(concepts.isActive, true)
+  );
+}
+
+function activeCaseUsageCondition() {
+  return and(
+    eq(questionPrompts.isActive, true),
+    eq(caseQuestions.isActive, true),
+    eq(cases.isActive, true)
+  );
+}
+
 /**
  * Load active relationship rows so list filtering and usage labels use the
  * same definition of a current Question usage.
@@ -58,13 +74,7 @@ async function loadActiveUsageRows(db) {
       .from(conceptQuestions)
       .innerJoin(questionPrompts, eq(questionPrompts.id, conceptQuestions.questionPromptId))
       .innerJoin(concepts, eq(concepts.id, conceptQuestions.conceptId))
-      .where(
-        and(
-          eq(conceptQuestions.isActive, true),
-          eq(questionPrompts.isActive, true),
-          eq(concepts.isActive, true)
-        )
-      )
+      .where(activeConceptUsageCondition())
       .orderBy(asc(concepts.name), asc(conceptQuestions.createdAt)),
     db
       .select({
@@ -84,7 +94,7 @@ async function loadActiveUsageRows(db) {
         and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary'))
       )
       .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
-      .where(and(eq(caseQuestions.isActive, true), eq(questionPrompts.isActive, true)))
+      .where(activeCaseUsageCondition())
       .orderBy(asc(cases.title), asc(caseQuestions.createdAt))
   ]);
 
@@ -191,7 +201,7 @@ export async function getQuestionPromptDetail(db, promptId) {
 
   if (!prompt) return null;
 
-  const [conceptUsages, caseUsages] = await Promise.all([
+  const [conceptUsages, caseUsages, usageCount] = await Promise.all([
     db
       .select({
         id: sql.raw('"concept_questions"."id"').as('usage_id'),
@@ -225,16 +235,15 @@ export async function getQuestionPromptDetail(db, promptId) {
       )
       .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
       .where(eq(caseQuestions.questionPromptId, promptId))
-      .orderBy(asc(cases.title), asc(caseQuestions.createdAt))
+      .orderBy(asc(cases.title), asc(caseQuestions.createdAt)),
+    countActivePromptUsages(db, promptId)
   ]);
 
-  const activeConceptUsages = conceptUsages.filter((usage) => usage.isActive && usage.conceptIsActive);
-  const activeCaseUsages = caseUsages.filter((usage) => usage.isActive && usage.caseIsActive);
   return {
     ...prompt,
     conceptUsages,
     caseUsages,
-    usageCount: activeConceptUsages.length + activeCaseUsages.length,
+    usageCount,
     totalUsageCount: conceptUsages.length + caseUsages.length
   };
 }
@@ -245,11 +254,17 @@ async function countActivePromptUsages(db, promptId) {
     db
       .select({ id: conceptQuestions.id })
       .from(conceptQuestions)
-      .where(and(eq(conceptQuestions.questionPromptId, promptId), eq(conceptQuestions.isActive, true))),
+      .innerJoin(questionPrompts, eq(questionPrompts.id, conceptQuestions.questionPromptId))
+      .innerJoin(concepts, eq(concepts.id, conceptQuestions.conceptId))
+      .where(
+        and(eq(conceptQuestions.questionPromptId, promptId), activeConceptUsageCondition())
+      ),
     db
       .select({ id: caseQuestions.id })
       .from(caseQuestions)
-      .where(and(eq(caseQuestions.questionPromptId, promptId), eq(caseQuestions.isActive, true)))
+      .innerJoin(questionPrompts, eq(questionPrompts.id, caseQuestions.questionPromptId))
+      .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
+      .where(and(eq(caseQuestions.questionPromptId, promptId), activeCaseUsageCondition()))
   ]);
   return conceptRows.length + caseRows.length;
 }
