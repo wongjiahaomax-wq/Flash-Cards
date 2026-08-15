@@ -17,7 +17,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      CLOUDFLARE_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
     steps:
@@ -26,6 +25,8 @@ jobs:
 
       - name: Verify dedicated D1 write credentials
         shell: bash
+        env:
+          CLOUDFLARE_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
@@ -53,5 +54,7 @@ jobs:
 
           It does not accept SQL or record IDs as workflow inputs, does not run during deployment, and does not query or modify authentication, users, Reviews, questions, assets, or learner progress.
 
-          The operator performs a pre-flight read, a transactional scoped update only when `apply` is checked, and a post-flight read-back.
+          The dedicated D1 write token is exposed only to the credential-check and operator steps, not to the whole job.
+
+          The operator performs a human-readable pre-flight read plus machine safety checks. When `apply` is checked, Wrangler sends the fixed mutation statements as one D1 batch, followed by human-readable and machine-enforced post-flight verification.
           EOF
