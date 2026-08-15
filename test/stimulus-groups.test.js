@@ -5,8 +5,9 @@ import test from 'node:test';
 
 import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
-import { eq } from 'drizzle-orm';
-import { stimulusGroupOptions } from '../src/lib/server/db/schema.js';
+import { and, eq } from 'drizzle-orm';
+import { caseAssets, stimulusGroupOptions } from '../src/lib/server/db/schema.js';
+import { updateCase } from '../src/lib/server/db/admin-content.js';
 import { getReview, startReview } from '../src/lib/server/db/learning.js';
 import { listAssetLibrary } from '../src/lib/server/db/asset-library.js';
 import { getQuestionPromptDetail, listQuestionLibrary } from '../src/lib/server/db/question-library.js';
@@ -16,7 +17,8 @@ import {
   createStimulusGroup,
   saveStimulusGroupQuestion,
   saveStimulusOptionQuestion,
-  setStimulusOptionActive
+  setStimulusOptionActive,
+  updateStimulusGroup
 } from '../src/lib/server/db/stimulus-groups.js';
 import { pickReviewQuestions, resolveQuestionPool } from '../src/lib/server/learning/questions.js';
 
@@ -58,8 +60,7 @@ async function buildGroupedCase(fixture) {
   const groupId = await createStimulusGroup(fixture.db, {
     caseId: 'seed-anterior-a',
     name: 'ECG alternatives',
-    specificQuestionMode: 'minimum',
-    minimumSpecificQuestions: 1
+    specificQuestionMode: 'none'
   });
   await convertCaseAssetToStimulusOption(fixture.db, groupId, 'seed-asset-anterior-a');
   await addStimulusOption(fixture.db, groupId, 'seed-asset-anterior-b', 'ECG B');
@@ -72,6 +73,13 @@ async function buildGroupedCase(fixture) {
   await saveStimulusOptionQuestion(fixture.db, optionRows.find((/** @type {{ assetId: string }} */ row) => row.assetId === 'seed-asset-anterior-b')?.id ?? '', {
     promptMd: 'What is the diagnosis?',
     answerMd: 'The option-level answer.'
+  });
+  await updateStimulusGroup(fixture.db, {
+    groupId,
+    name: 'ECG alternatives',
+    specificQuestionMode: 'minimum',
+    minimumSpecificQuestions: 1,
+    isActive: true
   });
   return { groupId, optionRows };
 }
@@ -131,6 +139,79 @@ test('question modes and independent minimum coverage are deterministic', () => 
   assert.deepEqual(new Set(selected.map((question) => question.stimulusGroupId)), new Set(['ecg', 'xray']));
   assert.equal(pickReviewQuestions(pool, { mode: 'all', rng: () => 0 }).length, 4);
   assert.throws(() => pickReviewQuestions(pool, { mode: 'fixed', count: 1, rng: () => 0, groupCoverage: [{ groupId: 'ecg', mode: 'minimum', minimum: 1 }, { groupId: 'xray', mode: 'minimum', minimum: 1 }] }), /cannot fit/);
+});
+
+test('fixed Case count rejects all-coverage configurations that can require more questions', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'ECG alternatives', specificQuestionMode: 'none' });
+    await convertCaseAssetToStimulusOption(fixture.db, groupId, 'seed-asset-anterior-a');
+    for (const [index, prompt] of ['Stimulus finding one?', 'Stimulus finding two?', 'Stimulus finding three?'].entries()) {
+      await saveStimulusGroupQuestion(fixture.db, groupId, { promptMd: prompt, answerMd: `Answer ${index + 1}` });
+    }
+    await updateStimulusGroup(fixture.db, { groupId, name: 'ECG alternatives', specificQuestionMode: 'all', isActive: true });
+    await assert.rejects(
+      updateCase(fixture.db, {
+        caseId: 'seed-anterior-a',
+        title: 'Anterior STEMI ECG A',
+        conceptId: 'seed-anterior-stemi',
+        questionSelectionMode: 'fixed',
+        questionCount: 2
+      }),
+      /needs at least 3 questions/
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('minimum coverage cannot be enabled when an active option lacks enough eligible specific questions', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'ECG alternatives', specificQuestionMode: 'none' });
+    await convertCaseAssetToStimulusOption(fixture.db, groupId, 'seed-asset-anterior-a');
+    await saveStimulusGroupQuestion(fixture.db, groupId, { promptMd: 'Only one specific question?', answerMd: 'Yes.' });
+    await assert.rejects(
+      updateStimulusGroup(fixture.db, { groupId, name: 'ECG alternatives', specificQuestionMode: 'minimum', minimumSpecificQuestions: 2, isActive: true }),
+      /requires at least 2 specific questions/
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('conversion validation preserves the fixed attachment when the Asset is already a grouped option', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'ECG alternatives', specificQuestionMode: 'none' });
+    await fixture.db.insert(stimulusGroupOptions).values({ id: 'duplicate-option', stimulusGroupId: groupId, assetId: 'seed-asset-anterior-a', displayOrder: 0, isActive: true });
+    await assert.rejects(convertCaseAssetToStimulusOption(fixture.db, groupId, 'seed-asset-anterior-a'), /already used as a Stimulus Option/);
+    const fixed = await fixture.db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(and(eq(caseAssets.caseId, 'seed-anterior-a'), eq(caseAssets.assetId, 'seed-asset-anterior-a'));
+    assert.equal(fixed.length, 1);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('stimulus question edits accept the unchanged prompt id and update the answer', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'ECG alternatives', specificQuestionMode: 'none' });
+    await convertCaseAssetToStimulusOption(fixture.db, groupId, 'seed-asset-anterior-a');
+    const groupPromptId = await saveStimulusGroupQuestion(fixture.db, groupId, { promptMd: 'Editable group prompt?', answerMd: 'Old group answer.' });
+    await saveStimulusGroupQuestion(fixture.db, groupId, { originalPromptId: groupPromptId, promptMd: 'Editable group prompt?', answerMd: 'New group answer.' });
+
+    const option = (await fixture.db.select({ id: stimulusGroupOptions.id }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.stimulusGroupId, groupId)).limit(1))[0];
+    const optionPromptId = await saveStimulusOptionQuestion(fixture.db, option.id, { promptMd: 'Editable option prompt?', answerMd: 'Old option answer.' });
+    await saveStimulusOptionQuestion(fixture.db, option.id, { originalPromptId: optionPromptId, promptMd: 'Editable option prompt?', answerMd: 'New option answer.' });
+
+    const detail = await getQuestionPromptDetail(fixture.db, groupPromptId);
+    assert.equal(detail?.stimulusGroupUsages[0]?.answerMd, 'New group answer.');
+    const optionDetail = await getQuestionPromptDetail(fixture.db, optionPromptId);
+    assert.equal(optionDetail?.stimulusOptionUsages[0]?.answerMd, 'New option answer.');
+  } finally {
+    fixture.sqlite.close();
+  }
 });
 
 test('Question and Image Libraries include grouped usage without double-counting a Case', async () => {
