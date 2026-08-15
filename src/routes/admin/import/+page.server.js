@@ -104,6 +104,7 @@ export const actions = {
       const createdBy = String(locals.user?.id ?? '').trim();
       if (!createdBy) return fail(403, { error: 'The administrator identity is unavailable.' });
       const job = await createImportJob(platform.env.DB, platform.env.MEDIA, bytes, createdBy);
+      if (!job) throw new ContentPackageError('The import job could not be created.');
       return { job, autoStartJobId: job.id };
     } catch (error) {
       clearPreview(cookies);
