@@ -25,7 +25,7 @@ Example:
 ```text
 Case
 Internal title: Post-operative hypocalcaemia ECG
-Primary Concept: Hypocalcaemia
+Primary/default Topic: Hypocalcemia
 
 Stem:
 A 50-year-old female underwent elective head and neck surgery one day ago.
@@ -62,7 +62,7 @@ It can support at least two distinct Cases.
 
 ```text
 Internal title: Prolonged QTc recognition
-Primary Concept: Prolonged QT interval
+Primary/default Topic: Prolonged QTc
 Stem: optional / neutral
 Asset: ECG asset A
 
@@ -76,7 +76,7 @@ Questions:
 
 ```text
 Internal title: Post-operative hypocalcaemia ECG
-Primary Concept: Hypocalcaemia
+Primary/default Topic: Hypocalcemia
 Stem: post-head/neck surgery clinical vignette
 Asset: ECG asset A  ← same Asset as Case A
 
@@ -94,22 +94,22 @@ This also avoids forcing the Asset itself to be classified as either “hypocalc
 
 ---
 
-## 3. Primary versus secondary Concepts
+## 3. Primary versus secondary Topics
 
-The current browser admin flow creates one primary Concept for a Case.
+The browser Admin Case editor maintains one primary/default Topic and zero or more Additional Study Topics for a Case.
 
 Some real Cases may legitimately relate to more than one Concept.
 
 For the post-operative hypocalcaemia ECG example:
 
 ```text
-Primary Concept: Hypocalcaemia
-Potential secondary Concept: Prolonged QT interval
+Primary/default Topic: Hypocalcemia
+Additional Study Topic: Prolonged QTc
 ```
 
 Primary Concept should describe the main educational context for that Case.
 
-Secondary Concept links are useful future metadata for:
+Additional Study Topic links are learner-routing relationships, not generic tags. They are useful for:
 
 - search;
 - cross-topic discovery;
@@ -118,7 +118,25 @@ Secondary Concept links are useful future metadata for:
 
 They should not automatically change the question pool unless explicitly designed to do so.
 
-Admin support for editing secondary Concept links is currently deferred and should be added only when pilot content shows it is genuinely useful.
+The Admin Case editor supports adding/removing Additional Study Topics and promoting one to primary. Changing the primary demotes the old primary to a secondary relationship so unrelated routes are not silently discarded. An active Case must retain exactly one primary Topic.
+
+### Agreed production taxonomy example
+
+```text
+Electrolyte Disorders
+├── Hypercalcemia
+└── Hypocalcemia
+
+Cardiology
+└── ECG Findings
+    ├── Short QTc
+    └── Prolonged QTc
+
+Hypercalcemia Case: primary Hypercalcemia; additional Study Topic Short QTc
+Hypocalcemia Case: primary Hypocalcemia; additional Study Topic Prolonged QTc
+```
+
+Because Short QTc and Prolonged QTc descend from Cardiology, both Cases remain discoverable through the Cardiology subtree without a redundant direct Cardiology relationship.
 
 ---
 

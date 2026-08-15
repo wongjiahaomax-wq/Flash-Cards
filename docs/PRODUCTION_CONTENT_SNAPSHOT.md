@@ -117,6 +117,34 @@ After this workflow is merged into the default branch:
 
 The workflow uses the D1 binding `DB` defined in `wrangler.jsonc`, which currently points to production database `flash-cards-db` when Wrangler is invoked with `--remote`.
 
+## Applying the agreed taxonomy change
+
+The snapshot workflow is read-only and must remain read-only. The agreed production taxonomy update has a separate manually triggered operator:
+
+```text
+.github/workflows/apply-agreed-production-taxonomy.yml
+scripts/apply-agreed-taxonomy.mjs
+```
+
+Configure a separate GitHub repository secret:
+
+```text
+CLOUDFLARE_D1_WRITE_TOKEN
+```
+
+It must be a least-privilege Cloudflare API token with D1 write/edit permission for the account that owns `flash-cards-db`. Do not grant write permission to `CLOUDFLARE_D1_READ_TOKEN`, and do not use the read token for this workflow.
+
+The operator has no free-form SQL or workflow record-ID inputs. It uses the known production Case IDs and Cardiology ID, resolves the six agreed Topics by fixed slugs, reuses existing Topic rows, creates missing rows with reserved IDs, and updates only the agreed hierarchy and two Case route sets. It does not touch questions, assets, Reviews, users, authentication, or learner progress.
+
+Run it safely:
+
+1. Run **Apply agreed production taxonomy** with `apply = false`. Review the pre-flight output against the latest snapshot.
+2. Run it again with `apply = true` only after the pre-flight matches the expected current state.
+3. Confirm the transaction completes and inspect the post-flight read-back for the hierarchy, one primary plus one secondary route per target Case, and zero direct Cardiology routes for those Cases.
+4. Run **Production content snapshot** again and retain both workflow run links as the audit record.
+
+The operator is idempotent: rerunning it reuses the same Topic slugs, upserts the two intended Case relationships, preserves unrelated relationships, and leaves Cardiology active. If pre-flight or post-flight verification is unexpected, stop and use a reviewed rollback operator change; never paste ad-hoc SQL into Actions.
+
 ## Troubleshooting authorization
 
 If Cloudflare returns error `7403` with a message that the account is not valid or is not authorized to access the service, the SQL has not run. Check both of the following:

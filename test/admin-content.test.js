@@ -5,9 +5,14 @@ import test from 'node:test';
 
 import { createDb } from '../src/lib/server/db/index.js';
 import {
+  addCaseSecondaryTopic,
+  AdminContentInputError,
   createCase,
   createConcept,
   listAdminConcepts,
+  listCaseTopics,
+  promoteCaseTopic,
+  removeCaseSecondaryTopic,
   updateCase,
   updateCaseVignette
 } from '../src/lib/server/db/admin-content.js';
@@ -110,6 +115,106 @@ test('administrator can create a Case and change its default Topic without losin
       [
         { concept_id: 'seed-anterior-stemi', role: 'secondary' },
         { concept_id: 'seed-pityriasis-rosea', role: 'primary' }
+      ]
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('administrator can add, remove, and promote secondary Study Topics without duplicate or invalid primary relationships', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, {
+      title: 'Multi-topic authoring Case',
+      conceptId: 'seed-anterior-stemi'
+    });
+
+    await addCaseSecondaryTopic(fixture.db, { caseId: created.id, conceptId: 'seed-pityriasis-rosea' });
+    await addCaseSecondaryTopic(fixture.db, { caseId: created.id, conceptId: 'seed-stemi' });
+    assert.deepEqual(
+      (await listCaseTopics(fixture.db, created.id)).map((topic) => ({ id: topic.id, role: topic.role })),
+      [
+        { id: 'seed-anterior-stemi', role: 'primary' },
+        { id: 'seed-pityriasis-rosea', role: 'secondary' },
+        { id: 'seed-stemi', role: 'secondary' }
+      ]
+    );
+
+    await assert.rejects(
+      addCaseSecondaryTopic(fixture.db, { caseId: created.id, conceptId: 'seed-pityriasis-rosea' }),
+      (error) => error instanceof AdminContentInputError && /already attached/i.test(error.message)
+    );
+    await assert.rejects(
+      addCaseSecondaryTopic(fixture.db, { caseId: created.id, conceptId: 'does-not-exist' }),
+      (error) => error instanceof AdminContentInputError && /missing or inactive/i.test(error.message)
+    );
+
+    await promoteCaseTopic(fixture.db, { caseId: created.id, conceptId: 'seed-pityriasis-rosea' });
+    let topics = await listCaseTopics(fixture.db, created.id);
+    assert.equal(topics.filter((topic) => topic.role === 'primary').length, 1);
+    assert.deepEqual(
+      topics.map((topic) => ({ id: topic.id, role: topic.role })).sort((a, b) => a.id.localeCompare(b.id)),
+      [
+        { id: 'seed-pityriasis-rosea', role: 'primary' },
+        { id: 'seed-anterior-stemi', role: 'secondary' },
+        { id: 'seed-stemi', role: 'secondary' }
+      ].sort((a, b) => a.id.localeCompare(b.id))
+    );
+
+    await assert.rejects(
+      removeCaseSecondaryTopic(fixture.db, { caseId: created.id, conceptId: 'seed-pityriasis-rosea' }),
+      (error) => error instanceof AdminContentInputError && /primary Topic cannot be removed/i.test(error.message)
+    );
+    await removeCaseSecondaryTopic(fixture.db, { caseId: created.id, conceptId: 'seed-anterior-stemi' });
+    topics = await listCaseTopics(fixture.db, created.id);
+    assert.deepEqual(
+      topics.map((topic) => ({ id: topic.id, role: topic.role })),
+      [
+        { id: 'seed-pityriasis-rosea', role: 'primary' },
+        { id: 'seed-stemi', role: 'secondary' }
+      ]
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('inactive Topic relationships remain visible but inactive Topics cannot be newly attached', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, { title: 'Historical Topic Case', conceptId: 'seed-anterior-stemi' });
+    fixture.sqlite.prepare("INSERT INTO case_concepts (case_id, concept_id, role) VALUES (?, 'seed-pityriasis-rosea', 'secondary')").run(created.id);
+    fixture.sqlite.prepare('UPDATE concepts SET is_active = 0 WHERE id = ?').run('seed-pityriasis-rosea');
+
+    const topics = await listCaseTopics(fixture.db, created.id);
+    assert.equal(topics.find((topic) => topic.id === 'seed-pityriasis-rosea')?.isActive, false);
+    await assert.rejects(
+      addCaseSecondaryTopic(fixture.db, { caseId: created.id, conceptId: 'seed-pityriasis-rosea' }),
+      (error) => error instanceof AdminContentInputError && /missing or inactive/i.test(error.message)
+    );
+    await removeCaseSecondaryTopic(fixture.db, { caseId: created.id, conceptId: 'seed-pityriasis-rosea' });
+    assert.equal((await listCaseTopics(fixture.db, created.id)).some((topic) => topic.id === 'seed-pityriasis-rosea'), false);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('invalid primary changes leave the existing Case relationships untouched', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, { title: 'Primary rollback guard Case', conceptId: 'seed-anterior-stemi' });
+    await addCaseSecondaryTopic(fixture.db, { caseId: created.id, conceptId: 'seed-pityriasis-rosea' });
+
+    await assert.rejects(
+      promoteCaseTopic(fixture.db, { caseId: created.id, conceptId: 'does-not-exist' }),
+      AdminContentInputError
+    );
+    assert.deepEqual(
+      (await listCaseTopics(fixture.db, created.id)).map((topic) => ({ id: topic.id, role: topic.role })),
+      [
+        { id: 'seed-anterior-stemi', role: 'primary' },
+        { id: 'seed-pityriasis-rosea', role: 'secondary' }
       ]
     );
   } finally {

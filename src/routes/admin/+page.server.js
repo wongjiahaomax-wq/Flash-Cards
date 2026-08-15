@@ -4,9 +4,12 @@ import { createDb } from '$lib/server/db/index.js';
 import { assets, caseQuestions } from '$lib/server/db/schema.js';
 import {
   AdminContentInputError,
+  addCaseSecondaryTopic,
   createCase,
   createConcept,
   listAdminConcepts,
+  promoteCaseTopic,
+  removeCaseSecondaryTopic,
   updateCase,
   updateCaseVignette
 } from '$lib/server/db/admin-content.js';
@@ -215,6 +218,54 @@ export const actions = {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
     }
     redirect(303, selectedCaseRedirect(caseId, 'case-saved'));
+  },
+
+  addSecondaryTopic: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    try {
+      await addCaseSecondaryTopic(createDb(platform.env.DB), {
+        caseId,
+        conceptId: formText(formData, 'concept_id')
+      });
+    } catch (error) {
+      return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
+    }
+    redirect(303, selectedCaseRedirect(caseId, 'topic-added'));
+  },
+
+  removeSecondaryTopic: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    try {
+      await removeCaseSecondaryTopic(createDb(platform.env.DB), {
+        caseId,
+        conceptId: formText(formData, 'concept_id')
+      });
+    } catch (error) {
+      return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
+    }
+    redirect(303, selectedCaseRedirect(caseId, 'topic-removed'));
+  },
+
+  promoteTopic: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    try {
+      await promoteCaseTopic(createDb(platform.env.DB), {
+        caseId,
+        conceptId: formText(formData, 'concept_id')
+      });
+    } catch (error) {
+      return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
+    }
+    redirect(303, selectedCaseRedirect(caseId, 'topic-promoted'));
   },
 
   vignette: async ({ request, locals, platform }) => {

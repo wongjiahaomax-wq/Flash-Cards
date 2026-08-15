@@ -30,7 +30,7 @@ The Admin navigation is now fully live:
 Dashboard · Cases · Questions · Images · Topics
 ```
 
-The next product phase is **representative pilot content entry**, not another broad Admin architecture PR.
+The next product phase is **representative pilot content entry** after completing the focused multi-Topic Case authoring milestone.
 
 ---
 
@@ -82,7 +82,10 @@ Implemented:
 - searchable Case library;
 - dedicated Case creation;
 - focused Case editor;
-- internal title, primary Topic, and vignette editing;
+- internal title, primary/default Topic, and vignette editing;
+- Additional Study Topic add/remove authoring;
+- secondary Topic promotion and primary Topic demotion while preserving relationships;
+- safe display of inactive historical Topic relationships;
 - Case question add/edit/remove/reorder;
 - reusable Topic-question creation from Case editor;
 - image upload, attach-existing, detach, reorder, and Case-specific captions;
@@ -258,7 +261,45 @@ Assets
 
 ---
 
-# Next phase — pilot content validation
+## Multi-Topic Case authoring
+
+The Case editor is the authoring surface for multiple Case↔Topic relationships. It clearly separates:
+
+```text
+Primary/default Topic
+Additional Study Topics
+```
+
+An active Case must have exactly one primary/default Topic. The primary is also an active `case_concepts` relationship. Administrators can select an active primary, add active secondary Study Topics, remove secondary relationships, and promote an attached secondary Topic to primary. A primary change demotes the old primary to secondary and preserves unrelated secondary relationships. A primary cannot be removed directly. Topic IDs are validated server-side, duplicate relationships are rejected by both application validation and the database primary key, and inactive existing relationships remain visible with an inactive marker rather than being discarded.
+
+The secondary relationship has learner-routing meaning established by PR #18: when a learner enters through that Topic, it may become `reviews.study_concept_id`; it is not a generic tag and does not mix all attached Topic question pools.
+
+## Agreed production taxonomy operator
+
+The production content change is deliberately separate from deployment. Use the manually triggered workflow:
+
+```text
+.github/workflows/apply-agreed-production-taxonomy.yml
+scripts/apply-agreed-taxonomy.mjs
+```
+
+The operator accepts only `--dry-run` or explicit `--apply`; it has no free-form SQL or record-ID inputs. It resolves the six agreed Topics by fixed slugs, reuses existing rows, creates missing rows with reserved IDs, updates only the agreed hierarchy, and changes only the two known Case route sets. It preserves Cardiology and all unrelated content. It performs a pre-flight read, a D1 transaction, and a post-flight read-back. Configure the separate `CLOUDFLARE_D1_WRITE_TOKEN` secret with D1 write/edit permission and keep `CLOUDFLARE_D1_READ_TOKEN` read-only.
+
+Before applying, run the workflow with `apply = false` and inspect the pre-flight output against the latest [Production content snapshot](PRODUCTION_CONTENT_SNAPSHOT.md). Then run with `apply = true`, verify the post-flight output, and run the snapshot workflow again. If verification fails, stop and use a reviewed rollback operator change to restore the two prior direct Cardiology relationships and prior parents; do not run ad-hoc SQL.
+
+## Agreed content example
+
+```text
+Hypercalcemia Case
+- primary/default Topic: Hypercalcemia
+- secondary Study Topic: Short QTc
+
+Hypocalcemia Case
+- primary/default Topic: Hypocalcemia
+- secondary Study Topic: Prolonged QTc
+```
+
+## Next phase — pilot content validation
 
 Enter representative content from:
 
@@ -299,7 +340,6 @@ Do not build these unless pilot use demonstrates a clear need:
 - drag/drop hierarchy management;
 - bulk operations;
 - permanent deletion;
-- arbitrary secondary-Concept administration;
 - WYSIWYG page builder;
 - complex tagging;
 - AI-generated questions;

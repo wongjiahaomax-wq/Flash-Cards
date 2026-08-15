@@ -175,20 +175,8 @@ export async function updateCase(db, input) {
   await requireActiveConcept(db, conceptId);
   const selection = questionSelection(input.questionSelectionMode, input.questionCount);
 
-  const existing = await db
-    .select({ id: cases.id })
-    .from(cases)
-    .where(and(eq(cases.id, caseId), eq(cases.isActive, true)))
-    .limit(1);
-  if (!existing[0]) throw new AdminContentInputError('The selected Case is missing or inactive.');
   await validateCaseQuestionCoverage(db, caseId, selection);
-
-  const topicRows = await db
-    .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
-    .from(caseConcepts)
-    .where(eq(caseConcepts.caseId, caseId));
-  const currentPrimary = topicRows.find((topic) => topic.role === 'primary');
-  if (!currentPrimary) throw new AdminContentInputError('The selected Case does not have a primary topic.');
+  const { topicRows, primaryConceptId } = await requireActiveCaseWithOnePrimary(db, caseId);
 
   /** @type {any[]} */
   const writes = [
@@ -198,12 +186,12 @@ export async function updateCase(db, input) {
       .where(eq(cases.id, caseId))
   ];
 
-  if (currentPrimary.conceptId !== conceptId) {
+  if (primaryConceptId !== conceptId) {
     writes.push(
       db
         .update(caseConcepts)
         .set({ role: 'secondary' })
-        .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, currentPrimary.conceptId)))
+        .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, primaryConceptId)))
     );
 
     const targetTopic = topicRows.find((topic) => topic.conceptId === conceptId);
@@ -219,4 +207,141 @@ export async function updateCase(db, input) {
 
   if (typeof db.batch === 'function') await db.batch(/** @type {[any, ...any[]]} */ (writes));
   else for (const write of writes) await write;
+}
+
+/**
+ * Return every Topic relationship for an active Case, including inactive
+ * Topics so historical authoring state is visible to administrators.
+ *
+ * @param {LearningDb} db
+ * @param {string} caseId
+ */
+export async function listCaseTopics(db, caseId) {
+  const cleanCaseId = requiredText(caseId, 'Case');
+  return db
+    .select({
+      id: concepts.id,
+      name: concepts.name,
+      slug: concepts.slug,
+      isActive: concepts.isActive,
+      role: caseConcepts.role
+    })
+    .from(caseConcepts)
+    .innerJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .where(eq(caseConcepts.caseId, cleanCaseId))
+    .orderBy(asc(caseConcepts.role), asc(concepts.name), asc(concepts.id));
+}
+
+/** @param {LearningDb} db @param {string} caseId */
+async function requireActiveCaseWithOnePrimary(db, caseId) {
+  const cleanCaseId = requiredText(caseId, 'Case');
+  const caseRows = await db
+    .select({ id: cases.id })
+    .from(cases)
+    .where(and(eq(cases.id, cleanCaseId), eq(cases.isActive, true)))
+    .limit(1);
+  if (!caseRows[0]) throw new AdminContentInputError('The selected Case is missing or inactive.');
+
+  const topicRows = await db
+    .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
+    .from(caseConcepts)
+    .where(eq(caseConcepts.caseId, cleanCaseId));
+  const primaryRows = topicRows.filter((topic) => topic.role === 'primary');
+  if (primaryRows.length !== 1) {
+    throw new AdminContentInputError('The selected active Case must have exactly one primary Topic before it can be edited.');
+  }
+
+  return { caseId: cleanCaseId, topicRows, primaryConceptId: primaryRows[0].conceptId };
+}
+
+/** @param {LearningDb} db @param {string} conceptId */
+async function requireActiveTopic(db, conceptId) {
+  const cleanConceptId = requiredText(conceptId, 'Topic');
+  await requireActiveConcept(db, cleanConceptId);
+  return cleanConceptId;
+}
+
+/** @param {LearningDb} db @param {any[]} writes */
+async function runTopicWrites(db, writes) {
+  if (writes.length === 0) return;
+  if (typeof db.batch === 'function') {
+    // D1 executes a batch transactionally. Primary transitions intentionally
+    // demote before promoting, so a partially applied transition is never
+    // visible in production.
+    await db.batch(/** @type {[any, ...any[]]} */ (writes));
+    return;
+  }
+  for (const write of writes) await write;
+}
+
+/**
+ * Add one active secondary Study Topic without changing the canonical Topic.
+ *
+ * @param {LearningDb} db
+ * @param {{ caseId: string, conceptId: string }} input
+ */
+export async function addCaseSecondaryTopic(db, input) {
+  const { caseId, topicRows } = await requireActiveCaseWithOnePrimary(db, input.caseId);
+  const conceptId = await requireActiveTopic(db, input.conceptId);
+  if (topicRows.some((topic) => topic.conceptId === conceptId)) {
+    throw new AdminContentInputError('That Topic is already attached to this Case.');
+  }
+
+  try {
+    await db.insert(caseConcepts).values({ caseId, conceptId, role: 'secondary' });
+  } catch (error) {
+    if (error instanceof Error && /unique|constraint/i.test(error.message)) {
+      throw new AdminContentInputError('That Topic is already attached to this Case.');
+    }
+    throw error;
+  }
+}
+
+/**
+ * Remove only a secondary Topic relationship. The primary relationship is
+ * never removable through this operation.
+ *
+ * @param {LearningDb} db
+ * @param {{ caseId: string, conceptId: string }} input
+ */
+export async function removeCaseSecondaryTopic(db, input) {
+  const { caseId, topicRows } = await requireActiveCaseWithOnePrimary(db, input.caseId);
+  const conceptId = requiredText(input.conceptId, 'Topic');
+  const topic = topicRows.find((row) => row.conceptId === conceptId);
+  if (!topic) throw new AdminContentInputError('That Topic is not attached to this Case.');
+  if (topic.role !== 'secondary') {
+    throw new AdminContentInputError('The primary Topic cannot be removed. Choose another primary Topic first.');
+  }
+
+  await db
+    .delete(caseConcepts)
+    .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, conceptId)));
+}
+
+/**
+ * Make an attached secondary Topic, or a new active Topic, the canonical
+ * primary Topic. Existing relationships are preserved as secondary links.
+ *
+ * @param {LearningDb} db
+ * @param {{ caseId: string, conceptId: string }} input
+ */
+export async function promoteCaseTopic(db, input) {
+  const { caseId, topicRows, primaryConceptId } = await requireActiveCaseWithOnePrimary(db, input.caseId);
+  const conceptId = await requireActiveTopic(db, input.conceptId);
+  if (primaryConceptId === conceptId) return;
+
+  const targetTopic = topicRows.find((topic) => topic.conceptId === conceptId);
+  const writes = [
+    db
+      .update(caseConcepts)
+      .set({ role: 'secondary' })
+      .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, primaryConceptId))),
+    targetTopic
+      ? db
+          .update(caseConcepts)
+          .set({ role: 'primary' })
+          .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, conceptId)))
+      : db.insert(caseConcepts).values({ caseId, conceptId, role: 'primary' })
+  ];
+  await runTopicWrites(db, writes);
 }
