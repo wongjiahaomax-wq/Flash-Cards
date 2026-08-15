@@ -16,6 +16,8 @@ import {
 import { pickCase } from '../learning/cases.js';
 import { pickReviewQuestions, resolveQuestionPool } from '../learning/questions.js';
 
+/** @typedef {import('./index.js').LearningDb} LearningDb */
+
 /** @param {string | undefined} value */
 function requiredId(value) {
   if (!value) throw new Error('A required identifier is missing.');
@@ -31,7 +33,7 @@ function newId() {
  * The case count is intentionally computed in application code so the same
  * descendant rule is used by the selector and the review creator.
  *
- * @param {import('drizzle-orm/d1').DrizzleD1Database} db
+ * @param {LearningDb} db
  */
 export async function listStudyConcepts(db) {
   const conceptRows = await db
@@ -80,7 +82,7 @@ function descendantIds(rootId, conceptsList) {
 /**
  * Resolve all active primary Cases beneath a selected Concept.
  *
- * @param {import('drizzle-orm/d1').DrizzleD1Database} db
+ * @param {LearningDb} db
  * @param {string} conceptId
  */
 export async function listEligibleCases(db, conceptId) {
@@ -109,7 +111,7 @@ export async function listEligibleCases(db, conceptId) {
     );
 }
 
-/** @param {import('drizzle-orm/d1').DrizzleD1Database} db @param {string} userId */
+/** @param {LearningDb} db @param {string} userId */
 async function lastCompletedCaseId(db, userId) {
   const row = await db
     .select({ caseId: reviews.caseId })
@@ -124,7 +126,7 @@ async function lastCompletedCaseId(db, userId) {
  * Create a durable Review and all of its immutable question/asset snapshots.
  *
  * @param {object} options
- * @param {import('drizzle-orm/d1').DrizzleD1Database} options.db
+ * @param {LearningDb} options.db
  * @param {string} options.userId
  * @param {string} options.conceptId
  * @param {() => number} [options.rng]
@@ -157,7 +159,7 @@ export async function startReview({ db, userId, conceptId, rng = Math.random }) 
     rating: null
   });
 
-  /** @type {any[]} */
+  /** @type {[any, ...any[]]} */
   const writes = [reviewInsert];
 
   if (pickedQuestions.length > 0) {
@@ -197,7 +199,7 @@ export async function startReview({ db, userId, conceptId, rng = Math.random }) 
   return reviewId;
 }
 
-/** @param {import('drizzle-orm/d1').DrizzleD1Database} db @param {string} caseId */
+/** @param {LearningDb} db @param {string} caseId */
 async function loadCaseSource(db, caseId) {
   const caseRows = await db
     .select({
@@ -309,7 +311,7 @@ async function loadCaseSource(db, caseId) {
   };
 }
 
-/** @param {import('drizzle-orm/d1').DrizzleD1Database} db @param {string} reviewId @param {string} userId */
+/** @param {LearningDb} db @param {string} reviewId @param {string} userId */
 export async function getReview(db, reviewId, userId) {
   const reviewRows = await db
     .select({
@@ -368,7 +370,7 @@ export async function getReview(db, reviewId, userId) {
   };
 }
 
-/** @param {import('drizzle-orm/d1').DrizzleD1Database} db @param {string} reviewId @param {string} userId */
+/** @param {LearningDb} db @param {string} reviewId @param {string} userId */
 export async function revealReview(db, reviewId, userId) {
   const current = await db
     .select({ status: reviews.status })
@@ -385,7 +387,7 @@ export async function revealReview(db, reviewId, userId) {
   return true;
 }
 
-/** @param {import('drizzle-orm/d1').DrizzleD1Database} db @param {string} reviewId @param {string} userId @param {'again' | 'good'} rating */
+/** @param {LearningDb} db @param {string} reviewId @param {string} userId @param {'again' | 'good'} rating */
 export async function completeReview(db, reviewId, userId, rating) {
   if (rating !== 'again' && rating !== 'good') throw new Error('Review rating must be again or good.');
   const current = await db

@@ -3,6 +3,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { createDb } from '$lib/server/db/index.js';
 import { completeReview, getReview, revealReview, startReview } from '$lib/server/db/learning.js';
 
+/** @param {string} assetId */
 function imageUrl(assetId) {
   return `/api/assets/${encodeURIComponent(assetId)}/image`;
 }

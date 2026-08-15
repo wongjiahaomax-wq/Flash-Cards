@@ -7,6 +7,9 @@ import { createDb } from '../src/lib/server/db/index.js';
 import { completeReview, getReview, revealReview, startReview } from '../src/lib/server/db/learning.js';
 import { buildSeedSql } from '../scripts/seed-content.mjs';
 
+/** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
+/** @typedef {{ prepare: (sql: string) => any, batch: (statements: any[]) => Promise<any[]> }} TestD1 */
+
 const migrationSql = readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -15,9 +18,11 @@ function createLearningDb() {
   sqlite.exec(migrationSql);
   sqlite.exec(buildSeedSql());
   let batches = 0;
+  /** @type {TestD1} */
   const d1 = {
     prepare(sql) {
       return {
+        /** @param {...any} params */
         bind(...params) {
           return {
             async all() {
@@ -43,7 +48,10 @@ function createLearningDb() {
       return Promise.all(statements.map((statement) => statement.run()));
     }
   };
-  return { db: createDb(d1), sqlite, get batches() { return batches; } };
+  const learningDb = /** @type {LearningDb} */ (
+    createDb(/** @type {D1Database} */ (/** @type {unknown} */ (d1)))
+  );
+  return { db: learningDb, sqlite, get batches() { return batches; } };
 }
 
 test('startReview batches and persists ordered questions/assets as snapshots', async () => {
