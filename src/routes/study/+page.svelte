@@ -1,6 +1,5 @@
 <script>
   import SignOutButton from '$lib/components/SignOutButton.svelte';
-  import { demoTopics } from '$lib/demo-content.js';
 
   let { data } = $props();
 </script>
@@ -13,10 +12,10 @@
   <header class="study-header">
     <div>
       <p class="eyebrow">Learner study</p>
-      <h1>Choose a case to review</h1>
+      <h1>Choose a topic to review</h1>
       <p class="muted intro">
-        This first learner demo uses cases reconstructed from the earlier Anki review so we can test
-        the study experience before the database and image pipeline are fully connected.
+        Choose a topic and Flash-Cards will select a compatible case and snapshot its questions and
+        teaching images for this review.
       </p>
     </div>
 
@@ -27,36 +26,28 @@
     </div>
   </header>
 
-  <section class="demo-note" aria-label="Demo status">
-    <strong>Demo content</strong>
-    <span>
-      ECG and clinical-photo positions are placeholders for now. The page structure is designed to
-      accept the original Anki images once they are available to the app.
-    </span>
-  </section>
+  {#if !data.databaseConfigured}
+    <section class="demo-note" aria-label="Database status">
+      <strong>Study content is not connected</strong>
+      <span>Connect the Cloudflare D1 binding to load the available topics.</span>
+    </section>
+  {/if}
 
   <div class="topic-grid">
-    {#each demoTopics as topic}
+    {#each data.concepts as topic}
       <section class="topic-card">
         <div class="topic-heading">
           <div>
-            <p class="eyebrow">{topic.cases.length} demo {topic.cases.length === 1 ? 'case' : 'cases'}</p>
+            <p class="eyebrow">{topic.caseCount} {topic.caseCount === 1 ? 'case' : 'cases'}</p>
             <h2>{topic.name}</h2>
           </div>
-          <p class="muted">{topic.description}</p>
+          <p class="muted">{topic.description ?? 'Case-based medical learning.'}</p>
         </div>
 
-        <div class="case-list">
-          {#each topic.cases as caseItem}
-            <a class="case-row" href={`/study/${caseItem.id}`}>
-              <div>
-                <strong>{caseItem.title}</strong>
-                <span>{caseItem.summary}</span>
-              </div>
-              <span class="open-case" aria-hidden="true">→</span>
-            </a>
-          {/each}
-        </div>
+        <form method="POST" action="?/start">
+          <input type="hidden" name="conceptId" value={topic.id} />
+          <button class="button primary" type="submit">Start review →</button>
+        </form>
       </section>
     {/each}
   </div>
@@ -137,41 +128,6 @@
   .topic-heading p:last-child {
     margin: 0;
     line-height: 1.5;
-  }
-
-  .case-list {
-    display: grid;
-    border-top: 1px solid #e6eaf0;
-  }
-
-  .case-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
-    padding: 1rem 0;
-    border-bottom: 1px solid #e6eaf0;
-    text-decoration: none;
-  }
-
-  .case-row:hover strong {
-    text-decoration: underline;
-  }
-
-  .case-row div {
-    display: grid;
-    gap: 0.3rem;
-  }
-
-  .case-row span:not(.open-case) {
-    color: #667085;
-    font-size: 0.9rem;
-    line-height: 1.4;
-  }
-
-  .open-case {
-    flex: 0 0 auto;
-    font-size: 1.25rem;
   }
 
   @media (max-width: 760px) {

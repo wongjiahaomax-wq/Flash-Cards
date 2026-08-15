@@ -1,0 +1,414 @@
+import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm';
+
+import {
+  assets,
+  caseAssets,
+  caseConcepts,
+  caseQuestions,
+  cases,
+  conceptQuestions,
+  concepts,
+  questionPrompts,
+  reviewAssets,
+  reviewQuestions,
+  reviews
+} from './schema.js';
+import { pickCase } from '../learning/cases.js';
+import { pickReviewQuestions, resolveQuestionPool } from '../learning/questions.js';
+
+/** @typedef {import('./index.js').LearningDb} LearningDb */
+
+/** @param {string | undefined} value */
+function requiredId(value) {
+  if (!value) throw new Error('A required identifier is missing.');
+  return value;
+}
+
+function newId() {
+  return globalThis.crypto.randomUUID();
+}
+
+/**
+ * Return active Concepts that have at least one active Case in their subtree.
+ * The case count is intentionally computed in application code so the same
+ * descendant rule is used by the selector and the review creator.
+ *
+ * @param {LearningDb} db
+ */
+export async function listStudyConcepts(db) {
+  const conceptRows = await db
+    .select({
+      id: concepts.id,
+      name: concepts.name,
+      slug: concepts.slug,
+      description: concepts.descriptionMd,
+      parentId: concepts.parentId
+    })
+    .from(concepts)
+    .where(eq(concepts.isActive, true))
+    .orderBy(asc(concepts.name));
+
+  const caseRows = await db
+    .select({ caseId: cases.id, primaryConceptId: caseConcepts.conceptId })
+    .from(cases)
+    .innerJoin(caseConcepts, eq(caseConcepts.caseId, cases.id))
+    .where(and(eq(cases.isActive, true), eq(caseConcepts.role, 'primary')));
+
+  return conceptRows
+    .map((concept) => {
+      const descendants = descendantIds(concept.id, conceptRows);
+      const caseCount = caseRows.filter((row) => descendants.has(row.primaryConceptId)).length;
+      return { ...concept, caseCount };
+    })
+    .filter((concept) => concept.caseCount > 0);
+}
+
+/** @param {string} rootId @param {{ id: string, parentId: string | null }[]} conceptsList */
+function descendantIds(rootId, conceptsList) {
+  const ids = new Set([rootId]);
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const concept of conceptsList) {
+      if (concept.parentId && ids.has(concept.parentId) && !ids.has(concept.id)) {
+        ids.add(concept.id);
+        changed = true;
+      }
+    }
+  }
+  return ids;
+}
+
+/**
+ * Resolve all active primary Cases beneath a selected Concept.
+ *
+ * @param {LearningDb} db
+ * @param {string} conceptId
+ */
+export async function listEligibleCases(db, conceptId) {
+  const conceptRows = await db
+    .select({ id: concepts.id, parentId: concepts.parentId })
+    .from(concepts)
+    .where(eq(concepts.isActive, true));
+  const ids = descendantIds(conceptId, conceptRows);
+
+  return db
+    .select({
+      id: cases.id,
+      title: cases.title,
+      vignetteMd: cases.vignetteMd,
+      primaryConceptId: caseConcepts.conceptId,
+      isActive: cases.isActive
+    })
+    .from(cases)
+    .innerJoin(caseConcepts, eq(caseConcepts.caseId, cases.id))
+    .where(
+      and(
+        eq(cases.isActive, true),
+        eq(caseConcepts.role, 'primary'),
+        inArray(caseConcepts.conceptId, [...ids])
+      )
+    );
+}
+
+/** @param {LearningDb} db @param {string} userId */
+async function lastCompletedCaseId(db, userId) {
+  const row = await db
+    .select({ caseId: reviews.caseId })
+    .from(reviews)
+    .where(and(eq(reviews.userId, userId), eq(reviews.status, 'completed'), isNotNull(reviews.completedAt)))
+    .orderBy(desc(reviews.completedAt))
+    .limit(1);
+  return row[0]?.caseId ?? null;
+}
+
+/**
+ * Create a durable Review and all of its immutable question/asset snapshots.
+ *
+ * @param {object} options
+ * @param {LearningDb} options.db
+ * @param {string} options.userId
+ * @param {string} options.conceptId
+ * @param {() => number} [options.rng]
+ */
+export async function startReview({ db, userId, conceptId, rng = Math.random }) {
+  requiredId(userId);
+  requiredId(conceptId);
+
+  const eligibleCases = await listEligibleCases(db, conceptId);
+  const selectedCase = pickCase(eligibleCases, {
+    lastCompletedCaseId: await lastCompletedCaseId(db, userId),
+    rng
+  });
+  if (!selectedCase) return null;
+
+  const source = await loadCaseSource(db, selectedCase.id);
+  if (!source) return null;
+
+  const reviewId = newId();
+  const pickedQuestions = pickReviewQuestions(source.questionPool, { rng });
+
+  const reviewInsert = db.insert(reviews).values({
+    id: reviewId,
+    userId,
+    caseId: source.case.id,
+    primaryConceptId: source.primaryConcept.id,
+    caseTitleSnapshot: source.case.title,
+    vignetteSnapshotMd: source.case.vignetteMd,
+    status: 'started',
+    rating: null
+  });
+
+  /** @type {[any, ...any[]]} */
+  const writes = [reviewInsert];
+
+  if (pickedQuestions.length > 0) {
+    writes.push(db.insert(reviewQuestions).values(
+      pickedQuestions.map((question) => ({
+        id: newId(),
+        reviewId,
+        questionPromptId: question.questionPromptId,
+        sourceType: question.sourceType,
+        sourceConceptId: question.sourceConceptId,
+        displayOrder: question.displayOrder,
+        promptSnapshotMd: question.promptMd,
+        answerSnapshotMd: question.answerMd
+      }))
+    ));
+  }
+
+  if (source.assets.length > 0) {
+    writes.push(db.insert(reviewAssets).values(
+      source.assets.map((asset) => ({
+        id: newId(),
+        reviewId,
+        assetId: asset.assetId,
+        displayOrder: asset.displayOrder,
+        storageKeySnapshot: asset.storageKey,
+        captionSnapshotMd: asset.captionMd,
+        altTextSnapshot: asset.altText
+      }))
+    ));
+  }
+
+  // D1 batch statements commit atomically. The sequential fallback keeps this
+  // helper usable with lightweight unit-test doubles that do not implement batch.
+  if (typeof db.batch === 'function') await db.batch(writes);
+  else for (const write of writes) await write;
+
+  return reviewId;
+}
+
+/** @param {LearningDb} db @param {string} caseId */
+async function loadCaseSource(db, caseId) {
+  const caseRows = await db
+    .select({
+      id: cases.id,
+      title: cases.title,
+      vignetteMd: cases.vignetteMd,
+      primaryConceptId: caseConcepts.conceptId
+    })
+    .from(cases)
+    .innerJoin(caseConcepts, eq(caseConcepts.caseId, cases.id))
+    .where(and(eq(cases.id, caseId), eq(cases.isActive, true), eq(caseConcepts.role, 'primary')))
+    .limit(1);
+  const caseRow = caseRows[0];
+  if (!caseRow) return null;
+
+  const conceptRows = await db
+    .select({ id: concepts.id, name: concepts.name, parentId: concepts.parentId })
+    .from(concepts)
+    .where(eq(concepts.isActive, true));
+  const primaryConcept = conceptRows.find((concept) => concept.id === caseRow.primaryConceptId);
+  if (!primaryConcept) return null;
+
+  /** @type {{ id: string, name: string, parentId: string | null, distance: number }[]} */
+  const ancestors = [];
+  let parentId = primaryConcept.parentId;
+  let distance = 1;
+  while (parentId) {
+    const ancestor = conceptRows.find((concept) => concept.id === parentId);
+    if (!ancestor) break;
+    ancestors.push({ ...ancestor, distance });
+    parentId = ancestor.parentId;
+    distance += 1;
+  }
+
+  const promptRows = await db
+    .select({ id: questionPrompts.id, promptMd: questionPrompts.promptMd })
+    .from(questionPrompts)
+    .where(eq(questionPrompts.isActive, true));
+  const prompts = new Map(promptRows.map((prompt) => [prompt.id, prompt.promptMd]));
+
+  const caseQuestionRows = await db
+    .select({
+      questionPromptId: caseQuestions.questionPromptId,
+      answerMd: caseQuestions.answerMd,
+      isActive: caseQuestions.isActive
+    })
+    .from(caseQuestions)
+    .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.isActive, true)));
+  const caseQuestionInputs = caseQuestionRows
+    .filter((question) => prompts.has(question.questionPromptId))
+    .map((question) => ({
+      ...question,
+      promptMd: prompts.get(question.questionPromptId) ?? ''
+    }));
+
+  const conceptIds = [primaryConcept.id, ...ancestors.map((ancestor) => ancestor.id)];
+  const conceptQuestionRows = await db
+    .select({
+      conceptId: conceptQuestions.conceptId,
+      questionPromptId: conceptQuestions.questionPromptId,
+      answerMd: conceptQuestions.answerMd,
+      inheritToDescendants: conceptQuestions.inheritToDescendants,
+      isActive: conceptQuestions.isActive
+    })
+    .from(conceptQuestions)
+    .where(and(eq(conceptQuestions.isActive, true), inArray(conceptQuestions.conceptId, conceptIds)));
+
+  const primaryQuestions = conceptQuestionRows
+    .filter((question) => question.conceptId === primaryConcept.id && prompts.has(question.questionPromptId))
+    .map((question) => ({
+      ...question,
+      sourceConceptId: question.conceptId,
+      promptMd: prompts.get(question.questionPromptId) ?? ''
+    }));
+  const ancestorQuestions = conceptQuestionRows
+    .filter((question) => question.conceptId !== primaryConcept.id && prompts.has(question.questionPromptId))
+    .map((question) => ({
+      ...question,
+      sourceConceptId: question.conceptId,
+      promptMd: prompts.get(question.questionPromptId) ?? '',
+      distance: ancestors.find((ancestor) => ancestor.id === question.conceptId)?.distance ?? 1
+    }));
+  const questionPool = resolveQuestionPool({
+    caseQuestions: caseQuestionInputs,
+    primaryConceptQuestions: primaryQuestions,
+    ancestorConceptQuestions: ancestorQuestions
+  });
+
+  const assetRows = await db
+    .select({
+      assetId: assets.id,
+      storageKey: assets.storageKey,
+      altText: assets.altText,
+      sourceLabel: assets.sourceLabel,
+      sourceUrl: assets.sourceUrl,
+      captionMd: caseAssets.captionMd,
+      displayOrder: caseAssets.displayOrder
+    })
+    .from(caseAssets)
+    .innerJoin(assets, eq(assets.id, caseAssets.assetId))
+    .where(and(eq(caseAssets.caseId, caseId), eq(assets.isActive, true)))
+    .orderBy(asc(caseAssets.displayOrder));
+
+  return {
+    case: caseRow,
+    primaryConcept,
+    questionPool,
+    assets: assetRows
+  };
+}
+
+/** @param {LearningDb} db @param {string} reviewId @param {string} userId */
+export async function getReview(db, reviewId, userId) {
+  const reviewRows = await db
+    .select({
+      id: reviews.id,
+      caseId: reviews.caseId,
+      primaryConceptId: reviews.primaryConceptId,
+      title: reviews.caseTitleSnapshot,
+      vignette: reviews.vignetteSnapshotMd,
+      status: reviews.status,
+      rating: reviews.rating,
+      revealedAt: reviews.revealedAt,
+      completedAt: reviews.completedAt
+    })
+    .from(reviews)
+    .where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId)))
+    .limit(1);
+  const review = reviewRows[0];
+  if (!review) return null;
+
+  const conceptRows = await db
+    .select({ name: concepts.name })
+    .from(concepts)
+    .where(eq(concepts.id, review.primaryConceptId))
+    .limit(1);
+  const questions = await db
+    .select({
+      prompt: reviewQuestions.promptSnapshotMd,
+      answer: reviewQuestions.answerSnapshotMd,
+      sourceType: reviewQuestions.sourceType,
+      displayOrder: reviewQuestions.displayOrder
+    })
+    .from(reviewQuestions)
+    .where(eq(reviewQuestions.reviewId, reviewId))
+    .orderBy(asc(reviewQuestions.displayOrder));
+  const assetRows = await db
+    .select({
+      assetId: reviewAssets.assetId,
+      storageKey: reviewAssets.storageKeySnapshot,
+      caption: reviewAssets.captionSnapshotMd,
+      altText: reviewAssets.altTextSnapshot,
+      sourceLabel: assets.sourceLabel,
+      sourceUrl: assets.sourceUrl,
+      displayOrder: reviewAssets.displayOrder
+    })
+    .from(reviewAssets)
+    .leftJoin(assets, eq(assets.id, reviewAssets.assetId))
+    .where(eq(reviewAssets.reviewId, reviewId))
+    .orderBy(asc(reviewAssets.displayOrder));
+
+  return {
+    ...review,
+    conceptName: conceptRows[0]?.name ?? 'Selected topic',
+    revealed: Boolean(review.revealedAt),
+    questions,
+    assets: assetRows
+  };
+}
+
+/** @param {LearningDb} db @param {string} reviewId @param {string} userId */
+export async function revealReview(db, reviewId, userId) {
+  const current = await db
+    .select({ status: reviews.status })
+    .from(reviews)
+    .where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId)))
+    .limit(1);
+  if (!current[0]) throw new Error('Review not found.');
+  if (current[0].status !== 'started') return false;
+
+  await db
+    .update(reviews)
+    .set({ revealedAt: new Date() })
+    .where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId), eq(reviews.status, 'started')));
+  return true;
+}
+
+/** @param {LearningDb} db @param {string} reviewId @param {string} userId @param {'again' | 'good'} rating */
+export async function completeReview(db, reviewId, userId, rating) {
+  if (rating !== 'again' && rating !== 'good') throw new Error('Review rating must be again or good.');
+  const current = await db
+    .select({ status: reviews.status, revealedAt: reviews.revealedAt })
+    .from(reviews)
+    .where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId)))
+    .limit(1);
+  if (!current[0]) throw new Error('Review not found.');
+  if (current[0].status === 'completed') return false;
+  if (!current[0].revealedAt) throw new Error('Reveal the answers before rating this review.');
+
+  await db
+    .update(reviews)
+    .set({ status: 'completed', rating, completedAt: new Date() })
+    .where(
+      and(
+        eq(reviews.id, reviewId),
+        eq(reviews.userId, userId),
+        eq(reviews.status, 'started'),
+        isNotNull(reviews.revealedAt)
+      )
+    );
+  return true;
+}
