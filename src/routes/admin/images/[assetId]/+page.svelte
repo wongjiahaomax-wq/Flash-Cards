@@ -37,7 +37,7 @@
   </div>
 
   <section class="panel usage-panel"><div class="panel-heading"><div><p class="eyebrow">Relationship usage</p><h2>Cases using this Asset <span class="count">{detail.asset.usageCount}</span></h2></div><span class="muted">Captions are shown for context but remain Case-specific.</span></div>
-    {#if detail.usages.length === 0}<p class="empty-state">This image is not attached to any Case yet.</p>{:else}<div class="usage-list">{#each detail.usages as usage}<a class="usage-row" href={`/admin/cases/${usage.caseId}`}><span><strong>{usage.caseTitle}</strong>{#if usage.captionMd}<small>Case caption: {usage.captionMd}</small>{/if}</span><span class="usage-status">{usage.caseIsActive ? 'Active Case' : 'Inactive Case'} →</span></a>{/each}</div>{/if}
+    {#if detail.usages.length === 0}<p class="empty-state">This image is not attached to any Case yet.</p>{:else}<div class="usage-list">{#each detail.usages as usage}<a class="usage-row" href={`/admin/cases/${usage.caseId}`}><span><strong>{usage.caseTitle}</strong>{#if usage.stimulusGroupName}<small>Alternative stimulus: {usage.stimulusGroupName}</small>{/if}{#if usage.captionMd}<small>Case caption: {usage.captionMd}</small>{/if}</span><span class="usage-status">{usage.caseIsActive ? 'Active Case' : 'Inactive Case'} →</span></a>{/each}</div>{/if}
   </section>
 {/if}
 

@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, like } from 'drizzle-orm';
 
-import { assets, caseAssets, caseConcepts, cases, concepts } from './schema.js';
+import { assets, caseAssets, caseConcepts, cases, concepts, stimulusGroupOptions, stimulusGroups } from './schema.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -88,9 +88,16 @@ export async function getAdminCaseData(db, caseId) {
   const caseRows = await listAdminCases(db);
   const selectedCase = caseRows.find((item) => item.id === caseId);
   if (!selectedCase) return null;
+  const settings = (await db.select({ questionSelectionMode: cases.questionSelectionMode, questionCount: cases.questionCount }).from(cases).where(eq(cases.id, caseId)).limit(1))[0];
 
   const attached = await attachedRows(db, caseId);
   const attachedIds = new Set(attached.map((asset) => asset.assetId));
+  const groupedRows = await db
+    .select({ assetId: stimulusGroupOptions.assetId })
+    .from(stimulusGroupOptions)
+    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+    .where(eq(stimulusGroups.caseId, caseId));
+  const groupedIds = new Set(groupedRows.map((row) => row.assetId));
   const available = await db
     .select({
       assetId: assets.id,
@@ -109,9 +116,9 @@ export async function getAdminCaseData(db, caseId) {
     .orderBy(desc(assets.createdAt));
 
   return {
-    case: selectedCase,
+    case: { ...selectedCase, ...settings },
     attached,
-    available: available.filter((asset) => !attachedIds.has(asset.assetId))
+    available: available.filter((asset) => !attachedIds.has(asset.assetId) && !groupedIds.has(asset.assetId))
   };
 }
 
@@ -126,6 +133,13 @@ export async function attachAssetToCase(db, caseId, assetId, captionMd = null) {
     .where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, assetId)))
     .limit(1);
   if (existing[0]) throw new CaseAssetInputError('That Asset is already attached to this Case.');
+  const grouped = await db
+    .select({ id: stimulusGroupOptions.id })
+    .from(stimulusGroupOptions)
+    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+    .where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupOptions.assetId, assetId)))
+    .limit(1);
+  if (grouped[0]) throw new CaseAssetInputError('That Asset is already an option in this Case.');
 
   const last = await db
     .select({ displayOrder: caseAssets.displayOrder })

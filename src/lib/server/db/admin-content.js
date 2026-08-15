@@ -25,6 +25,20 @@ function optionalText(value) {
   return text || null;
 }
 
+/** @param {unknown} mode @param {unknown} count */
+function questionSelection(mode, count) {
+  const selectedMode = String(mode || 'automatic');
+  if (!['automatic', 'all', 'fixed'].includes(selectedMode)) {
+    throw new AdminContentInputError('Question selection must be Automatic, Ask all eligible, or Choose N.');
+  }
+  if (selectedMode !== 'fixed') return { mode: selectedMode, count: null };
+  const selectedCount = Number(count);
+  if (!Number.isInteger(selectedCount) || selectedCount < 1) {
+    throw new AdminContentInputError('Choose N questions requires a positive integer.');
+  }
+  return { mode: selectedMode, count: selectedCount };
+}
+
 /** @param {string} name */
 function slugBase(name) {
   const slug = name
@@ -90,18 +104,21 @@ async function requireActiveConcept(db, conceptId) {
 
 /**
  * @param {LearningDb} db
- * @param {{ title: string, vignetteMd?: string | null, conceptId: string }} input
+ * @param {{ title: string, vignetteMd?: string | null, conceptId: string, questionSelectionMode?: unknown, questionCount?: unknown }} input
  */
 export async function createCase(db, input) {
   const title = requiredText(input.title, 'Internal Case title');
   const conceptId = requiredText(input.conceptId, 'Primary topic');
   await requireActiveConcept(db, conceptId);
+  const selection = questionSelection(input.questionSelectionMode, input.questionCount);
 
   const id = crypto.randomUUID();
   const caseInsert = db.insert(cases).values({
     id,
     title,
     vignetteMd: optionalText(input.vignetteMd),
+    questionSelectionMode: selection.mode,
+    questionCount: selection.count,
     isActive: true
   });
   const associationInsert = db.insert(caseConcepts).values({
@@ -139,13 +156,14 @@ export async function updateCaseVignette(db, caseId, vignetteMd) {
  * The association is replaced in-place so existing Case identity and Reviews remain intact.
  *
  * @param {LearningDb} db
- * @param {{ caseId: string, title: string, vignetteMd?: string | null, conceptId: string }} input
+ * @param {{ caseId: string, title: string, vignetteMd?: string | null, conceptId: string, questionSelectionMode?: unknown, questionCount?: unknown }} input
  */
 export async function updateCase(db, input) {
   const caseId = requiredText(input.caseId, 'Case');
   const title = requiredText(input.title, 'Internal Case title');
   const conceptId = requiredText(input.conceptId, 'Primary topic');
   await requireActiveConcept(db, conceptId);
+  const selection = questionSelection(input.questionSelectionMode, input.questionCount);
 
   const existing = await db
     .select({ id: cases.id })
@@ -156,7 +174,7 @@ export async function updateCase(db, input) {
 
   await db
     .update(cases)
-    .set({ title, vignetteMd: optionalText(input.vignetteMd) })
+    .set({ title, vignetteMd: optionalText(input.vignetteMd), questionSelectionMode: selection.mode, questionCount: selection.count })
     .where(eq(cases.id, caseId));
 
   await db.delete(caseConcepts).where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.role, 'primary')));

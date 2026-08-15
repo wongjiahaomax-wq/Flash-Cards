@@ -7,6 +7,10 @@
  * @property {boolean} [inheritToDescendants]
  * @property {number} [distance]
  * @property {string | null} [sourceConceptId]
+ * @property {string | null} [sourceStimulusGroupId]
+ * @property {string | null} [sourceStimulusOptionId]
+ * @property {string | null} [stimulusGroupId]
+ * @property {string | null} [stimulusOptionId]
  */
 
 /**
@@ -16,6 +20,10 @@
  * @property {string} answerMd
  * @property {string} sourceType
  * @property {string | null} sourceConceptId
+ * @property {string | null} sourceStimulusGroupId
+ * @property {string | null} sourceStimulusOptionId
+ * @property {string | null} stimulusGroupId
+ * @property {string | null} stimulusOptionId
  * @property {number} [displayOrder]
  */
 
@@ -45,13 +53,18 @@ function assertQuestion(item, label) {
  * @param {string | null} [sourceConceptId]
  * @returns {ResolvedQuestion}
  */
-function resolvedQuestion(item, sourceType, sourceConceptId = null) {
+/** @param {QuestionInput} item @param {string} sourceType @param {string|null} [sourceConceptId] @param {string|null} [sourceStimulusGroupId] @param {string|null} [sourceStimulusOptionId] @returns {ResolvedQuestion} */
+function resolvedQuestion(item, sourceType, sourceConceptId = null, sourceStimulusGroupId = null, sourceStimulusOptionId = null) {
   return {
     questionPromptId: item.questionPromptId,
     promptMd: item.promptMd,
     answerMd: item.answerMd,
     sourceType,
-    sourceConceptId
+    sourceConceptId,
+    sourceStimulusGroupId,
+    sourceStimulusOptionId,
+    stimulusGroupId: item.stimulusGroupId ?? sourceStimulusGroupId ?? null,
+    stimulusOptionId: item.stimulusOptionId ?? sourceStimulusOptionId ?? null
   };
 }
 
@@ -64,13 +77,15 @@ function resolvedQuestion(item, sourceType, sourceConceptId = null) {
  * `ancestorConceptQuestions` must include a positive integer `distance`, where
  * 1 is the primary Concept's parent, 2 is its grandparent, and so on.
  *
- * @param {{ caseQuestions?: QuestionInput[], primaryConceptQuestions?: QuestionInput[], ancestorConceptQuestions?: QuestionInput[] }} [input]
+ * @param {{ caseQuestions?: QuestionInput[], primaryConceptQuestions?: QuestionInput[], ancestorConceptQuestions?: QuestionInput[], stimulusGroupQuestions?: QuestionInput[], stimulusOptionQuestions?: QuestionInput[] }} [input]
  * @returns {ResolvedQuestion[]}
  */
 export function resolveQuestionPool({
   caseQuestions = [],
   primaryConceptQuestions = [],
-  ancestorConceptQuestions = []
+  ancestorConceptQuestions = [],
+  stimulusGroupQuestions = [],
+  stimulusOptionQuestions = []
 } = {}) {
   /** @type {Map<string, ResolvedQuestion>} */
   const byPrompt = new Map();
@@ -114,21 +129,52 @@ export function resolveQuestionPool({
     byPrompt.set(question.questionPromptId, resolvedQuestion(question, 'case'));
   });
 
+  stimulusGroupQuestions.filter(isActive).forEach((question, index) => {
+    assertQuestion(question, `stimulusGroupQuestions[${index}]`);
+    if (!question.stimulusGroupId) throw new Error(`stimulusGroupQuestions[${index}] is missing stimulusGroupId.`);
+    const existing = byPrompt.get(question.questionPromptId);
+    if (existing?.sourceType === 'stimulus_group' && existing.stimulusGroupId !== question.stimulusGroupId) {
+      throw new Error('The same Question Prompt cannot be independently attached to multiple selected Stimulus Groups.');
+    }
+    byPrompt.set(
+      question.questionPromptId,
+      resolvedQuestion(question, 'stimulus_group', null, question.stimulusGroupId, null)
+    );
+  });
+
+  stimulusOptionQuestions.filter(isActive).forEach((question, index) => {
+    assertQuestion(question, `stimulusOptionQuestions[${index}]`);
+    if (!question.stimulusGroupId || !question.stimulusOptionId) {
+      throw new Error(`stimulusOptionQuestions[${index}] is missing stimulus option context.`);
+    }
+    const existing = byPrompt.get(question.questionPromptId);
+    if (
+      existing?.sourceType === 'stimulus_option' &&
+      (existing.stimulusGroupId !== question.stimulusGroupId || existing.stimulusOptionId !== question.stimulusOptionId)
+    ) {
+      throw new Error('The same Question Prompt cannot be independently attached to multiple selected Stimulus Groups.');
+    }
+    byPrompt.set(
+      question.questionPromptId,
+      resolvedQuestion(question, 'stimulus_option', null, question.stimulusGroupId, question.stimulusOptionId)
+    );
+  });
+
   return [...byPrompt.values()];
 }
 
 /**
  * Pick the questions to snapshot into one Review.
  *
- * V1 targets 3 questions and never displays more than 4. Injecting `rng`
- * keeps the function deterministic in tests without changing production use.
+ * Automatic mode preserves the V1 target of 3 questions and cap of 4.
+ * All mode returns the whole resolved pool and fixed mode requests N.
  *
- * @template {{ questionPromptId: string }} T
+ * @template {{ questionPromptId: string, stimulusGroupId?: string | null }} T
  * @param {T[]} pool
- * @param {{ count?: number, rng?: () => number }} [options]
+ * @param {{ count?: number, mode?: 'automatic' | 'all' | 'fixed', rng?: () => number, groupCoverage?: { groupId: string, mode?: 'none' | 'minimum' | 'all', minimum?: number }[] }} [options]
  * @returns {(T & { displayOrder: number })[]}
  */
-export function pickReviewQuestions(pool, { count = 3, rng = Math.random } = {}) {
+export function pickReviewQuestions(pool, { count = 3, mode = 'automatic', rng = Math.random, groupCoverage = [] } = {}) {
   if (!Array.isArray(pool)) {
     throw new Error('Question pool must be an array.');
   }
@@ -141,8 +187,6 @@ export function pickReviewQuestions(pool, { count = 3, rng = Math.random } = {})
     return [];
   }
 
-  const requestedCount = Number.isFinite(count) ? Math.floor(count) : 3;
-  const target = Math.min(Math.max(requestedCount, 1), 4, pool.length);
   const shuffled = [...pool];
 
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
@@ -152,7 +196,32 @@ export function pickReviewQuestions(pool, { count = 3, rng = Math.random } = {})
     [shuffled[index], shuffled[swapIndex]] = [shuffled[swapIndex], shuffled[index]];
   }
 
-  return shuffled.slice(0, target).map((question, displayOrder) => ({
+  const required = [];
+  for (const coverage of groupCoverage) {
+    const specific = shuffled.filter((question) => question.stimulusGroupId === coverage.groupId);
+    if (coverage.mode === 'all') required.push(...specific);
+    if (coverage.mode === 'minimum') {
+      const minimum = typeof coverage.minimum === 'number' && Number.isInteger(coverage.minimum) ? coverage.minimum : 0;
+      if (specific.length < minimum) {
+        throw new Error(`Stimulus Group ${coverage.groupId} requires at least ${minimum} specific questions, but only ${specific.length} are eligible.`);
+      }
+      required.push(...specific.slice(0, minimum));
+    }
+  }
+  const requiredIds = new Set(required.map((question) => question.questionPromptId));
+  const requestedCount = Number.isFinite(count) ? Math.floor(count) : 3;
+  if (mode === 'fixed' && required.length > Math.max(requestedCount, 1)) {
+    throw new Error('The configured stimulus-specific question coverage cannot fit within the Case question count.');
+  }
+  const baseTarget = mode === 'all' ? pool.length : mode === 'fixed' ? Math.max(requestedCount, 1) : Math.min(Math.max(requestedCount, 1), 4);
+  const target = mode === 'automatic'
+    ? Math.min(Math.max(baseTarget, required.length), required.length > 4 ? required.length : 4, pool.length)
+    : Math.min(Math.max(baseTarget, required.length), pool.length);
+  if (required.length > target) {
+    throw new Error('The configured stimulus-specific question coverage cannot fit within the Case question count.');
+  }
+  const selected = [...required, ...shuffled.filter((question) => !requiredIds.has(question.questionPromptId))].slice(0, target);
+  return selected.map((question, displayOrder) => ({
     ...question,
     displayOrder
   }));

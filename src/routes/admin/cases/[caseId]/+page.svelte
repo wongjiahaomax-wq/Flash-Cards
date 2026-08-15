@@ -16,7 +16,7 @@
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
 
   <nav class="section-nav" aria-label="Case editor sections">
-    <a href="#case">Case</a><a href="#questions">Questions <span>{selectedCase.questions.length}</span></a><a href="#images">Images <span>{selectedCase.attached.length}</span></a><a href="#preview">Preview</a>
+    <a href="#case">Case</a><a href="#questions">Questions <span>{selectedCase.questions.length}</span></a><a href="#images">Images <span>{selectedCase.attached.length}</span></a><a href="#stimuli">Alternative stimuli <span>{selectedCase.stimulusGroups.length}</span></a><a href="#preview">Preview</a>
   </nav>
 
   <section id="case" class="panel stack">
@@ -26,8 +26,52 @@
       <label>Internal Case title<input name="title" value={selectedCase.case.title} maxlength="300" required /></label>
       <label>Primary topic / Concept<select name="concept_id" required>{#each data.concepts as concept}<option value={concept.id} selected={concept.id === selectedCase.case.conceptId}>{concept.name}</option>{/each}</select></label>
       <label class="wide">Case stem / vignette <span class="muted">(optional)</span><textarea name="vignette_md" rows="7" maxlength="5000">{selectedCase.case.vignetteMd ?? ''}</textarea></label>
+      <label>Questions per Review<select name="question_selection_mode"><option value="automatic" selected={selectedCase.case.questionSelectionMode === 'automatic'}>Automatic</option><option value="all" selected={selectedCase.case.questionSelectionMode === 'all'}>Ask all eligible</option><option value="fixed" selected={selectedCase.case.questionSelectionMode === 'fixed'}>Choose N questions</option></select></label>
+      <label>Question count <span class="muted">(used for Choose N)</span><input type="number" name="question_count" min="1" value={selectedCase.case.questionCount ?? ''} /></label>
       <div class="wide"><button class="button primary" type="submit">Save Case</button></div>
     </form>
+  </section>
+
+  <section id="stimuli" class="panel stack">
+    <div><p class="eyebrow">Optional enrichment</p><h2>Alternative stimuli <span class="count">{selectedCase.stimulusGroups.length}</span></h2><p class="muted">Fixed Images remain in every Review. Each active group selects one existing image per Review.</p></div>
+    <form method="POST" action="?/createStimulusGroup" class="form-grid">
+      <input type="hidden" name="case_id" value={selectedCase.case.id} />
+      <label>Group name<input name="name" required placeholder="ECG alternatives" /></label>
+      <label>Specific-question coverage<select name="specific_question_mode"><option value="none">No guarantee</option><option value="minimum">At least N</option><option value="all">All available</option></select></label>
+      <label>Minimum specific questions <input type="number" name="minimum_specific_questions" min="1" placeholder="1" /></label>
+      <div><button class="button primary" type="submit">Create group</button></div>
+    </form>
+    {#if selectedCase.stimulusGroups.length === 0}<p class="empty-state">No alternative stimulus groups. This Case currently uses only fixed images.</p>{/if}
+    {#each selectedCase.stimulusGroups as group}
+      <article class="question-card">
+        <form method="POST" action="?/updateStimulusGroup" class="form-grid">
+          <input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} />
+          <label>Group name<input name="name" value={group.name} required /></label>
+          <label>Coverage<select name="specific_question_mode"><option value="none" selected={group.specificQuestionMode === 'none'}>No guarantee</option><option value="minimum" selected={group.specificQuestionMode === 'minimum'}>At least N</option><option value="all" selected={group.specificQuestionMode === 'all'}>All available</option></select></label>
+          <label>Minimum <input type="number" name="minimum_specific_questions" min="1" value={group.minimumSpecificQuestions ?? ''} /></label>
+          <label class="checkbox-label"><input type="checkbox" name="is_active" checked={group.isActive} /> Active</label>
+          <div><button class="button" type="submit">Save group</button></div>
+        </form>
+        <h3>Options <span class="count">{group.options.length}</span></h3>
+        <form method="POST" action="?/addStimulusOption" class="form-grid">
+          <input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} />
+          <label>Existing image<select name="asset_id" required><option value="">Choose an image</option>{#each selectedCase.available as asset}<option value={asset.assetId}>{asset.originalFilename ?? asset.assetId}</option>{/each}</select></label>
+          <label>Option caption<input name="caption" placeholder="Optional contextual caption" /></label>
+          <div><button class="button" type="submit">Add option</button></div>
+        </form>
+        {#each group.options as option, optionIndex}
+          <div class="asset-card">
+            <div class="asset-topline">{#if option.imageUrl}<img src={option.imageUrl} alt={option.altText ?? 'Stimulus option'} />{:else}<div class="inactive-image">Inactive image</div>{/if}<div class="asset-details"><strong>{option.originalFilename ?? option.assetId}</strong><span>{option.captionMd ?? 'No option caption'}</span><span class="muted">{option.isActive && option.assetIsActive ? 'Active option' : 'Inactive option'}</span></div></div>
+            <div class="actions"><form method="POST" action="?/reorderStimulusOption"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="direction" value="up" /><button class="button small" disabled={optionIndex === 0}>Move up</button></form><form method="POST" action="?/reorderStimulusOption"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="direction" value="down" /><button class="button small" disabled={optionIndex === group.options.length - 1}>Move down</button></form><form method="POST" action="?/setStimulusOptionActive"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="active" value={option.isActive ? 'false' : 'true'} /><button class="button small" type="submit">{option.isActive ? 'Deactivate' : 'Reactivate'}</button></form></div>
+            <form method="POST" action="?/saveStimulusOptionQuestion" class="form-grid"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><label>Option-specific prompt<textarea name="prompt_md" rows="2" required></textarea></label><label>Answer<textarea name="answer_md" rows="2" required></textarea></label><div><button class="button small" type="submit">Add option question</button></div></form>
+            {#each group.optionQuestions.filter((question) => question.stimulusGroupOptionId === option.id) as question}<div class="question-card"><strong>{question.promptMd}</strong><span>{question.answerMd}</span><form method="POST" action="?/removeStimulusQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="scope" value="option" /><input type="hidden" name="context_id" value={option.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><button class="button danger small" type="submit">Remove</button></form></div>{/each}
+          </div>
+        {/each}
+        <h3>Group-level questions</h3>
+        <form method="POST" action="?/saveStimulusGroupQuestion" class="form-grid"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} /><label>Prompt<textarea name="prompt_md" rows="2" required></textarea></label><label>Answer<textarea name="answer_md" rows="2" required></textarea></label><div><button class="button" type="submit">Add group question</button></div></form>
+        {#each group.questions as question}<div class="question-card"><strong>{question.promptMd}</strong><span>{question.answerMd}</span><form method="POST" action="?/removeStimulusQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="scope" value="group" /><input type="hidden" name="context_id" value={group.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><button class="button danger small" type="submit">Remove</button></form></div>{/each}
+      </article>
+    {/each}
   </section>
 
   <section id="questions" class="panel stack">
@@ -68,6 +112,7 @@
             <div class="asset-topline"><span class="order-badge">{index + 1}</span>{#if asset.imageUrl}<img src={asset.imageUrl} alt={asset.altText ?? ''} width="140" height="100" />{:else}<div class="inactive-image">Inactive image</div>{/if}<div class="asset-details"><strong>{asset.originalFilename ?? asset.assetId}</strong><span class="muted">{asset.altText || 'No alt text'}</span>{#if asset.sourceLabel}<span class="muted">Source: {asset.sourceLabel}</span>{/if}</div></div>
             <form method="POST" action="?/caption" class="stack"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><label>Case-specific caption<textarea name="caption" rows="2" maxlength="1000">{asset.captionMd ?? ''}</textarea></label><button class="button small" type="submit">Save caption</button></form>
             <div class="actions"><form method="POST" action="?/reorder"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><input type="hidden" name="direction" value="up" /><button class="button small" type="submit" disabled={index === 0}>Move up</button></form><form method="POST" action="?/reorder"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><input type="hidden" name="direction" value="down" /><button class="button small" type="submit" disabled={index === selectedCase.attached.length - 1}>Move down</button></form><form method="POST" action="?/detach"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><button class="button danger small" type="submit">Detach</button></form></div>
+            {#if selectedCase.stimulusGroups.length > 0}<form method="POST" action="?/addStimulusOption" class="actions"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><input type="hidden" name="convert_fixed" value="on" /><label>Convert to alternatives<select name="group_id" required><option value="">Choose group</option>{#each selectedCase.stimulusGroups as group}<option value={group.id}>{group.name}</option>{/each}</select></label><button class="button small" type="submit">Convert fixed image</button></form>{/if}
           </article>
         {/each}
       </div>

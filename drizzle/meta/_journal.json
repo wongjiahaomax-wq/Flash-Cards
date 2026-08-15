@@ -15,6 +15,13 @@
       "when": 1786745807620,
       "tag": "0001_better_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1786750000000,
+      "tag": "0002_optional_stimulus_groups",
+      "breakpoints": true
     }
   ]
 }

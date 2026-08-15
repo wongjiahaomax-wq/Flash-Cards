@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, exists, gt, isNull, isNotNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, isNotNull, like, or, sql } from 'drizzle-orm';
 
 import {
   deleteTeachingImage,
@@ -6,7 +6,7 @@ import {
   putTeachingImage,
   assertSupportedImageType
 } from '../storage/media.js';
-import { assets, caseAssets, caseConcepts, cases, concepts } from './schema.js';
+import { assets, caseAssets, caseConcepts, cases, concepts, stimulusGroupOptions, stimulusGroups } from './schema.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -85,7 +85,7 @@ export async function listAssetLibraryTopics(db) {
 
 /** @param {LearningDb} db */
 async function listUsageRows(db) {
-  return db
+  const fixedRows = await db
     .select({
       assetId: caseAssets.assetId,
       caseId: cases.id,
@@ -94,13 +94,35 @@ async function listUsageRows(db) {
       captionMd: caseAssets.captionMd,
       displayOrder: caseAssets.displayOrder,
       conceptId: caseConcepts.conceptId,
-      conceptName: concepts.name
+      conceptName: concepts.name,
+      stimulusGroupName: sql`null`.as('stimulus_group_name')
     })
     .from(caseAssets)
     .innerJoin(cases, eq(cases.id, caseAssets.caseId))
     .leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
     .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
     .orderBy(asc(cases.title), asc(caseAssets.displayOrder), asc(cases.id));
+  const groupedRows = await db
+    .select({
+      assetId: stimulusGroupOptions.assetId,
+      caseId: cases.id,
+      caseTitle: cases.title,
+      caseIsActive: cases.isActive,
+      captionMd: stimulusGroupOptions.captionMd,
+      displayOrder: stimulusGroupOptions.displayOrder,
+      conceptId: caseConcepts.conceptId,
+      conceptName: concepts.name,
+      stimulusGroupId: stimulusGroups.id,
+      stimulusGroupName: stimulusGroups.name,
+      stimulusOptionId: stimulusGroupOptions.id
+    })
+    .from(stimulusGroupOptions)
+    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+    .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+    .leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
+    .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .orderBy(asc(cases.title), asc(stimulusGroupOptions.displayOrder), asc(cases.id));
+  return [...fixedRows, ...groupedRows];
 }
 
 /** @param {string[]} names */
@@ -121,8 +143,6 @@ export async function listAssetLibrary(db, filters = {}) {
   const source = filters.source ?? 'all';
   const sort = filters.sort ?? 'newest';
   const conditions = [];
-  const usageCountExpression = count(caseAssets.caseId);
-  const usageCount = usageCountExpression.as('usageCount');
 
   if (search) {
     const pattern = `%${search}%`;
@@ -143,19 +163,6 @@ export async function listAssetLibrary(db, filters = {}) {
   if (source === 'unknown') {
     conditions.push(and(isNull(assets.sourceLabel), isNull(assets.sourceUrl), isNull(assets.licence)));
   }
-  if (topic) {
-    conditions.push(
-      exists(
-        db
-          .select({ assetId: caseAssets.assetId })
-          .from(caseAssets)
-          .innerJoin(caseConcepts, and(eq(caseConcepts.caseId, caseAssets.caseId), eq(caseConcepts.role, 'primary')))
-          .where(and(eq(caseAssets.assetId, assets.id), eq(caseConcepts.conceptId, topic)))
-          .limit(1)
-      )
-    );
-  }
-
   const rows = await db
     .select({
       id: assets.id,
@@ -169,25 +176,18 @@ export async function listAssetLibrary(db, filters = {}) {
       licence: assets.licence,
       isActive: assets.isActive,
       createdAt: assets.createdAt,
-      updatedAt: assets.updatedAt,
-      usageCount
+      updatedAt: assets.updatedAt
     })
     .from(assets)
-    .leftJoin(caseAssets, eq(caseAssets.assetId, assets.id))
     .where(conditions.length ? and(...conditions) : undefined)
-    .groupBy(assets.id)
-    .having(usage === 'used' ? gt(usageCountExpression, 0) : usage === 'unused' ? eq(usageCountExpression, 0) : undefined)
-    .orderBy(
-      sort === 'oldest' ? asc(assets.createdAt) :
-        sort === 'name-asc' ? asc(sql`lower(coalesce(${assets.originalFilename}, ''))`) :
-          sort === 'name-desc' ? desc(sql`lower(coalesce(${assets.originalFilename}, ''))`) :
-            sort === 'most-used' ? desc(usageCountExpression) :
-              sort === 'least-used' ? asc(usageCountExpression) : desc(assets.createdAt),
-      sort === 'name-asc' || sort === 'name-desc' ? (sort === 'name-asc' ? asc(assets.id) : desc(assets.id)) :
-        sort === 'most-used' || sort === 'least-used' ? (sort === 'most-used' ? desc(assets.createdAt) : asc(assets.createdAt)) :
-          sort === 'oldest' ? asc(assets.id) : desc(assets.id)
-    );
+    .orderBy(desc(assets.createdAt), desc(assets.id));
   const usageRows = await listUsageRows(db);
+  const usageByAsset = new Map();
+  for (const row of usageRows) {
+    const usages = usageByAsset.get(row.assetId) ?? [];
+    usages.push(row);
+    usageByAsset.set(row.assetId, usages);
+  }
   const topicsByAsset = new Map();
   for (const row of usageRows) {
     if (!row.conceptId || !row.conceptName) continue;
@@ -198,13 +198,42 @@ export async function listAssetLibrary(db, filters = {}) {
 
   return rows
     .map((asset) => {
+      const assetUsages = usageByAsset.get(asset.id) ?? [];
       const topicNames = [...(topicsByAsset.get(asset.id)?.values() ?? [])];
       return {
         ...asset,
+        usageCount: new Set(assetUsages.map((/** @type {{ caseId: string }} */ usage) => usage.caseId)).size,
         imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null,
         topicNames,
         topicSummary: topicSummary(topicNames)
       };
+    })
+    .filter((asset) => {
+      const assetUsages = usageByAsset.get(asset.id) ?? [];
+      if (usage === 'used' && asset.usageCount === 0) return false;
+      if (usage === 'unused' && asset.usageCount > 0) return false;
+      if (topic && !assetUsages.some((/** @type {{ conceptId: string | null }} */ row) => row.conceptId === topic)) return false;
+      if (search) {
+        const text = [asset.originalFilename, asset.altText, asset.sourceLabel, asset.sourceUrl].filter(Boolean).join(' ').toLocaleLowerCase();
+        if (!text.includes(search.toLocaleLowerCase())) return false;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (sort === 'most-used' || sort === 'least-used') {
+        const usageResult = sort === 'most-used' ? b.usageCount - a.usageCount : a.usageCount - b.usageCount;
+        if (usageResult !== 0) return usageResult;
+        const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : Number(a.createdAt ?? 0);
+        const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : Number(b.createdAt ?? 0);
+        return sort === 'least-used' ? aTime - bTime : bTime - aTime;
+      }
+      if (sort === 'name-asc' || sort === 'name-desc') {
+        const result = String(a.originalFilename ?? '').localeCompare(String(b.originalFilename ?? ''));
+        return sort === 'name-asc' ? result : -result;
+      }
+      const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : Number(a.createdAt ?? 0);
+      const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : Number(b.createdAt ?? 0);
+      return sort === 'oldest' ? aTime - bTime : bTime - aTime;
     });
 }
 
@@ -220,7 +249,7 @@ export async function getAssetLibraryDetail(db, assetId) {
     asset: {
       ...asset,
       imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null,
-      usageCount: usages.length
+      usageCount: new Set(usages.map((usage) => usage.caseId)).size
     },
     usages
   };

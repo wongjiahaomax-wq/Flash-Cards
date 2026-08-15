@@ -11,7 +11,11 @@ import {
   questionPrompts,
   reviewAssets,
   reviewQuestions,
-  reviews
+  reviews,
+  stimulusGroupOptions,
+  stimulusGroupQuestions,
+  stimulusGroups,
+  stimulusOptionQuestions
 } from './schema.js';
 import { pickCase } from '../learning/cases.js';
 import { pickReviewQuestions, resolveQuestionPool } from '../learning/questions.js';
@@ -142,11 +146,16 @@ export async function startReview({ db, userId, conceptId, rng = Math.random }) 
   });
   if (!selectedCase) return null;
 
-  const source = await loadCaseSource(db, selectedCase.id);
+  const source = await loadCaseSource(db, selectedCase.id, rng);
   if (!source) return null;
 
   const reviewId = newId();
-  const pickedQuestions = pickReviewQuestions(source.questionPool, { rng });
+  const pickedQuestions = pickReviewQuestions(source.questionPool, {
+    rng,
+    mode: /** @type {'automatic'|'all'|'fixed'} */ (source.case.questionSelectionMode),
+    count: source.case.questionCount ?? 3,
+    groupCoverage: source.groupCoverage
+  });
 
   const reviewInsert = db.insert(reviews).values({
     id: reviewId,
@@ -170,6 +179,8 @@ export async function startReview({ db, userId, conceptId, rng = Math.random }) 
         questionPromptId: question.questionPromptId,
         sourceType: question.sourceType,
         sourceConceptId: question.sourceConceptId,
+        sourceStimulusGroupId: question.sourceStimulusGroupId,
+        sourceStimulusOptionId: question.sourceStimulusOptionId,
         displayOrder: question.displayOrder,
         promptSnapshotMd: question.promptMd,
         answerSnapshotMd: question.answerMd
@@ -186,7 +197,9 @@ export async function startReview({ db, userId, conceptId, rng = Math.random }) 
         displayOrder: asset.displayOrder,
         storageKeySnapshot: asset.storageKey,
         captionSnapshotMd: asset.captionMd,
-        altTextSnapshot: asset.altText
+        altTextSnapshot: asset.altText,
+        sourceStimulusGroupId: asset.stimulusGroupId,
+        sourceStimulusOptionId: asset.stimulusOptionId
       }))
     ));
   }
@@ -199,13 +212,15 @@ export async function startReview({ db, userId, conceptId, rng = Math.random }) 
   return reviewId;
 }
 
-/** @param {LearningDb} db @param {string} caseId */
-async function loadCaseSource(db, caseId) {
+/** @param {LearningDb} db @param {string} caseId @param {() => number} rng */
+async function loadCaseSource(db, caseId, rng) {
   const caseRows = await db
     .select({
       id: cases.id,
       title: cases.title,
       vignetteMd: cases.vignetteMd,
+      questionSelectionMode: cases.questionSelectionMode,
+      questionCount: cases.questionCount,
       primaryConceptId: caseConcepts.conceptId
     })
     .from(cases)
@@ -283,11 +298,6 @@ async function loadCaseSource(db, caseId) {
       promptMd: prompts.get(question.questionPromptId) ?? '',
       distance: ancestors.find((ancestor) => ancestor.id === question.conceptId)?.distance ?? 1
     }));
-  const questionPool = resolveQuestionPool({
-    caseQuestions: caseQuestionInputs,
-    primaryConceptQuestions: primaryQuestions,
-    ancestorConceptQuestions: ancestorQuestions
-  });
 
   const assetRows = await db
     .select({
@@ -304,11 +314,100 @@ async function loadCaseSource(db, caseId) {
     .where(and(eq(caseAssets.caseId, caseId), eq(assets.isActive, true)))
     .orderBy(asc(caseAssets.displayOrder));
 
+  const groupRows = await db
+    .select({
+      id: stimulusGroups.id,
+      name: stimulusGroups.name,
+      displayOrder: stimulusGroups.displayOrder,
+      selectionCount: stimulusGroups.selectionCount,
+      specificQuestionMode: stimulusGroups.specificQuestionMode,
+      minimumSpecificQuestions: stimulusGroups.minimumSpecificQuestions
+    })
+    .from(stimulusGroups)
+    .where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroups.isActive, true)))
+    .orderBy(asc(stimulusGroups.displayOrder), asc(stimulusGroups.id));
+  const groupIds = groupRows.map((group) => group.id);
+  const optionRows = groupIds.length
+    ? await db
+        .select({
+          id: stimulusGroupOptions.id,
+          stimulusGroupId: stimulusGroupOptions.stimulusGroupId,
+          assetId: stimulusGroupOptions.assetId,
+          displayOrder: stimulusGroupOptions.displayOrder,
+          captionMd: stimulusGroupOptions.captionMd,
+          storageKey: assets.storageKey,
+          altText: assets.altText,
+          sourceLabel: assets.sourceLabel,
+          sourceUrl: assets.sourceUrl
+        })
+        .from(stimulusGroupOptions)
+        .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
+        .where(and(inArray(stimulusGroupOptions.stimulusGroupId, groupIds), eq(stimulusGroupOptions.isActive, true), eq(assets.isActive, true)))
+        .orderBy(asc(stimulusGroupOptions.displayOrder), asc(stimulusGroupOptions.id))
+    : [];
+
+  /** @type {{ group: typeof groupRows[number], option: typeof optionRows[number] }[]} */
+  const selectedOptions = [];
+  for (const group of groupRows) {
+    if (group.selectionCount !== 1) throw new Error('Only one option per Stimulus Group is supported.');
+    const options = optionRows.filter((option) => option.stimulusGroupId === group.id);
+    if (!options.length) continue;
+    const boundedRandom = Math.min(Math.max(rng(), 0), 0.9999999999999999);
+    selectedOptions.push({ group, option: options[Math.floor(boundedRandom * options.length)] });
+  }
+
+  const selectedOptionIds = selectedOptions.map(({ option }) => option.id);
+  const groupQuestionRows = groupIds.length
+    ? await db
+        .select({ stimulusGroupId: stimulusGroupQuestions.stimulusGroupId, questionPromptId: stimulusGroupQuestions.questionPromptId, answerMd: stimulusGroupQuestions.answerMd, isActive: stimulusGroupQuestions.isActive })
+        .from(stimulusGroupQuestions)
+        .where(and(inArray(stimulusGroupQuestions.stimulusGroupId, groupIds), eq(stimulusGroupQuestions.isActive, true)))
+    : [];
+  const optionQuestionRows = selectedOptionIds.length
+    ? await db
+        .select({ stimulusGroupOptionId: stimulusOptionQuestions.stimulusGroupOptionId, questionPromptId: stimulusOptionQuestions.questionPromptId, answerMd: stimulusOptionQuestions.answerMd, isActive: stimulusOptionQuestions.isActive })
+        .from(stimulusOptionQuestions)
+        .where(and(inArray(stimulusOptionQuestions.stimulusGroupOptionId, selectedOptionIds), eq(stimulusOptionQuestions.isActive, true)))
+    : [];
+  const groupQuestions = groupQuestionRows
+    .filter((question) => prompts.has(question.questionPromptId) && selectedOptions.some(({ group }) => group.id === question.stimulusGroupId))
+    .map((question) => ({ ...question, promptMd: prompts.get(question.questionPromptId) ?? '', stimulusGroupId: question.stimulusGroupId }));
+  const optionQuestions = optionQuestionRows.flatMap((question) => {
+    const selected = selectedOptions.find(({ option }) => option.id === question.stimulusGroupOptionId);
+    if (!selected || !prompts.has(question.questionPromptId)) return [];
+    return [{ ...question, promptMd: prompts.get(question.questionPromptId) ?? '', stimulusGroupId: selected.group.id, stimulusOptionId: selected.option.id }];
+  });
+  const questionPool = resolveQuestionPool({
+    caseQuestions: caseQuestionInputs,
+    primaryConceptQuestions: primaryQuestions,
+    ancestorConceptQuestions: ancestorQuestions,
+    stimulusGroupQuestions: groupQuestions,
+    stimulusOptionQuestions: optionQuestions
+  });
+
+  const selectedAssets = selectedOptions.map(({ group, option }) => ({
+    assetId: option.assetId,
+    storageKey: option.storageKey,
+    altText: option.altText,
+    sourceLabel: option.sourceLabel,
+    sourceUrl: option.sourceUrl,
+    captionMd: option.captionMd,
+    displayOrder: assetRows.length + group.displayOrder,
+    stimulusGroupId: group.id,
+    stimulusOptionId: option.id
+  }));
+  const groupCoverage = selectedOptions.map(({ group }) => ({
+    groupId: group.id,
+    mode: /** @type {'none'|'minimum'|'all'} */ (group.specificQuestionMode),
+    minimum: group.minimumSpecificQuestions ?? 0
+  }));
+
   return {
     case: caseRow,
     primaryConcept,
     questionPool,
-    assets: assetRows
+    assets: [...assetRows.map((asset) => ({ ...asset, stimulusGroupId: null, stimulusOptionId: null })), ...selectedAssets],
+    groupCoverage
   };
 }
 
@@ -342,6 +441,8 @@ export async function getReview(db, reviewId, userId) {
       prompt: reviewQuestions.promptSnapshotMd,
       answer: reviewQuestions.answerSnapshotMd,
       sourceType: reviewQuestions.sourceType,
+      sourceStimulusGroupId: reviewQuestions.sourceStimulusGroupId,
+      sourceStimulusOptionId: reviewQuestions.sourceStimulusOptionId,
       displayOrder: reviewQuestions.displayOrder
     })
     .from(reviewQuestions)
@@ -355,6 +456,8 @@ export async function getReview(db, reviewId, userId) {
       altText: reviewAssets.altTextSnapshot,
       sourceLabel: assets.sourceLabel,
       sourceUrl: assets.sourceUrl,
+      stimulusGroupId: reviewAssets.sourceStimulusGroupId,
+      stimulusOptionId: reviewAssets.sourceStimulusOptionId,
       displayOrder: reviewAssets.displayOrder
     })
     .from(reviewAssets)

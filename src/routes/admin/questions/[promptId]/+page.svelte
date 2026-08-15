@@ -55,6 +55,15 @@
       {/each}
     </div>
   </section>
+
+  <section class="panel" aria-labelledby="stimulus-usages-heading">
+    <div class="panel-heading"><div><p class="eyebrow">Alternative stimulus answers</p><h2 id="stimulus-usages-heading">Stimulus Group usages <span class="count">{prompt.stimulusGroupUsages.length + prompt.stimulusOptionUsages.length}</span></h2></div><span class="muted">These answers apply only within a Case's selected stimulus context.</span></div>
+    {#if prompt.stimulusGroupUsages.length === 0 && prompt.stimulusOptionUsages.length === 0}<p class="empty-state">No Stimulus Group or Stimulus Option usages.</p>{/if}
+    <div class="usage-list">
+      {#each prompt.stimulusGroupUsages as usage}<article class="usage-card" class:inactive={!usage.isActive || !usage.groupIsActive || !usage.caseIsActive}><div class="usage-heading"><div><strong>{usage.groupName}</strong><span class="muted">Case: {usage.caseTitle}</span></div><a class="button small" href={'/admin/cases/' + usage.caseId}>Open Case</a></div><p>{usage.answerMd}</p>{#if !usage.isActive || !usage.groupIsActive || !usage.caseIsActive}<span class="status">Inactive relationship, group, or Case</span>{/if}</article>{/each}
+      {#each prompt.stimulusOptionUsages as usage}<article class="usage-card" class:inactive={!usage.isActive || !usage.optionIsActive || !usage.groupIsActive || !usage.caseIsActive}><div class="usage-heading"><div><strong>Selected option {usage.optionId}</strong><span class="muted">{usage.groupName} · Case: {usage.caseTitle}</span></div><a class="button small" href={'/admin/cases/' + usage.caseId}>Open Case</a></div><p>{usage.answerMd}</p>{#if !usage.isActive || !usage.optionIsActive || !usage.groupIsActive || !usage.caseIsActive}<span class="status">Inactive relationship, option, group, or Case</span>{/if}</article>{/each}
+    </div>
+  </section>
 {/if}
 
 <style>

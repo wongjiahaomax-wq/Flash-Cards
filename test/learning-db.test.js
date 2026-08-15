@@ -10,7 +10,7 @@ import { buildSeedSql } from '../scripts/seed-content.mjs';
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
 /** @typedef {{ prepare: (sql: string) => any, batch: (statements: any[]) => Promise<any[]> }} TestD1 */
 
-const migrationSql = readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8').replaceAll('--> statement-breakpoint', '');
+const migrationSql = [readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'), readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8')].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
