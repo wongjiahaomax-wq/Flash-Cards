@@ -1,26 +1,7 @@
 <script>
   let { data } = $props();
 
-  let revealed = $state(false);
-  let rating = $state(/** @type {'Again' | 'Good' | null} */ (null));
   let caseStudy = $derived(data.caseStudy);
-
-  $effect(() => {
-    caseStudy.id;
-    revealed = false;
-    rating = null;
-  });
-
-  function revealAnswers() {
-    revealed = true;
-  }
-
-  /**
-   * @param {'Again' | 'Good'} value
-   */
-  function rateCase(value) {
-    rating = value;
-  }
 </script>
 
 <svelte:head>
@@ -30,17 +11,13 @@
 <main class="shell review-shell">
   <nav class="review-nav" aria-label="Study navigation">
     <a href="/study">← Back to topics</a>
-    <span class="muted">Demo review</span>
+    <span class="muted">Saved review</span>
   </nav>
 
   <header class="case-header">
-    <div class="case-meta">
-      <span>{caseStudy.category}</span>
-      <span aria-hidden="true">•</span>
-      <span>{caseStudy.concept}</span>
-    </div>
+    <div class="case-meta"><span>{caseStudy.concept}</span></div>
     <h1>{caseStudy.title}</h1>
-    <p>{caseStudy.vignette}</p>
+    {#if caseStudy.vignette}<p>{caseStudy.vignette}</p>{/if}
   </header>
 
   <section class="review-section" aria-labelledby="assets-heading">
@@ -57,16 +34,17 @@
     <div class:singleAsset={caseStudy.assets.length === 1} class="asset-grid">
       {#each caseStudy.assets as asset}
         <figure class="asset-placeholder">
-          <div class="asset-stage" role="img" aria-label={`${asset.type} placeholder: ${asset.caption}`}>
-            <div class="placeholder-mark" aria-hidden="true">
-              <span></span>
-              <span></span>
-              <span></span>
-            </div>
-            <strong>{asset.label}</strong>
-            <span>{asset.type} placeholder</span>
+          <div class="asset-stage">
+            <img src={asset.imageUrl} alt={asset.altText ?? asset.caption ?? 'Teaching image'} />
           </div>
-          <figcaption>{asset.caption}</figcaption>
+          {#if asset.caption}<figcaption>{asset.caption}</figcaption>{/if}
+          {#if asset.sourceLabel}
+            {#if asset.sourceUrl}
+              <a class="asset-source" href={asset.sourceUrl} target="_blank" rel="noreferrer">Source: {asset.sourceLabel} ↗</a>
+            {:else}
+              <span class="asset-source">Source: {asset.sourceLabel}</span>
+            {/if}
+          {/if}
         </figure>
       {/each}
     </div>
@@ -87,7 +65,7 @@
           <div class="question-number">{index + 1}</div>
           <div class="question-content">
             <h3>{question.prompt}</h3>
-            {#if revealed}
+            {#if caseStudy.revealed}
               <div class="answer-block">
                 <p class="answer-label">Answer</p>
                 <p>{question.answer}</p>
@@ -103,29 +81,39 @@
   </section>
 
   <section class="review-actions" aria-live="polite">
-    {#if !revealed}
+    {#if !caseStudy.revealed}
       <div>
         <strong>Ready to check?</strong>
         <p class="muted">Reveal all answers when you have considered every question.</p>
       </div>
-      <button class="button primary action-button" type="button" onclick={revealAnswers}>
+      <form method="POST" action="?/reveal">
+        <button class="button primary action-button" type="submit">
         Reveal answers
-      </button>
-    {:else if rating === null}
+        </button>
+      </form>
+    {:else if caseStudy.rating === null}
       <div>
         <strong>How did you do overall?</strong>
         <p class="muted">For V1, the rating applies to the whole case rather than each question.</p>
       </div>
       <div class="rating-buttons">
-        <button class="button rating-button" type="button" onclick={() => rateCase('Again')}>Again</button>
-        <button class="button primary rating-button" type="button" onclick={() => rateCase('Good')}>Good</button>
+        <form method="POST" action="?/rate">
+          <input type="hidden" name="rating" value="again" />
+          <button class="button rating-button" type="submit">Again</button>
+        </form>
+        <form method="POST" action="?/rate">
+          <input type="hidden" name="rating" value="good" />
+          <button class="button primary rating-button" type="submit">Good</button>
+        </form>
       </div>
     {:else}
       <div>
-        <strong>Rated: {rating}</strong>
-        <p class="muted">This demo does not save the rating to D1 yet.</p>
+        <strong>Rated: {caseStudy.rating === 'again' ? 'Again' : 'Good'}</strong>
+        <p class="muted">Your review and rating are saved.</p>
       </div>
-      <a class="button primary action-button" href={`/study/${caseStudy.nextCaseId}`}>Next case →</a>
+      <form method="POST" action="?/next">
+        <button class="button primary action-button" type="submit">Next case →</button>
+      </form>
     {/if}
   </section>
 </main>
@@ -247,44 +235,26 @@
     text-align: center;
   }
 
+  .asset-stage img {
+    display: block;
+    width: 100%;
+    max-height: 520px;
+    object-fit: contain;
+    border-radius: 12px;
+  }
+
   .singleAsset .asset-stage {
     min-height: 390px;
-  }
-
-  .asset-stage > span:last-child {
-    color: #667085;
-    font-size: 0.88rem;
-  }
-
-  .placeholder-mark {
-    display: flex;
-    align-items: end;
-    gap: 0.25rem;
-    height: 32px;
-  }
-
-  .placeholder-mark span {
-    display: block;
-    width: 5px;
-    border-radius: 5px;
-    background: #98a2b3;
-  }
-
-  .placeholder-mark span:nth-child(1) {
-    height: 12px;
-  }
-
-  .placeholder-mark span:nth-child(2) {
-    height: 28px;
-  }
-
-  .placeholder-mark span:nth-child(3) {
-    height: 18px;
   }
 
   .asset-placeholder figcaption {
     color: #667085;
     font-size: 0.88rem;
+  }
+
+  .asset-source {
+    color: #667085;
+    font-size: 0.78rem;
   }
 
   .question-list {

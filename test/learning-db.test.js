@@ -1,0 +1,89 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
+import test from 'node:test';
+
+import { createDb } from '../src/lib/server/db/index.js';
+import { completeReview, getReview, revealReview, startReview } from '../src/lib/server/db/learning.js';
+import { buildSeedSql } from '../scripts/seed-content.mjs';
+
+const migrationSql = readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8').replaceAll('--> statement-breakpoint', '');
+
+function createLearningDb() {
+  const sqlite = new DatabaseSync(':memory:');
+  sqlite.exec('PRAGMA foreign_keys = ON');
+  sqlite.exec(migrationSql);
+  sqlite.exec(buildSeedSql());
+  let batches = 0;
+  const d1 = {
+    prepare(sql) {
+      return {
+        bind(...params) {
+          return {
+            async all() {
+              return { results: sqlite.prepare(sql).all(...params) };
+            },
+            async raw() {
+              return sqlite.prepare(sql).all(...params).map((row) => Object.values(row));
+            },
+            async run() {
+              const result = sqlite.prepare(sql).run(...params);
+              return {
+                success: true,
+                results: [],
+                meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) }
+              };
+            }
+          };
+        }
+      };
+    },
+    async batch(statements) {
+      batches += 1;
+      return Promise.all(statements.map((statement) => statement.run()));
+    }
+  };
+  return { db: createDb(d1), sqlite, get batches() { return batches; } };
+}
+
+test('startReview batches and persists ordered questions/assets as snapshots', async () => {
+  const fixture = createLearningDb();
+  try {
+    const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', rng: () => 0 });
+    assert.ok(reviewId);
+    assert.equal(fixture.batches, 1);
+
+    const review = await getReview(fixture.db, reviewId, 'learner-1');
+    assert.ok(review);
+    assert.equal(review.status, 'started');
+    assert.equal(review.assets.length, 1);
+    assert.equal(review.assets[0].storageKey, 'seed/anterior-stemi-a.png');
+    assert.equal(review.questions.length, 3);
+    assert.deepEqual(review.questions.map((question) => question.displayOrder), [0, 1, 2]);
+    assert.ok(review.questions.some((question) => question.answer.includes('reciprocal inferior')));
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('reveal and whole-case rating persist, and history avoids an immediate repeat', async () => {
+  const fixture = createLearningDb();
+  try {
+    const firstId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', rng: () => 0 });
+    assert.ok(firstId);
+    assert.equal(await revealReview(fixture.db, firstId, 'learner-1'), true);
+    assert.equal(await completeReview(fixture.db, firstId, 'learner-1', 'good'), true);
+    const first = await getReview(fixture.db, firstId, 'learner-1');
+    assert.equal(first?.status, 'completed');
+    assert.equal(first?.rating, 'good');
+    assert.ok(first?.revealed);
+
+    const secondId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', rng: () => 0 });
+    assert.ok(secondId);
+    const second = await getReview(fixture.db, secondId, 'learner-1');
+    assert.ok(second);
+    assert.notEqual(second.caseId, first.caseId);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
