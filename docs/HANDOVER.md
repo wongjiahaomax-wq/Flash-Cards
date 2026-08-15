@@ -28,6 +28,24 @@ The production Worker remains:
 
 The PR #9 branch head was deployed for browser testing before merge. The merged commit contains the same application code. A deliberate post-merge redeploy can still be done later if release provenance needs to point specifically at `main`.
 
+## Current next implementation phase
+
+The next product priority has been revised after using the PR #9 admin workflow.
+
+**Admin content-management redesign now comes before learner-account administration.**
+
+The current `/admin` page proves the workflow but has become too large and combines image upload, Topic creation, Case creation/editing, questions, attached Assets, available Assets, and the global image library in one place.
+
+The agreed next-phase plan is documented in:
+
+```text
+docs/ADMIN_CONTENT_MANAGEMENT_PLAN.md
+```
+
+That plan defines the proposed Admin dashboard, Cases library/editor, Questions library, Image library with post-upload renaming, Topics dashboard, search behaviour, PR boundaries, and parallel-agent strategy.
+
+Important image-management decision: the existing `assets.original_filename` field will be treated as the administrator-editable image name. Renaming it changes D1 metadata only and must never rename/move the immutable R2 object or storage key. No schema migration is required for this rename feature.
+
 ## Product state now working
 
 The administrator can perform the following in the browser without direct SQL for routine content entry:
@@ -106,6 +124,8 @@ Remaining auth/product work:
 - create a test learner;
 - verify learner access to `/study` and denial from `/admin`.
 
+These auth/product items remain planned but now follow the Admin content-management redesign and pilot-content phase.
+
 Do not store administrator credentials in the repository or documentation.
 
 ## D1 / Drizzle state
@@ -151,6 +171,8 @@ External source URLs are attribution/reference metadata only and are never the r
 
 An Asset may be attached to more than one Case without copying or re-uploading the R2 object.
 
+For the upcoming Image Library, `assets.original_filename` is intentionally treated as the editable administrator-facing image name. The actual original upload filename does not need separate preservation.
+
 ## Cloudflare resources
 
 | Purpose | Binding | Production resource |
@@ -189,7 +211,8 @@ Current repository features include:
 - reusable Concept questions plus Case-specific questions;
 - whole-Case `Again`/`Good` ratings;
 - local auth smoke tests and focused learning/storage/admin tests;
-- R2 cost guardrails and image-provenance documentation.
+- R2 cost guardrails and image-provenance documentation;
+- dedicated Admin content-management redesign plan at `docs/ADMIN_CONTENT_MANAGEMENT_PLAN.md`.
 
 Merged PRs of note:
 
@@ -205,13 +228,18 @@ Merged PRs of note:
 
 ## Recommended next sequence
 
-1. **Learner account administration** — create/manage learner accounts without operator scripts.
-2. **Role-boundary acceptance test** — verify a normal learner can study but cannot administer content.
-3. **Basic progress administration** — learner list, recent Reviews, Concept filters, Again/Good summaries.
-4. **Pilot content entry** — enter a representative set from ECG, ENT, Eye, and Dermatology through the real admin UI.
-5. **Stress-test modelling** — explicitly test reused Assets across multiple Cases, multi-image Cases, reused prompts with different Case answers, and Cases that may need secondary Concepts.
-6. Improve admin ergonomics based on actual content-entry friction.
-7. Only after that revisit FSRS/scheduling, bulk Anki import, richer analytics, structured marks/marking points, or broader stimulus types.
+1. **PR #10 — Admin shell + Case management redesign** — split the current monolithic admin page into a dashboard, Case library, and focused Case editor.
+2. **PR #11 — Questions Library** — global search/inspection of Question Prompts, Case/Concept usages, and context-specific answers.
+3. **PR #12 — Image Library** — thumbnail library, search/filtering, editable image name via `original_filename`, metadata editing, usage counts, and Case links.
+4. **PR #13 — Topics dashboard** — simple Topic list/detail and reusable-question inspection.
+5. **Pilot content entry** — enter representative ECG, ENT, Eye, and Dermatology material through the redesigned UI.
+6. **Admin friction fixes** — correct problems discovered during real content entry and stress-test reused Assets/prompts and multi-image Cases.
+7. **Learner account administration** — create/manage learner accounts without operator scripts.
+8. **Role-boundary acceptance test** — verify a normal learner can study but cannot administer content.
+9. **Basic progress administration** — learner list, recent Reviews, Concept filters, Again/Good summaries.
+10. Only after that revisit FSRS/scheduling, bulk Anki import, richer analytics, structured marks/marking points, or broader stimulus types.
+
+For detailed scope and agent ownership, follow `docs/ADMIN_CONTENT_MANAGEMENT_PLAN.md`.
 
 ## Known technical debt
 
