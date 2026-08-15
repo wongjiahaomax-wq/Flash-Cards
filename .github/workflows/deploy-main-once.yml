@@ -1,0 +1,53 @@
+name: Deploy current main once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/deploy-main-once.yml
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify Cloudflare credential
+        shell: bash
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::GitHub repository secret CLOUDFLARE_API_TOKEN is not configured."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check database migrations
+        run: npm run db:check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run Svelte checks
+        run: npm run check
+
+      - name: Build application
+        run: npm run build
+
+      - name: Deploy Worker
+        run: npx --yes wrangler@4.123.0 deploy
