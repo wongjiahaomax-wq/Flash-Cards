@@ -4,13 +4,21 @@ _Last updated: 15 August 2026_
 
 This document tracks implementation progress against `V1_SPEC.md` and `V1_DATA_MODEL.md`.
 
-The project now has a real end-to-end V1 vertical slice and a substantially improved Admin Case workflow. The current implementation priority is the Admin content-library phase.
+The project now has:
 
-For detailed Admin CMS scope, also read:
+- a working end-to-end V1 learner vertical slice;
+- protected R2 teaching-image storage;
+- durable D1-backed Reviews;
+- browser content administration;
+- a complete first-pass Admin CMS for Cases, Questions, Images, and Topics.
+
+The current implementation priority is now **pilot content/model validation**.
+
+For detailed Admin CMS decisions, also read:
 
 ```text
 docs/ADMIN_CONTENT_MANAGEMENT_PLAN.md
-docs/PARALLEL_WORK_PLAN.md
+docs/HANDOVER.md
 ```
 
 ---
@@ -87,7 +95,7 @@ Completed:
 - production auth schema/secrets;
 - first administrator bootstrapped and verified.
 
-Remaining, but intentionally deferred until after Admin CMS + pilot content:
+Remaining, intentionally after pilot content:
 
 - browser learner-account creation/management;
 - test learner creation;
@@ -114,8 +122,6 @@ Completed:
 - multi-image rendering;
 - internal Case title masking.
 
-Do not redesign the learner flow as part of the current Admin phase.
-
 ---
 
 ## Milestone 5 — Protected R2 teaching-image pipeline
@@ -140,15 +146,15 @@ External `source_url` is attribution only, never runtime image storage.
 
 ---
 
-## Milestone 6 — Browser content administration
+## Milestone 6 — Browser content administration / Admin CMS
 
-Status: **substantially complete and being expanded into content libraries**
+Status: **complete for current V1 phase**
 
 ### PR #9 — first browser content vertical slice
 
 Status: **merged**
 
-Implemented Topic/Case creation, vignette editing, questions, image upload/attachment/captions/order, and learner preview.
+Established Topic/Case creation, vignette editing, questions, image upload/attachment/captions/order, and learner preview.
 
 ### PR #10 — Admin shell + Case management redesign
 
@@ -167,34 +173,38 @@ Implemented:
 - `/admin/cases` searchable Case library;
 - `/admin/cases/new`;
 - `/admin/cases/[caseId]`;
-- focused Case metadata editing while preserving PR #9 Case question/Asset functionality.
+- focused Case metadata editing while preserving Case question/Asset functionality.
 
 ### PR #11 — Questions Library
 
-Status: **next, parallel**
+Status: **merged**
 
-Build:
+Merge commit:
+
+```text
+b78e7c9c0af4b4024adb3e5d373aef8631482914
+```
+
+Implemented:
 
 ```text
 /admin/questions
 /admin/questions/[promptId]
 ```
 
-Required outcomes:
+Capabilities include global prompt/answer search, Topic/scope filtering, current active usage counts, Case/Concept usage inspection, context-specific answers, shared-prompt blast-radius warnings, and stale-usage protection.
 
-- global prompt/answer search;
-- Topic/scope filtering;
-- usage counts;
-- Case and Concept usage inspection;
-- context-specific answers;
-- shared-prompt blast-radius warning before global prompt edits;
-- Case links.
+### PR #12 — Image / Asset Library
 
-### PR #12 — Image Library + rename/edit metadata
+Status: **merged**
 
-Status: **next, parallel**
+Merge commit:
 
-Build:
+```text
+e1af88633f67b9a4bca1778684664b863fe62adb
+```
+
+Implemented:
 
 ```text
 /admin/images
@@ -202,29 +212,36 @@ Build:
 /admin/images/[assetId]
 ```
 
-Required outcomes:
-
-- thumbnail library;
-- image search/filtering;
-- usage counts and Case links;
-- Asset metadata editing;
-- image rename using existing `assets.original_filename`;
-- rename changes D1 metadata only and never changes immutable R2 key/object;
-- reuse existing upload pipeline.
-
-No schema migration is expected.
+Capabilities include thumbnail browsing, search/filtering, usage inspection, Asset metadata editing, dedicated protected upload, and image renaming via existing `assets.original_filename` without changing immutable R2 identity.
 
 ### PR #13 — Topics dashboard
 
-Status: **defer until PR #11 and #12 merge**
+Status: **merged**
 
-Build simple Topic list/detail/search, counts, and reusable-question inspection. Do not build a sophisticated hierarchy editor yet.
+Merge commit:
+
+```text
+02853083518d0228e8aaffa9c7566822e6c8d7c5
+```
+
+Implemented:
+
+```text
+/admin/topics
+/admin/topics/[conceptId]
+```
+
+Capabilities include Topic search, active primary-Case counts, active reusable-question counts, primary Case inspection, Topic-specific reusable answers, inheritance visibility, and parent/direct-child navigation.
+
+Topic editing and sophisticated hierarchy management remain deliberately deferred.
+
+PRs #10–#13 required no schema migration.
 
 ---
 
 ## Milestone 7 — Pilot content/model validation
 
-Status: **ready after PR #11/#12/#13 admin ergonomics**
+Status: **current priority / ready now**
 
 Enter representative content from:
 
@@ -245,13 +262,22 @@ Deliberately exercise:
 - inherited questions;
 - possible need for secondary Concepts.
 
-Use real content entry to discover model/admin blind spots before adding larger infrastructure.
+The purpose is not merely to populate the database. Use real content entry to identify:
+
+- content-model blind spots;
+- awkward reuse semantics;
+- missing Admin affordances;
+- unnecessary clicks;
+- confusing terminology;
+- search/filter gaps.
+
+Fix demonstrated friction before adding larger infrastructure.
 
 ---
 
 ## Milestone 8 — Learner accounts and role-boundary acceptance
 
-Status: **planned after pilot-content/Admin CMS phase**
+Status: **planned after pilot-content/Admin friction fixes**
 
 Implement the smallest administrator learner-account workflow, then verify:
 
@@ -279,7 +305,7 @@ Avoid sophisticated analytics initially.
 
 ## Later/deferred work
 
-Do not pull these into PR #11/#12:
+Do not pull these into pilot-content fixes unless real use proves they are required:
 
 - FSRS or scheduling controls;
 - bulk Anki import;
@@ -291,26 +317,24 @@ Do not pull these into PR #11/#12:
 - advanced analytics;
 - structured marking points/marks;
 - broad stimulus types;
-- sophisticated Concept hierarchy editor.
+- sophisticated Concept hierarchy editor;
+- broad secondary-Concept management.
 
 ---
 
 ## Current recommended sequence
 
-1. **PR #11 Questions Library** — parallel now.
-2. **PR #12 Image Library** — parallel now.
-3. Merge both with green CI, rebasing the second if needed.
-4. **PR #13 Topics dashboard**.
-5. Pilot real content and fix friction/model issues.
-6. Learner account administration + role acceptance.
-7. Basic progress administration.
-8. Reassess FSRS/import/analytics/structured marks later.
+1. **Enter representative pilot content** across ECG/Cardiology, ENT, Eye, and Dermatology.
+2. Fix concrete Admin/content-model friction discovered during entry.
+3. Implement learner-account administration + role-boundary acceptance.
+4. Implement basic learner-progress administration.
+5. Reassess FSRS/import/analytics/structured marks/hierarchy tooling later.
 
 ---
 
 ## Technical debt / operational cautions
 
-- `package.json` pins Wrangler 4.115.0 while compatibility work has used 4.123.0; update deliberately in a focused change, not incidentally inside PR #11/#12.
+- `package.json` pins Wrangler 4.115.0 while compatibility/release work has used 4.123.0; update deliberately in a focused change.
 - do not use `npm audit fix --force` casually.
 - Review Asset historical serving currently resolves live Asset state; deactivation semantics may need later work.
 - attribution metadata is not currently snapshotted into Reviews.
@@ -318,7 +342,7 @@ Do not pull these into PR #11/#12:
 
 ---
 
-## Validation required for every implementation PR
+## Validation required for implementation PRs
 
 ```sh
 npm run db:check
