@@ -2,11 +2,7 @@ import { error, redirect } from '@sveltejs/kit';
 
 import { createDb } from '$lib/server/db/index.js';
 import { completeReview, getReview, revealReview, startReview } from '$lib/server/db/learning.js';
-
-/** @param {string} assetId */
-function imageUrl(assetId) {
-  return `/api/assets/${encodeURIComponent(assetId)}/image`;
-}
+import { getTeachingImageUrl } from '$lib/server/storage/media.js';
 
 export async function load({ locals, params, platform }) {
   if (!platform?.env?.DB || !locals.user) throw error(503, 'Study database is not configured.');
@@ -27,7 +23,7 @@ export async function load({ locals, params, platform }) {
       revealed: review.revealed,
       assets: review.assets.map((asset) => ({
         ...asset,
-        imageUrl: imageUrl(asset.assetId)
+        imageUrl: getTeachingImageUrl(asset.assetId)
       })),
       questions: review.questions.map((question) => ({
         prompt: question.prompt,
