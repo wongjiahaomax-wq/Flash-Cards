@@ -74,7 +74,7 @@ Validation runs again immediately before writes. New object IDs and R2 keys are 
 
 The importer uses the existing `concepts`, `cases`, `assets`, relationship, and question tables. It does not overwrite an existing row, infer relationships, add a migration, or create an Anki schema.
 
-The current implementation is synchronous and is intended for modest reviewed packages. Larger migrations should be processed over multiple bounded Worker requests rather than relying on one very large import invocation. The planned resumable import-job workflow can orchestrate those chunks from the administrator's browser while keeping authoritative progress/checkpoints in Cloudflare.
+The current implementation is synchronous and is intended for modest reviewed packages. Larger migrations should be processed over multiple bounded Worker requests rather than relying on one very large import invocation. The planned resumable import-job workflow can orchestrate those chunks from the administrator's browser while keeping authoritative progress/checkpoints in Cloudflare. Until that follow-up is implemented, split unusually large migrations into modest reviewed packages rather than depending on a single oversized request.
 
 ## R2/D1 failure boundary
 
