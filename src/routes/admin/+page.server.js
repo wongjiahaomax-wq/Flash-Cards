@@ -3,6 +3,13 @@ import { desc } from 'drizzle-orm';
 import { createDb } from '$lib/server/db/index.js';
 import { assets } from '$lib/server/db/schema.js';
 import {
+  AdminContentInputError,
+  createCase,
+  createConcept,
+  listAdminConcepts,
+  updateCaseVignette
+} from '$lib/server/db/admin-content.js';
+import {
   attachAssetToCase,
   canManageCaseAssets,
   CaseAssetInputError,
@@ -63,22 +70,31 @@ function extensionForType(mimeType) {
 }
 
 export async function load({ locals, platform, url }) {
-  if (!canManageCaseAssets(locals.user)) return { assets: [], cases: [], selectedCase: null };
+  if (!canManageCaseAssets(locals.user)) {
+    return { assets: [], cases: [], concepts: [], selectedCase: null, selectedConceptId: null };
+  }
 
   const db = platform?.env?.DB ? createDb(platform.env.DB) : null;
-  if (!db) return { assets: [], cases: [], selectedCase: null };
+  if (!db) return { assets: [], cases: [], concepts: [], selectedCase: null, selectedConceptId: null };
 
   const rows = await db.select().from(assets).orderBy(desc(assets.createdAt)).limit(100);
   const caseRows = await listAdminCases(db);
+  const conceptRows = await listAdminConcepts(db);
   const requestedId = url.searchParams.get('case');
   const selectedId = caseRows.some((item) => item.id === requestedId) ? requestedId : caseRows[0]?.id;
   const manager = selectedId ? await getAdminCaseData(db, selectedId) : null;
+  const requestedConceptId = url.searchParams.get('concept');
+  const selectedConceptId = conceptRows.some((item) => item.id === requestedConceptId)
+    ? requestedConceptId
+    : conceptRows[0]?.id ?? null;
 
   return {
     assets: rows.map((asset) => ({
       ...asset,
       imageUrl: getTeachingImageUrl(asset.id)
     })),
+    concepts: conceptRows,
+    selectedConceptId,
     cases: caseRows,
     selectedCase: manager
       ? {
@@ -98,7 +114,9 @@ export async function load({ locals, platform, url }) {
 
 /** @param {unknown} error */
 function actionError(error) {
-  return error instanceof CaseAssetInputError ? error.message : 'Unable to update Case images.';
+  return error instanceof CaseAssetInputError || error instanceof AdminContentInputError
+    ? error.message
+    : 'Unable to update Case content.';
 }
 
 /** @param {FormData} formData @param {string} name */
@@ -113,6 +131,49 @@ function selectedCaseRedirect(caseId, status) {
 }
 
 export const actions = {
+  createConcept: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    let concept;
+    try {
+      concept = await createConcept(createDb(platform.env.DB), formText(formData, 'name'));
+    } catch (error) {
+      return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error) });
+    }
+    redirect(303, `/admin?concept=${encodeURIComponent(concept.id)}&status=topic-created#case-create`);
+  },
+
+  createCase: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    let created;
+    try {
+      created = await createCase(createDb(platform.env.DB), {
+        title: formText(formData, 'title'),
+        vignetteMd: formText(formData, 'vignette_md'),
+        conceptId: formText(formData, 'concept_id')
+      });
+    } catch (error) {
+      return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error) });
+    }
+    redirect(303, `/admin?case=${encodeURIComponent(created.id)}`);
+  },
+
+  vignette: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    try {
+      await updateCaseVignette(createDb(platform.env.DB), caseId, formText(formData, 'vignette_md'));
+    } catch (error) {
+      return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
+    }
+    redirect(303, selectedCaseRedirect(caseId, 'vignette-saved'));
+  },
+
   upload: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
 

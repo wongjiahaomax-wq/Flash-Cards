@@ -186,6 +186,52 @@
   </section>
 
   <section class="card stack" aria-labelledby="cases-heading">
+    <div id="topic-create" class="topic-create">
+      <div>
+        <p class="eyebrow">Primary topic</p>
+        <h2>Create a topic</h2>
+        <p class="muted">Create the active topic that will organize a Case. Only the name is needed for now.</p>
+      </div>
+      <form method="POST" action="?/createConcept" class="topic-form">
+        <label for="topic-name">Topic name</label>
+        <div class="picker-row">
+          <input id="topic-name" name="name" type="text" maxlength="200" required placeholder="e.g. Chest pain" />
+          <button class="button" type="submit">Create topic</button>
+        </div>
+      </form>
+    </div>
+
+    <div id="case-create" class="case-create">
+      <div>
+        <p class="eyebrow">New Case</p>
+        <h2>Create Case</h2>
+        <p class="muted">The internal title is for administrators and is not shown to learners before reveal.</p>
+      </div>
+      {#if data.concepts.length === 0}
+        <p class="empty-state">Create a topic above before creating a Case.</p>
+      {:else}
+        <form method="POST" action="?/createCase" class="stack">
+          <label>
+            Internal Case title
+            <input name="title" type="text" maxlength="300" required placeholder="e.g. ECG with anterior changes" />
+          </label>
+          <label>
+            Case stem / vignette <span class="muted">(optional)</span>
+            <textarea name="vignette_md" rows="5" maxlength="5000" placeholder="Optional context for the learner's case review."></textarea>
+          </label>
+          <label>
+            Primary topic / Concept
+            <select name="concept_id" required>
+              {#each data.concepts as concept}
+                <option value={concept.id} selected={concept.id === data.selectedConceptId}>{concept.name}</option>
+              {/each}
+            </select>
+          </label>
+          <button class="button primary" type="submit">Create Case</button>
+        </form>
+      {/if}
+    </div>
+
     <div>
       <p class="eyebrow">Case content</p>
       <h2 id="cases-heading">Connect images to a Case</h2>
@@ -214,7 +260,14 @@
           <div>
             <h3>{selectedCase.case.title}</h3>
             {#if selectedCase.case.conceptName}<p class="muted">Topic: {selectedCase.case.conceptName}</p>{/if}
-            {#if selectedCase.case.vignetteMd}<p class="case-vignette">{selectedCase.case.vignetteMd}</p>{/if}
+            <form method="POST" action="?/vignette" class="vignette-form">
+              <input type="hidden" name="case_id" value={selectedCase.case.id} />
+              <label>
+                Case stem / vignette <span class="muted">(editable)</span>
+                <textarea name="vignette_md" rows="4" maxlength="5000" placeholder="Optional context for the learner's case review.">{selectedCase.case.vignetteMd ?? ''}</textarea>
+              </label>
+              <button class="button small" type="submit">Save Case stem</button>
+            </form>
           </div>
           <a class="button" href="/study">Preview in Study</a>
         </div>
@@ -379,9 +432,13 @@
   .case-picker { display: grid; gap: 0.4rem; }
   .picker-row { display: flex; gap: 0.75rem; }
   .picker-row select { min-width: 0; }
+  .topic-create, .case-create { display: grid; gap: 0.85rem; padding: 1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #f8fafc; }
+  .topic-create { grid-template-columns: minmax(0, 1fr) minmax(280px, 0.9fr); align-items: end; }
+  .topic-form { display: grid; gap: 0.4rem; }
+  .topic-form label { font-size: 0.9rem; }
+  .vignette-form { display: grid; gap: 0.65rem; max-width: 680px; margin-top: 1rem; }
   .case-header { display: flex; justify-content: space-between; align-items: start; gap: 1rem; padding: 1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #f8fafc; }
   .case-header p { margin-bottom: 0; }
-  .case-vignette { max-width: 680px; color: #475467; line-height: 1.5; }
   .manager-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
   .manager-panel { display: grid; align-content: start; gap: 0.85rem; min-width: 0; }
   .panel-heading { display: flex; justify-content: space-between; align-items: end; gap: 0.75rem; }
@@ -409,6 +466,7 @@
 
   @media (max-width: 760px) {
     .manager-grid, .compact-list { grid-template-columns: minmax(0, 1fr); }
+    .topic-create { grid-template-columns: minmax(0, 1fr); }
     .case-header, .panel-heading { align-items: start; flex-direction: column; }
     .panel-heading > .muted { text-align: left; }
     .picker-row { align-items: stretch; flex-direction: column; }
