@@ -7,7 +7,10 @@ import {
   MediaStorageLimitError,
   assertImageSize,
   assertMediaCapacity,
+  assertSupportedImageType,
+  deleteTeachingImage,
   getMediaUsageBytes,
+  getTeachingImageUrl,
   putTeachingImage
 } from '../src/lib/server/storage/media.js';
 
@@ -21,8 +24,8 @@ import {
  */
 function mockBucket(options = {}) {
   const { pages = [], existing = null } = options;
-  /** @type {{ list: number, head: number, put: number, putOptions: R2PutOptions | undefined }} */
-  const calls = { list: 0, head: 0, put: 0, putOptions: undefined };
+  /** @type {{ list: number, head: number, put: number, delete: number, deletedKey: string | undefined, putOptions: R2PutOptions | undefined }} */
+  const calls = { list: 0, head: 0, put: 0, delete: 0, deletedKey: undefined, putOptions: undefined };
 
   /** @type {R2Bucket} */
   const bucket = /** @type {any} */ ({
@@ -43,6 +46,11 @@ function mockBucket(options = {}) {
     async head(_key) {
       calls.head += 1;
       return existing;
+    },
+    /** @param {string} key */
+    async delete(key) {
+      calls.delete += 1;
+      calls.deletedKey = key;
     },
     /**
      * @param {string} key
@@ -81,6 +89,19 @@ test('rejects an image larger than 5 MiB', () => {
     () => assertImageSize(MAX_IMAGE_BYTES + 1),
     (error) => error instanceof MediaStorageLimitError && error.code === 'IMAGE_TOO_LARGE'
   );
+});
+
+test('accepts JPEG and PNG image types only', () => {
+  assert.equal(assertSupportedImageType('image/jpeg'), 'image/jpeg');
+  assert.equal(assertSupportedImageType('image/png'), 'image/png');
+  assert.throws(
+    () => assertSupportedImageType('image/gif'),
+    (error) => error instanceof MediaStorageLimitError && error.code === 'UNSUPPORTED_TYPE'
+  );
+});
+
+test('builds a stable authenticated Asset image URL without exposing storage keys', () => {
+  assert.equal(getTeachingImageUrl('asset/with spaces'), '/api/assets/asset%2Fwith%20spaces/image');
 });
 
 test('totals R2 usage across paginated list results', async () => {
@@ -123,6 +144,19 @@ test('teaching image uploads use Standard storage and preserve content type', as
   });
 });
 
+test('teaching image writes reject unsupported MIME types before touching R2', async () => {
+  const { bucket, calls } = mockBucket();
+  const file = new Blob([new Uint8Array(32)], { type: 'image/gif' });
+
+  await assert.rejects(
+    () => putTeachingImage(bucket, 'teaching-images/example.gif', file),
+    (error) => error instanceof MediaStorageLimitError && error.code === 'UNSUPPORTED_TYPE'
+  );
+
+  assert.equal(calls.head, 0);
+  assert.equal(calls.put, 0);
+});
+
 test('teaching image keys are immutable', async () => {
   const { bucket, calls } = mockBucket({ existing: { key: 'cases/example.png' } });
   const file = new Blob([new Uint8Array(32)], { type: 'image/png' });
@@ -134,4 +168,13 @@ test('teaching image keys are immutable', async () => {
 
   assert.equal(calls.put, 0);
   assert.equal(calls.list, 0);
+});
+
+test('orphan cleanup deletes only the generated teaching-image key', async () => {
+  const { bucket, calls } = mockBucket();
+
+  await deleteTeachingImage(bucket, 'teaching-images/generated.png');
+
+  assert.equal(calls.delete, 1);
+  assert.equal(calls.deletedKey, 'teaching-images/generated.png');
 });
