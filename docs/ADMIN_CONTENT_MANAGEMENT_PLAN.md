@@ -2,132 +2,140 @@
 
 _Last updated: 15 August 2026_
 
-## Current status
+## Status
 
-The Admin content-management redesign is the current product priority.
+The planned Admin content-management redesign is **complete for the current V1 phase**.
 
-PR #10 — **Admin shell + Case management redesign** — merged into `main` on 15 August 2026 at commit:
-
-```text
-21f349b4869f59a8bccbf440437ce67088776b58
-```
-
-PR #10 established:
-
-- persistent Admin navigation;
-- `/admin` as an overview/dashboard rather than the monolithic editor;
-- `/admin/cases` searchable Case library;
-- `/admin/cases/new` dedicated Case creation;
-- `/admin/cases/[caseId]` focused Case editing;
-- preservation of Case questions, reusable Topic questions, Asset attachment, captions, ordering, upload, and learner preview;
-- Case title/topic/vignette updates;
-- no schema migration.
-
-The next two milestones should now proceed **in parallel** from current `main`:
+Merged milestones:
 
 ```text
+PR #10 — Admin shell + Case management redesign
 PR #11 — Questions Library
-PR #12 — Image Library + rename/edit metadata
+PR #12 — Image/Asset Library + rename/edit metadata
+PR #13 — Topics dashboard
 ```
 
-After both merge, proceed to PR #13 — Topics dashboard.
+Merge commits:
 
----
+```text
+PR #10 21f349b4869f59a8bccbf440437ce67088776b58
+PR #11 b78e7c9c0af4b4024adb3e5d373aef8631482914
+PR #12 e1af88633f67b9a4bca1778684664b863fe62adb
+PR #13 02853083518d0228e8aaffa9c7566822e6c8d7c5
+```
 
-## Product goal
-
-An administrator should be able to quickly:
-
-- find any Case;
-- find any question across the entire question bank;
-- find any uploaded image;
-- rename an uploaded image after upload;
-- edit image metadata;
-- see where questions and images are used;
-- create and edit Cases without scrolling through one large page;
-- manage Topics;
-- preview learner-facing content;
-- avoid accidentally duplicating reusable questions or Assets.
-
-Primary Admin navigation:
+The Admin navigation is now fully live:
 
 ```text
 Dashboard · Cases · Questions · Images · Topics
 ```
 
-Later milestones may add:
+The next product phase is **representative pilot content entry**, not another broad Admin architecture PR.
+
+---
+
+## Product goal achieved
+
+An administrator can now:
+
+- find and edit Cases without using one monolithic page;
+- search the question bank globally;
+- inspect Question Prompt usage and context-specific answers;
+- safely edit shared Question Prompt wording with blast-radius visibility;
+- find uploaded images visually;
+- rename images after upload without changing immutable R2 identity;
+- edit Asset metadata and inspect Case usage;
+- browse Topics with Case/shared-question counts;
+- inspect Topic-level reusable questions and parent/child relationships;
+- preview learner-facing Cases.
+
+---
+
+## Design principles that remain authoritative
+
+1. **Navigate by content object.** Use dedicated routes rather than rebuilding a large `/admin` page.
+2. **Reuse the existing domain model.** Prefer D1 queries/UI changes over unnecessary schema changes.
+3. **Preserve shared-object semantics.** Question Prompt and context-specific answer are separate; Asset and Case-specific caption are separate.
+4. **Prefer deactivate/archive over destructive deletion.**
+5. **Use ordinary D1 search for V1.** No external search service is needed.
+6. **Do not redesign learner Study behaviour as a side effect of Admin work.**
+
+---
+
+# Implemented Admin surfaces
+
+## Dashboard / Case management — PR #10
+
+Routes:
 
 ```text
-Learners · Progress
+/admin
+/admin/cases
+/admin/cases/new
+/admin/cases/[caseId]
 ```
 
----
+Implemented:
 
-## Design principles
-
-1. **Navigate by content object.** Use dedicated routes instead of adding unrelated forms back to `/admin`.
-2. **Reuse the existing domain model.** Prefer D1 queries and UI changes over schema changes.
-3. **Preserve shared-object semantics.** Question Prompt and answer/context are separate; Asset and Case-specific caption are separate.
-4. **Prefer archive/deactivate over destructive deletion.** Avoid broad permanent-delete controls during this phase.
-5. **Search is required.** D1 search is sufficient; do not add external search infrastructure.
-6. **Do not redesign the learner Study flow.** Admin work must preserve established learner behaviour and Review/R2 contracts.
-
----
-
-# PR #10 — Admin shell + Cases
-
-Status: **merged**.
-
-No further feature work belongs in PR #10. Any small regression found while PR #11/#12 are being built should be fixed in the PR that exposes it only when necessary; otherwise use a separate focused follow-up.
+- persistent Admin shell;
+- dashboard overview;
+- searchable Case library;
+- dedicated Case creation;
+- focused Case editor;
+- internal title, primary Topic, and vignette editing;
+- Case question add/edit/remove/reorder;
+- reusable Topic-question creation from Case editor;
+- image upload, attach-existing, detach, reorder, and Case-specific captions;
+- learner Study preview.
 
 ---
 
-# PR #11 — Questions Library
+## Questions Library — PR #11
 
-## Objective
-
-Provide a global view of the question bank so an administrator can find, inspect, reuse, and safely edit questions without first locating a Case that contains them.
-
-## Routes
+Routes:
 
 ```text
 /admin/questions
 /admin/questions/[promptId]
 ```
 
-## `/admin/questions`
+Implemented:
 
-Provide a searchable list/table with enough context to distinguish shared prompts from Case-specific usage.
+- search Question Prompt text and current active Case/Concept answer text;
+- Topic/scope filtering;
+- current active usage counts;
+- Case and Concept usage inspection;
+- context-specific answers;
+- inheritance visibility;
+- links to Case editors;
+- explicit confirmation before editing reused prompt wording;
+- stale-usage protection.
 
-Suggested columns:
+Authoritative current-active usage rules:
 
-| Prompt | Scope | Topic | Usage |
-|---|---|---|---:|
-| Describe this ECG | Shared | Cardiology | 18 |
-| What is the diagnosis? | Shared | Dermatology | 24 |
-| What electrolyte disturbance… | Case-specific | — | 1 |
+### Case usage
 
-### Search
+Requires all of:
 
-Search at minimum:
+```text
+question_prompts.is_active = true
+case_questions.is_active = true
+cases.is_active = true
+```
 
-- Question Prompt text;
-- Case Question answer text;
-- Concept Question answer text.
+### Concept usage
 
-### Filters
+Requires all of:
 
-Useful V1 filters:
+```text
+question_prompts.is_active = true
+concept_questions.is_active = true
+concepts.is_active = true
+```
 
-- Topic;
-- reusable/shared vs Case-specific;
-- active/inactive if straightforward.
+Inactive/historical relationships may be shown on detail pages but must not inflate current active counts.
 
-## Critical content-model rule
-
-Do not treat every row as an independent flashcard.
-
-The relationship is:
+The content model remains:
 
 ```text
 Question Prompt
@@ -137,54 +145,13 @@ Case or Concept usage
 context-specific answer
 ```
 
-For example, the prompt `Describe this ECG` can be reused across many Cases with different answers.
-
-## `/admin/questions/[promptId]`
-
-Show:
-
-- prompt text;
-- total usage count;
-- Cases using the prompt and their Case-specific answers;
-- Concepts using the prompt and their reusable answers;
-- inheritance state for Concept Questions where relevant;
-- links to relevant Case editors.
-
-## Shared-prompt edit safety
-
-Before saving an edit to a reused `question_prompts.prompt_md`, show the blast radius clearly, for example:
-
-> This question prompt is currently used in 18 places.
-
-The administrator must be able to inspect those usages before making a global prompt edit.
-
-Do not silently duplicate a shared prompt merely to avoid this warning.
-
-## Expected ownership
-
-Primarily:
-
-```text
-src/routes/admin/questions/**
-question-library query/helper modules
-focused tests for question search, usage aggregation, and edit safety
-```
-
-Avoid broad edits to Images routes or R2/storage code.
-
-## Definition of done
-
-The administrator can answer **“Do I already have a question like this?”** without manually opening Cases one by one, and can understand the effect of editing a shared prompt.
+A reused prompt may have different answers in different Cases.
 
 ---
 
-# PR #12 — Image Library + rename/edit metadata
+## Image / Asset Library — PR #12
 
-## Objective
-
-Turn uploaded Assets into a searchable visual library and allow administrators to rename images and maintain metadata after upload.
-
-## Routes
+Routes:
 
 ```text
 /admin/images
@@ -192,40 +159,17 @@ Turn uploaded Assets into a searchable visual library and allow administrators t
 /admin/images/[assetId]
 ```
 
-Reuse the existing protected upload/R2 pipeline rather than creating a second upload mechanism.
+Implemented:
 
-## `/admin/images`
+- visual thumbnail grid;
+- search by image name, alt text, source label, and source URL;
+- used/unused, active/inactive, and source-known/source-unknown filters;
+- protected Asset preview;
+- Asset metadata editing;
+- usage counts and Case links;
+- dedicated upload route using the established protected R2 pipeline.
 
-Default to a thumbnail grid.
-
-Each card should show at minimum:
-
-- thumbnail;
-- current image name;
-- usage count;
-- active/inactive state when relevant.
-
-### Search
-
-Search at minimum:
-
-- image name (`assets.original_filename`);
-- alt text;
-- source label.
-
-Source URL may also be searched if useful.
-
-### Filters
-
-Useful V1 filters:
-
-- All / Used / Unused;
-- Active / Inactive;
-- Source known / Source unknown.
-
-## Image-renaming decision
-
-**Do not add a `display_name` column.**
+### Image-renaming contract
 
 The existing field:
 
@@ -233,76 +177,27 @@ The existing field:
 assets.original_filename
 ```
 
-is intentionally treated as the administrator-editable image name.
+is the administrator-editable image name.
 
-The uploaded filename is the initial value, but the administrator may later rename it, for example:
+Do not add a separate `display_name` merely to preserve the uploaded filename. The actual original upload filename does not need separate preservation for V1.
 
-```text
-IMG_4837.png
-→ Anterior STEMI ECG 1.png
-```
+Renaming updates D1 metadata only. It must never rename, move, copy, replace, or delete the R2 object/key.
 
-The actual original upload filename does not need separate preservation.
-
-### Critical storage rule
-
-Renaming must update D1 metadata only.
-
-It must **not** rename, copy, move, replace, or delete the R2 object.
-
-The following remain unchanged:
+The following remain stable:
 
 - `assets.id`;
 - `assets.storage_key`;
-- the R2 object/key;
+- R2 object/key;
 - Case Asset relationships;
 - Review relationships/snapshots.
 
-Therefore no schema migration is required for image renaming.
+Case-specific captions remain in the Case editor because they belong to `case_assets`, not the global Asset.
 
-## `/admin/images/[assetId]`
-
-Show a large image preview and allow editing of Asset-level metadata:
-
-- image name (`original_filename`);
-- alt text;
-- source label;
-- source URL;
-- licence/permission;
-- active/archive state if implemented cleanly.
-
-Also show:
-
-- usage count;
-- Cases using the Asset;
-- links to those Case editors.
-
-### Case-specific captions remain in the Case editor
-
-Do not move Case-specific caption editing into the global Asset page. A caption belongs to the `Case + Asset` relationship and may differ between Cases using the same image.
-
-## Expected ownership
-
-Primarily:
-
-```text
-src/routes/admin/images/**
-Asset-library query/helper modules
-Asset metadata update logic
-focused tests for rename/search/usages/metadata edits
-```
-
-Avoid broad edits to Questions routes/question logic.
-
-## Definition of done
-
-An administrator can find an image visually, rename it, correct its metadata, see where it is used, and navigate directly to those Cases without changing the Asset's immutable R2 storage identity.
+Unknown provenance is valid. Never fabricate attribution. `source_url` is attribution/reference metadata only and never the runtime image source.
 
 ---
 
-# PR #13 — Topics dashboard
-
-Status: **defer until PR #11 and PR #12 are merged**.
+## Topics dashboard — PR #13
 
 Routes:
 
@@ -311,43 +206,122 @@ Routes:
 /admin/topics/[conceptId]
 ```
 
-Initial scope:
+Implemented:
 
-- Topic search;
-- Case count;
-- reusable Question count;
-- Topic detail showing Cases, reusable questions, and child Topics where relevant.
+- Topic name search;
+- current active primary-Case count;
+- current active reusable Concept-question count;
+- Topic detail with primary Cases;
+- Topic-specific reusable answers and links to Question Prompt detail;
+- `inherit_to_descendants` visibility;
+- parent Topic navigation;
+- direct child Topic navigation;
+- inactive/historical relationships retained for administrative orientation.
 
-Do not build a sophisticated hierarchy/tree editor until pilot content demonstrates a need.
+Current active reusable-question count requires:
 
----
+```text
+concepts.is_active = true
+concept_questions.is_active = true
+question_prompts.is_active = true
+```
 
-# Parallel implementation rules for PR #11 and PR #12
-
-Both branches must start from the same post-PR-#10 `main` baseline.
-
-Questions agent owns Question-library work; Images agent owns Asset-library work. Both may make a minimal edit to `src/routes/admin/+layout.svelte` to activate their own navigation link, but should avoid reorganising the shared Admin shell.
-
-If both PRs need to edit the same shared file, keep the edit minimal and isolated so the second PR can rebase cleanly after the first merge.
-
-Neither PR should modify:
-
-- learner Study behaviour;
-- Review selection/rating semantics;
-- authentication model;
-- R2 object-key strategy;
-- unrelated Cloudflare configuration;
-- the other agent's route tree.
-
-No schema migration is expected. If an agent believes one is necessary, the PR must explain the concrete blocker before adding it.
-
-See `docs/PARALLEL_WORK_PLAN.md` for exact branch/agent handoff instructions.
+Topic metadata editing is intentionally deferred. Existing slugs remain stable. No sophisticated tree/hierarchy editor has been added.
 
 ---
 
-# Validation requirements
+# Schema impact
 
-Every implementation PR must run:
+PRs #10–#13 required **no schema migrations**.
+
+The existing relationships remain sufficient:
+
+```text
+Cases
+↕
+Case Questions
+↕
+Question Prompts
+
+Concepts
+↕
+Concept Questions
+↕
+Question Prompts
+
+Cases
+↕
+Case Assets
+↕
+Assets
+```
+
+---
+
+# Next phase — pilot content validation
+
+Enter representative content from:
+
+- ECG/Cardiology;
+- ENT;
+- Eye;
+- Dermatology.
+
+Deliberately test:
+
+- stem + image + multiple questions;
+- image-only recognition;
+- multi-image Cases;
+- alternative Cases for one condition;
+- same Asset reused in multiple Cases;
+- same Question Prompt with different Case-specific answers;
+- Concept-level reusable questions;
+- inherited questions;
+- content that may eventually justify secondary Concepts.
+
+Use this real content-entry exercise to identify:
+
+- unnecessary clicks;
+- confusing labels;
+- missing search/filter affordances;
+- difficult reuse workflows;
+- model assumptions that break under real educational content.
+
+Only fix friction that is demonstrated by actual use before expanding the Admin model further.
+
+---
+
+# Deferred Admin work
+
+Do not build these unless pilot use demonstrates a clear need:
+
+- sophisticated Concept tree editor;
+- drag/drop hierarchy management;
+- bulk operations;
+- permanent deletion;
+- arbitrary secondary-Concept administration;
+- WYSIWYG page builder;
+- complex tagging;
+- AI-generated questions;
+- advanced analytics;
+- structured marks/weighting;
+- broad stimulus types.
+
+---
+
+# Recommended sequence
+
+1. Enter representative ECG/Cardiology, ENT, Eye, and Dermatology pilot content.
+2. Fix concrete Admin friction/model issues discovered during entry.
+3. Implement learner-account administration and role-boundary acceptance.
+4. Implement basic learner-progress administration.
+5. Reassess FSRS, Anki import, structured marks, richer analytics, hierarchy tooling, and other deferred features later.
+
+---
+
+# Validation standard
+
+Implementation PRs should continue to run:
 
 ```sh
 npm run db:check
@@ -355,40 +329,7 @@ npm test
 npm run check
 npm run build
 node scripts/local-auth-smoke.mjs
-```
-
-Also run:
-
-```sh
 git diff --check
 ```
 
-Add focused tests for new admin query/write behaviour.
-
-A local network restriction may prevent the smoke script in a sandbox, but GitHub CI must ultimately pass it before merge.
-
-Do not claim completion with failing CI.
-
----
-
-# Recommended sequence from here
-
-1. PR #11 — Questions Library — **parallel now**.
-2. PR #12 — Image Library + rename/edit metadata — **parallel now**.
-3. Merge both after review and green CI; rebase the second one if shared Admin layout conflicts.
-4. PR #13 — Topics dashboard.
-5. Enter representative ECG/Cardiology, ENT, Eye, and Dermatology pilot content.
-6. Fix content-entry friction discovered during real use.
-7. Implement learner-account administration and role-boundary acceptance.
-8. Implement learner progress administration.
-9. Reassess FSRS, Anki import, structured marks, richer analytics, and other deferred features.
-
-Pilot content should deliberately exercise:
-
-- multi-image Cases;
-- alternative Cases for one condition;
-- reused Assets across Cases;
-- repeated Question Prompts with different Case answers;
-- Concept-level reusable questions;
-- inherited questions;
-- Cases that may eventually need secondary Concepts.
+GitHub CI must be green before merge.
