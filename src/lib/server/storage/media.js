@@ -1,9 +1,20 @@
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_MEDIA_BYTES = 5 * 1024 * 1024 * 1024;
+export const SUPPORTED_IMAGE_TYPES = /** @type {const} */ (['image/jpeg', 'image/png']);
+
+/** @param {string} assetId */
+export function getTeachingImageUrl(assetId) {
+  const normalizedId = String(assetId ?? '').trim();
+  if (!normalizedId) {
+    throw new Error('An Asset ID is required to build an image URL.');
+  }
+
+  return `/api/assets/${encodeURIComponent(normalizedId)}/image`;
+}
 
 export class MediaStorageLimitError extends Error {
   /**
-   * @param {'INVALID_SIZE' | 'IMAGE_TOO_LARGE' | 'BUCKET_LIMIT' | 'OBJECT_EXISTS'} code
+   * @param {'INVALID_SIZE' | 'IMAGE_TOO_LARGE' | 'BUCKET_LIMIT' | 'OBJECT_EXISTS' | 'UNSUPPORTED_TYPE'} code
    * @param {string} message
    */
   constructor(code, message) {
@@ -30,6 +41,21 @@ export function assertImageSize(sizeBytes) {
   }
 
   return sizeBytes;
+}
+
+/**
+ * @param {string} mimeType
+ * @returns {string}
+ */
+export function assertSupportedImageType(mimeType) {
+  if (mimeType !== 'image/jpeg' && mimeType !== 'image/png') {
+    throw new MediaStorageLimitError(
+      'UNSUPPORTED_TYPE',
+      'Only JPEG and PNG teaching images are supported.'
+    );
+  }
+
+  return mimeType;
 }
 
 /**
@@ -108,6 +134,7 @@ export async function putTeachingImage(bucket, key, file) {
     throw new Error('A non-empty R2 object key is required.');
   }
 
+  assertSupportedImageType(file.type);
   const sizeBytes = assertImageSize(file.size);
   const existing = await bucket.head(normalizedKey);
 
@@ -133,4 +160,19 @@ export async function putTeachingImage(bucket, key, file) {
     sizeBytes,
     ...capacity
   };
+}
+
+/**
+ * Remove an object that was just uploaded when its metadata transaction cannot
+ * be completed. Routes should use this narrow cleanup helper instead of
+ * mutating the R2 bucket directly.
+ *
+ * @param {R2Bucket} bucket
+ * @param {string} key
+ * @returns {Promise<void>}
+ */
+export async function deleteTeachingImage(bucket, key) {
+  const normalizedKey = key.trim();
+  if (!normalizedKey) throw new Error('A non-empty R2 object key is required.');
+  await bucket.delete(normalizedKey);
 }
