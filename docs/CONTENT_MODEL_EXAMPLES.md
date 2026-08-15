@@ -2,11 +2,11 @@
 
 _Last updated: 15 August 2026_
 
-This document records concrete examples for how real teaching material should be represented using the current Case / Asset / Concept / Question model and its planned optional stimulus-group extension.
+This document records concrete examples for how real teaching material should be represented using the current Case / Asset / Concept / Question model and its implemented optional stimulus-group extension.
 
 It is intentionally practical. When content entry feels ambiguous, prefer these precedents over falling back to fixed Anki-style front/back cards.
 
-See also `docs/STIMULUS_GROUPS_DESIGN.md` for the planned alternative-stimulus behaviour.
+See also `docs/STIMULUS_GROUPS_DESIGN.md` for the alternative-stimulus behaviour and first-version invariants.
 
 ---
 
@@ -369,7 +369,7 @@ At least 3
 Ask all available specific questions
 ```
 
-See `docs/STIMULUS_GROUPS_DESIGN.md`.
+See `docs/STIMULUS_GROUPS_DESIGN.md`. In the implemented first version, each active group selects exactly one active image option per Review, and selections are frozen in `review_assets`.
 
 ---
 

@@ -2,7 +2,9 @@
 
 _Last updated: 15 August 2026_
 
-This document defines the planned extension for **alternative stimulus groups** and **stimulus-specific questions**.
+This document defines the implemented additive extension for **alternative stimulus groups** and **stimulus-specific questions**.
+
+Migration `drizzle/0002_optional_stimulus_groups.sql` is the first implementation of this design. It preserves ordinary fixed Case Assets and existing Review rows.
 
 The central design principle is:
 
@@ -506,3 +508,11 @@ Defer unless implementation proves it is trivial and safe:
 - automatic conversion of every imported Anki card into stimulus-specific structures.
 
 The system should make simple content simple and allow richer structure only where it adds educational value.
+
+## 17. Implemented first-version invariants
+
+- `selection_count` is an extension point, but application behaviour accepts only `1`.
+- Active options reference existing active image Assets; Asset IDs and immutable R2 storage keys are reused.
+- Admin conversion removes only the fixed Case relationship and preserves the Asset ID and Case caption when creating an option.
+- The injected RNG drives both Case selection and option selection; selected group/option IDs are snapshotted in Reviews.
+- Same-prompt stimulus relationships are rejected when independently attached to different active groups in one Case, preserving safe Review question identity.

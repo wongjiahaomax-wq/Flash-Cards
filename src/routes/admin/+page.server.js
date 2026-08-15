@@ -11,6 +11,20 @@ import {
   updateCaseVignette
 } from '$lib/server/db/admin-content.js';
 import {
+  addStimulusOption,
+  convertCaseAssetToStimulusOption,
+  createStimulusGroup,
+  getAdminStimulusData,
+  moveStimulusOption,
+  removeStimulusGroupQuestion,
+  removeStimulusOptionQuestion,
+  saveStimulusGroupQuestion,
+  saveStimulusOptionQuestion,
+  setStimulusOptionActive,
+  StimulusGroupInputError,
+  updateStimulusGroup
+} from '$lib/server/db/stimulus-groups.js';
+import {
   CaseQuestionInputError,
   listCaseQuestions,
   moveCaseQuestion,
@@ -98,6 +112,7 @@ export async function load({ locals, platform, url }) {
     ? requestedConceptId
     : conceptRows[0]?.id ?? null;
 
+  const stimulusGroups = selectedId ? await getAdminStimulusData(db, selectedId) : [];
   return {
     assets: rows.map((asset) => ({
       ...asset,
@@ -110,6 +125,13 @@ export async function load({ locals, platform, url }) {
     selectedCase: manager
       ? {
           ...manager,
+          stimulusGroups: stimulusGroups.map((group) => ({
+            ...group,
+            options: group.options.map((asset) => ({
+              ...asset,
+              imageUrl: asset.assetIsActive ? getTeachingImageUrl(asset.assetId) : null
+            }))
+          })),
           questions: questionRows,
           attached: manager.attached.map((asset) => ({
             ...asset,
@@ -126,7 +148,7 @@ export async function load({ locals, platform, url }) {
 
 /** @param {unknown} error */
 function actionError(error) {
-  return error instanceof CaseAssetInputError || error instanceof AdminContentInputError || error instanceof CaseQuestionInputError
+  return error instanceof CaseAssetInputError || error instanceof AdminContentInputError || error instanceof CaseQuestionInputError || error instanceof StimulusGroupInputError
     ? error.message
     : 'Unable to update Case content.';
 }
@@ -165,7 +187,9 @@ export const actions = {
       created = await createCase(createDb(platform.env.DB), {
         title: formText(formData, 'title'),
         vignetteMd: formText(formData, 'vignette_md'),
-        conceptId: formText(formData, 'concept_id')
+        conceptId: formText(formData, 'concept_id'),
+        questionSelectionMode: formText(formData, 'question_selection_mode'),
+        questionCount: formText(formData, 'question_count')
       });
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error) });
@@ -183,7 +207,9 @@ export const actions = {
         caseId,
         title: formText(formData, 'title'),
         vignetteMd: formText(formData, 'vignette_md'),
-        conceptId: formText(formData, 'concept_id')
+        conceptId: formText(formData, 'concept_id'),
+        questionSelectionMode: formText(formData, 'question_selection_mode'),
+        questionCount: formText(formData, 'question_count')
       });
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
@@ -251,6 +277,90 @@ export const actions = {
       return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
     }
     redirect(303, selectedCaseRedirect(caseId, 'question-reordered'));
+  },
+
+  createStimulusGroup: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    try {
+      await createStimulusGroup(createDb(platform.env.DB), { caseId, name: formText(formData, 'name'), specificQuestionMode: formText(formData, 'specific_question_mode'), minimumSpecificQuestions: formText(formData, 'minimum_specific_questions') });
+    } catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-group-created'));
+  },
+
+  updateStimulusGroup: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    try { await updateStimulusGroup(createDb(platform.env.DB), { groupId: formText(formData, 'group_id'), name: formText(formData, 'name'), specificQuestionMode: formText(formData, 'specific_question_mode'), minimumSpecificQuestions: formText(formData, 'minimum_specific_questions'), isActive: formData.get('is_active') }); }
+    catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-group-saved'));
+  },
+
+  addStimulusOption: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    try {
+      const db = createDb(platform.env.DB);
+      if (formData.get('convert_fixed') === 'on') await convertCaseAssetToStimulusOption(db, formText(formData, 'group_id'), formText(formData, 'asset_id'));
+      else await addStimulusOption(db, formText(formData, 'group_id'), formText(formData, 'asset_id'), formText(formData, 'caption'));
+    } catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-added'));
+  },
+
+  setStimulusOptionActive: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData(); const caseId = formText(formData, 'case_id');
+    try { await setStimulusOptionActive(createDb(platform.env.DB), formText(formData, 'option_id'), formText(formData, 'active') === 'true'); }
+    catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-saved'));
+  },
+
+  reorderStimulusOption: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData(); const caseId = formText(formData, 'case_id');
+    const direction = formText(formData, 'direction');
+    if (direction !== 'up' && direction !== 'down') return fail(400, { error: 'A valid movement direction is required.', caseId });
+    try { await moveStimulusOption(createDb(platform.env.DB), formText(formData, 'group_id'), formText(formData, 'option_id'), direction); }
+    catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-reordered'));
+  },
+
+  saveStimulusGroupQuestion: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData(); const caseId = formText(formData, 'case_id');
+    try { await saveStimulusGroupQuestion(createDb(platform.env.DB), formText(formData, 'group_id'), { originalPromptId: formText(formData, 'original_prompt_id') || null, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') }); }
+    catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-question-saved'));
+  },
+
+  saveStimulusOptionQuestion: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData(); const caseId = formText(formData, 'case_id');
+    try { await saveStimulusOptionQuestion(createDb(platform.env.DB), formText(formData, 'option_id'), { originalPromptId: formText(formData, 'original_prompt_id') || null, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') }); }
+    catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-question-saved'));
+  },
+
+  removeStimulusQuestion: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData(); const caseId = formText(formData, 'case_id');
+    try {
+      const db = createDb(platform.env.DB);
+      if (formText(formData, 'scope') === 'option') await removeStimulusOptionQuestion(db, formText(formData, 'context_id'), formText(formData, 'prompt_id'));
+      else await removeStimulusGroupQuestion(db, formText(formData, 'context_id'), formText(formData, 'prompt_id'));
+    } catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-question-removed'));
   },
 
   upload: async ({ request, locals, platform }) => {

@@ -6,7 +6,7 @@ This document records the implemented V1 application data model. It complements 
 
 The schema is implemented with Drizzle using the SQLite/D1 dialect and version-controlled migrations.
 
-The currently deployed schema remains the baseline described below. A planned additive extension for optional alternative stimulus groups is documented in `STIMULUS_GROUPS_DESIGN.md`; it is **not yet part of the implemented schema** until its migration is reviewed and merged.
+The currently deployed schema remains the baseline described below. Migration `0002_optional_stimulus_groups.sql` adds the reviewed, additive optional-stimulus extension without rewriting ordinary Cases or `case_assets`.
 
 ## 1. Design rules
 
@@ -133,7 +133,7 @@ Unique constraints:
 
 A multi-image Case is simply one Case with several ordered `case_assets` rows.
 
-In the current implementation all active Case Assets are treated as fixed stimuli and are snapshotted into every Review of that Case. The planned stimulus-group extension will add optional grouping/selection behaviour without making grouping mandatory for ordinary `case_assets`.
+All active ungrouped Case Assets remain fixed stimuli and are snapshotted into every Review. Active Stimulus Groups add one selected option per group after those fixed assets.
 
 ### `question_prompts`
 
@@ -247,7 +247,7 @@ Unique constraints:
 
 This table is essential because admins can edit prompts/answers later without changing what an old Review means.
 
-The planned stimulus-group extension will require extending question-source provenance so a Review can record when a stimulus group or exact selected option supplied the winning contextual answer.
+`review_questions.source_type` supports `stimulus_group` and `stimulus_option`, with nullable group/option provenance columns. Existing rows retain their original source types.
 
 ### `review_assets`
 

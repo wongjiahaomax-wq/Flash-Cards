@@ -259,7 +259,7 @@ Continue to exercise:
 
 ## Milestone 7A — Optional alternative stimulus groups
 
-Status: **next focused implementation milestone**
+Status: **implemented in this branch**
 
 Goal: allow richer Case variation without forcing existing or imported content into a complex structure.
 
@@ -293,6 +293,8 @@ selected stimulus option
 Review creation should select stimuli before resolving the final question set.
 
 See `docs/STIMULUS_GROUPS_DESIGN.md` for detailed product and schema direction.
+
+Implemented in migration `0002_optional_stimulus_groups.sql` and the existing Case editor. Ordinary Cases remain unchanged; enriched Cases support fixed stimuli plus one selected option per active group, contextual group/option questions, configurable Automatic/All/Fixed question selection, per-group coverage, and Review provenance snapshots.
 
 ---
 

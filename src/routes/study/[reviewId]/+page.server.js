@@ -31,6 +31,10 @@ export async function load({ locals, params, platform }) {
         scope:
           question.sourceType === 'case'
             ? 'Case-specific answer'
+            : question.sourceType === 'stimulus_option'
+              ? 'Selected stimulus option answer'
+              : question.sourceType === 'stimulus_group'
+                ? 'Stimulus group answer'
             : question.sourceType === 'ancestor_concept'
               ? 'Inherited topic question'
               : 'Topic question'

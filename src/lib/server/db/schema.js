@@ -45,11 +45,21 @@ export const cases = sqliteTable(
     id: text('id').primaryKey(),
     title: text('title').notNull(),
     vignetteMd: text('vignette_md'),
+    questionSelectionMode: text('question_selection_mode').notNull().default('automatic'),
+    questionCount: integer('question_count'),
     isActive: activeFlag(),
     createdAt: timestamp('created_at'),
     updatedAt: timestamp('updated_at')
   },
-  (table) => [index('cases_active_idx').on(table.isActive)]
+  (table) => [
+    index('cases_active_idx').on(table.isActive),
+    check('cases_question_selection_mode_check', sql`${table.questionSelectionMode} in ('automatic', 'all', 'fixed')`),
+    check('cases_question_count_check', sql`${table.questionCount} is null or ${table.questionCount} > 0`),
+    check(
+      'cases_fixed_question_count_check',
+      sql`${table.questionSelectionMode} <> 'fixed' or ${table.questionCount} is not null`
+    )
+  ]
 );
 
 export const caseConcepts = sqliteTable(
@@ -115,6 +125,53 @@ export const caseAssets = sqliteTable(
   ]
 );
 
+export const stimulusGroups = sqliteTable(
+  'stimulus_groups',
+  {
+    id: text('id').primaryKey(),
+    caseId: text('case_id').notNull().references(() => cases.id, { onDelete: 'restrict' }),
+    name: text('name').notNull(),
+    displayOrder: integer('display_order').notNull(),
+    selectionCount: integer('selection_count').notNull().default(1),
+    specificQuestionMode: text('specific_question_mode').notNull().default('none'),
+    minimumSpecificQuestions: integer('minimum_specific_questions'),
+    isActive: activeFlag(),
+    createdAt: timestamp('created_at'),
+    updatedAt: timestamp('updated_at')
+  },
+  (table) => [
+    index('stimulus_groups_case_idx').on(table.caseId, table.displayOrder),
+    index('stimulus_groups_active_idx').on(table.caseId, table.isActive),
+    check('stimulus_groups_display_order_nonnegative', sql`${table.displayOrder} >= 0`),
+    check('stimulus_groups_selection_count_positive', sql`${table.selectionCount} > 0`),
+    check('stimulus_groups_specific_mode_check', sql`${table.specificQuestionMode} in ('none', 'minimum', 'all')`),
+    check(
+      'stimulus_groups_minimum_check',
+      sql`${table.minimumSpecificQuestions} is null or ${table.minimumSpecificQuestions} > 0`
+    )
+  ]
+);
+
+export const stimulusGroupOptions = sqliteTable(
+  'stimulus_group_options',
+  {
+    id: text('id').primaryKey(),
+    stimulusGroupId: text('stimulus_group_id').notNull().references(() => stimulusGroups.id, { onDelete: 'restrict' }),
+    assetId: text('asset_id').notNull().references(() => assets.id, { onDelete: 'restrict' }),
+    displayOrder: integer('display_order').notNull(),
+    captionMd: text('caption_md'),
+    isActive: activeFlag(),
+    createdAt: timestamp('created_at')
+  },
+  (table) => [
+    uniqueIndex('stimulus_group_options_group_asset_unique').on(table.stimulusGroupId, table.assetId),
+    uniqueIndex('stimulus_group_options_group_order_unique').on(table.stimulusGroupId, table.displayOrder),
+    index('stimulus_group_options_asset_idx').on(table.assetId),
+    index('stimulus_group_options_active_idx').on(table.stimulusGroupId, table.isActive),
+    check('stimulus_group_options_display_order_nonnegative', sql`${table.displayOrder} >= 0`)
+  ]
+);
+
 export const questionPrompts = sqliteTable(
   'question_prompts',
   {
@@ -177,6 +234,42 @@ export const caseQuestions = sqliteTable(
   ]
 );
 
+export const stimulusGroupQuestions = sqliteTable(
+  'stimulus_group_questions',
+  {
+    id: text('id').primaryKey(),
+    stimulusGroupId: text('stimulus_group_id').notNull().references(() => stimulusGroups.id, { onDelete: 'restrict' }),
+    questionPromptId: text('question_prompt_id').notNull().references(() => questionPrompts.id, { onDelete: 'restrict' }),
+    answerMd: text('answer_md').notNull(),
+    isActive: activeFlag(),
+    createdAt: timestamp('created_at'),
+    updatedAt: timestamp('updated_at')
+  },
+  (table) => [
+    uniqueIndex('stimulus_group_questions_group_prompt_unique').on(table.stimulusGroupId, table.questionPromptId),
+    index('stimulus_group_questions_prompt_idx').on(table.questionPromptId),
+    index('stimulus_group_questions_group_active_idx').on(table.stimulusGroupId, table.isActive)
+  ]
+);
+
+export const stimulusOptionQuestions = sqliteTable(
+  'stimulus_option_questions',
+  {
+    id: text('id').primaryKey(),
+    stimulusGroupOptionId: text('stimulus_group_option_id').notNull().references(() => stimulusGroupOptions.id, { onDelete: 'restrict' }),
+    questionPromptId: text('question_prompt_id').notNull().references(() => questionPrompts.id, { onDelete: 'restrict' }),
+    answerMd: text('answer_md').notNull(),
+    isActive: activeFlag(),
+    createdAt: timestamp('created_at'),
+    updatedAt: timestamp('updated_at')
+  },
+  (table) => [
+    uniqueIndex('stimulus_option_questions_option_prompt_unique').on(table.stimulusGroupOptionId, table.questionPromptId),
+    index('stimulus_option_questions_prompt_idx').on(table.questionPromptId),
+    index('stimulus_option_questions_option_active_idx').on(table.stimulusGroupOptionId, table.isActive)
+  ]
+);
+
 export const reviews = sqliteTable(
   'reviews',
   {
@@ -217,6 +310,8 @@ export const reviewQuestions = sqliteTable(
       .references(() => questionPrompts.id, { onDelete: 'restrict' }),
     sourceType: text('source_type').notNull(),
     sourceConceptId: text('source_concept_id').references(() => concepts.id, { onDelete: 'restrict' }),
+    sourceStimulusGroupId: text('source_stimulus_group_id').references(() => stimulusGroups.id, { onDelete: 'restrict' }),
+    sourceStimulusOptionId: text('source_stimulus_option_id').references(() => stimulusGroupOptions.id, { onDelete: 'restrict' }),
     displayOrder: integer('display_order').notNull(),
     promptSnapshotMd: text('prompt_snapshot_md').notNull(),
     answerSnapshotMd: text('answer_snapshot_md').notNull()
@@ -227,7 +322,7 @@ export const reviewQuestions = sqliteTable(
     index('review_questions_prompt_idx').on(table.questionPromptId),
     check(
       'review_questions_source_type_check',
-      sql`${table.sourceType} in ('case', 'concept', 'ancestor_concept')`
+      sql`${table.sourceType} in ('case', 'concept', 'ancestor_concept', 'stimulus_group', 'stimulus_option')`
     ),
     check('review_questions_display_order_nonnegative', sql`${table.displayOrder} >= 0`)
   ]
@@ -246,7 +341,9 @@ export const reviewAssets = sqliteTable(
     displayOrder: integer('display_order').notNull(),
     storageKeySnapshot: text('storage_key_snapshot').notNull(),
     captionSnapshotMd: text('caption_snapshot_md'),
-    altTextSnapshot: text('alt_text_snapshot')
+    altTextSnapshot: text('alt_text_snapshot'),
+    sourceStimulusGroupId: text('source_stimulus_group_id').references(() => stimulusGroups.id, { onDelete: 'restrict' }),
+    sourceStimulusOptionId: text('source_stimulus_option_id').references(() => stimulusGroupOptions.id, { onDelete: 'restrict' })
   },
   (table) => [
     uniqueIndex('review_assets_review_order_unique').on(table.reviewId, table.displayOrder),

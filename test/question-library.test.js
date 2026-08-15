@@ -12,7 +12,7 @@ import {
   updateQuestionPrompt
 } from '../src/lib/server/db/question-library.js';
 
-const migrationSql = readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8').replaceAll('--> statement-breakpoint', '');
+const migrationSql = [readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'), readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8')].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
