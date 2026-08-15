@@ -46,6 +46,7 @@ function createFixture() {
   return db;
 }
 
+/** @param {import('node:sqlite').DatabaseSync} db @param {string} sql */
 function row(db, sql) {
   return /** @type {Record<string, unknown>} */ (db.prepare(sql).get());
 }
