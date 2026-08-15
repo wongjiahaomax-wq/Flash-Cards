@@ -1,10 +1,12 @@
 # Flash-Cards — V1 Data Model
 
-_Last updated: 14 August 2026_
+_Last updated: 15 August 2026_
 
-This document freezes the application data model for the first implementation. It complements `V1_SPEC.md`.
+This document records the implemented V1 application data model. It complements `V1_SPEC.md`.
 
-The schema should be implemented with Drizzle using the SQLite/D1 dialect and version-controlled migrations.
+The schema is implemented with Drizzle using the SQLite/D1 dialect and version-controlled migrations.
+
+The currently deployed schema remains the baseline described below. A planned additive extension for optional alternative stimulus groups is documented in `STIMULUS_GROUPS_DESIGN.md`; it is **not yet part of the implemented schema** until its migration is reviewed and merged.
 
 ## 1. Design rules
 
@@ -16,6 +18,7 @@ The schema should be implemented with Drizzle using the SQLite/D1 dialect and ve
 6. Snapshot what the learner actually saw when a review begins.
 7. Keep answer text on the relationship that supplies its context, not on the reusable prompt itself.
 8. V1 application code enforces rules that are awkward to express portably across SQLite and PostgreSQL.
+9. New content structures should be additive and backward-compatible where practical; ordinary Cases must not require stimulus-group metadata.
 
 ## 2. Authentication tables
 
@@ -130,6 +133,8 @@ Unique constraints:
 
 A multi-image Case is simply one Case with several ordered `case_assets` rows.
 
+In the current implementation all active Case Assets are treated as fixed stimuli and are snapshotted into every Review of that Case. The planned stimulus-group extension will add optional grouping/selection behaviour without making grouping mandatory for ordinary `case_assets`.
+
 ### `question_prompts`
 
 Stores reusable wording only.
@@ -242,6 +247,8 @@ Unique constraints:
 
 This table is essential because admins can edit prompts/answers later without changing what an old Review means.
 
+The planned stimulus-group extension will require extending question-source provenance so a Review can record when a stimulus group or exact selected option supplied the winning contextual answer.
+
 ### `review_assets`
 
 Snapshots which Assets were shown in a Review.
@@ -265,7 +272,11 @@ Unique constraints:
 
 The immutable-object-key rule means historical Review Assets remain reproducible even after a Case is edited.
 
+When stimulus groups are implemented, `review_assets` should continue storing the exact selected Asset snapshot and should additionally retain enough stimulus group/option provenance to identify which alternative produced the snapshot.
+
 ## 4. Relationship overview
+
+Current implemented relationships:
 
 ```text
 concepts
@@ -285,15 +296,31 @@ Better Auth user
         └── review_assets
 ```
 
+Planned optional extension:
+
+```text
+cases
+  └── stimulus_groups
+       ├── stimulus_group_options ── assets
+       └── stimulus_group_questions ── question_prompts
+
+stimulus_group_options
+  └── stimulus_option_questions ── question_prompts
+```
+
+The exact migration shape remains subject to implementation review; see `STIMULUS_GROUPS_DESIGN.md`.
+
 ## 5. Resolved-question algorithm
+
+### Current implemented algorithm
 
 For a selected Case:
 
-### Step A — identify primary Concept
+#### Step A — identify primary Concept
 
 Read the Case's single `case_concepts.role = primary` link.
 
-### Step B — collect candidate Prompt/answer pairs
+#### Step B — collect candidate Prompt/answer pairs
 
 Collect:
 
@@ -303,7 +330,7 @@ Collect:
 
 Do not automatically collect questions from secondary Concepts.
 
-### Step C — deduplicate by Question Prompt
+#### Step C — deduplicate by Question Prompt
 
 For duplicate prompt IDs, precedence is:
 
@@ -314,11 +341,11 @@ case_questions
   > more distant eligible ancestor concept_questions
 ```
 
-### Step D — random selection
+#### Step D — random selection
 
 Shuffle the resolved candidates and select up to the configured maximum, targeting 3 questions.
 
-### Step E — snapshot
+#### Step E — snapshot
 
 Before serving the Review page, persist:
 
@@ -329,6 +356,25 @@ Before serving the Review page, persist:
 The learner page renders the snapshots rather than recalculating the Case on every request.
 
 This prevents a mid-review admin edit from changing the attempt.
+
+### Planned stimulus-aware extension
+
+After stimulus groups are implemented, Review creation should select the active stimulus options **before** final question resolution.
+
+Planned precedence becomes:
+
+```text
+selected stimulus option
+  > selected option's stimulus group
+  > Case
+  > primary Concept
+  > closest eligible ancestor Concept
+  > more distant eligible ancestor Concept
+```
+
+Question-count and per-group specific-question coverage should be configurable rather than permanently hard-coded to exactly one policy.
+
+See `STIMULUS_GROUPS_DESIGN.md` for the full planned algorithm.
 
 ## 6. Case-selection algorithm
 
@@ -342,6 +388,8 @@ Given a learner-selected Concept:
 6. return the new Review ID.
 
 V1 selection uses history only to avoid an immediate repeat. It does not calculate due dates or spaced-repetition intervals.
+
+When stimulus groups are implemented, step 5 expands to select and freeze stimulus alternatives before resolving the final question set.
 
 ## 7. Basic progress queries
 
@@ -357,6 +405,8 @@ Useful queries include:
 
 No separate `learner_progress` table is required for V1. Add one only when a real scheduling/mastery model needs persisted derived state.
 
+Stimulus-option provenance may later support additional analytics, but analytics requirements must not drive the first stimulus-group migration beyond what is needed to preserve historical Review meaning.
+
 ## 8. Deferred schema objects
 
 Do not add these until required by real behaviour:
@@ -371,4 +421,4 @@ Do not add these until required by real behaviour:
 - arbitrary structured laboratory stimuli;
 - answer alternatives/automated marking structures.
 
-Keeping these out of V1 reduces migration burden while preserving extension points in the current model.
+Alternative stimulus groups are no longer merely hypothetical deferred work: pilot modelling has identified a concrete need. Their implementation should remain additive and focused, as defined in `STIMULUS_GROUPS_DESIGN.md`.
