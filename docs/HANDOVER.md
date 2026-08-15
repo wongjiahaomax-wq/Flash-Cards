@@ -441,6 +441,8 @@ Workers subdomain: `mmed-fm-flashcardstest.workers.dev`
 
 ## Known technical debt / deferred work
 
+The Admin **Import package** route now accepts reviewed Flash-Cards Import Package v1 ZIPs. It performs a strict dry run before an explicitly confirmed import, uses existing learning tables without a migration, and preserves the protected R2 upload path. It does not interpret arbitrary Anki/APKG files or perform clinical-content transformation. See `docs/CONTENT_IMPORT_PACKAGES.md`.
+
 - Asset/Stimulus→Topic routing remains deliberately deferred unless real content proves it necessary;
 - Review Asset historical serving currently depends on live Asset resolution; deactivation semantics may need later refinement;
 - attribution metadata is live rather than snapshotted;
