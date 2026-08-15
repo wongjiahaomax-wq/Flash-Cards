@@ -186,7 +186,7 @@ test('conversion validation preserves the fixed attachment when the Asset is alr
     const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'ECG alternatives', specificQuestionMode: 'none' });
     await fixture.db.insert(stimulusGroupOptions).values({ id: 'duplicate-option', stimulusGroupId: groupId, assetId: 'seed-asset-anterior-a', displayOrder: 0, isActive: true });
     await assert.rejects(convertCaseAssetToStimulusOption(fixture.db, groupId, 'seed-asset-anterior-a'), /already used as a Stimulus Option/);
-    const fixed = await fixture.db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(and(eq(caseAssets.caseId, 'seed-anterior-a'), eq(caseAssets.assetId, 'seed-asset-anterior-a'));
+    const fixed = await fixture.db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(and(eq(caseAssets.caseId, 'seed-anterior-a'), eq(caseAssets.assetId, 'seed-asset-anterior-a')));
     assert.equal(fixed.length, 1);
   } finally {
     fixture.sqlite.close();
