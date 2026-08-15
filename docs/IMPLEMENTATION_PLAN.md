@@ -4,7 +4,14 @@ _Last updated: 15 August 2026_
 
 This document tracks implementation progress against `V1_SPEC.md` and `V1_DATA_MODEL.md`.
 
-The project has now crossed the first major threshold: a real administrator can create content in the browser, store images in private R2, attach those Assets to Cases, add questions, and preview the resulting Case through the D1-backed learner Study flow.
+The project now has a real end-to-end V1 vertical slice and a substantially improved Admin Case workflow. The current implementation priority is the Admin content-library phase.
+
+For detailed Admin CMS scope, also read:
+
+```text
+docs/ADMIN_CONTENT_MANAGEMENT_PLAN.md
+docs/PARALLEL_WORK_PLAN.md
+```
 
 ---
 
@@ -12,58 +19,54 @@ The project has now crossed the first major threshold: a real administrator can 
 
 Status: **complete**
 
-Completed:
+The V1 educational model remains Case-based rather than fixed front/back cards.
+
+Core reference docs:
 
 - `CURRENT_DESIGN.md`;
 - `V1_SPEC.md`;
 - `V1_DATA_MODEL.md`;
-- `IMAGE_PROVENANCE.md`;
-- this implementation plan.
-
-The V1 educational model remains Case-based rather than fixed front/back flashcards.
+- `CONTENT_MODEL_EXAMPLES.md`;
+- `IMAGE_PROVENANCE.md`.
 
 ---
 
-## Milestone 1 — Scaffold the application
+## Milestone 1 — Application scaffold
 
 Status: **complete**
 
 Completed:
 
-- SvelteKit application scaffold;
-- Cloudflare adapter/runtime;
+- SvelteKit;
+- Cloudflare Workers adapter/runtime;
 - Wrangler configuration;
 - public landing/sign-in routes;
-- protected `/study` and `/admin` routes;
-- CI covering database checks, tests, Svelte checks, build, and local auth smoke validation;
-- production Worker deployment scaffold.
+- protected `/study` and `/admin`;
+- CI covering database checks, tests, Svelte checks, build, and auth smoke validation.
 
 ---
 
 ## Milestone 2 — D1 + Drizzle learning-domain model
 
-Status: **complete for the current V1 slice**
+Status: **complete for V1 slice**
 
-Completed:
+Implemented:
 
-- Drizzle ORM and Drizzle Kit;
-- Version 1 learning-domain schema;
-- D1 learning migration;
-- Better Auth D1 migration kept separate from Drizzle learning schema;
-- database access helpers;
 - Concepts and hierarchy;
-- Cases with `vignette_md`;
+- Cases with vignette/stem;
 - Case/Concept links;
 - Assets and Case Assets;
 - reusable Question Prompts;
 - Concept Questions;
 - Case Questions;
-- Reviews, Review Questions, and Review Assets;
-- representative seed tooling for local/tests;
-- runtime IDs/timestamps for current writes;
-- server-side read/write logic used by learner/admin flows.
+- Reviews;
+- Review Questions;
+- Review Assets;
+- D1/Drizzle helpers and migrations.
 
-Important operational note: `scripts/seed-content.mjs` is useful for local/tests but should not be run blindly against production because its placeholder Asset keys do not correspond to real R2 bytes.
+Better Auth tables remain separate from the Drizzle learning-domain schema by design.
+
+Do not run `scripts/seed-content.mjs` blindly against production because placeholder seed Asset keys do not correspond to production R2 objects.
 
 ---
 
@@ -75,170 +78,155 @@ Completed:
 
 - Better Auth 1.6.25;
 - direct D1 persistence;
-- Better Auth Admin plugin;
+- Admin plugin;
 - public sign-up disabled;
 - `/study` authentication;
 - `/admin` administrator authorization;
-- sign-in/sign-out UI;
+- sign-in/sign-out;
 - local auth smoke test;
-- production auth schema and secret configuration;
-- first production administrator bootstrap;
-- administrator browser sign-in verified;
-- administrator access to `/admin` verified.
+- production auth schema/secrets;
+- first administrator bootstrapped and verified.
 
-Remaining:
+Remaining, but intentionally deferred until after Admin CMS + pilot content:
 
-- smallest administrator learner-account creation/management flow;
-- create a test learner;
-- verify normal learner access to `/study` and denial from `/admin`.
+- browser learner-account creation/management;
+- test learner creation;
+- learner `/study` access and `/admin` denial acceptance test.
 
 ---
 
-## Milestone 4 — Core learner study flow
+## Milestone 4 — Core learner Study flow
 
 Status: **complete for V1 vertical slice**
 
 Completed:
 
-- D1-backed topic/Concept selection;
-- eligible descendant-primary Case loading;
-- Case selection with immediate-repeat avoidance;
-- reusable-question resolution;
-- precedence/deduplication:
+- D1-backed Concept selection;
+- eligible Case selection;
+- immediate-repeat avoidance;
+- question precedence/deduplication:
   `Case > primary Concept > nearest inheritable ancestor > more distant ancestor`;
-- randomized question selection with target three / maximum four;
+- randomized target three / maximum four questions;
 - durable Review creation;
-- Case title/vignette snapshots;
-- ordered Review Question snapshots;
-- ordered Review Asset snapshots;
-- reveal persistence;
-- whole-Case `Again` / `Good` completion;
-- next-Case navigation using persisted history;
-- single-image and multi-image learner presentation;
-- internal Case titles hidden/masked from learners.
+- Case/vignette/question/Asset snapshots;
+- reveal timestamps;
+- whole-Case `Again` / `Good` rating;
+- multi-image rendering;
+- internal Case title masking.
 
-Definition of done achieved: a learner can study D1-backed content, reveal answers, rate the whole Case, and leave durable Review history.
+Do not redesign the learner flow as part of the current Admin phase.
 
 ---
 
-## Milestone 5 — R2 teaching-image pipeline
+## Milestone 5 — Protected R2 teaching-image pipeline
 
 Status: **complete for V1 vertical slice**
 
 Completed:
 
-- production `MEDIA` R2 binding;
-- 5 MiB per-image limit;
-- 5 GiB application-managed storage ceiling;
-- Standard storage class;
+- private `MEDIA` R2 binding;
+- JPEG/PNG upload;
+- 5 MiB image limit;
+- 5 GiB app-managed ceiling;
 - immutable storage keys;
-- JPEG/PNG validation;
-- upload through `putTeachingImage()`;
-- D1 Asset metadata creation;
-- optional source label/source URL/licence;
-- unknown-source support without invented attribution;
-- cleanup attempt when Asset metadata creation fails after upload;
-- authenticated image-serving route;
-- MIME, ETag, and private immutable cache handling;
-- stable `getTeachingImageUrl(assetId)` helper;
-- learner rendering through private R2-backed delivery;
-- ordered multiple Case Assets;
-- clipboard paste, drag/drop, and normal file-picker upload UI.
+- writes through `putTeachingImage()`;
+- D1 Asset metadata;
+- optional source label/URL/licence;
+- unknown source supported;
+- protected authenticated image serving;
+- clipboard, drag/drop, and picker upload.
 
-External URLs remain attribution metadata only; they are never the learner image source.
+External `source_url` is attribution only, never runtime image storage.
 
 ---
 
-## Milestone 6 — Minimal browser content administration
+## Milestone 6 — Browser content administration
 
-Status: **substantially complete for routine V1 content entry**
+Status: **substantially complete and being expanded into content libraries**
 
-Completed in PR #9:
+### PR #9 — first browser content vertical slice
 
-- create active Concept/topic with generated unique slug;
-- create active Case with primary Concept;
-- internal Case title;
-- optional editable Case stem/vignette;
-- upload teaching image;
-- select existing uploaded Assets;
-- attach/detach Asset from Case;
-- attach the same Asset to different Cases without re-uploading;
-- order multiple Case Assets;
-- Case-specific captions;
-- add/edit/remove/reorder Case questions;
-- exact Question Prompt reuse where practical;
-- optionally save a question as reusable for the Case's primary Concept;
-- Study preview link.
+Status: **merged**
 
-No schema migration was required for this slice.
+Implemented Topic/Case creation, vignette editing, questions, image upload/attachment/captions/order, and learner preview.
 
-Still intentionally deferred:
+### PR #10 — Admin shell + Case management redesign
 
-- full Concept hierarchy editor;
-- full Case edit/archive/delete workflow;
-- secondary Concept-link editor;
-- rich Asset metadata editor after upload;
-- search/filtering for large content libraries;
-- bulk content operations/import.
+Status: **merged**
 
-The current admin interface is sufficient to build real Cases without routine SQL.
+Merge commit:
+
+```text
+21f349b4869f59a8bccbf440437ce67088776b58
+```
+
+Implemented:
+
+- persistent Admin shell;
+- `/admin` dashboard;
+- `/admin/cases` searchable Case library;
+- `/admin/cases/new`;
+- `/admin/cases/[caseId]`;
+- focused Case metadata editing while preserving PR #9 Case question/Asset functionality.
+
+### PR #11 — Questions Library
+
+Status: **next, parallel**
+
+Build:
+
+```text
+/admin/questions
+/admin/questions/[promptId]
+```
+
+Required outcomes:
+
+- global prompt/answer search;
+- Topic/scope filtering;
+- usage counts;
+- Case and Concept usage inspection;
+- context-specific answers;
+- shared-prompt blast-radius warning before global prompt edits;
+- Case links.
+
+### PR #12 — Image Library + rename/edit metadata
+
+Status: **next, parallel**
+
+Build:
+
+```text
+/admin/images
+/admin/images/new
+/admin/images/[assetId]
+```
+
+Required outcomes:
+
+- thumbnail library;
+- image search/filtering;
+- usage counts and Case links;
+- Asset metadata editing;
+- image rename using existing `assets.original_filename`;
+- rename changes D1 metadata only and never changes immutable R2 key/object;
+- reuse existing upload pipeline.
+
+No schema migration is expected.
+
+### PR #13 — Topics dashboard
+
+Status: **defer until PR #11 and #12 merge**
+
+Build simple Topic list/detail/search, counts, and reusable-question inspection. Do not build a sophisticated hierarchy editor yet.
 
 ---
 
-## Milestone 7 — Users and basic progress
+## Milestone 7 — Pilot content/model validation
 
-Status: **next major implementation milestone**
+Status: **ready after PR #11/#12/#13 admin ergonomics**
 
-Goal: administrators can create learners and see whether learners are using the system and where they struggle.
-
-Recommended order:
-
-1. learner-account creation/management;
-2. learner list;
-3. recent Review list;
-4. filter by learner;
-5. filter by Concept;
-6. counts of `Again` and `Good`;
-7. flag repeated `Again` ratings for a Case.
-
-Keep this observational and simple before adding scheduling complexity.
-
----
-
-## Milestone 8 — Deployment and acceptance testing
-
-Status: **major vertical-slice acceptance achieved; role-boundary acceptance incomplete**
-
-Completed:
-
-- production auth deployment;
-- administrator browser login;
-- private R2 upload from `/admin`;
-- production D1 content creation through `/admin`;
-- real Case stem entry;
-- real Asset attachment;
-- real Case question entry;
-- learner Study preview of the resulting Case;
-- PR #9 merged to `main`;
-- post-merge CI run #67 passed on merge commit `f48f1a5fe7dee3be2230343befb4a484c98d7a32`.
-
-Remaining:
-
-- create/verify normal learner account;
-- verify learner cannot access `/admin`;
-- deliberately redeploy from current `main` if release provenance needs to match the merge commit rather than the previously deployed PR head;
-- run a small multi-topic acceptance set including multi-image and reused-Asset Cases;
-- record product bugs/friction as issues.
-
----
-
-## Milestone 9 — Pilot content and model validation
-
-Status: **ready to begin**
-
-Goal: use real teaching material to discover whether the current model is sufficient before adding scheduling/import complexity.
-
-Enter a small representative set from:
+Enter representative content from:
 
 - ECG/Cardiology;
 - ENT;
@@ -247,72 +235,98 @@ Enter a small representative set from:
 
 Deliberately exercise:
 
-- Case stem + image + multiple questions;
-- image-only/neutral recognition Case;
+- stem + image + multiple questions;
+- image-only recognition;
 - multi-image Case;
 - alternative Cases for the same Concept;
-- the same Asset reused across multiple Cases;
-- the same Question Prompt with different Case-specific answers;
+- same Asset reused across Cases;
+- same prompt with different Case-specific answers;
 - Concept-level reusable questions;
-- inherited broader questions;
-- Cases that may need a secondary Concept.
+- inherited questions;
+- possible need for secondary Concepts.
 
-Concrete model test:
+Use real content entry to discover model/admin blind spots before adding larger infrastructure.
 
-- store a prolonged-QTc ECG once as an Asset;
-- attach it to a neutral ECG-recognition Case;
-- attach the same Asset to a post-operative hypocalcaemia Case;
-- give the Cases different stems and question sets;
-- evaluate whether primary/secondary Concept links are sufficient for future retrieval and analytics.
+---
 
-See `CONTENT_MODEL_EXAMPLES.md`.
+## Milestone 8 — Learner accounts and role-boundary acceptance
 
-Only after this pilot should the project revisit:
+Status: **planned after pilot-content/Admin CMS phase**
 
-- FSRS/scheduling;
+Implement the smallest administrator learner-account workflow, then verify:
+
+- learner can sign in and study;
+- learner cannot access `/admin`.
+
+---
+
+## Milestone 9 — Basic learner progress administration
+
+Status: **planned**
+
+Initial scope:
+
+- learner list;
+- recent Reviews;
+- learner filter;
+- Concept filter;
+- Again/Good summaries;
+- repeated Again flags.
+
+Avoid sophisticated analytics initially.
+
+---
+
+## Later/deferred work
+
+Do not pull these into PR #11/#12:
+
+- FSRS or scheduling controls;
 - bulk Anki import;
-- structured marks/marking points;
-- richer analytics;
-- question weighting;
-- broader non-image stimulus types.
+- rich WYSIWYG editing;
+- complex tagging;
+- bulk permanent deletion;
+- AI content generation;
+- complex organisations/roles;
+- advanced analytics;
+- structured marking points/marks;
+- broad stimulus types;
+- sophisticated Concept hierarchy editor.
 
 ---
 
-## Immediate next phase
+## Current recommended sequence
 
-The previous two-agent D1/R2 implementation phase is complete. PRs #7, #8, and #9 are merged.
-
-The next phase should focus on **users, progress, and real pilot content**, not more infrastructure.
-
-Recommended sequence:
-
-1. implement learner-account administration;
-2. verify role boundaries with a real learner;
-3. add a minimal progress view;
-4. enter a representative pilot content set through `/admin`;
-5. document any model mismatch found during real content entry;
-6. only then decide whether secondary Concepts, structured marks, search/filtering, or importer work should move forward.
+1. **PR #11 Questions Library** — parallel now.
+2. **PR #12 Image Library** — parallel now.
+3. Merge both with green CI, rebasing the second if needed.
+4. **PR #13 Topics dashboard**.
+5. Pilot real content and fix friction/model issues.
+6. Learner account administration + role acceptance.
+7. Basic progress administration.
+8. Reassess FSRS/import/analytics/structured marks later.
 
 ---
 
-## Known technical debt
+## Technical debt / operational cautions
 
-### Wrangler version
+- `package.json` pins Wrangler 4.115.0 while compatibility work has used 4.123.0; update deliberately in a focused change, not incidentally inside PR #11/#12.
+- do not use `npm audit fix --force` casually.
+- Review Asset historical serving currently resolves live Asset state; deactivation semantics may need later work.
+- attribution metadata is not currently snapshotted into Reviews.
+- if structured marks are later introduced, store them structurally rather than parsing `(2)`/`(4)` from strings.
 
-`package.json` still pins Wrangler 4.115.0 while the project compatibility date and release path have been validated with Wrangler 4.123.0.
+---
 
-Update the dependency and lockfile deliberately before relying on the pinned `npm run deploy` path for future releases.
+## Validation required for every implementation PR
 
-### Review Asset serving semantics
+```sh
+npm run db:check
+npm test
+npm run check
+npm run build
+node scripts/local-auth-smoke.mjs
+git diff --check
+```
 
-Review Assets snapshot the exact storage key shown, but the authenticated image endpoint currently resolves the live active Asset by `assetId`. Deactivating an Asset therefore makes it unavailable to historical Reviews. This is acceptable for current V1 but should be revisited if historical audit fidelity becomes important.
-
-### Attribution snapshots
-
-Asset source metadata is currently live metadata rather than part of the Review snapshot. Revisit only if historical attribution fidelity becomes a requirement.
-
-### Question marks
-
-Do not encode exam marks such as `(2)` or `(4)` into question text if structured marking becomes important. Add explicit metadata later rather than parsing prompt strings.
-
-Do not apply `npm audit fix --force` casually.
+GitHub CI must be green before merge.
