@@ -270,6 +270,7 @@ function executeAssertion(label, sql, auth) {
   return firstResultRow(JSON.parse(output));
 }
 
+/** @param {string[]} argv */
 export function parseMode(argv) {
   const args = new Set(argv);
   const apply = args.has('--apply');
