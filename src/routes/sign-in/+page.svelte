@@ -28,7 +28,7 @@
     }
 
     const requested = new URLSearchParams(window.location.search).get('redirect');
-    const destination = requested?.startsWith('/') && !requested.startsWith('//') ? requested : '/study';
+    const destination = requested?.startsWith('/') && !requested.startsWith('//') ? requested : '/admin';
     await goto(destination);
   }
 </script>
