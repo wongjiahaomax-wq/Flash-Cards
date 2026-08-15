@@ -2,183 +2,309 @@
 
 _Last updated: 15 August 2026_
 
-This plan defines the next implementation phase after PR #6 merged the approved learner study prototype.
+This plan defines the parallel implementation phase after PR #10 merged the Admin shell and Case management redesign.
 
-The objective is to let two Codex/Luna agents work concurrently with minimal merge conflicts.
+The objective is to let two agents work concurrently with minimal merge conflict:
 
-## Shared starting point
+```text
+Track A → PR #11 Questions Library
+Track B → PR #12 Image Library
+```
+
+Both tracks must start from the same current `main` after the documentation refresh.
+
+---
+
+## Shared starting rules
 
 Both agents must:
 
 1. fetch current `main`;
-2. create a new branch from that exact `main`;
-3. work only on the assigned track;
-4. run the full project validation before opening/updating a PR;
-5. open a separate draft PR targeting `main`;
-6. never merge their own PR;
-7. clearly report any need to touch files owned by the other track before doing so.
+2. work on the already-created assigned branch;
+3. read `docs/HANDOVER.md` and `docs/ADMIN_CONTENT_MANAGEMENT_PLAN.md` before changing code;
+4. stay inside the assigned product boundary;
+5. run full validation before reporting completion;
+6. push progress to the existing draft PR rather than opening a different PR;
+7. never merge their own PR;
+8. call out any need to modify shared Admin-shell files beyond the minimum required navigation change.
 
-Do not modify the approved learner UX unless needed to replace temporary data with real data.
+Do not redesign the learner Study flow, authentication model, Review semantics, or Cloudflare infrastructure in either track.
 
-## Track A — D1 learner + Review persistence
+---
 
-Suggested branch:
+# Track A — PR #11 Questions Library
 
-```text
-agent/d1-learner-vertical-slice
-```
-
-Primary objective: replace the temporary learner demo data with real D1-backed content and durable Review records while preserving the approved learner interaction flow.
-
-### Track A owns
-
-- representative seed tooling/data;
-- learning-domain D1 read/write queries;
-- Review creation and snapshots;
-- Review reveal/completion writes;
-- `/study` data loading and learner-flow integration;
-- tests for learner selection/persistence behaviour.
-
-### Expected Track A files/areas
-
-Likely ownership includes:
+Branch:
 
 ```text
-src/lib/server/db/**
-src/lib/server/learning/**
-src/routes/study/**
-scripts/*seed*
-tests related to learning/reviews
+agent/admin-questions-library
 ```
 
-Track A may read Asset metadata from D1 but should not implement R2 upload or admin Asset management.
+Draft PR target:
 
-### Track A required behaviour
+```text
+main
+```
 
-1. Seed a representative V1 dataset including:
-   - STEMI parent Concept;
-   - Anterior STEMI child Concept;
-   - multiple alternative Anterior STEMI Cases;
-   - shared `Describe this ECG` prompt with Case-specific answers;
-   - inherited STEMI question;
-   - child-specific question;
-   - Case-only question;
-   - at least one multi-image Dermatology Case.
-2. `/study` should select from D1 rather than `demo-content.js`.
-3. Case selection should use existing immediate-repeat avoidance.
-4. Question resolution should use existing precedence/deduplication rules.
-5. Starting a review must snapshot:
-   - Review row;
-   - selected Review Questions;
-   - ordered Review Assets metadata.
-6. Reveal should persist `revealed_at` if practical within the current route structure.
-7. `Again`/`Good` must complete the Review and persist the rating.
-8. Next Case should start a new Review rather than cycling through static demo IDs.
-9. Preserve the approved learner layout and mobile behaviour from PR #6.
+## Primary objective
 
-### Track A non-goals
+Build a global Questions Library so an administrator can search, inspect, and safely edit reusable Question Prompts and understand every Case/Concept usage and context-specific answer.
+
+## Routes
+
+```text
+/admin/questions
+/admin/questions/[promptId]
+```
+
+## Track A owns
+
+Primarily:
+
+```text
+src/routes/admin/questions/**
+question-library query/helper modules
+focused Questions Library tests
+```
+
+A minimal change to `src/routes/admin/+layout.svelte` is allowed only to activate the Questions navigation link.
+
+## Required behaviour
+
+### Questions list
+
+Provide a searchable library that searches at minimum:
+
+- `question_prompts.prompt_md`;
+- `case_questions.answer_md`;
+- `concept_questions.answer_md`.
+
+Display enough context to understand:
+
+- prompt text;
+- shared/reusable versus Case-specific scope;
+- Topic/Concept context where relevant;
+- usage count.
+
+Useful filters:
+
+- Topic;
+- shared/reusable vs Case-specific;
+- active/inactive if straightforward.
+
+### Prompt detail
+
+`/admin/questions/[promptId]` should show:
+
+- prompt text;
+- total usage count;
+- Case usages and their answers;
+- Concept usages and their answers;
+- Concept inheritance flag where relevant;
+- links back to `/admin/cases/[caseId]`.
+
+### Shared-prompt edit safety
+
+The established data model is:
+
+```text
+Question Prompt
+      ↓
+Case or Concept usage
+      ↓
+context-specific answer
+```
+
+A reused prompt may have different answers in different Cases.
+
+Before editing/saving a shared `question_prompts.prompt_md`, make the blast radius visible. The administrator should see how many places use the prompt and be able to inspect them.
+
+Do not silently clone a reused prompt to avoid global-edit semantics.
+
+## Track A non-goals
 
 Do not implement:
 
-- R2 upload UI;
-- direct `MEDIA.put()` calls;
-- full admin CRUD;
-- bulk Anki import;
-- FSRS/scheduling;
-- per-question ratings.
+- Image Library routes;
+- Asset metadata editing;
+- R2 upload/storage changes;
+- Topic hierarchy editor;
+- learner-account administration;
+- progress analytics;
+- learner Study redesign;
+- FSRS/Anki import.
 
-## Track B — R2 Asset + minimal admin image pipeline
+---
 
-Suggested branch:
+# Track B — PR #12 Image Library
 
-```text
-agent/r2-asset-pipeline
-```
-
-Primary objective: establish a real teaching-image pipeline from protected admin upload to R2 storage, Asset metadata persistence, and secure browser delivery.
-
-### Track B owns
-
-- admin Asset upload/edit slice;
-- R2 teaching-image writes;
-- upload validation;
-- Asset metadata persistence;
-- optional source attribution fields;
-- secure R2-backed image serving;
-- tests for image pipeline behaviour.
-
-### Expected Track B files/areas
-
-Likely ownership includes:
+Branch:
 
 ```text
-src/lib/server/storage/**
-src/routes/admin/** asset/image-specific routes
-src/routes/** image-serving endpoint if required
-tests related to R2/assets
+agent/admin-images-library
 ```
 
-Avoid broad changes to `src/routes/study/**`. If Track B needs learner rendering integration, expose a stable image URL/helper and document how Track A can consume it.
+Draft PR target:
 
-### Track B required behaviour
+```text
+main
+```
 
-1. Admin-only image upload path.
-2. Accept at least JPEG and PNG.
-3. Enforce current 5 MiB per-image limit.
-4. Enforce current managed 5 GiB storage ceiling.
-5. All teaching-image writes go through `putTeachingImage()`.
-6. Generate/use immutable storage keys.
-7. Persist Asset metadata in D1:
-   - storage key;
-   - MIME type;
-   - original filename when available;
-   - alt text;
-   - optional `source_label`;
-   - optional `source_url`;
-   - optional `licence`.
-8. Unknown source is valid: source fields may remain blank and no fake attribution should be generated.
-9. Own/original images may use an explicit source label such as `Original teaching image`.
-10. Securely serve the stored R2 image to authenticated app users without exposing R2 as an uncontrolled public origin.
-11. Provide a stable interface/URL shape that Track A can consume for learner rendering.
+## Primary objective
 
-### Track B non-goals
+Build a visual Asset library so an administrator can search uploaded images, rename them, edit Asset-level metadata, see where they are used, and continue using the existing protected R2 upload pipeline.
+
+## Routes
+
+```text
+/admin/images
+/admin/images/new
+/admin/images/[assetId]
+```
+
+## Track B owns
+
+Primarily:
+
+```text
+src/routes/admin/images/**
+Asset-library query/helper modules
+Asset metadata update logic
+focused Image Library tests
+```
+
+A minimal change to `src/routes/admin/+layout.svelte` is allowed only to activate the Images navigation link.
+
+## Required behaviour
+
+### Image list
+
+Default to a visual thumbnail grid.
+
+Each image should show at minimum:
+
+- thumbnail;
+- current image name;
+- usage count;
+- active/inactive state if surfaced.
+
+Search at minimum:
+
+- `assets.original_filename`;
+- `assets.alt_text`;
+- `assets.source_label`.
+
+Useful filters:
+
+- all / used / unused;
+- active / inactive;
+- source known / source unknown.
+
+### Image detail
+
+`/admin/images/[assetId]` should show:
+
+- large preview;
+- editable image name;
+- editable alt text;
+- editable source label;
+- editable source URL;
+- editable licence/permission;
+- usage count;
+- Cases using the Asset;
+- links back to `/admin/cases/[caseId]`.
+
+### Upload
+
+`/admin/images/new` should reuse the existing protected teaching-image upload pipeline and existing size/R2 guardrails. Do not create a second upload path.
+
+### Image-renaming contract
+
+The existing field:
+
+```text
+assets.original_filename
+```
+
+is the administrator-editable image name.
+
+The actual original upload filename does not need separate preservation.
+
+Renaming must update D1 metadata only.
+
+It must never rename, move, copy, replace, or delete the R2 object/key.
+
+These remain stable:
+
+```text
+assets.id
+assets.storage_key
+R2 object/key
+Case Asset relationships
+Review relationships/snapshots
+```
+
+No schema migration is expected for rename support.
+
+### Captions
+
+Case-specific captions stay in the Case editor. They belong to `case_assets`, not the global Asset.
+
+## Track B non-goals
 
 Do not implement:
 
-- learner Review persistence;
-- question selection changes;
-- Concept/Case CRUD beyond the minimum needed to associate/test an Asset;
-- full admin dashboard;
-- external hotlinking as the learner image source.
+- Questions Library routes;
+- Question Prompt editing;
+- Topic hierarchy editor;
+- learner-account administration;
+- progress analytics;
+- learner Study redesign;
+- R2 key-renaming/migration;
+- FSRS/Anki import.
 
-## Shared boundaries
+---
 
-### Files both agents should avoid editing unless necessary
+## Shared-file boundaries
+
+Both agents should avoid broad edits to:
 
 ```text
+src/routes/admin/+layout.svelte
+src/routes/admin/+page.svelte
+src/routes/admin/+page.server.js
 package.json
 package-lock.json
 wrangler.jsonc
 src/app.css
 docs/HANDOVER.md
-docs/IMPLEMENTATION_PLAN.md
+docs/ADMIN_CONTENT_MANAGEMENT_PLAN.md
+docs/PARALLEL_WORK_PLAN.md
 ```
 
-If a shared dependency/config change is truly required, keep it minimal and call it out prominently in the PR description.
+The only expected shared code change is a minimal navigation-link activation in `src/routes/admin/+layout.svelte`.
 
-### Schema rule
+If one track discovers a genuine shared abstraction that both need, prefer a small new helper/module with a narrow contract rather than a broad refactor.
 
-The existing V1 schema is authoritative. Prefer using existing fields/tables before adding migrations.
+---
 
-If a migration is genuinely required, the agent must explain why existing fields cannot support the behaviour and keep the migration narrowly scoped.
+## Schema and storage rules
 
-### Image rule
+The current V1 schema is authoritative.
 
-R2 stores the canonical image bytes. `source_url` is attribution/reference metadata only, never the learner runtime image source.
+Expected migration count for both PRs:
 
-### UI rule
+```text
+0
+```
 
-PR #6 established the approved learner layout. Track A should preserve it. Track B should keep admin image management functional and minimal rather than spending time on visual polish.
+If a migration appears necessary, explain the concrete blocker in the draft PR before adding it.
+
+R2 is the canonical image-byte store. `source_url` is attribution/reference metadata only and never the runtime learner image source.
+
+Unknown image source is valid; never fabricate attribution.
+
+---
 
 ## Validation required for both PRs
 
@@ -190,49 +316,45 @@ npm test
 npm run check
 npm run build
 node scripts/local-auth-smoke.mjs
+git diff --check
 ```
 
-If a new route requires additional focused tests, add them.
+Add focused tests for the new query/write behaviour.
 
-Do not claim success if any required CI/check remains failing.
+A sandbox may fail to download Wrangler for the local smoke script; if so, report that clearly, but GitHub CI must ultimately pass before merge.
 
-## PR expectations
+Do not claim success with failing CI.
 
-Each PR description should include:
+---
+
+## Draft PR expectations
+
+Each existing draft PR should be updated with:
 
 - scope completed;
-- files/areas intentionally not touched;
-- migrations added, if any;
-- new routes/endpoints;
-- test coverage;
-- any interface the other track needs to consume;
-- residual integration work.
+- new routes;
+- query/write helpers added;
+- tests added;
+- migrations (expected none);
+- shared files touched;
+- residual work;
+- validation results.
 
-Use a draft PR initially.
+Push incremental commits to the assigned branch so progress remains visible.
+
+---
 
 ## Integration strategy
 
-When both PRs are green:
+When both PRs are implementation-complete and green:
 
-1. compare overlap;
+1. inspect overlap;
 2. merge the lower-conflict PR first;
-3. update/rebase the remaining branch against current `main`;
-4. resolve conflicts conservatively, preserving both tested behaviours;
-5. run full CI again;
-6. add only the thin glue needed so D1-backed Review Assets render through the R2-serving interface;
-7. run the V1 acceptance slice before expanding scope.
+3. update/rebase the remaining branch onto current `main`;
+4. resolve the likely Admin-layout navigation conflict conservatively;
+5. rerun full CI;
+6. browser-test both library pages together;
+7. merge the second PR;
+8. then start PR #13 Topics dashboard.
 
-## V1 acceptance slice after integration
-
-The integrated result should demonstrate at minimum:
-
-- learner signs in;
-- learner chooses a Concept/topic;
-- system selects a compatible Case;
-- ordered R2-backed image(s) display together;
-- optional image source attribution displays only when present;
-- 1–4 compatible questions display together;
-- answers reveal;
-- learner rates the Case `Again` or `Good`;
-- Review history persists;
-- next Case starts without an immediate repeat when alternatives exist.
+Do not combine PR #11 and PR #12 into one large PR merely to avoid a small shared-navigation conflict.
