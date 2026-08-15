@@ -1,8 +1,93 @@
 <script>
+  import { onDestroy } from 'svelte';
+
   import SignOutButton from '$lib/components/SignOutButton.svelte';
+  import { findClipboardImageFile, normalizeTeachingImageFile } from '$lib/image-upload.js';
 
   let { data, form } = $props();
   let selectedCase = $derived(data.selectedCase);
+  let fileInput = /** @type {HTMLInputElement | undefined} */ (undefined);
+  let selectedFile = $state(/** @type {File | null} */ (null));
+  let previewUrl = $state(/** @type {string | null} */ (null));
+  let imageError = $state('');
+
+  function clearPreviewUrl() {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = null;
+  }
+
+  /** @param {File | null} file */
+  function selectImage(file) {
+    if (!file) return;
+
+    const result = normalizeTeachingImageFile(file);
+    if ('error' in result) {
+      imageError = result.error;
+      selectedFile = null;
+      clearPreviewUrl();
+      if (fileInput) fileInput.value = '';
+      return;
+    }
+
+    if (!fileInput || typeof DataTransfer === 'undefined') {
+      imageError = 'This browser cannot attach the selected image. Please use the file picker.';
+      return;
+    }
+
+    const transfer = new DataTransfer();
+    transfer.items.add(result.file);
+    fileInput.files = transfer.files;
+    selectedFile = result.file;
+    imageError = '';
+    clearPreviewUrl();
+    previewUrl = URL.createObjectURL(result.file);
+  }
+
+  /** @param {Event} event */
+  function handleFileChange(event) {
+    const input = /** @type {HTMLInputElement} */ (event.currentTarget);
+    selectImage(input.files?.[0] ?? null);
+  }
+
+  /** @param {ClipboardEvent} event */
+  function handlePaste(event) {
+    const file = findClipboardImageFile(event.clipboardData);
+    if (!file) return;
+    event.preventDefault();
+    selectImage(file);
+  }
+
+  /** @param {DragEvent} event */
+  function handleDragOver(event) {
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  }
+
+  /** @param {DragEvent} event */
+  function handleDrop(event) {
+    event.preventDefault();
+    selectImage(event.dataTransfer?.files?.[0] ?? null);
+  }
+
+  function removeImage() {
+    selectedFile = null;
+    imageError = '';
+    clearPreviewUrl();
+    if (fileInput) fileInput.value = '';
+  }
+
+  function replaceImage() {
+    removeImage();
+    fileInput?.click();
+  }
+
+  /** @param {number} bytes */
+  function formatBytes(bytes) {
+    if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KiB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MiB`;
+  }
+
+  onDestroy(clearPreviewUrl);
 </script>
 
 <svelte:head>
@@ -36,10 +121,50 @@
     </div>
 
     <form method="POST" action="?/upload" enctype="multipart/form-data" class="stack">
-      <label>
-        Image
-        <input name="image" type="file" accept="image/jpeg,image/png" required />
+      <label
+        class="upload-dropzone"
+        for="image-input"
+        aria-label="Paste, drop, or choose an image"
+        onpaste={handlePaste}
+        ondrop={handleDrop}
+        ondragover={handleDragOver}
+      >
+        <input
+          id="image-input"
+          class="visually-hidden"
+          name="image"
+          type="file"
+          accept="image/jpeg,image/png"
+          required
+          bind:this={fileInput}
+          onchange={handleFileChange}
+          aria-describedby="image-help image-error"
+        />
+        {#if selectedFile && previewUrl}
+          <div class="selected-image" aria-live="polite">
+            <img src={previewUrl} alt="" />
+            <div class="selected-image-details">
+              <strong>{selectedFile.name}</strong>
+              <span>{selectedFile.type} · {formatBytes(selectedFile.size)}</span>
+            </div>
+          </div>
+        {:else}
+          <div class="upload-prompt">
+            <strong>Paste, drop, or choose an image</strong>
+            <span>Ctrl+V / Cmd+V supported</span>
+            <span>JPEG or PNG, maximum 5 MiB</span>
+            <span class="button">Choose file</span>
+          </div>
+        {/if}
       </label>
+      {#if selectedFile && previewUrl}
+        <div class="selected-image-actions actions">
+          <button class="button small" type="button" onclick={removeImage}>Remove image</button>
+          <button class="button small" type="button" onclick={replaceImage}>Replace image</button>
+        </div>
+      {/if}
+      <p id="image-help" class="muted upload-help">Click the area first if you want to paste from your clipboard.</p>
+      {#if imageError}<p id="image-error" class="form-error" role="alert">{imageError}</p>{/if}
       <label>
         Alt text
         <input name="alt_text" type="text" maxlength="500" required />
@@ -240,6 +365,17 @@
   input, textarea, select { width: 100%; box-sizing: border-box; border: 1px solid #d0d5dd; border-radius: 8px; padding: 0.65rem 0.75rem; font: inherit; background: #fff; }
   textarea { resize: vertical; }
   .form-error { margin: 0; padding: 0.75rem; color: #b42318; background: #fef3f2; border-radius: 8px; }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  .upload-dropzone { display: grid; gap: 0.75rem; padding: 1.5rem; border: 2px dashed #98a2b3; border-radius: 12px; background: #f8fafc; cursor: pointer; }
+  .upload-dropzone:focus-visible { outline: 3px solid #84adff; outline-offset: 3px; }
+  .upload-prompt { display: grid; justify-items: center; gap: 0.35rem; color: #475467; text-align: center; }
+  .upload-prompt strong { color: #172033; font-size: 1.05rem; }
+  .upload-prompt .button { display: inline-block; margin-top: 0.45rem; }
+  .upload-help { margin: -0.45rem 0 0; font-size: 0.85rem; }
+  .selected-image { display: grid; grid-template-columns: minmax(0, 180px) minmax(0, 1fr); align-items: center; gap: 1rem; }
+  .selected-image img { display: block; width: 100%; max-height: 180px; object-fit: contain; border-radius: 8px; background: #eef2f6; }
+  .selected-image-details { display: grid; gap: 0.35rem; min-width: 0; color: #475467; }
+  .selected-image-details strong { overflow-wrap: anywhere; color: #172033; }
   .case-picker { display: grid; gap: 0.4rem; }
   .picker-row { display: flex; gap: 0.75rem; }
   .picker-row select { min-width: 0; }
@@ -280,6 +416,7 @@
   }
 
   @media (max-width: 480px) {
+    .selected-image { grid-template-columns: minmax(0, 1fr); }
     .asset-topline { flex-wrap: wrap; }
     .asset-card img, .inactive-image { flex-basis: 100%; width: 100%; height: 160px; }
     .order-badge { order: -1; }
