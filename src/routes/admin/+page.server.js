@@ -1,12 +1,13 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { desc } from 'drizzle-orm';
 import { createDb } from '$lib/server/db/index.js';
-import { assets } from '$lib/server/db/schema.js';
+import { assets, caseQuestions } from '$lib/server/db/schema.js';
 import {
   AdminContentInputError,
   createCase,
   createConcept,
   listAdminConcepts,
+  updateCase,
   updateCaseVignette
 } from '$lib/server/db/admin-content.js';
 import {
@@ -85,7 +86,8 @@ export async function load({ locals, platform, url }) {
   if (!db) return { assets: [], cases: [], concepts: [], selectedCase: null, selectedConceptId: null };
 
   const rows = await db.select().from(assets).orderBy(desc(assets.createdAt)).limit(100);
-  const caseRows = await listAdminCases(db);
+  const search = url.searchParams.get('q')?.trim().toLowerCase() ?? '';
+  const caseRows = await listAdminCases(db, search);
   const conceptRows = await listAdminConcepts(db);
   const requestedId = url.searchParams.get('case');
   const selectedId = caseRows.some((item) => item.id === requestedId) ? requestedId : caseRows[0]?.id;
@@ -104,6 +106,7 @@ export async function load({ locals, platform, url }) {
     concepts: conceptRows,
     selectedConceptId,
     cases: caseRows,
+    questionCount: (await db.select().from(caseQuestions)).length,
     selectedCase: manager
       ? {
           ...manager,
@@ -136,7 +139,7 @@ function formText(formData, name) {
 
 /** @param {string} caseId @param {string} status */
 function selectedCaseRedirect(caseId, status) {
-  return `/admin?case=${encodeURIComponent(caseId)}&status=${encodeURIComponent(status)}`;
+  return `/admin/cases/${encodeURIComponent(caseId)}?status=${encodeURIComponent(status)}`;
 }
 
 export const actions = {
@@ -150,7 +153,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error) });
     }
-    redirect(303, `/admin?concept=${encodeURIComponent(concept.id)}&status=topic-created#case-create`);
+    redirect(303, `/admin/cases/new?concept=${encodeURIComponent(concept.id)}&status=topic-created`);
   },
 
   createCase: async ({ request, locals, platform }) => {
@@ -167,7 +170,25 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error) });
     }
-    redirect(303, `/admin?case=${encodeURIComponent(created.id)}`);
+    redirect(303, `/admin/cases/${encodeURIComponent(created.id)}`);
+  },
+
+  updateCase: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    try {
+      await updateCase(createDb(platform.env.DB), {
+        caseId,
+        title: formText(formData, 'title'),
+        vignetteMd: formText(formData, 'vignette_md'),
+        conceptId: formText(formData, 'concept_id')
+      });
+    } catch (error) {
+      return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
+    }
+    redirect(303, selectedCaseRedirect(caseId, 'case-saved'));
   },
 
   vignette: async ({ request, locals, platform }) => {
@@ -298,7 +319,7 @@ export const actions = {
       });
     }
 
-    redirect(303, '/admin?uploaded=1');
+    redirect(303, '/admin/cases?uploaded=1');
   },
 
   attach: async ({ request, locals, platform }) => {

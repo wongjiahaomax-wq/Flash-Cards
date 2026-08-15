@@ -8,6 +8,7 @@ import {
   createCase,
   createConcept,
   listAdminConcepts,
+  updateCase,
   updateCaseVignette
 } from '../src/lib/server/db/admin-content.js';
 import { canManageCaseAssets } from '../src/lib/server/db/case-assets.js';
@@ -90,6 +91,19 @@ test('administrator can create a Case with vignette and primary topic associatio
     const updated = fixture.sqlite.prepare('SELECT vignette_md FROM cases WHERE id = ?').get(created.id);
     assert.ok(updated);
     assert.equal(updated.vignette_md, 'Updated case stem.');
+
+    await updateCase(fixture.db, {
+      caseId: created.id,
+      title: 'Renamed Case label',
+      vignetteMd: 'Revised case stem.',
+      conceptId: 'seed-pityriasis-rosea'
+    });
+    const revised = fixture.sqlite.prepare('SELECT title, vignette_md FROM cases WHERE id = ?').get(created.id);
+    assert.deepEqual({ ...revised }, { title: 'Renamed Case label', vignette_md: 'Revised case stem.' });
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id = ?').all(created.id).map((row) => ({ ...row })),
+      [{ concept_id: 'seed-pityriasis-rosea', role: 'primary' }]
+    );
   } finally {
     fixture.sqlite.close();
   }
