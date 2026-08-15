@@ -1,0 +1,291 @@
+import { and, asc, eq, sql } from 'drizzle-orm';
+
+import {
+  caseConcepts,
+  caseQuestions,
+  cases,
+  conceptQuestions,
+  concepts,
+  questionPrompts
+} from './schema.js';
+
+/** @typedef {import('./index.js').LearningDb} LearningDb */
+
+export class QuestionPromptInputError extends Error {
+  /** @param {string} message */
+  constructor(message) {
+    super(message);
+    this.name = 'QuestionPromptInputError';
+  }
+}
+
+/** @param {unknown} value */
+function cleanText(value) {
+  return String(value ?? '').trim();
+}
+
+/** @param {unknown} value */
+function isConfirmed(value) {
+  return value === true || value === 'on' || value === 'true' || value === '1';
+}
+
+/** @param {unknown} value */
+function expectedCount(value) {
+  if (value == null || value === '') return null;
+  const count = Number(value);
+  if (!Number.isInteger(count) || count < 0) {
+    throw new QuestionPromptInputError('The usage snapshot is invalid. Reload the prompt and try again.');
+  }
+  return count;
+}
+
+/**
+ * Load active relationship rows so list filtering and usage labels use the
+ * same definition of a current Question usage.
+ *
+ * @param {LearningDb} db
+ */
+async function loadActiveUsageRows(db) {
+  const [conceptUsageRows, caseUsageRows] = await Promise.all([
+    db
+      .select({
+        promptId: conceptQuestions.questionPromptId,
+        answerMd: conceptQuestions.answerMd,
+        conceptId: concepts.id,
+        conceptName: concepts.name,
+        inheritToDescendants: conceptQuestions.inheritToDescendants
+      })
+      .from(conceptQuestions)
+      .innerJoin(questionPrompts, eq(questionPrompts.id, conceptQuestions.questionPromptId))
+      .innerJoin(concepts, eq(concepts.id, conceptQuestions.conceptId))
+      .where(
+        and(
+          eq(conceptQuestions.isActive, true),
+          eq(questionPrompts.isActive, true),
+          eq(concepts.isActive, true)
+        )
+      )
+      .orderBy(asc(concepts.name), asc(conceptQuestions.createdAt)),
+    db
+      .select({
+        promptId: caseQuestions.questionPromptId,
+        answerMd: caseQuestions.answerMd,
+        caseId: sql.raw('"cases"."id"').as('case_id'),
+        caseTitle: cases.title,
+        caseIsActive: cases.isActive,
+        conceptId: sql.raw('"concepts"."id"').as('concept_id'),
+        conceptName: concepts.name
+      })
+      .from(caseQuestions)
+      .innerJoin(questionPrompts, eq(questionPrompts.id, caseQuestions.questionPromptId))
+      .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
+      .leftJoin(
+        caseConcepts,
+        and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary'))
+      )
+      .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+      .where(and(eq(caseQuestions.isActive, true), eq(questionPrompts.isActive, true)))
+      .orderBy(asc(cases.title), asc(caseQuestions.createdAt))
+  ]);
+
+  return { conceptUsageRows, caseUsageRows };
+}
+
+/**
+ * List active Question Prompts with their current active usage summary.
+ * Search covers prompt text and both relationship answer fields.
+ *
+ * @param {LearningDb} db
+ * @param {{ search?: string, topicId?: string, scope?: 'all' | 'shared' | 'case' }} [filters]
+ */
+export async function listQuestionLibrary(db, filters = {}) {
+  const [promptRows, usageRows] = await Promise.all([
+    db
+      .select({
+        id: questionPrompts.id,
+        promptMd: questionPrompts.promptMd,
+        isActive: questionPrompts.isActive,
+        updatedAt: questionPrompts.updatedAt
+      })
+      .from(questionPrompts)
+      .where(eq(questionPrompts.isActive, true))
+      .orderBy(asc(questionPrompts.promptMd), asc(questionPrompts.id)),
+    loadActiveUsageRows(db)
+  ]);
+
+  const usageByPrompt = new Map();
+  for (const row of promptRows) {
+    usageByPrompt.set(row.id, { conceptUsages: [], caseUsages: [] });
+  }
+  for (const row of usageRows.conceptUsageRows) {
+    usageByPrompt.get(row.promptId)?.conceptUsages.push(row);
+  }
+  for (const row of usageRows.caseUsageRows) {
+    usageByPrompt.get(row.promptId)?.caseUsages.push(row);
+  }
+
+  const search = cleanText(filters.search).toLocaleLowerCase();
+  const topicId = cleanText(filters.topicId);
+  const scope = filters.scope === 'shared' || filters.scope === 'case' ? filters.scope : 'all';
+
+  return promptRows.flatMap((prompt) => {
+    const usages = usageByPrompt.get(prompt.id) ?? { conceptUsages: [], caseUsages: [] };
+    const allUsages = [...usages.conceptUsages, ...usages.caseUsages];
+    const searchableText = [prompt.promptMd, ...allUsages.map((usage) => usage.answerMd)]
+      .join('\n')
+      .toLocaleLowerCase();
+    const topicIds = new Set(
+      allUsages.map((usage) => usage.conceptId).filter((value) => typeof value === 'string')
+    );
+    const topicNames = [...new Set(allUsages.map((usage) => usage.conceptName).filter(Boolean))].sort();
+    const hasSharedUsage = usages.conceptUsages.length > 0;
+    const hasCaseUsage = usages.caseUsages.length > 0;
+
+    if (search && !searchableText.includes(search)) return [];
+    if (topicId && !topicIds.has(topicId)) return [];
+    if (scope === 'shared' && !hasSharedUsage) return [];
+    if (scope === 'case' && !hasCaseUsage) return [];
+
+    return [{
+      id: prompt.id,
+      promptMd: prompt.promptMd,
+      isActive: prompt.isActive,
+      updatedAt: prompt.updatedAt,
+      usageCount: allUsages.length,
+      conceptUsageCount: usages.conceptUsages.length,
+      caseUsageCount: usages.caseUsages.length,
+      hasSharedUsage,
+      hasCaseUsage,
+      scope: hasSharedUsage && hasCaseUsage
+        ? 'Shared + Case-specific'
+        : hasSharedUsage
+          ? 'Shared'
+          : hasCaseUsage
+            ? 'Case-specific'
+            : 'Unused',
+      topicNames
+    }];
+  });
+}
+
+/**
+ * Return all relationship usages for one prompt. Inactive rows are retained
+ * here so an administrator can understand historical/archived associations.
+ *
+ * @param {LearningDb} db
+ * @param {string} promptId
+ */
+export async function getQuestionPromptDetail(db, promptId) {
+  const prompt = (
+    await db
+      .select({
+        id: questionPrompts.id,
+        promptMd: questionPrompts.promptMd,
+        isActive: questionPrompts.isActive,
+        updatedAt: questionPrompts.updatedAt
+      })
+      .from(questionPrompts)
+      .where(eq(questionPrompts.id, promptId))
+      .limit(1)
+  )[0];
+
+  if (!prompt) return null;
+
+  const [conceptUsages, caseUsages] = await Promise.all([
+    db
+      .select({
+        id: sql.raw('"concept_questions"."id"').as('usage_id'),
+        conceptId: sql.raw('"concepts"."id"').as('concept_id'),
+        conceptName: concepts.name,
+        answerMd: conceptQuestions.answerMd,
+        inheritToDescendants: conceptQuestions.inheritToDescendants,
+        isActive: sql.raw('"concept_questions"."is_active"').as('usage_is_active'),
+        conceptIsActive: sql.raw('"concepts"."is_active"').as('concept_is_active')
+      })
+      .from(conceptQuestions)
+      .innerJoin(concepts, eq(concepts.id, conceptQuestions.conceptId))
+      .where(eq(conceptQuestions.questionPromptId, promptId))
+      .orderBy(asc(concepts.name), asc(conceptQuestions.createdAt)),
+    db
+      .select({
+        id: sql.raw('"case_questions"."id"').as('usage_id'),
+        caseId: sql.raw('"cases"."id"').as('case_id'),
+        caseTitle: cases.title,
+        caseIsActive: sql.raw('"cases"."is_active"').as('case_is_active'),
+        conceptId: sql.raw('"concepts"."id"').as('concept_id'),
+        conceptName: concepts.name,
+        answerMd: caseQuestions.answerMd,
+        isActive: sql.raw('"case_questions"."is_active"').as('usage_is_active')
+      })
+      .from(caseQuestions)
+      .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
+      .leftJoin(
+        caseConcepts,
+        and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary'))
+      )
+      .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+      .where(eq(caseQuestions.questionPromptId, promptId))
+      .orderBy(asc(cases.title), asc(caseQuestions.createdAt))
+  ]);
+
+  const activeConceptUsages = conceptUsages.filter((usage) => usage.isActive && usage.conceptIsActive);
+  const activeCaseUsages = caseUsages.filter((usage) => usage.isActive && usage.caseIsActive);
+  return {
+    ...prompt,
+    conceptUsages,
+    caseUsages,
+    usageCount: activeConceptUsages.length + activeCaseUsages.length,
+    totalUsageCount: conceptUsages.length + caseUsages.length
+  };
+}
+
+/** @param {LearningDb} db @param {string} promptId */
+async function countActivePromptUsages(db, promptId) {
+  const [conceptRows, caseRows] = await Promise.all([
+    db
+      .select({ id: conceptQuestions.id })
+      .from(conceptQuestions)
+      .where(and(eq(conceptQuestions.questionPromptId, promptId), eq(conceptQuestions.isActive, true))),
+    db
+      .select({ id: caseQuestions.id })
+      .from(caseQuestions)
+      .where(and(eq(caseQuestions.questionPromptId, promptId), eq(caseQuestions.isActive, true)))
+  ]);
+  return conceptRows.length + caseRows.length;
+}
+
+/**
+ * Update only reusable prompt wording. Relationship answers are never changed
+ * here. Multi-use prompts require explicit confirmation, and the submitted
+ * count protects against saving against a stale usage view.
+ *
+ * @param {LearningDb} db
+ * @param {{ promptId: string, promptMd: unknown, confirmSharedEdit?: unknown, expectedUsageCount?: unknown }} input
+ */
+export async function updateQuestionPrompt(db, input) {
+  const promptId = cleanText(input.promptId);
+  const promptMd = cleanText(input.promptMd);
+  if (!promptId) throw new QuestionPromptInputError('Question Prompt is required.');
+  if (!promptMd) throw new QuestionPromptInputError('Question prompt text is required.');
+
+  const existing = (
+    await db.select({ id: questionPrompts.id }).from(questionPrompts).where(eq(questionPrompts.id, promptId)).limit(1)
+  )[0];
+  if (!existing) throw new QuestionPromptInputError('That Question Prompt no longer exists.');
+
+  const usageCount = await countActivePromptUsages(db, promptId);
+  const submittedCount = expectedCount(input.expectedUsageCount);
+  if (submittedCount != null && submittedCount !== usageCount) {
+    throw new QuestionPromptInputError('This prompt usage changed while you were editing. Reload it before saving.');
+  }
+  if (usageCount > 1 && !isConfirmed(input.confirmSharedEdit)) {
+    throw new QuestionPromptInputError(
+      'This prompt is currently used in ' +
+        usageCount +
+        ' places. Confirm the shared edit after reviewing its usages.'
+    );
+  }
+
+  await db.update(questionPrompts).set({ promptMd, updatedAt: new Date() }).where(eq(questionPrompts.id, promptId));
+  return { promptId, usageCount };
+}
