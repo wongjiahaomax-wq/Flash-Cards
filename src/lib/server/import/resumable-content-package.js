@@ -34,7 +34,10 @@ import {
 
 export const IMPORT_ITEMS_PER_REQUEST = 7;
 export const IMPORT_D1_OPERATION_BUDGET = 40;
-export const IMPORT_LEASE_MS = 30_000;
+// A bounded chunk should finish well inside this window. The longer lease avoids
+// treating ordinary R2/D1/network latency as evidence that an active request is
+// dead, while stale leases remain reclaimable by a later processing request.
+export const IMPORT_LEASE_MS = 5 * 60_000;
 
 export const VALIDATION_PHASES = [
   'validate_topics',
@@ -684,11 +687,15 @@ export async function cancelImportJob(d1, bucket, id) {
   if (job.status === 'complete') throw new ContentPackageError('A completed import cannot be cancelled.');
   if (job.status === 'cancelled') return serializeImportJob(job);
   const now = Date.now();
+  // Never infer that an executing request is gone merely because its timestamp
+  // passed. An old request may still be running and may still hold side effects.
+  // Stale leases are recovered by processNextImportChunk(), which atomically
+  // replaces an expired lease token and clears the new token on checkpoint.
   const result = await d1.prepare(`UPDATE import_jobs
     SET status = 'cancelled', updated_at = ?, completed_at = ?, lease_token = NULL, lease_expires_at = NULL
-    WHERE id = ? AND status <> 'complete' AND (lease_expires_at IS NULL OR lease_expires_at < ?)`)
-    .bind(now, now, id, now).run();
-  if (!changed(result)) throw new ContentPackageError('This import is currently processing in another request. Pause processing and retry cancellation.');
+    WHERE id = ? AND status <> 'complete' AND lease_token IS NULL`)
+    .bind(now, now, id).run();
+  if (!changed(result)) throw new ContentPackageError('This import is currently processing or has a stale lease. Resume it to recover the lease, then pause and retry cancellation.');
   try { await deleteStagedImportPackage(bucket, id); }
   catch (error) { console.error('Unable to remove cancelled import staging package.', { id, error }); }
   return serializeImportJob(await getImportJob(d1, id));
