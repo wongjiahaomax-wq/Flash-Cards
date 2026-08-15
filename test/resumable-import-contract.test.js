@@ -6,6 +6,7 @@ import test from 'node:test';
 const routeSource = readFileSync(new URL('../src/routes/admin/import/+page.server.js', import.meta.url), 'utf8');
 const engineSource = readFileSync(new URL('../src/lib/server/import/resumable-content-package.js', import.meta.url), 'utf8');
 
+/** @param {string} name */
 function migration(name) {
   return readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8').replaceAll('--> statement-breakpoint', '');
 }
