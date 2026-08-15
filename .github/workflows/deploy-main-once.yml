@@ -49,7 +49,10 @@ jobs:
       - name: Build application
         run: npm run build
 
+      - name: Apply production D1 migrations
+        run: npm run db:migrate:remote
+
       - name: Deploy Worker
         run: npx --yes wrangler@4.123.0 deploy
 
-# Deployment trigger: Admin post-sign-in redirect fix.
+# Deployment trigger: deploy optional stimulus groups after PR #14.
