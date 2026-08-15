@@ -12,10 +12,12 @@ import {
   conceptQuestions,
   concepts
 } from '../db/schema.js';
+import { MAX_IMAGE_BYTES } from '../storage/media.js';
 import {
   ContentPackageError,
   MAX_ARCHIVE_BYTES,
   MAX_ARCHIVE_ENTRIES,
+  MAX_MANIFEST_BYTES,
   MAX_UNCOMPRESSED_BYTES,
   deterministicStorageKey,
   importContentPackage as importContentPackageCore,
@@ -205,6 +207,13 @@ async function preflightZip(bytes) {
     }
     rejectZip64Extra(bytes, cursor + 46 + nameLength, extraLength, path);
 
+    if (path === 'manifest.json' && uncompressedSize > MAX_MANIFEST_BYTES) {
+      throw new ContentPackageError(`manifest.json exceeds the ${MAX_MANIFEST_BYTES}-byte limit.`);
+    }
+    if (path.startsWith('media/') && uncompressedSize > MAX_IMAGE_BYTES) {
+      throw new ContentPackageError(`Media ${path} exceeds the ${MAX_IMAGE_BYTES}-byte individual image limit.`);
+    }
+
     declaredTotal += uncompressedSize;
     if (uncompressedSize > MAX_UNCOMPRESSED_BYTES || declaredTotal > MAX_UNCOMPRESSED_BYTES) {
       throw new ContentPackageError(`ZIP package exceeds the ${MAX_UNCOMPRESSED_BYTES}-byte decompressed limit.`);
@@ -323,6 +332,55 @@ function manifestHardeningIssues(parsed) {
     visited.add(id);
   }
   for (const topic of manifest.topics) visit(topic.id);
+
+  const skippedTopics = new Set(manifest.topics.filter((item) => item.operation === 'skip').map((item) => item.id));
+  const skippedCases = new Set(manifest.cases.filter((item) => item.operation === 'skip').map((item) => item.id));
+  const skippedAssets = new Set(manifest.assets.filter((item) => item.operation === 'skip').map((item) => item.id));
+  const skippedPrompts = new Set(manifest.questionPrompts.filter((item) => item.operation === 'skip').map((item) => item.id));
+
+  for (const topic of manifest.topics) {
+    if (topic.operation !== 'skip' && topic.parentTopicId && skippedTopics.has(topic.parentTopicId)) {
+      issues.push(`Topic ${topic.id} references skipped parent Topic ${topic.parentTopicId}; mark the parent use if this package depends on it.`);
+    }
+  }
+  for (const item of manifest.cases) {
+    if (item.operation === 'skip') continue;
+    if (item.primaryTopicId && skippedTopics.has(item.primaryTopicId)) {
+      issues.push(`Case ${item.id} references skipped primary Topic ${item.primaryTopicId}; mark the Topic use if this package depends on it.`);
+    }
+    for (const topicId of item.secondaryTopicIds) {
+      if (skippedTopics.has(topicId)) {
+        issues.push(`Case ${item.id} references skipped secondary Topic ${topicId}; mark the Topic use if this package depends on it.`);
+      }
+    }
+  }
+  for (const item of manifest.caseAssets) {
+    if (item.operation === 'skip') continue;
+    if (skippedCases.has(item.caseId)) {
+      issues.push(`Case Asset ${item.id} references skipped Case ${item.caseId}; mark the Case use if this package should attach an Asset to it.`);
+    }
+    if (skippedAssets.has(item.assetId)) {
+      issues.push(`Case Asset ${item.id} references skipped Asset ${item.assetId}; mark the Asset use if this package depends on it.`);
+    }
+  }
+  for (const item of manifest.caseQuestions) {
+    if (item.operation === 'skip') continue;
+    if (skippedCases.has(item.owner)) {
+      issues.push(`Case Question ${item.id} references skipped Case ${item.owner}; mark the Case use if this package should add or reuse a Question on it.`);
+    }
+    if (skippedPrompts.has(item.questionPromptId)) {
+      issues.push(`Case Question ${item.id} references skipped Question Prompt ${item.questionPromptId}; mark the Prompt use if this package depends on it.`);
+    }
+  }
+  for (const item of manifest.topicQuestions) {
+    if (item.operation === 'skip') continue;
+    if (skippedTopics.has(item.owner)) {
+      issues.push(`Topic Question ${item.id} references skipped Topic ${item.owner}; mark the Topic use if this package should add or reuse a Question on it.`);
+    }
+    if (skippedPrompts.has(item.questionPromptId)) {
+      issues.push(`Topic Question ${item.id} references skipped Question Prompt ${item.questionPromptId}; mark the Prompt use if this package depends on it.`);
+    }
+  }
 
   rejectDuplicateCreates(manifest.topics, (item) => item.slug, (item) => `Topic ${item.id} slug ${item.slug}`, issues);
   rejectDuplicateCreates(manifest.caseAssets, (item) => `${item.caseId}\0asset\0${item.assetId}`, (item) => `Case Asset ${item.id}`, issues);
