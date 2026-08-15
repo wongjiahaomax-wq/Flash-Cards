@@ -6,7 +6,7 @@ import test from 'node:test';
 import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
 import { and, eq } from 'drizzle-orm';
-import { caseAssets, stimulusGroupOptions } from '../src/lib/server/db/schema.js';
+import { caseAssets, stimulusGroupOptions, stimulusGroupQuestions, stimulusOptionQuestions } from '../src/lib/server/db/schema.js';
 import { updateCase } from '../src/lib/server/db/admin-content.js';
 import { getReview, startReview } from '../src/lib/server/db/learning.js';
 import { listAssetLibrary } from '../src/lib/server/db/asset-library.js';
@@ -205,10 +205,10 @@ test('stimulus question edits accept the unchanged prompt id and update the answ
     const optionPromptId = await saveStimulusOptionQuestion(fixture.db, option.id, { promptMd: 'Editable option prompt?', answerMd: 'Old option answer.' });
     await saveStimulusOptionQuestion(fixture.db, option.id, { originalPromptId: optionPromptId, promptMd: 'Editable option prompt?', answerMd: 'New option answer.' });
 
-    const detail = await getQuestionPromptDetail(fixture.db, groupPromptId);
-    assert.equal(detail?.stimulusGroupUsages[0]?.answerMd, 'New group answer.');
-    const optionDetail = await getQuestionPromptDetail(fixture.db, optionPromptId);
-    assert.equal(optionDetail?.stimulusOptionUsages[0]?.answerMd, 'New option answer.');
+    const groupRows = await fixture.db.select({ answerMd: stimulusGroupQuestions.answerMd }).from(stimulusGroupQuestions).where(and(eq(stimulusGroupQuestions.stimulusGroupId, groupId), eq(stimulusGroupQuestions.questionPromptId, groupPromptId)));
+    assert.equal(groupRows[0]?.answerMd, 'New group answer.');
+    const optionRows = await fixture.db.select({ answerMd: stimulusOptionQuestions.answerMd }).from(stimulusOptionQuestions).where(and(eq(stimulusOptionQuestions.stimulusGroupOptionId, option.id), eq(stimulusOptionQuestions.questionPromptId, optionPromptId)));
+    assert.equal(optionRows[0]?.answerMd, 'New option answer.');
   } finally {
     fixture.sqlite.close();
   }
