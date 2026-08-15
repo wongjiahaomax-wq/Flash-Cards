@@ -106,6 +106,7 @@ Its purpose is to:
 - explain Topic → Case relationships more clearly;
 - provide a direct Topic-detail path to create another Case in that Topic;
 - present Case questions, fixed images, and alternative images as the common authoring layers;
+- allow a fixed image to start a new alternative set in one action;
 - move stimulus-group coverage and group-wide questions behind advanced controls;
 - label option-level questions as exact-image-specific questions;
 - document the authoring model explicitly.
@@ -142,7 +143,8 @@ Implemented:
 - Case-specific captions;
 - learner Study preview;
 - optional alternative image sets;
-- convert a fixed Case image into an alternative option;
+- start a new alternative set directly from a fixed Case image in one action;
+- convert another fixed Case image into an existing alternative set;
 - add/deactivate/reorder alternative options;
 - exact-image contextual questions;
 - alternative-set contextual questions;
@@ -390,7 +392,6 @@ Workers subdomain: `mmed-fm-flashcardstest.workers.dev`
 - Review Asset historical serving currently depends on live Asset resolution; deactivation semantics may need later refinement.
 - attribution metadata is live rather than snapshotted.
 - if marks become structured, do not encode them in strings and parse them later.
-- a one-click "start alternatives from this fixed image" workflow may be worth adding only if real content entry shows the current create-set-then-move flow is still too cumbersome.
 - curriculum collections, manual Case ordering inside a Topic, or Topic-specific learner settings could justify future schema additions; Topic → Case → stimulus does not.
 
 ---
