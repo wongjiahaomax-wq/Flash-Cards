@@ -22,7 +22,7 @@
       <a href="/admin">Dashboard</a>
       <a href="/admin/cases">Cases</a>
       <a href="/admin/questions">Questions</a>
-      <a class="disabled-link" href="/admin#images">Images <span>Next</span></a>
+      <a href="/admin/images">Images</a>
       <a class="disabled-link" href="/admin#topics">Topics <span>Next</span></a>
     </aside>
 
