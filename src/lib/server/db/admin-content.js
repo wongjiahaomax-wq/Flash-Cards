@@ -133,3 +133,32 @@ export async function updateCaseVignette(db, caseId, vignetteMd) {
     .set({ vignetteMd: optionalText(vignetteMd) })
     .where(eq(cases.id, caseId));
 }
+
+/**
+ * Update the administrator-facing Case fields and its primary Topic.
+ * The association is replaced in-place so existing Case identity and Reviews remain intact.
+ *
+ * @param {LearningDb} db
+ * @param {{ caseId: string, title: string, vignetteMd?: string | null, conceptId: string }} input
+ */
+export async function updateCase(db, input) {
+  const caseId = requiredText(input.caseId, 'Case');
+  const title = requiredText(input.title, 'Internal Case title');
+  const conceptId = requiredText(input.conceptId, 'Primary topic');
+  await requireActiveConcept(db, conceptId);
+
+  const existing = await db
+    .select({ id: cases.id })
+    .from(cases)
+    .where(and(eq(cases.id, caseId), eq(cases.isActive, true)))
+    .limit(1);
+  if (!existing[0]) throw new AdminContentInputError('The selected Case is missing or inactive.');
+
+  await db
+    .update(cases)
+    .set({ title, vignetteMd: optionalText(input.vignetteMd) })
+    .where(eq(cases.id, caseId));
+
+  await db.delete(caseConcepts).where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.role, 'primary')));
+  await db.insert(caseConcepts).values({ caseId, conceptId, role: 'primary' });
+}

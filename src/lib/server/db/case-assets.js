@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, like } from 'drizzle-orm';
 
 import { assets, caseAssets, caseConcepts, cases, concepts } from './schema.js';
 
@@ -20,8 +20,9 @@ export function canManageCaseAssets(user) {
     .includes('admin');
 }
 
-/** @param {LearningDb} db */
-export async function listAdminCases(db) {
+/** @param {LearningDb} db @param {string} [search] */
+export async function listAdminCases(db, search = '') {
+  const cleanSearch = search.trim();
   return db
     .select({
       id: cases.id,
@@ -33,7 +34,7 @@ export async function listAdminCases(db) {
     .from(cases)
     .leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
     .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
-    .where(eq(cases.isActive, true))
+    .where(cleanSearch ? and(eq(cases.isActive, true), like(cases.title, `%${cleanSearch}%`)) : eq(cases.isActive, true))
     .orderBy(asc(cases.title));
 }
 
