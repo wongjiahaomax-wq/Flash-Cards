@@ -60,18 +60,22 @@ function createLearningDb() {
 }
 
 function createR2Bucket() {
+  /** @type {Map<string, { key: string, size: number }>} */
   const objects = new Map();
   let putCount = 0;
   return {
     get putCount() { return putCount; },
+    /** @param {string} key */
     async head(key) { return objects.get(key) ?? null; },
     async list() { return { objects: [...objects.values()], truncated: false }; },
+    /** @param {string} key @param {Blob} file */
     async put(key, file) {
       putCount += 1;
       const object = { key, size: file.size };
       objects.set(key, object);
       return object;
     },
+    /** @param {string} key */
     async delete(key) { objects.delete(key); }
   };
 }
@@ -86,6 +90,19 @@ function createUploadRequest(options = {}) {
   formData.set('source_url', options.sourceUrl ?? 'https://example.com/source');
   formData.set('licence', 'Test licence');
   return new Request('http://localhost/admin/images/new?/upload', { method: 'POST', body: formData });
+}
+
+/**
+ * @param {Request} request
+ * @param {ReturnType<typeof createLearningDb>} fixture
+ * @param {ReturnType<typeof createR2Bucket>} bucket
+ */
+function createUploadEvent(request, fixture, bucket) {
+  return /** @type {any} */ ({
+    request,
+    locals: { user: { role: 'admin' } },
+    platform: { env: { DB: fixture.d1, MEDIA: bucket } }
+  });
 }
 
 test('Asset metadata renaming changes D1 metadata only and preserves storage relationships', async () => {
@@ -166,15 +183,12 @@ test('new Image Library upload action redirects after a successful upload', asyn
     let redirectLocation = '';
 
     await assert.rejects(
-      () => actions.upload({
-        request: createUploadRequest(),
-        locals: { user: { role: 'admin' } },
-        platform: { env: { DB: fixture.d1, MEDIA: bucket } }
-      }),
+      () => actions.upload(createUploadEvent(createUploadRequest(), fixture, bucket)),
       (error) => {
-        assert.equal(error?.status, 303);
-        assert.match(error?.location ?? '', /^\/admin\/images\/[^?]+\?status=uploaded$/);
-        redirectLocation = error.location;
+        const redirectError = /** @type {{ status?: number, location?: string }} */ (error);
+        assert.equal(redirectError.status, 303);
+        assert.match(redirectError.location ?? '', /^\/admin\/images\/[^?]+\?status=uploaded$/);
+        redirectLocation = redirectError.location ?? '';
         return true;
       }
     );
@@ -196,19 +210,19 @@ test('new Image Library upload action preserves input and storage validation fai
   try {
     const { actions } = await import('../src/routes/admin/images/new/+page.server.js');
 
-    const badSource = await actions.upload({
-      request: createUploadRequest({ sourceUrl: 'javascript:alert(1)' }),
-      locals: { user: { role: 'admin' } },
-      platform: { env: { DB: fixture.d1, MEDIA: bucket } }
-    });
+    const badSource = await actions.upload(createUploadEvent(
+      createUploadRequest({ sourceUrl: 'javascript:alert(1)' }),
+      fixture,
+      bucket
+    ));
     assert.equal(badSource.status, 400);
     assert.match(badSource.data.error, /valid http\(s\) URL/);
 
-    const tooLarge = await actions.upload({
-      request: createUploadRequest({ size: 5 * 1024 * 1024 + 1 }),
-      locals: { user: { role: 'admin' } },
-      platform: { env: { DB: fixture.d1, MEDIA: bucket } }
-    });
+    const tooLarge = await actions.upload(createUploadEvent(
+      createUploadRequest({ size: 5 * 1024 * 1024 + 1 }),
+      fixture,
+      bucket
+    ));
     assert.equal(tooLarge.status, 400);
     assert.match(tooLarge.data.error, /upload limit/);
     assert.equal(bucket.putCount, 0);
