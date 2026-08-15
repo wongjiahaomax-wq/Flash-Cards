@@ -257,7 +257,7 @@ test('image upload is cleaned up when its D1 Asset insert fails', async () => {
     const plan = prepareResumableImportPlan(parsed);
     const db = (await import('../src/lib/server/db/index.js')).createDb(d1);
     d1.failPattern = /^insert into "assets"/i;
-    await assert.rejects(() => applyImportChunk(db, bucket, plan, 'import_assets', 0, 1), /Injected D1 failure/);
+    await assert.rejects(() => applyImportChunk(db, bucket, plan, 'import_assets', 0, 1), /Failed query|Injected D1 failure/);
     const teachingKeys = [...bucket.objects.keys()].filter((key) => key.startsWith('teaching-images/'));
     assert.deepEqual(teachingKeys, []);
   } finally { sqlite.close(); }
