@@ -88,6 +88,87 @@ test('Question Library filters Topic usages and exposes inheritance state', asyn
   }
 });
 
+test('active Case Question on an inactive Case is excluded from current active usage', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.prepare('UPDATE cases SET is_active = 0 WHERE id = ?').run('seed-anterior-c');
+
+    const listRow = (await listQuestionLibrary(fixture.db))
+      .find((row) => row.id === 'seed-prompt-describe-ecg');
+    assert.ok(listRow);
+    assert.equal(listRow.caseUsageCount, 2);
+    assert.equal(listRow.usageCount, 2);
+
+    const detail = await getQuestionPromptDetail(fixture.db, 'seed-prompt-describe-ecg');
+    assert.ok(detail);
+    assert.equal(detail.usageCount, 2);
+    assert.equal(detail.totalUsageCount, 3);
+    const historicalUsage = detail.caseUsages.find((usage) => usage.caseId === 'seed-anterior-c');
+    assert.ok(historicalUsage);
+    assert.equal(historicalUsage.isActive, true);
+    assert.equal(historicalUsage.caseIsActive, false);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('active Concept Question on an inactive Concept is excluded from current active usage', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.prepare('UPDATE concepts SET is_active = 0 WHERE id = ?').run('seed-stemi');
+
+    const listRow = (await listQuestionLibrary(fixture.db))
+      .find((row) => row.id === 'seed-prompt-reperfusion');
+    assert.ok(listRow);
+    assert.equal(listRow.conceptUsageCount, 0);
+    assert.equal(listRow.usageCount, 0);
+
+    const detail = await getQuestionPromptDetail(fixture.db, 'seed-prompt-reperfusion');
+    assert.ok(detail);
+    assert.equal(detail.usageCount, 0);
+    assert.equal(detail.totalUsageCount, 1);
+    assert.equal(detail.conceptUsages.length, 1);
+    assert.equal(detail.conceptUsages[0].isActive, true);
+    assert.equal(detail.conceptUsages[0].conceptIsActive, false);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('detail usage count matches update guard and valid shared save after parent inactivity', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.prepare('UPDATE cases SET is_active = 0 WHERE id = ?').run('seed-anterior-c');
+
+    const detail = await getQuestionPromptDetail(fixture.db, 'seed-prompt-describe-ecg');
+    assert.ok(detail);
+    assert.equal(detail.usageCount, 2);
+
+    await assert.rejects(
+      updateQuestionPrompt(fixture.db, {
+        promptId: 'seed-prompt-describe-ecg',
+        promptMd: 'Describe this ECG in detail.',
+        expectedUsageCount: detail.usageCount
+      }),
+      (error) => error instanceof QuestionPromptInputError && /used in 2 places/.test(error.message)
+    );
+
+    const result = await updateQuestionPrompt(fixture.db, {
+      promptId: 'seed-prompt-describe-ecg',
+      promptMd: 'Describe this ECG in detail.',
+      confirmSharedEdit: 'on',
+      expectedUsageCount: detail.usageCount
+    });
+    assert.equal(result.usageCount, detail.usageCount);
+
+    const updated = fixture.sqlite.prepare('SELECT prompt_md FROM question_prompts WHERE id = ?').get('seed-prompt-describe-ecg');
+    assert.ok(updated);
+    assert.equal(updated.prompt_md, 'Describe this ECG in detail.');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('reused Question Prompt edits require explicit confirmation and preserve answers', async () => {
   const fixture = createLearningDb();
   try {
