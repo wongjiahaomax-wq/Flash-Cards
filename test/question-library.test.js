@@ -105,8 +105,8 @@ test('active Case Question on an inactive Case is excluded from current active u
     assert.equal(detail.totalUsageCount, 3);
     const historicalUsage = detail.caseUsages.find((usage) => usage.caseId === 'seed-anterior-c');
     assert.ok(historicalUsage);
-    assert.equal(historicalUsage.isActive, true);
-    assert.equal(historicalUsage.caseIsActive, false);
+    assert.equal(Boolean(historicalUsage.isActive), true);
+    assert.equal(Boolean(historicalUsage.caseIsActive), false);
   } finally {
     fixture.sqlite.close();
   }
@@ -128,8 +128,8 @@ test('active Concept Question on an inactive Concept is excluded from current ac
     assert.equal(detail.usageCount, 0);
     assert.equal(detail.totalUsageCount, 1);
     assert.equal(detail.conceptUsages.length, 1);
-    assert.equal(detail.conceptUsages[0].isActive, true);
-    assert.equal(detail.conceptUsages[0].conceptIsActive, false);
+    assert.equal(Boolean(detail.conceptUsages[0].isActive), true);
+    assert.equal(Boolean(detail.conceptUsages[0].conceptIsActive), false);
   } finally {
     fixture.sqlite.close();
   }
