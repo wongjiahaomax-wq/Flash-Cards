@@ -32,7 +32,7 @@ import {
   stageImportPackage
 } from '../storage/import-packages.js';
 
-export const IMPORT_ITEMS_PER_REQUEST = 8;
+export const IMPORT_ITEMS_PER_REQUEST = 7;
 export const IMPORT_D1_OPERATION_BUDGET = 40;
 export const IMPORT_LEASE_MS = 30_000;
 
@@ -618,6 +618,16 @@ export async function processNextImportChunk(d1, bucket, id) {
 
   const { token, job } = claim;
   try {
+    // Finalization deliberately does not re-read the staged ZIP. If an HTTP
+    // request dies after R2 deletion but before the D1 checkpoint, retrying the
+    // finalize cursor safely repeats the idempotent delete and can still mark
+    // the job complete.
+    if (job.phase === 'finalize') {
+      await deleteStagedImportPackage(bucket, id);
+      await checkpoint(d1, job, token, { status: 'complete', phase: 'finalize', cursor: 0, processedCount: Number(job.total_count), completedAt: Date.now() });
+      return { busy: false, job: serializeImportJob(await getImportJob(d1, id)) };
+    }
+
     const bytes = await readStagedImportPackage(bucket, id);
     const digest = await importPackageDigest(bytes);
     if (digest !== job.package_sha256) throw new ContentPackageError('The staged package SHA-256 no longer matches the import job.');
@@ -632,12 +642,6 @@ export async function processNextImportChunk(d1, bucket, id) {
       const result = await applyImportChunk(db, bucket, plan, phase, 0);
       const next = result.done ? nextPhase(phase) : phase;
       await checkpoint(d1, job, token, { status: 'importing', phase: next, cursor: result.done ? 0 : result.nextCursor, processedCount: Number(job.processed_count) + result.processed });
-      return { busy: false, job: serializeImportJob(await getImportJob(d1, id)) };
-    }
-
-    if (job.phase === 'finalize') {
-      await deleteStagedImportPackage(bucket, id);
-      await checkpoint(d1, job, token, { status: 'complete', phase: 'finalize', cursor: 0, processedCount: Number(job.total_count), completedAt: Date.now() });
       return { busy: false, job: serializeImportJob(await getImportJob(d1, id)) };
     }
 
@@ -680,8 +684,11 @@ export async function cancelImportJob(d1, bucket, id) {
   if (job.status === 'complete') throw new ContentPackageError('A completed import cannot be cancelled.');
   if (job.status === 'cancelled') return serializeImportJob(job);
   const now = Date.now();
-  const result = await d1.prepare(`UPDATE import_jobs SET status = 'cancelled', updated_at = ?, completed_at = ?, lease_token = NULL, lease_expires_at = NULL WHERE id = ? AND status <> 'complete'`).bind(now, now, id).run();
-  if (!changed(result)) throw new ContentPackageError('Import job could not be cancelled because its state changed.');
+  const result = await d1.prepare(`UPDATE import_jobs
+    SET status = 'cancelled', updated_at = ?, completed_at = ?, lease_token = NULL, lease_expires_at = NULL
+    WHERE id = ? AND status <> 'complete' AND (lease_expires_at IS NULL OR lease_expires_at < ?)`)
+    .bind(now, now, id, now).run();
+  if (!changed(result)) throw new ContentPackageError('This import is currently processing in another request. Pause processing and retry cancellation.');
   try { await deleteStagedImportPackage(bucket, id); }
   catch (error) { console.error('Unable to remove cancelled import staging package.', { id, error }); }
   return serializeImportJob(await getImportJob(d1, id));
