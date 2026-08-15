@@ -162,8 +162,8 @@ export async function updateCaseVignette(db, caseId, vignetteMd) {
 }
 
 /**
- * Update the administrator-facing Case fields and its primary Topic.
- * The association is replaced in-place so existing Case identity and Reviews remain intact.
+ * Update administrator-facing Case fields and change which attached Topic is
+ * canonical/default without erasing other Case Topic relationships.
  *
  * @param {LearningDb} db
  * @param {{ caseId: string, title: string, vignetteMd?: string | null, conceptId: string, questionSelectionMode?: unknown, questionCount?: unknown }} input
@@ -183,11 +183,40 @@ export async function updateCase(db, input) {
   if (!existing[0]) throw new AdminContentInputError('The selected Case is missing or inactive.');
   await validateCaseQuestionCoverage(db, caseId, selection);
 
-  await db
-    .update(cases)
-    .set({ title, vignetteMd: optionalText(input.vignetteMd), questionSelectionMode: selection.mode, questionCount: selection.count })
-    .where(eq(cases.id, caseId));
+  const topicRows = await db
+    .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
+    .from(caseConcepts)
+    .where(eq(caseConcepts.caseId, caseId));
+  const currentPrimary = topicRows.find((topic) => topic.role === 'primary');
+  if (!currentPrimary) throw new AdminContentInputError('The selected Case does not have a primary topic.');
 
-  await db.delete(caseConcepts).where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.role, 'primary')));
-  await db.insert(caseConcepts).values({ caseId, conceptId, role: 'primary' });
+  /** @type {any[]} */
+  const writes = [
+    db
+      .update(cases)
+      .set({ title, vignetteMd: optionalText(input.vignetteMd), questionSelectionMode: selection.mode, questionCount: selection.count })
+      .where(eq(cases.id, caseId))
+  ];
+
+  if (currentPrimary.conceptId !== conceptId) {
+    writes.push(
+      db
+        .update(caseConcepts)
+        .set({ role: 'secondary' })
+        .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, currentPrimary.conceptId)))
+    );
+
+    const targetTopic = topicRows.find((topic) => topic.conceptId === conceptId);
+    writes.push(
+      targetTopic
+        ? db
+            .update(caseConcepts)
+            .set({ role: 'primary' })
+            .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, conceptId)))
+        : db.insert(caseConcepts).values({ caseId, conceptId, role: 'primary' })
+    );
+  }
+
+  if (typeof db.batch === 'function') await db.batch(/** @type {[any, ...any[]]} */ (writes));
+  else for (const write of writes) await write;
 }

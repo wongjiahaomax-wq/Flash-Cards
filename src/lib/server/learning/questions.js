@@ -47,12 +47,6 @@ function assertQuestion(item, label) {
   }
 }
 
-/**
- * @param {QuestionInput} item
- * @param {string} sourceType
- * @param {string | null} [sourceConceptId]
- * @returns {ResolvedQuestion}
- */
 /** @param {QuestionInput} item @param {string} sourceType @param {string|null} [sourceConceptId] @param {string|null} [sourceStimulusGroupId] @param {string|null} [sourceStimulusOptionId] @returns {ResolvedQuestion} */
 function resolvedQuestion(item, sourceType, sourceConceptId = null, sourceStimulusGroupId = null, sourceStimulusOptionId = null) {
   return {
@@ -69,20 +63,21 @@ function resolvedQuestion(item, sourceType, sourceConceptId = null, sourceStimul
 }
 
 /**
- * Resolve the eligible question pool for one Case.
+ * Resolve the eligible question pool for one Review route.
  *
  * Precedence for duplicate prompt IDs:
- * Case > primary Concept > nearest inheritable ancestor > distant ancestor.
+ * selected stimulus option > stimulus group > Case > Study Concept >
+ * nearest inheritable Study-Concept ancestor > more distant ancestor.
  *
  * `ancestorConceptQuestions` must include a positive integer `distance`, where
- * 1 is the primary Concept's parent, 2 is its grandparent, and so on.
+ * 1 is the Study Concept's parent, 2 is its grandparent, and so on.
  *
- * @param {{ caseQuestions?: QuestionInput[], primaryConceptQuestions?: QuestionInput[], ancestorConceptQuestions?: QuestionInput[], stimulusGroupQuestions?: QuestionInput[], stimulusOptionQuestions?: QuestionInput[] }} [input]
+ * @param {{ caseQuestions?: QuestionInput[], studyConceptQuestions?: QuestionInput[], ancestorConceptQuestions?: QuestionInput[], stimulusGroupQuestions?: QuestionInput[], stimulusOptionQuestions?: QuestionInput[] }} [input]
  * @returns {ResolvedQuestion[]}
  */
 export function resolveQuestionPool({
   caseQuestions = [],
-  primaryConceptQuestions = [],
+  studyConceptQuestions = [],
   ancestorConceptQuestions = [],
   stimulusGroupQuestions = [],
   stimulusOptionQuestions = []
@@ -106,7 +101,6 @@ export function resolveQuestionPool({
 
       return /** @type {QuestionInput & { distance: number }} */ (question);
     })
-    // Distant ancestors first so nearer ancestors overwrite them.
     .sort((a, b) => b.distance - a.distance);
 
   for (const question of ancestors) {
@@ -116,8 +110,8 @@ export function resolveQuestionPool({
     );
   }
 
-  primaryConceptQuestions.filter(isActive).forEach((question, index) => {
-    assertQuestion(question, `primaryConceptQuestions[${index}]`);
+  studyConceptQuestions.filter(isActive).forEach((question, index) => {
+    assertQuestion(question, `studyConceptQuestions[${index}]`);
     byPrompt.set(
       question.questionPromptId,
       resolvedQuestion(question, 'concept', question.sourceConceptId ?? null)

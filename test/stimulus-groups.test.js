@@ -24,7 +24,8 @@ import { pickReviewQuestions, resolveQuestionPool } from '../src/lib/server/lear
 
 const migrationSql = [
   readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -120,10 +121,10 @@ test('inactive options are excluded and historical snapshots survive later chang
   }
 });
 
-test('contextual precedence includes option, group, Case, Concept, and ancestor layers', () => {
+test('contextual precedence includes option, group, Case, Study Concept, and ancestor layers', () => {
   const pool = resolveQuestionPool({
     ancestorConceptQuestions: [{ questionPromptId: 'p', promptMd: 'P', answerMd: 'ancestor', inheritToDescendants: true, distance: 1 }],
-    primaryConceptQuestions: [{ questionPromptId: 'p', promptMd: 'P', answerMd: 'concept' }],
+    studyConceptQuestions: [{ questionPromptId: 'p', promptMd: 'P', answerMd: 'concept' }],
     caseQuestions: [{ questionPromptId: 'p', promptMd: 'P', answerMd: 'case' }],
     stimulusGroupQuestions: [{ questionPromptId: 'p', promptMd: 'P', answerMd: 'group', stimulusGroupId: 'g' }],
     stimulusOptionQuestions: [{ questionPromptId: 'p', promptMd: 'P', answerMd: 'option', stimulusGroupId: 'g', stimulusOptionId: 'o' }]

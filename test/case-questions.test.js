@@ -15,7 +15,11 @@ import { buildSeedSql } from '../scripts/seed-content.mjs';
 
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
 
-const migrationSql = [readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'), readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8')].join('\n').replaceAll('--> statement-breakpoint', '');
+const migrationSql = [
+  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8')
+].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
@@ -140,7 +144,7 @@ test('reusable topic answers retain Case-specific precedence in learner reviews'
       reusableForTopic: true
     });
     fixture.sqlite.prepare('UPDATE concept_questions SET answer_md = ? WHERE concept_id = ? AND question_prompt_id = ?').run(
-      'Primary topic answer loses to the Case answer.',
+      'Study topic answer loses to the Case answer.',
       'seed-anterior-stemi',
       promptId
     );

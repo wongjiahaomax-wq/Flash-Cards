@@ -4,7 +4,7 @@ _Refreshed: 15 August 2026_
 
 ## Current outcome
 
-The project has a working end-to-end V1 learner vertical slice, a first-pass Admin CMS, and the optional alternative-stimulus content model.
+The project has a working end-to-end V1 learner vertical slice, a first-pass Admin CMS, the optional alternative-stimulus content model, and the first multi-Topic learner-routing milestone implemented in draft PR #18.
 
 Recent merged milestones:
 
@@ -17,15 +17,26 @@ PR #11 — Questions Library
 PR #12 — Image/Asset Library
 PR #13 — Topics dashboard
 PR #14 — optional alternative stimulus groups
+PR #17 — multi-Topic Case study-route architecture documentation
 ```
 
-Important later `main` work includes deployment of PR #14's D1 migration and CI configuration that runs on pull requests.
+Current implementation PR:
+
+```text
+PR #18 — Add multi-Topic learner study routing
+branch: agent/multi-topic-study-routing
+draft: yes
+```
+
+Do not merge PR #18 without green CI and normal review.
+
+Important later `main` work includes deployment of reviewed D1 migrations and CI configuration that runs on pull requests.
 
 The production Worker is:
 
 <https://flash-cards.mmed-fm-flashcardstest.workers.dev/>
 
-Do not assume every newest `main` commit is deployed unless deployment is explicitly verified.
+Do not assume every newest `main` commit or draft-PR change is deployed unless deployment is explicitly verified.
 
 ---
 
@@ -35,6 +46,7 @@ Read first:
 
 ```text
 docs/AUTHORING_MODEL.md
+docs/MULTI_TOPIC_STUDY_ROUTES.md
 docs/STIMULUS_GROUPS_DESIGN.md
 docs/CONTENT_MODEL_EXAMPLES.md
 docs/V1_DATA_MODEL.md
@@ -51,6 +63,8 @@ Topic
 A **Topic** is the administrator-facing name for the existing Concept model. Do not add a parallel `topics` table for this hierarchy.
 
 A **Case** is one coherent clinical presentation. Different stems, causes, findings, or educational intent should normally be separate Cases even when they belong to the same Topic.
+
+A Case may now have multiple attached Topics through the existing `case_concepts` relationship. One Topic remains `primary` as the canonical/default administrative classification; attached `secondary` Topics are additional learner routes. The full Admin UI for adding/removing those additional Topics is still a separate follow-up milestone.
 
 A **stimulus** is what the learner sees within that Case. Fixed images appear in every Review of the Case. Alternative image sets are used when the Case remains the same but an example image may vary between attempts.
 
@@ -90,28 +104,25 @@ Topic: Hypocalcaemia
     └── its own stimuli
 ```
 
-No schema migration is required for this hierarchy. Existing tables already provide Topics/Concepts, Case membership, contextual questions, stimulus groups/options, and Review provenance.
+The existing Case/Topic relationship already supports this hierarchy and multi-Topic Case membership. The only new schema required for PR #18 is additive Review provenance (`reviews.study_concept_id`).
 
 ---
 
-## Current branch / PR after PR #14
+## Current branch / PR
 
-`agent/topic-case-stimulus-authoring` / draft PR #16 is a focused Admin authoring-UX refinement.
+`agent/multi-topic-study-routing` / draft PR #18 implements the first learner-facing multi-Topic Case milestone documented in `MULTI_TOPIC_STUDY_ROUTES.md`.
 
-It does **not** change schema or learner selection behaviour.
+It does:
 
-Its purpose is to:
+- allow any attached primary or secondary Case Topic to make a Case learner-eligible;
+- deduplicate Case candidates before random selection so multiple matching relationships do not add weight;
+- resolve one deterministic Study Concept for each selected Case;
+- use the Study Concept, not automatically the Case default Topic, for reusable Topic questions and ancestor inheritance;
+- preserve both canonical/default and Study Topic provenance on each Review;
+- preserve existing stimulus selection, question coverage, snapshots, and repeat avoidance;
+- make the smallest Admin default-topic safety fix needed to preserve attached Topic routes.
 
-- make Topic the normal administrator-facing term for Concept;
-- explain Topic → Case relationships more clearly;
-- provide a direct Topic-detail path to create another Case in that Topic;
-- present Case questions, fixed images, and alternative images as the common authoring layers;
-- allow a fixed image to start a new alternative set in one action;
-- move stimulus-group coverage and group-wide questions behind advanced controls;
-- label option-level questions as exact-image-specific questions;
-- document the authoring model explicitly.
-
-Do not merge PR #16 without green CI and normal review.
+It does **not** implement the Admin multi-Topic add/remove UI or any Asset/Stimulus→Topic relationship.
 
 ---
 
@@ -132,7 +143,7 @@ Implemented:
 - `/admin/cases/new` dedicated Case creation;
 - `/admin/cases/[caseId]` focused Case editor;
 - internal Case title editing;
-- primary Topic editing;
+- primary/default Topic editing;
 - vignette/stem editing;
 - Case question add/edit/remove/reorder;
 - optional save-as-reusable Topic question;
@@ -150,6 +161,8 @@ Implemented:
 - alternative-set contextual questions;
 - per-set stimulus-specific question coverage;
 - configurable Case question selection: Automatic / all eligible / Choose N.
+
+PR #18 hardens the existing default-topic update so a default change demotes the old primary relationship and promotes/inserts the new one without deleting unrelated attached Topic routes. The actual multi-Topic chips/add/remove authoring workflow is not implemented yet.
 
 The underlying implementation continues to use `concepts` and stimulus-group tables, but ordinary Admin language should prefer Topic, Case, fixed image, alternative image, and image-specific question.
 
@@ -226,7 +239,7 @@ Capabilities include:
 - parent Topic and direct-child navigation;
 - inactive/historical relationship visibility for orientation.
 
-On the current PR #16 branch, Topic detail also makes the reuse boundary explicit and links directly to create another Case in that Topic.
+The Admin Topics dashboard has not yet been redesigned around multi-Topic Case authoring; that remains the next separate milestone.
 
 Sophisticated hierarchy management remains deferred.
 
@@ -236,18 +249,20 @@ Sophisticated hierarchy management remains deferred.
 
 `/study` is D1-backed.
 
-Current learner behaviour:
+Current learner behaviour in PR #18:
 
 1. learner selects a Topic/Concept;
-2. system selects an eligible active Case;
-3. persisted Review history is used for immediate-repeat avoidance where possible;
-4. fixed Case Assets are loaded;
-5. one active option is selected from each active stimulus group;
-6. questions resolve using the selected stimuli and contextual precedence;
-7. stimulus-specific coverage guarantees are satisfied;
-8. remaining slots are filled according to the Case's question-selection mode;
-9. Case, stimuli, prompts, contextual answers, ordering, and provenance are snapshotted;
-10. learner reveals answers and rates the whole Case `Again` or `Good`.
+2. system includes that active Topic and its active descendants;
+3. active Cases may qualify through any matching `case_concepts` relationship, primary or secondary;
+4. matching relationships are deduplicated by Case ID and one deterministic Study Concept is resolved per candidate;
+5. persisted Review history is used for immediate-repeat avoidance where possible;
+6. fixed Case Assets are loaded;
+7. one active option is selected from each active stimulus group;
+8. reusable Topic questions resolve from the Study Concept and its inheritable ancestors;
+9. Case/group/exact-option questions resolve with contextual precedence;
+10. stimulus-specific coverage guarantees and Case question-selection mode are applied;
+11. Case, Topics, stimuli, prompts, contextual answers, ordering, and provenance are snapshotted;
+12. learner reveals answers and rates the whole Case `Again` or `Good`.
 
 Internal diagnosis-bearing Case titles are masked from learners.
 
@@ -259,10 +274,12 @@ Current precedence:
 selected stimulus option
 > stimulus group
 > Case
-> primary Topic/Concept
-> nearest inheritable ancestor Topic/Concept
+> Study Topic/Concept
+> nearest inheritable ancestor of Study Topic/Concept
 > more distant eligible ancestor
 ```
+
+`primary_concept_id` is the canonical/default Topic of the selected Case at Review creation. `study_concept_id` is the attached Topic lens that generated reusable Topic questions for that Review.
 
 ---
 
@@ -272,12 +289,15 @@ Important rules:
 
 - Case stem/vignette is Case-level context.
 - Topic questions are reusable knowledge shared across compatible Cases.
+- A Case may have multiple learner Topics only when every valid stimulus configuration remains a legitimate example of every attached Topic.
+- One attached Topic remains canonical/default; all valid attached Topics may be learner routes.
+- Do not automatically mix reusable questions from every Topic attached to a Case; only the Study Topic and its inheritable ancestors contribute that reusable layer.
 - Create separate Cases when the clinical context or educational intent differs.
 - Use optional alternative stimuli when the Case is genuinely the same but an example stimulus can vary.
 - Assets are reusable global media; store image bytes once in R2.
 - Multiple fixed images that must be interpreted together may remain fixed on one Case.
 - A Case may have several independent alternative groups, such as one ECG group plus one X-ray group.
-- Existing/imported Cases do not need stimulus-group metadata; grouping should emerge later when useful.
+- Existing/imported Cases do not need stimulus-group or secondary-Topic metadata; enrichment should emerge later when useful.
 - Questions do not belong globally to an Asset; exact-image relationships belong to the Case/group/option context.
 - Later exam question parts may hint at earlier parts; no gating is required.
 - Case question count and per-group stimulus-specific coverage are configurable.
@@ -289,6 +309,7 @@ For Anki/manual migration, prefer progressive enrichment:
 import/create normal Topic + Case
 -> preserve existing questions
 -> attach images normally
+-> add secondary Case Topics later when cross-topic reuse becomes clear
 -> group images later when interchangeability becomes clear
 -> add only genuinely image-specific questions
 ```
@@ -301,22 +322,24 @@ Learning-domain schema includes:
 
 - Concepts/Topics and hierarchy;
 - Cases with `vignette_md`, question-selection mode, and optional question count;
-- Case/Concept links;
+- Case/Concept links with `primary`/`secondary` roles;
 - Assets and fixed Case Assets;
 - reusable Question Prompts;
 - Concept/Topic Questions;
 - Case Questions;
 - stimulus groups and options;
 - group-level and option-level contextual questions;
-- Reviews;
+- Reviews with canonical/default and Study Concept provenance;
 - Review Questions with contextual source provenance;
 - Review Assets with selected stimulus provenance.
 
 Drizzle is used for the learning-domain schema. Better Auth tables remain separate direct-D1 auth tables by design.
 
-PR #14's additive migration is implemented and has been deployed to production D1 according to repository history.
+Migration `0002_optional_stimulus_groups.sql` implements stimulus groups. Draft PR #18 adds `0003_multi_topic_study_routing.sql`, which conservatively rebuilds `reviews`, adds non-null `study_concept_id`, and backfills historical Reviews with `study_concept_id = primary_concept_id` while preserving Review snapshots.
 
-Do not add a new Topic schema solely to implement Topic → Case → stimulus authoring.
+Do not modify production D1 directly from PR #18.
+
+Do not add a new Topic schema, `asset_concepts`, or `stimulus_option_concepts` solely to implement multi-Topic Case study routes.
 
 `scripts/seed-content.mjs` remains useful for local/tests but must not be run blindly in production because placeholder seed Asset keys do not have corresponding production R2 objects.
 
@@ -367,7 +390,7 @@ External source URLs are attribution/reference metadata only, never runtime imag
 
 Unknown source is valid; never fabricate attribution.
 
-Stimulus grouping must not change R2 keys or copy/move stored objects.
+Stimulus grouping and multi-Topic routing must not change R2 keys or copy/move stored objects.
 
 See `docs/IMAGE_PROVENANCE.md` and `docs/R2_COST_GUARDRAILS.md`.
 
@@ -389,10 +412,12 @@ Workers subdomain: `mmed-fm-flashcardstest.workers.dev`
 
 ## Known technical debt / deferred work
 
-- Review Asset historical serving currently depends on live Asset resolution; deactivation semantics may need later refinement.
-- attribution metadata is live rather than snapshotted.
-- if marks become structured, do not encode them in strings and parse them later.
-- curriculum collections, manual Case ordering inside a Topic, or Topic-specific learner settings could justify future schema additions; Topic → Case → stimulus does not.
+- full Admin add/remove secondary Topic UI and Topic chips/default selector;
+- Asset/Stimulus→Topic routing remains deliberately deferred unless real content proves it necessary;
+- Review Asset historical serving currently depends on live Asset resolution; deactivation semantics may need later refinement;
+- attribution metadata is live rather than snapshotted;
+- if marks become structured, do not encode them in strings and parse them later;
+- curriculum collections, manual Case ordering inside a Topic, or Topic-specific learner settings could justify future schema additions; multi-Topic Case routing itself does not.
 
 ---
 

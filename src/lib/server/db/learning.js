@@ -19,6 +19,7 @@ import {
 } from './schema.js';
 import { pickCase } from '../learning/cases.js';
 import { pickReviewQuestions, resolveQuestionPool } from '../learning/questions.js';
+import { resolveCaseStudyCandidates } from '../learning/study-routes.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -32,10 +33,25 @@ function newId() {
   return globalThis.crypto.randomUUID();
 }
 
+/** @param {LearningDb} db */
+async function loadActiveCaseTopicRows(db) {
+  return db
+    .select({
+      id: cases.id,
+      title: cases.title,
+      vignetteMd: cases.vignetteMd,
+      isActive: cases.isActive,
+      conceptId: caseConcepts.conceptId,
+      role: caseConcepts.role
+    })
+    .from(cases)
+    .innerJoin(caseConcepts, eq(caseConcepts.caseId, cases.id))
+    .where(eq(cases.isActive, true));
+}
+
 /**
- * Return active Concepts that have at least one active Case in their subtree.
- * The case count is intentionally computed in application code so the same
- * descendant rule is used by the selector and the review creator.
+ * Return active Concepts that have at least one unique active Case in their subtree.
+ * Primary and secondary Case/Concept relationships are both learner routes.
  *
  * @param {LearningDb} db
  */
@@ -51,40 +67,23 @@ export async function listStudyConcepts(db) {
     .from(concepts)
     .where(eq(concepts.isActive, true))
     .orderBy(asc(concepts.name));
-
-  const caseRows = await db
-    .select({ caseId: cases.id, primaryConceptId: caseConcepts.conceptId })
-    .from(cases)
-    .innerJoin(caseConcepts, eq(caseConcepts.caseId, cases.id))
-    .where(and(eq(cases.isActive, true), eq(caseConcepts.role, 'primary')));
+  const caseTopicRows = await loadActiveCaseTopicRows(db);
 
   return conceptRows
-    .map((concept) => {
-      const descendants = descendantIds(concept.id, conceptRows);
-      const caseCount = caseRows.filter((row) => descendants.has(row.primaryConceptId)).length;
-      return { ...concept, caseCount };
-    })
+    .map((concept) => ({
+      ...concept,
+      caseCount: resolveCaseStudyCandidates({
+        selectedConceptId: concept.id,
+        concepts: conceptRows,
+        rows: caseTopicRows
+      }).length
+    }))
     .filter((concept) => concept.caseCount > 0);
 }
 
-/** @param {string} rootId @param {{ id: string, parentId: string | null }[]} conceptsList */
-function descendantIds(rootId, conceptsList) {
-  const ids = new Set([rootId]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const concept of conceptsList) {
-      if (concept.parentId && ids.has(concept.parentId) && !ids.has(concept.id)) {
-        ids.add(concept.id);
-        changed = true;
-      }
-    }
-  }
-  return ids;
-}
-
 /**
- * Resolve all active primary Cases beneath a selected Concept.
+ * Resolve one deduplicated active Case candidate per eligible Case, including
+ * both its canonical primary Concept and the Study Concept for this route.
  *
  * @param {LearningDb} db
  * @param {string} conceptId
@@ -94,25 +93,13 @@ export async function listEligibleCases(db, conceptId) {
     .select({ id: concepts.id, parentId: concepts.parentId })
     .from(concepts)
     .where(eq(concepts.isActive, true));
-  const ids = descendantIds(conceptId, conceptRows);
+  const caseTopicRows = await loadActiveCaseTopicRows(db);
 
-  return db
-    .select({
-      id: cases.id,
-      title: cases.title,
-      vignetteMd: cases.vignetteMd,
-      primaryConceptId: caseConcepts.conceptId,
-      isActive: cases.isActive
-    })
-    .from(cases)
-    .innerJoin(caseConcepts, eq(caseConcepts.caseId, cases.id))
-    .where(
-      and(
-        eq(cases.isActive, true),
-        eq(caseConcepts.role, 'primary'),
-        inArray(caseConcepts.conceptId, [...ids])
-      )
-    );
+  return resolveCaseStudyCandidates({
+    selectedConceptId: conceptId,
+    concepts: conceptRows,
+    rows: caseTopicRows
+  });
 }
 
 /** @param {LearningDb} db @param {string} userId */
@@ -146,7 +133,7 @@ export async function startReview({ db, userId, conceptId, rng = Math.random }) 
   });
   if (!selectedCase) return null;
 
-  const source = await loadCaseSource(db, selectedCase.id, rng);
+  const source = await loadCaseSource(db, selectedCase.id, selectedCase.studyConceptId, rng);
   if (!source) return null;
 
   const reviewId = newId();
@@ -162,6 +149,7 @@ export async function startReview({ db, userId, conceptId, rng = Math.random }) 
     userId,
     caseId: source.case.id,
     primaryConceptId: source.primaryConcept.id,
+    studyConceptId: source.studyConcept.id,
     caseTitleSnapshot: source.case.title,
     vignetteSnapshotMd: source.case.vignetteMd,
     status: 'started',
@@ -212,34 +200,41 @@ export async function startReview({ db, userId, conceptId, rng = Math.random }) 
   return reviewId;
 }
 
-/** @param {LearningDb} db @param {string} caseId @param {() => number} rng */
-async function loadCaseSource(db, caseId, rng) {
+/** @param {LearningDb} db @param {string} caseId @param {string} studyConceptId @param {() => number} rng */
+async function loadCaseSource(db, caseId, studyConceptId, rng) {
   const caseRows = await db
     .select({
       id: cases.id,
       title: cases.title,
       vignetteMd: cases.vignetteMd,
       questionSelectionMode: cases.questionSelectionMode,
-      questionCount: cases.questionCount,
-      primaryConceptId: caseConcepts.conceptId
+      questionCount: cases.questionCount
     })
     .from(cases)
-    .innerJoin(caseConcepts, eq(caseConcepts.caseId, cases.id))
-    .where(and(eq(cases.id, caseId), eq(cases.isActive, true), eq(caseConcepts.role, 'primary')))
+    .where(and(eq(cases.id, caseId), eq(cases.isActive, true)))
     .limit(1);
   const caseRow = caseRows[0];
   if (!caseRow) return null;
+
+  const caseTopicRows = await db
+    .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
+    .from(caseConcepts)
+    .where(eq(caseConcepts.caseId, caseId));
+  const primaryConceptId = caseTopicRows.find((topic) => topic.role === 'primary')?.conceptId;
+  const studyLink = caseTopicRows.find((topic) => topic.conceptId === studyConceptId);
+  if (!primaryConceptId || !studyLink) return null;
 
   const conceptRows = await db
     .select({ id: concepts.id, name: concepts.name, parentId: concepts.parentId })
     .from(concepts)
     .where(eq(concepts.isActive, true));
-  const primaryConcept = conceptRows.find((concept) => concept.id === caseRow.primaryConceptId);
-  if (!primaryConcept) return null;
+  const primaryConcept = conceptRows.find((concept) => concept.id === primaryConceptId);
+  const studyConcept = conceptRows.find((concept) => concept.id === studyConceptId);
+  if (!primaryConcept || !studyConcept) return null;
 
   /** @type {{ id: string, name: string, parentId: string | null, distance: number }[]} */
   const ancestors = [];
-  let parentId = primaryConcept.parentId;
+  let parentId = studyConcept.parentId;
   let distance = 1;
   while (parentId) {
     const ancestor = conceptRows.find((concept) => concept.id === parentId);
@@ -271,7 +266,7 @@ async function loadCaseSource(db, caseId, rng) {
       promptMd: prompts.get(question.questionPromptId) ?? ''
     }));
 
-  const conceptIds = [primaryConcept.id, ...ancestors.map((ancestor) => ancestor.id)];
+  const conceptIds = [studyConcept.id, ...ancestors.map((ancestor) => ancestor.id)];
   const conceptQuestionRows = await db
     .select({
       conceptId: conceptQuestions.conceptId,
@@ -283,15 +278,15 @@ async function loadCaseSource(db, caseId, rng) {
     .from(conceptQuestions)
     .where(and(eq(conceptQuestions.isActive, true), inArray(conceptQuestions.conceptId, conceptIds)));
 
-  const primaryQuestions = conceptQuestionRows
-    .filter((question) => question.conceptId === primaryConcept.id && prompts.has(question.questionPromptId))
+  const studyQuestions = conceptQuestionRows
+    .filter((question) => question.conceptId === studyConcept.id && prompts.has(question.questionPromptId))
     .map((question) => ({
       ...question,
       sourceConceptId: question.conceptId,
       promptMd: prompts.get(question.questionPromptId) ?? ''
     }));
   const ancestorQuestions = conceptQuestionRows
-    .filter((question) => question.conceptId !== primaryConcept.id && prompts.has(question.questionPromptId))
+    .filter((question) => question.conceptId !== studyConcept.id && prompts.has(question.questionPromptId))
     .map((question) => ({
       ...question,
       sourceConceptId: question.conceptId,
@@ -379,7 +374,7 @@ async function loadCaseSource(db, caseId, rng) {
   });
   const questionPool = resolveQuestionPool({
     caseQuestions: caseQuestionInputs,
-    primaryConceptQuestions: primaryQuestions,
+    studyConceptQuestions: studyQuestions,
     ancestorConceptQuestions: ancestorQuestions,
     stimulusGroupQuestions: groupQuestions,
     stimulusOptionQuestions: optionQuestions
@@ -405,6 +400,7 @@ async function loadCaseSource(db, caseId, rng) {
   return {
     case: caseRow,
     primaryConcept,
+    studyConcept,
     questionPool,
     assets: [...assetRows.map((asset) => ({ ...asset, stimulusGroupId: null, stimulusOptionId: null })), ...selectedAssets],
     groupCoverage
@@ -418,6 +414,7 @@ export async function getReview(db, reviewId, userId) {
       id: reviews.id,
       caseId: reviews.caseId,
       primaryConceptId: reviews.primaryConceptId,
+      studyConceptId: reviews.studyConceptId,
       title: reviews.caseTitleSnapshot,
       vignette: reviews.vignetteSnapshotMd,
       status: reviews.status,
@@ -434,7 +431,7 @@ export async function getReview(db, reviewId, userId) {
   const conceptRows = await db
     .select({ name: concepts.name })
     .from(concepts)
-    .where(eq(concepts.id, review.primaryConceptId))
+    .where(eq(concepts.id, review.studyConceptId))
     .limit(1);
   const questions = await db
     .select({

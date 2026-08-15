@@ -15,9 +15,10 @@ function isActive(item) {
  * The caller is responsible for supplying Cases already matched to the learner's
  * selected Concept/descendants. This function only applies V1 repeat/random rules.
  *
- * @param {CaseCandidate[]} cases
+ * @template {CaseCandidate} T
+ * @param {T[]} cases
  * @param {{ lastCompletedCaseId?: string | null, rng?: () => number }} [options]
- * @returns {CaseCandidate | null}
+ * @returns {T | null}
  */
 export function pickCase(cases, { lastCompletedCaseId = null, rng = Math.random } = {}) {
   if (!Array.isArray(cases)) {

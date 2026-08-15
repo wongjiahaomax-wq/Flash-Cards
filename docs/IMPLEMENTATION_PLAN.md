@@ -11,9 +11,10 @@ The project now has:
 - durable D1-backed Reviews;
 - browser content administration;
 - a complete first-pass Admin CMS for Cases, Questions, Images, and Topics;
-- pilot-content modelling that has identified a concrete need for optional alternative stimulus groups.
+- implemented optional alternative stimulus groups;
+- the first multi-Topic learner-routing milestone implemented in draft PR #18.
 
-The current implementation priority is now **the smallest backward-compatible stimulus-group extension required by real pilot content**, followed by continued pilot entry.
+The current implementation priority is to finish validation/review of **multi-Topic learner Case routing**, followed by the separate Admin multi-Topic authoring milestone and continued pilot content entry.
 
 For detailed decisions, also read:
 
@@ -21,6 +22,7 @@ For detailed decisions, also read:
 docs/ADMIN_CONTENT_MANAGEMENT_PLAN.md
 docs/CONTENT_MODEL_EXAMPLES.md
 docs/STIMULUS_GROUPS_DESIGN.md
+docs/MULTI_TOPIC_STUDY_ROUTES.md
 docs/HANDOVER.md
 ```
 
@@ -39,6 +41,7 @@ Core reference docs:
 - `V1_DATA_MODEL.md`;
 - `CONTENT_MODEL_EXAMPLES.md`;
 - `STIMULUS_GROUPS_DESIGN.md`;
+- `MULTI_TOPIC_STUDY_ROUTES.md`;
 - `IMAGE_PROVENANCE.md`.
 
 ---
@@ -60,17 +63,18 @@ Completed:
 
 ## Milestone 2 — D1 + Drizzle learning-domain model
 
-Status: **complete for current V1 slice; stimulus extension planned**
+Status: **complete for the current V1 slice; multi-Topic Review provenance added in draft PR #18**
 
 Implemented:
 
 - Concepts and hierarchy;
-- Cases with vignette/stem;
-- Case/Concept links;
+- Cases with vignette/stem and question-selection controls;
+- Case/Concept links with `primary` / `secondary` roles;
 - Assets and Case Assets;
 - reusable Question Prompts;
 - Concept Questions;
 - Case Questions;
+- optional stimulus groups/options and contextual questions;
 - Reviews;
 - Review Questions;
 - Review Assets;
@@ -80,7 +84,7 @@ Better Auth tables remain separate from the Drizzle learning-domain schema by de
 
 Do not run `scripts/seed-content.mjs` blindly against production because placeholder seed Asset keys do not correspond to production R2 objects.
 
-The planned stimulus-group milestone requires an additive reviewed D1 migration. Existing Cases without stimulus groups must continue to work unchanged.
+Migration `0002_optional_stimulus_groups.sql` is implemented. Draft PR #18 adds the smallest additive multi-Topic provenance change, `reviews.study_concept_id`, through `0003_multi_topic_study_routing.sql`; it does not add a new Case↔Topic, Asset→Topic, or stimulus-option→Topic table.
 
 ---
 
@@ -111,16 +115,16 @@ Remaining, intentionally after the current content-model milestone:
 
 ## Milestone 4 — Core learner Study flow
 
-Status: **complete for current V1 vertical slice**
+Status: **complete for the current V1 vertical slice and extended for multi-Topic routing in draft PR #18**
 
 Completed:
 
-- D1-backed Concept selection;
+- D1-backed Concept/Topic selection;
 - eligible Case selection;
 - immediate-repeat avoidance;
-- question precedence/deduplication:
-  `Case > primary Concept > nearest inheritable ancestor > more distant ancestor`;
-- randomized target three / maximum four questions;
+- optional stimulus-group selection/freeze;
+- contextual question precedence/deduplication;
+- Automatic / All / Fixed question selection and per-group coverage;
 - durable Review creation;
 - Case/vignette/question/Asset snapshots;
 - reveal timestamps;
@@ -128,7 +132,20 @@ Completed:
 - multi-image rendering;
 - internal Case title masking.
 
-The stimulus-group milestone will extend, not replace, this flow. It will select/freeze stimulus alternatives before final question resolution and will make question-count behaviour configurable rather than permanently fixed at 3–4.
+In PR #18, learner Case eligibility accepts any attached primary or secondary Topic relationship in the selected active subtree, deduplicates by Case ID, and resolves one deterministic Study Concept per Case candidate.
+
+Current precedence is:
+
+```text
+selected stimulus option
+> stimulus group
+> Case
+> Study Concept
+> nearest inheritable ancestor of Study Concept
+> more distant ancestor
+```
+
+The Case's canonical/default primary Concept is retained separately from the Study Concept that supplies reusable Topic questions for the Review.
 
 ---
 
@@ -152,13 +169,13 @@ Completed:
 
 External `source_url` is attribution only, never runtime image storage.
 
-Stimulus grouping must not rename, copy, move, or otherwise alter R2 object identity.
+Stimulus grouping and multi-Topic routing must not rename, copy, move, or otherwise alter R2 object identity.
 
 ---
 
 ## Milestone 6 — Browser content administration / Admin CMS
 
-Status: **complete for current V1 phase**
+Status: **complete for current V1 phase; multi-Topic Case authoring remains a separate follow-up**
 
 ### PR #9 — first browser content vertical slice
 
@@ -216,7 +233,26 @@ Merge commit:
 
 Implemented Topic search, active primary-Case counts, active reusable-question counts, Case/question inspection, inheritance visibility, and parent/direct-child navigation.
 
-Topic editing and sophisticated hierarchy management remain deliberately deferred.
+### PR #14 — Optional alternative stimulus groups
+
+Status: **merged**
+
+Implemented the current alternative-stimulus authoring model, group/option contextual questions, coverage controls, and Review stimulus provenance.
+
+### Next Admin milestone — multi-Topic Case authoring
+
+Planned after PR #18:
+
+```text
+Topics
+[ Hypocalcaemia ] Default
+[ Prolonged QTc ]
+[ + Add Topic ]
+```
+
+PR #18 does not build this UI. It only hardens the existing default-Topic update path so changing the default preserves existing attached Topic routes and can promote an already-attached secondary Topic safely.
+
+Topic hierarchy editing remains deliberately deferred.
 
 ---
 
@@ -232,16 +268,18 @@ Pilot content should span:
 - Dermatology;
 - additional useful mixed-modality clinical examples where they expose model requirements.
 
-Pilot modelling has already demonstrated one important blind spot:
+Pilot modelling has demonstrated two important extensions:
 
-> A Case may remain clinically identical while one or more example stimuli vary between attempts, and exact selected stimuli may require more specific questions/answers.
+1. a Case may remain clinically identical while one or more example stimuli vary between attempts, with exact selected stimuli needing more specific questions/answers;
+2. a single Case may legitimately be studied through multiple educational Topics without duplicating the Case, stem, Assets, or questions.
 
 Concrete examples include:
 
 - Hypercalcaemia with several interchangeable shortened-QTc ECGs, some with additional findings such as Osborn waves;
-- Multiple myeloma with hypercalcaemia where one Review may select one ECG plus one X-ray from independent alternative groups.
+- Multiple myeloma with hypercalcaemia where one Review may select one ECG plus one X-ray from independent alternative groups;
+- Hypocalcaemia Cases that are also valid `Prolonged QTc` study routes when every allowed stimulus configuration supports that route.
 
-This requirement is documented in `STIMULUS_GROUPS_DESIGN.md`.
+These requirements are documented in `STIMULUS_GROUPS_DESIGN.md` and `MULTI_TOPIC_STUDY_ROUTES.md`.
 
 Continue to exercise:
 
@@ -252,45 +290,45 @@ Continue to exercise:
 - same prompt with different contextual answers;
 - Concept-level reusable questions;
 - inherited questions;
-- possible need for secondary Concepts;
+- multi-Topic Case routes;
 - imported Anki material that initially remains ordinary Case/Asset/question content.
 
 ---
 
 ## Milestone 7A — Optional alternative stimulus groups
 
-Status: **implemented in this branch**
+Status: **implemented**
 
 Goal: allow richer Case variation without forcing existing or imported content into a complex structure.
 
-Required design principles:
+Implemented design principles:
 
 - stimulus grouping is optional and emergent;
-- ordinary ungrouped Case Assets remain fixed and behave exactly as today;
+- ordinary ungrouped Case Assets remain fixed and behave exactly as before;
 - a Case may have zero or more independent stimulus groups;
-- first implementation chooses exactly one option from each group;
+- V1 chooses exactly one option from each active group;
 - selected options are frozen into the Review at creation time;
 - an Asset remains global reusable media and does not own questions;
 - group-level and option-specific prompt/answer contexts extend the existing Question Prompt model;
 - more-specific context overrides less-specific context for the same prompt;
-- Case question count becomes configurable, with a path for Automatic / all eligible / Choose N;
-- stimulus-specific question coverage is configurable rather than permanently hard-coded;
-- imported Anki content must not require stimulus classification before it is usable;
-- the migration must be additive/backward-compatible;
+- Case question count supports Automatic / all eligible / Choose N;
+- stimulus-specific question coverage is configurable;
+- imported Anki content does not require stimulus classification before it is usable;
+- the migration is additive/backward-compatible;
 - R2 storage identity and provenance contracts remain unchanged.
 
-Planned question precedence:
+Current question precedence, with PR #18 Study-Concept terminology, is:
 
 ```text
 selected stimulus option
   > stimulus group
   > Case
-  > primary Concept
+  > Study Concept
   > nearest inheritable ancestor
   > more distant ancestor
 ```
 
-Review creation should select stimuli before resolving the final question set.
+Review creation selects stimuli before resolving the final question set.
 
 See `docs/STIMULUS_GROUPS_DESIGN.md` for detailed product and schema direction.
 
@@ -298,9 +336,38 @@ Implemented in migration `0002_optional_stimulus_groups.sql` and the existing Ca
 
 ---
 
+## Milestone 7B — Multi-Topic learner Case routes
+
+Status: **implemented in draft PR #18; pending review/merge**
+
+Implemented scope:
+
+- any attached active Case Topic can make the Case learner-eligible;
+- selected Topic + active descendants retain existing subtree semantics;
+- Case candidates are deduplicated by ID before random selection;
+- one Study Concept is selected deterministically per candidate using exact route, primary-in-subtree, deepest secondary, then stable tie-break precedence;
+- reusable Topic questions come from the Study Concept and its inheritable ancestors only;
+- the canonical/default Topic does not leak reusable questions into another Study route;
+- Reviews store both canonical `primary_concept_id` and route-specific `study_concept_id`;
+- historical Reviews backfill `study_concept_id = primary_concept_id`;
+- existing single-Topic and stimulus behavior remains regression-covered.
+
+Explicitly not implemented in PR #18:
+
+- Admin add/remove secondary Topic UI;
+- Topic chips/default selector;
+- `asset_concepts` or `stimulus_option_concepts`;
+- Asset-owned questions;
+- finding ontology;
+- Deck / Collection;
+- AI classification / Anki auto-tagging;
+- FSRS or new progress dashboards.
+
+---
+
 ## Milestone 8 — Learner accounts and role-boundary acceptance
 
-Status: **planned after stimulus-group/pilot-content friction work**
+Status: **planned after current content-model/Admin multi-Topic work**
 
 Implement the smallest administrator learner-account workflow, then verify:
 
@@ -328,10 +395,15 @@ Avoid sophisticated analytics initially.
 
 ## Later/deferred work
 
-Do not pull these into the focused stimulus-group implementation unless real use proves they are required:
+Do not pull these into the focused multi-Topic implementation unless real use proves they are required:
 
+- `asset_concepts`;
+- `stimulus_option_concepts`;
+- Asset-owned questions;
+- finding ontology;
+- Deck / Collection;
 - FSRS or scheduling controls;
-- bulk Anki import automation;
+- bulk Anki import automation / auto-tagging;
 - selecting more than one option from a single stimulus group;
 - broad non-image upload types;
 - rich WYSIWYG editing;
@@ -339,21 +411,21 @@ Do not pull these into the focused stimulus-group implementation unless real use
 - bulk permanent deletion;
 - AI content generation/classification;
 - complex organisations/roles;
-- advanced analytics;
+- advanced analytics/new progress dashboards;
 - structured marking points/marks;
-- sophisticated Concept hierarchy editor;
-- broad secondary-Concept management.
+- sophisticated Concept hierarchy editor.
 
 ---
 
 ## Current recommended sequence
 
-1. **Implement the focused optional stimulus-group extension** from `STIMULUS_GROUPS_DESIGN.md`.
-2. Continue representative pilot content entry, including hypercalcaemia/multiple-myeloma ECG + X-ray examples.
-3. Fix concrete Admin/content-model friction discovered during entry.
-4. Implement learner-account administration + role-boundary acceptance.
-5. Implement basic learner-progress administration.
-6. Reassess FSRS/import/analytics/structured marks/hierarchy tooling later.
+1. **Finish validation/review of draft PR #18 — multi-Topic learner routing + provenance.**
+2. Implement the separate Admin multi-Topic Case authoring milestone.
+3. Continue representative pilot content entry, including ECG and mixed-modality examples.
+4. Fix concrete Admin/content-model friction discovered during entry.
+5. Implement learner-account administration + role-boundary acceptance.
+6. Implement basic learner-progress administration.
+7. Reassess Asset/Stimulus→Topic, FSRS/import/analytics/structured marks/hierarchy tooling only if real content requires them.
 
 ---
 
@@ -364,6 +436,7 @@ Do not pull these into the focused stimulus-group implementation unless real use
 - Review Asset historical serving currently resolves live Asset state; deactivation semantics may need later work.
 - attribution metadata is not currently snapshotted into Reviews.
 - if structured marks are later introduced, store them structurally rather than parsing `(2)`/`(4)` from strings.
+- do not modify production D1 directly from PR #18.
 
 ---
 

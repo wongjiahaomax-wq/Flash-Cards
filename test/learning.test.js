@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { pickCase } from '../src/lib/server/learning/cases.js';
 import { pickReviewQuestions, resolveQuestionPool } from '../src/lib/server/learning/questions.js';
 
-test('case-specific answers override primary and inherited Concept answers', () => {
+test('case-specific answers override Study Concept and inherited Concept answers', () => {
   const pool = resolveQuestionPool({
     ancestorConceptQuestions: [
       {
@@ -16,7 +16,7 @@ test('case-specific answers override primary and inherited Concept answers', () 
         sourceConceptId: 'stemi'
       }
     ],
-    primaryConceptQuestions: [
+    studyConceptQuestions: [
       {
         questionPromptId: 'diagnosis',
         promptMd: 'What is the diagnosis?',
@@ -77,7 +77,7 @@ test('non-inheritable and inactive questions are excluded', () => {
         distance: 1
       }
     ],
-    primaryConceptQuestions: [
+    studyConceptQuestions: [
       {
         questionPromptId: 'inactive',
         promptMd: 'Inactive question',
