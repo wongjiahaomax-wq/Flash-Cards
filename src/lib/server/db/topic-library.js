@@ -1,4 +1,4 @@
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 
 import {
   caseConcepts,
@@ -101,7 +101,7 @@ export async function getTopicDetail(db, conceptId) {
   const [caseRows, questionRows] = await Promise.all([
     db
       .select({
-        caseId: cases.id,
+        caseId: sql.raw('"cases"."id"').as('case_id'),
         caseTitle: cases.title,
         caseIsActive: cases.isActive
       })
@@ -111,13 +111,13 @@ export async function getTopicDetail(db, conceptId) {
       .orderBy(asc(cases.title), asc(cases.id)),
     db
       .select({
-        usageId: conceptQuestions.id,
-        promptId: questionPrompts.id,
+        usageId: sql.raw('"concept_questions"."id"').as('usage_id'),
+        promptId: sql.raw('"question_prompts"."id"').as('prompt_id'),
         promptMd: questionPrompts.promptMd,
         promptIsActive: questionPrompts.isActive,
         answerMd: conceptQuestions.answerMd,
         inheritToDescendants: conceptQuestions.inheritToDescendants,
-        usageIsActive: conceptQuestions.isActive
+        usageIsActive: sql.raw('"concept_questions"."is_active"').as('usage_is_active')
       })
       .from(conceptQuestions)
       .innerJoin(questionPrompts, eq(questionPrompts.id, conceptQuestions.questionPromptId))
