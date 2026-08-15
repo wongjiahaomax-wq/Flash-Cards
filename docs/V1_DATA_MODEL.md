@@ -6,7 +6,7 @@ This document records the implemented V1 application data model. It complements 
 
 The schema is implemented with Drizzle using the SQLite/D1 dialect and version-controlled migrations.
 
-Migration `0002_optional_stimulus_groups.sql` adds the reviewed optional-stimulus extension. Draft PR #18 adds `0003_multi_topic_study_routing.sql`, which adds Review Study-Concept provenance without changing `case_concepts` or the stimulus-group schema.
+Migration `0002_optional_stimulus_groups.sql` adds the reviewed optional-stimulus extension. Merged PR #18 adds `0003_multi_topic_study_routing.sql`, which adds Review Study-Concept provenance without changing `case_concepts` or the stimulus-group schema.
 
 ## 1. Design rules
 
@@ -93,7 +93,15 @@ V1 invariant and learner meaning after PR #18:
 - both primary and secondary relationships may make a Case learner-eligible;
 - exactly one attached **Study Concept** is resolved for each Review route and supplies the reusable Concept Questions for that Review.
 
-Changing the default Topic must not silently erase other attached Case Topic routes. Full Admin multi-Topic add/remove authoring remains a separate follow-up milestone.
+Changing the default Topic must not silently erase other attached Case Topic routes. Admin authoring now supports add/remove secondary Study Topics and promotion/demotion on the Case editor. A primary cannot be removed without establishing another active primary first.
+
+Admin relationship invariants for active Cases:
+
+- exactly one `primary` relationship exists;
+- the primary Topic is represented by an active relationship and is selectable as the canonical/default Topic;
+- each Topic appears at most once for a Case;
+- secondary relationships are learner-routing Study Topics, not generic tags;
+- inactive existing relationships remain visible for safe historical editing, but inactive Topics are not offered for new attachments.
 
 The exactly-one-primary rule may be enforced in application logic if a portable database constraint would add unnecessary complexity.
 
@@ -447,4 +455,4 @@ Do not add these until required by real behaviour:
 - arbitrary structured laboratory stimuli;
 - answer alternatives/automated marking structures.
 
-The next multi-Topic milestone is Admin authoring for multiple attached Case Topics. Asset/Stimulus→Topic routing remains deliberately deferred unless representative content proves that Case-level Topic validity is insufficient.
+Asset/Stimulus→Topic routing remains deliberately deferred unless representative content proves that Case-level Topic validity is insufficient.

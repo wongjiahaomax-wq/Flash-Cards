@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, like } from 'drizzle-orm';
 
 import { assets, caseAssets, caseConcepts, cases, concepts, stimulusGroupOptions, stimulusGroups } from './schema.js';
+import { listCaseTopics } from './admin-content.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -89,6 +90,8 @@ export async function getAdminCaseData(db, caseId) {
   const selectedCase = caseRows.find((item) => item.id === caseId);
   if (!selectedCase) return null;
   const settings = (await db.select({ questionSelectionMode: cases.questionSelectionMode, questionCount: cases.questionCount }).from(cases).where(eq(cases.id, caseId)).limit(1))[0];
+  const topics = await listCaseTopics(db, caseId);
+  const primaryTopic = topics.find((topic) => topic.role === 'primary');
 
   const attached = await attachedRows(db, caseId);
   const attachedIds = new Set(attached.map((asset) => asset.assetId));
@@ -116,7 +119,13 @@ export async function getAdminCaseData(db, caseId) {
     .orderBy(desc(assets.createdAt));
 
   return {
-    case: { ...selectedCase, ...settings },
+    case: {
+      ...selectedCase,
+      ...settings,
+      conceptId: primaryTopic?.id ?? selectedCase.conceptId ?? null,
+      conceptName: primaryTopic?.name ?? selectedCase.conceptName ?? null
+    },
+    topics,
     attached,
     available: available.filter((asset) => !attachedIds.has(asset.assetId) && !groupedIds.has(asset.assetId))
   };

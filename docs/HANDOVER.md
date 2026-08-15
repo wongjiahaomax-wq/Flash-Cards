@@ -4,7 +4,7 @@ _Refreshed: 15 August 2026_
 
 ## Current outcome
 
-The project has a working end-to-end V1 learner vertical slice, a first-pass Admin CMS, the optional alternative-stimulus content model, and the first multi-Topic learner-routing milestone implemented in draft PR #18.
+The project has a working end-to-end V1 learner vertical slice, a first-pass Admin CMS, the optional alternative-stimulus content model, and the merged multi-Topic learner-routing milestone from PR #18.
 
 Recent merged milestones:
 
@@ -20,15 +20,13 @@ PR #14 — optional alternative stimulus groups
 PR #17 — multi-Topic Case study-route architecture documentation
 ```
 
-Current implementation PR:
+Recent multi-Topic learner-routing milestone:
 
 ```text
-PR #18 — Add multi-Topic learner study routing
-branch: agent/multi-topic-study-routing
-draft: yes
+PR #18 — Add multi-Topic learner study routing — merged and deployed
 ```
 
-Do not merge PR #18 without green CI and normal review.
+The next milestone is Admin authoring for the existing multi-Topic Case relationship model, plus a separate manual production taxonomy operator.
 
 Important later `main` work includes deployment of reviewed D1 migrations and CI configuration that runs on pull requests.
 
@@ -50,6 +48,7 @@ docs/MULTI_TOPIC_STUDY_ROUTES.md
 docs/STIMULUS_GROUPS_DESIGN.md
 docs/CONTENT_MODEL_EXAMPLES.md
 docs/V1_DATA_MODEL.md
+docs/AGREED_PRODUCTION_TAXONOMY_OPERATOR.md
 ```
 
 The product-facing hierarchy is:
@@ -64,7 +63,7 @@ A **Topic** is the administrator-facing name for the existing Concept model. Do 
 
 A **Case** is one coherent clinical presentation. Different stems, causes, findings, or educational intent should normally be separate Cases even when they belong to the same Topic.
 
-A Case may now have multiple attached Topics through the existing `case_concepts` relationship. One Topic remains `primary` as the canonical/default administrative classification; attached `secondary` Topics are additional learner routes. The full Admin UI for adding/removing those additional Topics is still a separate follow-up milestone.
+A Case may have multiple attached Topics through the existing `case_concepts` relationship. One Topic remains `primary` as the canonical/default administrative classification; attached `secondary` Topics are additional learner routes. The Admin Case editor now exposes these relationships and supports add, remove, primary change, and secondary promotion while preserving valid routes.
 
 A **stimulus** is what the learner sees within that Case. Fixed images appear in every Review of the Case. Alternative image sets are used when the Case remains the same but an example image may vary between attempts.
 
@@ -110,7 +109,7 @@ The existing Case/Topic relationship already supports this hierarchy and multi-T
 
 ## Current branch / PR
 
-`agent/multi-topic-study-routing` / draft PR #18 implements the first learner-facing multi-Topic Case milestone documented in `MULTI_TOPIC_STUDY_ROUTES.md`.
+PR #18 implements the first learner-facing multi-Topic Case milestone documented in `MULTI_TOPIC_STUDY_ROUTES.md`. The current follow-up branch adds the missing Admin authoring workflow.
 
 It does:
 
@@ -122,7 +121,7 @@ It does:
 - preserve existing stimulus selection, question coverage, snapshots, and repeat avoidance;
 - make the smallest Admin default-topic safety fix needed to preserve attached Topic routes.
 
-It does **not** implement the Admin multi-Topic add/remove UI or any Asset/Stimulus→Topic relationship.
+It does **not** implement any Asset/Stimulus→Topic relationship.
 
 ---
 
@@ -162,7 +161,7 @@ Implemented:
 - per-set stimulus-specific question coverage;
 - configurable Case question selection: Automatic / all eligible / Choose N.
 
-PR #18 hardens the existing default-topic update so a default change demotes the old primary relationship and promotes/inserts the new one without deleting unrelated attached Topic routes. The actual multi-Topic chips/add/remove authoring workflow is not implemented yet.
+The Case editor now labels the canonical/default Topic separately from Additional Study Topics. It can add active secondary Topics, remove secondary relationships, promote a secondary to primary, and change the primary while preserving the old primary as secondary. Existing inactive relationships remain visible with inactive status.
 
 The underlying implementation continues to use `concepts` and stimulus-group tables, but ordinary Admin language should prefer Topic, Case, fixed image, alternative image, and image-specific question.
 
@@ -239,7 +238,7 @@ Capabilities include:
 - parent Topic and direct-child navigation;
 - inactive/historical relationship visibility for orientation.
 
-The Admin Topics dashboard has not yet been redesigned around multi-Topic Case authoring; that remains the next separate milestone.
+The Admin Topics dashboard remains a taxonomy browsing surface; multi-Topic Case relationship authoring lives on the Case editor.
 
 Sophisticated hierarchy management remains deferred.
 
@@ -335,13 +334,43 @@ Learning-domain schema includes:
 
 Drizzle is used for the learning-domain schema. Better Auth tables remain separate direct-D1 auth tables by design.
 
-Migration `0002_optional_stimulus_groups.sql` implements stimulus groups. Draft PR #18 adds `0003_multi_topic_study_routing.sql`, which conservatively rebuilds `reviews`, adds non-null `study_concept_id`, and backfills historical Reviews with `study_concept_id = primary_concept_id` while preserving Review snapshots.
+Migration `0002_optional_stimulus_groups.sql` implements stimulus groups. PR #18 adds `0003_multi_topic_study_routing.sql`, which conservatively rebuilds `reviews`, adds non-null `study_concept_id`, and backfills historical Reviews with `study_concept_id = primary_concept_id` while preserving Review snapshots.
 
 Do not modify production D1 directly from PR #18.
 
 Do not add a new Topic schema, `asset_concepts`, or `stimulus_option_concepts` solely to implement multi-Topic Case study routes.
 
 `scripts/seed-content.mjs` remains useful for local/tests but must not be run blindly in production because placeholder seed Asset keys do not have corresponding production R2 objects.
+
+### Admin multi-Topic authoring and agreed production taxonomy
+
+The current Admin Case editor maintains these invariants for active Cases:
+
+- exactly one primary/default Topic;
+- every primary Topic is an active `case_concepts` relationship;
+- no duplicate Case↔Topic relationship;
+- secondary Topics are additional learner Study routes, not generic tags;
+- primary changes and secondary promotion preserve the old relationship as secondary;
+- secondary removal never removes the primary relationship;
+- inactive historical Topic relationships remain visible but inactive Topics are not offered for new attachments.
+
+The agreed production example is:
+
+```text
+Electrolyte Disorders
+├── Hypercalcemia
+└── Hypocalcemia
+
+Cardiology
+└── ECG Findings
+    ├── Short QTc
+    └── Prolonged QTc
+
+Hypercalcemia Case: primary Hypercalcemia, secondary Short QTc
+Hypocalcemia Case: primary Hypocalcemia, secondary Prolonged QTc
+```
+
+Apply this production change only through the manually triggered `.github/workflows/apply-agreed-production-taxonomy.yml` workflow. It invokes `scripts/apply-agreed-taxonomy.mjs`, which performs a fixed pre-flight read, an idempotent transactional update when explicitly approved, and a post-flight read-back. It requires the separate least-privilege `CLOUDFLARE_D1_WRITE_TOKEN`; never broaden `CLOUDFLARE_D1_READ_TOKEN`. For recovery, stop after a failed pre-flight or verification, inspect the read-back, and restore the prior two Case relationships and Topic parents through a reviewed operator change—never by adding free-form SQL to Actions.
 
 ---
 
@@ -412,7 +441,6 @@ Workers subdomain: `mmed-fm-flashcardstest.workers.dev`
 
 ## Known technical debt / deferred work
 
-- full Admin add/remove secondary Topic UI and Topic chips/default selector;
 - Asset/Stimulus→Topic routing remains deliberately deferred unless real content proves it necessary;
 - Review Asset historical serving currently depends on live Asset resolution; deactivation semantics may need later refinement;
 - attribution metadata is live rather than snapshotted;

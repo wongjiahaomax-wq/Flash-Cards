@@ -12,9 +12,10 @@ The project now has:
 - browser content administration;
 - a complete first-pass Admin CMS for Cases, Questions, Images, and Topics;
 - implemented optional alternative stimulus groups;
-- the first multi-Topic learner-routing milestone implemented in draft PR #18.
+- the merged multi-Topic learner-routing milestone from PR #18;
+- Admin multi-Topic Case authoring on top of the existing `case_concepts` model.
 
-The current implementation priority is to finish validation/review of **multi-Topic learner Case routing**, followed by the separate Admin multi-Topic authoring milestone and continued pilot content entry.
+The current implementation priority is focused validation of Admin multi-Topic authoring and the manual production taxonomy operator, followed by continued pilot content entry.
 
 For detailed decisions, also read:
 
@@ -63,7 +64,7 @@ Completed:
 
 ## Milestone 2 — D1 + Drizzle learning-domain model
 
-Status: **complete for the current V1 slice; multi-Topic Review provenance added in draft PR #18**
+Status: **complete for the current V1 slice; multi-Topic Review provenance is merged from PR #18**
 
 Implemented:
 
@@ -84,7 +85,7 @@ Better Auth tables remain separate from the Drizzle learning-domain schema by de
 
 Do not run `scripts/seed-content.mjs` blindly against production because placeholder seed Asset keys do not correspond to production R2 objects.
 
-Migration `0002_optional_stimulus_groups.sql` is implemented. Draft PR #18 adds the smallest additive multi-Topic provenance change, `reviews.study_concept_id`, through `0003_multi_topic_study_routing.sql`; it does not add a new Case↔Topic, Asset→Topic, or stimulus-option→Topic table.
+Migration `0002_optional_stimulus_groups.sql` is implemented. PR #18 adds the smallest additive multi-Topic provenance change, `reviews.study_concept_id`, through `0003_multi_topic_study_routing.sql`; it does not add a new Case↔Topic, Asset→Topic, or stimulus-option→Topic table.
 
 ---
 
@@ -115,7 +116,7 @@ Remaining, intentionally after the current content-model milestone:
 
 ## Milestone 4 — Core learner Study flow
 
-Status: **complete for the current V1 vertical slice and extended for multi-Topic routing in draft PR #18**
+Status: **complete for the current V1 vertical slice and extended for multi-Topic routing in merged PR #18**
 
 Completed:
 
@@ -175,7 +176,7 @@ Stimulus grouping and multi-Topic routing must not rename, copy, move, or otherw
 
 ## Milestone 6 — Browser content administration / Admin CMS
 
-Status: **complete for current V1 phase; multi-Topic Case authoring remains a separate follow-up**
+Status: **complete for current V1 phase; multi-Topic Case authoring is implemented in the current milestone**
 
 ### PR #9 — first browser content vertical slice
 
@@ -239,18 +240,18 @@ Status: **merged**
 
 Implemented the current alternative-stimulus authoring model, group/option contextual questions, coverage controls, and Review stimulus provenance.
 
-### Next Admin milestone — multi-Topic Case authoring
-
-Planned after PR #18:
+### Multi-Topic Case authoring
 
 ```text
-Topics
-[ Hypocalcaemia ] Default
-[ Prolonged QTc ]
-[ + Add Topic ]
+Primary/default Topic
+[ Hypercalcemia ▼ ]
+
+Additional Study Topics
+[ Short QTc ]  [Make primary] [Remove]
+[ Add Topic ]
 ```
 
-PR #18 does not build this UI. It only hardens the existing default-Topic update path so changing the default preserves existing attached Topic routes and can promote an already-attached secondary Topic safely.
+The Case editor now provides separate Primary/default Topic and Additional Study Topics sections. It supports active secondary add/remove, secondary promotion, primary change with old-primary preservation, inactive relationship display, duplicate prevention, and exactly-one-primary validation. The learner route/provenance contract remains unchanged: the selected attached Topic is the Study Concept, while the canonical primary remains Review primary provenance.
 
 Topic hierarchy editing remains deliberately deferred.
 
@@ -338,7 +339,7 @@ Implemented in migration `0002_optional_stimulus_groups.sql` and the existing Ca
 
 ## Milestone 7B — Multi-Topic learner Case routes
 
-Status: **implemented in draft PR #18; pending review/merge**
+Status: **implemented and merged in PR #18**
 
 Implemented scope:
 
@@ -352,9 +353,9 @@ Implemented scope:
 - historical Reviews backfill `study_concept_id = primary_concept_id`;
 - existing single-Topic and stimulus behavior remains regression-covered.
 
-Explicitly not implemented in PR #18:
+Explicitly not implemented in the current V1 model:
 
-- Admin add/remove secondary Topic UI;
+- production taxonomy mutation during deployment;
 - Topic chips/default selector;
 - `asset_concepts` or `stimulus_option_concepts`;
 - Asset-owned questions;
@@ -419,8 +420,8 @@ Do not pull these into the focused multi-Topic implementation unless real use pr
 
 ## Current recommended sequence
 
-1. **Finish validation/review of draft PR #18 — multi-Topic learner routing + provenance.**
-2. Implement the separate Admin multi-Topic Case authoring milestone.
+1. **Review and merge the Admin multi-Topic Case authoring and operator milestone.**
+2. Apply the agreed production taxonomy manually after merge using the dedicated operator workflow.
 3. Continue representative pilot content entry, including ECG and mixed-modality examples.
 4. Fix concrete Admin/content-model friction discovered during entry.
 5. Implement learner-account administration + role-boundary acceptance.
