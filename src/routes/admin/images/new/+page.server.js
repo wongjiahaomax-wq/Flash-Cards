@@ -32,16 +32,16 @@ export const actions = {
       return fail(400, { error: 'Choose a JPEG or PNG image to upload.' });
     }
 
-    /** @type {Awaited<ReturnType<typeof createAssetFromUpload>>} */
-    let created;
+    let createdAssetId = '';
     try {
-      created = await createAssetFromUpload(createDb(platform.env.DB), platform.env.MEDIA, imageValue, {
+      const created = await createAssetFromUpload(createDb(platform.env.DB), platform.env.MEDIA, imageValue, {
         originalFilename: formText(formData, 'image_name'),
         altText: formText(formData, 'alt_text'),
         sourceLabel: formText(formData, 'source_label'),
         sourceUrl: formText(formData, 'source_url'),
         licence: formText(formData, 'licence')
       });
+      createdAssetId = created.id;
     } catch (error) {
       const clientError = error instanceof AssetLibraryInputError || error instanceof MediaStorageLimitError;
       if (!clientError) console.error('Teaching image upload failed.', error);
@@ -50,6 +50,6 @@ export const actions = {
       });
     }
 
-    redirect(303, `/admin/images/${encodeURIComponent(created.id)}?status=uploaded`);
+    redirect(303, `/admin/images/${encodeURIComponent(createdAssetId)}?status=uploaded`);
   }
 };
