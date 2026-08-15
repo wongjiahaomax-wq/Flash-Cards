@@ -1,6 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 
-import { caseConcepts, cases, concepts, stimulusGroups } from './schema.js';
+import { caseConcepts, cases, concepts } from './schema.js';
+import { getCaseStimulusCoverageRequirement } from './stimulus-groups.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -42,9 +43,10 @@ function questionSelection(mode, count) {
 /** @param {LearningDb} db @param {string} caseId @param {{ mode: string, count: number | null }} selection */
 async function validateCaseQuestionCoverage(db, caseId, selection) {
   if (selection.mode !== 'fixed' || !selection.count) return;
-  const groups = await db.select({ mode: stimulusGroups.specificQuestionMode, minimum: stimulusGroups.minimumSpecificQuestions }).from(stimulusGroups).where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroups.isActive, true)));
-  const minimumTotal = groups.reduce((total, group) => total + (group.mode === 'minimum' ? group.minimum ?? 0 : 0), 0);
-  if (minimumTotal > selection.count) throw new AdminContentInputError(`This Case needs at least ${minimumTotal} questions to satisfy its active Stimulus Group guarantees, but Choose N is ${selection.count}.`);
+  const requiredTotal = await getCaseStimulusCoverageRequirement(db, caseId);
+  if (requiredTotal > selection.count) {
+    throw new AdminContentInputError(`This Case needs at least ${requiredTotal} questions to satisfy its active Stimulus Group guarantees, but Choose N is ${selection.count}.`);
+  }
 }
 
 /** @param {string} name */
