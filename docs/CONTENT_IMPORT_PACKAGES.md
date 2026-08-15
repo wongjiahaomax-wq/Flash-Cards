@@ -16,7 +16,9 @@ flashcards-import-v1.zip
     └── ...
 ```
 
-The archive may contain only `manifest.json` and media files declared by the manifest under `media/`. Paths are UTF-8, relative, slash-separated, and cannot contain `..`, empty segments, backslashes, absolute prefixes, or executable content. The current limits are 256 entries, 25 MiB compressed, 40 MiB decompressed, and 2 MiB for the manifest. Stored and deflated ZIP entries are supported; encrypted entries, data descriptors, ZIP64, and duplicate paths are rejected.
+The archive may contain only `manifest.json` and media files declared by the manifest under `media/`. Paths are UTF-8, relative, slash-separated, and cannot contain `..`, empty segments, backslashes, absolute prefixes, or executable content. The current limits are 256 entries, 25 MiB compressed, 40 MiB decompressed, and 2 MiB for the manifest. Stored and deflated ZIP entries are supported; encrypted entries, data descriptors, ZIP64, multi-disk archives, duplicate paths, inconsistent local/central metadata, and unexpected trailing ZIP structures are rejected.
+
+The administrator path uses a hardened ZIP preflight before the domain parser. Deflated entries are decompressed as a counted stream during preflight, and processing aborts as soon as an entry exceeds its declared decompressed size. The aggregate declared and verified decompressed sizes must remain within the 40 MiB package limit. This prevents a forged central-directory size from turning the later in-memory parser into an unbounded decompression step.
 
 ## Manifest v1
 
@@ -54,17 +56,21 @@ The supported entry shapes are:
 
 A new Case must declare exactly one primary Topic; secondary Topics are explicit and cannot duplicate it. Question selection is `automatic`, `all`, or `fixed` with a positive `questionCount` only for `fixed`. Assets must provide meaningful alt text. Unknown provenance is represented by null `sourceLabel`, `sourceUrl`, and `licence`; the importer never invents attribution.
 
-`use` and `skip` are the mechanism for known production collisions. A reviewed ECG package can point a Hypocalcemia or Hypercalcemia Case at its known application ID and mark it `use` or `skip`; a title match is never used to identify a Case.
+`use` and `skip` are the mechanism for known production collisions. A reviewed ECG package can point a Hypocalcemia or Hypercalcemia Case at its known application ID and mark it `use` or `skip`; a title match is never used to identify a Case. Reused Case Questions and Topic Questions are also checked against the declared owner and Question Prompt rather than being accepted merely because an application ID exists.
 
 ## Validation and dry run
 
-`/admin/import` is protected by the existing administrator route guard. The preview action parses and validates the complete ZIP without writing D1 or R2. It checks the supported version, strict fields, duplicate package IDs, references, topic relationships, selection configuration, explicit existing IDs and object types, archive safety, decompression limits, declared media, MIME/magic-byte agreement, JPEG/PNG support, and the existing 5 MiB per-image limit.
+`/admin/import` is protected by the existing administrator route guard. The preview action parses and validates the complete ZIP without writing D1 or R2. It checks the supported version, strict fields, duplicate package IDs, references, topic relationships, selection configuration, explicit existing IDs and object types, archive safety, streaming decompression bounds, declared media, MIME/magic-byte agreement, JPEG/PNG support, and the existing 5 MiB per-image limit.
+
+The dry run also checks constraints that would otherwise fail only during the D1 batch: duplicate Topic slugs, duplicate Case/Asset display positions, duplicate Case/Prompt and Topic/Prompt create relationships, conflicting existing display positions, deterministic Asset storage-key identity, and existing Topic slug/storage-key collisions. Topic parent cycles fail closed without entering recursive core validation. Newly created Topics are ordered parent-first before the D1 batch so a child cannot be inserted before a newly created parent.
 
 The preview reports Topic create/use/skip counts, Case create/use/skip counts, images, prompts, Case Questions, Topic Questions, Case↔Topic links, and Case↔Asset links. Validation errors fail closed and are shown to the administrator.
 
 ## Import safety and repeat submission
 
-The administrator must select the package again and check an explicit confirmation box. Validation runs again immediately before writes. New object IDs and R2 keys are deterministic for package-local identifiers, so an intentional retry sees matching existing objects and does not duplicate them. A mismatching row at a deterministic ID is a conflict and stops the import. Explicit `use`/`skip` IDs are checked for existence and expected table type.
+A successful preview records a short-lived, HttpOnly SHA-256 digest marker for the exact ZIP that was reviewed. The administrator must select the package again and check an explicit confirmation box. The confirm action hashes the submitted bytes and refuses the import unless they match the most recent successful preview. The preview marker is consumed before validation/writes, so every import attempt requires a fresh matching preview.
+
+Validation runs again immediately before writes. New object IDs and R2 keys are deterministic for package-local identifiers, so an intentional retry after a fresh preview sees matching existing objects and does not duplicate them. A mismatching row at a deterministic ID is a conflict and stops the import. Deterministic Asset retries include the expected R2 `storageKey`, not only the metadata columns. Explicit `use`/`skip` IDs are checked for existence and expected table type, and Question relationship IDs must identify the declared owner/prompt pair.
 
 The importer uses the existing `concepts`, `cases`, `assets`, relationship, and question tables. It does not overwrite an existing row, infer relationships, add a migration, or create an Anki schema.
 
@@ -72,7 +78,7 @@ The importer uses the existing `concepts`, `cases`, `assets`, relationship, and 
 
 Images are uploaded only through `putTeachingImage()` in `storage/media.js`, preserving JPEG/PNG checks, the 5 MiB image limit, the managed 5 GiB quota, Standard storage, and immutable keys. If any D1 operation fails after an upload, the importer attempts to delete the objects uploaded by that submission. Cleanup failures are logged and must be investigated before retrying. D1 batches are used where available; this is transactional for the D1 portion on Cloudflare, but R2 and D1 cannot be claimed as one atomic transaction.
 
-The result reports the package ID, uploaded image count, and database operation count. A failed import is not described as fully rolled back. Retry only after checking the result and any cleanup warning; deterministic conflict checks prevent blind duplication.
+The result reports the package ID, uploaded image count, and database operation count. A failed import is not described as fully rolled back. Before retrying, review the failure/cleanup result and run a fresh dry-run preview of the same reviewed ZIP. Deterministic conflict checks prevent blind duplication.
 
 ## Preparing a package with external tooling
 
@@ -85,7 +91,8 @@ The tool must not copy arbitrary Anki fields into the manifest or ask the import
 1. Open **Admin → Import package**.
 2. Select the reviewed ZIP and run **Validate and preview**.
 3. Resolve every validation error and review the counts.
-4. Select the package again, check the confirmation box, and submit **Import reviewed package**.
-5. Review the result and any R2/D1 failure message before retrying.
+4. Within the preview window, select the exact same ZIP again, check the confirmation box, and submit **Import reviewed package**.
+5. If the file differs from the previewed bytes, the import is rejected before parsing/writes.
+6. Review the result and any R2/D1 failure message. Run a fresh preview before any retry.
 
 The feature does not import into production during tests. There is no general rollback command because D1/R2 cannot be atomically reversed. Recovery is by reviewed, explicit deactivation or corrective authoring, plus safe R2 cleanup for an orphaned object where necessary. Never use ad-hoc SQL or a raw Wrangler R2 shortcut.
