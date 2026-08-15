@@ -4,15 +4,15 @@ _Last updated: 15 August 2026_
 
 This document describes the preferred administrator mental model for entering and refining teaching content.
 
-The database retains the existing `concepts`, `cases`, `stimulus_groups`, `stimulus_group_options`, and contextual question tables. **No schema migration is required for this authoring model.**
-
-The product-facing hierarchy is:
+The product-facing hierarchy remains:
 
 ```text
 Topic
 └── Case
     └── Stimulus / alternative stimulus
 ```
+
+A Case may now be planned to belong to more than one Topic as an alternate learner study route. The database already supports primary and secondary Concept relationships through `case_concepts`; the agreed design is documented in `MULTI_TOPIC_STUDY_ROUTES.md`.
 
 Questions should be attached at the highest level where the prompt and answer remain valid.
 
@@ -22,23 +22,28 @@ Questions should be attached at the highest level where the prompt and answer re
 
 A Topic is the administrator-facing name for the existing Concept model.
 
-Example:
-
-```text
-Topic: Hypocalcaemia
-```
-
-A Topic can own reusable questions whose answers remain correct across several different clinical presentations.
+Topics do not have to be diseases. They may also be clinically meaningful examinable findings or interpretations.
 
 Examples:
 
 ```text
-How is severe symptomatic hypocalcaemia treated?
-What symptoms can hypocalcaemia cause?
-What ECG interval abnormality is associated with hypocalcaemia?
+Hypocalcaemia
+Prolonged QTc
+Anterior STEMI
+Lytic bone lesions
 ```
 
-The underlying `concept_questions` relationship remains responsible for these reusable Topic questions.
+A Topic can own reusable questions whose answers remain correct across compatible Cases studied through that Topic.
+
+Examples for `Prolonged QTc`:
+
+```text
+How is QTc assessed?
+What are the causes of prolonged QTc?
+What complications are associated with marked QT prolongation?
+```
+
+The underlying `concept_questions` relationship remains responsible for reusable Topic questions.
 
 Topics may also sit in the existing Concept hierarchy:
 
@@ -56,7 +61,9 @@ The existing `inherit_to_descendants` behaviour remains an advanced reuse mechan
 
 ## 2. Case = one coherent clinical presentation
 
-Cases under the same Topic may have different stems, causes, findings, or educational intent.
+A Case is one coherent clinical scenario/study unit.
+
+Cases may have different stems, causes, findings, or educational intent even when they share a Topic.
 
 Example:
 
@@ -70,7 +77,7 @@ Topic: Hypocalcaemia
     └── Stem: housebound patient with nutritional/risk-factor context
 ```
 
-These should remain separate Cases because the learner-facing clinical context is different even though both test the same Topic.
+These remain separate Cases because their learner-facing clinical contexts differ.
 
 Case questions should be used when the answer depends on that particular presentation.
 
@@ -86,7 +93,79 @@ The existing `case_questions` relationship remains responsible for this layer.
 
 ---
 
-## 3. Stimulus = what the learner happens to see in that Case
+## 3. One Case may have several valid Topics
+
+The agreed next design is to use the existing `case_concepts` relationship more fully.
+
+Example:
+
+```text
+Case: Vitamin-D-deficiency hypocalcaemia with prolonged QTc
+
+Topics:
+- Hypocalcaemia        [Default]
+- Prolonged QTc
+```
+
+The Case is stored once.
+
+The desired learner behaviour is:
+
+```text
+Study Hypocalcaemia
+-> this Case may be selected
+-> Hypocalcaemia reusable Topic questions
+   + Case/stimulus questions
+
+Study Prolonged QTc
+-> the same Case may be selected
+-> Prolonged-QTc reusable Topic questions
+   + the same Case/stimulus questions
+```
+
+Internally, one Topic remains `primary` as the Case's canonical/default administrative classification. Other attached Topics remain `secondary` in storage, but they are intended to become equally valid learner entry routes.
+
+Product-facing Admin language should therefore prefer:
+
+```text
+Topics
+- Hypocalcaemia        [Default]
+- Prolonged QTc
+```
+
+rather than implying that secondary Topics are weak tags.
+
+Changing which attached Topic is the default should not change whether the Case is reachable from the other attached Topics.
+
+### Important validity rule
+
+Attach a Topic to a Case as a study route only when every valid random configuration of that Case remains a legitimate example of that Topic.
+
+> **A learner entering through an attached Topic must never receive a valid stimulus selection that contradicts or fails to demonstrate that Topic.**
+
+Safe example:
+
+```text
+Case: Hypercalcaemia
+Topics:
+- Hypercalcaemia
+- Shortened QTc
+
+Alternative ECGs:
+- ECG A — shortened QTc
+- ECG B — shortened QTc + Osborn waves
+- ECG C — shortened QTc + another incidental feature
+```
+
+`Shortened QTc` is a valid Case Topic because every ECG option demonstrates it.
+
+`Osborn waves` is not a valid Case Topic if only ECG B demonstrates it. That remains an exact-image-specific teaching point.
+
+See `MULTI_TOPIC_STUDY_ROUTES.md` for the full design and the boundary where a future Asset/Stimulus-to-Topic relationship might become justified.
+
+---
+
+## 4. Stimulus = what the learner happens to see in that Case
 
 A Case may have fixed images that should always appear.
 
@@ -100,29 +179,29 @@ Case: Post-thyroidectomy hypocalcaemia
 Alternative ECG images
 ├── ECG A — prolonged QTc
 ├── ECG B — prolonged QTc plus another visible feature
-└── ECG C — another valid tracing
+└── ECG C — another prolonged-QTc tracing
 ```
 
 All of these images belong to the same Case because the clinical presentation and educational intent remain the same.
 
-The existing `stimulus_groups` and `stimulus_group_options` tables already model this behaviour. The first implementation continues to select exactly one active image per active alternative set for each Review.
+The existing `stimulus_groups` and `stimulus_group_options` tables already model this behaviour. The first implementation selects exactly one active image per active alternative set for each Review.
 
 A Case may also contain multiple independent alternative sets, for example one ECG set plus one X-ray set.
 
 ---
 
-## 4. Image-specific questions should describe only what differs
+## 5. Image-specific questions should describe only what differs
 
-Topic and Case questions remain eligible regardless of which alternative image is selected.
+Topic and Case questions remain broader reusable/contextual layers.
 
-Only add an image-specific question when its relevance or answer depends on the exact selected image.
+Only add an exact-image question when its relevance or answer depends on the exact selected image.
 
 Example:
 
 ```text
 Shared Topic/Case questions
-- What is the diagnosis?
-- How would you manage severe symptomatic hypocalcaemia?
+- How is prolonged QTc assessed?
+- What are important causes of QT prolongation?
 
 ECG A-specific
 - Describe this ECG.
@@ -130,16 +209,18 @@ ECG A-specific
 
 ECG B-specific
 - Describe this ECG.
-  -> Sinus rhythm with prolonged QTc and [additional visible feature].
-- What additional ECG feature is present?
-  -> [image-specific answer]
+  -> Sinus rhythm with prolonged QTc and right bundle branch block.
+- What additional conduction abnormality is present?
+  -> Right bundle branch block.
 ```
 
 The existing `stimulus_option_questions` relationship remains responsible for exact-image contextual questions and answer overrides.
 
+Do not add a Case Topic merely because one option contains an incidental finding.
+
 ---
 
-## 5. Group-level questions are useful but advanced
+## 6. Group-level questions are useful but advanced
 
 Sometimes a question is valid for every image in one alternative set but is not appropriate as a general Topic or Case question.
 
@@ -158,7 +239,7 @@ The Admin UI should treat this as an advanced capability rather than requiring a
 
 ---
 
-## 6. Authoring rule: attach a question at the highest valid level
+## 7. Authoring rule: attach a question at the highest valid level
 
 Use this rule when deciding where a question belongs:
 
@@ -166,40 +247,42 @@ Use this rule when deciding where a question belongs:
 
 | Question | Preferred level |
 |---|---|
-| How is severe symptomatic hypocalcaemia treated? | Topic |
+| How is severe symptomatic hypocalcaemia treated? | Topic: Hypocalcaemia |
+| How is QTc assessed? | Topic: Prolonged QTc |
 | What is the likely cause in this patient? | Case |
 | What question applies to every image in this one alternative set? | Alternative set / advanced |
 | Describe this exact ECG. | Specific image |
 | What additional finding is visible on this exact image? | Specific image |
 
-This reduces duplication while preserving the ability to ask precise questions about exact stimuli.
+This reduces duplication while preserving precise stimulus interpretation.
 
 ---
 
-## 7. Preferred Admin workflow
+## 8. Preferred Admin workflow
 
-The common authoring path should expose simple product language rather than database terminology.
-
-```text
-Topics
-└── Hypocalcaemia
-    ├── Shared Topic questions
-    └── Cases
-        ├── Post-thyroidectomy hypocalcaemia
-        └── Vitamin-D-deficiency hypocalcaemia
-```
-
-Inside a Case:
+The common Case authoring path should expose simple product language rather than database terminology.
 
 ```text
 Case details
+
+Topics
+[ Hypocalcaemia ]  Default
+[ Prolonged QTc ]
+[ + Add Topic ]
+
 Case questions
 Images
 Alternative images
 Preview
 ```
 
-For alternatives, the normal workflow should feel like:
+The administrator should be able to change which attached Topic is the default without rebuilding the Case.
+
+Helper guidance should make the validity rule visible:
+
+> Add a Topic when this Case is a valid example of that Topic regardless of which alternative images are selected. Image-only findings that vary between alternatives should remain image-specific questions.
+
+For alternatives, the normal workflow remains:
 
 ```text
 Existing Case image
@@ -208,7 +291,7 @@ Existing Case image
 -> add only questions specific to that image
 ```
 
-The Admin UI may retain advanced controls for:
+Advanced controls may remain available for:
 
 - multiple independent alternative sets;
 - set-level questions;
@@ -216,11 +299,11 @@ The Admin UI may retain advanced controls for:
 - active/inactive options;
 - reordering.
 
-Those controls should not dominate the routine workflow.
+Those controls should not dominate routine content entry.
 
 ---
 
-## 8. Anki and progressive enrichment
+## 9. Anki and progressive enrichment
 
 Imported or manually entered material does not need to arrive perfectly structured.
 
@@ -229,19 +312,24 @@ Recommended workflow:
 1. create/import the Topic and Case normally;
 2. preserve existing questions at Topic or Case level where appropriate;
 3. attach images as ordinary Case images;
-4. when multiple images are later recognized as interchangeable, convert them into alternatives;
-5. add image-specific questions only for genuine differences.
+4. attach additional Case Topics later when a useful alternate study route becomes obvious;
+5. when multiple images are later recognized as interchangeable, convert them into alternatives;
+6. add image-specific questions only for genuine differences.
 
-This keeps stimulus structure an emergent property of real content rather than an import prerequisite.
+This keeps both multi-Topic routing and stimulus structure as progressive enrichment rather than import prerequisites.
 
 ---
 
-## 9. Learner composition
+## 10. Learner composition
 
-For a Review of one selected Case and one selected alternative image, the eligible pool is conceptually:
+The currently implemented learner resolver still uses only the Case's primary Topic. The planned multi-Topic extension changes that behaviour.
+
+For a future Review entered through a selected study Topic, the eligible pool should conceptually be:
 
 ```text
-Topic questions
+selected study Topic questions
++
+eligible ancestors of that selected study Topic
 +
 Case questions
 +
@@ -250,26 +338,28 @@ Alternative-set questions, if any
 Selected-image questions
 ```
 
+Do not combine reusable Topic questions from every Topic attached to the Case.
+
 More specific contextual relationships continue to win when the same reusable Question Prompt is present at several levels.
 
-The existing precedence remains:
+Planned precedence:
 
 ```text
 selected stimulus option
 > stimulus group
 > Case
-> primary Topic/Concept
-> nearest inheritable ancestor Topic/Concept
+> selected study Topic/Concept
+> nearest inheritable ancestor of selected study Topic
 > more distant eligible ancestor
 ```
 
-The selected Case, selected stimuli, prompts, answers, and provenance continue to be snapshotted into the Review.
+The selected Case, selected study route, selected stimuli, prompts, answers, and provenance should be snapshotted into the Review.
 
 ---
 
-## 10. Schema decision
+## 11. Schema decision
 
-Do **not** add a separate `topics` table for this model.
+Do **not** add a separate `topics` table.
 
 The existing `concepts` table already provides:
 
@@ -279,6 +369,8 @@ The existing `concepts` table already provides:
 - Case membership through `case_concepts`;
 - primary and secondary Topic relationships.
 
-Creating parallel `topics` and `concepts` entities would make ownership and inheritance ambiguous.
+Do **not** add `asset_concepts` or `stimulus_option_concepts` for the next milestone.
 
-Future schema changes should be driven by a distinct requirement such as curriculum collections, manual Case ordering within a Topic, or Topic-specific learner settings—not by the Topic → Case → Stimulus hierarchy itself.
+First implement multi-Topic Case study routes using existing `case_concepts`. Reconsider stimulus-level Topic relationships only if real content repeatedly needs a Case to be eligible for a Topic only when a particular stimulus option is selected.
+
+A future Collection/Deck entity remains separate from clinically meaningful Topics and should be driven by curriculum needs such as `Family Medicine ECGs` or `Final Exam Revision`, not by this Case-routing requirement.
