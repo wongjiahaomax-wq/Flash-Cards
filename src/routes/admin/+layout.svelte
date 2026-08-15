@@ -24,6 +24,7 @@
       <a href="/admin/questions">Questions</a>
       <a href="/admin/images">Images</a>
       <a href="/admin/topics">Topics</a>
+      <a href="/admin/import">Import package</a>
     </aside>
 
     <main class="admin-content">{@render children()}</main>

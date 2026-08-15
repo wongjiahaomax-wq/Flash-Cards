@@ -1,5 +1,7 @@
 # Flash-Cards — V1 Implementation Plan
 
+The Admin phase also includes the reviewed Flash-Cards Import Package v1 workflow at `/admin/import`. It is documented separately in `docs/CONTENT_IMPORT_PACKAGES.md`; this route is an import mechanism only, not an Anki interpreter or ECG content migration.
+
 _Last updated: 15 August 2026_
 
 This document tracks implementation progress against `V1_SPEC.md` and `V1_DATA_MODEL.md`.
