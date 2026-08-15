@@ -4,7 +4,7 @@ _Refreshed: 15 August 2026_
 
 ## Current outcome
 
-The project has a working end-to-end V1 learner vertical slice and a complete first-pass Admin CMS.
+The project has a working end-to-end V1 learner vertical slice, a first-pass Admin CMS, and the optional alternative-stimulus content model.
 
 Recent merged milestones:
 
@@ -16,18 +16,10 @@ PR #10 — Admin shell + Case management redesign
 PR #11 — Questions Library
 PR #12 — Image/Asset Library
 PR #13 — Topics dashboard
+PR #14 — optional alternative stimulus groups
 ```
 
-Key merge commits:
-
-```text
-PR #10 21f349b4869f59a8bccbf440437ce67088776b58
-PR #11 b78e7c9c0af4b4024adb3e5d373aef8631482914
-PR #12 e1af88633f67b9a4bca1778684664b863fe62adb
-PR #13 02853083518d0228e8aaffa9c7566822e6c8d7c5
-```
-
-A later Image Library refinement on `main` added Topic filtering, deterministic sorting, added-date display, and compact Topic context.
+Important later `main` work includes deployment of PR #14's D1 migration and CI configuration that runs on pull requests.
 
 The production Worker is:
 
@@ -37,52 +29,94 @@ Do not assume every newest `main` commit is deployed unless deployment is explic
 
 ---
 
-## Current next phase
+## Current authoring model
 
-Pilot-content modelling has identified a concrete content-model requirement that should now be implemented before larger content entry:
-
-**optional alternative stimulus groups with stimulus-specific contextual questions/answers.**
-
-Read:
+Read first:
 
 ```text
+docs/AUTHORING_MODEL.md
 docs/STIMULUS_GROUPS_DESIGN.md
 docs/CONTENT_MODEL_EXAMPLES.md
 docs/V1_DATA_MODEL.md
-docs/IMPLEMENTATION_PLAN.md
 ```
 
-The key principle is:
-
-> Stimulus grouping is an optional, emergent enrichment of ordinary Case content. It must not become a prerequisite for Anki import or routine Case entry.
-
-A Case can remain simple:
+The product-facing hierarchy is:
 
 ```text
-Case + fixed Assets + Case/Concept questions
+Topic
+└── Case
+    └── Stimulus / alternative stimulus
 ```
 
-When real content shows that several stimuli are interchangeable, an administrator can group them later.
+A **Topic** is the administrator-facing name for the existing Concept model. Do not add a parallel `topics` table for this hierarchy.
 
-Concrete motivating examples:
+A **Case** is one coherent clinical presentation. Different stems, causes, findings, or educational intent should normally be separate Cases even when they belong to the same Topic.
 
-- Hypercalcaemia Case with several shortened-QTc ECGs, where some tracings have additional findings such as Osborn waves;
-- Multiple myeloma with hypercalcaemia, where a Review may select one ECG from an ECG group plus one X-ray from an independent X-ray group.
+A **stimulus** is what the learner sees within that Case. Fixed images appear in every Review of the Case. Alternative image sets are used when the Case remains the same but an example image may vary between attempts.
 
-After this focused model extension:
+Question-placement rule:
 
-1. continue representative pilot content entry;
-2. fix concrete Admin friction exposed by real use;
-3. implement the smallest learner-account administration workflow;
-4. verify learner role boundaries;
-5. implement basic learner-progress administration;
-6. only later reassess FSRS, bulk Anki import automation, richer analytics, structured marks, or advanced hierarchy tools.
+> Attach a question at the highest level where its answer remains correct.
+
+The contextual layers are:
+
+```text
+Topic question
+    ↓
+Case question
+    ↓
+Alternative-set question (advanced)
+    ↓
+Exact-image question
+```
+
+Example:
+
+```text
+Topic: Hypocalcaemia
+
+├── shared Topic questions
+│
+├── Case: Post-thyroidectomy hypocalcaemia
+│   ├── distinct stem
+│   ├── Case questions
+│   └── alternative ECG images
+│       ├── ECG A + exact-image questions
+│       └── ECG B + exact-image questions
+│
+└── Case: Vitamin-D-deficiency hypocalcaemia
+    ├── different stem
+    ├── different contextual questions
+    └── its own stimuli
+```
+
+No schema migration is required for this hierarchy. Existing tables already provide Topics/Concepts, Case membership, contextual questions, stimulus groups/options, and Review provenance.
+
+---
+
+## Current branch / PR after PR #14
+
+`agent/topic-case-stimulus-authoring` / draft PR #16 is a focused Admin authoring-UX refinement.
+
+It does **not** change schema or learner selection behaviour.
+
+Its purpose is to:
+
+- make Topic the normal administrator-facing term for Concept;
+- explain Topic → Case relationships more clearly;
+- provide a direct Topic-detail path to create another Case in that Topic;
+- present Case questions, fixed images, and alternative images as the common authoring layers;
+- move stimulus-group coverage and group-wide questions behind advanced controls;
+- label option-level questions as exact-image-specific questions;
+- document the authoring model explicitly.
+
+Do not merge PR #16 without green CI and normal review.
 
 ---
 
 ## Admin product state
 
-Primary navigation is live:
+Primary navigation:
 
 ```text
 Dashboard · Cases · Questions · Images · Topics
@@ -102,13 +136,20 @@ Implemented:
 - Case question add/edit/remove/reorder;
 - optional save-as-reusable Topic question;
 - image upload through the protected R2 pipeline;
-- clipboard paste, drag/drop, and file picker;
+- clipboard paste, drag/drop, and file picker where supported by the existing upload surfaces;
 - attach existing Assets without re-upload;
 - Asset reorder/detach;
 - Case-specific captions;
-- learner Study preview.
+- learner Study preview;
+- optional alternative image sets;
+- convert a fixed Case image into an alternative option;
+- add/deactivate/reorder alternative options;
+- exact-image contextual questions;
+- alternative-set contextual questions;
+- per-set stimulus-specific question coverage;
+- configurable Case question selection: Automatic / all eligible / Choose N.
 
-The next stimulus-group milestone should extend the existing Case editor rather than creating a parallel content-management surface.
+The underlying implementation continues to use `concepts` and stimulus-group tables, but ordinary Admin language should prefer Topic, Case, fixed image, alternative image, and image-specific question.
 
 ### Questions Library
 
@@ -121,31 +162,17 @@ Implemented:
 
 Capabilities include:
 
-- search Question Prompt and current active Case/Concept answer text;
+- search Question Prompt and current active contextual answer text;
 - Topic/scope filtering;
 - current active usage counts;
-- Case and Concept usage inspection;
+- Case and Concept/Topic usage inspection;
 - context-specific answers;
-- inherited Concept-question state;
+- inherited Topic-question state;
 - Case editor links;
 - blast-radius display and explicit confirmation before editing a reused shared prompt;
 - stale-usage protection using a consistent definition of active usage.
 
-Current active Case usage requires:
-
-- `question_prompts.is_active`;
-- `case_questions.is_active`;
-- `cases.is_active`.
-
-Current active Concept usage requires:
-
-- `question_prompts.is_active`;
-- `concept_questions.is_active`;
-- `concepts.is_active`.
-
-Inactive/historical usages may still appear on detail pages for inspection but do not inflate current active counts.
-
-Stimulus-specific questions should extend the existing reusable-prompt/context-specific-answer principle rather than introduce a separate prompt system.
+Stimulus-specific questions extend the same reusable-prompt/context-specific-answer principle rather than introducing another prompt system.
 
 ### Image / Asset Library
 
@@ -163,33 +190,19 @@ Capabilities include:
 - search by editable image name, alt text, source label, and source URL;
 - Topic filtering derived from Case primary Topics;
 - used/unused, active/inactive, and source-known/source-unknown filters;
-- deterministic sorting including newest/oldest/name/usage;
+- deterministic sorting;
 - added-date display;
 - compact multi-Topic context;
 - protected preview;
 - Asset metadata editing;
 - usage count and Case links;
-- dedicated upload surface using the existing protected R2 pipeline.
+- dedicated upload surface using the protected R2 pipeline.
 
-The existing field:
-
-```text
-assets.original_filename
-```
-
-is intentionally the administrator-editable image name.
+`assets.original_filename` is intentionally the administrator-editable image name.
 
 Renaming changes D1 metadata only and must never rename, move, copy, replace, or delete the R2 object/key.
 
-These remain stable:
-
-- `assets.id`;
-- `assets.storage_key`;
-- R2 object/key;
-- Case Asset relationships;
-- Review relationships/snapshots.
-
-Case-specific captions remain contextual rather than global Asset metadata.
+Case-specific captions and stimulus-option captions remain contextual rather than global Asset metadata.
 
 ### Topics dashboard
 
@@ -204,14 +217,16 @@ Capabilities include:
 
 - Topic name search;
 - active primary-Case counts;
-- active reusable Concept-question counts;
+- active reusable Topic-question counts;
 - Topic detail with primary Cases;
 - Topic-specific reusable answers and prompt links;
 - `inherit_to_descendants` visibility;
 - parent Topic and direct-child navigation;
 - inactive/historical relationship visibility for orientation.
 
-Topic metadata editing and sophisticated hierarchy management are deliberately deferred.
+On the current PR #16 branch, Topic detail also makes the reuse boundary explicit and links directly to create another Case in that Topic.
+
+Sophisticated hierarchy management remains deferred.
 
 ---
 
@@ -221,64 +236,93 @@ Topic metadata editing and sophisticated hierarchy management are deliberately d
 
 Current learner behaviour:
 
-- learner selects a Concept/topic;
-- system selects an eligible active Case;
-- persisted Review history is used for immediate-repeat avoidance where possible;
-- Case vignette is snapshotted;
-- all active ordered Case Assets are currently snapshotted;
-- questions resolve with precedence:
-  `Case-specific > primary Concept > nearest inheritable ancestor > more distant ancestor`;
-- randomized question set currently targets three and caps at four;
-- all selected questions remain visible together;
-- learner reveals answers;
-- learner rates the whole Case `Again` or `Good`;
-- Review timestamps/snapshots persist in D1.
+1. learner selects a Topic/Concept;
+2. system selects an eligible active Case;
+3. persisted Review history is used for immediate-repeat avoidance where possible;
+4. fixed Case Assets are loaded;
+5. one active option is selected from each active stimulus group;
+6. questions resolve using the selected stimuli and contextual precedence;
+7. stimulus-specific coverage guarantees are satisfied;
+8. remaining slots are filled according to the Case's question-selection mode;
+9. Case, stimuli, prompts, contextual answers, ordering, and provenance are snapshotted;
+10. learner reveals answers and rates the whole Case `Again` or `Good`.
 
 Internal diagnosis-bearing Case titles are masked from learners.
 
-Planned stimulus-aware Review order:
+Refreshing or revisiting an existing Review must never re-randomize the selected stimuli.
+
+Current precedence:
 
 ```text
-select Case
--> select one option from each active stimulus group
--> resolve contextual questions using selected options
--> satisfy configured stimulus-specific coverage
--> fill the configured question count
--> snapshot everything atomically
+selected stimulus option
+> stimulus group
+> Case
+> primary Topic/Concept
+> nearest inheritable ancestor Topic/Concept
+> more distant eligible ancestor
 ```
-
-Refreshing a Review must never re-randomize its selected stimuli.
 
 ---
 
 ## Educational/content model decisions
 
-The main learner-facing unit is a **Case**, not a fixed front/back card.
-
 Important rules:
 
 - Case stem/vignette is Case-level context.
-- Assets are reusable stimuli; store image bytes once in R2 and attach/reuse metadata rather than duplicating media.
-- Multiple fixed images that must be interpreted together belong to one Case.
-- Create separate Cases when clinical context or educational intent differs.
-- When the Case is genuinely the same but an example stimulus can vary, use an optional alternative stimulus group.
-- A Case may eventually have several independent stimulus groups, such as one ECG group plus one X-ray group.
+- Topic questions are reusable knowledge shared across compatible Cases.
+- Create separate Cases when the clinical context or educational intent differs.
+- Use optional alternative stimuli when the Case is genuinely the same but an example stimulus can vary.
+- Assets are reusable global media; store image bytes once in R2.
+- Multiple fixed images that must be interpreted together may remain fixed on one Case.
+- A Case may have several independent alternative groups, such as one ECG group plus one X-ray group.
 - Existing/imported Cases do not need stimulus-group metadata; grouping should emerge later when useful.
-- reusable Question Prompt wording is separate from contextual answers.
-- planned contextual precedence is:
-  `selected stimulus option > stimulus group > Case > primary Concept > nearest inheritable ancestor > more distant ancestor`.
-- questions do not belong globally to an Asset; stimulus-specific question relationships belong to the Case/group/option context.
-- later exam question parts may hint at earlier parts; no gating is required.
-- Case question count should become configurable rather than permanently capped at four.
-- per-group stimulus-specific question coverage should be configurable rather than permanently hard-coded.
+- Questions do not belong globally to an Asset; exact-image relationships belong to the Case/group/option context.
+- Later exam question parts may hint at earlier parts; no gating is required.
+- Case question count and per-group stimulus-specific coverage are configurable.
+- More-specific contextual answers override less-specific ones for the same reusable Question Prompt.
 
-See `docs/STIMULUS_GROUPS_DESIGN.md`, `docs/CONTENT_MODEL_EXAMPLES.md`, and `docs/V1_DATA_MODEL.md`.
+For Anki/manual migration, prefer progressive enrichment:
+
+```text
+import/create normal Topic + Case
+-> preserve existing questions
+-> attach images normally
+-> group images later when interchangeability becomes clear
+-> add only genuinely image-specific questions
+```
+
+---
+
+## D1 / Drizzle state
+
+Learning-domain schema includes:
+
+- Concepts/Topics and hierarchy;
+- Cases with `vignette_md`, question-selection mode, and optional question count;
+- Case/Concept links;
+- Assets and fixed Case Assets;
+- reusable Question Prompts;
+- Concept/Topic Questions;
+- Case Questions;
+- stimulus groups and options;
+- group-level and option-level contextual questions;
+- Reviews;
+- Review Questions with contextual source provenance;
+- Review Assets with selected stimulus provenance.
+
+Drizzle is used for the learning-domain schema. Better Auth tables remain separate direct-D1 auth tables by design.
+
+PR #14's additive migration is implemented and has been deployed to production D1 according to repository history.
+
+Do not add a new Topic schema solely to implement Topic → Case → stimulus authoring.
+
+`scripts/seed-content.mjs` remains useful for local/tests but must not be run blindly in production because placeholder seed Asset keys do not have corresponding production R2 objects.
 
 ---
 
 ## Authentication status
 
-Better Auth 1.6.25 is configured with direct Cloudflare D1 persistence and the Admin plugin.
+Better Auth is configured with direct Cloudflare D1 persistence and the Admin plugin.
 
 Completed:
 
@@ -290,36 +334,14 @@ Completed:
 - first production administrator bootstrapped;
 - administrator sign-in and Admin access verified.
 
-Next later work after the current content-model milestone:
+Later work:
 
 - smallest administrator learner-account creation/management workflow;
 - create a test learner;
-- verify normal learner access to `/study` and denial from `/admin`.
+- verify learner access to `/study` and denial from `/admin`;
+- basic learner-progress administration.
 
 Never store administrator credentials or `BETTER_AUTH_SECRET` in the repository or documentation.
-
----
-
-## D1 / Drizzle state
-
-The current learning-domain schema includes:
-
-- Concepts and hierarchy;
-- Cases with `vignette_md`;
-- Case/Concept links;
-- Assets and Case Assets;
-- reusable Question Prompts;
-- Concept Questions;
-- Case Questions;
-- Reviews;
-- Review Questions;
-- Review Assets.
-
-Drizzle is used for the learning-domain schema. Better Auth tables remain separate direct-D1 auth tables by design.
-
-The stimulus-group milestone will require an **additive reviewed migration**. Existing Cases without grouping must remain valid and unchanged in behaviour.
-
-`scripts/seed-content.mjs` remains useful for local/tests but must not be run blindly in production because placeholder seed Asset keys do not have corresponding production R2 objects.
 
 ---
 
@@ -363,13 +385,13 @@ Workers subdomain: `mmed-fm-flashcardstest.workers.dev`
 
 ---
 
-## Known technical debt
+## Known technical debt / deferred work
 
-- `package.json` still pins Wrangler 4.115.0 while compatibility/release work has used 4.123.0; update deliberately in a focused change.
-- do not run `npm audit fix --force` casually.
 - Review Asset historical serving currently depends on live Asset resolution; deactivation semantics may need later refinement.
 - attribution metadata is live rather than snapshotted.
 - if marks become structured, do not encode them in strings and parse them later.
+- a one-click "start alternatives from this fixed image" workflow may be worth adding only if real content entry shows the current create-set-then-move flow is still too cumbersome.
+- curriculum collections, manual Case ordering inside a Topic, or Topic-specific learner settings could justify future schema additions; Topic → Case → stimulus does not.
 
 ---
 
