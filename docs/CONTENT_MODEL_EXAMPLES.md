@@ -2,9 +2,11 @@
 
 _Last updated: 15 August 2026_
 
-This document records concrete examples for how real teaching material should be represented using the current Case / Asset / Concept / Question model.
+This document records concrete examples for how real teaching material should be represented using the current Case / Asset / Concept / Question model and its planned optional stimulus-group extension.
 
 It is intentionally practical. When content entry feels ambiguous, prefer these precedents over falling back to fixed Anki-style front/back cards.
+
+See also `docs/STIMULUS_GROUPS_DESIGN.md` for the planned alternative-stimulus behaviour.
 
 ---
 
@@ -154,30 +156,29 @@ For initial content entry, it is acceptable to create all questions as Case-spec
 
 ---
 
-## 5. Reusable prompt, different Case-specific answers
+## 5. Reusable prompt, different contextual answers
 
-The same prompt wording can be reused even when the correct answer changes with the selected Case.
+The same prompt wording can be reused even when the correct answer changes with context.
 
-Example prompt:
+Current example:
 
 ```text
+Prompt:
 Describe this ECG.
-```
 
-Possible Case-specific answers:
-
-```text
-Case A
+Case A answer:
 → ST elevation in V1–V4 with reciprocal inferior ST depression.
 
-Case B
+Case B answer:
 → Hyperacute anterior T waves with subtle anterior ST elevation.
 
-Case C
+Case C answer:
 → Extensive anterior ST elevation with associated right bundle branch block.
 ```
 
-The data model therefore separates reusable Question Prompt wording from Case-specific answer relationships.
+The data model therefore separates reusable Question Prompt wording from context-specific answer relationships.
+
+The planned stimulus-group extension applies the same principle below the Case level: the selected stimulus option may supply an even more specific answer for the same prompt.
 
 ---
 
@@ -196,29 +197,183 @@ Asset 2: Later truncal eruption
 
 The learner should see both together in configured order.
 
+These are **fixed stimuli**, not alternatives.
+
 Use Case-specific captions only when they add useful context without giving away the answer unnecessarily.
 
 ---
 
-## 7. Alternative examples remain separate Cases
+## 7. Separate Cases versus alternative stimulus groups
 
-If images are different examples/patients rather than parts of one presentation, keep them as separate Cases.
+The old blanket rule that every alternative image should become a separate Case is too strict.
+
+Use this distinction:
+
+> **Create separate Cases when the clinical context or educational intent differs. Use an alternative stimulus group when the Case is genuinely the same but the example stimulus can vary between attempts.**
+
+### Separate Cases
+
+Different context or educational intent:
+
+```text
+Case A: neutral anterior STEMI recognition
+Case B: anterior STEMI with post-PCI complication
+```
+
+Even if an ECG could be reused, the Cases remain separate because the teaching task differs.
+
+### Same Case with alternative ECGs
+
+```text
+Case: Hypercalcaemia
+
+ECG alternatives — choose one per Review:
+- ECG A: shortened QTc
+- ECG B: shortened QTc + Osborn waves
+- ECG C: shortened QTc with another incidental feature
+```
+
+The clinical context and main teaching objective are the same, so duplicating the whole Case would create unnecessary maintenance.
+
+The stimulus-group extension is optional. Until it is implemented, separate Cases remain a valid temporary workaround.
+
+---
+
+## 8. One Case can have several independent stimulus groups
+
+A richer Case may need one choice from several stimulus families.
 
 Example:
 
 ```text
-Concept: Anterior STEMI
+Case: Multiple myeloma with hypercalcaemia
 
-Case A → ECG A
-Case B → ECG B
-Case C → ECG C
+ECG group — choose one:
+- ECG A
+- ECG B
+- ECG C
+
+X-ray group — choose one:
+- skull X-ray with punched-out lesions
+- humerus X-ray with lytic lesions
+- pelvis X-ray with lytic lesions
 ```
 
-They may draw from the same Concept-level question pool while retaining Case-specific ECG descriptions and findings.
+A Review might therefore snapshot:
+
+```text
+ECG B + skull X-ray
+```
+
+while a later Review of the same Case might snapshot:
+
+```text
+ECG A + pelvis X-ray
+```
+
+Selections must be made once when the Review starts and remain frozen for that Review.
 
 ---
 
-## 8. Internal Case titles should not leak diagnoses
+## 9. Stimulus-specific questions are optional refinements
+
+Do not require every imported or manually entered question to be classified by stimulus.
+
+Existing Case questions remain valid unless a more specific relationship is genuinely useful.
+
+Example:
+
+All ECG alternatives share:
+
+```text
+What QT interval abnormality is present?
+→ Shortened QTc.
+```
+
+This can become a stimulus-group question.
+
+But ECG B alone may support:
+
+```text
+What additional waveform abnormality is present?
+→ Osborn (J) waves.
+```
+
+And the shared prompt:
+
+```text
+Describe this ECG.
+```
+
+may resolve differently:
+
+```text
+ECG A
+→ Sinus rhythm with shortened QTc.
+
+ECG B
+→ Sinus rhythm with shortened QTc and Osborn waves.
+```
+
+This should be modelled as contextual relationships within the Case/group, not as global questions owned by the Asset itself.
+
+An Asset can be reused elsewhere without inheriting unrelated questions.
+
+---
+
+## 10. Imported Anki content should remain simple by default
+
+Stimulus groups must be an **emergent enrichment**, not an import requirement.
+
+A straightforward imported card can become:
+
+```text
+Case
+├── stem
+├── ECG image
+└── Case questions
+```
+
+Later, an administrator may discover another interchangeable ECG and choose to group the two images as alternatives.
+
+The existing Case questions remain Case questions. Only genuinely image-dependent prompts/answers need to be promoted into group-specific or option-specific context.
+
+This avoids requiring a complete rewrite of source Anki material before it is useful in the application.
+
+---
+
+## 11. Question count should follow educational need
+
+The current learner implementation targets three questions and caps at four, but richer Cases may need a more flexible policy.
+
+The planned Case-level behaviour should support:
+
+```text
+Questions per Review
+- Automatic
+- Ask all eligible questions
+- Choose N
+```
+
+Do not force one question from every source category merely for variety.
+
+A simple Case may legitimately ask several short stimulus-specific questions. Another Case may rely mostly on reusable Concept questions.
+
+Stimulus-group question coverage should eventually be configurable independently, for example:
+
+```text
+No guarantee
+At least 1
+At least 2
+At least 3
+Ask all available specific questions
+```
+
+See `docs/STIMULUS_GROUPS_DESIGN.md`.
+
+---
+
+## 12. Internal Case titles should not leak diagnoses
 
 The administrator needs useful internal titles for content management.
 
@@ -236,7 +391,7 @@ The current learner flow masks the internal title as a generic Case review headi
 
 ---
 
-## 9. Question order and exam behaviour
+## 13. Question order and exam behaviour
 
 The target examination allows movement between question parts.
 
@@ -250,7 +405,7 @@ This is deliberate exam fidelity rather than an implementation shortcut.
 
 ---
 
-## 10. Marks should not be embedded permanently in prompt text
+## 14. Marks should not be embedded permanently in prompt text
 
 Source Anki material may contain prompts such as:
 
@@ -265,23 +420,27 @@ If marks become important later, store them as structured metadata rather than b
 
 ---
 
-## 11. Practical content-entry rule of thumb
+## 15. Practical content-entry rule of thumb
 
 When adding new material, ask these questions in order:
 
 1. **What is the Case context?**
    - Create/edit the Case and optional stem.
-2. **Which stimuli belong together?**
-   - Attach the ordered Assets required for that Case.
-3. **Can any Asset be reused elsewhere?**
+2. **Which stimuli must always be seen together?**
+   - Attach them as ordinary ordered Case Assets.
+3. **Are any stimuli interchangeable examples of the same task?**
+   - When useful, group them as alternatives rather than duplicating the Case.
+4. **Can any Asset be reused elsewhere?**
    - Reattach the existing Asset instead of uploading another copy.
-4. **Which questions depend on this exact Case?**
+5. **Which questions depend on this exact Case?**
    - Store as Case-specific.
-5. **Which questions remain valid across the topic?**
+6. **Which questions remain valid across the Topic?**
    - Store/promote as reusable Concept questions.
-6. **Does the Case belong meaningfully to another Concept as well?**
+7. **Does a question depend on the selected stimulus group or exact option?**
+   - Add stimulus-specific context only when necessary.
+8. **Does the Case belong meaningfully to another Concept as well?**
    - Record this as a future secondary-Concept need rather than duplicating the Case solely for tagging.
 
 The core rule is:
 
-> **Reuse Assets when the stimulus is the same; create separate Cases when the clinical context or educational intent is different.**
+> **Reuse Assets when the media are the same; separate Cases when context or educational intent differs; use optional stimulus alternatives when the Case stays the same but the example can vary.**
