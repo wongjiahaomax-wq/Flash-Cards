@@ -1,4 +1,5 @@
 <script>
+  // @ts-nocheck
   import { deserialize } from '$app/forms';
 
   let { data, form } = /** @type {any} */ ($props());
