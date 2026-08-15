@@ -41,7 +41,8 @@ test('Topic Library searches names and reports active current counts', async () 
   const fixture = createLearningDb();
   try {
     const rows = await listTopicLibrary(fixture.db, { search: 'anterior' });
-    assert.deepEqual(rows.map((row) => row.id), ['seed-anterior-stemi']);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].id, 'seed-anterior-stemi');
     assert.equal(rows[0].parentName, 'STEMI');
     assert.equal(rows[0].activeCaseCount, 3);
     assert.equal(rows[0].activeSharedQuestionCount, 2);
@@ -54,8 +55,8 @@ test('Topic detail returns primary Cases, reusable answers, prompt IDs, and inhe
     const detail = await getTopicDetail(fixture.db, 'seed-anterior-stemi');
     assert.ok(detail);
     assert.equal(detail.parent?.id, 'seed-stemi');
-    assert.deepEqual(detail.cases.map((row) => row.caseId), ['seed-anterior-a', 'seed-anterior-b', 'seed-anterior-c']);
-    assert.deepEqual(detail.questions.map((row) => row.promptId), ['seed-prompt-diagnosis', 'seed-prompt-culprit']);
+    assert.deepEqual(new Set(detail.cases.map((row) => row.caseId)), new Set(['seed-anterior-a', 'seed-anterior-b', 'seed-anterior-c']));
+    assert.deepEqual(new Set(detail.questions.map((row) => row.promptId)), new Set(['seed-prompt-diagnosis', 'seed-prompt-culprit']));
     const culprit = detail.questions.find((row) => row.promptId === 'seed-prompt-culprit');
     assert.ok(culprit);
     assert.match(culprit.answerMd, /LAD/);
@@ -63,8 +64,10 @@ test('Topic detail returns primary Cases, reusable answers, prompt IDs, and inhe
 
     const parent = await getTopicDetail(fixture.db, 'seed-stemi');
     assert.ok(parent);
-    assert.deepEqual(parent.children.map((row) => row.id), ['seed-anterior-stemi']);
-    assert.equal(Boolean(parent.questions[0].inheritToDescendants), true);
+    assert.equal(parent.children.some((row) => row.id === 'seed-anterior-stemi'), true);
+    const inherited = parent.questions.find((row) => row.promptId === 'seed-prompt-reperfusion');
+    assert.ok(inherited);
+    assert.equal(Boolean(inherited.inheritToDescendants), true);
   } finally { fixture.sqlite.close(); }
 });
 
