@@ -1,0 +1,140 @@
+name: Production content snapshot
+
+on:
+  workflow_dispatch:
+    inputs:
+      include_topic_questions:
+        description: Include reusable Topic question prompts and answer previews
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      # Prefer a dedicated read-only token when configured. The existing deploy
+      # token is a compatibility fallback so the workflow can be adopted before
+      # a separate CLOUDFLARE_D1_READ_TOKEN secret is created.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify Cloudflare credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::error::Configure CLOUDFLARE_D1_READ_TOKEN (preferred) or CLOUDFLARE_API_TOKEN in repository secrets."
+            exit 1
+          fi
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "::error::Configure CLOUDFLARE_ACCOUNT_ID in repository secrets."
+            exit 1
+          fi
+
+      - name: Snapshot Topics and Case routes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_query() {
+            local label="$1"
+            local sql="$2"
+            echo "::group::${label}"
+            npx --yes wrangler@4.123.0 d1 execute DB --remote --json --command "$sql"
+            echo "::endgroup::"
+          }
+
+          echo "Production D1 content snapshot"
+          echo "Generated at: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "Repository: ${GITHUB_REPOSITORY}"
+          echo "Commit: ${GITHUB_SHA}"
+          echo
+
+          run_query "TOPICS" "
+            SELECT
+              id,
+              name,
+              slug,
+              description_md,
+              parent_id,
+              is_active
+            FROM concepts
+            ORDER BY is_active DESC, name, id;
+          "
+
+          run_query "CASE_TOPIC_ROUTES" "
+            SELECT
+              ca.id AS case_id,
+              ca.title AS case_title,
+              substr(
+                replace(replace(COALESCE(ca.vignette_md, ''), char(10), ' '), char(13), ' '),
+                1,
+                300
+              ) AS vignette_preview,
+              ca.is_active AS case_is_active,
+              cc.concept_id AS topic_id,
+              c.name AS topic_name,
+              c.is_active AS topic_is_active,
+              cc.role AS topic_role
+            FROM cases ca
+            JOIN case_concepts cc ON cc.case_id = ca.id
+            JOIN concepts c ON c.id = cc.concept_id
+            ORDER BY
+              ca.is_active DESC,
+              ca.title,
+              CASE cc.role WHEN 'primary' THEN 0 ELSE 1 END,
+              c.name,
+              c.id;
+          "
+
+      - name: Snapshot reusable Topic questions
+        if: ${{ inputs.include_topic_questions }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "::group::TOPIC_QUESTIONS"
+          npx --yes wrangler@4.123.0 d1 execute DB --remote --json --command "
+            SELECT
+              cq.concept_id AS topic_id,
+              c.name AS topic_name,
+              qp.id AS prompt_id,
+              qp.prompt_md,
+              substr(COALESCE(cq.answer_md, ''), 1, 500) AS answer_preview,
+              cq.inherit_to_descendants,
+              cq.is_active AS topic_question_is_active,
+              qp.is_active AS prompt_is_active
+            FROM concept_questions cq
+            JOIN concepts c ON c.id = cq.concept_id
+            JOIN question_prompts qp ON qp.id = cq.question_prompt_id
+            ORDER BY c.name, qp.prompt_md, qp.id;
+          "
+          echo "::endgroup::"
+
+      - name: Record safety boundary
+        shell: bash
+        run: |
+          cat <<'EOF' >> "$GITHUB_STEP_SUMMARY"
+          ## Production content snapshot
+
+          This manually triggered workflow queried only learning-content tables using hard-coded `SELECT` statements.
+
+          Included by default:
+          - `concepts`
+          - `cases`
+          - `case_concepts`
+
+          Optional:
+          - `concept_questions`
+          - `question_prompts`
+
+          It does not query Better Auth, users, sessions, learner Reviews, or progress data.
+          EOF
