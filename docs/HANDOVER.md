@@ -4,104 +4,210 @@ _Refreshed: 15 August 2026_
 
 ## Current outcome
 
-The project now has a working end-to-end V1 vertical slice rather than only infrastructure and prototypes.
+The project has a working end-to-end V1 vertical slice and has now started the Admin content-management redesign.
 
 Merged implementation milestones of note:
 
 ```text
-PR #7 — D1-backed learner Reviews
-PR #8 — protected R2 teaching-image pipeline
-PR #9 — browser-based admin Case/Asset/question management
+PR #7  — D1-backed learner Reviews
+PR #8  — protected R2 teaching-image pipeline
+PR #9  — browser-based admin Case/Asset/question management
+PR #10 — Admin shell + Case management redesign
 ```
 
-PR #9 merged into `main` at:
+PR #10 merged into `main` at:
 
 ```text
-f48f1a5fe7dee3be2230343befb4a484c98d7a32
+21f349b4869f59a8bccbf440437ce67088776b58
 ```
 
-Post-merge CI run #67 completed successfully on that merge commit.
+PR #10 CI was green before merge, including database checks, tests, Svelte checks, build, and local D1/Better Auth smoke validation in GitHub Actions.
 
 The production Worker remains:
 
 <https://flash-cards.mmed-fm-flashcardstest.workers.dev/>
 
-The PR #9 branch head was deployed for browser testing before merge. The merged commit contains the same application code. A deliberate post-merge redeploy can still be done later if release provenance needs to point specifically at `main`.
+A deliberate post-merge production redeploy may still be done later; do not assume the currently deployed Worker contains every newest `main` commit unless deployment is explicitly verified.
+
+---
 
 ## Current next implementation phase
 
-The next product priority has been revised after using the PR #9 admin workflow.
+**PR #11 Questions Library and PR #12 Image Library should proceed in parallel from current `main`.**
 
-**Admin content-management redesign now comes before learner-account administration.**
-
-The current `/admin` page proves the workflow but has become too large and combines image upload, Topic creation, Case creation/editing, questions, attached Assets, available Assets, and the global image library in one place.
-
-The agreed next-phase plan is documented in:
+Read:
 
 ```text
 docs/ADMIN_CONTENT_MANAGEMENT_PLAN.md
+docs/PARALLEL_WORK_PLAN.md
 ```
 
-That plan defines the proposed Admin dashboard, Cases library/editor, Questions library, Image library with post-upload renaming, Topics dashboard, search behaviour, PR boundaries, and parallel-agent strategy.
+before implementation.
 
-Important image-management decision: the existing `assets.original_filename` field will be treated as the administrator-editable image name. Renaming it changes D1 metadata only and must never rename/move the immutable R2 object or storage key. No schema migration is required for this rename feature.
+Expected workspaces:
 
-## Product state now working
+```text
+PR #11 branch: agent/admin-questions-library
+PR #12 branch: agent/admin-images-library
+```
 
-The administrator can perform the following in the browser without direct SQL for routine content entry:
+PR #13 — Topics dashboard — should wait until PR #11 and PR #12 are merged.
 
-1. sign in as an administrator;
-2. create a topic/Concept;
-3. create a Case with an internal title and optional Case stem/vignette;
-4. edit the Case vignette;
-5. upload a JPEG/PNG teaching image to private R2;
-6. paste, drag/drop, or choose an image in the upload control;
-7. attach an existing Asset to a Case without re-uploading it;
-8. order multiple Case Assets and add Case-specific captions;
-9. add/edit/remove/reorder Case questions;
-10. optionally save a question as reusable for the Case's primary Concept;
-11. preview the resulting Case through the learner Study flow.
+---
 
-A real production Case with an ECG, clinical stem, and questions was entered through this workflow and previewed successfully in Study.
+## Admin product state after PR #10
+
+The Admin UI is no longer one monolithic editing page.
+
+Implemented:
+
+- persistent Admin shell/navigation;
+- `/admin` overview/dashboard;
+- `/admin/cases` searchable Case library;
+- `/admin/cases/new` dedicated Case creation;
+- `/admin/cases/[caseId]` focused Case editor;
+- Case internal title editing;
+- primary Topic editing;
+- Case vignette/stem editing;
+- Case question add/edit/remove/reorder;
+- optional save-as-reusable Topic question;
+- upload JPEG/PNG teaching images through the protected R2 pipeline;
+- clipboard paste, drag/drop, and file-picker upload;
+- attach existing Assets to Cases without re-uploading;
+- reorder/detach Case Assets;
+- Case-specific image captions;
+- learner Study preview.
+
+Questions, Images, and Topics are the next Admin library surfaces.
+
+---
+
+## PR #11 product requirement — Questions Library
+
+Build:
+
+```text
+/admin/questions
+/admin/questions/[promptId]
+```
+
+The Questions Library must respect the established content model:
+
+```text
+Question Prompt
+      ↓
+Case or Concept usage
+      ↓
+context-specific answer
+```
+
+A reused prompt is not a complete independent flashcard. The same prompt may have different Case-specific answers.
+
+Required capabilities include:
+
+- search Question Prompt text;
+- search Case/Concept answer text;
+- useful Topic/scope filtering;
+- usage counts;
+- prompt detail showing all Case and Concept usages/answers;
+- direct links back to Case editors;
+- clear warning/blast-radius visibility before editing a reused shared prompt.
+
+Do not silently clone a shared prompt merely to avoid global-edit semantics.
+
+---
+
+## PR #12 product requirement — Image Library
+
+Build:
+
+```text
+/admin/images
+/admin/images/new
+/admin/images/[assetId]
+```
+
+Required capabilities include:
+
+- visual thumbnail library;
+- search by image name, alt text, and source label;
+- useful used/unused, active/inactive, and source-known/source-unknown filters;
+- large Asset detail preview;
+- edit Asset-level metadata;
+- usage count and list of Cases using the Asset;
+- direct links to Case editors;
+- reuse the existing protected upload pipeline.
+
+### Image renaming decision
+
+The existing field:
+
+```text
+assets.original_filename
+```
+
+is intentionally treated as the administrator-editable image name.
+
+The actual upload filename does **not** need separate preservation.
+
+Renaming must update D1 metadata only and must never rename, move, copy, replace, or delete the R2 object/key.
+
+These must remain stable:
+
+- `assets.id`;
+- `assets.storage_key`;
+- R2 object/key;
+- Case Asset relationships;
+- Review relationships/snapshots.
+
+No schema migration is expected for image renaming.
+
+Case-specific captions remain in the Case editor because they belong to the `Case + Asset` relationship, not the global Asset.
+
+---
 
 ## Learner flow
 
-`/study` is now D1-backed rather than temporary in-code demo data.
+`/study` is D1-backed.
 
 Current learner behaviour:
 
-- learner selects a study Concept/topic;
-- an eligible active Case is selected;
-- immediate-repeat avoidance uses persisted Review history where possible;
-- Case vignette is snapshotted into the Review;
+- learner selects a Concept/topic;
+- system selects an eligible active Case;
+- persisted Review history is used for immediate-repeat avoidance where possible;
+- Case vignette is snapshotted;
 - ordered Case Assets are snapshotted;
-- compatible questions are resolved with precedence:
+- questions resolve with precedence:
   `Case-specific > primary Concept > nearest inheritable ancestor > more distant ancestor`;
-- a randomized target set is selected, currently targeting three and capping at four;
+- randomized question set targets three and caps at four;
 - all selected questions remain visible together;
-- learner reveals all answers;
+- learner reveals answers;
 - learner rates the whole Case `Again` or `Good`;
-- completion/reveal timestamps and Review snapshots persist in D1.
+- Review timestamps/snapshots persist in D1.
 
-Internal diagnosis-bearing Case titles are masked from the learner UI.
+Internal diagnosis-bearing Case titles are masked from learners.
+
+Do not redesign this flow in PR #11 or PR #12.
+
+---
 
 ## Educational/content model decisions
 
-The main learner-facing unit is a **Case**, not a fixed flashcard front/back.
+The main learner-facing unit is a **Case**, not a fixed front/back card.
 
-Important modelling rules:
+Important rules:
 
-- **Case stem/vignette is Case-level context.** It is separate from image Assets and separate from question prompts.
-- **Assets are reusable stimuli.** One uploaded ECG/image should be stored once in R2 and may be attached to multiple Cases.
-- **Multiple Assets that must be interpreted together belong to one Case.**
-- **Alternative examples of the same condition remain separate Cases.**
-- **Case-specific questions/answers override reusable Concept questions for the same prompt.**
-- **Reusable Question Prompts are separate from their answers/context.**
-- Later question parts may give clues to earlier questions; no pre/post-diagnosis gating is required for the target exam.
+- Case stem/vignette is Case-level context.
+- Assets are reusable stimuli; store image bytes once in R2 and attach to multiple Cases when needed.
+- Multiple images that must be interpreted together belong to one Case.
+- Alternative examples of the same condition remain separate Cases.
+- Case-specific question/answer takes precedence over reusable Concept-level question for the same prompt.
+- reusable Question Prompt is separate from its context-specific answer.
+- later exam question parts may hint at earlier parts; no gating is required.
 
-Concrete precedent: an ECG showing prolonged QTc may be reused in both a neutral ECG-recognition Case and a post-operative hypocalcaemia Case. The ECG Asset is stored once; the two Cases have different stems/question sets and may be associated with different Concepts.
+See `docs/CONTENT_MODEL_EXAMPLES.md` and `docs/V1_DATA_MODEL.md`.
 
-See `docs/CONTENT_MODEL_EXAMPLES.md`.
+---
 
 ## Authentication status
 
@@ -112,29 +218,28 @@ Completed:
 - public sign-up disabled;
 - `/study` requires authentication;
 - `/admin` requires administrator role;
-- local auth smoke test exists in `scripts/local-auth-smoke.mjs`;
+- local auth smoke test exists;
 - production auth schema deployed;
 - first production administrator bootstrapped;
-- administrator browser sign-in verified;
-- authenticated `/admin` access verified.
+- administrator sign-in and Admin access verified.
 
-Remaining auth/product work:
+Remaining later work:
 
-- add the smallest administrator learner-account creation/management workflow;
+- smallest administrator learner-account creation/management workflow;
 - create a test learner;
-- verify learner access to `/study` and denial from `/admin`.
+- verify normal learner access to `/study` and denial from `/admin`.
 
-These auth/product items remain planned but now follow the Admin content-management redesign and pilot-content phase.
+These items remain after Admin CMS/pilot-content work.
 
-Do not store administrator credentials in the repository or documentation.
+Never store administrator credentials or `BETTER_AUTH_SECRET` in the repository or documentation.
+
+---
 
 ## D1 / Drizzle state
 
-The V1 learning-domain schema is implemented and actively used.
+The V1 learning-domain schema is active and includes:
 
-Core objects include:
-
-- Concepts and Concept hierarchy;
+- Concepts and hierarchy;
 - Cases with `vignette_md`;
 - Case/Concept links;
 - Assets and Case Assets;
@@ -145,9 +250,13 @@ Core objects include:
 - Review Questions;
 - Review Assets.
 
-Review creation snapshots the Case title/vignette, selected questions, and ordered Assets so the review remains tied to what the learner actually saw.
+Drizzle is used for the learning-domain schema. Better Auth tables remain separate direct-D1 auth tables by design.
 
-The repository still contains `scripts/seed-content.mjs` for representative local/testing content. Do **not** run the current seed blindly against production: it includes placeholder Asset metadata with seed R2 keys whose image bytes do not exist in production. Routine production content should now be entered through `/admin`.
+No migration is expected for PR #11 or #12 unless a concrete blocker is discovered and documented.
+
+`scripts/seed-content.mjs` remains useful for local/tests but must not be run blindly in production because placeholder seed Asset keys do not have corresponding production R2 objects.
+
+---
 
 ## R2 state and provenance
 
@@ -156,22 +265,22 @@ Private R2 is the canonical teaching-image store.
 Implemented:
 
 - `MEDIA` R2 binding;
-- maximum image size 5 MiB;
-- 5 GiB application-managed storage ceiling;
-- Standard storage class;
-- immutable object keys;
+- maximum 5 MiB per image;
+- 5 GiB application-managed ceiling;
+- immutable storage keys;
 - upload through `putTeachingImage()`;
-- orphan cleanup attempt if D1 Asset metadata creation fails;
+- orphan cleanup attempt if D1 Asset insert fails;
 - authenticated `/api/assets/{assetId}/image` serving;
 - MIME/ETag/private-cache handling;
-- optional `source_label`, `source_url`, and `licence` metadata;
-- clipboard paste, drag/drop, and normal file-picker upload UI.
+- optional `source_label`, `source_url`, and `licence` metadata.
 
-External source URLs are attribution/reference metadata only and are never the runtime image source.
+External source URLs are attribution/reference metadata only, never runtime image sources.
 
-An Asset may be attached to more than one Case without copying or re-uploading the R2 object.
+Unknown source is valid; never fabricate attribution.
 
-For the upcoming Image Library, `assets.original_filename` is intentionally treated as the editable administrator-facing image name. The actual original upload filename does not need separate preservation.
+See `docs/IMAGE_PROVENANCE.md` and `docs/R2_COST_GUARDRAILS.md`.
+
+---
 
 ## Cloudflare resources
 
@@ -193,81 +302,43 @@ Workers subdomain:
 mmed-fm-flashcardstest.workers.dev
 ```
 
-Production configuration includes `BETTER_AUTH_URL`, an encrypted `BETTER_AUTH_SECRET`, D1/R2 bindings, Workers observability, and `workers.dev` routing.
+---
 
-Never print or commit `BETTER_AUTH_SECRET`.
+## Recommended sequence
 
-## Repository state
+1. **PR #11 — Questions Library** — parallel now.
+2. **PR #12 — Image Library + rename/edit metadata** — parallel now.
+3. Merge both after review/green CI; rebase whichever is merged second if the shared Admin layout conflicts.
+4. **PR #13 — Topics dashboard**.
+5. Enter representative ECG/Cardiology, ENT, Eye, and Dermatology pilot content.
+6. Fix Admin friction discovered during real content entry.
+7. Implement learner-account administration and role-boundary acceptance.
+8. Implement basic learner progress administration.
+9. Only later revisit FSRS/scheduling, bulk Anki import, richer analytics, structured marks/marking points, or broader stimulus types.
 
-Current repository features include:
-
-- SvelteKit + Cloudflare Workers;
-- Drizzle ORM for the learning-domain schema;
-- direct D1 Better Auth tables/migrations;
-- protected sign-in/study/admin routes;
-- D1-backed learner Review flow;
-- private R2 image upload and serving;
-- browser content administration for topics, Cases, stems, Assets, captions, and questions;
-- reusable Concept questions plus Case-specific questions;
-- whole-Case `Again`/`Good` ratings;
-- local auth smoke tests and focused learning/storage/admin tests;
-- R2 cost guardrails and image-provenance documentation;
-- dedicated Admin content-management redesign plan at `docs/ADMIN_CONTENT_MANAGEMENT_PLAN.md`.
-
-Merged PRs of note:
-
-- PR #1 — R2 storage cost guardrails;
-- PR #2 — Better Auth D1 schema;
-- PR #3 — local D1 + Better Auth validation;
-- PR #4 — production admin bootstrap;
-- PR #5 — production auth documentation refresh;
-- PR #6 — approved learner study UI prototype;
-- PR #7 — D1-backed learner Reviews;
-- PR #8 — protected R2 teaching-image pipeline;
-- PR #9 — browser-based admin Case/Asset/question management.
-
-## Recommended next sequence
-
-1. **PR #10 — Admin shell + Case management redesign** — split the current monolithic admin page into a dashboard, Case library, and focused Case editor.
-2. **PR #11 — Questions Library** — global search/inspection of Question Prompts, Case/Concept usages, and context-specific answers.
-3. **PR #12 — Image Library** — thumbnail library, search/filtering, editable image name via `original_filename`, metadata editing, usage counts, and Case links.
-4. **PR #13 — Topics dashboard** — simple Topic list/detail and reusable-question inspection.
-5. **Pilot content entry** — enter representative ECG, ENT, Eye, and Dermatology material through the redesigned UI.
-6. **Admin friction fixes** — correct problems discovered during real content entry and stress-test reused Assets/prompts and multi-image Cases.
-7. **Learner account administration** — create/manage learner accounts without operator scripts.
-8. **Role-boundary acceptance test** — verify a normal learner can study but cannot administer content.
-9. **Basic progress administration** — learner list, recent Reviews, Concept filters, Again/Good summaries.
-10. Only after that revisit FSRS/scheduling, bulk Anki import, richer analytics, structured marks/marking points, or broader stimulus types.
-
-For detailed scope and agent ownership, follow `docs/ADMIN_CONTENT_MANAGEMENT_PLAN.md`.
+---
 
 ## Known technical debt
 
-`package.json` still pins Wrangler 4.115.0, while the project compatibility date has been validated with Wrangler 4.123.0. Update the Wrangler dependency/lockfile deliberately before relying on the pinned release scripts.
+- `package.json` still pins Wrangler 4.115.0 while compatibility/release work has used 4.123.0; update deliberately rather than incidentally inside PR #11/#12.
+- do not run `npm audit fix --force` casually.
+- Review Asset historical serving currently depends on live Asset resolution; deactivation semantics may need later refinement.
+- attribution metadata is live rather than snapshotted.
+- if marks become structured, do not encode them in strings and parse them later.
 
-Dependency advisories should be reviewed deliberately; do not run `npm audit fix --force` casually.
+---
 
-Potential product/data refinements to evaluate with pilot content:
+## Validation
 
-- explicit admin support for secondary Concept links;
-- whether question marks/weighting should become structured metadata rather than text such as `(2)` or `(4)` in prompts;
-- whether historical Reviews should continue serving an Asset after that live Asset is deactivated;
-- whether attribution metadata should be snapshotted into Reviews;
-- better Case/question search and filtering as the library grows.
-
-## Useful commands
+Before an implementation PR is considered complete:
 
 ```sh
-# Validation
 npm run db:check
 npm test
 npm run check
 npm run build
 node scripts/local-auth-smoke.mjs
-
-# Cloudflare
-npx --yes wrangler@4.123.0 whoami
-npx --yes wrangler@4.123.0 d1 list
-npx --yes wrangler@4.123.0 r2 bucket list
-npx --yes wrangler@4.123.0 secret list
+git diff --check
 ```
+
+GitHub CI must be green before merge.
