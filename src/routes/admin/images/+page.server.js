@@ -5,6 +5,7 @@ import { createDb } from '$lib/server/db/index.js';
 import {
   createAssetFromUpload,
   listAssetLibrary,
+  listAssetLibraryTopics,
   parseAssetLibraryFilters
 } from '$lib/server/db/asset-library.js';
 import { getTeachingImageUrl, MediaStorageLimitError } from '$lib/server/storage/media.js';
@@ -18,11 +19,15 @@ function formText(formData, name) {
 export async function load({ locals, platform, url }) {
   const filters = parseAssetLibraryFilters(url.searchParams);
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) {
-    return { assets: [], filters };
+    return { assets: [], topics: [], filters };
   }
 
-  const rows = await listAssetLibrary(createDb(platform.env.DB), filters);
-  return { assets: rows, filters };
+  const db = createDb(platform.env.DB);
+  const [rows, topics] = await Promise.all([
+    listAssetLibrary(db, filters),
+    listAssetLibraryTopics(db)
+  ]);
+  return { assets: rows, topics, filters };
 }
 
 export const actions = {

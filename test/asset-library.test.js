@@ -10,6 +10,7 @@ import {
   AssetLibraryInputError,
   getAssetLibraryDetail,
   listAssetLibrary,
+  parseAssetLibraryFilters,
   updateAssetMetadata
 } from '../src/lib/server/db/asset-library.js';
 
@@ -78,6 +79,21 @@ function createR2Bucket() {
     /** @param {string} key */
     async delete(key) { objects.delete(key); }
   };
+}
+
+/** @param {import('node:sqlite').DatabaseSync} sqlite @param {{ id: string, name: string, createdAt: number }} asset */
+function insertTestAsset(sqlite, asset) {
+  sqlite.prepare('INSERT INTO assets (id, type, storage_key, mime_type, original_filename, alt_text, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
+    asset.id,
+    'image',
+    `teaching-images/${asset.id}.png`,
+    'image/png',
+    asset.name,
+    `${asset.name} alt text`,
+    1,
+    asset.createdAt,
+    asset.createdAt
+  );
 }
 
 /** @param {{ sourceUrl?: string, size?: number }} [options] */
@@ -170,6 +186,54 @@ test('Asset Library searches metadata and filters usage, status, and provenance'
       () => updateAssetMetadata(fixture.db, 'seed-asset-pityriasis-herald', { sourceUrl: 'javascript:alert(1)', isActive: true }),
       (error) => error instanceof AssetLibraryInputError && /valid http\(s\)/.test(error.message)
     );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Image Library supports deterministic sorting, Topic filtering, and card context', async () => {
+  const fixture = createLearningDb();
+  try {
+    for (const asset of [
+      { id: 'asset-sort-newest', name: 'Newest sorting image', createdAt: 4_000 },
+      { id: 'asset-sort-oldest', name: 'Oldest sorting image', createdAt: 1_000 },
+      { id: 'asset-sort-alpha', name: 'Alpha sorting image', createdAt: 2_000 },
+      { id: 'asset-sort-beta', name: 'Beta sorting image', createdAt: 3_000 }
+    ]) insertTestAsset(fixture.sqlite, asset);
+
+    fixture.sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, ?, ?, ?)').run('seed-anterior-a', 'asset-sort-alpha', 1, null, 5_000);
+    fixture.sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, ?, ?, ?)').run('seed-anterior-a', 'asset-sort-beta', 2, null, 5_000);
+    fixture.sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, ?, ?, ?)').run('seed-anterior-b', 'asset-sort-beta', 1, null, 5_000);
+
+    const filter = { search: 'sorting' };
+    assert.deepEqual((await listAssetLibrary(fixture.db, filter)).map((asset) => asset.id), ['asset-sort-newest', 'asset-sort-beta', 'asset-sort-alpha', 'asset-sort-oldest']);
+    assert.deepEqual((await listAssetLibrary(fixture.db, { ...filter, sort: 'oldest' })).map((asset) => asset.id), ['asset-sort-oldest', 'asset-sort-alpha', 'asset-sort-beta', 'asset-sort-newest']);
+    assert.deepEqual((await listAssetLibrary(fixture.db, { ...filter, sort: 'name-asc' })).map((asset) => asset.id), ['asset-sort-alpha', 'asset-sort-beta', 'asset-sort-newest', 'asset-sort-oldest']);
+    assert.deepEqual((await listAssetLibrary(fixture.db, { ...filter, sort: 'name-desc' })).map((asset) => asset.id), ['asset-sort-oldest', 'asset-sort-newest', 'asset-sort-beta', 'asset-sort-alpha']);
+    assert.deepEqual((await listAssetLibrary(fixture.db, { ...filter, sort: 'most-used' })).map((asset) => asset.id), ['asset-sort-beta', 'asset-sort-alpha', 'asset-sort-newest', 'asset-sort-oldest']);
+    assert.deepEqual((await listAssetLibrary(fixture.db, { ...filter, sort: 'least-used' })).map((asset) => asset.id), ['asset-sort-oldest', 'asset-sort-newest', 'asset-sort-alpha', 'asset-sort-beta']);
+    assert.equal(parseAssetLibraryFilters(new URLSearchParams()).sort, 'newest');
+
+    fixture.sqlite.prepare('INSERT INTO concepts (id, name, slug, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run('seed-emergency-medicine', 'Emergency Medicine', 'emergency-medicine', 1, 6_000, 6_000);
+    fixture.sqlite.prepare('INSERT INTO cases (id, title, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run('seed-emergency-anterior-case', 'Emergency anterior case', 1, 6_000, 6_000);
+    fixture.sqlite.prepare('INSERT INTO case_concepts (case_id, concept_id, role, created_at) VALUES (?, ?, ?, ?)').run('seed-emergency-anterior-case', 'seed-emergency-medicine', 'primary', 6_000);
+    fixture.sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, ?, ?, ?)').run('seed-emergency-anterior-case', 'seed-asset-anterior-a', 0, null, 6_000);
+
+    const emergencyAssets = await listAssetLibrary(fixture.db, { topic: 'seed-emergency-medicine' });
+    assert.deepEqual(emergencyAssets.map((asset) => asset.id), ['seed-asset-anterior-a']);
+    assert.equal(emergencyAssets[0].usageCount, 2);
+    assert.deepEqual(new Set(emergencyAssets[0].topicNames), new Set(['Anterior STEMI', 'Emergency Medicine']));
+    assert.equal(emergencyAssets[0].topicSummary, 'Anterior STEMI · Emergency Medicine');
+    assert.ok(emergencyAssets[0].createdAt);
+
+    const composed = await listAssetLibrary(fixture.db, {
+      search: 'Anterior STEMI ECG example A',
+      topic: 'seed-emergency-medicine',
+      usage: 'used',
+      status: 'active',
+      source: 'unknown'
+    });
+    assert.deepEqual(composed.map((asset) => asset.id), ['seed-asset-anterior-a']);
   } finally {
     fixture.sqlite.close();
   }
