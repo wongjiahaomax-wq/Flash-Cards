@@ -1,6 +1,6 @@
 # Tagging Model — Agreed Decisions
 
-_Status: agreed architecture decision record._
+_Status: agreed architecture decision record. Ready to guide implementation after PR #24 merges._
 
 _Last updated: 16 August 2026_
 
