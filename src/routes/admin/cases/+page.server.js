@@ -1,30 +1,27 @@
+import { canManageCaseAssets, listAdminCases } from '$lib/server/db/case-assets.js';
 import { createDb } from '$lib/server/db/index.js';
 import { listActiveTags, listCurrentCaseTagAssignments } from '$lib/server/db/tag-library.js';
-import { load as loadParent } from '../+page.server.js';
 
 export { actions } from '../+page.server.js';
 
-export async function load(event) {
-  const data = await loadParent(event);
+export async function load({ locals, platform, url }) {
   const filters = {
-    search: event.url.searchParams.get('q')?.trim() ?? '',
-    tagId: event.url.searchParams.get('tag')?.trim() ?? ''
+    search: url.searchParams.get('q')?.trim() ?? '',
+    tagId: url.searchParams.get('tag')?.trim() ?? ''
   };
 
-  if (!event.platform?.env?.DB) {
-    return {
-      ...data,
-      tags: [],
-      caseFilters: filters,
-      cases: data.cases.map((item) => ({ ...item, tags: [] }))
-    };
+  if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) {
+    return { tags: [], caseFilters: filters, cases: [] };
   }
 
-  const db = createDb(event.platform.env.DB);
-  const [tagRows, assignments] = await Promise.all([
+  const db = createDb(platform.env.DB);
+  const [caseRows, tagRows, assignments] = await Promise.all([
+    listAdminCases(db, filters.search.toLowerCase()),
     listActiveTags(db),
     listCurrentCaseTagAssignments(db)
   ]);
+
+  /** @type {Map<string, Array<{ id: string, name: string }>>} */
   const tagsByCase = new Map();
   for (const assignment of assignments) {
     const current = tagsByCase.get(assignment.caseId) ?? [];
@@ -32,13 +29,12 @@ export async function load(event) {
     tagsByCase.set(assignment.caseId, current);
   }
 
-  const decoratedCases = data.cases.map((item) => ({
+  const decoratedCases = caseRows.map((item) => ({
     ...item,
     tags: tagsByCase.get(item.id) ?? []
   }));
 
   return {
-    ...data,
     tags: tagRows,
     caseFilters: filters,
     cases: filters.tagId
