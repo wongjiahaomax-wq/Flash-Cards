@@ -9,7 +9,7 @@ import {
   previewResumableImport,
   processNextImportChunk,
   serializeImportJob
-} from '$lib/server/import/resumable-content-package.js';
+} from '$lib/server/import/resumable-content-package-runtime.js';
 
 const PREVIEW_COOKIE = 'flashcards_import_preview_sha256';
 const PREVIEW_MAX_AGE_SECONDS = 15 * 60;
