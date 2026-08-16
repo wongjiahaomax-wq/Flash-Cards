@@ -64,25 +64,27 @@ The original PR #23 implementation re-read the entire staged ZIP, recalculated S
 
 That repeated CPU-heavy work has been removed from the normal process loop.
 
-The exact confirmed ZIP is still parsed/hardened when the job starts. The server then stages an immutable execution snapshot derived from that already-reviewed package:
+The exact confirmed ZIP is still parsed/hardened when the job starts. Its original staging key remains unchanged for compatibility:
 
 ```text
-imports/staging/<job-id>/
-├── package.zip          # exact confirmed ZIP
-├── plan.json            # normalized server-derived manifest + package SHA
-└── media/
-    ├── <asset-id>       # only create-Asset media
-    └── ...
+imports/staging/<job-id>.zip
 ```
 
-Subsequent process requests read:
+The server also stores immutable, server-derived execution sidecars from that already-reviewed package:
 
-- `plan.json` for validation/non-Asset work; and
+```text
+imports/staging/<job-id>.plan.json
+imports/staging/<job-id>/media/<asset-id>   # only create-Asset media
+```
+
+The plan sidecar contains the normalized manifest and confirmed package SHA. Subsequent process requests read:
+
+- the plan sidecar for validation/non-Asset work; and
 - only the media objects required for the current `import_assets` chunk.
 
 They do not re-read, re-hash, or re-decompress the complete ZIP.
 
-All staging objects remain private operational data. They are never Asset rows and are never learner-served. Completion/cancellation removes the whole job prefix. Prefix cleanup is idempotent, so finalization remains retryable after a response is lost during cleanup.
+All staging objects remain private operational data. They are never Asset rows and are never learner-served. Completion/cancellation removes the exact ZIP, plan sidecar, and staged media. Cleanup is idempotent, so finalization remains retryable after a response is lost during cleanup.
 
 Regression coverage: `test/resumable-runtime-safety.test.js`.
 
