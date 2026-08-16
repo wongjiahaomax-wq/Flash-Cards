@@ -36,6 +36,13 @@
       "when": 1786849200000,
       "tag": "0004_resumable_import_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1786866000000,
+      "tag": "0005_tag_foundation",
+      "breakpoints": true
     }
   ]
 }
