@@ -233,7 +233,7 @@ Implement:
 
 - `tags`;
 - Case↔Tag relationships;
-- Question-tag relationships at the appropriate contextual/shared Question level;
+- Question-tag relationships at the appropriate contextual Question level;
 - Admin Tag management;
 - adding/removing Tags from Cases and Questions;
 - searching/filtering Cases and Questions by Tag.
@@ -241,6 +241,8 @@ Implement:
 Stage A should not change learner Question resolution.
 
 This allows the content corpus to be curated and tagged safely before tag-based reuse affects Reviews.
+
+For Stage A, Question tagging should be added only to contextual Question relationship types that the Admin product can safely author and retrieve without changing learner resolution. If supporting every current contextual relationship (`case_questions`, `concept_questions`, `stimulus_group_questions`, and `stimulus_option_questions`) would make Stage A unnecessarily broad, implementation may begin with Case Questions and extend the same relationship pattern additively. Shared Question tags belong to Stage B because `shared_questions` does not exist until then.
 
 ### Stage B — tag-scoped shared Questions
 
