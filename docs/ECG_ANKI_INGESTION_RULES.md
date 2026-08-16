@@ -8,6 +8,12 @@ This is the adopted conversion rule for migrating the ECG Anki source material i
 
 It governs the **external reviewed-package preparation step**. The production application continues to import only reviewed Flash-Cards Import Package v1 ZIPs and does not infer diagnoses, rename Assets, or interpret arbitrary Anki/APKG content.
 
+For the complete migration chain, see:
+
+- `ANKI_APKG_EXTRACTION.md` — mechanical `.apkg` → normalized reviewed-source ZIP recovery;
+- `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` — the real ECG source ZIP → reviewed Cases/Questions/Assets → Import Package v1 → production workflow;
+- `CONTENT_IMPORT_PACKAGES.md` — the strict production Import Package v1 and resumable-import contract.
+
 ## Initial content mapping
 
 For the initial ECG migration:
