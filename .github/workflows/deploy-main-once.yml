@@ -55,4 +55,4 @@ jobs:
       - name: Deploy Worker
         run: npx --yes wrangler@4.123.0 deploy
 
-# Deployment trigger: deploy optional stimulus groups after PR #14.
+# Deployment trigger: deploy Stage A Tag foundation after PR #25.
