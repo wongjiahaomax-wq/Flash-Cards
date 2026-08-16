@@ -5,6 +5,7 @@ import {
   assertPostconditions,
   assertPreconditions,
   mutationSql,
+  mutationStatements,
   packageId,
   parseMode,
   renameTargets
@@ -75,14 +76,26 @@ test('postconditions require every target name and preserve expected storage ide
   assert.throws(() => assertPostconditions(storageDrift), /storage key changed/i);
 });
 
-test('mutation is one guarded Asset metadata UPDATE and never changes R2 identity fields', () => {
-  assert.equal((mutationSql.match(/UPDATE assets/g) ?? []).length, 1);
-  assert.match(mutationSql, /SET original_filename = CASE id/);
-  assert.match(mutationSql, /SELECT COUNT\(\*\)/);
-  assert.match(mutationSql, /= 13;/);
+test('mutation uses 13 small individually guarded metadata updates', () => {
+  assert.equal(mutationStatements.length, renameTargets.length);
+  assert.equal((mutationSql.match(/UPDATE assets/g) ?? []).length, 13);
+  assert.doesNotMatch(mutationSql, /SELECT COUNT\(\*\)/i);
+  assert.doesNotMatch(mutationSql, /CASE\s+id/i);
   assert.doesNotMatch(mutationSql, /SET\s+storage_key/i);
   assert.doesNotMatch(mutationSql, /DELETE\s+FROM/i);
   assert.doesNotMatch(mutationSql, /INSERT\s+INTO/i);
+
+  for (const [index, statement] of mutationStatements.entries()) {
+    const target = renameTargets[index];
+    assert.equal((statement.match(/UPDATE assets/g) ?? []).length, 1);
+    assert.match(statement, /SET original_filename = /);
+    assert.ok(statement.includes(target.id));
+    assert.ok(statement.includes(target.storageKey));
+    assert.ok(statement.includes(target.oldName));
+    assert.ok(statement.includes(target.newName));
+    assert.match(statement, /type = 'image'/);
+    assert.match(statement, /original_filename IN \(/);
+  }
 });
 
 test('operator accepts only explicit dry-run or apply mode', () => {

@@ -104,8 +104,11 @@ The operator:
 - verifies each immutable R2 `storage_key` before mutation;
 - accepts only the recorded old source filename or the intended new Case-aligned filename, making safe reruns idempotent;
 - changes only `assets.original_filename`;
-- uses one guarded D1 UPDATE so unexpected target-state drift causes zero rows to be changed;
+- sends 13 small, individually guarded UPDATE statements as one fixed Wrangler/D1 multi-statement batch rather than using a large CASE/subquery UPDATE;
+- guards every statement by exact Asset ID, image type, immutable storage key, and known old-or-target filename;
 - performs post-flight verification of all 13 names and storage keys;
 - never touches R2 objects, image bytes, Cases, Questions, Topics, Tags, Reviews, users, or learner progress.
+
+The first production apply attempt used one large guarded CASE UPDATE. Its pre-flight passed for all 13 Assets, but Cloudflare D1 returned internal error code 7500 when executing that query shape. No rename was verified. The operator was therefore simplified to the fixed 13-statement batch above.
 
 Run the workflow first with `apply = false`. Review the pre-flight output, then run it again with `apply = true`.
