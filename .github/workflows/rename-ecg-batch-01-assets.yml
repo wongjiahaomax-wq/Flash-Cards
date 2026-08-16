@@ -1,0 +1,60 @@
+name: Rename ECG Batch 01 Asset metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the fixed 13-Asset metadata rename after reviewing the pre-flight output
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  rename-assets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Verify dedicated D1 write credentials
+        shell: bash
+        env:
+          CLOUDFLARE_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "::error::Configure CLOUDFLARE_ACCOUNT_ID in repository secrets."
+            exit 1
+          fi
+          if [ -z "${CLOUDFLARE_D1_WRITE_TOKEN:-}" ]; then
+            echo "::error::Configure CLOUDFLARE_D1_WRITE_TOKEN with D1 write/edit permission for the production account."
+            exit 1
+          fi
+          echo "A dedicated D1 write token is configured; its value will not be printed."
+
+      - name: Run fixed Batch 01 Asset rename operator
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
+        run: node scripts/rename-ecg-batch-01-assets.mjs ${{ inputs.apply && '--apply' || '--dry-run' }}
+
+      - name: Record operator safety boundary
+        shell: bash
+        run: |
+          cat <<'EOF_SUMMARY' >> "$GITHUB_STEP_SUMMARY"
+          ## ECG Batch 01 Asset metadata rename
+
+          This manually triggered workflow invokes only the repository's fixed Batch 01 Asset rename script.
+
+          It targets exactly 13 deterministic Asset IDs from package `ecg-anki-batch-01-20260816`. It does not accept SQL, Asset IDs, filenames, or storage keys as workflow inputs.
+
+          The script verifies the expected immutable R2 storage key and known current/target filename for every row before mutation. Apply mode changes only `assets.original_filename` using one guarded D1 UPDATE, then verifies all 13 target names and unchanged storage keys.
+
+          It does not rename or overwrite R2 objects and does not modify Cases, Questions, Topics, Tags, Reviews, authentication, users, sessions, or learner progress.
+          EOF_SUMMARY
