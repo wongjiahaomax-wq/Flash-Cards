@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 15
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_ACCOUNT_ID: 0ada6bfd273d96d92682a853c4dd6fd2
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
         run: npm run build
 
       - name: Apply production D1 migrations
-        run: npm run db:migrate:remote
+        run: npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
 
       - name: Deploy Worker
         run: npx --yes wrangler@4.123.0 deploy
