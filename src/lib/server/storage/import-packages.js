@@ -26,12 +26,12 @@ export function importStagingPrefix(jobId) {
 
 /** @param {string} jobId */
 export function importPackageStorageKey(jobId) {
-  return `${importStagingPrefix(jobId)}package.zip`;
+  return `${IMPORT_STAGING_PREFIX}${normalizedJobId(jobId)}.zip`;
 }
 
 /** @param {string} jobId */
 export function importPlanStorageKey(jobId) {
-  return `${importStagingPrefix(jobId)}plan.json`;
+  return `${IMPORT_STAGING_PREFIX}${normalizedJobId(jobId)}.plan.json`;
 }
 
 /** @param {string} jobId @param {string} assetId */
@@ -73,11 +73,15 @@ async function putImmutableStagingObject(bucket, key, bytes, contentType) {
 }
 
 /**
- * Store the exact administrator-confirmed ZIP under an immutable private prefix.
- * When a server-derived execution snapshot is supplied, also store the normalized
- * manifest and each create-Asset media body separately. Processing requests can
- * then read only the small plan plus media needed for the current Asset chunk,
- * rather than hashing/decompressing/re-parsing the complete ZIP every time.
+ * Store the exact administrator-confirmed ZIP at the original immutable key:
+ *
+ *   imports/staging/<job-id>.zip
+ *
+ * When a server-derived execution snapshot is supplied, also store a normalized
+ * manifest sidecar and each create-Asset media body under adjacent private keys.
+ * Processing requests can then read only the small plan plus media needed for
+ * the current Asset chunk rather than hashing/decompressing/re-parsing the
+ * complete ZIP every time.
  *
  * The exact ZIP remains retained for audit/recovery until complete/cancel.
  * None of these staging objects are learner Assets or learner-served objects.
@@ -95,16 +99,21 @@ export async function stageImportPackage(bucket, jobId, bytes, snapshot = null) 
     throw new MediaStorageLimitError('INVALID_SIZE', `Import package exceeds the ${MAX_ARCHIVE_BYTES}-byte compressed limit.`);
   }
 
-  const prefix = importStagingPrefix(jobId);
   const packageKey = importPackageStorageKey(jobId);
+  const planKey = importPlanStorageKey(jobId);
+  const mediaPrefix = `${importStagingPrefix(jobId)}media/`;
 
-  if (typeof bucket.list === 'function') {
-    const existing = await bucket.list({ prefix, limit: 1 });
-    if ((existing.objects ?? []).some((object) => object.key?.startsWith(prefix))) {
-      throw new MediaStorageLimitError('OBJECT_EXISTS', 'The immutable staging prefix for this import job already exists.');
-    }
-  } else if (await bucket.head(packageKey)) {
+  if (await bucket.head(packageKey)) {
     throw new MediaStorageLimitError('OBJECT_EXISTS', 'The immutable staging object for this import job already exists.');
+  }
+  if (snapshot && await bucket.head(planKey)) {
+    throw new MediaStorageLimitError('OBJECT_EXISTS', 'The immutable execution-plan sidecar for this import job already exists.');
+  }
+  if (snapshot && typeof bucket.list === 'function') {
+    const existingMedia = await bucket.list({ prefix: mediaPrefix, limit: 1 });
+    if ((existingMedia.objects ?? []).some((object) => object.key?.startsWith(mediaPrefix))) {
+      throw new MediaStorageLimitError('OBJECT_EXISTS', 'The immutable media staging prefix for this import job already exists.');
+    }
   }
 
   /** @type {{ key: string, bytes: Uint8Array, contentType: string }[]} */
@@ -120,7 +129,7 @@ export async function stageImportPackage(bucket, jobId, bytes, snapshot = null) 
       packageSha256,
       manifest: snapshot.manifest
     }));
-    derivedObjects.push({ key: importPlanStorageKey(jobId), bytes: planBytes, contentType: 'application/json' });
+    derivedObjects.push({ key: planKey, bytes: planBytes, contentType: 'application/json' });
 
     for (const asset of snapshot.manifest.assets ?? []) {
       if (asset.operation !== 'create') continue;
@@ -206,31 +215,35 @@ export async function readStagedImportMedia(bucket, jobId, assetId) {
 }
 
 /**
- * Remove every object under the job-specific staging prefix. Listing by prefix
- * makes cleanup idempotent even when a previous finalize request deleted some or
- * all staging objects before its D1 checkpoint was recorded.
+ * Remove every staging object for the job. The original exact-ZIP key and plan
+ * sidecar are deleted directly; separately staged create-Asset media is removed
+ * by prefix. All deletes are idempotent, so finalize can safely retry after a
+ * response is lost during cleanup.
  *
- * The no-list fallback exists only for lightweight test fakes and legacy draft
- * jobs; Cloudflare R2 bindings provide list().
+ * The no-list fallback exists for lightweight test fakes and old draft-job
+ * compatibility; Cloudflare R2 bindings provide list().
  *
  * @param {R2Bucket} bucket @param {string} jobId
  */
 export async function deleteStagedImportPackage(bucket, jobId) {
-  const normalized = normalizedJobId(jobId);
+  const packageKey = importPackageStorageKey(jobId);
   if (typeof bucket.list !== 'function') {
-    await bucket.delete(`${IMPORT_STAGING_PREFIX}${normalized}.zip`);
+    await bucket.delete(packageKey);
     return;
   }
 
-  const prefix = importStagingPrefix(normalized);
+  await bucket.delete(packageKey);
+  await bucket.delete(importPlanStorageKey(jobId));
+
+  const mediaPrefix = `${importStagingPrefix(jobId)}media/`;
   /** @type {string | undefined} */
   let cursor;
 
   do {
-    const page = await bucket.list({ prefix, limit: 1000, ...(cursor ? { cursor } : {}) });
+    const page = await bucket.list({ prefix: mediaPrefix, limit: 1000, ...(cursor ? { cursor } : {}) });
     const keys = (page.objects ?? [])
       .map((object) => object.key)
-      .filter((key) => typeof key === 'string' && key.startsWith(prefix));
+      .filter((key) => typeof key === 'string' && key.startsWith(mediaPrefix));
     for (const key of keys) await bucket.delete(key);
 
     if (!page.truncated) break;
