@@ -26,7 +26,12 @@ class ConditionalR2Fake {
   }
 
   async put(key, body, options = {}) {
-    // Yield once so competing uploads can both pass their friendly HEAD check.
+    // Materialize both bodies before the fake performs its atomic precondition
+    // check + store. This lets both callers pass their earlier friendly HEAD,
+    // while still modelling R2's server-side conditional PUT as one operation.
+    const bytes = body instanceof Uint8Array
+      ? body.slice()
+      : new Uint8Array(await body.arrayBuffer());
     await Promise.resolve();
 
     const condition = options.onlyIf instanceof Headers
@@ -34,9 +39,6 @@ class ConditionalR2Fake {
       : null;
     if (condition === '*' && this.object?.key === key) return null;
 
-    const bytes = body instanceof Uint8Array
-      ? body.slice()
-      : new Uint8Array(await body.arrayBuffer());
     this.object = { key, bytes, etag: `etag-${bytes.byteLength}` };
     return { key, size: bytes.byteLength, etag: this.object.etag };
   }
