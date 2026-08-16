@@ -15,322 +15,733 @@ Topic
     └── questions
 ```
 
-That structure remains useful for authoring and learner navigation, but real medical teaching material frequently crosses conceptual boundaries.
+That structure remains useful, but real medical teaching material repeatedly crosses conceptual boundaries.
 
 Examples:
 
-- a QTc Case may be caused by hypocalcaemia, hypercalcaemia, or drugs;
-- an Anaemia Case may be about thalassaemia, iron deficiency, or chronic disease;
-- an ECG-led Case can contain questions about calcium physiology;
-- the same broad knowledge area may appear in Cardiology, Endocrinology, Renal Medicine, Pharmacology, or Emergency Medicine material.
+- several different clinical vignettes can all demonstrate prolonged QTc caused by hypocalcaemia;
+- iron-deficiency anaemia may be presented through heavy menstrual bleeding, gastrointestinal blood loss, dietary deficiency, pregnancy, or other contexts;
+- an ECG-led Case may contain questions about calcium physiology;
+- the same reusable medical knowledge may be relevant to Cases authored under different Topics;
+- the same Case can legitimately cover several concepts without all of those concepts needing to become learner study routes.
 
-Trying to force every cross-link into the Topic hierarchy makes initial ingestion harder and risks creating a large, artificial taxonomy before enough real content exists to justify it.
+Trying to encode every clinically meaningful relationship into the Topic hierarchy makes initial ingestion harder and risks constructing a rigid taxonomy before enough real content exists to justify it.
 
-The proposed approach is therefore:
+The refined proposal is therefore:
 
-> Keep Topics as the primary organisational structure, use Case tags for broad cross-linking, and allow Question tags to override the Case classification only when a particular question tests something different.
+> Keep Topics as curated learner routes and organisational structure. Keep Cases as individual vignettes. Use Case tags to describe the concepts covered by each Case. Use Question tags to describe the knowledge tested by each Question. For reusable Questions, keep reuse scope separate from descriptive Question tags.
 
-This should support progressive enrichment: import first according to the source material, then add cross-links as the corpus grows.
+This is intended to support progressive enrichment: import and author Cases first, then add increasingly useful cross-links as the corpus grows.
 
 ---
 
-## 2. Topic = where the material primarily lives
+## 2. Core mental model
 
-A Topic remains the main curated study/authoring route.
-
-Examples:
+The proposed product model is:
 
 ```text
-Cardiology
-└── ECG
-    └── QTc
+TOPIC
+= Where can a learner intentionally study this material?
 
-Haematology
-└── Anaemia
+CASE
+= What particular clinical vignette/presentation is being shown?
+
+CASE TAGS
+= What clinically meaningful concepts are covered by this Case?
+
+QUESTION TAGS
+= What clinically meaningful knowledge does this Question test?
+
+QUESTION REUSE SCOPE
+= Across which tagged Cases may this shared Question be eligible for reuse?
+
+CASE-SPECIFIC QUESTION
+= A Question whose answer/relevance depends on this exact vignette.
+
+STIMULUS-SPECIFIC QUESTION
+= A Question whose answer/relevance depends on this exact ECG/image/stimulus.
 ```
 
-Topics remain relatively stable and hierarchical.
-
-The existing `concepts` / `case_concepts` model should not be weakened into a generic tagging system. In particular, an attached Case Topic currently has learner-routing meaning: it means the Case is a valid study route for that Topic.
-
-Tags should therefore be a separate, weaker relationship.
+These are related but intentionally distinct properties.
 
 ---
 
-## 3. Case tags = broad cross-links for the presentation
+## 3. Topic = curated organisation and learner study route
 
-A Case may have one or more tags describing the main cross-cutting idea(s) represented by that presentation.
+A Topic remains the product-facing name for the existing Concept model.
 
-Example:
+Topics can still be broad or clinically specific when that is useful to learners. Existing multi-Topic Case routing remains valid and should not be weakened.
+
+For example, the current system may intentionally support a Case as a learner route from both:
 
 ```text
-Topic: Cardiology → ECG → QTc
+Hypocalcaemia
+Prolonged QTc
+```
 
-Case A: Prolonged QTc due to hypocalcaemia
+because `case_concepts` has stronger learner-routing semantics.
+
+Tags are not a replacement for that behaviour.
+
+The distinction is:
+
+```text
+Case ↔ Topic relationship
+= This Case is deliberately valid as a learner study route for this Topic.
+
+Case tag
+= This Case contains/covers this clinically meaningful concept.
+```
+
+A useful tag may later justify creating or attaching a Topic study route, but that promotion should be an explicit administrator decision rather than an automatic consequence of tagging.
+
+This allows early imports to remain relatively source-oriented while a richer teaching taxonomy emerges from real content.
+
+---
+
+## 4. Case = one particular vignette or presentation
+
+A Case remains one coherent clinical presentation.
+
+Two Cases may share exactly the same broad diagnosis and many of the same tags while still being separate Cases because the stem, cause, age group, context, investigation pattern, or educational emphasis differs.
+
+For example:
+
+```text
+Case A
+Post-thyroidectomy hypocalcaemia with prolonged QTc
+
 Case tags:
+- Prolonged QTc
 - Hypocalcaemia
-- Calcium
-
-Case B: Shortened QTc due to hypercalcaemia
-Case tags:
-- Hypercalcaemia
-- Calcium
-
-Case C: Drug-induced prolonged QTc
-Case tags:
-- Drugs
+- Post-thyroidectomy
+- Hypoparathyroidism   (if clinically appropriate)
 ```
 
-This allows the original Topic structure to remain intact while supporting useful intersections such as:
+and:
 
 ```text
-QTc + Hypocalcaemia
-QTc + Hypercalcaemia
-QTc + Drugs
-```
+Case B
+Vitamin-D-deficiency hypocalcaemia with prolonged QTc
 
-Likewise:
-
-```text
-Topic: Haematology → Anaemia
-Case: Beta-thalassaemia trait
 Case tags:
-- Thalassaemia
+- Prolonged QTc
+- Hypocalcaemia
+- Vitamin D deficiency
 ```
 
-A Case tag does **not** mean that the Case should become an alternate learner Topic route. It only means that the Case is related to that idea for discovery, filtering, curation, or future tag-based study.
+Both Cases cover `Prolonged QTc + Hypocalcaemia`.
+
+They remain separate Cases because they are different clinical vignettes and can support different Case-specific questions.
+
+This is a desired feature, not duplication to eliminate.
 
 ---
 
-## 4. Default rule: Case questions inherit the Case tags
+## 5. Case titles should identify the vignette
 
-Most questions in an imported Case should require no additional semantic work.
+As more Cases share overlapping tags, descriptive administrator-facing Case names become important.
 
-If a Case Question has **no explicit Question tag**, its effective tag classification comes from the Case.
+Prefer names such as:
+
+```text
+Post-thyroidectomy hypocalcaemia with prolonged QTc
+Vitamin-D-deficiency hypocalcaemia with prolonged QTc
+```
+
+If age or population is educationally important, it may also be reflected in the Case title or stem:
+
+```text
+Older adult — post-thyroidectomy hypocalcaemia with prolonged QTc
+Young adult — vitamin D deficiency with hypocalcaemia and prolonged QTc
+```
+
+Do not automatically turn every demographic property into a tag.
+
+A tag should normally represent a clinically meaningful concept with likely retrieval, curation, or teaching value. Examples such as `Vitamin D deficiency`, `Post-thyroidectomy`, `Heavy menstrual bleeding`, or `Haemorrhoids` are more useful than indiscriminately accumulating generic demographic tags.
+
+---
+
+## 6. Case tags describe what the Case covers
+
+A Case may have several tags. No single tag needs to be privileged as the default.
 
 Example:
 
 ```text
-Topic: Cardiology → ECG → QTc
-Case: Prolonged QTc due to hypocalcaemia
-Case tags: Hypocalcaemia, Calcium
+Case:
+Post-thyroidectomy hypocalcaemia with prolonged QTc
+
+Tags:
+- Prolonged QTc
+- Hypocalcaemia
+- Post-thyroidectomy
 ```
 
-Questions:
+The tags should allow cross-cutting retrieval such as:
 
 ```text
-Q1. What is the diagnosis?
-No explicit Question tags.
-Effective tags: Hypocalcaemia, Calcium
-
-Q2. What are the causes of hypocalcaemia?
-No explicit Question tags.
-Effective tags: Hypocalcaemia, Calcium
+Find all Cases tagged Hypocalcaemia
+Find all Cases tagged Prolonged QTc
+Find Cases tagged Prolonged QTc + Hypocalcaemia
+Find Cases tagged Hypocalcaemia + Vitamin D deficiency
 ```
 
-This makes initial ingestion cheap: authors can tag the Case once instead of individually classifying every question.
+Many Cases may intentionally share the same tag combination.
+
+Tags therefore act more like facets in a clinical knowledge graph than nodes in a rigid tree.
 
 ---
 
-## 5. Question tags = an override when the question tests something different
+## 7. Anaemia example: several Cases can share the same core tags
 
-Some questions inside a Case test a different knowledge area from the Case's broad cross-link.
+The same model applies outside ECG material.
 
-In that situation the author may explicitly tag the Question usage.
-
-The proposed rule is:
-
-> If a contextual Question usage has one or more explicit Question tags, use those tags instead of the inherited Case tags for semantic/tag-based classification.
-
-Example using the same hypocalcaemia Case:
+Example:
 
 ```text
-Q3. Which drugs can cause this ECG abnormality?
-Explicit Question tag:
+Case A
+Iron-deficiency anaemia secondary to heavy menstrual bleeding
+
+Case tags:
+- Anaemia
+- Iron deficiency
+- Heavy menstrual bleeding
+```
+
+```text
+Case B
+Iron-deficiency anaemia secondary to rectal bleeding from haemorrhoids
+
+Case tags:
+- Anaemia
+- Iron deficiency
+- Rectal bleeding
+- Haemorrhoids
+```
+
+Both Cases share:
+
+```text
+Anaemia
+Iron deficiency
+```
+
+but remain distinct because their presentations and causes differ.
+
+This makes it possible to build many clinically varied Cases around the same underlying knowledge without copying all of the reusable medical questions into every Case.
+
+---
+
+## 8. Question tags describe what the Question tests
+
+Question tags have a different meaning from Case tags.
+
+They answer:
+
+> What medical knowledge is this particular Question testing or teaching?
+
+Example:
+
+```text
+Question:
+What ECG abnormality is associated with severe hypocalcaemia?
+
+Question tags:
+- Hypocalcaemia
 - Prolonged QTc
 ```
 
-For tag-based classification, Q3 is therefore a **Prolonged QTc** question, not a Hypocalcaemia/Calcium question merely because it appears inside the hypocalcaemia Case.
+Both tags are valid because the Question tests the relationship between those concepts.
 
-The distinction is intentional:
+Another example:
 
 ```text
-Q1 What is the diagnosis?
-→ follows the Case
-→ Hypocalcaemia / Calcium
+Question:
+What are the causes of hypocalcaemia?
 
-Q2 What are the causes of hypocalcaemia?
-→ follows the Case
-→ Hypocalcaemia / Calcium
-
-Q3 Which drugs can cause this ECG abnormality?
-→ explicit override
-→ Prolonged QTc
+Question tags:
+- Hypocalcaemia
 ```
 
-This should make future cross-topic retrieval substantially more precise without requiring every question to be manually tagged.
+Question tags are therefore useful for future retrieval such as:
+
+```text
+Find all Questions tagged Hypocalcaemia
+Find all Questions tagged Prolonged QTc
+Find all Questions tagged Calcium disorders
+```
+
+A Case tag and a Question tag can use the same canonical Tag entity while retaining different relationship semantics.
 
 ---
 
-## 6. Reusable Question Prompts should not carry global clinical tags
+## 9. Case tags should not automatically become Question tags
 
-The existing data model separates reusable prompt wording (`question_prompts`) from the contextual relationship that supplies its answer (`case_questions`, `concept_questions`, stimulus-specific question relationships, etc.).
+The earlier version of this proposal suggested that a Case Question without explicit tags could inherit all Case tags.
 
-This distinction should be preserved for tagging.
+The refined recommendation is **not** to treat every Case tag as an automatic Question classification.
 
-For example, the reusable prompt:
-
-```text
-What is the diagnosis?
-```
-
-may be used in many different contexts:
+Consider:
 
 ```text
-Beta-thalassaemia Case
-→ answer: Beta-thalassaemia trait
-→ follows that Case's tags
-
-Hypocalcaemia Case
-→ answer: Hypocalcaemia
-→ follows that Case's tags
-
-STEMI Case
-→ answer: Anterior STEMI
-→ follows that Case's tags
+Case tags:
+- Prolonged QTc
+- Hypocalcaemia
+- Post-thyroidectomy
 ```
 
-It would therefore be incorrect to attach a global `Thalassaemia`, `Hypocalcaemia`, or `STEMI` tag to the reusable prompt itself.
+A Question such as:
 
-Clinical Question tags should attach to the **contextual Question usage**, not automatically to the underlying reusable wording.
+```text
+What are the causes of hypocalcaemia?
+```
 
-This preserves the existing ability to reuse Question Prompts safely across Cases while allowing each usage to have different semantic classification.
+does not automatically become a `Post-thyroidectomy` Question merely because it appears in that Case.
+
+Likewise a Case-specific Question about the operation does not automatically test every other concept carried by the Case.
+
+Therefore:
+
+- Case tags classify the Case;
+- Question tags classify the Question;
+- ordinary imported Questions may initially remain untagged;
+- the Admin UI may suggest relevant Case tags when tagging a Question, but should not silently persist all of them as Question tags.
+
+This avoids semantic pollution as Cases accumulate several useful cross-links.
 
 ---
 
-## 7. Reusability and tagging are separate properties
+## 10. Three Question scopes
 
-The authoring UI should not make “reusable” and “tagged” the same control.
+The proposed authoring model has three main Question scopes.
 
-They answer different questions:
+### 10.1 Tag-reusable / shared knowledge Question
+
+Use this when the Question and answer remain valid across many Cases sharing an appropriate reuse scope.
+
+Example:
 
 ```text
-Reusable
-= Can this Question Prompt wording be used in another context?
-
-Explicit Question tags
-= Does this particular Question usage test a different knowledge area from the Case tags?
+What are the causes of hypocalcaemia?
 ```
 
-Therefore all combinations should be possible:
+This can reasonably be reused across different hypocalcaemia Cases.
 
-- non-reusable/question-specific usage with inherited Case tags;
-- non-reusable/question-specific usage with explicit Question tags;
-- reusable prompt usage with inherited Case tags;
-- reusable prompt usage with explicit Question tags.
+### 10.2 Case-specific Question
+
+Use this when the answer or relevance depends on the exact vignette.
+
+Example in a post-thyroidectomy Case:
+
+```text
+What is the most likely cause of the hypocalcaemia in this patient?
+→ post-operative hypoparathyroidism
+```
+
+The same prompt wording may appear in another Case with a different contextual answer, but the relationship remains Case-specific.
+
+### 10.3 Stimulus-specific Question
+
+Use this when relevance or answer depends on the exact selected ECG/image/stimulus.
+
+Example:
+
+```text
+What additional conduction abnormality is visible on this ECG?
+```
+
+This should remain attached to the exact stimulus option when different alternative ECGs show different findings.
+
+The existing stimulus-specific model already supports this distinction conceptually.
 
 ---
 
-## 8. Proposed authoring mental model
+## 11. Authoring rule: attach a Question at the broadest safe scope
 
-The common workflow should remain simple.
+A useful general rule remains:
+
+> Attach a Question at the broadest scope where its answer and educational meaning remain reliably correct.
+
+Examples:
+
+| Question | Preferred scope |
+|---|---|
+| What are the causes of hypocalcaemia? | Shared/reusable; scope `Hypocalcaemia` |
+| What ECG abnormality is associated with severe hypocalcaemia? | Shared/reusable; scope `Hypocalcaemia` |
+| How is iron deficiency treated? | Shared/reusable; scope `Iron deficiency` |
+| What is the most likely cause in this patient? | Case-specific |
+| Why does this patient have iron deficiency? | Case-specific |
+| What additional feature is visible on this exact ECG? | Stimulus-specific |
+
+This minimises duplication while preserving contextual correctness.
+
+---
+
+## 12. Question tags and Question reuse scope are separate
+
+This is the most important refinement to the earlier proposal.
+
+A reusable Question needs two different pieces of semantic information:
+
+```text
+Question tags
+= What knowledge does this Question cover?
+
+Reuse scope
+= Which tagged Cases make this Question eligible for reuse?
+```
+
+They are often related, but they are not always identical.
+
+Key example:
+
+```text
+Question:
+What ECG abnormality is associated with severe hypocalcaemia?
+
+Answer:
+QT prolongation / prolonged QTc
+
+Question tags:
+- Hypocalcaemia
+- Prolonged QTc
+
+Reuse scope:
+- Hypocalcaemia
+```
+
+The Question genuinely teaches both `Hypocalcaemia` and `Prolonged QTc`.
+
+However, it may be useful in **any Hypocalcaemia Case**, including a Case that is not itself tagged `Prolonged QTc`.
+
+Therefore the full Question tag set must not be interpreted as an AND condition for reuse.
+
+The Question tags describe content. The reuse scope describes eligibility.
+
+---
+
+## 13. Reuse scope means eligibility, not guaranteed display
+
+A shared Question matching a Case's reuse scope should normally become **eligible** for that Case's question pool.
+
+It does not necessarily mean every eligible shared Question must be shown every time.
+
+For example:
+
+```text
+Case tags:
+- Hypocalcaemia
+- Vitamin D deficiency
+
+Eligible shared Questions may include:
+- What are the causes of hypocalcaemia?
+- What ECG abnormality is associated with severe hypocalcaemia?
+- How is severe symptomatic hypocalcaemia treated?
+- What are the causes of vitamin D deficiency?
+- How is vitamin D deficiency investigated?
+```
+
+The existing Case question-selection mode can still determine whether all, a fixed number, or an automatically selected subset are shown.
+
+This distinction prevents tag-based reuse from causing every heavily tagged Case to become excessively long.
+
+---
+
+## 14. Worked hypocalcaemia example
+
+Consider two Cases.
+
+### Case A
+
+```text
+Title:
+Post-thyroidectomy hypocalcaemia with prolonged QTc
+
+Tags:
+- Hypocalcaemia
+- Prolonged QTc
+- Post-thyroidectomy
+```
+
+### Case B
+
+```text
+Title:
+Vitamin-D-deficiency hypocalcaemia with prolonged QTc
+
+Tags:
+- Hypocalcaemia
+- Prolonged QTc
+- Vitamin D deficiency
+```
+
+Both Cases may draw from shared knowledge such as:
+
+```text
+Shared Question:
+What are the causes of hypocalcaemia?
+
+Question tags:
+- Hypocalcaemia
+
+Reuse scope:
+- Hypocalcaemia
+```
+
+and:
+
+```text
+Shared Question:
+What ECG abnormality is associated with severe hypocalcaemia?
+
+Question tags:
+- Hypocalcaemia
+- Prolonged QTc
+
+Reuse scope:
+- Hypocalcaemia
+```
+
+But their Case-specific questions differ.
+
+Case A:
+
+```text
+What is the most likely cause of hypocalcaemia in this patient?
+→ post-operative hypoparathyroidism
+```
+
+Case B:
+
+```text
+What is the most likely cause of hypocalcaemia in this patient?
+→ vitamin D deficiency
+```
+
+This is exactly the intended separation between reusable knowledge and vignette-specific reasoning.
+
+---
+
+## 15. Worked iron-deficiency example
+
+### Case A
+
+```text
+Title:
+Iron-deficiency anaemia secondary to heavy menstrual bleeding
+
+Tags:
+- Anaemia
+- Iron deficiency
+- Heavy menstrual bleeding
+```
+
+### Case B
+
+```text
+Title:
+Iron-deficiency anaemia secondary to rectal bleeding from haemorrhoids
+
+Tags:
+- Anaemia
+- Iron deficiency
+- Rectal bleeding
+- Haemorrhoids
+```
+
+Shared Questions may include:
+
+```text
+What are the causes of iron deficiency?
+What blood-film findings are expected in iron deficiency?
+How is iron deficiency investigated?
+How is iron deficiency treated?
+```
+
+with reuse scope:
+
+```text
+Iron deficiency
+```
+
+The Cases may then add vignette-specific questions about the actual source of blood loss, risk factors, or next investigation in that patient.
+
+This lets varied clinical stems test the same core knowledge while retaining presentation-specific reasoning.
+
+---
+
+## 16. Reusable wording remains separate from reusable medical meaning
+
+The existing model correctly separates `question_prompts` from contextual answers.
+
+That distinction should remain.
+
+For example, the wording:
+
+```text
+What is the most likely cause in this patient?
+```
+
+may be reused as a prompt across many Cases while the answer differs.
+
+Therefore a reusable `question_prompt` should not automatically receive global clinical tags merely because one usage has a particular meaning.
+
+The refined model distinguishes:
+
+```text
+Prompt reuse
+= Can this wording be used again?
+
+Shared knowledge reuse
+= Does this prompt + answer represent knowledge that is valid across a Case-tag scope?
+
+Question tags
+= What does this Question test?
+```
+
+These should not be collapsed into a single property.
+
+---
+
+## 17. Relationship to existing Topic Questions
+
+The current `concept_questions` model remains useful.
+
+A Topic Question means:
+
+```text
+This reusable Question belongs to this curated learner study route.
+```
+
+A future tag-scoped shared Question would mean:
+
+```text
+This reusable Question is eligible across Cases carrying this reuse-scope tag,
+regardless of which Topic originally contains those Cases.
+```
+
+Those are different reuse mechanisms.
+
+For example, a reusable `Hypocalcaemia` Question may eventually be relevant to Cases authored under Cardiology, Endocrinology, Renal Medicine, Emergency Medicine, or another Topic.
+
+The implementation should preserve Topic-based reusable questions while allowing a future tag-scoped layer to cross Topic boundaries.
+
+How duplicate prompts from Topic, tag, Case, and stimulus scopes are resolved should be designed explicitly before implementation.
+
+---
+
+## 18. Proposed authoring workflow
+
+The ordinary Case authoring flow could remain simple.
 
 ### Case level
 
 ```text
-Topic
-Cardiology → ECG → QTc
+Case title
+Post-thyroidectomy hypocalcaemia with prolonged QTc
 
-Case
-Prolonged QTc due to hypocalcaemia
+Topics
+[ existing learner-routing Topics ]
 
-Tags
-[ Hypocalcaemia ] [ Calcium ] [+ Add tag]
-```
-
-### Question level
-
-By default:
-
-```text
-What is the diagnosis?
-Tags: follows Case
-```
-
-Only when needed:
-
-```text
-Which drugs can cause this ECG abnormality?
-Question classification: override Case tags
+Case tags
+[ Hypocalcaemia ]
 [ Prolonged QTc ]
+[ Post-thyroidectomy ]
+[ + Add tag ]
 ```
 
-The UI should make the inherited state obvious while avoiding mandatory per-question classification.
-
-Possible product wording for review:
+### Shared/reusable Question
 
 ```text
-Tags
-○ Follow Case tags
-● Use Question tags
-   [ Prolonged QTc ]
+Question
+What ECG abnormality is associated with severe hypocalcaemia?
+
+Answer
+QT prolongation / prolonged QTc
+
+Question tags
+[ Hypocalcaemia ] [ Prolonged QTc ]
+
+Reusable in Cases tagged
+[ Hypocalcaemia ]
 ```
 
-The exact control and wording are not decided by this proposal.
+### Case-specific Question
+
+```text
+Question
+What is the most likely cause of the hypocalcaemia in this patient?
+
+Scope
+This Case only
+
+Answer
+Post-operative hypoparathyroidism
+
+Question tags (optional/curated)
+[ Hypocalcaemia ] [ Post-thyroidectomy ]
+```
+
+The exact controls and labels remain product-design questions, but the semantic distinction should be preserved.
 
 ---
 
-## 9. Progressive ingestion strategy
+## 19. Progressive ingestion strategy
 
-This tagging model is intended to support a topic-first migration of existing Anki material.
+This proposal is intended to make large Anki ingestion easier rather than harder.
 
 Recommended sequence:
 
-1. Import material using its existing broad Topic/deck organisation.
-2. Preserve each source note/slide as a Case where appropriate.
-3. Import questions primarily as Case Questions unless there is a clear reason to promote them to a reusable Topic relationship.
-4. Add a small number of Case tags describing the broad cross-link represented by the Case.
-5. Leave most Question usages untagged so they inherit the Case tags.
-6. Add explicit Question tags only when a Question clearly tests a different knowledge area from the Case.
-7. As the corpus grows, use tags to discover clusters across original Topics and decide which material merits stronger reusable Topic relationships or new study experiences.
+1. Import material according to its existing broad Topic/deck organisation.
+2. Preserve genuinely different clinical presentations as separate Cases.
+3. Give Cases descriptive administrator-facing titles.
+4. Import existing questions as Case Questions initially when their broader reuse is uncertain.
+5. Add a small number of obvious Case tags when practical.
+6. Do **not** require every imported Question to be semantically tagged before import can proceed.
+7. During curation, identify Questions whose answer remains valid across many tagged Cases.
+8. Promote those Questions into the shared/tag-reusable layer with explicit reuse scope.
+9. Add Question tags for semantic retrieval and future cross-topic study.
+10. Continue to keep vignette-dependent Questions attached directly to the Case and image-dependent Questions attached to the stimulus.
 
-This avoids requiring a complete medical ontology before the first large import.
-
----
-
-## 10. Desired future behaviour
-
-The model should eventually support discovery such as:
-
-```text
-Study Topic: QTc
-Filter/tag: Hypocalcaemia
-```
-
-or:
-
-```text
-Find questions classified as Prolonged QTc
-```
-
-or:
-
-```text
-Find all Calcium-related material across Cardiology, Endocrinology, Renal Medicine, etc.
-```
-
-The system should distinguish whether a Question matched because:
-
-- it explicitly carries the requested Question tag; or
-- it inherits the requested Case tag.
-
-This provenance will be useful for administrator review and debugging.
+This lets structure emerge from the real corpus instead of requiring a complete ontology up front.
 
 ---
 
-## 11. Possible schema direction — deliberately not final
+## 20. Desired future retrieval behaviour
 
-If implemented, a minimal starting point could include a first-class tag table and Case relationships:
+The model should eventually support administrator queries such as:
+
+```text
+Find all Cases tagged Hypocalcaemia
+Find all Cases tagged Prolonged QTc + Hypocalcaemia
+Find all Cases tagged Iron deficiency + Heavy menstrual bleeding
+```
+
+and Question queries such as:
+
+```text
+Find all Questions tagged Hypocalcaemia
+Find all Questions tagged Prolonged QTc
+Find all Questions tagged Iron deficiency
+```
+
+and shared-question queries such as:
+
+```text
+Show Questions reusable in Hypocalcaemia Cases
+Show Questions reusable in Iron-deficiency Cases
+```
+
+Those queries are related but should not be treated as identical.
+
+A Question can be tagged `Hypocalcaemia + Prolonged QTc` while its reuse scope is only `Hypocalcaemia`.
+
+---
+
+## 21. Possible schema direction — deliberately not final
+
+A minimal tag foundation could remain:
 
 ```text
 tags
@@ -347,81 +758,194 @@ case_tags
 - tag_id
 ```
 
-Question tagging requires more care because the current system has several contextual Question relationship types:
+The shared Question layer needs more care because the existing `question_prompts` table stores wording only and answers belong on contextual relationships.
 
-- `case_questions`;
-- `concept_questions`;
-- `stimulus_group_questions`;
-- `stimulus_option_questions`.
-
-The proposal does **not** yet choose between:
-
-1. separate tag join tables for each contextual Question relationship; or
-2. a future unified Question-usage abstraction that can own tags consistently.
-
-The implementation should not add clinical tags directly to `question_prompts` as the primary mechanism, because a reusable prompt can have different clinical meanings in different contexts.
-
-For the near-term Anki migration, Case-level inheritance plus explicit Case-Question overrides is the main behaviour to optimise.
-
----
-
-## 12. Relationship to existing multi-Topic routing
-
-This proposal should remain separate from existing Case↔Topic learner routing.
-
-The intended semantics are:
+One possible logical shape is:
 
 ```text
-Case Topic relationship
-= This Case is a valid learner study route for this Topic.
+shared_questions
+- id
+- question_prompt_id
+- answer_md
+- is_active
+- created_at
+- updated_at
 
-Case tag
-= This Case is broadly related to this idea.
+shared_question_tags
+- shared_question_id
+- tag_id
 
-Question tag
-= This contextual Question usage should be classified under this idea instead of inheriting the Case tags.
+shared_question_reuse_scopes
+- shared_question_id
+- tag_id
 ```
 
-Do not repurpose `case_concepts.role = secondary` as a generic tag mechanism. Secondary Topic relationships currently participate in learner routing and Review provenance and therefore have stronger semantics than tags.
+Conceptually:
+
+```text
+shared_question_tags
+= what the Question tests
+
+shared_question_reuse_scopes
+= which Case tags make it eligible
+```
+
+The exact table names are not proposed as final.
+
+Case-specific Question tags could attach to `case_questions` through a separate join table if/when needed. Equivalent tag relationships for `concept_questions`, `stimulus_group_questions`, and `stimulus_option_questions` should only be added when there is a demonstrated use case.
+
+Avoid storing clinical classification directly on `question_prompts` as the primary mechanism because identical wording can have different meanings and answers in different contexts.
 
 ---
 
-## 13. Explicitly deferred questions for reviewer feedback
+## 22. Matching semantics for multiple reuse scopes remain open
 
-This document is intended for architecture review before implementation. The reviewer should specifically assess:
+The current examples are intentionally simple:
 
-1. **Override semantics:** Is `explicit Question tags replace inherited Case tags` the right rule, or should any circumstances support additive inheritance?
-2. **Question-usage identity:** Should tags attach directly to the existing contextual relationship rows, or is a unified Question-usage abstraction justified?
-3. **Concept/Topic questions:** If reusable Topic Questions later participate in tag study, should they default to their owning Topic, require explicit tags, or use another rule?
-4. **Tag hierarchy:** Should tags initially remain flat, or is parent/child structure required? The current preference is to keep tags flat until real content demonstrates a need.
-5. **Synonyms/normalisation:** How should `QTc`, `Prolonged QTc`, `long QT`, `hypocalcaemia`, etc. be normalised without creating duplicate tags?
-6. **Study semantics:** Should tags initially be admin/search/filter metadata only, with tag-based learner study added later after enough content exists?
-7. **Historical provenance:** If Case or Question tags change later, do Reviews need tag snapshots for analytics, or can tag classification remain current metadata until a real analytics requirement appears?
-8. **Importer scope:** Should Import Package v1 remain unchanged initially, with tags authored after import, or should a future additive package version support reviewed Case/Question tags?
+```text
+Reusable in Cases tagged:
+Hypocalcaemia
+```
+
+If a shared Question later has several reuse-scope tags, the implementation must define whether that means:
+
+- ANY matching Case tag is sufficient;
+- ALL listed Case tags are required; or
+- compound reuse rules need an explicit representation.
+
+Do not infer this behaviour merely from descriptive Question tags.
+
+The current design requirement established by the hypocalcaemia/QTc example is only:
+
+> A Question may carry several descriptive Question tags while being reusable across Cases matching a narrower reuse scope.
+
+That requirement should be preserved regardless of the eventual multiple-scope design.
 
 ---
 
-## 14. Current recommendation
+## 23. Tag hierarchy and normalisation
 
-Do not block the current resumable-import work or first large content imports on this proposal.
+The current preference remains to keep tags flat initially.
 
-The recommended direction is:
+Do not build a complete medical ontology before enough real content exists to demonstrate the need.
+
+However, canonicalisation will eventually be necessary to avoid accidental duplicates such as:
+
+```text
+Prolonged QTc
+QT prolongation
+Long QT
+```
+
+or spelling variants such as:
+
+```text
+Hypocalcaemia
+Hypocalcemia
+```
+
+A future alias/synonym mechanism may allow several search terms to resolve to one canonical Tag.
+
+The exact canonical spelling policy is not decided by this proposal.
+
+---
+
+## 24. Learner behaviour should follow later
+
+Tags should initially be treated primarily as authoring, search, curation, and reuse metadata.
+
+Do not require the first tagging implementation to expose a new learner-facing `Study by Tag` feature.
+
+Once the corpus contains enough well-curated tags, future learner experiences could include:
+
+```text
+Study Topic: ECG
+Filter: Hypocalcaemia
+```
+
+or cross-Topic study such as:
+
+```text
+Study all material related to Iron deficiency
+```
+
+Those features should be driven by observed content quality and learner needs rather than assumed in the first schema change.
+
+---
+
+## 25. Review provenance
+
+The current system snapshots Topics, Questions, answers, and selected stimuli into Reviews where historical meaning matters.
+
+Tag provenance does not need to be snapshotted immediately unless tags begin driving learner scheduling, mastery analytics, or historically meaningful reporting.
+
+For the first implementation, current Case/Question tags can remain mutable curation metadata.
+
+Historical tag snapshots should be reconsidered only when a real analytics or audit requirement appears.
+
+---
+
+## 26. Import-package scope
+
+The current import package should not be blocked on this architecture.
+
+Initial Anki ingestion can remain:
+
+```text
+Topic/deck
+→ Case
+→ questions
+→ images/stimuli
+```
+
+Tags and shared Question reuse can be added through later curation or a future additive import-package version.
+
+If tag support is eventually added to imports, it should remain optional so partially structured source material can still be imported safely.
+
+---
+
+## 27. Explicitly deferred questions for reviewer feedback
+
+Before implementation, reviewer feedback should specifically assess:
+
+1. **Shared Question storage:** Is a dedicated shared/tag-reusable Question relationship the right representation given that `question_prompts` stores wording only?
+2. **Reuse matching:** If one shared Question has several reuse scopes, should matching use ANY, ALL, or explicit compound rules?
+3. **Resolver precedence:** How should duplicate prompt IDs be resolved when the same prompt is available from stimulus, Case, tag-reusable, Topic, and ancestor-Topic layers?
+4. **Question tagging coverage:** Which contextual Question relationships need tags in the first implementation versus later?
+5. **Tag hierarchy:** Should tags remain flat initially? Current preference: yes.
+6. **Synonyms/normalisation:** How should spelling variants and clinical synonyms resolve to canonical Tags?
+7. **Study semantics:** At what point should tags become learner-facing study/filter controls rather than primarily Admin/reuse metadata?
+8. **Historical provenance:** When, if ever, should Review rows snapshot tag classification?
+9. **Importer scope:** Should the first implementation keep tags outside Import Package v1 and add them only in a future compatible version?
+
+---
+
+## 28. Current recommendation
+
+Do not block current resumable-import work or the first large content imports on this proposal.
+
+The recommended progression is:
 
 ```text
 NOW
 Topic-first import
-→ Cases
+→ distinct clinical Cases
 → questions/images
-→ basic Case tags when obvious
+→ descriptive Case titles
+→ obvious Case tags when practical
 
 THEN
 Manual curation
-→ explicit Question tags only where needed
+→ Question tags where useful
+→ identify genuinely reusable knowledge Questions
+→ assign explicit Case-tag reuse scope
 
 LATER
-Cross-topic/tag retrieval and study
-→ discover reusable clusters
-→ promote genuinely reusable knowledge structures based on real corpus behaviour
+Cross-topic discovery
+→ richer tag search/filtering
+→ shared-question pools across Topics
+→ promote useful clusters into learner study routes when appropriate
+→ consider learner tag-based study after content quality is sufficient
 ```
 
-The goal is to let the knowledge graph emerge from the imported corpus while preserving a simple authoring workflow and the existing Topic/Case/stimulus architecture.
+The goal is a progressively enriched clinical knowledge graph without sacrificing the simple authoring model already established for Topics, Cases, stimuli, and contextual Questions.
