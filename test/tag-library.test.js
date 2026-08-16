@@ -87,8 +87,14 @@ test('Tags normalize canonical names and report current Case and Case Question c
     assert.ok(row);
     assert.equal(row.activeCaseCount, 1);
     assert.equal(row.activeCaseQuestionCount, 1);
-    assert.equal((await listCurrentCaseTagAssignments(fixture.db)).some((item) => item.tagId === tag.id), true);
-    assert.equal((await listCurrentPromptTagAssignments(fixture.db)).some((item) => item.promptId === context.prompt_id && item.tagId === tag.id), true);
+    const currentCaseAssignments = await listCurrentCaseTagAssignments(fixture.db);
+    const currentPromptAssignments = await listCurrentPromptTagAssignments(fixture.db);
+    assert.equal(currentCaseAssignments.some((item) => item.tagId === tag.id), true, JSON.stringify(currentCaseAssignments));
+    assert.equal(
+      currentPromptAssignments.some((item) => item.promptId === context.prompt_id && item.tagId === tag.id),
+      true,
+      JSON.stringify({ context, assignments: currentPromptAssignments })
+    );
   } finally {
     fixture.sqlite.close();
   }
@@ -105,7 +111,12 @@ test('Case Tags do not automatically become Question Tags', async () => {
     assert.equal((await listCurrentPromptTagAssignments(fixture.db)).some((item) => item.tagId === tag.id), false);
 
     await addCaseQuestionTag(fixture.db, { caseQuestionId: context.case_question_id, tagId: tag.id });
-    assert.equal((await listCurrentPromptTagAssignments(fixture.db)).some((item) => item.tagId === tag.id), true);
+    const currentPromptAssignments = await listCurrentPromptTagAssignments(fixture.db);
+    assert.equal(
+      currentPromptAssignments.some((item) => item.tagId === tag.id),
+      true,
+      JSON.stringify(currentPromptAssignments)
+    );
   } finally {
     fixture.sqlite.close();
   }
@@ -121,8 +132,10 @@ test('deactivating a Tag preserves curated relationships but prevents new active
     await setTagActive(fixture.db, { tagId: tag.id, isActive: false });
 
     assert.equal((await listActiveTags(fixture.db)).some((item) => item.id === tag.id), false);
-    assert.equal((await listCaseTagAssignments(fixture.db)).some((item) => item.tagId === tag.id), true);
-    assert.equal((await listCaseQuestionTagAssignments(fixture.db)).some((item) => item.tagId === tag.id), true);
+    const retainedCaseAssignments = await listCaseTagAssignments(fixture.db);
+    const retainedQuestionAssignments = await listCaseQuestionTagAssignments(fixture.db);
+    assert.equal(retainedCaseAssignments.some((item) => item.tagId === tag.id), true, JSON.stringify(retainedCaseAssignments));
+    assert.equal(retainedQuestionAssignments.some((item) => item.tagId === tag.id), true, JSON.stringify(retainedQuestionAssignments));
     assert.equal((await listCurrentCaseTagAssignments(fixture.db)).some((item) => item.tagId === tag.id), false);
     assert.equal((await listCurrentPromptTagAssignments(fixture.db)).some((item) => item.tagId === tag.id), false);
 
