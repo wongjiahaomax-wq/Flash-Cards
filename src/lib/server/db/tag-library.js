@@ -1,4 +1,4 @@
-import { and, asc, eq, like } from 'drizzle-orm';
+import { and, asc, eq, like, sql } from 'drizzle-orm';
 
 import { caseQuestions, cases, questionPrompts } from './schema.js';
 import { caseQuestionTags, caseTags, tags } from './tag-schema.js';
@@ -348,10 +348,10 @@ export async function listCaseTagAssignments(db) {
     .select({
       caseId: caseTags.caseId,
       caseTitle: cases.title,
-      caseIsActive: cases.isActive,
+      caseIsActive: sql`${cases.isActive}`.as('case_is_active'),
       tagId: caseTags.tagId,
       tagName: tags.name,
-      tagIsActive: tags.isActive
+      tagIsActive: sql`${tags.isActive}`.as('tag_is_active')
     })
     .from(caseTags)
     .innerJoin(cases, eq(cases.id, caseTags.caseId))
@@ -364,16 +364,16 @@ export async function listCaseQuestionTagAssignments(db) {
   return db
     .select({
       caseQuestionId: caseQuestionTags.caseQuestionId,
-      caseQuestionIsActive: caseQuestions.isActive,
+      caseQuestionIsActive: sql`${caseQuestions.isActive}`.as('case_question_is_active'),
       caseId: caseQuestions.caseId,
       caseTitle: cases.title,
-      caseIsActive: cases.isActive,
+      caseIsActive: sql`${cases.isActive}`.as('case_is_active'),
       promptId: caseQuestions.questionPromptId,
       promptMd: questionPrompts.promptMd,
-      promptIsActive: questionPrompts.isActive,
+      promptIsActive: sql`${questionPrompts.isActive}`.as('prompt_is_active'),
       tagId: caseQuestionTags.tagId,
       tagName: tags.name,
-      tagIsActive: tags.isActive
+      tagIsActive: sql`${tags.isActive}`.as('tag_is_active')
     })
     .from(caseQuestionTags)
     .innerJoin(caseQuestions, eq(caseQuestions.id, caseQuestionTags.caseQuestionId))
