@@ -55,7 +55,7 @@ export async function listTags(db, filters = {}) {
         ? like(tags.name, `%${search}%`)
         : undefined;
 
-  const tagQuery = db
+  const baseTagQuery = db
     .select({
       id: tags.id,
       name: tags.name,
@@ -64,11 +64,14 @@ export async function listTags(db, filters = {}) {
       createdAt: tags.createdAt,
       updatedAt: tags.updatedAt
     })
-    .from(tags)
-    .orderBy(asc(tags.name), asc(tags.id));
+    .from(tags);
+
+  const tagRowsPromise = where
+    ? baseTagQuery.where(where).orderBy(asc(tags.name), asc(tags.id))
+    : baseTagQuery.orderBy(asc(tags.name), asc(tags.id));
 
   const [tagRows, activeCaseRows, activeQuestionRows] = await Promise.all([
-    where ? tagQuery.where(where) : tagQuery,
+    tagRowsPromise,
     db
       .select({ tagId: caseTags.tagId, caseId: caseTags.caseId })
       .from(caseTags)
@@ -271,7 +274,7 @@ export async function listCurrentCaseTagAssignments(db) {
   return db
     .select({
       caseId: caseTags.caseId,
-      tagId: tags.id,
+      tagId: caseTags.tagId,
       tagName: tags.name
     })
     .from(caseTags)
@@ -286,8 +289,8 @@ export async function listCurrentPromptTagAssignments(db) {
   return db
     .select({
       promptId: caseQuestions.questionPromptId,
-      caseQuestionId: caseQuestions.id,
-      tagId: tags.id,
+      caseQuestionId: caseQuestionTags.caseQuestionId,
+      tagId: caseQuestionTags.tagId,
       tagName: tags.name
     })
     .from(caseQuestionTags)
@@ -303,7 +306,7 @@ export async function listCurrentPromptTagAssignments(db) {
         eq(questionPrompts.isActive, true)
       )
     )
-    .orderBy(asc(tags.name), asc(caseQuestions.id));
+    .orderBy(asc(tags.name), asc(caseQuestionTags.caseQuestionId));
 }
 
 /** @param {LearningDb} db */
@@ -320,9 +323,9 @@ export async function listTaggableCaseQuestions(db) {
   return db
     .select({
       id: caseQuestions.id,
-      caseId: cases.id,
+      caseId: caseQuestions.caseId,
       caseTitle: cases.title,
-      promptId: questionPrompts.id,
+      promptId: caseQuestions.questionPromptId,
       promptMd: questionPrompts.promptMd,
       answerMd: caseQuestions.answerMd
     })
@@ -343,10 +346,10 @@ export async function listTaggableCaseQuestions(db) {
 export async function listCaseTagAssignments(db) {
   return db
     .select({
-      caseId: cases.id,
+      caseId: caseTags.caseId,
       caseTitle: cases.title,
       caseIsActive: cases.isActive,
-      tagId: tags.id,
+      tagId: caseTags.tagId,
       tagName: tags.name,
       tagIsActive: tags.isActive
     })
@@ -360,15 +363,15 @@ export async function listCaseTagAssignments(db) {
 export async function listCaseQuestionTagAssignments(db) {
   return db
     .select({
-      caseQuestionId: caseQuestions.id,
+      caseQuestionId: caseQuestionTags.caseQuestionId,
       caseQuestionIsActive: caseQuestions.isActive,
-      caseId: cases.id,
+      caseId: caseQuestions.caseId,
       caseTitle: cases.title,
       caseIsActive: cases.isActive,
-      promptId: questionPrompts.id,
+      promptId: caseQuestions.questionPromptId,
       promptMd: questionPrompts.promptMd,
       promptIsActive: questionPrompts.isActive,
-      tagId: tags.id,
+      tagId: caseQuestionTags.tagId,
       tagName: tags.name,
       tagIsActive: tags.isActive
     })
