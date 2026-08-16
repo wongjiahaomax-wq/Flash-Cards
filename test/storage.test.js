@@ -127,7 +127,7 @@ test('rejects an upload that would exceed 5 GiB total storage', async () => {
   );
 });
 
-test('teaching image uploads use Standard storage and preserve content type', async () => {
+test('teaching image uploads use Standard storage, preserve content type, and require atomic create-only PUT', async () => {
   const { bucket, calls } = mockBucket({
     pages: [{ objects: [{ size: 1024 }], truncated: false }]
   });
@@ -138,10 +138,10 @@ test('teaching image uploads use Standard storage and preserve content type', as
   assert.equal(result.sizeBytes, 2048);
   assert.equal(result.projectedBytes, 3072);
   assert.equal(calls.put, 1);
-  assert.deepEqual(calls.putOptions, {
-    storageClass: 'Standard',
-    httpMetadata: { contentType: 'image/png' }
-  });
+  assert.equal(calls.putOptions?.storageClass, 'Standard');
+  assert.deepEqual(calls.putOptions?.httpMetadata, { contentType: 'image/png' });
+  assert.ok(calls.putOptions?.onlyIf instanceof Headers);
+  assert.equal(calls.putOptions.onlyIf.get('if-none-match'), '*');
 });
 
 test('teaching image writes reject unsupported MIME types before touching R2', async () => {

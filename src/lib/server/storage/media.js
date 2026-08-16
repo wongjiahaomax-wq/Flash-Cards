@@ -121,7 +121,9 @@ export async function assertMediaCapacity(bucket, incomingBytes) {
  * The single approved write path for teaching images. Keep R2 writes behind this
  * helper so the size and total-storage guardrails cannot be skipped accidentally.
  *
- * Teaching-image keys are immutable: replacing an existing key is rejected.
+ * Teaching-image keys are immutable. The initial HEAD is a friendly fast-path,
+ * while the conditional PUT is the authoritative race-safe guard: even if two
+ * Worker requests both observe an absent key, only one may create it.
  *
  * @param {R2Bucket} bucket
  * @param {string} key
@@ -147,12 +149,16 @@ export async function putTeachingImage(bucket, key, file) {
 
   const capacity = await assertMediaCapacity(bucket, sizeBytes);
   const object = await bucket.put(normalizedKey, file, {
+    onlyIf: new Headers({ 'If-None-Match': '*' }),
     storageClass: 'Standard',
     httpMetadata: file.type ? { contentType: file.type } : undefined
   });
 
   if (!object) {
-    throw new Error('R2 did not store the teaching image.');
+    throw new MediaStorageLimitError(
+      'OBJECT_EXISTS',
+      'Teaching-image object key was created concurrently; immutable keys cannot be replaced.'
+    );
   }
 
   return {
