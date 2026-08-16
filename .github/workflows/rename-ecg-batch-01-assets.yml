@@ -54,7 +54,7 @@ jobs:
 
           It targets exactly 13 deterministic Asset IDs from package `ecg-anki-batch-01-20260816`. It does not accept SQL, Asset IDs, filenames, or storage keys as workflow inputs.
 
-          The script verifies the expected immutable R2 storage key and known current/target filename for every row before mutation. Apply mode changes only `assets.original_filename` using one guarded D1 UPDATE, then verifies all 13 target names and unchanged storage keys.
+          The script verifies the expected immutable R2 storage key and known current/target filename for every row before mutation. Apply mode changes only `assets.original_filename` using 13 small individually guarded UPDATE statements in one fixed Wrangler/D1 multi-statement batch, then verifies all 13 target names and unchanged storage keys.
 
           It does not rename or overwrite R2 objects and does not modify Cases, Questions, Topics, Tags, Reviews, authentication, users, sessions, or learner progress.
           EOF_SUMMARY
