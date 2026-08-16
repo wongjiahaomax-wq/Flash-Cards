@@ -87,6 +87,7 @@ export const renameTargets = [
   }
 ];
 
+/** @param {unknown} value */
 function sqlLiteral(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
