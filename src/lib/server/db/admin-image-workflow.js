@@ -374,5 +374,5 @@ export async function updateStimulusOptionCaption(db, caseId, optionId, captionM
   )[0];
   if (!option) throw new AdminImageWorkflowInputError('That alternative image is not attached to this active Case.');
   const normalizedCaption = String(captionMd ?? '').trim() || null;
-  await db.update(stimulusGroupOptions).set({ captionMd: normalizedCaption, updatedAt: new Date() }).where(eq(stimulusGroupOptions.id, option.id));
+  await db.update(stimulusGroupOptions).set({ captionMd: normalizedCaption }).where(eq(stimulusGroupOptions.id, option.id));
 }
