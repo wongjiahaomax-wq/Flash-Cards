@@ -184,13 +184,14 @@ async function main() {
         throw new Error(`The existing account ${email} is not a production admin. Refusing to grant Preview Admin access.`);
       }
 
-      const otherPreviewAdmins = existingPreviewAdmins.filter((row) => row.id !== existingUser.id);
+      const existingUserId = existingUser.id;
+      const otherPreviewAdmins = existingPreviewAdmins.filter((row) => row.id !== existingUserId);
       if (otherPreviewAdmins.length > 0) {
         const emails = otherPreviewAdmins.map((row) => row.email).filter(Boolean).join(', ');
         throw new Error(`Refusing to grant a second Preview Admin because one already exists${emails ? `: ${emails}` : '.'}`);
       }
 
-      const credentials = loadCredentialAccounts(existingUser.id);
+      const credentials = loadCredentialAccounts(existingUserId);
       if (credentials.length !== 1) {
         throw new Error(`The existing production admin ${email} does not have exactly one credential account. No changes were made.`);
       }
