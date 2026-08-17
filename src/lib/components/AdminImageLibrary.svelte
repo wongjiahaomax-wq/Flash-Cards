@@ -83,7 +83,6 @@
 
   /** @param {MouseEvent} event @param {string} assetId */
   function handleCheckboxClick(event, assetId) {
-    event.preventDefault();
     updateSelection(assetId, { shiftKey: event.shiftKey, toggleKey: !event.shiftKey });
   }
 
