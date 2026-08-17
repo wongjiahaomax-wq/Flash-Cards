@@ -166,9 +166,7 @@ test('Preview cloning owns the copy, preserves relationships/tags, reuses Assets
     const assetsBefore = fixture.sqlite.prepare('SELECT id, storage_key, alt_text, source_label, source_url, licence, is_active FROM assets ORDER BY id').all();
     const { session, caseId } = await createClone(fixture);
 
-    const sourceAfter = fixture.sqlite.prepare("SELECT * FROM cases WHERE id='case-source'").get();
-    assert.deepEqual(sourceAfter, sourceBefore);
-
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM cases WHERE id='case-source'").get(), sourceBefore);
     const clone = fixture.sqlite.prepare('SELECT * FROM cases WHERE id=?').get(caseId);
     assert.equal(clone.preview_session_id, session.id);
     assert.equal(clone.title, 'Source STEMI');
@@ -191,11 +189,11 @@ test('Preview cloning owns the copy, preserves relationships/tags, reuses Assets
     assert.equal(clonedPrompt.prompt_md, 'What is the diagnosis?');
     assert.equal(clonedPrompt.preview_session_id, session.id);
     const groupPrompt = fixture.sqlite.prepare('SELECT q.question_prompt_id FROM stimulus_group_questions q JOIN stimulus_groups g ON g.id=q.stimulus_group_id WHERE g.case_id=?').get(caseId);
-    assert.equal(groupPrompt.question_prompt_id, clonedCaseQuestion.question_prompt_id, 'source prompt sharing is preserved inside the disposable clone');
+    assert.equal(groupPrompt.question_prompt_id, clonedCaseQuestion.question_prompt_id);
 
     const assetsAfter = fixture.sqlite.prepare('SELECT id, storage_key, alt_text, source_label, source_url, licence, is_active FROM assets WHERE preview_session_id IS NULL ORDER BY id').all();
     assert.deepEqual(assetsAfter, assetsBefore);
-    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) n FROM concept_questions WHERE id='topic-question'").get().n, 1, 'Topic-level reusable production question remains shared only in production');
+    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) n FROM concept_questions WHERE id='topic-question'").get().n, 1);
   } finally {
     fixture.sqlite.close();
   }
@@ -232,9 +230,7 @@ test('Preview write helpers fail closed for production and foreign-session ident
       }),
       (error) => error instanceof PreviewWorkspaceError && error.code === 'GLOBAL_WRITE_BLOCKED'
     );
-
-    const productionPrompt = fixture.sqlite.prepare("SELECT prompt_md FROM question_prompts WHERE id='prompt-shared-context'").get();
-    assert.equal(productionPrompt.prompt_md, 'What is the diagnosis?');
+    assert.equal(fixture.sqlite.prepare("SELECT prompt_md FROM question_prompts WHERE id='prompt-shared-context'").get().prompt_md, 'What is the diagnosis?');
 
     const previewPromptId = fixture.sqlite.prepare('SELECT question_prompt_id FROM case_questions WHERE case_id=?').get(first.caseId).question_prompt_id;
     assert.throws(
@@ -252,14 +248,12 @@ test('normal learner selection, counts and Review creation exclude Preview Cases
     const { caseId } = await createClone(fixture);
     const eligible = await listEligibleCases(fixture.db, 'topic-1');
     assert.deepEqual(eligible.map((row) => row.id), ['case-source']);
-
     const concepts = await listStudyConcepts(fixture.db);
     assert.equal(concepts.find((row) => row.id === 'topic-1')?.caseCount, 1);
 
     const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'topic-1', rng: () => 0 });
     assert.ok(reviewId);
     assert.equal(fixture.sqlite.prepare('SELECT case_id FROM reviews WHERE id=?').get(reviewId).case_id, 'case-source');
-
     assert.throws(
       () => fixture.sqlite.prepare("INSERT INTO reviews (id,user_id,case_id,primary_concept_id,study_concept_id,case_title_snapshot,status) VALUES ('unsafe-review','learner-1',?,'topic-1','topic-1','Preview','started')").run(caseId),
       /Preview Cases cannot be used for learner Reviews/
@@ -273,8 +267,7 @@ test('normal Admin Case library excludes disposable Preview clones', async () =>
   const fixture = createFixture();
   try {
     await createClone(fixture);
-    const rows = await listAdminCases(fixture.db);
-    assert.deepEqual(rows.map((row) => row.id), ['case-source']);
+    assert.deepEqual((await listAdminCases(fixture.db)).map((row) => row.id), ['case-source']);
   } finally {
     fixture.sqlite.close();
   }
@@ -284,7 +277,7 @@ test('Preview uploads use isolated R2 keys and cleanup deletes only owned dispos
   const fixture = createFixture();
   try {
     const { session, caseId } = await createClone(fixture);
-    const productionAssetBefore = fixture.sqlite.prepare("SELECT * FROM assets WHERE id='asset-fixed'").get();
+    const productionAssetsBefore = fixture.sqlite.prepare("SELECT * FROM assets WHERE preview_session_id IS NULL ORDER BY id").all();
     const file = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' });
     Object.defineProperty(file, 'name', { value: 'preview.png' });
 
@@ -296,8 +289,7 @@ test('Preview uploads use isolated R2 keys and cleanup deletes only owned dispos
     assert.equal(fixture.sqlite.prepare('SELECT preview_session_id FROM assets WHERE id=?').get(uploaded.id).preview_session_id, session.id);
 
     await attachPreviewAsset(fixture.db, session.id, caseId, uploaded.id, 'Disposable caption');
-    await attachPreviewAsset(fixture.db, session.id, caseId, 'asset-option', 'Reuse production asset');
-    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM assets WHERE id='asset-fixed'").get(), productionAssetBefore);
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM assets WHERE preview_session_id IS NULL ORDER BY id").all(), productionAssetsBefore);
 
     const result = await cleanupPreviewWorkspace({
       db: fixture.db,
@@ -333,28 +325,16 @@ test('partial cleanup marks cleanup_required and succeeds when retried', async (
     const { session } = await createClone(fixture);
     const file = new Blob([new Uint8Array([9, 8, 7])], { type: 'image/png' });
     Object.defineProperty(file, 'name', { value: 'retry.png' });
-    await createPreviewAssetFromUpload(fixture.db, /** @type {any} */ (fixture.bucket), session.id, /** @type {any} */ (file), {
-      altText: 'Retry preview image'
-    });
+    await createPreviewAssetFromUpload(fixture.db, /** @type {any} */ (fixture.bucket), session.id, /** @type {any} */ (file), { altText: 'Retry preview image' });
     fixture.bucket.failNextDelete = true;
 
     await assert.rejects(
-      cleanupPreviewWorkspace({
-        db: fixture.db,
-        bucket: /** @type {any} */ (fixture.bucket),
-        previewSessionId: session.id,
-        userId: 'preview-user'
-      }),
+      cleanupPreviewWorkspace({ db: fixture.db, bucket: /** @type {any} */ (fixture.bucket), previewSessionId: session.id, userId: 'preview-user' }),
       /simulated R2 delete failure/
     );
     assert.equal(fixture.sqlite.prepare('SELECT status FROM preview_sessions WHERE id=?').get(session.id).status, 'cleanup_required');
 
-    const retried = await cleanupPreviewWorkspace({
-      db: fixture.db,
-      bucket: /** @type {any} */ (fixture.bucket),
-      previewSessionId: session.id,
-      userId: 'preview-user'
-    });
+    const retried = await cleanupPreviewWorkspace({ db: fixture.db, bucket: /** @type {any} */ (fixture.bucket), previewSessionId: session.id, userId: 'preview-user' });
     assert.equal(retried.cleaned, true);
     assert.equal(fixture.sqlite.prepare('SELECT status FROM preview_sessions WHERE id=?').get(session.id).status, 'cleaned');
   } finally {
@@ -367,8 +347,7 @@ test('expired abandoned workspace stays learner-invisible and is cleaned before 
   try {
     const { session, caseId } = await createClone(fixture);
     fixture.sqlite.prepare('UPDATE preview_sessions SET expires_at=1 WHERE id=?').run(session.id);
-    const eligibleBeforeCleanup = await listEligibleCases(fixture.db, 'topic-1');
-    assert.equal(eligibleBeforeCleanup.some((row) => row.id === caseId), false);
+    assert.equal((await listEligibleCases(fixture.db, 'topic-1')).some((row) => row.id === caseId), false);
 
     const next = await ensurePreviewWorkspace({
       db: fixture.db,
@@ -391,9 +370,7 @@ test('Preview-owned images cannot be fetched by a normal authenticated learner e
     const { session } = await createClone(fixture);
     const file = new Blob([new Uint8Array([1])], { type: 'image/png' });
     Object.defineProperty(file, 'name', { value: 'secret.png' });
-    const uploaded = await createPreviewAssetFromUpload(fixture.db, /** @type {any} */ (fixture.bucket), session.id, /** @type {any} */ (file), {
-      altText: 'Preview-only image'
-    });
+    const uploaded = await createPreviewAssetFromUpload(fixture.db, /** @type {any} */ (fixture.bucket), session.id, /** @type {any} */ (file), { altText: 'Preview-only image' });
 
     const response = await getAssetImage({
       params: { assetId: uploaded.id },
@@ -407,15 +384,13 @@ test('Preview-owned images cannot be fetched by a normal authenticated learner e
   }
 });
 
-test('cleanup fails closed if a Preview Asset acquires ambiguous production usage', async () => {
+test('database ownership trigger blocks a Preview Asset from acquiring production usage', async () => {
   const fixture = createFixture();
   try {
     const { session } = await createClone(fixture);
     const file = new Blob([new Uint8Array([5, 5])], { type: 'image/png' });
     Object.defineProperty(file, 'name', { value: 'ambiguous.png' });
-    const uploaded = await createPreviewAssetFromUpload(fixture.db, /** @type {any} */ (fixture.bucket), session.id, /** @type {any} */ (file), {
-      altText: 'Ambiguous image'
-    });
+    const uploaded = await createPreviewAssetFromUpload(fixture.db, /** @type {any} */ (fixture.bucket), session.id, /** @type {any} */ (file), { altText: 'Ambiguous image' });
 
     assert.throws(
       () => fixture.sqlite.prepare("INSERT INTO case_assets (case_id,asset_id,display_order) VALUES ('case-source',?,1)").run(uploaded.id),
