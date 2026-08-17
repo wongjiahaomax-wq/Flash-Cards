@@ -318,3 +318,32 @@ Recommended workflow:
 6. add image-specific questions only for genuine differences.
 
 This keeps both multi-Topic routing and stimulus structure as progressive enrichment rather than import prerequisites.
+
+---
+
+## 10. Learner composition
+
+The learner resolver uses the Topic through which the learner entered Study as the reusable Topic-question context for that Review. The same Case may therefore produce different reusable Topic questions when reached through different valid attached Topics, while Case and selected-stimulus questions remain the same Case-specific material.
+
+The eligible question pool remains layered by context and existing precedence:
+
+```text
+selected stimulus option
+> selected stimulus group
+> Case
+> Study Topic
+> nearest eligible inheritable ancestor Topic
+> more distant eligible ancestor Topic
+```
+
+Alternative stimulus selection and Review snapshots remain independent of which attached Topic is the administrative default.
+
+---
+
+## 11. Schema decision
+
+Do not add a parallel `topics` table. Product-facing Topics continue to use the existing `concepts` table and hierarchy, and multi-Topic Case routing continues to use `case_concepts` with one primary/default relationship plus optional secondary learner routes.
+
+Do not add Asset→Topic or stimulus-option→Topic relationships merely for this Admin image workflow. Exact-image distinctions remain represented by `stimulus_group_options` plus image-specific questions. Reconsider a stimulus-level Topic relationship only if the product later needs learner routing where some valid alternatives in one Case satisfy a Topic and other valid alternatives do not.
+
+Likewise, the Admin Image Library has no global grouping/folder schema today. Case-scoped alternative image grouping remains `stimulus_groups` / `stimulus_group_options`; a future global Asset-organization model should be designed separately rather than inferred from Case stimulus semantics.
