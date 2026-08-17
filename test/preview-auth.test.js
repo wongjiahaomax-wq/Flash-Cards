@@ -20,6 +20,14 @@ test('preview_admin is distinct from production admin', () => {
   assert.equal(isPreviewAdmin(learner), false);
 });
 
+test('one identity can intentionally hold both production Admin and Preview Admin roles', () => {
+  const combined = { id: 'owner-admin', role: 'admin,preview_admin' };
+
+  assert.equal(isProductionAdmin(combined), true);
+  assert.equal(isPreviewAdmin(combined), true);
+  assert.equal(requirePreviewAdmin({ user: combined, env: { PREVIEW_MODE: 'true' } }), 'owner-admin');
+});
+
 test('preview authority requires both dedicated role and Preview Worker runtime', () => {
   const previewUser = { id: 'preview-user', role: 'preview_admin' };
   assert.equal(isPreviewWorker({ PREVIEW_MODE: 'true' }), true);

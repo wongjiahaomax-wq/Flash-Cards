@@ -16,6 +16,37 @@ export function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
+/** @param {unknown} role */
+export function parseRoles(role) {
+  return [...new Set(String(role ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean))];
+}
+
+/** @param {unknown} role @param {string} expected */
+export function hasRole(role, expected) {
+  return parseRoles(role).includes(expected);
+}
+
+/** @param {unknown} role */
+export function addPreviewAdminRole(role) {
+  const roles = parseRoles(role);
+  if (!roles.includes('admin')) {
+    throw new Error('Only an existing production admin account can be granted Preview Admin access.');
+  }
+  if (!roles.includes('preview_admin')) roles.push('preview_admin');
+  return roles.join(',');
+}
+
+/** @param {{ userId: string, currentRole: string, nextRole: string, now: number }} values */
+export function buildExistingAdminPromotionSql({ userId, currentRole, nextRole, now }) {
+  return [
+    'PRAGMA foreign_keys = ON;',
+    `UPDATE \`user\` SET \`role\` = ${sqlString(nextRole)}, \`updatedAt\` = ${now} WHERE \`id\` = ${sqlString(userId)} AND coalesce(\`role\`, '') = ${sqlString(currentRole)};`
+  ].join('\n');
+}
+
 /** @param {{ userId: string, accountId: string, name: string, email: string, passwordHash: string, now: number }} values */
 export function buildPreviewBootstrapSql({ userId, accountId, name, email, passwordHash, now }) {
   return [
@@ -49,13 +80,30 @@ function queryRemote(sql) {
   return extractRows(runWrangler(['d1', 'execute', database, '--remote', '--command', sql, '--json'], { capture: true }));
 }
 
-/** @param {unknown} role */
-function hasPreviewAdminRole(role) {
-  return String(role ?? '')
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean)
-    .includes('preview_admin');
+/** @param {string} sql */
+function writeRemote(sql) {
+  rmSync(tempDir, { recursive: true, force: true });
+  mkdirSync(tempDir, { recursive: true, mode: 0o700 });
+  try {
+    writeFileSync(seedFile, sql, { mode: 0o600 });
+    runWrangler(['d1', 'execute', database, '--remote', '--file', seedFile, '--yes']);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+}
+
+/** @param {string} userId */
+function loadCredentialAccounts(userId) {
+  return queryRemote(
+    `SELECT \`id\`, \`providerId\` FROM \`account\` WHERE \`userId\` = ${sqlString(userId)} AND \`providerId\` = 'credential' LIMIT 2;`
+  );
+}
+
+/** @param {string} userId */
+function verifyPreviewIdentity(userId) {
+  return queryRemote(
+    `SELECT u.\`email\`, u.\`role\`, u.\`banned\`, a.\`providerId\` FROM \`user\` u JOIN \`account\` a ON a.\`userId\` = u.\`id\` WHERE u.\`id\` = ${sqlString(userId)} AND a.\`providerId\` = 'credential';`
+  );
 }
 
 /** @param {string} label */
@@ -104,39 +152,107 @@ function readHidden(label) {
 
 async function main() {
   console.log('Flash-Cards Preview Admin bootstrap');
-  console.log('This command writes one dedicated preview_admin account to the existing production D1 database.');
+  console.log('This command grants Preview Admin access in the existing production D1 auth tables.');
+  console.log('If the email already belongs to a production admin, the same account/password is reused.');
   console.log('It does not deploy a Worker or change any teaching content.');
 
-  const existing = queryRemote(
-    "SELECT `email`, `role` FROM `user` WHERE instr(',' || replace(coalesce(`role`, ''), ' ', '') || ',', ',preview_admin,') > 0 LIMIT 5;"
-  );
-  if (existing.length > 0) {
-    const emails = existing.map((row) => row.email).filter(Boolean).join(', ');
-    throw new Error(`Refusing to bootstrap because a Preview Admin already exists${emails ? `: ${emails}` : '.'}`);
-  }
-
   const prompts = createInterface({ input: stdin, output: stdout });
-  let name = '';
   let email = '';
+  let name = '';
+  /** @type {{ id: string, email: string, role?: unknown, banned?: unknown } | null} */
+  let existingUser = null;
+  /** @type {Array<{ id: string, email?: string, role?: unknown }>} */
+  let existingPreviewAdmins = [];
   try {
-    name = (await prompts.question('Preview Admin name: ')).trim();
     email = (await prompts.question('Preview Admin email: ')).trim().toLowerCase();
-    const confirmation = (await prompts.question(`Type CREATE PREVIEW to create ${email || 'this account'}: `)).trim();
-    if (confirmation !== 'CREATE PREVIEW') {
-      console.log('Cancelled; D1 was not changed.');
-      return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid Preview Admin email address.');
+
+    existingPreviewAdmins = queryRemote(
+      "SELECT `id`, `email`, `role` FROM `user` WHERE instr(',' || replace(coalesce(`role`, ''), ' ', '') || ',', ',preview_admin,') > 0 LIMIT 5;"
+    );
+    const existingUsers = queryRemote(
+      `SELECT \`id\`, \`email\`, \`role\`, \`banned\` FROM \`user\` WHERE lower(\`email\`) = lower(${sqlString(email)}) LIMIT 2;`
+    );
+    if (existingUsers.length > 1) throw new Error(`Multiple users unexpectedly share ${email}. Inspect D1 before retrying.`);
+    existingUser = existingUsers[0] ?? null;
+
+    if (existingUser) {
+      if (Number(existingUser.banned ?? 0) !== 0) {
+        throw new Error(`The existing account ${email} is banned. No changes were made.`);
+      }
+      if (!hasRole(existingUser.role, 'admin')) {
+        throw new Error(`The existing account ${email} is not a production admin. Refusing to grant Preview Admin access.`);
+      }
+
+      const existingUserId = existingUser.id;
+      const otherPreviewAdmins = existingPreviewAdmins.filter((row) => row.id !== existingUserId);
+      if (otherPreviewAdmins.length > 0) {
+        const emails = otherPreviewAdmins.map((row) => row.email).filter(Boolean).join(', ');
+        throw new Error(`Refusing to grant a second Preview Admin because one already exists${emails ? `: ${emails}` : '.'}`);
+      }
+
+      const credentials = loadCredentialAccounts(existingUserId);
+      if (credentials.length !== 1) {
+        throw new Error(`The existing production admin ${email} does not have exactly one credential account. No changes were made.`);
+      }
+
+      if (hasRole(existingUser.role, 'preview_admin')) {
+        console.log(`${email} already has both production Admin and Preview Admin access. No changes were needed.`);
+        return;
+      }
+
+      const confirmation = (await prompts.question(
+        `Type ADD PREVIEW to grant Preview Admin access to ${email} while keeping the existing password: `
+      )).trim();
+      if (confirmation !== 'ADD PREVIEW') {
+        console.log('Cancelled; D1 was not changed.');
+        return;
+      }
+    } else {
+      if (existingPreviewAdmins.length > 0) {
+        const emails = existingPreviewAdmins.map((row) => row.email).filter(Boolean).join(', ');
+        throw new Error(`Refusing to bootstrap because a Preview Admin already exists${emails ? `: ${emails}` : '.'}`);
+      }
+
+      name = (await prompts.question('Preview Admin name: ')).trim();
+      if (!name) throw new Error('Preview Admin name is required.');
+      const confirmation = (await prompts.question(`Type CREATE PREVIEW to create ${email}: `)).trim();
+      if (confirmation !== 'CREATE PREVIEW') {
+        console.log('Cancelled; D1 was not changed.');
+        return;
+      }
     }
   } finally {
     prompts.close();
   }
 
-  if (!name) throw new Error('Preview Admin name is required.');
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Enter a valid Preview Admin email address.');
+  if (existingUser) {
+    const currentRole = String(existingUser.role ?? '');
+    const nextRole = addPreviewAdminRole(currentRole);
+    const now = Date.now();
+    writeRemote(buildExistingAdminPromotionSql({
+      userId: existingUser.id,
+      currentRole,
+      nextRole,
+      now
+    }));
 
-  const existingUser = queryRemote(
-    `SELECT \`id\`, \`email\`, \`role\` FROM \`user\` WHERE lower(\`email\`) = lower(${sqlString(email)}) LIMIT 1;`
-  );
-  if (existingUser.length > 0) throw new Error(`A user with ${email} already exists. No changes were made.`);
+    const verified = verifyPreviewIdentity(existingUser.id);
+    if (
+      verified.length !== 1 ||
+      String(verified[0].email).toLowerCase() !== email ||
+      verified[0].providerId !== 'credential' ||
+      Number(verified[0].banned ?? 0) !== 0 ||
+      !hasRole(verified[0].role, 'admin') ||
+      !hasRole(verified[0].role, 'preview_admin')
+    ) {
+      throw new Error('The D1 role update completed, but existing Admin/Preview Admin verification failed. Inspect D1 before retrying.');
+    }
+
+    console.log(`Existing production Admin updated and verified for ${email}.`);
+    console.log('The existing password was not changed. Use the same email/password on the Preview Worker.');
+    return;
+  }
 
   const password = await readHidden('Password (minimum 12 characters; hidden): ');
   if (password.length < 12) throw new Error('Password must be at least 12 characters. No changes were made.');
@@ -148,29 +264,21 @@ async function main() {
   const passwordHash = await hashPassword(password);
   const now = Date.now();
 
-  rmSync(tempDir, { recursive: true, force: true });
-  mkdirSync(tempDir, { recursive: true, mode: 0o700 });
-  try {
-    writeFileSync(seedFile, buildPreviewBootstrapSql({ userId, accountId, name, email, passwordHash, now }), { mode: 0o600 });
-    runWrangler(['d1', 'execute', database, '--remote', '--file', seedFile, '--yes']);
-  } finally {
-    rmSync(tempDir, { recursive: true, force: true });
-  }
+  writeRemote(buildPreviewBootstrapSql({ userId, accountId, name, email, passwordHash, now }));
 
-  const verified = queryRemote(
-    `SELECT u.\`email\`, u.\`role\`, a.\`providerId\` FROM \`user\` u JOIN \`account\` a ON a.\`userId\` = u.\`id\` WHERE u.\`id\` = ${sqlString(userId)} AND a.\`providerId\` = 'credential';`
-  );
+  const verified = verifyPreviewIdentity(userId);
   if (
     verified.length !== 1 ||
-    verified[0].email !== email ||
+    String(verified[0].email).toLowerCase() !== email ||
     verified[0].providerId !== 'credential' ||
-    !hasPreviewAdminRole(verified[0].role)
+    Number(verified[0].banned ?? 0) !== 0 ||
+    !hasRole(verified[0].role, 'preview_admin')
   ) {
     throw new Error('The D1 write completed, but Preview Admin verification failed. Inspect D1 before retrying.');
   }
 
   console.log(`Preview Admin created and verified for ${email}.`);
-  console.log('Use this identity only on the dedicated Preview Worker.');
+  console.log('Use this dedicated identity only on the Preview Worker.');
 }
 
 const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
