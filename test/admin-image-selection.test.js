@@ -96,6 +96,7 @@ test('chunking uses at most 30 unique IDs for 1, 30, 31, 60 and 61 selections', 
 
 test('multi-chunk execution is sequential and stops on the first failed chunk', async () => {
   const ids = Array.from({ length: 61 }, (_, index) => `asset-${index}`);
+  /** @type {{ chunk: string[], processed: number }[]} */
   const calls = [];
   let inFlight = 0;
   let maxInFlight = 0;
@@ -119,6 +120,7 @@ test('multi-chunk execution is sequential and stops on the first failed chunk', 
 
 test('successful multi-chunk execution accounts for all selected IDs', async () => {
   const ids = Array.from({ length: 61 }, (_, index) => `asset-${index}`);
+  /** @type {string[][]} */
   const calls = [];
   const result = await runSequentialAssetChunks(ids, 30, async (chunk) => calls.push([...chunk]));
   assert.equal(result.ok, true);
