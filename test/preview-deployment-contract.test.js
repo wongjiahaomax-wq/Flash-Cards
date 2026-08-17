@@ -100,6 +100,25 @@ test('Preview Worker rejects production Admin and learner Study before route act
   assert.match(studyLayout, /isPreviewWorker\(platform\?\.env\)[\s\S]*error\(403/);
 });
 
+test('Preview Worker blocks Better Auth Admin API before Better Auth can mutate production users', () => {
+  const adminApiGuard = hooks.indexOf("isRouteWithin(pathname, '/api/auth/admin')");
+  const createAuthCall = hooks.indexOf('const auth = createAuth(env)');
+  const betterAuthHandler = hooks.indexOf('return svelteKitHandler({');
+
+  assert.ok(adminApiGuard >= 0, 'Preview Worker must block the Better Auth Admin plugin route subtree.');
+  assert.ok(createAuthCall > adminApiGuard, 'The Better Auth Admin API must be rejected before auth is constructed/queried.');
+  assert.ok(betterAuthHandler > adminApiGuard, 'The Better Auth Admin API must be rejected before Better Auth handles the request.');
+  assert.match(hooks, /isPreviewWorker\(env\)\s*&&\s*isRouteWithin\(pathname, '\/api\/auth\/admin'\)[\s\S]*return forbidden/);
+  assert.match(hooks, /Better Auth user administration is unavailable on the Preview Worker/);
+
+  // The boundary is deliberately the Admin-plugin subtree, not all Better Auth
+  // endpoints. Preview sign-in/sign-out/session APIs must remain reachable.
+  assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth'\)/);
+  assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth\/sign-in'\)/);
+  assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth\/sign-out'\)/);
+  assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth\/get-session'\)/);
+});
+
 test('preview_admin cannot enter Study or create and mutate learner Reviews', () => {
   assert.match(hooks, /isPreviewAdmin\(event\.locals\.user\)[\s\S]*isRouteWithin\(pathname, '\/study'\)/);
   assert.match(studyLayout, /isPreviewAdmin\(locals\.user\)[\s\S]*error\(403/);
