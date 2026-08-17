@@ -36,6 +36,14 @@ export async function handle({ event, resolve }) {
     return forbidden('Learner Study is unavailable on the Preview Worker.');
   }
 
+  // Better Auth's Admin plugin is mounted below /api/auth/admin. The Preview
+  // Worker shares the production auth tables, so those privileged endpoints
+  // must fail closed before Better Auth handles the request. Ordinary auth
+  // endpoints such as sign-in, sign-out and get-session remain available.
+  if (isPreviewWorker(env) && isRouteWithin(pathname, '/api/auth/admin')) {
+    return forbidden('Better Auth user administration is unavailable on the Preview Worker.');
+  }
+
   // Keep the non-authenticated scaffold buildable until D1 and secrets are bound.
   // Once Cloudflare setup is complete these bindings are mandatory at runtime.
   if (!env?.DB || !env?.BETTER_AUTH_SECRET) {
