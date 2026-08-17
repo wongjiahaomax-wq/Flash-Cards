@@ -1,5 +1,5 @@
 <script>
-  import { applyAssetSelection, clearAssetSelection } from '$lib/admin-image-selection.js';
+  import { applyAssetSelection, clearAssetSelection, pruneAssetSelection } from '$lib/admin-image-selection.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
 
   let { data, form } = $props();
@@ -11,6 +11,15 @@
   /** @type {{ src: string, alt: string, title: string, subtitle: string } | null} */
   let viewerImage = $state(null);
   let orderedIds = $derived(data.assets.map((asset) => asset.id));
+
+  $effect(() => {
+    const pruned = pruneAssetSelection({ selectedIds, orderedIds, anchorId });
+    const selectionChanged =
+      pruned.selectedIds.size !== selectedIds.size ||
+      [...selectedIds].some((id) => !pruned.selectedIds.has(id));
+    if (selectionChanged) selectedIds = pruned.selectedIds;
+    if (anchorId !== pruned.anchorId) anchorId = pruned.anchorId;
+  });
 
   /** @param {string | number | Date | null | undefined} value */
   function formatAddedDate(value) {
