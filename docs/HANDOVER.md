@@ -174,6 +174,14 @@ Worker configuration changes must be reviewed/merged separately before another P
 
 The Preview Worker still has production D1/R2 bindings and shared production auth tables. This is not hard resource isolation, so only trusted same-repository PRs should be deployed.
 
+The reusable operator lifecycle is:
+
+```text
+main on Preview → Deploy PR to Preview → inspect PR → Reset Preview Workspace → Restore Main to Preview → next PR
+```
+
+**Deploy PR to Preview** changes deployed code and does not run migrations. **Reset Preview Workspace** deletes Preview-owned testing content and does not change deployed code. **Restore Main to Preview** deploys the exact current `main` commit to `flash-cards-preview`, does not delete Preview content, and does not run migrations.
+
 ## Current migrations
 
 ```text
