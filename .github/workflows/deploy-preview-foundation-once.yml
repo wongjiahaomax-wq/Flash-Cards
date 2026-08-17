@@ -56,5 +56,14 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx --yes wrangler@4.123.0 deploy --env preview
 
+      - name: Configure independent Preview auth secret
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          openssl rand -base64 48 | npx --yes wrangler@4.123.0 secret put BETTER_AUTH_SECRET --env preview
+
 # One-shot operational workflow for the initial PR #30 Preview Worker deployment.
-# It intentionally does not apply D1 migrations or configure BETTER_AUTH_SECRET.
+# It intentionally does not apply D1 migrations. The Preview auth secret is generated
+# in the runner and piped directly to Wrangler; its value is never committed or printed.
