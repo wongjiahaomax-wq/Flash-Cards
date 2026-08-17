@@ -53,6 +53,27 @@ export function pruneAssetSelection(input) {
   return { selectedIds, anchorId };
 }
 
+/**
+ * Reconcile the Case image picker's local selection with new server data.
+ * A Case/target change is a different attachment intent and clears selection;
+ * a result/search change only retains IDs that remain visible.
+ *
+ * @param {{
+ *   selectedIds: Iterable<string>,
+ *   previousContextKey?: string | null,
+ *   nextContextKey: string,
+ *   orderedIds: string[]
+ * }} input
+ */
+export function reconcileCasePickerSelection(input) {
+  const previousContextKey = input.previousContextKey ?? null;
+  if (previousContextKey && previousContextKey !== input.nextContextKey) {
+    return { selectedIds: new Set(), contextKey: input.nextContextKey };
+  }
+  const pruned = pruneAssetSelection({ selectedIds: input.selectedIds, orderedIds: input.orderedIds });
+  return { selectedIds: pruned.selectedIds, contextKey: input.nextContextKey };
+}
+
 export function clearAssetSelection() {
   return { selectedIds: new Set(), anchorId: null };
 }
