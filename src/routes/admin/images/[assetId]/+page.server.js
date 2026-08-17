@@ -10,6 +10,8 @@ import {
 } from '$lib/server/db/asset-library.js';
 import { assets } from '$lib/server/db/schema.js';
 
+/** @typedef {import('$lib/server/db/index.js').LearningDb} LearningDb */
+
 /** @param {FormData} formData @param {string} name */
 function formText(formData, name) {
   const value = formData.get(name);
@@ -21,6 +23,7 @@ function detailRedirect(assetId, status) {
   return `/admin/images/${encodeURIComponent(assetId)}?status=${encodeURIComponent(status)}`;
 }
 
+/** @param {LearningDb} db @param {string} assetId */
 async function isProductionAsset(db, assetId) {
   return Boolean((await db
     .select({ id: assets.id })
