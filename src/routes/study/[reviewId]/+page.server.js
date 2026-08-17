@@ -10,12 +10,14 @@ function assertLearnerStudyAccess(user, platform) {
   if (isPreviewWorker(platform?.env) || isPreviewAdmin(user)) {
     throw error(403, 'Learner Study is unavailable for Preview Admin.');
   }
-  if (!platform?.env?.DB || !user) throw error(503, 'Study database is not configured.');
+  const database = platform?.env?.DB;
+  if (!database || !user) throw error(503, 'Study database is not configured.');
+  return { database, user };
 }
 
 export async function load({ locals, params, platform }) {
-  assertLearnerStudyAccess(locals.user, platform);
-  const review = await getReview(createDb(platform.env.DB), params.reviewId, locals.user.id);
+  const context = assertLearnerStudyAccess(locals.user, platform);
+  const review = await getReview(createDb(context.database), params.reviewId, context.user.id);
   if (!review) throw error(404, 'Review not found.');
 
   return {
@@ -54,23 +56,23 @@ export async function load({ locals, params, platform }) {
 
 export const actions = {
   reveal: async ({ locals, params, platform }) => {
-    assertLearnerStudyAccess(locals.user, platform);
-    await revealReview(createDb(platform.env.DB), params.reviewId, locals.user.id);
+    const context = assertLearnerStudyAccess(locals.user, platform);
+    await revealReview(createDb(context.database), params.reviewId, context.user.id);
   },
   rate: async ({ locals, params, platform, request }) => {
-    assertLearnerStudyAccess(locals.user, platform);
+    const context = assertLearnerStudyAccess(locals.user, platform);
     const formData = await request.formData();
     const rating = formData.get('rating');
     if (rating !== 'again' && rating !== 'good') throw error(400, 'Invalid review rating.');
-    await completeReview(createDb(platform.env.DB), params.reviewId, locals.user.id, rating);
+    await completeReview(createDb(context.database), params.reviewId, context.user.id, rating);
   },
   next: async ({ locals, params, platform }) => {
-    assertLearnerStudyAccess(locals.user, platform);
-    const db = createDb(platform.env.DB);
-    const review = await getReview(db, params.reviewId, locals.user.id);
+    const context = assertLearnerStudyAccess(locals.user, platform);
+    const db = createDb(context.database);
+    const review = await getReview(db, params.reviewId, context.user.id);
     if (!review) throw error(404, 'Review not found.');
     if (review.status !== 'completed') throw error(400, 'Complete this review before starting another case.');
-    const reviewId = await startReview({ db, userId: locals.user.id, conceptId: review.primaryConceptId });
+    const reviewId = await startReview({ db, userId: context.user.id, conceptId: review.primaryConceptId });
     if (!reviewId) throw error(404, 'No active study cases are available for this topic.');
     redirect(303, `/study/${reviewId}`);
   }
