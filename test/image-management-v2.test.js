@@ -36,8 +36,10 @@ function fixture() {
   sqlite.exec(migrationSql);
   sqlite.exec(buildSeedSql());
   const d1 = {
+    /** @param {string} sql */
     prepare(sql) {
       return {
+        /** @param {...any} params */
         bind(...params) {
           return {
             async all() { return { results: sqlite.prepare(sql).all(...params) }; },
@@ -54,21 +56,25 @@ function fixture() {
   return { sqlite, db: createDb(/** @type {any} */ (d1)) };
 }
 
+/** @param {DatabaseSync} sqlite @param {string} id @param {number} createdAt @param {string | null} [previewSessionId] */
 function insertAsset(sqlite, id, createdAt, previewSessionId = null) {
   sqlite.prepare('INSERT INTO assets (id, type, storage_key, mime_type, original_filename, alt_text, preview_session_id, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, 'image', `teaching-images/${id}.png`, 'image/png', `${id}.png`, `${id} alt`, previewSessionId, 1, createdAt, createdAt);
 }
 
+/** @param {DatabaseSync} sqlite @param {string} id @param {string | null} [previewSessionId] @param {string} [questionMode] @param {number | null} [questionCount] */
 function insertCase(sqlite, id, previewSessionId = null, questionMode = 'automatic', questionCount = null) {
   sqlite.prepare('INSERT INTO cases (id, title, question_selection_mode, question_count, preview_session_id, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, id, questionMode, questionCount, previewSessionId, 1, 10_000, 10_000);
 }
 
+/** @param {DatabaseSync} sqlite @param {string} id @param {string} caseId @param {number} order @param {{ mode?: string, minimum?: number | null, active?: boolean }} [options] */
 function insertGroup(sqlite, id, caseId, order, options = {}) {
   sqlite.prepare('INSERT INTO stimulus_groups (id, case_id, name, display_order, selection_count, specific_question_mode, minimum_specific_questions, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, caseId, id, order, 1, options.mode ?? 'none', options.minimum ?? null, options.active === false ? 0 : 1, 10_001 + order, 10_001 + order);
 }
 
+/** @param {DatabaseSync} sqlite @param {string} id @param {string} groupId @param {string} assetId @param {number} order @param {string | null} [caption] @param {boolean} [active] */
 function insertOption(sqlite, id, groupId, assetId, order, caption = null, active = true) {
   sqlite.prepare('INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(id, groupId, assetId, order, caption, active ? 1 : 0, 11_000 + order);
@@ -91,8 +97,10 @@ test('Image Library pagination returns deterministic bounded pages and exact cou
     assert.equal(first.rows[0].id, 'page-124');
     assert.equal(second.rows[0].id, 'page-064');
     assert.equal(third.rows[0].id, 'page-004');
-    assert.equal(first.allMatchingIds.length, 125);
-    assert.deepEqual(new Set(first.allMatchingIds), new Set([...first.rows, ...second.rows, ...third.rows].map((row) => row.id)));
+    const allMatchingIds = first.allMatchingIds;
+    assert.ok(allMatchingIds);
+    assert.equal(allMatchingIds.length, 125);
+    assert.deepEqual(new Set(allMatchingIds), new Set([...first.rows, ...second.rows, ...third.rows].map((row) => row.id)));
   } finally { sqlite.close(); }
 });
 
@@ -123,8 +131,10 @@ test('Select all matching returns exact IDs up to 300 and refuses silent truncat
     sqlite.prepare('UPDATE assets SET is_active = 0 WHERE id = ?').run('cap-300');
     const exact = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=cap-&status=active')), { page: 1, includeAllMatchingIds: true });
     assert.equal(exact.totalCount, 300);
-    assert.equal(exact.allMatchingIds.length, 300);
-    assert.equal(new Set(exact.allMatchingIds).size, 300);
+    const exactIds = exact.allMatchingIds;
+    assert.ok(exactIds);
+    assert.equal(exactIds.length, 300);
+    assert.equal(new Set(exactIds).size, 300);
   } finally { sqlite.close(); }
 });
 
@@ -206,7 +216,8 @@ test('Move validates target minimum coverage and keeps group-level questions wit
     sqlite.prepare('INSERT INTO question_prompts (id, prompt_md, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run('coverage-prompt', 'Set-wide question', 1, 80_010, 80_010);
     sqlite.prepare('INSERT INTO stimulus_group_questions (id, stimulus_group_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run('coverage-question', 'coverage-target', 'coverage-prompt', 'Target answer', 1, 80_011, 80_011);
     await moveStimulusOptionWithinCase(db, { caseId: 'coverage-case', optionId: 'coverage-option', targetGroupId: 'coverage-target', previewSessionId: null });
-    assert.equal(sqlite.prepare('SELECT stimulus_group_id FROM stimulus_group_questions WHERE id = ?').get('coverage-question').stimulus_group_id, 'coverage-target');
+    const coverageQuestion = /** @type {{ stimulus_group_id?: unknown } | undefined} */ (sqlite.prepare('SELECT stimulus_group_id FROM stimulus_group_questions WHERE id = ?').get('coverage-question'));
+    assert.equal(coverageQuestion?.stimulus_group_id, 'coverage-target');
   } finally { sqlite.close(); }
 });
 
