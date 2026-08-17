@@ -7,7 +7,7 @@
   let navigationNotice = $state('');
 
   onMount(() => {
-    const reusable = document.querySelectorAll('input[name="reusable_for_topic"]');
+    const reusable = /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('input[name="reusable_for_topic"]'));
     for (const input of reusable) {
       input.checked = false;
       input.disabled = true;
@@ -15,8 +15,9 @@
     }
   });
 
-  /** @param {MouseEvent} event */
+  /** @param {MouseEvent | KeyboardEvent} event */
   async function guardNavigation(event) {
+    if (event instanceof KeyboardEvent && event.key !== 'Enter' && event.key !== ' ') return;
     const target = event.target instanceof Element ? event.target.closest('a') : null;
     if (!(target instanceof HTMLAnchorElement)) return;
     const url = new URL(target.href, window.location.href);
@@ -51,8 +52,8 @@
 {#if data.workspaceBlocked}
   <p class="navigation-notice error" role="alert">This workspace is blocked pending cleanup. Use the Preview banner reset control before editing.</p>
 {:else}
-  <div class="preview-editor" onclick={guardNavigation}>
-    <AdminCaseEditor {data} {form} />
+  <div class="preview-editor" onclick={guardNavigation} onkeydown={guardNavigation}>
+    <AdminCaseEditor data={/** @type {any} */ (data)} form={/** @type {any} */ (form)} />
   </div>
 {/if}
 
