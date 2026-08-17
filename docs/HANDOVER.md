@@ -69,21 +69,24 @@ A dedicated `preview_admin` identity on the Preview Worker can browse real Cases
 
 The Preview clone copies Case-owned authoring relationships, including Case↔Topic links, Case/Question tags, fixed image relationships/captions, stimulus groups/options and contextual questions. Existing production Assets are reused read-only. Editable contextual Question Prompts are cloned so Preview edits cannot reach production prompts.
 
-Global Topic editing, production Asset metadata editing, production Question Prompt editing, learner/user administration, learner Study/Review creation, and imports remain unavailable in Preview Mode.
+Global Topic editing, production Asset metadata editing, production Question Prompt editing, learner/user administration, learner Study/Review creation, Better Auth Admin-plugin user-management operations, and imports remain unavailable in Preview Mode.
 
 ## Hard request boundaries
 
-The Preview Worker has real production bindings, so route isolation is enforced before page/action code runs:
+The Preview Worker has real production bindings and shared production auth tables, so route isolation is enforced before page/action/auth-handler code runs:
 
 ```text
-Preview Worker /admin/** -> 403
-Preview Worker /study/** -> 403
-preview_admin on production Worker /study/** -> 403
+Preview Worker /admin/**             -> 403
+Preview Worker /study/**             -> 403
+Preview Worker /api/auth/admin/**    -> 403
+preview_admin on production /study/** -> 403
 ```
 
-The request hook is the primary boundary. Admin/Study layouts and Study Review actions repeat the guard as defense in depth. This prevents direct form-action POSTs from bypassing a layout check.
+The request hook is the primary boundary. Admin/Study layouts and Study Review actions repeat the relevant guards as defense in depth. This prevents direct form-action POSTs from bypassing a layout check.
 
-A normal production `admin` therefore cannot sign into the Preview Worker and use the unrestricted production Admin CMS against the shared D1/R2.
+The Better Auth Admin-plugin subtree is also rejected in the hook before Better Auth handles the request. Ordinary Preview authentication endpoints under `/api/auth` remain available for sign-in, sign-out and session lookup.
+
+A normal production `admin` therefore cannot sign into the Preview Worker and use either the unrestricted production Admin CMS or Better Auth's privileged Admin APIs against the shared production D1/auth tables.
 
 A `preview_admin` cannot create, reveal, rate, complete, or continue ordinary learner Reviews.
 
@@ -165,7 +168,7 @@ A manual GitHub Actions workflow, **Deploy PR to Preview**, accepts a PR number 
 
 Worker configuration changes must be reviewed/merged separately before another PR can be used as a Preview candidate. The candidate PR is not allowed to redefine the Preview deployment target through its own `wrangler.jsonc`.
 
-The Preview Worker still has production D1/R2 bindings. This is not hard resource isolation, so only trusted same-repository PRs should be deployed.
+The Preview Worker still has production D1/R2 bindings and shared production auth tables. This is not hard resource isolation, so only trusted same-repository PRs should be deployed.
 
 ## Current migrations
 
@@ -213,6 +216,7 @@ Reviewed import staging remains separate operational data under its existing imp
 ## Authentication boundaries
 
 - normal `admin` -> production Admin CMS on the production Worker only;
+- Better Auth Admin-plugin API -> production Worker only, never Preview Worker;
 - dedicated `preview_admin` + `PREVIEW_MODE=true` -> Preview Admin;
 - normal learner -> Study on the production Worker only.
 
@@ -231,7 +235,7 @@ git diff --check
 
 GitHub CI must be green before this Preview infrastructure is considered merge-ready.
 
-Regression coverage now includes Preview Worker route boundaries, Preview Admin Study/Review denial, deployment candidate restrictions, shared-editor adapter drift, and Preview ownership exclusion from Topic/Tag/Asset normal Admin views.
+Regression coverage now includes Preview Worker `/admin`, `/study`, and Better Auth Admin-API boundaries, Preview Admin Study/Review denial, deployment candidate restrictions, shared-editor adapter drift, and Preview ownership exclusion from Topic/Tag/Asset normal Admin views.
 
 ## Production release boundary
 
