@@ -6,9 +6,9 @@ _Refreshed: 17 August 2026_
 
 The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, tags, and the reviewed/resumable content-import path.
 
-PR #30 — **Production-backed Preview Admin workspace** — has been merged. Its production-side schema and safety changes are deployed. Migration `0006_preview_admin_workspace.sql` was applied successfully to the existing production D1 and the production `flash-cards` Worker was deployed successfully on 17 August 2026.
+PR #30 — **Production-backed Preview Admin workspace** — has been merged and deployed. Migration `0006_preview_admin_workspace.sql` was applied successfully to the existing production D1; the production `flash-cards` Worker and separate `flash-cards-preview` Worker are deployed; and the Preview Worker now has its own independently generated `BETTER_AUTH_SECRET`.
 
-The remaining Preview rollout work is operational: configure a separate `BETTER_AUTH_SECRET` for the `preview` Wrangler environment, deploy `flash-cards-preview`, bootstrap the dedicated `preview_admin` identity, and smoke-test Create Preview Copy -> edit -> Reset. No second D1 database or R2 bucket is required.
+The remaining Preview rollout work is human identity/smoke testing only: bootstrap the dedicated `preview_admin` login that the owner will actually use, verify the live access boundaries, and smoke-test Create Preview Copy -> edit -> Reset. No second D1 database or R2 bucket is required.
 
 ## Read first
 
@@ -76,9 +76,9 @@ Global Topic editing, production Asset metadata editing, production Question Pro
 The Preview Worker has real production bindings and shared production auth tables, so route isolation is enforced before page/action/auth-handler code runs:
 
 ```text
-Preview Worker /admin/**             -> 403
-Preview Worker /study/**             -> 403
-Preview Worker /api/auth/admin/**    -> 403
+Preview Worker /admin/**              -> 403
+Preview Worker /study/**              -> 403
+Preview Worker /api/auth/admin/**     -> 403
 preview_admin on production /study/** -> 403
 ```
 
@@ -222,6 +222,8 @@ Reviewed import staging remains separate operational data under its existing imp
 
 `preview_admin` does not automatically satisfy production `admin` authorization. Authorization is server-side and is not based on a hard-coded email address.
 
+The Preview Worker uses an independently generated `BETTER_AUTH_SECRET`; it does not reuse the production Worker secret. The value was generated inside a GitHub Actions runner and piped directly to Wrangler, so it was neither committed nor printed in the action log.
+
 ## Validation required before handoff
 
 ```sh
@@ -233,7 +235,7 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-PR #30 CI passed before merge. The production rollout workflow then passed dependency installation, migration checks, all 169 tests, Svelte checks, build, production D1 migration, and Worker deployment.
+PR #30 CI passed before merge. The production rollout workflow then passed dependency installation, migration checks, all 169 tests, Svelte checks, build, production D1 migration, and Worker deployment. The Preview deployment/auth-secret workflow also passed migration checks, all 169 tests, Svelte checks, build, Preview Worker deployment, and secret configuration.
 
 Regression coverage includes Preview Worker `/admin`, `/study`, and Better Auth Admin-API boundaries, Preview Admin Study/Review denial, deployment candidate restrictions, shared-editor adapter drift, and Preview ownership exclusion from Topic/Tag/Asset normal Admin views.
 
@@ -244,18 +246,21 @@ Completed on 17 August 2026:
 - PR #30 merged to `main` as squash commit `ef5be5afee0b89c0364ceaf904c8ba06e32f6c59`;
 - migration `0006_preview_admin_workspace.sql` applied successfully to the existing production D1;
 - production Worker `flash-cards` deployed successfully;
-- deployment Worker version: `9a4d9fbc-ba3f-49db-a56c-e9e3af15ab63`;
-- production URL reported by Wrangler: `https://flash-cards.mmed-fm-flashcardstest.workers.dev`.
+- production deployment Worker version: `9a4d9fbc-ba3f-49db-a56c-e9e3af15ab63`;
+- production URL reported by Wrangler: `https://flash-cards.mmed-fm-flashcardstest.workers.dev`;
+- Preview Worker `flash-cards-preview` deployed successfully against the same D1/R2;
+- Preview deployment immediately before secret configuration reported Worker version `8347fd15-cca5-4159-b076-8dd43f614296`;
+- Preview URL reported by Wrangler: `https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev`;
+- an independent cryptographically generated `BETTER_AUTH_SECRET` was uploaded successfully to the Preview Worker;
+- the temporary one-shot Preview deployment workflow was removed after successful rollout.
 
-Still required before Preview Admin can be used:
+Still required before the owner can inspect UI as Preview Admin:
 
-- configure a separate `BETTER_AUTH_SECRET` for Wrangler environment `preview`;
-- deploy `flash-cards-preview` with `--env preview`;
-- bootstrap the dedicated `preview_admin` identity;
+- bootstrap the dedicated `preview_admin` identity with an owner-chosen email/password;
 - verify Preview `/admin`, `/study`, and `/api/auth/admin` return `403` while ordinary Preview authentication works;
 - smoke-test Create Preview Copy -> edit -> Reset and confirm the production source Case remains unchanged.
 
-## Next intended workflow after Preview rollout
+## Next intended workflow after Preview identity bootstrap
 
 ```text
 Admin UI PR (for example PR #29)
