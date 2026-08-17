@@ -2,170 +2,207 @@
 
 _Last updated: 17 August 2026_
 
-This document records the Admin image-authoring UX introduced by `agent/admin-case-image-workflow`. It is a UI/query workflow change only: no learner selection semantics or content schema are changed.
+This document records the Admin image-authoring UX introduced by PR #29 and extended by Image Management V2 in draft PR #34. These remain Admin UI/query/relationship workflow changes only: learner selection semantics and the learning-content schema are unchanged.
 
 ## Case editor order
 
-The Case editor follows the product-facing authoring sequence:
+The Case editor follows:
 
 ```text
 Topics → Case → Images → Case questions → Preview
 ```
 
-Images are part of the clinical presentation and therefore appear before Case questions.
+The Images section preserves the two relationship types:
 
-The top-level **Images** section contains both existing image relationship types without flattening them:
+- **Fixed image** — `case_assets`; shown in every applicable Review.
+- **Alternative image set** — `stimulus_groups`, containing `stimulus_group_options`; learner logic selects one active option from each active set.
 
-- **Fixed image** — a `case_assets` relationship; shown in every applicable Review.
-- **Alternative image set** — a `stimulus_groups` relationship whose active options are `stimulus_group_options`; existing learner logic selects one active option from each active set.
-
-Case-specific captions remain on `case_assets` / `stimulus_group_options` relationships. Asset-level filename, alt text, source and licence remain reusable global Asset metadata.
+Case-specific captions remain on `case_assets` / `stimulus_group_options`. Asset filename, alt text, source and licence remain global reusable Asset metadata.
 
 ## Attached-image inspection
 
-Fixed Case images use a large, available-width preview with `object-fit: contain` and responsive height. Clinically relevant content is not cropped.
+Fixed Case images use a large contain-fit preview. Fixed images and alternative thumbnails open the shared `AdminImageViewer`. Clinically relevant image content is not cropped.
 
-Clicking a fixed image or an alternative thumbnail opens the shared `AdminImageViewer` native-dialog viewer. The viewer:
+Alternative option cards retain:
 
-- preserves full image aspect ratio;
-- uses most of the available viewport;
-- exposes a visible Close button;
-- closes through native Escape/cancel behaviour;
-- uses native modal focus containment;
-- can close from a backdrop click;
-- shows the Admin image filename when available.
-
-The same viewer is available from `/admin/images` through each card's **Enlarge** action.
-
-## Alternative image sets
-
-Alternative sets are compact rather than rendering a long sequence of large image cards.
-
-Each set displays a responsive thumbnail grid. Every option retains:
-
-- active/inactive status;
+- active/inactive state;
 - ordering controls;
-- caption/name context;
+- Case-specific caption editing;
 - enlargement;
-- exact-option question authoring.
+- exact-option question authoring;
+- V2's explicit **Move to another set…** operation when another active set exists in the same Case.
 
-Image-specific questions remain linked to their exact `stimulus_group_option`. When existing image-specific questions are present, their disclosure is collapsed by default and labelled with the exact question count. A new/empty option keeps its question disclosure open so the authoring affordance is discoverable.
+Set-wide `stimulus_group_questions` remain separate from exact-option questions. Coverage, set activation and set-wide questions remain group-owned controls.
 
-Set-wide `stimulus_group_questions` remain separate from exact-option questions and stay under an advanced set-wide disclosure. Coverage, set activation and other set settings also remain under advanced controls.
+## Add images from library in the Case editor
 
-## Add images from library
+The Case editor uses the existing bounded contained Asset picker rather than the paginated Image Library contract.
 
-The Case editor no longer eagerly loads or permanently renders every unused Asset.
-
-**Add images from library** opens a contained picker. The Case server loader queries picker Assets only when the picker is requested. The query:
+The picker:
 
 - requires an active Case;
 - returns only active image Assets;
 - excludes Assets already used by that Case as fixed images or alternative options;
 - searches filename/Admin name, alt text, source label and source URL;
-- returns at most 60 results plus a one-row lookahead;
-- asks the administrator to refine the search if more than 60 Assets match.
+- returns at most 60 results plus one-row lookahead;
+- asks the Admin to refine the search if more than 60 Assets match;
+- supports multi-selection and an explicit selected count;
+- can target fixed images or one active alternative set.
 
-The picker supports multi-selection, an explicit selected count and one final attach action. The same picker can target either fixed Case images or one existing active alternative set.
-
-### Picker selection safety
-
-Picker selection is scoped to the current Case/attachment target and current server-returned result set.
-
-- A search/result refresh prunes selected Asset IDs that are no longer visible while retaining still-visible selected Assets.
-- Changing from fixed-image attachment to an alternative set, changing alternative-set target, or changing Case context resets the picker selection entirely.
-- A requested `target_group` must resolve to an active alternative set belonging to the current Case. Missing, inactive, or foreign targets fail closed with a client error; they never silently fall back to fixed-image attachment.
-
-This prevents stale hidden selection or a stale target URL from changing the meaning of a later attach action.
+Picker selection remains intentionally scoped to its current bounded result set. Hidden results are pruned, and a Case/target change resets selection. This differs deliberately from the paginated `/admin/images` cross-page selection model.
 
 ### Upload from Case authoring
 
-Uploading is available as a disclosure inside the picker rather than as a permanent large Case form.
+Upload continues through `createAssetFromUpload()` and the central protected media helpers, preserving JPEG/PNG validation, image-size and R2 ceilings, immutable keys, attribution/source validation and Admin authorization.
 
-The upload delegates to the existing `createAssetFromUpload()` path, preserving:
+For upload-to-alternative-set, the target is validated before the Asset/R2 write and again before the relationship write. A concurrent post-upload relationship failure reports partial success and retains the valid reusable Asset rather than deleting it unsafely.
 
-- JPEG/PNG validation;
-- existing image-size limits;
-- managed R2 storage limits;
-- immutable teaching-image object handling;
-- source URL validation;
-- source/attribution/licence metadata;
-- Admin authorization.
+## `/admin/images` V2 pagination
 
-For upload-to-alternative-set, the target is validated **before** creating the Asset or R2 object. The prevalidation checks that the set and parent Case are active, the set belongs to the current Case, and a newly created blank option can satisfy current minimum stimulus-specific coverage using its set-wide questions.
+The Image Library now uses server-backed **60-Asset pages** instead of one large rendered result set.
 
-The target is validated again when the new relationship is written. If a concurrent change occurs after Asset creation and that final relationship write fails, the response explicitly reports partial success and the newly created reusable Asset ID. The valid reusable Asset is retained instead of presenting the upload itself as failed or attempting unsafe post-creation cleanup; the Admin can reattach it from the library after resolving the Case/set state.
+For the canonical search/filter/sort query the server returns:
 
-## `/admin/images` multi-selection
+- deterministic page rows with Asset-ID tie-breaks;
+- exact matching count;
+- current normalized page;
+- total pages;
+- bounded exact all-matching IDs when the total is at most 300.
 
-The existing Image Library filters and sorting remain authoritative for the displayed order.
+The UI shows the displayed range and page and provides Previous/Next navigation. Page links preserve search/filter/sort. Applying filter/search/sort changes does not submit a page number and therefore starts at page 1.
 
-Selection behaviour:
+Normal Asset-card navigation to `/admin/images/[assetId]` remains unchanged.
 
-- visible checkbox: toggles one Asset without clearing other selected Assets;
-- Ctrl-click: toggles the clicked Asset while preserving the current selection;
-- Cmd-click: same behaviour on macOS;
-- Shift-click: adds the contiguous range between the current anchor and clicked Asset using the exact currently displayed filtered/sorted order;
-- ordinary click outside Select mode: continues to navigate to the Asset detail page;
-- **Select images** mode: provides a touch/mobile path where an ordinary card tap toggles selection;
-- **Clear selection** resets both selection and range anchor.
+## Cross-page Image Library selection
 
-Selection is only over the currently rendered result set. Filtering/sorting is server-driven and creates a new displayed result set; selected IDs no longer displayed are discarded and an invisible Shift anchor is cleared.
+Selection behaviour remains:
 
-## Bulk grouping semantics
+- visible checkbox toggles one Asset;
+- Ctrl/Cmd toggles while preserving other IDs;
+- ordinary click outside Select mode navigates to Asset detail;
+- Select mode gives a touch/mobile ordinary-tap toggle path;
+- Clear selection clears the full selection and range anchor.
 
-The current schema has no global Asset-folder/group relationship. The only relevant image grouping model is Case-scoped alternative stimulus sets:
+V2 changes page-navigation semantics: explicit selected Asset IDs survive page 1 -> page 2 while the canonical search/filter/sort context is unchanged.
+
+Changing search, Topic, usage filter, active/inactive filter, source filter or sort clears the previous cross-page selection. Page number alone is not part of that authoritative context.
+
+Shift-range remains relative to the currently displayed page/order. It never infers a range through unloaded pages, and an anchor from another page is cleared when the displayed page changes.
+
+Selection state is explicit IDs rather than an implicit “everything matching” flag.
+
+## Exact `Select all N matching images`
+
+When the exact current matching count is at most **300**, the server resolves the exact matching Asset IDs for the canonical filters and the UI can select all of those IDs.
+
+When more than 300 match, Select All is refused and the Admin is told to refine the query. V2 never silently truncates to the first 300 and never calls a partial selection “all matching”.
+
+A query-context change or normal Clear selection clears an all-matching selection.
+
+## Bulk Add to alternative set
+
+The Image Library still exposes the relationship-safe operation:
 
 ```text
-Case
-└── stimulus_group
-    └── stimulus_group_option → Asset
+Add selected images
+→ existing active alternative set
 ```
 
-For that reason, the sticky bulk bar exposes **Add to alternative set**, not a fabricated global group or ambiguous Move operation.
+It does not expose a generic Asset folder/group or ambiguous global Move.
 
-The target list contains only active stimulus groups whose parent Case is active.
+The server primitive keeps all existing safety rules:
 
-The server validates the complete submitted batch before intentional relationship writes:
+- every Asset must exist, be active and be an image;
+- target set and parent Case must be active and valid;
+- already active in exact target -> idempotent no-op where supported;
+- fixed in the target Case -> reject rather than silently convert;
+- in another alternative set in the target Case -> reject rather than silently move;
+- inactive existing option -> do not silently reactivate;
+- unrelated other-Case relationships remain unchanged;
+- current group coverage requirements are validated.
 
-- every Asset ID must exist;
-- every Asset must be active and type `image`;
-- the target set and parent Case must be active;
-- an Asset already active in that exact target set is an idempotent no-op;
-- an Asset already fixed in the target Case is rejected rather than silently converted;
-- an Asset already in another alternative set in the target Case is rejected rather than silently moved;
-- an inactive existing option in the target set is rejected and must be explicitly reactivated in the Case editor;
-- unrelated Asset relationships in other Cases are preserved;
-- minimum stimulus-specific coverage is checked before adding new options.
+## 30-Asset server bound and V2 chunk orchestration
 
-This deliberately avoids a generic **Move** operation because moving a stimulus option can involve exact-option questions, captions and activation state that require a more explicit product decision.
+One relationship-write request remains limited to **30 unique Assets**. The server limit has not been raised to match Select All.
 
-### Batch limit
+When the explicit selection is larger than 30, the Image Library splits IDs into sequential chunks of at most 30 and submits only one mutation request at a time.
 
-One multi-attach or bulk-grouping action is limited to **30 unique Assets**.
+Every request independently re-runs server authorization, ownership, Asset and conflict validation. A successful earlier chunk does not authorize a later chunk.
 
-This keeps the server work bounded and leaves D1 query headroom around validation, relationship reads, ordering and writes. New relationship writes are issued as one bounded D1 batch after validation. The UI states the limit and the server enforces it independently of browser state.
+The UI reports progress such as:
 
-## Select all matching filters
+```text
+Adding images… 60 / 143 processed
+```
 
-**Select all N matching images is deliberately deferred in this PR.**
+On a failed chunk:
 
-The current Image Library does not have a server-side pagination/selection-token contract. Implementing a browser-only approximation would make it too easy to imply that invisible/future records were selected, while submitting a very large ID set would conflict with bounded Worker/D1 writes.
+- later chunks are not sent;
+- successful earlier chunks remain committed;
+- the UI does not claim atomicity;
+- completed and remaining counts are shown;
+- the failed/unprocessed IDs remain selected for inspection/retry where practical;
+- successful relationship changes cause page data to refresh.
 
-The safe future implementation should pair pagination or a stable server-represented filter query with explicit matching count and bounded chunked actions. Ctrl/Cmd and Shift-range selection over the current displayed result set remain implemented now.
+V2 adds no persistent bulk-job table; browser close/refresh can interrupt the client loop.
+
+## Same-Case alternative-option Move
+
+V2 implements the narrow relationship operation that PR #29 deliberately deferred:
+
+```text
+existing stimulus_group_option
+source alternative set
+→ another alternative set
+within the SAME Case
+```
+
+The control is on the existing option card in the Case editor. It is not an `/admin/images` Asset Move command.
+
+Schema inspection established that `stimulus_group_options.id` can remain stable while `stimulus_group_id` changes. V2 updates the existing option row in place, preserving:
+
+- option ID;
+- Asset identity;
+- Case-specific caption;
+- active state;
+- exact-option Question relationships/answers;
+- other option-owned metadata.
+
+The moved option receives the next valid target display order. Group-level questions do not move; they stay attached to their original groups.
+
+Before the update, the server validates current ownership, active source/target, same-Case identity, duplicate target membership, and simulated source-after-removal/target-after-addition coverage. It also rejects a move whose required stimulus-specific coverage cannot fit a fixed Case question-count configuration.
+
+Cross-Case moves, inactive relationships, duplicate/conflicting target membership and Preview/production ownership violations fail closed.
+
+## Fixed-image conversion remains separate
+
+A fixed `case_assets` relationship is not the same operation as moving a `stimulus_group_option`.
+
+Existing fixed-image -> alternative-set conversion remains explicit and delegates to the established conversion logic. The application does not infer that Case Questions authored while one image existed are exact-image questions. Question re-scoping remains an explicit Admin action.
+
+## Preview Admin behaviour
+
+`/preview-admin/images` uses the same pagination, exact count, cross-page selection, <=300 Select All and sequential chunk UI against real production Assets read-only.
+
+Preview relationship mutations can target only current-session Preview-owned Cases/groups/options. Production Asset metadata/R2 objects remain read-only.
+
+The shared Case editor also exposes Move in Preview, but its endpoint requires the current live Preview Session and moves only a Preview-owned option between active groups in the same Preview-owned Case/session.
+
+Normal production Admin read/mutation paths continue excluding or rejecting Preview-owned relationships.
 
 ## Learner/data-model invariants
 
-This workflow does not change:
+Image Management V2 does not change:
 
-- `case_assets` fixed-image semantics;
-- `stimulus_groups` selection count/activation semantics;
-- `stimulus_group_options` selection semantics;
+- fixed `case_assets` semantics;
+- `stimulus_groups` learner selection count/activation semantics;
+- random alternative selection;
 - exact-option or set-wide question precedence;
-- Case Topic routing;
-- Case/Question Tags;
-- shared Question Prompt semantics;
-- Review image/question provenance or snapshots;
-- learner Review composition.
+- Case Topics/Tags;
+- Review Asset/Question snapshots and provenance;
+- learner Review composition;
+- R2 object identity.
 
-No schema migration is introduced.
+No D1 migration and no `wrangler.jsonc` change are introduced.
+
+See `IMAGE_MANAGEMENT_V2_PLAN.md` for final limits, tests and manual Preview review procedure.
