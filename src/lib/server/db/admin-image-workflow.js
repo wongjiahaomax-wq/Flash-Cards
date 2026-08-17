@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, like, notInArray, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, notInArray, or } from 'drizzle-orm';
 
 import { getTeachingImageUrl } from '../storage/media.js';
 import {
@@ -36,7 +36,7 @@ async function requireActiveCase(db, caseId) {
     await db
       .select({ id: cases.id })
       .from(cases)
-      .where(and(eq(cases.id, id), eq(cases.isActive, true)))
+      .where(and(eq(cases.id, id), eq(cases.isActive, true), isNull(cases.previewSessionId)))
       .limit(1)
   )[0];
   if (!row) throw new AdminImageWorkflowInputError('The selected Case is missing or inactive.');
@@ -59,7 +59,7 @@ async function requireActiveImageAssets(db, assetIds) {
   const rows = await db
     .select({ id: assets.id, type: assets.type, isActive: assets.isActive })
     .from(assets)
-    .where(inArray(assets.id, assetIds));
+    .where(and(inArray(assets.id, assetIds), isNull(assets.previewSessionId)));
   const byId = new Map(rows.map((row) => [row.id, row]));
   for (const assetId of assetIds) {
     const row = byId.get(assetId);
@@ -93,7 +93,7 @@ export async function listCaseImagePicker(db, caseId, options = {}) {
       .where(eq(stimulusGroups.caseId, caseId))
   ]);
   const usedIds = [...new Set([...fixedRows, ...groupedRows].map((row) => row.assetId))];
-  const conditions = [eq(assets.isActive, true), eq(assets.type, 'image')];
+  const conditions = [eq(assets.isActive, true), eq(assets.type, 'image'), isNull(assets.previewSessionId)];
   if (usedIds.length) conditions.push(notInArray(assets.id, usedIds));
   if (search) {
     const pattern = `%${search}%`;
@@ -220,7 +220,7 @@ export async function listActiveStimulusGroupTargets(db) {
     })
     .from(stimulusGroups)
     .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
-    .where(and(eq(stimulusGroups.isActive, true), eq(cases.isActive, true)))
+    .where(and(eq(stimulusGroups.isActive, true), eq(cases.isActive, true), isNull(cases.previewSessionId)))
     .orderBy(asc(cases.title), asc(stimulusGroups.displayOrder), asc(stimulusGroups.name));
 }
 
@@ -246,7 +246,12 @@ export async function validateStimulusGroupTargetForNewAssets(db, groupId, optio
       })
       .from(stimulusGroups)
       .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
-      .where(and(eq(stimulusGroups.id, normalizedGroupId), eq(stimulusGroups.isActive, true), eq(cases.isActive, true)))
+      .where(and(
+        eq(stimulusGroups.id, normalizedGroupId),
+        eq(stimulusGroups.isActive, true),
+        eq(cases.isActive, true),
+        isNull(cases.previewSessionId)
+      ))
       .limit(1)
   )[0];
   if (!group) {
@@ -400,7 +405,8 @@ export async function updateStimulusOptionCaption(db, caseId, optionId, captionM
         and(
           eq(stimulusGroupOptions.id, normalizedOptionId),
           eq(stimulusGroups.caseId, normalizedCaseId),
-          eq(cases.isActive, true)
+          eq(cases.isActive, true),
+          isNull(cases.previewSessionId)
         )
       )
       .limit(1)

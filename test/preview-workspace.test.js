@@ -472,3 +472,53 @@ test('Preview image picker and multi-attach mutate only Preview-owned relationsh
     fixture.sqlite.close();
   }
 });
+
+test('Preview minimum-mode coverage blocks new images until set-wide coverage is sufficient', async () => {
+  const fixture = createFixture();
+  try {
+    const { session, caseId } = await createClone(fixture, 'preview-minimum-owner');
+    const groupId = fixture.sqlite.prepare('SELECT id FROM stimulus_groups WHERE case_id=?').get(caseId).id;
+    fixture.sqlite.prepare('UPDATE stimulus_groups SET minimum_specific_questions=2 WHERE id=?').run(groupId);
+    fixture.sqlite.prepare("INSERT INTO assets (id, type, storage_key, mime_type, original_filename, is_active) VALUES ('preview-minimum-blocked', 'image', 'teaching-images/preview-minimum-blocked.png', 'image/png', 'Blocked preview image', 1)").run();
+    const beforeOptions = fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE stimulus_group_id=?').all(groupId);
+
+    await assert.rejects(
+      () => addPreviewAssetsToStimulusGroup(fixture.db, session.id, groupId, ['preview-minimum-blocked']),
+      (error) => error instanceof PreviewWorkspaceError && error.code === 'INVALID_INPUT' && /below this Preview set's minimum of 2/.test(error.message)
+    );
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE stimulus_group_id=?').all(groupId), beforeOptions);
+
+    fixture.sqlite.prepare('UPDATE stimulus_groups SET minimum_specific_questions=1 WHERE id=?').run(groupId);
+    const result = await addPreviewAssetsToStimulusGroup(fixture.db, session.id, groupId, ['preview-minimum-blocked']);
+    assert.equal(result.addedCount, 1);
+    assert.equal(fixture.sqlite.prepare('SELECT COUNT(*) n FROM stimulus_group_options WHERE stimulus_group_id=? AND asset_id=?').get(groupId, 'preview-minimum-blocked').n, 1);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Preview image addition rejects inactive Preview Cases and inactive groups', async () => {
+  const fixture = createFixture();
+  try {
+    const { session, caseId } = await createClone(fixture, 'preview-inactive-owner');
+    const groupId = fixture.sqlite.prepare('SELECT id FROM stimulus_groups WHERE case_id=?').get(caseId).id;
+    fixture.sqlite.prepare("INSERT INTO assets (id, type, storage_key, mime_type, original_filename, is_active) VALUES ('preview-inactive-input', 'image', 'teaching-images/preview-inactive-input.png', 'image/png', 'Inactive target input', 1)").run();
+    const beforeOptions = fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE stimulus_group_id=?').all(groupId);
+
+    fixture.sqlite.prepare('UPDATE cases SET is_active=0 WHERE id=?').run(caseId);
+    await assert.rejects(
+      () => addPreviewAssetsToStimulusGroup(fixture.db, session.id, groupId, ['preview-inactive-input']),
+      (error) => error instanceof PreviewWorkspaceError && error.code === 'INVALID_INPUT' && /Preview Case is inactive/.test(error.message)
+    );
+    fixture.sqlite.prepare('UPDATE cases SET is_active=1 WHERE id=?').run(caseId);
+
+    fixture.sqlite.prepare('UPDATE stimulus_groups SET is_active=0 WHERE id=?').run(groupId);
+    await assert.rejects(
+      () => addPreviewAssetsToStimulusGroup(fixture.db, session.id, groupId, ['preview-inactive-input']),
+      (error) => error instanceof PreviewWorkspaceError && error.code === 'INVALID_INPUT' && /alternative set is inactive/.test(error.message)
+    );
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE stimulus_group_id=?').all(groupId), beforeOptions);
+  } finally {
+    fixture.sqlite.close();
+  }
+});

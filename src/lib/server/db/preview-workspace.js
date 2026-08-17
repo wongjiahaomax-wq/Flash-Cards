@@ -189,7 +189,13 @@ async function requireOwnedPreviewPrompt(db, previewSessionId, promptId) {
 async function requireOwnedPreviewGroup(db, previewSessionId, groupId) {
   const row = (
     await db
-      .select({ id: stimulusGroups.id, caseId: stimulusGroups.caseId, isActive: stimulusGroups.isActive })
+      .select({
+        id: stimulusGroups.id,
+        caseId: stimulusGroups.caseId,
+        isActive: stimulusGroups.isActive,
+        specificQuestionMode: stimulusGroups.specificQuestionMode,
+        minimumSpecificQuestions: stimulusGroups.minimumSpecificQuestions
+      })
       .from(stimulusGroups)
       .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
       .where(and(eq(stimulusGroups.id, groupId), eq(cases.previewSessionId, previewSessionId)))
@@ -310,7 +316,28 @@ function boundedPreviewAssetIds(values) {
 /** @param {LearningDb} db @param {string} previewSessionId @param {string} groupId */
 export async function validatePreviewStimulusGroupTarget(db, previewSessionId, groupId) {
   const group = await requireOwnedPreviewGroup(db, previewSessionId, groupId);
+  const caseRow = (
+    await db
+      .select({ id: cases.id, isActive: cases.isActive })
+      .from(cases)
+      .where(and(eq(cases.id, group.caseId), eq(cases.previewSessionId, previewSessionId)))
+      .limit(1)
+  )[0];
+  if (!caseRow?.isActive) throw new PreviewWorkspaceError('The selected Preview Case is inactive.', 'INVALID_INPUT');
   if (!group.isActive) throw new PreviewWorkspaceError('The selected Preview alternative set is inactive.', 'INVALID_INPUT');
+  if (group.specificQuestionMode === 'minimum') {
+    const groupQuestions = await db
+      .select({ id: stimulusGroupQuestions.id })
+      .from(stimulusGroupQuestions)
+      .where(and(eq(stimulusGroupQuestions.stimulusGroupId, group.id), eq(stimulusGroupQuestions.isActive, true)));
+    const minimum = group.minimumSpecificQuestions ?? 0;
+    if (groupQuestions.length < minimum) {
+      throw new PreviewWorkspaceError(
+        `New images would have only ${groupQuestions.length} set-wide specific questions, below this Preview set's minimum of ${minimum}. Add set-wide questions or change coverage first.`,
+        'INVALID_INPUT'
+      );
+    }
+  }
   return group;
 }
 

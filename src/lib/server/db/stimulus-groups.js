@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 
 import {
   assets,
@@ -136,7 +136,7 @@ export async function getCaseStimulusCoverageRequirement(db, caseId, override = 
 /** @param {LearningDb} db @param {string} caseId @param {string | null} replacingGroupId @param {{ mode: string, minimum: number | null }} selected @param {boolean} [replacementActive] */
 async function validateCoverageFitsCase(db, caseId, replacingGroupId, selected, replacementActive = true) {
   if (replacingGroupId && replacementActive) await coverageRequirement(db, replacingGroupId, selected);
-  const caseRow = (await db.select({ mode: cases.questionSelectionMode, count: cases.questionCount }).from(cases).where(eq(cases.id, caseId)).limit(1))[0];
+  const caseRow = (await db.select({ mode: cases.questionSelectionMode, count: cases.questionCount }).from(cases).where(and(eq(cases.id, caseId), isNull(cases.previewSessionId))).limit(1))[0];
   if (caseRow?.mode !== 'fixed' || !caseRow.count) return;
   const requiredTotal = await getCaseStimulusCoverageRequirement(db, caseId, {
     replacingGroupId,
@@ -150,7 +150,7 @@ async function validateCoverageFitsCase(db, caseId, replacingGroupId, selected, 
 
 /** @param {LearningDb} db @param {string} caseId */
 async function requireCase(db, caseId) {
-  const row = (await db.select({ id: cases.id }).from(cases).where(and(eq(cases.id, caseId), eq(cases.isActive, true))).limit(1))[0];
+  const row = (await db.select({ id: cases.id }).from(cases).where(and(eq(cases.id, caseId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
   if (!row) throw new StimulusGroupInputError('The selected Case is missing or inactive.');
 }
 
@@ -167,7 +167,7 @@ async function requireGroup(db, groupId) {
       })
       .from(stimulusGroups)
       .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
-      .where(and(eq(stimulusGroups.id, groupId), eq(cases.isActive, true)))
+      .where(and(eq(stimulusGroups.id, groupId), eq(cases.isActive, true), isNull(cases.previewSessionId)))
       .limit(1)
   )[0];
   if (!row) throw new StimulusGroupInputError('The selected Stimulus Group is missing or inactive.');
@@ -307,7 +307,7 @@ export async function convertCaseAssetToStimulusOption(db, groupId, assetId) {
 
 /** @param {LearningDb} db @param {string} optionId @param {boolean} isActive */
 export async function setStimulusOptionActive(db, optionId, isActive) {
-  const row = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, assetId: stimulusGroupOptions.assetId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true))).limit(1))[0];
+  const row = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, assetId: stimulusGroupOptions.assetId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
   if (!row) throw new StimulusGroupInputError('The selected Stimulus Option is missing.');
   if (isActive) {
     await requireAsset(db, row.assetId);
@@ -384,7 +384,7 @@ export async function saveStimulusGroupQuestion(db, groupId, input) {
 
 /** @param {LearningDb} db @param {string} optionId @param {{ originalPromptId?: string|null, promptMd: unknown, answerMd: unknown }} input */
 export async function saveStimulusOptionQuestion(db, optionId, input) {
-  const option = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true))).limit(1))[0];
+  const option = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
   if (!option) throw new StimulusGroupInputError('The selected Stimulus Option is missing or inactive.');
   const group = await requireGroup(db, option.groupId);
   const promptMd = requiredText(input.promptMd, 'Question prompt');

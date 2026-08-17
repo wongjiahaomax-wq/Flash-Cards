@@ -79,6 +79,106 @@ function assetCount(sqlite) {
   return Number(row?.count ?? 0);
 }
 
+/** @param {DatabaseSync} sqlite */
+function insertPreviewIsolationFixture(sqlite) {
+  sqlite.prepare("INSERT INTO preview_sessions (id, user_id, status, expires_at) VALUES ('preview-isolation-session', 'preview-isolation-user', 'active', 9999999999999)").run();
+  sqlite.prepare("INSERT INTO cases (id, title, vignette_md, question_selection_mode, is_active, preview_session_id) VALUES ('preview-isolation-case', 'Preview-only Case', 'Preview-only', 'automatic', 1, 'preview-isolation-session')").run();
+  sqlite.prepare("INSERT INTO assets (id, type, storage_key, mime_type, original_filename, alt_text, source_label, is_active, preview_session_id) VALUES ('preview-isolation-asset', 'image', 'preview/preview-isolation-asset.png', 'image/png', 'Preview-only image', 'Preview-only image', 'Preview', 1, 'preview-isolation-session')").run();
+  sqlite.prepare("INSERT INTO stimulus_groups (id, case_id, name, display_order, selection_count, specific_question_mode, is_active) VALUES ('preview-isolation-group', 'preview-isolation-case', 'Preview-only set', 0, 1, 'none', 1)").run();
+  sqlite.prepare("INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, is_active) VALUES ('preview-isolation-option', 'preview-isolation-group', 'preview-isolation-asset', 0, 1)").run();
+  return { caseId: 'preview-isolation-case', assetId: 'preview-isolation-asset', groupId: 'preview-isolation-group', optionId: 'preview-isolation-option' };
+}
+
+test('production Case image picker excludes Preview-owned Assets', async () => {
+  const fixture = createLearningDb();
+  try {
+    const preview = insertPreviewIsolationFixture(fixture.sqlite);
+    const beforeCaseAssets = fixture.sqlite.prepare("SELECT * FROM case_assets WHERE case_id='seed-anterior-a'").all();
+    const beforePreviewAsset = fixture.sqlite.prepare('SELECT * FROM assets WHERE id=?').get(preview.assetId);
+
+    const results = await listCaseImagePicker(fixture.db, 'seed-anterior-a', { search: 'Preview-only', limit: 10 });
+
+    assert.deepEqual(results.assets, []);
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM case_assets WHERE case_id='seed-anterior-a'").all(), beforeCaseAssets);
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM assets WHERE id=?').get(preview.assetId), beforePreviewAsset);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('production multi-attach rejects a Preview-owned Asset without changing production rows', async () => {
+  const fixture = createLearningDb();
+  try {
+    const preview = insertPreviewIsolationFixture(fixture.sqlite);
+    const beforeCaseAssets = fixture.sqlite.prepare("SELECT * FROM case_assets WHERE case_id='seed-anterior-a'").all();
+    const beforeAsset = fixture.sqlite.prepare('SELECT * FROM assets WHERE id=?').get(preview.assetId);
+
+    await assert.rejects(
+      () => attachAssetsToCase(fixture.db, 'seed-anterior-a', [preview.assetId]),
+      /missing or inactive/
+    );
+
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM case_assets WHERE case_id='seed-anterior-a'").all(), beforeCaseAssets);
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM assets WHERE id=?').get(preview.assetId), beforeAsset);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('production bulk target discovery excludes Preview-owned groups', async () => {
+  const fixture = createLearningDb();
+  try {
+    const preview = insertPreviewIsolationFixture(fixture.sqlite);
+    const productionGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Production set', specificQuestionMode: 'none' });
+    const beforeGroups = fixture.sqlite.prepare('SELECT * FROM stimulus_groups ORDER BY id').all();
+
+    const targets = await listActiveStimulusGroupTargets(fixture.db);
+
+    assert.ok(targets.some((target) => target.id === productionGroup));
+    assert.equal(targets.some((target) => target.id === preview.groupId), false);
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM stimulus_groups ORDER BY id').all(), beforeGroups);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('production bulk-add rejects a Preview-owned group submitted directly without changing rows', async () => {
+  const fixture = createLearningDb();
+  try {
+    const preview = insertPreviewIsolationFixture(fixture.sqlite);
+    insertAsset(fixture.sqlite, { id: 'production-bulk-input', name: 'Production bulk input' });
+    const beforeGroupOptions = fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE stimulus_group_id=?').all(preview.groupId);
+    const beforeAsset = fixture.sqlite.prepare("SELECT * FROM assets WHERE id='production-bulk-input'").get();
+
+    await assert.rejects(
+      () => bulkAddAssetsToStimulusGroup(fixture.db, preview.groupId, ['production-bulk-input']),
+      /missing or inactive/
+    );
+
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE stimulus_group_id=?').all(preview.groupId), beforeGroupOptions);
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM assets WHERE id='production-bulk-input'").get(), beforeAsset);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('production option-caption mutation rejects a Preview-owned option without changing it', async () => {
+  const fixture = createLearningDb();
+  try {
+    const preview = insertPreviewIsolationFixture(fixture.sqlite);
+    const beforeOption = fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE id=?').get(preview.optionId);
+
+    await assert.rejects(
+      () => updateStimulusOptionCaption(fixture.db, preview.caseId, preview.optionId, 'Must not cross the production boundary'),
+      /not attached/
+    );
+
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE id=?').get(preview.optionId), beforeOption);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('Case image picker is bounded, searchable, and excludes Assets already used by the Case', async () => {
   const fixture = createLearningDb();
   try {
