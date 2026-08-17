@@ -232,17 +232,15 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
       .select({
         id: stimulusGroups.id,
         caseId: stimulusGroups.caseId,
-        isActive: stimulusGroups.isActive,
         specificQuestionMode: stimulusGroups.specificQuestionMode,
-        minimumSpecificQuestions: stimulusGroups.minimumSpecificQuestions,
-        caseIsActive: cases.isActive
+        minimumSpecificQuestions: stimulusGroups.minimumSpecificQuestions
       })
       .from(stimulusGroups)
       .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
-      .where(eq(stimulusGroups.id, normalizedGroupId))
+      .where(and(eq(stimulusGroups.id, normalizedGroupId), eq(stimulusGroups.isActive, true), eq(cases.isActive, true)))
       .limit(1)
   )[0];
-  if (!group || !group.caseIsActive || !group.isActive) {
+  if (!group) {
     throw new AdminImageWorkflowInputError('The selected alternative image set is missing or inactive.');
   }
   if (options.expectedCaseId && group.caseId !== options.expectedCaseId) {
@@ -342,4 +340,39 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
     addedCount: newIds.length,
     alreadyPresentCount: assetIds.length - newIds.length
   };
+}
+
+/**
+ * Preserve the existing authoring ability to give an alternative image a
+ * Case-specific caption even when the option was added through the multi-picker.
+ *
+ * @param {LearningDb} db
+ * @param {string} caseId
+ * @param {string} optionId
+ * @param {unknown} captionMd
+ */
+export async function updateStimulusOptionCaption(db, caseId, optionId, captionMd) {
+  const normalizedCaseId = String(caseId ?? '').trim();
+  const normalizedOptionId = String(optionId ?? '').trim();
+  if (!normalizedCaseId || !normalizedOptionId) {
+    throw new AdminImageWorkflowInputError('Case and alternative image are required.');
+  }
+  const option = (
+    await db
+      .select({ id: stimulusGroupOptions.id })
+      .from(stimulusGroupOptions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+      .where(
+        and(
+          eq(stimulusGroupOptions.id, normalizedOptionId),
+          eq(stimulusGroups.caseId, normalizedCaseId),
+          eq(cases.isActive, true)
+        )
+      )
+      .limit(1)
+  )[0];
+  if (!option) throw new AdminImageWorkflowInputError('That alternative image is not attached to this active Case.');
+  const normalizedCaption = String(captionMd ?? '').trim() || null;
+  await db.update(stimulusGroupOptions).set({ captionMd: normalizedCaption, updatedAt: new Date() }).where(eq(stimulusGroupOptions.id, option.id));
 }
