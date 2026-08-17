@@ -148,22 +148,23 @@ export async function listAssetLibrary(db, filters = {}) {
 
   if (search) {
     const pattern = `%${search}%`;
-    conditions.push(
-      or(
-        like(assets.originalFilename, pattern),
-        like(assets.altText, pattern),
-        like(assets.sourceLabel, pattern),
-        like(assets.sourceUrl, pattern)
-      )
+    const searchCondition = or(
+      like(assets.originalFilename, pattern),
+      like(assets.altText, pattern),
+      like(assets.sourceLabel, pattern),
+      like(assets.sourceUrl, pattern)
     );
+    if (searchCondition) conditions.push(searchCondition);
   }
   if (status === 'active') conditions.push(eq(assets.isActive, true));
   if (status === 'inactive') conditions.push(eq(assets.isActive, false));
   if (source === 'known') {
-    conditions.push(or(isNotNull(assets.sourceLabel), isNotNull(assets.sourceUrl), isNotNull(assets.licence)));
+    const knownSourceCondition = or(isNotNull(assets.sourceLabel), isNotNull(assets.sourceUrl), isNotNull(assets.licence));
+    if (knownSourceCondition) conditions.push(knownSourceCondition);
   }
   if (source === 'unknown') {
-    conditions.push(and(isNull(assets.sourceLabel), isNull(assets.sourceUrl), isNull(assets.licence)));
+    const unknownSourceCondition = and(isNull(assets.sourceLabel), isNull(assets.sourceUrl), isNull(assets.licence));
+    if (unknownSourceCondition) conditions.push(unknownSourceCondition);
   }
   const rows = await db
     .select({
