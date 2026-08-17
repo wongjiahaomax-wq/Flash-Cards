@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import AdminCaseEditor from '../../../admin/cases/[caseId]/+page.svelte';
 
+  const PreviewCaseEditor = /** @type {any} */ (AdminCaseEditor);
   let { data, form } = $props();
   let navigationNotice = $state('');
 
@@ -52,8 +53,8 @@
 {#if data.workspaceBlocked}
   <p class="navigation-notice error" role="alert">This workspace is blocked pending cleanup. Use the Preview banner reset control before editing.</p>
 {:else}
-  <div class="preview-editor" onclick={guardNavigation} onkeydown={guardNavigation}>
-    <AdminCaseEditor data={/** @type {any} */ (data)} form={/** @type {any} */ (form)} />
+  <div class="preview-editor" role="group" aria-label="Preview Case editor" onclick={guardNavigation} onkeydown={guardNavigation}>
+    <PreviewCaseEditor {data} {form} />
   </div>
 {/if}
 
