@@ -5,6 +5,7 @@ import { assets, cases, stimulusGroupOptions, stimulusGroupQuestions, stimulusGr
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
 export class StimulusOptionMoveError extends Error {
+  /** @param {string} message @param {string} [code] */
   constructor(message, code = 'INVALID') {
     super(message);
     this.name = 'StimulusOptionMoveError';
@@ -22,6 +23,10 @@ function required(value, label) {
 /**
  * Compute the active specific-question requirement for every active group in a
  * Case, optionally simulating one option as belonging to a different group.
+ * @param {LearningDb} db
+ * @param {string} caseId
+ * @param {string} movingOptionId
+ * @param {string} targetGroupId
  */
 async function simulatedCoverageRequirement(db, caseId, movingOptionId, targetGroupId) {
   const groups = await db.select({ id: stimulusGroups.id, mode: stimulusGroups.specificQuestionMode, minimum: stimulusGroups.minimumSpecificQuestions })
@@ -75,6 +80,9 @@ async function simulatedCoverageRequirement(db, caseId, movingOptionId, targetGr
  *
  * previewSessionId=null means normal production Admin. A non-null value means
  * every Case/group/option relationship must belong to that Preview Session.
+ *
+ * @param {LearningDb} db
+ * @param {{ caseId: string, optionId: string, targetGroupId: string, previewSessionId?: string | null }} input
  */
 export async function moveStimulusOptionWithinCase(db, input) {
   const caseId = required(input.caseId, 'Case');
