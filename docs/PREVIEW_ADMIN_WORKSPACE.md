@@ -31,22 +31,39 @@ The named Wrangler environment is `preview`. D1/R2 bindings and vars are repeate
 
 Preview authority requires both:
 
-1. a Better Auth user with the dedicated `preview_admin` role; and
+1. a Better Auth user whose role set includes `preview_admin`; and
 2. a runtime where `PREVIEW_MODE=true`.
 
-`preview_admin` does not satisfy normal production Admin authorization. A normal `admin` also does not automatically satisfy Preview authorization.
+Roles are treated as a comma-separated set. A dedicated Preview-only identity may have `preview_admin`, while an existing production owner/admin may intentionally have:
 
-Email addresses are not authorization rules.
+```text
+admin,preview_admin
+```
+
+The combined role preserves normal production Admin authorization through `admin` and grants Preview authorization through `preview_admin`. The same email/password can therefore be used on both Workers when the existing production Admin is promoted. Production and Preview still use separate `BETTER_AUTH_SECRET` values, so their browser sessions remain separate.
+
+A normal `admin` does not automatically satisfy Preview authorization, and a Preview-only `preview_admin` does not satisfy production Admin authorization. Email addresses are not authorization rules.
+
+See `PREVIEW_ADMIN_IDENTITY.md` for the identity-specific operator rules and implications.
 
 ### Bootstrap procedure
 
-After the migration has been reviewed, merged and applied, run:
+Always start from current `main`:
 
 ```bash
+git switch main
+git pull --ff-only origin main
+npm ci
 npm run preview-admin:bootstrap
 ```
 
-The script is interactive, requires an explicit confirmation phrase, requires a password of at least 12 characters, refuses a second Preview Admin, refuses an already-used email, writes the Better Auth user/credential rows, and verifies the resulting role. No identity, password, API token, or secret is committed to the repository.
+The script is interactive and fail-closed.
+
+If the requested email already belongs to a non-banned production `admin`, the script reuses that same Better Auth identity and credential account, preserves the existing password and any other roles, and adds `preview_admin` after the explicit `ADD PREVIEW` confirmation. It refuses to elevate an existing non-admin/learner account, refuses an unexpected credential shape, and refuses a second distinct Preview Admin.
+
+If the requested email does not exist and no Preview Admin exists, the original dedicated-account path remains available. That path requires a name, explicit `CREATE PREVIEW` confirmation, and a password of at least 12 characters, then creates a `preview_admin`-only Better Auth credential user.
+
+If the requested existing production Admin already has both roles, the script is idempotent and reports that no change is needed. It verifies the resulting role/credential state after a write. No identity, password, API token, or secret is committed to the repository.
 
 Do not run this bootstrap during PR review.
 
@@ -63,7 +80,7 @@ Better Auth's ordinary Preview authentication endpoints remain available, includ
 
 The request hook enforces these boundaries so direct POSTs/form actions/auth API calls cannot bypass a layout loader. The Admin and Study layouts provide defense in depth, and learner Review creation/reveal/rate/next server actions repeat the Study guard.
 
-Preview authoring is available only through `/preview-admin`. The dedicated Preview identity must never create ordinary learner Reviews or progress/history records, and neither a production `admin` nor a Preview user may use the Preview Worker to invoke Better Auth Admin-plugin user-management operations against the shared production auth tables.
+Preview authoring is available only through `/preview-admin`. Any identity carrying Preview authority must never create ordinary learner Reviews or progress/history records, and neither a production `admin` nor a Preview user may use the Preview Worker to invoke Better Auth Admin-plugin user-management operations against the shared production auth tables.
 
 ## Preview Sessions
 
@@ -273,16 +290,16 @@ D1 recovery/Time Travel is catastrophe recovery only, not normal Preview Reset.
 
 ## Operator release procedure
 
-Do not execute these steps until this PR is reviewed and intentionally released.
+Do not execute these steps until the relevant changes are reviewed and intentionally released.
 
-1. Merge the reviewed Preview Admin workspace PR to `main`.
-2. Apply `drizzle/0006_preview_admin_workspace.sql` to the production D1 through the normal migration/release process.
+1. Merge the reviewed Preview Admin workspace changes to `main`.
+2. Apply any reviewed Preview schema migration to the production D1 through the normal migration/release process.
 3. Re-run production validation/smoke checks.
 4. Configure a separate `BETTER_AUTH_SECRET` for the `preview` Wrangler environment. Do not commit it.
 5. Confirm GitHub has `CLOUDFLARE_ACCOUNT_ID` and a least-privilege `CLOUDFLARE_API_TOKEN` able to deploy Workers. The Preview deployment workflow does not need a D1 write token.
 6. Deploy the reviewed infrastructure to the Preview Worker with `npx --yes wrangler@4.123.0 deploy --env preview` (or the equivalent reviewed operator deployment).
 7. Confirm the Preview Worker is reachable and clearly shows Preview Mode; verify `/admin`, `/study`, and `/api/auth/admin` all return `403` there while normal Preview sign-in/session endpoints still work.
-8. Run `npm run preview-admin:bootstrap` once to create the dedicated Preview Admin identity.
+8. From current `main`, run `npm run preview-admin:bootstrap`. For an existing production Admin email, confirm `ADD PREVIEW` so the existing identity/password is retained and the role set gains `preview_admin`; otherwise use the dedicated new-identity path.
 9. Sign in to the Preview Worker, create one Preview copy, edit it, then Reset and confirm the source production Case remains unchanged.
 10. For a later UI PR such as PR #29, first ensure it does not modify schema files or `wrangler.jsonc`, then run GitHub Actions -> **Deploy PR to Preview**, enter the PR number, verify the reported exact SHA, and test the Preview URL.
 
