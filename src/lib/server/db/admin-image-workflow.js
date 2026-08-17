@@ -175,16 +175,25 @@ export async function attachAssetsToCase(db, caseId, submittedAssetIds) {
       .limit(1)
   )[0];
   const startOrder = (last?.displayOrder ?? -1) + 1;
+  const [firstId, ...remainingIds] = newIds;
+  if (!firstId) throw new AdminImageWorkflowInputError('Select at least one image.');
 
   try {
-    for (const [index, assetId] of newIds.entries()) {
-      await db.insert(caseAssets).values({
+    const firstStatement = db.insert(caseAssets).values({
+      caseId,
+      assetId: firstId,
+      displayOrder: startOrder,
+      captionMd: null
+    });
+    const remainingStatements = remainingIds.map((assetId, index) =>
+      db.insert(caseAssets).values({
         caseId,
         assetId,
-        displayOrder: startOrder + index,
+        displayOrder: startOrder + index + 1,
         captionMd: null
-      });
-    }
+      })
+    );
+    await db.batch([firstStatement, ...remainingStatements]);
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       throw new AdminImageWorkflowInputError('The Case image list changed while attaching. Refresh and try again.');
@@ -275,14 +284,14 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
 
   const byAsset = new Map(optionRows.map((row) => [row.assetId, row]));
   for (const assetId of assetIds) {
-    const existing = byAsset.get(assetId);
-    if (!existing) continue;
-    if (existing.groupId !== group.id) {
+    const existingOption = byAsset.get(assetId);
+    if (!existingOption) continue;
+    if (existingOption.groupId !== group.id) {
       throw new AdminImageWorkflowInputError(
         'One or more selected Assets already belong to another alternative set in the target Case. No relationships were moved.'
       );
     }
-    if (!existing.isActive) {
+    if (!existingOption.isActive) {
       throw new AdminImageWorkflowInputError(
         'One or more selected Assets already exist in this set but are inactive. Reactivate them from the Case editor.'
       );
@@ -315,18 +324,29 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
       .limit(1)
   )[0];
   const startOrder = (last?.displayOrder ?? -1) + 1;
+  const [firstId, ...remainingIds] = newIds;
+  if (!firstId) throw new AdminImageWorkflowInputError('Select at least one image.');
 
   try {
-    for (const [index, assetId] of newIds.entries()) {
-      await db.insert(stimulusGroupOptions).values({
+    const firstStatement = db.insert(stimulusGroupOptions).values({
+      id: crypto.randomUUID(),
+      stimulusGroupId: group.id,
+      assetId: firstId,
+      displayOrder: startOrder,
+      captionMd: null,
+      isActive: true
+    });
+    const remainingStatements = remainingIds.map((assetId, index) =>
+      db.insert(stimulusGroupOptions).values({
         id: crypto.randomUUID(),
         stimulusGroupId: group.id,
         assetId,
-        displayOrder: startOrder + index,
+        displayOrder: startOrder + index + 1,
         captionMd: null,
         isActive: true
-      });
-    }
+      })
+    );
+    await db.batch([firstStatement, ...remainingStatements]);
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       throw new AdminImageWorkflowInputError('The alternative image set changed while updating. Refresh and try again.');
