@@ -3,6 +3,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { createDb } from '$lib/server/db/index.js';
 import {
   cloneCaseToPreview,
+  getLivePreviewSession,
   listPreviewCases,
   listProductionCasesForPreview,
   PreviewWorkspaceError
@@ -45,7 +46,6 @@ export const actions = {
     if (!env?.DB) return fail(503, { error: 'The study database is not configured.' });
 
     const db = createDb(env.DB);
-    const { getLivePreviewSession } = await import('$lib/server/db/preview-workspace.js');
     const session = await getLivePreviewSession(db, userId);
     if (!session || session.status !== 'active' || Number(session.expiresAt) <= Date.now()) {
       return fail(409, { error: 'The Preview workspace is expired or requires cleanup. Reload the page before continuing.' });
@@ -53,13 +53,13 @@ export const actions = {
 
     const formData = await request.formData();
     const sourceCaseId = String(formData.get('source_case_id') ?? '').trim();
+    let caseId;
     try {
-      const caseId = await cloneCaseToPreview(db, {
+      caseId = await cloneCaseToPreview(db, {
         previewSessionId: session.id,
         userId,
         sourceCaseId
       });
-      redirect(303, `/preview-admin/cases/${encodeURIComponent(caseId)}`);
     } catch (error) {
       if (error instanceof PreviewWorkspaceError) {
         const status = error.code === 'NOT_OWNED' ? 403 : error.code === 'CLEANUP_REQUIRED' ? 409 : 400;
@@ -67,5 +67,6 @@ export const actions = {
       }
       throw error;
     }
+    redirect(303, `/preview-admin/cases/${encodeURIComponent(caseId)}`);
   }
 };
