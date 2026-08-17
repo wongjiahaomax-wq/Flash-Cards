@@ -6,10 +6,18 @@ import { buildPreviewBootstrapSql } from '../scripts/bootstrap-preview-admin.mjs
 
 const workflow = readFileSync(new URL('../.github/workflows/deploy-pr-to-preview.yml', import.meta.url), 'utf8');
 const wrangler = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
+const hooks = readFileSync(new URL('../src/hooks.server.js', import.meta.url), 'utf8');
+const adminLayout = readFileSync(new URL('../src/routes/admin/+layout.server.js', import.meta.url), 'utf8');
+const studyLayout = readFileSync(new URL('../src/routes/study/+layout.server.js', import.meta.url), 'utf8');
+const studyRoute = readFileSync(new URL('../src/routes/study/+page.server.js', import.meta.url), 'utf8');
+const reviewRoute = readFileSync(new URL('../src/routes/study/[reviewId]/+page.server.js', import.meta.url), 'utf8');
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const previewSignOut = readFileSync(new URL('../src/lib/components/PreviewSignOutButton.svelte', import.meta.url), 'utf8');
 const questionsRoute = readFileSync(new URL('../src/routes/admin/questions/+page.server.js', import.meta.url), 'utf8');
 const imagesRoute = readFileSync(new URL('../src/routes/admin/images/+page.server.js', import.meta.url), 'utf8');
+const legacyAdminRoute = readFileSync(new URL('../src/routes/admin/+page.server.js', import.meta.url), 'utf8');
+const topicLibrary = readFileSync(new URL('../src/lib/server/db/topic-library.js', import.meta.url), 'utf8');
+const tagLibrary = readFileSync(new URL('../src/lib/server/db/tag-library.js', import.meta.url), 'utf8');
 
 /** @param {string} configText @param {string} binding @param {string} field */
 function bindingValue(configText, binding, field) {
@@ -52,6 +60,14 @@ test('manual Preview deployment resolves exact same-repository SHA and never run
   assert.match(workflow, /git diff --check/);
 });
 
+test('Preview deployment refuses Worker-config-changing PRs and installs from the lockfile', () => {
+  assert.match(workflow, /grep -qx 'wrangler\.jsonc'/);
+  assert.match(workflow, /This PR changes wrangler\.jsonc/);
+  assert.match(workflow, /review and merge configuration separately/);
+  assert.match(workflow, /run:\s*npm ci\s*$/m);
+  assert.doesNotMatch(workflow, /run:\s*npm install\s*$/m);
+});
+
 test('Cloudflare credentials are scoped only to the final Preview deploy step', () => {
   const firstSecret = workflow.indexOf('secrets.CLOUDFLARE_API_TOKEN');
   const deploy = workflow.indexOf('wrangler@4.123.0 deploy --env preview');
@@ -76,6 +92,26 @@ test('Preview Admin bootstrap creates only the dedicated preview_admin role', ()
   assert.doesNotMatch(sql, /password123|secret/i);
 });
 
+test('Preview Worker rejects production Admin and learner Study before route actions can run', () => {
+  assert.match(hooks, /isPreviewWorker\(env\)[\s\S]*isRouteWithin\(pathname, '\/admin'\)/);
+  assert.match(hooks, /isPreviewWorker\(env\)[\s\S]*isRouteWithin\(pathname, '\/study'\)/);
+  assert.match(hooks, /status:\s*403/);
+  assert.match(adminLayout, /isPreviewWorker\(platform\?\.env\)[\s\S]*error\(403/);
+  assert.match(studyLayout, /isPreviewWorker\(platform\?\.env\)[\s\S]*error\(403/);
+});
+
+test('preview_admin cannot enter Study or create and mutate learner Reviews', () => {
+  assert.match(hooks, /isPreviewAdmin\(event\.locals\.user\)[\s\S]*isRouteWithin\(pathname, '\/study'\)/);
+  assert.match(studyLayout, /isPreviewAdmin\(locals\.user\)[\s\S]*error\(403/);
+  assert.match(studyRoute, /assertLearnerStudyAccess\(locals\.user, platform\)/);
+  assert.match(studyRoute, /startReview\(/);
+  assert.match(reviewRoute, /function assertLearnerStudyAccess/);
+  assert.equal((reviewRoute.match(/assertLearnerStudyAccess\(locals\.user, platform\)/g) ?? []).length, 4);
+  assert.match(reviewRoute, /revealReview\(/);
+  assert.match(reviewRoute, /completeReview\(/);
+  assert.match(reviewRoute, /startReview\(/);
+});
+
 test('Preview Case route rejects global authoring and never calls production Admin mutation helpers', () => {
   assert.match(previewRoute, /createConcept:\s*async \(\) => fail\(403/);
   assert.match(previewRoute, /createCase:\s*async \(\) => fail\(403/);
@@ -93,7 +129,20 @@ test('normal Preview logout resets the workspace before Better Auth sign-out', (
   assert.match(previewSignOut, /if \(!response\.ok\)[\s\S]*return;/);
 });
 
-test('normal Questions and Images libraries apply explicit production-ownership filters', () => {
+test('normal Admin libraries and legacy dashboard apply explicit production-ownership filters', () => {
   assert.match(questionsRoute, /isNull\(questionPrompts\.previewSessionId\)/);
   assert.match(imagesRoute, /isNull\(assets\.previewSessionId\)/);
+  assert.match(legacyAdminRoute, /isNull\(assets\.previewSessionId\)/);
+  assert.match(legacyAdminRoute, /isNull\(cases\.previewSessionId\)/);
+  assert.match(legacyAdminRoute, /isNull\(questionPrompts\.previewSessionId\)/);
+  assert.doesNotMatch(legacyAdminRoute, /questionCount:\s*\(await db\.select\(\)\.from\(caseQuestions\)\)\.length/);
+});
+
+test('Topic and Tag Admin aggregates/details exclude Preview-owned Cases and Prompts', () => {
+  assert.match(topicLibrary, /isNull\(cases\.previewSessionId\)/);
+  assert.match(topicLibrary, /isNull\(questionPrompts\.previewSessionId\)/);
+  assert.match(tagLibrary, /isNull\(cases\.previewSessionId\)/);
+  assert.match(tagLibrary, /isNull\(questionPrompts\.previewSessionId\)/);
+  assert.match(tagLibrary, /requireProductionCase/);
+  assert.match(tagLibrary, /requireProductionCaseQuestion/);
 });
