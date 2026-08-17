@@ -1,14 +1,6 @@
 import { redirect } from '@sveltejs/kit';
 
-/** @param {NonNullable<App.Locals['user']>} user */
-function hasAdminRole(user) {
-  const roles = String(user.role ?? '')
-    .split(',')
-    .map((role) => role.trim())
-    .filter(Boolean);
-
-  return roles.includes('admin');
-}
+import { isProductionAdmin } from '$lib/server/preview-auth.js';
 
 export function load({ locals, url }) {
   if (!locals.user) {
@@ -16,7 +8,7 @@ export function load({ locals, url }) {
     redirect(303, `/sign-in?redirect=${destination}`);
   }
 
-  if (!hasAdminRole(locals.user)) {
+  if (!isProductionAdmin(locals.user)) {
     redirect(303, '/study');
   }
 
