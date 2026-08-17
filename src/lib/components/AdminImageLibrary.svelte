@@ -2,6 +2,7 @@
   // @ts-nocheck
   import { browser } from '$app/environment';
   import { deserialize } from '$app/forms';
+  import { invalidateAll } from '$app/navigation';
   import { applyAssetSelection, clearAssetSelection, reconcileLibrarySelection, runSequentialAssetChunks } from '$lib/admin-image-selection.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
 
@@ -25,13 +26,22 @@
 
   $effect(() => {
     const nextContext = data.queryContext;
+    const pageIds = orderedIds;
     if (!browser) return;
+    if (selectionHydrated && selectionContext === nextContext) {
+      if (anchorId && !pageIds.includes(anchorId)) anchorId = null;
+      return;
+    }
     const storageKey = previewMode ? 'preview-admin-image-selection-v2' : 'admin-image-selection-v2';
     let stored = null;
     try { stored = JSON.parse(sessionStorage.getItem(storageKey) ?? 'null'); } catch { stored = null; }
-    const sourceIds = selectionHydrated ? selectedIds : new Set(stored?.ids ?? []);
-    const sourceContext = selectionHydrated ? selectionContext : stored?.context ?? null;
-    const result = reconcileLibrarySelection({ selectedIds: sourceIds, anchorId, previousContextKey: sourceContext, nextContextKey: nextContext, orderedIds });
+    const result = reconcileLibrarySelection({
+      selectedIds: new Set(stored?.ids ?? []),
+      anchorId: null,
+      previousContextKey: stored?.context ?? null,
+      nextContextKey: nextContext,
+      orderedIds: pageIds
+    });
     selectedIds = result.selectedIds;
     anchorId = result.anchorId;
     selectionContext = nextContext;
@@ -126,6 +136,7 @@
       anchorId = null;
       bulkError = `${result.processed} of ${result.total} images were processed. ${result.remainingIds.length} image${result.remainingIds.length === 1 ? '' : 's'} remain selected. ${result.error instanceof Error ? result.error.message : 'The next batch failed.'}`;
     }
+    if (result.processed > 0) await invalidateAll();
     bulkRunning = false;
   }
 </script>
