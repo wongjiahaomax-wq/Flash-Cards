@@ -81,6 +81,12 @@
     updateSelection(assetId, { shiftKey: event.shiftKey, toggleKey: modifier || selectMode });
   }
 
+  /** @param {MouseEvent} event @param {string} assetId */
+  function handleCheckboxClick(event, assetId) {
+    event.preventDefault();
+    updateSelection(assetId, { shiftKey: event.shiftKey, toggleKey: !event.shiftKey });
+  }
+
   function resetSelection() {
     const result = clearAssetSelection();
     selectedIds = result.selectedIds;
@@ -248,7 +254,7 @@
     <div class="asset-grid">
       {#each data.assets as asset}
         <div class:selected={selectedIds.has(asset.id)} class="asset-card-wrap">
-          <label class="selection-box" aria-label={`Select ${asset.originalFilename ?? 'image'}`}><input type="checkbox" checked={selectedIds.has(asset.id)} onchange={() => updateSelection(asset.id, { toggleKey: true })} /></label>
+          <label class="selection-box" aria-label={`Select ${asset.originalFilename ?? 'image'}`}><input type="checkbox" checked={selectedIds.has(asset.id)} onclick={(event) => handleCheckboxClick(event, asset.id)} /></label>
           <a class="asset-card" href={previewMode ? libraryPath : `/admin/images/${asset.id}`} onclick={(event) => handleCardClick(event, asset.id)} aria-label={`${asset.originalFilename ?? 'Unnamed image'}; ${selectedIds.has(asset.id) ? 'selected' : 'not selected'}`}>
             {#if asset.imageUrl}<img src={asset.imageUrl} alt={asset.altText ?? ''} loading="lazy" />{:else}<div class="inactive-thumb">Inactive image</div>{/if}
             <div class="asset-card-body"><strong>{asset.originalFilename ?? 'Unnamed image'}</strong><span class="collection-context">Collection: {asset.collectionName ?? 'Unsorted'}</span>{#if asset.topicSummary}<span class="topic-context" title={asset.topicNames.join(', ')}>Used in Topics: {asset.topicSummary}</span>{/if}<span class="muted">Added {formatAddedDate(asset.createdAt)}</span><span class="muted">{asset.usageCount} {asset.usageCount === 1 ? 'Case' : 'Cases'}</span><span class:badge-active={asset.isActive} class:badge-inactive={!asset.isActive} class="status-badge">{asset.isActive ? 'Active' : 'Inactive'}</span></div>
