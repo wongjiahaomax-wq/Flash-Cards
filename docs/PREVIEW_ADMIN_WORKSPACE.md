@@ -6,7 +6,7 @@ Status: implementation prepared for review. Production rollout is intentionally 
 
 Admin UI changes need a real browser and current teaching content. The owner does not want a second D1 database, second R2 bucket, or synchronized staging dataset. The Preview design therefore uses a separate Worker while binding it to the same existing D1 database and same existing R2 bucket as production.
 
-This is not equivalent to an independently isolated staging database. Safety depends on narrow Preview capabilities, explicit ownership, database constraints, central learner filtering, manual deployment, and deliberate restrictions on global editing.
+This is not equivalent to an independently isolated staging database. Safety depends on narrow Preview capabilities, explicit ownership, database constraints, central learner filtering, hard route boundaries, manual deployment, and deliberate restrictions on global editing.
 
 ## Worker and resource layout
 
@@ -49,6 +49,18 @@ npm run preview-admin:bootstrap
 The script is interactive, requires an explicit confirmation phrase, requires a password of at least 12 characters, refuses a second Preview Admin, refuses an already-used email, writes the Better Auth user/credential rows, and verifies the resulting role. No identity, password, API token, or secret is committed to the repository.
 
 Do not run this bootstrap during PR review.
+
+## Hard route boundaries
+
+Because the Preview Worker has real production D1/R2 bindings, production routes are denied before their page/action code can run:
+
+- `/admin` and every descendant return `403` on the Preview Worker, even for a real production `admin` account;
+- `/study` and every descendant return `403` on the Preview Worker;
+- a `preview_admin` identity is also denied from `/study` on the production Worker.
+
+The request hook enforces these boundaries so direct POSTs/form actions cannot bypass a layout loader. The Admin and Study layouts provide defense in depth, and learner Review creation/reveal/rate/next server actions repeat the Study guard.
+
+Preview authoring is available only through `/preview-admin`. The dedicated Preview identity must never create ordinary learner Reviews or progress/history records.
 
 ## Preview Sessions
 
@@ -101,7 +113,20 @@ Preview-owned image delivery also requires the dedicated Preview Worker, `previe
 
 ## Normal Admin isolation
 
-Production `/admin` continues to require the normal `admin` role. Normal Cases, Questions and Images libraries apply production-ownership filtering so disposable Preview rows do not appear as ordinary teaching content.
+Production `/admin` requires the normal `admin` role and is unavailable on the Preview Worker.
+
+Normal Admin read models exclude disposable Preview ownership rather than relying on the UI to hide rows. This includes:
+
+- Case library/detail;
+- Question library/detail;
+- Image/Asset library/detail;
+- Topic Case/question counts and Topic detail;
+- Tag Case/question counts, taggable targets, and assignment detail;
+- the legacy Admin dashboard Asset list and Question count.
+
+Production Assets are intentionally reusable read-only inside Preview clones. Therefore normal Asset usage counts/details also exclude relationships whose owning Case is Preview-owned; a Preview clone must not make a production image look more heavily used in normal Admin.
+
+Normal Tag mutation guards reject Preview Case/Question targets even if an ID is manually submitted.
 
 Preview UI is separate under `/preview-admin` and is available only on the Preview Worker.
 
@@ -151,9 +176,25 @@ The following remain unavailable/read-only in Preview Mode:
 - production Question Prompt editing;
 - reusable Topic-question creation;
 - learner/user administration;
+- learner Study/Review creation;
 - content import.
 
 Existing Case Tags and contextual Case Question Tags are preserved when a Case is cloned. Global Tag definition editing is not expanded by this V1.
+
+## Shared Case editor contract
+
+Preview deliberately renders the real production Case-editor Svelte component rather than maintaining a copied Preview UI.
+
+That reuse creates a server-contract obligation: every named form action and every top-level `data.*` value consumed by the production editor must have a safe Preview counterpart.
+
+`test/admin-editor-preview-contract.test.js` reads the shared editor and fails CI when:
+
+- the production editor adds a named form action that `/preview-admin/cases/[caseId]` does not implement; or
+- the production editor starts reading a top-level server-data key that `loadPreviewCaseEditor()` does not supply.
+
+A Preview action may implement the operation with Preview ownership checks or explicitly return a named `403` when the capability is intentionally unavailable. It must not silently fall through to a production mutation helper.
+
+This contract is especially important when rebasing later Admin-editor work such as PR #29. New actions/data (for example multi-attach/upload-and-attach/caption changes or a server-backed image picker) must be given safe Preview adapters as part of that rebase.
 
 ## Preview image uploads
 
@@ -200,25 +241,29 @@ It:
 4. captures the exact immutable head SHA and base SHA;
 5. checks out exactly that SHA;
 6. blocks schema/migration-changing PRs;
-7. runs `npm run db:check`, `npm test`, `npm run check`, `npm run build`, `node scripts/local-auth-smoke.mjs`, and `git diff --check`;
-8. verifies the Preview target;
-9. exposes Cloudflare API credentials only to the deploy step;
-10. deploys with `npx --yes wrangler@4.123.0 deploy --env preview`;
-11. writes the exact deployed SHA and Preview URL into the Actions summary.
+7. blocks any PR that modifies `wrangler.jsonc`;
+8. installs dependencies with `npm ci` from the reviewed lockfile;
+9. runs `npm run db:check`, `npm test`, `npm run check`, `npm run build`, `node scripts/local-auth-smoke.mjs`, and `git diff --check`;
+10. verifies the Preview target as defense in depth;
+11. exposes Cloudflare API credentials only to the deploy step;
+12. deploys with `npx --yes wrangler@4.123.0 deploy --env preview`;
+13. writes the exact deployed SHA and Preview URL into the Actions summary.
 
 The workflow has no remote D1 migration command and does not use the D1 write token.
 
-## Schema-changing PR limitation
+## Schema- and Worker-config-changing PR limitation
 
-A production-backed Preview cannot safely run an arbitrary unmerged D1 schema against production data.
+A production-backed Preview cannot safely run an arbitrary unmerged D1 schema or unreviewed Worker binding configuration against production data.
 
-The manual workflow blocks PRs that change `drizzle/`, `drizzle.config.js`, `src/lib/server/db/schema.js`, or schema-named DB modules. A migration must first be separately reviewed, merged and applied through the normal production release process.
+The manual workflow blocks PRs that change `drizzle/`, `drizzle.config.js`, `src/lib/server/db/schema.js`, schema-named DB modules, or `wrangler.jsonc`.
 
-The Preview workflow never applies a PR migration simply to make a PR previewable.
+A migration must first be separately reviewed, merged and applied through the normal production release process. A Worker configuration change must likewise be reviewed/merged separately before that configuration is used to preview another PR.
+
+The Preview workflow never applies a PR migration simply to make a PR previewable and never accepts a candidate PR's own `wrangler.jsonc` changes as the authority for the deployment target.
 
 ## Residual production-resource risk
 
-The Preview Worker shares production D1/R2 bindings, so this is not hard resource isolation. Only trusted same-repository PRs should be deployed; deployment stays manual; validation runs before deployment; schema-changing PRs are blocked; Preview capabilities are narrow; and global/shared editing remains unavailable.
+The Preview Worker shares production D1/R2 bindings, so this is not hard resource isolation. Only trusted same-repository PRs should be deployed; deployment stays manual; validation runs before deployment; schema- and Worker-config-changing PRs are blocked; production `/admin` and learner `/study` are unavailable on the Preview Worker; Preview capabilities are narrow; and global/shared editing remains unavailable.
 
 D1 recovery/Time Travel is catastrophe recovery only, not normal Preview Reset.
 
@@ -232,10 +277,10 @@ Do not execute these steps until this PR is reviewed and intentionally released.
 4. Configure a separate `BETTER_AUTH_SECRET` for the `preview` Wrangler environment. Do not commit it.
 5. Confirm GitHub has `CLOUDFLARE_ACCOUNT_ID` and a least-privilege `CLOUDFLARE_API_TOKEN` able to deploy Workers. The Preview deployment workflow does not need a D1 write token.
 6. Deploy the reviewed infrastructure to the Preview Worker with `npx --yes wrangler@4.123.0 deploy --env preview` (or the equivalent reviewed operator deployment).
-7. Confirm the Preview Worker is reachable and clearly shows Preview Mode.
+7. Confirm the Preview Worker is reachable and clearly shows Preview Mode; verify `/admin` and `/study` both return `403` there.
 8. Run `npm run preview-admin:bootstrap` once to create the dedicated Preview Admin identity.
 9. Sign in to the Preview Worker, create one Preview copy, edit it, then Reset and confirm the source production Case remains unchanged.
-10. For a later UI PR such as PR #29, run GitHub Actions -> **Deploy PR to Preview**, enter the PR number, verify the reported exact SHA, and test the Preview URL.
+10. For a later UI PR such as PR #29, first ensure it does not modify schema files or `wrangler.jsonc`, then run GitHub Actions -> **Deploy PR to Preview**, enter the PR number, verify the reported exact SHA, and test the Preview URL.
 
 ## Emergency recovery distinction
 
