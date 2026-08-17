@@ -20,6 +20,7 @@ docs/V1_DATA_MODEL.md
 docs/CONTENT_MODEL_EXAMPLES.md
 docs/PREVIEW_ADMIN_WORKSPACE.md
 docs/CLOUDFLARE.md
+docs/ADMIN_IMAGE_AUTHORING_WORKFLOW.md
 docs/IMPLEMENTATION_PLAN.md
 docs/R2_COST_GUARDRAILS.md
 ```
@@ -153,6 +154,8 @@ preview/<preview-session-id>/...
 
 Cleanup is idempotent. If cleanup fails, the session is marked `cleanup_required`, the error is surfaced, and a later Reset/login retries. Browser close/auth expiry is safe because abandoned Preview content remains structurally isolated.
 
+This includes Preview Case fixed-image relationships, Preview stimulus groups/options, copied Preview Question Prompts and their image/set question relationships, plus Preview-uploaded Assets and their `preview/<preview-session-id>/...` R2 objects. Production Cases, production Question Prompts, production Assets, production R2 objects, and production Case relationships remain unchanged.
+
 D1 Time Travel is emergency recovery only, not Preview Reset.
 
 ## Preview deployment
@@ -174,13 +177,13 @@ Worker configuration changes must be reviewed/merged separately before another P
 
 The Preview Worker still has production D1/R2 bindings and shared production auth tables. This is not hard resource isolation, so only trusted same-repository PRs should be deployed.
 
-The reusable operator lifecycle is:
+## Normal operator lifecycle
 
 ```text
 main on Preview → Deploy PR to Preview → inspect PR → Reset Preview Workspace → Restore Main to Preview → next PR
 ```
 
-**Deploy PR to Preview** changes deployed code and does not run migrations. **Reset Preview Workspace** deletes Preview-owned testing content and does not change deployed code. **Restore Main to Preview** deploys the exact current `main` commit to `flash-cards-preview`, does not delete Preview content, and does not run migrations.
+Deploy changes Preview code without migrations; Reset removes disposable Preview content without changing code; Restore Main to Preview replaces the Worker code with current `main` without deleting workspace content or running migrations. Normally perform Reset, then Restore Main to Preview.
 
 ## Current migrations
 
@@ -209,11 +212,31 @@ Topics
 Import package
 ```
 
+The Case editor's current authoring order is:
+
+```text
+Topics → Case → Images → Case questions → Preview
+```
+
+Fixed Case Assets and alternative stimulus sets are presented under one top-level Images section while retaining separate `case_assets` versus `stimulus_groups` / `stimulus_group_options` semantics. Fixed images receive large contain-fit previews and both fixed/alternative images can open the reusable Admin image viewer.
+
+The Case page no longer eagerly loads or renders the full unused Asset Library. **Add images from library** opens a server-backed picker only when requested. It searches reusable Asset metadata, excludes Assets already used by the Case, returns at most 60 matches, supports multi-select, and can target either fixed Case images or an active alternative set. Uploading a new Asset is available inside the picker and still uses the existing protected R2/storage/provenance path.
+
+Alternative sets use compact thumbnail cards. Exact-option questions stay bound to the exact option and are collapsed by default when existing questions are present; set-wide questions and coverage remain advanced set-level controls.
+
+`/admin/images` supports visible checkbox selection, Ctrl/Cmd toggle, Shift-range against the currently displayed filtered/sorted order, and an explicit Select mode for touch/mobile. A sticky bar can add selected Assets to an existing active Case alternative set.
+
+Important grouping boundary: there is no global Asset-group schema. Bulk grouping therefore means **add to an existing Case-scoped stimulus group only**. It deliberately does not implement implicit Move/Remove semantics that could lose or obscure option-specific questions, captions, or activation state. One bulk attach/group action is capped at 30 unique Assets and is revalidated server-side.
+
+`Select all N matching images` is deliberately deferred until there is a server-represented pagination/filter selection contract that can remain explicit and bounded. See `docs/ADMIN_IMAGE_AUTHORING_WORKFLOW.md`.
+
 Preview UI is deliberately separate at:
 
 ```text
 /preview-admin
 ```
+
+Preview navigation also exposes `/preview-admin/images`, a read-only visual review of the shared Images-library selection UI. Production Assets may be searched, enlarged, and selected there, but bulk writes can target only active alternative sets owned by the current Preview Session; they create Preview relationship rows and never mutate production Asset or Case rows.
 
 Normal Admin libraries/aggregates exclude disposable Preview ownership. Normal `/admin` is unavailable on the Preview Worker.
 

@@ -1,6 +1,6 @@
 # Flash-Cards — Authoring Model
 
-_Last updated: 15 August 2026_
+_Last updated: 17 August 2026_
 
 This document describes the preferred administrator mental model for entering and refining teaching content.
 
@@ -12,7 +12,7 @@ Topic
     └── Stimulus / alternative stimulus
 ```
 
-A Case may now be planned to belong to more than one Topic as an alternate learner study route. The database already supports primary and secondary Concept relationships through `case_concepts`; the agreed design is documented in `MULTI_TOPIC_STUDY_ROUTES.md`.
+A Case may belong to more than one Topic as an alternate learner study route. The database supports primary and secondary Concept relationships through `case_concepts`; the agreed design is documented in `MULTI_TOPIC_STUDY_ROUTES.md`.
 
 Questions should be attached at the highest level where the prompt and answer remain valid.
 
@@ -95,7 +95,7 @@ The existing `case_questions` relationship remains responsible for this layer.
 
 ## 3. One Case may have several valid Topics
 
-The agreed next design is to use the existing `case_concepts` relationship more fully.
+The agreed design uses the existing `case_concepts` relationship more fully.
 
 Example:
 
@@ -123,7 +123,7 @@ Study Prolonged QTc
    + the same Case/stimulus questions
 ```
 
-Internally, one Topic remains `primary` as the Case's canonical/default administrative classification. Other attached Topics remain `secondary` in storage, but they are intended to become equally valid learner entry routes.
+Internally, one Topic remains `primary` as the Case's canonical/default administrative classification. Other attached Topics remain `secondary` in storage, but they are equally valid learner entry routes when configured.
 
 Product-facing Admin language should therefore prefer:
 
@@ -184,7 +184,7 @@ Alternative ECG images
 
 All of these images belong to the same Case because the clinical presentation and educational intent remain the same.
 
-The existing `stimulus_groups` and `stimulus_group_options` tables already model this behaviour. The first implementation selects exactly one active image per active alternative set for each Review.
+The existing `stimulus_groups` and `stimulus_group_options` tables model this behaviour. The first implementation selects exactly one active image per active alternative set for each Review.
 
 A Case may also contain multiple independent alternative sets, for example one ECG set plus one X-ray set.
 
@@ -263,33 +263,34 @@ This reduces duplication while preserving precise stimulus interpretation.
 The common Case authoring path should expose simple product language rather than database terminology.
 
 ```text
-Case details
-
 Topics
-[ Hypocalcaemia ]  Default
-[ Prolonged QTc ]
-[ + Add Topic ]
-
-Case questions
-Images
-Alternative images
-Preview
+→ Case
+→ Images
+→ Case questions
+→ Preview
 ```
+
+Images are part of authoring the clinical presentation, so they appear before Case questions. One top-level **Images** section contains both fixed images and alternative image sets while preserving their underlying semantics.
 
 The administrator should be able to change which attached Topic is the default without rebuilding the Case.
 
-Helper guidance should make the validity rule visible:
+Helper guidance should make the Topic validity rule visible:
 
 > Add a Topic when this Case is a valid example of that Topic regardless of which alternative images are selected. Image-only findings that vary between alternatives should remain image-specific questions.
 
-For alternatives, the normal workflow remains:
+For images, the normal workflow is:
 
 ```text
-Existing Case image
--> start / move into an alternative image set
--> add another image
--> add only questions specific to that image
+Attach fixed image(s)
+→ inspect them at clinically useful size
+→ optionally start / move an image into an alternative set
+→ add another image from the bounded Asset picker
+→ add only questions specific to the exact image when needed
 ```
+
+The Case editor must not permanently render the whole unused Asset Library. **Add images from library** opens a bounded, searchable, multi-select picker; uploading a new image remains available from that contained workflow. See `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` for the detailed interaction and bulk-selection contract.
+
+Alternative sets should stay compact during routine authoring. Their image-specific questions can be collapsed when already populated, while set-wide questions, coverage and other settings remain discoverable advanced controls.
 
 Advanced controls may remain available for:
 
@@ -322,55 +323,27 @@ This keeps both multi-Topic routing and stimulus structure as progressive enrich
 
 ## 10. Learner composition
 
-The currently implemented learner resolver still uses only the Case's primary Topic. The planned multi-Topic extension changes that behaviour.
+The learner resolver uses the Topic through which the learner entered Study as the reusable Topic-question context for that Review. The same Case may therefore produce different reusable Topic questions when reached through different valid attached Topics, while Case and selected-stimulus questions remain the same Case-specific material.
 
-For a future Review entered through a selected study Topic, the eligible pool should conceptually be:
-
-```text
-selected study Topic questions
-+
-eligible ancestors of that selected study Topic
-+
-Case questions
-+
-Alternative-set questions, if any
-+
-Selected-image questions
-```
-
-Do not combine reusable Topic questions from every Topic attached to the Case.
-
-More specific contextual relationships continue to win when the same reusable Question Prompt is present at several levels.
-
-Planned precedence:
+The eligible question pool remains layered by context and existing precedence:
 
 ```text
 selected stimulus option
-> stimulus group
+> selected stimulus group
 > Case
-> selected study Topic/Concept
-> nearest inheritable ancestor of selected study Topic
-> more distant eligible ancestor
+> Study Topic
+> nearest eligible inheritable ancestor Topic
+> more distant eligible ancestor Topic
 ```
 
-The selected Case, selected study route, selected stimuli, prompts, answers, and provenance should be snapshotted into the Review.
+Alternative stimulus selection and Review snapshots remain independent of which attached Topic is the administrative default.
 
 ---
 
 ## 11. Schema decision
 
-Do **not** add a separate `topics` table.
+Do not add a parallel `topics` table. Product-facing Topics continue to use the existing `concepts` table and hierarchy, and multi-Topic Case routing continues to use `case_concepts` with one primary/default relationship plus optional secondary learner routes.
 
-The existing `concepts` table already provides:
+Do not add Asset→Topic or stimulus-option→Topic relationships merely for this Admin image workflow. Exact-image distinctions remain represented by `stimulus_group_options` plus image-specific questions. Reconsider a stimulus-level Topic relationship only if the product later needs learner routing where some valid alternatives in one Case satisfy a Topic and other valid alternatives do not.
 
-- Topic identity;
-- parent/child hierarchy;
-- reusable Topic questions;
-- Case membership through `case_concepts`;
-- primary and secondary Topic relationships.
-
-Do **not** add `asset_concepts` or `stimulus_option_concepts` for the next milestone.
-
-First implement multi-Topic Case study routes using existing `case_concepts`. Reconsider stimulus-level Topic relationships only if real content repeatedly needs a Case to be eligible for a Topic only when a particular stimulus option is selected.
-
-A future Collection/Deck entity remains separate from clinically meaningful Topics and should be driven by curriculum needs such as `Family Medicine ECGs` or `Final Exam Revision`, not by this Case-routing requirement.
+Likewise, the Admin Image Library has no global grouping/folder schema today. Case-scoped alternative image grouping remains `stimulus_groups` / `stimulus_group_options`; a future global Asset-organization model should be designed separately rather than inferred from Case stimulus semantics.

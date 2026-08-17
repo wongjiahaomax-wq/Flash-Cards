@@ -84,6 +84,8 @@ Preview authoring is available only through `/preview-admin`. Any identity carry
 
 The operator lifecycle is: deploy a candidate PR with **Deploy PR to Preview**, inspect it, use **Reset Preview Workspace** to delete disposable Preview content, then run **Restore Main to Preview** to replace the Preview Worker code with current `main`. Deploy changes code without migrations; Reset changes content without code deployment; Restore replaces code without deleting workspace content or running migrations. Normally perform Reset, then Restore.
 
+Preview navigation includes `/preview-admin/images`, a shared read-only Images-library UI for visual review. It searches production Assets without exposing production metadata, delete, deactivate, or replacement controls. Its bulk **Add to alternative set** action lists only active stimulus groups whose Case is owned by the current Preview Session; selected production Asset IDs create Preview-owned option relationships only.
+
 ## Preview Sessions
 
 `preview_sessions` records:

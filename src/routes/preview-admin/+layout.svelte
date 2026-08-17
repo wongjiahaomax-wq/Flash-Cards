@@ -49,6 +49,7 @@
 
   <nav class="preview-nav" aria-label="Preview Admin">
     <a href="/preview-admin">Preview Cases</a>
+    <a href="/preview-admin/images">Images</a>
     <span>Topics, global Questions, production Asset metadata, learner/user administration and imports are read-only/unavailable in Preview Mode.</span>
   </nav>
 

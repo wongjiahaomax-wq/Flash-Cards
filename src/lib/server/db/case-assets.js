@@ -85,24 +85,9 @@ async function attachedRows(db, caseId) {
     .orderBy(asc(caseAssets.displayOrder));
 }
 
-/** @param {LearningDb} db @param {string} caseId */
-export async function getAdminCaseData(db, caseId) {
-  const caseRows = await listAdminCases(db);
-  const selectedCase = caseRows.find((item) => item.id === caseId);
-  if (!selectedCase) return null;
-  const settings = (await db.select({ questionSelectionMode: cases.questionSelectionMode, questionCount: cases.questionCount }).from(cases).where(and(eq(cases.id, caseId), isNull(cases.previewSessionId))).limit(1))[0];
-  const topics = await listCaseTopics(db, caseId);
-  const primaryTopic = topics.find((topic) => topic.role === 'primary');
-
-  const attached = await attachedRows(db, caseId);
-  const attachedIds = new Set(attached.map((asset) => asset.assetId));
-  const groupedRows = await db
-    .select({ assetId: stimulusGroupOptions.assetId })
-    .from(stimulusGroupOptions)
-    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-    .where(eq(stimulusGroups.caseId, caseId));
-  const groupedIds = new Set(groupedRows.map((row) => row.assetId));
-  const available = await db
+/** @param {LearningDb} db */
+async function availableAssetRows(db) {
+  return db
     .select({
       assetId: assets.id,
       assetType: assets.type,
@@ -118,6 +103,35 @@ export async function getAdminCaseData(db, caseId) {
     .from(assets)
     .where(and(eq(assets.isActive, true), isNull(assets.previewSessionId)))
     .orderBy(desc(assets.createdAt));
+}
+
+/**
+ * @param {LearningDb} db
+ * @param {string} caseId
+ * @param {{ includeAvailable?: boolean }} [options]
+ */
+export async function getAdminCaseData(db, caseId, options = {}) {
+  const caseRows = await listAdminCases(db);
+  const selectedCase = caseRows.find((item) => item.id === caseId);
+  if (!selectedCase) return null;
+  const settings = (await db.select({ questionSelectionMode: cases.questionSelectionMode, questionCount: cases.questionCount }).from(cases).where(and(eq(cases.id, caseId), isNull(cases.previewSessionId))).limit(1))[0];
+  const topics = await listCaseTopics(db, caseId);
+  const primaryTopic = topics.find((topic) => topic.role === 'primary');
+
+  const attached = await attachedRows(db, caseId);
+  /** @type {Awaited<ReturnType<typeof availableAssetRows>>} */
+  let available = [];
+  if (options.includeAvailable !== false) {
+    const attachedIds = new Set(attached.map((asset) => asset.assetId));
+    const groupedRows = await db
+      .select({ assetId: stimulusGroupOptions.assetId })
+      .from(stimulusGroupOptions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .where(eq(stimulusGroups.caseId, caseId));
+    const groupedIds = new Set(groupedRows.map((row) => row.assetId));
+    const rows = await availableAssetRows(db);
+    available = rows.filter((asset) => !attachedIds.has(asset.assetId) && !groupedIds.has(asset.assetId));
+  }
 
   return {
     case: {
@@ -128,7 +142,7 @@ export async function getAdminCaseData(db, caseId) {
     },
     topics,
     attached,
-    available: available.filter((asset) => !attachedIds.has(asset.assetId) && !groupedIds.has(asset.assetId))
+    available
   };
 }
 

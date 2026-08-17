@@ -4,4 +4,4 @@
   let { data, form } = $props();
 </script>
 
-<AdminImageLibrary {data} {form} />
+<AdminImageLibrary {data} {form} previewMode />
