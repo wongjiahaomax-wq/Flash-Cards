@@ -1,4 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createDb } from '$lib/server/db/index.js';
@@ -7,6 +8,7 @@ import {
   getAssetLibraryDetail,
   updateAssetMetadata
 } from '$lib/server/db/asset-library.js';
+import { assets } from '$lib/server/db/schema.js';
 
 /** @param {FormData} formData @param {string} name */
 function formText(formData, name) {
@@ -19,10 +21,20 @@ function detailRedirect(assetId, status) {
   return `/admin/images/${encodeURIComponent(assetId)}?status=${encodeURIComponent(status)}`;
 }
 
+async function isProductionAsset(db, assetId) {
+  return Boolean((await db
+    .select({ id: assets.id })
+    .from(assets)
+    .where(and(eq(assets.id, assetId), isNull(assets.previewSessionId)))
+    .limit(1))[0]);
+}
+
 export async function load({ locals, params, platform, url }) {
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { detail: null, status: null };
+  const db = createDb(platform.env.DB);
+  if (!(await isProductionAsset(db, params.assetId))) return { detail: null, status: null };
   return {
-    detail: await getAssetLibraryDetail(createDb(platform.env.DB), params.assetId),
+    detail: await getAssetLibraryDetail(db, params.assetId),
     status: url.searchParams.get('status')
   };
 }
@@ -32,9 +44,13 @@ export const actions = {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
 
+    const db = createDb(platform.env.DB);
+    if (!(await isProductionAsset(db, params.assetId))) {
+      return fail(404, { error: 'Production Asset not found.' });
+    }
     const formData = await request.formData();
     try {
-      await updateAssetMetadata(createDb(platform.env.DB), params.assetId, {
+      await updateAssetMetadata(db, params.assetId, {
         originalFilename: formText(formData, 'original_filename'),
         altText: formText(formData, 'alt_text'),
         sourceLabel: formText(formData, 'source_label'),
