@@ -17,6 +17,26 @@ const timestamp = (name) =>
 
 const activeFlag = () => integer('is_active', { mode: 'boolean' }).notNull().default(true);
 
+export const previewSessions = sqliteTable(
+  'preview_sessions',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    status: text('status').notNull().default('active'),
+    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at'),
+    updatedAt: timestamp('updated_at')
+  },
+  (table) => [
+    uniqueIndex('preview_sessions_one_live_user_unique')
+      .on(table.userId)
+      .where(sql`${table.status} in ('active', 'cleanup_required')`),
+    index('preview_sessions_expiry_idx').on(table.expiresAt, table.status),
+    check('preview_sessions_status_check', sql`${table.status} in ('active', 'cleanup_required', 'cleaned')`)
+  ]
+);
+
 export const concepts = sqliteTable(
   'concepts',
   {
@@ -47,12 +67,14 @@ export const cases = sqliteTable(
     vignetteMd: text('vignette_md'),
     questionSelectionMode: text('question_selection_mode').notNull().default('automatic'),
     questionCount: integer('question_count'),
+    previewSessionId: text('preview_session_id').references(() => previewSessions.id, { onDelete: 'restrict' }),
     isActive: activeFlag(),
     createdAt: timestamp('created_at'),
     updatedAt: timestamp('updated_at')
   },
   (table) => [
     index('cases_active_idx').on(table.isActive),
+    index('cases_preview_session_idx').on(table.previewSessionId),
     check('cases_question_selection_mode_check', sql`${table.questionSelectionMode} in ('automatic', 'all', 'fixed')`),
     check('cases_question_count_check', sql`${table.questionCount} is null or ${table.questionCount} > 0`),
     check(
@@ -94,13 +116,15 @@ export const assets = sqliteTable(
     sourceLabel: text('source_label'),
     sourceUrl: text('source_url'),
     licence: text('licence'),
+    previewSessionId: text('preview_session_id').references(() => previewSessions.id, { onDelete: 'restrict' }),
     isActive: activeFlag(),
     createdAt: timestamp('created_at'),
     updatedAt: timestamp('updated_at')
   },
   (table) => [
     uniqueIndex('assets_storage_key_unique').on(table.storageKey),
-    index('assets_active_idx').on(table.isActive)
+    index('assets_active_idx').on(table.isActive),
+    index('assets_preview_session_idx').on(table.previewSessionId)
   ]
 );
 
@@ -177,11 +201,15 @@ export const questionPrompts = sqliteTable(
   {
     id: text('id').primaryKey(),
     promptMd: text('prompt_md').notNull(),
+    previewSessionId: text('preview_session_id').references(() => previewSessions.id, { onDelete: 'restrict' }),
     isActive: activeFlag(),
     createdAt: timestamp('created_at'),
     updatedAt: timestamp('updated_at')
   },
-  (table) => [index('question_prompts_active_idx').on(table.isActive)]
+  (table) => [
+    index('question_prompts_active_idx').on(table.isActive),
+    index('question_prompts_preview_session_idx').on(table.previewSessionId)
+  ]
 );
 
 export const conceptQuestions = sqliteTable(

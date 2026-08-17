@@ -1,49 +1,84 @@
 # Cloudflare setup
 
-The SvelteKit application deploys as a Cloudflare Worker with static assets and private runtime bindings:
+The SvelteKit application deploys as Cloudflare Workers with private runtime bindings:
 
 - `DB`: Cloudflare D1, used by Drizzle and Better Auth;
-- `MEDIA`: Cloudflare R2, used for teaching images;
+- `MEDIA`: Cloudflare R2, used for teaching images and reviewed import staging;
 - `ASSETS`: generated SvelteKit static assets.
 
-Production resources are provisioned and recorded in `wrangler.jsonc`:
+## Production resources
+
+Production resources recorded in `wrangler.jsonc`:
 
 - D1 database: `flash-cards-db`;
 - D1 database ID: `ea6f3ec4-eb09-4fb1-8314-cd027436a2f8`;
 - R2 bucket: `flash-cards-media`;
-- Worker: `flash-cards`.
+- Worker: `flash-cards`;
+- origin: `https://flash-cards.mmed-fm-flashcardstest.workers.dev`.
 
-The current Worker origin is:
+Better Auth is live in production. Public sign-up remains disabled. The normal production administrator role is `admin`.
 
-```text
-https://flash-cards.mmed-fm-flashcardstest.workers.dev
-```
+## Preview Worker
 
-## Production authentication status
-
-Better Auth is live in production. The reviewed Better Auth migration has been applied to production
-D1, the auth-enabled Worker has been deployed, and the first production administrator has been
-bootstrapped.
-
-Verified live behaviour on 15 August 2026:
-
-- `/sign-in` -> HTTP 200;
-- anonymous `/study` -> HTTP 303 redirect to `/sign-in?redirect=%2Fstudy`;
-- anonymous `/admin` -> HTTP 303 redirect to `/sign-in?redirect=%2Fadmin`;
-- normal `GET /api/auth/get-session` -> HTTP 200 with JSON `null` while signed out.
-
-The successful auth-enabled deployment reported Worker version:
+The Production-backed Preview Admin workspace adds a second **Worker target only**:
 
 ```text
-22c2e687-b1de-4d6d-833c-1057202bce7e
+flash-cards-preview
 ```
 
-Public sign-up remains intentionally disabled. Better Auth is used as an application library; there
-is no separate hosted Better Auth service account in this architecture.
+with origin:
+
+```text
+https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev
+```
+
+The named Wrangler environment is:
+
+```text
+preview
+```
+
+and sets:
+
+```text
+PREVIEW_MODE=true
+BETTER_AUTH_URL=https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev
+```
+
+The Preview Worker deliberately binds to the **same existing** production resources:
+
+```text
+DB    -> flash-cards-db
+MEDIA -> flash-cards-media
+```
+
+No second D1 database or R2 bucket is created. D1/R2 bindings and vars are repeated under `env.preview` because Wrangler environment bindings/vars are non-inheritable.
+
+This is application-level isolation, not hard resource isolation. See `PREVIEW_ADMIN_WORKSPACE.md` for the ownership model and residual risk.
+
+## Preview Better Auth secret
+
+Production and Preview should use separate Better Auth session secrets.
+
+Production secret name:
+
+```text
+BETTER_AUTH_SECRET
+```
+
+For the named Preview environment, set a separate value with Wrangler after the Preview infrastructure has been reviewed and released:
+
+```sh
+npx --yes wrangler@4.123.0 secret put BETTER_AUTH_SECRET --env preview
+```
+
+Do not commit the secret value. Do not configure it as part of PR review.
+
+The separate Preview secret keeps Preview/production sessions cryptographically separate even though both Workers read the same Better Auth user/account tables from D1.
 
 ## Local development
 
-Install dependencies, apply the committed local migrations, and create local-only auth settings:
+Install dependencies, apply committed local migrations, and create local-only auth settings:
 
 ```sh
 npm install
@@ -51,45 +86,40 @@ npm run db:migrate:local
 cp .dev.vars.example .dev.vars
 ```
 
-Replace `BETTER_AUTH_SECRET` in `.dev.vars` with a random value of at least 32 characters.
-Keep local secrets in `.dev.vars`; the file is ignored by Git.
+Replace `BETTER_AUTH_SECRET` in `.dev.vars` with a local random value of at least 32 characters. Keep `.dev.vars` out of Git.
 
-Then use either development mode:
+Development modes:
 
 ```sh
-npm run dev      # Vite/SvelteKit development server
-npm run preview  # production build in the local Workers runtime
+npm run dev
+npm run preview
 ```
 
-Local D1 and R2 simulations are stored beneath `.wrangler/` and are ignored by Git.
-Do not intentionally point local development at production resources unless that behaviour has
-been reviewed.
+Local D1/R2 simulations live beneath `.wrangler/` and are ignored by Git. Do not point ordinary local development at production resources.
 
-For the repeatable local authentication validation used by CI:
+Repeatable local authentication validation:
 
 ```sh
 node scripts/local-auth-smoke.mjs
 ```
 
-The smoke test uses disposable local D1 state, seeds a synthetic admin credential, verifies disabled
-public sign-up, performs a real Better Auth sign-in, verifies the session, and checks authenticated
-`/study` + `/admin` access.
-
 ## Migrations
 
-Learning-domain migration:
+Current migrations:
 
 ```text
 drizzle/0000_dashing_centennial.sql
-```
-
-Better Auth migration for the pinned Better Auth 1.6.25 schema:
-
-```text
 drizzle/0001_better_auth.sql
+drizzle/0002_optional_stimulus_groups.sql
+drizzle/0003_multi_topic_study_routing.sql
+drizzle/0004_resumable_import_jobs.sql
+drizzle/0005_tag_foundation.sql
+drizzle/0006_preview_admin_workspace.sql
 ```
 
-After changing `src/lib/server/db/schema.js`, generate and validate a learning-domain migration:
+`0006_preview_admin_workspace.sql` is introduced by the Preview Admin workspace PR. It adds Preview Session/ownership structures and safety triggers. It is not applied automatically by the Preview deployment workflow.
+
+After changing the learning schema:
 
 ```sh
 npm run db:generate
@@ -97,57 +127,23 @@ npm run db:check
 npm run db:migrate:local
 ```
 
-Review and commit generated SQL in `drizzle/`.
+Review generated SQL before committing it.
 
-Production migration application is always an explicit release step. While the repository is still
-pinned to Wrangler 4.115.0, prefer the validated Wrangler 4.123.0 command:
+Production migration application remains an explicit release step. With the currently validated release-critical Wrangler version:
 
 ```sh
 npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
 ```
 
-Do not apply a newly generated production migration without reviewing its SQL and testing it locally first.
+Never apply an unreviewed PR migration merely to make a production-backed Preview deployment work.
 
-## Production variables and secrets
+## Wrangler version
 
-`wrangler.jsonc` contains the non-secret production origin variable:
-
-```text
-BETTER_AUTH_URL=https://flash-cards.mmed-fm-flashcardstest.workers.dev
-```
-
-`BETTER_AUTH_SECRET` is stored as an encrypted Cloudflare Worker secret. Verify only its presence/name:
-
-```sh
-npx --yes wrangler@4.123.0 secret list
-```
-
-Expected secret name:
-
-```text
-BETTER_AUTH_SECRET
-```
-
-If it needs to be replaced, set it interactively:
-
-```sh
-npx --yes wrangler@4.123.0 secret put BETTER_AUTH_SECRET
-```
-
-Never place the secret value in source, `wrangler.jsonc`, documentation, screenshots, or logs.
-
-## Wrangler version caveat
-
-The project compatibility date is `2026-08-14`. `package.json` still pins Wrangler 4.115.0, whose
-bundled local runtime only supported compatibility dates through `2026-07-29` during validation.
-Wrangler 4.123.0 successfully ran the local auth smoke test and the production deployment.
-
-Until the package dependency/lockfile is updated, use explicit Wrangler 4.123.0 for release-critical
-operations. Do not assume `npm run deploy` is using the validated version.
+`package.json` currently pins Wrangler 4.115.0, while release-critical commands in this repository have been validated with Wrangler 4.123.0. Use the explicit 4.123.0 command for release/deploy procedures until the package pin is intentionally updated.
 
 ## Production deployment procedure
 
-First confirm that the local checkout is actually the intended `main` commit:
+Confirm the intended `main` commit:
 
 ```sh
 git fetch origin
@@ -156,106 +152,149 @@ git pull --ff-only origin main
 git rev-parse HEAD
 ```
 
-This check matters. During the auth rollout an earlier deploy served the old public scaffold because
-the intended current build had not reached production. The corrected release explicitly confirmed
-the Git commit, rebuilt, and then deployed.
-
 Run validation:
 
 ```sh
 npm ci
-npm run check
+npm run db:check
 npm test
+npm run check
 npm run build
+node scripts/local-auth-smoke.mjs
+git diff --check
 ```
 
-If the release includes a reviewed migration, apply it **before** deploying code that requires the new schema:
+If the release includes a reviewed migration, apply it before deploying code that requires the new schema:
 
 ```sh
 npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
 ```
 
-Deploy the freshly built Worker:
+Then deploy production:
 
 ```sh
 npx --yes wrangler@4.123.0 deploy
 ```
 
-Do not rely only on Wrangler's success message. Verify live behaviour after every production release.
+Verify live behavior after deployment rather than relying only on the Wrangler success message.
+
+## Preview infrastructure rollout
+
+Do not perform these steps during review of the Preview workspace PR.
+
+After the PR is reviewed and intentionally merged/released:
+
+1. apply reviewed migration `0006` to production D1 through the normal migration process;
+2. configure the Preview environment `BETTER_AUTH_SECRET`;
+3. confirm GitHub has the existing `CLOUDFLARE_ACCOUNT_ID` and a least-privilege `CLOUDFLARE_API_TOKEN` able to deploy Workers;
+4. deploy the Preview Worker once with:
+
+```sh
+npx --yes wrangler@4.123.0 deploy --env preview
+```
+
+5. verify the Preview URL loads the unmistakable Preview Mode interface;
+6. bootstrap the dedicated Preview Admin with:
+
+```sh
+npm run preview-admin:bootstrap
+```
+
+The Preview Admin bootstrap writes the credential into the same D1 but assigns only the `preview_admin` role. It is intentionally separate from the production `admin` bootstrap.
+
+## Manual PR -> Preview deployment
+
+After the Preview infrastructure is released, use GitHub Actions workflow:
+
+```text
+Deploy PR to Preview
+```
+
+Input: PR number.
+
+The workflow requires an open same-repository PR targeting `main`, resolves and checks out the exact head SHA, blocks schema/migration-changing PRs, runs validation, and deploys only with:
+
+```sh
+npx --yes wrangler@4.123.0 deploy --env preview
+```
+
+The workflow never runs remote D1 migrations and does not use `CLOUDFLARE_D1_WRITE_TOKEN`.
+
+Cloudflare credentials are scoped to the final deploy step only, after the PR has passed repository validation.
+
+## Schema-changing PRs
+
+Production-backed Preview is intentionally disabled for PRs that change the D1 schema/migrations. The workflow detects changes under `drizzle/`, `drizzle.config.js`, `src/lib/server/db/schema.js`, and related schema modules and fails closed.
+
+Review, merge and apply the migration separately first. Do not make the Preview workflow a path for applying unmerged schema to production.
 
 ## Live authentication checks
 
-Use HEAD for SvelteKit page/redirect checks:
+Signed-out production checks:
 
 ```sh
 curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/sign-in
 curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/study
 curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/admin
-```
-
-Expected while signed out:
-
-- `/sign-in`: 200;
-- `/study`: 303 to `/sign-in?redirect=%2Fstudy`;
-- `/admin`: 303 to `/sign-in?redirect=%2Fadmin`.
-
-For Better Auth GET API routes, use a normal GET rather than `curl -I`:
-
-```sh
 curl -i https://flash-cards.mmed-fm-flashcardstest.workers.dev/api/auth/get-session
 ```
 
-Expected while signed out: HTTP 200 and body `null`.
+Expected:
 
-`curl -I` sends HEAD, and the Better Auth route returned 404 under that HEAD request during rollout;
-that did not indicate a broken GET endpoint.
+- `/sign-in`: HTTP 200;
+- anonymous `/study`: redirect to sign-in;
+- anonymous `/admin`: redirect to sign-in;
+- Better Auth session GET while signed out: HTTP 200 with `null`.
 
-## First administrator bootstrap
+Do not use HEAD behavior on the Better Auth API route as an indicator of GET health.
 
-The repository includes a secure operator command:
+## Administrator bootstraps
+
+Production first-admin bootstrap:
 
 ```sh
 npm run admin:bootstrap
 ```
 
-It is intended for the first production administrator and normally should only succeed once. It:
+Dedicated Preview Admin bootstrap after Preview release:
 
-- queries production D1 and refuses to continue if an admin already exists;
-- prompts for administrator name/email;
-- requires the exact confirmation word `CREATE`;
-- reads the password without echoing it;
-- hashes the password locally with Better Auth;
-- writes the Better Auth `user` + credential `account` records to remote D1;
-- removes its temporary SQL file after execution;
-- verifies the resulting admin credential row.
+```sh
+npm run preview-admin:bootstrap
+```
 
-Never paste the administrator password into chat, GitHub, source files, or shell commands.
+Both commands are interactive operator actions. Never place administrator credentials in source, documentation, screenshots, logs, or chat.
 
 ## R2 teaching images
 
-The production teaching-image bucket is bound as `MEDIA` and should remain private.
-All future teaching-image writes must go through `putTeachingImage()` in
-`src/lib/server/storage/media.js`.
+The `MEDIA` bucket remains private. Normal teaching-image and Preview image uploads both use `putTeachingImage()` in `src/lib/server/storage/media.js`.
 
-Current application guardrails include:
+Current guardrails include:
 
-- 5 MiB maximum per teaching image;
-- 5 GiB maximum application-managed stored bytes;
-- Standard R2 storage class only;
+- JPEG/PNG only;
+- 5 MiB maximum per image;
+- 5 GiB application-managed stored-byte ceiling;
+- Standard storage class;
 - immutable object keys.
 
-There is not yet an administrator upload route. When it is added, do not call `env.MEDIA.put()`
-directly. See `R2_COST_GUARDRAILS.md` for the full checklist and billing-warning guidance.
+Normal teaching images use production teaching-image keys. Preview uploads use:
 
-## Routine checks
+```text
+preview/<preview-session-id>/...
+```
+
+Preview cleanup only deletes verified Preview-owned keys. It must never delete a normal teaching-image key.
+
+See `R2_COST_GUARDRAILS.md` for the full storage checklist.
+
+## Routine validation
 
 ```sh
 npm run db:check
-npm run check
 npm test
+npm run check
 npm run build
 node scripts/local-auth-smoke.mjs
+git diff --check
 ```
 
-Keep production migration application, administrator bootstrap, and production deployment as deliberate,
-reviewable operator actions.
+Keep migrations, production deployment, Preview initial deployment, Cloudflare secret creation, and both administrator bootstraps as deliberate operator actions.

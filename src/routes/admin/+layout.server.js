@@ -1,22 +1,18 @@
-import { redirect } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 
-/** @param {NonNullable<App.Locals['user']>} user */
-function hasAdminRole(user) {
-  const roles = String(user.role ?? '')
-    .split(',')
-    .map((role) => role.trim())
-    .filter(Boolean);
+import { isPreviewWorker, isProductionAdmin } from '$lib/server/preview-auth.js';
 
-  return roles.includes('admin');
-}
+export function load({ locals, platform, url }) {
+  if (isPreviewWorker(platform?.env)) {
+    error(403, 'Production Admin is unavailable on the Preview Worker.');
+  }
 
-export function load({ locals, url }) {
   if (!locals.user) {
     const destination = encodeURIComponent(url.pathname + url.search);
     redirect(303, `/sign-in?redirect=${destination}`);
   }
 
-  if (!hasAdminRole(locals.user)) {
+  if (!isProductionAdmin(locals.user)) {
     redirect(303, '/study');
   }
 

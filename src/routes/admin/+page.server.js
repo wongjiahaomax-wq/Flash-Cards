@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { desc } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { createDb } from '$lib/server/db/index.js';
-import { assets, caseQuestions } from '$lib/server/db/schema.js';
+import { assets, caseQuestions, cases, questionPrompts } from '$lib/server/db/schema.js';
 import {
   AdminContentInputError,
   addCaseSecondaryTopic,
@@ -102,7 +102,12 @@ export async function load({ locals, platform, url }) {
   const db = platform?.env?.DB ? createDb(platform.env.DB) : null;
   if (!db) return { assets: [], cases: [], concepts: [], selectedCase: null, selectedConceptId: null };
 
-  const rows = await db.select().from(assets).orderBy(desc(assets.createdAt)).limit(100);
+  const rows = await db
+    .select()
+    .from(assets)
+    .where(isNull(assets.previewSessionId))
+    .orderBy(desc(assets.createdAt))
+    .limit(100);
   const search = url.searchParams.get('q')?.trim().toLowerCase() ?? '';
   const caseRows = await listAdminCases(db, search);
   const conceptRows = await listAdminConcepts(db);
@@ -115,7 +120,15 @@ export async function load({ locals, platform, url }) {
     ? requestedConceptId
     : conceptRows[0]?.id ?? null;
 
-  const stimulusGroups = selectedId ? await getAdminStimulusData(db, selectedId) : [];
+  const [stimulusGroups, productionQuestionRows] = await Promise.all([
+    selectedId ? getAdminStimulusData(db, selectedId) : [],
+    db
+      .select({ id: caseQuestions.id })
+      .from(caseQuestions)
+      .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
+      .innerJoin(questionPrompts, eq(questionPrompts.id, caseQuestions.questionPromptId))
+      .where(and(isNull(cases.previewSessionId), isNull(questionPrompts.previewSessionId)))
+  ]);
   return {
     assets: rows.map((asset) => ({
       ...asset,
@@ -124,7 +137,7 @@ export async function load({ locals, platform, url }) {
     concepts: conceptRows,
     selectedConceptId,
     cases: caseRows,
-    questionCount: (await db.select().from(caseQuestions)).length,
+    questionCount: productionQuestionRows.length,
     selectedCase: manager
       ? {
           ...manager,

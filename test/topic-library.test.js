@@ -7,7 +7,12 @@ import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
 import { getTopicDetail, listTopicLibrary } from '../src/lib/server/db/topic-library.js';
 
-const migrationSql = [readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'), readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8')].join('\n').replaceAll('--> statement-breakpoint', '');
+const migrationSql = [
+  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0005_tag_foundation.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8')
+].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
@@ -121,5 +126,33 @@ test('inactive Topic has zero current counts while retaining relationships and h
     assert.equal(detail.cases.length, 3);
     assert.equal(detail.questions.length, 2);
     assert.equal(detail.parent?.id, 'seed-stemi');
+  } finally { fixture.sqlite.close(); }
+});
+
+test('Preview-owned Cases never inflate Topic counts or appear in normal Admin Topic detail', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.prepare(`
+      INSERT INTO preview_sessions (id, user_id, status, expires_at)
+      VALUES (?, ?, 'active', ?)
+    `).run('preview-topic-session', 'preview-topic-user', 4102444800000);
+    fixture.sqlite.prepare(`
+      INSERT INTO cases (id, title, preview_session_id, is_active)
+      VALUES (?, ?, ?, 1)
+    `).run('preview-topic-case', 'Disposable Preview Case', 'preview-topic-session');
+    fixture.sqlite.prepare(`
+      INSERT INTO case_concepts (case_id, concept_id, role)
+      VALUES (?, ?, 'primary')
+    `).run('preview-topic-case', 'seed-anterior-stemi');
+
+    const row = (await listTopicLibrary(fixture.db)).find((item) => item.id === 'seed-anterior-stemi');
+    assert.ok(row);
+    assert.equal(row.activeCaseCount, 3);
+
+    const detail = await getTopicDetail(fixture.db, 'seed-anterior-stemi');
+    assert.ok(detail);
+    assert.equal(detail.activeCaseCount, 3);
+    assert.equal(detail.cases.some((item) => item.caseId === 'preview-topic-case'), false);
+    assert.equal(detail.cases.length, 3);
   } finally { fixture.sqlite.close(); }
 });

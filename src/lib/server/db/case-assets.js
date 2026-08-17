@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, like } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, like } from 'drizzle-orm';
 
 import { assets, caseAssets, caseConcepts, cases, concepts, stimulusGroupOptions, stimulusGroups } from './schema.js';
 import { listCaseTopics } from './admin-content.js';
@@ -24,6 +24,7 @@ export function canManageCaseAssets(user) {
 /** @param {LearningDb} db @param {string} [search] */
 export async function listAdminCases(db, search = '') {
   const cleanSearch = search.trim();
+  const base = and(eq(cases.isActive, true), isNull(cases.previewSessionId));
   return db
     .select({
       id: cases.id,
@@ -35,7 +36,7 @@ export async function listAdminCases(db, search = '') {
     .from(cases)
     .leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
     .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
-    .where(cleanSearch ? and(eq(cases.isActive, true), like(cases.title, `%${cleanSearch}%`)) : eq(cases.isActive, true))
+    .where(cleanSearch ? and(base, like(cases.title, `%${cleanSearch}%`)) : base)
     .orderBy(asc(cases.title));
 }
 
@@ -44,9 +45,9 @@ async function requireActiveCase(db, caseId) {
   const rows = await db
     .select({ id: cases.id })
     .from(cases)
-    .where(and(eq(cases.id, caseId), eq(cases.isActive, true)))
+    .where(and(eq(cases.id, caseId), eq(cases.isActive, true), isNull(cases.previewSessionId)))
     .limit(1);
-  if (!rows[0]) throw new CaseAssetInputError('The selected Case is missing or inactive.');
+  if (!rows[0]) throw new CaseAssetInputError('The selected production Case is missing or inactive.');
 }
 
 /** @param {LearningDb} db @param {string} assetId */
@@ -54,9 +55,9 @@ async function requireActiveAsset(db, assetId) {
   const rows = await db
     .select({ id: assets.id, type: assets.type })
     .from(assets)
-    .where(and(eq(assets.id, assetId), eq(assets.isActive, true)))
+    .where(and(eq(assets.id, assetId), eq(assets.isActive, true), isNull(assets.previewSessionId)))
     .limit(1);
-  if (!rows[0]) throw new CaseAssetInputError('The selected Asset is missing or inactive.');
+  if (!rows[0]) throw new CaseAssetInputError('The selected production Asset is missing or inactive.');
   if (rows[0].type !== 'image') throw new CaseAssetInputError('Only image Assets can be attached to a Case.');
 }
 
@@ -89,7 +90,7 @@ export async function getAdminCaseData(db, caseId) {
   const caseRows = await listAdminCases(db);
   const selectedCase = caseRows.find((item) => item.id === caseId);
   if (!selectedCase) return null;
-  const settings = (await db.select({ questionSelectionMode: cases.questionSelectionMode, questionCount: cases.questionCount }).from(cases).where(eq(cases.id, caseId)).limit(1))[0];
+  const settings = (await db.select({ questionSelectionMode: cases.questionSelectionMode, questionCount: cases.questionCount }).from(cases).where(and(eq(cases.id, caseId), isNull(cases.previewSessionId))).limit(1))[0];
   const topics = await listCaseTopics(db, caseId);
   const primaryTopic = topics.find((topic) => topic.role === 'primary');
 
@@ -115,7 +116,7 @@ export async function getAdminCaseData(db, caseId) {
       isActive: assets.isActive
     })
     .from(assets)
-    .where(eq(assets.isActive, true))
+    .where(and(eq(assets.isActive, true), isNull(assets.previewSessionId)))
     .orderBy(desc(assets.createdAt));
 
   return {

@@ -32,5 +32,30 @@
       "binding": "MEDIA",
       "bucket_name": "flash-cards-media"
     }
-  ]
+  ],
+  "env": {
+    "preview": {
+      "name": "flash-cards-preview",
+      "vars": {
+        "BETTER_AUTH_URL": "https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev",
+        "PREVIEW_MODE": "true"
+      },
+      // Bind the Preview Worker to the exact same production resources.
+      // These bindings are intentionally repeated because Wrangler bindings are non-inheritable.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "flash-cards-db",
+          "database_id": "ea6f3ec4-eb09-4fb1-8314-cd027436a2f8",
+          "migrations_dir": "drizzle"
+        }
+      ],
+      "r2_buckets": [
+        {
+          "binding": "MEDIA",
+          "bucket_name": "flash-cards-media"
+        }
+      ]
+    }
+  }
 }

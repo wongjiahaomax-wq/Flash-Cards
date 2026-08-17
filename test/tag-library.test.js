@@ -14,6 +14,8 @@ import {
   listCaseTagAssignments,
   listCurrentCaseTagAssignments,
   listCurrentPromptTagAssignments,
+  listTaggableCaseQuestions,
+  listTaggableCases,
   listTags,
   setTagActive,
   TagInputError
@@ -22,7 +24,8 @@ import {
 const migrationSql = [
   readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0005_tag_foundation.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0005_tag_foundation.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -144,6 +147,61 @@ test('deactivating a Tag preserves curated relationships but prevents new active
     await assert.rejects(
       () => addCaseTag(fixture.db, { caseId: String(otherCase.id), tagId: tag.id }),
       (error) => error instanceof TagInputError && /inactive/i.test(error.message)
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Preview-owned Cases and Prompts are absent from normal Tag counts, details, and mutation targets', async () => {
+  const fixture = createLearningDb();
+  try {
+    const context = firstActiveCaseAndQuestion(fixture.sqlite);
+    const tag = await createTag(fixture.db, 'Preview isolation');
+    await addCaseTag(fixture.db, { caseId: context.case_id, tagId: tag.id });
+    await addCaseQuestionTag(fixture.db, { caseQuestionId: context.case_question_id, tagId: tag.id });
+
+    fixture.sqlite.prepare(`
+      INSERT INTO preview_sessions (id, user_id, status, expires_at)
+      VALUES (?, ?, 'active', ?)
+    `).run('preview-tag-session', 'preview-tag-user', 4102444800000);
+    fixture.sqlite.prepare(`
+      INSERT INTO cases (id, title, preview_session_id, is_active)
+      VALUES (?, ?, ?, 1)
+    `).run('preview-tag-case', 'Disposable tagged Case', 'preview-tag-session');
+    fixture.sqlite.prepare(`
+      INSERT INTO question_prompts (id, prompt_md, preview_session_id, is_active)
+      VALUES (?, ?, ?, 1)
+    `).run('preview-tag-prompt', 'Disposable tagged prompt?', 'preview-tag-session');
+    fixture.sqlite.prepare(`
+      INSERT INTO case_questions (id, case_id, question_prompt_id, answer_md, is_active)
+      VALUES (?, ?, ?, ?, 1)
+    `).run('preview-tag-question', 'preview-tag-case', 'preview-tag-prompt', 'Disposable answer');
+    fixture.sqlite.prepare('INSERT INTO case_tags (case_id, tag_id) VALUES (?, ?)').run('preview-tag-case', tag.id);
+    fixture.sqlite.prepare('INSERT INTO case_question_tags (case_question_id, tag_id) VALUES (?, ?)').run('preview-tag-question', tag.id);
+
+    const row = (await listTags(fixture.db)).find((item) => item.id === tag.id);
+    assert.ok(row);
+    assert.equal(row.activeCaseCount, 1);
+    assert.equal(row.activeCaseQuestionCount, 1);
+
+    assert.equal((await listTaggableCases(fixture.db)).some((item) => item.id === 'preview-tag-case'), false);
+    assert.equal((await listTaggableCaseQuestions(fixture.db)).some((item) => item.id === 'preview-tag-question'), false);
+    assert.equal((await listCaseTagAssignments(fixture.db)).some((item) => item.caseId === 'preview-tag-case'), false);
+    assert.equal(
+      (await listCaseQuestionTagAssignments(fixture.db)).some((item) => item.caseQuestionId === 'preview-tag-question'),
+      false
+    );
+    assert.equal((await listCurrentCaseTagAssignments(fixture.db)).some((item) => item.caseId === 'preview-tag-case'), false);
+    assert.equal((await listCurrentPromptTagAssignments(fixture.db)).some((item) => item.promptId === 'preview-tag-prompt'), false);
+
+    await assert.rejects(
+      () => addCaseTag(fixture.db, { caseId: 'preview-tag-case', tagId: tag.id }),
+      (error) => error instanceof TagInputError && /production Case/i.test(error.message)
+    );
+    await assert.rejects(
+      () => addCaseQuestionTag(fixture.db, { caseQuestionId: 'preview-tag-question', tagId: tag.id }),
+      (error) => error instanceof TagInputError && /production Case Question/i.test(error.message)
     );
   } finally {
     fixture.sqlite.close();

@@ -101,6 +101,7 @@ async function listUsageRows(db) {
     .innerJoin(cases, eq(cases.id, caseAssets.caseId))
     .leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
     .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .where(isNull(cases.previewSessionId))
     .orderBy(asc(cases.title), asc(caseAssets.displayOrder), asc(cases.id));
   const groupedRows = await db
     .select({
@@ -121,6 +122,7 @@ async function listUsageRows(db) {
     .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
     .leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
     .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .where(isNull(cases.previewSessionId))
     .orderBy(asc(cases.title), asc(stimulusGroupOptions.displayOrder), asc(cases.id));
   return [...fixedRows, ...groupedRows];
 }
@@ -142,26 +144,27 @@ export async function listAssetLibrary(db, filters = {}) {
   const status = filters.status ?? 'all';
   const source = filters.source ?? 'all';
   const sort = filters.sort ?? 'newest';
-  const conditions = [];
+  const conditions = [isNull(assets.previewSessionId)];
 
   if (search) {
     const pattern = `%${search}%`;
-    conditions.push(
-      or(
-        like(assets.originalFilename, pattern),
-        like(assets.altText, pattern),
-        like(assets.sourceLabel, pattern),
-        like(assets.sourceUrl, pattern)
-      )
+    const searchCondition = or(
+      like(assets.originalFilename, pattern),
+      like(assets.altText, pattern),
+      like(assets.sourceLabel, pattern),
+      like(assets.sourceUrl, pattern)
     );
+    if (searchCondition) conditions.push(searchCondition);
   }
   if (status === 'active') conditions.push(eq(assets.isActive, true));
   if (status === 'inactive') conditions.push(eq(assets.isActive, false));
   if (source === 'known') {
-    conditions.push(or(isNotNull(assets.sourceLabel), isNotNull(assets.sourceUrl), isNotNull(assets.licence)));
+    const knownSourceCondition = or(isNotNull(assets.sourceLabel), isNotNull(assets.sourceUrl), isNotNull(assets.licence));
+    if (knownSourceCondition) conditions.push(knownSourceCondition);
   }
   if (source === 'unknown') {
-    conditions.push(and(isNull(assets.sourceLabel), isNull(assets.sourceUrl), isNull(assets.licence)));
+    const unknownSourceCondition = and(isNull(assets.sourceLabel), isNull(assets.sourceUrl), isNull(assets.licence));
+    if (unknownSourceCondition) conditions.push(unknownSourceCondition);
   }
   const rows = await db
     .select({
@@ -179,7 +182,7 @@ export async function listAssetLibrary(db, filters = {}) {
       updatedAt: assets.updatedAt
     })
     .from(assets)
-    .where(conditions.length ? and(...conditions) : undefined)
+    .where(and(...conditions))
     .orderBy(desc(assets.createdAt), desc(assets.id));
   const usageRows = await listUsageRows(db);
   const usageByAsset = new Map();
@@ -240,7 +243,11 @@ export async function listAssetLibrary(db, filters = {}) {
 /** @param {LearningDb} db @param {string} assetId */
 export async function getAssetLibraryDetail(db, assetId) {
   const normalizedId = requiredText(assetId, 'Asset');
-  const rows = await db.select().from(assets).where(eq(assets.id, normalizedId)).limit(1);
+  const rows = await db
+    .select()
+    .from(assets)
+    .where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId)))
+    .limit(1);
   const asset = rows[0];
   if (!asset) return null;
 
@@ -258,6 +265,7 @@ export async function getAssetLibraryDetail(db, assetId) {
 /**
  * Update only D1 Asset metadata. In particular, storageKey is deliberately not
  * accepted here, so renaming can never mutate the immutable R2 object identity.
+ * Preview-owned Assets are not valid normal Admin mutation targets.
  *
  * @param {LearningDb} db
  * @param {string} assetId
@@ -265,8 +273,12 @@ export async function getAssetLibraryDetail(db, assetId) {
  */
 export async function updateAssetMetadata(db, assetId, input) {
   const normalizedId = requiredText(assetId, 'Asset');
-  const existing = await db.select({ id: assets.id }).from(assets).where(eq(assets.id, normalizedId)).limit(1);
-  if (!existing[0]) throw new AssetLibraryInputError('The selected Asset no longer exists.');
+  const existing = await db
+    .select({ id: assets.id })
+    .from(assets)
+    .where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId)))
+    .limit(1);
+  if (!existing[0]) throw new AssetLibraryInputError('The selected production Asset no longer exists.');
 
   const update = {
     originalFilename: optionalText(input.originalFilename),
@@ -277,7 +289,10 @@ export async function updateAssetMetadata(db, assetId, input) {
     isActive: booleanValue(input.isActive),
     updatedAt: new Date()
   };
-  await db.update(assets).set(update).where(eq(assets.id, normalizedId));
+  await db
+    .update(assets)
+    .set(update)
+    .where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId)));
   return update;
 }
 

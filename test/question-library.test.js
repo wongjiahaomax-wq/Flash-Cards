@@ -12,7 +12,11 @@ import {
   updateQuestionPrompt
 } from '../src/lib/server/db/question-library.js';
 
-const migrationSql = [readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'), readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8')].join('\n').replaceAll('--> statement-breakpoint', '');
+const migrationSql = [
+  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8')
+].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
@@ -195,16 +199,10 @@ test('reused Question Prompt edits require explicit confirmation and preserve an
     assert.equal(updated.prompt_md, 'Describe this ECG in detail.');
     const caseCount = fixture.sqlite.prepare('SELECT COUNT(*) AS count FROM case_questions WHERE question_prompt_id = ?').get('seed-prompt-describe-ecg');
     assert.ok(caseCount);
-    assert.equal(
-      caseCount.count,
-      3
-    );
+    assert.equal(caseCount.count, 3);
     const preservedAnswer = fixture.sqlite.prepare('SELECT answer_md FROM case_questions WHERE id = ?').get('seed-caseq-anterior-a-describe');
     assert.ok(preservedAnswer);
-    assert.equal(
-      preservedAnswer.answer_md,
-      'ST elevation in V1–V4 with reciprocal inferior ST depression.'
-    );
+    assert.equal(preservedAnswer.answer_md, 'ST elevation in V1–V4 with reciprocal inferior ST depression.');
   } finally {
     fixture.sqlite.close();
   }

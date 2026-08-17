@@ -43,6 +43,13 @@
       "when": 1786866000000,
       "tag": "0005_tag_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1786932000000,
+      "tag": "0006_preview_admin_workspace",
+      "breakpoints": true
     }
   ]
 }
