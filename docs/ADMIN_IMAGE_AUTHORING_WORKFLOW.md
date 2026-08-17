@@ -68,6 +68,16 @@ The Case editor no longer eagerly loads or permanently renders every unused Asse
 
 The picker supports multi-selection, an explicit selected count and one final attach action. The same picker can target either fixed Case images or one existing active alternative set.
 
+### Picker selection safety
+
+Picker selection is scoped to the current Case/attachment target and current server-returned result set.
+
+- A search/result refresh prunes selected Asset IDs that are no longer visible while retaining still-visible selected Assets.
+- Changing from fixed-image attachment to an alternative set, changing alternative-set target, or changing Case context resets the picker selection entirely.
+- A requested `target_group` must resolve to an active alternative set belonging to the current Case. Missing, inactive, or foreign targets fail closed with a client error; they never silently fall back to fixed-image attachment.
+
+This prevents stale hidden selection or a stale target URL from changing the meaning of a later attach action.
+
 ### Upload from Case authoring
 
 Uploading is available as a disclosure inside the picker rather than as a permanent large Case form.
@@ -82,7 +92,9 @@ The upload delegates to the existing `createAssetFromUpload()` path, preserving:
 - source/attribution/licence metadata;
 - Admin authorization.
 
-The uploaded image is a normal reusable Asset and is then attached to the current Case or selected alternative set.
+For upload-to-alternative-set, the target is validated **before** creating the Asset or R2 object. The prevalidation checks that the set and parent Case are active, the set belongs to the current Case, and a newly created blank option can satisfy current minimum stimulus-specific coverage using its set-wide questions.
+
+The target is validated again when the new relationship is written. If a concurrent change occurs after Asset creation and that final relationship write fails, the response explicitly reports partial success and the newly created reusable Asset ID. The valid reusable Asset is retained instead of presenting the upload itself as failed or attempting unsafe post-creation cleanup; the Admin can reattach it from the library after resolving the Case/set state.
 
 ## `/admin/images` multi-selection
 
@@ -98,7 +110,7 @@ Selection behaviour:
 - **Select images** mode: provides a touch/mobile path where an ordinary card tap toggles selection;
 - **Clear selection** resets both selection and range anchor.
 
-Selection is only over the currently rendered result set. Filtering/sorting is server-driven and therefore creates a new displayed result set. When that result set changes, selected IDs that are no longer visible are pruned and a range anchor that is no longer visible is cleared, preventing hidden stale Assets from remaining selected for a bulk action.
+Selection is only over the currently rendered result set. Filtering/sorting is server-driven and creates a new displayed result set; selected IDs no longer displayed are discarded and an invisible Shift anchor is cleared.
 
 ## Bulk grouping semantics
 
@@ -126,15 +138,13 @@ The server validates the complete submitted batch before intentional relationshi
 - unrelated Asset relationships in other Cases are preserved;
 - minimum stimulus-specific coverage is checked before adding new options.
 
-After validation, new relationship inserts are sent as one bounded D1 batch rather than as an unbounded sequence of independent browser-driven writes.
-
 This deliberately avoids a generic **Move** operation because moving a stimulus option can involve exact-option questions, captions and activation state that require a more explicit product decision.
 
 ### Batch limit
 
 One multi-attach or bulk-grouping action is limited to **30 unique Assets**.
 
-This keeps the server work bounded and leaves D1 query headroom around validation, relationship reads, ordering and writes. The UI states the limit and the server enforces it independently of browser state.
+This keeps the server work bounded and leaves D1 query headroom around validation, relationship reads, ordering and writes. New relationship writes are issued as one bounded D1 batch after validation. The UI states the limit and the server enforces it independently of browser state.
 
 ## Select all matching filters
 
