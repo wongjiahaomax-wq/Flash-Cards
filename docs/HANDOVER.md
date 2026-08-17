@@ -8,7 +8,9 @@ The project has a D1-backed learner Study flow, protected/private R2 teaching im
 
 PR #30 — **Production-backed Preview Admin workspace** — has been merged and deployed. Migration `0006_preview_admin_workspace.sql` was applied successfully to the existing production D1; the production `flash-cards` Worker and separate `flash-cards-preview` Worker are deployed; and the Preview Worker now has its own independently generated `BETTER_AUTH_SECRET`.
 
-The remaining Preview rollout work is human identity/smoke testing only: bootstrap the dedicated `preview_admin` login that the owner will actually use, verify the live access boundaries, and smoke-test Create Preview Copy -> edit -> Reset. No second D1 database or R2 bucket is required.
+Live read-only smoke verification also passed: Preview `/admin`, `/study`, and `/api/auth/admin` return `403`, while Preview and production `/sign-in` return `200`.
+
+The remaining Preview rollout work is human identity/authenticated smoke testing only: bootstrap the dedicated `preview_admin` login that the owner will actually use, then smoke-test Create Preview Copy -> edit -> Reset. No second D1 database or R2 bucket is required.
 
 ## Read first
 
@@ -89,6 +91,8 @@ The Better Auth Admin-plugin subtree is also rejected in the hook before Better 
 A normal production `admin` therefore cannot sign into the Preview Worker and use either the unrestricted production Admin CMS or Better Auth's privileged Admin APIs against the shared production D1/auth tables.
 
 A `preview_admin` cannot create, reveal, rate, complete, or continue ordinary learner Reviews.
+
+The deployed Preview Worker boundaries were live-smoke-tested after rollout: `/admin`, `/study`, and `/api/auth/admin` returned HTTP `403`, while `/sign-in` returned HTTP `200`.
 
 ## Critical learner isolation invariant
 
@@ -237,6 +241,16 @@ git diff --check
 
 PR #30 CI passed before merge. The production rollout workflow then passed dependency installation, migration checks, all 169 tests, Svelte checks, build, production D1 migration, and Worker deployment. The Preview deployment/auth-secret workflow also passed migration checks, all 169 tests, Svelte checks, build, Preview Worker deployment, and secret configuration.
 
+A separate read-only live smoke run (`31994864289`) confirmed:
+
+```text
+Preview /admin           -> 403
+Preview /study           -> 403
+Preview /api/auth/admin  -> 403
+Preview /sign-in         -> 200
+Production /sign-in      -> 200
+```
+
 Regression coverage includes Preview Worker `/admin`, `/study`, and Better Auth Admin-API boundaries, Preview Admin Study/Review denial, deployment candidate restrictions, shared-editor adapter drift, and Preview ownership exclusion from Topic/Tag/Asset normal Admin views.
 
 ## Current rollout status
@@ -252,13 +266,13 @@ Completed on 17 August 2026:
 - Preview deployment immediately before secret configuration reported Worker version `8347fd15-cca5-4159-b076-8dd43f614296`;
 - Preview URL reported by Wrangler: `https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev`;
 - an independent cryptographically generated `BETTER_AUTH_SECRET` was uploaded successfully to the Preview Worker;
-- the temporary one-shot Preview deployment workflow was removed after successful rollout.
+- live unauthenticated access-boundary smoke checks passed;
+- temporary one-shot Preview deployment/smoke workflows were removed after successful rollout.
 
 Still required before the owner can inspect UI as Preview Admin:
 
 - bootstrap the dedicated `preview_admin` identity with an owner-chosen email/password;
-- verify Preview `/admin`, `/study`, and `/api/auth/admin` return `403` while ordinary Preview authentication works;
-- smoke-test Create Preview Copy -> edit -> Reset and confirm the production source Case remains unchanged.
+- sign in to the Preview Worker and smoke-test Create Preview Copy -> edit -> Reset, confirming the production source Case remains unchanged.
 
 ## Next intended workflow after Preview identity bootstrap
 
