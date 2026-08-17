@@ -1,6 +1,9 @@
+import { isNull } from 'drizzle-orm';
+
 import { createDb } from '$lib/server/db/index.js';
 import { listAdminConcepts } from '$lib/server/db/admin-content.js';
 import { listQuestionLibrary } from '$lib/server/db/question-library.js';
+import { questionPrompts } from '$lib/server/db/schema.js';
 import { listActiveTags, listCurrentPromptTagAssignments } from '$lib/server/db/tag-library.js';
 
 export async function load({ platform, url }) {
@@ -16,26 +19,31 @@ export async function load({ platform, url }) {
   }
 
   const db = createDb(platform.env.DB);
-  const [questionRows, topics, tags, assignments] = await Promise.all([
+  const [questionRows, topics, tags, assignments, productionPromptRows] = await Promise.all([
     listQuestionLibrary(db, filters),
     listAdminConcepts(db),
     listActiveTags(db),
-    listCurrentPromptTagAssignments(db)
+    listCurrentPromptTagAssignments(db),
+    db.select({ id: questionPrompts.id }).from(questionPrompts).where(isNull(questionPrompts.previewSessionId))
   ]);
+  const productionPromptIds = new Set(productionPromptRows.map((row) => row.id));
 
   const tagsByPrompt = new Map();
   for (const assignment of assignments) {
+    if (!productionPromptIds.has(assignment.promptId)) continue;
     const current = tagsByPrompt.get(assignment.promptId) ?? new Map();
     current.set(assignment.tagId, assignment.tagName);
     tagsByPrompt.set(assignment.promptId, current);
   }
 
-  const questions = questionRows.map((question) => ({
-    ...question,
-    tags: [...(tagsByPrompt.get(question.id) ?? new Map()).entries()]
-      .map(([id, name]) => ({ id, name }))
-      .sort((left, right) => left.name.localeCompare(right.name))
-  }));
+  const questions = questionRows
+    .filter((question) => productionPromptIds.has(question.id))
+    .map((question) => ({
+      ...question,
+      tags: [...(tagsByPrompt.get(question.id) ?? new Map()).entries()]
+        .map(([id, name]) => ({ id, name }))
+        .sort((left, right) => left.name.localeCompare(right.name))
+    }));
 
   return {
     questions: filters.tagId
