@@ -7,6 +7,7 @@ import { createDb } from '$lib/server/db/index.js';
 import { cases, stimulusGroups } from '$lib/server/db/schema.js';
 import { requirePreviewAdmin } from '$lib/server/preview-auth.js';
 
+/** @param {unknown} error */
 function actionMessage(error) { return error instanceof Error ? error.message : 'Unable to update the Preview workspace.'; }
 
 export async function load({ parent, platform, url }) {
