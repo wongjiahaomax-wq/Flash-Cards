@@ -1,4 +1,4 @@
-import { and, asc, eq, like, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, like, sql } from 'drizzle-orm';
 
 import { caseQuestions, cases, questionPrompts } from './schema.js';
 import { caseQuestionTags, caseTags, tags } from './tag-schema.js';
@@ -39,7 +39,9 @@ function booleanValue(value) {
 }
 
 /**
- * Return canonical Tags with current active usage counts.
+ * Return canonical Tags with current active production usage counts.
+ * Preview-owned Cases and Prompts are disposable workspace state and are never
+ * part of normal Admin Tag counts or curation surfaces.
  *
  * @param {LearningDb} db
  * @param {{ search?: string, activeOnly?: boolean }} [filters]
@@ -77,7 +79,7 @@ export async function listTags(db, filters = {}) {
       .from(caseTags)
       .innerJoin(tags, eq(tags.id, caseTags.tagId))
       .innerJoin(cases, eq(cases.id, caseTags.caseId))
-      .where(and(eq(tags.isActive, true), eq(cases.isActive, true))),
+      .where(and(eq(tags.isActive, true), eq(cases.isActive, true), isNull(cases.previewSessionId))),
     db
       .select({ tagId: caseQuestionTags.tagId, caseQuestionId: caseQuestionTags.caseQuestionId })
       .from(caseQuestionTags)
@@ -90,7 +92,9 @@ export async function listTags(db, filters = {}) {
           eq(tags.isActive, true),
           eq(caseQuestions.isActive, true),
           eq(cases.isActive, true),
-          eq(questionPrompts.isActive, true)
+          isNull(cases.previewSessionId),
+          eq(questionPrompts.isActive, true),
+          isNull(questionPrompts.previewSessionId)
         )
       )
   ]);
@@ -195,13 +199,41 @@ async function requireActiveTag(db, tagId) {
 }
 
 /** @param {LearningDb} db @param {string} caseId */
+async function requireProductionCase(db, caseId) {
+  const row = await db
+    .select({ id: cases.id })
+    .from(cases)
+    .where(and(eq(cases.id, caseId), isNull(cases.previewSessionId)))
+    .limit(1);
+  if (!row[0]) throw new TagInputError('The selected production Case does not exist.');
+}
+
+/** @param {LearningDb} db @param {string} caseId */
 async function requireActiveCase(db, caseId) {
   const row = await db
     .select({ id: cases.id })
     .from(cases)
-    .where(and(eq(cases.id, caseId), eq(cases.isActive, true)))
+    .where(and(eq(cases.id, caseId), eq(cases.isActive, true), isNull(cases.previewSessionId)))
     .limit(1);
-  if (!row[0]) throw new TagInputError('The selected Case is missing or inactive.');
+  if (!row[0]) throw new TagInputError('The selected production Case is missing or inactive.');
+}
+
+/** @param {LearningDb} db @param {string} caseQuestionId */
+async function requireProductionCaseQuestion(db, caseQuestionId) {
+  const row = await db
+    .select({ id: caseQuestions.id })
+    .from(caseQuestions)
+    .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
+    .innerJoin(questionPrompts, eq(questionPrompts.id, caseQuestions.questionPromptId))
+    .where(
+      and(
+        eq(caseQuestions.id, caseQuestionId),
+        isNull(cases.previewSessionId),
+        isNull(questionPrompts.previewSessionId)
+      )
+    )
+    .limit(1);
+  if (!row[0]) throw new TagInputError('The selected production Case Question does not exist.');
 }
 
 /** @param {LearningDb} db @param {string} caseQuestionId */
@@ -216,11 +248,13 @@ async function requireActiveCaseQuestion(db, caseQuestionId) {
         eq(caseQuestions.id, caseQuestionId),
         eq(caseQuestions.isActive, true),
         eq(cases.isActive, true),
-        eq(questionPrompts.isActive, true)
+        isNull(cases.previewSessionId),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
       )
     )
     .limit(1);
-  if (!row[0]) throw new TagInputError('The selected Case Question is missing or inactive.');
+  if (!row[0]) throw new TagInputError('The selected production Case Question is missing or inactive.');
 }
 
 /** @param {LearningDb} db @param {{ caseId: unknown, tagId: unknown }} input */
@@ -242,6 +276,7 @@ export async function addCaseTag(db, input) {
 export async function removeCaseTag(db, input) {
   const caseId = requiredId(input.caseId, 'Case');
   const tagId = requiredId(input.tagId, 'Tag');
+  await requireProductionCase(db, caseId);
   await db.delete(caseTags).where(and(eq(caseTags.caseId, caseId), eq(caseTags.tagId, tagId)));
 }
 
@@ -264,6 +299,7 @@ export async function addCaseQuestionTag(db, input) {
 export async function removeCaseQuestionTag(db, input) {
   const caseQuestionId = requiredId(input.caseQuestionId, 'Case Question');
   const tagId = requiredId(input.tagId, 'Tag');
+  await requireProductionCaseQuestion(db, caseQuestionId);
   await db
     .delete(caseQuestionTags)
     .where(and(eq(caseQuestionTags.caseQuestionId, caseQuestionId), eq(caseQuestionTags.tagId, tagId)));
@@ -280,7 +316,7 @@ export async function listCurrentCaseTagAssignments(db) {
     .from(caseTags)
     .innerJoin(tags, eq(tags.id, caseTags.tagId))
     .innerJoin(cases, eq(cases.id, caseTags.caseId))
-    .where(and(eq(tags.isActive, true), eq(cases.isActive, true)))
+    .where(and(eq(tags.isActive, true), eq(cases.isActive, true), isNull(cases.previewSessionId)))
     .orderBy(asc(tags.name), asc(caseTags.caseId));
 }
 
@@ -303,7 +339,9 @@ export async function listCurrentPromptTagAssignments(db) {
         eq(tags.isActive, true),
         eq(caseQuestions.isActive, true),
         eq(cases.isActive, true),
-        eq(questionPrompts.isActive, true)
+        isNull(cases.previewSessionId),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
       )
     )
     .orderBy(asc(tags.name), asc(caseQuestionTags.caseQuestionId));
@@ -314,7 +352,7 @@ export async function listTaggableCases(db) {
   return db
     .select({ id: cases.id, title: cases.title })
     .from(cases)
-    .where(eq(cases.isActive, true))
+    .where(and(eq(cases.isActive, true), isNull(cases.previewSessionId)))
     .orderBy(asc(cases.title), asc(cases.id));
 }
 
@@ -336,13 +374,15 @@ export async function listTaggableCaseQuestions(db) {
       and(
         eq(caseQuestions.isActive, true),
         eq(cases.isActive, true),
-        eq(questionPrompts.isActive, true)
+        isNull(cases.previewSessionId),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
       )
     )
     .orderBy(asc(cases.title), asc(questionPrompts.promptMd), asc(caseQuestions.id));
 }
 
-/** All Case assignments, including inactive Tags/Cases for safe curation. @param {LearningDb} db */
+/** All production Case assignments, including inactive Tags/Cases for safe curation. @param {LearningDb} db */
 export async function listCaseTagAssignments(db) {
   return db
     .select({
@@ -356,10 +396,11 @@ export async function listCaseTagAssignments(db) {
     .from(caseTags)
     .innerJoin(cases, eq(cases.id, caseTags.caseId))
     .innerJoin(tags, eq(tags.id, caseTags.tagId))
+    .where(isNull(cases.previewSessionId))
     .orderBy(asc(cases.title), asc(tags.name));
 }
 
-/** All Case Question assignments, including inactive rows for safe curation. @param {LearningDb} db */
+/** All production Case Question assignments, including inactive rows for safe curation. @param {LearningDb} db */
 export async function listCaseQuestionTagAssignments(db) {
   return db
     .select({
@@ -380,5 +421,6 @@ export async function listCaseQuestionTagAssignments(db) {
     .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
     .innerJoin(questionPrompts, eq(questionPrompts.id, caseQuestions.questionPromptId))
     .innerJoin(tags, eq(tags.id, caseQuestionTags.tagId))
+    .where(and(isNull(cases.previewSessionId), isNull(questionPrompts.previewSessionId)))
     .orderBy(asc(cases.title), asc(questionPrompts.promptMd), asc(tags.name));
 }
