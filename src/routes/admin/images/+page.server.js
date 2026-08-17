@@ -19,6 +19,7 @@ import {
 } from '$lib/server/db/admin-image-workflow.js';
 import { getTeachingImageUrl, MediaStorageLimitError } from '$lib/server/storage/media.js';
 
+/** @param {FormData} formData @param {string} name */
 function formText(formData, name) {
   const value = formData.get(name);
   return typeof value === 'string' ? value.trim() : '';
