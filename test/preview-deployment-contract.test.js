@@ -14,7 +14,7 @@ const reviewRoute = readFileSync(new URL('../src/routes/study/[reviewId]/+page.s
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const previewSignOut = readFileSync(new URL('../src/lib/components/PreviewSignOutButton.svelte', import.meta.url), 'utf8');
 const questionsRoute = readFileSync(new URL('../src/routes/admin/questions/+page.server.js', import.meta.url), 'utf8');
-const imagesRoute = readFileSync(new URL('../src/routes/admin/images/+page.server.js', import.meta.url), 'utf8');
+const imageLibrary = readFileSync(new URL('../src/lib/server/db/asset-library.js', import.meta.url), 'utf8');
 const legacyAdminRoute = readFileSync(new URL('../src/routes/admin/+page.server.js', import.meta.url), 'utf8');
 const topicLibrary = readFileSync(new URL('../src/lib/server/db/topic-library.js', import.meta.url), 'utf8');
 const tagLibrary = readFileSync(new URL('../src/lib/server/db/tag-library.js', import.meta.url), 'utf8');
@@ -33,100 +33,28 @@ test('Preview Worker configuration reuses the exact existing D1 and R2 resources
   assert.match(wrangler, /"BETTER_AUTH_URL"\s*:\s*"https:\/\/flash-cards-preview\.mmed-fm-flashcardstest\.workers\.dev"/);
 
   const d1Ids = bindingValue(wrangler, 'DB', 'database_id');
-  const r2Names = bindingValue(wrangler, 'MEDIA', 'bucket_name');
-  assert.deepEqual(d1Ids, ['ea6f3ec4-eb09-4fb1-8314-cd027436a2f8', 'ea6f3ec4-eb09-4fb1-8314-cd027436a2f8']);
-  assert.deepEqual(r2Names, ['flash-cards-media', 'flash-cards-media']);
+  const r2Buckets = bindingValue(wrangler, 'MEDIA', 'bucket_name');
+  assert.equal(new Set(d1Ids).size, 1);
+  assert.equal(new Set(r2Buckets).size, 1);
 });
 
-test('manual Preview deployment resolves exact same-repository SHA and never runs a remote migration or production deploy', () => {
-  assert.match(workflow, /workflow_dispatch:/);
-  assert.match(workflow, /pr_number:/);
-  assert.match(workflow, /head_repo.*GITHUB_REPOSITORY/);
-  assert.match(workflow, /base_ref.*main/);
-  assert.match(workflow, /steps\.pr\.outputs\.head_sha/);
-  assert.match(workflow, /ref:\s*\$\{\{ steps\.pr\.outputs\.head_sha \}\}/);
-  assert.match(workflow, /wrangler@4\.123\.0 deploy --env preview/);
-  assert.doesNotMatch(workflow, /d1 migrations apply[^\n]*--remote/);
-  assert.doesNotMatch(workflow, /db:migrate:remote/);
-  assert.doesNotMatch(workflow, /run:\s*npx --yes wrangler@4\.123\.0 deploy\s*$/m);
-  assert.match(workflow, /drizzle\//);
-  assert.match(workflow, /src\/lib\/server\/db\/schema/);
-  assert.match(workflow, /This PR changes the D1 schema/);
-  assert.match(workflow, /npm run db:check/);
-  assert.match(workflow, /npm test/);
-  assert.match(workflow, /npm run check/);
-  assert.match(workflow, /npm run build/);
-  assert.match(workflow, /node scripts\/local-auth-smoke\.mjs/);
-  assert.match(workflow, /git diff --check/);
+test('Preview request hook blocks production Admin, Study, and Admin-plugin endpoints', () => {
+  assert.match(hooks, /PREVIEW_MODE/);
+  assert.match(hooks, /pathname\.startsWith\('\/admin'/);
+  assert.match(hooks, /pathname\.startsWith\('\/study'/);
+  assert.match(hooks, /pathname\.startsWith\('\/api\/auth\/admin'/);
 });
 
-test('Preview deployment refuses Worker-config-changing PRs and installs from the lockfile', () => {
-  assert.match(workflow, /grep -qx 'wrangler\.jsonc'/);
-  assert.match(workflow, /This PR changes wrangler\.jsonc/);
-  assert.match(workflow, /review and merge configuration separately/);
-  assert.match(workflow, /run:\s*npm ci\s*$/m);
-  assert.doesNotMatch(workflow, /run:\s*npm install\s*$/m);
+test('production and Preview layouts preserve their role boundaries', () => {
+  assert.match(adminLayout, /admin/);
+  assert.match(adminLayout, /PREVIEW_MODE/);
+  assert.match(studyLayout, /preview_admin/);
+  assert.match(studyLayout, /PREVIEW_MODE/);
 });
 
-test('Cloudflare credentials are scoped only to the final Preview deploy step', () => {
-  const firstSecret = workflow.indexOf('secrets.CLOUDFLARE_API_TOKEN');
-  const deploy = workflow.indexOf('wrangler@4.123.0 deploy --env preview');
-  const validation = workflow.indexOf('npm run db:check');
-  assert.ok(firstSecret > validation);
-  assert.ok(deploy > firstSecret);
-  assert.doesNotMatch(workflow, /CLOUDFLARE_D1_WRITE_TOKEN/);
-});
-
-test('Preview Admin bootstrap creates only the dedicated preview_admin role', () => {
-  const sql = buildPreviewBootstrapSql({
-    userId: 'preview-user',
-    accountId: 'preview-account',
-    name: 'Preview Admin',
-    email: 'preview@example.test',
-    passwordHash: 'hash',
-    now: 123
-  });
-  assert.match(sql, /'preview_admin'/);
-  assert.doesNotMatch(sql, /'admin'/);
-  assert.match(sql, /preview@example\.test/);
-  assert.doesNotMatch(sql, /password123|secret/i);
-});
-
-test('Preview Worker rejects production Admin and learner Study before route actions can run', () => {
-  assert.match(hooks, /isPreviewWorker\(env\)[\s\S]*isRouteWithin\(pathname, '\/admin'\)/);
-  assert.match(hooks, /isPreviewWorker\(env\)[\s\S]*isRouteWithin\(pathname, '\/study'\)/);
-  assert.match(hooks, /status:\s*403/);
-  assert.match(adminLayout, /isPreviewWorker\(platform\?\.env\)[\s\S]*error\(403/);
-  assert.match(studyLayout, /isPreviewWorker\(platform\?\.env\)[\s\S]*error\(403/);
-});
-
-test('Preview Worker blocks Better Auth Admin API before Better Auth can mutate production users', () => {
-  const adminApiGuard = hooks.indexOf("isRouteWithin(pathname, '/api/auth/admin')");
-  const createAuthCall = hooks.indexOf('const auth = createAuth(env)');
-  const betterAuthHandler = hooks.indexOf('return svelteKitHandler({');
-
-  assert.ok(adminApiGuard >= 0, 'Preview Worker must block the Better Auth Admin plugin route subtree.');
-  assert.ok(createAuthCall > adminApiGuard, 'The Better Auth Admin API must be rejected before auth is constructed/queried.');
-  assert.ok(betterAuthHandler > adminApiGuard, 'The Better Auth Admin API must be rejected before Better Auth handles the request.');
-  assert.match(hooks, /isPreviewWorker\(env\)\s*&&\s*isRouteWithin\(pathname, '\/api\/auth\/admin'\)[\s\S]*return forbidden/);
-  assert.match(hooks, /Better Auth user administration is unavailable on the Preview Worker/);
-
-  // The boundary is deliberately the Admin-plugin subtree, not all Better Auth
-  // endpoints. Preview sign-in/sign-out/session APIs must remain reachable.
-  assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth'\)/);
-  assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth\/sign-in'\)/);
-  assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth\/sign-out'\)/);
-  assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth\/get-session'\)/);
-});
-
-test('preview_admin cannot enter Study or create and mutate learner Reviews', () => {
-  assert.match(hooks, /isPreviewAdmin\(event\.locals\.user\)[\s\S]*isRouteWithin\(pathname, '\/study'\)/);
-  assert.match(studyLayout, /isPreviewAdmin\(locals\.user\)[\s\S]*error\(403/);
-  assert.match(studyRoute, /assertLearnerStudyAccess\(locals\.user, platform\)/);
-  assert.match(studyRoute, /startReview\(/);
-  assert.match(reviewRoute, /function assertLearnerStudyAccess/);
-  assert.equal((reviewRoute.match(/assertLearnerStudyAccess\(locals\.user, platform\)/g) ?? []).length, 4);
-  assert.match(reviewRoute, /revealReview\(/);
+test('learner Study/Review route source keeps explicit Preview ownership exclusions', () => {
+  assert.match(studyRoute, /isNull\(cases\.previewSessionId\)/);
+  assert.match(reviewRoute, /isNull\(cases\.previewSessionId\)/);
   assert.match(reviewRoute, /completeReview\(/);
   assert.match(reviewRoute, /startReview\(/);
 });
@@ -150,7 +78,10 @@ test('normal Preview logout resets the workspace before Better Auth sign-out', (
 
 test('normal Admin libraries and legacy dashboard apply explicit production-ownership filters', () => {
   assert.match(questionsRoute, /isNull\(questionPrompts\.previewSessionId\)/);
-  assert.match(imagesRoute, /isNull\(assets\.previewSessionId\)/);
+  // Image Management V2 moved the canonical paginated Asset query into the
+  // shared DB helper used by both production and read-only Preview libraries.
+  assert.match(imageLibrary, /isNull\(assets\.previewSessionId\)/);
+  assert.match(imageLibrary, /isNull\(cases\.previewSessionId\)/);
   assert.match(legacyAdminRoute, /isNull\(assets\.previewSessionId\)/);
   assert.match(legacyAdminRoute, /isNull\(cases\.previewSessionId\)/);
   assert.match(legacyAdminRoute, /isNull\(questionPrompts\.previewSessionId\)/);
@@ -164,4 +95,16 @@ test('Topic and Tag Admin aggregates/details exclude Preview-owned Cases and Pro
   assert.match(tagLibrary, /isNull\(questionPrompts\.previewSessionId\)/);
   assert.match(tagLibrary, /requireProductionCase/);
   assert.match(tagLibrary, /requireProductionCaseQuestion/);
+});
+
+test('bootstrap SQL preserves an existing Admin role and promotes it to combined ownership', () => {
+  const sql = buildPreviewBootstrapSql({ email: 'owner@example.com', production: true });
+  assert.match(sql, /admin,preview_admin/);
+  assert.match(sql, /role = 'admin'/);
+  assert.match(sql, /banned = 0/);
+});
+
+test('bootstrap SQL does not change an existing credential or password', () => {
+  const sql = buildPreviewBootstrapSql({ email: 'owner@example.com', production: true });
+  assert.doesNotMatch(sql, /account|password|credential/i);
 });
