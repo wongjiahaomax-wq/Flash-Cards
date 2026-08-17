@@ -89,7 +89,11 @@ export async function listAssetLibraryTopics(db) {
 
 /** @param {LearningDb} db */
 export async function listAssetLibraryCollections(db) {
-  return db.select({ id: imageCollections.id, name: imageCollections.name })
+  return db.select({
+    id: imageCollections.id,
+    name: imageCollections.name,
+    assetCount: sql`(select count(*) from assets collection_assets where collection_assets.image_collection_id = ${imageCollections.id})`.mapWith(Number)
+  })
     .from(imageCollections)
     .orderBy(asc(imageCollections.name), asc(imageCollections.id));
 }
@@ -108,6 +112,49 @@ export async function createImageCollection(db, name) {
     throw error;
   }
   return { id, name: normalizedName };
+}
+
+/** @param {LearningDb} db @param {string} collectionId @param {string | null | undefined} name */
+export async function renameImageCollection(db, collectionId, name) {
+  const normalizedId = requiredText(collectionId, 'Collection');
+  const normalizedName = requiredText(name, 'Collection name');
+  if (normalizedName.length > 200) throw new AssetLibraryInputError('Collection name must be 200 characters or fewer.');
+  const existing = await db.select({ id: imageCollections.id, name: imageCollections.name })
+    .from(imageCollections)
+    .where(eq(imageCollections.id, normalizedId))
+    .limit(1);
+  if (!existing[0]) throw new AssetLibraryInputError('The selected Collection no longer exists.');
+  const duplicate = await db.select({ id: imageCollections.id })
+    .from(imageCollections)
+    .where(and(eq(imageCollections.name, normalizedName), not(eq(imageCollections.id, normalizedId))))
+    .limit(1);
+  if (duplicate[0]) throw new AssetLibraryInputError('A Collection with that name already exists.');
+  await db.update(imageCollections).set({ name: normalizedName, updatedAt: new Date() }).where(eq(imageCollections.id, normalizedId));
+  return { id: normalizedId, previousName: existing[0].name, name: normalizedName };
+}
+
+/** @param {LearningDb} db @param {string} collectionId */
+export async function deleteImageCollection(db, collectionId) {
+  const normalizedId = requiredText(collectionId, 'Collection');
+  const existing = await db.select({ id: imageCollections.id, name: imageCollections.name })
+    .from(imageCollections)
+    .where(eq(imageCollections.id, normalizedId))
+    .limit(1);
+  if (!existing[0]) throw new AssetLibraryInputError('The selected Collection no longer exists.');
+  const countRows = await db.select({ count: sql`count(*)`.mapWith(Number) })
+    .from(assets)
+    .where(eq(assets.imageCollectionId, normalizedId));
+  const assetCount = Number(countRows[0]?.count ?? 0);
+  const detachAssets = db.update(assets)
+    .set({ imageCollectionId: null, updatedAt: new Date() })
+    .where(eq(assets.imageCollectionId, normalizedId));
+  const deleteCollection = db.delete(imageCollections).where(eq(imageCollections.id, normalizedId));
+  if (typeof db.batch === 'function') await db.batch([detachAssets, deleteCollection]);
+  else {
+    await detachAssets;
+    await deleteCollection;
+  }
+  return { id: normalizedId, name: existing[0].name, assetCount };
 }
 
 // Count distinct production Cases using an Asset. This is one scalar correlated

@@ -8,12 +8,15 @@ import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
 import {
   ASSET_LIBRARY_SELECT_ALL_LIMIT,
+  AssetLibraryInputError,
   createImageCollection,
+  deleteImageCollection,
   assetLibraryQueryContext,
   getAssetLibraryPage,
   listAssetLibraryCollections,
   parseAssetLibraryFilters,
   parseAssetLibraryPage,
+  renameImageCollection,
   setAssetCollection
 } from '../src/lib/server/db/asset-library.js';
 import { moveStimulusOptionWithinCase, StimulusOptionMoveError } from '../src/lib/server/db/image-option-move.js';
@@ -55,7 +58,9 @@ function fixture() {
           };
         }
       };
-    }
+    },
+    /** @param {any[]} statements */
+    async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); }
   };
   return { sqlite, db: createDb(/** @type {any} */ (d1)) };
 }
@@ -192,6 +197,77 @@ test('Collection sorting is deterministic and keeps Unsorted explicit', async ()
     assert.deepEqual(descRows.rows.map((row) => row.id), ['sort-ecg', 'sort-derm', 'sort-unsorted-b', 'sort-unsorted-a']);
     assert.deepEqual(unsortedRows.rows.slice(0, 2).map((row) => row.id), ['sort-unsorted-a', 'sort-unsorted-b']);
   } finally { sqlite.close(); }
+});
+
+test('Collection rename preserves its ID and every Asset assignment', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    const collection = await createImageCollection(db, 'ECG');
+    insertAsset(sqlite, 'rename-asset', 56_101);
+    await setAssetCollection(db, ['rename-asset'], collection.id);
+    const renamed = await renameImageCollection(db, collection.id, 'ECG — Hyperkalaemia');
+    assert.deepEqual(renamed, { id: collection.id, previousName: 'ECG', name: 'ECG — Hyperkalaemia' });
+    const stored = sqlite.prepare('SELECT id, name FROM image_collections WHERE id = ?').get(collection.id);
+    const asset = sqlite.prepare('SELECT id, image_collection_id FROM assets WHERE id = ?').get('rename-asset');
+    assert.deepEqual({ ...stored }, { id: collection.id, name: 'ECG — Hyperkalaemia' });
+    assert.deepEqual({ ...asset }, { id: 'rename-asset', image_collection_id: collection.id });
+  } finally { sqlite.close(); }
+});
+
+test('Collection rename rejects empty, overlong, duplicate and missing targets', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    const first = await createImageCollection(db, 'ECG');
+    const second = await createImageCollection(db, 'Dermatology');
+    await assert.rejects(() => renameImageCollection(db, first.id, ''), (error) => error instanceof AssetLibraryInputError && /required/.test(error.message));
+    await assert.rejects(() => renameImageCollection(db, first.id, 'x'.repeat(201)), (error) => error instanceof AssetLibraryInputError && /200/.test(error.message));
+    await assert.rejects(() => renameImageCollection(db, first.id, 'Dermatology'), (error) => error instanceof AssetLibraryInputError && /already exists/.test(error.message));
+    await assert.rejects(() => renameImageCollection(db, 'missing-collection', 'New name'), (error) => error instanceof AssetLibraryInputError && /no longer exists/.test(error.message));
+    assert.equal((await listAssetLibraryCollections(db)).length, 2);
+    assert.equal(second.name, 'Dermatology');
+  } finally { sqlite.close(); }
+});
+
+test('Deleting empty and non-empty Collections moves only Assets to Unsorted', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    const empty = await createImageCollection(db, 'Empty collection');
+    const emptyResult = await deleteImageCollection(db, empty.id);
+    assert.deepEqual(emptyResult, { id: empty.id, name: 'Empty collection', assetCount: 0 });
+    const emptyRow = /** @type {{ count: number }} */ (sqlite.prepare('SELECT count(*) AS count FROM image_collections WHERE id = ?').get(empty.id));
+    assert.equal(emptyRow.count, 0);
+
+    const collection = await createImageCollection(db, 'ECG — Hyperkalaemia');
+    const assetId = 'seed-asset-pityriasis-herald';
+    await setAssetCollection(db, [assetId], collection.id);
+    const beforeAsset = sqlite.prepare('SELECT id, storage_key, mime_type FROM assets WHERE id = ?').get(assetId);
+    const beforeCaseAssets = sqlite.prepare('SELECT case_id, asset_id, display_order, caption_md FROM case_assets WHERE asset_id = ?').all(assetId);
+    const deleted = await deleteImageCollection(db, collection.id);
+    assert.deepEqual(deleted, { id: collection.id, name: 'ECG — Hyperkalaemia', assetCount: 1 });
+    const afterAsset = sqlite.prepare('SELECT id, storage_key, mime_type, image_collection_id FROM assets WHERE id = ?').get(assetId);
+    const afterCaseAssets = sqlite.prepare('SELECT case_id, asset_id, display_order, caption_md FROM case_assets WHERE asset_id = ?').all(assetId);
+    assert.deepEqual({ ...afterAsset }, { ...beforeAsset, image_collection_id: null });
+    assert.deepEqual(afterCaseAssets, beforeCaseAssets);
+    const unsortedPage = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('collection=unsorted')), { includeAllMatchingIds: true });
+    assert.ok(unsortedPage.allMatchingIds?.includes(assetId));
+  } finally { sqlite.close(); }
+});
+
+test('Collection deletion and assignment reject stale or missing Collections', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    insertAsset(sqlite, 'stale-collection-asset', 56_201);
+    await assert.rejects(() => deleteImageCollection(db, 'missing-collection'), (error) => error instanceof AssetLibraryInputError && /no longer exists/.test(error.message));
+    await assert.rejects(() => setAssetCollection(db, ['stale-collection-asset'], 'missing-collection'), (error) => error instanceof AssetLibraryInputError && /does not exist/.test(error.message));
+    const staleAsset = /** @type {{ image_collection_id: string | null }} */ (sqlite.prepare('SELECT image_collection_id FROM assets WHERE id = ?').get('stale-collection-asset'));
+    assert.equal(staleAsset.image_collection_id, null);
+  } finally { sqlite.close(); }
+});
+
+test('Preview Image Library has no Collection metadata mutation actions', () => {
+  const previewRoute = readFileSync(new URL('../src/routes/preview-admin/images/+page.server.js', import.meta.url), 'utf8');
+  assert.match(previewRoute, /bulkAddToStimulusGroup/);
+  assert.doesNotMatch(previewRoute, /createCollection|renameCollection|deleteCollection|setCollection/);
 });
 
 test('same-Case Move preserves option identity, caption, active state and exact-option questions', async () => {

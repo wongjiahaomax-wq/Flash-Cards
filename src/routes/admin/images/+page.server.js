@@ -8,11 +8,13 @@ import {
   assetLibraryQueryContext,
   createImageCollection,
   createAssetFromUpload,
+  deleteImageCollection,
   getAssetLibraryPage,
   listAssetLibraryCollections,
   listAssetLibraryTopics,
   parseAssetLibraryFilters,
   parseAssetLibraryPage,
+  renameImageCollection,
   setAssetCollection
 } from '$lib/server/db/asset-library.js';
 import {
@@ -69,6 +71,37 @@ export const actions = {
       const clientError = error instanceof Error && error.name === 'AssetLibraryInputError';
       if (!clientError) console.error('Collection creation failed.', error);
       return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to create the Collection.' });
+    }
+  },
+
+  renameCollection: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    try {
+      const formData = await request.formData();
+      const renamed = await renameImageCollection(createDb(platform.env.DB), formText(formData, 'collection_id'), formText(formData, 'collection_name'));
+      return { collectionRenamed: true, collectionMessage: `Renamed Collection “${renamed.previousName}” to “${renamed.name}”.` };
+    } catch (error) {
+      const clientError = error instanceof Error && error.name === 'AssetLibraryInputError';
+      if (!clientError) console.error('Collection rename failed.', error);
+      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to rename the Collection.' });
+    }
+  },
+
+  deleteCollection: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    try {
+      const formData = await request.formData();
+      const deleted = await deleteImageCollection(createDb(platform.env.DB), formText(formData, 'collection_id'));
+      return {
+        collectionDeleted: true,
+        collectionMessage: `Deleted “${deleted.name}”. ${deleted.assetCount} image${deleted.assetCount === 1 ? '' : 's'} moved to Unsorted.`
+      };
+    } catch (error) {
+      const clientError = error instanceof Error && error.name === 'AssetLibraryInputError';
+      if (!clientError) console.error('Collection deletion failed.', error);
+      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to delete the Collection.' });
     }
   },
 

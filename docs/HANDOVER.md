@@ -28,7 +28,7 @@ Its implemented Admin workflow includes:
 - production/Preview ownership enforcement for every new relationship workflow;
 - unchanged learner stimulus and Review semantics.
 
-It also adds Image Library Collections: Topic remains educational Case classification, Tag remains cross-cutting clinical metadata, and Collection is a separate organisational bucket. Each Asset has zero or one Collection; null is displayed as Unsorted. Production Admin can create Collections, filter/sort by them, assign selected Assets in bounded sequential chunks, reset them to Unsorted and edit one Asset's Collection. Preview can display/filter/sort the global metadata but cannot mutate production assignments.
+It also adds Image Library Collections: Topic remains educational Case classification, Tag remains cross-cutting clinical metadata, and Collection is a separate organisational bucket. Each Asset has zero or one Collection; null is displayed as Unsorted. Production Admin can create, rename and delete Collections, filter/sort by them, assign selected Assets in bounded sequential chunks, reset them to Unsorted and edit one Asset's Collection. Deleting a Collection preserves all Assets and relationships and moves its images to Unsorted after confirmation. Preview can display/filter/sort the global metadata but cannot create, rename, delete or mutate production assignments.
 
 The next major product-facing implementation track after Image Management V2 is **Tagging Stage B/shared tag-reusable Questions**, while ECG/Anki content ingestion continues in parallel.
 

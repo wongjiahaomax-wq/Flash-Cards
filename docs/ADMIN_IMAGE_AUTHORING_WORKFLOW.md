@@ -198,9 +198,11 @@ An Asset belongs to zero or one Collection. `assets.image_collection_id IS NULL`
 
 `/admin/images` provides Collection filtering, Collection A–Z, Collection Z–A and Unsorted-first sorting, while the existing Case-derived information is labelled **Used in Topics**. Collection filter/sort changes reset page and cross-page selection through the same canonical query-context rules as other authoritative changes.
 
-Admins can create named Collections in the Image Library and use bulk **Set Collection** on selected Assets. The operation replaces every selected Asset's current assignment; choosing **Unsorted** removes the assignment. It is sent in sequential chunks of at most 30 Assets. A failed chunk stops later chunks, preserves completed writes, retains failed/unprocessed selection and reports progress; it is not atomic across chunks.
+Admins can create and rename named Collections in the Image Library and use bulk **Set Collection** on selected Assets. Rename keeps the same Collection ID and assignments. The operation replaces every selected Asset's current assignment; choosing **Unsorted** removes the assignment. It is sent in sequential chunks of at most 30 Assets. A failed chunk stops later chunks, preserves completed writes, retains failed/unprocessed selection and reports progress; it is not atomic across chunks.
 
-The individual Asset editor exposes the same Collection field in the global metadata area. Preview may show/filter/sort production Collection metadata, but its production Asset library is read-only and has no Collection mutation action.
+Admins may delete an empty or non-empty Collection. The UI requires explicit confirmation with the current image count and states that images will not be deleted. Deletion moves every assigned Asset to Unsorted, reports the number moved, and leaves Asset identity, Case/stimulus/question relationships, Topics, Tags, Reviews and R2 objects untouched. The existing `ON DELETE SET NULL` foreign key remains a safe backstop; the application explicitly detaches first so the count and feedback are deterministic.
+
+The individual Asset editor exposes the same Collection field in the global metadata area. Preview may show/filter/sort production Collection metadata, but its production Asset library is read-only and has no create, rename, delete or assignment mutation action.
 
 ## Learner/data-model invariants
 

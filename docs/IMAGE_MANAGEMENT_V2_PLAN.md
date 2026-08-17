@@ -28,13 +28,13 @@ There is no Asset-folder model, Asset Tags, global album hierarchy or generic li
 
 ## Image Library Collections
 
-Each Asset has zero or one Collection through nullable `assets.image_collection_id`. A null value is presented as **Unsorted**. `image_collections.name` is unique, and the foreign key uses `ON DELETE SET NULL`; this milestone deliberately provides creation but no casual destructive deletion UI.
+Each Asset has zero or one Collection through nullable `assets.image_collection_id`. A null value is presented as **Unsorted**. `image_collections.name` is unique, and the foreign key uses `ON DELETE SET NULL`.
 
 Collections are global Asset metadata. They do not change `case_concepts`, Case Tags, Case relationships, captions, stimulus/question semantics, learner routing, Review snapshots or R2 identity. The read-only Case-derived context remains labelled **Used in Topics** so it cannot be confused with Collection.
 
 The Image Library supports server-backed Collection filtering alongside the existing Used in Topic, usage, status and source filters. Collection changes reset to page 1 and clear cross-page selection. Sorts include Collection A–Z, Collection Z–A and Unsorted first, with deterministic Asset-ID tie-breaks.
 
-Admins can create a named Collection from `/admin/images`, assign selected Assets through **Set Collection**, or explicitly choose **Unsorted** to remove an assignment. Assignment replaces the prior value and is chunked sequentially at the existing 30-Asset server bound. A failed chunk stops later requests, retains failed/unprocessed selection and reports completed versus remaining work. Preview can display, filter and sort Collection metadata but cannot mutate production Asset assignments.
+Admins can create or rename a named Collection from `/admin/images`, assign selected Assets through **Set Collection**, or explicitly choose **Unsorted** to remove an assignment. Rename preserves the Collection ID and all assignments. Admins can also delete empty or non-empty Collections after an explicit confirmation showing the affected image count; deletion detaches those Assets to Unsorted but never deletes images or any Case, stimulus, question, Topic, Tag, Review or R2 data. Success feedback reports how many images moved to Unsorted. Assignment replaces the prior value and is chunked sequentially at the existing 30-Asset server bound. A failed chunk stops later requests, retains failed/unprocessed selection and reports completed versus remaining work. Preview can display, filter and sort Collection metadata but cannot create, rename, delete or mutate production Asset assignments.
 
 ## 1. Server-backed Image Library pagination
 
