@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, isNotNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, isNotNull, like, not, or, sql } from 'drizzle-orm';
 
 import {
   deleteTeachingImage,
@@ -84,24 +84,40 @@ export async function listAssetLibraryTopics(db) {
   return db.select({ id: concepts.id, name: concepts.name }).from(concepts).orderBy(asc(concepts.name), asc(concepts.id));
 }
 
-// Count distinct production Case usages without placing an outer Asset reference
-// inside a derived UNION table (SQLite does not allow that correlation shape).
+// Count distinct production Cases using an Asset. This is one scalar correlated
+// subquery over cases, which SQLite supports reliably; the nested EXISTS clauses
+// avoid the unsupported "outer reference inside derived UNION table" pattern.
 const usageCountExpr = sql`(
-  (select count(distinct ca.case_id)
-    from case_assets ca
-    join cases c on c.id = ca.case_id
-    where ca.asset_id = ${assets.id} and c.preview_session_id is null)
-  +
-  (select count(distinct sg.case_id)
-    from stimulus_group_options sgo
-    join stimulus_groups sg on sg.id = sgo.stimulus_group_id
-    join cases c on c.id = sg.case_id
-    where sgo.asset_id = ${assets.id}
-      and c.preview_session_id is null
-      and not exists (
-        select 1 from case_assets ca2
-        where ca2.asset_id = ${assets.id} and ca2.case_id = sg.case_id
-      ))
+  select count(*)
+  from cases usage_case
+  where usage_case.preview_session_id is null
+    and (
+      exists (
+        select 1 from case_assets usage_ca
+        where usage_ca.case_id = usage_case.id
+          and usage_ca.asset_id = ${assets.id}
+      )
+      or exists (
+        select 1
+        from stimulus_group_options usage_sgo
+        join stimulus_groups usage_sg on usage_sg.id = usage_sgo.stimulus_group_id
+        where usage_sg.case_id = usage_case.id
+          and usage_sgo.asset_id = ${assets.id}
+      )
+    )
+)`;
+
+const usedExpr = sql`exists (
+  select 1 from cases usage_case
+  where usage_case.preview_session_id is null
+    and (
+      exists (select 1 from case_assets usage_ca where usage_ca.case_id = usage_case.id and usage_ca.asset_id = ${assets.id})
+      or exists (
+        select 1 from stimulus_group_options usage_sgo
+        join stimulus_groups usage_sg on usage_sg.id = usage_sgo.stimulus_group_id
+        where usage_sg.case_id = usage_case.id and usage_sgo.asset_id = ${assets.id}
+      )
+    )
 )`;
 
 /** @param {ReturnType<typeof parseAssetLibraryFilters>} filters */
@@ -123,28 +139,28 @@ function libraryConditions(filters) {
     const condition = and(isNull(assets.sourceLabel), isNull(assets.sourceUrl), isNull(assets.licence));
     if (condition) conditions.push(condition);
   }
-  if (filters.usage === 'used') conditions.push(sql`${usageCountExpr} > 0`);
-  if (filters.usage === 'unused') conditions.push(sql`${usageCountExpr} = 0`);
+  if (filters.usage === 'used') conditions.push(usedExpr);
+  if (filters.usage === 'unused') conditions.push(not(usedExpr));
   if (filters.topic) {
     conditions.push(sql`(
       exists (
         select 1
-        from case_assets ca
-        join cases c on c.id = ca.case_id
-        join case_concepts cc on cc.case_id = ca.case_id and cc.role = 'primary'
-        where ca.asset_id = ${assets.id}
-          and c.preview_session_id is null
-          and cc.concept_id = ${filters.topic}
+        from case_assets topic_ca
+        join cases topic_case on topic_case.id = topic_ca.case_id
+        join case_concepts topic_cc on topic_cc.case_id = topic_ca.case_id and topic_cc.role = 'primary'
+        where topic_ca.asset_id = ${assets.id}
+          and topic_case.preview_session_id is null
+          and topic_cc.concept_id = ${filters.topic}
       )
       or exists (
         select 1
-        from stimulus_group_options sgo
-        join stimulus_groups sg on sg.id = sgo.stimulus_group_id
-        join cases c on c.id = sg.case_id
-        join case_concepts cc on cc.case_id = sg.case_id and cc.role = 'primary'
-        where sgo.asset_id = ${assets.id}
-          and c.preview_session_id is null
-          and cc.concept_id = ${filters.topic}
+        from stimulus_group_options topic_sgo
+        join stimulus_groups topic_sg on topic_sg.id = topic_sgo.stimulus_group_id
+        join cases topic_case on topic_case.id = topic_sg.case_id
+        join case_concepts topic_cc on topic_cc.case_id = topic_sg.case_id and topic_cc.role = 'primary'
+        where topic_sgo.asset_id = ${assets.id}
+          and topic_case.preview_session_id is null
+          and topic_cc.concept_id = ${filters.topic}
       )
     )`);
   }
@@ -186,18 +202,33 @@ function topicSummary(names) { return names.length <= 2 ? names.join(' · ') : `
 export async function getAssetLibraryPage(db, filters, options = {}) {
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? ASSET_LIBRARY_PAGE_SIZE), ASSET_LIBRARY_PAGE_SIZE));
   const requestedPage = Math.max(1, Number(options.page ?? 1) || 1);
-  const conditions = libraryConditions(filters);
-  const where = and(...conditions);
+  const where = and(...libraryConditions(filters));
   const countRows = await db.select({ count: sql`count(*)`.mapWith(Number) }).from(assets).where(where);
   const totalCount = Number(countRows[0]?.count ?? 0);
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const page = Math.min(requestedPage, totalPages);
-  const rawRows = await db.select({ id: assets.id, type: assets.type, storageKey: assets.storageKey, mimeType: assets.mimeType, originalFilename: assets.originalFilename, altText: assets.altText, sourceLabel: assets.sourceLabel, sourceUrl: assets.sourceUrl, licence: assets.licence, isActive: assets.isActive, createdAt: assets.createdAt, updatedAt: assets.updatedAt, usageCount: usageCountExpr.mapWith(Number) })
-    .from(assets).where(where).orderBy(...libraryOrder(filters.sort)).limit(pageSize).offset((page - 1) * pageSize);
+  const rawRows = await db.select({
+    id: assets.id,
+    type: assets.type,
+    storageKey: assets.storageKey,
+    mimeType: assets.mimeType,
+    originalFilename: assets.originalFilename,
+    altText: assets.altText,
+    sourceLabel: assets.sourceLabel,
+    sourceUrl: assets.sourceUrl,
+    licence: assets.licence,
+    isActive: assets.isActive,
+    createdAt: assets.createdAt,
+    updatedAt: assets.updatedAt
+  }).from(assets).where(where).orderBy(...libraryOrder(filters.sort)).limit(pageSize).offset((page - 1) * pageSize);
   const ids = rawRows.map((row) => row.id);
   const usageRows = await listUsageRows(db, ids);
+  const usageCasesByAsset = new Map();
   const topicsByAsset = new Map();
   for (const row of usageRows) {
+    const usageCases = usageCasesByAsset.get(row.assetId) ?? new Set();
+    usageCases.add(row.caseId);
+    usageCasesByAsset.set(row.assetId, usageCases);
     if (!row.conceptId || !row.conceptName) continue;
     const topics = topicsByAsset.get(row.assetId) ?? new Map();
     topics.set(row.conceptId, row.conceptName);
@@ -205,7 +236,13 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
   }
   const rows = rawRows.map((asset) => {
     const topicNames = [...(topicsByAsset.get(asset.id)?.values() ?? [])];
-    return { ...asset, usageCount: Number(asset.usageCount ?? 0), imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null, topicNames, topicSummary: topicSummary(topicNames) };
+    return {
+      ...asset,
+      usageCount: usageCasesByAsset.get(asset.id)?.size ?? 0,
+      imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null,
+      topicNames,
+      topicSummary: topicSummary(topicNames)
+    };
   });
   let allMatchingIds = null;
   if (options.includeAllMatchingIds && totalCount <= ASSET_LIBRARY_SELECT_ALL_LIMIT) {
@@ -219,9 +256,7 @@ export async function listAssetLibrary(db, filters = {}) {
   const normalized = { search: String(filters.search ?? '').trim(), topic: String(filters.topic ?? '').trim(), usage: filters.usage ?? 'all', status: filters.status ?? 'all', source: filters.source ?? 'all', sort: filters.sort ?? 'newest' };
   const first = await getAssetLibraryPage(db, normalized, { page: 1, pageSize: ASSET_LIBRARY_PAGE_SIZE });
   const rows = [...first.rows];
-  for (let page = 2; page <= first.totalPages; page += 1) {
-    rows.push(...(await getAssetLibraryPage(db, normalized, { page, pageSize: ASSET_LIBRARY_PAGE_SIZE })).rows);
-  }
+  for (let page = 2; page <= first.totalPages; page += 1) rows.push(...(await getAssetLibraryPage(db, normalized, { page, pageSize: ASSET_LIBRARY_PAGE_SIZE })).rows);
   return rows;
 }
 
