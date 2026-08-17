@@ -35,15 +35,16 @@ function selectedAssetIds(formData) {
   return formData.getAll('asset_id').filter((value) => typeof value === 'string').map((value) => value.trim()).filter(Boolean);
 }
 
+/** @param {boolean} [open] @param {string} [search] */
+function emptyImagePicker(open = false, search = '') {
+  return { open, search, assets: [], hasMore: false, limit: 60, targetGroupId: null, targetGroupName: null };
+}
+
 export async function load({ locals, platform, params, url }) {
   const pickerOpen = url.searchParams.get('picker') === '1';
   const pickerSearch = url.searchParams.get('image_q')?.trim() ?? '';
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) {
-    return {
-      concepts: [],
-      selectedCase: null,
-      imagePicker: { open: pickerOpen, search: pickerSearch, assets: [], hasMore: false, targetGroupId: null, targetGroupName: null }
-    };
+    return { concepts: [], selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch) };
   }
 
   const db = createDb(platform.env.DB);
@@ -54,11 +55,7 @@ export async function load({ locals, platform, params, url }) {
     getAdminStimulusData(db, params.caseId)
   ]);
   if (!manager) {
-    return {
-      concepts,
-      selectedCase: null,
-      imagePicker: { open: pickerOpen, search: pickerSearch, assets: [], hasMore: false, targetGroupId: null, targetGroupName: null }
-    };
+    return { concepts, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch) };
   }
 
   const stimulusGroups = stimulusGroupsData.map((group) => ({
@@ -87,7 +84,6 @@ export async function load({ locals, platform, params, url }) {
     },
     imagePicker: {
       open: pickerOpen,
-      search: pickerSearch,
       ...pickerResults,
       targetGroupId: targetGroup?.id ?? null,
       targetGroupName: targetGroup?.name ?? null
