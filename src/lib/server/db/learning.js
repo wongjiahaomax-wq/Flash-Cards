@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNotNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
 
 import {
   assets,
@@ -46,12 +46,13 @@ async function loadActiveCaseTopicRows(db) {
     })
     .from(cases)
     .innerJoin(caseConcepts, eq(caseConcepts.caseId, cases.id))
-    .where(eq(cases.isActive, true));
+    .where(and(eq(cases.isActive, true), isNull(cases.previewSessionId)));
 }
 
 /**
  * Return active Concepts that have at least one unique active Case in their subtree.
  * Primary and secondary Case/Concept relationships are both learner routes.
+ * Preview-owned Cases are excluded centrally before route resolution/counting.
  *
  * @param {LearningDb} db
  */
@@ -82,7 +83,7 @@ export async function listStudyConcepts(db) {
 }
 
 /**
- * Resolve one deduplicated active Case candidate per eligible Case, including
+ * Resolve one deduplicated active Case candidate per eligible production Case, including
  * both its canonical primary Concept and the Study Concept for this route.
  *
  * @param {LearningDb} db
@@ -211,7 +212,7 @@ async function loadCaseSource(db, caseId, studyConceptId, rng) {
       questionCount: cases.questionCount
     })
     .from(cases)
-    .where(and(eq(cases.id, caseId), eq(cases.isActive, true)))
+    .where(and(eq(cases.id, caseId), eq(cases.isActive, true), isNull(cases.previewSessionId)))
     .limit(1);
   const caseRow = caseRows[0];
   if (!caseRow) return null;
@@ -247,7 +248,7 @@ async function loadCaseSource(db, caseId, studyConceptId, rng) {
   const promptRows = await db
     .select({ id: questionPrompts.id, promptMd: questionPrompts.promptMd })
     .from(questionPrompts)
-    .where(eq(questionPrompts.isActive, true));
+    .where(and(eq(questionPrompts.isActive, true), isNull(questionPrompts.previewSessionId)));
   const prompts = new Map(promptRows.map((prompt) => [prompt.id, prompt.promptMd]));
 
   const caseQuestionRows = await db
@@ -306,7 +307,7 @@ async function loadCaseSource(db, caseId, studyConceptId, rng) {
     })
     .from(caseAssets)
     .innerJoin(assets, eq(assets.id, caseAssets.assetId))
-    .where(and(eq(caseAssets.caseId, caseId), eq(assets.isActive, true)))
+    .where(and(eq(caseAssets.caseId, caseId), eq(assets.isActive, true), isNull(assets.previewSessionId)))
     .orderBy(asc(caseAssets.displayOrder));
 
   const groupRows = await db
@@ -337,7 +338,7 @@ async function loadCaseSource(db, caseId, studyConceptId, rng) {
         })
         .from(stimulusGroupOptions)
         .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
-        .where(and(inArray(stimulusGroupOptions.stimulusGroupId, groupIds), eq(stimulusGroupOptions.isActive, true), eq(assets.isActive, true)))
+        .where(and(inArray(stimulusGroupOptions.stimulusGroupId, groupIds), eq(stimulusGroupOptions.isActive, true), eq(assets.isActive, true), isNull(assets.previewSessionId)))
         .orderBy(asc(stimulusGroupOptions.displayOrder), asc(stimulusGroupOptions.id))
     : [];
 
