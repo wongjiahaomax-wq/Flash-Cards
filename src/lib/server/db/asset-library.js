@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, isNull, isNotNull, like, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, isNotNull, like, or, sql } from 'drizzle-orm';
 
 import {
   deleteTeachingImage,
@@ -9,6 +9,9 @@ import {
 import { assets, caseAssets, caseConcepts, cases, concepts, stimulusGroupOptions, stimulusGroups } from './schema.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
+
+export const ASSET_LIBRARY_PAGE_SIZE = 60;
+export const ASSET_LIBRARY_SELECT_ALL_LIMIT = 300;
 
 export class AssetLibraryInputError extends Error {
   /** @param {string} message */
@@ -35,18 +38,9 @@ function requiredText(value, label) {
 export function validateAssetSourceUrl(value) {
   const text = optionalText(value);
   if (!text) return null;
-
   let parsed;
-  try {
-    parsed = new URL(text);
-  } catch {
-    throw new AssetLibraryInputError('Source URL must be a valid http(s) URL.');
-  }
-
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new AssetLibraryInputError('Source URL must be a valid http(s) URL.');
-  }
-
+  try { parsed = new URL(text); } catch { throw new AssetLibraryInputError('Source URL must be a valid http(s) URL.'); }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new AssetLibraryInputError('Source URL must be a valid http(s) URL.');
   return parsed.toString();
 }
 
@@ -64,7 +58,6 @@ export function parseAssetLibraryFilters(params) {
   const usageValue = params.get('usage');
   const statusValue = params.get('status');
   const sourceValue = params.get('source');
-
   return {
     search: params.get('q')?.trim() ?? '',
     topic: params.get('topic')?.trim() ?? '',
@@ -75,122 +68,113 @@ export function parseAssetLibraryFilters(params) {
   };
 }
 
-/** @param {LearningDb} db */
-export async function listAssetLibraryTopics(db) {
-  return db
-    .select({ id: concepts.id, name: concepts.name })
-    .from(concepts)
-    .orderBy(asc(concepts.name), asc(concepts.id));
+/** @param {URLSearchParams | { get(name: string): string | null }} params */
+export function parseAssetLibraryPage(params) {
+  const raw = Number(params.get('page') ?? 1);
+  return Number.isSafeInteger(raw) && raw > 0 ? raw : 1;
+}
+
+/** @param {ReturnType<typeof parseAssetLibraryFilters>} filters */
+export function assetLibraryQueryContext(filters) {
+  return JSON.stringify({ q: filters.search, topic: filters.topic, usage: filters.usage, status: filters.status, source: filters.source, sort: filters.sort });
 }
 
 /** @param {LearningDb} db */
-async function listUsageRows(db) {
-  const fixedRows = await db
-    .select({
-      assetId: caseAssets.assetId,
-      caseId: cases.id,
-      caseTitle: cases.title,
-      caseIsActive: cases.isActive,
-      captionMd: caseAssets.captionMd,
-      displayOrder: caseAssets.displayOrder,
-      conceptId: caseConcepts.conceptId,
-      conceptName: concepts.name,
-      stimulusGroupName: sql`null`.as('stimulus_group_name')
-    })
-    .from(caseAssets)
-    .innerJoin(cases, eq(cases.id, caseAssets.caseId))
-    .leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
-    .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
-    .where(isNull(cases.previewSessionId))
-    .orderBy(asc(cases.title), asc(caseAssets.displayOrder), asc(cases.id));
-  const groupedRows = await db
-    .select({
-      assetId: stimulusGroupOptions.assetId,
-      caseId: cases.id,
-      caseTitle: cases.title,
-      caseIsActive: cases.isActive,
-      captionMd: stimulusGroupOptions.captionMd,
-      displayOrder: stimulusGroupOptions.displayOrder,
-      conceptId: caseConcepts.conceptId,
-      conceptName: concepts.name,
-      stimulusGroupId: stimulusGroups.id,
-      stimulusGroupName: stimulusGroups.name,
-      stimulusOptionId: stimulusGroupOptions.id
-    })
-    .from(stimulusGroupOptions)
-    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-    .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
-    .leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
-    .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
-    .where(isNull(cases.previewSessionId))
-    .orderBy(asc(cases.title), asc(stimulusGroupOptions.displayOrder), asc(cases.id));
+export async function listAssetLibraryTopics(db) {
+  return db.select({ id: concepts.id, name: concepts.name }).from(concepts).orderBy(asc(concepts.name), asc(concepts.id));
+}
+
+const usageCountExpr = sql`(
+  select count(*) from (
+    select ca.case_id from case_assets ca join cases c on c.id = ca.case_id
+      where ca.asset_id = ${assets.id} and c.preview_session_id is null
+    union
+    select sg.case_id from stimulus_group_options sgo
+      join stimulus_groups sg on sg.id = sgo.stimulus_group_id
+      join cases c on c.id = sg.case_id
+      where sgo.asset_id = ${assets.id} and c.preview_session_id is null
+  ) asset_case_usage
+)`;
+
+/** @param {ReturnType<typeof parseAssetLibraryFilters>} filters */
+function libraryConditions(filters) {
+  const conditions = [isNull(assets.previewSessionId)];
+  const search = filters.search;
+  if (search) {
+    const pattern = `%${search}%`;
+    const condition = or(like(assets.originalFilename, pattern), like(assets.altText, pattern), like(assets.sourceLabel, pattern), like(assets.sourceUrl, pattern));
+    if (condition) conditions.push(condition);
+  }
+  if (filters.status === 'active') conditions.push(eq(assets.isActive, true));
+  if (filters.status === 'inactive') conditions.push(eq(assets.isActive, false));
+  if (filters.source === 'known') {
+    const condition = or(isNotNull(assets.sourceLabel), isNotNull(assets.sourceUrl), isNotNull(assets.licence));
+    if (condition) conditions.push(condition);
+  }
+  if (filters.source === 'unknown') {
+    const condition = and(isNull(assets.sourceLabel), isNull(assets.sourceUrl), isNull(assets.licence));
+    if (condition) conditions.push(condition);
+  }
+  if (filters.usage === 'used') conditions.push(sql`${usageCountExpr} > 0`);
+  if (filters.usage === 'unused') conditions.push(sql`${usageCountExpr} = 0`);
+  if (filters.topic) {
+    conditions.push(sql`exists (
+      select 1 from case_concepts cc
+      where cc.concept_id = ${filters.topic} and cc.role = 'primary' and cc.case_id in (
+        select ca.case_id from case_assets ca join cases c on c.id = ca.case_id where ca.asset_id = ${assets.id} and c.preview_session_id is null
+        union
+        select sg.case_id from stimulus_group_options sgo join stimulus_groups sg on sg.id = sgo.stimulus_group_id join cases c on c.id = sg.case_id where sgo.asset_id = ${assets.id} and c.preview_session_id is null
+      )
+    )`);
+  }
+  return conditions;
+}
+
+/** @param {ReturnType<typeof parseAssetLibraryFilters>['sort']} sort */
+function libraryOrder(sort) {
+  if (sort === 'oldest') return [asc(assets.createdAt), asc(assets.id)];
+  if (sort === 'name-asc') return [asc(assets.originalFilename), asc(assets.id)];
+  if (sort === 'name-desc') return [desc(assets.originalFilename), desc(assets.id)];
+  if (sort === 'most-used') return [desc(usageCountExpr), desc(assets.createdAt), desc(assets.id)];
+  if (sort === 'least-used') return [asc(usageCountExpr), asc(assets.createdAt), asc(assets.id)];
+  return [desc(assets.createdAt), desc(assets.id)];
+}
+
+/** @param {LearningDb} db @param {string[]} assetIds */
+async function listUsageRows(db, assetIds) {
+  if (!assetIds.length) return [];
+  const fixedRows = await db.select({ assetId: caseAssets.assetId, caseId: cases.id, caseTitle: cases.title, caseIsActive: cases.isActive, captionMd: caseAssets.captionMd, displayOrder: caseAssets.displayOrder, conceptId: caseConcepts.conceptId, conceptName: concepts.name, stimulusGroupName: sql`null`.as('stimulus_group_name') })
+    .from(caseAssets).innerJoin(cases, eq(cases.id, caseAssets.caseId)).leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary'))).leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .where(and(isNull(cases.previewSessionId), inArray(caseAssets.assetId, assetIds))).orderBy(asc(cases.title), asc(caseAssets.displayOrder), asc(cases.id));
+  const groupedRows = await db.select({ assetId: stimulusGroupOptions.assetId, caseId: cases.id, caseTitle: cases.title, caseIsActive: cases.isActive, captionMd: stimulusGroupOptions.captionMd, displayOrder: stimulusGroupOptions.displayOrder, conceptId: caseConcepts.conceptId, conceptName: concepts.name, stimulusGroupId: stimulusGroups.id, stimulusGroupName: stimulusGroups.name, stimulusOptionId: stimulusGroupOptions.id })
+    .from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary'))).leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .where(and(isNull(cases.previewSessionId), inArray(stimulusGroupOptions.assetId, assetIds))).orderBy(asc(cases.title), asc(stimulusGroupOptions.displayOrder), asc(cases.id));
   return [...fixedRows, ...groupedRows];
 }
 
 /** @param {string[]} names */
-function topicSummary(names) {
-  if (names.length <= 2) return names.join(' · ');
-  return `${names.slice(0, 2).join(' · ')} +${names.length - 2}`;
-}
+function topicSummary(names) { return names.length <= 2 ? names.join(' · ') : `${names.slice(0, 2).join(' · ')} +${names.length - 2}`; }
 
 /**
+ * Server-backed Image Library query. Only one bounded page of Asset rows is
+ * loaded for rendering; total count and all-matching IDs use bounded SQL.
  * @param {LearningDb} db
- * @param {{ search?: string, topic?: string, usage?: 'all' | 'used' | 'unused', status?: 'all' | 'active' | 'inactive', source?: 'all' | 'known' | 'unknown', sort?: 'newest' | 'oldest' | 'name-asc' | 'name-desc' | 'most-used' | 'least-used' }} [filters]
+ * @param {ReturnType<typeof parseAssetLibraryFilters>} filters
+ * @param {{ page?: number, pageSize?: number, includeAllMatchingIds?: boolean }} [options]
  */
-export async function listAssetLibrary(db, filters = {}) {
-  const search = String(filters.search ?? '').trim();
-  const topic = String(filters.topic ?? '').trim();
-  const usage = filters.usage ?? 'all';
-  const status = filters.status ?? 'all';
-  const source = filters.source ?? 'all';
-  const sort = filters.sort ?? 'newest';
-  const conditions = [isNull(assets.previewSessionId)];
-
-  if (search) {
-    const pattern = `%${search}%`;
-    const searchCondition = or(
-      like(assets.originalFilename, pattern),
-      like(assets.altText, pattern),
-      like(assets.sourceLabel, pattern),
-      like(assets.sourceUrl, pattern)
-    );
-    if (searchCondition) conditions.push(searchCondition);
-  }
-  if (status === 'active') conditions.push(eq(assets.isActive, true));
-  if (status === 'inactive') conditions.push(eq(assets.isActive, false));
-  if (source === 'known') {
-    const knownSourceCondition = or(isNotNull(assets.sourceLabel), isNotNull(assets.sourceUrl), isNotNull(assets.licence));
-    if (knownSourceCondition) conditions.push(knownSourceCondition);
-  }
-  if (source === 'unknown') {
-    const unknownSourceCondition = and(isNull(assets.sourceLabel), isNull(assets.sourceUrl), isNull(assets.licence));
-    if (unknownSourceCondition) conditions.push(unknownSourceCondition);
-  }
-  const rows = await db
-    .select({
-      id: assets.id,
-      type: assets.type,
-      storageKey: assets.storageKey,
-      mimeType: assets.mimeType,
-      originalFilename: assets.originalFilename,
-      altText: assets.altText,
-      sourceLabel: assets.sourceLabel,
-      sourceUrl: assets.sourceUrl,
-      licence: assets.licence,
-      isActive: assets.isActive,
-      createdAt: assets.createdAt,
-      updatedAt: assets.updatedAt
-    })
-    .from(assets)
-    .where(and(...conditions))
-    .orderBy(desc(assets.createdAt), desc(assets.id));
-  const usageRows = await listUsageRows(db);
-  const usageByAsset = new Map();
-  for (const row of usageRows) {
-    const usages = usageByAsset.get(row.assetId) ?? [];
-    usages.push(row);
-    usageByAsset.set(row.assetId, usages);
-  }
+export async function getAssetLibraryPage(db, filters, options = {}) {
+  const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? ASSET_LIBRARY_PAGE_SIZE), ASSET_LIBRARY_PAGE_SIZE));
+  const requestedPage = Math.max(1, Number(options.page ?? 1) || 1);
+  const conditions = libraryConditions(filters);
+  const where = and(...conditions);
+  const countRows = await db.select({ count: sql`count(*)`.mapWith(Number) }).from(assets).where(where);
+  const totalCount = Number(countRows[0]?.count ?? 0);
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  const rawRows = await db.select({ id: assets.id, type: assets.type, storageKey: assets.storageKey, mimeType: assets.mimeType, originalFilename: assets.originalFilename, altText: assets.altText, sourceLabel: assets.sourceLabel, sourceUrl: assets.sourceUrl, licence: assets.licence, isActive: assets.isActive, createdAt: assets.createdAt, updatedAt: assets.updatedAt, usageCount: usageCountExpr.mapWith(Number) })
+    .from(assets).where(where).orderBy(...libraryOrder(filters.sort)).limit(pageSize).offset((page - 1) * pageSize);
+  const ids = rawRows.map((row) => row.id);
+  const usageRows = await listUsageRows(db, ids);
   const topicsByAsset = new Map();
   for (const row of usageRows) {
     if (!row.conceptId || !row.conceptName) continue;
@@ -198,158 +182,60 @@ export async function listAssetLibrary(db, filters = {}) {
     topics.set(row.conceptId, row.conceptName);
     topicsByAsset.set(row.assetId, topics);
   }
+  const rows = rawRows.map((asset) => {
+    const topicNames = [...(topicsByAsset.get(asset.id)?.values() ?? [])];
+    return { ...asset, usageCount: Number(asset.usageCount ?? 0), imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null, topicNames, topicSummary: topicSummary(topicNames) };
+  });
+  let allMatchingIds = null;
+  if (options.includeAllMatchingIds && totalCount <= ASSET_LIBRARY_SELECT_ALL_LIMIT) {
+    allMatchingIds = (await db.select({ id: assets.id }).from(assets).where(where).orderBy(...libraryOrder(filters.sort)).limit(ASSET_LIBRARY_SELECT_ALL_LIMIT)).map((row) => row.id);
+  }
+  return { rows, totalCount, totalPages, page, pageSize, requestedPage, allMatchingIds };
+}
 
-  return rows
-    .map((asset) => {
-      const assetUsages = usageByAsset.get(asset.id) ?? [];
-      const topicNames = [...(topicsByAsset.get(asset.id)?.values() ?? [])];
-      return {
-        ...asset,
-        usageCount: new Set(assetUsages.map((/** @type {{ caseId: string }} */ usage) => usage.caseId)).size,
-        imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null,
-        topicNames,
-        topicSummary: topicSummary(topicNames)
-      };
-    })
-    .filter((asset) => {
-      const assetUsages = usageByAsset.get(asset.id) ?? [];
-      if (usage === 'used' && asset.usageCount === 0) return false;
-      if (usage === 'unused' && asset.usageCount > 0) return false;
-      if (topic && !assetUsages.some((/** @type {{ conceptId: string | null }} */ row) => row.conceptId === topic)) return false;
-      if (search) {
-        const text = [asset.originalFilename, asset.altText, asset.sourceLabel, asset.sourceUrl].filter(Boolean).join(' ').toLocaleLowerCase();
-        if (!text.includes(search.toLocaleLowerCase())) return false;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (sort === 'most-used' || sort === 'least-used') {
-        const usageResult = sort === 'most-used' ? b.usageCount - a.usageCount : a.usageCount - b.usageCount;
-        if (usageResult !== 0) return usageResult;
-        const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : Number(a.createdAt ?? 0);
-        const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : Number(b.createdAt ?? 0);
-        return sort === 'least-used' ? aTime - bTime : bTime - aTime;
-      }
-      if (sort === 'name-asc' || sort === 'name-desc') {
-        const result = String(a.originalFilename ?? '').localeCompare(String(b.originalFilename ?? ''));
-        return sort === 'name-asc' ? result : -result;
-      }
-      const aTime = a.createdAt instanceof Date ? a.createdAt.getTime() : Number(a.createdAt ?? 0);
-      const bTime = b.createdAt instanceof Date ? b.createdAt.getTime() : Number(b.createdAt ?? 0);
-      return sort === 'oldest' ? aTime - bTime : bTime - aTime;
-    });
+/** Backwards-compatible unpaged helper for bounded callers/tests. */
+export async function listAssetLibrary(db, filters = {}) {
+  const normalized = { search: String(filters.search ?? '').trim(), topic: String(filters.topic ?? '').trim(), usage: filters.usage ?? 'all', status: filters.status ?? 'all', source: filters.source ?? 'all', sort: filters.sort ?? 'newest' };
+  const page = await getAssetLibraryPage(db, normalized, { page: 1, pageSize: ASSET_LIBRARY_PAGE_SIZE });
+  return page.rows;
 }
 
 /** @param {LearningDb} db @param {string} assetId */
 export async function getAssetLibraryDetail(db, assetId) {
   const normalizedId = requiredText(assetId, 'Asset');
-  const rows = await db
-    .select()
-    .from(assets)
-    .where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId)))
-    .limit(1);
+  const rows = await db.select().from(assets).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
   const asset = rows[0];
   if (!asset) return null;
-
-  const usages = (await listUsageRows(db)).filter((row) => row.assetId === asset.id);
-  return {
-    asset: {
-      ...asset,
-      imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null,
-      usageCount: new Set(usages.map((usage) => usage.caseId)).size
-    },
-    usages
-  };
+  const usages = await listUsageRows(db, [asset.id]);
+  return { asset: { ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null, usageCount: new Set(usages.map((usage) => usage.caseId)).size }, usages };
 }
 
-/**
- * Update only D1 Asset metadata. In particular, storageKey is deliberately not
- * accepted here, so renaming can never mutate the immutable R2 object identity.
- * Preview-owned Assets are not valid normal Admin mutation targets.
- *
- * @param {LearningDb} db
- * @param {string} assetId
- * @param {{ originalFilename?: string | null, altText?: string | null, sourceLabel?: string | null, sourceUrl?: string | null, licence?: string | null, isActive?: boolean | string }} input
- */
 export async function updateAssetMetadata(db, assetId, input) {
   const normalizedId = requiredText(assetId, 'Asset');
-  const existing = await db
-    .select({ id: assets.id })
-    .from(assets)
-    .where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId)))
-    .limit(1);
+  const existing = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
   if (!existing[0]) throw new AssetLibraryInputError('The selected production Asset no longer exists.');
-
-  const update = {
-    originalFilename: optionalText(input.originalFilename),
-    altText: optionalText(input.altText),
-    sourceLabel: optionalText(input.sourceLabel),
-    sourceUrl: validateAssetSourceUrl(input.sourceUrl),
-    licence: optionalText(input.licence),
-    isActive: booleanValue(input.isActive),
-    updatedAt: new Date()
-  };
-  await db
-    .update(assets)
-    .set(update)
-    .where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId)));
+  const update = { originalFilename: optionalText(input.originalFilename), altText: optionalText(input.altText), sourceLabel: optionalText(input.sourceLabel), sourceUrl: validateAssetSourceUrl(input.sourceUrl), licence: optionalText(input.licence), isActive: booleanValue(input.isActive), updatedAt: new Date() };
+  await db.update(assets).set(update).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId)));
   return update;
 }
 
 /** @param {string} mimeType */
-function extensionForType(mimeType) {
-  return mimeType === 'image/png' ? 'png' : 'jpg';
-}
+function extensionForType(mimeType) { return mimeType === 'image/png' ? 'png' : 'jpg'; }
 
-/**
- * The Image Library upload path delegates the R2 write and all storage limits
- * to the existing protected teaching-image pipeline.
- *
- * @param {LearningDb} db
- * @param {R2Bucket} bucket
- * @param {Blob & { name?: string }} file
- * @param {{ originalFilename?: string | null, altText: string, sourceLabel?: string | null, sourceUrl?: string | null, licence?: string | null }} metadata
- */
 export async function createAssetFromUpload(db, bucket, file, metadata) {
-  if (!file || typeof file.type !== 'string' || typeof file.size !== 'number') {
-    throw new AssetLibraryInputError('Choose a JPEG or PNG image to upload.');
-  }
-
-  try {
-    assertSupportedImageType(file.type);
-  } catch (error) {
-    throw new AssetLibraryInputError(error instanceof Error ? error.message : 'Only JPEG and PNG teaching images are supported.');
-  }
-
+  if (!file || typeof file.type !== 'string' || typeof file.size !== 'number') throw new AssetLibraryInputError('Choose a JPEG or PNG image to upload.');
+  try { assertSupportedImageType(file.type); } catch (error) { throw new AssetLibraryInputError(error instanceof Error ? error.message : 'Only JPEG and PNG teaching images are supported.'); }
   const key = `teaching-images/${crypto.randomUUID()}.${extensionForType(file.type)}`;
   const originalFilename = optionalText(metadata.originalFilename) ?? optionalText(file.name);
   const altText = requiredText(metadata.altText, 'Alt text');
   const sourceUrl = validateAssetSourceUrl(metadata.sourceUrl);
-
   await putTeachingImage(bucket, key, file);
-
   const id = crypto.randomUUID();
   try {
-    await db.insert(assets).values({
-      id,
-      type: 'image',
-      storageKey: key,
-      mimeType: file.type,
-      originalFilename,
-      altText,
-      sourceLabel: optionalText(metadata.sourceLabel),
-      sourceUrl,
-      licence: optionalText(metadata.licence),
-      isActive: true
-    });
+    await db.insert(assets).values({ id, type: 'image', storageKey: key, mimeType: file.type, originalFilename, altText, sourceLabel: optionalText(metadata.sourceLabel), sourceUrl, licence: optionalText(metadata.licence), isActive: true });
   } catch (error) {
-    try {
-      await deleteTeachingImage(bucket, key);
-    } catch (cleanupError) {
-      console.error('Unable to clean up orphaned teaching image after metadata failure.', { key, cleanupError });
-    }
+    try { await deleteTeachingImage(bucket, key); } catch (cleanupError) { console.error('Unable to clean up orphaned teaching image after metadata failure.', { key, cleanupError }); }
     throw error;
   }
-
   return { id, storageKey: key };
 }
