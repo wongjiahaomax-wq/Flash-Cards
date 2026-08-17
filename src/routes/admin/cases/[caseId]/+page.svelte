@@ -1,4 +1,5 @@
 <script>
+  import { reconcileCasePickerSelection } from '$lib/admin-image-selection.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
 
   /** @typedef {{ imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, assetId?: string }} ViewableAsset */
@@ -13,8 +14,26 @@
   let pickerCloseButton = $state();
   /** @type {Set<string>} */
   let pickerSelected = $state(new Set());
+  /** @type {string | null} */
+  let pickerContextKey = $state(null);
 
   $effect(() => {
+    const nextContextKey = `${selectedCase?.case.id ?? ''}:${data.imagePicker?.targetGroupId ?? 'fixed'}`;
+    const orderedIds = data.imagePicker?.assets?.map((asset) => asset.id) ?? [];
+    const visibleIds = new Set(orderedIds);
+    const contextChanged = Boolean(pickerContextKey && pickerContextKey !== nextContextKey);
+    const hasHiddenSelection = [...pickerSelected].some((assetId) => !visibleIds.has(assetId));
+    if (contextChanged || hasHiddenSelection) {
+      const reconciled = reconcileCasePickerSelection({
+        selectedIds: pickerSelected,
+        previousContextKey: pickerContextKey,
+        nextContextKey,
+        orderedIds
+      });
+      pickerSelected = reconciled.selectedIds;
+    }
+    pickerContextKey = nextContextKey;
+
     if (data.imagePicker?.open && pickerDialog && !pickerDialog.open) {
       pickerDialog.showModal();
       requestAnimationFrame(() => pickerCloseButton?.focus());
