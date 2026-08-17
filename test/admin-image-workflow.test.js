@@ -61,6 +61,10 @@ function createLearningDb() {
   return { db: createDb(/** @type {D1Database} */ (/** @type {unknown} */ (d1))), d1, sqlite };
 }
 
+/**
+ * @param {DatabaseSync} sqlite
+ * @param {{ id: string, name: string, active?: number, source?: string | null }} asset
+ */
 function insertAsset(sqlite, { id, name, active = 1, source = null }) {
   sqlite.prepare('INSERT INTO assets (id, type, storage_key, mime_type, original_filename, alt_text, source_label, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
     id, 'image', `teaching-images/${id}.png`, 'image/png', name, `${name} detailed alt`, source, active, 9_000, 9_000
@@ -133,7 +137,9 @@ test('bulk grouping adds only intended Case-scoped option relationships and is i
     const repeat = await bulkAddAssetsToStimulusGroup(fixture.db, groupId, ['bulk-a', 'bulk-b']);
     assert.equal(repeat.addedCount, 0);
     assert.equal(repeat.alreadyPresentCount, 2);
-    assert.equal(fixture.sqlite.prepare('SELECT count(*) AS count FROM stimulus_group_options WHERE stimulus_group_id = ?').get(groupId).count, 2);
+    const optionCount = fixture.sqlite.prepare('SELECT count(*) AS count FROM stimulus_group_options WHERE stimulus_group_id = ?').get(groupId);
+    assert.ok(optionCount);
+    assert.equal(optionCount.count, 2);
 
     await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, 'missing-group', ['bulk-a']), /missing or inactive/);
     fixture.sqlite.prepare('UPDATE stimulus_groups SET is_active = 0 WHERE id = ?').run(groupId);
@@ -153,9 +159,13 @@ test('alternative image captions remain editable after picker-based grouping', a
     assert.ok(option?.id);
 
     await updateStimulusOptionCaption(fixture.db, 'seed-anterior-a', String(option.id), '  Case-specific ECG caption  ');
-    assert.equal(fixture.sqlite.prepare('SELECT caption_md FROM stimulus_group_options WHERE id = ?').get(option.id).caption_md, 'Case-specific ECG caption');
+    const savedCaption = fixture.sqlite.prepare('SELECT caption_md FROM stimulus_group_options WHERE id = ?').get(option.id);
+    assert.ok(savedCaption);
+    assert.equal(savedCaption.caption_md, 'Case-specific ECG caption');
     await assert.rejects(() => updateStimulusOptionCaption(fixture.db, 'seed-anterior-b', String(option.id), 'Wrong Case'), /not attached/);
-    assert.equal(fixture.sqlite.prepare('SELECT caption_md FROM stimulus_group_options WHERE id = ?').get(option.id).caption_md, 'Case-specific ECG caption');
+    const unchangedCaption = fixture.sqlite.prepare('SELECT caption_md FROM stimulus_group_options WHERE id = ?').get(option.id);
+    assert.ok(unchangedCaption);
+    assert.equal(unchangedCaption.caption_md, 'Case-specific ECG caption');
   } finally {
     fixture.sqlite.close();
   }
@@ -172,7 +182,9 @@ test('bulk grouping rejects fixed or cross-set Case conflicts and invalid Assets
     const secondGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Second set', specificQuestionMode: 'none' });
 
     await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, firstGroup, ['conflict-free', 'conflict-fixed']), /fixed images/);
-    assert.equal(fixture.sqlite.prepare('SELECT count(*) AS count FROM stimulus_group_options WHERE stimulus_group_id = ?').get(firstGroup).count, 0);
+    const firstGroupCount = fixture.sqlite.prepare('SELECT count(*) AS count FROM stimulus_group_options WHERE stimulus_group_id = ?').get(firstGroup);
+    assert.ok(firstGroupCount);
+    assert.equal(firstGroupCount.count, 0);
     await bulkAddAssetsToStimulusGroup(fixture.db, secondGroup, ['conflict-free']);
     await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, firstGroup, ['conflict-free']), /another alternative set/);
     await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, firstGroup, ['conflict-inactive']), /missing or inactive/);
@@ -206,7 +218,7 @@ test('Case image actions require administrator authorization', async () => {
     locals: { user: { role: 'user' } },
     params: { caseId: 'seed-anterior-a' }
   }));
-  assert.equal(result.status, 403);
+  assert.equal('status' in result ? result.status : null, 403);
 });
 
 test('Images-library bulk grouping action requires administrator authorization', async () => {
@@ -218,7 +230,7 @@ test('Images-library bulk grouping action requires administrator authorization',
     request: new Request('http://localhost/admin/images?/bulkAddToStimulusGroup', { method: 'POST', body: formData }),
     locals: { user: { role: 'user' } }
   }));
-  assert.equal(result.status, 403);
+  assert.equal('status' in result ? result.status : null, 403);
 });
 
 test('Case editor keeps Images before Case questions and no longer embeds the unused Asset Library', () => {
