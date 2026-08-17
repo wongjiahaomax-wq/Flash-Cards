@@ -225,7 +225,7 @@ For draft PR #34, human review should follow the exact Image Management V2 proce
 0007_image_collections.sql
 ```
 
-Draft PR #34 adds `0007_image_collections.sql`; the migration must be reviewed and applied before the matching application commit is used against the production-backed Preview database.
+Draft PR #34 adds `0007_image_collections.sql`; the migration/schema foundation must be reviewed and applied first. Because the Preview workflow blocks schema-bearing diffs, PR #34 must then be rebased/updated so those already-landed files are no longer in its diff before its code-only head is used against the production-backed Preview database.
 
 ## Admin UI state
 

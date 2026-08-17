@@ -215,6 +215,6 @@ Image Management V2 does not change:
 - learner Review composition;
 - R2 object identity.
 
-Migration `drizzle/0007_image_collections.sql` adds `image_collections`, the nullable Asset foreign key and indexes. `wrangler.jsonc` is unchanged. The existing Deploy PR to Preview workflow intentionally blocks migration-bearing PRs because it uses production-backed D1 without applying migrations. Do not weaken that guard; apply the reviewed migration through the protected sequencing process before deploying the matching application commit for manual Preview review.
+Migration `drizzle/0007_image_collections.sql` adds `image_collections`, the nullable Asset foreign key and indexes. `wrangler.jsonc` is unchanged. The existing Deploy PR to Preview workflow intentionally blocks migration/schema-bearing PRs because it uses production-backed D1 without applying migrations. Do not weaken that guard: land and apply the reviewed migration/schema foundation first, then rebase/update PR #34 so the already-landed schema files are no longer in its diff before deploying the code-only Preview candidate for manual review.
 
 See `IMAGE_MANAGEMENT_V2_PLAN.md` for final limits, tests and manual Preview review procedure.

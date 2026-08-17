@@ -254,7 +254,7 @@ drizzle/0007_image_collections.sql
 src/lib/server/db/schema.js
 ```
 
-The existing `.github/workflows/deploy-pr-to-preview.yml` intentionally refuses PRs that change D1 schema/migrations, because that workflow deploys the Worker against the production-backed D1 binding and never applies migrations. PR #34 therefore cannot safely deploy through that workflow while `0007` is pending. The safest sequencing is to review and merge the migration/schema portion under the normal protected process, apply `0007_image_collections.sql` to the intended D1 environment with an explicit migration step, then deploy the exact post-migration application commit to Preview and perform manual review. Do not weaken the guard or point Preview at an unreviewed database.
+The existing `.github/workflows/deploy-pr-to-preview.yml` intentionally refuses PRs that change D1 schema/migrations, because that workflow deploys the Worker against the production-backed D1 binding and never applies migrations. The current PR #34 head therefore cannot safely deploy through that workflow. Applying `0007_image_collections.sql` alone is not sufficient: the guard compares the PR diff with `main` and also blocks the `schema.js` change. The safest sequencing is to review and merge the migration/schema foundation through the normal protected process, apply `0007_image_collections.sql` to the intended D1 environment, rebase/update PR #34 so those already-landed schema/migration files are no longer in its diff, and then deploy the resulting code-only PR head to Preview for manual review. Do not weaken the guard or point Preview at an unreviewed database.
 
 ## 12. Regression coverage
 
@@ -305,9 +305,9 @@ These commands are also covered by the repository CI workflow for pull requests.
 
 After CI is green:
 
-1. Do not run **Deploy PR to Preview** for PR #34 until the migration has been separately reviewed and applied; the workflow is expected to stop at its schema guard.
-2. Apply the reviewed `0007_image_collections.sql` through the protected migration process to the D1 database used by Preview.
-3. Deploy the exact post-migration application commit to the Preview Worker through the approved deployment path.
+1. Do not run **Deploy PR to Preview** for the current PR #34 head; the workflow is expected to stop at its schema guard.
+2. Land the separately reviewed migration/schema foundation and apply `0007_image_collections.sql` through the protected migration process to the D1 database used by Preview.
+3. Rebase/update PR #34 so the already-landed migration and `schema.js` changes are no longer part of its diff, then deploy that code-only PR head through the approved Preview path.
 4. Sign into `/preview-admin`.
 5. Create or use a disposable Preview Case with at least two active alternative sets.
 6. Verify Image Library pagination and exact total matching count.
