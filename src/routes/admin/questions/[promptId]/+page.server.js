@@ -1,4 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import { createDb } from '$lib/server/db/index.js';
 import {
@@ -6,18 +7,33 @@ import {
   QuestionPromptInputError,
   updateQuestionPrompt
 } from '$lib/server/db/question-library.js';
+import { questionPrompts } from '$lib/server/db/schema.js';
+
+async function isProductionPrompt(db, promptId) {
+  return Boolean((await db
+    .select({ id: questionPrompts.id })
+    .from(questionPrompts)
+    .where(and(eq(questionPrompts.id, promptId), isNull(questionPrompts.previewSessionId)))
+    .limit(1))[0]);
+}
 
 export async function load({ platform, params }) {
   if (!platform?.env?.DB) return { prompt: null };
-  return { prompt: await getQuestionPromptDetail(createDb(platform.env.DB), params.promptId) };
+  const db = createDb(platform.env.DB);
+  if (!(await isProductionPrompt(db, params.promptId))) return { prompt: null };
+  return { prompt: await getQuestionPromptDetail(db, params.promptId) };
 }
 
 export const actions = {
   updatePrompt: async ({ request, platform, params }) => {
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const db = createDb(platform.env.DB);
+    if (!(await isProductionPrompt(db, params.promptId))) {
+      return fail(404, { error: 'Production Question Prompt not found.' });
+    }
     const formData = await request.formData();
     try {
-      await updateQuestionPrompt(createDb(platform.env.DB), {
+      await updateQuestionPrompt(db, {
         promptId: params.promptId,
         promptMd: formData.get('prompt_md'),
         confirmSharedEdit: formData.get('confirm_shared_edit'),
