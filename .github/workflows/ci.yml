@@ -27,7 +27,18 @@ jobs:
         run: npm run db:check
 
       - name: Run learning logic tests
-        run: npm test
+        shell: bash
+        run: |
+          set -o pipefail
+          if npm test 2>&1 | tee /tmp/node-test-output.log; then
+            exit 0
+          fi
+          diagnostic="$(tail -n 120 /tmp/node-test-output.log)"
+          diagnostic="${diagnostic//'%'/'%25'}"
+          diagnostic="${diagnostic//$'\r'/'%0D'}"
+          diagnostic="${diagnostic//$'\n'/'%0A'}"
+          echo "::error title=Node test failure::${diagnostic}"
+          exit 1
 
       - name: Run Svelte checks
         run: npm run check
