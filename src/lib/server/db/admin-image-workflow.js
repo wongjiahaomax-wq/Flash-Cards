@@ -40,7 +40,6 @@ async function requireActiveCase(db, caseId) {
       .limit(1)
   )[0];
   if (!row) throw new AdminImageWorkflowInputError('The selected Case is missing or inactive.');
-  return row;
 }
 
 /** @param {unknown[]} values */
@@ -74,8 +73,8 @@ async function requireActiveImageAssets(db, assetIds) {
 }
 
 /**
- * Search active image Assets that are not already used by this Case. This is
- * intentionally bounded so the Case editor never needs the whole Asset Library.
+ * Search active image Assets not already used by this Case. The result is
+ * intentionally bounded so the Case editor never needs the whole library.
  *
  * @param {LearningDb} db
  * @param {string} caseId
@@ -98,15 +97,15 @@ export async function listCaseImagePicker(db, caseId, options = {}) {
   if (usedIds.length) conditions.push(notInArray(assets.id, usedIds));
   if (search) {
     const pattern = `%${search}%`;
-    conditions.push(
-      or(
-        like(assets.originalFilename, pattern),
-        like(assets.altText, pattern),
-        like(assets.sourceLabel, pattern),
-        like(assets.sourceUrl, pattern)
-      )
+    const searchCondition = or(
+      like(assets.originalFilename, pattern),
+      like(assets.altText, pattern),
+      like(assets.sourceLabel, pattern),
+      like(assets.sourceUrl, pattern)
     );
+    if (searchCondition) conditions.push(searchCondition);
   }
+
   const rows = await db
     .select({
       id: assets.id,
@@ -132,9 +131,8 @@ export async function listCaseImagePicker(db, caseId, options = {}) {
 }
 
 /**
- * Attach a prevalidated bounded set as fixed Case Assets. Existing fixed
- * relationships are idempotent no-ops; Assets already used as alternatives in
- * the same Case are rejected rather than silently moved.
+ * Attach a bounded, validated set as fixed Case Assets. Existing fixed
+ * relationships are idempotent no-ops; same-Case alternatives are rejected.
  *
  * @param {LearningDb} db
  * @param {string} caseId
@@ -177,13 +175,16 @@ export async function attachAssetsToCase(db, caseId, submittedAssetIds) {
       .limit(1)
   )[0];
   const startOrder = (last?.displayOrder ?? -1) + 1;
-  const statements = newIds.map((assetId, index) =>
-    db.insert(caseAssets).values({ caseId, assetId, displayOrder: startOrder + index, captionMd: null })
-  );
 
   try {
-    if (typeof db.batch === 'function') await db.batch(statements);
-    else for (const statement of statements) await statement;
+    for (const [index, assetId] of newIds.entries()) {
+      await db.insert(caseAssets).values({
+        caseId,
+        assetId,
+        displayOrder: startOrder + index,
+        captionMd: null
+      });
+    }
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       throw new AdminImageWorkflowInputError('The Case image list changed while attaching. Refresh and try again.');
@@ -216,8 +217,8 @@ export async function listActiveStimulusGroupTargets(db) {
 
 /**
  * Add Assets to one existing active Case alternative set. This deliberately
- * does not implement a cross-set "move": option-specific questions/captions
- * make moving a relationship a separate authoring decision.
+ * does not implement a cross-set move because option questions/captions make
+ * that a separate authoring decision.
  *
  * @param {LearningDb} db
  * @param {string} groupId
@@ -314,19 +315,18 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
       .limit(1)
   )[0];
   const startOrder = (last?.displayOrder ?? -1) + 1;
-  const statements = newIds.map((assetId, index) =>
-    db.insert(stimulusGroupOptions).values({
-      id: crypto.randomUUID(),
-      stimulusGroupId: group.id,
-      assetId,
-      displayOrder: startOrder + index,
-      captionMd: null,
-      isActive: true
-    })
-  );
+
   try {
-    if (typeof db.batch === 'function') await db.batch(statements);
-    else for (const statement of statements) await statement;
+    for (const [index, assetId] of newIds.entries()) {
+      await db.insert(stimulusGroupOptions).values({
+        id: crypto.randomUUID(),
+        stimulusGroupId: group.id,
+        assetId,
+        displayOrder: startOrder + index,
+        captionMd: null,
+        isActive: true
+      });
+    }
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       throw new AdminImageWorkflowInputError('The alternative image set changed while updating. Refresh and try again.');
@@ -343,8 +343,7 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
 }
 
 /**
- * Preserve the existing authoring ability to give an alternative image a
- * Case-specific caption even when the option was added through the multi-picker.
+ * Preserve Case-specific captions for alternative image options.
  *
  * @param {LearningDb} db
  * @param {string} caseId
