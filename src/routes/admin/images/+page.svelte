@@ -3,9 +3,12 @@
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
 
   let { data, form } = $props();
+  /** @type {Set<string>} */
   let selectedIds = $state(new Set());
+  /** @type {string | null} */
   let anchorId = $state(null);
   let selectMode = $state(false);
+  /** @type {{ src: string, alt: string, title: string, subtitle: string } | null} */
   let viewerImage = $state(null);
   let orderedIds = $derived(data.assets.map((asset) => asset.id));
 
@@ -15,6 +18,7 @@
     return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(value));
   }
 
+  /** @param {string} assetId @param {{ shiftKey?: boolean, toggleKey?: boolean }} [options] */
   function updateSelection(assetId, options = {}) {
     const result = applyAssetSelection({
       selectedIds,
@@ -28,6 +32,7 @@
     anchorId = result.anchorId;
   }
 
+  /** @param {MouseEvent} event @param {string} assetId */
   function handleCardClick(event, assetId) {
     const modifier = event.ctrlKey || event.metaKey;
     if (!selectMode && !event.shiftKey && !modifier) return;
@@ -41,6 +46,7 @@
     anchorId = result.anchorId;
   }
 
+  /** @param {{ imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, topicSummary?: string | null }} asset */
   function enlarge(asset) {
     if (!asset.imageUrl) return;
     viewerImage = { src: asset.imageUrl, alt: asset.altText ?? '', title: asset.originalFilename ?? 'Teaching image', subtitle: asset.topicSummary ?? '' };
@@ -75,7 +81,7 @@
     <div class="asset-grid">
       {#each data.assets as asset}
         <div class:selected={selectedIds.has(asset.id)} class="asset-card-wrap">
-          <label class="selection-box" aria-label={`Select ${asset.originalFilename ?? 'image'}`} onclick={(event) => event.stopPropagation()}><input type="checkbox" checked={selectedIds.has(asset.id)} onchange={() => updateSelection(asset.id, { toggleKey: true })} /></label>
+          <label class="selection-box" aria-label={`Select ${asset.originalFilename ?? 'image'}`}><input type="checkbox" checked={selectedIds.has(asset.id)} onchange={() => updateSelection(asset.id, { toggleKey: true })} /></label>
           <a class="asset-card" href={`/admin/images/${asset.id}`} onclick={(event) => handleCardClick(event, asset.id)} aria-label={`${asset.originalFilename ?? 'Unnamed image'}; ${selectedIds.has(asset.id) ? 'selected' : 'not selected'}`}>
             {#if asset.imageUrl}<img src={asset.imageUrl} alt={asset.altText ?? ''} loading="lazy" />{:else}<div class="inactive-thumb">Inactive image</div>{/if}
             <div class="asset-card-body"><strong>{asset.originalFilename ?? 'Unnamed image'}</strong>{#if asset.topicSummary}<span class="topic-context" title={asset.topicNames.join(', ')}>{asset.topicSummary}</span>{/if}<span class="muted">Added {formatAddedDate(asset.createdAt)}</span><span class="muted">{asset.usageCount} {asset.usageCount === 1 ? 'Case' : 'Cases'}</span><span class:badge-active={asset.isActive} class:badge-inactive={!asset.isActive} class="status-badge">{asset.isActive ? 'Active' : 'Inactive'}</span></div>
