@@ -1,0 +1,154 @@
+name: Deploy PR to Preview
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Same-repository pull request number to deploy
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve and validate pull request
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! [[ "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+            echo "PR number must be numeric." >&2
+            exit 1
+          fi
+
+          pr_json="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}")"
+          head_repo="$(jq -r '.head.repo.full_name // ""' <<<"$pr_json")"
+          head_sha="$(jq -r '.head.sha // ""' <<<"$pr_json")"
+          base_sha="$(jq -r '.base.sha // ""' <<<"$pr_json")"
+          base_ref="$(jq -r '.base.ref // ""' <<<"$pr_json")"
+          state="$(jq -r '.state // ""' <<<"$pr_json")"
+
+          if [[ "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
+            echo "Refusing to deploy fork code with Cloudflare credentials. Head repository: $head_repo" >&2
+            exit 1
+          fi
+          if [[ "$base_ref" != "main" ]]; then
+            echo "Refusing to deploy a PR whose base is not main. Base: $base_ref" >&2
+            exit 1
+          fi
+          if [[ "$state" != "open" ]]; then
+            echo "Refusing to deploy a PR that is not open. State: $state" >&2
+            exit 1
+          fi
+          if [[ ! "$head_sha" =~ ^[0-9a-f]{40}$ || ! "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "GitHub did not return valid immutable commit SHAs." >&2
+            exit 1
+          fi
+
+          echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
+          echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact PR head SHA
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.pr.outputs.head_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify checked-out commit
+        env:
+          EXPECTED_SHA: ${{ steps.pr.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          test "$actual_sha" = "$EXPECTED_SHA"
+          echo "Deploy candidate SHA: $actual_sha"
+
+      - name: Block schema-changing PRs
+        env:
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "$BASE_SHA"
+          changed="$(git diff --name-only "$BASE_SHA...$HEAD_SHA")"
+          printf '%s\n' "$changed"
+
+          schema_pattern='^(drizzle/|drizzle\.config\.js$|src/lib/server/db/schema\.js$|src/lib/server/db/[^/]*schema[^/]*\.js$)'
+          if grep -Eq "$schema_pattern" <<<"$changed"; then
+            echo "This PR changes the D1 schema. Production-backed Preview deployment is disabled until the migration has been separately reviewed, merged and applied." >&2
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Check database migrations
+        run: npm run db:check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run Svelte checks
+        run: npm run check
+
+      - name: Build application
+        run: npm run build
+
+      - name: Smoke test local D1 and Better Auth
+        run: node scripts/local-auth-smoke.mjs
+
+      - name: Check PR diff whitespace
+        env:
+          BASE_SHA: ${{ steps.pr.outputs.base_sha }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        run: git diff --check "$BASE_SHA...$HEAD_SHA"
+
+      - name: Verify Preview Worker target
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '"name": "flash-cards-preview"' wrangler.jsonc
+          grep -q '"PREVIEW_MODE": "true"' wrangler.jsonc
+          if grep -R -n -E 'wrangler[^\n]*d1 migrations apply[^\n]*--remote|npm run db:migrate:remote' .github/workflows/deploy-pr-to-preview.yml; then
+            echo "Preview deployment workflow must never apply remote D1 migrations." >&2
+            exit 1
+          fi
+
+      - name: Deploy exact commit to Preview Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4.123.0 deploy --env preview
+
+      - name: Write deployment summary
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        shell: bash
+        run: |
+          {
+            echo "## Preview deployment"
+            echo ""
+            echo "- PR: #${PR_NUMBER}"
+            echo "- Exact commit: \`${HEAD_SHA}\`"
+            echo "- Worker: \`flash-cards-preview\`"
+            echo "- Preview URL: https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev"
+            echo "- D1 migrations: **not run**"
+          } >> "$GITHUB_STEP_SUMMARY"
