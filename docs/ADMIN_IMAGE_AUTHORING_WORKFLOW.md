@@ -98,7 +98,7 @@ Selection behaviour:
 - **Select images** mode: provides a touch/mobile path where an ordinary card tap toggles selection;
 - **Clear selection** resets both selection and range anchor.
 
-Selection is only over the currently rendered result set. Filtering/sorting is server-driven and therefore creates a new displayed result set.
+Selection is only over the currently rendered result set. Filtering/sorting is server-driven and therefore creates a new displayed result set. When that result set changes, selected IDs that are no longer visible are pruned and a range anchor that is no longer visible is cleared, preventing hidden stale Assets from remaining selected for a bulk action.
 
 ## Bulk grouping semantics
 
@@ -125,6 +125,8 @@ The server validates the complete submitted batch before intentional relationshi
 - an inactive existing option in the target set is rejected and must be explicitly reactivated in the Case editor;
 - unrelated Asset relationships in other Cases are preserved;
 - minimum stimulus-specific coverage is checked before adding new options.
+
+After validation, new relationship inserts are sent as one bounded D1 batch rather than as an unbounded sequence of independent browser-driven writes.
 
 This deliberately avoids a generic **Move** operation because moving a stimulus option can involve exact-option questions, captions and activation state that require a more explicit product decision.
 
