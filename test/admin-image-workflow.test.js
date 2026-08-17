@@ -13,7 +13,8 @@ import {
   bulkAddAssetsToStimulusGroup,
   listActiveStimulusGroupTargets,
   listCaseImagePicker,
-  updateStimulusOptionCaption
+  updateStimulusOptionCaption,
+  validateStimulusGroupTargetForNewAssets
 } from '../src/lib/server/db/admin-image-workflow.js';
 import { createDb } from '../src/lib/server/db/index.js';
 import { createStimulusGroup } from '../src/lib/server/db/stimulus-groups.js';
@@ -69,6 +70,11 @@ function insertAsset(sqlite, { id, name, active = 1, source = null }) {
   sqlite.prepare('INSERT INTO assets (id, type, storage_key, mime_type, original_filename, alt_text, source_label, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(
     id, 'image', `teaching-images/${id}.png`, 'image/png', name, `${name} detailed alt`, source, active, 9_000, 9_000
   );
+}
+
+function assetCount(sqlite) {
+  const row = sqlite.prepare('SELECT count(*) AS count FROM assets').get();
+  return Number(row?.count ?? 0);
 }
 
 test('Case image picker is bounded, searchable, and excludes Assets already used by the Case', async () => {
@@ -208,6 +214,77 @@ test('active bulk targets expose the existing Case-scoped grouping model only', 
   }
 });
 
+test('new alternative Asset target validation rejects insufficient set-wide coverage before upload', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, {
+      caseId: 'seed-anterior-a',
+      name: 'Minimum coverage set',
+      specificQuestionMode: 'minimum',
+      minimumSpecificQuestions: 1
+    });
+    await assert.rejects(
+      () => validateStimulusGroupTargetForNewAssets(fixture.db, groupId, { expectedCaseId: 'seed-anterior-a' }),
+      /below this set's minimum of 1/
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Case picker load fails closed for a requested missing or inactive target group', async () => {
+  const fixture = createLearningDb();
+  try {
+    const inactive = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Inactive picker set', specificQuestionMode: 'none' });
+    fixture.sqlite.prepare('UPDATE stimulus_groups SET is_active = 0 WHERE id = ?').run(inactive);
+    const { load } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
+
+    for (const target of ['missing-target', inactive]) {
+      await assert.rejects(
+        () => load(/** @type {any} */ ({
+          locals: { user: { role: 'admin' } },
+          platform: { env: { DB: fixture.d1 } },
+          params: { caseId: 'seed-anterior-a' },
+          url: new URL(`http://localhost/admin/cases/seed-anterior-a?picker=1&target_group=${encodeURIComponent(target)}`)
+        })),
+        (error) => Boolean(error && typeof error === 'object' && 'status' in error && error.status === 400)
+      );
+    }
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('upload-to-alternative-set prevalidation does not create an Asset when target coverage is invalid', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, {
+      caseId: 'seed-anterior-a',
+      name: 'Upload blocked set',
+      specificQuestionMode: 'minimum',
+      minimumSpecificQuestions: 1
+    });
+    const before = assetCount(fixture.sqlite);
+    const { actions } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
+    const formData = new FormData();
+    formData.set('case_id', 'seed-anterior-a');
+    formData.set('target_group_id', groupId);
+    formData.set('alt_text', 'Blocked upload alt text');
+    formData.set('image', new File([new Uint8Array([137, 80, 78, 71])], 'blocked.png', { type: 'image/png' }));
+
+    const result = await actions.uploadAndAttach(/** @type {any} */ ({
+      request: new Request('http://localhost/admin/cases/seed-anterior-a?/uploadAndAttach', { method: 'POST', body: formData }),
+      locals: { user: { role: 'admin' } },
+      params: { caseId: 'seed-anterior-a' },
+      platform: { env: { DB: fixture.d1, MEDIA: {} } }
+    }));
+    assert.equal('status' in result ? result.status : null, 400);
+    assert.equal(assetCount(fixture.sqlite), before);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('Case image actions require administrator authorization', async () => {
   const { actions } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
   const formData = new FormData();
@@ -240,6 +317,7 @@ test('Case editor keeps Images before Case questions and no longer embeds the un
   assert.match(source, /Add images from library/);
   assert.match(source, /image-specific/);
   assert.match(source, /updateStimulusOptionCaption/);
+  assert.match(source, /reconcileCasePickerSelection/);
   assert.doesNotMatch(source, /selectedCase\.available/);
   assert.doesNotMatch(source, /<h3>Image library<\/h3>/);
 });
