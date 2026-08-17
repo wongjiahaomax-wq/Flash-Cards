@@ -2,10 +2,19 @@ import { error, redirect } from '@sveltejs/kit';
 
 import { createDb } from '$lib/server/db/index.js';
 import { completeReview, getReview, revealReview, startReview } from '$lib/server/db/learning.js';
+import { isPreviewAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 import { getTeachingImageUrl } from '$lib/server/storage/media.js';
 
+/** @param {App.Locals['user']} user @param {App.Platform | undefined} platform */
+function assertLearnerStudyAccess(user, platform) {
+  if (isPreviewWorker(platform?.env) || isPreviewAdmin(user)) {
+    throw error(403, 'Learner Study is unavailable for Preview Admin.');
+  }
+  if (!platform?.env?.DB || !user) throw error(503, 'Study database is not configured.');
+}
+
 export async function load({ locals, params, platform }) {
-  if (!platform?.env?.DB || !locals.user) throw error(503, 'Study database is not configured.');
+  assertLearnerStudyAccess(locals.user, platform);
   const review = await getReview(createDb(platform.env.DB), params.reviewId, locals.user.id);
   if (!review) throw error(404, 'Review not found.');
 
@@ -45,18 +54,18 @@ export async function load({ locals, params, platform }) {
 
 export const actions = {
   reveal: async ({ locals, params, platform }) => {
-    if (!platform?.env?.DB || !locals.user) throw error(503, 'Study database is not configured.');
+    assertLearnerStudyAccess(locals.user, platform);
     await revealReview(createDb(platform.env.DB), params.reviewId, locals.user.id);
   },
   rate: async ({ locals, params, platform, request }) => {
-    if (!platform?.env?.DB || !locals.user) throw error(503, 'Study database is not configured.');
+    assertLearnerStudyAccess(locals.user, platform);
     const formData = await request.formData();
     const rating = formData.get('rating');
     if (rating !== 'again' && rating !== 'good') throw error(400, 'Invalid review rating.');
     await completeReview(createDb(platform.env.DB), params.reviewId, locals.user.id, rating);
   },
   next: async ({ locals, params, platform }) => {
-    if (!platform?.env?.DB || !locals.user) throw error(503, 'Study database is not configured.');
+    assertLearnerStudyAccess(locals.user, platform);
     const db = createDb(platform.env.DB);
     const review = await getReview(db, params.reviewId, locals.user.id);
     if (!review) throw error(404, 'Review not found.');
