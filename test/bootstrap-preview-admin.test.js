@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import {
@@ -39,6 +40,46 @@ test('existing-admin promotion SQL changes only the user role and timestamp', ()
   assert.match(sql, /`id` = 'admin-''id'/);
   assert.match(sql, /coalesce\(`role`, ''\) = 'admin'/);
   assert.doesNotMatch(sql, /INSERT|DELETE|`account`|`password`/i);
+});
+
+test('existing-admin promotion preserves the credential row and password hash', () => {
+  const db = new DatabaseSync(':memory:');
+  db.exec(`
+    CREATE TABLE user (
+      id TEXT PRIMARY KEY,
+      role TEXT,
+      updatedAt INTEGER NOT NULL
+    );
+    CREATE TABLE account (
+      id TEXT PRIMARY KEY,
+      userId TEXT NOT NULL,
+      providerId TEXT NOT NULL,
+      password TEXT
+    );
+    INSERT INTO user (id, role, updatedAt) VALUES ('owner', 'admin', 100);
+    INSERT INTO account (id, userId, providerId, password)
+      VALUES ('credential-1', 'owner', 'credential', 'original-password-hash');
+  `);
+
+  db.exec(buildExistingAdminPromotionSql({
+    userId: 'owner',
+    currentRole: 'admin',
+    nextRole: 'admin,preview_admin',
+    now: 456
+  }));
+
+  const user = db.prepare('SELECT id, role, updatedAt FROM user WHERE id = ?').get('owner');
+  const account = db.prepare('SELECT id, userId, providerId, password FROM account WHERE userId = ?').get('owner');
+
+  assert.deepEqual(user, { id: 'owner', role: 'admin,preview_admin', updatedAt: 456 });
+  assert.deepEqual(account, {
+    id: 'credential-1',
+    userId: 'owner',
+    providerId: 'credential',
+    password: 'original-password-hash'
+  });
+
+  db.close();
 });
 
 test('new dedicated Preview Admin creation remains preview_admin-only', () => {
