@@ -5,6 +5,7 @@ import { moveStimulusOptionWithinCase, StimulusOptionMoveError } from '$lib/serv
 import { getLivePreviewSession } from '$lib/server/db/preview-workspace.js';
 import { requirePreviewAdmin } from '$lib/server/preview-auth.js';
 
+/** @param {FormData} formData @param {string} name */
 function text(formData, name) {
   const value = formData.get(name);
   return typeof value === 'string' ? value.trim() : '';
