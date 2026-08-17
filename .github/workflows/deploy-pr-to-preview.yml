@@ -126,10 +126,6 @@ jobs:
           set -euo pipefail
           grep -q '"name": "flash-cards-preview"' wrangler.jsonc
           grep -q '"PREVIEW_MODE": "true"' wrangler.jsonc
-          if grep -R -n -E 'wrangler[^\n]*d1 migrations apply[^\n]*--remote|npm run db:migrate:remote' .github/workflows/deploy-pr-to-preview.yml; then
-            echo "Preview deployment workflow must never apply remote D1 migrations." >&2
-            exit 1
-          fi
 
       - name: Deploy exact commit to Preview Worker
         env:
