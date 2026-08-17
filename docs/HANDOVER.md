@@ -20,6 +20,7 @@ docs/V1_DATA_MODEL.md
 docs/CONTENT_MODEL_EXAMPLES.md
 docs/PREVIEW_ADMIN_WORKSPACE.md
 docs/CLOUDFLARE.md
+docs/ADMIN_IMAGE_AUTHORING_WORKFLOW.md
 docs/IMPLEMENTATION_PLAN.md
 docs/R2_COST_GUARDRAILS.md
 ```
@@ -200,6 +201,24 @@ Images
 Topics
 Import package
 ```
+
+The Case editor's current authoring order is:
+
+```text
+Topics → Case → Images → Case questions → Preview
+```
+
+Fixed Case Assets and alternative stimulus sets are presented under one top-level Images section while retaining separate `case_assets` versus `stimulus_groups` / `stimulus_group_options` semantics. Fixed images receive large contain-fit previews and both fixed/alternative images can open the reusable Admin image viewer.
+
+The Case page no longer eagerly loads or renders the full unused Asset Library. **Add images from library** opens a server-backed picker only when requested. It searches reusable Asset metadata, excludes Assets already used by the Case, returns at most 60 matches, supports multi-select, and can target either fixed Case images or an active alternative set. Uploading a new Asset is available inside the picker and still uses the existing protected R2/storage/provenance path.
+
+Alternative sets use compact thumbnail cards. Exact-option questions stay bound to the exact option and are collapsed by default when existing questions are present; set-wide questions and coverage remain advanced set-level controls.
+
+`/admin/images` supports visible checkbox selection, Ctrl/Cmd toggle, Shift-range against the currently displayed filtered/sorted order, and an explicit Select mode for touch/mobile. A sticky bar can add selected Assets to an existing active Case alternative set.
+
+Important grouping boundary: there is no global Asset-group schema. Bulk grouping therefore means **add to an existing Case-scoped stimulus group only**. It deliberately does not implement implicit Move/Remove semantics that could lose or obscure option-specific questions, captions, or activation state. One bulk attach/group action is capped at 30 unique Assets and is revalidated server-side.
+
+`Select all N matching images` is deliberately deferred until there is a server-represented pagination/filter selection contract that can remain explicit and bounded. See `docs/ADMIN_IMAGE_AUTHORING_WORKFLOW.md`.
 
 Preview UI is deliberately separate at:
 
