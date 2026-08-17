@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
 
 import { listAdminConcepts } from '$lib/server/db/admin-content.js';
@@ -9,9 +9,9 @@ import {
   AdminImageWorkflowInputError,
   attachAssetsToCase,
   bulkAddAssetsToStimulusGroup,
-  listActiveStimulusGroupTargets,
   listCaseImagePicker,
-  updateStimulusOptionCaption
+  updateStimulusOptionCaption,
+  validateStimulusGroupTargetForNewAssets
 } from '$lib/server/db/admin-image-workflow.js';
 import { createDb } from '$lib/server/db/index.js';
 import { caseAssets, stimulusGroups } from '$lib/server/db/schema.js';
@@ -67,6 +67,9 @@ export async function load({ locals, platform, params, url }) {
   }));
   const targetRequested = url.searchParams.get('target_group')?.trim() ?? '';
   const targetGroup = stimulusGroups.find((group) => group.id === targetRequested && group.isActive) ?? null;
+  if (targetRequested && !targetGroup) {
+    throw error(400, 'The requested alternative image set is missing, inactive, or does not belong to this Case.');
+  }
   const pickerResults = pickerOpen
     ? await listCaseImagePicker(db, params.caseId, { search: pickerSearch })
     : { assets: [], hasMore: false, limit: 60, search: pickerSearch };
@@ -106,10 +109,10 @@ export const actions = {
       const db = createDb(platform.env.DB);
       if (targetGroupId) await bulkAddAssetsToStimulusGroup(db, targetGroupId, ids, { expectedCaseId: caseId });
       else await attachAssetsToCase(db, caseId, ids);
-    } catch (error) {
-      const clientError = error instanceof AdminImageWorkflowInputError;
-      if (!clientError) console.error('Unable to attach selected Case images.', error);
-      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to attach the selected images.' });
+    } catch (errorValue) {
+      const clientError = errorValue instanceof AdminImageWorkflowInputError;
+      if (!clientError) console.error('Unable to attach selected Case images.', errorValue);
+      return fail(clientError ? 400 : 500, { error: clientError ? errorValue.message : 'Unable to attach the selected images.' });
     }
     redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=images-attached#images`);
   },
@@ -128,28 +131,41 @@ export const actions = {
     ) return fail(400, { error: 'Choose a JPEG or PNG image to upload.' });
 
     const db = createDb(platform.env.DB);
+    /** @type {{ id: string, storageKey: string } | null} */
+    let created = null;
     try {
       const caseData = await getAdminCaseData(db, caseId, { includeAvailable: false });
       if (!caseData) throw new AdminImageWorkflowInputError('The selected Case is missing or inactive.');
       if (targetGroupId) {
-        const targets = await listActiveStimulusGroupTargets(db);
-        if (!targets.some((target) => target.id === targetGroupId && target.caseId === caseId)) {
-          throw new AdminImageWorkflowInputError('The selected alternative image set is missing or inactive.');
-        }
+        await validateStimulusGroupTargetForNewAssets(db, targetGroupId, { expectedCaseId: caseId });
       }
-      const created = await createAssetFromUpload(db, platform.env.MEDIA, imageValue, {
+
+      created = await createAssetFromUpload(db, platform.env.MEDIA, imageValue, {
         originalFilename: formText(formData, 'image_name'),
         altText: formText(formData, 'alt_text'),
         sourceLabel: formText(formData, 'source_label'),
         sourceUrl: formText(formData, 'source_url'),
         licence: formText(formData, 'licence')
       });
-      if (targetGroupId) await bulkAddAssetsToStimulusGroup(db, targetGroupId, [created.id], { expectedCaseId: caseId });
-      else await attachAssetsToCase(db, caseId, [created.id]);
-    } catch (error) {
-      const clientError = error instanceof AdminImageWorkflowInputError || error instanceof AssetLibraryInputError || error instanceof MediaStorageLimitError;
-      if (!clientError) console.error('Case image upload failed.', error);
-      return fail(clientError ? 400 : 500, { error: error instanceof Error ? error.message : 'Unable to save the teaching image.' });
+
+      try {
+        if (targetGroupId) await bulkAddAssetsToStimulusGroup(db, targetGroupId, [created.id], { expectedCaseId: caseId });
+        else await attachAssetsToCase(db, caseId, [created.id]);
+      } catch (relationshipError) {
+        const clientError = relationshipError instanceof AdminImageWorkflowInputError;
+        if (!clientError) console.error('Uploaded teaching image could not be attached to the Case.', relationshipError);
+        return fail(clientError ? 409 : 500, {
+          partialSuccess: true,
+          uploadedAssetId: created.id,
+          error: clientError
+            ? `The image was uploaded as reusable Asset ${created.id}, but it could not be attached to this Case: ${relationshipError.message}`
+            : `The image was uploaded as reusable Asset ${created.id}, but the Case relationship could not be saved. Refresh the Case and attach that Asset from the library.`
+        });
+      }
+    } catch (errorValue) {
+      const clientError = errorValue instanceof AdminImageWorkflowInputError || errorValue instanceof AssetLibraryInputError || errorValue instanceof MediaStorageLimitError;
+      if (!clientError) console.error('Case image upload failed.', errorValue);
+      return fail(clientError ? 400 : 500, { error: errorValue instanceof Error ? errorValue.message : 'Unable to save the teaching image.' });
     }
     redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=image-uploaded#images`);
   },
@@ -162,10 +178,10 @@ export const actions = {
     if (caseId !== params.caseId) return fail(400, { error: 'The selected Case does not match this editor.' });
     try {
       await updateStimulusOptionCaption(createDb(platform.env.DB), caseId, formText(formData, 'option_id'), formText(formData, 'caption'));
-    } catch (error) {
-      const clientError = error instanceof AdminImageWorkflowInputError;
-      if (!clientError) console.error('Unable to update alternative image caption.', error);
-      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to update the alternative image caption.' });
+    } catch (errorValue) {
+      const clientError = errorValue instanceof AdminImageWorkflowInputError;
+      if (!clientError) console.error('Unable to update alternative image caption.', errorValue);
+      return fail(clientError ? 400 : 500, { error: clientError ? errorValue.message : 'Unable to update the alternative image caption.' });
     }
     redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=option-caption-updated#images`);
   },
@@ -190,12 +206,12 @@ export const actions = {
       if (!fixed[0]) throw new StimulusGroupInputError('Choose a fixed image from this Case to start an alternative set.');
       createdGroupId = await createStimulusGroup(db, { caseId, name, specificQuestionMode: 'none' });
       await convertCaseAssetToStimulusOption(db, createdGroupId, assetId);
-    } catch (error) {
+    } catch (errorValue) {
       if (createdGroupId) {
         try { await db.delete(stimulusGroups).where(eq(stimulusGroups.id, createdGroupId)); } catch { /* best-effort cleanup */ }
       }
-      return fail(error instanceof StimulusGroupInputError ? 400 : 500, {
-        error: error instanceof StimulusGroupInputError ? error.message : 'Unable to start an alternative image set.', caseId
+      return fail(errorValue instanceof StimulusGroupInputError ? 400 : 500, {
+        error: errorValue instanceof StimulusGroupInputError ? errorValue.message : 'Unable to start an alternative image set.', caseId
       });
     }
     redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=alternative-set-created#images`);
