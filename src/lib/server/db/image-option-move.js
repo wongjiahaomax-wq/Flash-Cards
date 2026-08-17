@@ -87,24 +87,33 @@ export async function moveStimulusOptionWithinCase(db, input) {
     .from(cases).where(and(eq(cases.id, caseId), eq(cases.isActive, true), caseCondition)).limit(1))[0];
   if (!caseRow) throw new StimulusOptionMoveError('The selected Case is missing, inactive, or outside the permitted workspace.', 'NOT_OWNED');
 
-  const option = (await db.select({ id: stimulusGroupOptions.id, assetId: stimulusGroupOptions.assetId, sourceGroupId: stimulusGroupOptions.stimulusGroupId, isActive: stimulusGroupOptions.isActive, sourceCaseId: stimulusGroups.caseId, sourceGroupActive: stimulusGroups.isActive })
-    .from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-    .where(eq(stimulusGroupOptions.id, optionId)).limit(1))[0];
-  if (!option || option.sourceCaseId !== caseId) throw new StimulusOptionMoveError('The selected alternative image is missing or does not belong to this Case.', 'NOT_OWNED');
-  if (!option.isActive || !option.sourceGroupActive) throw new StimulusOptionMoveError('Only an active option in an active source set can be moved.');
-  if (option.sourceGroupId === targetGroupId) throw new StimulusOptionMoveError('Choose a different alternative set.');
+  // Read the option and source group separately. Besides making the ownership
+  // checks easier to audit, this avoids duplicate `is_active` projections from
+  // a joined row being ambiguously decoded by lightweight D1 test adapters.
+  const option = (await db.select({
+    id: stimulusGroupOptions.id,
+    assetId: stimulusGroupOptions.assetId,
+    sourceGroupId: stimulusGroupOptions.stimulusGroupId,
+    isActive: stimulusGroupOptions.isActive
+  }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.id, optionId)).limit(1))[0];
+  if (!option) throw new StimulusOptionMoveError('The selected alternative image is missing.', 'NOT_OWNED');
+  if (option.isActive !== true) throw new StimulusOptionMoveError('Only an active option in an active source set can be moved.');
+
+  const source = (await db.select({ id: stimulusGroups.id, caseId: stimulusGroups.caseId, isActive: stimulusGroups.isActive })
+    .from(stimulusGroups).where(eq(stimulusGroups.id, option.sourceGroupId)).limit(1))[0];
+  if (!source || source.caseId !== caseId) throw new StimulusOptionMoveError('The selected alternative image does not belong to this Case.', 'NOT_OWNED');
+  if (source.isActive !== true) throw new StimulusOptionMoveError('Only an active option in an active source set can be moved.');
+  if (source.id === targetGroupId) throw new StimulusOptionMoveError('Choose a different alternative set.');
 
   const target = (await db.select({ id: stimulusGroups.id, caseId: stimulusGroups.caseId, isActive: stimulusGroups.isActive })
     .from(stimulusGroups).where(eq(stimulusGroups.id, targetGroupId)).limit(1))[0];
   if (!target || target.caseId !== caseId) throw new StimulusOptionMoveError('The target alternative set must belong to the same Case.', 'NOT_OWNED');
-  if (!target.isActive) throw new StimulusOptionMoveError('The target alternative set is inactive.');
+  if (target.isActive !== true) throw new StimulusOptionMoveError('The target alternative set is inactive.');
 
   const duplicate = (await db.select({ id: stimulusGroupOptions.id }).from(stimulusGroupOptions)
     .where(and(eq(stimulusGroupOptions.stimulusGroupId, targetGroupId), eq(stimulusGroupOptions.assetId, option.assetId))).limit(1))[0];
   if (duplicate) throw new StimulusOptionMoveError('This Asset already has an option relationship in the target set.');
 
-  // Validate the source-after-removal and target-after-addition teaching state
-  // before the write. This checks per-option minimum coverage across both sets.
   const requiredQuestions = await simulatedCoverageRequirement(db, caseId, optionId, targetGroupId);
   if (caseRow.mode === 'fixed' && caseRow.count && requiredQuestions > caseRow.count) {
     throw new StimulusOptionMoveError(`Moving this image would require at least ${requiredQuestions} stimulus-specific questions, but the Case is configured for ${caseRow.count}.`);
@@ -115,10 +124,10 @@ export async function moveStimulusOptionWithinCase(db, input) {
   const displayOrder = (last?.displayOrder ?? -1) + 1;
   try {
     await db.update(stimulusGroupOptions).set({ stimulusGroupId: targetGroupId, displayOrder })
-      .where(and(eq(stimulusGroupOptions.id, optionId), eq(stimulusGroupOptions.stimulusGroupId, option.sourceGroupId)));
+      .where(and(eq(stimulusGroupOptions.id, optionId), eq(stimulusGroupOptions.stimulusGroupId, source.id)));
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) throw new StimulusOptionMoveError('The source or target set changed while moving the image. Refresh and try again.');
     throw error;
   }
-  return { optionId, sourceGroupId: option.sourceGroupId, targetGroupId, displayOrder };
+  return { optionId, sourceGroupId: source.id, targetGroupId, displayOrder };
 }
