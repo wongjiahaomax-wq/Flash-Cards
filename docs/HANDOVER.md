@@ -14,7 +14,7 @@ Recent merged infrastructure/product milestones are:
 - PR #32 — Restore Main to Preview workflow;
 - PR #33 — Image Management V2 planning and refreshed product roadmap.
 
-**Draft PR #34 (`agent/image-management-v2`) is the current Image Management V2 implementation.** It is based on the post-PR-#33 `main`, remains a draft, introduces no D1 migration and does not modify `wrangler.jsonc`.
+**Draft PR #34 (`agent/image-management-v2`) is the current Image Management V2 implementation.** It is based on the post-PR-#33 `main`, remains a draft, adds D1 migration `0007_image_collections.sql` and does not modify `wrangler.jsonc`.
 
 Its implemented Admin workflow includes:
 
@@ -27,6 +27,8 @@ Its implemented Admin workflow includes:
 - an identity-preserving same-Case `stimulus_group_option` Move between active alternative sets;
 - production/Preview ownership enforcement for every new relationship workflow;
 - unchanged learner stimulus and Review semantics.
+
+It also adds Image Library Collections: Topic remains educational Case classification, Tag remains cross-cutting clinical metadata, and Collection is a separate organisational bucket. Each Asset has zero or one Collection; null is displayed as Unsorted. Production Admin can create Collections, filter/sort by them, assign selected Assets in bounded sequential chunks, reset them to Unsorted and edit one Asset's Collection. Preview can display/filter/sort the global metadata but cannot mutate production assignments.
 
 The next major product-facing implementation track after Image Management V2 is **Tagging Stage B/shared tag-reusable Questions**, while ECG/Anki content ingestion continues in parallel.
 
@@ -219,10 +221,11 @@ For draft PR #34, human review should follow the exact Image Management V2 proce
 0003_multi_topic_study_routing.sql
 0004_resumable_import_jobs.sql
 0005_tag_foundation.sql
-0006_preview_admin_workspace.sql   # applied to production 17 August 2026
+0006_preview_admin_workspace.sql
+0007_image_collections.sql
 ```
 
-Draft PR #34 adds no migration.
+Draft PR #34 adds `0007_image_collections.sql`; the migration must be reviewed and applied before the matching application commit is used against the production-backed Preview database.
 
 ## Admin UI state
 

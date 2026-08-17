@@ -4,12 +4,16 @@ import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createDb } from '$lib/server/db/index.js';
 import {
   ASSET_LIBRARY_SELECT_ALL_LIMIT,
+  ASSET_LIBRARY_COLLECTION_BULK_LIMIT,
   assetLibraryQueryContext,
+  createImageCollection,
   createAssetFromUpload,
   getAssetLibraryPage,
+  listAssetLibraryCollections,
   listAssetLibraryTopics,
   parseAssetLibraryFilters,
-  parseAssetLibraryPage
+  parseAssetLibraryPage,
+  setAssetCollection
 } from '$lib/server/db/asset-library.js';
 import {
   AdminImageWorkflowInputError,
@@ -28,29 +32,61 @@ function formText(formData, name) {
 export async function load({ locals, platform, url }) {
   const filters = parseAssetLibraryFilters(url.searchParams);
   const requestedPage = parseAssetLibraryPage(url.searchParams);
-  const empty = { assets: [], topics: [], stimulusGroups: [], filters, pagination: { totalCount: 0, totalPages: 1, page: 1, pageSize: 60 }, queryContext: assetLibraryQueryContext(filters), allMatchingIds: [], selectAllLimit: ASSET_LIBRARY_SELECT_ALL_LIMIT, bulkLimit: ADMIN_IMAGE_BULK_LIMIT };
+  const empty = { assets: [], topics: [], collections: [], stimulusGroups: [], filters, pagination: { totalCount: 0, totalPages: 1, page: 1, pageSize: 60 }, queryContext: assetLibraryQueryContext(filters), allMatchingIds: [], selectAllLimit: ASSET_LIBRARY_SELECT_ALL_LIMIT, bulkLimit: ADMIN_IMAGE_BULK_LIMIT, collectionBulkLimit: ASSET_LIBRARY_COLLECTION_BULK_LIMIT };
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return empty;
 
   const db = createDb(platform.env.DB);
-  const [pageData, topics, stimulusGroups] = await Promise.all([
+  const [pageData, topics, collections, stimulusGroups] = await Promise.all([
     getAssetLibraryPage(db, filters, { page: requestedPage, includeAllMatchingIds: true }),
     listAssetLibraryTopics(db),
+    listAssetLibraryCollections(db),
     listActiveStimulusGroupTargets(db)
   ]);
   return {
     assets: pageData.rows,
     topics,
+    collections,
     stimulusGroups,
     filters,
     pagination: { totalCount: pageData.totalCount, totalPages: pageData.totalPages, page: pageData.page, pageSize: pageData.pageSize },
     queryContext: assetLibraryQueryContext(filters),
     allMatchingIds: pageData.allMatchingIds,
     selectAllLimit: ASSET_LIBRARY_SELECT_ALL_LIMIT,
-    bulkLimit: ADMIN_IMAGE_BULK_LIMIT
+    bulkLimit: ADMIN_IMAGE_BULK_LIMIT,
+    collectionBulkLimit: ASSET_LIBRARY_COLLECTION_BULK_LIMIT
   };
 }
 
 export const actions = {
+  createCollection: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    try {
+      const formData = await request.formData();
+      const created = await createImageCollection(createDb(platform.env.DB), formText(formData, 'collection_name'));
+      return { collectionCreated: true, collectionMessage: `Collection “${created.name}” created.` };
+    } catch (error) {
+      const clientError = error instanceof Error && error.name === 'AssetLibraryInputError';
+      if (!clientError) console.error('Collection creation failed.', error);
+      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to create the Collection.' });
+    }
+  },
+
+  setCollection: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const assetIds = formData.getAll('asset_id').filter((value) => typeof value === 'string').map((value) => value.trim()).filter(Boolean);
+    try {
+      const result = await setAssetCollection(createDb(platform.env.DB), assetIds, formText(formData, 'collection_id'));
+      return { collectionSuccess: true, collectionMessage: result.collectionId ? `Set Collection for ${result.updatedCount} image${result.updatedCount === 1 ? '' : 's'}.` : `Moved ${result.updatedCount} image${result.updatedCount === 1 ? '' : 's'} to Unsorted.` };
+    } catch (error) {
+      const clientError = error instanceof Error && error.name === 'AssetLibraryInputError';
+      if (!clientError) console.error('Bulk Collection update failed.', error);
+      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to update the selected Collections.' });
+    }
+  },
+
   bulkAddToStimulusGroup: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });

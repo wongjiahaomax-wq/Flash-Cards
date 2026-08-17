@@ -6,12 +6,13 @@ import {
   putTeachingImage,
   assertSupportedImageType
 } from '../storage/media.js';
-import { assets, caseAssets, caseConcepts, cases, concepts, stimulusGroupOptions, stimulusGroups } from './schema.js';
+import { assets, caseAssets, caseConcepts, cases, concepts, imageCollections, stimulusGroupOptions, stimulusGroups } from './schema.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
 export const ASSET_LIBRARY_PAGE_SIZE = 60;
 export const ASSET_LIBRARY_SELECT_ALL_LIMIT = 300;
+export const ASSET_LIBRARY_COLLECTION_BULK_LIMIT = 30;
 
 export class AssetLibraryInputError extends Error {
   /** @param {string} message */
@@ -51,20 +52,22 @@ function booleanValue(value) {
 
 /**
  * @param {URLSearchParams | { get(name: string): string | null }} params
- * @returns {{ search: string, topic: string, usage: 'all' | 'used' | 'unused', status: 'all' | 'active' | 'inactive', source: 'all' | 'known' | 'unknown', sort: 'newest' | 'oldest' | 'name-asc' | 'name-desc' | 'most-used' | 'least-used' }}
+ * @returns {{ search: string, topic: string, collection: string, usage: 'all' | 'used' | 'unused', status: 'all' | 'active' | 'inactive', source: 'all' | 'known' | 'unknown', sort: 'newest' | 'oldest' | 'name-asc' | 'name-desc' | 'most-used' | 'least-used' | 'collection-asc' | 'collection-desc' | 'unsorted-first' }}
  */
 export function parseAssetLibraryFilters(params) {
   const sortValue = params.get('sort');
   const usageValue = params.get('usage');
   const statusValue = params.get('status');
   const sourceValue = params.get('source');
+  const collectionValue = params.get('collection')?.trim() ?? '';
   return {
     search: params.get('q')?.trim() ?? '',
     topic: params.get('topic')?.trim() ?? '',
+    collection: collectionValue === 'unsorted' ? 'unsorted' : collectionValue,
     usage: usageValue === 'used' || usageValue === 'unused' ? usageValue : 'all',
     status: statusValue === 'active' || statusValue === 'inactive' ? statusValue : 'all',
     source: sourceValue === 'known' || sourceValue === 'unknown' ? sourceValue : 'all',
-    sort: sortValue === 'oldest' || sortValue === 'name-asc' || sortValue === 'name-desc' || sortValue === 'most-used' || sortValue === 'least-used' ? sortValue : 'newest'
+    sort: sortValue === 'oldest' || sortValue === 'name-asc' || sortValue === 'name-desc' || sortValue === 'most-used' || sortValue === 'least-used' || sortValue === 'collection-asc' || sortValue === 'collection-desc' || sortValue === 'unsorted-first' ? sortValue : 'newest'
   };
 }
 
@@ -76,12 +79,35 @@ export function parseAssetLibraryPage(params) {
 
 /** @param {ReturnType<typeof parseAssetLibraryFilters>} filters */
 export function assetLibraryQueryContext(filters) {
-  return JSON.stringify({ q: filters.search, topic: filters.topic, usage: filters.usage, status: filters.status, source: filters.source, sort: filters.sort });
+  return JSON.stringify({ q: filters.search, topic: filters.topic, collection: filters.collection, usage: filters.usage, status: filters.status, source: filters.source, sort: filters.sort });
 }
 
 /** @param {LearningDb} db */
 export async function listAssetLibraryTopics(db) {
   return db.select({ id: concepts.id, name: concepts.name }).from(concepts).orderBy(asc(concepts.name), asc(concepts.id));
+}
+
+/** @param {LearningDb} db */
+export async function listAssetLibraryCollections(db) {
+  return db.select({ id: imageCollections.id, name: imageCollections.name })
+    .from(imageCollections)
+    .orderBy(asc(imageCollections.name), asc(imageCollections.id));
+}
+
+/** @param {LearningDb} db @param {string | null | undefined} name */
+export async function createImageCollection(db, name) {
+  const normalizedName = requiredText(name, 'Collection name');
+  if (normalizedName.length > 200) throw new AssetLibraryInputError('Collection name must be 200 characters or fewer.');
+  const existing = await db.select({ id: imageCollections.id }).from(imageCollections).where(eq(imageCollections.name, normalizedName)).limit(1);
+  if (existing[0]) throw new AssetLibraryInputError('A Collection with that name already exists.');
+  const id = crypto.randomUUID();
+  try {
+    await db.insert(imageCollections).values({ id, name: normalizedName });
+  } catch (error) {
+    if (error instanceof Error && /unique|constraint/i.test(error.message)) throw new AssetLibraryInputError('A Collection with that name already exists.');
+    throw error;
+  }
+  return { id, name: normalizedName };
 }
 
 // Count distinct production Cases using an Asset. This is one scalar correlated
@@ -164,8 +190,12 @@ function libraryConditions(filters) {
       )
     )`);
   }
+  if (filters.collection === 'unsorted') conditions.push(isNull(assets.imageCollectionId));
+  else if (filters.collection) conditions.push(eq(assets.imageCollectionId, filters.collection));
   return conditions;
 }
+
+const collectionNameExpr = sql`(select collection_sort.name from image_collections collection_sort where collection_sort.id = ${assets.imageCollectionId})`;
 
 /** @param {ReturnType<typeof parseAssetLibraryFilters>['sort']} sort */
 function libraryOrder(sort) {
@@ -174,6 +204,9 @@ function libraryOrder(sort) {
   if (sort === 'name-desc') return [desc(assets.originalFilename), desc(assets.id)];
   if (sort === 'most-used') return [desc(usageCountExpr), desc(assets.createdAt), desc(assets.id)];
   if (sort === 'least-used') return [asc(usageCountExpr), asc(assets.createdAt), asc(assets.id)];
+  if (sort === 'collection-asc') return [sql`case when ${assets.imageCollectionId} is null then 1 else 0 end`, asc(collectionNameExpr), asc(assets.id)];
+  if (sort === 'collection-desc') return [sql`case when ${assets.imageCollectionId} is null then 1 else 0 end`, desc(collectionNameExpr), desc(assets.id)];
+  if (sort === 'unsorted-first') return [sql`case when ${assets.imageCollectionId} is null then 0 else 1 end`, asc(collectionNameExpr), asc(assets.id)];
   return [desc(assets.createdAt), desc(assets.id)];
 }
 
@@ -217,10 +250,12 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
     sourceLabel: assets.sourceLabel,
     sourceUrl: assets.sourceUrl,
     licence: assets.licence,
+    collectionId: assets.imageCollectionId,
+    collectionName: imageCollections.name,
     isActive: assets.isActive,
     createdAt: assets.createdAt,
     updatedAt: assets.updatedAt
-  }).from(assets).where(where).orderBy(...libraryOrder(filters.sort)).limit(pageSize).offset((page - 1) * pageSize);
+  }).from(assets).leftJoin(imageCollections, eq(assets.imageCollectionId, imageCollections.id)).where(where).orderBy(...libraryOrder(filters.sort)).limit(pageSize).offset((page - 1) * pageSize);
   const ids = rawRows.map((row) => row.id);
   const usageRows = await listUsageRows(db, ids);
   const usageCasesByAsset = new Map();
@@ -257,7 +292,7 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
  * @param {Partial<ReturnType<typeof parseAssetLibraryFilters>>} [filters]
  */
 export async function listAssetLibrary(db, filters = {}) {
-  const normalized = { search: String(filters.search ?? '').trim(), topic: String(filters.topic ?? '').trim(), usage: filters.usage ?? 'all', status: filters.status ?? 'all', source: filters.source ?? 'all', sort: filters.sort ?? 'newest' };
+  const normalized = { search: String(filters.search ?? '').trim(), topic: String(filters.topic ?? '').trim(), collection: String(filters.collection ?? '').trim(), usage: filters.usage ?? 'all', status: filters.status ?? 'all', source: filters.source ?? 'all', sort: filters.sort ?? 'newest' };
   const first = await getAssetLibraryPage(db, normalized, { page: 1, pageSize: ASSET_LIBRARY_PAGE_SIZE });
   const rows = [...first.rows];
   for (let page = 2; page <= first.totalPages; page += 1) rows.push(...(await getAssetLibraryPage(db, normalized, { page, pageSize: ASSET_LIBRARY_PAGE_SIZE })).rows);
@@ -267,7 +302,23 @@ export async function listAssetLibrary(db, filters = {}) {
 /** @param {LearningDb} db @param {string} assetId */
 export async function getAssetLibraryDetail(db, assetId) {
   const normalizedId = requiredText(assetId, 'Asset');
-  const rows = await db.select().from(assets).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
+  const rows = await db.select({
+    id: assets.id,
+    type: assets.type,
+    storageKey: assets.storageKey,
+    mimeType: assets.mimeType,
+    originalFilename: assets.originalFilename,
+    altText: assets.altText,
+    sourceLabel: assets.sourceLabel,
+    sourceUrl: assets.sourceUrl,
+    licence: assets.licence,
+    imageCollectionId: assets.imageCollectionId,
+    collectionName: imageCollections.name,
+    previewSessionId: assets.previewSessionId,
+    isActive: assets.isActive,
+    createdAt: assets.createdAt,
+    updatedAt: assets.updatedAt
+  }).from(assets).leftJoin(imageCollections, eq(assets.imageCollectionId, imageCollections.id)).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
   const asset = rows[0];
   if (!asset) return null;
   const usages = await listUsageRows(db, [asset.id]);
@@ -281,15 +332,44 @@ export async function getAssetLibraryDetail(db, assetId) {
  *
  * @param {LearningDb} db
  * @param {string} assetId
- * @param {{ originalFilename?: string | null, altText?: string | null, sourceLabel?: string | null, sourceUrl?: string | null, licence?: string | null, isActive?: boolean | string }} input
+ * @param {{ originalFilename?: string | null, altText?: string | null, sourceLabel?: string | null, sourceUrl?: string | null, licence?: string | null, imageCollectionId?: string | null, isActive?: boolean | string }} input
  */
 export async function updateAssetMetadata(db, assetId, input) {
   const normalizedId = requiredText(assetId, 'Asset');
   const existing = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
   if (!existing[0]) throw new AssetLibraryInputError('The selected production Asset no longer exists.');
-  const update = { originalFilename: optionalText(input.originalFilename), altText: optionalText(input.altText), sourceLabel: optionalText(input.sourceLabel), sourceUrl: validateAssetSourceUrl(input.sourceUrl), licence: optionalText(input.licence), isActive: booleanValue(input.isActive), updatedAt: new Date() };
+  const imageCollectionId = optionalText(input.imageCollectionId);
+  await validateCollection(db, imageCollectionId);
+  const update = { originalFilename: optionalText(input.originalFilename), altText: optionalText(input.altText), sourceLabel: optionalText(input.sourceLabel), sourceUrl: validateAssetSourceUrl(input.sourceUrl), licence: optionalText(input.licence), imageCollectionId, isActive: booleanValue(input.isActive), updatedAt: new Date() };
   await db.update(assets).set(update).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId)));
   return update;
+}
+
+/** @param {LearningDb} db @param {string | null} collectionId */
+async function validateCollection(db, collectionId) {
+  if (!collectionId) return;
+  const rows = await db.select({ id: imageCollections.id }).from(imageCollections).where(eq(imageCollections.id, collectionId)).limit(1);
+  if (!rows[0]) throw new AssetLibraryInputError('The selected Collection does not exist.');
+}
+
+/**
+ * Replace the Collection assignment for a bounded production Asset batch.
+ * A null target deliberately means Unsorted; Preview-owned Assets are never
+ * valid mutation targets.
+ * @param {LearningDb} db
+ * @param {string[]} assetIds
+ * @param {string | null | undefined} collectionId
+ */
+export async function setAssetCollection(db, assetIds, collectionId) {
+  const uniqueIds = [...new Set(assetIds.map((id) => String(id ?? '').trim()).filter(Boolean))];
+  if (!uniqueIds.length) throw new AssetLibraryInputError('Select at least one Asset.');
+  if (uniqueIds.length > ASSET_LIBRARY_COLLECTION_BULK_LIMIT) throw new AssetLibraryInputError(`Collection updates are limited to ${ASSET_LIBRARY_COLLECTION_BULK_LIMIT} Assets per request.`);
+  const normalizedCollectionId = optionalText(collectionId);
+  await validateCollection(db, normalizedCollectionId);
+  const existing = await db.select({ id: assets.id }).from(assets).where(and(isNull(assets.previewSessionId), inArray(assets.id, uniqueIds)));
+  if (existing.length !== uniqueIds.length) throw new AssetLibraryInputError('One or more selected production Assets no longer exist.');
+  await db.update(assets).set({ imageCollectionId: normalizedCollectionId, updatedAt: new Date() }).where(and(isNull(assets.previewSessionId), inArray(assets.id, uniqueIds)));
+  return { updatedCount: uniqueIds.length, collectionId: normalizedCollectionId };
 }
 
 /** @param {string} mimeType */

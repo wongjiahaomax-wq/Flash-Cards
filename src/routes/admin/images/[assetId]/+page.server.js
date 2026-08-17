@@ -6,6 +6,7 @@ import { createDb } from '$lib/server/db/index.js';
 import {
   AssetLibraryInputError,
   getAssetLibraryDetail,
+  listAssetLibraryCollections,
   updateAssetMetadata
 } from '$lib/server/db/asset-library.js';
 import { assets } from '$lib/server/db/schema.js';
@@ -33,11 +34,12 @@ async function isProductionAsset(db, assetId) {
 }
 
 export async function load({ locals, params, platform, url }) {
-  if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { detail: null, status: null };
+  if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { detail: null, collections: [], status: null };
   const db = createDb(platform.env.DB);
-  if (!(await isProductionAsset(db, params.assetId))) return { detail: null, status: null };
+  if (!(await isProductionAsset(db, params.assetId))) return { detail: null, collections: [], status: null };
   return {
     detail: await getAssetLibraryDetail(db, params.assetId),
+    collections: await listAssetLibraryCollections(db),
     status: url.searchParams.get('status')
   };
 }
@@ -59,6 +61,7 @@ export const actions = {
         sourceLabel: formText(formData, 'source_label'),
         sourceUrl: formText(formData, 'source_url'),
         licence: formText(formData, 'licence'),
+        imageCollectionId: formText(formData, 'image_collection_id'),
         isActive: formData.has('is_active')
       });
     } catch (error) {

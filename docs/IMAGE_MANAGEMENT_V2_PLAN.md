@@ -8,7 +8,9 @@ _Last updated: 17 August 2026_
 
 Image Management V2 makes the production and Preview Image Libraries practical for a larger corpus while preserving the existing Case/stimulus model. It is an Admin workflow change only: learner stimulus selection, contextual-question precedence, Review snapshots/provenance and protected R2 identity are unchanged.
 
-No D1 migration and no `wrangler.jsonc` change are part of this implementation.
+This implementation adds D1 migration `drizzle/0007_image_collections.sql`; it does not change `wrangler.jsonc`.
+
+Terminology is deliberate: **Topic** is an educational / learner Case classification, **Tag** is cross-cutting clinical metadata, and **Collection** is an Image Library organisational bucket. Collections are not Topics, Categories or Folders.
 
 ## Preserved content model
 
@@ -23,6 +25,16 @@ image in an alternative set = stimulus_group_options
 Case-specific captions remain relationship metadata. Exact-image questions remain attached to the exact `stimulus_group_option`. A stimulus group is still a Case-specific learner alternative set, not a media-library folder.
 
 There is no Asset-folder model, Asset Tags, global album hierarchy or generic library-wide Move command in V2.
+
+## Image Library Collections
+
+Each Asset has zero or one Collection through nullable `assets.image_collection_id`. A null value is presented as **Unsorted**. `image_collections.name` is unique, and the foreign key uses `ON DELETE SET NULL`; this milestone deliberately provides creation but no casual destructive deletion UI.
+
+Collections are global Asset metadata. They do not change `case_concepts`, Case Tags, Case relationships, captions, stimulus/question semantics, learner routing, Review snapshots or R2 identity. The read-only Case-derived context remains labelled **Used in Topics** so it cannot be confused with Collection.
+
+The Image Library supports server-backed Collection filtering alongside the existing Used in Topic, usage, status and source filters. Collection changes reset to page 1 and clear cross-page selection. Sorts include Collection A–Z, Collection Z–A and Unsorted first, with deterministic Asset-ID tie-breaks.
+
+Admins can create a named Collection from `/admin/images`, assign selected Assets through **Set Collection**, or explicitly choose **Unsorted** to remove an assignment. Assignment replaces the prior value and is chunked sequentially at the existing 30-Asset server bound. A failed chunk stops later requests, retains failed/unprocessed selection and reports completed versus remaining work. Preview can display, filter and sort Collection metadata but cannot mutate production Asset assignments.
 
 ## 1. Server-backed Image Library pagination
 
@@ -235,15 +247,14 @@ Historical Reviews continue rendering persisted snapshots and are unaffected by 
 
 ## 11. Schema/deployment status
 
-This implementation changes neither:
+This implementation changes:
 
 ```text
-drizzle migrations
+drizzle/0007_image_collections.sql
 src/lib/server/db/schema.js
-wrangler.jsonc
 ```
 
-It therefore remains eligible for the existing **Deploy PR to Preview** workflow, subject to normal CI and the workflow's candidate-PR checks.
+The existing `.github/workflows/deploy-pr-to-preview.yml` intentionally refuses PRs that change D1 schema/migrations, because that workflow deploys the Worker against the production-backed D1 binding and never applies migrations. PR #34 therefore cannot safely deploy through that workflow while `0007` is pending. The safest sequencing is to review and merge the migration/schema portion under the normal protected process, apply `0007_image_collections.sql` to the intended D1 environment with an explicit migration step, then deploy the exact post-migration application commit to Preview and perform manual review. Do not weaken the guard or point Preview at an unreviewed database.
 
 ## 12. Regression coverage
 
@@ -268,6 +279,10 @@ Focused V2 tests cover:
 - minimum coverage validation;
 - group-level questions remaining with their groups;
 - production/Preview ownership enforcement.
+- Collection migration/schema and nullable Unsorted semantics;
+- Collection creation, assignment/reset, filtering, sorting and deterministic tie-breaking;
+- 1/30/31/60/61 Collection chunk boundaries and partial-failure accounting;
+- Preview read-only Collection metadata and unchanged Case-derived Topic relationships.
 
 Existing image workflow, learner Review and Preview Reset suites remain part of the full `npm test` regression run.
 
@@ -290,9 +305,9 @@ These commands are also covered by the repository CI workflow for pull requests.
 
 After CI is green:
 
-1. GitHub Actions -> **Deploy PR to Preview**.
-2. Enter PR `#34` and run the workflow.
-3. Wait for a green deployment of the exact PR head SHA.
+1. Do not run **Deploy PR to Preview** for PR #34 until the migration has been separately reviewed and applied; the workflow is expected to stop at its schema guard.
+2. Apply the reviewed `0007_image_collections.sql` through the protected migration process to the D1 database used by Preview.
+3. Deploy the exact post-migration application commit to the Preview Worker through the approved deployment path.
 4. Sign into `/preview-admin`.
 5. Create or use a disposable Preview Case with at least two active alternative sets.
 6. Verify Image Library pagination and exact total matching count.
@@ -302,13 +317,14 @@ After CI is green:
 10. Use **Select all N matching images** with <=300 matches and confirm exact selection.
 11. Use a broad result set with >300 matches and confirm Select All is refused rather than truncated.
 12. Select >30 Assets and bulk Add them to an active Preview-owned alternative set; verify sequential progress.
-13. Force or encounter a conflict in a later chunk and verify completed/remaining reporting with remaining IDs selected.
-14. In the Preview Case editor, use **Move to another set…** on an existing option and verify its caption and exact-option questions remain attached.
-15. Confirm set-wide questions remained with their original sets.
-16. Confirm the source production Case is unchanged.
-17. Reset Preview Workspace.
-18. Run **Restore Main to Preview**.
+13. Verify Collection names and Unsorted display/filter/sorts in Preview, and confirm no Preview control can assign a production Asset Collection.
+14. Force or encounter a conflict in a later chunk and verify completed/remaining reporting with remaining IDs selected.
+15. In the Preview Case editor, use **Move to another set…** on an existing option and verify its caption and exact-option questions remain attached.
+16. Confirm set-wide questions remained with their original sets.
+17. Confirm the source production Case is unchanged.
+18. Reset Preview Workspace.
+19. Run **Restore Main to Preview**.
 
 ## Definition of done
 
-Image Management V2 is complete when a large Image Library can be paged deterministically, selected exactly across pages within explicit bounds, mutated through server-safe sequential chunks, and reorganised through an identity-preserving same-Case option Move without loss of contextual teaching data or Preview isolation.
+Image Management V2 is complete when a large Image Library can be paged deterministically, selected exactly across pages within explicit bounds, organised through one-Collection-per-Asset metadata with an explicit Unsorted state, mutated through server-safe sequential chunks, and reorganised through an identity-preserving same-Case option Move without loss of contextual teaching data or Preview isolation.

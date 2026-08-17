@@ -104,6 +104,20 @@ export const caseConcepts = sqliteTable(
   ]
 );
 
+export const imageCollections = sqliteTable(
+  'image_collections',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    createdAt: timestamp('created_at'),
+    updatedAt: timestamp('updated_at')
+  },
+  (table) => [
+    uniqueIndex('image_collections_name_unique').on(table.name),
+    index('image_collections_name_idx').on(table.name)
+  ]
+);
+
 export const assets = sqliteTable(
   'assets',
   {
@@ -116,6 +130,7 @@ export const assets = sqliteTable(
     sourceLabel: text('source_label'),
     sourceUrl: text('source_url'),
     licence: text('licence'),
+    imageCollectionId: text('image_collection_id').references(() => imageCollections.id, { onDelete: 'set null' }),
     previewSessionId: text('preview_session_id').references(() => previewSessions.id, { onDelete: 'restrict' }),
     isActive: activeFlag(),
     createdAt: timestamp('created_at'),
@@ -124,6 +139,7 @@ export const assets = sqliteTable(
   (table) => [
     uniqueIndex('assets_storage_key_unique').on(table.storageKey),
     index('assets_active_idx').on(table.isActive),
+    index('assets_image_collection_idx').on(table.imageCollectionId),
     index('assets_preview_session_idx').on(table.previewSessionId)
   ]
 );

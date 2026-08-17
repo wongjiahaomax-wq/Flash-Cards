@@ -8,10 +8,13 @@ import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
 import {
   ASSET_LIBRARY_SELECT_ALL_LIMIT,
+  createImageCollection,
   assetLibraryQueryContext,
   getAssetLibraryPage,
+  listAssetLibraryCollections,
   parseAssetLibraryFilters,
-  parseAssetLibraryPage
+  parseAssetLibraryPage,
+  setAssetCollection
 } from '../src/lib/server/db/asset-library.js';
 import { moveStimulusOptionWithinCase, StimulusOptionMoveError } from '../src/lib/server/db/image-option-move.js';
 
@@ -27,7 +30,8 @@ registerHooks({
 const migrationSql = [
   readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function fixture() {
@@ -147,6 +151,46 @@ test('production paginated Image Library excludes Preview-owned Assets', async (
     const result = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=-v2')), { page: 1, includeAllMatchingIds: true });
     assert.deepEqual(result.rows.map((row) => row.id), ['production-v2']);
     assert.deepEqual(result.allMatchingIds, ['production-v2']);
+  } finally { sqlite.close(); }
+});
+
+test('Collections support creation, one-to-one Asset assignment, Unsorted and safe reset', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    const created = await createImageCollection(db, 'ECG');
+    assert.equal(created.name, 'ECG');
+    assert.deepEqual((await listAssetLibraryCollections(db)).map((row) => row.name), ['ECG']);
+    insertAsset(sqlite, 'collection-asset-a', 55_001);
+    insertAsset(sqlite, 'collection-asset-b', 55_002);
+    await setAssetCollection(db, ['collection-asset-a'], created.id);
+    let assigned = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('collection=' + created.id)), { includeAllMatchingIds: true });
+    assert.deepEqual(assigned.allMatchingIds, ['collection-asset-a']);
+    const unsorted = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('collection=unsorted&q=collection-asset')), { includeAllMatchingIds: true });
+    assert.deepEqual(unsorted.allMatchingIds, ['collection-asset-b']);
+    await setAssetCollection(db, ['collection-asset-a'], null);
+    assigned = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('collection=unsorted&q=collection-asset')), { includeAllMatchingIds: true });
+    assert.deepEqual(assigned.allMatchingIds, ['collection-asset-b', 'collection-asset-a']);
+    await assert.rejects(() => createImageCollection(db, 'ECG'), /already exists/);
+  } finally { sqlite.close(); }
+});
+
+test('Collection sorting is deterministic and keeps Unsorted explicit', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    const dermatology = await createImageCollection(db, 'Dermatology');
+    const ecg = await createImageCollection(db, 'ECG');
+    insertAsset(sqlite, 'sort-unsorted-a', 56_001);
+    insertAsset(sqlite, 'sort-unsorted-b', 56_002);
+    insertAsset(sqlite, 'sort-ecg', 56_003);
+    insertAsset(sqlite, 'sort-derm', 56_004);
+    await setAssetCollection(db, ['sort-ecg'], ecg.id);
+    await setAssetCollection(db, ['sort-derm'], dermatology.id);
+    const ascRows = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=sort-&sort=collection-asc')), {});
+    const descRows = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=sort-&sort=collection-desc')), {});
+    const unsortedRows = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=sort-&sort=unsorted-first')), {});
+    assert.deepEqual(ascRows.rows.map((row) => row.id), ['sort-derm', 'sort-ecg', 'sort-unsorted-a', 'sort-unsorted-b']);
+    assert.deepEqual(descRows.rows.map((row) => row.id), ['sort-ecg', 'sort-derm', 'sort-unsorted-b', 'sort-unsorted-a']);
+    assert.deepEqual(unsortedRows.rows.slice(0, 2).map((row) => row.id), ['sort-unsorted-a', 'sort-unsorted-b']);
   } finally { sqlite.close(); }
 });
 

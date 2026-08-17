@@ -1,7 +1,7 @@
 import { fail } from '@sveltejs/kit';
 import { and, asc, eq } from 'drizzle-orm';
 
-import { ASSET_LIBRARY_SELECT_ALL_LIMIT, assetLibraryQueryContext, getAssetLibraryPage, listAssetLibraryTopics, parseAssetLibraryFilters, parseAssetLibraryPage } from '$lib/server/db/asset-library.js';
+import { ASSET_LIBRARY_SELECT_ALL_LIMIT, assetLibraryQueryContext, getAssetLibraryPage, listAssetLibraryCollections, listAssetLibraryTopics, parseAssetLibraryFilters, parseAssetLibraryPage } from '$lib/server/db/asset-library.js';
 import { addPreviewAssetsToStimulusGroup, PREVIEW_IMAGE_BULK_LIMIT, getLivePreviewSession, PreviewWorkspaceError } from '$lib/server/db/preview-workspace.js';
 import { createDb } from '$lib/server/db/index.js';
 import { cases, stimulusGroups } from '$lib/server/db/schema.js';
@@ -16,12 +16,13 @@ export async function load({ parent, platform, url }) {
   const filters = parseAssetLibraryFilters(url.searchParams);
   const queryContext = assetLibraryQueryContext(filters);
   if (!env?.DB || parentData.workspace.status !== 'active' || parentData.workspaceError) {
-    return { assets: [], topics: [], stimulusGroups: [], filters, pagination: { totalCount: 0, totalPages: 1, page: 1, pageSize: 60 }, queryContext, allMatchingIds: [], selectAllLimit: ASSET_LIBRARY_SELECT_ALL_LIMIT, bulkLimit: PREVIEW_IMAGE_BULK_LIMIT, workspaceBlocked: true };
+    return { assets: [], topics: [], collections: [], stimulusGroups: [], filters, pagination: { totalCount: 0, totalPages: 1, page: 1, pageSize: 60 }, queryContext, allMatchingIds: [], selectAllLimit: ASSET_LIBRARY_SELECT_ALL_LIMIT, bulkLimit: PREVIEW_IMAGE_BULK_LIMIT, workspaceBlocked: true };
   }
   const db = createDb(env.DB);
-  const [pageData, topics] = await Promise.all([
+  const [pageData, topics, collections] = await Promise.all([
     getAssetLibraryPage(db, filters, { page: parseAssetLibraryPage(url.searchParams), includeAllMatchingIds: true }),
-    listAssetLibraryTopics(db)
+    listAssetLibraryTopics(db),
+    listAssetLibraryCollections(db)
   ]);
   const session = await getLivePreviewSession(db, parentData.user.id);
   const previewGroups = session
@@ -33,6 +34,7 @@ export async function load({ parent, platform, url }) {
   return {
     assets: pageData.rows,
     topics,
+    collections,
     stimulusGroups: previewGroups,
     filters,
     pagination: { totalCount: pageData.totalCount, totalPages: pageData.totalPages, page: pageData.page, pageSize: pageData.pageSize },

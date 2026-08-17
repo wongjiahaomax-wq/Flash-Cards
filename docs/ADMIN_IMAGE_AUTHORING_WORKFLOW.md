@@ -2,7 +2,9 @@
 
 _Last updated: 17 August 2026_
 
-This document records the Admin image-authoring UX introduced by PR #29 and extended by Image Management V2 in draft PR #34. These remain Admin UI/query/relationship workflow changes only: learner selection semantics and the learning-content schema are unchanged.
+This document records the Admin image-authoring UX introduced by PR #29 and extended by Image Management V2 in draft PR #34. Learner selection semantics are unchanged; PR #34 now includes the D1 Collection metadata schema in migration `0007_image_collections.sql`.
+
+Terminology: **Topic** = educational / learner Case classification; **Tag** = cross-cutting clinical metadata; **Collection** = Image Library organisational bucket. A Collection is not a Topic, Category or Folder.
 
 ## Case editor order
 
@@ -190,6 +192,16 @@ The shared Case editor also exposes Move in Preview, but its endpoint requires t
 
 Normal production Admin read/mutation paths continue excluding or rejecting Preview-owned relationships.
 
+## Image Library Collections
+
+An Asset belongs to zero or one Collection. `assets.image_collection_id IS NULL` is shown as **Unsorted**. Collections are global Asset metadata and never modify Case Topics (`case_concepts`), Tags, Case relationships, captions, stimulus options, questions, learner routing, Reviews or R2 identity.
+
+`/admin/images` provides Collection filtering, Collection A–Z, Collection Z–A and Unsorted-first sorting, while the existing Case-derived information is labelled **Used in Topics**. Collection filter/sort changes reset page and cross-page selection through the same canonical query-context rules as other authoritative changes.
+
+Admins can create named Collections in the Image Library and use bulk **Set Collection** on selected Assets. The operation replaces every selected Asset's current assignment; choosing **Unsorted** removes the assignment. It is sent in sequential chunks of at most 30 Assets. A failed chunk stops later chunks, preserves completed writes, retains failed/unprocessed selection and reports progress; it is not atomic across chunks.
+
+The individual Asset editor exposes the same Collection field in the global metadata area. Preview may show/filter/sort production Collection metadata, but its production Asset library is read-only and has no Collection mutation action.
+
 ## Learner/data-model invariants
 
 Image Management V2 does not change:
@@ -203,6 +215,6 @@ Image Management V2 does not change:
 - learner Review composition;
 - R2 object identity.
 
-No D1 migration and no `wrangler.jsonc` change are introduced.
+Migration `drizzle/0007_image_collections.sql` adds `image_collections`, the nullable Asset foreign key and indexes. `wrangler.jsonc` is unchanged. The existing Deploy PR to Preview workflow intentionally blocks migration-bearing PRs because it uses production-backed D1 without applying migrations. Do not weaken that guard; apply the reviewed migration through the protected sequencing process before deploying the matching application commit for manual Preview review.
 
 See `IMAGE_MANAGEMENT_V2_PLAN.md` for final limits, tests and manual Preview review procedure.

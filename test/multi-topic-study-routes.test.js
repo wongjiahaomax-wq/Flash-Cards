@@ -12,7 +12,7 @@ const baseMigrationSql = [
   readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 const multiTopicMigrationSql = readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8');
-const previewMigrationSql = readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8').replaceAll('--> statement-breakpoint', '');
+const previewMigrationSql = `${readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8')}\n${readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8')}`.replaceAll('--> statement-breakpoint', '');
 
 /** @param {DatabaseSync} sqlite */
 function d1For(sqlite) {

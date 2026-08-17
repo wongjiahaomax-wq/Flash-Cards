@@ -23,10 +23,11 @@
     <section class="panel">
       <p class="eyebrow">Global metadata</p>
       <h2>Edit Asset</h2>
-      <p class="muted">Renaming changes <code>assets.original_filename</code> in D1 only. Case-specific captions stay in each Case editor.</p>
+      <p class="muted">Renaming changes <code>assets.original_filename</code> in D1 only. Case-specific captions stay in each Case editor. Collection is Image Library organisation, separate from educational Topics and Tags.</p>
       <form method="POST" action="?/saveMetadata" class="form-grid">
         <label class="wide">Image name<input name="original_filename" value={detail.asset.originalFilename ?? ''} maxlength="300" /></label>
         <label class="wide">Alt text<textarea name="alt_text" rows="4" maxlength="500">{detail.asset.altText ?? ''}</textarea></label>
+        <label class="wide">Collection<select name="image_collection_id"><option value="" selected={!detail.asset.imageCollectionId}>Unsorted</option>{#each data.collections as collection}<option value={collection.id} selected={detail.asset.imageCollectionId === collection.id}>{collection.name}</option>{/each}</select><span class="muted">Image Library organisation only. This does not change Case Topics, Tags, captions or learner behaviour.</span></label>
         <label>Source label <span class="muted">(optional)</span><input name="source_label" value={detail.asset.sourceLabel ?? ''} maxlength="300" /></label>
         <label>Source URL <span class="muted">(optional)</span><input name="source_url" type="url" value={detail.asset.sourceUrl ?? ''} maxlength="2000" /></label>
         <label class="wide">Licence / permission <span class="muted">(optional)</span><input name="licence" value={detail.asset.licence ?? ''} maxlength="500" /></label>

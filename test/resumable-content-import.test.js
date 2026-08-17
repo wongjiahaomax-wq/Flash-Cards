@@ -25,7 +25,8 @@ import { importPackageStorageKey } from '../src/lib/server/storage/import-packag
 const baseSql = readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8').replaceAll('--> statement-breakpoint', '');
 const currentDomainSql = [
   readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 const importJobSql = readFileSync(new URL('../drizzle/0004_resumable_import_jobs.sql', import.meta.url), 'utf8').replaceAll('--> statement-breakpoint', '');
 
