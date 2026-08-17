@@ -16,7 +16,7 @@ export function isPreviewAdmin(user) {
   return parseRoles(user?.role).includes('preview_admin');
 }
 
-/** @param {Record<string, unknown> | null | undefined} env */
+/** @param {{ PREVIEW_MODE?: unknown } | null | undefined} env */
 export function isPreviewWorker(env) {
   return String(env?.PREVIEW_MODE ?? '').toLowerCase() === 'true';
 }
@@ -25,7 +25,7 @@ export function isPreviewWorker(env) {
  * Preview authority is deliberately the intersection of a dedicated role and
  * the dedicated Worker runtime. A preview_admin account is not a production Admin.
  *
- * @param {{ user?: { id?: string, role?: unknown } | null, env?: Record<string, unknown> | null }} input
+ * @param {{ user?: { id?: string, role?: unknown } | null, env?: { PREVIEW_MODE?: unknown } | null }} input
  */
 export function requirePreviewAdmin({ user, env }) {
   if (!isPreviewWorker(env) || !user?.id || !isPreviewAdmin(user)) {
