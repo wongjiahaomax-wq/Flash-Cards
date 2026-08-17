@@ -40,6 +40,19 @@ export function applyAssetSelection(input) {
   return { selectedIds: new Set([assetId]), anchorId: assetId };
 }
 
+/**
+ * Remove Assets that are no longer in the displayed filtered result set.
+ * This prevents hidden selections from surviving a filter/search change.
+ *
+ * @param {{ selectedIds: Iterable<string>, orderedIds: string[], anchorId?: string | null }} input
+ */
+export function pruneAssetSelection(input) {
+  const visibleIds = new Set(input.orderedIds ?? []);
+  const selectedIds = new Set([...input.selectedIds].filter((id) => visibleIds.has(id)));
+  const anchorId = input.anchorId && visibleIds.has(input.anchorId) ? input.anchorId : null;
+  return { selectedIds, anchorId };
+}
+
 export function clearAssetSelection() {
   return { selectedIds: new Set(), anchorId: null };
 }
