@@ -9,6 +9,7 @@ on:
 permissions:
   contents: read
   pull-requests: read
+  statuses: write
 
 jobs:
   deploy-preview:
@@ -49,6 +50,18 @@ jobs:
 
           echo "head_sha=$head_sha" >> "$GITHUB_OUTPUT"
           echo "base_sha=$base_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Publish pending Preview status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state=pending \
+            -f context=preview-deployment \
+            -f description='Validating and deploying PR 34 to Preview'
 
       - name: Check out exact PR head SHA
         uses: actions/checkout@v5
@@ -144,3 +157,29 @@ jobs:
             echo "- Preview URL: https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev"
             echo "- D1 migrations: **not run**"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish successful Preview status
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state=success \
+            -f context=preview-deployment \
+            -f description='PR 34 deployed successfully to Preview'
+
+      - name: Publish failed Preview status
+        if: failure() && steps.pr.outputs.head_sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ steps.pr.outputs.head_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/statuses/${HEAD_SHA}" \
+            -f state=failure \
+            -f context=preview-deployment \
+            -f description='PR 34 Preview deployment failed; inspect Actions logs'
