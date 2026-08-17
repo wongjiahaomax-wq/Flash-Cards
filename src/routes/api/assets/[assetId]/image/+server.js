@@ -1,10 +1,10 @@
 import { eq } from 'drizzle-orm';
 
-import { createDb } from '../../../../lib/server/db/index.js';
-import { getLivePreviewSession } from '../../../../lib/server/db/preview-workspace.js';
-import { assets } from '../../../../lib/server/db/schema.js';
-import { isPreviewAdmin, isPreviewWorker } from '../../../../lib/server/preview-auth.js';
-import { serveTeachingImage } from '../../../../lib/server/storage/serve.js';
+import { createDb } from '../../../../../lib/server/db/index.js';
+import { getLivePreviewSession } from '../../../../../lib/server/db/preview-workspace.js';
+import { assets } from '../../../../../lib/server/db/schema.js';
+import { isPreviewAdmin, isPreviewWorker } from '../../../../../lib/server/preview-auth.js';
+import { serveTeachingImage } from '../../../../../lib/server/storage/serve.js';
 
 /**
  * Authenticated, application-controlled image delivery. The R2 bucket remains
