@@ -1,12 +1,17 @@
 <script>
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
 
+  /** @typedef {{ imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, assetId?: string }} ViewableAsset */
   let { data, form } = $props();
   let selectedCase = $derived(data.selectedCase);
   let primaryTopic = $derived(selectedCase?.topics.find((topic) => topic.role === 'primary'));
+  /** @type {{ src: string, alt: string, title: string, subtitle: string } | null} */
   let viewerImage = $state(null);
-  let pickerDialog;
-  let pickerCloseButton;
+  /** @type {HTMLDialogElement | undefined} */
+  let pickerDialog = $state();
+  /** @type {HTMLButtonElement | undefined} */
+  let pickerCloseButton = $state();
+  /** @type {Set<string>} */
   let pickerSelected = $state(new Set());
 
   $effect(() => {
@@ -16,6 +21,7 @@
     }
   });
 
+  /** @param {ViewableAsset} asset @param {string} [subtitle] */
   function showImage(asset, subtitle = '') {
     if (!asset?.imageUrl) return;
     viewerImage = {
@@ -26,6 +32,7 @@
     };
   }
 
+  /** @param {string} assetId */
   function togglePickerAsset(assetId) {
     const next = new Set(pickerSelected);
     if (next.has(assetId)) next.delete(assetId);
