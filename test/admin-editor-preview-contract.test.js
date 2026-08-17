@@ -7,10 +7,12 @@ const previewEditor = readFileSync(new URL('../src/routes/preview-admin/cases/[c
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const previewWorkspace = readFileSync(new URL('../src/lib/server/db/preview-workspace.js', import.meta.url), 'utf8');
 
+/** @param {string} source */
 function editorActionNames(source) {
   return new Set([...source.matchAll(/\baction\s*=\s*["']\?\/([A-Za-z_$][\w$]*)["']/g)].map((match) => match[1]));
 }
 
+/** @param {string} source */
 function adapterActionNames(source) {
   const actionsStart = source.indexOf('export const actions = {');
   assert.ok(actionsStart >= 0, 'Preview Case adapter must export named form actions.');
@@ -19,10 +21,12 @@ function adapterActionNames(source) {
   );
 }
 
+/** @param {string} source */
 function sharedEditorDataKeys(source) {
   return new Set([...source.matchAll(/\bdata\.([A-Za-z_$][\w$]*)/g)].map((match) => match[1]));
 }
 
+/** @param {string} source */
 function loadPreviewCaseEditorSource(source) {
   const start = source.indexOf('export async function loadPreviewCaseEditor');
   assert.ok(start >= 0, 'Preview workspace must expose loadPreviewCaseEditor().');
@@ -30,6 +34,7 @@ function loadPreviewCaseEditorSource(source) {
   return source.slice(start, nextExport >= 0 ? nextExport : source.length);
 }
 
+/** @param {string} value */
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
