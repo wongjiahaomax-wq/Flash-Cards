@@ -1,4 +1,5 @@
 import { fail } from '@sveltejs/kit';
+import { isNull } from 'drizzle-orm';
 
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createDb } from '$lib/server/db/index.js';
@@ -8,6 +9,7 @@ import {
   listAssetLibraryTopics,
   parseAssetLibraryFilters
 } from '$lib/server/db/asset-library.js';
+import { assets } from '$lib/server/db/schema.js';
 import { getTeachingImageUrl, MediaStorageLimitError } from '$lib/server/storage/media.js';
 
 /** @param {FormData} formData @param {string} name */
@@ -23,11 +25,13 @@ export async function load({ locals, platform, url }) {
   }
 
   const db = createDb(platform.env.DB);
-  const [rows, topics] = await Promise.all([
+  const [rows, topics, productionAssetRows] = await Promise.all([
     listAssetLibrary(db, filters),
-    listAssetLibraryTopics(db)
+    listAssetLibraryTopics(db),
+    db.select({ id: assets.id }).from(assets).where(isNull(assets.previewSessionId))
   ]);
-  return { assets: rows, topics, filters };
+  const productionAssetIds = new Set(productionAssetRows.map((row) => row.id));
+  return { assets: rows.filter((asset) => productionAssetIds.has(asset.id)), topics, filters };
 }
 
 export const actions = {
