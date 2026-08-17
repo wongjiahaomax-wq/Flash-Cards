@@ -85,6 +85,26 @@ async function attachedRows(db, caseId) {
     .orderBy(asc(caseAssets.displayOrder));
 }
 
+/** @param {LearningDb} db */
+async function availableAssetRows(db) {
+  return db
+    .select({
+      assetId: assets.id,
+      assetType: assets.type,
+      storageKey: assets.storageKey,
+      mimeType: assets.mimeType,
+      originalFilename: assets.originalFilename,
+      altText: assets.altText,
+      sourceLabel: assets.sourceLabel,
+      sourceUrl: assets.sourceUrl,
+      licence: assets.licence,
+      isActive: assets.isActive
+    })
+    .from(assets)
+    .where(and(eq(assets.isActive, true), isNull(assets.previewSessionId)))
+    .orderBy(desc(assets.createdAt));
+}
+
 /**
  * @param {LearningDb} db
  * @param {string} caseId
@@ -99,6 +119,7 @@ export async function getAdminCaseData(db, caseId, options = {}) {
   const primaryTopic = topics.find((topic) => topic.role === 'primary');
 
   const attached = await attachedRows(db, caseId);
+  /** @type {Awaited<ReturnType<typeof availableAssetRows>>} */
   let available = [];
   if (options.includeAvailable !== false) {
     const attachedIds = new Set(attached.map((asset) => asset.assetId));
@@ -108,22 +129,7 @@ export async function getAdminCaseData(db, caseId, options = {}) {
       .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
       .where(eq(stimulusGroups.caseId, caseId));
     const groupedIds = new Set(groupedRows.map((row) => row.assetId));
-    const rows = await db
-      .select({
-        assetId: assets.id,
-        assetType: assets.type,
-        storageKey: assets.storageKey,
-        mimeType: assets.mimeType,
-        originalFilename: assets.originalFilename,
-        altText: assets.altText,
-        sourceLabel: assets.sourceLabel,
-        sourceUrl: assets.sourceUrl,
-        licence: assets.licence,
-        isActive: assets.isActive
-      })
-      .from(assets)
-      .where(and(eq(assets.isActive, true), isNull(assets.previewSessionId)))
-      .orderBy(desc(assets.createdAt));
+    const rows = await availableAssetRows(db);
     available = rows.filter((asset) => !attachedIds.has(asset.assetId) && !groupedIds.has(asset.assetId));
   }
 
