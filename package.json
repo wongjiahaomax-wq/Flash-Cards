@@ -17,7 +17,8 @@
     "db:check": "drizzle-kit check",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
-    "admin:bootstrap": "node scripts/bootstrap-admin.mjs"
+    "admin:bootstrap": "node scripts/bootstrap-admin.mjs",
+    "preview-admin:bootstrap": "node scripts/bootstrap-preview-admin.mjs"
   },
   "dependencies": {
     "better-auth": "1.6.25",
