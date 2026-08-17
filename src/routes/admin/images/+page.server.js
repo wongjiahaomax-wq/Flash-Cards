@@ -1,13 +1,15 @@
 import { fail } from '@sveltejs/kit';
-import { isNull } from 'drizzle-orm';
 
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createDb } from '$lib/server/db/index.js';
 import {
+  ASSET_LIBRARY_SELECT_ALL_LIMIT,
+  assetLibraryQueryContext,
   createAssetFromUpload,
-  listAssetLibrary,
+  getAssetLibraryPage,
   listAssetLibraryTopics,
-  parseAssetLibraryFilters
+  parseAssetLibraryFilters,
+  parseAssetLibraryPage
 } from '$lib/server/db/asset-library.js';
 import {
   AdminImageWorkflowInputError,
@@ -15,10 +17,8 @@ import {
   bulkAddAssetsToStimulusGroup,
   listActiveStimulusGroupTargets
 } from '$lib/server/db/admin-image-workflow.js';
-import { assets } from '$lib/server/db/schema.js';
 import { getTeachingImageUrl, MediaStorageLimitError } from '$lib/server/storage/media.js';
 
-/** @param {FormData} formData @param {string} name */
 function formText(formData, name) {
   const value = formData.get(name);
   return typeof value === 'string' ? value.trim() : '';
@@ -26,23 +26,25 @@ function formText(formData, name) {
 
 export async function load({ locals, platform, url }) {
   const filters = parseAssetLibraryFilters(url.searchParams);
-  if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) {
-    return { assets: [], topics: [], stimulusGroups: [], filters, bulkLimit: ADMIN_IMAGE_BULK_LIMIT };
-  }
+  const requestedPage = parseAssetLibraryPage(url.searchParams);
+  const empty = { assets: [], topics: [], stimulusGroups: [], filters, pagination: { totalCount: 0, totalPages: 1, page: 1, pageSize: 60 }, queryContext: assetLibraryQueryContext(filters), allMatchingIds: [], selectAllLimit: ASSET_LIBRARY_SELECT_ALL_LIMIT, bulkLimit: ADMIN_IMAGE_BULK_LIMIT };
+  if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return empty;
 
   const db = createDb(platform.env.DB);
-  const [rows, topics, productionAssetRows, stimulusGroups] = await Promise.all([
-    listAssetLibrary(db, filters),
+  const [pageData, topics, stimulusGroups] = await Promise.all([
+    getAssetLibraryPage(db, filters, { page: requestedPage, includeAllMatchingIds: true }),
     listAssetLibraryTopics(db),
-    db.select({ id: assets.id }).from(assets).where(isNull(assets.previewSessionId)),
     listActiveStimulusGroupTargets(db)
   ]);
-  const productionAssetIds = new Set(productionAssetRows.map((row) => row.id));
   return {
-    assets: rows.filter((asset) => productionAssetIds.has(asset.id)),
+    assets: pageData.rows,
     topics,
     stimulusGroups,
     filters,
+    pagination: { totalCount: pageData.totalCount, totalPages: pageData.totalPages, page: pageData.page, pageSize: pageData.pageSize },
+    queryContext: assetLibraryQueryContext(filters),
+    allMatchingIds: pageData.allMatchingIds,
+    selectAllLimit: ASSET_LIBRARY_SELECT_ALL_LIMIT,
     bulkLimit: ADMIN_IMAGE_BULK_LIMIT
   };
 }
@@ -68,25 +70,15 @@ export const actions = {
     }
   },
 
-  /** @param {{ request: Request, locals: App.Locals, platform?: App.Platform }} event */
   upload: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB || !platform.env.MEDIA) return fail(503, { error: 'Image storage is not configured.' });
-
     const formData = await request.formData();
     const imageValue = formData.get('image');
-    if (
-      !imageValue || typeof imageValue !== 'object' || typeof imageValue.size !== 'number' ||
-      typeof imageValue.type !== 'string' || typeof imageValue.arrayBuffer !== 'function'
-    ) return fail(400, { error: 'Choose a JPEG or PNG image to upload.' });
-
+    if (!imageValue || typeof imageValue !== 'object' || typeof imageValue.size !== 'number' || typeof imageValue.type !== 'string' || typeof imageValue.arrayBuffer !== 'function') return fail(400, { error: 'Choose a JPEG or PNG image to upload.' });
     try {
       const created = await createAssetFromUpload(createDb(platform.env.DB), platform.env.MEDIA, imageValue, {
-        originalFilename: formText(formData, 'image_name'),
-        altText: formText(formData, 'alt_text'),
-        sourceLabel: formText(formData, 'source_label'),
-        sourceUrl: formText(formData, 'source_url'),
-        licence: formText(formData, 'licence')
+        originalFilename: formText(formData, 'image_name'), altText: formText(formData, 'alt_text'), sourceLabel: formText(formData, 'source_label'), sourceUrl: formText(formData, 'source_url'), licence: formText(formData, 'licence')
       });
       return { success: true, assetId: created.id, imageUrl: getTeachingImageUrl(created.id) };
     } catch (error) {
