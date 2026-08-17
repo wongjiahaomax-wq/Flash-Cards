@@ -72,6 +72,7 @@ function insertAsset(sqlite, { id, name, active = 1, source = null }) {
   );
 }
 
+/** @param {DatabaseSync} sqlite */
 function assetCount(sqlite) {
   const row = sqlite.prepare('SELECT count(*) AS count FROM assets').get();
   return Number(row?.count ?? 0);
