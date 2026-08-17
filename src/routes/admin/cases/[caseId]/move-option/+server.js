@@ -4,6 +4,7 @@ import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createDb } from '$lib/server/db/index.js';
 import { moveStimulusOptionWithinCase, StimulusOptionMoveError } from '$lib/server/db/image-option-move.js';
 
+/** @param {FormData} formData @param {string} name */
 function text(formData, name) {
   const value = formData.get(name);
   return typeof value === 'string' ? value.trim() : '';
