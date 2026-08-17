@@ -28,7 +28,7 @@ export function buildPreviewBootstrapSql({ userId, accountId, name, email, passw
 /** @param {string} jsonText */
 export function extractRows(jsonText) {
   const parsed = JSON.parse(jsonText);
-  const batches = Array.isArray(parsed) ? parsed : [parsed];
+  const batches = /** @type {any[]} */ (Array.isArray(parsed) ? parsed : [parsed]);
   return batches.flatMap((batch) => (Array.isArray(batch?.results) ? batch.results : []));
 }
 
@@ -72,6 +72,7 @@ function readHidden(label) {
       stdin.setRawMode(wasRaw);
       stdin.pause();
     };
+    /** @param {string} chunk */
     const onData = (chunk) => {
       for (const char of chunk) {
         if (char === '\u0003') {
@@ -175,7 +176,8 @@ async function main() {
 const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly) {
   main().catch((error) => {
-    console.error(`\nBootstrap failed: ${error.message}`);
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`\nBootstrap failed: ${detail}`);
     process.exitCode = 1;
   });
 }
