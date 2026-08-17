@@ -71,8 +71,8 @@ test('existing-admin promotion preserves the credential row and password hash', 
   const user = db.prepare('SELECT id, role, updatedAt FROM user WHERE id = ?').get('owner');
   const account = db.prepare('SELECT id, userId, providerId, password FROM account WHERE userId = ?').get('owner');
 
-  assert.deepEqual(user, { id: 'owner', role: 'admin,preview_admin', updatedAt: 456 });
-  assert.deepEqual(account, {
+  assert.deepEqual({ ...user }, { id: 'owner', role: 'admin,preview_admin', updatedAt: 456 });
+  assert.deepEqual({ ...account }, {
     id: 'credential-1',
     userId: 'owner',
     providerId: 'credential',
