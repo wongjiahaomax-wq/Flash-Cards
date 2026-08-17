@@ -10,6 +10,7 @@ import {
 } from '$lib/server/db/preview-workspace.js';
 import { requirePreviewAdmin } from '$lib/server/preview-auth.js';
 
+/** @param {unknown} error */
 function message(error) {
   return error instanceof Error ? error.message : 'Unable to update the Preview workspace.';
 }
