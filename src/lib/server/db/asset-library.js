@@ -84,16 +84,24 @@ export async function listAssetLibraryTopics(db) {
   return db.select({ id: concepts.id, name: concepts.name }).from(concepts).orderBy(asc(concepts.name), asc(concepts.id));
 }
 
+// Count distinct production Case usages without placing an outer Asset reference
+// inside a derived UNION table (SQLite does not allow that correlation shape).
 const usageCountExpr = sql`(
-  select count(*) from (
-    select ca.case_id from case_assets ca join cases c on c.id = ca.case_id
-      where ca.asset_id = ${assets.id} and c.preview_session_id is null
-    union
-    select sg.case_id from stimulus_group_options sgo
-      join stimulus_groups sg on sg.id = sgo.stimulus_group_id
-      join cases c on c.id = sg.case_id
-      where sgo.asset_id = ${assets.id} and c.preview_session_id is null
-  ) asset_case_usage
+  (select count(distinct ca.case_id)
+    from case_assets ca
+    join cases c on c.id = ca.case_id
+    where ca.asset_id = ${assets.id} and c.preview_session_id is null)
+  +
+  (select count(distinct sg.case_id)
+    from stimulus_group_options sgo
+    join stimulus_groups sg on sg.id = sgo.stimulus_group_id
+    join cases c on c.id = sg.case_id
+    where sgo.asset_id = ${assets.id}
+      and c.preview_session_id is null
+      and not exists (
+        select 1 from case_assets ca2
+        where ca2.asset_id = ${assets.id} and ca2.case_id = sg.case_id
+      ))
 )`;
 
 /** @param {ReturnType<typeof parseAssetLibraryFilters>} filters */
@@ -118,12 +126,25 @@ function libraryConditions(filters) {
   if (filters.usage === 'used') conditions.push(sql`${usageCountExpr} > 0`);
   if (filters.usage === 'unused') conditions.push(sql`${usageCountExpr} = 0`);
   if (filters.topic) {
-    conditions.push(sql`exists (
-      select 1 from case_concepts cc
-      where cc.concept_id = ${filters.topic} and cc.role = 'primary' and cc.case_id in (
-        select ca.case_id from case_assets ca join cases c on c.id = ca.case_id where ca.asset_id = ${assets.id} and c.preview_session_id is null
-        union
-        select sg.case_id from stimulus_group_options sgo join stimulus_groups sg on sg.id = sgo.stimulus_group_id join cases c on c.id = sg.case_id where sgo.asset_id = ${assets.id} and c.preview_session_id is null
+    conditions.push(sql`(
+      exists (
+        select 1
+        from case_assets ca
+        join cases c on c.id = ca.case_id
+        join case_concepts cc on cc.case_id = ca.case_id and cc.role = 'primary'
+        where ca.asset_id = ${assets.id}
+          and c.preview_session_id is null
+          and cc.concept_id = ${filters.topic}
+      )
+      or exists (
+        select 1
+        from stimulus_group_options sgo
+        join stimulus_groups sg on sg.id = sgo.stimulus_group_id
+        join cases c on c.id = sg.case_id
+        join case_concepts cc on cc.case_id = sg.case_id and cc.role = 'primary'
+        where sgo.asset_id = ${assets.id}
+          and c.preview_session_id is null
+          and cc.concept_id = ${filters.topic}
       )
     )`);
   }
@@ -193,11 +214,15 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
   return { rows, totalCount, totalPages, page, pageSize, requestedPage, allMatchingIds };
 }
 
-/** Backwards-compatible unpaged helper for bounded callers/tests. */
+/** Backwards-compatible unpaged helper retained for legacy callers/tests. */
 export async function listAssetLibrary(db, filters = {}) {
   const normalized = { search: String(filters.search ?? '').trim(), topic: String(filters.topic ?? '').trim(), usage: filters.usage ?? 'all', status: filters.status ?? 'all', source: filters.source ?? 'all', sort: filters.sort ?? 'newest' };
-  const page = await getAssetLibraryPage(db, normalized, { page: 1, pageSize: ASSET_LIBRARY_PAGE_SIZE });
-  return page.rows;
+  const first = await getAssetLibraryPage(db, normalized, { page: 1, pageSize: ASSET_LIBRARY_PAGE_SIZE });
+  const rows = [...first.rows];
+  for (let page = 2; page <= first.totalPages; page += 1) {
+    rows.push(...(await getAssetLibraryPage(db, normalized, { page, pageSize: ASSET_LIBRARY_PAGE_SIZE })).rows);
+  }
+  return rows;
 }
 
 /** @param {LearningDb} db @param {string} assetId */
