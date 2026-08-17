@@ -1,6 +1,9 @@
+/** @typedef {{ selectedIds?: Iterable<string>, orderedIds?: string[], anchorId?: string | null, assetId?: string, shiftKey?: boolean, toggleKey?: boolean }} AssetSelectionInput */
+
 /**
  * Apply desktop-style Asset selection against the exact currently displayed
  * order. Shift ranges never span unloaded pages.
+ * @param {AssetSelectionInput} input
  */
 export function applyAssetSelection(input) {
   const orderedIds = input.orderedIds ?? [];
@@ -27,10 +30,13 @@ export function applyAssetSelection(input) {
   return { selectedIds: new Set([assetId]), anchorId: assetId };
 }
 
-/** Retained for the bounded Case picker, where hidden results must be pruned. */
+/**
+ * Retained for the bounded Case picker, where hidden results must be pruned.
+ * @param {{ selectedIds?: Iterable<string>, orderedIds?: string[], anchorId?: string | null }} input
+ */
 export function pruneAssetSelection(input) {
   const visibleIds = new Set(input.orderedIds ?? []);
-  const selectedIds = new Set([...input.selectedIds].filter((id) => visibleIds.has(id)));
+  const selectedIds = new Set([...(input.selectedIds ?? [])].filter((id) => visibleIds.has(id)));
   const anchorId = input.anchorId && visibleIds.has(input.anchorId) ? input.anchorId : null;
   return { selectedIds, anchorId };
 }
@@ -38,6 +44,7 @@ export function pruneAssetSelection(input) {
 /**
  * Preserve explicit selections while only the page changes. Any authoritative
  * query-context change clears the selection universe.
+ * @param {{ selectedIds?: Iterable<string>, orderedIds?: string[], anchorId?: string | null, previousContextKey?: string | null, nextContextKey: string }} input
  */
 export function reconcileLibrarySelection(input) {
   const previousContextKey = input.previousContextKey ?? null;
@@ -50,6 +57,7 @@ export function reconcileLibrarySelection(input) {
   return { selectedIds, anchorId, contextKey: input.nextContextKey };
 }
 
+/** @param {{ selectedIds?: Iterable<string>, orderedIds?: string[], previousContextKey?: string | null, nextContextKey: string }} input */
 export function reconcileCasePickerSelection(input) {
   const previousContextKey = input.previousContextKey ?? null;
   if (previousContextKey && previousContextKey !== input.nextContextKey) return { selectedIds: new Set(), contextKey: input.nextContextKey };
@@ -59,10 +67,16 @@ export function reconcileCasePickerSelection(input) {
 
 export function clearAssetSelection() { return { selectedIds: new Set(), anchorId: null }; }
 
-/** Split explicit IDs into sequential server-safe mutation chunks. */
+/**
+ * Split explicit IDs into sequential server-safe mutation chunks.
+ * @param {Iterable<unknown>} values
+ * @param {number} [limit]
+ * @returns {string[][]}
+ */
 export function chunkAssetIds(values, limit = 30) {
   const ids = [...new Set([...values].map((value) => String(value ?? '').trim()).filter(Boolean))];
   const size = Math.max(1, Number(limit) || 30);
+  /** @type {string[][]} */
   const chunks = [];
   for (let index = 0; index < ids.length; index += size) chunks.push(ids.slice(index, index + size));
   return chunks;
@@ -72,6 +86,9 @@ export function chunkAssetIds(values, limit = 30) {
  * Execute chunks strictly one-at-a-time. The caller owns transport details.
  * On failure, completed IDs are removed from the remaining selection while the
  * failed and unprocessed IDs remain available for retry/inspection.
+ * @param {Iterable<unknown>} values
+ * @param {number} limit
+ * @param {(chunk: string[], state: { index: number, processed: number, total: number }) => Promise<unknown> | unknown} mutate
  */
 export async function runSequentialAssetChunks(values, limit, mutate) {
   const chunks = chunkAssetIds(values, limit);
