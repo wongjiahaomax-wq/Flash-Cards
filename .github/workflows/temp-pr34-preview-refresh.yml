@@ -1,0 +1,88 @@
+name: Temporary PR34 Preview Refresh
+
+on:
+  push:
+    branches:
+      - agent/image-management-v2
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out exact pushed commit
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Block schema or Worker config changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          changed="$(git diff --name-only origin/main...HEAD)"
+          printf '%s\n' "$changed"
+          schema_pattern='^(drizzle/|drizzle\.config\.js$|src/lib/server/db/schema\.js$|src/lib/server/db/[^/]*schema[^/]*\.js$)'
+          if grep -Eq "$schema_pattern" <<<"$changed"; then
+            echo "Refusing production-backed Preview deployment because this branch changes the D1 schema." >&2
+            exit 1
+          fi
+          if grep -qx 'wrangler.jsonc' <<<"$changed"; then
+            echo "Refusing production-backed Preview deployment because this branch changes wrangler.jsonc." >&2
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check database migrations
+        run: npm run db:check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run Svelte checks
+        run: npm run check
+
+      - name: Build application
+        run: npm run build
+
+      - name: Smoke test local D1 and Better Auth
+        run: node scripts/local-auth-smoke.mjs
+
+      - name: Check diff whitespace
+        run: git diff --check origin/main...HEAD
+
+      - name: Verify Preview Worker target
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '"name": "flash-cards-preview"' wrangler.jsonc
+          grep -q '"PREVIEW_MODE": "true"' wrangler.jsonc
+
+      - name: Deploy to Preview Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4.123.0 deploy --env preview
+
+      - name: Deployment summary
+        shell: bash
+        run: |
+          {
+            echo "## PR34 Preview refresh"
+            echo ""
+            echo "- Commit: \`${GITHUB_SHA}\`"
+            echo "- Worker: \`flash-cards-preview\`"
+            echo "- Preview URL: https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev"
+            echo "- D1 migrations: **not run**"
+          } >> "$GITHUB_STEP_SUMMARY"
