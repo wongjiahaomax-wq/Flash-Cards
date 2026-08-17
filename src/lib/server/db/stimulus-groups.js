@@ -176,7 +176,7 @@ async function requireGroup(db, groupId) {
 
 /** @param {LearningDb} db @param {string} assetId */
 async function requireAsset(db, assetId) {
-  const row = (await db.select({ id: assets.id, type: assets.type }).from(assets).where(and(eq(assets.id, assetId), eq(assets.isActive, true))).limit(1))[0];
+  const row = (await db.select({ id: assets.id, type: assets.type }).from(assets).where(and(eq(assets.id, assetId), eq(assets.isActive, true), isNull(assets.previewSessionId))).limit(1))[0];
   if (!row) throw new StimulusGroupInputError('The selected Asset is missing or inactive.');
   if (row.type !== 'image') throw new StimulusGroupInputError('Only image Assets can be stimulus options.');
 }
