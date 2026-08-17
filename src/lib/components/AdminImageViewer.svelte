@@ -1,7 +1,11 @@
 <script>
+  /** @typedef {{ src: string, alt?: string | null, title?: string | null, subtitle?: string | null }} ViewerImage */
+  /** @type {{ image?: ViewerImage | null, onclose?: () => void }} */
   let { image = null, onclose = () => {} } = $props();
-  let dialog;
-  let closeButton;
+  /** @type {HTMLDialogElement | undefined} */
+  let dialog = $state();
+  /** @type {HTMLButtonElement | undefined} */
+  let closeButton = $state();
 
   $effect(() => {
     if (image && dialog && !dialog.open) {
@@ -17,11 +21,13 @@
     onclose();
   }
 
+  /** @param {Event} event */
   function handleCancel(event) {
     event.preventDefault();
     closeViewer();
   }
 
+  /** @param {MouseEvent} event */
   function handleBackdrop(event) {
     if (event.target === dialog) closeViewer();
   }
