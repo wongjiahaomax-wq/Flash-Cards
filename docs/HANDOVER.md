@@ -6,9 +6,9 @@ _Refreshed: 17 August 2026_
 
 The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, tags, and the reviewed/resumable content-import path.
 
-The current infrastructure work is the **Production-backed Preview Admin workspace** described in `PREVIEW_ADMIN_WORKSPACE.md`.
+PR #30 — **Production-backed Preview Admin workspace** — has been merged. Its production-side schema and safety changes are deployed. Migration `0006_preview_admin_workspace.sql` was applied successfully to the existing production D1 and the production `flash-cards` Worker was deployed successfully on 17 August 2026.
 
-Its purpose is to make Admin UI PRs visually testable in a browser without creating or synchronizing a second D1 database or R2 bucket.
+The remaining Preview rollout work is operational: configure a separate `BETTER_AUTH_SECRET` for the `preview` Wrangler environment, deploy `flash-cards-preview`, bootstrap the dedicated `preview_admin` identity, and smoke-test Create Preview Copy -> edit -> Reset. No second D1 database or R2 bucket is required.
 
 ## Read first
 
@@ -179,10 +179,10 @@ The Preview Worker still has production D1/R2 bindings and shared production aut
 0003_multi_topic_study_routing.sql
 0004_resumable_import_jobs.sql
 0005_tag_foundation.sql
-0006_preview_admin_workspace.sql   # introduced by current Preview workspace PR
+0006_preview_admin_workspace.sql   # applied to production 17 August 2026
 ```
 
-Migration `0006` is **not** to be applied as part of PR review. Production rollout is a separate operator action after review/merge.
+Migration `0006` was applied successfully to production D1 database `flash-cards-db` during deployment run `31994300533` on 17 August 2026.
 
 ## Admin UI state
 
@@ -233,24 +233,29 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-GitHub CI must be green before this Preview infrastructure is considered merge-ready.
+PR #30 CI passed before merge. The production rollout workflow then passed dependency installation, migration checks, all 169 tests, Svelte checks, build, production D1 migration, and Worker deployment.
 
-Regression coverage now includes Preview Worker `/admin`, `/study`, and Better Auth Admin-API boundaries, Preview Admin Study/Review denial, deployment candidate restrictions, shared-editor adapter drift, and Preview ownership exclusion from Topic/Tag/Asset normal Admin views.
+Regression coverage includes Preview Worker `/admin`, `/study`, and Better Auth Admin-API boundaries, Preview Admin Study/Review denial, deployment candidate restrictions, shared-editor adapter drift, and Preview ownership exclusion from Topic/Tag/Asset normal Admin views.
 
-## Production release boundary
+## Current rollout status
 
-This PR prepares code, migration, workflow and documentation only. Do not during review:
+Completed on 17 August 2026:
 
-- apply migration `0006` remotely;
-- deploy production;
-- deploy the Preview Worker;
-- create Cloudflare secrets;
-- bootstrap the Preview Admin;
-- merge the PR.
+- PR #30 merged to `main` as squash commit `ef5be5afee0b89c0364ceaf904c8ba06e32f6c59`;
+- migration `0006_preview_admin_workspace.sql` applied successfully to the existing production D1;
+- production Worker `flash-cards` deployed successfully;
+- deployment Worker version: `9a4d9fbc-ba3f-49db-a56c-e9e3af15ab63`;
+- production URL reported by Wrangler: `https://flash-cards.mmed-fm-flashcardstest.workers.dev`.
 
-After review, follow the operator release procedure in `PREVIEW_ADMIN_WORKSPACE.md`.
+Still required before Preview Admin can be used:
 
-## Next intended workflow after release
+- configure a separate `BETTER_AUTH_SECRET` for Wrangler environment `preview`;
+- deploy `flash-cards-preview` with `--env preview`;
+- bootstrap the dedicated `preview_admin` identity;
+- verify Preview `/admin`, `/study`, and `/api/auth/admin` return `403` while ordinary Preview authentication works;
+- smoke-test Create Preview Copy -> edit -> Reset and confirm the production source Case remains unchanged.
+
+## Next intended workflow after Preview rollout
 
 ```text
 Admin UI PR (for example PR #29)
