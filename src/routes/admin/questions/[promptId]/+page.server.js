@@ -9,6 +9,9 @@ import {
 } from '$lib/server/db/question-library.js';
 import { questionPrompts } from '$lib/server/db/schema.js';
 
+/** @typedef {import('$lib/server/db/index.js').LearningDb} LearningDb */
+
+/** @param {LearningDb} db @param {string} promptId */
 async function isProductionPrompt(db, promptId) {
   return Boolean((await db
     .select({ id: questionPrompts.id })
