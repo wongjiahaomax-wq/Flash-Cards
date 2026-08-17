@@ -82,6 +82,8 @@ The request hook enforces these boundaries so direct POSTs/form actions/auth API
 
 Preview authoring is available only through `/preview-admin`. Any identity carrying Preview authority must never create ordinary learner Reviews or progress/history records, and neither a production `admin` nor a Preview user may use the Preview Worker to invoke Better Auth Admin-plugin user-management operations against the shared production auth tables.
 
+Preview navigation includes `/preview-admin/images`, a shared read-only Images-library UI for visual review. It searches production Assets without exposing production metadata, delete, deactivate, or replacement controls. Its bulk **Add to alternative set** action lists only active stimulus groups whose Case is owned by the current Preview Session; selected production Asset IDs create Preview-owned option relationships only.
+
 ## Preview Sessions
 
 `preview_sessions` records:

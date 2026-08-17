@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, notInArray, or } from 'drizzle-orm';
 
 import { getTeachingImageUrl, putTeachingImage, deleteTeachingImage, assertSupportedImageType } from '../storage/media.js';
 import {
@@ -23,6 +23,8 @@ import { caseQuestionTags, caseTags } from './tag-schema.js';
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
 export const PREVIEW_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+export const PREVIEW_IMAGE_PICKER_LIMIT = 60;
+export const PREVIEW_IMAGE_BULK_LIMIT = 30;
 
 export class PreviewWorkspaceError extends Error {
   /** @param {string} message @param {string} [code] */
@@ -187,7 +189,7 @@ async function requireOwnedPreviewPrompt(db, previewSessionId, promptId) {
 async function requireOwnedPreviewGroup(db, previewSessionId, groupId) {
   const row = (
     await db
-      .select({ id: stimulusGroups.id, caseId: stimulusGroups.caseId })
+      .select({ id: stimulusGroups.id, caseId: stimulusGroups.caseId, isActive: stimulusGroups.isActive })
       .from(stimulusGroups)
       .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
       .where(and(eq(stimulusGroups.id, groupId), eq(cases.previewSessionId, previewSessionId)))
@@ -231,6 +233,148 @@ async function requirePreviewUsableAsset(db, previewSessionId, assetId) {
     throw new PreviewWorkspaceError('The selected image is not available to this Preview workspace.', 'NOT_OWNED');
   }
   return row;
+}
+
+/**
+ * Search shared production Assets and Assets owned by this Preview Session.
+ * Relationship state is intentionally excluded from the Asset itself; callers
+ * can only use the returned IDs through the Preview-owned mutation helpers.
+ *
+ * @param {LearningDb} db
+ * @param {string} previewSessionId
+ * @param {string} caseId
+ * @param {{ search?: string, limit?: number }} [options]
+ */
+export async function listPreviewCaseImagePicker(db, previewSessionId, caseId, options = {}) {
+  await requireOwnedPreviewCase(db, previewSessionId, caseId);
+  const limit = Math.max(1, Math.min(Number(options.limit ?? PREVIEW_IMAGE_PICKER_LIMIT), PREVIEW_IMAGE_PICKER_LIMIT));
+  const search = String(options.search ?? '').trim();
+  const [fixedRows, groupedRows] = await Promise.all([
+    db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(eq(caseAssets.caseId, caseId)),
+    db
+      .select({ assetId: stimulusGroupOptions.assetId })
+      .from(stimulusGroupOptions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .where(eq(stimulusGroups.caseId, caseId))
+  ]);
+  const usedIds = [...new Set([...fixedRows, ...groupedRows].map((row) => row.assetId))];
+  const conditions = [
+    eq(assets.isActive, true),
+    eq(assets.type, 'image'),
+    or(isNull(assets.previewSessionId), eq(assets.previewSessionId, previewSessionId))
+  ];
+  if (usedIds.length) conditions.push(notInArray(assets.id, usedIds));
+  if (search) {
+    const pattern = `%${search}%`;
+    conditions.push(or(
+      like(assets.originalFilename, pattern),
+      like(assets.altText, pattern),
+      like(assets.sourceLabel, pattern),
+      like(assets.sourceUrl, pattern)
+    ));
+  }
+  const rows = await db
+    .select({
+      id: assets.id,
+      originalFilename: assets.originalFilename,
+      altText: assets.altText,
+      sourceLabel: assets.sourceLabel,
+      sourceUrl: assets.sourceUrl,
+      licence: assets.licence,
+      mimeType: assets.mimeType,
+      previewSessionId: assets.previewSessionId,
+      createdAt: assets.createdAt
+    })
+    .from(assets)
+    .where(and(...conditions))
+    .orderBy(desc(assets.createdAt), desc(assets.id))
+    .limit(limit + 1);
+  return {
+    assets: rows.slice(0, limit).map((asset) => ({ ...asset, imageUrl: getTeachingImageUrl(asset.id) })),
+    hasMore: rows.length > limit,
+    limit,
+    search
+  };
+}
+
+/** @param {unknown[]} values */
+function boundedPreviewAssetIds(values) {
+  const ids = [...new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean))];
+  if (!ids.length) throw new PreviewWorkspaceError('Select at least one image.', 'INVALID_INPUT');
+  if (ids.length > PREVIEW_IMAGE_BULK_LIMIT) {
+    throw new PreviewWorkspaceError(`A single Preview image action is limited to ${PREVIEW_IMAGE_BULK_LIMIT} Assets.`, 'INVALID_INPUT');
+  }
+  return ids;
+}
+
+/** @param {LearningDb} db @param {string} previewSessionId @param {string} groupId */
+export async function validatePreviewStimulusGroupTarget(db, previewSessionId, groupId) {
+  const group = await requireOwnedPreviewGroup(db, previewSessionId, groupId);
+  if (!group.isActive) throw new PreviewWorkspaceError('The selected Preview alternative set is inactive.', 'INVALID_INPUT');
+  return group;
+}
+
+/** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {unknown[]} assetIds */
+export async function attachPreviewAssetsToCase(db, previewSessionId, caseId, assetIds) {
+  const ownedCase = await requireOwnedPreviewCase(db, previewSessionId, caseId);
+  const ids = boundedPreviewAssetIds(assetIds);
+  for (const assetId of ids) await requirePreviewUsableAsset(db, previewSessionId, assetId);
+  const [fixedRows, groupedRows] = await Promise.all([
+    db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(and(eq(caseAssets.caseId, caseId), inArray(caseAssets.assetId, ids))),
+    db
+      .select({ assetId: stimulusGroupOptions.assetId })
+      .from(stimulusGroupOptions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .where(and(eq(stimulusGroups.caseId, caseId), inArray(stimulusGroupOptions.assetId, ids)))
+  ]);
+  if (groupedRows.length) throw new PreviewWorkspaceError('One or more selected images are already in an alternative set in this Preview Case.', 'INVALID_INPUT');
+  const existing = new Set(fixedRows.map((row) => row.assetId));
+  const newIds = ids.filter((id) => !existing.has(id));
+  if (!newIds.length) return { attachedCount: 0, alreadyAttachedCount: ids.length, caseId: ownedCase.id };
+  const last = (await db.select({ displayOrder: caseAssets.displayOrder }).from(caseAssets).where(eq(caseAssets.caseId, caseId)).orderBy(desc(caseAssets.displayOrder)).limit(1))[0];
+  const startOrder = (last?.displayOrder ?? -1) + 1;
+  const writes = newIds.map((assetId, index) => db.insert(caseAssets).values({ caseId, assetId, displayOrder: startOrder + index, captionMd: null }));
+  if (typeof db.batch === 'function') await db.batch(/** @type {[any, ...any[]]} */ (writes));
+  else for (const write of writes) await write;
+  return { attachedCount: newIds.length, alreadyAttachedCount: ids.length - newIds.length, caseId: ownedCase.id };
+}
+
+/** @param {LearningDb} db @param {string} previewSessionId @param {string} groupId @param {unknown[]} assetIds */
+export async function addPreviewAssetsToStimulusGroup(db, previewSessionId, groupId, assetIds) {
+  const group = await validatePreviewStimulusGroupTarget(db, previewSessionId, groupId);
+  const ids = boundedPreviewAssetIds(assetIds);
+  for (const assetId of ids) await requirePreviewUsableAsset(db, previewSessionId, assetId);
+  const [fixedRows, optionRows] = await Promise.all([
+    db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(and(eq(caseAssets.caseId, group.caseId), inArray(caseAssets.assetId, ids))),
+    db
+      .select({ assetId: stimulusGroupOptions.assetId, groupId: stimulusGroupOptions.stimulusGroupId, isActive: stimulusGroupOptions.isActive })
+      .from(stimulusGroupOptions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .where(and(eq(stimulusGroups.caseId, group.caseId), inArray(stimulusGroupOptions.assetId, ids)))
+  ]);
+  if (fixedRows.length) throw new PreviewWorkspaceError('One or more selected images are fixed images in this Preview Case.', 'INVALID_INPUT');
+  const byAsset = new Map(optionRows.map((row) => [row.assetId, row]));
+  for (const assetId of ids) {
+    const existing = byAsset.get(assetId);
+    if (existing && existing.groupId !== groupId) throw new PreviewWorkspaceError('One or more selected images belong to another alternative set in this Preview Case.', 'INVALID_INPUT');
+    if (existing && !existing.isActive) throw new PreviewWorkspaceError('One or more selected images are inactive in this Preview alternative set.', 'INVALID_INPUT');
+  }
+  const newIds = ids.filter((id) => !byAsset.has(id));
+  if (!newIds.length) return { addedCount: 0, alreadyPresentCount: ids.length, caseId: group.caseId };
+  const last = (await db.select({ displayOrder: stimulusGroupOptions.displayOrder }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.stimulusGroupId, groupId)).orderBy(desc(stimulusGroupOptions.displayOrder)).limit(1))[0];
+  const startOrder = (last?.displayOrder ?? -1) + 1;
+  const writes = newIds.map((assetId, index) => db.insert(stimulusGroupOptions).values({ id: newId(), stimulusGroupId: groupId, assetId, displayOrder: startOrder + index, captionMd: null, isActive: true }));
+  if (typeof db.batch === 'function') await db.batch(/** @type {[any, ...any[]]} */ (writes));
+  else for (const write of writes) await write;
+  return { addedCount: newIds.length, alreadyPresentCount: ids.length - newIds.length, caseId: group.caseId };
+}
+
+/** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {string} optionId @param {unknown} captionMd */
+export async function updatePreviewStimulusOptionCaption(db, previewSessionId, caseId, optionId, captionMd) {
+  await requireOwnedPreviewCase(db, previewSessionId, caseId);
+  const option = await requireOwnedPreviewOption(db, previewSessionId, optionId);
+  if (option.caseId !== caseId) throw new PreviewWorkspaceError('That alternative image does not belong to this Preview Case.', 'NOT_OWNED');
+  await db.update(stimulusGroupOptions).set({ captionMd: optionalText(captionMd) }).where(eq(stimulusGroupOptions.id, optionId));
 }
 
 /** @param {LearningDb} db @param {string} [search] */
@@ -449,8 +593,9 @@ export async function listPreviewCases(db, previewSessionId) {
  * @param {LearningDb} db
  * @param {string} previewSessionId
  * @param {string} caseId
+ * @param {{ imagePickerOpen?: boolean, imagePickerSearch?: string, targetGroupId?: string | null }} [options]
  */
-export async function loadPreviewCaseEditor(db, previewSessionId, caseId) {
+export async function loadPreviewCaseEditor(db, previewSessionId, caseId, options = {}) {
   const selected = await requireOwnedPreviewCase(db, previewSessionId, caseId);
   const [allConcepts, topicRows, fixedRows, questionRows, groupRows, ownCases] = await Promise.all([
     db.select({ id: concepts.id, name: concepts.name, slug: concepts.slug }).from(concepts).where(eq(concepts.isActive, true)).orderBy(asc(concepts.name)),
@@ -586,6 +731,13 @@ export async function loadPreviewCaseEditor(db, previewSessionId, caseId) {
       .filter((question) => optionRows.find((option) => option.id === question.stimulusGroupOptionId)?.stimulusGroupId === group.id)
       .map((question) => ({ ...question, scope: 'option' }))
   }));
+  const targetGroup = groupRows.find((group) => group.id === String(options.targetGroupId ?? '').trim() && group.isActive) ?? null;
+  if (options.targetGroupId && !targetGroup) {
+    throw new PreviewWorkspaceError('The selected Preview alternative set is missing, inactive, or not owned by this workspace.', 'NOT_OWNED');
+  }
+  const pickerResults = options.imagePickerOpen
+    ? await listPreviewCaseImagePicker(db, previewSessionId, caseId, { search: options.imagePickerSearch })
+    : { assets: [], hasMore: false, limit: PREVIEW_IMAGE_PICKER_LIMIT, search: String(options.imagePickerSearch ?? '').trim() };
 
   return {
     assets: availableRows.map((asset) => ({
@@ -619,6 +771,12 @@ export async function loadPreviewCaseEditor(db, previewSessionId, caseId) {
       available: available.map((row) => ({ ...row, imageUrl: getTeachingImageUrl(row.assetId) })),
       stimulusGroups: groups,
       previewCopy: true
+    },
+    imagePicker: {
+      open: Boolean(options.imagePickerOpen),
+      ...pickerResults,
+      targetGroupId: targetGroup?.id ?? null,
+      targetGroupName: targetGroup?.name ?? null
     }
   };
 }
@@ -1171,7 +1329,7 @@ export async function movePreviewCaseAsset(db, previewSessionId, caseId, assetId
  *
  * @param {LearningDb} db @param {R2Bucket} bucket @param {string} previewSessionId
  * @param {Blob & { name?: string }} file
- * @param {{ altText: string, sourceLabel?: string | null, sourceUrl?: string | null, licence?: string | null }} metadata
+ * @param {{ originalFilename?: string | null, altText: string, sourceLabel?: string | null, sourceUrl?: string | null, licence?: string | null }} metadata
  */
 export async function createPreviewAssetFromUpload(db, bucket, previewSessionId, file, metadata) {
   assertSupportedImageType(file.type);
@@ -1184,7 +1342,7 @@ export async function createPreviewAssetFromUpload(db, bucket, previewSessionId,
       type: 'image',
       storageKey: key,
       mimeType: file.type,
-      originalFilename: optionalText(file.name),
+      originalFilename: optionalText(metadata.originalFilename) ?? optionalText(file.name),
       altText: requiredText(metadata.altText, 'Alt text'),
       sourceLabel: optionalText(metadata.sourceLabel),
       sourceUrl: optionalHttpUrl(metadata.sourceUrl),
@@ -1197,6 +1355,25 @@ export async function createPreviewAssetFromUpload(db, bucket, previewSessionId,
     throw error;
   }
   return { id, storageKey: key };
+}
+
+/**
+ * @param {LearningDb} db
+ * @param {R2Bucket} bucket
+ * @param {string} previewSessionId
+ * @param {string} assetId
+ */
+export async function discardPreviewAsset(db, bucket, previewSessionId, assetId) {
+  const asset = (await db.select({ id: assets.id, storageKey: assets.storageKey }).from(assets).where(and(eq(assets.id, assetId), eq(assets.previewSessionId, previewSessionId))).limit(1))[0];
+  if (!asset || !asset.storageKey.startsWith(`preview/${previewSessionId}/`)) return false;
+  const [fixedUsage, optionUsage] = await Promise.all([
+    db.select({ caseId: caseAssets.caseId }).from(caseAssets).where(eq(caseAssets.assetId, assetId)).limit(1),
+    db.select({ id: stimulusGroupOptions.id }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.assetId, assetId)).limit(1)
+  ]);
+  if (fixedUsage.length || optionUsage.length) throw new PreviewWorkspaceError('The Preview Asset is already in use and cannot be discarded.', 'INVALID_INPUT');
+  await deleteTeachingImage(bucket, asset.storageKey);
+  await db.delete(assets).where(and(eq(assets.id, assetId), eq(assets.previewSessionId, previewSessionId)));
+  return true;
 }
 
 /**

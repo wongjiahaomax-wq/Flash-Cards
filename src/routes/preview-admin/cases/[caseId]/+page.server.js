@@ -3,12 +3,15 @@ import { fail, redirect } from '@sveltejs/kit';
 import { createDb } from '$lib/server/db/index.js';
 import {
   addPreviewSecondaryTopic,
+  addPreviewAssetsToStimulusGroup,
   addPreviewStimulusOption,
+  attachPreviewAssetsToCase,
   attachPreviewAsset,
   convertPreviewFixedAssetToOption,
   createPreviewAssetFromUpload,
   createPreviewStimulusGroup,
   detachPreviewAsset,
+  discardPreviewAsset,
   getLivePreviewSession,
   loadPreviewCaseEditor,
   movePreviewCaseAsset,
@@ -19,6 +22,7 @@ import {
   removePreviewCaseQuestion,
   removePreviewSecondaryTopic,
   removePreviewStimulusQuestion,
+  requireOwnedPreviewCase,
   savePreviewCaseQuestion,
   savePreviewStimulusQuestion,
   setPreviewStimulusOptionActive,
@@ -26,7 +30,9 @@ import {
   updatePreviewAssetCaption,
   updatePreviewCase,
   updatePreviewCaseVignette,
-  updatePreviewStimulusGroup
+  updatePreviewStimulusGroup,
+  updatePreviewStimulusOptionCaption,
+  validatePreviewStimulusGroupTarget
 } from '$lib/server/db/preview-workspace.js';
 import { requirePreviewAdmin } from '$lib/server/preview-auth.js';
 import { MediaStorageLimitError } from '$lib/server/storage/media.js';
@@ -81,7 +87,7 @@ async function contextOrFailure(event) {
   }
 }
 
-export async function load({ parent, params, platform }) {
+export async function load({ parent, params, platform, url }) {
   const parentData = await parent();
   const env = platform?.env;
   if (!env?.DB || parentData.workspace.status !== 'active' || parentData.workspaceError) {
@@ -96,7 +102,11 @@ export async function load({ parent, params, platform }) {
     };
   }
   return {
-    ...(await loadPreviewCaseEditor(createDb(env.DB), parentData.workspace.id, params.caseId)),
+    ...(await loadPreviewCaseEditor(createDb(env.DB), parentData.workspace.id, params.caseId, {
+      imagePickerOpen: url.searchParams.get('picker') === '1',
+      imagePickerSearch: url.searchParams.get('image_q')?.trim() ?? '',
+      targetGroupId: url.searchParams.get('target_group')?.trim() || null
+    })),
     workspaceBlocked: false
   };
 }
@@ -104,6 +114,85 @@ export async function load({ parent, params, platform }) {
 export const actions = {
   createConcept: async () => fail(403, { error: 'Global Topic editing is unavailable in Preview Mode.' }),
   createCase: async () => fail(403, { error: 'Create a Preview Copy from an existing production Case instead.' }),
+
+  attachMany: async (event) => {
+    const result = await contextOrFailure(event);
+    if (!result.context) return result.failure;
+    const formData = await event.request.formData();
+    const caseId = formText(formData, 'case_id') || event.params.caseId;
+    if (caseId !== event.params.caseId) return fail(400, { error: 'The selected Case does not match this editor.', caseId });
+    const assetIds = formData.getAll('asset_id').filter((value) => typeof value === 'string');
+    const targetGroupId = formText(formData, 'target_group_id');
+    try {
+      if (targetGroupId) await addPreviewAssetsToStimulusGroup(result.context.db, result.context.session.id, targetGroupId, assetIds);
+      else await attachPreviewAssetsToCase(result.context.db, result.context.session.id, caseId, assetIds);
+    } catch (error) {
+      return fail(actionStatus(error), { error: actionError(error), caseId });
+    }
+    redirect(303, caseRedirect(caseId, 'preview-images-attached', '#images'));
+  },
+
+  uploadAndAttach: async (event) => {
+    const result = await contextOrFailure(event);
+    if (!result.context) return result.failure;
+    if (!result.context.env.MEDIA) return fail(503, { error: 'Image storage is not configured.' });
+    const formData = await event.request.formData();
+    const caseId = formText(formData, 'case_id') || event.params.caseId;
+    if (caseId !== event.params.caseId) return fail(400, { error: 'The selected Case does not match this editor.', caseId });
+    const targetGroupId = formText(formData, 'target_group_id');
+    const image = formData.get('image');
+    if (!image || typeof image !== 'object' || typeof image.size !== 'number' || typeof image.type !== 'string' || typeof image.arrayBuffer !== 'function') {
+      return fail(400, { error: 'Choose a JPEG or PNG image to upload.', caseId });
+    }
+    try {
+      await requireOwnedPreviewCase(result.context.db, result.context.session.id, caseId);
+      if (targetGroupId) await validatePreviewStimulusGroupTarget(result.context.db, result.context.session.id, targetGroupId);
+    } catch (error) {
+      return fail(actionStatus(error), { error: actionError(error), caseId });
+    }
+    let created;
+    try {
+      created = await createPreviewAssetFromUpload(
+        result.context.db,
+        result.context.env.MEDIA,
+        result.context.session.id,
+        image,
+        {
+          originalFilename: formText(formData, 'image_name'),
+          altText: formText(formData, 'alt_text'),
+          sourceLabel: formText(formData, 'source_label'),
+          sourceUrl: formText(formData, 'source_url'),
+          licence: formText(formData, 'licence')
+        }
+      );
+      if (targetGroupId) await addPreviewAssetsToStimulusGroup(result.context.db, result.context.session.id, targetGroupId, [created.id]);
+      else await attachPreviewAssetsToCase(result.context.db, result.context.session.id, caseId, [created.id]);
+    } catch (error) {
+      if (created) await discardPreviewAsset(result.context.db, result.context.env.MEDIA, result.context.session.id, created.id).catch(() => {});
+      return fail(actionStatus(error), { error: actionError(error), caseId });
+    }
+    redirect(303, caseRedirect(caseId, 'preview-image-uploaded', '#images'));
+  },
+
+  updateStimulusOptionCaption: async (event) => {
+    const result = await contextOrFailure(event);
+    if (!result.context) return result.failure;
+    const formData = await event.request.formData();
+    const caseId = formText(formData, 'case_id') || event.params.caseId;
+    if (caseId !== event.params.caseId) return fail(400, { error: 'The selected Case does not match this editor.', caseId });
+    try {
+      await updatePreviewStimulusOptionCaption(
+        result.context.db,
+        result.context.session.id,
+        caseId,
+        formText(formData, 'option_id'),
+        formText(formData, 'caption')
+      );
+    } catch (error) {
+      return fail(actionStatus(error), { error: actionError(error), caseId });
+    }
+    redirect(303, caseRedirect(caseId, 'option-caption-updated', '#images'));
+  },
 
   updateCase: async (event) => {
     const result = await contextOrFailure(event);

@@ -10,6 +10,8 @@ import { listAdminCases } from '../src/lib/server/db/case-assets.js';
 import { createDb } from '../src/lib/server/db/index.js';
 import { listEligibleCases, listStudyConcepts, startReview } from '../src/lib/server/db/learning.js';
 import {
+  addPreviewAssetsToStimulusGroup,
+  attachPreviewAssetsToCase,
   attachPreviewAsset,
   cleanupPreviewWorkspace,
   cloneCaseToPreview,
@@ -18,8 +20,11 @@ import {
   ensurePreviewWorkspace,
   getLivePreviewSession,
   listPreviewCases,
+  listPreviewCaseImagePicker,
+  loadPreviewCaseEditor,
   PreviewWorkspaceError,
   savePreviewCaseQuestion,
+  updatePreviewStimulusOptionCaption,
   updatePreviewCase
 } from '../src/lib/server/db/preview-workspace.js';
 import { GET as getAssetImage } from '../src/routes/api/assets/[assetId]/image/+server.js';
@@ -412,6 +417,57 @@ test('session lookup remains scoped to each Preview Admin owner', async () => {
     const second = await createPreviewSession(fixture.db, 'owner-2', Date.now());
     assert.equal((await getLivePreviewSession(fixture.db, 'owner-1'))?.id, first.id);
     assert.equal((await getLivePreviewSession(fixture.db, 'owner-2'))?.id, second.id);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Preview image picker and multi-attach mutate only Preview-owned relationships', async () => {
+  const fixture = createFixture();
+  try {
+    const { session, caseId } = await createClone(fixture, 'preview-image-owner');
+    const second = await createClone(fixture, 'preview-image-other-owner');
+    fixture.sqlite.prepare(`
+      INSERT INTO assets (id, type, storage_key, mime_type, original_filename, alt_text, source_label, is_active)
+      VALUES ('asset-picker-production', 'image', 'teaching-images/picker-production.png', 'image/png', 'Picker production ECG.png', 'Production picker ECG', 'Archive', 1)
+    `).run();
+    const productionAssetBefore = fixture.sqlite.prepare("SELECT * FROM assets WHERE id='asset-picker-production'").get();
+    const sourceRelationshipBefore = fixture.sqlite.prepare("SELECT * FROM case_assets WHERE case_id='case-source' AND asset_id='asset-fixed'").get();
+
+    const picker = await listPreviewCaseImagePicker(fixture.db, session.id, caseId, { search: 'Picker production', limit: 10 });
+    assert.deepEqual(picker.assets.map((asset) => asset.id), ['asset-picker-production']);
+    assert.equal(picker.assets[0].previewSessionId, null);
+    const loaded = await loadPreviewCaseEditor(fixture.db, session.id, caseId, { imagePickerOpen: true, imagePickerSearch: 'Picker production' });
+    assert.equal(loaded.imagePicker.assets[0].id, 'asset-picker-production');
+
+    await attachPreviewAssetsToCase(fixture.db, session.id, caseId, ['asset-picker-production']);
+    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) n FROM case_assets WHERE case_id=? AND asset_id='asset-picker-production'").get(caseId).n, 1);
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM assets WHERE id='asset-picker-production'").get(), productionAssetBefore);
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM case_assets WHERE case_id='case-source' AND asset_id='asset-fixed'").get(), sourceRelationshipBefore);
+
+    const previewGroup = fixture.sqlite.prepare('SELECT id FROM stimulus_groups WHERE case_id=? LIMIT 1').get(caseId).id;
+    const groupAsset = 'asset-picker-group-production';
+    fixture.sqlite.prepare(`
+      INSERT INTO assets (id, type, storage_key, mime_type, original_filename, alt_text, is_active)
+      VALUES (?, 'image', ?, 'image/png', 'Group production ECG.png', 'Group production ECG', 1)
+    `).run(groupAsset, `teaching-images/${groupAsset}.png`);
+    await addPreviewAssetsToStimulusGroup(fixture.db, session.id, previewGroup, [groupAsset]);
+    assert.equal(fixture.sqlite.prepare('SELECT COUNT(*) n FROM stimulus_group_options WHERE stimulus_group_id=? AND asset_id=?').get(previewGroup, groupAsset).n, 1);
+
+    const option = fixture.sqlite.prepare('SELECT id FROM stimulus_group_options WHERE stimulus_group_id=? AND asset_id=?').get(previewGroup, 'asset-option');
+    await updatePreviewStimulusOptionCaption(fixture.db, session.id, caseId, option.id, 'Preview-only caption');
+    assert.equal(fixture.sqlite.prepare('SELECT caption_md FROM stimulus_group_options WHERE id=?').get(option.id).caption_md, 'Preview-only caption');
+    assert.equal(fixture.sqlite.prepare("SELECT caption_md FROM stimulus_group_options WHERE id='option-source'").get().caption_md, 'Option-specific caption');
+
+    await assert.rejects(
+      () => addPreviewAssetsToStimulusGroup(fixture.db, session.id, 'group-source', [groupAsset]),
+      (error) => error instanceof PreviewWorkspaceError && error.code === 'NOT_OWNED'
+    );
+    const otherGroup = fixture.sqlite.prepare('SELECT id FROM stimulus_groups WHERE case_id=? LIMIT 1').get(second.caseId).id;
+    await assert.rejects(
+      () => addPreviewAssetsToStimulusGroup(fixture.db, session.id, otherGroup, [groupAsset]),
+      (error) => error instanceof PreviewWorkspaceError && error.code === 'NOT_OWNED'
+    );
   } finally {
     fixture.sqlite.close();
   }

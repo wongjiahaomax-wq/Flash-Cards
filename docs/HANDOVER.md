@@ -154,6 +154,8 @@ preview/<preview-session-id>/...
 
 Cleanup is idempotent. If cleanup fails, the session is marked `cleanup_required`, the error is surfaced, and a later Reset/login retries. Browser close/auth expiry is safe because abandoned Preview content remains structurally isolated.
 
+This includes Preview Case fixed-image relationships, Preview stimulus groups/options, copied Preview Question Prompts and their image/set question relationships, plus Preview-uploaded Assets and their `preview/<preview-session-id>/...` R2 objects. Production Cases, production Question Prompts, production Assets, production R2 objects, and production Case relationships remain unchanged.
+
 D1 Time Travel is emergency recovery only, not Preview Reset.
 
 ## Preview deployment
@@ -174,6 +176,14 @@ A manual GitHub Actions workflow, **Deploy PR to Preview**, accepts a PR number 
 Worker configuration changes must be reviewed/merged separately before another PR can be used as a Preview candidate. The candidate PR is not allowed to redefine the Preview deployment target through its own `wrangler.jsonc`.
 
 The Preview Worker still has production D1/R2 bindings and shared production auth tables. This is not hard resource isolation, so only trusted same-repository PRs should be deployed.
+
+## Normal operator lifecycle
+
+```text
+main on Preview → Deploy PR to Preview → inspect PR → Reset Preview Workspace → Restore Main to Preview → next PR
+```
+
+Deploy changes Preview code without migrations; Reset removes disposable Preview content without changing code; Restore Main to Preview replaces the Worker code with current `main` without deleting workspace content or running migrations. Normally perform Reset, then Restore Main to Preview.
 
 ## Current migrations
 
@@ -225,6 +235,8 @@ Preview UI is deliberately separate at:
 ```text
 /preview-admin
 ```
+
+Preview navigation also exposes `/preview-admin/images`, a read-only visual review of the shared Images-library selection UI. Production Assets may be searched, enlarged, and selected there, but bulk writes can target only active alternative sets owned by the current Preview Session; they create Preview relationship rows and never mutate production Asset or Case rows.
 
 Normal Admin libraries/aggregates exclude disposable Preview ownership. Normal `/admin` is unavailable on the Preview Worker.
 
