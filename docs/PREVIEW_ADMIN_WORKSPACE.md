@@ -52,15 +52,18 @@ Do not run this bootstrap during PR review.
 
 ## Hard route boundaries
 
-Because the Preview Worker has real production D1/R2 bindings, production routes are denied before their page/action code can run:
+Because the Preview Worker has real production D1/R2 bindings, production routes and privileged shared-auth mutations are denied before their page/action/auth-handler code can run:
 
 - `/admin` and every descendant return `403` on the Preview Worker, even for a real production `admin` account;
 - `/study` and every descendant return `403` on the Preview Worker;
+- `/api/auth/admin` and every descendant return `403` on the Preview Worker before Better Auth handles the request;
 - a `preview_admin` identity is also denied from `/study` on the production Worker.
 
-The request hook enforces these boundaries so direct POSTs/form actions cannot bypass a layout loader. The Admin and Study layouts provide defense in depth, and learner Review creation/reveal/rate/next server actions repeat the Study guard.
+Better Auth's ordinary Preview authentication endpoints remain available, including sign-in, sign-out and session lookup under `/api/auth`. Only the Admin-plugin subtree is blocked on the Preview Worker.
 
-Preview authoring is available only through `/preview-admin`. The dedicated Preview identity must never create ordinary learner Reviews or progress/history records.
+The request hook enforces these boundaries so direct POSTs/form actions/auth API calls cannot bypass a layout loader. The Admin and Study layouts provide defense in depth, and learner Review creation/reveal/rate/next server actions repeat the Study guard.
+
+Preview authoring is available only through `/preview-admin`. The dedicated Preview identity must never create ordinary learner Reviews or progress/history records, and neither a production `admin` nor a Preview user may use the Preview Worker to invoke Better Auth Admin-plugin user-management operations against the shared production auth tables.
 
 ## Preview Sessions
 
@@ -177,6 +180,7 @@ The following remain unavailable/read-only in Preview Mode:
 - reusable Topic-question creation;
 - learner/user administration;
 - learner Study/Review creation;
+- Better Auth Admin-plugin user-management APIs;
 - content import.
 
 Existing Case Tags and contextual Case Question Tags are preserved when a Case is cloned. Global Tag definition editing is not expanded by this V1.
@@ -263,7 +267,7 @@ The Preview workflow never applies a PR migration simply to make a PR previewabl
 
 ## Residual production-resource risk
 
-The Preview Worker shares production D1/R2 bindings, so this is not hard resource isolation. Only trusted same-repository PRs should be deployed; deployment stays manual; validation runs before deployment; schema- and Worker-config-changing PRs are blocked; production `/admin` and learner `/study` are unavailable on the Preview Worker; Preview capabilities are narrow; and global/shared editing remains unavailable.
+The Preview Worker shares production D1/R2 bindings and production Better Auth tables, so this is not hard resource isolation. Only trusted same-repository PRs should be deployed; deployment stays manual; validation runs before deployment; schema- and Worker-config-changing PRs are blocked; production `/admin`, learner `/study`, and Better Auth `/api/auth/admin` are unavailable on the Preview Worker; Preview capabilities are narrow; and global/shared editing remains unavailable.
 
 D1 recovery/Time Travel is catastrophe recovery only, not normal Preview Reset.
 
@@ -277,7 +281,7 @@ Do not execute these steps until this PR is reviewed and intentionally released.
 4. Configure a separate `BETTER_AUTH_SECRET` for the `preview` Wrangler environment. Do not commit it.
 5. Confirm GitHub has `CLOUDFLARE_ACCOUNT_ID` and a least-privilege `CLOUDFLARE_API_TOKEN` able to deploy Workers. The Preview deployment workflow does not need a D1 write token.
 6. Deploy the reviewed infrastructure to the Preview Worker with `npx --yes wrangler@4.123.0 deploy --env preview` (or the equivalent reviewed operator deployment).
-7. Confirm the Preview Worker is reachable and clearly shows Preview Mode; verify `/admin` and `/study` both return `403` there.
+7. Confirm the Preview Worker is reachable and clearly shows Preview Mode; verify `/admin`, `/study`, and `/api/auth/admin` all return `403` there while normal Preview sign-in/session endpoints still work.
 8. Run `npm run preview-admin:bootstrap` once to create the dedicated Preview Admin identity.
 9. Sign in to the Preview Worker, create one Preview copy, edit it, then Reset and confirm the source production Case remains unchanged.
 10. For a later UI PR such as PR #29, first ensure it does not modify schema files or `wrangler.jsonc`, then run GitHub Actions -> **Deploy PR to Preview**, enter the PR number, verify the reported exact SHA, and test the Preview URL.
