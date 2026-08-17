@@ -12,7 +12,8 @@ import {
   attachAssetsToCase,
   bulkAddAssetsToStimulusGroup,
   listActiveStimulusGroupTargets,
-  listCaseImagePicker
+  listCaseImagePicker,
+  updateStimulusOptionCaption
 } from '../src/lib/server/db/admin-image-workflow.js';
 import { createDb } from '../src/lib/server/db/index.js';
 import { createStimulusGroup } from '../src/lib/server/db/stimulus-groups.js';
@@ -142,6 +143,24 @@ test('bulk grouping adds only intended Case-scoped option relationships and is i
   }
 });
 
+test('alternative image captions remain editable after picker-based grouping', async () => {
+  const fixture = createLearningDb();
+  try {
+    insertAsset(fixture.sqlite, { id: 'caption-option', name: 'Caption option' });
+    const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Caption set', specificQuestionMode: 'none' });
+    await bulkAddAssetsToStimulusGroup(fixture.db, groupId, ['caption-option']);
+    const option = fixture.sqlite.prepare('SELECT id FROM stimulus_group_options WHERE stimulus_group_id = ? AND asset_id = ?').get(groupId, 'caption-option');
+    assert.ok(option?.id);
+
+    await updateStimulusOptionCaption(fixture.db, 'seed-anterior-a', String(option.id), '  Case-specific ECG caption  ');
+    assert.equal(fixture.sqlite.prepare('SELECT caption_md FROM stimulus_group_options WHERE id = ?').get(option.id).caption_md, 'Case-specific ECG caption');
+    await assert.rejects(() => updateStimulusOptionCaption(fixture.db, 'seed-anterior-b', String(option.id), 'Wrong Case'), /not attached/);
+    assert.equal(fixture.sqlite.prepare('SELECT caption_md FROM stimulus_group_options WHERE id = ?').get(option.id).caption_md, 'Case-specific ECG caption');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('bulk grouping rejects fixed or cross-set Case conflicts and invalid Assets without partial relationship changes', async () => {
   const fixture = createLearningDb();
   try {
@@ -190,12 +209,25 @@ test('Case image actions require administrator authorization', async () => {
   assert.equal(result.status, 403);
 });
 
+test('Images-library bulk grouping action requires administrator authorization', async () => {
+  const { actions } = await import('../src/routes/admin/images/+page.server.js');
+  const formData = new FormData();
+  formData.set('group_id', 'not-trusted');
+  formData.append('asset_id', 'seed-asset-anterior-b');
+  const result = await actions.bulkAddToStimulusGroup(/** @type {any} */ ({
+    request: new Request('http://localhost/admin/images?/bulkAddToStimulusGroup', { method: 'POST', body: formData }),
+    locals: { user: { role: 'user' } }
+  }));
+  assert.equal(result.status, 403);
+});
+
 test('Case editor keeps Images before Case questions and no longer embeds the unused Asset Library', () => {
   const source = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
   assert.ok(source.indexOf('id="images"') < source.indexOf('id="questions"'));
   assert.match(source, />Images </);
   assert.match(source, /Add images from library/);
   assert.match(source, /image-specific/);
+  assert.match(source, /updateStimulusOptionCaption/);
   assert.doesNotMatch(source, /selectedCase\.available/);
   assert.doesNotMatch(source, /<h3>Image library<\/h3>/);
 });
