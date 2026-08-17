@@ -82,6 +82,15 @@ function extensionForType(mimeType) {
   return mimeType === 'image/png' ? 'png' : 'jpg';
 }
 
+/** @param {Map<string, string>} idMap @param {string} sourceId @param {string} label */
+function mappedId(idMap, sourceId, label) {
+  const mapped = idMap.get(sourceId);
+  if (!mapped) {
+    throw new PreviewWorkspaceError(`The source Case contains a missing ${label} clone mapping.`, 'INVALID_SOURCE');
+  }
+  return mapped;
+}
+
 /** @param {LearningDb} db @param {string} userId */
 export async function getLivePreviewSession(db, userId) {
   const rows = await db
@@ -323,7 +332,7 @@ export async function cloneCaseToPreview(db, input) {
 
   if (sourcePrompts.length) {
     writes.push(db.insert(questionPrompts).values(sourcePrompts.map((row) => ({
-      id: promptMap.get(row.id),
+      id: mappedId(promptMap, row.id, 'Question Prompt'),
       promptMd: row.promptMd,
       previewSessionId: input.previewSessionId,
       isActive: row.isActive
@@ -348,7 +357,7 @@ export async function cloneCaseToPreview(db, input) {
   }
   if (groupRows.length) {
     writes.push(db.insert(stimulusGroups).values(groupRows.map((row) => ({
-      id: groupMap.get(row.id),
+      id: mappedId(groupMap, row.id, 'Stimulus Group'),
       caseId,
       name: row.name,
       displayOrder: row.displayOrder,
@@ -362,8 +371,8 @@ export async function cloneCaseToPreview(db, input) {
   }
   if (optionRows.length) {
     writes.push(db.insert(stimulusGroupOptions).values(optionRows.map((row) => ({
-      id: optionMap.get(row.id),
-      stimulusGroupId: groupMap.get(row.stimulusGroupId),
+      id: mappedId(optionMap, row.id, 'Stimulus Option'),
+      stimulusGroupId: mappedId(groupMap, row.stimulusGroupId, 'Stimulus Group'),
       assetId: row.assetId,
       displayOrder: row.displayOrder,
       captionMd: row.captionMd,
@@ -373,9 +382,9 @@ export async function cloneCaseToPreview(db, input) {
   }
   if (caseQuestionRows.length) {
     writes.push(db.insert(caseQuestions).values(caseQuestionRows.map((row) => ({
-      id: caseQuestionMap.get(row.id),
+      id: mappedId(caseQuestionMap, row.id, 'Case Question'),
       caseId,
-      questionPromptId: promptMap.get(row.questionPromptId),
+      questionPromptId: mappedId(promptMap, row.questionPromptId, 'Question Prompt'),
       answerMd: row.answerMd,
       isActive: row.isActive,
       createdAt: row.createdAt,
@@ -385,8 +394,8 @@ export async function cloneCaseToPreview(db, input) {
   if (groupQuestionRows.length) {
     writes.push(db.insert(stimulusGroupQuestions).values(groupQuestionRows.map((row) => ({
       id: newId(),
-      stimulusGroupId: groupMap.get(row.stimulusGroupId),
-      questionPromptId: promptMap.get(row.questionPromptId),
+      stimulusGroupId: mappedId(groupMap, row.stimulusGroupId, 'Stimulus Group'),
+      questionPromptId: mappedId(promptMap, row.questionPromptId, 'Question Prompt'),
       answerMd: row.answerMd,
       isActive: row.isActive,
       createdAt: row.createdAt,
@@ -396,8 +405,8 @@ export async function cloneCaseToPreview(db, input) {
   if (optionQuestionRows.length) {
     writes.push(db.insert(stimulusOptionQuestions).values(optionQuestionRows.map((row) => ({
       id: newId(),
-      stimulusGroupOptionId: optionMap.get(row.stimulusGroupOptionId),
-      questionPromptId: promptMap.get(row.questionPromptId),
+      stimulusGroupOptionId: mappedId(optionMap, row.stimulusGroupOptionId, 'Stimulus Option'),
+      questionPromptId: mappedId(promptMap, row.questionPromptId, 'Question Prompt'),
       answerMd: row.answerMd,
       isActive: row.isActive,
       createdAt: row.createdAt,
@@ -413,7 +422,7 @@ export async function cloneCaseToPreview(db, input) {
   }
   if (sourceQuestionTags.length) {
     writes.push(db.insert(caseQuestionTags).values(sourceQuestionTags.map((row) => ({
-      caseQuestionId: caseQuestionMap.get(row.caseQuestionId),
+      caseQuestionId: mappedId(caseQuestionMap, row.caseQuestionId, 'Case Question'),
       tagId: row.tagId,
       createdAt: row.createdAt
     }))));
@@ -810,9 +819,13 @@ export async function createPreviewStimulusGroup(db, previewSessionId, caseId, i
   if (!['none', 'minimum', 'all'].includes(mode)) {
     throw new PreviewWorkspaceError('Specific-question coverage is invalid.', 'INVALID_INPUT');
   }
-  const minimum = mode === 'minimum' ? Number(input.minimumSpecificQuestions) : null;
-  if (mode === 'minimum' && (!Number.isInteger(minimum) || minimum < 1)) {
-    throw new PreviewWorkspaceError('Minimum specific questions must be a positive integer.', 'INVALID_INPUT');
+  let minimum = null;
+  if (mode === 'minimum') {
+    const parsedMinimum = Number(input.minimumSpecificQuestions);
+    if (!Number.isInteger(parsedMinimum) || parsedMinimum < 1) {
+      throw new PreviewWorkspaceError('Minimum specific questions must be a positive integer.', 'INVALID_INPUT');
+    }
+    minimum = parsedMinimum;
   }
   const last = (
     await db.select({ displayOrder: stimulusGroups.displayOrder }).from(stimulusGroups).where(eq(stimulusGroups.caseId, caseId)).orderBy(desc(stimulusGroups.displayOrder)).limit(1)
@@ -862,9 +875,13 @@ export async function updatePreviewStimulusGroup(db, previewSessionId, groupId, 
   if (!['none', 'minimum', 'all'].includes(mode)) {
     throw new PreviewWorkspaceError('Specific-question coverage is invalid.', 'INVALID_INPUT');
   }
-  const minimum = mode === 'minimum' ? Number(input.minimumSpecificQuestions) : null;
-  if (mode === 'minimum' && (!Number.isInteger(minimum) || minimum < 1)) {
-    throw new PreviewWorkspaceError('Minimum specific questions must be a positive integer.', 'INVALID_INPUT');
+  let minimum = null;
+  if (mode === 'minimum') {
+    const parsedMinimum = Number(input.minimumSpecificQuestions);
+    if (!Number.isInteger(parsedMinimum) || parsedMinimum < 1) {
+      throw new PreviewWorkspaceError('Minimum specific questions must be a positive integer.', 'INVALID_INPUT');
+    }
+    minimum = parsedMinimum;
   }
   await db
     .update(stimulusGroups)
