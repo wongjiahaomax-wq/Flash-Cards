@@ -159,7 +159,9 @@ async function main() {
   const prompts = createInterface({ input: stdin, output: stdout });
   let email = '';
   let name = '';
+  /** @type {{ id: string, email: string, role?: unknown, banned?: unknown } | null} */
   let existingUser = null;
+  /** @type {Array<{ id: string, email?: string, role?: unknown }>} */
   let existingPreviewAdmins = [];
   try {
     email = (await prompts.question('Preview Admin email: ')).trim().toLowerCase();
