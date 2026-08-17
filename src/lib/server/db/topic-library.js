@@ -1,4 +1,4 @@
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 
 import {
   caseConcepts,
@@ -18,7 +18,7 @@ function cleanText(value) {
 /**
  * List Topics with current active primary-Case and reusable-question counts.
  * Inactive Topics remain visible for administration, but their current counts
- * are zero by definition.
+ * are zero by definition. Preview-owned records are excluded from normal Admin.
  *
  * @param {LearningDb} db
  * @param {{ search?: string }} [filters]
@@ -40,7 +40,7 @@ export async function listTopicLibrary(db, filters = {}) {
       .select({ conceptId: caseConcepts.conceptId, caseId: cases.id })
       .from(caseConcepts)
       .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
-      .where(and(eq(caseConcepts.role, 'primary'), eq(cases.isActive, true))),
+      .where(and(eq(caseConcepts.role, 'primary'), eq(cases.isActive, true), isNull(cases.previewSessionId))),
     db
       .select({ conceptId: conceptQuestions.conceptId, questionId: conceptQuestions.id })
       .from(conceptQuestions)
@@ -50,6 +50,7 @@ export async function listTopicLibrary(db, filters = {}) {
         and(
           eq(conceptQuestions.isActive, true),
           eq(questionPrompts.isActive, true),
+          isNull(questionPrompts.previewSessionId),
           eq(concepts.isActive, true)
         )
       )
@@ -75,9 +76,10 @@ export async function listTopicLibrary(db, filters = {}) {
 }
 
 /**
- * Load one Topic with its directly related primary Cases, Concept Questions,
- * parent, and direct children. Historical inactive relationships are retained
- * on detail so administrators can understand archived content.
+ * Load one Topic with its directly related production primary Cases, Concept
+ * Questions, parent, and direct children. Historical inactive production
+ * relationships are retained on detail so administrators can understand
+ * archived content; disposable Preview ownership never appears here.
  *
  * @param {LearningDb} db
  * @param {string} conceptId
@@ -107,7 +109,7 @@ export async function getTopicDetail(db, conceptId) {
       })
       .from(caseConcepts)
       .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
-      .where(and(eq(caseConcepts.conceptId, conceptId), eq(caseConcepts.role, 'primary')))
+      .where(and(eq(caseConcepts.conceptId, conceptId), eq(caseConcepts.role, 'primary'), isNull(cases.previewSessionId)))
       .orderBy(asc(cases.title), asc(cases.id)),
     db
       .select({
@@ -121,7 +123,7 @@ export async function getTopicDetail(db, conceptId) {
       })
       .from(conceptQuestions)
       .innerJoin(questionPrompts, eq(questionPrompts.id, conceptQuestions.questionPromptId))
-      .where(eq(conceptQuestions.conceptId, conceptId))
+      .where(and(eq(conceptQuestions.conceptId, conceptId), isNull(questionPrompts.previewSessionId)))
       .orderBy(asc(questionPrompts.promptMd), asc(conceptQuestions.id))
   ]);
 
