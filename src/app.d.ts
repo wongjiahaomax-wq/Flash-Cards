@@ -16,6 +16,8 @@ declare global {
     interface Platform {
       env: Cloudflare.Env & {
         BETTER_AUTH_SECRET: string;
+        BETTER_AUTH_URL?: string;
+        PREVIEW_MODE?: string;
       };
       cf?: CfProperties;
       ctx?: ExecutionContext;
