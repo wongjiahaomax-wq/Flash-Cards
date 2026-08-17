@@ -225,16 +225,15 @@ export async function listActiveStimulusGroupTargets(db) {
 }
 
 /**
- * Add Assets to one existing active Case alternative set. This deliberately
- * does not implement a cross-set move because option questions/captions make
- * that a separate authoring decision.
+ * Validate an alternative-set target before creating a new Asset. This mirrors
+ * the constraints that a newly-created blank stimulus option must satisfy so
+ * predictable target failures happen before any R2/D1 Asset creation.
  *
  * @param {LearningDb} db
  * @param {string} groupId
- * @param {unknown[]} submittedAssetIds
  * @param {{ expectedCaseId?: string | null }} [options]
  */
-export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetIds, options = {}) {
+export async function validateStimulusGroupTargetForNewAssets(db, groupId, options = {}) {
   const normalizedGroupId = String(groupId ?? '').trim();
   if (!normalizedGroupId) throw new AdminImageWorkflowInputError('Choose an alternative image set.');
   const group = (
@@ -257,6 +256,34 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
     throw new AdminImageWorkflowInputError('The selected alternative image set does not belong to this Case.');
   }
 
+  if (group.specificQuestionMode === 'minimum') {
+    const groupQuestions = await db
+      .select({ id: stimulusGroupQuestions.id })
+      .from(stimulusGroupQuestions)
+      .where(and(eq(stimulusGroupQuestions.stimulusGroupId, group.id), eq(stimulusGroupQuestions.isActive, true)));
+    const minimum = group.minimumSpecificQuestions ?? 0;
+    if (groupQuestions.length < minimum) {
+      throw new AdminImageWorkflowInputError(
+        `New images would have only ${groupQuestions.length} set-wide specific questions, below this set's minimum of ${minimum}. Add set-wide questions or change coverage first.`
+      );
+    }
+  }
+
+  return group;
+}
+
+/**
+ * Add Assets to one existing active Case alternative set. This deliberately
+ * does not implement a cross-set move because option questions/captions make
+ * that a separate authoring decision.
+ *
+ * @param {LearningDb} db
+ * @param {string} groupId
+ * @param {unknown[]} submittedAssetIds
+ * @param {{ expectedCaseId?: string | null }} [options]
+ */
+export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetIds, options = {}) {
+  const group = await validateStimulusGroupTargetForNewAssets(db, groupId, options);
   const assetIds = boundedAssetIds(submittedAssetIds);
   await requireActiveImageAssets(db, assetIds);
 
@@ -294,19 +321,6 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
     if (!existingOption.isActive) {
       throw new AdminImageWorkflowInputError(
         'One or more selected Assets already exist in this set but are inactive. Reactivate them from the Case editor.'
-      );
-    }
-  }
-
-  if (group.specificQuestionMode === 'minimum') {
-    const groupQuestions = await db
-      .select({ id: stimulusGroupQuestions.id })
-      .from(stimulusGroupQuestions)
-      .where(and(eq(stimulusGroupQuestions.stimulusGroupId, group.id), eq(stimulusGroupQuestions.isActive, true)));
-    const minimum = group.minimumSpecificQuestions ?? 0;
-    if (groupQuestions.length < minimum) {
-      throw new AdminImageWorkflowInputError(
-        `New images would have only ${groupQuestions.length} set-wide specific questions, below this set's minimum of ${minimum}. Add set-wide questions or change coverage first.`
       );
     }
   }
