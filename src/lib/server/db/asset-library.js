@@ -251,7 +251,11 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
   return { rows, totalCount, totalPages, page, pageSize, requestedPage, allMatchingIds };
 }
 
-/** Backwards-compatible unpaged helper retained for legacy callers/tests. */
+/**
+ * Backwards-compatible unpaged helper retained for legacy callers/tests.
+ * @param {LearningDb} db
+ * @param {Partial<ReturnType<typeof parseAssetLibraryFilters>>} [filters]
+ */
 export async function listAssetLibrary(db, filters = {}) {
   const normalized = { search: String(filters.search ?? '').trim(), topic: String(filters.topic ?? '').trim(), usage: filters.usage ?? 'all', status: filters.status ?? 'all', source: filters.source ?? 'all', sort: filters.sort ?? 'newest' };
   const first = await getAssetLibraryPage(db, normalized, { page: 1, pageSize: ASSET_LIBRARY_PAGE_SIZE });
@@ -270,6 +274,15 @@ export async function getAssetLibraryDetail(db, assetId) {
   return { asset: { ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null, usageCount: new Set(usages.map((usage) => usage.caseId)).size }, usages };
 }
 
+/**
+ * Update only D1 Asset metadata. In particular, storageKey is deliberately not
+ * accepted here, so renaming can never mutate the immutable R2 object identity.
+ * Preview-owned Assets are not valid normal Admin mutation targets.
+ *
+ * @param {LearningDb} db
+ * @param {string} assetId
+ * @param {{ originalFilename?: string | null, altText?: string | null, sourceLabel?: string | null, sourceUrl?: string | null, licence?: string | null, isActive?: boolean | string }} input
+ */
 export async function updateAssetMetadata(db, assetId, input) {
   const normalizedId = requiredText(assetId, 'Asset');
   const existing = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
@@ -282,6 +295,15 @@ export async function updateAssetMetadata(db, assetId, input) {
 /** @param {string} mimeType */
 function extensionForType(mimeType) { return mimeType === 'image/png' ? 'png' : 'jpg'; }
 
+/**
+ * The Image Library upload path delegates the R2 write and all storage limits
+ * to the existing protected teaching-image pipeline.
+ *
+ * @param {LearningDb} db
+ * @param {R2Bucket} bucket
+ * @param {Blob & { name?: string }} file
+ * @param {{ originalFilename?: string | null, altText: string, sourceLabel?: string | null, sourceUrl?: string | null, licence?: string | null }} metadata
+ */
 export async function createAssetFromUpload(db, bucket, file, metadata) {
   if (!file || typeof file.type !== 'string' || typeof file.size !== 'number') throw new AssetLibraryInputError('Choose a JPEG or PNG image to upload.');
   try { assertSupportedImageType(file.type); } catch (error) { throw new AssetLibraryInputError(error instanceof Error ? error.message : 'Only JPEG and PNG teaching images are supported.'); }
