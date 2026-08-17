@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyAssetSelection, clearAssetSelection } from '../src/lib/admin-image-selection.js';
+import { applyAssetSelection, clearAssetSelection, pruneAssetSelection } from '../src/lib/admin-image-selection.js';
 
 const displayed = ['asset-c', 'asset-a', 'asset-d', 'asset-b'];
 
@@ -22,6 +22,16 @@ test('Shift selection follows the currently displayed filtered/sorted order', ()
   assert.deepEqual([...ranged.selectedIds], ['asset-a', 'asset-d', 'asset-b']);
   assert.equal(ranged.anchorId, 'asset-a');
   assert.equal(ranged.selectedIds.has('asset-c'), false);
+});
+
+test('filter changes prune hidden selected Assets and reset an invisible range anchor', () => {
+  const pruned = pruneAssetSelection({
+    selectedIds: ['asset-c', 'asset-a', 'asset-d'],
+    orderedIds: ['asset-a', 'asset-b'],
+    anchorId: 'asset-d'
+  });
+  assert.deepEqual([...pruned.selectedIds], ['asset-a']);
+  assert.equal(pruned.anchorId, null);
 });
 
 test('plain selection replaces the existing set and clear selection resets state', () => {
