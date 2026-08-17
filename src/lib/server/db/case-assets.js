@@ -85,8 +85,12 @@ async function attachedRows(db, caseId) {
     .orderBy(asc(caseAssets.displayOrder));
 }
 
-/** @param {LearningDb} db @param {string} caseId */
-export async function getAdminCaseData(db, caseId) {
+/**
+ * @param {LearningDb} db
+ * @param {string} caseId
+ * @param {{ includeAvailable?: boolean }} [options]
+ */
+export async function getAdminCaseData(db, caseId, options = {}) {
   const caseRows = await listAdminCases(db);
   const selectedCase = caseRows.find((item) => item.id === caseId);
   if (!selectedCase) return null;
@@ -95,29 +99,33 @@ export async function getAdminCaseData(db, caseId) {
   const primaryTopic = topics.find((topic) => topic.role === 'primary');
 
   const attached = await attachedRows(db, caseId);
-  const attachedIds = new Set(attached.map((asset) => asset.assetId));
-  const groupedRows = await db
-    .select({ assetId: stimulusGroupOptions.assetId })
-    .from(stimulusGroupOptions)
-    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-    .where(eq(stimulusGroups.caseId, caseId));
-  const groupedIds = new Set(groupedRows.map((row) => row.assetId));
-  const available = await db
-    .select({
-      assetId: assets.id,
-      assetType: assets.type,
-      storageKey: assets.storageKey,
-      mimeType: assets.mimeType,
-      originalFilename: assets.originalFilename,
-      altText: assets.altText,
-      sourceLabel: assets.sourceLabel,
-      sourceUrl: assets.sourceUrl,
-      licence: assets.licence,
-      isActive: assets.isActive
-    })
-    .from(assets)
-    .where(and(eq(assets.isActive, true), isNull(assets.previewSessionId)))
-    .orderBy(desc(assets.createdAt));
+  let available = [];
+  if (options.includeAvailable !== false) {
+    const attachedIds = new Set(attached.map((asset) => asset.assetId));
+    const groupedRows = await db
+      .select({ assetId: stimulusGroupOptions.assetId })
+      .from(stimulusGroupOptions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .where(eq(stimulusGroups.caseId, caseId));
+    const groupedIds = new Set(groupedRows.map((row) => row.assetId));
+    const rows = await db
+      .select({
+        assetId: assets.id,
+        assetType: assets.type,
+        storageKey: assets.storageKey,
+        mimeType: assets.mimeType,
+        originalFilename: assets.originalFilename,
+        altText: assets.altText,
+        sourceLabel: assets.sourceLabel,
+        sourceUrl: assets.sourceUrl,
+        licence: assets.licence,
+        isActive: assets.isActive
+      })
+      .from(assets)
+      .where(and(eq(assets.isActive, true), isNull(assets.previewSessionId)))
+      .orderBy(desc(assets.createdAt));
+    available = rows.filter((asset) => !attachedIds.has(asset.assetId) && !groupedIds.has(asset.assetId));
+  }
 
   return {
     case: {
@@ -128,7 +136,7 @@ export async function getAdminCaseData(db, caseId) {
     },
     topics,
     attached,
-    available: available.filter((asset) => !attachedIds.has(asset.assetId) && !groupedIds.has(asset.assetId))
+    available
   };
 }
 
