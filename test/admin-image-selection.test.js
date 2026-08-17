@@ -1,7 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyAssetSelection, clearAssetSelection, pruneAssetSelection } from '../src/lib/admin-image-selection.js';
+import {
+  applyAssetSelection,
+  clearAssetSelection,
+  pruneAssetSelection,
+  reconcileCasePickerSelection
+} from '../src/lib/admin-image-selection.js';
 
 const displayed = ['asset-c', 'asset-a', 'asset-d', 'asset-b'];
 
@@ -32,6 +37,28 @@ test('filter changes prune hidden selected Assets and reset an invisible range a
   });
   assert.deepEqual([...pruned.selectedIds], ['asset-a']);
   assert.equal(pruned.anchorId, null);
+});
+
+test('Case picker prunes selection when results change but keeps still-visible Assets', () => {
+  const reconciled = reconcileCasePickerSelection({
+    selectedIds: ['asset-c', 'asset-a'],
+    previousContextKey: 'case-1:fixed',
+    nextContextKey: 'case-1:fixed',
+    orderedIds: ['asset-a', 'asset-b']
+  });
+  assert.deepEqual([...reconciled.selectedIds], ['asset-a']);
+  assert.equal(reconciled.contextKey, 'case-1:fixed');
+});
+
+test('Case picker resets selection when Case or attachment target changes', () => {
+  const reconciled = reconcileCasePickerSelection({
+    selectedIds: ['asset-a', 'asset-b'],
+    previousContextKey: 'case-1:fixed',
+    nextContextKey: 'case-1:stimulus-group-2',
+    orderedIds: ['asset-a', 'asset-b']
+  });
+  assert.equal(reconciled.selectedIds.size, 0);
+  assert.equal(reconciled.contextKey, 'case-1:stimulus-group-2');
 });
 
 test('plain selection replaces the existing set and clear selection resets state', () => {
