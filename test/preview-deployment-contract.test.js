@@ -11,6 +11,7 @@ const previewSignOut = readFileSync(new URL('../src/lib/components/PreviewSignOu
 const questionsRoute = readFileSync(new URL('../src/routes/admin/questions/+page.server.js', import.meta.url), 'utf8');
 const imagesRoute = readFileSync(new URL('../src/routes/admin/images/+page.server.js', import.meta.url), 'utf8');
 
+/** @param {string} configText @param {string} binding @param {string} field */
 function bindingValue(configText, binding, field) {
   const escaped = binding.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const pattern = new RegExp(`"binding"\\s*:\\s*"${escaped}"[\\s\\S]*?"${field}"\\s*:\\s*"([^"]+)"`, 'g');
