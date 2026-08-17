@@ -10,7 +10,8 @@ import {
   attachAssetsToCase,
   bulkAddAssetsToStimulusGroup,
   listActiveStimulusGroupTargets,
-  listCaseImagePicker
+  listCaseImagePicker,
+  updateStimulusOptionCaption
 } from '$lib/server/db/admin-image-workflow.js';
 import { createDb } from '$lib/server/db/index.js';
 import { caseAssets, stimulusGroups } from '$lib/server/db/schema.js';
@@ -49,8 +50,8 @@ export async function load({ locals, platform, params, url }) {
   const [concepts, manager, questions, stimulusGroupsData] = await Promise.all([
     listAdminConcepts(db),
     getAdminCaseData(db, params.caseId, { includeAvailable: false }),
-    listCaseQuestions(db, params.caseId).catch(() => []),
-    getAdminStimulusData(db, params.caseId).catch(() => [])
+    listCaseQuestions(db, params.caseId),
+    getAdminStimulusData(db, params.caseId)
   ]);
   if (!manager) {
     return {
@@ -155,6 +156,22 @@ export const actions = {
       return fail(clientError ? 400 : 500, { error: error instanceof Error ? error.message : 'Unable to save the teaching image.' });
     }
     redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=image-uploaded#images`);
+  },
+
+  updateStimulusOptionCaption: async ({ request, locals, platform, params }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id') || params.caseId;
+    if (caseId !== params.caseId) return fail(400, { error: 'The selected Case does not match this editor.' });
+    try {
+      await updateStimulusOptionCaption(createDb(platform.env.DB), caseId, formText(formData, 'option_id'), formText(formData, 'caption'));
+    } catch (error) {
+      const clientError = error instanceof AdminImageWorkflowInputError;
+      if (!clientError) console.error('Unable to update alternative image caption.', error);
+      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to update the alternative image caption.' });
+    }
+    redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=option-caption-updated#images`);
   },
 
   startAlternativeSet: async ({ request, locals, platform, params }) => {
