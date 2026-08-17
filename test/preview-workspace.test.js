@@ -1,3 +1,6 @@
+// Preview workspace tests intentionally use lightweight D1/R2 fakes and raw SQLite rows.
+// @ts-nocheck
+
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
