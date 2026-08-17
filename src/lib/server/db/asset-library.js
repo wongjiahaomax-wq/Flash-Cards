@@ -129,7 +129,12 @@ export async function renameImageCollection(db, collectionId, name) {
     .where(and(eq(imageCollections.name, normalizedName), not(eq(imageCollections.id, normalizedId))))
     .limit(1);
   if (duplicate[0]) throw new AssetLibraryInputError('A Collection with that name already exists.');
-  await db.update(imageCollections).set({ name: normalizedName, updatedAt: new Date() }).where(eq(imageCollections.id, normalizedId));
+  try {
+    await db.update(imageCollections).set({ name: normalizedName, updatedAt: new Date() }).where(eq(imageCollections.id, normalizedId));
+  } catch (error) {
+    if (error instanceof Error && /unique|constraint/i.test(error.message)) throw new AssetLibraryInputError('A Collection with that name already exists.');
+    throw error;
+  }
   return { id: normalizedId, previousName: existing[0].name, name: normalizedName };
 }
 
