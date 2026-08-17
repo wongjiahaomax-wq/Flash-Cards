@@ -66,4 +66,4 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx --yes wrangler@4.123.0 deploy
 
-# Deployment trigger: deploy Stage A Tag foundation after PR #25 using the dedicated D1 write token.
+# Deployment trigger: deploy production-backed Preview Admin foundation after PR #30.
