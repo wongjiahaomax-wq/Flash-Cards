@@ -7,6 +7,7 @@ import { buildPreviewBootstrapSql } from '../scripts/bootstrap-preview-admin.mjs
 const workflow = readFileSync(new URL('../.github/workflows/deploy-pr-to-preview.yml', import.meta.url), 'utf8');
 const wrangler = readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8');
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
+const previewSignOut = readFileSync(new URL('../src/lib/components/PreviewSignOutButton.svelte', import.meta.url), 'utf8');
 const questionsRoute = readFileSync(new URL('../src/routes/admin/questions/+page.server.js', import.meta.url), 'utf8');
 const imagesRoute = readFileSync(new URL('../src/routes/admin/images/+page.server.js', import.meta.url), 'utf8');
 
@@ -28,16 +29,17 @@ test('Preview Worker configuration reuses the exact existing D1 and R2 resources
   assert.deepEqual(r2Names, ['flash-cards-media', 'flash-cards-media']);
 });
 
-test('manual Preview deployment resolves exact same-repository SHA and never runs a remote migration', () => {
+test('manual Preview deployment resolves exact same-repository SHA and never runs a remote migration or production deploy', () => {
   assert.match(workflow, /workflow_dispatch:/);
   assert.match(workflow, /pr_number:/);
   assert.match(workflow, /head_repo.*GITHUB_REPOSITORY/);
+  assert.match(workflow, /base_ref.*main/);
   assert.match(workflow, /steps\.pr\.outputs\.head_sha/);
   assert.match(workflow, /ref:\s*\$\{\{ steps\.pr\.outputs\.head_sha \}\}/);
   assert.match(workflow, /wrangler@4\.123\.0 deploy --env preview/);
   assert.doesNotMatch(workflow, /d1 migrations apply[^\n]*--remote/);
   assert.doesNotMatch(workflow, /db:migrate:remote/);
-  assert.doesNotMatch(workflow, /wrangler@4\.123\.0 deploy\s*$/m);
+  assert.doesNotMatch(workflow, /run:\s*npx --yes wrangler@4\.123\.0 deploy\s*$/m);
   assert.match(workflow, /drizzle\//);
   assert.match(workflow, /src\/lib\/server\/db\/schema/);
   assert.match(workflow, /This PR changes the D1 schema/);
@@ -80,6 +82,14 @@ test('Preview Case route rejects global authoring and never calls production Adm
   assert.match(previewRoute, /getLivePreviewSession/);
   assert.match(previewRoute, /PreviewWorkspaceError/);
   assert.doesNotMatch(previewRoute, /updateAssetMetadata|updateQuestionPrompt|createAssetFromUpload\(/);
+});
+
+test('normal Preview logout resets the workspace before Better Auth sign-out', () => {
+  const resetCall = previewSignOut.indexOf("fetch('/preview-admin/reset', { method: 'POST' })");
+  const signOutCall = previewSignOut.indexOf('authClient.signOut()');
+  assert.ok(resetCall >= 0);
+  assert.ok(signOutCall > resetCall);
+  assert.match(previewSignOut, /if \(!response\.ok\)[\s\S]*return;/);
 });
 
 test('normal Questions and Images libraries apply explicit production-ownership filters', () => {
