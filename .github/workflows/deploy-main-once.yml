@@ -66,4 +66,4 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx --yes wrangler@4.123.0 deploy
 
-# Deployment trigger: production rollout for merged PR #41 Tagging Stage B schema foundation.
+# Deployment trigger: production rollout for merged PR #43 Tagging Stage B behavior and authoring.
