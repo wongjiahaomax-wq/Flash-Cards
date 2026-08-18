@@ -1,6 +1,5 @@
 <script>
   let { data, form } = $props();
-  const selectedTagIds = new Set(data.sharedQuestion.descriptiveTags.map((tag) => tag.tagId));
 </script>
 
 <svelte:head><title>Edit Shared Question | Admin</title></svelte:head>
@@ -46,10 +45,13 @@
 
       <fieldset>
         <legend>Descriptive Tags <span>metadata only</span></legend>
-        <p class="hint">These Tags describe the medical knowledge. Selecting them does not make a Shared Question eligible for a Case.</p>
+        <p class="hint">These Tags describe the medical knowledge. Selecting them does not make a Shared Question eligible for a Case. Existing inactive Tags are retained unless you explicitly untick them.</p>
         <div class="tag-grid">
+          {#each data.sharedQuestion.descriptiveTags.filter((tag) => !tag.tagIsActive) as tag}
+            <label class="check inactive-tag"><input type="checkbox" name="descriptive_tag_ids" value={tag.tagId} checked /> {tag.tagName} <span class="inactive-badge">Inactive</span></label>
+          {/each}
           {#each data.activeTags as tag}
-            <label class="check"><input type="checkbox" name="descriptive_tag_ids" value={tag.id} checked={selectedTagIds.has(tag.id)} /> {tag.name}</label>
+            <label class="check"><input type="checkbox" name="descriptive_tag_ids" value={tag.id} checked={data.sharedQuestion.descriptiveTags.some((selected) => selected.tagId === tag.id)} /> {tag.name}</label>
           {/each}
         </div>
       </fieldset>
@@ -84,6 +86,8 @@
   .tag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: .45rem .8rem; }
   .check { display: flex; align-items: center; gap: .45rem; font-weight: 500; }
   .check input { width: auto; }
+  .inactive-tag { color: #667085; }
+  .inactive-badge { display: inline-block; padding: .12rem .38rem; border-radius: 999px; background: #f2f4f7; color: #667085; font-size: .72rem; font-weight: 700; }
   button { border: 0; border-radius: 7px; padding: .7rem 1rem; background: #172033; color: white; font-weight: 700; cursor: pointer; }
   .secondary { background: #eef2f6; color: #344054; }
   .error { padding: .8rem 1rem; border-radius: 7px; background: #fef3f2; color: #b42318; }
