@@ -1,6 +1,6 @@
 # Tagging Model — Agreed Decisions
 
-_Status: agreed architecture. Stage A and the Stage B schema foundation are implemented; Stage B learner behavior and Shared Question Admin authoring remain pending._
+_Status: agreed architecture. Stage A and the Stage B schema foundation are implemented; Stage B learner behavior and Shared Question Admin authoring are implemented on PR #43 for review._
 
 _Last updated: 18 August 2026_
 
@@ -135,11 +135,13 @@ Existing Case question-selection behaviour remains responsible for choosing the 
 
 This prevents heavily tagged Cases from accumulating an unbounded mandatory list of shared Questions.
 
+Implemented Stage B eligibility is exact: the Shared Question and its production Prompt must be active, its `reuse_scope_tag_id` must identify an active Tag attached to the selected Case through `case_tags`, and the Prompt must not be Preview-owned. Descriptive `shared_question_tags` do not participate in eligibility. Topic/Concept ancestry is not used to infer Tag matches.
+
 ## 9. Resolver precedence
 
 When the same Question Prompt is available from several sources, the more contextual answer should win.
 
-The agreed first ordering is:
+The implemented ordering is:
 
 ```text
 selected stimulus option
@@ -147,12 +149,11 @@ selected stimulus option
 > Case
 > exact Study Topic
 > tag-shared Question
-> eligible ancestor Topic
+> eligible nearest ancestor Topic
+> more distant eligible ancestors
 ```
 
-This preserves the existing principle that exact stimulus and Case context override more generic reusable knowledge.
-
-The behavior PR for shared/tag-reusable Questions must add regression coverage for this precedence and for deduplication by Question Prompt. The schema-foundation PR does **not** change the current learner resolver.
+The final candidate set is deduplicated by `question_prompt_id`. This preserves the existing principle that exact stimulus and Case context override more generic reusable knowledge.
 
 ## 10. Tags are not learner navigation in the first implementation
 
@@ -173,9 +174,7 @@ Tags are initially mutable curation metadata.
 
 Reviews should continue to snapshot the actual Case, Study Topic, Questions, answers, and stimuli shown to the learner.
 
-Tag provenance should be added only if Tags later drive historically meaningful mastery analytics, scheduling, learner reports, or audit requirements.
-
-The Stage B schema foundation adds only `source_shared_question_id` to `review_questions`; it does not snapshot reuse-scope or descriptive Tag IDs.
+For a selected Stage B Shared Question, Review Question provenance stores `source_type = tag_shared` and `source_shared_question_id`, together with the normal Prompt/answer snapshots. It does not snapshot `reuse_scope_tag_id`, descriptive Tag IDs, or Case Tag IDs. Historical Review content therefore remains stable if those mutable eligibility/curation relationships later change.
 
 ## 12. Import Package v1 remains unchanged
 
@@ -259,36 +258,35 @@ Implemented schema only:
 - `shared_question_tags` for zero or more descriptive Tags;
 - active Shared Question uniqueness by `question_prompt_id` while archived historical rows may coexist;
 - nullable `review_questions.source_shared_question_id` provenance;
-- `tag_shared` as a valid future `review_questions.source_type`;
+- `tag_shared` as a valid `review_questions.source_type`;
 - preservation of all existing Review Question rows/snapshots/provenance through a conservative table rebuild.
-
-Not implemented in Stage B1:
-
-- Case eligibility from matching Tags;
-- learner resolver integration;
-- `tag_shared` Review creation in normal Study;
-- Automatic / All / Fixed interaction changes;
-- Shared Question Admin authoring UI.
 
 `shared_questions` is global production-curated knowledge and deliberately has no `preview_session_id`.
 
-The production D1 migration must be applied after this schema PR is merged and **before** the Stage B behavior PR is deployed or previewed against the production-backed database.
+Migration `0008_tag_shared_questions.sql` was applied to production D1 before Stage B2 implementation began.
 
 ### Stage B2 — learner behavior and Shared Question authoring
 
-Status: **next PR**.
+Status: **implemented on PR #43 for review**.
 
-Implement:
+Implemented:
 
-- Admin Shared Question authoring/curation using the landed schema;
-- Case eligibility from matching `reuse_scope_tag_id` ↔ Case Tag;
-- learner resolver integration;
-- the agreed resolver precedence;
-- interaction with Automatic / All / Fixed selection;
+- production Admin Shared Question list/create/edit/archive/reactivate workflow;
+- reuse of an existing active production Question Prompt or creation of new production Prompt wording;
+- exactly one active Reuse Scope Tag selector;
+- zero-or-more descriptive Tags independently curated;
+- matching active Case Tag creates Shared Question eligibility;
+- learner resolver integration using the precedence in section 9;
+- Prompt-ID deduplication;
+- Automatic / All / Fixed interaction through the normal eligible pool;
 - Review Question creation with `source_type = tag_shared` and `source_shared_question_id`;
-- deduplication and learner regression coverage.
+- Prompt-edit blast-radius accounting for Shared Question usages;
+- Preview-owned Prompt rejection through application validation plus the landed D1 triggers;
+- focused learner/regression coverage.
 
-This stage changes learner-visible Question eligibility and must remain separate from the schema-foundation PR.
+Stage B2 introduces no additional migration and does not grant Preview Admin global Shared Question mutation authority.
+
+See `TAGGING_STAGE_B_BEHAVIOR.md` for the implementation contract and test matrix.
 
 ## 16. Shared Question storage direction
 
