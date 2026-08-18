@@ -2,7 +2,7 @@
 
 _Last updated: 18 August 2026_
 
-This document tracks current implementation state. For the shortest merged-versus-pending view, read `CURRENT_PRODUCT_ROADMAP.md` first. Detailed architecture lives in `AUTHORING_MODEL.md`, `V1_DATA_MODEL.md`, `STIMULUS_GROUPS_DESIGN.md`, `MULTI_TOPIC_STUDY_ROUTES.md`, `TAGGING_MODEL_DECISIONS.md`, `CONTENT_IMPORT_PACKAGES.md`, `ADMIN_IMAGE_AUTHORING_WORKFLOW.md`, `IMAGE_MANAGEMENT_V2_PLAN.md`, and `PREVIEW_ADMIN_WORKSPACE.md`.
+This document tracks current implementation state. For the shortest merged-versus-pending view, read `CURRENT_PRODUCT_ROADMAP.md` first. Detailed architecture lives in `AUTHORING_MODEL.md`, `V1_DATA_MODEL.md`, `STIMULUS_GROUPS_DESIGN.md`, `MULTI_TOPIC_STUDY_ROUTES.md`, `TAGGING_MODEL_DECISIONS.md`, `TAGGING_STAGE_B_BEHAVIOR.md`, `CONTENT_IMPORT_PACKAGES.md`, `ADMIN_IMAGE_AUTHORING_WORKFLOW.md`, `IMAGE_MANAGEMENT_V2_PLAN.md`, and `PREVIEW_ADMIN_WORKSPACE.md`.
 
 ## Current product state
 
@@ -24,13 +24,12 @@ Implemented/merged baseline includes:
 - PR #29 Admin image-authoring baseline;
 - Image Management V2 from PR #34;
 - wide responsive Admin desktop workspace from PR #40;
-- Tagging Stage B **schema foundation**: `shared_questions`, `shared_question_tags`, and future `tag_shared` Review provenance.
-
-Tagging Stage B learner eligibility/resolution and Shared Question Admin authoring are **not implemented yet**. They are the next product-facing PR after migration `0008_tag_shared_questions.sql` is merged and applied to production D1.
+- Tagging Stage B schema foundation from `0008_tag_shared_questions.sql`, already applied to production D1;
+- Tagging Stage B behavior/Admin authoring on PR #43 for review: Case-Tag eligibility, Shared Question Admin, Prompt deduplication, normal count-mode integration, and `tag_shared` Review provenance.
 
 Real ECG/Anki migration and curation continue in parallel as content work.
 
-The Admin shell now intentionally provides a wide responsive desktop workspace for content-management surfaces. Image grids should adapt to the available width with useful minimum card sizes, while form-heavy Admin pages may constrain their own readable widths.
+The Admin shell intentionally provides a wide responsive desktop workspace for content-management surfaces. Image grids should adapt to the available width with useful minimum card sizes, while form-heavy Admin pages may constrain their own readable widths.
 
 ## Milestone 0 — V1 content contract
 
@@ -42,6 +41,13 @@ Topic/Concept
     ├── fixed Assets
     ├── optional stimulus groups/options
     └── contextual questions
+
+Global reusable knowledge
+└── Shared Question
+    ├── reusable Question Prompt wording
+    ├── reusable answer
+    ├── one Reuse Scope Tag
+    └── optional descriptive Tags
 ```
 
 A Case can have one primary/default Topic and additional Study Topics through `case_concepts`. Questions belong at the highest context where the answer remains correct. Tags are cross-cutting metadata and do not replace Topic/Case ownership.
@@ -54,7 +60,7 @@ SvelteKit, Cloudflare Workers adapter/runtime, Wrangler configuration, protected
 
 ## Milestone 2 — D1 + Drizzle learning model
 
-Status: **complete for current V1 baseline; Stage B schema migration pending production application**.
+Status: **complete for the current Stage B model**.
 
 ```text
 0000_dashing_centennial.sql
@@ -68,9 +74,9 @@ Status: **complete for current V1 baseline; Stage B schema migration pending pro
 0008_tag_shared_questions.sql
 ```
 
-Migration `0006_preview_admin_workspace.sql` was applied successfully to production D1 on 17 August 2026. Migration `0007_image_collections.sql` landed with Image Management V2. Migration `0008_tag_shared_questions.sql` is the Tagging Stage B schema foundation and must be applied to production D1 **after this schema PR merges and before the Stage B behavior PR is deployed or Preview-tested against the production-backed database**.
+Migration `0006_preview_admin_workspace.sql` was applied successfully to production D1 on 17 August 2026. Migration `0007_image_collections.sql` landed with Image Management V2. Migration `0008_tag_shared_questions.sql` is the Tagging Stage B schema foundation and was applied to production D1 before PR #43 implementation began.
 
-This schema PR itself must not apply the production migration or deploy a Worker.
+PR #43 is intentionally schema-free: no new migration is required and no production migration or Worker deployment belongs in the behavior/authoring PR.
 
 ## Milestone 3 — authentication/permissions
 
@@ -82,13 +88,29 @@ Production and Preview Workers use separate `BETTER_AUTH_SECRET` values even whe
 
 ## Milestone 4 — learner Study flow
 
-Status: **complete for current V1; Tag-shared eligibility not yet active**.
+Status: **complete current V1 including Tag-shared eligibility on PR #43 for review**.
 
 Learner routing supports valid Case Topics, fixed/alternative stimuli, contextual-question precedence, Automatic/All/Fixed selection, stimulus-specific coverage, durable Review snapshots and whole-Case Again/Good rating.
 
-Preview-owned Cases/Prompts/Assets are excluded from normal learner Review construction, with D1 trigger defense in depth for Preview Cases.
+Preview-owned Cases/Prompts/Assets are excluded from normal learner Review construction, with D1 trigger defense in depth for Preview Cases and for Preview Prompts being attached to global Shared Questions.
 
-The Stage B schema foundation does not query `shared_questions`, does not change Question eligibility, and does not create `tag_shared` Review Questions during normal Study.
+Stage B adds eligible Shared Questions to the existing learner resolver when the selected production Case has an active Tag matching the Shared Question's active `reuse_scope_tag_id`. Descriptive `shared_question_tags` do not affect eligibility. Topic ancestry does not infer Tag eligibility.
+
+Implemented duplicate-Prompt precedence is:
+
+```text
+selected stimulus option
+> stimulus group
+> Case
+> exact Study Concept
+> tag-shared Question
+> nearest inheritable ancestor Concept
+> more distant inheritable ancestors
+```
+
+The final pool is deduplicated by `question_prompt_id`. Automatic/All/Fixed operate on that normal deduplicated pool; Shared Questions do not bypass selection or Fixed count limits.
+
+Selected Shared Questions snapshot Prompt/answer content and persist `source_type = tag_shared` plus `source_shared_question_id`. Tag IDs are not snapshotted.
 
 ## Milestone 5 — protected R2 teaching images
 
@@ -108,6 +130,7 @@ Production surfaces include:
 /admin
 /admin/cases
 /admin/questions
+/admin/shared-questions
 /admin/images
 /admin/topics
 /admin/tags
@@ -122,15 +145,17 @@ Topics → Case → Images → Case questions → Preview
 
 Normal Admin read models exclude disposable Preview ownership.
 
-There is currently **no Shared Question Admin UI**. That belongs to the Stage B behavior/authoring PR after `0008` is applied to production D1.
+Stage B Shared Question Admin authoring supports list/create/edit/archive/reactivate, reuse of an existing active production Question Prompt or creation of new production Prompt wording, one required active Reuse Scope Tag, and zero-or-more independent descriptive Tags. UI copy explicitly states that only the Reuse Scope Tag controls Case eligibility.
+
+The existing Questions detail/editor includes Shared Question Prompt usages in its global-wording blast-radius/stale-edit guard.
 
 ## Milestone 7 — content/model validation
 
 Status: **in progress**.
 
-Representative content should continue to exercise ECG/Cardiology, ENT, Eye, Dermatology, multi-image Cases, alternative stimuli, reusable Topic questions, image-specific questions, Tags and multi-Topic routes.
+Representative content should continue to exercise ECG/Cardiology, ENT, Eye, Dermatology, multi-image Cases, alternative stimuli, reusable Topic questions, image-specific questions, Tags, Shared Questions and multi-Topic routes.
 
-Migration strategy remains progressive enrichment: reviewed material can begin as ordinary Topic/Case/Asset/questions and gain alternate routes, stimulus grouping and Tags later.
+Migration strategy remains progressive enrichment: reviewed material can begin as ordinary Topic/Case/Asset/questions and gain alternate routes, stimulus grouping, Tags and tag-shared reusable knowledge later.
 
 ## Milestone 7A — multi-Topic Case routing
 
@@ -142,7 +167,7 @@ One Case may have one primary/default Topic plus additional Study Topics. Learne
 
 Status: **merged**.
 
-Canonical flat Tags, Case↔Tag, contextual `case_questions`↔Tag, Admin curation/filtering are implemented without automatic Case Tag→Question inheritance, Tags on `question_prompts`, or learner resolver changes.
+Canonical flat Tags, Case↔Tag, contextual `case_questions`↔Tag, Admin curation/filtering are implemented without automatic Case Tag→Question inheritance, Tags on `question_prompts`, or learner resolver changes in Stage A itself.
 
 ## Milestone 7C — reviewed package importer
 
@@ -162,7 +187,7 @@ Status: **merged and deployed**.
 
 Architecture remains one production D1/R2 shared by production and Preview Workers, with explicit Preview ownership and clone-then-mutate isolation. Deploy PR to Preview validates an exact trusted PR head and blocks schema/migration/`wrangler.jsonc` candidate changes. Restore Main to Preview returns the Preview Worker to current `main`.
 
-Because Preview uses production D1, schema-changing PRs such as the Stage B foundation are intentionally not Preview-deployable before their migration is merged and applied normally.
+Stage B Shared Questions remain global production-curated objects and do not gain Preview ownership. PR #43 adds no Preview Shared Question mutation authority. Because PR #43 is schema-free, it may later be manually deployed to Preview for human UI inspection only if the operator chooses to run the existing workflow; opening the PR does not deploy anything.
 
 ## Milestone 7F — Admin image-authoring baseline
 
@@ -253,46 +278,39 @@ See `IMAGE_MANAGEMENT_V2_PLAN.md` and `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` for fi
 
 ## Milestone 7H — Tagging Stage B / shared tag-reusable Questions
 
-Status: **schema foundation landed; behavior/authoring is next**.
+Status: **schema foundation landed/applied; behavior and Admin authoring implemented on PR #43 for review**.
 
 ### Stage B schema foundation — `0008_tag_shared_questions.sql`
 
-Implemented in the schema-foundation PR:
+Implemented and applied before PR #43:
 
 - `shared_questions` with reusable `question_prompt_id`, `answer_md`, exactly one `reuse_scope_tag_id`, active/archive state and timestamps;
 - `shared_question_tags` with many descriptive Tags per Shared Question;
 - reuse scope and descriptive Tags remain independent;
 - partial uniqueness: at most one active Shared Question per `question_prompt_id`, while inactive historical rows can coexist;
 - `review_questions.source_shared_question_id` nullable FK with `ON DELETE RESTRICT`;
-- future `source_type = tag_shared` accepted;
-- conservative `review_questions` rebuild preserving all existing IDs, Prompt IDs, display order, Concept/stimulus provenance, prompt snapshots and answer snapshots;
-- no `preview_session_id` on Shared Questions because they are global production-curated knowledge objects.
+- `source_type = tag_shared` accepted;
+- conservative `review_questions` rebuild preserving existing historical data;
+- no `preview_session_id` on Shared Questions because they are global production-curated knowledge objects;
+- D1 trigger protection preventing Preview-owned Prompts from being used by Shared Questions.
 
-Not implemented by the schema-foundation PR:
+### Stage B behavior/authoring — PR #43
 
-- learner matching by Case Tags;
-- learner resolver changes;
-- Shared Question Admin UI;
-- production seed content;
-- production D1 migration application;
-- Worker deployment.
+Implemented without another migration:
 
-### Exact next step after schema merge
+1. production Admin Shared Question list/create/edit/archive/reactivate;
+2. explicit one Reuse Scope Tag versus independent descriptive Tags;
+3. exact active Case Tag matching for eligibility;
+4. no descriptive-Tag or Topic-ancestry eligibility inference;
+5. integration into the current resolver using the agreed precedence;
+6. final Prompt-ID deduplication with higher-priority context winning;
+7. normal Automatic/All/Fixed integration;
+8. Review Prompt/answer snapshots plus `tag_shared` and `source_shared_question_id` provenance;
+9. no Review Tag snapshots;
+10. Shared Question usage included in Question Prompt global-edit guards;
+11. focused resolver/database/Admin-safety regression tests.
 
-1. apply `0008_tag_shared_questions.sql` to production D1 using the normal reviewed migration path;
-2. only after the production schema is current, open the separate Stage B behavior/authoring PR;
-3. implement Case eligibility from matching Tags, Shared Question Admin authoring, Prompt deduplication, learner resolver integration and Review creation provenance.
-
-Agreed future precedence:
-
-```text
-selected stimulus option
-> stimulus group
-> Case
-> exact Study Topic
-> tag-shared Question
-> eligible ancestor Topic
-```
+See `TAGGING_STAGE_B_BEHAVIOR.md` for the exact contract.
 
 Deferred unless separately justified: compound ANY/ALL reuse scope, Tag hierarchy, aliases/synonyms, Study-by-Tag, Review Tag snapshots, automatic inference and Asset Tags.
 
@@ -300,9 +318,9 @@ Deferred unless separately justified: compound ANY/ALL reuse scope, Tag hierarch
 
 Status: **active content work**.
 
-Prepare real Anki/ECG material outside the production app, review semantic mapping, produce reviewed import packages/batches and progressively enrich resulting Cases with alternate Study Topics, stimuli and Tags.
+Prepare real Anki/ECG material outside the production app, review semantic mapping, produce reviewed import packages/batches and progressively enrich resulting Cases with alternate Study Topics, stimuli, Tags and Shared Questions.
 
-Initial ingestion should not wait for complete ontology/tagging. Image Management V2 is designed to make later image-corpus curation safer as volume grows.
+Initial ingestion should not wait for complete ontology/tagging. Image Management V2 and Stage B are designed to make later corpus curation safer as volume grows.
 
 ## Milestone 9 — learner accounts / role acceptance
 
@@ -332,7 +350,10 @@ Initial scope: learner list, recent Reviews, filters, Again/Good summaries and r
 - multiple simultaneous Preview workspaces;
 - Preview editing of global production objects;
 - automatic Preview deployment of every PR;
-- Preview application of unmerged migrations.
+- Preview application of unmerged migrations;
+- multiple/compound Shared Question reuse scopes;
+- Tag hierarchy/aliases and learner Study-by-Tag;
+- Review Tag snapshots.
 
 ## Validation required for implementation PRs
 
@@ -345,4 +366,4 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-For Admin UI PRs intended for Preview inspection, also require the shared-editor/Preview-adapter contracts and production-vs-Preview ownership regression coverage. GitHub CI must be green before human merge consideration.
+GitHub PR CI covers this exact validation set. PR #43 remains Draft and is not ready for human merge consideration until its final head is green. No Worker deployment or production D1 migration is part of PR #43.

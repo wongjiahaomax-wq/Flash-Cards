@@ -22,6 +22,7 @@
       <a href="/admin">Dashboard</a>
       <a href="/admin/cases">Cases</a>
       <a href="/admin/questions">Questions</a>
+      <a href="/admin/shared-questions">Shared Questions</a>
       <a href="/admin/images">Images</a>
       <a href="/admin/topics">Topics</a>
       <a href="/admin/tags">Tags</a>

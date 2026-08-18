@@ -9,6 +9,7 @@
  * @property {string | null} [sourceConceptId]
  * @property {string | null} [sourceStimulusGroupId]
  * @property {string | null} [sourceStimulusOptionId]
+ * @property {string | null} [sourceSharedQuestionId]
  * @property {string | null} [stimulusGroupId]
  * @property {string | null} [stimulusOptionId]
  */
@@ -22,6 +23,7 @@
  * @property {string | null} sourceConceptId
  * @property {string | null} sourceStimulusGroupId
  * @property {string | null} sourceStimulusOptionId
+ * @property {string | null} [sourceSharedQuestionId]
  * @property {string | null} stimulusGroupId
  * @property {string | null} stimulusOptionId
  * @property {number} [displayOrder]
@@ -47,9 +49,25 @@ function assertQuestion(item, label) {
   }
 }
 
-/** @param {QuestionInput} item @param {string} sourceType @param {string|null} [sourceConceptId] @param {string|null} [sourceStimulusGroupId] @param {string|null} [sourceStimulusOptionId] @returns {ResolvedQuestion} */
-function resolvedQuestion(item, sourceType, sourceConceptId = null, sourceStimulusGroupId = null, sourceStimulusOptionId = null) {
-  return {
+/**
+ * @param {QuestionInput} item
+ * @param {string} sourceType
+ * @param {string|null} [sourceConceptId]
+ * @param {string|null} [sourceStimulusGroupId]
+ * @param {string|null} [sourceStimulusOptionId]
+ * @param {string|null} [sourceSharedQuestionId]
+ * @returns {ResolvedQuestion}
+ */
+function resolvedQuestion(
+  item,
+  sourceType,
+  sourceConceptId = null,
+  sourceStimulusGroupId = null,
+  sourceStimulusOptionId = null,
+  sourceSharedQuestionId = null
+) {
+  /** @type {ResolvedQuestion} */
+  const resolved = {
     questionPromptId: item.questionPromptId,
     promptMd: item.promptMd,
     answerMd: item.answerMd,
@@ -60,6 +78,8 @@ function resolvedQuestion(item, sourceType, sourceConceptId = null, sourceStimul
     stimulusGroupId: item.stimulusGroupId ?? sourceStimulusGroupId ?? null,
     stimulusOptionId: item.stimulusOptionId ?? sourceStimulusOptionId ?? null
   };
+  if (sourceSharedQuestionId) resolved.sourceSharedQuestionId = sourceSharedQuestionId;
+  return resolved;
 }
 
 /**
@@ -67,17 +87,18 @@ function resolvedQuestion(item, sourceType, sourceConceptId = null, sourceStimul
  *
  * Precedence for duplicate prompt IDs:
  * selected stimulus option > stimulus group > Case > Study Concept >
- * nearest inheritable Study-Concept ancestor > more distant ancestor.
+ * tag-shared Question > nearest inheritable Study-Concept ancestor > more distant ancestor.
  *
  * `ancestorConceptQuestions` must include a positive integer `distance`, where
  * 1 is the Study Concept's parent, 2 is its grandparent, and so on.
  *
- * @param {{ caseQuestions?: QuestionInput[], studyConceptQuestions?: QuestionInput[], ancestorConceptQuestions?: QuestionInput[], stimulusGroupQuestions?: QuestionInput[], stimulusOptionQuestions?: QuestionInput[] }} [input]
+ * @param {{ caseQuestions?: QuestionInput[], studyConceptQuestions?: QuestionInput[], tagSharedQuestions?: QuestionInput[], ancestorConceptQuestions?: QuestionInput[], stimulusGroupQuestions?: QuestionInput[], stimulusOptionQuestions?: QuestionInput[] }} [input]
  * @returns {ResolvedQuestion[]}
  */
 export function resolveQuestionPool({
   caseQuestions = [],
   studyConceptQuestions = [],
+  tagSharedQuestions = [],
   ancestorConceptQuestions = [],
   stimulusGroupQuestions = [],
   stimulusOptionQuestions = []
@@ -109,6 +130,17 @@ export function resolveQuestionPool({
       resolvedQuestion(question, 'ancestor_concept', question.sourceConceptId ?? null)
     );
   }
+
+  tagSharedQuestions.filter(isActive).forEach((question, index) => {
+    assertQuestion(question, `tagSharedQuestions[${index}]`);
+    if (!question.sourceSharedQuestionId) {
+      throw new Error(`tagSharedQuestions[${index}] is missing sourceSharedQuestionId.`);
+    }
+    byPrompt.set(
+      question.questionPromptId,
+      resolvedQuestion(question, 'tag_shared', null, null, null, question.sourceSharedQuestionId)
+    );
+  });
 
   studyConceptQuestions.filter(isActive).forEach((question, index) => {
     assertQuestion(question, `studyConceptQuestions[${index}]`);

@@ -13,7 +13,7 @@
   <div>
     <p class="eyebrow">Cross-cutting metadata</p>
     <h1>Tags</h1>
-    <p class="muted">Curate flat clinical Tags and attach them explicitly to Cases or Case Questions.</p>
+    <p class="muted">Curate flat clinical Tags used by Cases, Case Questions, and Shared Questions. Shared Question reuse scope and descriptive metadata remain separate roles.</p>
   </div>
 </section>
 
@@ -56,7 +56,7 @@
           <div class="tag-summary">
             <strong>{tag.name}</strong>
             <span class="status-badge" class:active={tag.isActive}>{tag.isActive ? 'Active' : 'Inactive'}</span>
-            <span class="muted">{tag.activeCaseCount} active Case{tag.activeCaseCount === 1 ? '' : 's'} · {tag.activeCaseQuestionCount} active Case Question{tag.activeCaseQuestionCount === 1 ? '' : 's'}</span>
+            <span class="muted">{tag.activeCaseCount} Case{tag.activeCaseCount === 1 ? '' : 's'} · {tag.activeCaseQuestionCount} Case Question{tag.activeCaseQuestionCount === 1 ? '' : 's'} · {tag.activeSharedReuseScopeCount} Shared reuse scope · {tag.activeSharedDescriptiveCount} Shared descriptive</span>
           </div>
           <form method="POST" action="?/renameTag" class="rename-form">
             <input type="hidden" name="tag_id" value={tag.id} />
@@ -79,7 +79,7 @@
     <div><p class="eyebrow">Case metadata</p><h2 id="case-tags-heading">Case Tags</h2></div>
     <span class="muted">A Case may have several clinical concept Tags.</span>
   </div>
-  <p class="scope-note">Case Tags classify the Case. They do <strong>not</strong> automatically become Question Tags.</p>
+  <p class="scope-note">Case Tags classify the Case. They do <strong>not</strong> automatically become Case Question or Shared Question descriptive Tags.</p>
 
   <form method="POST" action="?/addCaseTag" class="assignment-form">
     <label>Case<select name="case_id" required><option value="">Choose Case…</option>{#each data.cases as item}<option value={item.id}>{item.title}</option>{/each}</select></label>
@@ -108,9 +108,9 @@
 <section class="panel" aria-labelledby="question-tags-heading">
   <div class="panel-heading">
     <div><p class="eyebrow">Contextual knowledge</p><h2 id="question-tags-heading">Case Question Tags</h2></div>
-    <span class="muted">Stage A starts with Case Questions only.</span>
+    <span class="muted">These describe one Case-specific question usage.</span>
   </div>
-  <p class="scope-note">Question Tags describe the medical knowledge tested by this specific Case Question. Tags are never attached to reusable <code>question_prompts</code>.</p>
+  <p class="scope-note">Case Question Tags describe the medical knowledge tested by this specific Case Question. Tags are never attached to reusable <code>question_prompts</code>.</p>
 
   <form method="POST" action="?/addCaseQuestionTag" class="assignment-form">
     <label>Case Question<select name="case_question_id" required><option value="">Choose Case Question…</option>{#each data.caseQuestions as question}<option value={question.id}>{question.caseTitle} — {question.promptMd}</option>{/each}</select></label>
@@ -141,6 +141,31 @@
   {/if}
 </section>
 
+<section class="panel" aria-labelledby="shared-tags-heading">
+  <div class="panel-heading">
+    <div><p class="eyebrow">Reusable knowledge</p><h2 id="shared-tags-heading">Shared Question Tag usages</h2></div>
+    <span class="muted">Reuse scope controls eligibility; descriptive Tags are metadata only.</span>
+  </div>
+  <p class="scope-note">Each Shared Question has exactly one <strong>Reuse Scope</strong> Tag. Descriptive Shared Question Tags are independent and never grant Case eligibility.</p>
+
+  {#if data.sharedQuestionUsages.length === 0}
+    <p class="empty-state">No Shared Question Tag usages match this filter.</p>
+  {:else}
+    <div class="assignment-list">
+      {#each data.sharedQuestionUsages as usage}
+        <div class="assignment-row" class:inactive={!usage.sharedQuestionIsActive || !usage.tagIsActive}>
+          <div class="question-assignment">
+            <a class="shared-link" href={`/admin/shared-questions/${usage.sharedQuestionId}`}><strong>{usage.promptMd}</strong></a>
+            <span class="tag-chip">{usage.tagName}</span>
+            <span class="usage-type" class:scope={usage.usageType === 'reuse_scope'}>{usage.usageType === 'reuse_scope' ? 'Reuse Scope' : 'Descriptive'}</span>
+            {#if !usage.sharedQuestionIsActive || !usage.tagIsActive}<span class="muted">Inactive Shared Question or Tag</span>{/if}
+          </div>
+        </div>
+      {/each}
+    </div>
+  {/if}
+</section>
+
 <style>
   .page-heading, .panel-heading { display: flex; justify-content: space-between; align-items: end; gap: 1rem; }
   h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 4vw, 2.5rem); } h2 { margin-bottom: 0.2rem; font-size: 1.2rem; }
@@ -152,8 +177,9 @@
   .form-error { margin: 1rem 0; padding: 0.75rem; border-radius: 8px; background: #fef3f2; color: #b42318; } .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
   .tag-list, .assignment-list { display: grid; gap: 0.6rem; } .tag-row, .assignment-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(220px, 1fr) auto; gap: 0.75rem; align-items: center; padding: 0.75rem; border: 1px solid #eaecf0; border-radius: 8px; background: #f8fafc; } .assignment-row { grid-template-columns: minmax(0, 1fr) auto; }
   .tag-summary, .question-assignment, .assignment-row > div { display: flex; flex-wrap: wrap; gap: 0.4rem 0.6rem; align-items: center; min-width: 0; } .question-assignment { display: grid; gap: 0.2rem; } .rename-form { display: flex; gap: 0.4rem; min-width: 0; }
-  .status-badge, .tag-chip { display: inline-block; padding: 0.18rem 0.45rem; border-radius: 999px; background: #f2f4f7; color: #475467; font-size: 0.78rem; font-weight: 650; } .status-badge.active, .tag-chip { background: #ecfdf3; color: #027a48; } .inactive { opacity: 0.65; }
+  .status-badge, .tag-chip, .usage-type { display: inline-block; padding: 0.18rem 0.45rem; border-radius: 999px; background: #f2f4f7; color: #475467; font-size: 0.78rem; font-weight: 650; } .status-badge.active, .tag-chip { background: #ecfdf3; color: #027a48; } .usage-type.scope { background: #eff8ff; color: #175cd3; } .inactive { opacity: 0.65; }
   .scope-note { margin-bottom: 0; padding: 0.7rem 0.8rem; border-left: 3px solid #98a2b3; background: #f8fafc; color: #475467; } .empty-state { padding: 0.85rem; border: 1px dashed #d0d5dd; border-radius: 8px; color: #667085; }
+  .shared-link { color: #172033; text-decoration: none; } .shared-link:hover { text-decoration: underline; }
   code { padding: 0.1rem 0.25rem; border-radius: 4px; background: #f2f4f7; }
   @media (max-width: 850px) { .tag-row { grid-template-columns: minmax(0, 1fr); } .tag-row > form:last-child { justify-self: start; } }
   @media (max-width: 680px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .inline-form, .filter-form, .assignment-form { grid-template-columns: minmax(0, 1fr); } .filter-actions { flex-wrap: wrap; } }

@@ -16,7 +16,7 @@
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
 
   <section class="panel edit-panel" aria-labelledby="edit-heading">
-    <div><p class="eyebrow">Global wording</p><h2 id="edit-heading">Edit Question Prompt</h2><p class="muted">This changes the reusable wording everywhere this prompt is used. Answers below remain attached to their own Case or Topic.</p></div>
+    <div><p class="eyebrow">Global wording</p><h2 id="edit-heading">Edit Question Prompt</h2><p class="muted">This changes the reusable wording everywhere this prompt is used. Answers below remain attached to their own Case, Topic, stimulus context, or Shared Question.</p></div>
     {#if prompt.usageCount > 1}
       <div class="warning" role="note"><strong>Shared prompt: review the blast radius before saving.</strong><span>This prompt is currently used in {prompt.usageCount} places. Inspect every usage below, then confirm the global edit.</span></div>
     {/if}
@@ -26,6 +26,20 @@
       {#if prompt.usageCount > 1}<label class="checkbox-label"><input name="confirm_shared_edit" type="checkbox" required /> I reviewed the {prompt.usageCount} usages and understand this wording change is global.</label>{/if}
       <div><button class="button primary" type="submit">Save prompt wording</button></div>
     </form>
+  </section>
+
+  <section class="panel" aria-labelledby="shared-question-usages-heading">
+    <div class="panel-heading"><div><p class="eyebrow">Tag-reusable answers</p><h2 id="shared-question-usages-heading">Shared Question usages <span class="count">{prompt.sharedQuestionUsages.length}</span></h2></div><span class="muted">Reuse Scope Tags control Case eligibility; descriptive Tags are metadata only.</span></div>
+    {#if prompt.sharedQuestionUsages.length === 0}<p class="empty-state">No Shared Question usages.</p>{/if}
+    <div class="usage-list">
+      {#each prompt.sharedQuestionUsages as usage}
+        <article class="usage-card" class:inactive={!usage.isActive || !usage.reuseScopeTagIsActive}>
+          <div class="usage-heading"><div><strong>Reuse scope: {usage.reuseScopeTagName}</strong><span class="muted">{usage.isActive ? 'Active Shared Question' : 'Archived Shared Question'}</span></div><a class="button small" href={'/admin/shared-questions/' + usage.id}>Open Shared Question</a></div>
+          <p>{usage.answerMd}</p>
+          {#if !usage.isActive || !usage.reuseScopeTagIsActive}<span class="status">Inactive Shared Question or Reuse Scope Tag</span>{/if}
+        </article>
+      {/each}
+    </div>
   </section>
 
   <section class="panel" aria-labelledby="case-usages-heading">
