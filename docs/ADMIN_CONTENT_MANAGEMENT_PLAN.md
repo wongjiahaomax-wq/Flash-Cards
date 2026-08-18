@@ -60,6 +60,8 @@ An administrator can now:
 5. **Use ordinary D1 search for V1.** No external search service is needed.
 6. **Do not redesign learner Study behaviour as a side effect of Admin work.**
 
+The shared Admin shell supports a wide desktop workspace for content-management pages while preserving sensible outer gutters and responsive navigation. Individual editor/form pages may keep narrower readable widths. Responsive content grids should use available space with an appropriate minimum item width instead of a fixed desktop column count.
+
 ---
 
 # Implemented Admin surfaces
