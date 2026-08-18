@@ -1,0 +1,406 @@
+name: Finalize verified status docs observed once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/finalize-status-docs-observed-once.yml
+
+permissions:
+  contents: write
+  statuses: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      STATUS_CONTEXT: final-status-docs
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      OUTPUT_BRANCH: agent/finalize-ecg-stage-b-status
+
+    steps:
+      - name: Publish pending status
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            --data "$(jq -nc --arg state pending --arg context "${STATUS_CONTEXT}" --arg description 'Generating verified Stage B and ECG status documentation.' --arg target_url "${RUN_URL}" '{state:$state,context:$context,description:$description,target_url:$target_url}')" >/dev/null
+
+      - name: Check out main
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Generate final documentation and cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          roadmap = Path('docs/CURRENT_PRODUCT_ROADMAP.md')
+          roadmap.write_text('''# Flash-Cards — Current Product Roadmap
+
+_Last updated: 18 August 2026_
+
+This document is the short status map for what is merged/deployed versus what remains product work. Detailed architecture remains in the design and handover documents.
+
+## Merged and deployed baseline
+
+The current product includes:
+
+- D1-backed learner Study/Review flow;
+- protected private R2 teaching images;
+- Better Auth production Admin and Preview Admin boundaries;
+- Admin CMS for Cases, Questions, Shared Questions, Images, Topics, Tags and reviewed imports;
+- optional stimulus groups/options with exact-option and set-wide contextual questions;
+- multi-Topic Case routing and Admin authoring;
+- reviewed Import Package v1 plus resumable/chunked imports;
+- Tagging Stage A: canonical flat Tags, Case↔Tag and contextual Case Question↔Tag curation;
+- Tagging Stage B: tag-scoped Shared Questions, one Reuse Scope Tag, descriptive Tags, learner resolver integration and Review provenance;
+- Production-backed Preview Admin workspace, Admin identity reuse and manual Preview deploy/restore workflows;
+- PR #29 Admin image-authoring baseline;
+- PR #34 Image Management V2 with Collections, scalable selection/bulk operations and same-Case option Move;
+- PR #40 wide responsive Admin workspace;
+- PR #43 Tagging Stage B behavior/Admin authoring, deployed to production after the already-applied `0008_tag_shared_questions.sql` schema foundation.
+
+## Real ECG/Anki migration — initial deck complete
+
+The original ECG Anki source contained 66 notes/cards with 66 front-side ECG references.
+
+Production verification on 18 August 2026 confirmed full source accounting:
+
+```text
+Batch 01 imported Cases/ECGs:      13
+Batch 02 imported Cases/ECGs:      51
+Pre-existing mapped calcium Cases:  2
+                                   ----
+Source notes represented:          66 / 66
+```
+
+Both reviewed import jobs are `complete`, match their recorded package SHA-256 values and have no recorded import error. The current production database contains all 13 Batch 01 and all 51 Batch 02 active production Cases, active ECG Assets and Case↔ECG links. The two pre-existing Hypocalcaemia/Hypercalcaemia mapped Cases remain active and image-backed.
+
+Initial ingestion is therefore complete. Remaining ECG work is **curation/enrichment**, not source migration: improve Tags, promote genuinely repeated knowledge to Shared Questions, add secondary Study Topics/stimulus alternatives where useful, and medically review source content as needed.
+
+See `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` for the exact accounting and verification record.
+
+## Current product work
+
+### 1. ECG/content curation using the completed Stage B model
+
+Use the real corpus to curate Case Tags and Shared Questions progressively. Do not mass-normalize merely because repetition exists: promote knowledge only when the prompt/answer remains reliably correct across the intended Reuse Scope Tag.
+
+The learner duplicate-Prompt precedence remains:
+
+```text
+selected stimulus option
+> stimulus group
+> Case
+> exact Study Topic
+> tag-shared Question
+> eligible ancestor Topic
+```
+
+### 2. Learner-account administration
+
+Implement the smallest useful administrator learner-account workflow while preserving the existing production/Preview role boundaries.
+
+### 3. Basic learner-progress administration
+
+Add learner list, recent Reviews, filtering, Again/Good summaries and repeated-Again flags. Defer sophisticated analytics until real usage establishes requirements.
+
+## Deliberately deferred
+
+Unless real corpus/learner evidence creates a concrete need, keep deferred:
+
+- multiple/compound Shared Question Reuse Scope rules;
+- Tag hierarchy and aliases/synonyms;
+- learner Study-by-Tag;
+- Review Tag snapshots;
+- automatic/AI Tag inference;
+- Asset Tags;
+- FSRS/scheduling controls;
+- advanced analytics;
+- rich WYSIWYG authoring;
+- broad non-image upload types;
+- a more complex global media taxonomy beyond current Image Collections.
+
+## Implementation principle
+
+The platform architecture is now a working baseline rather than the primary bottleneck. Prefer real-content curation and observed learner/Admin friction over speculative schema expansion.
+''')
+
+          handover = Path('docs/HANDOVER.md')
+          h = handover.read_text()
+          h = re.sub(
+              r'(## Current outcome\n\n).*?(\n\nRecent merged infrastructure/product milestones include:)',
+              r'\1The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A and Stage B, Image Management V2, a wide responsive Admin workspace, the reviewed/resumable content-import path, and a fully imported/verified initial ECG Anki corpus.\2',
+              h,
+              count=1,
+              flags=re.S,
+          )
+          if '- PR #43 — Tagging Stage B behavior/Admin authoring, merged and deployed to production;' not in h:
+              anchor = '- PR #40 — wide responsive Admin workspace;'
+              if anchor not in h:
+                  raise SystemExit('HANDOVER PR #40 milestone anchor missing')
+              h = h.replace(
+                  anchor,
+                  anchor + '\n- PR #41/#42 — Tagging Stage B schema foundation and production application of `0008_tag_shared_questions.sql`;\n- PR #43 — Tagging Stage B behavior/Admin authoring, merged and deployed to production;\n- PR #44–#46 — one-time read-only production verification of the completed ECG migration;',
+                  1,
+              )
+          h = re.sub(
+              r'\n- Tagging Stage B schema foundation — migration `0008_tag_shared_questions\.sql`, already applied to production D1\.\n\nPR #43 is .*?No Worker deployment or production D1 migration belongs in PR #43\.\n',
+              '\n\nTagging Stage B is complete for the agreed V1 scope. Shared Question authoring, exact Case-Tag reuse eligibility, resolver integration, Prompt-ID deduplication, normal Automatic/All/Fixed behavior and `tag_shared` Review provenance are live in production.\n',
+              h,
+              count=1,
+              flags=re.S,
+          )
+
+          if '## ECG Anki migration status\n' not in h:
+              marker = '## Image Management V2 baseline\n'
+              if marker not in h:
+                  raise SystemExit('HANDOVER Image Management marker missing')
+              section = '''## ECG Anki migration status
+
+The initial real ECG Anki deck migration is complete and production-verified.
+
+Source accounting:
+
+```text
+66 source notes/cards
+- 13 imported in Batch 01
+- 51 imported in Batch 02
+- 2 represented by pre-existing mapped calcium Cases
+= 66 / 66 represented
+```
+
+Read-only production D1 verification on 18 August 2026 confirmed:
+
+- Batch 01 package SHA matches the reviewed package; import job is `complete`, `phase = finalize`, 264/264 processed, `last_error = null`;
+- Batch 02 package SHA matches the reviewed package; import job is `complete`, `phase = finalize`, 848/848 processed, `last_error = null`;
+- exactly 13 Batch 01 and 51 Batch 02 active production Cases;
+- exactly 13 Batch 01 and 51 Batch 02 active production ECG Assets with the adopted Case-aligned ECG filename convention;
+- exactly 13 Batch 01 and 51 Batch 02 Case↔ECG links;
+- both pre-existing mapped Hypocalcaemia/Hypercalcaemia Cases are active and have at least one active production image.
+
+An initial verification query using a long `LIKE` pattern hit Cloudflare D1 internal error 7500 (`LIKE or GLOB pattern too complex`). This was an audit-query-shape failure, not an import failure. The final verification used simple deterministic-prefix comparisons and passed.
+
+Initial source migration is therefore complete. Ongoing ECG work is curation/enrichment: Tags, Shared Questions, additional Study Topics/stimulus variants and medical content review where useful.
+
+'''
+              h = h.replace(marker, section + marker, 1)
+
+          h = re.sub(
+              r'Because `0008` is already applied and PR #43 changes no schema/`wrangler\.jsonc`, PR #43 is technically eligible for the existing \*\*manual\*\* Deploy PR to Preview workflow if an operator later chooses to inspect it\. Opening/updating the Draft PR does not deploy a Worker automatically\.',
+              'Stage B is now merged/deployed. Future Preview-compatible code PRs may continue to use the existing manual Deploy PR to Preview workflow; Shared Questions remain global production-curated objects and Preview has no mutation authority over them.',
+              h,
+              count=1,
+          )
+          h = h.replace('No Preview deployment has been performed as part of PR #43 implementation.', 'No further PR #43 Preview work is pending; its production behavior is deployed.')
+          h = re.sub(
+              r'PR CI covers this exact validation set\. In the ChatGPT execution environment used for PR #43,.*?The final PR description must record GitHub CI results for the final head instead\.',
+              'PR CI covers this exact validation set. PR #43 completed its final CI with 240/240 tests passing before merge; the subsequent production rollout was performed separately.',
+              h,
+              count=1,
+              flags=re.S,
+          )
+          h = re.sub(
+              r'## Next intended implementation workflow\n.*\Z',
+              '''## Next intended implementation workflow
+
+The platform baseline and initial ECG ingestion are complete. Prioritize:
+
+```text
+curate real ECG Case Tags
+→ promote genuinely reusable knowledge into Shared Questions
+→ observe Admin/learner behavior on real content
+→ implement smallest learner-account Admin workflow
+→ implement basic learner-progress Admin
+```
+
+Avoid expanding the taxonomy/schema merely for completeness. Let the real corpus and learner/Admin friction justify further Tag hierarchy, compound reuse scopes, analytics or scheduling features.
+''',
+              h,
+              count=1,
+              flags=re.S,
+          )
+          handover.write_text(h)
+
+          plan = Path('docs/IMPLEMENTATION_PLAN.md')
+          p = plan.read_text()
+          p = p.replace(
+              '- Tagging Stage B behavior/Admin authoring on PR #43 for review: Case-Tag eligibility, Shared Question Admin, Prompt deduplication, normal count-mode integration, and `tag_shared` Review provenance.',
+              '- Tagging Stage B behavior/Admin authoring from PR #43, merged and deployed: Case-Tag eligibility, Shared Question Admin, Prompt deduplication, normal count-mode integration, and `tag_shared` Review provenance;\n- initial real ECG/Anki migration fully imported and production-verified: 13 Batch 01 + 51 Batch 02 + 2 pre-existing mapped calcium Cases = 66/66 source notes represented.'
+          )
+          p = p.replace('Real ECG/Anki migration and curation continue in parallel as content work.', 'Real ECG/Anki work now continues as curation/enrichment rather than source ingestion.')
+          p = p.replace('Status: **complete current V1 including Tag-shared eligibility on PR #43 for review**.', 'Status: **complete current V1 including deployed Tag-shared eligibility from PR #43**.')
+          p = p.replace('Status: **schema foundation landed/applied; behavior and Admin authoring implemented on PR #43 for review**.', 'Status: **complete/deployed for the agreed V1 Stage B scope**.')
+          p = p.replace('### Stage B behavior/authoring — PR #43\n\nImplemented without another migration:', '### Stage B behavior/authoring — PR #43\n\nMerged and deployed without another migration:')
+          p = p.replace('## Milestone 8 — real ECG/Anki reviewed migration\n\nStatus: **active content work**.', '## Milestone 8 — real ECG/Anki reviewed migration\n\nStatus: **initial deck migration complete and production-verified; curation/enrichment active**.')
+          milestone8_intro = 'Prepare real Anki/ECG material outside the production app, review semantic mapping, produce reviewed import packages/batches and progressively enrich resulting Cases with alternate Study Topics, stimuli, Tags and Shared Questions.\n\nInitial ingestion should not wait for complete ontology/tagging. Image Management V2 and Stage B are designed to make later corpus curation safer as volume grows.'
+          if milestone8_intro in p:
+              p = p.replace(
+                  milestone8_intro,
+                  'The initial 66-note ECG source deck is fully accounted for in production: 13 Batch 01 imports, 51 Batch 02 imports and 2 pre-existing mapped calcium Cases. Both import jobs are complete with their reviewed package SHA-256 values, and exact production verification confirmed all 64 imported Cases/ECG Assets/Case↔ECG links plus the two active image-backed mapped Cases.\n\nContinue progressive enrichment of those Cases with alternate Study Topics, stimuli, Tags and Shared Questions. Initial ingestion did not wait for complete ontology/tagging; Image Management V2 and Stage B now provide the curation layer for the imported corpus.'
+              )
+          p = p.replace('PR #43 remains Draft and is not ready for human merge consideration until its final head is green. No Worker deployment or production D1 migration is part of PR #43.', 'PR #43 is merged and deployed. Its final CI passed 240/240 tests; no additional Stage B migration is pending.')
+          plan.write_text(p)
+
+          migration = Path('docs/ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md')
+          m = migration.read_text()
+          m = m.replace('_Last updated: 16 August 2026_', '_Last updated: 18 August 2026_', 1)
+          m = m.replace('## Phase I — prepare the remaining 51 notes as one reviewed Batch 02', '## Phase I — prepare and import the remaining 51 notes as reviewed Batch 02', 1)
+          if '## Production completion verification — 18 August 2026\n' not in m:
+              marker = '## Source-specific review decisions in Batch 02\n'
+              if marker not in m:
+                  raise SystemExit('Migration Batch 02 marker missing')
+              completion = '''## Production completion verification — 18 August 2026
+
+The original migration documentation recorded Batch 02 as prepared but did not yet record its production completion. A later read-only D1 audit closed that gap.
+
+The exact reviewed import-job rows are:
+
+```text
+Batch 01
+packageId: ecg-anki-batch-01-20260816
+SHA-256:   9021997d31e547bdfa1a6f152fbe27143f85714b464c5f999f15a3e236f4c7e9
+status:    complete
+phase:     finalize
+progress:  264 / 264
+lastError: null
+
+Batch 02
+packageId: ecg-anki-batch-02-20260816
+SHA-256:   926248292b002cbd33d40ad588eac9a6c0ec2833cbfe4290fe4b7bd0fdd72262
+status:    complete
+phase:     finalize
+progress:  848 / 848
+lastError: null
+```
+
+The same production verification confirmed the current deterministic content state:
+
+```text
+Batch 01: 13 active production Cases
+          13 active ECG Assets
+          13 Case↔ECG links
+
+Batch 02: 51 active production Cases
+          51 active ECG Assets
+          51 Case↔ECG links
+```
+
+All 64 imported ECG Assets use the adopted Case-aligned ECG filename convention. The two pre-existing mapped calcium Cases are also active production Cases with at least one active production image each.
+
+Therefore the complete source accounting is:
+
+```text
+13 Batch 01 imported notes
++ 51 Batch 02 imported notes
++ 2 pre-existing mapped calcium notes
+= 66 / 66 source notes represented in production
+```
+
+An initial audit query using a long `LIKE` pattern triggered Cloudflare D1 internal error 7500 (`LIKE or GLOB pattern too complex`). The import-job rows themselves already showed both jobs complete; the final count verification replaced the problematic query shape with simple deterministic-prefix comparisons and passed. The red first audit was therefore an audit-query failure, not evidence of missing imported content.
+
+Initial ECG source ingestion is now complete. Subsequent work should treat the corpus as content to curate/enrich rather than a pending migration: add clinically useful Tags, promote genuinely reusable knowledge into Shared Questions, add additional Study Topic routes/stimulus variants where justified, and perform medical correction/review separately from migration accounting.
+
+'''
+              m = m.replace(marker, completion + marker, 1)
+          migration.write_text(m)
+
+          stale_checks = {
+              'docs/CURRENT_PRODUCT_ROADMAP.md': ['Tagging Stage B — pending', 'draft PR #34'],
+              'docs/HANDOVER.md': ['PR #43 is the schema-free **Tagging Stage B behavior/authoring** implementation and remains Draft for review', '## Next intended implementation workflow\n\nFor PR #43:'],
+              'docs/IMPLEMENTATION_PLAN.md': ['PR #43 for review', 'PR #43 remains Draft'],
+              'docs/ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md': ['## Phase I — prepare the remaining 51 notes as one reviewed Batch 02'],
+          }
+          for path, needles in stale_checks.items():
+              text = Path(path).read_text()
+              for needle in needles:
+                  if needle in text:
+                      raise SystemExit(f'Stale status remains in {path}: {needle}')
+
+          required_checks = {
+              'docs/CURRENT_PRODUCT_ROADMAP.md': ['66 / 66', 'PR #43 Tagging Stage B behavior/Admin authoring, deployed to production'],
+              'docs/HANDOVER.md': ['## ECG Anki migration status', '848/848 processed'],
+              'docs/IMPLEMENTATION_PLAN.md': ['66/66 source notes represented', 'complete/deployed for the agreed V1 Stage B scope'],
+              'docs/ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md': ['## Production completion verification — 18 August 2026', '= 66 / 66 source notes represented in production'],
+          }
+          for path, needles in required_checks.items():
+              text = Path(path).read_text()
+              for needle in needles:
+                  if needle not in text:
+                      raise SystemExit(f'Required final status missing in {path}: {needle}')
+
+          for path in [
+              '.github/workflows/verify-ecg-production-once.yml',
+              '.github/workflows/diagnose-ecg-production-once.yml',
+              '.github/workflows/verify-ecg-production-counts-once.yml',
+              '.github/workflows/finalize-ecg-stage-b-docs-once.yml',
+              '.github/workflows/finalize-status-docs-observed-once.yml',
+          ]:
+              Path(path).unlink(missing_ok=True)
+          PY
+
+          git diff --check
+          echo 'Documentation generation succeeded.'
+
+      - name: Push final documentation branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git ls-remote --exit-code --heads origin "${OUTPUT_BRANCH}" >/dev/null 2>&1; then
+            echo "::error::Output branch ${OUTPUT_BRANCH} already exists; refusing to overwrite it."
+            exit 1
+          fi
+          git switch -c "${OUTPUT_BRANCH}"
+          git add docs/CURRENT_PRODUCT_ROADMAP.md \
+                  docs/HANDOVER.md \
+                  docs/IMPLEMENTATION_PLAN.md \
+                  docs/ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md \
+                  .github/workflows
+          git commit -m "Finalize Stage B and ECG migration status"
+          git push --set-upstream origin "${OUTPUT_BRANCH}"
+
+      - name: Publish successful status
+        if: success()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            --data "$(jq -nc --arg state success --arg context "${STATUS_CONTEXT}" --arg description 'Final verified documentation branch created.' --arg target_url "${RUN_URL}" '{state:$state,context:$context,description:$description,target_url:$target_url}')" >/dev/null
+
+      - name: Publish failed status
+        if: failure()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${GH_TOKEN}" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/statuses/${GITHUB_SHA}" \
+            --data "$(jq -nc --arg state failure --arg context "${STATUS_CONTEXT}" --arg description 'Final documentation generation failed; inspect linked run.' --arg target_url "${RUN_URL}" '{state:$state,context:$context,description:$description,target_url:$target_url}')" >/dev/null
