@@ -1,0 +1,181 @@
+# Flash-Cards Documentation Index
+
+_Last reviewed: 18 August 2026_
+
+This file identifies which repository documents describe the **current deployed product**, which are subsystem contracts/runbooks, which are pending designs, and which are historical records.
+
+## Conflict rule
+
+When documentation appears to disagree, use this order:
+
+1. current code and explicitly verified applied migrations/deployments;
+2. `CURRENT_PRODUCT_ROADMAP.md` and `HANDOVER.md` for merged/deployed status;
+3. `V1_DATA_MODEL.md` plus the relevant current subsystem behavior document for exact semantics;
+4. `CURRENT_DESIGN.md`, `V1_SPEC.md`, and `AUTHORING_MODEL.md` for the product mental model;
+5. pending designs only for future intent;
+6. historical plans/proposals only for decision context.
+
+An old PR instruction, draft rollout note, or agent task is never authority over current `main`.
+
+## Current production baseline
+
+As of 18 August 2026 the deployed/current baseline includes:
+
+- learner Study/Review persistence;
+- private R2 teaching images;
+- Admin CMS for Cases, Questions, Shared Questions, Images, Topics, Tags, and reviewed imports;
+- multi-Topic Case routing;
+- optional stimulus groups/options;
+- Tagging Stage A and deployed Stage B;
+- reviewed Import Package v1 and resumable imports;
+- production-backed Preview Admin;
+- Image Management V2 and Image Collections;
+- wide responsive Admin workspace;
+- first ECG source deck fully represented in production (`13 + 51 + 2 = 66/66`).
+
+Remaining ECG work is curation/enrichment.
+
+## Start here — authoritative orientation
+
+### `CURRENT_PRODUCT_ROADMAP.md`
+
+Shortest merged/deployed-versus-next-work status map.
+
+### `HANDOVER.md`
+
+Detailed implementation handover: migrations, Preview boundaries, Stage B, Image Management V2, ECG migration verification, and next sequence.
+
+### `CURRENT_DESIGN.md`
+
+Living product/design summary across Topic → Case → stimuli, Tags, Shared Questions, Collections, resolver, imports, Preview, and priorities.
+
+### `V1_SPEC.md`
+
+Current shipped V1 behavior specification plus the next small V1 Admin increments.
+
+### `V1_DATA_MODEL.md`
+
+Authoritative implemented domain model, including Preview ownership, Image Collections, multi-Topic routing, stimulus groups, Tags, Shared Questions, import jobs, and Review snapshots/provenance.
+
+### `AUTHORING_MODEL.md`
+
+Preferred administrator mental model and question-placement/reuse rules.
+
+### `CONTENT_MODEL_EXAMPLES.md`
+
+Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual questions, Tags, Shared Questions, Collections, and progressive Anki enrichment.
+
+## Current subsystem contracts
+
+### Admin/content management
+
+- `ADMIN_CONTENT_MANAGEMENT_PLAN.md` — historical filename, current implemented Admin CMS contract and next Admin work.
+- `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` — current Case/Image Library authoring interaction contract.
+- `IMAGE_MANAGEMENT_V2_PLAN.md` — deployed behavior record for pagination, selection, Collections, bounded bulk execution, option Move, and Preview isolation.
+
+### Topics / multi-Topic routing
+
+- `MULTI_TOPIC_STUDY_ROUTES.md` — implemented multi-Topic learner/Admin routing and Review provenance.
+- `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md` — fixed-purpose production taxonomy operator/runbook; never a generic taxonomy API.
+
+### Tags / Shared Questions
+
+- `TAGGING_MODEL_DECISIONS.md` — authoritative Tag/Shared Question architecture decisions.
+- `STAGE_A_TAG_FOUNDATION.md` — implemented Stage A foundation.
+- `TAGGING_STAGE_B_BEHAVIOR.md` — deployed Stage B eligibility, precedence, Admin authoring, and Review provenance.
+
+### Stimulus behavior
+
+- `STIMULUS_GROUPS_DESIGN.md` — implemented optional stimulus groups, contextual questions, coverage, and interaction with current resolver/count modes.
+
+### Reviewed imports / Anki
+
+- `CONTENT_IMPORT_PACKAGES.md` — production-validated Import Package v1 and resumable job contract.
+- `RESUMABLE_IMPORT_RUNTIME_SAFETY.md` — lease/R2/checkpoint/runtime safety invariants.
+- `ANKI_APKG_EXTRACTION.md` — verified source-recovery workflow outside the production app.
+- `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` — canonical end-to-end ECG migration record including production completion.
+- `ECG_ANKI_INGESTION_RULES.md` — adopted naming/content rules and completed Batch 01 rename audit.
+
+### Preview Admin
+
+- `PREVIEW_ADMIN_WORKSPACE.md` — current production-backed Preview ownership/isolation model.
+- `PREVIEW_ADMIN_IDENTITY.md` — current role/identity bootstrap/promotion rules.
+- `PREVIEW_DEPLOYMENT.md` — current Deploy PR / Restore Main operator playbook.
+
+### Cloudflare / operations
+
+- `CLOUDFLARE.md` — current Worker/D1/R2 migration/deployment/Preview runbook.
+- `R2_COST_GUARDRAILS.md` — application-managed storage/write/delete guardrails; external provider pricing must be reverified before changing cost assumptions.
+- `IMAGE_PROVENANCE.md` — current image naming/source/licence/runtime-serving rules.
+- `PRODUCTION_CONTENT_SNAPSHOT.md` — read-only production-content snapshot plus fixed-purpose taxonomy-operator linkage.
+
+## Current implementation tracking
+
+### `IMPLEMENTATION_PLAN.md`
+
+Milestone ledger current through deployed Tagging Stage B and completed initial ECG migration.
+
+## Pending / forward designs
+
+These are intentional future designs, **not current implemented behavior**.
+
+### `LOCAL_REAL_DATA_UX_WORKFLOW.md`
+
+Pending developer-workflow design for refreshing production-derived content into local D1 for faster UX iteration while keeping production mutation blocked. Convenience commands described there are proposals until an implementation PR lands.
+
+If this work is later implemented, the file must be converted from future/acceptance language into an operational runbook and the project roadmap/handover updated.
+
+## Historical / superseded records
+
+### `PROPOSED_TAGGING_MODEL.md`
+
+Historical proposal superseded by `TAGGING_MODEL_DECISIONS.md`. Stage A/B are already implemented.
+
+### `PARALLEL_WORK_PLAN.md`
+
+Historical record of the completed PR #11/#12/#13 parallel Admin-library phase plus reusable parallel-work lessons.
+
+### `agent-tasks/`
+
+Historical implementation prompts for completed PR #11/#12 work. The directory README explicitly prevents them being treated as backlog.
+
+## Implemented records with useful rollout history
+
+These files may retain short historical rollout notes because they explain safety decisions, but their status headers/behavior are current:
+
+- `STIMULUS_GROUPS_DESIGN.md`;
+- `MULTI_TOPIC_STUDY_ROUTES.md`;
+- `ADMIN_IMAGE_AUTHORING_WORKFLOW.md`;
+- `IMAGE_MANAGEMENT_V2_PLAN.md`;
+- `STAGE_A_TAG_FOUNDATION.md`;
+- `TAGGING_STAGE_B_BEHAVIOR.md`;
+- Preview deployment/runbook documents;
+- ECG migration/rename runbooks.
+
+## Current next product sequence
+
+```text
+curate real ECG Case Tags
+→ promote genuinely reusable knowledge into Shared Questions
+→ add useful alternate Study Topics/stimuli
+→ observe real Admin/learner friction
+→ implement learner-account administration
+→ implement basic learner-progress administration
+```
+
+Do not expand schema/taxonomy merely for conceptual completeness.
+
+## Documentation maintenance rules
+
+For future PRs:
+
+1. Update the subsystem behavior document in the same PR when behavior changes.
+2. Update `V1_DATA_MODEL.md` in the same PR when schema/relationship semantics change.
+3. Update `CURRENT_PRODUCT_ROADMAP.md` and `HANDOVER.md` when a milestone is merged/deployed or materially changes priorities.
+4. Convert `planned` / `draft` / `for review` language to implemented/deployed records after rollout.
+5. Keep migration application and Worker deployment as separate explicitly verified facts.
+6. Preserve historical decision records but label them clearly.
+7. Record production content migrations with exact accounting/verification.
+8. Keep terminology consistent: Topic, Case, Tag, Asset, Collection, Question Prompt, Shared Question.
+9. Do not call a pending design implemented merely because the design doc exists.
+10. Before editing project-wide status, compare documentation with current code, migrations, merged PR state, and explicitly verified production state.

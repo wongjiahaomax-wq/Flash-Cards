@@ -1,125 +1,128 @@
-# Cloudflare setup
+# Cloudflare setup and deployment
 
-The SvelteKit application deploys as Cloudflare Workers with private runtime bindings:
+_Status: current production + production-backed Preview operational runbook._
 
-- `DB`: Cloudflare D1, used by Drizzle and Better Auth;
-- `MEDIA`: Cloudflare R2, used for teaching images and reviewed import staging;
-- `ASSETS`: generated SvelteKit static assets.
+_Last updated: 18 August 2026_
 
-## Production resources
+The SvelteKit application deploys to Cloudflare Workers with private runtime bindings:
 
-Production resources recorded in `wrangler.jsonc`:
+- `DB` — Cloudflare D1, used by the learning domain and Better Auth;
+- `MEDIA` — Cloudflare R2, used for teaching images plus reviewed-import/Preview operational objects;
+- `ASSETS` — generated SvelteKit static assets.
 
-- D1 database: `flash-cards-db`;
-- D1 database ID: `ea6f3ec4-eb09-4fb1-8314-cd027436a2f8`;
-- R2 bucket: `flash-cards-media`;
-- Worker: `flash-cards`;
-- origin: `https://flash-cards.mmed-fm-flashcardstest.workers.dev`.
+## 1. Production resources
 
-Better Auth is live in production. Public sign-up remains disabled. The normal production administrator role is `admin`.
-
-## Preview Worker
-
-The Production-backed Preview Admin workspace adds a second **Worker target only**:
+Production resources recorded by the repository configuration include:
 
 ```text
-flash-cards-preview
+D1 database: flash-cards-db
+D1 database ID: ea6f3ec4-eb09-4fb1-8314-cd027436a2f8
+R2 bucket: flash-cards-media
+Worker: flash-cards
+origin: https://flash-cards.mmed-fm-flashcardstest.workers.dev
 ```
 
-with origin:
+Better Auth is live in production. Public sign-up remains disabled.
+
+Normal production Admin authorization uses the `admin` role.
+
+## 2. Preview Worker
+
+Production-backed Preview Admin uses a second **Worker target only**:
 
 ```text
-https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev
+Worker: flash-cards-preview
+origin: https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev
+Wrangler environment: preview
 ```
 
-The named Wrangler environment is:
-
-```text
-preview
-```
-
-and sets:
+with:
 
 ```text
 PREVIEW_MODE=true
 BETTER_AUTH_URL=https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev
 ```
 
-The Preview Worker deliberately binds to the **same existing** production resources:
+The Preview Worker deliberately binds to the same existing production resources:
 
 ```text
 DB    -> flash-cards-db
 MEDIA -> flash-cards-media
 ```
 
-No second D1 database or R2 bucket is created. D1/R2 bindings and vars are repeated under `env.preview` because Wrangler environment bindings/vars are non-inheritable.
+No second D1 database or R2 bucket is part of the current architecture.
 
-This is application-level isolation, not hard resource isolation. See `PREVIEW_ADMIN_WORKSPACE.md` for the ownership model and residual risk.
+D1/R2 bindings and relevant vars are repeated under `env.preview` because Wrangler environment bindings/vars are non-inheritable.
 
-## Preview Better Auth secret
+This is application-level isolation, not hard resource isolation. See `PREVIEW_ADMIN_WORKSPACE.md`.
 
-Production and Preview should use separate Better Auth session secrets.
+## 3. Production and Preview Better Auth secrets
 
-Production secret name:
+Production and Preview Workers use separate `BETTER_AUTH_SECRET` values.
 
-```text
-BETTER_AUTH_SECRET
-```
-
-For the named Preview environment, set a separate value with Wrangler after the Preview infrastructure has been reviewed and released:
+Configure the Preview environment secret with:
 
 ```sh
 npx --yes wrangler@4.123.0 secret put BETTER_AUTH_SECRET --env preview
 ```
 
-Do not commit the secret value. Do not configure it as part of PR review.
+Never commit or print secret values.
 
-The separate Preview secret keeps Preview/production sessions cryptographically separate even though both Workers read the same Better Auth user/account tables from D1.
+The owner may use the same Better Auth identity for both environments with the combined role:
 
-## Local development
+```text
+admin,preview_admin
+```
 
-Install dependencies, apply committed local migrations, and create local-only auth settings:
+The separate Worker secrets keep production/Preview sessions cryptographically separate even when they read the same Better Auth identity/account rows from D1.
+
+See `PREVIEW_ADMIN_IDENTITY.md` for bootstrap/promotion behavior.
+
+## 4. Local development
 
 ```sh
 npm install
 npm run db:migrate:local
 cp .dev.vars.example .dev.vars
-```
-
-Replace `BETTER_AUTH_SECRET` in `.dev.vars` with a local random value of at least 32 characters. Keep `.dev.vars` out of Git.
-
-Development modes:
-
-```sh
 npm run dev
-npm run preview
 ```
+
+Replace local `BETTER_AUTH_SECRET` with a local random value of at least 32 characters. Keep `.dev.vars` out of Git.
 
 Local D1/R2 simulations live beneath `.wrangler/` and are ignored by Git. Do not point ordinary local development at production resources.
 
-Repeatable local authentication validation:
+Repeatable local auth validation:
 
 ```sh
 node scripts/local-auth-smoke.mjs
 ```
 
-## Migrations
+## 5. Current migrations and production state
 
-Current migrations:
+Current committed learning-domain migrations are:
 
 ```text
-drizzle/0000_dashing_centennial.sql
-drizzle/0001_better_auth.sql
-drizzle/0002_optional_stimulus_groups.sql
-drizzle/0003_multi_topic_study_routing.sql
-drizzle/0004_resumable_import_jobs.sql
-drizzle/0005_tag_foundation.sql
-drizzle/0006_preview_admin_workspace.sql
+0000_dashing_centennial.sql
+0001_better_auth.sql
+0002_optional_stimulus_groups.sql
+0003_multi_topic_study_routing.sql
+0004_resumable_import_jobs.sql
+0005_tag_foundation.sql
+0006_preview_admin_workspace.sql
+0007_image_collections.sql
+0008_tag_shared_questions.sql
 ```
 
-`0006_preview_admin_workspace.sql` is introduced by the Preview Admin workspace PR. It adds Preview Session/ownership structures and safety triggers. It is not applied automatically by the Preview deployment workflow.
+Current production state recorded in `HANDOVER.md` / `IMPLEMENTATION_PLAN.md`:
 
-After changing the learning schema:
+- `0006_preview_admin_workspace.sql` — applied to production D1;
+- `0007_image_collections.sql` — landed/applied as the Image Management V2 schema foundation;
+- `0008_tag_shared_questions.sql` — applied to production D1 before PR #43 behavior rollout;
+- PR #43 behavior/Admin code — merged and deployed without another migration.
+
+Do not create/apply a new migration merely to reproduce the PR #43 rollout sequence.
+
+After changing learning schema locally:
 
 ```sh
 npm run db:generate
@@ -127,23 +130,31 @@ npm run db:check
 npm run db:migrate:local
 ```
 
-Review generated SQL before committing it.
+Always review generated SQL before committing it.
 
-Production migration application remains an explicit release step. With the currently validated release-critical Wrangler version:
+Production migration application remains an explicit release operation.
 
-```sh
-npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
+## 6. Wrangler versions
+
+`package.json` currently pins:
+
+```text
+wrangler 4.115.0
 ```
 
-Never apply an unreviewed PR migration merely to make a production-backed Preview deployment work.
+Release-critical repository procedures have been validated with explicit:
 
-## Wrangler version
+```text
+wrangler 4.123.0
+```
 
-`package.json` currently pins Wrangler 4.115.0, while release-critical commands in this repository have been validated with Wrangler 4.123.0. Use the explicit 4.123.0 command for release/deploy procedures until the package pin is intentionally updated.
+Use the repository's deliberately selected release command/version for production migration/deploy procedures until the pin/release process is intentionally updated.
 
-## Production deployment procedure
+Do not assume `npx wrangler` resolving a newer external version is harmless for a release-critical action.
 
-Confirm the intended `main` commit:
+## 7. Production deployment procedure
+
+Confirm intended `main`:
 
 ```sh
 git fetch origin
@@ -152,7 +163,7 @@ git pull --ff-only origin main
 git rev-parse HEAD
 ```
 
-Run validation:
+Install/validate:
 
 ```sh
 npm ci
@@ -164,7 +175,7 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-If the release includes a reviewed migration, apply it before deploying code that requires the new schema:
+If the release includes a reviewed migration, apply it **before** deploying code that requires it:
 
 ```sh
 npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
@@ -176,61 +187,103 @@ Then deploy production:
 npx --yes wrangler@4.123.0 deploy
 ```
 
-Verify live behavior after deployment rather than relying only on the Wrangler success message.
+Verify live behavior after deployment. A successful Wrangler command is not by itself proof that all intended runtime behavior/data migrations were verified.
 
-## Preview infrastructure rollout
+Migration state and Worker deployment state are separate facts.
 
-Do not perform these steps during review of the Preview workspace PR.
+## 8. Preview infrastructure is already released
 
-After the PR is reviewed and intentionally merged/released:
+The initial Preview infrastructure rollout is complete. The current baseline includes:
 
-1. apply reviewed migration `0006` to production D1 through the normal migration process;
-2. configure the Preview environment `BETTER_AUTH_SECRET`;
-3. confirm GitHub has the existing `CLOUDFLARE_ACCOUNT_ID` and a least-privilege `CLOUDFLARE_API_TOKEN` able to deploy Workers;
-4. deploy the Preview Worker once with:
+- Preview Worker;
+- migration `0006` ownership/session structures;
+- separate Preview Better Auth secret/session boundary;
+- Preview Admin identity support;
+- manual Deploy PR to Preview workflow;
+- Reset Preview Workspace;
+- Restore Main to Preview workflow;
+- production/Preview route/data isolation tests.
 
-```sh
-npx --yes wrangler@4.123.0 deploy --env preview
-```
+Do not rerun initial infrastructure-bootstrap instructions as though Preview were not yet deployed.
 
-5. verify the Preview URL loads the unmistakable Preview Mode interface;
-6. bootstrap the dedicated Preview Admin with:
+Use the current operator workflows/runbooks for normal ongoing Preview operation.
+
+## 9. Preview Admin bootstrap / identity promotion
+
+Current command:
 
 ```sh
 npm run preview-admin:bootstrap
 ```
 
-The Preview Admin bootstrap writes the credential into the same D1 but assigns only the `preview_admin` role. It is intentionally separate from the production `admin` bootstrap.
+For an existing valid production Admin identity, the bootstrap can promote/reuse that identity by adding the `preview_admin` role rather than creating a duplicate account.
 
-## Manual PR -> Preview deployment
-
-After the Preview infrastructure is released, use GitHub Actions workflow:
+The intended owner role is:
 
 ```text
-Deploy PR to Preview
+admin,preview_admin
 ```
 
-Input: PR number.
+The bootstrap preserves production Admin authorization while independently enabling Preview access.
 
-The workflow requires an open same-repository PR targeting `main`, resolves and checks out the exact head SHA, blocks schema/migration-changing PRs, runs validation, and deploys only with:
+Follow `PREVIEW_ADMIN_IDENTITY.md`; never copy credentials into repository source, documentation, screenshots, Actions logs, or chat.
+
+## 10. Manual PR → Preview deployment
+
+Permanent workflow:
+
+```text
+.github/workflows/deploy-pr-to-preview.yml
+```
+
+Use this workflow instead of temporary deployment workflows or deployment-only source commits.
+
+It requires an open same-repository PR targeting `main`, resolves the exact head SHA, runs repository validation, and deploys only with:
 
 ```sh
 npx --yes wrangler@4.123.0 deploy --env preview
 ```
 
-The workflow never runs remote D1 migrations and does not use `CLOUDFLARE_D1_WRITE_TOKEN`.
+It never applies remote D1 migrations and does not use the D1 write token.
 
-Cloudflare credentials are scoped to the final deploy step only, after the PR has passed repository validation.
+See `PREVIEW_DEPLOYMENT.md` for the exact dispatch/operator procedure.
 
-## Schema-changing PRs
+## 11. Schema-changing PRs and Preview
 
-Production-backed Preview is intentionally disabled for PRs that change the D1 schema/migrations. The workflow detects changes under `drizzle/`, `drizzle.config.js`, `src/lib/server/db/schema.js`, and related schema modules and fails closed.
+Production-backed Preview deliberately fails closed for candidate changes that alter the D1 schema/migrations or critical Wrangler binding configuration.
 
-Review, merge and apply the migration separately first. Do not make the Preview workflow a path for applying unmerged schema to production.
+Do not weaken that guard to make a schema-changing PR previewable against production D1.
 
-## Live authentication checks
+Preferred sequence when a feature needs schema then code UI inspection:
 
-Signed-out production checks:
+1. review/land the schema foundation through the protected process;
+2. apply the reviewed migration to the intended D1 environment explicitly;
+3. update/rebase the behavior PR so migration/schema files are no longer candidate changes relative to `main`;
+4. deploy the resulting code-only head to Preview;
+5. inspect/reset/restore as normal.
+
+Image Management V2 used this safety pattern around `0007_image_collections.sql`.
+
+## 12. Restore Main to Preview
+
+After reviewing a candidate PR, use the permanent Restore Main workflow so the Preview Worker returns to current `main`.
+
+Normal lifecycle:
+
+```text
+main on Preview
+→ Deploy PR to Preview
+→ inspect candidate
+→ Reset Preview Workspace
+→ Restore Main to Preview
+→ next candidate
+```
+
+Do not leave arbitrary candidate code deployed indefinitely.
+
+## 13. Live authentication checks
+
+Useful signed-out production checks:
 
 ```sh
 curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/sign-in
@@ -239,16 +292,16 @@ curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/admin
 curl -i https://flash-cards.mmed-fm-flashcardstest.workers.dev/api/auth/get-session
 ```
 
-Expected:
+Expected shape:
 
-- `/sign-in`: HTTP 200;
-- anonymous `/study`: redirect to sign-in;
-- anonymous `/admin`: redirect to sign-in;
-- Better Auth session GET while signed out: HTTP 200 with `null`.
+- `/sign-in` loads;
+- anonymous `/study` redirects to sign-in;
+- anonymous `/admin` redirects to sign-in;
+- signed-out Better Auth session GET returns no active session.
 
-Do not use HEAD behavior on the Better Auth API route as an indicator of GET health.
+Do not use unsupported/irrelevant HTTP method behavior on the Better Auth API route as the sole health indicator.
 
-## Administrator bootstraps
+## 14. Administrator bootstraps are explicit operator actions
 
 Production first-admin bootstrap:
 
@@ -256,37 +309,63 @@ Production first-admin bootstrap:
 npm run admin:bootstrap
 ```
 
-Dedicated Preview Admin bootstrap after Preview release:
+Preview role/identity bootstrap:
 
 ```sh
 npm run preview-admin:bootstrap
 ```
 
-Both commands are interactive operator actions. Never place administrator credentials in source, documentation, screenshots, logs, or chat.
+Never place administrator credentials or secrets in source, docs, screenshots, logs, or chat.
 
-## R2 teaching images
+## 15. R2 teaching images and staging
 
-The `MEDIA` bucket remains private. Normal teaching-image and Preview image uploads both use `putTeachingImage()` in `src/lib/server/storage/media.js`.
+`MEDIA` remains private.
 
-Current guardrails include:
+Normal teaching-image and Preview image uploads use the central media helper (`putTeachingImage()`), not arbitrary route-level direct writes.
 
-- JPEG/PNG only;
-- 5 MiB maximum per image;
-- 5 GiB application-managed stored-byte ceiling;
-- Standard storage class;
-- immutable object keys.
+Current application guardrails include:
 
-Normal teaching images use production teaching-image keys. Preview uploads use:
+- JPEG/PNG teaching uploads;
+- 5 MiB per-image limit;
+- 5 GiB application-managed R2 ceiling;
+- Standard storage;
+- immutable production object keys.
+
+Preview uploads use:
 
 ```text
 preview/<preview-session-id>/...
 ```
 
-Preview cleanup only deletes verified Preview-owned keys. It must never delete a normal teaching-image key.
+Reviewed import staging uses:
 
-See `R2_COST_GUARDRAILS.md` for the full storage checklist.
+```text
+imports/staging/...
+```
 
-## Routine validation
+Preview cleanup may delete only verified Preview-owned media. Import staging cleanup follows the import-job contract. Neither path may delete normal production teaching objects ambiguously.
+
+See `R2_COST_GUARDRAILS.md` and `CONTENT_IMPORT_PACKAGES.md`.
+
+## 16. Production D1 snapshot/operator credentials
+
+Read-only production content inspection prefers repository secret:
+
+```text
+CLOUDFLARE_D1_READ_TOKEN
+```
+
+The fixed-purpose agreed-taxonomy operator uses separate least-privilege write credential:
+
+```text
+CLOUDFLARE_D1_WRITE_TOKEN
+```
+
+Do not grant write access to the read token or turn the read-only snapshot workflow into free-form SQL.
+
+See `PRODUCTION_CONTENT_SNAPSHOT.md` and `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md`.
+
+## 17. Routine validation
 
 ```sh
 npm run db:check
@@ -297,4 +376,4 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-Keep migrations, production deployment, Preview initial deployment, Cloudflare secret creation, and both administrator bootstraps as deliberate operator actions.
+Keep migrations, production deploys, Preview candidate deploy/restore, Cloudflare secret creation, content operators, and administrator bootstrap/promotion as explicit operator actions with independently verified outcomes.

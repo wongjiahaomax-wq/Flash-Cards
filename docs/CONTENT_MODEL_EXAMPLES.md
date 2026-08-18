@@ -1,401 +1,288 @@
 # Flash-Cards — Content Model Examples
 
-_Last updated: 15 August 2026_
+_Last updated: 18 August 2026_
 
-This document records concrete examples for how real teaching material should be represented using the current Case / Asset / Concept / Question model and its implemented optional stimulus-group extension.
+This document gives practical examples for representing real teaching material using the **current implemented model**. Prefer these examples over falling back to fixed Anki-style front/back cards.
 
-It is intentionally practical. When content entry feels ambiguous, prefer these precedents over falling back to fixed Anki-style front/back cards.
-
-See also `docs/STIMULUS_GROUPS_DESIGN.md` for the alternative-stimulus behaviour and first-version invariants.
-
----
+For the underlying rules, also read `AUTHORING_MODEL.md`, `V1_DATA_MODEL.md`, `STIMULUS_GROUPS_DESIGN.md`, `MULTI_TOPIC_STUDY_ROUTES.md`, and `TAGGING_STAGE_B_BEHAVIOR.md`.
 
 ## 1. Case stem belongs to the Case
 
-A clinical stem/vignette is **Case-level context**.
-
-It is separate from:
-
-- the uploaded image Asset;
-- the question prompt;
-- the answer.
-
-Example:
+A clinical vignette is Case-level context, separate from the image Asset, Question Prompt, and answer.
 
 ```text
 Case
 Internal title: Post-operative hypocalcaemia ECG
-Primary/default Topic: Hypocalcemia
+Primary/default Topic: Hypocalcaemia
+Additional Study Topic: Prolonged QTc
 
 Stem:
-A 50-year-old female underwent elective head and neck surgery one day ago.
-Post-procedure, a laboratory test was abnormal.
+A patient develops symptoms after head and neck surgery.
 
-Asset:
+Fixed Asset:
 ECG image
 
-Questions:
-1. What ECG abnormality is present?
-2. Name two physical examination findings associated with this condition.
-3. Name three other causes of this condition.
+Case questions:
+- What ECG abnormality is present?
+- What is the likely cause in this patient?
 ```
 
-The stem should be snapshotted into the learner Review so the historical Review reflects the context actually shown.
-
-A Case may also have a blank stem when the intended task is image recognition without additional clinical context.
-
----
+The stem is snapshotted into each learner Review. A Case may also have a blank stem for neutral image recognition.
 
 ## 2. One Asset can be reused across multiple Cases
 
-An Asset is a reusable stimulus, not the owner of a diagnosis or topic.
+An Asset is reusable media, not the owner of a diagnosis.
 
-If the same ECG is useful in more than one teaching context, store the image once in R2 and attach the same Asset record to multiple Cases.
-
-### Example: prolonged QTc ECG
-
-One ECG demonstrates a prolonged QTc.
-
-It can support at least two distinct Cases.
-
-### Case A — neutral ECG recognition
+One prolonged-QTc ECG can be attached to:
 
 ```text
-Internal title: Prolonged QTc recognition
-Primary/default Topic: Prolonged QTc
-Stem: optional / neutral
-Asset: ECG asset A
-
-Questions:
-- What ECG abnormality is present?
-- How is QT corrected for heart rate?
-- What important ventricular arrhythmia is associated with marked QT prolongation?
+Case A: neutral prolonged-QTc recognition
+Case B: post-operative hypocalcaemia with prolonged QTc
 ```
 
-### Case B — post-operative hypocalcaemia
+The same Asset/R2 object is reused. Each Case may provide different vignette, captions, Study Topics, questions, and answers.
+
+Do not upload a duplicate merely because the educational context changes.
+
+## 3. One Case can have several Study Topics
+
+A Case may be a legitimate learner example of more than one Topic.
 
 ```text
-Internal title: Post-operative hypocalcaemia ECG
-Primary/default Topic: Hypocalcemia
-Stem: post-head/neck surgery clinical vignette
-Asset: ECG asset A  ← same Asset as Case A
+Case: Hypercalcaemia with shortened QTc
 
-Questions:
-- What ECG abnormality is present?
-- Name two physical examination findings associated with this condition.
-- Name three other causes of this condition.
+Topics
+- Hypercalcaemia   [Default]
+- Short QTc        [Additional Study Topic]
 ```
 
-The R2 image is not copied or re-uploaded.
+Studying either Topic may lead to the same Case. The actual entry route becomes the Review's Study Topic and supplies direct reusable Topic questions.
 
-The Cases remain separate because their clinical context and educational intent are different.
+Do **not** attach an Additional Study Topic if some valid random stimulus selections would fail to demonstrate it.
 
-This also avoids forcing the Asset itself to be classified as either “hypocalcaemia” or “prolonged QTc”.
-
----
-
-## 3. Primary versus secondary Topics
-
-The browser Admin Case editor maintains one primary/default Topic and zero or more Additional Study Topics for a Case.
-
-Some real Cases may legitimately relate to more than one Concept.
-
-For the post-operative hypocalcaemia ECG example:
+Example:
 
 ```text
-Primary/default Topic: Hypocalcemia
-Additional Study Topic: Prolonged QTc
+Alternative ECGs
+A — shortened QTc
+B — shortened QTc + Osborn waves
+C — shortened QTc
 ```
 
-Primary Concept should describe the main educational context for that Case.
+`Short QTc` is a valid Case Study Topic because every option demonstrates it. `Osborn waves` is not a valid Case-level Study Topic if only option B demonstrates it.
 
-Additional Study Topic links are learner-routing relationships, not generic tags. They are useful for:
+## 4. Fixed images versus alternative images
 
-- search;
-- cross-topic discovery;
-- analytics;
-- alternate study routes.
+### Images that must be seen together
 
-They should not automatically change the question pool unless explicitly designed to do so.
-
-The Admin Case editor supports adding/removing Additional Study Topics and promoting one to primary. Changing the primary demotes the old primary to a secondary relationship so unrelated routes are not silently discarded. An active Case must retain exactly one primary Topic.
-
-### Agreed production taxonomy example
+Use fixed Case Assets.
 
 ```text
-Electrolyte Disorders
-├── Hypercalcemia
-└── Hypocalcemia
+Case: Pityriasis rosea
 
-Cardiology
-└── ECG Findings
-    ├── Short QTc
-    └── Prolonged QTc
-
-Hypercalcemia Case: primary Hypercalcemia; additional Study Topic Short QTc
-Hypocalcemia Case: primary Hypocalcemia; additional Study Topic Prolonged QTc
+Fixed image 1: Herald patch
+Fixed image 2: Later truncal eruption
 ```
 
-Because Short QTc and Prolonged QTc descend from Cardiology, both Cases remain discoverable through the Cardiology subtree without a redundant direct Cardiology relationship.
+Both are shown together in every applicable Review.
 
----
+### Interchangeable examples of the same Case
 
-## 4. Case-specific versus reusable questions
-
-Use a **Case-specific question** when the answer depends on the exact Case, image, vignette, or combination of Assets.
-
-Examples:
+Use an alternative stimulus group.
 
 ```text
-What ECG abnormality is present?
-→ Prolonged QTc
+Case: Hypercalcaemia
+
+Alternative ECG set — choose one per Review
+- ECG A
+- ECG B
+- ECG C
 ```
+
+The Case context stays the same; one active option is chosen and frozen for that Review.
+
+### Several independent alternative sets
 
 ```text
-What additional conduction abnormality is present on this ECG?
-→ Right bundle branch block
+Case: Multiple myeloma with hypercalcaemia
+
+ECG set — choose one
+- ECG A
+- ECG B
+
+X-ray set — choose one
+- Skull X-ray
+- Humerus X-ray
+- Pelvis X-ray
 ```
 
-Use a **Concept-level reusable question** when the question and answer remain valid across compatible Cases of that Concept.
+One Review might snapshot `ECG B + Skull X-ray`; another might later snapshot `ECG A + Pelvis X-ray`.
 
-For Hypocalcaemia:
+## 5. Same Prompt, different contextual answers
 
-```text
-Name two physical examination findings associated with hypocalcaemia.
-→ Positive Chvostek and Trousseau signs.
-```
-
-```text
-Name three other causes of hypocalcaemia.
-→ Hypoparathyroidism, vitamin D deficiency, hypomagnesaemia, etc.
-```
-
-For initial content entry, it is acceptable to create all questions as Case-specific first and promote genuinely reusable questions to the Concept level later.
-
----
-
-## 5. Reusable prompt, different contextual answers
-
-The same prompt wording can be reused even when the correct answer changes with context.
-
-Current example:
+Reusable wording is separate from the answer.
 
 ```text
 Prompt:
 Describe this ECG.
 
-Case A answer:
-→ ST elevation in V1–V4 with reciprocal inferior ST depression.
+Exact option A answer:
+Sinus rhythm with prolonged QTc.
 
-Case B answer:
-→ Hyperacute anterior T waves with subtle anterior ST elevation.
-
-Case C answer:
-→ Extensive anterior ST elevation with associated right bundle branch block.
+Exact option B answer:
+Sinus rhythm with prolonged QTc and right bundle branch block.
 ```
 
-The data model therefore separates reusable Question Prompt wording from context-specific answer relationships.
+Do not duplicate the Prompt text merely because the correct answer changes. Store the answer at the contextual relationship where it is correct.
 
-The planned stimulus-group extension applies the same principle below the Case level: the selected stimulus option may supply an even more specific answer for the same prompt.
+## 6. Case-specific versus Topic-reusable questions
 
----
-
-## 6. Multiple images that belong together
-
-If several Assets are required to understand one clinical presentation, place them in one Case and order them.
-
-Example:
+Use a Case question when the answer depends on the exact presentation.
 
 ```text
-Case: Pityriasis rosea
-
-Asset 1: Herald patch
-Asset 2: Later truncal eruption
+What is the likely cause in this patient?
+→ Post-operative hypoparathyroidism.
 ```
 
-The learner should see both together in configured order.
-
-These are **fixed stimuli**, not alternatives.
-
-Use Case-specific captions only when they add useful context without giving away the answer unnecessarily.
-
----
-
-## 7. Separate Cases versus alternative stimulus groups
-
-The old blanket rule that every alternative image should become a separate Case is too strict.
-
-Use this distinction:
-
-> **Create separate Cases when the clinical context or educational intent differs. Use an alternative stimulus group when the Case is genuinely the same but the example stimulus can vary between attempts.**
-
-### Separate Cases
-
-Different context or educational intent:
+Use a Topic question when the prompt and answer remain valid across compatible Cases studied through that Topic.
 
 ```text
-Case A: neutral anterior STEMI recognition
-Case B: anterior STEMI with post-PCI complication
+Topic: Hypocalcaemia
+Question: How is severe symptomatic hypocalcaemia treated?
 ```
 
-Even if an ECG could be reused, the Cases remain separate because the teaching task differs.
+It is acceptable to begin conservatively with Case questions and promote genuinely reusable knowledge later.
 
-### Same Case with alternative ECGs
+## 7. Set-wide versus exact-image questions
+
+Use a set-wide question if it applies to every option in one alternative group.
 
 ```text
-Case: Hypercalcaemia
+Alternative set: Hypocalcaemia ECGs
 
-ECG alternatives — choose one per Review:
-- ECG A: shortened QTc
-- ECG B: shortened QTc + Osborn waves
-- ECG C: shortened QTc with another incidental feature
+Question:
+What QT interval abnormality is demonstrated by these ECG examples?
+→ Prolonged QTc.
 ```
 
-The clinical context and main teaching objective are the same, so duplicating the whole Case would create unnecessary maintenance.
-
-The stimulus-group extension is optional. Until it is implemented, separate Cases remain a valid temporary workaround.
-
----
-
-## 8. One Case can have several independent stimulus groups
-
-A richer Case may need one choice from several stimulus families.
-
-Example:
+Use an exact-option question for an incidental or variable finding.
 
 ```text
-Case: Multiple myeloma with hypercalcaemia
-
-ECG group — choose one:
-- ECG A
-- ECG B
-- ECG C
-
-X-ray group — choose one:
-- skull X-ray with punched-out lesions
-- humerus X-ray with lytic lesions
-- pelvis X-ray with lytic lesions
+ECG B only:
+What additional conduction abnormality is present?
+→ Right bundle branch block.
 ```
 
-A Review might therefore snapshot:
+Do not attach option-specific teaching to the global Asset merely because the image is involved. The same Asset may be reused in another Case with different educational intent.
+
+## 8. Case Tags do not replace Study Topics
+
+Use Topics for learner routing. Use Tags for cross-cutting clinical meaning.
 
 ```text
-ECG B + skull X-ray
+Case: Post-thyroidectomy hypocalcaemia
+
+Study Topics
+- Hypocalcaemia [Default]
+- Prolonged QTc
+
+Case Tags
+- Hypocalcaemia
+- Prolonged QTc
+- Post-thyroidectomy
 ```
 
-while a later Review of the same Case might snapshot:
+These lists may overlap but have different semantics.
+
+Additional Study Topics determine learner entry routes. Case Tags support curation/filtering and can create Shared Question eligibility.
+
+## 9. Question Tags do not automatically inherit Case Tags
+
+Suppose a Case has:
 
 ```text
-ECG A + pelvis X-ray
+Case Tags
+- Hypocalcaemia
+- Prolonged QTc
+- Post-thyroidectomy
 ```
 
-Selections must be made once when the Review starts and remain frozen for that Review.
-
----
-
-## 9. Stimulus-specific questions are optional refinements
-
-Do not require every imported or manually entered question to be classified by stimulus.
-
-Existing Case questions remain valid unless a more specific relationship is genuinely useful.
-
-Example:
-
-All ECG alternatives share:
+A contextual Question asking:
 
 ```text
-What QT interval abnormality is present?
-→ Shortened QTc.
+What are the causes of hypocalcaemia?
 ```
 
-This can become a stimulus-group question.
-
-But ECG B alone may support:
+may reasonably have only:
 
 ```text
-What additional waveform abnormality is present?
-→ Osborn (J) waves.
+Question Tags
+- Hypocalcaemia
 ```
 
-And the shared prompt:
+It should not automatically become a `Post-thyroidectomy` Question simply because its Case has that Tag.
+
+## 10. Shared Question = reusable knowledge by one Reuse Scope Tag
+
+Use a Shared Question when the same Prompt/answer remains correct across Cases carrying one explicit clinical Tag.
 
 ```text
-Describe this ECG.
+Shared Question
+Prompt: What ECG abnormality is associated with severe hypocalcaemia?
+Answer: QT prolongation / prolonged QTc
+
+Reuse Scope Tag:
+- Hypocalcaemia
+
+Descriptive Tags:
+- Hypocalcaemia
+- Prolonged QTc
 ```
 
-may resolve differently:
+The Reuse Scope Tag controls eligibility. Descriptive Tags explain what the Question teaches/tests and do not create eligibility.
+
+If a selected Case has the active `Hypocalcaemia` Tag, this Shared Question joins the normal eligible pool. It is not mandatory merely because it matches.
+
+## 11. Context still wins over a matching Shared Question
+
+Suppose the same Prompt is available as a Shared Question and as an exact Case or image question.
+
+Current precedence is:
 
 ```text
-ECG A
-→ Sinus rhythm with shortened QTc.
-
-ECG B
-→ Sinus rhythm with shortened QTc and Osborn waves.
+selected stimulus option
+> stimulus group
+> Case
+> exact Study Topic
+> tag-shared Question
+> eligible ancestor Topic
 ```
 
-This should be modelled as contextual relationships within the Case/group, not as global questions owned by the Asset itself.
+The final pool is deduplicated by Prompt ID. The more contextual answer wins.
 
-An Asset can be reused elsewhere without inheriting unrelated questions.
+This lets the corpus reuse broad knowledge without sacrificing precise image/Case answers.
 
----
+## 12. Question count follows educational need
 
-## 10. Imported Anki content should remain simple by default
-
-Stimulus groups must be an **emergent enrichment**, not an import requirement.
-
-A straightforward imported card can become:
+The implemented Case modes are:
 
 ```text
-Case
-├── stem
-├── ECG image
-└── Case questions
+Automatic
+All
+Fixed N
 ```
 
-Later, an administrator may discover another interchangeable ECG and choose to group the two images as alternatives.
+Do not force one question from every source type merely for variety.
 
-The existing Case questions remain Case questions. Only genuinely image-dependent prompts/answers need to be promoted into group-specific or option-specific context.
+- **Automatic** uses normal target/cap behavior plus configured stimulus-specific coverage.
+- **All** asks every deduplicated eligible question.
+- **Fixed** respects the configured count even when more Shared/Topic questions become eligible.
 
-This avoids requiring a complete rewrite of source Anki material before it is useful in the application.
+Use stimulus-specific coverage only when selected stimuli should reliably generate one or more specific questions.
 
----
+## 13. Internal Case titles may contain diagnoses
 
-## 11. Question count should follow educational need
-
-The current learner implementation targets three questions and caps at four, but richer Cases may need a more flexible policy.
-
-The planned Case-level behaviour should support:
-
-```text
-Questions per Review
-- Automatic
-- Ask all eligible questions
-- Choose N
-```
-
-Do not force one question from every source category merely for variety.
-
-A simple Case may legitimately ask several short stimulus-specific questions. Another Case may rely mostly on reusable Concept questions.
-
-Stimulus-group question coverage should eventually be configurable independently, for example:
-
-```text
-No guarantee
-At least 1
-At least 2
-At least 3
-Ask all available specific questions
-```
-
-See `docs/STIMULUS_GROUPS_DESIGN.md`. In the implemented first version, each active group selects exactly one active image option per Review, and selections are frozen in `review_assets`.
-
----
-
-## 12. Internal Case titles should not leak diagnoses
-
-The administrator needs useful internal titles for content management.
-
-Those titles may contain the diagnosis, for example:
+Useful Admin titles can be explicit:
 
 ```text
 Post-operative hypocalcaemia ECG
@@ -403,62 +290,97 @@ Anterior STEMI ECG A
 Pityriasis rosea image pair
 ```
 
-Learner pages should not expose these diagnosis-bearing internal titles when doing so would reveal the answer.
+Do not expose diagnosis-bearing internal titles to learners when they reveal the answer. The learner UI should use neutral Case-review language.
 
-The current learner flow masks the internal title as a generic Case review heading.
+## 14. Image Collections are operational, not educational
 
----
+Image Management V2 allows zero or one Collection per Asset.
 
-## 13. Question order and exam behaviour
+```text
+Collection: ECG import batch 2026
+Collection: Needs source review
+Collection: Curated calcium ECGs
+Unsorted
+```
 
-The target examination allows movement between question parts.
+Changing a Collection does not change:
 
-Therefore:
+- Study Topics;
+- Case Tags;
+- Case/alternative-set relationships;
+- questions;
+- learner routing;
+- Reviews;
+- R2 identity.
 
-- all selected question parts may remain visible together;
-- later questions may reveal clues to earlier ones;
-- there is no need for pre-diagnosis/post-diagnosis gating in V1.
+Do not use Collections as a shortcut for clinical taxonomy.
 
-This is deliberate exam fidelity rather than an implementation shortcut.
+## 15. Same-Case option Move preserves exact-option teaching
 
----
+If an image was placed in the wrong alternative set within the same Case, Image Management V2 can move the existing option rather than delete/recreate it.
 
-## 14. Marks should not be embedded permanently in prompt text
+```text
+Case A / Set 1 / Option X
+→ Case A / Set 2 / Option X
+```
 
-Source Anki material may contain prompts such as:
+The move preserves the option ID, Asset, caption, active state, and exact-option questions. Set-wide questions remain with their original sets.
+
+This operation is deliberately narrower than a generic Asset Move; cross-Case moves are not inferred.
+
+## 16. Imported Anki material should remain simple first
+
+A typical reviewed source note can initially map to:
+
+```text
+Topic
+└── Case
+    ├── vignette
+    ├── fixed ECG Asset
+    └── Case questions
+```
+
+After import, enrich only where useful:
+
+```text
+add Additional Study Topic
+→ add Case/Question Tags
+→ group interchangeable images
+→ promote exact-image questions if alternatives emerge
+→ promote genuinely reusable knowledge to Shared Questions
+→ use Image Collections for Admin organisation
+```
+
+Do not require a complete Tag taxonomy or reuse model before content is useful.
+
+The initial ECG migration validated this approach: the 66-note source deck is fully represented in production, and curation now proceeds on the imported content.
+
+## 17. Marks should remain structured if introduced later
+
+Source cards may contain prompts such as:
 
 ```text
 ECG finding (2)
-Name 2 physical examination findings with this condition (4)
+Name 2 physical examination findings (4)
 ```
 
-For current V1, omit the marks unless they are educationally necessary.
+Do not permanently bake marks into reusable Prompt wording merely because the source used them. If marks become important, represent them as structured metadata in a separately designed feature.
 
-If marks become important later, store them as structured metadata rather than baking `(2)` or `(4)` into the prompt string. This keeps question wording reusable and avoids future parsing problems.
+## 18. Practical rule of thumb
 
----
+When adding material, ask:
 
-## 15. Practical content-entry rule of thumb
+1. What is the coherent Case presentation?
+2. Which Topic is the default Study route?
+3. Is the whole Case always a valid example of another Topic?
+4. Which images must always appear together?
+5. Which images are interchangeable alternatives?
+6. Which questions depend on the exact image/set/Case?
+7. Which questions remain correct for the exact Study Topic?
+8. Which reusable knowledge remains correct across Cases with one explicit Tag?
+9. Which Tags describe the Case/question without changing ownership?
+10. Does a Collection help organise the media without changing educational semantics?
 
-When adding new material, ask these questions in order:
+The current core rule is:
 
-1. **What is the Case context?**
-   - Create/edit the Case and optional stem.
-2. **Which stimuli must always be seen together?**
-   - Attach them as ordinary ordered Case Assets.
-3. **Are any stimuli interchangeable examples of the same task?**
-   - When useful, group them as alternatives rather than duplicating the Case.
-4. **Can any Asset be reused elsewhere?**
-   - Reattach the existing Asset instead of uploading another copy.
-5. **Which questions depend on this exact Case?**
-   - Store as Case-specific.
-6. **Which questions remain valid across the Topic?**
-   - Store/promote as reusable Concept questions.
-7. **Does a question depend on the selected stimulus group or exact option?**
-   - Add stimulus-specific context only when necessary.
-8. **Does the Case belong meaningfully to another Concept as well?**
-   - Record this as a future secondary-Concept need rather than duplicating the Case solely for tagging.
-
-The core rule is:
-
-> **Reuse Assets when the media are the same; separate Cases when context or educational intent differs; use optional stimulus alternatives when the Case stays the same but the example can vary.**
+> **Reuse media when the media are the same; keep separate Cases when the clinical presentation differs; use alternative stimuli when the Case stays the same; use Topics for study routes, Tags for cross-cutting meaning, Shared Questions for reviewed tag-scoped reuse, and Collections only for Image Library organisation.**

@@ -1,18 +1,30 @@
 # Flash-Cards Import Packages
 
-_Last updated: 16 August 2026_
+_Status: implemented and production-validated. PR #22 established strict reviewed-package import; PR #23 added resumable bounded execution. The workflow has been used successfully for the complete initial ECG migration._
+
+_Last updated: 18 August 2026_
 
 ## Purpose and boundary
 
-Flash-Cards imports a **reviewed Flash-Cards Import Package v1**, not an arbitrary Anki/APKG file. External tooling may interpret source cards and prepare a reviewed package, but the production application does not perform OCR, infer diagnoses/taxonomy, auto-tag medical content, or guess how an Anki field should map into the learning model.
+Flash-Cards imports a **reviewed Flash-Cards Import Package v1**, not an arbitrary Anki/APKG file.
 
-PR #22 — Reviewed Content Package Importer — is merged. Its safety contract remains the basis of this workflow: strict package structure, hardened ZIP parsing, deterministic application identities/R2 teaching-image keys, explicit `create` / `use` / `skip`, fail-closed skip dependencies, exact-ZIP SHA-256 confirmation, deterministic conflict handling, parent-first Topics, and R2 cleanup around D1 failure.
+External tooling may interpret source cards and prepare a reviewed package, but the production application does not:
 
-PR #23 adds a resumable execution layer for large reviewed packages without Cloudflare Queues, Durable Objects, Cron, or a paid-only infrastructure dependency.
+- parse arbitrary APKG semantics;
+- OCR teaching slides;
+- infer diagnoses/taxonomy;
+- infer Tags;
+- decide how Anki fields map into the learning model.
 
-## Package v1
+Those decisions happen before the strict package reaches Production Admin.
 
-A package is a ZIP containing only:
+The safety contract from PR #22 remains authoritative: strict package structure, hardened ZIP parsing, deterministic application identities/R2 teaching-image keys, explicit `create` / `use` / `skip`, fail-closed dependency checks, exact-ZIP SHA-256 confirmation, deterministic conflict handling, parent-first Topics, and R2 cleanup around D1 failure.
+
+PR #23 adds resumable execution without Cloudflare Queues, Durable Objects, Cron, or paid-only infrastructure.
+
+## 1. Package v1 structure
+
+A package contains only:
 
 ```text
 flashcards-import-v1.zip
@@ -21,9 +33,19 @@ flashcards-import-v1.zip
     └── declared JPEG/PNG files
 ```
 
-The existing hardened parser remains authoritative. Current package limits remain 25 MiB compressed, 40 MiB decompressed, 256 ZIP entries, 2 MiB manifest, and 5 MiB per teaching image. ZIP path, compression, size, metadata consistency, MIME/magic-byte, undeclared-media, and duplicate-entry checks remain fail-closed.
+Current hardened limits include:
 
-The manifest still contains:
+```text
+25 MiB compressed package
+40 MiB decompressed package
+256 ZIP entries
+2 MiB manifest
+5 MiB per teaching image
+```
+
+ZIP path, compression, size, metadata consistency, MIME/magic-byte, undeclared-media, and duplicate-entry checks remain fail-closed.
+
+Manifest sections are product objects/relationships rather than raw SQL/table instructions:
 
 ```text
 version
@@ -37,37 +59,37 @@ caseQuestions
 topicQuestions
 ```
 
-No application SQL/table name is supplied by the package.
+The package never supplies application SQL or arbitrary table names.
 
-## `create`, `use`, and `skip`
+Import Package v1 remains deliberately **Tag-free**. Tags, Additional Study Topics, stimulus alternatives, and Shared Questions can be curated after ingestion.
 
-These meanings are unchanged from PR #22.
+## 2. `create`, `use`, and `skip`
 
 ### `create`
 
-- application ID is deterministic from package ID + package-local ID;
-- teaching-image key is deterministic and immutable;
+- application identity is deterministic from package ID + package-local ID;
+- teaching-image key is deterministic/immutable;
 - absent content is created;
-- a matching retry is idempotent;
+- matching retry is idempotent;
 - conflicting existing state fails rather than being overwritten.
 
 ### `use`
 
-- explicitly reuses the declared production object/relationship;
+- explicitly reuses a declared production object/relationship;
 - existence and expected identity/type/relationship are validated;
 - downstream imported content may depend on it.
 
 ### `skip`
 
 - performs no domain write for the skipped object;
-- non-skipped imported content may **not** depend on it;
-- an existing object required by downstream imported content must be `use`, not `skip`.
+- non-skipped imported content may not depend on it;
+- an existing object required by downstream content must be `use`, not `skip`.
 
-In particular, a skipped Case cannot receive newly imported Case Questions or Assets indirectly.
+A skipped Case, for example, cannot silently receive newly imported Case Questions or Assets through downstream dependencies.
 
-## Exact-ZIP review contract
+## 3. Exact-ZIP review contract
 
-The administrator flow remains:
+Administrator flow:
 
 ```text
 Validate and preview
@@ -81,13 +103,17 @@ Explicit confirmation
 Start resumable import job
 ```
 
-A successful preview stores a short-lived HttpOnly SHA-256 marker for the exact ZIP bytes. Starting a job hashes the newly submitted bytes and fails before staging/domain writes unless they match that most recent successful preview.
+A successful preview stores a short-lived HttpOnly SHA-256 marker for the exact ZIP bytes.
 
-The preview performs hardened ZIP/package/static validation and presents package counts. Database conflict validation runs inside the durable job in bounded phases. This is intentional: a large package must not execute its entire D1 dry run in the preview request. **All database validation phases must still complete successfully before the first domain write.**
+Starting a job re-hashes the newly submitted bytes and fails before staging/domain writes unless they match the most recently successful preview.
 
-Once the job exists, the SHA-256 stored on the D1 job and the immutable staged ZIP are authoritative. The browser never supplies phase, cursor, application IDs, storage keys, or a write plan.
+Preview performs hardened ZIP/package/static validation and presents package counts. Database conflict validation intentionally runs in bounded durable job phases rather than forcing a large D1 dry run into the preview request.
 
-## Resumable architecture
+**All database validation phases must complete successfully before the first domain write.**
+
+Once the job exists, the SHA-256 persisted on the D1 job and the immutable staged ZIP are authoritative. The browser never supplies phase, cursor, IDs, storage keys, or a write plan.
+
+## 4. Resumable architecture
 
 ```text
 Administrator browser
@@ -100,7 +126,7 @@ D1 import_jobs + private staged ZIP in R2
         v
 one bounded validation/write chunk
         |
-        | durable phase/cursor checkpoint in D1
+        | durable checkpoint in D1
         v
 browser POST process-next
         |
@@ -109,15 +135,15 @@ browser POST process-next
 complete + remove staged ZIP
 ```
 
-The browser is the **conductor**, not the source of truth. D1 is authoritative for status, phase, cursor, progress, error, and lease state. R2 holds the exact confirmed package while the job is resumable.
+The browser is the **conductor**, not the source of truth.
 
-There is intentionally no background continuation. If the browser closes, the laptop sleeps, the internet disconnects, or the administrator presses **Pause**, no new processing request is sent. Completed chunks remain committed and checkpointed. Returning later and pressing **Resume import** continues from D1.
+D1 is authoritative for status, phase, cursor, progress, error, and lease state. R2 holds the exact confirmed package while the job can resume.
 
-No Cloudflare Queue, Durable Object, Cron trigger, scheduled Worker, or paid-only service is used.
+There is no background continuation. If the browser closes, the laptop sleeps, connectivity drops, or the administrator presses Pause, no new request is sent. Completed chunks remain committed/checkpointed. Resume continues from persisted D1 state.
 
-## Persistence
+## 5. Persistence
 
-Migration `0004_resumable_import_jobs.sql` adds the additive `import_jobs` table. It stores:
+Migration `0004_resumable_import_jobs.sql` adds `import_jobs` with fields including:
 
 ```text
 id
@@ -138,7 +164,7 @@ lease_token
 lease_expires_at
 ```
 
-Statuses are:
+Statuses:
 
 ```text
 validating
@@ -149,9 +175,11 @@ failed
 cancelled
 ```
 
-`created_by` is a Better Auth user ID stored as plain text; there is deliberately no foreign key from this operational table into Better Auth tables. A separate chunk-history table is not required: deterministic phase + cursor is enough to resume safely.
+`created_by` is a Better Auth user ID stored as text without a domain FK into auth tables.
 
-## Exact phases
+Deterministic phase + cursor is sufficient for current resume semantics; a separate chunk-history table is not required.
+
+## 6. Validation and import phases
 
 Database validation phases:
 
@@ -166,7 +194,7 @@ validate_case_questions
 validate_topic_questions
 ```
 
-Only after the last validation phase succeeds does the job enter `ready`.
+Only after all validation passes can the job become `ready`.
 
 Import phases:
 
@@ -182,98 +210,178 @@ import_topic_questions
 finalize
 ```
 
-Create-Topic work is topologically ordered before chunking, so parent Topics are inserted before child Topics even when a relationship crosses a request boundary. Case↔Topic relationships are flattened into bounded relationship work rather than letting one Case with many secondary Topics produce an unbounded request.
+Create-Topic work is topologically ordered before chunking so parents precede children even across request boundaries.
 
-## Request budget and Cloudflare limits
+Case↔Topic relationships are flattened into bounded work rather than letting one heavily linked Case create an unbounded Worker request.
 
-The implementation uses:
+## 7. Request budget
+
+Current import orchestration uses:
 
 ```text
 IMPORT_ITEMS_PER_REQUEST = 7
 IMPORT_D1_OPERATION_BUDGET = 40
 ```
 
-Cloudflare's current D1 limits document a 50-query-per-Worker-invocation limit on Workers Free. Seven items is intentionally conservative: a parent-linked Topic create is among the more D1-expensive item shapes because it rechecks deterministic identity, slug identity, parent existence, and insertion before orchestration claim/checkpoint work is included. The 40-operation project budget leaves headroom below the platform ceiling rather than optimizing throughput.
+This is intentionally conservative relative to the Worker/D1 query ceiling the feature was designed against. Normal import operation does not depend on Workers Paid.
 
-Regression instrumentation counts D1 operations for representative bounded processing. The objective is predictable small requests; normal operation does not depend on Workers Paid.
+Regression instrumentation counts representative D1 operations so request growth remains visible.
 
-## Private R2 staging
+Do not raise these limits casually to make large imports “faster”; bounded predictable requests are a core safety feature.
 
-Confirmed ZIPs are stored only under server-derived immutable keys:
+## 8. Private R2 staging
+
+Confirmed ZIPs are stored under server-derived immutable keys:
 
 ```text
 imports/staging/<job-id>.zip
 ```
 
-The browser cannot choose the key. Staged ZIPs:
+The browser cannot choose the key.
+
+Staged ZIPs:
 
 - are not Asset rows;
-- are never served through the learner Asset endpoint;
-- do not pass through `putTeachingImage()`;
-- retain the existing maximum compressed package size;
-- participate in the existing 5 GiB application-managed R2 ceiling;
-- fail if the immutable job-specific staging key already exists.
+- are not learner-served media;
+- do not use the teaching-image `putTeachingImage()` path;
+- remain subject to package size limits;
+- count toward the managed R2 ceiling;
+- fail if the immutable job-specific staging key unexpectedly already exists.
 
-Every normal validation/write processing request loads the package by job ID, verifies the stored SHA-256, runs it through the existing hardened parser, and derives the plan server-side.
+Every normal processing request loads the package by job ID, verifies stored SHA-256, parses through the hardened package reader, and derives the plan server-side.
 
-On successful completion, the staged ZIP is deleted. Finalization is retry-safe even if the response is lost after that delete: the persisted `finalize` checkpoint can retry the idempotent delete without needing to re-read the package. On cancellation, staging is deleted because the job will no longer resume. A failed job keeps the staged ZIP so it can be investigated/corrected and retried. Teaching images that were successfully imported are not removed during normal finalization/cancellation.
+Successful completion deletes staging. Finalization is retry-safe if a response is lost after deletion.
 
-## Concurrency and leases
+Cancellation removes staging because the job will no longer resume. Failed jobs retain staging for investigation/retry.
 
-A short D1 lease prevents two browser tabs from processing the same checkpoint concurrently. A process request conditionally claims the job only when no unexpired lease exists. A second tab receives a harmless busy result and stops its local loop.
+Successfully imported teaching images are not rolled back/deleted merely because a later package chunk fails or the job is cancelled after writes began.
 
-Checkpoint updates also compare the persisted phase/cursor/lease token. Cancellation will not race an actively leased processing request; the administrator pauses processing and retries cancellation after the lease/request is no longer active.
+## 9. Concurrency and leases
 
-## Idempotency and crash recovery
+A short D1 lease prevents two browser tabs from processing the same checkpoint concurrently.
+
+A process request conditionally claims the job only when no unexpired lease exists. A second tab receives a harmless busy result and stops its local loop.
+
+Checkpoint updates compare persisted phase/cursor/lease token.
+
+Cancellation must not race an actively leased processing request; pause/allow the active lease/request to finish before cancellation.
+
+## 10. Idempotency and crash recovery
 
 Every chunk is designed for retry:
 
-- deterministic object IDs and teaching-image keys are unchanged from PR #22;
-- matching existing rows are treated as the result of a prior successful/retried write;
-- conflicting rows fail closed;
-- item-local invariants are rechecked immediately before each write;
-- cursor/progress advances only after the bounded chunk succeeds;
-- a lost HTTP response can cause the same chunk to run again without duplicating matching content.
+- deterministic object IDs and teaching-image keys;
+- matching existing rows converge as prior successful/retried writes;
+- conflicts fail closed;
+- item-local invariants are rechecked immediately before writes;
+- progress advances only after a bounded chunk succeeds;
+- lost HTTP responses may cause safe re-execution of the same checkpoint.
 
-For a new teaching image, the importer first checks the expected D1 Asset row. If the matching D1 row already exists, the retry converges without touching R2. If the D1 row is absent but the deterministic teaching-image object already exists, the importer treats that as an unsafe orphan and **fails explicitly rather than overwriting it**.
+Teaching-image object creation is conditional (`If-None-Match: *`) so stale-lease races cannot overwrite an already-created deterministic R2 object.
 
-If R2 upload succeeds but the D1 Asset insert fails, the uploaded teaching-image object is deleted on a best-effort cleanup path, preserving the PR #22 safety behaviour.
+For a new Asset:
 
-## Transaction/atomicity boundary
+- matching D1 row → retry converges without touching R2;
+- D1 row absent but deterministic R2 object already exists → fail explicitly as unsafe orphan rather than overwrite;
+- R2 upload succeeds but D1 Asset insert fails → best-effort R2 cleanup preserves the established safety contract.
 
-A resumable import spans many Worker invocations. It is therefore **not whole-package atomic**.
+See `RESUMABLE_IMPORT_RUNTIME_SAFETY.md` for the focused runtime race/lease details.
 
-All database conflict validation completes before domain writes start, but once import phases begin, earlier chunks may already be committed when a later chunk fails. This is acceptable for this administrator migration workflow because writes are deterministic/idempotent and progress is durable.
+## 11. Transaction/atomicity boundary
+
+A resumable import spans many Worker invocations and is **not whole-package atomic**.
+
+All database conflict validation completes before domain writes begin, but once import phases start, earlier chunks may already be committed when a later chunk fails.
 
 On failure:
 
-- job status becomes `failed`;
-- exact phase/cursor are retained;
-- the error is recorded in `last_error`;
-- the staged ZIP is retained;
-- **Retry / resume** starts from that same checkpoint after the underlying problem is corrected.
+- status becomes `failed`;
+- exact phase/cursor remain persisted;
+- `last_error` records the problem;
+- staged ZIP remains;
+- Retry/resume starts from that checkpoint after correction.
 
-On cancellation before writes, no domain content has been committed and staging is removed. On cancellation after writes have started, processing stops and staging is removed, but already committed content remains. The UI explicitly states that this is not rollback.
+On cancellation before writes, no domain content has been committed and staging is removed.
 
-## Administrator workflow
+On cancellation after writes begin, processing stops/staging is removed, but previously committed content remains. The UI must not describe cancellation as rollback.
+
+## 12. Administrator workflow
 
 1. Open **Admin → Import package**.
 2. Select the reviewed ZIP and run **Validate and preview**.
-3. Review the package ID/counts and resolve package/static errors.
-4. Select the exact same ZIP again, check explicit confirmation, and press **Start resumable import**.
-5. Keep the page open for automatic continuation. Only one process request is sent at a time.
+3. Review package ID/counts and resolve static/package errors.
+4. Select the exact same ZIP again, confirm explicitly, and start the resumable job.
+5. Keep the page open for automatic sequential continuation if convenient.
 6. Watch status, phase, cursor, and completed/total progress.
-7. **Pause** stops only the browser loop. Refresh/closing the browser has the same effect.
-8. Return later and press **Resume import** to continue from the persisted D1 checkpoint.
-9. If a job fails, inspect the recorded phase/error, correct the conflict where appropriate, then use **Retry / resume**.
-10. Cancel/discard only with the understanding that content from earlier import chunks is not rolled back once writes have started.
+7. Pause or close/refresh to stop browser continuation without losing D1 progress.
+8. Resume later from persisted checkpoint.
+9. On failure, inspect phase/error, correct the underlying conflict where appropriate, then Retry/resume.
+10. Cancel only with the understanding that already committed chunks are not rolled back.
 
-## Security
+## 13. Security
 
-Every `/admin/import` action continues to require the existing administrator permission model. Job ID alone is never authorization. The server verifies the job exists and that its status permits the requested operation; server-side state determines package SHA, storage key, phase, cursor, deterministic IDs, relationships, and writes.
+Every `/admin/import` action requires production Admin authorization.
 
-## Tests and next step
+Job ID alone is never authorization.
 
-Regression coverage includes exact package digest safety, static skip safety, initial staging/checkpoint creation, multi-request validation, no writes before validation is fully ready, fresh-context resume, stale lease handling, deterministic retry, parent-first Topics across chunk boundaries, R2 cleanup after Asset D1 failure, failed-job checkpoint/error recording, cancellation, final staging cleanup, migration fresh/upgrade behaviour, and D1-operation-budget instrumentation. Existing PR #22 tests remain part of the normal `npm test` suite.
+Server-side state determines package SHA, storage key, status/phase/cursor, deterministic IDs, relationships, and writes.
 
-The expected next product/content milestone after PR #23 is to use this reviewed-package workflow for the real ECG/Anki migration. APKG interpretation and clinical review remain outside the production application.
+The browser cannot submit an arbitrary execution plan.
+
+Preview Admin does not gain unrestricted production import authority merely because it shares D1/R2 resources; import routes remain governed by the production Admin/Preview boundary.
+
+## 14. Production validation — initial ECG migration complete
+
+The reviewed/resumable import path has now been exercised against the real ECG corpus.
+
+Production verification on 18 August 2026 confirmed:
+
+```text
+Batch 01: 13 imported Cases/ECGs
+Batch 02: 51 imported Cases/ECGs
+Mapped pre-existing calcium Cases: 2
+Total source notes represented: 66 / 66
+```
+
+Both reviewed import jobs are `complete`, reached `phase = finalize`, match their recorded reviewed-package SHA-256 values, and have `last_error = null`.
+
+The exact production accounting/verification record is in `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md`.
+
+Therefore the next content milestone is **curation/enrichment**, not “try the importer on the ECG deck”.
+
+## 15. Current import scope and deferred extensions
+
+Keep Import Package v1 conservative unless real migrations justify expansion.
+
+Current package intentionally does not require:
+
+- Tags;
+- Shared Questions;
+- compound reuse rules;
+- Image Collections;
+- inferred alternative stimulus groups;
+- automatic medical taxonomy generation.
+
+Those can be curated after import. A future additive package version may carry already-reviewed metadata when repeated migrations demonstrate value.
+
+## 16. Regression expectations
+
+Coverage should continue protecting:
+
+- exact-package digest safety;
+- static skip/dependency safety;
+- staging/checkpoint creation;
+- multi-request validation;
+- no domain writes before validation is complete;
+- fresh-context resume;
+- stale lease handling;
+- deterministic retry;
+- conditional R2 teaching-image creation;
+- parent-first Topic ordering across chunks;
+- R2 cleanup after Asset D1 failure;
+- failed-job checkpoint/error retention;
+- cancellation semantics;
+- final staging cleanup;
+- migration fresh/upgrade behavior;
+- D1-operation-budget instrumentation;
+- PR #22 strict package tests.

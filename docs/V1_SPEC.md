@@ -1,232 +1,276 @@
 # Flash-Cards — Version 1 Specification
 
-_Last updated: 14 August 2026_
+_Last updated: 18 August 2026_
 
-## 1. Purpose
+## 1. Purpose and status
 
-Version 1 is a private medical-learning web application that proves the core case-based learning model described in `CURRENT_DESIGN.md`.
+This document specifies the **current V1 product behavior**, not the original implementation wish list.
 
-V1 deliberately prioritises a small, coherent system over sophisticated scheduling, automated marking, AI generation, or polished content management.
+V1 is a private medical-learning web application in which administrators curate structured case-based teaching content and learners complete durable, reproducible Reviews. The core platform is deployed and already contains a production-verified first ECG corpus.
 
-## 2. V1 success criteria
+For exact schema details use `V1_DATA_MODEL.md`. For current merged/deployed status use `CURRENT_PRODUCT_ROADMAP.md` and `HANDOVER.md`.
 
-V1 is successful when an administrator can create structured teaching content and a learner can repeatedly study it end-to-end.
+## 2. V1 product boundary
 
-A learner must be able to:
+V1 currently proves these product capabilities:
+
+### Learner
+
+A learner can:
 
 1. sign in;
-2. choose a topic/concept;
-3. receive a compatible clinical Case;
-4. see all images/assets belonging to that Case together;
-5. see 2–4 compatible question parts;
-6. reveal the answers;
-7. rate the whole Case as **Again** or **Good**;
-8. continue to another Case;
-9. have each completed review recorded.
+2. choose a Topic;
+3. receive an eligible active Case through that Study Topic;
+4. see the Case vignette plus fixed and selected alternative stimuli;
+5. receive a valid deduplicated set of contextual/reusable questions;
+6. reveal all answers;
+7. rate the whole Case **Again** or **Good**;
+8. continue studying;
+9. have the exact attempt recorded with content/provenance snapshots.
 
-An administrator must be able to:
+### Production administrator
 
-1. manage learner accounts;
-2. create/edit/deactivate Concepts;
-3. create/edit/deactivate Cases;
-4. associate one primary Concept and optional secondary Concepts with a Case;
-5. upload and order one or more images for a Case;
-6. create reusable Question Prompts;
-7. attach a Question Prompt to a Concept with a Concept-specific answer;
-8. optionally allow a Concept question to be inherited by descendant Concepts;
-9. attach a Question Prompt directly to a Case with a Case-specific answer;
-10. inspect basic learner review history.
+An administrator can currently:
 
-## 3. Stack decision
+1. browse/create/edit Cases and their learner-facing context;
+2. author one primary/default Topic plus additional Study Topics;
+3. create/manage Case questions and reusable Topic questions;
+4. inspect/edit reusable Question Prompt wording with usage/blast-radius protection;
+5. upload/reuse/manage private R2 images;
+6. author fixed images and alternative stimulus groups/options;
+7. create set-wide and exact-option contextual questions;
+8. configure Case question selection and stimulus-specific coverage;
+9. curate flat Tags on Cases and contextual Case Questions;
+10. create/manage tag-scoped Shared Questions;
+11. browse/manage Images with server-backed filters/pagination, Collections, bounded selection, and bulk operations;
+12. prepare/preview/start/resume strict reviewed Import Package v1 jobs.
 
-V1 will use one full-stack SvelteKit application deployed to Cloudflare Workers.
+### Not yet part of the current Admin baseline
+
+These are the next small V1 Admin increments, not completed capabilities:
+
+- routine learner-account administration;
+- basic learner-progress administration.
+
+Do not describe these as already shipped until implemented and verified.
+
+## 3. Technical stack
+
+V1 uses one full-stack SvelteKit application deployed to Cloudflare Workers.
 
 ```text
 GitHub
 └── SvelteKit application
     ├── Learner UI
-    ├── Admin UI
-    ├── Server-side learning logic
+    ├── Production Admin UI
+    ├── Preview Admin UI
+    ├── server-side learning/content logic
     ├── Better Auth
     ├── Drizzle ORM
     │   └── Cloudflare D1
-    └── Asset service
+    └── media service
         └── Cloudflare R2
 ```
 
-### Chosen components
+Chosen components:
 
-- **SvelteKit** — full-stack web framework and routing/UI layer.
-- **Cloudflare Workers** — deployment/runtime.
-- **Cloudflare D1** — relational database for V1.
-- **Drizzle ORM + migrations** — schema/query layer, while keeping a later PostgreSQL migration practical.
-- **Better Auth** — email/password authentication and admin/user roles.
-- **Cloudflare R2** — image/object storage.
+- **SvelteKit** — full-stack framework/router/UI;
+- **Cloudflare Workers** — runtime/deployment;
+- **Cloudflare D1** — relational data store;
+- **Drizzle ORM + versioned migrations** — learning-domain schema/query layer;
+- **Better Auth** — authentication and role support;
+- **Cloudflare R2** — private teaching-image/object storage.
 
-TypeScript may be used where the selected libraries and generated Cloudflare bindings benefit from it. The application should avoid unnecessary framework layers or a separate API service.
+Better Auth tables and learning-domain tables share D1 but remain conceptually separate. Teaching-image bytes live in R2; D1 stores Asset metadata and relationships.
 
 ## 4. Authentication and roles
 
-V1 has two roles:
+The application is private and public self-registration is disabled.
 
-- `admin`
-- `user` (learner)
+Current role boundaries include:
 
-The application is private.
+- `admin` — production Admin CMS;
+- `user` — normal learner;
+- `preview_admin` — Preview Admin only when `PREVIEW_MODE=true`.
 
-For V1:
+The owner may hold `admin,preview_admin` while the production and Preview Workers use separate authentication secrets/sessions.
 
-- public self-registration is disabled;
-- an initial administrator is bootstrapped during setup;
-- administrators create learner accounts;
-- learners sign in with email and password;
-- learner routes require a valid session;
-- admin routes require the admin role.
+Authorization is enforced server-side, not by email.
 
-Password-reset email delivery is not required for the first local/demo milestone. It can be added before wider learner rollout.
+Important hard boundaries include:
 
-## 5. Core learning objects
+```text
+Preview Worker /admin/**              -> forbidden
+Preview Worker /study/**              -> forbidden
+Preview Worker /api/auth/admin/**     -> forbidden
+preview_admin on production /study/** -> forbidden by current policy
+```
 
-### Concept
+## 5. Core content objects
 
-A generic medical topic, diagnosis, sign, investigation pattern, procedure, or learning objective.
+### Topic / Concept
 
-Concepts may have one parent Concept.
+A Topic is the product-facing name for `concepts`. It is a curated learner study route and may sit in a hierarchy.
+
+A Case has exactly one primary/default Topic and may have additional Study Topics.
 
 ### Case
 
-The learner-facing study unit.
+A Case is one coherent clinical presentation/study unit.
 
-A Case contains the clinical context presented together in one review attempt.
+A Case contains an internal title, optional learner-facing vignette, question-selection policy, Topic relationships, and stimulus/question relationships.
 
-A Case has:
-
-- a title/internal label;
-- optional vignette/context;
-- one primary Concept;
-- optional secondary Concept links;
-- zero or more ordered Assets.
-
-The **primary Concept** drives reusable question selection in V1. Secondary Concept links are available for taxonomy/search/analytics but do not automatically contribute questions.
-
-This rule keeps comparison and multi-diagnosis Cases representable without accidentally mixing incompatible question banks.
+Cases are not identified by Tags alone and should not be merged merely because they share a diagnosis.
 
 ### Asset
 
-A reusable piece of stimulus material.
+A reusable teaching stimulus. V1 learner rendering currently supports image Assets.
 
-V1 learner rendering supports image Assets. The schema should retain a generic `type` field so later versions can support other stimulus types without redesigning the Case relationship.
+An Asset can be reused in multiple Cases. Production object keys are treated as immutable.
 
-A Case can contain multiple Assets. All active Assets linked to the Case are shown together in configured order.
+### Fixed Case Asset
+
+A `case_assets` relationship places an Asset in a Case and gives it Case-specific order/caption. Active fixed Assets appear in every applicable Review.
+
+### Stimulus Group and Option
+
+A `stimulus_group` represents one independent alternative set inside a Case. V1 selects one active `stimulus_group_option` per active group when the Review starts and freezes the choice.
+
+A Case may have multiple groups, such as one ECG group and one X-ray group.
 
 ### Question Prompt
 
-Reusable question wording, for example:
+Reusable learner-facing wording only. It does not own a universal clinical answer or clinical Tags.
 
-- `Describe this ECG.`
-- `What is the diagnosis?`
-- `What is the immediate management?`
+### Contextual Question relationships
 
-The prompt is deliberately separated from the answer.
+Answers live where they remain correct:
 
-### Concept Question
+- Topic/Concept Question;
+- Case Question;
+- stimulus-group Question;
+- exact stimulus-option Question.
 
-Links a Question Prompt to a Concept and stores the answer that is correct for that Concept.
+### Tag
 
-It can optionally be marked as inheritable by descendant Concepts.
+Flat, manually curated cross-cutting clinical metadata.
 
-Example:
+Case Tags describe concepts covered by a Case. Contextual Case Question Tags describe knowledge tested by that Question. Case Tags do not automatically propagate to Questions.
 
-```text
-Prompt: What is the preferred reperfusion strategy?
-Concept: STEMI
-Answer: ...
-Inherit to descendants: yes
-```
+### Shared Question
 
-### Case Question
+A global production-curated reusable knowledge object containing:
 
-Links a Question Prompt directly to a Case and stores the answer for that exact Case.
+- one reusable Question Prompt;
+- a reusable medical/teaching answer;
+- exactly one Reuse Scope Tag;
+- active/archive state;
+- zero or more independent descriptive Tags.
 
-This supports:
+The Reuse Scope Tag controls Case eligibility. Descriptive Tags do not.
 
-- Case-only questions;
-- reusable prompts whose answer changes with the image or vignette;
-- explicit overrides of a broader Concept question.
+### Image Collection
 
-Example:
+Admin-only Image Library organisation. An Asset belongs to zero or one Collection; null is **Unsorted**.
 
-```text
-Prompt: Describe this ECG.
-Case A answer: ...
-Case B answer: ...
-Case C answer: ...
-```
+Collections never change learner routing/stimulus semantics.
 
-## 6. Question eligibility and answer precedence
+## 6. Multi-Topic Case routing
 
-For a selected Case, V1 builds an eligible question pool from:
+When a learner chooses a Topic, the system may select a Case attached to that Topic as either its primary/default route or an additional Study Topic.
 
-1. active Case Questions attached directly to that Case;
-2. active Concept Questions attached to the Case's primary Concept;
-3. active Concept Questions attached to ancestor Concepts only when the relationship explicitly permits inheritance to descendants.
+The chosen route is preserved as `reviews.study_concept_id`. The Case's canonical primary/default Topic is separately preserved as `reviews.primary_concept_id`.
 
-Secondary Concepts do not automatically add questions in V1.
+The Study Topic supplies direct reusable Topic questions for that Review. All attached Topics are not mixed into one question pool.
 
-If the same Question Prompt appears through more than one route, use this precedence:
+An attached Topic is valid only if every valid random configuration of the Case remains a legitimate example of that Topic.
+
+## 7. Shared Question eligibility
+
+For a selected production Case, a Shared Question is eligible exactly when:
 
 ```text
-Case-specific answer
-    > nearest Concept answer
-    > inherited ancestor Concept answer
+shared_questions.is_active = true
+AND question_prompts.is_active = true
+AND question_prompts.preview_session_id IS NULL
+AND the Reuse Scope Tag is active
+AND case_tags contains (selected Case, Reuse Scope Tag)
 ```
 
-Only one instance of a Question Prompt may appear in a review.
+No descriptive Shared Question Tag creates eligibility. Topic ancestry does not infer Tag eligibility. V1 has one Reuse Scope Tag per Shared Question; compound Boolean scopes are deferred.
 
-## 7. Question selection
+## 8. Question precedence and deduplication
 
-The system chooses a target of **3 questions per Case** by default.
+When the same `question_prompt_id` is available from several sources, the most contextual source wins:
 
-Rules:
+```text
+selected stimulus option
+> stimulus group
+> Case
+> exact Study Topic
+> tag-shared Question
+> nearest eligible inheritable ancestor Topic
+> more distant eligible ancestors
+```
 
-- minimum shown: 1 if only one eligible question exists;
-- normal target: 3;
-- maximum shown: 4;
-- questions are selected randomly from the eligible pool;
-- question display order is randomised;
-- all selected questions are visible together;
-- no pre-diagnosis/post-diagnosis gating is used.
+The final candidate set is deduplicated by `question_prompt_id`.
 
-The exact prompt and resolved answer shown in an attempt are snapshotted into the review history so later content edits do not rewrite historical learner records.
+This prevents a broad reusable answer from overriding an exact Case/image answer while still enabling progressive reuse.
 
-V1 does not implement question weighting, difficulty, automated free-text grading, or mastery at individual question level.
+## 9. Question selection modes
 
-## 8. Case selection
+Each Case supports:
 
-When the learner selects a Concept/topic:
+### Automatic
 
-1. identify active Cases whose primary Concept is that Concept or a descendant Concept;
-2. choose one Case at random;
-3. avoid immediately repeating the same Case when another eligible Case exists;
-4. construct the eligible question pool;
-5. create the review attempt and its question snapshots.
+Uses the existing normal target/cap behavior and configured stimulus-specific coverage rules.
 
-V1 does not implement FSRS or spaced-repetition intervals.
+### All
 
-The review history is deliberately structured so a scheduling algorithm can be added later without changing the content model.
+Includes all deduplicated eligible questions.
 
-## 9. Learner workflow
+### Fixed
+
+Selects the configured count from the deduplicated pool. Additional Shared/Topic questions do not cause the Review to exceed the configured count.
+
+All selected question parts remain visible together. There is no diagnosis-first gating.
+
+## 10. Review creation and historical fidelity
+
+Review creation resolves the selected Case, Study Topic, stimuli, questions, answers, order, and provenance before learner interaction.
+
+The Review persists snapshots so later content editing does not rewrite historical meaning.
+
+Relevant provenance includes:
+
+- canonical primary Topic;
+- Study Topic;
+- selected stimulus group/option identities;
+- contextual Question source type;
+- Shared Question identity where `source_type = 'tag_shared'`.
+
+For Shared Questions, Tag IDs are not snapshotted; the Prompt wording, answer, and Shared Question source identity are.
+
+Alternative stimuli do not rerandomize when an existing Review is refreshed.
+
+## 11. Learner workflow
 
 ```text
 /sign-in
    ↓
 /study
    ↓
-Choose Concept/topic
+Choose Topic
+   ↓
+resolve Case + Study Topic
+   ↓
+select fixed + alternative stimuli
+   ↓
+resolve/dedupe/select questions
    ↓
 /study/[review-id]
    ├── vignette
-   ├── all Case images
+   ├── selected images
    ├── selected questions
    └── Reveal answers
           ↓
@@ -235,128 +279,156 @@ Choose Concept/topic
        Next Case
 ```
 
-### Study screen behaviour
+The target examination permits movement between question parts, so later prompts may give clues to earlier ones. This is intentional exam fidelity.
 
-Before reveal:
+## 12. Production Admin workflow
 
-- show vignette/context;
-- show all Case Assets in order;
-- show all selected questions;
-- do not show answers.
+Current primary routes include:
 
-After reveal:
+```text
+/admin
+/admin/cases
+/admin/questions
+/admin/shared-questions
+/admin/images
+/admin/topics
+/admin/tags
+/admin/import
+```
 
-- keep the Case and questions visible;
-- display the resolved answer beneath each question;
-- enable `Again` and `Good`.
+Routine Case authoring follows:
 
-A completed rating finalises the review.
+```text
+Topics → Case → Images → Case questions → Preview
+```
 
-## 10. Admin workflow
+Advanced controls remain available for alternative sets, group/exact-option questions, coverage, activation/order, Tags, and reuse without making them mandatory for simple content entry.
 
-V1 admin routes can be visually simple and form-based.
+Global Question Prompt wording edits must account for all active usages, including Shared Question usages.
 
-### Concepts
+## 13. Image Library V1/V2 behavior
 
-- list/search Concepts;
-- create/edit Concept;
-- choose optional parent;
-- activate/deactivate.
+The current Image Library supports:
 
-### Cases
+- server-backed pages of 60 Assets;
+- exact matching counts;
+- deterministic filters/sorts;
+- cross-page explicit selection inside one canonical query context;
+- exact Select All when the matching set is `<=300`;
+- refusal rather than silent truncation above 300;
+- server mutation bound of `<=30` unique Assets per request;
+- sequential client orchestration for larger explicit selections;
+- Image Collection create/rename/delete/assignment in production Admin;
+- explicit Unsorted state;
+- same-Case option Move while preserving option identity and exact-option teaching data.
 
-- list/search Cases;
-- create/edit title and vignette;
-- choose primary Concept;
-- attach optional secondary Concepts;
-- activate/deactivate;
-- upload images;
-- order images;
-- add optional image caption/alt text.
+Image-management operations do not change learner stimulus or Review semantics.
 
-### Questions
+## 14. Media storage and provenance
 
-- create/edit reusable Question Prompt;
-- attach to Concept with answer;
-- toggle descendant inheritance;
-- attach directly to Case with Case-specific answer;
-- activate/deactivate relationships.
+Teaching images are stored in private R2 and served through authenticated application routes.
 
-### Users/progress
+Current guardrails include:
 
-- create learner accounts;
-- list learners;
-- inspect recent reviews;
-- show counts of `Again` and `Good` by learner and Concept.
+- JPEG/PNG teaching uploads;
+- maximum 5 MiB per image;
+- managed 5 GiB application storage ceiling;
+- immutable production object keys;
+- optional source label, source URL, and licence;
+- unknown provenance is valid and must not be invented.
 
-No sophisticated dashboard is required.
+External image URLs are reference/attribution metadata only.
 
-## 11. Content editing rules
+## 15. Reviewed Import Package v1
 
-Historical data must remain interpretable.
+The production app accepts a strict reviewed Flash-Cards package, not arbitrary APKG/Anki input.
 
-Therefore:
+The external migration process is responsible for extraction, source interpretation, clinical review, taxonomy choices, and package construction.
 
-- content records should normally be deactivated instead of hard-deleted;
-- completed reviews store prompt and answer snapshots;
-- R2 object keys are stored in the database rather than embedding provider URLs into learning records;
-- Asset metadata should leave room for source/licensing information.
+The Admin importer then provides:
 
-Markdown/plain text is sufficient for vignette, prompt, answer, and captions in V1.
+- hardened ZIP/manifest validation;
+- exact reviewed-ZIP confirmation;
+- deterministic create/use/skip semantics;
+- dependency/conflict checks;
+- resumable browser-orchestrated bounded requests;
+- D1 checkpoints/lease fencing;
+- private R2 staging;
+- safe retry behavior.
 
-## 12. Out of scope for V1
+Import Package v1 deliberately has no Tag fields. Tags and Shared Questions are progressive post-import curation.
 
-The following are explicitly deferred:
+## 16. Preview Admin
 
-- FSRS or Anki-equivalent scheduling;
-- AI-generated questions or answers;
-- automated marking of free text;
+Preview uses a separate Worker with the same D1/R2 bindings as production.
+
+Safety relies on explicit Preview ownership and hard request/data boundaries. Preview follows clone-then-mutate and never treats production mutation plus rollback as a normal workflow.
+
+Preview-owned rows use `preview_session_id`; Preview uploads live under `preview/<preview-session-id>/...` and Reset removes only Preview-owned workspace data.
+
+Global Shared Questions are production-curated and have no Preview mutation authority.
+
+## 17. Current production content validation
+
+The first real ECG source deck has been migrated and independently verified in production:
+
+```text
+13 Batch 01 imports
++ 51 Batch 02 imports
++ 2 pre-existing mapped calcium Cases
+= 66 / 66 source notes represented
+```
+
+The reviewed Batch 01 and Batch 02 import jobs completed with their recorded package hashes and no import errors. Initial ECG ingestion is therefore complete; subsequent work is curation/enrichment.
+
+## 18. Current V1 acceptance standard
+
+A current V1 regression/acceptance exercise should include:
+
+- primary and additional Study Topics;
+- fixed and alternative stimuli;
+- exact-option and set-wide questions;
+- Case and Topic questions using overlapping Prompts to verify precedence;
+- a matching Case Tag and eligible Shared Question;
+- Automatic, All, and Fixed Case modes;
+- Review snapshot/provenance persistence;
+- production Admin versus normal learner authorization;
+- Preview isolation for any Preview-tested Admin workflow.
+
+Repository implementation PRs must keep the standard validation set green:
+
+```sh
+npm run db:check
+npm test
+npm run check
+npm run build
+node scripts/local-auth-smoke.mjs
+git diff --check
+```
+
+## 19. Next V1 increments
+
+Current next product work is intentionally narrow:
+
+1. curate the imported ECG corpus using Tags/Shared Questions and observed needs;
+2. implement the smallest administrator learner-account workflow;
+3. implement basic learner-progress Admin: learner list, recent Reviews, filters, Again/Good summaries, and repeated-Again signals.
+
+## 20. Deferred beyond the current V1 baseline
+
+Unless real evidence creates a concrete requirement, defer:
+
+- compound/multiple Shared Question reuse scopes;
+- Tag hierarchy and aliases/synonyms;
+- learner Study-by-Tag;
+- Review Tag snapshots;
+- automatic/AI Tag inference;
+- Asset Tags;
+- FSRS/sophisticated scheduling;
+- advanced cohort analytics;
+- automated free-text marking;
 - per-question learner rating;
-- branching question flows;
-- diagnosis gating;
-- gamification;
-- leaderboards;
-- notifications;
-- payments/subscriptions;
-- mobile applications;
-- offline mode;
-- institutional multi-tenancy;
-- complex cohort analytics;
-- sophisticated question weighting;
-- bulk Anki import;
-- automatic medical taxonomy generation;
-- image cropping/masking editor;
-- WYSIWYG rich-text editor.
-
-## 13. V1 acceptance test
-
-A minimal end-to-end acceptance test should use at least:
-
-- one parent Concept, e.g. `STEMI`;
-- one child Concept, e.g. `Anterior STEMI`;
-- at least two alternative Cases under the child Concept;
-- one Case with multiple Assets displayed together;
-- one inherited general Concept question;
-- one child-specific Concept question;
-- one reusable prompt with different Case-specific answers;
-- one Case-only question;
-- two learner accounts and one admin account.
-
-The application passes V1 acceptance when both learners can complete multiple reviews, receive valid randomised question combinations, rate each Case, and the administrator can inspect the resulting review history.
-
-## 14. Implementation order
-
-Implementation should proceed in this order:
-
-1. application scaffold and local development;
-2. D1/Drizzle schema and migrations;
-3. Better Auth and route protection;
-4. seed/demo content;
-5. learner study flow;
-6. review recording;
-7. minimal admin content management;
-8. R2 upload/display;
-9. basic progress view;
-10. Cloudflare deployment and acceptance test.
-
-See `V1_DATA_MODEL.md` and `IMPLEMENTATION_PLAN.md` for implementation detail.
+- branching/gated question flows;
+- WYSIWYG authoring;
+- broad non-image upload types;
+- gamification, leaderboards, payments, native apps, offline mode, and institutional multi-tenancy.

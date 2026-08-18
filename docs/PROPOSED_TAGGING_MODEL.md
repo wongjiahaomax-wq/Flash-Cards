@@ -1,36 +1,38 @@
 # Proposed Topic, Case, and Question Tagging Model
 
-_Status: superseded as an open proposal by [`TAGGING_MODEL_DECISIONS.md`](TAGGING_MODEL_DECISIONS.md). The decision record is authoritative for implementation._
+_Status: **historical/superseded proposal**. The open design questions in this file were resolved by `TAGGING_MODEL_DECISIONS.md`. Tagging Stage A and Stage B are now implemented; Stage B is deployed in production._
 
-_Last updated: 16 August 2026_
+_Last updated: 18 August 2026_
 
-This document preserves the design exploration that led to the agreed tagging architecture. The previously open questions in this proposal have now been resolved after review against the real unpacked ECG Anki corpus.
+This document is retained only to preserve the design path that led to the current tagging architecture. Do not use it as a pending implementation plan.
 
-For implementation requirements, use:
+For current requirements use:
 
-- [`TAGGING_MODEL_DECISIONS.md`](TAGGING_MODEL_DECISIONS.md) — agreed decisions, staged implementation, resolver semantics, and ECG corpus validation;
-- [`V1_DATA_MODEL.md`](V1_DATA_MODEL.md) — currently implemented application data model;
-- [`CONTENT_IMPORT_PACKAGES.md`](CONTENT_IMPORT_PACKAGES.md) — current reviewed Import Package v1 boundary.
+- `TAGGING_MODEL_DECISIONS.md` — authoritative architecture decisions;
+- `TAGGING_STAGE_B_BEHAVIOR.md` — deployed Shared Question learner/Admin behavior;
+- `STAGE_A_TAG_FOUNDATION.md` — implemented Stage A foundation;
+- `V1_DATA_MODEL.md` — current schema/relationship semantics;
+- `CURRENT_PRODUCT_ROADMAP.md` — current next product work.
 
-## Design conclusion
+## Historical design conclusion
 
-The agreed architecture keeps the existing core model:
+The proposal converged on retaining the existing teaching model:
 
 ```text
 Topic
 └── Case
-    ├── stimulus / alternative stimulus
+    ├── fixed / alternative stimuli
     └── contextual questions
 ```
 
-and adds progressive semantic enrichment:
+and adding cross-cutting reusable metadata/knowledge:
 
 ```text
 TOPIC
-= curated learner study route / organisational tree
+= curated learner study route / hierarchy
 
 CASE
-= one coherent clinical vignette/presentation
+= one coherent clinical presentation
 
 CASE TAGS
 = clinically meaningful concepts covered by the Case
@@ -42,28 +44,38 @@ QUESTION PROMPT
 = reusable wording only
 
 SHARED QUESTION
-= reusable prompt + medical answer
+= reusable medical answer/meaning
 
-SHARED QUESTION TAGS
-= what that reusable knowledge Question teaches/tests
+SHARED QUESTION DESCRIPTIVE TAGS
+= what that reusable knowledge teaches/tests
 
 SHARED QUESTION REUSE SCOPE
 = one Case Tag that makes the Question eligible
 ```
 
-The implementation principle is:
+The governing principle became:
 
 > Attach knowledge at the broadest scope where its answer and educational meaning remain reliably correct, while keeping more specific stimulus and Case context authoritative when scopes overlap.
 
-## Resolved implementation direction
+## Resolved decisions
 
-The first implementation uses flat, manually curated canonical Tags. Tags initially attach to Cases and the appropriate contextual/shared Question entities, not directly to `question_prompts` and not to individual image Assets.
+The first/current implementation uses:
 
-Case Tags do not automatically become Question Tags. Question Tags describe what the Question tests. Reuse scope is separate from descriptive Question Tags.
+- flat canonical Tags;
+- manual administrator curation;
+- Tags on Cases and contextual/shared Question entities, not on `question_prompts`;
+- no Asset Tags;
+- no automatic Case Tag → Question Tag inheritance;
+- exactly one Reuse Scope Tag per Shared Question;
+- independent descriptive Shared Question Tags;
+- Reuse Scope match creates eligibility, not mandatory display;
+- no learner Study-by-Tag;
+- no Review Tag snapshots;
+- no compound Tag expressions;
+- no Tag hierarchy or alias layer;
+- no Tag fields in Import Package v1.
 
-A shared Question initially has exactly one reuse-scope Tag. Matching that Tag makes the Question eligible for the Case question pool; it does not make the Question mandatory.
-
-When the same Question Prompt is available at several scopes, the agreed precedence is:
+Current duplicate-Prompt precedence is:
 
 ```text
 selected stimulus option
@@ -71,28 +83,45 @@ selected stimulus option
 > Case
 > exact Study Topic
 > tag-shared Question
-> eligible ancestor Topic
+> nearest eligible inheritable ancestor Topic
+> more distant eligible ancestors
 ```
 
-Tags initially support Admin curation, filtering, retrieval, and shared-question reuse. Learner-facing Study-by-Tag, Review Tag snapshots, Tag hierarchy, alias/synonym infrastructure, AI Tag assignment, compound reuse rules, and Tag fields in Import Package v1 are deferred.
+## Implemented staging outcome
 
-## Staged implementation
+### Stage A — complete
 
-### Stage A — Tag foundation and curation
+Migration `0005_tag_foundation.sql` and associated Admin behavior implemented:
 
-Implement Tags, Case↔Tag relationships, contextual Question tagging, Admin Tag management, adding/removing Tags, and Case/Question filtering by Tag.
+- `tags`;
+- Case ↔ Tag relationships;
+- contextual Case Question ↔ Tag relationships;
+- Admin Tag management and curation/filtering.
 
-Stage A must not change learner Question resolution.
+Stage A did not alter learner Question resolution by itself.
 
-### Stage B — tag-scoped shared Questions
+### Stage B — complete/deployed
 
-Implement the shared/tag-reusable Question entity, one reuse-scope Tag per shared Question, descriptive shared-Question Tags, Case eligibility from Tags, learner resolver integration, precedence, selection interaction, and Review snapshot/provenance regression coverage.
+Migration `0008_tag_shared_questions.sql` added the Shared Question schema/provenance foundation and was applied to production D1.
 
-This behavioural stage is deliberately separate from the metadata/Admin stage.
+PR #43 then implemented/deployed:
+
+- Shared Question Admin authoring/archive/reactivation;
+- one Reuse Scope Tag plus independent descriptive Tags;
+- exact active Case Tag matching for learner eligibility;
+- resolver integration and Prompt-ID deduplication;
+- Automatic/All/Fixed integration;
+- `tag_shared` Review provenance;
+- global Prompt usage/blast-radius integration;
+- production/Preview ownership protections.
+
+There is no pending “Stage B implementation” represented by this proposal.
 
 ## ECG corpus validation
 
-The unpacked ECG Anki deck was reviewed as a real-world stress test. It contains 66 notes, each with one front-side ECG image. The dominant structure is:
+The 66-note unpacked ECG Anki deck was the real-world stress test used to close the architecture decisions.
+
+Its dominant structure:
 
 ```text
 clinical vignette
@@ -101,23 +130,41 @@ clinical vignette
 → answers
 ```
 
-This maps naturally to one Case with a vignette, fixed ECG Asset, and contextual Case Questions. Repeated diagnoses may remain separate Cases because the vignette, ECG, questions, or educational emphasis differs. Reusable knowledge can be promoted later as the corpus is curated.
-
-The deck therefore does not require redesigning the current Case, stimulus, or contextual Question model. Two answer-side images were observed, which is not enough evidence to add answer-image schema as part of the tagging work.
-
-## Import boundary
-
-Import Package v1 remains unchanged. Initial Anki ingestion can continue as:
+maps naturally to:
 
 ```text
-Topic/deck
-→ Case
-→ questions
-→ images/stimuli
+Topic
+└── Case
+    ├── vignette
+    ├── fixed ECG Asset
+    └── contextual Case Questions
 ```
 
-Administrators can add Tags later. A future additive import-package version may carry already-reviewed Tags if that becomes useful.
+The corpus supported progressive enrichment rather than requiring a full ontology before import.
 
-## Historical note
+That initial migration is now complete in production:
 
-Earlier revisions of this document explored open alternatives including multi-Tag reuse semantics, Tag hierarchy, learner Study-by-Tag, Review Tag provenance, synonym handling, and importer Tag support. Those alternatives are intentionally not reproduced as active requirements here; their resolutions are recorded in [`TAGGING_MODEL_DECISIONS.md`](TAGGING_MODEL_DECISIONS.md).
+```text
+13 Batch 01 imports
++ 51 Batch 02 imports
++ 2 pre-existing mapped calcium Cases
+= 66 / 66 source notes represented
+```
+
+Current ECG work is Tag/Shared Question/Study Topic/stimulus curation, not completion of this old proposal.
+
+## Historical alternatives deliberately not adopted in current V1
+
+The proposal considered or left open several richer possibilities. They remain deferred unless real content later justifies them:
+
+- multi-Tag ANY/ALL reuse scopes;
+- Tag hierarchy;
+- learner Study-by-Tag;
+- Review Tag provenance snapshots;
+- Tag aliases/synonyms;
+- automatic/AI Tag assignment;
+- Asset Tags;
+- Tag fields in importer package format;
+- answer-side image relationships as part of tagging.
+
+Any future revival of one of these ideas requires a new explicit decision/implementation record rather than treating this historical proposal as an active requirement.
