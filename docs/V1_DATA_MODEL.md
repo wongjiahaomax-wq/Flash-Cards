@@ -2,179 +2,370 @@
 
 _Last updated: 18 August 2026_
 
-This document records the implemented V1 application data model. The schema uses Drizzle with SQLite/D1 and version-controlled migrations. `0008_tag_shared_questions.sql` is the landed Tagging Stage B schema foundation; the Stage B behavior/authoring implementation is schema-free and uses that migration as-is.
+This document records the implemented V1 application data model. It complements `V1_SPEC.md`.
 
-## 1. Core design rules
+The schema is implemented with Drizzle using the SQLite/D1 dialect and version-controlled migrations.
 
-1. Domain objects use application-generated text IDs.
-2. Better Auth owns authentication/session tables separately from the learning domain.
-3. Foreign keys and unique constraints are used wherever practical.
-4. Learning content is normally archived/deactivated rather than destructively deleted.
-5. R2 object keys, not public image URLs, are stored for teaching Assets.
-6. Reviews snapshot what the learner actually saw.
-7. `question_prompts` contains reusable wording only; answers live at the context that supplies their medical meaning.
-8. Topics/Concepts remain learner-navigation hierarchy; Tags remain flat cross-cutting metadata.
-9. Preview ownership is explicit. Production learner content excludes Preview-owned Cases, Prompts and Assets.
+Migration `0002_optional_stimulus_groups.sql` adds the reviewed optional-stimulus extension. Merged PR #18 adds `0003_multi_topic_study_routing.sql`, which adds Review Study-Concept provenance without changing `case_concepts` or the stimulus-group schema. Tagging Stage A is represented by `0005_tag_foundation.sql`. Tagging Stage B schema foundation is represented by `0008_tag_shared_questions.sql`; learner Shared Question eligibility/resolution and Admin Shared Question authoring are deliberately not implemented by that schema-only migration.
 
-## 2. Main authoring hierarchy
+## 1. Design rules
+
+1. Use application-generated text IDs (UUID/ULID-style identifiers) rather than D1 auto-increment IDs for domain objects.
+2. Keep Better Auth's authentication tables separate from learning-domain tables.
+3. Use foreign keys and unique constraints wherever practical.
+4. Prefer deactivation (`is_active`) to destructive deletion for learning content.
+5. Store R2 object keys, not public/provider URLs, in learning records.
+6. Snapshot what the learner actually saw when a review begins.
+7. Keep answer text on the relationship that supplies its context, not on the reusable prompt itself.
+8. V1 application code enforces rules that are awkward to express portably across SQLite and PostgreSQL.
+9. New content structures should be additive and backward-compatible where practical; ordinary Cases must not require stimulus-group or secondary-Topic metadata.
+
+## 2. Authentication tables
+
+Better Auth owns its required authentication/session tables.
+
+The Better Auth Admin plugin supplies the V1 `admin` and `user` roles and administrator user-management operations.
+
+Domain tables should reference the Better Auth user ID as text rather than duplicating credentials or sessions.
+
+## 3. Domain tables
+
+### `concepts`
+
+Represents the medical taxonomy. The Admin product calls these **Topics**.
+
+| Column | Purpose |
+|---|---|
+| `id` | Text primary key |
+| `name` | Display name |
+| `slug` | Stable human-readable identifier, unique |
+| `description_md` | Optional teaching/admin description |
+| `parent_id` | Optional self-reference to `concepts.id` |
+| `is_active` | Soft-deactivation flag |
+| `created_at` | Timestamp |
+| `updated_at` | Timestamp |
+
+Rules:
+
+- a Concept cannot be its own parent;
+- application validation must prevent cycles;
+- inactive Concepts are excluded from learner selection.
+
+### `cases`
+
+Represents the coherent study unit shown to the learner.
+
+| Column | Purpose |
+|---|---|
+| `id` | Text primary key |
+| `title` | Internal/admin-facing Case title |
+| `vignette_md` | Optional learner-facing context |
+| `question_selection_mode` | `automatic`, `all`, or `fixed` |
+| `question_count` | Optional positive count used by `fixed` mode |
+| `is_active` | Soft-deactivation flag |
+| `created_at` | Timestamp |
+| `updated_at` | Timestamp |
+
+Concept membership is kept in `case_concepts` rather than stored directly here.
+
+### `case_concepts`
+
+Links a Case to one or more Concepts.
+
+| Column | Purpose |
+|---|---|
+| `case_id` | FK to `cases.id` |
+| `concept_id` | FK to `concepts.id` |
+| `role` | `primary` or `secondary` |
+| `created_at` | Timestamp |
+
+Primary key/unique constraint:
 
 ```text
-Topic/Concept
-└── Case
-    ├── fixed Assets
-    ├── optional Stimulus Groups
-    │   └── selected Stimulus Option
-    ├── contextual Case questions
-    └── Case Tags
-
-Global reusable knowledge
-└── Shared Question
-    ├── Question Prompt wording
-    ├── reusable answer
-    ├── exactly one Reuse Scope Tag
-    └── zero or more descriptive Tags
+(case_id, concept_id)
 ```
 
-A Case has exactly one primary/default Topic and may have secondary Study Topics through `case_concepts`. Both may provide learner routes; the selected route is persisted as `reviews.study_concept_id`.
+V1 invariant and learner meaning after PR #18:
 
-## 3. Question-bearing tables
+- every learner-presentable active Case has exactly one `primary` Concept;
+- zero or more `secondary` Concepts are allowed;
+- `primary` means canonical/default administrative classification;
+- both primary and secondary relationships may make a Case learner-eligible;
+- exactly one attached **Study Concept** is resolved for each Review route and supplies the reusable Concept Questions for that Review.
+
+Changing the default Topic must not silently erase other attached Case Topic routes. Admin authoring now supports add/remove secondary Study Topics and promotion/demotion on the Case editor. A primary cannot be removed without establishing another active primary first.
+
+Admin relationship invariants for active Cases:
+
+- exactly one `primary` relationship exists;
+- the primary Topic is represented by an active relationship and is selectable as the canonical/default Topic;
+- each Topic appears at most once for a Case;
+- secondary relationships are learner-routing Study Topics, not generic tags;
+- inactive existing relationships remain visible for safe historical editing, but inactive Topics are not offered for new attachments.
+
+The exactly-one-primary rule may be enforced in application logic if a portable database constraint would add unnecessary complexity.
+
+### `assets`
+
+Stores reusable stimulus metadata.
+
+| Column | Purpose |
+|---|---|
+| `id` | Text primary key |
+| `type` | V1 value: `image`; retained as generic field |
+| `storage_key` | R2 object key |
+| `mime_type` | e.g. `image/jpeg`, `image/png` |
+| `original_filename` | Optional original upload name |
+| `alt_text` | Accessibility text |
+| `source_label` | Optional source/attribution text |
+| `source_url` | Optional source URL/reference |
+| `licence` | Optional licence text |
+| `is_active` | Soft-deactivation flag |
+| `created_at` | Timestamp |
+| `updated_at` | Timestamp |
+
+V1 should treat an uploaded object as immutable. Replacing an image should normally create a new Asset/object key and update the Case link rather than overwriting bytes behind an old key.
+
+### `case_assets`
+
+Links Assets into Cases and controls presentation.
+
+| Column | Purpose |
+|---|---|
+| `case_id` | FK to `cases.id` |
+| `asset_id` | FK to `assets.id` |
+| `display_order` | Integer ordering within Case |
+| `caption_md` | Optional Case-specific caption |
+| `created_at` | Timestamp |
+
+Unique constraints:
+
+```text
+(case_id, asset_id)
+(case_id, display_order)
+```
+
+A multi-image Case is simply one Case with several ordered `case_assets` rows.
+
+All active ungrouped Case Assets remain fixed stimuli and are snapshotted into every Review. Active Stimulus Groups add one selected option per group after those fixed assets.
+
+### `stimulus_groups` and `stimulus_group_options`
+
+Implemented by `0002_optional_stimulus_groups.sql`.
+
+A Case may have zero or more independent active stimulus groups. V1 selects exactly one active option per active group and freezes that selection into Review provenance.
+
+Ordinary Cases with only fixed `case_assets` continue to work unchanged.
 
 ### `question_prompts`
 
-Reusable learner-facing wording only. It has `id`, `prompt_md`, active state, timestamps, and nullable `preview_session_id` from the Preview workspace migration. Clinical meaning, answers, and clinical Tags do not belong here.
+Stores reusable wording only.
+
+| Column | Purpose |
+|---|---|
+| `id` | Text primary key |
+| `prompt_md` | Learner-facing question text |
+| `is_active` | Soft-deactivation flag |
+| `created_at` | Timestamp |
+| `updated_at` | Timestamp |
+
+No default/correct answer belongs on this table because the same wording can be correct in several contexts with different answers. Clinical Tags likewise do not belong directly on `question_prompts`.
 
 ### `concept_questions`
 
-Links one Prompt to one Topic/Concept, stores the Concept-specific `answer_md`, active state, and `inherit_to_descendants`. Direct Concept questions are loaded from the Review's Study Concept; eligible ancestors may supply inheritable questions.
+Makes a Question Prompt valid for a Concept and supplies the Concept-specific answer.
+
+| Column | Purpose |
+|---|---|
+| `id` | Text primary key |
+| `concept_id` | FK to `concepts.id` |
+| `question_prompt_id` | FK to `question_prompts.id` |
+| `answer_md` | Correct/teaching answer in this Concept context |
+| `inherit_to_descendants` | Whether descendants may use this question |
+| `is_active` | Soft-deactivation flag |
+| `created_at` | Timestamp |
+| `updated_at` | Timestamp |
+
+Unique constraint:
+
+```text
+(concept_id, question_prompt_id)
+```
+
+This relationship is necessary because prompts such as `What is the diagnosis?` or `Which artery is involved?` can share wording but have different answers at different Concepts.
+
+Direct reusable Concept questions for a Review are loaded from its **Study Concept**, not automatically from the Case's canonical/default primary Concept.
 
 ### `case_questions`
 
-Links one Prompt to one exact Case and stores the Case-specific answer. A row may be Case-only content or an override of a more reusable Prompt.
+Makes a Question Prompt valid for one exact Case and supplies its Case-specific answer.
 
-### `stimulus_group_questions`
+| Column | Purpose |
+|---|---|
+| `id` | Text primary key |
+| `case_id` | FK to `cases.id` |
+| `question_prompt_id` | FK to `question_prompts.id` |
+| `answer_md` | Correct/teaching answer for this Case |
+| `is_active` | Soft-deactivation flag |
+| `created_at` | Timestamp |
+| `updated_at` | Timestamp |
 
-Stores questions/answers correct for a selected Stimulus Group context.
+Unique constraint:
 
-### `stimulus_option_questions`
+```text
+(case_id, question_prompt_id)
+```
 
-Stores questions/answers correct for one exact selected Stimulus Option/image context.
+A `case_questions` row can represent either:
+
+- a question that exists only for this Case; or
+- a Case-level override of a prompt also available through the Concept hierarchy.
+
+The same table handles both situations.
+
+### `stimulus_group_questions` and `stimulus_option_questions`
+
+These implemented contextual tables reuse `question_prompts` while storing group-level or exact-option answers on the relationship where that answer is correct.
+
+### `tags`, `case_tags`, and `case_question_tags`
+
+Implemented by Tagging Stage A in `0005_tag_foundation.sql`.
+
+`tags` stores flat canonical clinical metadata. `case_tags` describes concepts covered by a Case. `case_question_tags` describes knowledge tested by one contextual Case Question. Case Tags are not automatically inherited onto Questions, and no Stage A Tag relationship changes learner Question resolution.
 
 ### `shared_questions`
 
-Implemented by `0008_tag_shared_questions.sql`.
+Implemented as schema foundation by `0008_tag_shared_questions.sql`.
 
-| Column | Meaning |
+A Shared Question is the reusable medical meaning + answer associated with reusable wording. It is deliberately separate from `question_prompts`.
+
+| Column | Purpose |
 |---|---|
-| `id` | Shared Question identity |
-| `question_prompt_id` | reusable wording from `question_prompts` |
-| `answer_md` | reusable medical/teaching answer |
-| `reuse_scope_tag_id` | exactly one Tag controlling Case eligibility |
-| `is_active` | active/archive state |
-| timestamps | curation timestamps |
+| `id` | Text primary key |
+| `question_prompt_id` | FK to `question_prompts.id` |
+| `answer_md` | Reusable medical/teaching answer |
+| `reuse_scope_tag_id` | Exactly one non-null FK to `tags.id` defining future Case eligibility |
+| `is_active` | Soft-deactivation flag |
+| `created_at` | Timestamp |
+| `updated_at` | Timestamp |
 
-There may be at most one active Shared Question per `question_prompt_id`; inactive historical rows may coexist. `shared_questions` has no `preview_session_id`: it is global production-curated content.
+Indexes support prompt lookup, reuse-scope + active lookup, and active lookup. A partial unique index permits at most one simultaneously active Shared Question for a given `question_prompt_id`, while allowing archived/inactive historical rows for the same prompt to coexist.
 
-Database triggers reject inserting/updating a Shared Question to reference a Preview-owned Prompt.
+`shared_questions` does **not** have `preview_session_id`. Shared Questions are global production-curated knowledge objects.
+
+The existence of this table does not yet make any learner Question eligible. The learner resolver remains unchanged until the separate Stage B behavior PR.
 
 ### `shared_question_tags`
 
-Many-to-many descriptive metadata between Shared Questions and Tags. These Tags describe what a Shared Question teaches/tests and **do not** control learner eligibility.
+Stores descriptive Tags saying what one Shared Question teaches/tests.
 
-`reuse_scope_tag_id` is independent and is not automatically copied into `shared_question_tags`.
+| Column | Purpose |
+|---|---|
+| `shared_question_id` | FK to `shared_questions.id` |
+| `tag_id` | FK to `tags.id` |
+| `created_at` | Timestamp |
 
-## 4. Tags
-
-`tags` stores flat canonical Tags. `case_tags` attaches Tags to Cases. `case_question_tags` describes one contextual Case Question. Stage A Case/Question tagging does not imply inheritance.
-
-A `case_tags` row has no relationship-level active/archive column. Current learner semantics therefore require the relationship row to exist and the Tag itself to be active.
-
-## 5. Shared Question learner eligibility
-
-For a selected production Case, a Shared Question is eligible exactly when:
+Primary key:
 
 ```text
-shared_questions.is_active = true
-AND its question_prompt is active
-AND its question_prompt is production-owned (preview_session_id IS NULL)
-AND its reuse_scope_tag is active
-AND case_tags contains (selected Case, reuse_scope_tag_id)
+(shared_question_id, tag_id)
 ```
 
-`shared_question_tags` is not part of this query. Topic/Concept ancestry is not used to infer Tag matches. Multiple/compound reuse-scope expressions are not implemented.
+A Shared Question may have multiple descriptive Tags. `reuse_scope_tag_id` remains a separate single eligibility field and is not automatically inserted into `shared_question_tags`.
 
-## 6. Resolver precedence and Prompt deduplication
+### `reviews`
 
-The learner uses one resolver and one final eligible pool; Shared Questions do not use a parallel question-generation path.
+Represents one learner attempt at one selected Case.
 
-When the same `question_prompt_id` is reachable from multiple sources, precedence is:
+| Column | Purpose |
+|---|---|
+| `id` | Text primary key |
+| `user_id` | Better Auth user ID |
+| `case_id` | FK to `cases.id` |
+| `primary_concept_id` | Canonical/default primary Concept of the selected Case at Review creation |
+| `study_concept_id` | Attached Case Concept used as the reusable Topic-question route for this Review |
+| `case_title_snapshot` | Title as presented/identified at attempt time |
+| `vignette_snapshot_md` | Vignette at attempt time |
+| `status` | `started` or `completed` |
+| `rating` | null, `again`, or `good` |
+| `started_at` | Timestamp |
+| `revealed_at` | Nullable timestamp |
+| `completed_at` | Nullable timestamp |
+
+Rules:
+
+- `primary_concept_id` and `study_concept_id` are non-null FKs to `concepts.id` using `ON DELETE RESTRICT`;
+- rating is null until completion;
+- `again`/`good` completes the Review;
+- abandoned `started` reviews remain distinguishable from completed study.
+
+Migration `0003_multi_topic_study_routing.sql` backfills existing Reviews with:
 
 ```text
-selected stimulus option
-> stimulus group
-> Case
-> exact Study Concept
-> tag-shared Question
-> nearest eligible inheritable ancestor Concept
-> more distant eligible ancestors
+study_concept_id = primary_concept_id
 ```
 
-The final pool is deduplicated by `question_prompt_id`. The highest-priority source supplies the learner-facing answer and provenance.
+This preserves historical meaning because every pre-migration Review used primary-Concept routing. The migration conservatively rebuilds `reviews` to enforce the final constraint while retaining existing Review snapshots and indexes, and adds a Study-Concept completion index for later progress queries.
 
-## 7. Question-count modes
+### `review_questions`
 
-Eligible Shared Questions enter the same deduplicated pool as all existing sources.
+Snapshots the exact questions and answers selected for one Review.
 
-- **Automatic** preserves the existing target/cap and stimulus-specific coverage semantics.
-- **All** includes all deduplicated eligible questions.
-- **Fixed** selects at most the requested fixed count; adding Shared Questions does not bypass the count.
+| Column | Purpose |
+|---|---|
+| `id` | Text primary key |
+| `review_id` | FK to `reviews.id` |
+| `question_prompt_id` | Original prompt ID |
+| `source_type` | `case`, `concept`, `ancestor_concept`, `stimulus_group`, `stimulus_option`, or future `tag_shared` |
+| `source_concept_id` | Nullable Concept that supplied answer |
+| `source_stimulus_group_id` | Nullable group provenance |
+| `source_stimulus_option_id` | Nullable exact-option provenance |
+| `source_shared_question_id` | Nullable FK to `shared_questions.id` for future tag-shared Reviews |
+| `display_order` | Order shown in this attempt |
+| `prompt_snapshot_md` | Exact prompt text shown |
+| `answer_snapshot_md` | Exact resolved answer shown after reveal |
 
-Existing stimulus-group minimum/all-specific coverage checks remain authoritative.
-
-## 8. Reviews and immutable provenance
-
-`reviews` records the selected Case, canonical primary Concept, actual Study Concept, Case/vignette snapshots, status and rating.
-
-`review_questions` snapshots the exact Prompt and answer selected into the Review. Its source types include:
+Unique constraints:
 
 ```text
-case
-concept
-ancestor_concept
-stimulus_group
-stimulus_option
-tag_shared
+(review_id, display_order)
+(review_id, question_prompt_id)
 ```
 
-For a selected Shared Question:
+Migration `0008_tag_shared_questions.sql` conservatively rebuilds this table because SQLite/D1 cannot alter the existing `source_type` CHECK in place. Every pre-existing row is copied with its ID, Review ID, Prompt ID, source type, Concept/stimulus provenance, display order, prompt snapshot, and answer snapshot unchanged; `source_shared_question_id` is `NULL` for those historical rows. Existing indexes/unique constraints are recreated, and the new shared provenance FK uses `ON DELETE RESTRICT`.
+
+Tags themselves are not snapshotted onto Reviews. They remain mutable curation metadata.
+
+This table is essential because admins can edit prompts/answers later without changing what an old Review means.
+
+### `review_assets`
+
+Snapshots which Assets were shown in a Review.
+
+| Column | Purpose |
+|---|---|
+| `id` | Text primary key |
+| `review_id` | FK to `reviews.id` |
+| `asset_id` | Original Asset ID |
+| `display_order` | Order shown |
+| `storage_key_snapshot` | Exact R2 object key used |
+| `caption_snapshot_md` | Caption shown at attempt time |
+| `alt_text_snapshot` | Alt text shown/available at attempt time |
+| `source_stimulus_group_id` | Nullable selected group provenance |
+| `source_stimulus_option_id` | Nullable selected option provenance |
+
+Unique constraints:
 
 ```text
-source_type = 'tag_shared'
-source_shared_question_id = <shared_questions.id>
-prompt_snapshot_md = exact wording shown
-answer_snapshot_md = exact reusable answer shown
+(review_id, display_order)
+(review_id, asset_id)
 ```
 
-The Review does **not** snapshot `reuse_scope_tag_id`, descriptive Shared Question Tag IDs, or Case Tag IDs. Those are mutable curation metadata. Historical Review meaning stays stable even if Tags or eligibility relationships later change. Existing pre-Stage-B Review rows remain valid with `source_shared_question_id = NULL`.
+The immutable-object-key rule means historical Review Assets remain reproducible even after a Case is edited. Selected stimulus options are frozen at Review creation and do not rerandomize on refresh.
 
-`review_assets` separately snapshots the exact fixed/selected Assets shown and their presentation/provenance.
+## 4. Relationship overview
 
-## 9. Preview ownership
-
-Preview ownership exists on Cases, Question Prompts and Assets. Production learner resolution excludes Preview-owned records centrally.
-
-Shared Questions are not Preview-owned. Production Admin Shared Question authoring only accepts active production Question Prompts. Migration `0008` provides D1 trigger defense in depth against attaching a Preview Prompt to global Shared Question content.
-
-The Preview Admin workspace does not gain global Shared Question mutation authority from Stage B.
-
-## 10. Admin authoring behavior
-
-Production Admin provides `/admin/shared-questions` plus a detail editor. Administrators can list active and archived Shared Questions, create one using an existing active production Prompt or new Prompt wording, edit the reusable answer, select exactly one active Reuse Scope Tag, attach zero or more independent descriptive Tags, and archive/reactivate when invariants remain valid.
-
-The UI explicitly labels the Reuse Scope Tag as the eligibility control and descriptive Tags as metadata only.
-
-The existing Questions Library includes Shared Question usages in Prompt edit blast-radius/stale-usage protection so globally reused wording cannot be edited while ignoring this new source.
-
-## 11. Relationship overview
+Current implemented schema relationships include:
 
 ```text
 concepts
@@ -194,7 +385,7 @@ case_questions
   └── case_question_tags ── tags
 
 concepts
-  └── concept_questions ── question_prompts
+  └── concept_questions ─ question_prompts
 
 question_prompts
   └── shared_questions
@@ -203,35 +394,141 @@ question_prompts
 
 Better Auth user
   └── reviews ── cases
-       ├── primary_concept_id ── concepts
-       ├── study_concept_id ─── concepts
-       ├── review_questions
-       │    └── source_shared_question_id ── shared_questions (nullable)
-       └── review_assets
+        ├── primary_concept_id ── concepts
+        ├── study_concept_id ─── concepts
+        ├── review_questions
+        │    └── source_shared_question_id ── shared_questions (nullable)
+        └── review_assets
 ```
 
-## 12. Migration history relevant to the current model
+No second Case↔Topic table is required for multi-Topic learner routing.
+
+## 5. Resolved-question algorithm
+
+### Current implemented algorithm
+
+**Tagging Stage B schema foundation does not change this algorithm.** `shared_questions` is not queried by learner Study yet, and normal Review creation does not currently emit `source_type = tag_shared`.
+
+For a selected Case and its resolved Study Concept:
+
+#### Step A — identify canonical and Study Concepts
+
+Read the Case's single `case_concepts.role = primary` link as the canonical/default Concept and use the learner route resolver to supply one attached Study Concept.
+
+Study-Concept precedence is:
+
+1. exact Case link to the Topic explicitly selected by the learner;
+2. otherwise the Case primary/default Concept if it lies in the selected subtree;
+3. otherwise the deepest matching secondary Concept in that subtree;
+4. stable Concept-ID tie-break.
+
+#### Step B — select/freeze stimulus options
+
+Load fixed Case Assets and select exactly one active option from each active Stimulus Group. Those selections are frozen into Review Asset provenance.
+
+#### Step C — collect candidate Prompt/answer pairs
+
+Collect:
+
+1. active `case_questions` for the Case;
+2. active `concept_questions` for the **Study Concept**;
+3. active `concept_questions` on each Study-Concept ancestor where `inherit_to_descendants = true`;
+4. active contextual questions for selected stimulus groups;
+5. active contextual questions for exact selected options.
+
+Do not automatically collect questions from the Case's other attached Concepts. Do not yet collect `shared_questions`; that belongs to the next Stage B behavior PR after migration `0008` has been applied to production D1.
+
+#### Step D — deduplicate by Question Prompt
+
+Current duplicate-prompt precedence remains:
 
 ```text
-0000_dashing_centennial.sql
-0001_better_auth.sql
-0002_optional_stimulus_groups.sql
-0003_multi_topic_study_routing.sql
-0004_resumable_import_jobs.sql
-0005_tag_foundation.sql
-0006_preview_admin_workspace.sql
-0007_image_collections.sql
-0008_tag_shared_questions.sql
+selected stimulus option
+  > stimulus group
+  > Case
+  > Study Concept
+  > closest eligible ancestor Concept
+  > more distant eligible ancestor Concept
 ```
 
-Stage B behavior/authoring introduces **no additional migration**.
+The agreed future Stage B behavior precedence is:
 
-## 13. Intentionally deferred
+```text
+selected stimulus option
+  > stimulus group
+  > Case
+  > exact Study Topic
+  > tag-shared Question
+  > eligible ancestor Topic
+```
 
-- multiple/ANY/ALL reuse scopes;
-- Tag hierarchy or aliases;
-- learner Study-by-Tag;
-- Tag snapshots on Reviews;
-- automatic Tag inference;
-- Asset Tags;
-- Tag fields in Import Package v1.
+That future ordering is not activated by the schema-foundation PR.
+
+#### Step E — question selection and snapshot
+
+Apply the existing Automatic / All / Fixed Case selection mode plus per-group stimulus-specific coverage requirements.
+
+Before serving the Review page, persist:
+
+- `reviews` row with both primary/default and Study Concept provenance;
+- all selected `review_questions` rows;
+- all fixed and selected `review_assets` rows.
+
+The learner page renders the snapshots rather than recalculating the Case on every request.
+
+This prevents a mid-review admin edit from changing the attempt and prevents stimulus rerandomization on refresh.
+
+## 6. Case-selection algorithm
+
+Given a learner-selected active Concept:
+
+1. find that Concept and its active descendants;
+2. find active Cases with **any** `case_concepts` relationship in that set, regardless of primary/secondary role;
+3. deduplicate by Case ID before random selection so several matching Topic links do not increase a Case's weight;
+4. resolve one deterministic Study Concept per Case candidate using the precedence in section 5;
+5. if more than one eligible Case exists, exclude the learner's most recently completed Case from the candidate set when possible;
+6. randomly select one Case;
+7. select/freeze stimulus alternatives, resolve questions, and snapshot the Review;
+8. return the new Review ID.
+
+The `/study` Topic selector uses the same any-relationship subtree rule and counts unique Cases rather than relationship rows.
+
+V1 selection uses history only to avoid an immediate repeat. It does not calculate due dates or spaced-repetition intervals.
+
+## 7. Basic progress queries
+
+V1 admin reporting can be derived from completed `reviews`.
+
+Useful queries include:
+
+- completed review count by learner;
+- `again` versus `good` count by learner;
+- results by canonical/default `primary_concept_id`;
+- results by educational route `study_concept_id`;
+- most recently reviewed Cases;
+- Cases with repeated `again` ratings.
+
+No separate `learner_progress` table is required for V1. Add one only when a real scheduling/mastery model needs persisted derived state.
+
+Stimulus-option provenance may later support additional analytics, but analytics requirements must not drive the content model beyond what is needed to preserve historical Review meaning.
+
+## 8. Deferred schema objects
+
+Do not add these until required by real behaviour:
+
+- `asset_concepts`;
+- `stimulus_option_concepts`;
+- Asset-owned Question tables;
+- finding ontologies;
+- Deck/Collection entities;
+- scheduling/due-state tables;
+- per-question learner mastery;
+- structured marking points;
+- question difficulty/weighting;
+- curricula/cohorts;
+- institutional tenancy;
+- Anki import provenance tables;
+- arbitrary structured laboratory stimuli;
+- answer alternatives/automated marking structures.
+
+Asset/Stimulus→Topic routing remains deliberately deferred unless representative content proves that Case-level Topic validity is insufficient.

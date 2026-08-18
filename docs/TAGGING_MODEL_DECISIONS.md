@@ -1,6 +1,6 @@
 # Tagging Model — Agreed Decisions
 
-_Status: agreed architecture. Stage A, Stage B schema foundation, and Stage B learner behavior/Admin authoring are implemented._
+_Status: agreed architecture. Stage A and the Stage B schema foundation are implemented; Stage B learner behavior and Shared Question Admin authoring remain pending._
 
 _Last updated: 18 August 2026_
 
@@ -10,153 +10,309 @@ Where `PROPOSED_TAGGING_MODEL.md` describes an item as open, possible, or delibe
 
 ## 1. Tags are flat initially
 
-The first implementation uses canonical flat Tags. Tags do not have parent/child relationships. Topic hierarchy remains separate and continues to provide curated learner study routes.
+The first implementation will use canonical flat Tags.
 
-Example Tags may include `Prolonged QTc`, `Hypocalcaemia`, `Post-thyroidectomy`, `Atrial fibrillation`, and `Wellens syndrome`. A future Tag hierarchy may be added only if the real corpus demonstrates a need.
+Tags do not have parent/child relationships in the first implementation. Topic hierarchy remains separate and continues to provide curated learner study routes.
+
+Example Tags may include:
+
+- `Prolonged QTc`
+- `Hypocalcaemia`
+- `Post-thyroidectomy`
+- `Atrial fibrillation`
+- `Wellens syndrome`
+
+A Case may carry any useful combination of Tags without requiring those Tags to sit in a tree.
+
+A future Tag hierarchy may be added only if the real corpus demonstrates a need.
 
 ## 2. Tags are manually curated initially
 
-Administrators assign and curate Tags. The first implementation does not require AI inference, automatic Anki-tag import, or automatic clinical taxonomy generation.
+Administrators assign and curate Tags.
+
+The first implementation does not require AI inference, automatic Anki-tag import, or automatic clinical taxonomy generation.
+
+Future tooling may suggest Tags for administrator approval, but automatic suggestions are outside the first implementation.
 
 ## 3. Initial Tag attachment scope
 
-Tags are supported on Cases and contextual/shared Question entities where the Tag describes the knowledge tested. Individual ECG/image Assets do not need Tag relationships in the first implementation.
+The first implementation should support Tags on:
+
+1. Cases; and
+2. contextual/shared Question entities where the Tag describes the knowledge tested.
+
+Individual ECG/image Assets do not need Tag relationships in the first implementation.
 
 ## 4. Case Tags do not automatically become Question Tags
 
-Case Tags classify the clinical concepts covered by the Case. Question Tags classify the knowledge tested by that Question. A Question must not silently inherit all Tags from its parent Case.
+Case Tags classify the clinical concepts covered by the Case.
 
-The Admin UI may suggest Case Tags as convenient choices, but persisting Question Tags remains an explicit curation action.
+Question Tags classify the knowledge tested by that Question.
+
+A Question must not silently inherit all Tags from its parent Case.
+
+Example:
+
+```text
+Case Tags:
+- Hypocalcaemia
+- Prolonged QTc
+- Post-thyroidectomy
+
+Question:
+What are the causes of hypocalcaemia?
+
+Question Tags:
+- Hypocalcaemia
+```
+
+The Question is not automatically a `Post-thyroidectomy` Question merely because it appears in that Case.
+
+The Admin UI may suggest Case Tags as convenient choices, but persisting Question Tags must remain an explicit curation action.
 
 ## 5. Clinical Tags do not belong directly on question_prompts
 
-`question_prompts` stores reusable wording only. Clinical meaning and answers belong on contextual Question relationships or on `shared_questions`.
+`question_prompts` stores reusable wording only.
+
+A prompt such as:
+
+```text
+What is the diagnosis?
+```
+
+can be used in Cases involving atrial fibrillation, pulmonary embolism, STEMI, electrolyte disorders, and many other contexts.
+
+Clinical meaning and answers therefore belong on contextual Question relationships or on the shared-knowledge Question entity, not on `question_prompts` itself.
 
 ## 6. Question Tags and reuse scope are separate
 
-For reusable/shared knowledge Questions:
+For a reusable/shared knowledge Question, two different properties are required:
 
 ```text
-Shared Question descriptive Tags
+Question Tags
 = What medical knowledge does this Question teach/test?
 
-Reuse Scope Tag
+Reuse scope
 = Which tagged Cases make this Question eligible for reuse?
 ```
 
-Descriptive Tags must never be interpreted as the reuse matching rule. The Reuse Scope Tag is not automatically inserted into `shared_question_tags`.
+Example:
 
-## 7. One reuse-scope Tag per Shared Question initially
+```text
+Question:
+What ECG abnormality is associated with severe hypocalcaemia?
 
-Exactly one `reuse_scope_tag_id` is required for each Shared Question. ANY/ALL/compound Boolean matching remains deferred.
+Answer:
+QT prolongation / prolonged QTc
+
+Question Tags:
+- Hypocalcaemia
+- Prolonged QTc
+
+Reuse scope:
+- Hypocalcaemia
+```
+
+The Question teaches the relationship between hypocalcaemia and prolonged QTc, while remaining eligible across Cases whose relevant shared concept is hypocalcaemia.
+
+The descriptive Question Tags must not be interpreted as the reuse matching rule.
+
+## 7. One reuse-scope Tag per shared Question initially
+
+The first implementation should support exactly one reuse-scope Tag for each shared/tag-reusable Question.
+
+This deliberately avoids introducing ANY/ALL/compound Boolean matching before the real corpus demonstrates that it is required.
+
+If later content requires a Question to be reusable only when several Tags occur together, compound reuse rules can be designed as an additive feature.
 
 ## 8. Reuse scope creates eligibility, not mandatory display
 
-When a Case has an active Tag matching an active Shared Question's `reuse_scope_tag_id`, the Shared Question becomes eligible for the Case question pool. It is not automatically mandatory on every Review.
+When a Case matches the reuse-scope Tag of a shared Question, that Question becomes eligible for the Case question pool.
 
-The implemented eligibility rule is:
+It is not automatically mandatory on every Review.
 
-```text
-shared_questions.is_active = true
-AND question_prompts.is_active = true
-AND question_prompts.preview_session_id IS NULL
-AND tags.is_active = true
-AND case_tags contains (selected production Case, reuse_scope_tag_id)
-```
+Existing Case question-selection behaviour remains responsible for choosing the final learner Question set.
 
-`case_tags` has no relationship-level archive flag in Stage A, so current relationship semantics are the presence of the row plus an active Tag. `shared_question_tags` is not queried for eligibility. Topic/Concept ancestry is not used to infer Tag eligibility.
+This prevents heavily tagged Cases from accumulating an unbounded mandatory list of shared Questions.
 
 ## 9. Resolver precedence
 
-Duplicate Prompt IDs resolve using:
+When the same Question Prompt is available from several sources, the more contextual answer should win.
+
+The agreed first ordering is:
 
 ```text
 selected stimulus option
 > stimulus group
 > Case
-> exact Study Topic/Concept
+> exact Study Topic
 > tag-shared Question
-> nearest eligible inheritable ancestor Topic/Concept
-> more distant eligible ancestors
+> eligible ancestor Topic
 ```
 
-The final candidate pool is deduplicated by `question_prompt_id`. A more contextual source wins over the same Prompt reached through a lower-priority source. This preserves stimulus-specific behavior and prevents a tag-shared answer from overriding Case/stimulus context.
+This preserves the existing principle that exact stimulus and Case context override more generic reusable knowledge.
+
+The behavior PR for shared/tag-reusable Questions must add regression coverage for this precedence and for deduplication by Question Prompt. The schema-foundation PR does **not** change the current learner resolver.
 
 ## 10. Tags are not learner navigation in the first implementation
 
-Tags support Admin curation, search/filtering, cross-cutting content retrieval, and Shared Question reuse. There is no learner-facing Study-by-Tag route in Stage B.
+Tags initially support:
+
+- Admin curation;
+- search and filtering;
+- cross-cutting content retrieval; and
+- shared Question reuse.
+
+The first implementation does not need a learner-facing `Study by Tag` route or Tag filter.
+
+Learner Tag-based study can be considered later when the corpus has enough well-curated Tags to make the behaviour reliable.
 
 ## 11. Review rows do not snapshot Tags initially
 
-Tags remain mutable curation metadata. Reviews snapshot the actual learner-facing Prompt wording and answer. A selected Shared Question is recorded with:
+Tags are initially mutable curation metadata.
 
-```text
-source_type = 'tag_shared'
-source_shared_question_id = <shared_questions.id>
-```
+Reviews should continue to snapshot the actual Case, Study Topic, Questions, answers, and stimuli shown to the learner.
 
-Reviews do not snapshot `reuse_scope_tag_id`, descriptive Tag IDs, or Case Tag IDs. Historical Review content therefore remains stable when Tag curation changes later.
+Tag provenance should be added only if Tags later drive historically meaningful mastery analytics, scheduling, learner reports, or audit requirements.
+
+The Stage B schema foundation adds only `source_shared_question_id` to `review_questions`; it does not snapshot reuse-scope or descriptive Tag IDs.
 
 ## 12. Import Package v1 remains unchanged
 
-The reviewed Import Package v1 does not require Tag fields. Administrators can add Tags during or after curation. A future additive package version may carry reviewed Tags.
+The current reviewed Import Package v1 does not need Tag fields.
+
+Initial ingestion remains:
+
+```text
+Topic/deck
+→ Case
+→ questions
+→ images/stimuli
+```
+
+Administrators can add Tags during or after curation in the application.
+
+A future additive package version may carry already-reviewed Tags, but importing partially structured content must not depend on having a completed clinical Tag taxonomy.
 
 ## 13. No Tag alias/synonym system initially
 
-One manually curated canonical name is used per Tag. Alias/synonym support remains deferred.
+The first implementation uses one manually curated canonical name per Tag.
+
+Examples such as:
+
+```text
+Prolonged QTc
+QT prolongation
+Long QT
+```
+
+should be normalised by administrator curation rather than represented as separate aliases in the first schema.
+
+A future alias/synonym layer may map alternative spellings or terminology to one canonical Tag if search and corpus size make that worthwhile.
 
 ## 14. Cases remain presentation/vignette units
 
-Cases are not merged merely because they share the same Tags or diagnosis. Tags describe overlapping clinical concepts; they do not define Case identity.
+Cases are not merged merely because they share the same Tags or diagnosis.
+
+Several complete-heart-block Cases, for example, may legitimately remain distinct because their vignettes, causes, ECGs, questions, or educational emphasis differ.
+
+The identity rule remains:
+
+```text
+Case
+= one coherent clinical presentation/vignette
+```
+
+Tags describe overlapping clinical concepts; they do not define Case identity.
 
 ## 15. Staged implementation
+
+The architecture is implemented in stages so schema changes, metadata curation, and learner-visible behavior can be reviewed independently.
 
 ### Stage A — Tag foundation and curation
 
 Status: **landed**.
 
-Implemented flat canonical Tags, Case↔Tag relationships, contextual Case Question↔Tag relationships, Admin curation/filtering, and no learner resolver change.
+Implemented:
+
+- `tags`;
+- Case↔Tag relationships;
+- Question-tag relationships at the contextual Case Question level;
+- Admin Tag management;
+- adding/removing Tags from Cases and Case Questions;
+- searching/filtering Cases and Questions by Tag.
+
+Stage A does not change learner Question resolution.
+
+This allows the content corpus to be curated and tagged safely before tag-based reuse affects Reviews.
+
+For Stage A, Question tagging begins at `case_questions`. Shared Question tags belong to Stage B because `shared_questions` did not exist until the Stage B schema foundation.
 
 ### Stage B1 — tag-scoped Shared Question schema foundation
 
-Status: **landed in migration `0008_tag_shared_questions.sql` and applied to production D1 before Stage B2 implementation**.
+Status: **landed in migration `0008_tag_shared_questions.sql`**.
 
-Implemented:
+Implemented schema only:
 
-- `shared_questions` with reusable Prompt, answer, exactly one Reuse Scope Tag and active/archive state;
+- `shared_questions` as reusable medical meaning + answer;
+- exactly one non-null `reuse_scope_tag_id` per Shared Question;
 - `shared_question_tags` for zero or more descriptive Tags;
 - active Shared Question uniqueness by `question_prompt_id` while archived historical rows may coexist;
-- nullable `review_questions.source_shared_question_id`;
-- `tag_shared` Review source type;
-- database triggers preventing Preview-owned Prompts from becoming Shared Questions.
+- nullable `review_questions.source_shared_question_id` provenance;
+- `tag_shared` as a valid future `review_questions.source_type`;
+- preservation of all existing Review Question rows/snapshots/provenance through a conservative table rebuild.
+
+Not implemented in Stage B1:
+
+- Case eligibility from matching Tags;
+- learner resolver integration;
+- `tag_shared` Review creation in normal Study;
+- Automatic / All / Fixed interaction changes;
+- Shared Question Admin authoring UI.
 
 `shared_questions` is global production-curated knowledge and deliberately has no `preview_session_id`.
 
+The production D1 migration must be applied after this schema PR is merged and **before** the Stage B behavior PR is deployed or previewed against the production-backed database.
+
 ### Stage B2 — learner behavior and Shared Question authoring
 
-Status: **implemented on `agent/tagging-stage-b-behavior` for review**.
+Status: **next PR**.
 
-Implemented:
+Implement:
 
-- `/admin/shared-questions` list/create/archive/reactivate workflow;
-- Shared Question detail editing;
-- reuse of an existing active production Question Prompt or creation of new production Prompt wording during Shared Question creation;
-- exactly one active Reuse Scope Tag selector;
-- independent zero-or-more descriptive Tag selection;
-- explicit UI copy that descriptive Tags do not control eligibility;
-- active Case Tag ↔ `reuse_scope_tag_id` eligibility;
-- integration into the existing learner resolver rather than a parallel generator;
-- Prompt-ID deduplication using the precedence in section 9;
-- normal Automatic / All / Fixed selection over the enlarged deduplicated pool;
-- `tag_shared` Review provenance and immutable learner-facing snapshots;
-- Questions Library Prompt-edit blast-radius accounting for Shared Question usages;
-- Preview Prompt rejection at both application and D1-trigger boundaries.
+- Admin Shared Question authoring/curation using the landed schema;
+- Case eligibility from matching `reuse_scope_tag_id` ↔ Case Tag;
+- learner resolver integration;
+- the agreed resolver precedence;
+- interaction with Automatic / All / Fixed selection;
+- Review Question creation with `source_type = tag_shared` and `source_shared_question_id`;
+- deduplication and learner regression coverage.
 
-No migration is introduced by Stage B2. No Worker deployment or production D1 migration is part of this behavior/authoring change.
+This stage changes learner-visible Question eligibility and must remain separate from the schema-foundation PR.
 
 ## 16. Shared Question storage direction
 
-The authoritative separation is:
+The implemented logical model is a dedicated shared-knowledge Question relationship rather than attaching answers or clinical meaning directly to `question_prompts`.
+
+Migration `0008_tag_shared_questions.sql` uses:
+
+```text
+shared_questions
+- id
+- question_prompt_id
+- answer_md
+- reuse_scope_tag_id
+- is_active
+- created_at
+- updated_at
+
+shared_question_tags
+- shared_question_id
+- tag_id
+- created_at
+```
+
+The separation is authoritative:
 
 ```text
 question_prompts
@@ -166,19 +322,65 @@ shared_questions
 = reusable medical meaning + answer
 
 shared_question_tags
-= what the Question tests/describes
+= what the Question tests
 
 reuse_scope_tag_id
 = which tagged Cases make it eligible
 ```
 
-The Reuse Scope Tag is not automatically inserted into `shared_question_tags`.
+The reuse-scope Tag is **not** automatically inserted into `shared_question_tags`. Descriptive Tags and eligibility scope remain independent curation dimensions.
 
 ## 17. ECG Anki corpus validation
 
-The unpacked ECG Anki deck was reviewed as a real-world stress test. Its dominant structure remains naturally compatible with Topic → Case → vignette/ECG → contextual questions. Genuinely repeated medical knowledge can be promoted to Shared Questions later without requiring Cases to be merged or initial ingestion to wait for a complete taxonomy.
+The unpacked ECG Anki deck was reviewed as a real-world stress test before closing this architecture.
+
+The deck contains 66 notes. Every note has one front-side ECG image, and the dominant source structure is:
+
+```text
+clinical vignette
+→ ECG
+→ several subquestions
+→ answers
+```
+
+This maps naturally to the existing application model:
+
+```text
+Topic
+└── Case
+    ├── vignette
+    ├── fixed ECG Asset
+    └── Case Questions
+```
+
+Typical source questions include:
+
+- describe/comment on the ECG;
+- give the diagnosis;
+- causes/risk factors;
+- investigations;
+- management/treatment;
+- clinical signs/symptoms;
+- diagnostic criteria or additional teaching points.
+
+The corpus does not require a redesign of the existing Case, stimulus, or contextual Question schema.
+
+For initial ingestion:
+
+- one Anki note may generally become one Case;
+- the front ECG may be a fixed Case Asset;
+- explicit subquestions may initially become Case Questions;
+- genuinely repeated medical knowledge can be promoted to shared/tag-reusable Questions later;
+- repeated diagnoses do not require Cases to be merged;
+- exact image-dependent Questions may remain Case Questions while a Case has only one fixed ECG, and can be moved to stimulus-option scope if that Case later gains alternative ECGs.
+
+The deck therefore supports the progressive-enrichment approach rather than requiring a complete ontology before import.
+
+Two answer-side images were observed in the source material. This is not sufficient evidence to add answer-image schema in the tagging work; clinically important answer-side content can be transcribed/reviewed during import, with answer-side Asset support reconsidered if future decks demonstrate a recurring need.
 
 ## 18. What remains deliberately deferred
+
+The following are not requirements for the first tagging implementation:
 
 - Tag hierarchy;
 - automatic/AI Tag assignment;
@@ -192,7 +394,11 @@ The unpacked ECG Anki deck was reviewed as a real-world stress test. Its dominan
 - Tag fields in Import Package v1;
 - answer-side image relationships.
 
+These should be revisited only when real content or learner behaviour provides a concrete requirement.
+
 ## 19. Final architecture summary
+
+The agreed model is:
 
 ```text
 TOPIC
@@ -211,13 +417,15 @@ QUESTION PROMPT
 = reusable wording only
 
 SHARED QUESTION
-= reusable Prompt + medical answer
+= reusable prompt + medical answer
 
 SHARED QUESTION TAGS
-= descriptive metadata for what the reusable Question teaches/tests
+= what that reusable knowledge Question teaches/tests
 
 SHARED QUESTION REUSE SCOPE
-= exactly one Case Tag that makes the Question eligible
+= one Case Tag that makes the Question eligible
 ```
 
-The implementation principle remains: attach knowledge at the broadest scope where its answer and educational meaning remain reliably correct, while keeping more specific stimulus and Case context authoritative when scopes overlap.
+The implementation principle remains:
+
+> Attach knowledge at the broadest scope where its answer and educational meaning remain reliably correct, while keeping more specific stimulus and Case context authoritative when scopes overlap.
