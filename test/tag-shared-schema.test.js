@@ -27,12 +27,20 @@ function newDatabase() {
   return sqlite;
 }
 
+/**
+ * @param {DatabaseSync} sqlite
+ * @param {number} [through]
+ */
 function applyMigrations(sqlite, through = migrations.length - 1) {
   for (let index = 0; index <= through; index += 1) sqlite.exec(migrations[index]);
   assert.equal(sqlite.prepare('PRAGMA foreign_keys').get()?.foreign_keys, 1);
   assert.deepEqual(sqlite.prepare('PRAGMA foreign_key_check').all(), []);
 }
 
+/**
+ * @param {DatabaseSync} sqlite
+ * @param {string[]} promptIds
+ */
 function seedReviewParents(sqlite, promptIds) {
   sqlite.exec(`
     INSERT INTO concepts (id, name, slug, is_active)
@@ -66,6 +74,11 @@ function seedReviewParents(sqlite, promptIds) {
   for (const promptId of promptIds) statement.run(promptId, `Prompt ${promptId}`);
 }
 
+/**
+ * @param {DatabaseSync} sqlite
+ * @param {string} id
+ * @param {string} [name]
+ */
 function insertTag(sqlite, id, name = id) {
   sqlite.prepare(`
     INSERT INTO tags (id, name, normalized_name, is_active)
@@ -73,13 +86,18 @@ function insertTag(sqlite, id, name = id) {
   `).run(id, name, name.toLocaleLowerCase());
 }
 
-function insertSharedQuestion(sqlite, {
-  id,
-  promptId,
-  scopeTagId,
-  answer = `Answer ${id}`,
-  active = 1
-}) {
+/**
+ * @param {DatabaseSync} sqlite
+ * @param {{ id: string, promptId: string, scopeTagId: string, answer?: string, active?: number }} input
+ */
+function insertSharedQuestion(sqlite, input) {
+  const {
+    id,
+    promptId,
+    scopeTagId,
+    answer = `Answer ${input.id}`,
+    active = 1
+  } = input;
   sqlite.prepare(`
     INSERT INTO shared_questions (
       id, question_prompt_id, answer_md, reuse_scope_tag_id, is_active
