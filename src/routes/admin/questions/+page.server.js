@@ -2,8 +2,8 @@ import { isNull } from 'drizzle-orm';
 
 import { createDb } from '$lib/server/db/index.js';
 import { listAdminConcepts } from '$lib/server/db/admin-content.js';
-import { listQuestionLibrary } from '$lib/server/db/question-library.js';
 import { questionPrompts } from '$lib/server/db/schema.js';
+import { listQuestionLibraryWithShared } from '$lib/server/db/shared-question-prompt-usage.js';
 import { listActiveTags, listCurrentPromptTagAssignments } from '$lib/server/db/tag-library.js';
 
 export async function load({ platform, url }) {
@@ -20,7 +20,7 @@ export async function load({ platform, url }) {
 
   const db = createDb(platform.env.DB);
   const [questionRows, topics, tags, assignments, productionPromptRows] = await Promise.all([
-    listQuestionLibrary(db, filters),
+    listQuestionLibraryWithShared(db, filters),
     listAdminConcepts(db),
     listActiveTags(db),
     listCurrentPromptTagAssignments(db),
