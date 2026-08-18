@@ -360,6 +360,10 @@ export const reviewQuestions = sqliteTable(
     sourceConceptId: text('source_concept_id').references(() => concepts.id, { onDelete: 'restrict' }),
     sourceStimulusGroupId: text('source_stimulus_group_id').references(() => stimulusGroups.id, { onDelete: 'restrict' }),
     sourceStimulusOptionId: text('source_stimulus_option_id').references(() => stimulusGroupOptions.id, { onDelete: 'restrict' }),
+    // The D1 migration enforces this FK to shared_questions. Declaring it here
+    // would create a schema.js <-> tag-schema.js module cycle for one nullable
+    // provenance field, so Drizzle keeps the column shape without the callback.
+    sourceSharedQuestionId: text('source_shared_question_id'),
     displayOrder: integer('display_order').notNull(),
     promptSnapshotMd: text('prompt_snapshot_md').notNull(),
     answerSnapshotMd: text('answer_snapshot_md').notNull()
@@ -368,9 +372,10 @@ export const reviewQuestions = sqliteTable(
     uniqueIndex('review_questions_review_order_unique').on(table.reviewId, table.displayOrder),
     uniqueIndex('review_questions_review_prompt_unique').on(table.reviewId, table.questionPromptId),
     index('review_questions_prompt_idx').on(table.questionPromptId),
+    index('review_questions_shared_question_idx').on(table.sourceSharedQuestionId),
     check(
       'review_questions_source_type_check',
-      sql`${table.sourceType} in ('case', 'concept', 'ancestor_concept', 'stimulus_group', 'stimulus_option')`
+      sql`${table.sourceType} in ('case', 'concept', 'ancestor_concept', 'stimulus_group', 'stimulus_option', 'tag_shared')`
     ),
     check('review_questions_display_order_nonnegative', sql`${table.displayOrder} >= 0`)
   ]

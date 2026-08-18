@@ -1,8 +1,8 @@
 # Tagging Model — Agreed Decisions
 
-_Status: agreed architecture decision record. Ready to guide implementation after PR #24 merges._
+_Status: agreed architecture. Stage A and the Stage B schema foundation are implemented; Stage B learner behavior and Shared Question Admin authoring remain pending._
 
-_Last updated: 16 August 2026_
+_Last updated: 18 August 2026_
 
 This document closes the open architecture questions in `PROPOSED_TAGGING_MODEL.md` after review against the real unpacked ECG Anki deck.
 
@@ -152,7 +152,7 @@ selected stimulus option
 
 This preserves the existing principle that exact stimulus and Case context override more generic reusable knowledge.
 
-The implementation PR for shared/tag-reusable Questions must add regression coverage for this precedence and for deduplication by Question Prompt.
+The behavior PR for shared/tag-reusable Questions must add regression coverage for this precedence and for deduplication by Question Prompt. The schema-foundation PR does **not** change the current learner resolver.
 
 ## 10. Tags are not learner navigation in the first implementation
 
@@ -174,6 +174,8 @@ Tags are initially mutable curation metadata.
 Reviews should continue to snapshot the actual Case, Study Topic, Questions, answers, and stimuli shown to the learner.
 
 Tag provenance should be added only if Tags later drive historically meaningful mastery analytics, scheduling, learner reports, or audit requirements.
+
+The Stage B schema foundation adds only `source_shared_question_id` to `review_questions`; it does not snapshot reuse-scope or descriptive Tag IDs.
 
 ## 12. Import Package v1 remains unchanged
 
@@ -225,45 +227,74 @@ Tags describe overlapping clinical concepts; they do not define Case identity.
 
 ## 15. Staged implementation
 
-The architecture should be implemented in two stages rather than one large behavioural PR.
+The architecture is implemented in stages so schema changes, metadata curation, and learner-visible behavior can be reviewed independently.
 
 ### Stage A — Tag foundation and curation
 
-Implement:
+Status: **landed**.
+
+Implemented:
 
 - `tags`;
 - Case↔Tag relationships;
-- Question-tag relationships at the appropriate contextual Question level;
+- Question-tag relationships at the contextual Case Question level;
 - Admin Tag management;
-- adding/removing Tags from Cases and Questions;
+- adding/removing Tags from Cases and Case Questions;
 - searching/filtering Cases and Questions by Tag.
 
-Stage A should not change learner Question resolution.
+Stage A does not change learner Question resolution.
 
 This allows the content corpus to be curated and tagged safely before tag-based reuse affects Reviews.
 
-For Stage A, Question tagging should be added only to contextual Question relationship types that the Admin product can safely author and retrieve without changing learner resolution. If supporting every current contextual relationship (`case_questions`, `concept_questions`, `stimulus_group_questions`, and `stimulus_option_questions`) would make Stage A unnecessarily broad, implementation may begin with Case Questions and extend the same relationship pattern additively. Shared Question tags belong to Stage B because `shared_questions` does not exist until then.
+For Stage A, Question tagging begins at `case_questions`. Shared Question tags belong to Stage B because `shared_questions` did not exist until the Stage B schema foundation.
 
-### Stage B — tag-scoped shared Questions
+### Stage B1 — tag-scoped Shared Question schema foundation
+
+Status: **landed in migration `0008_tag_shared_questions.sql`**.
+
+Implemented schema only:
+
+- `shared_questions` as reusable medical meaning + answer;
+- exactly one non-null `reuse_scope_tag_id` per Shared Question;
+- `shared_question_tags` for zero or more descriptive Tags;
+- active Shared Question uniqueness by `question_prompt_id` while archived historical rows may coexist;
+- nullable `review_questions.source_shared_question_id` provenance;
+- `tag_shared` as a valid future `review_questions.source_type`;
+- preservation of all existing Review Question rows/snapshots/provenance through a conservative table rebuild.
+
+Not implemented in Stage B1:
+
+- Case eligibility from matching Tags;
+- learner resolver integration;
+- `tag_shared` Review creation in normal Study;
+- Automatic / All / Fixed interaction changes;
+- Shared Question Admin authoring UI.
+
+`shared_questions` is global production-curated knowledge and deliberately has no `preview_session_id`.
+
+The production D1 migration must be applied after this schema PR is merged and **before** the Stage B behavior PR is deployed or previewed against the production-backed database.
+
+### Stage B2 — learner behavior and Shared Question authoring
+
+Status: **next PR**.
 
 Implement:
 
-- the shared/tag-reusable Question entity;
-- one reuse-scope Tag per shared Question;
-- descriptive Question Tags on shared Questions;
-- Case eligibility from reuse-scope Tags;
+- Admin Shared Question authoring/curation using the landed schema;
+- Case eligibility from matching `reuse_scope_tag_id` ↔ Case Tag;
 - learner resolver integration;
 - the agreed resolver precedence;
 - interaction with Automatic / All / Fixed selection;
-- Review Question snapshot/provenance regression coverage.
+- Review Question creation with `source_type = tag_shared` and `source_shared_question_id`;
+- deduplication and learner regression coverage.
 
-This stage changes learner-visible Question eligibility and therefore should be reviewed separately from metadata/Admin tooling.
+This stage changes learner-visible Question eligibility and must remain separate from the schema-foundation PR.
 
 ## 16. Shared Question storage direction
 
-The agreed logical model is a dedicated shared-knowledge Question relationship rather than attaching answers or clinical meaning directly to `question_prompts`.
+The implemented logical model is a dedicated shared-knowledge Question relationship rather than attaching answers or clinical meaning directly to `question_prompts`.
 
-A suitable first schema direction is:
+Migration `0008_tag_shared_questions.sql` uses:
 
 ```text
 shared_questions
@@ -278,9 +309,10 @@ shared_questions
 shared_question_tags
 - shared_question_id
 - tag_id
+- created_at
 ```
 
-This is the intended semantic shape for the implementation PR. Exact table and column names may follow repository conventions, but the separation must remain:
+The separation is authoritative:
 
 ```text
 question_prompts
@@ -295,6 +327,8 @@ shared_question_tags
 reuse_scope_tag_id
 = which tagged Cases make it eligible
 ```
+
+The reuse-scope Tag is **not** automatically inserted into `shared_question_tags`. Descriptive Tags and eligibility scope remain independent curation dimensions.
 
 ## 17. ECG Anki corpus validation
 

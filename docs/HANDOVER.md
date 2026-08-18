@@ -1,36 +1,29 @@
 # Flash-Cards agent handover
 
-_Refreshed: 17 August 2026_
+_Refreshed: 18 August 2026_
 
 ## Current outcome
 
-The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A, and the reviewed/resumable content-import path.
+The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A, Image Management V2, a wide responsive Admin workspace, and the reviewed/resumable content-import path.
 
-Recent merged infrastructure/product milestones are:
+Recent merged infrastructure/product milestones include:
 
 - PR #29 — Admin Case image-authoring workflow;
 - PR #30 — Production-backed Preview Admin workspace;
 - PR #31 — production Admin identity reuse for Preview through `admin,preview_admin`;
 - PR #32 — Restore Main to Preview workflow;
-- PR #33 — Image Management V2 planning and refreshed product roadmap.
+- PR #33 — Image Management V2 planning and refreshed product roadmap;
+- PR #34 — Image Management V2, including migration `0007_image_collections.sql`;
+- PR #40 — wide responsive Admin workspace.
 
-**Draft PR #34 (`agent/image-management-v2`) is the current Image Management V2 implementation.** It is based on the post-PR-#33 `main`, remains a draft, adds D1 migration `0007_image_collections.sql` and does not modify `wrangler.jsonc`.
+Tagging Stage B is now split deliberately:
 
-Its implemented Admin workflow includes:
+1. **schema foundation** — migration `0008_tag_shared_questions.sql`, Shared Question tables, and Review provenance;
+2. **behavior/authoring** — learner Tag matching/resolution plus Shared Question Admin authoring.
 
-- 60-item server-backed Image Library pages with exact matching counts;
-- deterministic search/filter/sort pagination;
-- cross-page explicit selection within one canonical query context;
-- exact `Select all N matching images` up to 300 Assets and explicit refusal above 300;
-- retention of the 30-Asset server mutation bound with sequential client chunks for larger selections;
-- visible progress and stop-on-first-failure completed/remaining accounting;
-- an identity-preserving same-Case `stimulus_group_option` Move between active alternative sets;
-- production/Preview ownership enforcement for every new relationship workflow;
-- unchanged learner stimulus and Review semantics.
+The schema foundation is the current landed code direction in this PR. It does **not** change learner Question eligibility and does **not** add the Shared Question Admin UI. After this PR merges, `0008_tag_shared_questions.sql` must be applied to production D1 through the normal reviewed migration path before the Stage B behavior PR is deployed or Preview-tested against the production-backed database.
 
-It also adds Image Library Collections: Topic remains educational Case classification, Tag remains cross-cutting clinical metadata, and Collection is a separate organisational bucket. Each Asset has zero or one Collection; null is displayed as Unsorted. Production Admin can create, rename and delete Collections, filter/sort by them, assign selected Assets in bounded sequential chunks, reset them to Unsorted and edit one Asset's Collection. Deleting a Collection preserves all Assets and relationships and moves its images to Unsorted after confirmation. Preview can display/filter/sort the global metadata but cannot create, rename, delete or mutate production assignments.
-
-The next major product-facing implementation track after Image Management V2 is **Tagging Stage B/shared tag-reusable Questions**, while ECG/Anki content ingestion continues in parallel.
+No Worker deployment or production D1 migration belongs in the schema-foundation PR itself.
 
 ## Read first
 
@@ -65,7 +58,7 @@ Topic
 
 `concepts` are Topics in Admin UI. A Case has one primary/default Topic and may have additional Study Topics through `case_concepts`.
 
-Questions belong at the highest context where the answer remains correct:
+Questions belong at the highest context where the answer remains correct. The currently active learner scopes remain:
 
 ```text
 reusable Topic
@@ -74,69 +67,35 @@ reusable Topic
 → exact stimulus option
 ```
 
-Tags are cross-cutting metadata. Case Tags and contextual Case Question Tags do not replace Topic/Case ownership.
+Tagging Stage B adds a schema object for another reusable knowledge scope without activating it yet:
+
+```text
+question_prompts
+= reusable wording only
+
+shared_questions
+= reusable medical meaning + answer
+
+shared_question_tags
+= descriptive knowledge tested
+
+reuse_scope_tag_id
+= exactly one Case Tag that will make the Shared Question eligible
+```
+
+Tags are cross-cutting metadata. Case Tags and contextual Case Question Tags do not replace Topic/Case ownership. The reuse-scope Tag is separate from descriptive Shared Question Tags and is not automatically copied into `shared_question_tags`.
 
 Case-specific image captions remain relationship metadata. Exact-image questions stay attached to their exact `stimulus_group_option`. A Case-specific `stimulus_group` is a learner alternative-stimulus concept, not a generic media folder.
 
-## Image Management V2 implementation boundary
+## Image Management V2 baseline
 
-Draft PR #34 extends the PR #29 baseline without flattening image relationships.
+Image Management V2 is merged. `/admin/images` and `/preview-admin/images` use 60-item server pages with exact matching counts, deterministic search/filter/sort pagination, cross-page explicit selection within one canonical query context, exact Select All up to 300 Assets, and the retained 30-Asset server mutation bound with sequential client chunks for larger explicit selections.
 
-### Paginated Image Library
+Same-Case option Move preserves `stimulus_group_options.id`, Asset identity, Case-specific caption, active state and exact-option questions while changing the parent alternative set. Cross-Case/ownership/conflict/coverage-invalid moves are rejected.
 
-`/admin/images` and `/preview-admin/images` use 60-item server pages. The server provides exact result count, normalized current page and total pages. Stable Asset-ID tie-breakers make each sort deterministic. Applying a changed search/filter/sort query starts on page 1.
+Image Collections are organisational metadata separate from Topics and Tags. An Asset has zero or one Collection; deleting a Collection preserves Assets and relationships and returns affected images to Unsorted.
 
-Only the current bounded Asset page is loaded for rendering. Production Image Library reads exclude Preview-owned Assets and exclude Preview Case relationships from production usage counts.
-
-### Cross-page selection
-
-Explicit selected Asset IDs persist while navigating page 1 -> page 2 within the same canonical search/filter/sort query.
-
-Changing search text, Topic, usage, active/inactive, source, or sort clears the old selection universe. Page number alone does not. Ctrl/Cmd and touch Select mode remain explicit-ID operations. Shift ranges remain limited to the currently loaded page/order. `Clear selection` clears all cross-page IDs and the Shift anchor.
-
-The Case-editor Asset picker remains a separate bounded workflow and retains hidden-result pruning.
-
-### Exact Select All
-
-The exact all-matching cap is 300 Assets.
-
-- `<=300`: the server resolves the exact matching Asset IDs;
-- `>300`: Select All is refused and the Admin must narrow the query;
-- there is no silent first-300 truncation and no implicit selection token.
-
-### Bulk mutation bound
-
-The server still accepts at most 30 unique Asset IDs per relationship-write request. Larger explicit selections are split into sequential <=30-ID requests, with only one request in flight at a time.
-
-Each request independently revalidates authorization, Asset validity, target Case/group ownership, relationship conflicts and coverage. If a chunk fails, later chunks stop, earlier commits remain, and failed/unprocessed IDs remain selected where practical.
-
-There is no persistent bulk-job table in V2.
-
-### Same-Case option Move
-
-Schema inspection confirmed that `stimulus_group_options.id` can remain stable while `stimulus_group_id` changes. Exact-option questions reference the option ID, so V2 safely updates the existing option row rather than delete/recreate.
-
-The Case editor therefore exposes **Move to another set…** only on an existing alternative-option card. It supports:
-
-```text
-Case A / Set 1 / existing option
-→ Case A / Set 2
-```
-
-It preserves:
-
-- option ID;
-- Asset identity;
-- Case-specific caption;
-- active state;
-- exact-option Question relationships/answers;
-- other option-owned metadata.
-
-The target receives the next valid display order. Group-level questions remain attached to their original groups.
-
-Move rejects cross-Case targets, inactive/missing source or target relationships, duplicate target membership, ownership violations and moves that violate current stimulus-specific coverage/fixed Case question-count constraints.
-
-Fixed `case_assets` conversion remains a separate explicit authoring operation. Case Questions are never automatically re-scoped as exact-image questions.
+Image management does not change learner stimulus semantics or Review snapshots/provenance.
 
 ## Production-backed Preview Admin workspace
 
@@ -154,17 +113,21 @@ Preview Worker:    flash-cards-preview
 
 No second D1 or R2 resource is part of this design. The safety model is clone then mutate, never mutate production and roll back later.
 
-Preview may browse/search/filter/paginate/select production Assets read-only. V2 Preview bulk Add may target only current-session Preview-owned active stimulus groups. Preview Move may move only a current-session Preview-owned option between Preview-owned active groups in the same Preview-owned Case.
+Preview may browse/search/filter/paginate/select production Assets read-only. Preview bulk relationship writes may target only current-session Preview-owned Cases/groups/options where the existing contracts allow them.
 
 Preview must never mutate production Case rows, production Asset metadata, production R2 objects or production stimulus relationships.
+
+`shared_questions` is deliberately **not** Preview-owned and has no `preview_session_id`. It is a global production-curated knowledge object.
+
+Because Preview uses production D1, the Deploy PR to Preview workflow blocks schema/migration candidates. Therefore the Stage B schema-foundation PR is not a Preview-deployable candidate. Merge it, apply `0008` to production D1 normally, then keep the subsequent behavior/Admin PR schema-free if practical so it can be inspected safely in Preview.
 
 ## Shared Case editor contract
 
 Preview renders the real production Case-editor Svelte component. It does not maintain a copied editor UI.
 
-`test/admin-editor-preview-contract.test.js` remains the contract for shared named form actions/data. New V2 Move uses matched production/Preview relationship endpoints rather than introducing an unmatched named `?/` action.
+`test/admin-editor-preview-contract.test.js` remains the contract for shared named form actions/data. Any future named shared-editor action must have a safe Preview implementation or an explicit named `403` block.
 
-Any future named shared-editor action must still have a safe Preview implementation or an explicit named `403` block.
+The Stage B schema-foundation PR adds no Shared Question UI and therefore does not alter this contract.
 
 ## Critical request/data isolation
 
@@ -187,6 +150,8 @@ Normal Review loading also excludes Preview-owned Question Prompts and Assets, a
 
 Normal production Admin libraries/counts/details continue excluding disposable Preview ownership.
 
+The Stage B schema-foundation PR does not change learner resolution. `src/lib/server/db/learning.js` and `src/lib/server/learning/questions.js` continue to resolve only the existing Case/Topic/stimulus sources.
+
 ## Preview reset/deployment lifecycle
 
 V1 supports one live workspace per Preview Admin with a 24-hour expiry. Reset deletes only explicitly Preview-owned rows and Preview R2 objects under:
@@ -199,7 +164,7 @@ Cleanup is idempotent; failed cleanup is surfaced and retried later.
 
 Manual **Deploy PR to Preview** resolves an exact open same-repository PR head targeting `main`, blocks migration/schema/`wrangler.jsonc` candidates, runs standard validation, deploys only `--env preview`, and never runs a remote migration.
 
-Normal lifecycle:
+Normal lifecycle for Preview-compatible PRs:
 
 ```text
 main on Preview
@@ -210,7 +175,7 @@ main on Preview
 → next PR
 ```
 
-For draft PR #34, human review should follow the exact Image Management V2 procedure in `IMAGE_MANAGEMENT_V2_PLAN.md` and the PR description after CI is green.
+Do not use that workflow for the Stage B schema-foundation PR.
 
 ## Current migrations
 
@@ -223,9 +188,23 @@ For draft PR #34, human review should follow the exact Image Management V2 proce
 0005_tag_foundation.sql
 0006_preview_admin_workspace.sql
 0007_image_collections.sql
+0008_tag_shared_questions.sql
 ```
 
-Draft PR #34 adds `0007_image_collections.sql`; the migration/schema foundation must be reviewed and applied first. Because the Preview workflow blocks schema-bearing diffs, PR #34 must then be rebased/updated so those already-landed files are no longer in its diff before its code-only head is used against the production-backed Preview database.
+`0008_tag_shared_questions.sql` adds:
+
+- `shared_questions`;
+- `shared_question_tags`;
+- one non-null `reuse_scope_tag_id` per Shared Question;
+- at most one active Shared Question per `question_prompt_id` via a partial unique index, while inactive history may coexist;
+- nullable `review_questions.source_shared_question_id` with `ON DELETE RESTRICT`;
+- `tag_shared` as an allowed Review Question source type.
+
+SQLite/D1 cannot alter the existing Review source-type CHECK in place, so `0008` conservatively rebuilds `review_questions`. The migration copies every existing Review Question ID, Review ID, Prompt ID, source type, Concept/stimulus provenance, display order, prompt snapshot and answer snapshot unchanged, initializes `source_shared_question_id` to `NULL`, then recreates the existing unique/index constraints plus a shared-provenance lookup index.
+
+The migration does not seed production content and does not snapshot Tag IDs onto Reviews.
+
+**Operational gate:** this PR must not apply `0008` remotely. After merge, apply `0008` to production D1 before starting/deploying the Stage B behavior PR.
 
 ## Admin UI state
 
@@ -249,11 +228,13 @@ The Case editor order remains:
 Topics → Case → Images → Case questions → Preview
 ```
 
-There is still no global Asset-folder schema, Asset Tag model or generic library-wide Move. Do not reinterpret stimulus groups as media folders.
+There is **no Shared Question Admin authoring UI yet**. Do not add one in the schema-foundation PR.
+
+There is still no Asset Tag model or generic library-wide stimulus Move. Do not reinterpret stimulus groups as media folders.
 
 ## Tagging state
 
-Stage A is merged:
+### Stage A — merged
 
 - flat canonical Tags;
 - Case↔Tag;
@@ -263,14 +244,39 @@ Stage A is merged:
 - no clinical Tags on `question_prompts`;
 - no learner resolver change.
 
-Stage B remains pending:
+### Stage B schema foundation — landed in this PR
 
-- dedicated shared/tag-reusable Question entity;
-- descriptive shared Question Tags;
-- one reuse-scope Tag initially;
-- matching Case Tag creates eligibility, not mandatory inclusion;
+- dedicated `shared_questions` entity;
+- descriptive `shared_question_tags`;
+- exactly one reuse-scope Tag per Shared Question;
+- active-prompt uniqueness with archived history allowed;
+- future `tag_shared` Review source type and Shared Question provenance;
+- no Preview ownership column;
+- no learner behavior change;
+- no Shared Question Admin UI.
+
+### Stage B behavior/authoring — next PR
+
+Implement only after production D1 has `0008`:
+
+- matching Case Tag creates Shared Question eligibility, not mandatory inclusion;
+- Shared Question Admin authoring/curation;
 - learner resolver integration using the agreed precedence;
-- Review provenance/snapshot and deduplication regression coverage.
+- Prompt deduplication;
+- Automatic / All / Fixed interaction;
+- Review creation with `source_type = tag_shared` and `source_shared_question_id`;
+- learner/regression coverage.
+
+Agreed future precedence:
+
+```text
+selected stimulus option
+> stimulus group
+> Case
+> exact Study Topic
+> tag-shared Question
+> eligible ancestor Topic
+```
 
 ## R2 rules
 
@@ -278,7 +284,7 @@ Teaching images remain private. All production/Preview image writes continue thr
 
 Production teaching-image keys are immutable. Preview uploads use only the isolated Preview prefix and are cleaned during Reset after ownership/usage checks. Reviewed import staging remains separate operational data and is not an Asset.
 
-Image Management V2 changes only relationship/query workflows; it does not rename/delete production R2 objects.
+Tagging Stage B schema work does not change R2.
 
 ## Authentication boundaries
 
@@ -302,22 +308,22 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-PR CI covers these checks. Do not call draft PR #34 ready for human review until its final head is green.
+PR CI covers this exact validation set. The Stage B schema-foundation PR is not ready for merge consideration until its final head is green.
 
 ## Next intended implementation workflow
 
-After Image Management V2 is reviewed/merged, proceed from fresh current `main` with Tagging Stage B or continued content-ingestion work. For every Preview-deployable Admin PR:
+For Stage B specifically:
 
 ```text
-start from current main
-→ preserve product/data model boundaries
-→ avoid migration/wrangler changes where possible
-→ maintain Preview ownership/contracts in the same PR
+merge schema-foundation PR
+→ apply 0008_tag_shared_questions.sql to production D1
+→ confirm production schema is current
+→ start fresh behavior/authoring branch from current main
+→ implement Shared Question Admin authoring + Tag eligibility + resolver integration
+→ preserve current precedence/Review snapshot guarantees
 → get CI green
-→ Deploy PR to Preview
-→ exercise disposable Preview relationships
-→ confirm production source unchanged
-→ Reset Preview Workspace
-→ Restore Main to Preview
-→ merge only after human review
+→ if the behavior PR is schema-free, Deploy PR to Preview for human review
+→ merge only after review
 ```
+
+ECG/Anki content ingestion may continue in parallel, but should not depend on learner tag-shared behavior until the behavior PR lands.
