@@ -134,36 +134,38 @@ export async function createSharedQuestion(db, input) {
   if (questionPromptId && promptMd) {
     throw new SharedQuestionInputError('Choose an existing Question Prompt or provide new wording, not both.');
   }
-  const writes = [];
+
+  let promptWrite = null;
   if (questionPromptId) {
     await requireActiveProductionPrompt(db, questionPromptId);
   } else {
     const wording = requiredText(promptMd, 'New Question Prompt wording');
     questionPromptId = crypto.randomUUID();
-    writes.push(db.insert(questionPrompts).values({
+    promptWrite = db.insert(questionPrompts).values({
       id: questionPromptId,
       promptMd: wording,
       previewSessionId: null,
       isActive: true
-    }));
+    });
   }
   await requirePromptAvailable(db, questionPromptId);
 
   const id = crypto.randomUUID();
-  writes.push(db.insert(sharedQuestions).values({
+  const sharedWrite = db.insert(sharedQuestions).values({
     id,
     questionPromptId,
     answerMd,
     reuseScopeTagId,
     isActive: true
-  }));
-  if (descriptiveTagIds.length) {
-    writes.push(db.insert(sharedQuestionTags).values(
-      descriptiveTagIds.map((tagId) => ({ sharedQuestionId: id, tagId }))
-    ));
-  }
-  if (typeof db.batch === 'function') await db.batch(writes);
-  else for (const write of writes) await write;
+  });
+  const tagWrite = descriptiveTagIds.length
+    ? db.insert(sharedQuestionTags).values(descriptiveTagIds.map((tagId) => ({ sharedQuestionId: id, tagId })))
+    : null;
+
+  if (promptWrite && tagWrite) await db.batch([promptWrite, sharedWrite, tagWrite]);
+  else if (promptWrite) await db.batch([promptWrite, sharedWrite]);
+  else if (tagWrite) await db.batch([sharedWrite, tagWrite]);
+  else await db.batch([sharedWrite]);
   return id;
 }
 
@@ -185,22 +187,19 @@ export async function updateSharedQuestion(db, input) {
   await requireActiveDescriptiveTags(db, descriptiveTagIds);
   if (current[0].isActive) await requirePromptAvailable(db, questionPromptId, id);
 
-  const writes = [
-    db.update(sharedQuestions).set({
-      questionPromptId,
-      answerMd,
-      reuseScopeTagId,
-      updatedAt: new Date()
-    }).where(eq(sharedQuestions.id, id)),
-    db.delete(sharedQuestionTags).where(eq(sharedQuestionTags.sharedQuestionId, id))
-  ];
-  if (descriptiveTagIds.length) {
-    writes.push(db.insert(sharedQuestionTags).values(
-      descriptiveTagIds.map((tagId) => ({ sharedQuestionId: id, tagId }))
-    ));
-  }
-  if (typeof db.batch === 'function') await db.batch(writes);
-  else for (const write of writes) await write;
+  const updateWrite = db.update(sharedQuestions).set({
+    questionPromptId,
+    answerMd,
+    reuseScopeTagId,
+    updatedAt: new Date()
+  }).where(eq(sharedQuestions.id, id));
+  const deleteTagWrite = db.delete(sharedQuestionTags).where(eq(sharedQuestionTags.sharedQuestionId, id));
+  const insertTagWrite = descriptiveTagIds.length
+    ? db.insert(sharedQuestionTags).values(descriptiveTagIds.map((tagId) => ({ sharedQuestionId: id, tagId })))
+    : null;
+
+  if (insertTagWrite) await db.batch([updateWrite, deleteTagWrite, insertTagWrite]);
+  else await db.batch([updateWrite, deleteTagWrite]);
 }
 
 /** @param {LearningDb} db @param {{ id: unknown, isActive: unknown }} input */
