@@ -66,6 +66,7 @@ function resolvedQuestion(
   sourceStimulusOptionId = null,
   sourceSharedQuestionId = null
 ) {
+  /** @type {ResolvedQuestion} */
   const resolved = {
     questionPromptId: item.questionPromptId,
     promptMd: item.promptMd,
