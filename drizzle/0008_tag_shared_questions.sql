@@ -21,6 +21,30 @@ CREATE UNIQUE INDEX `shared_questions_active_prompt_unique`
   ON `shared_questions` (`question_prompt_id`)
   WHERE `is_active` = true;
 --> statement-breakpoint
+-- Shared Questions are global production-curated knowledge. A disposable Preview
+-- Prompt must never become their reusable wording or block Preview cleanup.
+CREATE TRIGGER `shared_questions_reject_preview_prompt_insert`
+BEFORE INSERT ON `shared_questions`
+WHEN EXISTS (
+  SELECT 1 FROM `question_prompts`
+  WHERE `question_prompts`.`id` = NEW.`question_prompt_id`
+    AND `question_prompts`.`preview_session_id` IS NOT NULL
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Preview Question Prompts cannot back Shared Questions');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `shared_questions_reject_preview_prompt_update`
+BEFORE UPDATE OF `question_prompt_id` ON `shared_questions`
+WHEN EXISTS (
+  SELECT 1 FROM `question_prompts`
+  WHERE `question_prompts`.`id` = NEW.`question_prompt_id`
+    AND `question_prompts`.`preview_session_id` IS NOT NULL
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Preview Question Prompts cannot back Shared Questions');
+END;
+--> statement-breakpoint
 CREATE TABLE `shared_question_tags` (
   `shared_question_id` text NOT NULL,
   `tag_id` text NOT NULL,
