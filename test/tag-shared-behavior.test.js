@@ -28,8 +28,10 @@ function fixture() {
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(migrationSql);
   const d1 = /** @type {any} */ ({
+    /** @param {string} sql */
     prepare(sql) {
       return {
+        /** @param {...any} params */
         bind(...params) {
           return {
             async all() { return { results: sqlite.prepare(sql).all(...params) }; },
@@ -42,6 +44,7 @@ function fixture() {
         }
       };
     },
+    /** @param {any[]} statements */
     async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); }
   });
   return { sqlite, db: createDb(/** @type {D1Database} */ (d1)) };
@@ -148,7 +151,13 @@ test('resolver deduplicates by Prompt ID and context-specific sources outrank ta
 });
 
 test('multiple matching Shared Questions participate normally in Automatic, All, and Fixed selection', async () => {
-  for (const [mode, count, expected] of [['automatic', null, 3], ['all', null, 5], ['fixed', 2, 2]]) {
+  /** @type {{ mode: 'automatic'|'all'|'fixed', count: number|null, expected: number }[]} */
+  const scenarios = [
+    { mode: 'automatic', count: null, expected: 3 },
+    { mode: 'all', count: null, expected: 5 },
+    { mode: 'fixed', count: 2, expected: 2 }
+  ];
+  for (const { mode, count, expected } of scenarios) {
     const f = fixture();
     try {
       addCase(f.sqlite, { mode, count });
