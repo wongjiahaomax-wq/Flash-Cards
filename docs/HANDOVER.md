@@ -229,6 +229,8 @@ Draft PR #34 adds `0007_image_collections.sql`; the migration/schema foundation 
 
 ## Admin UI state
 
+The shared Admin shell intentionally supports a wide desktop content-management workspace: it uses a larger responsive maximum width while retaining an approximately 210px navigation rail, a bounded outer gutter, and a fluid gap before the main content. Wide pages such as Image Library should use that available width; form-heavy pages may still constrain their own readable fields. Responsive grids should adapt to available space with intrinsic minimum card sizes rather than assuming a fixed desktop column count.
+
 Production Admin surfaces remain:
 
 ```text

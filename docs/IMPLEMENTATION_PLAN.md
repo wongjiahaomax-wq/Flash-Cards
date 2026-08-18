@@ -28,6 +28,8 @@ Implemented/merged baseline includes:
 
 Real ECG/Anki migration and curation continue in parallel as content work.
 
+The Admin shell now intentionally provides a wide responsive desktop workspace for content-management surfaces. Image grids should adapt to the available width with useful minimum card sizes, while form-heavy Admin pages may constrain their own readable widths.
+
 ## Milestone 0 — V1 content contract
 
 Status: **complete baseline; extensions remain additive/backward-compatible**.
