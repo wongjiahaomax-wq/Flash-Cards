@@ -45,13 +45,25 @@ async function requireActiveTag(db, tagId) {
   if (!row[0]) throw new SharedQuestionInputError('The selected Reuse Scope Tag is missing or inactive.');
 }
 
-/** @param {LearningDb} db @param {string[]} tagIds */
-async function requireActiveDescriptiveTags(db, tagIds) {
+/**
+ * New descriptive relationships require active Tags. Existing inactive
+ * descriptive relationships may be retained during an edit so ordinary
+ * metadata changes do not silently erase curated history.
+ *
+ * @param {LearningDb} db
+ * @param {string[]} tagIds
+ * @param {Set<string>} [retainedInactiveTagIds]
+ */
+async function requireAllowedDescriptiveTags(db, tagIds, retainedInactiveTagIds = new Set()) {
   if (!tagIds.length) return;
-  const rows = await db.select({ id: tags.id }).from(tags)
-    .where(and(inArray(tags.id, tagIds), eq(tags.isActive, true)));
+  const rows = await db.select({ id: tags.id, isActive: tags.isActive }).from(tags)
+    .where(inArray(tags.id, tagIds));
   if (rows.length !== tagIds.length) {
-    throw new SharedQuestionInputError('Every descriptive Tag must exist and be active.');
+    throw new SharedQuestionInputError('Every descriptive Tag must exist.');
+  }
+  const invalidInactive = rows.some((row) => !row.isActive && !retainedInactiveTagIds.has(row.id));
+  if (invalidInactive) {
+    throw new SharedQuestionInputError('New descriptive Tag assignments must use active Tags.');
   }
 }
 
@@ -127,7 +139,7 @@ export async function createSharedQuestion(db, input) {
   const reuseScopeTagId = requiredId(input.reuseScopeTagId, 'Reuse Scope Tag');
   const descriptiveTagIds = uniqueIds(input.descriptiveTagIds);
   await requireActiveTag(db, reuseScopeTagId);
-  await requireActiveDescriptiveTags(db, descriptiveTagIds);
+  await requireAllowedDescriptiveTags(db, descriptiveTagIds);
 
   let questionPromptId = String(input.questionPromptId ?? '').trim();
   const promptMd = String(input.promptMd ?? '').trim();
@@ -179,12 +191,21 @@ export async function updateSharedQuestion(db, input) {
   const answerMd = requiredText(input.answerMd, 'Answer');
   const reuseScopeTagId = requiredId(input.reuseScopeTagId, 'Reuse Scope Tag');
   const descriptiveTagIds = uniqueIds(input.descriptiveTagIds);
-  const current = await db.select({ id: sharedQuestions.id, isActive: sharedQuestions.isActive })
-    .from(sharedQuestions).where(eq(sharedQuestions.id, id)).limit(1);
+  const [current, currentTagRows] = await Promise.all([
+    db.select({ id: sharedQuestions.id, isActive: sharedQuestions.isActive })
+      .from(sharedQuestions).where(eq(sharedQuestions.id, id)).limit(1),
+    db.select({ tagId: sharedQuestionTags.tagId, tagIsActive: tags.isActive })
+      .from(sharedQuestionTags)
+      .innerJoin(tags, eq(tags.id, sharedQuestionTags.tagId))
+      .where(eq(sharedQuestionTags.sharedQuestionId, id))
+  ]);
   if (!current[0]) throw new SharedQuestionInputError('Shared Question not found.');
+  const retainedInactiveTagIds = new Set(
+    currentTagRows.filter((row) => !row.tagIsActive).map((row) => row.tagId)
+  );
   await requireActiveProductionPrompt(db, questionPromptId);
   await requireActiveTag(db, reuseScopeTagId);
-  await requireActiveDescriptiveTags(db, descriptiveTagIds);
+  await requireAllowedDescriptiveTags(db, descriptiveTagIds, retainedInactiveTagIds);
   if (current[0].isActive) await requirePromptAvailable(db, questionPromptId, id);
 
   const updateWrite = db.update(sharedQuestions).set({
