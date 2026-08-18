@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 
 import { createDb } from '$lib/server/db/index.js';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
+import { listSharedQuestionTagUsages, listTagsWithSharedQuestionUsage } from '$lib/server/db/tag-shared-usage.js';
 import {
   addCaseQuestionTag,
   addCaseTag,
@@ -11,7 +12,6 @@ import {
   listCaseTagAssignments,
   listTaggableCaseQuestions,
   listTaggableCases,
-  listTags,
   removeCaseQuestionTag,
   removeCaseTag,
   renameTag,
@@ -32,18 +32,20 @@ export async function load({ platform, url }) {
       caseQuestions: [],
       caseAssignments: [],
       questionAssignments: [],
+      sharedQuestionUsages: [],
       filters
     };
   }
 
   const db = createDb(platform.env.DB);
-  const [tagRows, activeTags, cases, caseQuestions, caseAssignments, questionAssignments] = await Promise.all([
-    listTags(db, { search: filters.search }),
+  const [tagRows, activeTags, cases, caseQuestions, caseAssignments, questionAssignments, sharedQuestionUsages] = await Promise.all([
+    listTagsWithSharedQuestionUsage(db, { search: filters.search }),
     listActiveTags(db),
     listTaggableCases(db),
     listTaggableCaseQuestions(db),
     listCaseTagAssignments(db),
-    listCaseQuestionTagAssignments(db)
+    listCaseQuestionTagAssignments(db),
+    listSharedQuestionTagUsages(db)
   ]);
 
   return {
@@ -57,6 +59,9 @@ export async function load({ platform, url }) {
     questionAssignments: filters.tagId
       ? questionAssignments.filter((assignment) => assignment.tagId === filters.tagId)
       : questionAssignments,
+    sharedQuestionUsages: filters.tagId
+      ? sharedQuestionUsages.filter((usage) => usage.tagId === filters.tagId)
+      : sharedQuestionUsages,
     filters
   };
 }
