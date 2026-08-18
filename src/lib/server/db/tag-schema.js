@@ -8,7 +8,7 @@ import {
   uniqueIndex
 } from 'drizzle-orm/sqlite-core';
 
-import { caseQuestions, cases } from './schema.js';
+import { caseQuestions, cases, questionPrompts } from './schema.js';
 
 /** @param {string} name */
 const timestamp = (name) =>
@@ -78,5 +78,54 @@ export const caseQuestionTags = sqliteTable(
   (table) => [
     primaryKey({ columns: [table.caseQuestionId, table.tagId], name: 'case_question_tags_pk' }),
     index('case_question_tags_tag_question_idx').on(table.tagId, table.caseQuestionId)
+  ]
+);
+
+/**
+ * Reusable medical meaning and answer for Tag-scoped reuse.
+ *
+ * question_prompts remains wording only. reuse_scope_tag_id is exactly one
+ * eligibility Tag and is deliberately independent from descriptive Tags.
+ */
+export const sharedQuestions = sqliteTable(
+  'shared_questions',
+  {
+    id: text('id').primaryKey(),
+    questionPromptId: text('question_prompt_id')
+      .notNull()
+      .references(() => questionPrompts.id, { onDelete: 'restrict' }),
+    answerMd: text('answer_md').notNull(),
+    reuseScopeTagId: text('reuse_scope_tag_id')
+      .notNull()
+      .references(() => tags.id, { onDelete: 'restrict' }),
+    isActive: activeFlag(),
+    createdAt: timestamp('created_at'),
+    updatedAt: timestamp('updated_at')
+  },
+  (table) => [
+    index('shared_questions_prompt_idx').on(table.questionPromptId),
+    index('shared_questions_scope_active_idx').on(table.reuseScopeTagId, table.isActive),
+    index('shared_questions_active_idx').on(table.isActive),
+    uniqueIndex('shared_questions_active_prompt_unique')
+      .on(table.questionPromptId)
+      .where(sql`${table.isActive} = true`)
+  ]
+);
+
+/** Descriptive clinical Tags saying what a Shared Question teaches/tests. */
+export const sharedQuestionTags = sqliteTable(
+  'shared_question_tags',
+  {
+    sharedQuestionId: text('shared_question_id')
+      .notNull()
+      .references(() => sharedQuestions.id, { onDelete: 'restrict' }),
+    tagId: text('tag_id')
+      .notNull()
+      .references(() => tags.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at')
+  },
+  (table) => [
+    primaryKey({ columns: [table.sharedQuestionId, table.tagId], name: 'shared_question_tags_pk' }),
+    index('shared_question_tags_tag_question_idx').on(table.tagId, table.sharedQuestionId)
   ]
 );
