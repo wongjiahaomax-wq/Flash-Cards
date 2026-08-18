@@ -4,7 +4,7 @@ _Refreshed: 18 August 2026_
 
 ## Current outcome
 
-The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A, Image Management V2, a wide responsive Admin workspace, the reviewed/resumable content-import path, and the Tagging Stage B schema foundation.
+The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A and Stage B, Image Management V2, a wide responsive Admin workspace, the reviewed/resumable content-import path, and a fully imported/verified initial ECG Anki corpus.
 
 Recent merged infrastructure/product milestones include:
 
@@ -15,9 +15,11 @@ Recent merged infrastructure/product milestones include:
 - PR #33 — Image Management V2 planning and refreshed product roadmap;
 - PR #34 — Image Management V2, including migration `0007_image_collections.sql`;
 - PR #40 — wide responsive Admin workspace;
-- Tagging Stage B schema foundation — migration `0008_tag_shared_questions.sql`, already applied to production D1.
+- PR #41/#42 — Tagging Stage B schema foundation and production application of `0008_tag_shared_questions.sql`;
+- PR #43 — Tagging Stage B behavior/Admin authoring, merged and deployed to production;
+- PR #44–#46 — one-time read-only production verification of the completed ECG migration;
 
-PR #43 is the schema-free **Tagging Stage B behavior/authoring** implementation and remains Draft for review. It adds learner Case-Tag eligibility, Shared Question Admin authoring, resolver integration, Prompt-ID deduplication, normal Automatic/All/Fixed behavior, and `tag_shared` Review provenance. No Worker deployment or production D1 migration belongs in PR #43.
+Tagging Stage B is complete for the agreed V1 scope. Shared Question authoring, exact Case-Tag reuse eligibility, resolver integration, Prompt-ID deduplication, normal Automatic/All/Fixed behavior and `tag_shared` Review provenance are live in production.
 
 ## Read first
 
@@ -135,6 +137,33 @@ Creation can reuse an existing active production Question Prompt or create new p
 
 Shared Questions are global production-curated objects and are not Preview-owned. Application validation rejects Preview-owned Prompts; migration `0008` provides D1 trigger defense in depth. Existing Questions detail/edit pages include Shared Question Prompt usages in global-wording blast-radius/stale-edit protection.
 
+## ECG Anki migration status
+
+The initial real ECG Anki deck migration is complete and production-verified.
+
+Source accounting:
+
+```text
+66 source notes/cards
+- 13 imported in Batch 01
+- 51 imported in Batch 02
+- 2 represented by pre-existing mapped calcium Cases
+= 66 / 66 represented
+```
+
+Read-only production D1 verification on 18 August 2026 confirmed:
+
+- Batch 01 package SHA matches the reviewed package; import job is `complete`, `phase = finalize`, 264/264 processed, `last_error = null`;
+- Batch 02 package SHA matches the reviewed package; import job is `complete`, `phase = finalize`, 848/848 processed, `last_error = null`;
+- exactly 13 Batch 01 and 51 Batch 02 active production Cases;
+- exactly 13 Batch 01 and 51 Batch 02 active production ECG Assets with the adopted Case-aligned ECG filename convention;
+- exactly 13 Batch 01 and 51 Batch 02 Case↔ECG links;
+- both pre-existing mapped Hypocalcaemia/Hypercalcaemia Cases are active and have at least one active production image.
+
+An initial verification query using a long `LIKE` pattern hit Cloudflare D1 internal error 7500 (`LIKE or GLOB pattern too complex`). This was an audit-query-shape failure, not an import failure. The final verification used simple deterministic-prefix comparisons and passed.
+
+Initial source migration is therefore complete. Ongoing ECG work is curation/enrichment: Tags, Shared Questions, additional Study Topics/stimulus variants and medical content review where useful.
+
 ## Image Management V2 baseline
 
 Image Management V2 is merged. `/admin/images` and `/preview-admin/images` use 60-item server pages with exact matching counts, deterministic search/filter/sort pagination, cross-page explicit selection within one canonical query context, exact Select All up to 300 Assets, and the retained 30-Asset server mutation bound with sequential client chunks for larger explicit selections.
@@ -167,7 +196,7 @@ Preview must never mutate production Case rows, production Asset metadata, produ
 
 `shared_questions` is deliberately **not** Preview-owned and has no `preview_session_id`. PR #43 does not add Preview Shared Question mutation routes or global mutation authority.
 
-Because `0008` is already applied and PR #43 changes no schema/`wrangler.jsonc`, PR #43 is technically eligible for the existing **manual** Deploy PR to Preview workflow if an operator later chooses to inspect it. Opening/updating the Draft PR does not deploy a Worker automatically.
+Stage B is now merged/deployed. Future Preview-compatible code PRs may continue to use the existing manual Deploy PR to Preview workflow; Shared Questions remain global production-curated objects and Preview has no mutation authority over them.
 
 ## Shared Case editor contract
 
@@ -217,7 +246,7 @@ main on Preview
 → next PR
 ```
 
-No Preview deployment has been performed as part of PR #43 implementation.
+No further PR #43 Preview work is pending; its production behavior is deployed.
 
 ## Current migrations
 
@@ -279,7 +308,7 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-PR CI covers this exact validation set. In the ChatGPT execution environment used for PR #43, `gh` is unavailable and outbound DNS prevents a local repository clone, so these commands cannot be truthfully reported as locally executed. The final PR description must record GitHub CI results for the final head instead.
+PR CI covers this exact validation set. PR #43 completed its final CI with 240/240 tests passing before merge; the subsequent production rollout was performed separately.
 
 ## Intentionally deferred after Stage B
 
@@ -295,15 +324,14 @@ PR CI covers this exact validation set. In the ChatGPT execution environment use
 
 ## Next intended implementation workflow
 
-For PR #43:
+The platform baseline and initial ECG ingestion are complete. Prioritize:
 
 ```text
-finish behavior/Admin implementation
-→ keep schema unchanged
-→ run/get PR CI green
-→ optional manual Preview deployment only if the operator explicitly requests it
-→ human review
-→ merge only after review
+curate real ECG Case Tags
+→ promote genuinely reusable knowledge into Shared Questions
+→ observe Admin/learner behavior on real content
+→ implement smallest learner-account Admin workflow
+→ implement basic learner-progress Admin
 ```
 
-ECG/Anki content ingestion may continue in parallel and can progressively promote genuinely reusable knowledge into Shared Questions once this behavior is merged.
+Avoid expanding the taxonomy/schema merely for completeness. Let the real corpus and learner/Admin friction justify further Tag hierarchy, compound reuse scopes, analytics or scheduling features.

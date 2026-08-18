@@ -25,9 +25,10 @@ Implemented/merged baseline includes:
 - Image Management V2 from PR #34;
 - wide responsive Admin desktop workspace from PR #40;
 - Tagging Stage B schema foundation from `0008_tag_shared_questions.sql`, already applied to production D1;
-- Tagging Stage B behavior/Admin authoring on PR #43 for review: Case-Tag eligibility, Shared Question Admin, Prompt deduplication, normal count-mode integration, and `tag_shared` Review provenance.
+- Tagging Stage B behavior/Admin authoring from PR #43, merged and deployed: Case-Tag eligibility, Shared Question Admin, Prompt deduplication, normal count-mode integration, and `tag_shared` Review provenance;
+- initial real ECG/Anki migration fully imported and production-verified: 13 Batch 01 + 51 Batch 02 + 2 pre-existing mapped calcium Cases = 66/66 source notes represented.
 
-Real ECG/Anki migration and curation continue in parallel as content work.
+Real ECG/Anki work now continues as curation/enrichment rather than source ingestion.
 
 The Admin shell intentionally provides a wide responsive desktop workspace for content-management surfaces. Image grids should adapt to the available width with useful minimum card sizes, while form-heavy Admin pages may constrain their own readable widths.
 
@@ -88,7 +89,7 @@ Production and Preview Workers use separate `BETTER_AUTH_SECRET` values even whe
 
 ## Milestone 4 — learner Study flow
 
-Status: **complete current V1 including Tag-shared eligibility on PR #43 for review**.
+Status: **complete current V1 including deployed Tag-shared eligibility from PR #43**.
 
 Learner routing supports valid Case Topics, fixed/alternative stimuli, contextual-question precedence, Automatic/All/Fixed selection, stimulus-specific coverage, durable Review snapshots and whole-Case Again/Good rating.
 
@@ -278,7 +279,7 @@ See `IMAGE_MANAGEMENT_V2_PLAN.md` and `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` for fi
 
 ## Milestone 7H — Tagging Stage B / shared tag-reusable Questions
 
-Status: **schema foundation landed/applied; behavior and Admin authoring implemented on PR #43 for review**.
+Status: **complete/deployed for the agreed V1 Stage B scope**.
 
 ### Stage B schema foundation — `0008_tag_shared_questions.sql`
 
@@ -296,7 +297,7 @@ Implemented and applied before PR #43:
 
 ### Stage B behavior/authoring — PR #43
 
-Implemented without another migration:
+Merged and deployed without another migration:
 
 1. production Admin Shared Question list/create/edit/archive/reactivate;
 2. explicit one Reuse Scope Tag versus independent descriptive Tags;
@@ -316,11 +317,11 @@ Deferred unless separately justified: compound ANY/ALL reuse scope, Tag hierarch
 
 ## Milestone 8 — real ECG/Anki reviewed migration
 
-Status: **active content work**.
+Status: **initial deck migration complete and production-verified; curation/enrichment active**.
 
-Prepare real Anki/ECG material outside the production app, review semantic mapping, produce reviewed import packages/batches and progressively enrich resulting Cases with alternate Study Topics, stimuli, Tags and Shared Questions.
+The initial 66-note ECG source deck is fully accounted for in production: 13 Batch 01 imports, 51 Batch 02 imports and 2 pre-existing mapped calcium Cases. Both import jobs are complete with their reviewed package SHA-256 values, and exact production verification confirmed all 64 imported Cases/ECG Assets/Case↔ECG links plus the two active image-backed mapped Cases.
 
-Initial ingestion should not wait for complete ontology/tagging. Image Management V2 and Stage B are designed to make later corpus curation safer as volume grows.
+Continue progressive enrichment of those Cases with alternate Study Topics, stimuli, Tags and Shared Questions. Initial ingestion did not wait for complete ontology/tagging; Image Management V2 and Stage B now provide the curation layer for the imported corpus.
 
 ## Milestone 9 — learner accounts / role acceptance
 
@@ -366,4 +367,4 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-GitHub PR CI covers this exact validation set. PR #43 remains Draft and is not ready for human merge consideration until its final head is green. No Worker deployment or production D1 migration is part of PR #43.
+GitHub PR CI covers this exact validation set. PR #43 is merged and deployed. Its final CI passed 240/240 tests; no additional Stage B migration is pending.

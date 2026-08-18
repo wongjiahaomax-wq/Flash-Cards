@@ -1,6 +1,6 @@
 # Anki → Flash-Cards reviewed import workflow
 
-_Last updated: 16 August 2026_
+_Last updated: 18 August 2026_
 
 ## Purpose
 
@@ -359,7 +359,7 @@ The first implementation used one large guarded SQL UPDATE and Cloudflare D1 ret
 
 This is documented in `ECG_ANKI_INGESTION_RULES.md`.
 
-## Phase I — prepare the remaining 51 notes as one reviewed Batch 02
+## Phase I — prepare and import the remaining 51 notes as reviewed Batch 02
 
 After the pilot was accepted, the accounting was:
 
@@ -405,6 +405,57 @@ Secondary links:     0
 ```
 
 The 3 reused Question Prompts were exact wording matches already created in Batch 01.
+
+## Production completion verification — 18 August 2026
+
+The original migration documentation recorded Batch 02 as prepared but did not yet record its production completion. A later read-only D1 audit closed that gap.
+
+The exact reviewed import-job rows are:
+
+```text
+Batch 01
+packageId: ecg-anki-batch-01-20260816
+SHA-256:   9021997d31e547bdfa1a6f152fbe27143f85714b464c5f999f15a3e236f4c7e9
+status:    complete
+phase:     finalize
+progress:  264 / 264
+lastError: null
+
+Batch 02
+packageId: ecg-anki-batch-02-20260816
+SHA-256:   926248292b002cbd33d40ad588eac9a6c0ec2833cbfe4290fe4b7bd0fdd72262
+status:    complete
+phase:     finalize
+progress:  848 / 848
+lastError: null
+```
+
+The same production verification confirmed the current deterministic content state:
+
+```text
+Batch 01: 13 active production Cases
+13 active ECG Assets
+13 Case↔ECG links
+
+Batch 02: 51 active production Cases
+51 active ECG Assets
+51 Case↔ECG links
+```
+
+All 64 imported ECG Assets use the adopted Case-aligned ECG filename convention. The two pre-existing mapped calcium Cases are also active production Cases with at least one active production image each.
+
+Therefore the complete source accounting is:
+
+```text
+13 Batch 01 imported notes
++ 51 Batch 02 imported notes
++ 2 pre-existing mapped calcium notes
+= 66 / 66 source notes represented in production
+```
+
+An initial audit query using a long `LIKE` pattern triggered Cloudflare D1 internal error 7500 (`LIKE or GLOB pattern too complex`). The import-job rows themselves already showed both jobs complete; the final count verification replaced the problematic query shape with simple deterministic-prefix comparisons and passed. The red first audit was therefore an audit-query failure, not evidence of missing imported content.
+
+Initial ECG source ingestion is now complete. Subsequent work should treat the corpus as content to curate/enrich rather than a pending migration: add clinically useful Tags, promote genuinely reusable knowledge into Shared Questions, add additional Study Topic routes/stimulus variants where justified, and perform medical correction/review separately from migration accounting.
 
 ## Source-specific review decisions in Batch 02
 
