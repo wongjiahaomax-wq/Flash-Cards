@@ -47,13 +47,12 @@ jobs:
           python3 <<'PY'
           from pathlib import Path
           import re
-          import textwrap
 
           source = Path('.github/workflows/finalize-status-docs-observed-once.yml').read_text()
           match = re.search(r"python3 <<'PY'\n(.*?)\n          PY", source, flags=re.S)
           if not match:
               raise SystemExit('Could not extract verified documentation generator from observed finalizer workflow.')
-          script = textwrap.dedent(match.group(1))
+          script = '\n'.join(line[10:] if line.startswith('          ') else line for line in match.group(1).splitlines())
           exec(compile(script, 'verified-doc-generator', 'exec'), {})
           Path('.github/workflows/finalize-docs-branch-once.yml').unlink(missing_ok=True)
           PY
