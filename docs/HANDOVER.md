@@ -6,20 +6,31 @@ _Refreshed: 17 August 2026_
 
 The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A, and the reviewed/resumable content-import path.
 
-Recent infrastructure/product milestones are merged:
+Recent merged infrastructure/product milestones are:
 
 - PR #29 — Admin Case image-authoring workflow;
 - PR #30 — Production-backed Preview Admin workspace;
-- PR #31 — reuse an existing production Admin identity for Preview access through the combined `admin,preview_admin` role;
-- PR #32 — Restore Main to Preview workflow.
+- PR #31 — production Admin identity reuse for Preview through `admin,preview_admin`;
+- PR #32 — Restore Main to Preview workflow;
+- PR #33 — Image Management V2 planning and refreshed product roadmap.
 
-Migration `0006_preview_admin_workspace.sql` has been applied successfully to the existing production D1. The production `flash-cards` Worker and separate `flash-cards-preview` Worker are deployed. The Preview Worker has its own independently generated `BETTER_AUTH_SECRET` while sharing the same Better Auth database tables.
+**Draft PR #34 (`agent/image-management-v2`) is the current Image Management V2 implementation.** It is based on the post-PR-#33 `main`, remains a draft, adds D1 migration `0007_image_collections.sql` and does not modify `wrangler.jsonc`.
 
-Live unauthenticated boundary smoke verification passed after rollout: Preview `/admin`, `/study`, and `/api/auth/admin` return `403`, while Preview and production `/sign-in` return `200`.
+Its implemented Admin workflow includes:
 
-Documentation does not assume that the owner identity has already been promoted/bootstrap-tested interactively. If that operator step has not yet been performed, use `npm run preview-admin:bootstrap` from current `main`, then sign into Preview and smoke-test Create Preview Copy → edit → Reset.
+- 60-item server-backed Image Library pages with exact matching counts;
+- deterministic search/filter/sort pagination;
+- cross-page explicit selection within one canonical query context;
+- exact `Select all N matching images` up to 300 Assets and explicit refusal above 300;
+- retention of the 30-Asset server mutation bound with sequential client chunks for larger selections;
+- visible progress and stop-on-first-failure completed/remaining accounting;
+- an identity-preserving same-Case `stimulus_group_option` Move between active alternative sets;
+- production/Preview ownership enforcement for every new relationship workflow;
+- unchanged learner stimulus and Review semantics.
 
-The next major product-facing implementation tracks are **Image Management V2** and **Tagging Stage B/shared tag-reusable Questions**, while ECG/Anki content ingestion continues in parallel.
+It also adds Image Library Collections: Topic remains educational Case classification, Tag remains cross-cutting clinical metadata, and Collection is a separate organisational bucket. Each Asset has zero or one Collection; null is displayed as Unsorted. Production Admin can create, rename and delete Collections, filter/sort by them, assign selected Assets in bounded sequential chunks, reset them to Unsorted and edit one Asset's Collection. Deleting a Collection preserves all Assets and relationships and moves its images to Unsorted after confirmation. Preview can display/filter/sort the global metadata but cannot create, rename, delete or mutate production assignments.
+
+The next major product-facing implementation track after Image Management V2 is **Tagging Stage B/shared tag-reusable Questions**, while ECG/Anki content ingestion continues in parallel.
 
 ## Read first
 
@@ -46,12 +57,13 @@ The authoring hierarchy remains:
 ```text
 Topic
 └── Case
-    ├── fixed Assets
-    ├── optional alternative stimulus groups/options
+    ├── fixed Assets                 -> case_assets
+    ├── alternative stimulus groups -> stimulus_groups
+    │   └── options                  -> stimulus_group_options
     └── contextual questions
 ```
 
-`concepts` are called Topics in Admin UI. A Case has one primary/default Topic and may have additional Study Topics through `case_concepts`.
+`concepts` are Topics in Admin UI. A Case has one primary/default Topic and may have additional Study Topics through `case_concepts`.
 
 Questions belong at the highest context where the answer remains correct:
 
@@ -64,24 +76,71 @@ reusable Topic
 
 Tags are cross-cutting metadata. Case Tags and contextual Case Question Tags do not replace Topic/Case ownership.
 
-Tagging Stage A is merged. Tagging Stage B remains pending and is the learner-visible shared-question extension described in `TAGGING_MODEL_DECISIONS.md`.
+Case-specific image captions remain relationship metadata. Exact-image questions stay attached to their exact `stimulus_group_option`. A Case-specific `stimulus_group` is a learner alternative-stimulus concept, not a generic media folder.
 
-## Current roadmap boundary
+## Image Management V2 implementation boundary
 
-Do not confuse the following merged foundations with completion of their larger product areas:
+Draft PR #34 extends the PR #29 baseline without flattening image relationships.
+
+### Paginated Image Library
+
+`/admin/images` and `/preview-admin/images` use 60-item server pages. The server provides exact result count, normalized current page and total pages. Stable Asset-ID tie-breakers make each sort deterministic. Applying a changed search/filter/sort query starts on page 1.
+
+Only the current bounded Asset page is loaded for rendering. Production Image Library reads exclude Preview-owned Assets and exclude Preview Case relationships from production usage counts.
+
+### Cross-page selection
+
+Explicit selected Asset IDs persist while navigating page 1 -> page 2 within the same canonical search/filter/sort query.
+
+Changing search text, Topic, usage, active/inactive, source, or sort clears the old selection universe. Page number alone does not. Ctrl/Cmd and touch Select mode remain explicit-ID operations. Shift ranges remain limited to the currently loaded page/order. `Clear selection` clears all cross-page IDs and the Shift anchor.
+
+The Case-editor Asset picker remains a separate bounded workflow and retains hidden-result pruning.
+
+### Exact Select All
+
+The exact all-matching cap is 300 Assets.
+
+- `<=300`: the server resolves the exact matching Asset IDs;
+- `>300`: Select All is refused and the Admin must narrow the query;
+- there is no silent first-300 truncation and no implicit selection token.
+
+### Bulk mutation bound
+
+The server still accepts at most 30 unique Asset IDs per relationship-write request. Larger explicit selections are split into sequential <=30-ID requests, with only one request in flight at a time.
+
+Each request independently revalidates authorization, Asset validity, target Case/group ownership, relationship conflicts and coverage. If a chunk fails, later chunks stop, earlier commits remain, and failed/unprocessed IDs remain selected where practical.
+
+There is no persistent bulk-job table in V2.
+
+### Same-Case option Move
+
+Schema inspection confirmed that `stimulus_group_options.id` can remain stable while `stimulus_group_id` changes. Exact-option questions reference the option ID, so V2 safely updates the existing option row rather than delete/recreate.
+
+The Case editor therefore exposes **Move to another set…** only on an existing alternative-option card. It supports:
 
 ```text
-PR #29 image authoring baseline ≠ Image Management V2 complete
-Tagging Stage A                ≠ shared/tag-reusable Questions complete
+Case A / Set 1 / existing option
+→ Case A / Set 2
 ```
 
-Image Management V2 is planned in `IMAGE_MANAGEMENT_V2_PLAN.md` and should add scalable pagination/selection plus explicit safe Case-scoped reorganisation without inventing ambiguous media semantics.
+It preserves:
 
-Tagging Stage B should add the dedicated shared-knowledge Question model, descriptive shared Question Tags, one reuse-scope Tag initially, Case eligibility from matching Tags, and learner resolver integration.
+- option ID;
+- Asset identity;
+- Case-specific caption;
+- active state;
+- exact-option Question relationships/answers;
+- other option-owned metadata.
+
+The target receives the next valid display order. Group-level questions remain attached to their original groups.
+
+Move rejects cross-Case targets, inactive/missing source or target relationships, duplicate target membership, ownership violations and moves that violate current stimulus-specific coverage/fixed Case question-count constraints.
+
+Fixed `case_assets` conversion remains a separate explicit authoring operation. Case Questions are never automatically re-scoped as exact-image questions.
 
 ## Production-backed Preview Admin workspace
 
-The Preview architecture is intentionally:
+The Preview architecture remains:
 
 ```text
 ONE D1
@@ -93,21 +152,23 @@ Preview Worker:    flash-cards-preview
                     -> same MEDIA binding
 ```
 
-No second D1 or R2 resource is part of this design.
+No second D1 or R2 resource is part of this design. The safety model is clone then mutate, never mutate production and roll back later.
 
-The safety model is **clone then mutate**, never update production rows and attempt to roll them back later.
+Preview may browse/search/filter/paginate/select production Assets read-only. V2 Preview bulk Add may target only current-session Preview-owned active stimulus groups. Preview Move may move only a current-session Preview-owned option between Preview-owned active groups in the same Preview-owned Case.
 
-An identity carrying `preview_admin` on the Preview Worker can browse real Cases and create disposable Preview copies. The owner may use a dedicated Preview-only identity or an existing valid production Admin promoted to `admin,preview_admin` through the guarded bootstrap path.
+Preview must never mutate production Case rows, production Asset metadata, production R2 objects or production stimulus relationships.
 
-Preview-owned Cases, contextual Question Prompts and Preview uploads carry an explicit `preview_session_id`.
+## Shared Case editor contract
 
-The Preview clone copies Case-owned authoring relationships, including Case↔Topic links, Case/Question Tags, fixed image relationships/captions, stimulus groups/options and contextual questions. Existing production Assets are reused read-only. Editable contextual Question Prompts are cloned so Preview edits cannot reach production prompts.
+Preview renders the real production Case-editor Svelte component. It does not maintain a copied editor UI.
 
-Global Topic editing, production Asset metadata editing, production Question Prompt editing, learner/user administration, learner Study/Review creation, Better Auth Admin-plugin user-management operations, and imports remain unavailable in Preview Mode.
+`test/admin-editor-preview-contract.test.js` remains the contract for shared named form actions/data. New V2 Move uses matched production/Preview relationship endpoints rather than introducing an unmatched named `?/` action.
 
-## Hard request boundaries
+Any future named shared-editor action must still have a safe Preview implementation or an explicit named `403` block.
 
-The Preview Worker has real production bindings and shared production auth tables, so route isolation is enforced before page/action/auth-handler code runs:
+## Critical request/data isolation
+
+Preview Worker boundaries remain:
 
 ```text
 Preview Worker /admin/**              -> 403
@@ -116,82 +177,27 @@ Preview Worker /api/auth/admin/**     -> 403
 preview_admin on production /study/** -> 403
 ```
 
-The request hook is the primary boundary. Admin/Study layouts and Study Review actions repeat relevant guards as defense in depth.
-
-The Better Auth Admin-plugin subtree is rejected in the hook before Better Auth handles the request. Ordinary Preview authentication endpoints under `/api/auth` remain available for sign-in, sign-out and session lookup.
-
-A production Admin identity does not gain Preview authoring merely by being `admin`; Preview requires `preview_admin` plus `PREVIEW_MODE=true`. Conversely, an identity promoted to `admin,preview_admin` can use production Admin and Preview Admin in their respective Workers, while the current safety policy denies that identity from learner Study.
-
-## Critical learner isolation invariant
-
-Normal learner Case eligibility is centrally constrained to:
+Normal learner Case eligibility remains constrained to:
 
 ```text
 cases.preview_session_id IS NULL
 ```
 
-Normal Review source loading also excludes Preview-owned Question Prompts and Assets.
+Normal Review loading also excludes Preview-owned Question Prompts and Assets, and the database trigger added by migration `0006_preview_admin_workspace.sql` rejects learner Reviews for Preview Cases.
 
-Migration `0006_preview_admin_workspace.sql` adds a database trigger that rejects a learner Review insert for a Preview Case as defense in depth.
+Normal production Admin libraries/counts/details continue excluding disposable Preview ownership.
 
-Preview content must never be made learner-visible simply to make Preview testing easier.
+## Preview reset/deployment lifecycle
 
-## Normal Admin isolation invariant
-
-Disposable Preview ownership must not appear in normal production Admin counts/details.
-
-Normal Admin filtering covers Cases, Questions, Images/Assets, Topic counts/details, Tag counts/details/taggable targets, and the legacy Admin dashboard aggregates.
-
-Production Assets may be reused read-only by Preview clones, but those Preview Case relationships are excluded from production Asset usage counts/details. Preview-owned Assets are also excluded and are not valid normal Asset metadata targets.
-
-## Shared Case editor contract
-
-Preview renders the real production Case-editor Svelte component. It does not maintain a copied editor UI.
-
-`test/admin-editor-preview-contract.test.js` is the CI contract between that UI and `/preview-admin/cases/[caseId]`:
-
-- every named form action used by the shared editor must exist in the Preview adapter, either implemented safely or explicitly blocked with a named `403` action;
-- every top-level `data.*` key read by the shared editor must be supplied by `loadPreviewCaseEditor()`.
-
-Any Image Management V2 change touching shared Case-editor actions/data must maintain this contract in the same PR.
-
-## Preview session/reset lifecycle
-
-V1 supports one live workspace per Preview Admin with a 24-hour expiry.
-
-Normal Preview logout performs:
-
-```text
-Reset Preview Workspace
-→ Sign out
-```
-
-Reset deletes only explicitly Preview-owned records and Preview R2 objects under:
+V1 supports one live workspace per Preview Admin with a 24-hour expiry. Reset deletes only explicitly Preview-owned rows and Preview R2 objects under:
 
 ```text
 preview/<preview-session-id>/...
 ```
 
-Cleanup is idempotent. If cleanup fails, the session is marked `cleanup_required`, the error is surfaced, and a later Reset/login retries. Browser close/auth expiry is safe because abandoned Preview content remains structurally isolated.
+Cleanup is idempotent; failed cleanup is surfaced and retried later.
 
-D1 Time Travel is emergency recovery only, not Preview Reset.
-
-## Preview deployment/operator lifecycle
-
-Manual **Deploy PR to Preview**:
-
-- accepts a PR number;
-- resolves the exact PR head SHA;
-- requires an open same-repository PR targeting `main`;
-- rejects fork heads before Cloudflare credentials are used;
-- blocks D1 migration/schema-changing PRs;
-- blocks any PR modifying `wrangler.jsonc`;
-- installs with `npm ci`;
-- runs standard validation;
-- deploys only with Wrangler `--env preview`;
-- never runs a remote D1 migration.
-
-**Restore Main to Preview** is also merged and restores current `main` code to the Preview Worker without running migrations or deleting Preview workspace data.
+Manual **Deploy PR to Preview** resolves an exact open same-repository PR head targeting `main`, blocks migration/schema/`wrangler.jsonc` candidates, runs standard validation, deploys only `--env preview`, and never runs a remote migration.
 
 Normal lifecycle:
 
@@ -204,7 +210,7 @@ main on Preview
 → next PR
 ```
 
-Normally perform Reset before Restore Main.
+For draft PR #34, human review should follow the exact Image Management V2 procedure in `IMAGE_MANAGEMENT_V2_PLAN.md` and the PR description after CI is green.
 
 ## Current migrations
 
@@ -215,12 +221,15 @@ Normally perform Reset before Restore Main.
 0003_multi_topic_study_routing.sql
 0004_resumable_import_jobs.sql
 0005_tag_foundation.sql
-0006_preview_admin_workspace.sql   # applied to production 17 August 2026
+0006_preview_admin_workspace.sql
+0007_image_collections.sql
 ```
+
+Draft PR #34 adds `0007_image_collections.sql`; the migration/schema foundation must be reviewed and applied first. Because the Preview workflow blocks schema-bearing diffs, PR #34 must then be rebased/updated so those already-landed files are no longer in its diff before its code-only head is used against the production-backed Preview database.
 
 ## Admin UI state
 
-Normal production Admin surfaces include:
+Production Admin surfaces remain:
 
 ```text
 Dashboard
@@ -232,34 +241,13 @@ Tags
 Import package
 ```
 
-The Case editor authoring order is:
+The Case editor order remains:
 
 ```text
 Topics → Case → Images → Case questions → Preview
 ```
 
-PR #29 provides the current image-authoring baseline:
-
-- fixed Case Assets and alternative stimulus sets under one top-level Images section while retaining distinct relationship semantics;
-- large contain-fit fixed-image previews;
-- reusable image enlargement;
-- compact alternative-option cards;
-- a bounded server-backed **Add images from library** picker;
-- upload-and-attach through existing R2/storage/provenance safeguards;
-- `/admin/images` checkbox selection, Ctrl/Cmd toggle, Shift-range and touch Select mode;
-- sticky bulk **Add to alternative set**;
-- 30 unique Assets maximum per relationship-write action;
-- Preview-compatible shared image workflows and production/Preview isolation hardening.
-
-The following remain Image Management V2 work:
-
-- server-backed pagination/exact result counts for a larger library;
-- exact `Select all N matching` across pages with a conservative bound;
-- sequential chunked bulk execution above 30 selected Assets;
-- explicit safe same-Case alternative-option Move/reorganisation semantics where current schema can preserve option identity/context;
-- clear failure/progress accounting for multi-request bulk operations.
-
-There is still no global Asset-folder schema. Do not reinterpret Case stimulus groups as generic media folders.
+There is still no global Asset-folder schema, Asset Tag model or generic library-wide Move. Do not reinterpret stimulus groups as media folders.
 
 ## Tagging state
 
@@ -273,7 +261,7 @@ Stage A is merged:
 - no clinical Tags on `question_prompts`;
 - no learner resolver change.
 
-Stage B is pending:
+Stage B remains pending:
 
 - dedicated shared/tag-reusable Question entity;
 - descriptive shared Question Tags;
@@ -284,22 +272,22 @@ Stage B is pending:
 
 ## R2 rules
 
-Teaching images remain private and all normal/Preview teaching-image writes must continue through `putTeachingImage()` and the existing media guardrails.
+Teaching images remain private. All production/Preview image writes continue through the existing protected media helpers and R2 cost guardrails.
 
-Production teaching-image keys are immutable. Preview uploads use only the isolated Preview prefix and are deleted during workspace Reset after ownership/usage checks.
+Production teaching-image keys are immutable. Preview uploads use only the isolated Preview prefix and are cleaned during Reset after ownership/usage checks. Reviewed import staging remains separate operational data and is not an Asset.
 
-Reviewed import staging remains separate operational data under its existing import staging prefix and is not an Asset.
+Image Management V2 changes only relationship/query workflows; it does not rename/delete production R2 objects.
 
 ## Authentication boundaries
 
-- `admin` -> production Admin CMS on the production Worker;
+- `admin` -> production Admin CMS on production Worker;
 - `preview_admin` + `PREVIEW_MODE=true` -> Preview Admin;
-- `admin,preview_admin` -> allowed for the owner identity across the respective production/Preview Admin surfaces while preserving separate sessions/secrets;
-- Better Auth Admin-plugin API -> production Worker only, never Preview Worker;
-- normal learner -> Study on the production Worker only;
+- `admin,preview_admin` -> owner may use the respective Admin surfaces while sessions/secrets stay separate;
+- Better Auth Admin-plugin API -> production Worker only;
+- normal learner -> Study on production Worker only;
 - any identity carrying `preview_admin` is currently denied production learner Study by policy.
 
-Authorization is server-side and is not based on a hard-coded email address.
+Authorization is server-side, not hard-coded by email.
 
 ## Validation required before handoff
 
@@ -312,39 +300,22 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-For Admin UI changes intended for Preview, also maintain Preview-adapter contracts and production-vs-Preview ownership regression coverage.
-
-## Current rollout status
-
-Completed on 17 August 2026:
-
-- Preview workspace code merged;
-- migration `0006_preview_admin_workspace.sql` applied to production D1;
-- production Worker deployed;
-- Preview Worker deployed against the same D1/R2;
-- separate Preview `BETTER_AUTH_SECRET` configured;
-- live unauthenticated access-boundary smoke checks passed;
-- existing production Admin identities can now be promoted safely to `admin,preview_admin` without changing their password;
-- Restore Main to Preview workflow merged;
-- PR #29 image-authoring workflow merged with Preview compatibility.
-
-Operator identity bootstrap/promotion and authenticated Create Preview Copy → edit → Reset should be performed if not already completed by the owner. Do not infer completion merely from the code being merged.
+PR CI covers these checks. Do not call draft PR #34 ready for human review until its final head is green.
 
 ## Next intended implementation workflow
 
-For Image Management V2 or another Preview-deployable Admin UI PR:
+After Image Management V2 is reviewed/merged, proceed from fresh current `main` with Tagging Stage B or continued content-ingestion work. For every Preview-deployable Admin PR:
 
 ```text
 start from current main
-→ read IMAGE_MANAGEMENT_V2_PLAN.md and related image/Preview docs
-→ implement without migration/wrangler changes where possible
-→ CI enforces shared-editor/Preview contracts
+→ preserve product/data model boundaries
+→ avoid migration/wrangler changes where possible
+→ maintain Preview ownership/contracts in the same PR
+→ get CI green
 → Deploy PR to Preview
-→ sign in as Preview Admin
-→ create disposable Preview Copy
-→ exercise the UI against disposable records
-→ verify production source unchanged
+→ exercise disposable Preview relationships
+→ confirm production source unchanged
 → Reset Preview Workspace
 → Restore Main to Preview
-→ merge only after review
+→ merge only after human review
 ```

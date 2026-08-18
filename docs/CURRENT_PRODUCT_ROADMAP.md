@@ -20,27 +20,35 @@ The current `main` includes:
 - manual Deploy PR to Preview and Restore Main to Preview operator workflows;
 - PR #29 image-authoring baseline: large image inspection, bounded Case image picker, fixed/alternative-set authoring, image-library multi-select and safe bulk add-to-set.
 
-## Current product work
+## Current implementation PR
 
-### 1. Image Management V2 — pending
+### Image Management V2 — implemented in draft PR #34
 
-The PR #29 workflow is the baseline, not the end state of image management.
+Draft PR #34 implements the planned V2 milestone without a D1 migration or `wrangler.jsonc` change:
 
-V2 should focus on scaling the Image Library and making reorganisation explicit and safe:
+- 60-item server-backed `/admin/images` and `/preview-admin/images` pagination;
+- exact matching counts and normalized page/total-page metadata;
+- deterministic ordering with stable Asset-ID tie-breaks;
+- cross-page explicit Asset selection while search/filter/sort context is unchanged;
+- selection reset when the authoritative query context changes;
+- current-page-only Shift ranges plus retained Ctrl/Cmd/touch selection behaviour;
+- exact server-resolved **Select all N matching images** up to 300 Assets;
+- explicit refusal rather than silent truncation above 300;
+- retention of the 30-Asset server mutation limit;
+- sequential client orchestration for selections larger than 30, with progress and stop-on-first-failure accounting;
+- same-Case, identity-preserving movement of an existing `stimulus_group_option` between active alternative sets;
+- preservation of option ID, caption, active state and exact-option questions during Move;
+- source/target coverage and duplicate/conflict validation;
+- Preview-owned relationship mutation only inside the current disposable Preview Session;
+- unchanged learner stimulus selection and Review composition semantics.
 
-- server-backed pagination or an equivalent bounded result contract;
-- an exact matching-result count for the current filters;
-- safe `Select all N matching` semantics represented on the server rather than as a browser-only approximation;
-- bounded/chunked bulk actions for selections larger than the current 30-Asset single-action limit;
-- explicit reorganisation/move semantics for Case-scoped image relationships, with preservation rules for captions, exact-option questions, activation/order and stimulus-group coverage;
-- clear handling of conflicts such as an Asset already being fixed in the target Case or already belonging to another alternative set in that Case;
-- Preview Admin support for every new shared Image/Case-editor action, preserving production isolation.
-
-V2 should not silently invent a global folder/group model. The repository currently has no global Asset-folder relationship; Case-scoped alternative stimulus sets remain a different concept. If a future global organisational model is proposed, it should be a separate architecture/schema decision justified by real library-management needs.
+The Move operation is deliberately relationship-specific in the Case editor. It is not a generic Image Library Asset Move and does not create global media folders/groups.
 
 See `IMAGE_MANAGEMENT_V2_PLAN.md` and `ADMIN_IMAGE_AUTHORING_WORKFLOW.md`.
 
-### 2. Tagging Stage B — pending
+## Next product work
+
+### 1. Tagging Stage B — pending
 
 Stage A is merged. The remaining major tagging milestone is shared/tag-reusable Questions.
 
@@ -66,26 +74,27 @@ selected stimulus option
 
 Also still deferred unless separately justified: compound ANY/ALL reuse scopes, Tag hierarchy, aliases/synonyms, Study-by-Tag, Review Tag snapshots, automatic Tag inference, and Asset Tags.
 
-### 3. Real ECG/Anki migration and curation — active content work
+### 2. Real ECG/Anki migration and curation — active content work
 
 Continue progressive ingestion of reviewed ECG/Anki material. Initial import does not require complete tagging or stimulus restructuring. Content can start as Topic → Case → image/questions and be enriched later with additional Study Topics, stimulus sets and Tags.
 
-The improved Image Management V2 and Tagging Stage B become more valuable as the corpus grows, so they are the next major product-facing implementation tracks.
+Image Management V2 is intended to make later reorganisation of the growing corpus practical without introducing a global folder model.
 
 ## Later planned work
 
 - smallest viable learner-account administration workflow;
 - basic learner progress administration;
 - more advanced analytics only after real usage establishes requirements;
-- richer taxonomy/tag/search features only when the corpus demonstrates the need.
+- richer taxonomy/tag/search features only when the corpus demonstrates the need;
+- a global media organisation model only if real corpus-management requirements justify a separate architecture/schema decision.
 
 ## Implementation principle
 
-Do not treat a merged foundation as a completed product area. In particular:
+Do not treat a merged foundation as a completed product area. Current status should be read as:
 
 ```text
-Image authoring baseline ≠ Image Management V2 complete
-Tagging Stage A         ≠ shared/tag-reusable Questions complete
+PR #29 image authoring baseline → extended by draft PR #34 Image Management V2
+Tagging Stage A              → shared/tag-reusable Questions still pending
 ```
 
-When another document conflicts with this status map, inspect current `main` and the most recent merged PRs before implementation, then update the stale document as part of the next documentation change.
+When another document conflicts with this status map, inspect current `main` and the most recent merged/current implementation PRs before implementation, then update the stale document as part of the next documentation change.

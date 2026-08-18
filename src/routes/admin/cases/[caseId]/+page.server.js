@@ -44,7 +44,7 @@ export async function load({ locals, platform, params, url }) {
   const pickerOpen = url.searchParams.get('picker') === '1';
   const pickerSearch = url.searchParams.get('image_q')?.trim() ?? '';
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) {
-    return { concepts: [], selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch) };
+    return { concepts: [], selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
   }
 
   const db = createDb(platform.env.DB);
@@ -55,7 +55,7 @@ export async function load({ locals, platform, params, url }) {
     getAdminStimulusData(db, params.caseId)
   ]);
   if (!manager) {
-    return { concepts, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch) };
+    return { concepts, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
   }
 
   const stimulusGroups = stimulusGroupsData.map((group) => ({
@@ -76,6 +76,7 @@ export async function load({ locals, platform, params, url }) {
 
   return {
     concepts,
+    previewMode: false,
     selectedCase: {
       ...manager,
       questions,

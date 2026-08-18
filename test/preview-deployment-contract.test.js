@@ -14,7 +14,7 @@ const reviewRoute = readFileSync(new URL('../src/routes/study/[reviewId]/+page.s
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const previewSignOut = readFileSync(new URL('../src/lib/components/PreviewSignOutButton.svelte', import.meta.url), 'utf8');
 const questionsRoute = readFileSync(new URL('../src/routes/admin/questions/+page.server.js', import.meta.url), 'utf8');
-const imagesRoute = readFileSync(new URL('../src/routes/admin/images/+page.server.js', import.meta.url), 'utf8');
+const imageLibrary = readFileSync(new URL('../src/lib/server/db/asset-library.js', import.meta.url), 'utf8');
 const legacyAdminRoute = readFileSync(new URL('../src/routes/admin/+page.server.js', import.meta.url), 'utf8');
 const topicLibrary = readFileSync(new URL('../src/lib/server/db/topic-library.js', import.meta.url), 'utf8');
 const tagLibrary = readFileSync(new URL('../src/lib/server/db/tag-library.js', import.meta.url), 'utf8');
@@ -111,8 +111,6 @@ test('Preview Worker blocks Better Auth Admin API before Better Auth can mutate 
   assert.match(hooks, /isPreviewWorker\(env\)\s*&&\s*isRouteWithin\(pathname, '\/api\/auth\/admin'\)[\s\S]*return forbidden/);
   assert.match(hooks, /Better Auth user administration is unavailable on the Preview Worker/);
 
-  // The boundary is deliberately the Admin-plugin subtree, not all Better Auth
-  // endpoints. Preview sign-in/sign-out/session APIs must remain reachable.
   assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth'\)/);
   assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth\/sign-in'\)/);
   assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth\/sign-out'\)/);
@@ -150,7 +148,10 @@ test('normal Preview logout resets the workspace before Better Auth sign-out', (
 
 test('normal Admin libraries and legacy dashboard apply explicit production-ownership filters', () => {
   assert.match(questionsRoute, /isNull\(questionPrompts\.previewSessionId\)/);
-  assert.match(imagesRoute, /isNull\(assets\.previewSessionId\)/);
+  // Image Management V2 centralizes production Asset ownership in the paginated
+  // DB helper shared by production and read-only Preview Image Library routes.
+  assert.match(imageLibrary, /isNull\(assets\.previewSessionId\)/);
+  assert.match(imageLibrary, /isNull\(cases\.previewSessionId\)/);
   assert.match(legacyAdminRoute, /isNull\(assets\.previewSessionId\)/);
   assert.match(legacyAdminRoute, /isNull\(cases\.previewSessionId\)/);
   assert.match(legacyAdminRoute, /isNull\(questionPrompts\.previewSessionId\)/);

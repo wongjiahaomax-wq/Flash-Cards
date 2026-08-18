@@ -1,13 +1,21 @@
 import { fail } from '@sveltejs/kit';
-import { isNull } from 'drizzle-orm';
 
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createDb } from '$lib/server/db/index.js';
 import {
+  ASSET_LIBRARY_SELECT_ALL_LIMIT,
+  ASSET_LIBRARY_COLLECTION_BULK_LIMIT,
+  assetLibraryQueryContext,
+  createImageCollection,
   createAssetFromUpload,
-  listAssetLibrary,
+  deleteImageCollection,
+  getAssetLibraryPage,
+  listAssetLibraryCollections,
   listAssetLibraryTopics,
-  parseAssetLibraryFilters
+  parseAssetLibraryFilters,
+  parseAssetLibraryPage,
+  renameImageCollection,
+  setAssetCollection
 } from '$lib/server/db/asset-library.js';
 import {
   AdminImageWorkflowInputError,
@@ -15,7 +23,6 @@ import {
   bulkAddAssetsToStimulusGroup,
   listActiveStimulusGroupTargets
 } from '$lib/server/db/admin-image-workflow.js';
-import { assets } from '$lib/server/db/schema.js';
 import { getTeachingImageUrl, MediaStorageLimitError } from '$lib/server/storage/media.js';
 
 /** @param {FormData} formData @param {string} name */
@@ -26,28 +33,93 @@ function formText(formData, name) {
 
 export async function load({ locals, platform, url }) {
   const filters = parseAssetLibraryFilters(url.searchParams);
-  if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) {
-    return { assets: [], topics: [], stimulusGroups: [], filters, bulkLimit: ADMIN_IMAGE_BULK_LIMIT };
-  }
+  const requestedPage = parseAssetLibraryPage(url.searchParams);
+  const empty = { assets: [], topics: [], collections: [], stimulusGroups: [], filters, pagination: { totalCount: 0, totalPages: 1, page: 1, pageSize: 60 }, queryContext: assetLibraryQueryContext(filters), allMatchingIds: [], selectAllLimit: ASSET_LIBRARY_SELECT_ALL_LIMIT, bulkLimit: ADMIN_IMAGE_BULK_LIMIT, collectionBulkLimit: ASSET_LIBRARY_COLLECTION_BULK_LIMIT };
+  if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return empty;
 
   const db = createDb(platform.env.DB);
-  const [rows, topics, productionAssetRows, stimulusGroups] = await Promise.all([
-    listAssetLibrary(db, filters),
+  const [pageData, topics, collections, stimulusGroups] = await Promise.all([
+    getAssetLibraryPage(db, filters, { page: requestedPage, includeAllMatchingIds: true }),
     listAssetLibraryTopics(db),
-    db.select({ id: assets.id }).from(assets).where(isNull(assets.previewSessionId)),
+    listAssetLibraryCollections(db),
     listActiveStimulusGroupTargets(db)
   ]);
-  const productionAssetIds = new Set(productionAssetRows.map((row) => row.id));
   return {
-    assets: rows.filter((asset) => productionAssetIds.has(asset.id)),
+    assets: pageData.rows,
     topics,
+    collections,
     stimulusGroups,
     filters,
-    bulkLimit: ADMIN_IMAGE_BULK_LIMIT
+    pagination: { totalCount: pageData.totalCount, totalPages: pageData.totalPages, page: pageData.page, pageSize: pageData.pageSize },
+    queryContext: assetLibraryQueryContext(filters),
+    allMatchingIds: pageData.allMatchingIds,
+    selectAllLimit: ASSET_LIBRARY_SELECT_ALL_LIMIT,
+    bulkLimit: ADMIN_IMAGE_BULK_LIMIT,
+    collectionBulkLimit: ASSET_LIBRARY_COLLECTION_BULK_LIMIT
   };
 }
 
 export const actions = {
+  createCollection: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    try {
+      const formData = await request.formData();
+      const created = await createImageCollection(createDb(platform.env.DB), formText(formData, 'collection_name'));
+      return { collectionCreated: true, collectionMessage: `Collection “${created.name}” created.` };
+    } catch (error) {
+      const clientError = error instanceof Error && error.name === 'AssetLibraryInputError';
+      if (!clientError) console.error('Collection creation failed.', error);
+      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to create the Collection.' });
+    }
+  },
+
+  renameCollection: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    try {
+      const formData = await request.formData();
+      const renamed = await renameImageCollection(createDb(platform.env.DB), formText(formData, 'collection_id'), formText(formData, 'collection_name'));
+      return { collectionRenamed: true, collectionMessage: `Renamed Collection “${renamed.previousName}” to “${renamed.name}”.` };
+    } catch (error) {
+      const clientError = error instanceof Error && error.name === 'AssetLibraryInputError';
+      if (!clientError) console.error('Collection rename failed.', error);
+      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to rename the Collection.' });
+    }
+  },
+
+  deleteCollection: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    try {
+      const formData = await request.formData();
+      const deleted = await deleteImageCollection(createDb(platform.env.DB), formText(formData, 'collection_id'));
+      return {
+        collectionDeleted: true,
+        collectionMessage: `Deleted “${deleted.name}”. ${deleted.assetCount} image${deleted.assetCount === 1 ? '' : 's'} moved to Unsorted.`
+      };
+    } catch (error) {
+      const clientError = error instanceof Error && error.name === 'AssetLibraryInputError';
+      if (!clientError) console.error('Collection deletion failed.', error);
+      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to delete the Collection.' });
+    }
+  },
+
+  setCollection: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const assetIds = formData.getAll('asset_id').filter((value) => typeof value === 'string').map((value) => value.trim()).filter(Boolean);
+    try {
+      const result = await setAssetCollection(createDb(platform.env.DB), assetIds, formText(formData, 'collection_id'));
+      return { collectionSuccess: true, collectionMessage: result.collectionId ? `Set Collection for ${result.updatedCount} image${result.updatedCount === 1 ? '' : 's'}.` : `Moved ${result.updatedCount} image${result.updatedCount === 1 ? '' : 's'} to Unsorted.` };
+    } catch (error) {
+      const clientError = error instanceof Error && error.name === 'AssetLibraryInputError';
+      if (!clientError) console.error('Bulk Collection update failed.', error);
+      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to update the selected Collections.' });
+    }
+  },
+
   bulkAddToStimulusGroup: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
@@ -68,25 +140,15 @@ export const actions = {
     }
   },
 
-  /** @param {{ request: Request, locals: App.Locals, platform?: App.Platform }} event */
   upload: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB || !platform.env.MEDIA) return fail(503, { error: 'Image storage is not configured.' });
-
     const formData = await request.formData();
     const imageValue = formData.get('image');
-    if (
-      !imageValue || typeof imageValue !== 'object' || typeof imageValue.size !== 'number' ||
-      typeof imageValue.type !== 'string' || typeof imageValue.arrayBuffer !== 'function'
-    ) return fail(400, { error: 'Choose a JPEG or PNG image to upload.' });
-
+    if (!imageValue || typeof imageValue !== 'object' || typeof imageValue.size !== 'number' || typeof imageValue.type !== 'string' || typeof imageValue.arrayBuffer !== 'function') return fail(400, { error: 'Choose a JPEG or PNG image to upload.' });
     try {
       const created = await createAssetFromUpload(createDb(platform.env.DB), platform.env.MEDIA, imageValue, {
-        originalFilename: formText(formData, 'image_name'),
-        altText: formText(formData, 'alt_text'),
-        sourceLabel: formText(formData, 'source_label'),
-        sourceUrl: formText(formData, 'source_url'),
-        licence: formText(formData, 'licence')
+        originalFilename: formText(formData, 'image_name'), altText: formText(formData, 'alt_text'), sourceLabel: formText(formData, 'source_label'), sourceUrl: formText(formData, 'source_url'), licence: formText(formData, 'licence')
       });
       return { success: true, assetId: created.id, imageUrl: getTeachingImageUrl(created.id) };
     } catch (error) {
