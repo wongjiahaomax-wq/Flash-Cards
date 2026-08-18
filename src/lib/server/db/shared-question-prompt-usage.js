@@ -2,6 +2,7 @@ import { and, asc, eq, isNull } from 'drizzle-orm';
 
 import {
   getQuestionPromptDetail,
+  listQuestionLibrary,
   QuestionPromptInputError,
   updateQuestionPrompt
 } from './question-library.js';
@@ -39,6 +40,74 @@ export async function listPromptSharedQuestionUsages(db, promptId) {
     .innerJoin(tags, eq(tags.id, sharedQuestions.reuseScopeTagId))
     .where(and(eq(sharedQuestions.questionPromptId, promptId), isNull(questionPrompts.previewSessionId)))
     .orderBy(asc(tags.name), asc(sharedQuestions.createdAt), asc(sharedQuestions.id));
+}
+
+/** @param {LearningDb} db */
+async function listActiveSharedQuestionPromptUsages(db) {
+  return db.select({
+    id: sharedQuestions.id,
+    promptId: sharedQuestions.questionPromptId,
+    answerMd: sharedQuestions.answerMd
+  }).from(sharedQuestions)
+    .innerJoin(questionPrompts, eq(questionPrompts.id, sharedQuestions.questionPromptId))
+    .where(and(
+      eq(sharedQuestions.isActive, true),
+      eq(questionPrompts.isActive, true),
+      isNull(questionPrompts.previewSessionId)
+    ))
+    .orderBy(asc(sharedQuestions.questionPromptId), asc(sharedQuestions.createdAt), asc(sharedQuestions.id));
+}
+
+/**
+ * Main Questions Library view with Shared Question usages folded into the same
+ * usage/status model as Concept, Case, and stimulus usages.
+ *
+ * @param {LearningDb} db
+ * @param {{ search?: string, topicId?: string, scope?: 'all'|'shared'|'case' }} [filters]
+ */
+export async function listQuestionLibraryWithShared(db, filters = {}) {
+  const topicId = String(filters.topicId ?? '').trim();
+  const search = String(filters.search ?? '').trim().toLocaleLowerCase();
+  const scope = filters.scope === 'shared' || filters.scope === 'case' ? filters.scope : 'all';
+  const [allRows, legacySearchRows, sharedUsageRows] = await Promise.all([
+    listQuestionLibrary(db, { topicId, scope: 'all' }),
+    search ? listQuestionLibrary(db, { search: filters.search, topicId, scope: 'all' }) : Promise.resolve([]),
+    listActiveSharedQuestionPromptUsages(db)
+  ]);
+
+  const legacySearchIds = new Set(legacySearchRows.map((row) => row.id));
+  const sharedByPrompt = new Map();
+  for (const usage of sharedUsageRows) {
+    const current = sharedByPrompt.get(usage.promptId) ?? [];
+    current.push(usage);
+    sharedByPrompt.set(usage.promptId, current);
+  }
+
+  return allRows.flatMap((row) => {
+    const sharedUsages = sharedByPrompt.get(row.id) ?? [];
+    const sharedQuestionUsageCount = sharedUsages.length;
+    const hasSharedUsage = row.hasSharedUsage || sharedQuestionUsageCount > 0;
+    const hasCaseUsage = row.hasCaseUsage;
+    const sharedSearchMatch = sharedUsages.some((usage) => usage.answerMd.toLocaleLowerCase().includes(search));
+
+    if (search && !legacySearchIds.has(row.id) && !row.promptMd.toLocaleLowerCase().includes(search) && !sharedSearchMatch) return [];
+    if (scope === 'shared' && !hasSharedUsage) return [];
+    if (scope === 'case' && !hasCaseUsage) return [];
+
+    return [{
+      ...row,
+      usageCount: row.usageCount + sharedQuestionUsageCount,
+      sharedQuestionUsageCount,
+      hasSharedUsage,
+      scope: hasSharedUsage && hasCaseUsage
+        ? 'Shared + Case-specific'
+        : hasSharedUsage
+          ? 'Shared'
+          : hasCaseUsage
+            ? 'Case-specific'
+            : 'Unused'
+    }];
+  });
 }
 
 /** @param {LearningDb} db @param {string} promptId */
