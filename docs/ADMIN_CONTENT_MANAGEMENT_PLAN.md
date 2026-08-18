@@ -1,162 +1,147 @@
-# Flash-Cards — Admin Content Management Implementation Plan
+# Flash-Cards — Admin Content Management
 
-_Last updated: 15 August 2026_
+_Last updated: 18 August 2026_
 
 ## Status
 
-The planned Admin content-management redesign is **complete for the current V1 phase**.
+The original Admin content-management plan has become an **implemented product contract**. This file keeps its historical filename for links, but it now describes the current production Admin baseline rather than a future PR sequence.
 
-Merged milestones:
+For project-wide status read `CURRENT_PRODUCT_ROADMAP.md`; for exact authoring semantics read `AUTHORING_MODEL.md`; for image-specific interaction rules read `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` and `IMAGE_MANAGEMENT_V2_PLAN.md`.
 
-```text
-PR #10 — Admin shell + Case management redesign
-PR #11 — Questions Library
-PR #12 — Image/Asset Library + rename/edit metadata
-PR #13 — Topics dashboard
-```
-
-Merge commits:
+## Current production navigation
 
 ```text
-PR #10 21f349b4869f59a8bccbf440437ce67088776b58
-PR #11 b78e7c9c0af4b4024adb3e5d373aef8631482914
-PR #12 e1af88633f67b9a4bca1778684664b863fe62adb
-PR #13 02853083518d0228e8aaffa9c7566822e6c8d7c5
+Dashboard
+Cases
+Questions
+Shared Questions
+Images
+Topics
+Tags
+Import package
 ```
 
-The Admin navigation is now fully live:
-
-```text
-Dashboard · Cases · Questions · Images · Topics
-```
-
-The next product phase is **representative pilot content entry** after completing the focused multi-Topic Case authoring milestone.
-
----
-
-## Product goal achieved
-
-An administrator can now:
-
-- find and edit Cases without using one monolithic page;
-- search the question bank globally;
-- inspect Question Prompt usage and context-specific answers;
-- safely edit shared Question Prompt wording with blast-radius visibility;
-- find uploaded images visually;
-- rename images after upload without changing immutable R2 identity;
-- edit Asset metadata and inspect Case usage;
-- browse Topics with Case/shared-question counts;
-- inspect Topic-level reusable questions and parent/child relationships;
-- preview learner-facing Cases.
-
----
-
-## Design principles that remain authoritative
-
-1. **Navigate by content object.** Use dedicated routes rather than rebuilding a large `/admin` page.
-2. **Reuse the existing domain model.** Prefer D1 queries/UI changes over unnecessary schema changes.
-3. **Preserve shared-object semantics.** Question Prompt and context-specific answer are separate; Asset and Case-specific caption are separate.
-4. **Prefer deactivate/archive over destructive deletion.**
-5. **Use ordinary D1 search for V1.** No external search service is needed.
-6. **Do not redesign learner Study behaviour as a side effect of Admin work.**
-
-The shared Admin shell supports a wide desktop workspace for content-management pages while preserving sensible outer gutters and responsive navigation. Individual editor/form pages may keep narrower readable widths. Responsive content grids should use available space with an appropriate minimum item width instead of a fixed desktop column count.
-
----
-
-# Implemented Admin surfaces
-
-## Dashboard / Case management — PR #10
-
-Routes:
+Current route families include:
 
 ```text
 /admin
 /admin/cases
-/admin/cases/new
-/admin/cases/[caseId]
+/admin/questions
+/admin/shared-questions
+/admin/images
+/admin/topics
+/admin/tags
+/admin/import
 ```
 
-Implemented:
+The Admin shell provides a wide responsive workspace for library/content-management surfaces while form-heavy editors may use narrower readable layouts.
 
-- persistent Admin shell;
-- dashboard overview;
-- searchable Case library;
-- dedicated Case creation;
-- focused Case editor;
-- internal title, primary/default Topic, and vignette editing;
-- Additional Study Topic add/remove authoring;
-- secondary Topic promotion and primary Topic demotion while preserving relationships;
-- safe display of inactive historical Topic relationships;
-- Case question add/edit/remove/reorder;
-- reusable Topic-question creation from Case editor;
-- image upload, attach-existing, detach, reorder, and Case-specific captions;
-- learner Study preview.
+## Design principles
 
----
+1. **Navigate by content object.** Dedicated routes are preferred to one monolithic Admin page.
+2. **Keep product concepts separate.** Topic, Tag, Image Collection, stimulus group, and Shared Question have different semantics.
+3. **Preserve contextual answers.** `question_prompts` is wording; answers live at the context where they are correct.
+4. **Preserve reusable Asset identity.** Case captions/relationships are separate from global Asset metadata and immutable R2 keys.
+5. **Prefer deactivate/archive over destructive content deletion.**
+6. **Protect global edits by usage/blast-radius checks.**
+7. **Use bounded server operations.** Large browser selections are orchestrated through small independently revalidated requests.
+8. **Do not change learner behavior as an accidental side effect of library/UI work.**
+9. **Production and Preview mutation authority remain distinct.**
+10. **Let real corpus/admin friction justify additional schema.**
 
-## Questions Library — PR #11
+## 1. Dashboard and Cases
 
-Routes:
+Production Case management supports:
+
+- searchable/browsable Case library;
+- dedicated Case creation/editing;
+- internal Case title and learner-facing vignette;
+- exactly one primary/default Topic;
+- zero or more Additional Study Topics;
+- promotion of a secondary Study Topic to primary while preserving the old route as secondary;
+- visibility of inactive historical Topic relationships during safe editing;
+- `automatic`, `all`, and `fixed` question-selection configuration;
+- Case question authoring/reorder/archive behavior;
+- reusable Topic-question authoring where appropriate;
+- Tags on Cases and contextual Case Questions;
+- fixed image authoring;
+- alternative image sets/options;
+- set-wide and exact-option questions;
+- stimulus-specific coverage controls;
+- Preview/Study inspection flows where permitted.
+
+Routine Case editor order is:
+
+```text
+Topics → Case → Images → Case questions → Preview
+```
+
+### Multi-Topic invariant
+
+Every learner-presentable active Case has exactly one primary/default Topic. Additional Study Topics are real learner-routing relationships, not generic metadata.
+
+The Topic used to reach a Case becomes the Review's Study Topic and supplies direct Topic questions. The product never combines every attached Topic question bank into one Review merely because several routes exist.
+
+## 2. Questions Library
+
+Production routes:
 
 ```text
 /admin/questions
 /admin/questions/[promptId]
 ```
 
-Implemented:
+The Questions Library supports:
 
-- search Question Prompt text and current active Case/Concept answer text;
-- Topic/scope filtering;
-- current active usage counts;
-- Case and Concept usage inspection;
+- search over Prompt wording and active contextual/Shared answers;
+- scope/Topic/Tag-oriented inspection where implemented;
+- active usage counts;
+- Case, Topic, and Shared Question usage inspection;
 - context-specific answers;
 - inheritance visibility;
-- links to Case editors;
-- explicit confirmation before editing reused prompt wording;
-- stale-usage protection.
+- navigation back to owning content;
+- explicit confirmation before globally editing reused Prompt wording;
+- stale-usage/blast-radius protection.
 
-Authoritative current-active usage rules:
+`question_prompts` remains wording only. A reused Prompt may have different answers in different contexts.
 
-### Case usage
+Current active usage accounting must respect the activity of the Prompt, contextual relationship, and owning active object. Shared Question usages are included in global Prompt usage/edit protection.
 
-Requires all of:
+## 3. Shared Questions
 
-```text
-question_prompts.is_active = true
-case_questions.is_active = true
-cases.is_active = true
-```
-
-### Concept usage
-
-Requires all of:
+Production routes:
 
 ```text
-question_prompts.is_active = true
-concept_questions.is_active = true
-concepts.is_active = true
+/admin/shared-questions
+/admin/shared-questions/[sharedQuestionId]
 ```
 
-Inactive/historical relationships may be shown on detail pages but must not inflate current active counts.
+Administrators can:
 
-The content model remains:
+- list/search Shared Questions;
+- create one using an existing active production Question Prompt or new Prompt wording;
+- edit the reusable answer;
+- choose exactly one active **Reuse Scope Tag**;
+- assign zero or more independent **Descriptive Tags**;
+- archive/reactivate Shared Questions.
+
+The UI must preserve the semantic distinction:
 
 ```text
-Question Prompt
-      ↓
-Case or Concept usage
-      ↓
-context-specific answer
+Reuse Scope Tag
+= which tagged Cases make the Shared Question eligible
+
+Descriptive Tags
+= what the reusable Question teaches/tests
 ```
 
-A reused prompt may have different answers in different Cases.
+Descriptive Tags never create eligibility. The Reuse Scope Tag is not automatically inserted into descriptive tags.
 
----
+Shared Questions are global production-curated objects. They are not Preview-owned and production validation/database triggers reject Preview-owned Prompts as Shared Question backing Prompts.
 
-## Image / Asset Library — PR #12
+## 4. Images / Asset Library
 
-Routes:
+Production routes:
 
 ```text
 /admin/images
@@ -164,204 +149,193 @@ Routes:
 /admin/images/[assetId]
 ```
 
-Implemented:
+The Image Library supports:
 
-- visual thumbnail grid;
+- protected image preview/enlargement;
 - search by image name, alt text, source label, and source URL;
-- used/unused, active/inactive, and source-known/source-unknown filters;
-- protected Asset preview;
+- usage/status/source/Topic/Collection filters as implemented;
+- deterministic server-backed pages of 60 Assets;
+- exact total matching counts;
+- deterministic sorting with Asset-ID tie-breaks;
+- cross-page explicit selection within one canonical query context;
+- exact Select All when `<=300` Assets match;
+- refusal rather than silent truncation above 300;
+- server-enforced maximum `30` unique Assets per mutation request;
+- sequential client chunks for larger explicit selections;
+- progress plus stop-on-first-failure semantics;
 - Asset metadata editing;
-- usage counts and Case links;
-- dedicated upload route using the established protected R2 pipeline.
+- Case usage/context inspection;
+- protected upload through the existing R2 guardrails.
 
-### Image-renaming contract
+### Image naming and R2 identity
 
-The existing field:
+`assets.original_filename` is the administrator-facing image name/search label.
 
-```text
-assets.original_filename
-```
+Renaming it is a D1 metadata operation only. It must never rename/move/replace the immutable production R2 object or change `assets.storage_key`.
 
-is the administrator-editable image name.
+Case-specific captions remain Case/stimulus relationship data, not global Asset metadata.
 
-Do not add a separate `display_name` merely to preserve the uploaded filename. The actual original upload filename does not need separate preservation for V1.
+### Image Collections
 
-Renaming updates D1 metadata only. It must never rename, move, copy, replace, or delete the R2 object/key.
+Image Management V2 adds `image_collections` plus nullable `assets.image_collection_id`.
 
-The following remain stable:
+- one Asset has zero or one Collection;
+- null is displayed as **Unsorted**;
+- Collection rename preserves ID/assignments;
+- Collection deletion detaches affected Assets to Unsorted;
+- Collection operations never delete Assets, Case/stimulus relationships, questions, Topics, Tags, Reviews, or R2 objects.
 
-- `assets.id`;
-- `assets.storage_key`;
-- R2 object/key;
-- Case Asset relationships;
-- Review relationships/snapshots.
+A Collection is Admin organisation only. It has no learner-routing meaning.
 
-Case-specific captions remain in the Case editor because they belong to `case_assets`, not the global Asset.
+### Same-Case alternative-option Move
 
-Unknown provenance is valid. Never fabricate attribution. `source_url` is attribution/reference metadata only and never the runtime image source.
+The Case editor supports moving an existing alternative option between active groups in the **same Case** when validation passes.
 
----
+The operation preserves:
 
-## Topics dashboard — PR #13
+- `stimulus_group_options.id`;
+- Asset identity;
+- Case-specific caption;
+- active state;
+- exact-option questions.
 
-Routes:
+Group-level questions remain with their groups. Cross-Case, ownership-invalid, conflict-invalid, or coverage-invalid moves are rejected.
+
+## 5. Topics
+
+Production routes include:
 
 ```text
 /admin/topics
 /admin/topics/[conceptId]
 ```
 
-Implemented:
+Topics are the product-facing name for `concepts` and remain the learner-routing hierarchy.
 
-- Topic name search;
-- current active primary-Case count;
-- current active reusable Concept-question count;
-- Topic detail with primary Cases;
-- Topic-specific reusable answers and links to Question Prompt detail;
-- `inherit_to_descendants` visibility;
-- parent Topic navigation;
-- direct child Topic navigation;
-- inactive/historical relationships retained for administrative orientation.
+Admin Topic views provide browsing/search, parent/child orientation, Case relationships, reusable Topic questions, and links into relevant content.
 
-Current active reusable-question count requires:
+Do not use Tags or Image Collections as a substitute for the Topic hierarchy.
+
+## 6. Tags
+
+Production route:
 
 ```text
-concepts.is_active = true
-concept_questions.is_active = true
-question_prompts.is_active = true
+/admin/tags
 ```
 
-Topic metadata editing is intentionally deferred. Existing slugs remain stable. No sophisticated tree/hierarchy editor has been added.
+Tagging Stage A/B supports:
 
----
+- canonical flat Tag creation/rename/deactivate/reactivate;
+- Case Tag assignment/removal;
+- contextual Case Question Tag assignment/removal;
+- Case/Question filtering/inspection by Tag;
+- Shared Question Reuse Scope usage;
+- Shared Question descriptive Tag usage;
+- usage details that distinguish reuse-scope from descriptive semantics.
 
-# Schema impact
+Tags remain manually curated and flat in the current model. There is no automatic Case Tag → Question Tag inheritance, Tag hierarchy, alias system, or learner Study-by-Tag in V1.
 
-PRs #10–#13 required **no schema migrations**.
+## 7. Reviewed imports
 
-The existing relationships remain sufficient:
+Production route:
 
 ```text
-Cases
-↕
-Case Questions
-↕
-Question Prompts
-
-Concepts
-↕
-Concept Questions
-↕
-Question Prompts
-
-Cases
-↕
-Case Assets
-↕
-Assets
+/admin/import
 ```
 
----
+The production app accepts strict **Flash-Cards Import Package v1** ZIPs rather than arbitrary Anki/APKG input.
 
-## Multi-Topic Case authoring
+The Admin import workflow supports:
 
-The Case editor is the authoring surface for multiple Case↔Topic relationships. It clearly separates:
+- hardened package validation;
+- exact reviewed-ZIP confirmation/hash binding;
+- deterministic create/use/skip semantics;
+- dependency/conflict checking before domain writes;
+- resumable browser-orchestrated processing;
+- authoritative D1 job phase/cursor/progress/error state;
+- bounded server work per request;
+- private R2 staging;
+- safe retry/cancel/finalize semantics.
 
-```text
-Primary/default Topic
-Additional Study Topics
-```
+Tags are deliberately not required by Import Package v1. Imported content can be enriched later.
 
-An active Case must have exactly one primary/default Topic. The primary is also an active `case_concepts` relationship. Administrators can select an active primary, add active secondary Study Topics, remove secondary relationships, and promote an attached secondary Topic to primary. A primary change demotes the old primary to secondary and preserves unrelated secondary relationships. A primary cannot be removed directly. Topic IDs are validated server-side, duplicate relationships are rejected by both application validation and the database primary key, and inactive existing relationships remain visible with an inactive marker rather than being discarded.
+The first real ECG migration is complete and production-verified: 13 Batch 01 + 51 Batch 02 + 2 pre-existing mapped calcium Cases = **66/66 source notes represented**.
 
-The secondary relationship has learner-routing meaning established by PR #18: when a learner enters through that Topic, it may become `reviews.study_concept_id`; it is not a generic tag and does not mix all attached Topic question pools.
+## 8. Preview Admin relationship to production Admin
 
-## Agreed production taxonomy operator
+Preview is not a second independent content database. The Preview Worker uses the same D1/R2 resources with explicit Preview ownership and hard boundaries.
 
-The production content change is deliberately separate from deployment. Use the manually triggered workflow:
+Preview should reuse the production editor/components where safe, but Preview mutation authority is intentionally narrower.
 
-```text
-.github/workflows/apply-agreed-production-taxonomy.yml
-scripts/apply-agreed-taxonomy.mjs
-```
+Key rules:
 
-The operator accepts only `--dry-run` or explicit `--apply`; it has no free-form SQL or record-ID inputs. It resolves the six agreed Topics by fixed slugs, reuses existing rows, creates missing rows with reserved IDs, updates only the agreed hierarchy, and changes only the two known Case route sets. It preserves Cardiology and all unrelated content. It performs a pre-flight read, a D1 transaction, and a post-flight read-back. Configure the separate `CLOUDFLARE_D1_WRITE_TOKEN` secret with D1 write/edit permission and keep `CLOUDFLARE_D1_READ_TOKEN` read-only.
+- production objects are read-only in Preview except for explicitly safe relationship reuse into Preview-owned content;
+- Preview-owned Cases/Prompts/Assets use `preview_session_id`;
+- Preview uploads use `preview/<preview-session-id>/...`;
+- Reset removes disposable Preview-owned workspace data only;
+- production Admin, learner Study, and Better Auth Admin-plugin routes are hard-blocked on the Preview Worker;
+- Shared Questions remain global production-curated and cannot be mutated in Preview.
 
-Before applying, run the workflow with `apply = false` and inspect the pre-flight output against the latest [Production content snapshot](PRODUCTION_CONTENT_SNAPSHOT.md). Then run with `apply = true`, verify the post-flight output, and run the snapshot workflow again. If verification fails, stop and use a reviewed rollback operator change to restore the two prior direct Cardiology relationships and prior parents; do not run ad-hoc SQL.
+The shared Case-editor contract must stay covered by tests whenever named actions/data requirements change.
 
-## Agreed content example
+## 9. Production/read-model isolation
 
-```text
-Hypercalcemia Case
-- primary/default Topic: Hypercalcemia
-- secondary Study Topic: Short QTc
+Normal production Admin counts, libraries, and usage details exclude disposable Preview-owned content/relationships where required.
 
-Hypocalcemia Case
-- primary/default Topic: Hypocalcemia
-- secondary Study Topic: Prolonged QTc
-```
+Learner selection also excludes Preview-owned Cases, Prompts, and Assets. Database triggers provide defense in depth for critical ownership/provenance boundaries.
 
-## Next phase — pilot content validation
+## 10. Admin work completed since the original plan
 
-Enter representative content from:
+The original PR #10–#13 Admin-library milestone was only the beginning. The current Admin baseline also incorporates major follow-up work including:
 
-- ECG/Cardiology;
-- ENT;
-- Eye;
-- Dermatology.
+- multi-Topic Case authoring;
+- Tagging Stage A;
+- reviewed/resumable import authoring;
+- PR #29 Case image-authoring redesign;
+- production-backed Preview Admin;
+- Image Management V2 and Collections;
+- wide responsive Admin workspace;
+- Tagging Stage B Shared Question authoring/usage integration.
 
-Deliberately test:
+Older documents that describe Tags, bulk operations, imports, secondary Topics, or scalable Image Library workflows as future work are historical unless a current roadmap explicitly defers a more advanced version.
 
-- stem + image + multiple questions;
-- image-only recognition;
-- multi-image Cases;
-- alternative Cases for one condition;
-- same Asset reused in multiple Cases;
-- same Question Prompt with different Case-specific answers;
-- Concept-level reusable questions;
-- inherited questions;
-- content that may eventually justify secondary Concepts.
+## 11. Current next Admin work
 
-Use this real content-entry exercise to identify:
+The next Admin priorities are deliberately smaller than the completed content-management expansion:
 
-- unnecessary clicks;
-- confusing labels;
-- missing search/filter affordances;
-- difficult reuse workflows;
-- model assumptions that break under real educational content.
+### Learner-account administration
 
-Only fix friction that is demonstrated by actual use before expanding the Admin model further.
+Implement the smallest safe workflow for administrator-created/managed learner accounts while preserving production/Preview role boundaries.
 
----
+### Basic learner-progress administration
 
-# Deferred Admin work
+Initial useful scope:
 
-Do not build these unless pilot use demonstrates a clear need:
+- learner list;
+- recent Reviews;
+- simple filters;
+- Again/Good summaries;
+- repeated-Again flags/signals.
 
-- sophisticated Concept tree editor;
-- drag/drop hierarchy management;
-- bulk operations;
-- permanent deletion;
-- WYSIWYG page builder;
-- complex tagging;
-- AI-generated questions;
+Avoid sophisticated analytics until real learner use establishes requirements.
+
+## 12. Deferred Admin expansion
+
+Do not implement merely for completeness:
+
+- compound/multiple Shared Question reuse-scope expressions;
+- Tag hierarchy/aliases;
+- learner Study-by-Tag;
+- Asset Tags;
+- complex Topic tree editor;
 - advanced analytics;
-- structured marks/weighting;
-- broad stimulus types.
+- rich WYSIWYG page builder;
+- broad non-image upload types;
+- permanent destructive content deletion;
+- AI-generated/inferred clinical metadata without an explicit reviewed workflow.
 
----
-
-# Recommended sequence
-
-1. Enter representative ECG/Cardiology, ENT, Eye, and Dermatology pilot content.
-2. Fix concrete Admin friction/model issues discovered during entry.
-3. Implement learner-account administration and role-boundary acceptance.
-4. Implement basic learner-progress administration.
-5. Reassess FSRS, Anki import, structured marks, richer analytics, hierarchy tooling, and other deferred features later.
-
----
-
-# Validation standard
+## 13. Validation standard
 
 Implementation PRs should continue to run:
 
@@ -374,4 +348,4 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-GitHub CI must be green before merge.
+GitHub CI must be green before merge. Migration application, Worker deployment, and content/data operators remain separate explicitly verified operations rather than assumptions inferred from CI.
