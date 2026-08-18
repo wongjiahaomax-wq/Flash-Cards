@@ -1,22 +1,24 @@
 # ECG Anki ingestion rules
 
-_Last updated: 16 August 2026_
+_Status: adopted and production-validated. The initial ECG source migration is complete; these rules remain the reviewed-package preparation convention for future ECG material._
 
-## Status
+_Last updated: 18 August 2026_
 
-This is the adopted conversion rule for migrating the ECG Anki source material into Flash-Cards.
+## Purpose
 
-It governs the **external reviewed-package preparation step**. The production application continues to import only reviewed Flash-Cards Import Package v1 ZIPs and does not infer diagnoses, rename Assets, or interpret arbitrary Anki/APKG content.
+These rules govern the **external reviewed-package preparation step** for ECG Anki/source material.
 
-For the complete migration chain, see:
+The production application continues to import only reviewed Flash-Cards Import Package v1 ZIPs. It does not infer diagnoses, rename Assets, interpret arbitrary APKG content, or promote raw Anki Tags into the application model automatically.
 
-- `ANKI_APKG_EXTRACTION.md` — mechanical `.apkg` → normalized reviewed-source ZIP recovery;
-- `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` — the real ECG source ZIP → reviewed Cases/Questions/Assets → Import Package v1 → production workflow;
-- `CONTENT_IMPORT_PACKAGES.md` — the strict production Import Package v1 and resumable-import contract.
+For the complete chain see:
 
-## Initial content mapping
+- `ANKI_APKG_EXTRACTION.md` — mechanical `.apkg` recovery/normalization;
+- `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` — real ECG source → reviewed objects → Import Package v1 → production record;
+- `CONTENT_IMPORT_PACKAGES.md` — strict/resumable production importer contract.
 
-For the initial ECG migration:
+## 1. Initial content mapping
+
+The adopted baseline mapping is:
 
 ```text
 Anki deck/topic
@@ -25,18 +27,18 @@ Anki note
     ↓
 Case
     ├── front-side ECG image(s) → Case Asset(s)
-    └── source Q/A pairs → Case Questions
+    └── source Q/A pairs → contextual Case Questions
 ```
 
-The initial import should preserve source questions as contextual Case Questions. Reusable/shared questions and additional Tags are curated later when repetition across imported material is visible.
+Initial import should preserve source questions conservatively as Case Questions unless reuse has already been explicitly reviewed.
 
-Raw Anki tags are evidence for later Case/Question Tag curation; they are not automatically promoted into Topics.
+Reusable Topic questions, Shared Questions, Additional Study Topics, alternative stimulus groups, and Tags are progressive enrichment.
 
-## Required Asset display-name convention
+Raw Anki Tags are evidence for later curation; they are not automatically promoted into Topics or canonical application Tags.
 
-Every imported teaching image must receive a human-readable `assets.original_filename` that starts with the Case title and identifies the modality and sequence number.
+## 2. Required Asset display-name convention
 
-For ECGs:
+Every imported ECG teaching image should receive a human-readable `assets.original_filename` that starts with the Case title and identifies modality plus sequence number.
 
 ```text
 <Case title> — ECG 01.<ext>
@@ -52,9 +54,9 @@ Posterior MI — chest pain — ECG 01.jpg
 Posterior MI — chest pain — ECG 02.jpg
 ```
 
-Use two-digit numbering beginning at `01` within each Case/modality, even when there is currently only one image. This keeps alphabetical sorting stable when alternatives are added later.
+Use two-digit numbering beginning at `01` within each Case/modality, even when only one image currently exists. This preserves stable human sorting if alternatives are added later.
 
-For other modalities, use the same pattern with the modality label, for example:
+For other modalities use the same pattern with an appropriate label:
 
 ```text
 <Case title> — X-ray 01.jpg
@@ -62,59 +64,127 @@ For other modalities, use the same pattern with the modality label, for example:
 <Case title> — Clinical photo 01.jpg
 ```
 
-### Why this field is used
+## 3. Why `original_filename` is the display field
 
-The Admin Image Library displays `assets.original_filename`, searches it, and uses it for Name A–Z / Z–A sorting. Therefore the human-readable Case-aligned label belongs in `original_filename`.
+The Admin Image Library displays/searches/sorts `assets.original_filename`.
 
-The R2 `storage_key` is a separate internal immutable identity and must **not** be renamed merely to improve administrator sorting.
+Therefore the human-readable Case-aligned label belongs in that field.
 
-## Learner-information boundary
+The R2 `storage_key` is a separate immutable internal identity and must **not** be renamed merely to improve Admin display/sorting.
 
-Case-aligned filenames may contain the diagnosis because they are administrator metadata. Do not copy a diagnosis-bearing Case title into learner-facing alt text or captions when doing so would reveal the answer.
+Source media filenames/hashes may remain in review artifacts for reconciliation, but values such as:
 
-Use neutral alt text appropriate to the stimulus, for example:
+```text
+paste-<hash>.jpg
+```
+
+are not acceptable human-facing names for newly prepared ECG packages.
+
+## 4. Learner-information boundary
+
+Case-aligned Admin filenames may contain the diagnosis. Learner-facing alt text/captions must not copy diagnosis-bearing Admin metadata when it would reveal the answer.
+
+Prefer neutral alt text such as:
 
 ```text
 12-lead ECG tracing for this case
 ```
 
-Image provenance remains separate from the display name. Where known, use the existing `source_label`, `source_url`, and `licence` metadata. The source Anki media filename/hash may remain in migration review artifacts, but a value such as `paste-<hash>.jpg` is not an acceptable Admin Image Library display name for newly prepared ECG packages.
+or an equivalent accessibility description that does not disclose the diagnosis unnecessarily.
 
-## Package-preparation review rule
+## 5. Provenance is independent of display naming
 
-Before a reviewed ECG Import Package v1 is approved:
+Where known, preserve image provenance using the existing fields:
 
-1. every create-Asset must map to a known Case;
-2. `originalFilename` must follow `<Case title> — ECG NN.<ext>` for ECG stimuli;
-3. numbering must be unique and sequential within the Case;
-4. `altText` must remain learner-safe and must not accidentally reveal the diagnosis;
-5. the package must retain deterministic package-local IDs/storage behaviour; renaming `originalFilename` must never be implemented by changing the deterministic R2 key;
-6. source provenance should be retained independently where available.
+```text
+source_label
+source_url
+licence
+```
 
-This is an ingestion/review rule rather than a generic Import Package v1 schema restriction. The importer remains modality-agnostic and supports non-ECG packages.
+Unknown provenance remains unknown until reviewed; never fabricate attribution.
 
-## Batch 01 retrospective cleanup
+Changing `original_filename` does not change provenance and does not change R2 identity.
 
-Package `ecg-anki-batch-01-20260816` was imported before this naming rule was adopted. Its 13 teaching Assets retained source-style `paste-<hash>.jpg` names.
+## 6. Reviewed-package approval rule
 
-The repository contains a fixed-purpose operator:
+Before approving an ECG Import Package v1:
+
+1. every create-Asset maps to a reviewed Case;
+2. every ECG `originalFilename` follows `<Case title> — ECG NN.<ext>`;
+3. numbering is unique/sequential within the Case/modality;
+4. `altText` remains learner-safe;
+5. deterministic package-local IDs/storage behavior remain unchanged by display renaming;
+6. provenance is retained independently where available;
+7. source questions are mapped conservatively enough to preserve meaning for later curation.
+
+This naming rule is an ECG preparation convention, not a generic Import Package v1 schema restriction. The importer remains modality-agnostic.
+
+## 7. Batch 01 retrospective rename — completed audit record
+
+Package:
+
+```text
+packageId: ecg-anki-batch-01-20260816
+```
+
+was imported before the Case-aligned naming rule was adopted. Its 13 teaching Assets initially retained source-style `paste-<hash>.jpg` names.
+
+A fixed-purpose operator was added:
 
 ```text
 scripts/rename-ecg-batch-01-assets.mjs
 .github/workflows/rename-ecg-batch-01-assets.yml
 ```
 
-The operator:
+Safety contract:
 
-- targets exactly the 13 deterministic Asset IDs from Batch 01;
-- verifies each immutable R2 `storage_key` before mutation;
-- accepts only the recorded old source filename or the intended new Case-aligned filename, making safe reruns idempotent;
-- changes only `assets.original_filename`;
-- sends 13 small, individually guarded UPDATE statements as one fixed Wrangler/D1 multi-statement batch rather than using a large CASE/subquery UPDATE;
-- guards every statement by exact Asset ID, image type, immutable storage key, and known old-or-target filename;
-- performs post-flight verification of all 13 names and storage keys;
-- never touches R2 objects, image bytes, Cases, Questions, Topics, Tags, Reviews, users, or learner progress.
+- target exactly the 13 deterministic Batch 01 Asset IDs;
+- verify each immutable R2 `storage_key`;
+- accept only the recorded old source filename or intended target filename;
+- mutate only `assets.original_filename`;
+- use 13 small individually guarded updates rather than a large free-form mutation;
+- post-flight verify all target names/storage keys;
+- never mutate R2 bytes/keys, Cases, Questions, Topics, Tags, Reviews, users, or learner progress.
 
-The first production apply attempt used one large guarded CASE UPDATE. Its pre-flight passed for all 13 Assets, but Cloudflare D1 returned internal error code 7500 when executing that query shape. No rename was verified. The operator was therefore simplified to the fixed 13-statement batch above.
+### Historical failed first query shape
 
-Run the workflow first with `apply = false`. Review the pre-flight output, then run it again with `apply = true`.
+The first production apply attempt used one large guarded `CASE` UPDATE. Pre-flight matched all 13 Assets, but Cloudflare D1 returned internal error 7500 for that query shape. No rename was verified from that attempt.
+
+The operator was simplified to 13 fixed guarded UPDATE statements.
+
+### Final outcome
+
+The rerun succeeded and post-flight verification confirmed all 13 Batch 01 `original_filename` values were corrected while immutable storage keys remained unchanged.
+
+The current production migration record independently confirms that Batch 01 and Batch 02 ECG Assets use the adopted Case-aligned naming convention.
+
+Therefore **do not treat the Batch 01 rename as pending work**. Keep the operator/runbook only as a fixed-purpose audit/recovery record.
+
+## 8. Initial ECG migration outcome
+
+Production verification on 18 August 2026 closed the initial source migration:
+
+```text
+Batch 01 imported Cases/ECGs:      13
+Batch 02 imported Cases/ECGs:      51
+Pre-existing mapped calcium Cases:  2
+                         ----
+Source notes represented:          66 / 66
+```
+
+Future work on this corpus is curation/enrichment: Tags, Shared Questions, Additional Study Topics, alternative stimuli, and medical content review where useful.
+
+## 9. Future ECG ingestion principle
+
+For future source batches:
+
+```text
+preserve source meaning first
+→ use Case-aligned human media names
+→ keep learner-facing metadata neutral
+→ import through reviewed Package v1
+→ enrich progressively after ingestion
+```
+
+Do not require a complete taxonomy/Tag/reuse model before reviewed ECG content can enter the application.
