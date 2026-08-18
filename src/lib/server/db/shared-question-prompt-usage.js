@@ -76,6 +76,7 @@ export async function listQuestionLibraryWithShared(db, filters = {}) {
   ]);
 
   const legacySearchIds = new Set(legacySearchRows.map((row) => row.id));
+  /** @type {Map<string, { id: string, promptId: string, answerMd: string }[]>} */
   const sharedByPrompt = new Map();
   for (const usage of sharedUsageRows) {
     const current = sharedByPrompt.get(usage.promptId) ?? [];
