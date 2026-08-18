@@ -17,6 +17,7 @@ import {
   stimulusGroups,
   stimulusOptionQuestions
 } from './schema.js';
+import { caseTags, sharedQuestions, tags } from './tag-schema.js';
 import { pickCase } from '../learning/cases.js';
 import { pickReviewQuestions, resolveQuestionPool } from '../learning/questions.js';
 import { resolveCaseStudyCandidates } from '../learning/study-routes.js';
@@ -170,6 +171,7 @@ export async function startReview({ db, userId, conceptId, rng = Math.random }) 
         sourceConceptId: question.sourceConceptId,
         sourceStimulusGroupId: question.sourceStimulusGroupId,
         sourceStimulusOptionId: question.sourceStimulusOptionId,
+        sourceSharedQuestionId: question.sourceSharedQuestionId,
         displayOrder: question.displayOrder,
         promptSnapshotMd: question.promptMd,
         answerSnapshotMd: question.answerMd
@@ -295,6 +297,40 @@ async function loadCaseSource(db, caseId, studyConceptId, rng) {
       distance: ancestors.find((ancestor) => ancestor.id === question.conceptId)?.distance ?? 1
     }));
 
+  // Case Tag relationships are Stage A curation rows: the relationship itself has
+  // no archive flag, so current learner eligibility means an attached active Tag.
+  const caseTagRows = await db
+    .select({ tagId: caseTags.tagId })
+    .from(caseTags)
+    .innerJoin(tags, eq(tags.id, caseTags.tagId))
+    .where(and(eq(caseTags.caseId, caseId), eq(tags.isActive, true)));
+  const activeCaseTagIds = caseTagRows.map((row) => row.tagId);
+  const sharedQuestionRows = activeCaseTagIds.length
+    ? await db
+        .select({
+          id: sharedQuestions.id,
+          questionPromptId: sharedQuestions.questionPromptId,
+          answerMd: sharedQuestions.answerMd,
+          reuseScopeTagId: sharedQuestions.reuseScopeTagId,
+          isActive: sharedQuestions.isActive
+        })
+        .from(sharedQuestions)
+        .where(
+          and(
+            eq(sharedQuestions.isActive, true),
+            inArray(sharedQuestions.reuseScopeTagId, activeCaseTagIds)
+          )
+        )
+        .orderBy(asc(sharedQuestions.createdAt), asc(sharedQuestions.id))
+    : [];
+  const tagSharedQuestions = sharedQuestionRows
+    .filter((question) => prompts.has(question.questionPromptId))
+    .map((question) => ({
+      ...question,
+      promptMd: prompts.get(question.questionPromptId) ?? '',
+      sourceSharedQuestionId: question.id
+    }));
+
   const assetRows = await db
     .select({
       assetId: assets.id,
@@ -376,6 +412,7 @@ async function loadCaseSource(db, caseId, studyConceptId, rng) {
   const questionPool = resolveQuestionPool({
     caseQuestions: caseQuestionInputs,
     studyConceptQuestions: studyQuestions,
+    tagSharedQuestions,
     ancestorConceptQuestions: ancestorQuestions,
     stimulusGroupQuestions: groupQuestions,
     stimulusOptionQuestions: optionQuestions
@@ -441,6 +478,7 @@ export async function getReview(db, reviewId, userId) {
       sourceType: reviewQuestions.sourceType,
       sourceStimulusGroupId: reviewQuestions.sourceStimulusGroupId,
       sourceStimulusOptionId: reviewQuestions.sourceStimulusOptionId,
+      sourceSharedQuestionId: reviewQuestions.sourceSharedQuestionId,
       displayOrder: reviewQuestions.displayOrder
     })
     .from(reviewQuestions)
