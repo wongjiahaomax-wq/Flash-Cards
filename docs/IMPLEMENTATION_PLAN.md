@@ -1,6 +1,6 @@
 # Flash-Cards — V1 Implementation Plan
 
-_Last updated: 17 August 2026_
+_Last updated: 18 August 2026_
 
 This document tracks current implementation state. For the shortest merged-versus-pending view, read `CURRENT_PRODUCT_ROADMAP.md` first. Detailed architecture lives in `AUTHORING_MODEL.md`, `V1_DATA_MODEL.md`, `STIMULUS_GROUPS_DESIGN.md`, `MULTI_TOPIC_STUDY_ROUTES.md`, `TAGGING_MODEL_DECISIONS.md`, `CONTENT_IMPORT_PACKAGES.md`, `ADMIN_IMAGE_AUTHORING_WORKFLOW.md`, `IMAGE_MANAGEMENT_V2_PLAN.md`, and `PREVIEW_ADMIN_WORKSPACE.md`.
 
@@ -22,9 +22,11 @@ Implemented/merged baseline includes:
 - Preview Admin role reuse for an existing production Admin identity;
 - manual Deploy PR to Preview and Restore Main to Preview workflows;
 - PR #29 Admin image-authoring baseline;
-- PR #33 Image Management V2 architecture/roadmap documentation.
+- Image Management V2 from PR #34;
+- wide responsive Admin desktop workspace from PR #40;
+- Tagging Stage B **schema foundation**: `shared_questions`, `shared_question_tags`, and future `tag_shared` Review provenance.
 
-**Image Management V2 is implemented in draft PR #34 and is awaiting CI/human Preview review.** It uses the existing schema and Worker configuration. The next major product-facing implementation track after that is **Tagging Stage B**.
+Tagging Stage B learner eligibility/resolution and Shared Question Admin authoring are **not implemented yet**. They are the next product-facing PR after migration `0008_tag_shared_questions.sql` is merged and applied to production D1.
 
 Real ECG/Anki migration and curation continue in parallel as content work.
 
@@ -52,7 +54,7 @@ SvelteKit, Cloudflare Workers adapter/runtime, Wrangler configuration, protected
 
 ## Milestone 2 — D1 + Drizzle learning model
 
-Status: **complete for current V1 baseline**.
+Status: **complete for current V1 baseline; Stage B schema migration pending production application**.
 
 ```text
 0000_dashing_centennial.sql
@@ -62,11 +64,13 @@ Status: **complete for current V1 baseline**.
 0004_resumable_import_jobs.sql
 0005_tag_foundation.sql
 0006_preview_admin_workspace.sql
+0007_image_collections.sql
+0008_tag_shared_questions.sql
 ```
 
-Migration `0006_preview_admin_workspace.sql` was applied successfully to production D1 on 17 August 2026. Future schema changes should be additive and separately reviewed.
+Migration `0006_preview_admin_workspace.sql` was applied successfully to production D1 on 17 August 2026. Migration `0007_image_collections.sql` landed with Image Management V2. Migration `0008_tag_shared_questions.sql` is the Tagging Stage B schema foundation and must be applied to production D1 **after this schema PR merges and before the Stage B behavior PR is deployed or Preview-tested against the production-backed database**.
 
-Draft PR #34/Image Management V2 introduces **no migration**.
+This schema PR itself must not apply the production migration or deploy a Worker.
 
 ## Milestone 3 — authentication/permissions
 
@@ -78,13 +82,13 @@ Production and Preview Workers use separate `BETTER_AUTH_SECRET` values even whe
 
 ## Milestone 4 — learner Study flow
 
-Status: **complete for current V1**.
+Status: **complete for current V1; Tag-shared eligibility not yet active**.
 
 Learner routing supports valid Case Topics, fixed/alternative stimuli, contextual-question precedence, Automatic/All/Fixed selection, stimulus-specific coverage, durable Review snapshots and whole-Case Again/Good rating.
 
 Preview-owned Cases/Prompts/Assets are excluded from normal learner Review construction, with D1 trigger defense in depth for Preview Cases.
 
-Image Management V2 does not alter learner selection or Review composition.
+The Stage B schema foundation does not query `shared_questions`, does not change Question eligibility, and does not create `tag_shared` Review Questions during normal Study.
 
 ## Milestone 5 — protected R2 teaching images
 
@@ -117,6 +121,8 @@ Topics → Case → Images → Case questions → Preview
 ```
 
 Normal Admin read models exclude disposable Preview ownership.
+
+There is currently **no Shared Question Admin UI**. That belongs to the Stage B behavior/authoring PR after `0008` is applied to production D1.
 
 ## Milestone 7 — content/model validation
 
@@ -156,6 +162,8 @@ Status: **merged and deployed**.
 
 Architecture remains one production D1/R2 shared by production and Preview Workers, with explicit Preview ownership and clone-then-mutate isolation. Deploy PR to Preview validates an exact trusted PR head and blocks schema/migration/`wrangler.jsonc` candidate changes. Restore Main to Preview returns the Preview Worker to current `main`.
 
+Because Preview uses production D1, schema-changing PRs such as the Stage B foundation are intentionally not Preview-deployable before their migration is merged and applied normally.
+
 ## Milestone 7F — Admin image-authoring baseline
 
 Status: **merged in PR #29**.
@@ -175,9 +183,9 @@ This remains the foundation beneath V2 rather than being replaced by it.
 
 ## Milestone 7G — Image Management V2
 
-Status: **implemented in draft PR #34; awaiting final CI and human Preview review**.
+Status: **merged/deployed baseline from PR #34**.
 
-Implemented without a D1 migration or `wrangler.jsonc` change:
+Implemented with migration `0007_image_collections.sql` and without learner stimulus semantic changes.
 
 ### Scalable library
 
@@ -234,23 +242,48 @@ Fixed image conversion remains a distinct explicit operation; Case Questions are
 
 ### V2 non-goals retained
 
-- no global Asset folders/albums;
+- no global Asset folders/albums beyond Image Collections;
 - no Asset Tags;
 - no generic library-wide Asset Move;
 - no learner stimulus semantic change;
-- no Review snapshot/provenance change;
-- no R2 object identity change;
-- no migration/config change.
+- no Review snapshot/provenance semantic change from image management;
+- no R2 object identity change.
 
-See `IMAGE_MANAGEMENT_V2_PLAN.md` and `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` for final behaviour and Preview review steps.
+See `IMAGE_MANAGEMENT_V2_PLAN.md` and `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` for final behaviour.
 
 ## Milestone 7H — Tagging Stage B / shared tag-reusable Questions
 
-Status: **planned next product milestone**.
+Status: **schema foundation landed; behavior/authoring is next**.
 
-Implement the agreed architecture from `TAGGING_MODEL_DECISIONS.md`: a dedicated shared-knowledge Question entity, descriptive shared Question Tags, exactly one reuse-scope Tag initially, Case eligibility from matching Tags, Prompt deduplication, learner resolver integration and Review provenance/snapshot coverage.
+### Stage B schema foundation — `0008_tag_shared_questions.sql`
 
-Agreed precedence:
+Implemented in the schema-foundation PR:
+
+- `shared_questions` with reusable `question_prompt_id`, `answer_md`, exactly one `reuse_scope_tag_id`, active/archive state and timestamps;
+- `shared_question_tags` with many descriptive Tags per Shared Question;
+- reuse scope and descriptive Tags remain independent;
+- partial uniqueness: at most one active Shared Question per `question_prompt_id`, while inactive historical rows can coexist;
+- `review_questions.source_shared_question_id` nullable FK with `ON DELETE RESTRICT`;
+- future `source_type = tag_shared` accepted;
+- conservative `review_questions` rebuild preserving all existing IDs, Prompt IDs, display order, Concept/stimulus provenance, prompt snapshots and answer snapshots;
+- no `preview_session_id` on Shared Questions because they are global production-curated knowledge objects.
+
+Not implemented by the schema-foundation PR:
+
+- learner matching by Case Tags;
+- learner resolver changes;
+- Shared Question Admin UI;
+- production seed content;
+- production D1 migration application;
+- Worker deployment.
+
+### Exact next step after schema merge
+
+1. apply `0008_tag_shared_questions.sql` to production D1 using the normal reviewed migration path;
+2. only after the production schema is current, open the separate Stage B behavior/authoring PR;
+3. implement Case eligibility from matching Tags, Shared Question Admin authoring, Prompt deduplication, learner resolver integration and Review creation provenance.
+
+Agreed future precedence:
 
 ```text
 selected stimulus option
