@@ -6,7 +6,7 @@ This document records the implemented V1 application data model. It complements 
 
 The schema is implemented with Drizzle using the SQLite/D1 dialect and version-controlled migrations.
 
-Migration `0002_optional_stimulus_groups.sql` adds the reviewed optional-stimulus extension. Merged PR #18 adds `0003_multi_topic_study_routing.sql`, which adds Review Study-Concept provenance without changing `case_concepts` or the stimulus-group schema. Tagging Stage A is represented by `0005_tag_foundation.sql`. Tagging Stage B schema foundation is represented by `0008_tag_shared_questions.sql`; learner Shared Question eligibility/resolution and Admin Shared Question authoring are deliberately not implemented by that schema-only migration.
+Migration `0002_optional_stimulus_groups.sql` adds the reviewed optional-stimulus extension. Merged PR #18 adds `0003_multi_topic_study_routing.sql`, which adds Review Study-Concept provenance without changing `case_concepts` or the stimulus-group schema. Tagging Stage A is represented by `0005_tag_foundation.sql`. Tagging Stage B schema foundation is represented by `0008_tag_shared_questions.sql`; the schema-free Stage B behavior/authoring implementation now activates Shared Question learner eligibility/resolution and production Admin authoring on top of that landed migration.
 
 ## 1. Design rules
 
@@ -231,11 +231,13 @@ These implemented contextual tables reuse `question_prompts` while storing group
 
 Implemented by Tagging Stage A in `0005_tag_foundation.sql`.
 
-`tags` stores flat canonical clinical metadata. `case_tags` describes concepts covered by a Case. `case_question_tags` describes knowledge tested by one contextual Case Question. Case Tags are not automatically inherited onto Questions, and no Stage A Tag relationship changes learner Question resolution.
+`tags` stores flat canonical clinical metadata. `case_tags` describes concepts covered by a Case. `case_question_tags` describes knowledge tested by one contextual Case Question. Case Tags are not automatically inherited onto Questions.
+
+A Stage A `case_tags` row has no relationship-level active/archive flag. For Stage B learner eligibility, a current relationship means the row exists and the referenced Tag is active.
 
 ### `shared_questions`
 
-Implemented as schema foundation by `0008_tag_shared_questions.sql`.
+Implemented by `0008_tag_shared_questions.sql` and activated for learner/Admin behavior by Stage B2.
 
 A Shared Question is the reusable medical meaning + answer associated with reusable wording. It is deliberately separate from `question_prompts`.
 
@@ -244,16 +246,26 @@ A Shared Question is the reusable medical meaning + answer associated with reusa
 | `id` | Text primary key |
 | `question_prompt_id` | FK to `question_prompts.id` |
 | `answer_md` | Reusable medical/teaching answer |
-| `reuse_scope_tag_id` | Exactly one non-null FK to `tags.id` defining future Case eligibility |
+| `reuse_scope_tag_id` | Exactly one non-null FK to `tags.id` defining Case eligibility |
 | `is_active` | Soft-deactivation flag |
 | `created_at` | Timestamp |
 | `updated_at` | Timestamp |
 
 Indexes support prompt lookup, reuse-scope + active lookup, and active lookup. A partial unique index permits at most one simultaneously active Shared Question for a given `question_prompt_id`, while allowing archived/inactive historical rows for the same prompt to coexist.
 
-`shared_questions` does **not** have `preview_session_id`. Shared Questions are global production-curated knowledge objects.
+`shared_questions` does **not** have `preview_session_id`. Shared Questions are global production-curated knowledge objects. Production Admin helpers accept only active production Prompts; migration `0008` also rejects Preview-owned Prompt references through database triggers.
 
-The existence of this table does not yet make any learner Question eligible. The learner resolver remains unchanged until the separate Stage B behavior PR.
+A Shared Question is learner-eligible for a selected production Case when:
+
+```text
+shared_questions.is_active = true
+AND question_prompts.is_active = true
+AND question_prompts.preview_session_id IS NULL
+AND tags.is_active = true for reuse_scope_tag_id
+AND case_tags contains (selected Case, reuse_scope_tag_id)
+```
+
+Descriptive `shared_question_tags` are not queried for eligibility. Topic/Concept ancestry does not infer Tag eligibility.
 
 ### `shared_question_tags`
 
@@ -316,11 +328,11 @@ Snapshots the exact questions and answers selected for one Review.
 | `id` | Text primary key |
 | `review_id` | FK to `reviews.id` |
 | `question_prompt_id` | Original prompt ID |
-| `source_type` | `case`, `concept`, `ancestor_concept`, `stimulus_group`, `stimulus_option`, or future `tag_shared` |
+| `source_type` | `case`, `concept`, `ancestor_concept`, `stimulus_group`, `stimulus_option`, or `tag_shared` |
 | `source_concept_id` | Nullable Concept that supplied answer |
 | `source_stimulus_group_id` | Nullable group provenance |
 | `source_stimulus_option_id` | Nullable exact-option provenance |
-| `source_shared_question_id` | Nullable FK to `shared_questions.id` for future tag-shared Reviews |
+| `source_shared_question_id` | Nullable FK to `shared_questions.id` for tag-shared Reviews |
 | `display_order` | Order shown in this attempt |
 | `prompt_snapshot_md` | Exact prompt text shown |
 | `answer_snapshot_md` | Exact resolved answer shown after reveal |
@@ -334,7 +346,7 @@ Unique constraints:
 
 Migration `0008_tag_shared_questions.sql` conservatively rebuilds this table because SQLite/D1 cannot alter the existing `source_type` CHECK in place. Every pre-existing row is copied with its ID, Review ID, Prompt ID, source type, Concept/stimulus provenance, display order, prompt snapshot, and answer snapshot unchanged; `source_shared_question_id` is `NULL` for those historical rows. Existing indexes/unique constraints are recreated, and the new shared provenance FK uses `ON DELETE RESTRICT`.
 
-Tags themselves are not snapshotted onto Reviews. They remain mutable curation metadata.
+When a Shared Question is selected, Review creation stores `source_type = tag_shared`, the selected Shared Question ID, and the usual Prompt/answer snapshots. It does not snapshot Reuse Scope Tag IDs, descriptive Tag IDs, or Case Tag IDs. Those remain mutable curation metadata.
 
 This table is essential because admins can edit prompts/answers later without changing what an old Review means.
 
@@ -407,8 +419,6 @@ No second Case↔Topic table is required for multi-Topic learner routing.
 
 ### Current implemented algorithm
 
-**Tagging Stage B schema foundation does not change this algorithm.** `shared_questions` is not queried by learner Study yet, and normal Review creation does not currently emit `source_type = tag_shared`.
-
 For a selected Case and its resolved Study Concept:
 
 #### Step A — identify canonical and Study Concepts
@@ -433,40 +443,35 @@ Collect:
 1. active `case_questions` for the Case;
 2. active `concept_questions` for the **Study Concept**;
 3. active `concept_questions` on each Study-Concept ancestor where `inherit_to_descendants = true`;
-4. active contextual questions for selected stimulus groups;
-5. active contextual questions for exact selected options.
+4. eligible active `shared_questions` whose active Reuse Scope Tag is attached to the Case;
+5. active contextual questions for selected stimulus groups;
+6. active contextual questions for exact selected options.
 
-Do not automatically collect questions from the Case's other attached Concepts. Do not yet collect `shared_questions`; that belongs to the next Stage B behavior PR after migration `0008` has been applied to production D1.
+Do not automatically collect questions from the Case's other attached Concepts. Descriptive Shared Question Tags do not create eligibility.
 
 #### Step D — deduplicate by Question Prompt
 
-Current duplicate-prompt precedence remains:
+Implemented duplicate-prompt precedence is:
 
 ```text
 selected stimulus option
   > stimulus group
   > Case
-  > Study Concept
-  > closest eligible ancestor Concept
+  > exact Study Concept
+  > tag-shared Question
+  > closest eligible inheritable ancestor Concept
   > more distant eligible ancestor Concept
 ```
 
-The agreed future Stage B behavior precedence is:
-
-```text
-selected stimulus option
-  > stimulus group
-  > Case
-  > exact Study Topic
-  > tag-shared Question
-  > eligible ancestor Topic
-```
-
-That future ordering is not activated by the schema-foundation PR.
+The final candidate set is deduplicated by `question_prompt_id`, so a higher-priority context-specific usage suppresses a lower-priority Shared Question using the same Prompt.
 
 #### Step E — question selection and snapshot
 
-Apply the existing Automatic / All / Fixed Case selection mode plus per-group stimulus-specific coverage requirements.
+Apply the existing Automatic / All / Fixed Case selection mode plus per-group stimulus-specific coverage requirements to the final deduplicated pool.
+
+- Automatic preserves existing semantics.
+- All includes every deduplicated eligible question.
+- Fixed does not exceed its requested count merely because Shared Questions are eligible.
 
 Before serving the Review page, persist:
 
@@ -532,3 +537,5 @@ Do not add these until required by real behaviour:
 - answer alternatives/automated marking structures.
 
 Asset/Stimulus→Topic routing remains deliberately deferred unless representative content proves that Case-level Topic validity is insufficient.
+
+For the Stage B behavior/authoring implementation contract, including Admin workflow and deferred Tag features, see `TAGGING_STAGE_B_BEHAVIOR.md`.
