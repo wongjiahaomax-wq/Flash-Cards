@@ -23,7 +23,7 @@
  * @property {string | null} sourceConceptId
  * @property {string | null} sourceStimulusGroupId
  * @property {string | null} sourceStimulusOptionId
- * @property {string | null} sourceSharedQuestionId
+ * @property {string | null} [sourceSharedQuestionId]
  * @property {string | null} stimulusGroupId
  * @property {string | null} stimulusOptionId
  * @property {number} [displayOrder]
@@ -66,7 +66,7 @@ function resolvedQuestion(
   sourceStimulusOptionId = null,
   sourceSharedQuestionId = null
 ) {
-  return {
+  const resolved = {
     questionPromptId: item.questionPromptId,
     promptMd: item.promptMd,
     answerMd: item.answerMd,
@@ -74,10 +74,11 @@ function resolvedQuestion(
     sourceConceptId,
     sourceStimulusGroupId,
     sourceStimulusOptionId,
-    sourceSharedQuestionId,
     stimulusGroupId: item.stimulusGroupId ?? sourceStimulusGroupId ?? null,
     stimulusOptionId: item.stimulusOptionId ?? sourceStimulusOptionId ?? null
   };
+  if (sourceSharedQuestionId) resolved.sourceSharedQuestionId = sourceSharedQuestionId;
+  return resolved;
 }
 
 /**
