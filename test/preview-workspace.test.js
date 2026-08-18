@@ -37,7 +37,8 @@ const migrationSql = [
   '0003_multi_topic_study_routing.sql',
   '0005_tag_foundation.sql',
   '0006_preview_admin_workspace.sql',
-  '0007_image_collections.sql'
+  '0007_image_collections.sql',
+  '0008_tag_shared_questions.sql'
 ]
   .map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8'))
   .join('\n')
