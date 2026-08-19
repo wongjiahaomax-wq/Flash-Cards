@@ -8,6 +8,7 @@ import {
   addCaseSecondaryTopic,
   AdminContentInputError,
   createCase,
+  createCaseTopic,
   createConcept,
   listAdminConcepts,
   listCaseTopics,
@@ -57,7 +58,14 @@ function createLearningDb() {
       return Promise.all(statements.map((/** @type {any} */ statement) => statement.run()));
     }
   };
-  return { db: /** @type {LearningDb} */ (createDb(/** @type {D1Database} */ (/** @type {unknown} */ (d1)))), sqlite };
+  return { db: /** @type {LearningDb} */ (createDb(/** @type {D1Database} */ (/** @type {unknown} */ (d1)))), d1, sqlite };
+}
+
+/** @param {DatabaseSync} sqlite @param {string} caseId @param {string} conceptId */
+function relationshipRole(sqlite, caseId, conceptId) {
+  const row = sqlite.prepare('SELECT role FROM case_concepts WHERE case_id = ? AND concept_id = ?').get(caseId, conceptId);
+  assert.ok(row);
+  return row.role;
 }
 
 test('administrator can create Concepts with unique generated slugs', async () => {
@@ -107,11 +115,19 @@ test('administrator can create a Case and change its default Topic without losin
     await updateCase(fixture.db, {
       caseId: created.id,
       title: 'Renamed Case label',
-      vignetteMd: 'Revised case stem.',
-      conceptId: 'seed-pityriasis-rosea'
+      vignetteMd: 'Revised case stem.'
     });
     const revised = fixture.sqlite.prepare('SELECT title, vignette_md FROM cases WHERE id = ?').get(created.id);
     assert.deepEqual({ ...revised }, { title: 'Renamed Case label', vignette_md: 'Revised case stem.' });
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id = ? ORDER BY concept_id').all(created.id).map((row) => ({ ...row })),
+      [
+        { concept_id: 'seed-anterior-stemi', role: 'primary' },
+        { concept_id: 'seed-pityriasis-rosea', role: 'secondary' }
+      ]
+    );
+
+    await promoteCaseTopic(fixture.db, { caseId: created.id, conceptId: 'seed-pityriasis-rosea' });
     assert.deepEqual(
       fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id = ? ORDER BY concept_id').all(created.id).map((row) => ({ ...row })),
       [
@@ -219,6 +235,117 @@ test('invalid primary changes leave the existing Case relationships untouched', 
         { id: 'seed-pityriasis-rosea', role: 'secondary' }
       ]
     );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('a new Case Topic can become primary or an Additional Study Topic', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, { title: 'Inline Topic Case', conceptId: 'seed-anterior-stemi' });
+    await addCaseSecondaryTopic(fixture.db, { caseId: created.id, conceptId: 'seed-stemi' });
+
+    const primaryTopic = await createCaseTopic(fixture.db, {
+      caseId: created.id,
+      name: 'Pericarditis',
+      relationshipIntent: 'primary'
+    });
+    assert.equal(primaryTopic.relationshipIntent, 'primary');
+    assert.equal(relationshipRole(fixture.sqlite, created.id, primaryTopic.id), 'primary');
+    assert.equal(relationshipRole(fixture.sqlite, created.id, 'seed-anterior-stemi'), 'secondary');
+    assert.equal(relationshipRole(fixture.sqlite, created.id, 'seed-stemi'), 'secondary');
+
+    const secondaryTopic = await createCaseTopic(fixture.db, {
+      caseId: created.id,
+      name: 'Pericarditis',
+      relationshipIntent: 'secondary'
+    });
+    assert.equal(secondaryTopic.slug, 'pericarditis-2');
+    assert.equal(relationshipRole(fixture.sqlite, created.id, secondaryTopic.id), 'secondary');
+    assert.equal(relationshipRole(fixture.sqlite, created.id, primaryTopic.id), 'primary');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('failed non-batched Case Topic attachment cleans up the newly created Topic', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, { title: 'Inline Topic Cleanup Case', conceptId: 'seed-anterior-stemi' });
+    fixture.sqlite.exec(`
+      CREATE TRIGGER reject_new_case_topic
+      BEFORE INSERT ON case_concepts
+      WHEN NEW.case_id = '${created.id}' AND NEW.concept_id NOT IN (SELECT concept_id FROM case_concepts WHERE case_id = NEW.case_id)
+      BEGIN SELECT RAISE(ABORT, 'forced relationship failure'); END;
+    `);
+    const nonBatchedD1 = { prepare: fixture.d1.prepare };
+    const nonBatchedDb = createDb(/** @type {D1Database} */ (/** @type {unknown} */ (nonBatchedD1)));
+
+    await assert.rejects(
+      createCaseTopic(nonBatchedDb, { caseId: created.id, name: 'Should Be Cleaned Up', relationshipIntent: 'secondary' }),
+      /case_concepts/
+    );
+    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM concepts WHERE name = 'Should Be Cleaned Up'").get()?.count, 0);
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id = ?').all(created.id).map((row) => ({ ...row })),
+      [{ concept_id: 'seed-anterior-stemi', role: 'primary' }]
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('failed non-batched primary Case Topic creation restores the old primary and cleans up', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, { title: 'Primary Topic Cleanup Case', conceptId: 'seed-anterior-stemi' });
+    fixture.sqlite.exec(`
+      CREATE TRIGGER reject_new_primary_case_topic
+      BEFORE INSERT ON case_concepts
+      WHEN NEW.case_id = '${created.id}' AND NEW.concept_id NOT IN (SELECT concept_id FROM case_concepts WHERE case_id = NEW.case_id)
+      BEGIN SELECT RAISE(ABORT, 'forced primary relationship failure'); END;
+    `);
+    const nonBatchedD1 = { prepare: fixture.d1.prepare };
+    const nonBatchedDb = createDb(/** @type {D1Database} */ (/** @type {unknown} */ (nonBatchedD1)));
+
+    await assert.rejects(
+      createCaseTopic(nonBatchedDb, { caseId: created.id, name: 'Failed Primary Topic', relationshipIntent: 'primary' }),
+      /case_concepts/
+    );
+    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM concepts WHERE name = 'Failed Primary Topic'").get()?.count, 0);
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id = ? ORDER BY concept_id').all(created.id).map((row) => ({ ...row })),
+      [{ concept_id: 'seed-anterior-stemi', role: 'primary' }]
+    );
+    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM case_concepts WHERE case_id = ? AND role = 'primary'").get(created.id)?.count, 1);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('new Case Topic creation validates the Case, name, and relationship intent before writing', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, { title: 'Inline Topic Validation Case', conceptId: 'seed-anterior-stemi' });
+    await assert.rejects(
+      createCaseTopic(fixture.db, { caseId: created.id, name: ' ', relationshipIntent: 'secondary' }),
+      (error) => error instanceof AdminContentInputError && /Topic name is required/i.test(error.message)
+    );
+    await assert.rejects(
+      createCaseTopic(fixture.db, { caseId: created.id, name: 'Invalid Intent Topic', relationshipIntent: 'unrelated' }),
+      (error) => error instanceof AdminContentInputError && /primary or an Additional Study Topic/i.test(error.message)
+    );
+    await assert.rejects(
+      createCaseTopic(fixture.db, { caseId: 'missing-case', name: 'Missing Case Topic', relationshipIntent: 'secondary' }),
+      (error) => error instanceof AdminContentInputError && /missing or inactive/i.test(error.message)
+    );
+    fixture.sqlite.prepare('UPDATE cases SET is_active = 0 WHERE id = ?').run(created.id);
+    await assert.rejects(
+      createCaseTopic(fixture.db, { caseId: created.id, name: 'Inactive Case Topic', relationshipIntent: 'secondary' }),
+      (error) => error instanceof AdminContentInputError && /missing or inactive/i.test(error.message)
+    );
+    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM concepts WHERE name IN ('Invalid Intent Topic', 'Missing Case Topic', 'Inactive Case Topic')").get()?.count, 0);
   } finally {
     fixture.sqlite.close();
   }

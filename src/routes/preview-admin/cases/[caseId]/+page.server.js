@@ -113,6 +113,7 @@ export async function load({ parent, params, platform, url }) {
 
 export const actions = {
   createConcept: async () => fail(403, { error: 'Global Topic editing is unavailable in Preview Mode.' }),
+  createCaseTopic: async () => fail(403, { error: 'Creating Topics from a Case editor is unavailable in Preview Mode.' }),
   createCase: async () => fail(403, { error: 'Create a Preview Copy from an existing production Case instead.' }),
 
   attachMany: async (event) => {

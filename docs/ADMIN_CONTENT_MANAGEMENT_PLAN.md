@@ -58,6 +58,10 @@ Production Case management supports:
 - internal Case title and learner-facing vignette;
 - exactly one primary/default Topic;
 - zero or more Additional Study Topics;
+- Case Topic relationships are managed primarily in the editor's upper **Topics / Learner routing** section;
+- the Case editor can create a Topic inline and either make it primary or attach it as an Additional Study Topic;
+- changing the primary Topic uses a dedicated relationship action and preserves the previous primary as a secondary route;
+- ordinary Case-detail saves do not modify Topic routing;
 - promotion of a secondary Study Topic to primary while preserving the old route as secondary;
 - visibility of inactive historical Topic relationships during safe editing;
 - `automatic`, `all`, and `fixed` question-selection configuration;
@@ -213,6 +217,8 @@ Production routes include:
 Topics are the product-facing name for `concepts` and remain the learner-routing hierarchy.
 
 Admin Topic views provide browsing/search, parent/child orientation, Case relationships, reusable Topic questions, and links into relevant content.
+
+From a Case editor, administrators can use the Topics section to switch the active primary Topic, add or remove Additional Study Topics, promote an attached Topic, or create a new Topic with an explicit primary/secondary intent. Global Topic naming and editing remains on `/admin/topics/[conceptId]`; it is not duplicated in the Case editor. Historical inactive relationships remain visible, while inactive Topics cannot be newly selected for routing.
 
 Do not use Tags or Image Collections as a substitute for the Topic hierarchy.
 

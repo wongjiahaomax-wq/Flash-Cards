@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
 
-import { listAdminConcepts } from '$lib/server/db/admin-content.js';
+import { AdminContentInputError, createCaseTopic, listAdminConcepts } from '$lib/server/db/admin-content.js';
 import { createAssetFromUpload, AssetLibraryInputError } from '$lib/server/db/asset-library.js';
 import { canManageCaseAssets, getAdminCaseData } from '$lib/server/db/case-assets.js';
 import { listCaseQuestions } from '$lib/server/db/case-questions.js';
@@ -97,6 +97,33 @@ export async function load({ locals, platform, params, url }) {
 
 export const actions = {
   ...parentActions,
+
+  createCaseTopic: async ({ request, locals, platform, params }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id') || params.caseId;
+    if (caseId !== params.caseId) return fail(400, { error: 'The selected Case does not match this editor.' });
+
+    const relationshipIntent = formText(formData, 'relationship_intent');
+    try {
+      await createCaseTopic(createDb(platform.env.DB), {
+        caseId,
+        name: formText(formData, 'name'),
+        relationshipIntent
+      });
+    } catch (errorValue) {
+      return fail(errorValue instanceof AdminContentInputError ? 400 : 500, {
+        error: errorValue instanceof AdminContentInputError
+          ? errorValue.message
+          : 'Unable to create and attach the Topic.',
+        caseId
+      });
+    }
+
+    const status = relationshipIntent === 'primary' ? 'topic-created-primary' : 'topic-created-secondary';
+    redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=${encodeURIComponent(status)}#topics`);
+  },
 
   attachMany: async ({ request, locals, platform, params }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
