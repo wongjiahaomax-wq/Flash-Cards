@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 18 August 2026_
+_Last reviewed: 19 August 2026_
 
 This file identifies which repository documents describe the **current deployed product**, which are subsystem contracts/runbooks, which are pending designs, and which are historical records.
 
@@ -118,6 +118,10 @@ Milestone ledger current through deployed Tagging Stage B and completed initial 
 ## Pending / forward designs
 
 These are intentional future designs, **not current implemented behavior**.
+
+### `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md`
+
+Agreed pending design for ingesting unstructured PowerPoint/PDF teaching slides. ChatGPT performs source interpretation and produces an Import Package v1-shaped review bundle with learner media plus source-review metadata; a reusable local previewer lets a human compare/edit the actual proposed import; a deterministic finalizer validates and strips review-only material before the existing strict Admin importer is used. The design deliberately defers final Topic taxonomy, Tags, Shared Questions, Additional Study Topics, and alternative-stimulus enrichment until after faithful source reconstruction.
 
 ### `LOCAL_REAL_DATA_UX_WORKFLOW.md`
 
