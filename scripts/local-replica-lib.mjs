@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
 
+/** @typedef {string | number | boolean | null} D1Value */
+/** @typedef {Record<string, D1Value>} D1Row */
+
 export const CONTENT_TABLES = Object.freeze([
   { name: 'concepts', selectSql: 'SELECT * FROM `concepts` ORDER BY `id`;' },
   { name: 'image_collections', selectSql: 'SELECT * FROM `image_collections` ORDER BY `id`;' },
@@ -110,6 +113,7 @@ export function assertReplicaContract() {
   for (const table of CONTENT_TABLES) assertReadOnlySelect(table.selectSql);
 }
 
+/** @param {string} sql */
 export function assertReadOnlySelect(sql) {
   const normalized = String(sql).trim().replace(/;$/, '').trim();
   if (!/^SELECT\b/i.test(normalized)) {
@@ -121,18 +125,22 @@ export function assertReadOnlySelect(sql) {
   return normalized;
 }
 
+/** @param {string} jsonText @returns {D1Row[]} */
 export function extractD1Rows(jsonText) {
   const parsed = JSON.parse(jsonText);
+  /** @type {Array<{ results?: D1Row[] }>} */
   const batches = Array.isArray(parsed) ? parsed : [parsed];
   return batches.flatMap((batch) => (Array.isArray(batch?.results) ? batch.results : []));
 }
 
+/** @param {string} value */
 export function sqlIdentifier(value) {
   const identifier = String(value);
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier)) throw new Error(`Unsafe SQL identifier: ${identifier}`);
   return `\`${identifier}\``;
 }
 
+/** @param {D1Value | bigint | undefined} value */
 export function sqlValue(value) {
   if (value === null || value === undefined) return 'NULL';
   if (typeof value === 'boolean') return value ? '1' : '0';
@@ -145,13 +153,18 @@ export function sqlValue(value) {
   throw new Error(`Unsupported D1 value type: ${typeof value}`);
 }
 
+/** @param {string} tableName @param {D1Row[]} rows @returns {D1Row[]} */
 export function orderRowsForInsert(tableName, rows) {
   if (tableName !== 'concepts') return rows;
 
+  /** @type {Map<string, D1Row>} */
   const byId = new Map(rows.map((row) => [String(row.id), row]));
+  /** @type {Map<string, 'visiting' | 'done'>} */
   const state = new Map();
+  /** @type {D1Row[]} */
   const ordered = [];
 
+  /** @param {D1Row} row */
   const visit = (row) => {
     const id = String(row.id);
     const current = state.get(id);
@@ -173,6 +186,7 @@ export function orderRowsForInsert(tableName, rows) {
   return ordered;
 }
 
+/** @param {string} tableName @param {D1Row[]} rows */
 export function buildInsertSql(tableName, rows) {
   if (!rows.length) return `-- ${tableName}: 0 rows`;
   const table = sqlIdentifier(tableName);
@@ -197,23 +211,34 @@ export function buildLocalResetSql() {
   ].join('\n');
 }
 
+/** @param {string} sql @returns {string[]} */
 export function buildRemoteD1QueryArgs(sql) {
   const safe = assertReadOnlySelect(sql);
   return ['d1', 'execute', 'DB', '--remote', '--command', `${safe};`, '--json'];
 }
 
+/** @param {string} sql @returns {string[]} */
 export function buildLocalD1QueryArgs(sql) {
   return ['d1', 'execute', 'DB', '--local', '--command', String(sql), '--json'];
 }
 
+/** @param {string} filePath @returns {string[]} */
 export function buildLocalD1FileArgs(filePath) {
   return ['d1', 'execute', 'DB', '--local', '--file', String(filePath), '--yes'];
 }
 
+/** @param {string} bucket @param {string} key @param {string} filePath @returns {string[]} */
 export function buildRemoteR2GetArgs(bucket, key, filePath) {
   return ['r2', 'object', 'get', `${bucket}/${key}`, '--remote', '--file', String(filePath)];
 }
 
+/**
+ * @param {string} bucket
+ * @param {string} key
+ * @param {string} filePath
+ * @param {string | null | undefined} mimeType
+ * @returns {string[]}
+ */
 export function buildLocalR2PutArgs(bucket, key, filePath, mimeType) {
   return [
     'r2',
@@ -229,6 +254,7 @@ export function buildLocalR2PutArgs(bucket, key, filePath, mimeType) {
   ];
 }
 
+/** @param {string} wranglerJsonc @param {string} [binding] */
 export function readR2BucketName(wranglerJsonc, binding = 'MEDIA') {
   const escaped = binding.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = new RegExp(`"binding"\\s*:\\s*"${escaped}"[\\s\\S]{0,500}?"bucket_name"\\s*:\\s*"([^"]+)"`).exec(
@@ -238,6 +264,7 @@ export function readR2BucketName(wranglerJsonc, binding = 'MEDIA') {
   return match[1];
 }
 
+/** @param {string} key */
 export function stagingFilenameForKey(key) {
   return createHash('sha256').update(String(key)).digest('hex');
 }
