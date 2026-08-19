@@ -9,6 +9,7 @@ import {
   parseImportPackage, IMPORT_PACKAGE_VERSION, MAX_ARCHIVE_BYTES, MAX_UNCOMPRESSED_BYTES,
   MAX_ARCHIVE_ENTRIES, MAX_MANIFEST_BYTES
 } from '../../../src/lib/server/import/content-package.js';
+import { parseImportPackage as parseHardenedImportPackage } from '../../../src/lib/server/import/reviewed-content-package.js';
 import { MAX_IMAGE_BYTES } from '../../../src/lib/server/storage/media.js';
 
 const enc = new TextEncoder();
@@ -61,21 +62,31 @@ test('finalizer fail-closed representative failures',async()=>{
   const cases=[
     ['pending Case',b=>b.reviewMap.cases[0].reviewStatus='pending','review state is pending'],
     ['needs-review Case',b=>b.reviewMap.cases[0].reviewStatus='needs_review','review state is needs_review'],
-    ['blank answer',b=>b.manifest.caseQuestions[0].answerMd='','blank answer'],
-    ['blank prompt',b=>b.manifest.questionPrompts[0].promptMd='','blank prompt'],
+    ['blank answer',b=>b.manifest.caseQuestions[0].answerMd='','answerMd must be a non-empty string'],
+    ['blank prompt',b=>b.manifest.questionPrompts[0].promptMd='','promptMd must be a non-empty string'],
     ['unapproved Asset',b=>b.reviewMap.cases[0].assets[0].reviewStatus='needs_review','Asset asset-1'],
     ['blocking warning',b=>b.reviewMap.cases[0].warnings.push({code:'x',severity:'blocking',message:'blocked'}),'blocked'],
     ['missing media',b=>b.files.delete('media/a1.png'),'missing media'],
     ['hash mismatch',b=>b.reviewMap.cases[0].assets[0].sha256='00','SHA-256 mismatch'],
     ['MIME mismatch',b=>b.manifest.assets[0].mimeType='image/jpeg','MIME mismatch'],
     ['unsupported bytes',b=>{b.files.set('media/a1.png',new Uint8Array([1,2,3]));b.reviewMap.cases[0].assets[0].sha256='00';},'unsupported image format'],
-    ['broken topic',b=>b.manifest.cases[0].primaryTopicId='missing-topic','missing Topic']
+    ['broken topic',b=>b.manifest.cases[0].primaryTopicId='missing-topic','missing Topic'],
+    ['broken Asset reference',b=>b.manifest.caseAssets[0].assetId='missing-asset','missing Asset'],
+    ['broken Prompt reference',b=>b.manifest.caseQuestions[0].questionPromptId='missing-prompt','missing Question Prompt']
   ];
   for(const [,mutate,needle] of cases){const f=await fixture({unresolved:false});const b=await loadReviewBundle(f.zip);mutate(b);await assert.rejects(()=>finalizeBundle(b),e=>e.issues.some(x=>x.includes(needle)),needle);}
 });
 
+test('review ZIP rejects undeclared media',async()=>{const f=await fixture({unresolved:false});const b=await loadReviewBundle(f.zip);b.files.set('media/undeclared.png',png);const zip=exportReviewedBundle(b);await assert.rejects(()=>loadReviewBundle(zip),/undeclared media/i);});
+
+test('duplicate package-local IDs fail before review',async()=>{const f=await fixture({unresolved:false});const b=await loadReviewBundle(f.zip);b.manifest.questionPrompts[0].id='case-a';const zip=exportReviewedBundle(b);await assert.rejects(()=>loadReviewBundle(zip),/Duplicate package-local identifier/);});
+
+test('oversized approved image fails finalization without recompression',async()=>{const f=await fixture({unresolved:false});const b=await loadReviewBundle(f.zip);const bytes=new Uint8Array(PRODUCTION_LIMITS.maxImageBytes+1);bytes.set([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]);b.files.set('media/a1.png',bytes);b.reviewMap.cases[0].assets[0].sha256=await sha256Hex(bytes);await assert.rejects(()=>finalizeBundle(b),e=>e.issues.some(x=>x.includes('image exceeds')));});
+
+test('manifest-size package limit fails closed',async()=>{const f=await fixture({unresolved:false});const b=await loadReviewBundle(f.zip);b.manifest.cases[0].vignetteMd='x'.repeat(PRODUCTION_LIMITS.maxManifestBytes+1);await assert.rejects(()=>finalizeBundle(b),e=>e.issues.some(x=>x.includes('Final manifest exceeds')));});
+
 test('reviewed bundle export preserves review-only material',async()=>{const f=await fixture({unresolved:false});const b=await loadReviewBundle(f.zip);const exported=exportReviewedBundle(b);const round=await loadReviewBundle(exported);assert.equal(round.reviewMap.bundleId,'bundle-1');assert.ok(round.files.has('source-previews/p1.jpg'));});
 
-test('production compatibility: finalizer output succeeds in real parseImportPackage()',async()=>{const f=await fixture({unresolved:false});const b=await loadReviewBundle(f.zip);const out=await finalizeBundle(b);const parsed=await parseImportPackage(out.zip);assert.equal(parsed.manifest.version,1);assert.equal(parsed.manifest.packageId,'slide-test');assert.equal(parsed.manifest.cases.length,1);assert.equal(parsed.media.size,1);});
+test('production compatibility: finalizer output succeeds in both current production parsers',async()=>{const f=await fixture({unresolved:false});const b=await loadReviewBundle(f.zip);const out=await finalizeBundle(b);const parsed=await parseImportPackage(out.zip);const hardened=await parseHardenedImportPackage(out.zip);assert.equal(parsed.manifest.version,1);assert.equal(parsed.manifest.packageId,'slide-test');assert.equal(parsed.manifest.cases.length,1);assert.equal(parsed.media.size,1);assert.equal(hardened.manifest.packageId,'slide-test');assert.equal(hardened.media.size,1);});
 
 test('image detection recognizes JPEG and PNG only',()=>{assert.equal(detectImageType(png),'image/png');assert.equal(detectImageType(jpg),'image/jpeg');assert.equal(detectImageType(new Uint8Array([1,2,3])),null);});
