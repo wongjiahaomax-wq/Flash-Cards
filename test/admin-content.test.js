@@ -296,6 +296,34 @@ test('failed non-batched Case Topic attachment cleans up the newly created Topic
   }
 });
 
+test('failed non-batched primary Case Topic creation restores the old primary and cleans up', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, { title: 'Primary Topic Cleanup Case', conceptId: 'seed-anterior-stemi' });
+    fixture.sqlite.exec(`
+      CREATE TRIGGER reject_new_primary_case_topic
+      BEFORE INSERT ON case_concepts
+      WHEN NEW.case_id = '${created.id}' AND NEW.concept_id NOT IN (SELECT concept_id FROM case_concepts WHERE case_id = NEW.case_id)
+      BEGIN SELECT RAISE(ABORT, 'forced primary relationship failure'); END;
+    `);
+    const nonBatchedD1 = { prepare: fixture.d1.prepare };
+    const nonBatchedDb = createDb(/** @type {D1Database} */ (/** @type {unknown} */ (nonBatchedD1)));
+
+    await assert.rejects(
+      createCaseTopic(nonBatchedDb, { caseId: created.id, name: 'Failed Primary Topic', relationshipIntent: 'primary' }),
+      /case_concepts/
+    );
+    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM concepts WHERE name = 'Failed Primary Topic'").get()?.count, 0);
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id = ? ORDER BY concept_id').all(created.id).map((row) => ({ ...row })),
+      [{ concept_id: 'seed-anterior-stemi', role: 'primary' }]
+    );
+    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM case_concepts WHERE case_id = ? AND role = 'primary'").get(created.id)?.count, 1);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('new Case Topic creation validates the Case, name, and relationship intent before writing', async () => {
   const fixture = createLearningDb();
   try {
