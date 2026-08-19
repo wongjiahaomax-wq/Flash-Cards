@@ -1,0 +1,127 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flash-cards.local/schemas/review-map-v1.schema.json",
+  "title": "Flash-Cards slide review map v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "bundleId", "batchName", "sourceFiles", "cases", "sourceCoverage", "unresolvedQuestions", "batchWarnings"],
+  "properties": {
+    "version": { "const": 1 },
+    "bundleId": { "$ref": "#/$defs/nonEmpty" },
+    "batchName": { "$ref": "#/$defs/nonEmpty" },
+    "sourceFiles": { "type": "array", "items": { "$ref": "#/$defs/sourceFile" } },
+    "cases": { "type": "array", "items": { "$ref": "#/$defs/caseReview" } },
+    "sourceCoverage": { "type": "array", "items": { "$ref": "#/$defs/sourceCoverage" } },
+    "unresolvedQuestions": { "type": "array", "items": { "$ref": "#/$defs/unresolvedQuestion" } },
+    "batchWarnings": { "type": "array", "items": { "$ref": "#/$defs/warning" } }
+  },
+  "$defs": {
+    "nonEmpty": { "type": "string", "minLength": 1 },
+    "nullableNonEmpty": { "oneOf": [{ "$ref": "#/$defs/nonEmpty" }, { "type": "null" }] },
+    "status": { "enum": ["pending", "approved", "needs_review", "rejected"] },
+    "confidence": { "enum": ["high", "medium", "low"] },
+    "severity": { "enum": ["blocking", "warning", "info"] },
+    "warning": {
+      "type": "object", "additionalProperties": false,
+      "required": ["code", "severity", "message"],
+      "properties": {
+        "code": { "$ref": "#/$defs/nonEmpty" },
+        "severity": { "$ref": "#/$defs/severity" },
+        "message": { "$ref": "#/$defs/nonEmpty" }
+      }
+    },
+    "sourceRef": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceId", "pages"],
+      "properties": {
+        "sourceId": { "$ref": "#/$defs/nonEmpty" },
+        "pages": { "type": "array", "items": { "type": "integer", "minimum": 1 } }
+      }
+    },
+    "notes": { "type": "array", "items": { "$ref": "#/$defs/nonEmpty" } },
+    "sourceFile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceId", "filename", "pageCount"],
+      "properties": {
+        "sourceId": { "$ref": "#/$defs/nonEmpty" },
+        "filename": { "$ref": "#/$defs/nonEmpty" },
+        "repository": { "$ref": "#/$defs/nullableNonEmpty" },
+        "path": { "$ref": "#/$defs/nullableNonEmpty" },
+        "ref": { "$ref": "#/$defs/nullableNonEmpty" },
+        "pageCount": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "assetReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["assetId", "reviewStatus", "confidence", "warnings", "sourceRefs", "extractionMethod", "sha256", "reviewNotes"],
+      "properties": {
+        "assetId": { "$ref": "#/$defs/nonEmpty" },
+        "reviewStatus": { "$ref": "#/$defs/status" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "warnings": { "type": "array", "items": { "$ref": "#/$defs/warning" } },
+        "sourceRefs": { "type": "array", "items": { "$ref": "#/$defs/sourceRef" } },
+        "extractionMethod": { "$ref": "#/$defs/nullableNonEmpty" },
+        "sha256": { "$ref": "#/$defs/nullableNonEmpty" },
+        "reviewNotes": { "$ref": "#/$defs/notes" }
+      }
+    },
+    "questionReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["caseQuestionId", "reviewStatus", "confidence", "warnings", "promptSourceRefs", "answerSourceRefs", "reviewNotes"],
+      "properties": {
+        "caseQuestionId": { "$ref": "#/$defs/nonEmpty" },
+        "reviewStatus": { "$ref": "#/$defs/status" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "warnings": { "type": "array", "items": { "$ref": "#/$defs/warning" } },
+        "promptSourceRefs": { "type": "array", "items": { "$ref": "#/$defs/sourceRef" } },
+        "answerSourceRefs": { "type": "array", "items": { "$ref": "#/$defs/sourceRef" } },
+        "reviewNotes": { "$ref": "#/$defs/notes" }
+      }
+    },
+    "caseReview": {
+      "type": "object", "additionalProperties": false,
+      "required": ["caseId", "reviewStatus", "confidence", "warnings", "sourceRefs", "assets", "questions", "reviewNotes"],
+      "properties": {
+        "caseId": { "$ref": "#/$defs/nonEmpty" },
+        "reviewStatus": { "$ref": "#/$defs/status" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "warnings": { "type": "array", "items": { "$ref": "#/$defs/warning" } },
+        "sourceRefs": { "type": "array", "items": { "$ref": "#/$defs/sourceRef" } },
+        "caseBoundaryNotes": { "$ref": "#/$defs/nullableNonEmpty" },
+        "assets": { "type": "array", "items": { "$ref": "#/$defs/assetReview" } },
+        "questions": { "type": "array", "items": { "$ref": "#/$defs/questionReview" } },
+        "reviewNotes": { "$ref": "#/$defs/notes" }
+      }
+    },
+    "sourceCoverage": {
+      "type": "object", "additionalProperties": false,
+      "required": ["sourceId", "page", "classification", "caseIds", "notes", "previewPath"],
+      "properties": {
+        "sourceId": { "$ref": "#/$defs/nonEmpty" },
+        "page": { "type": "integer", "minimum": 1 },
+        "classification": { "$ref": "#/$defs/nonEmpty" },
+        "caseIds": { "type": "array", "items": { "$ref": "#/$defs/nonEmpty" } },
+        "notes": { "$ref": "#/$defs/nullableNonEmpty" },
+        "previewPath": { "$ref": "#/$defs/nullableNonEmpty" }
+      }
+    },
+    "unresolvedQuestion": {
+      "type": "object", "additionalProperties": false,
+      "required": ["candidateId", "caseId", "sourcePrompt", "proposedPrompt", "promptSourceRefs", "answerSourceRefs", "reviewStatus", "confidence", "warnings", "reviewNotes", "resolvedQuestionPromptId", "resolvedCaseQuestionId"],
+      "properties": {
+        "candidateId": { "$ref": "#/$defs/nonEmpty" },
+        "caseId": { "$ref": "#/$defs/nonEmpty" },
+        "sourcePrompt": { "$ref": "#/$defs/nullableNonEmpty" },
+        "proposedPrompt": { "$ref": "#/$defs/nonEmpty" },
+        "promptSourceRefs": { "type": "array", "items": { "$ref": "#/$defs/sourceRef" } },
+        "answerSourceRefs": { "type": "array", "items": { "$ref": "#/$defs/sourceRef" } },
+        "reviewStatus": { "$ref": "#/$defs/status" },
+        "confidence": { "$ref": "#/$defs/confidence" },
+        "warnings": { "type": "array", "items": { "$ref": "#/$defs/warning" } },
+        "reviewNotes": { "$ref": "#/$defs/notes" },
+        "resolvedQuestionPromptId": { "$ref": "#/$defs/nullableNonEmpty" },
+        "resolvedCaseQuestionId": { "$ref": "#/$defs/nullableNonEmpty" }
+      }
+    }
+  }
+}

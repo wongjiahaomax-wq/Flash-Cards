@@ -1,650 +1,171 @@
 # Slide-to-Flash-Cards Reviewed Import Workflow
 
-_Status: agreed design; not yet implemented._
+_Status: local review/finalization layer implemented in draft PR #53; ChatGPT source reconstruction remains a separate workflow._
 
 _Last updated: 19 August 2026._
 
-## 1. Purpose
+## 1. Purpose and boundary
 
-After the remaining Anki decks are migrated, much of the source teaching material for Flash-Cards will arrive as unstructured PowerPoint/PDF teaching slides.
+Teaching material will often arrive as unstructured PPTX/PDF slides containing vignettes, images, question/answer slides, multi-slide Cases, tables and non-Case teaching material.
 
-These slide sets commonly contain:
+The application does **not** attempt to interpret arbitrary slides itself. The governing architecture remains:
 
-- clinical vignettes;
-- images;
-- tables;
-- question slides;
-- answer slides;
-- multi-slide Cases;
-- speaker-note material;
-- teaching/reference slides that should not become Cases.
+> **ChatGPT reconstructs → human reviews the actual proposed manifest → deterministic code finalizes → existing importer writes production.**
 
-The application should **not** attempt to interpret arbitrary teaching slides itself.
+There is one semantic AI step only. The local reviewer/finalizer performs no medical reasoning, source interpretation, taxonomy inference, Prompt rewriting or answer rewriting.
 
-Instead, ChatGPT performs the unstructured semantic reconstruction, a human reviews the result locally, and the existing strict Flash-Cards importer remains the production safety boundary.
+This implementation does **not** implement PPTX/PDF extraction, OCR or the ChatGPT reconstruction step.
 
-The guiding principle is:
-
-> **AI interprets the source; the human approves the actual proposed import; deterministic code validates and packages it.**
-
----
-
-# 2. Final architecture
+## 2. Architecture
 
 ```text
 Original PPTX / PDF
-stored as source/reference
-        │
-        ▼
+        ↓
       ChatGPT
-        │
-        │ interpret slides
-        │ reconstruct Cases
-        │ extract/crop learner images
-        │
-        ▼
+        ↓
 Reviewable Import Bundle
 ├── manifest.json
 ├── media/
 ├── review-map.json
 └── source-previews/
-        │
-        ▼
+        ↓
 Reusable Local Review Previewer
-        │
-        │ source vs proposed import
-        │ human edits manifest content
-        │ approve / reject / flag
-        │
-        ▼
+        ↓
 Reviewed Import Bundle
-        │
-        ▼
-Fixed Finalizer / Validator
-        │
-        │ validate approval state
-        │ validate manifest/media
-        │ remove review-only files
-        │
-        ▼
+        ↓
+Deterministic Finalizer
+        ↓
 flashcards-import-v1.zip
 ├── manifest.json
 └── media/
-        │
-        ▼
-Existing Production Admin Importer
-        │
-        ├── D1 content
-        └── R2 teaching images
+        ↓
+Existing Admin Importer
 ```
 
-There is only one semantic AI step.
+The core invariant is:
 
-There is no second ChatGPT pass required after human review.
+> **The manifest content the human approves is the content that the production importer receives.**
 
----
+The proposed-import panel edits the actual in-memory Import Package-shaped manifest. There is no duplicate candidate content model and no second semantic conversion.
 
-# 3. Key design decision: review the final import representation
+## 3. Implemented local tool
 
-ChatGPT should construct the content directly in the existing **Flash-Cards Import Package v1 manifest structure**.
-
-The human reviewer therefore reviews the same Case, Asset, Prompt and Case Question content that will ultimately be submitted to the existing importer.
-
-There is no pipeline such as:
+The reusable local tooling lives under:
 
 ```text
-candidate schema
-→ semantic converter
-→ Import Package schema
+tools/slide-import-review/
+├── index.template.html
+├── README.md
+├── schemas/
+│   └── review-map-v1.schema.json
+├── scripts/
+│   ├── build.mjs
+│   └── finalize.mjs
+├── src/
+│   ├── app.js
+│   ├── core.js
+│   └── core-v2.js
+└── tests/
+    └── core.test.js
 ```
 
-Instead:
+Build once from the repository root:
 
-```text
-ChatGPT
-→ Import Package-shaped manifest
-→ human edits/approves that manifest
-→ deterministic validation/finalisation
+```bash
+npm run slide-review:build
 ```
 
-The key invariant is:
-
-> **What the human reviewer approves is what the production importer receives.**
-
----
-
-# 4. Reviewable Import Bundle
-
-ChatGPT produces one review bundle per logical source batch.
-
-Example:
+Then open:
 
 ```text
-shp-eye-ent-2026-review.zip
-│
+tools/slide-import-review/dist/index.html
+```
+
+The build produces a standalone local HTML application. Routine review does not require Cloudflare, D1, R2, GitHub Pages, an internet connection, a hosted backend, or a development server.
+
+Available package scripts are:
+
+```bash
+npm run slide-review:build
+npm run slide-review:test
+npm run slide-review:finalize -- reviewed.zip [output.zip]
+```
+
+No new npm dependency is required for the reviewer/finalizer.
+
+## 4. Review bundle
+
+The reviewer consumes:
+
+```text
+<batch>-review.zip
 ├── manifest.json
-│
 ├── media/
-│   ├── case-001-image-01.png
-│   ├── case-001-image-02.png
-│   ├── case-007-image-01.jpg
-│   └── ...
-│
 ├── review-map.json
-│
 └── source-previews/
-    ├── source-001-page-001.jpg
-    ├── source-001-page-002.jpg
-    ├── source-001-page-003.jpg
-    └── ...
 ```
 
-The bundle contains both production-shaped material and review-only material.
+This ZIP is intentionally **not** a production Import Package. Review-only paths remain rejected by the existing production parser.
 
----
+The browser reads the ZIP selected or dropped by the user through File APIs. It does not fetch sibling files under `file://`, upload bundle contents, or automatically fetch `Asset.sourceUrl`.
 
-# 5. `manifest.json`
+## 5. Production-shaped manifest profile
 
-`manifest.json` should conform to the current Flash-Cards Import Package v1 contract.
+The current Import Package v1 validator remains authoritative and is not weakened by this workflow.
 
-The current Import Package v1 product sections include:
+Slide ingestion deliberately uses a conservative subset:
 
 ```text
-version
-packageId
-topics
-cases
-assets
-caseAssets
-questionPrompts
-caseQuestions
-topicQuestions
+one holding Topic
+created Cases
+created Assets
+created CaseAssets
+created QuestionPrompts
+created CaseQuestions
+topicQuestions = []
 ```
 
-The exact current implementation and validator remain authoritative.
-
-For slide ingestion, the workflow should deliberately use a conservative subset.
-
-Normally generate:
-
-```text
-topics
-cases
-assets
-caseAssets
-questionPrompts
-caseQuestions
-```
-
-Do not automatically generate Topic Questions.
-
-Do not extend Import Package v1 merely to support slide ingestion.
-
----
-
-# 6. Holding Topic
-
-Final Topic taxonomy is deliberately deferred.
-
-ChatGPT does not need to determine the permanent Topic for every Case.
-
-Each logical source batch should initially use one holding Topic such as:
-
-```text
-Imported — SHP EYE/ENT 2026 — Unsorted
-```
-
-or:
-
-```text
-Imported — SHP Abnormal Labs 2026 — Unsorted
-```
-
-Every imported Case initially uses the batch holding Topic as its primary/default Topic.
-
-Cases are manually moved into the proper Topic taxonomy later through the normal Admin workflow.
-
-ChatGPT may record suggested clinical Topics in review-only metadata, but those suggestions must not automatically create production Topics.
-
----
-
-# 7. Conservative Case reconstruction
-
-The source should initially be translated using the simplest application representation that faithfully reproduces how the original Case was constructed.
-
-Default:
-
-```text
-Holding Topic
-└── Case
-    ├── vignette
-    ├── zero or more fixed images
-    └── one or more Case Questions
-```
-
-Do not automatically infer:
-
-```text
-Additional Study Topics
-Tags
-Shared Questions
-alternative stimulus groups
-stimulus-group questions
-stimulus-option questions
-Image Collections
-```
-
-These are later enrichment/curation features.
-
----
-
-# 8. All slide-ingested images are initially fixed
-
-Every learner-facing image belonging to the source Case is initially represented as a **fixed Case Asset**.
-
-If the source Case contains:
-
-```text
-vignette
-+ ECG
-+ chest radiograph
-+ four questions
-```
-
-the initial imported Case should contain:
-
-```text
-vignette
-+ fixed ECG
-+ fixed chest radiograph
-+ four Case Questions
-```
-
-Do not convert the images into alternative stimulus groups during ingestion.
-
-This reflects the fact that the source author intentionally constructed the Case with those images present together.
-
----
-
-# 9. Multiple fixed images are supported
-
-One Case may contain:
-
-```text
-0..many fixed Assets
-```
-
-Their source presentation order must be preserved through `caseAssets.displayOrder`.
-
-For example:
-
-```text
-Case
-├── Image 1 — ECG
-├── Image 2 — chest X-ray
-└── Image 3 — clinical photograph
-```
-
-should retain that order unless the human reviewer changes it.
-
----
-
-# 10. Composite versus separate images
-
-PowerPoint/PDF visual object boundaries do not automatically define Flash-Cards Asset boundaries.
-
-Keep material as one composite Asset when layout itself carries educational meaning.
-
-Examples:
-
-```text
-A/B comparison panel
-PowerPoint-built laboratory table
-multiple labelled diagrams forming one question stimulus
-chart assembled from several slide objects
-```
-
-Use separate fixed Assets when the images are genuinely independent stimuli that all belong to the Case.
-
-The human reviewer must see the proposed final Asset, not merely an instruction describing which source object should be extracted.
-
----
-
-# 11. Actual media files are created before review
-
-ChatGPT is responsible for producing the proposed learner-facing JPEG/PNG files inside:
-
-```text
-media/
-```
-
-The human reviewer approves the actual image that would enter R2.
-
-Image extraction may use:
-
-```text
-embedded original
-crop from rendered source page
-rendered composite
-```
-
-Prefer the clean original embedded image where practical.
-
-Use rendered crops/composites when layout must be preserved.
-
----
-
-# 12. Answer leakage is blocking
-
-If the source contains:
-
-```text
-question slide:
-unannotated image
-
-answer slide:
-same image + arrows / labels / diagnosis
-```
-
-the learner Asset must come from the question version.
-
-Answer-bearing annotations must not accidentally enter the learner-facing Asset.
-
-Possible answer leakage is a blocking review warning.
-
----
-
-# 13. Tables
-
-Distinguish between:
-
-```text
-question/stimulus table
-```
-
-and:
-
-```text
-answer/explanation table
-```
-
-A laboratory results table required to solve the Case may become a fixed learner Asset.
-
-A differential-diagnosis or management table that appears as the answer should normally be converted into answer content rather than exposed as a learner stimulus.
-
----
-
-# 14. Questions are initially Case Questions
-
-Every question reconstructed from a source Case should initially be represented as a Case Question.
-
-For example:
-
-```text
-Question Prompt
-"What is the diagnosis?"
-
-Case Question
-Case 017
-→ "Central retinal artery occlusion."
-```
-
-The current application rule remains important:
-
-> `questionPrompts` contains reusable wording only; the answer belongs to the contextual relationship.
-
-Slide ingestion must not place a universal clinical answer on a Question Prompt.
-
-Promotion to Topic Questions, Shared Questions or other reusable scopes is deferred until later curation.
-
----
-
-# 15. Source fidelity
-
-ChatGPT should reconstruct what the teaching source actually says.
-
-It must not silently:
-
-- complete missing medical answers;
-- update old guidelines;
-- correct suspected errors;
-- add management steps;
-- infer diagnoses that the source does not support.
-
-If source material appears incorrect, incomplete or outdated:
-
-```text
-preserve source-supported content
-+
-flag for human review
-```
-
-A missing answer remains missing until resolved by the human reviewer.
-
----
-
-# 16. `review-map.json`
-
-The production manifest should not be polluted with editorial metadata that the Import Package does not support.
-
-Review-only information therefore lives in:
-
-```text
-review-map.json
-```
-
-Its purpose is to connect production-shaped manifest objects back to source evidence.
-
-It may record:
-
-```text
-source file
-source slide/page numbers
-Case-boundary evidence
-question source slide
-answer source slide
-image source slide
-image extraction method
-confidence
-warnings
-suggested Topic
-human review status
-human review notes
-```
-
-It does not define production medical content independently of `manifest.json`.
-
-The manifest remains the proposed import.
-
----
-
-# 17. Example review mapping
-
-Conceptually:
+Created slide-derived Cases normally use:
 
 ```json
 {
-  "caseLocalId": "case-017",
-
-  "source": {
-    "sourceId": "eye-ent-2026",
-    "pages": [20, 21, 22]
-  },
-
-  "caseBoundary": {
-    "confidence": "high",
-    "notes": "Page 20 is the question slide; pages 21-22 contain matching answers."
-  },
-
-  "assets": {
-    "asset-017-01": {
-      "sourcePage": 20,
-      "extractionMethod": "crop",
-      "confidence": "high",
-      "warnings": []
-    }
-  },
-
-  "questions": {
-    "question-017-01": {
-      "promptPage": 20,
-      "answerPages": [21],
-      "confidence": "high",
-      "warnings": []
-    }
-  },
-
-  "reviewStatus": "pending",
-  "reviewNotes": []
+  "questionSelectionMode": "all",
+  "secondaryTopicIds": []
 }
 ```
 
-The exact review-map schema should be defined before implementation.
+All slide-ingested learner images initially remain fixed Case Assets and preserve source order through `caseAssets.displayOrder`.
 
----
+The reviewer does not expose automatic taxonomy, Tags, Shared Questions, Additional Study Topics, alternative stimulus groups or Image Collections.
 
-# 18. `source-previews/`
+## 6. Review-map v1 contract
 
-The review bundle contains rendered previews of original source slides/pages.
-
-These are not production Assets.
-
-They exist so that the local reviewer can compare:
+The machine-readable contract is frozen at:
 
 ```text
-ORIGINAL SOURCE
-vs
-ACTUAL PROPOSED IMPORT
+tools/slide-import-review/schemas/review-map-v1.schema.json
 ```
 
-without needing to constantly switch back to PowerPoint/PDF.
+The browser/runtime validator in `src/core-v2.js` is also strict: unsupported versions, enum values, unknown object keys, duplicate identifiers and broken references fail with an explicit error rather than being coerced.
 
-The original source itself remains the authoritative source material and may be retained in GitHub for reference.
+Top level:
 
----
-
-# 19. Source-file provenance
-
-Where the original teaching material is retained in GitHub, review metadata should record where possible:
-
-```text
-repository
-path
-commit/ref
-filename
-slide/page
+```json
+{
+  "version": 1,
+  "bundleId": "bundle-001",
+  "batchName": "SHP Eye/ENT 2026",
+  "sourceFiles": [],
+  "cases": [],
+  "sourceCoverage": [],
+  "unresolvedQuestions": [],
+  "batchWarnings": []
+}
 ```
 
-An exact commit SHA is preferable when practical.
+### Review states
 
-This allows an imported Case to remain traceable back to the precise source version from which it was reconstructed.
-
----
-
-# 20. Every source page must be accounted for
-
-ChatGPT must not silently ignore source material.
-
-Every slide/page should be classified as either:
-
-```text
-part of one or more reconstructed Cases
-```
-
-or explicitly non-Case material such as:
-
-```text
-title slide
-section heading
-teaching/reference material
-answer continuation
-administrative content
-source attribution
-duplicate
-uncertain
-other
-```
-
-The local previewer should provide a Source Coverage view so the reviewer can identify omitted or uncertain source pages.
-
----
-
-# 21. Reusable local previewer
-
-The local previewer is a **single reusable component**.
-
-ChatGPT does not regenerate it for each batch.
-
-It should run locally on the administrator's laptop and consume the Reviewable Import Bundle.
-
-No production infrastructure is required.
-
-Preferred workflow:
-
-```text
-open local previewer
-        ↓
-choose/drop review ZIP
-        ↓
-review source vs import
-        ↓
-edit/approve/reject
-        ↓
-export reviewed bundle
-```
-
-It should not upload medical content to an external service merely to display it.
-
----
-
-# 22. Previewer primary view
-
-The main review surface should be:
-
-```text
-┌─────────────────────────┬─────────────────────────┐
-│ ORIGINAL SOURCE         │ PROPOSED IMPORT         │
-│                         │                         │
-│ source page(s)          │ vignette                │
-│                         │                         │
-│ question slide          │ learner Asset(s)        │
-│ answer slide            │                         │
-│                         │ questions               │
-│                         │                         │
-│                         │ reveal answers          │
-└─────────────────────────┴─────────────────────────┘
-```
-
-The right side represents the actual content currently encoded in the manifest.
-
----
-
-# 23. The previewer edits the proposed import directly
-
-When the reviewer changes:
-
-```text
-Case title
-vignette
-question wording
-answer
-image caption
-image ordering
-```
-
-the resulting exported bundle should contain the corresponding updated production-shaped manifest content.
-
-There must not be another semantic conversion step after approval.
-
-Again:
-
-> **The content being reviewed is the content that will be imported.**
-
----
-
-# 24. Human review states
-
-Review-only state may include:
+Exactly:
 
 ```text
 pending
@@ -653,90 +174,353 @@ needs_review
 rejected
 ```
 
-The previewer should support rapid:
+AI-generated material should arrive `pending` or `needs_review`. Human review changes it to `approved` or `rejected`.
+
+### Confidence
+
+Exactly:
 
 ```text
-Approve
-Needs review
-Reject
+high
+medium
+low
 ```
 
-navigation and filtering.
+Confidence remains review metadata and is never copied into the production manifest.
 
-Approval state belongs in review metadata, not the production manifest.
+### Warnings
 
----
+Shape:
 
-# 25. Fixed finalizer
+```json
+{
+  "code": "missing_answer",
+  "severity": "blocking",
+  "message": "No reliable answer was identified in the source."
+}
+```
 
-After human review, a deterministic finalizer script consumes the reviewed bundle.
+Severity is exactly:
 
-The finalizer performs **no medical or semantic interpretation**.
+```text
+blocking
+warning
+info
+```
 
-Its responsibilities are limited to validation and packaging.
+Blocking warnings prevent readiness/finalization.
+
+### Source references
+
+```json
+{
+  "sourceId": "source-001",
+  "pages": [17, 18]
+}
+```
+
+References are validated against `sourceFiles[]`.
+
+### Source files
+
+```json
+{
+  "sourceId": "source-001",
+  "filename": "teaching-deck.pdf",
+  "repository": "wongjiahaomax-wq/source-material",
+  "path": "slides/teaching-deck.pdf",
+  "ref": "commit-sha-or-ref",
+  "pageCount": 63
+}
+```
+
+Repository/path/ref may be null. `pageCount` must be positive.
+
+### Case review record
+
+```json
+{
+  "caseId": "case-001",
+  "reviewStatus": "pending",
+  "confidence": "high",
+  "warnings": [],
+  "sourceRefs": [{ "sourceId": "source-001", "pages": [1, 2] }],
+  "caseBoundaryNotes": "Page 1 question; page 2 answer.",
+  "assets": [],
+  "questions": [],
+  "reviewNotes": []
+}
+```
+
+`caseId` must reference an actual manifest Case.
+
+### Asset review record
+
+```json
+{
+  "assetId": "asset-001-01",
+  "reviewStatus": "pending",
+  "confidence": "high",
+  "warnings": [],
+  "sourceRefs": [{ "sourceId": "source-001", "pages": [1] }],
+  "extractionMethod": "embedded_original",
+  "sha256": "...",
+  "reviewNotes": []
+}
+```
+
+The SHA-256 records the exact learner media bytes being reviewed.
+
+### Emitted Question review record
+
+```json
+{
+  "caseQuestionId": "case-question-001-01",
+  "reviewStatus": "pending",
+  "confidence": "high",
+  "warnings": [],
+  "promptSourceRefs": [{ "sourceId": "source-001", "pages": [1] }],
+  "answerSourceRefs": [{ "sourceId": "source-001", "pages": [2] }],
+  "reviewNotes": []
+}
+```
+
+The `CaseQuestion` points to its production `QuestionPrompt` through the manifest relationship.
+
+## 7. Unresolved source questions
+
+The production Import Package validator requires every created Case Question to have a non-empty answer. Therefore a source question with no reliable answer must **not** appear as an invalid `caseQuestions[]` record.
+
+It remains in `review-map.json`:
+
+```json
+{
+  "candidateId": "unresolved-question-001-03",
+  "caseId": "case-001",
+  "sourcePrompt": "What investigation would you perform next?",
+  "proposedPrompt": "What investigation would you perform next?",
+  "promptSourceRefs": [
+    { "sourceId": "source-001", "pages": [17] }
+  ],
+  "answerSourceRefs": [],
+  "reviewStatus": "needs_review",
+  "confidence": "low",
+  "warnings": [
+    {
+      "code": "missing_answer",
+      "severity": "blocking",
+      "message": "No reliable answer was found in the supplied source material."
+    }
+  ],
+  "reviewNotes": [],
+  "resolvedQuestionPromptId": null,
+  "resolvedCaseQuestionId": null
+}
+```
+
+### Resolving
+
+The reviewer supplies a non-empty Prompt and answer and chooses **Create Prompt + Case Question**.
+
+The implementation creates actual manifest objects deterministically:
+
+```text
+QuestionPrompt ID  = resolved-prompt:<candidateId>
+CaseQuestion ID    = resolved-case-question:<candidateId>
+```
+
+No AI is called. The candidate remains in review history and is updated with the new manifest IDs. The newly emitted Question begins `pending` and must itself be approved.
+
+### Rejecting
+
+Rejecting an unresolved question sets:
+
+```text
+reviewStatus = rejected
+```
+
+No Prompt or Case Question is created. The candidate remains in editorial history and is no longer a finalization blocker.
+
+An unresolved candidate that remains `pending` or `needs_review` blocks finalization.
+
+## 8. Review UI
+
+The primary view is side-by-side:
+
+```text
+┌─────────────────────────────┬─────────────────────────────┐
+│ ORIGINAL SOURCE             │ PROPOSED IMPORT             │
+│ source thumbnails           │ Admin-only title            │
+│ selected source page        │ vignette                    │
+│ evidence / warnings         │ fixed learner images        │
+│                             │ Case Questions              │
+│                             │ reveal answers              │
+└─────────────────────────────┴─────────────────────────────┘
+```
+
+The proposed-import side renders from the current in-memory manifest.
+
+Implemented navigation includes Previous/Next, Case position, review status, filters/counts and keyboard shortcuts:
+
+```text
+A             approve
+R             needs review
+X             reject
+Left Arrow    previous Case
+Right Arrow   next Case
+Space         reveal/hide answers
+```
+
+Shortcuts are ignored while focus is inside an input, textarea, select or contenteditable element.
+
+Answers are hidden by default and the Case title is clearly identified as Admin-only.
+
+## 9. Direct manifest editing
+
+The reviewer directly edits:
+
+```text
+Case.title
+Case.vignetteMd
+Asset.originalFilename
+Asset.altText
+Asset.sourceLabel
+Asset.sourceUrl
+Asset.licence
+CaseAsset.captionMd
+CaseAsset.displayOrder
+QuestionPrompt.promptMd
+CaseQuestion.answerMd
+```
+
+These are the actual manifest fields later finalized. There is no post-review semantic conversion.
+
+## 10. Image review and replacement
+
+Each learner Asset is shown as the actual learner-facing image together with source references, extraction method, confidence, warnings and SHA-256 state.
+
+Replacement workflow:
+
+```text
+Replace image
+→ select local JPEG/PNG
+→ verify file size and magic bytes
+→ keep manifest media path
+→ replace exact bytes
+→ update manifest MIME/original filename
+→ recompute SHA-256
+→ mark extractionMethod = human_replacement
+→ move Asset to needs_review
+```
+
+The current production per-image limit is enforced. The tool does not silently recompress, resize or degrade diagnostically meaningful images.
+
+`Asset.altText` is directly editable. A `possible_answer_leakage` warning remains visually prominent and blocking when marked blocking.
+
+## 11. Case/component review semantics
+
+Review status is represented independently for:
+
+```text
+Cases
+Assets
+emitted Questions
+unresolved Questions
+```
+
+A clean Case approval may approve clean child Asset/Question records, but blocking warnings are never overridden automatically.
+
+A rejected Case remains represented in `review-map.json` editorial history but is excluded from the production output.
+
+At finalization the dependency selector removes the rejected Case plus relationships/entities/media no longer referenced by approved Cases. References are evaluated before pruning; referenced entities are not deleted merely because another Case was rejected.
+
+## 12. Source Coverage
+
+`sourceCoverage[]` accounts for source pages/slides with:
+
+```json
+{
+  "sourceId": "source-001",
+  "page": 17,
+  "classification": "case",
+  "caseIds": ["case-007"],
+  "notes": "Question slide.",
+  "previewPath": "source-previews/source-001-page-017.jpg"
+}
+```
+
+The Source Coverage view displays source file, page/slide, classification, linked Cases, notes and preview state, and highlights uncertain/broken coverage conditions.
+
+A referenced preview path must exist in the selected ZIP; broken Case/source references fail validation.
+
+## 13. Local persistence
+
+Review work is persisted in IndexedDB keyed by `bundleId`, including edited manifest/review metadata and replacement learner media.
+
+This protects against accidental page closure, but browser persistence is not the portable source of truth.
+
+Use **Export Reviewed Bundle** for the durable editorial/audit artifact.
+
+## 14. Reviewed bundle export
+
+The explicit export is:
+
+```text
+<batch>-reviewed.zip
+├── manifest.json
+├── media/
+├── review-map.json
+└── source-previews/
+```
+
+It preserves human edits, statuses, warnings, source evidence, rejected metadata, unresolved-question history and source coverage.
+
+## 15. Deterministic finalizer
+
+The browser and CLI use the same finalization core.
 
 Conceptually:
 
 ```text
-Reviewed Import Bundle
-        ↓
-validate review state
-        ↓
-validate manifest
-        ↓
-validate media
-        ↓
-validate references/hashes
-        ↓
-run existing Import Package v1 validation
-        ↓
-discard review-only material
-        ↓
+Reviewed Bundle
+      ↓
+review-state validation
+      ↓
+dependency selection
+      ↓
+production-shaped manifest validation
+      ↓
+media/hash validation
+      ↓
+ZIP/package-limit validation
+      ↓
 flashcards-import-v1.zip
 ```
 
----
+The finalizer performs no medical interpretation and never regenerates package-local IDs.
 
-# 26. Finalizer fail-closed rules
-
-The script should reject inconsistent content rather than repair it.
-
-Examples:
+It includes only approved Cases and their required dependency closure:
 
 ```text
-approved Case contains a missing answer
-→ FAIL
+required holding/parent Topics
+approved Cases
+required CaseAssets
+referenced Assets
+required CaseQuestions
+referenced QuestionPrompts
 ```
+
+For the slide profile:
 
 ```text
-approved manifest references a missing media file
-→ FAIL
+topicQuestions = []
 ```
 
-```text
-recorded image hash differs from the reviewed image
-→ FAIL
-```
+Rejected Cases, unresolved review candidates, review history and source previews are excluded.
 
-```text
-Case/Asset/Question reference is invalid
-→ FAIL
-```
+## 16. Finalizer output and ZIP compatibility
 
-```text
-manifest violates Import Package v1
-→ FAIL
-```
-
-No AI is required to resolve these failures.
-
-The reviewer/source bundle must be corrected explicitly.
-
----
-
-# 27. Finalizer output
-
-The successful output is exactly:
+Successful output is exactly:
 
 ```text
 flashcards-import-v1.zip
@@ -744,186 +528,171 @@ flashcards-import-v1.zip
 └── media/
 ```
 
-The finalizer removes:
+No other path is emitted.
+
+The ZIP writer deliberately uses the strictest simple compatibility subset supported by the production parser:
 
 ```text
-review-map.json
-source-previews/
-other review-only metadata
+compression method 0 (stored)
+no encryption
+no data descriptors
+unique safe paths
+root manifest.json
+only declared media paths
 ```
 
-from the production package.
+The reviewer does not modify `src/lib/server/import/content-package.js` or weaken any production validation rule.
 
----
+Browser-safe production constraints are mirrored in the local core and a regression test imports the real production constants so drift fails the test.
 
-# 28. Existing importer remains authoritative
-
-The final ZIP is still submitted through the existing Admin workflow:
+Most importantly, the compatibility regression test executes:
 
 ```text
-Validate and preview
-        ↓
-review package counts/warnings
-        ↓
-select exact same ZIP
-        ↓
-explicit confirmation
-        ↓
-resumable import
+valid reviewed bundle
+→ deterministic finalizer
+→ flashcards-import-v1.zip
+→ real current parseImportPackage()
+→ succeeds
 ```
 
-The slide workflow must not bypass or weaken the established production-import safety contract.
+It also checks the current hardened reviewed-package facade.
 
----
+The CLI additionally invokes the real production parser before writing its output.
 
-# 29. Image upload path
+## 17. Media validation
 
-There is no separate manual image-upload step.
-
-The approved learner image files are already inside:
+Before final output, selected learner media are checked for:
 
 ```text
-media/
+declared path exists
+JPEG/PNG only
+magic bytes match manifest MIME
+per-image size limit
+non-empty alt text
+matching review SHA-256
 ```
 
-and declared as Assets in the manifest.
+Only selected declared media are included in the production ZIP. Media belonging exclusively to rejected Cases are pruned.
 
-The existing importer therefore handles:
+The reviewed input bundle itself rejects undeclared `media/` paths.
+
+## 18. Referential and package validation
+
+Finalization fails on broken references such as:
 
 ```text
-media image
-→ private R2 object
-→ Asset row
-→ CaseAsset relationship
+Case → missing Topic
+CaseAsset → missing Case
+CaseAsset → missing Asset
+CaseQuestion → missing Case
+CaseQuestion → missing QuestionPrompt
 ```
 
-as part of the normal reviewed import.
+Package-local IDs must remain unique and syntactically valid.
 
----
+Current production Import Package limits are mirrored from the actual implementation and regression-tested for drift, including archive bytes, decompressed bytes, entry count, manifest bytes and individual image bytes.
 
-# 30. Initial slide-ingestion scope
+No image is silently degraded to satisfy package limits.
 
-For v1, deliberately constrain the workflow to:
+## 19. Fail-closed behavior
+
+Examples that block finalization include:
 
 ```text
-one temporary holding Topic per batch
-
-Case
-├── internal title
-├── optional vignette
-├── zero or more ordered fixed Assets
-└── one or more Case Questions
+Case pending / needs_review
+unresolved Question pending / needs_review
+approved Case missing required production fields
+blank created Prompt or answer
+unapproved required Asset or Question
+blocking warning
+missing learner media
+SHA-256 mismatch
+MIME/magic-byte mismatch
+unsupported image format
+oversized image
+broken reference
+duplicate package-local ID
+undeclared reviewed media
+manifest/package limit violation
+production parser incompatibility in regression/CLI validation
 ```
 
-Do not attempt during ingestion to solve:
+Errors are shown as actionable grouped failures. The code does not guess a medical or editorial repair.
+
+If a stored final package exceeds the current compressed-size limit, split the review batch rather than reducing image quality automatically.
+
+## 20. Existing production importer remains authoritative
+
+The generated production ZIP is still selected in the existing Admin Import Package v1 workflow and follows its established validation, preview/confirmation and resumable import path.
+
+This local tooling adds an editorial review layer before production import; it does not create a new production Admin route or bypass D1/R2/import safety controls.
+
+## 21. Security
+
+Bundle content is untrusted.
+
+The reviewer does not execute vignette, Prompt, answer, caption, notes, slide text or source attribution as HTML/JavaScript. Dynamic UI text is escaped; no review-bundle source URL is automatically fetched.
+
+All routine bundle handling remains on the local machine.
+
+## 22. Tests
+
+The dedicated suite covers:
 
 ```text
-final Topic hierarchy
+review-map v1 and enum validation
+broken source/Case/Asset/Question/preview references
+duplicate metadata IDs
+unresolved-question promotion/rejection
+stable deterministic IDs
+direct manifest edits
+three fixed-image ordering/media finalization
+rejected-Case dependency pruning
+pending/needs-review blockers
+blank Prompt/answer
+unapproved Asset
+blocking warnings
+missing media
+hash mismatch
+MIME mismatch
+unsupported media
+oversized image
+broken manifest references
+duplicate package-local IDs
+undeclared media
+manifest/package limit failure
+reviewed-bundle round trip
+production parseImportPackage compatibility
+```
+
+The normal repository commands remain part of the acceptance boundary:
+
+```bash
+npm run check
+npm test
+npm run build
+```
+
+## 23. Remaining scope
+
+This PR implements the reusable human-review and deterministic-finalization layer only.
+
+Still separate/future work includes:
+
+```text
+PPTX extraction
+PDF extraction
+OCR
+ChatGPT source reconstruction orchestration
+medical correction
+automatic taxonomy
 Tags
 Shared Questions
 Additional Study Topics
 alternative stimulus groups
-stimulus-specific database question scopes
 Image Collections
-advanced reuse/deduplication
+cross-Case deduplication
+hosted review infrastructure
 ```
 
-These can be handled during later Admin curation once the source corpus is safely represented.
-
----
-
-# 31. Why this architecture is preferred
-
-The architecture separates concerns cleanly.
-
-### ChatGPT
-
-Handles tasks requiring interpretation:
-
-```text
-What slides belong to one Case?
-Which text is question versus answer?
-Which visual is the learner stimulus?
-Which answer corresponds to which question?
-What image crop preserves the intended Case?
-```
-
-### Human reviewer
-
-Handles clinical/editorial authority:
-
-```text
-Is the reconstruction correct?
-Is the image appropriate?
-Is anything missing?
-Does the answer match the source?
-Should this Case be imported?
-```
-
-### Local previewer
-
-Handles efficient review/editing.
-
-### Fixed finalizer
-
-Handles deterministic integrity checking and packaging.
-
-### Existing importer
-
-Handles production D1/R2 mutation safely.
-
----
-
-# 32. Provenance chain
-
-The resulting content retains a clear chain:
-
-```text
-Original source slide
-        ↓
-source page reference
-        ↓
-ChatGPT reconstruction
-        ↓
-review-map evidence
-        ↓
-human-reviewed manifest + media
-        ↓
-validated final Import Package
-        ↓
-production Case / Asset / Question
-```
-
-This allows future maintainers to understand where imported teaching content originated.
-
----
-
-# 33. Design principle to preserve
-
-Do not redesign the teaching material during ingestion.
-
-The purpose of this workflow is:
-
-> **faithful source reconstruction into the simplest compatible Flash-Cards representation.**
-
-Normalisation and enrichment happen after the source corpus has been safely imported.
-
----
-
-# 34. Next implementation work
-
-This design implies three next deliverables:
-
-1. **ChatGPT slide-extraction prompt**
-   - instruct ChatGPT how to reconstruct source material directly into a Reviewable Import Bundle.
-
-2. **Reusable Local Review Previewer**
-   - consumes `manifest.json`, `review-map.json`, media and source previews;
-   - supports side-by-side review/editing and review-state export.
-
-3. **Fixed Finalizer**
-   - validates reviewed bundles;
-   - produces the unchanged `flashcards-import-v1.zip`;
-   - performs no semantic/medical transformation.
-
-The previewer and finalizer should be built against an explicitly frozen review-bundle/review-map contract before routine ingestion begins.
+Therefore the full slide-ingestion pipeline must **not** be described as fully automated or fully implemented merely because the local reviewer/finalizer exists.
