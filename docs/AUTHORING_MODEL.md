@@ -1,6 +1,6 @@
 # Flash-Cards — Authoring Model
 
-_Last updated: 18 August 2026_
+_Last updated: 19 August 2026_
 
 This document describes the preferred administrator mental model for entering and refining teaching content. It intentionally uses product language rather than requiring authors to think in database-table names.
 
@@ -134,37 +134,50 @@ Case: Multiple myeloma with hypercalcaemia
 
 Do not duplicate the entire Case solely to vary a stimulus when an alternative set expresses the teaching intent more accurately.
 
-## 5. Image-specific questions describe what actually differs
+## 5. Question scope is an author-facing choice
 
-Only add an exact-image question when its relevance or answer depends on the selected image.
+The normal authoring question is:
+
+> **Where should this question apply?**
+
+The Case editor exposes two ordinary scopes:
+
+```text
+This whole Case
+A specific image / stimulus
+```
+
+Authors do not need to understand whether an image is currently stored as a fixed Case Asset or as a Stimulus Group Option before assigning a question.
+
+### Case-wide questions
+
+Use **This whole Case** when the question remains relevant and correct regardless of which stimulus is selected. Only this scope can normally expose **Also reuse this question in the Topic**.
+
+### Stimulus-specific questions
+
+Use **A specific image / stimulus** when relevance or the correct answer depends on the selected image.
 
 Example:
 
 ```text
 ECG A
-Describe this ECG.
-→ Sinus rhythm with prolonged QTc.
+What are the ECG changes?
+→ Widespread concave ST elevation with PR depression.
 
 ECG B
-Describe this ECG.
-→ Sinus rhythm with prolonged QTc and right bundle branch block.
-
-ECG B only
-What additional conduction abnormality is present?
-→ Right bundle branch block.
-```
-
-Exact-image questions remain attached to the exact `stimulus_group_option`. Reusing the Asset elsewhere does not carry those Case-specific questions with it.
-
-In the Admin Case editor, an existing Case question can be moved to an exact image in an active Alternative image set. This is a move of the relationship, not a copy: the active Case-wide relationship is removed, the existing Prompt wording is reused, and the answer is preserved on the image-specific relationship. The same action is available from the image card. Fixed images are not eligible for this workflow; move the image into an Alternative image set first.
-
-For example, alternative ECGs may share the prompt:
-
-```text
 What are the ECG changes?
+→ A different ECG-specific answer.
 ```
 
-while each ECG has its own answer. Those questions belong on the individual ECG options rather than as a Case-wide question.
+Exact-image questions remain attached to the Case-specific `stimulus_group_option`. Reusing the global Asset elsewhere does not carry those questions with it.
+
+If the target is already an option in an Alternative image set, the exact-image relationship is created normally.
+
+If the target is currently a fixed image, the Admin authoring operation may transparently represent it internally as a one-option Stimulus Group and attach the exact-image question there. The Asset identity and Case-specific caption are preserved. With one active option and `selection_count = 1`, learner-visible behaviour remains equivalent to the previous fixed image: that image is selected whenever the Case is reviewed.
+
+This transparent conversion is an implementation detail of stimulus-specific question authoring. Authors should not have to manually open **Alternative-set actions** or invent a set name merely to say that one question applies to one image.
+
+Moving an existing Case-wide question to a stimulus is a move of the relationship, not a copy: the existing Prompt wording is reused, the answer is preserved, the active Case-wide relationship is removed, and safe Topic-reuse semantics are applied. The Case Questions section therefore continues to contain only questions that apply to the whole Case.
 
 ## 6. Group-level questions are an advanced middle scope
 
@@ -265,8 +278,6 @@ The **Reuse Scope Tag** and **Descriptive Tags** are different concepts:
 
 The current implementation requires exactly one active Reuse Scope Tag. Descriptive Tags never create learner eligibility.
 
-A matching Shared Question becomes **eligible**, not mandatory. It joins the normal deduplicated Case question pool before Automatic/All/Fixed selection.
-
 ## 11. Current learner precedence
 
 When the same Question Prompt appears from more than one source, the current resolver uses:
@@ -336,13 +347,24 @@ attach fixed image(s)
 → add only genuinely image-specific questions
 ```
 
+Question authoring should keep the scope visible:
+
+```text
+Applies to this Case
+→ managed in Case Questions
+
+Applies to this stimulus
+→ managed beside that image
+```
+
+Image cards should stay compact: show a question count and short prompt summaries, with editing/creation/removal inside **Manage questions** rather than rendering every answer form open by default.
+
 The Case editor uses a bounded searchable Asset picker rather than rendering the entire unused Image Library.
 
 Advanced controls remain available for:
 
 - multiple alternative sets;
 - set-wide questions;
-- exact-option questions;
 - stimulus-specific coverage;
 - activation/order;
 - identity-preserving same-Case option Move.
@@ -384,7 +406,7 @@ When modelling new material, ask in this order:
 3. **Is the Case always a valid example of another Topic?** Add an Additional Study Topic only if yes.
 4. **Which stimuli must always appear?** Attach fixed images.
 5. **Which stimuli are interchangeable examples of the same task?** Use alternative sets.
-6. **Which questions depend on this exact Case/image/set?** Keep them contextual.
+6. **Where should each contextual question apply?** Choose this whole Case or one specific stimulus.
 7. **Which questions are truly reusable across a Topic?** Use Topic questions.
 8. **Which knowledge is reusable across Cases carrying one clinical Tag?** Consider a Shared Question.
 9. **What does the Case or Question teach?** Add explicit Tags where useful.
@@ -397,6 +419,8 @@ Do not add a parallel `topics` table: Topics remain `concepts`.
 Do not add Tags to `question_prompts`: Prompts remain wording only.
 
 Do not use Collections as a substitute for Topics, Tags, or stimulus groups.
+
+Do not add a parallel fixed-image-question table. Exact-image questions remain `stimulus_option_questions`; fixed images may be transparently converted to a one-option Stimulus Group when that scope is required.
 
 Do not add Asset→Topic or stimulus-option→Topic routing solely to avoid using exact-image questions. Reconsider stimulus-level routing only if real learner behavior requires one Case whose valid alternatives belong to genuinely different Study Topics.
 

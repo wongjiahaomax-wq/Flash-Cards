@@ -3,10 +3,10 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const adminEditor = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
-const adminActions = readFileSync(new URL('../src/routes/admin/+page.server.js', import.meta.url), 'utf8');
 const previewEditor = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const previewWorkspace = readFileSync(new URL('../src/lib/server/db/preview-workspace.js', import.meta.url), 'utf8');
+const questionScopeRoute = readFileSync(new URL('../src/routes/admin/cases/[caseId]/question-scope/+server.js', import.meta.url), 'utf8');
 
 /** @param {string} source */
 function editorActionNames(source) {
@@ -17,9 +17,7 @@ function editorActionNames(source) {
 function adapterActionNames(source) {
   const actionsStart = source.indexOf('export const actions = {');
   assert.ok(actionsStart >= 0, 'Preview Case adapter must export named form actions.');
-  return new Set(
-    [...source.slice(actionsStart).matchAll(/^\s{2}([A-Za-z_$][\w$]*):\s*async\b/gm)].map((match) => match[1])
-  );
+  return new Set([...source.slice(actionsStart).matchAll(/^\s{2}([A-Za-z_$][\w$]*):\s*async\b/gm)].map((match) => match[1]));
 }
 
 /** @param {string} source */
@@ -41,10 +39,7 @@ function escapeRegExp(value) {
 }
 
 test('Preview renders the real production Case editor rather than a copied UI', () => {
-  assert.match(
-    previewEditor,
-    /import\s+AdminCaseEditor\s+from\s+["']\.\.\/\.\.\/\.\.\/admin\/cases\/\[caseId\]\/\+page\.svelte["']/
-  );
+  assert.match(previewEditor, /import\s+AdminCaseEditor\s+from\s+["']\.\.\/\.\.\/\.\.\/admin\/cases\/\[caseId\]\/\+page\.svelte["']/);
 });
 
 test('every named action used by the shared Admin Case editor has a Preview adapter action', () => {
@@ -53,11 +48,7 @@ test('every named action used by the shared Admin Case editor has a Preview adap
   const missing = [...requiredActions].filter((name) => !previewActions.has(name)).sort();
 
   assert.ok(requiredActions.size > 0, 'The shared Case editor should expose named actions for this contract test.');
-  assert.deepEqual(
-    missing,
-    [],
-    `Preview adapter is missing shared-editor actions: ${missing.join(', ')}. Implement each action with Preview ownership checks, or explicitly block it with a named 403 action.`
-  );
+  assert.deepEqual(missing, [], `Preview adapter is missing shared-editor actions: ${missing.join(', ')}. Implement each action with Preview ownership checks, or explicitly block it with a named 403 action.`);
 });
 
 test('every top-level data key read by the shared Admin Case editor is supplied by the Preview loader', () => {
@@ -69,28 +60,19 @@ test('every top-level data key read by the shared Admin Case editor is supplied 
   }).sort();
 
   assert.ok(requiredDataKeys.size > 0, 'The shared Case editor should read server data for this contract test.');
-  assert.deepEqual(
-    missing,
-    [],
-    `Preview loader is missing shared-editor data: ${missing.join(', ')}. Extend loadPreviewCaseEditor() with a safe Preview implementation before changing the shared UI.`
-  );
+  assert.deepEqual(missing, [], `Preview loader is missing shared-editor data: ${missing.join(', ')}. Extend loadPreviewCaseEditor() with a safe Preview implementation before changing the shared UI.`);
 });
 
-test('Case question move UX is wired to the dedicated Admin action', () => {
-  assert.match(adminEditor, /Move to an exact image/);
-  assert.match(adminEditor, /Move existing Case question here/);
-  const moveForms = [...adminEditor.matchAll(/<form method="POST" action="\?\/moveCaseQuestionToStimulusOption"[\s\S]*?<\/form>/g)].map(
-    (match) => match[0]
-  );
-  assert.equal(moveForms.length, 2, 'Both Case-question move entry points should submit to the dedicated action.');
-  assert.ok(
-    moveForms.some((form) => form.includes('name="prompt_id" value={question.questionPromptId}')),
-    'The Case-question card move form must submit the current prompt_id.'
-  );
-  assert.ok(
-    moveForms.some((form) => form.includes('name="prompt_id" required')),
-    'The exact-image card move form must submit a selected prompt_id.'
-  );
-  assert.match(adminActions, /moveCaseQuestionToStimulusOption:/);
-  assert.match(adminActions, /moveCaseQuestionToStimulusOption\(createDb\(platform\.env\.DB\)/);
+test('question scope UX exposes Case-wide and fixed/alternative stimulus targets without adding Preview production writes', () => {
+  assert.match(adminEditor, /Applies to:/);
+  assert.match(adminEditor, /This whole Case/);
+  assert.match(adminEditor, /A specific image \/ stimulus/);
+  assert.match(adminEditor, /value={`fixed:\$\{asset\.assetId\}`}/);
+  assert.match(adminEditor, /value={`option:\$\{option\.id\}`}/);
+  assert.match(adminEditor, /Image-specific questions · \{imageQuestions\.length\}/);
+  assert.match(adminEditor, /Manage questions/);
+  assert.match(questionScopeRoute, /moveCaseQuestionToStimulusTarget/);
+  assert.match(questionScopeRoute, /saveQuestionAtScope/);
+  assert.doesNotMatch(previewRoute, /question-scope/);
+  assert.match(adminEditor, /data\.previewMode \? '\?\/saveQuestion' : `\/admin\/cases\/\$\{selectedCase\.case\.id\}\/question-scope`/);
 });

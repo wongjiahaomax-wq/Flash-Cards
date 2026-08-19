@@ -1,6 +1,6 @@
 # Flash-Cards agent handover
 
-_Refreshed: 18 August 2026_
+_Refreshed: 19 August 2026_
 
 ## Current outcome
 
@@ -18,10 +18,13 @@ Recent merged infrastructure/product milestones include:
 - PR #41/#42 — Tagging Stage B schema foundation and production application of `0008_tag_shared_questions.sql`;
 - PR #43 — Tagging Stage B behavior/Admin authoring, merged and deployed to production;
 - PR #44–#46 — one-time read-only production verification of the completed ECG migration;
+- PR #56 — moving an existing Case-wide question to an exact option in an Alternative image set.
 
-Tagging Stage B is complete for the agreed V1 scope. Shared Question authoring, exact Case-Tag reuse eligibility, resolver integration, Prompt-ID deduplication, normal Automatic/All/Fixed behavior and `tag_shared` Review provenance are live in production.
+The stimulus-scope authoring follow-up is implemented on `agent/stimulus-scope-authoring-ux` for review. It changes the Admin author mental model from database relationships to **Applies to: This whole Case / A specific image or stimulus**. Fixed images and existing alternative options are both selectable targets. Assigning an exact-image question to a fixed image transparently converts that Case relationship to a one-option active Stimulus Group in the same D1 batch as question assignment, preserving Asset identity and Case-specific caption. No schema change is required.
 
-The Admin Case editor now supports moving an existing Case-wide question to an exact image in an active Alternative image set. The move reuses the Prompt, preserves the relationship answer, deactivates the Case-wide relationship, and is available from both the Case question card and the target image card. No schema change was required; Preview intentionally keeps this production-only action blocked.
+The Case Questions section continues to return/display only active Case-wide questions. Exact-image questions are summarized and managed beside their image. Topic reuse remains compatible only with Case-wide scope and contradictory stimulus+Topic submissions are rejected server-side. Cross-Stimulus-Group Prompt conflict protection remains authoritative.
+
+Preview does not gain this production mutation authority. The new production scope endpoint is not mirrored into Preview; shared UI controls that would invoke fixed conversion or production scope moves are hidden in Preview while existing Preview-safe named actions remain available.
 
 ## Read first
 
@@ -56,6 +59,20 @@ Topic
 ```
 
 `concepts` are Topics in Admin UI. A Case has one primary/default Topic and may have additional Study Topics through `case_concepts`.
+
+The ordinary question-authoring choice is now:
+
+```text
+Applies to this whole Case
+→ case_questions
+→ may also reuse in Topic where valid
+
+Applies to this stimulus
+→ stimulus_option_questions
+→ managed beside the image
+```
+
+A currently fixed image may be transparently represented internally as a one-option Stimulus Group when an exact-image question is assigned. This is intentionally an authoring implementation detail, not a new fixed-image-question schema. With one active option and `selection_count = 1`, learner-visible image selection remains effectively equivalent to the previous fixed image.
 
 Questions belong at the highest context where the answer remains correct. Stage B adds a global reusable knowledge scope:
 
@@ -120,7 +137,7 @@ Reuse Scope Tag IDs, descriptive Tag IDs, and Case Tag IDs are not snapshotted. 
 
 ## Shared Question Admin state
 
-Production Admin navigation now includes:
+Production Admin navigation includes:
 
 ```text
 Dashboard
@@ -176,6 +193,24 @@ Image Collections are organisational metadata separate from Topics and Tags. An 
 
 Image management does not change learner stimulus semantics or Review snapshots/provenance.
 
+## Stimulus-scope authoring safety
+
+The production semantic helper centralizes the new authoring operation rather than duplicating route-specific conversion logic.
+
+For a fixed target it preflights:
+
+- active production Case and primary Topic;
+- active production image Asset;
+- current fixed Case relationship;
+- absence of a conflicting option relationship;
+- cross-group Prompt usage;
+- Prompt/Case-question state as applicable;
+- Topic-reuse cleanup semantics.
+
+Only then does one D1 batch create the group/option, preserve caption/Asset identity, remove/reorder the fixed relationship, create the exact-image question, deactivate the Case-wide relationship for a move, and conditionally remove Topic reuse. Failure of the assignment must therefore not leave the fixed image partially converted.
+
+The same Question Prompt may carry different option-specific answers for ECG A and ECG B inside one group. It remains forbidden to independently attach that Prompt to two active groups in the same Case where both groups can be selected in one Review.
+
 ## Production-backed Preview Admin workspace
 
 The Preview architecture remains:
@@ -196,15 +231,15 @@ Preview may browse/search/filter/paginate/select production Assets read-only. Pr
 
 Preview must never mutate production Case rows, production Asset metadata, production R2 objects or production stimulus relationships.
 
-`shared_questions` is deliberately **not** Preview-owned and has no `preview_session_id`. PR #43 does not add Preview Shared Question mutation routes or global mutation authority.
+`shared_questions` is deliberately **not** Preview-owned and has no `preview_session_id`. Preview has no mutation authority over them.
 
-Stage B is now merged/deployed. Future Preview-compatible code PRs may continue to use the existing manual Deploy PR to Preview workflow; Shared Questions remain global production-curated objects and Preview has no mutation authority over them.
+The new `/admin/cases/[caseId]/question-scope` production endpoint is deliberately not implemented under `/preview-admin`. Shared Svelte markup guards production-only scope controls with `data.previewMode`, and the contract test asserts that Preview has not gained that route/action.
 
 ## Shared Case editor contract
 
 Preview renders the real production Case-editor Svelte component. It does not maintain a copied editor UI.
 
-`test/admin-editor-preview-contract.test.js` remains the contract for shared named form actions/data. Any future named shared-editor action must have a safe Preview implementation or an explicit named `403` block.
+`test/admin-editor-preview-contract.test.js` remains the contract for shared named form actions/data. Any future named shared-editor action must have a safe Preview implementation or an explicit named `403` block. Production-only non-named endpoints must likewise be gated so Preview cannot submit to them.
 
 The Shared Question Admin UI is a separate production Admin surface and therefore does not extend the shared Case-editor contract.
 
@@ -248,8 +283,6 @@ main on Preview
 → next PR
 ```
 
-No further PR #43 Preview work is pending; its production behavior is deployed.
-
 ## Current migrations
 
 ```text
@@ -264,21 +297,9 @@ No further PR #43 Preview work is pending; its production behavior is deployed.
 0008_tag_shared_questions.sql
 ```
 
-`0008_tag_shared_questions.sql` adds:
+No migration is required for stimulus-scope authoring. Do not add a second fixed-image-question schema.
 
-- `shared_questions`;
-- `shared_question_tags`;
-- one non-null `reuse_scope_tag_id` per Shared Question;
-- at most one active Shared Question per `question_prompt_id` via a partial unique index, while inactive history may coexist;
-- nullable `review_questions.source_shared_question_id` with `ON DELETE RESTRICT`;
-- `tag_shared` as an allowed Review Question source type;
-- D1 triggers rejecting Preview-owned Question Prompt references from Shared Questions.
-
-SQLite/D1 cannot alter the existing Review source-type CHECK in place, so `0008` conservatively rebuilds `review_questions`, preserving existing historical IDs/snapshots/provenance.
-
-The migration does not seed production content and does not snapshot Tag IDs onto Reviews.
-
-**PR #43 schema boundary:** do not create/apply another migration unless a genuine schema defect is discovered. Current implementation found no such defect.
+`0008_tag_shared_questions.sql` adds Shared Question tables/links, `tag_shared` Review provenance, and D1 trigger defense against Preview-owned Prompts. It does not seed production content and does not snapshot Tag IDs onto Reviews.
 
 ## R2 rules
 
@@ -286,7 +307,7 @@ Teaching images remain private. All production/Preview image writes continue thr
 
 Production teaching-image keys are immutable. Preview uploads use only the isolated Preview prefix and are cleaned during Reset after ownership/usage checks. Reviewed import staging remains separate operational data and is not an Asset.
 
-Tagging Stage B does not change R2.
+Stimulus-scope authoring changes only Case/stimulus/question relationships; it does not rewrite or duplicate R2 media.
 
 ## Authentication boundaries
 
@@ -310,9 +331,9 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-PR CI covers this exact validation set. PR #43 completed its final CI with 240/240 tests passing before merge; the subsequent production rollout was performed separately.
+PR CI covers this validation set. When an agent cannot execute the repository locally, use the PR workflow result as the validation source and document any environment-specific failure precisely rather than broadening the product PR.
 
-## Intentionally deferred after Stage B
+## Intentionally deferred
 
 - multiple Reuse Scope Tags or ANY/ALL expressions;
 - Tag hierarchy;
@@ -322,18 +343,18 @@ PR CI covers this exact validation set. PR #43 completed its final CI with 240/2
 - automatic/AI Tag inference;
 - Asset Tags;
 - Tag fields in Import Package v1;
-- Preview editing of global Shared Questions.
+- Preview editing of global Shared Questions;
+- a generic redesign of fixed/alternative image management beyond the narrow transparent conversion required for exact-image question scope.
 
 ## Next intended implementation workflow
 
-The platform baseline and initial ECG ingestion are complete. Prioritize:
+The platform baseline and initial ECG ingestion are complete. After this stimulus-scope UX is reviewed, prioritize real content curation and learner/Admin friction rather than expanding schema for completeness:
 
 ```text
 curate real ECG Case Tags
 → promote genuinely reusable knowledge into Shared Questions
-→ observe Admin/learner behavior on real content
+→ exercise Case-wide vs exact-image authoring on real ECG variants
+→ observe learner/Admin behavior
 → implement smallest learner-account Admin workflow
 → implement basic learner-progress Admin
 ```
-
-Avoid expanding the taxonomy/schema merely for completeness. Let the real corpus and learner/Admin friction justify further Tag hierarchy, compound reuse scopes, analytics or scheduling features.
