@@ -145,10 +145,38 @@ export function sqlValue(value) {
   throw new Error(`Unsupported D1 value type: ${typeof value}`);
 }
 
+export function orderRowsForInsert(tableName, rows) {
+  if (tableName !== 'concepts' || rows.length < 2) return rows;
+
+  const byId = new Map(rows.map((row) => [String(row.id), row]));
+  const state = new Map();
+  const ordered = [];
+
+  const visit = (row) => {
+    const id = String(row.id);
+    const current = state.get(id);
+    if (current === 'done') return;
+    if (current === 'visiting') throw new Error(`Topic hierarchy cycle detected at ${id}.`);
+
+    state.set(id, 'visiting');
+    if (row.parent_id != null) {
+      const parentId = String(row.parent_id);
+      const parent = byId.get(parentId);
+      if (!parent) throw new Error(`Topic ${id} references missing parent ${parentId}.`);
+      visit(parent);
+    }
+    state.set(id, 'done');
+    ordered.push(row);
+  };
+
+  for (const row of rows) visit(row);
+  return ordered;
+}
+
 export function buildInsertSql(tableName, rows) {
   if (!rows.length) return `-- ${tableName}: 0 rows`;
   const table = sqlIdentifier(tableName);
-  return rows
+  return orderRowsForInsert(tableName, rows)
     .map((row) => {
       const columns = Object.keys(row);
       if (!columns.length) throw new Error(`Cannot serialize empty row for ${tableName}.`);
@@ -162,6 +190,8 @@ export function buildInsertSql(tableName, rows) {
 export function buildLocalResetSql() {
   return [
     '-- Generated local-only reset. Better Auth user/account/session tables are intentionally preserved.',
+    '-- Break the self-referencing Topic hierarchy locally before deleting all Topic rows.',
+    'UPDATE `concepts` SET `parent_id` = NULL WHERE `parent_id` IS NOT NULL;',
     ...LOCAL_RESET_TABLES.map((table) => `DELETE FROM ${sqlIdentifier(table)};`),
     ''
   ].join('\n');
