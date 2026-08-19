@@ -19,6 +19,11 @@ import {
   stagingFilenameForKey
 } from './local-replica-lib.mjs';
 
+/** @typedef {string | number | boolean | null} D1Value */
+/** @typedef {Record<string, D1Value>} D1Row */
+/** @typedef {{ name: string, selectSql: string, rows: D1Row[] }} ContentSnapshot */
+/** @typedef {{ expected: number, copied: number, failed: number, failures: string[] }} R2RefreshResult */
+
 const stagingDir = '.wrangler/local-replica';
 const dataFile = join(stagingDir, 'production-content.sql');
 const resetFile = join(stagingDir, 'reset-local-content.sql');
@@ -32,6 +37,7 @@ function assertRepository() {
   if (!existsSync('wrangler.jsonc')) throw new Error('wrangler.jsonc is required.');
 }
 
+/** @param {string[]} args @param {{ capture?: boolean }} [options] */
 function runWrangler(args, { capture = false } = {}) {
   if (capture) {
     return execFileSync(npx, ['wrangler', ...args], {
@@ -43,10 +49,12 @@ function runWrangler(args, { capture = false } = {}) {
   return '';
 }
 
+/** @param {string} sql @returns {D1Row[]} */
 function queryRemote(sql) {
   return extractD1Rows(runWrangler(buildRemoteD1QueryArgs(sql), { capture: true }));
 }
 
+/** @param {string} sql @returns {D1Row[]} */
 function queryLocal(sql) {
   return extractD1Rows(runWrangler(buildLocalD1QueryArgs(sql), { capture: true }));
 }
@@ -69,7 +77,7 @@ function applyLocalMigrations() {
 
 function verifyProductionTableContract() {
   const rows = queryRemote("SELECT name FROM sqlite_schema WHERE type='table' ORDER BY name");
-  const names = new Set(rows.map((row) => row.name));
+  const names = new Set(rows.map((row) => String(row.name)));
   const missing = CONTENT_TABLES.map((table) => table.name).filter((name) => !names.has(name));
   if (missing.length) throw new Error(`Production D1 is missing expected content tables: ${missing.join(', ')}`);
   for (const forbidden of FORBIDDEN_PRODUCTION_TABLES) {
@@ -78,9 +86,11 @@ function verifyProductionTableContract() {
   }
 }
 
+/** @returns {ContentSnapshot[]} */
 function collectProductionContent() {
   console.log('Reading allowlisted production content from D1 (SELECT only)...');
   verifyProductionTableContract();
+  /** @type {ContentSnapshot[]} */
   const snapshots = [];
   for (const table of CONTENT_TABLES) {
     const rows = queryRemote(table.selectSql);
@@ -90,6 +100,7 @@ function collectProductionContent() {
   return snapshots;
 }
 
+/** @param {ContentSnapshot[]} snapshots */
 function buildContentSql(snapshots) {
   return [
     '-- Generated from allowlisted production content. Auth, learner Reviews, Preview sessions and import jobs are excluded.',
@@ -98,6 +109,7 @@ function buildContentSql(snapshots) {
   ].join('\n');
 }
 
+/** @returns {D1Row[]} */
 function refreshD1() {
   assertReplicaContract();
   applyLocalMigrations();
@@ -118,12 +130,14 @@ function refreshD1() {
   return snapshots.find((table) => table.name === 'assets')?.rows ?? [];
 }
 
+/** @returns {D1Row[]} */
 function localAssetRows() {
   return queryLocal(
     'SELECT `storage_key`, `mime_type` FROM `assets` WHERE `preview_session_id` IS NULL ORDER BY `storage_key`;'
   );
 }
 
+/** @param {D1Row[] | null} [assetRows] @returns {R2RefreshResult} */
 function refreshR2(assetRows = null) {
   const rows = assetRows ?? localAssetRows();
   const wrangler = readFileSync('wrangler.jsonc', 'utf8');
@@ -133,6 +147,7 @@ function refreshR2(assetRows = null) {
 
   let copied = 0;
   let failed = 0;
+  /** @type {string[]} */
   const failures = [];
 
   console.log(`Mirroring ${rows.length} teaching-media objects from production R2 into local R2...`);
@@ -158,7 +173,7 @@ function refreshR2(assetRows = null) {
 
     const local = spawnSync(
       npx,
-      ['wrangler', ...buildLocalR2PutArgs(bucket, key, file, row.mime_type)],
+      ['wrangler', ...buildLocalR2PutArgs(bucket, key, file, String(row.mime_type ?? ''))],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
     );
     try {
@@ -227,7 +242,8 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`\nLocal replica refresh failed: ${error.message}`);
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`\nLocal replica refresh failed: ${message}`);
   console.error('Production was not mutated by this workflow.');
   process.exitCode = 1;
 });
