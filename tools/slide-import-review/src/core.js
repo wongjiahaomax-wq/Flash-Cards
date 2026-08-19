@@ -88,6 +88,7 @@ export function selectProductionManifest(manifest, reviewMap) {
 }
 
 export async function finalizeBundle(bundle) {
+  assertSourcePageBounds(bundle.reviewMap);
   const pruned = cloneWithoutRejectedChildren(bundle.manifest, bundle.reviewMap);
   return finalizeBundleV2({ ...bundle, manifest: pruned.manifest, reviewMap: pruned.reviewMap });
 }
