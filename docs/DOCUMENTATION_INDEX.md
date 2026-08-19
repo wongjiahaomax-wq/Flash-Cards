@@ -35,6 +35,8 @@ As of 18 August 2026 the deployed/current baseline includes:
 
 Remaining ECG work is curation/enrichment.
 
+Repository developer tooling now also includes the production-like local D1/R2 replica workflow documented in `LOCAL_DEVELOPMENT_REPLICA.md`. This is not a deployed learner/Admin feature.
+
 The local slide-review/finalizer tooling is repository tooling and is not a deployed production-application feature. Its implementation is tracked by draft PR #53 until merged.
 
 ## Start here — authoritative orientation
@@ -105,12 +107,15 @@ Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual
 - `PREVIEW_ADMIN_IDENTITY.md` — current role/identity bootstrap/promotion rules.
 - `PREVIEW_DEPLOYMENT.md` — current Deploy PR / Restore Main operator playbook.
 
-### Cloudflare / operations
+### Cloudflare / operations / local development
 
 - `CLOUDFLARE.md` — current Worker/D1/R2 migration/deployment/Preview runbook.
+- `LOCAL_DEVELOPMENT_REPLICA.md` — **internal operational runbook** for read-production/write-local D1/R2 developer replication, local Admin bootstrap, refresh and cleanup.
+- `LOCAL_REAL_DATA_UX_WORKFLOW.md` — implemented design record for the local real-data workflow; operational details live in `LOCAL_DEVELOPMENT_REPLICA.md`.
 - `R2_COST_GUARDRAILS.md` — application-managed storage/write/delete guardrails; external provider pricing must be reverified before changing cost assumptions.
 - `IMAGE_PROVENANCE.md` — current image naming/source/licence/runtime-serving rules.
 - `PRODUCTION_CONTENT_SNAPSHOT.md` — read-only production-content snapshot plus fixed-purpose taxonomy-operator linkage.
+- `OPEN_SOURCE_READINESS.md` — private-repository checklist for removing/redacting internal operational detail and verifying no secrets/production-derived data are present before publication.
 
 ## Current implementation tracking
 
@@ -122,11 +127,7 @@ Milestone ledger current through deployed Tagging Stage B and completed initial 
 
 These are intentional future designs, **not current implemented behavior**.
 
-### `LOCAL_REAL_DATA_UX_WORKFLOW.md`
-
-Pending developer-workflow design for refreshing production-derived content into local D1 for faster UX iteration while keeping production mutation blocked. Convenience commands described there are proposals until an implementation PR lands.
-
-The slide-ingestion **source reconstruction/extraction** step also remains separate future workflow work even after the local reviewer/finalizer lands; do not infer that PPTX/PDF ingestion is automated from the existence of the local review tool.
+The slide-ingestion **source reconstruction/extraction** step remains separate future workflow work even after the local reviewer/finalizer lands; do not infer that PPTX/PDF ingestion is automated from the existence of the local review tool.
 
 If pending work is later implemented, its design document must be converted from future/acceptance language into an operational runbook and the project roadmap/handover updated.
 
@@ -154,6 +155,7 @@ These files may retain short historical rollout notes because they explain safet
 - `IMAGE_MANAGEMENT_V2_PLAN.md`;
 - `STAGE_A_TAG_FOUNDATION.md`;
 - `TAGGING_STAGE_B_BEHAVIOR.md`;
+- `LOCAL_REAL_DATA_UX_WORKFLOW.md`;
 - Preview deployment/runbook documents;
 - ECG migration/rename runbooks.
 
