@@ -1,10 +1,11 @@
 import {
   ReviewBundleError, loadReviewBundle, exportReviewedBundle, finalizeBundle,
   resolveUnresolvedQuestion, rejectUnresolvedQuestion, sha256Hex, detectImageType,
-  PRODUCTION_LIMITS
+  persistedStateMatches, PRODUCTION_LIMITS
 } from './core.js';
 
 let bundle = null;
+let bundleFingerprint = null;
 let visibleCases = [];
 let index = 0;
 let revealAnswers = false;
@@ -30,8 +31,8 @@ function showErrors(title, errors){$('errors').innerHTML=`<div class="error-card
 function clearErrors(){$('errors').innerHTML='';}
 
 async function openDb(){return await new Promise((resolve,reject)=>{const req=indexedDB.open('flashcards-slide-review',1);req.onupgradeneeded=()=>req.result.createObjectStore('bundles',{keyPath:'bundleId'});req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);});}
-async function persist(){if(!bundle)return;try{const db=await openDb();const media=[];for(const [path,bytes] of bundle.files)if(path.startsWith('media/'))media.push([path,bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)]);const tx=db.transaction('bundles','readwrite');tx.objectStore('bundles').put({bundleId:bundle.reviewMap.bundleId,manifest:bundle.manifest,reviewMap:bundle.reviewMap,media,updatedAt:Date.now()});await new Promise((r,j)=>{tx.oncomplete=r;tx.onerror=()=>j(tx.error);});db.close();$('persist').textContent='Saved locally';}catch(e){$('persist').textContent='Local save failed';}}
-async function restorePersisted(loaded){try{const db=await openDb();const tx=db.transaction('bundles');const req=tx.objectStore('bundles').get(loaded.reviewMap.bundleId);const saved=await new Promise((r,j)=>{req.onsuccess=()=>r(req.result);req.onerror=()=>j(req.error);});db.close();if(saved){loaded.manifest=saved.manifest;loaded.reviewMap=saved.reviewMap;for(const [path,buffer] of saved.media)loaded.files.set(path,new Uint8Array(buffer));}}catch{}return loaded;}
+async function persist(){if(!bundle)return;try{const db=await openDb();const media=[];for(const [path,bytes] of bundle.files)if(path.startsWith('media/'))media.push([path,bytes.buffer.slice(bytes.byteOffset,bytes.byteOffset+bytes.byteLength)]);const tx=db.transaction('bundles','readwrite');tx.objectStore('bundles').put({bundleId:bundle.reviewMap.bundleId,sourceFingerprint:bundleFingerprint,manifest:bundle.manifest,reviewMap:bundle.reviewMap,media,updatedAt:Date.now()});await new Promise((r,j)=>{tx.oncomplete=r;tx.onerror=()=>j(tx.error);});db.close();$('persist').textContent='Saved locally';}catch(e){$('persist').textContent='Local save failed';}}
+async function restorePersisted(loaded,sourceFingerprint){try{const db=await openDb();const tx=db.transaction('bundles');const req=tx.objectStore('bundles').get(loaded.reviewMap.bundleId);const saved=await new Promise((r,j)=>{req.onsuccess=()=>r(req.result);req.onerror=()=>j(req.error);});db.close();if(persistedStateMatches(saved,loaded.reviewMap.bundleId,sourceFingerprint)){loaded.manifest=saved.manifest;loaded.reviewMap=saved.reviewMap;for(const [path,buffer] of saved.media)loaded.files.set(path,new Uint8Array(buffer));}}catch{}return loaded;}
 
 function counts(){const c={all:bundle.reviewMap.cases.length,pending:0,approved:0,needs_review:0,rejected:0,blocking:0,low:0,missing:0,image:0,unresolved:bundle.reviewMap.unresolvedQuestions.filter(x=>x.reviewStatus!=='rejected'&&!x.resolvedCaseQuestionId).length};for(const x of bundle.reviewMap.cases){c[x.reviewStatus]++;if(x.confidence==='low')c.low++;if(blocking(x.warnings).length||x.assets.some(a=>blocking(a.warnings).length)||x.questions.some(q=>blocking(q.warnings).length))c.blocking++;if(x.assets.some(a=>a.warnings.length))c.image++;}for(const u of bundle.reviewMap.unresolvedQuestions)if(u.warnings.some(w=>w.code==='missing_answer')&&u.reviewStatus!=='rejected')c.missing++;return c;}
 function refreshFilters(){const c=counts();for(const [k,v] of Object.entries(c)){const el=$(`count-${k}`);if(el)el.textContent=v;}}
@@ -81,10 +82,12 @@ async function approveCurrent(){
   if(!['automatic','all','fixed'].includes(c?.questionSelectionMode||'automatic'))why.push('Question selection mode is invalid.');
 
   for(const rel of caseAssets(meta.caseId)){
-    const a=asset(rel.assetId),review=meta.assets.find(x=>x.assetId===rel.assetId),issues=[];
+    const review=meta.assets.find(x=>x.assetId===rel.assetId),issues=[];
+    if(!review){why.push(`Image ${rel.assetId} has no review metadata.`);continue;}
+    if(review.reviewStatus==='rejected')continue;
+    const a=asset(rel.assetId);
     if(!a)issues.push(`Image ${rel.assetId} is missing from the manifest.`);
-    if(!review)issues.push(`Image ${rel.assetId} has no review metadata.`);
-    if(review&&blocking(review.warnings).length)issues.push(...blocking(review.warnings).map(x=>`Image ${rel.assetId}: ${x.message}`));
+    if(blocking(review.warnings).length)issues.push(...blocking(review.warnings).map(x=>`Image ${rel.assetId}: ${x.message}`));
     const bytes=a?.path?bundle.files.get(a.path):null;
     if(!bytes)issues.push(`Image ${rel.assetId} media is missing.`);
     if(bytes&&bytes.byteLength>PRODUCTION_LIMITS.maxImageBytes)issues.push(`Image ${rel.assetId} exceeds the current size limit.`);
@@ -92,20 +95,20 @@ async function approveCurrent(){
     if(bytes&&!detected)issues.push(`Image ${rel.assetId} is not a valid JPEG/PNG.`);
     if(detected&&a?.mimeType!==detected)issues.push(`Image ${rel.assetId} MIME does not match its bytes.`);
     if(a&&!String(a.altText||'').trim())issues.push(`Image ${rel.assetId} has blank alt text.`);
-    if(review&&bytes){if(!review.sha256)issues.push(`Image ${rel.assetId} has no SHA-256 review hash.`);else if((await sha256Hex(bytes)).toLowerCase()!==review.sha256.toLowerCase())issues.push(`Image ${rel.assetId} SHA-256 does not match reviewed bytes.`);}
-    if(review&&review.reviewStatus==='rejected')issues.push(`Image ${rel.assetId} is rejected but still included by this Case.`);
-    if(review&&issues.length===0)review.reviewStatus='approved';else if(review&&review.reviewStatus!=='rejected')review.reviewStatus='needs_review';
+    if(bytes){if(!review.sha256)issues.push(`Image ${rel.assetId} has no SHA-256 review hash.`);else if((await sha256Hex(bytes)).toLowerCase()!==review.sha256.toLowerCase())issues.push(`Image ${rel.assetId} SHA-256 does not match reviewed bytes.`);}
+    if(issues.length===0)review.reviewStatus='approved';else review.reviewStatus='needs_review';
     why.push(...issues);
   }
 
   for(const q of caseQuestions(meta.caseId)){
-    const review=meta.questions.find(x=>x.caseQuestionId===q.id),p=prompt(q.questionPromptId),issues=[];
-    if(!review)issues.push(`Question ${q.id} has no review metadata.`);
-    if(review&&blocking(review.warnings).length)issues.push(...blocking(review.warnings).map(x=>`Question ${q.id}: ${x.message}`));
+    const review=meta.questions.find(x=>x.caseQuestionId===q.id),issues=[];
+    if(!review){why.push(`Question ${q.id} has no review metadata.`);continue;}
+    if(review.reviewStatus==='rejected')continue;
+    const p=prompt(q.questionPromptId);
+    if(blocking(review.warnings).length)issues.push(...blocking(review.warnings).map(x=>`Question ${q.id}: ${x.message}`));
     if(!p)issues.push(`Question ${q.id} references a missing Prompt.`);else if(!String(p.promptMd||'').trim())issues.push(`Question ${q.id} has a blank Prompt.`);
     if(!String(q.answerMd||'').trim())issues.push(`Question ${q.id} has a blank answer.`);
-    if(review&&review.reviewStatus==='rejected')issues.push(`Question ${q.id} is rejected but still included by this Case.`);
-    if(review&&issues.length===0)review.reviewStatus='approved';else if(review&&review.reviewStatus!=='rejected')review.reviewStatus='needs_review';
+    if(issues.length===0)review.reviewStatus='approved';else review.reviewStatus='needs_review';
     why.push(...issues);
   }
 
@@ -115,7 +118,7 @@ async function approveCurrent(){
 }
 async function setCaseStatus(status){const meta=visibleCases[index];meta.reviewStatus=status;await persist();render();}
 
-async function loadFile(file){clearErrors();try{bundle=await restorePersisted(await loadReviewBundle(file));visibleCases=bundle.reviewMap.cases.slice();index=0;coverageMode=false;$('empty-start').hidden=true;$('review-shell').hidden=false;$('batch').textContent=bundle.reviewMap.batchName;applyFilter();await persist();}catch(e){showErrors('Could not open review bundle',errorText(e).split('\n'));}}
+async function loadFile(file){clearErrors();try{if(!file)return;const raw=new Uint8Array(await file.arrayBuffer());const sourceFingerprint=await sha256Hex(raw);bundle=await restorePersisted(await loadReviewBundle(raw),sourceFingerprint);bundleFingerprint=sourceFingerprint;visibleCases=bundle.reviewMap.cases.slice();index=0;coverageMode=false;$('empty-start').hidden=true;$('review-shell').hidden=false;$('batch').textContent=bundle.reviewMap.batchName;applyFilter();await persist();}catch(e){showErrors('Could not open review bundle',errorText(e).split('\n'));}}
 
 $('zip-input').onchange=e=>loadFile(e.target.files?.[0]);const drop=$('drop');drop.ondragover=e=>{e.preventDefault();drop.classList.add('drag');};drop.ondragleave=()=>drop.classList.remove('drag');drop.ondrop=e=>{e.preventDefault();drop.classList.remove('drag');loadFile(e.dataTransfer.files?.[0]);};
 $('prev').onclick=()=>{if(index>0){index--;render();}};$('next').onclick=()=>{if(index<visibleCases.length-1){index++;render();}};$('approve').onclick=approveCurrent;$('needs').onclick=()=>setCaseStatus('needs_review');$('reject').onclick=()=>setCaseStatus('rejected');$('filter').onchange=applyFilter;$('coverage').onclick=()=>{coverageMode=true;render();};
