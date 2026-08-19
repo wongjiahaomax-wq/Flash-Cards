@@ -35,6 +35,8 @@ As of 18 August 2026 the deployed/current baseline includes:
 
 Remaining ECG work is curation/enrichment.
 
+The local slide-review/finalizer tooling is repository tooling and is not a deployed production-application feature. Its implementation is tracked by draft PR #53 until merged.
+
 ## Start here — authoritative orientation
 
 ### `CURRENT_PRODUCT_ROADMAP.md`
@@ -88,13 +90,14 @@ Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual
 
 - `STIMULUS_GROUPS_DESIGN.md` — implemented optional stimulus groups, contextual questions, coverage, and interaction with current resolver/count modes.
 
-### Reviewed imports / Anki
+### Reviewed imports / Anki / slide review
 
 - `CONTENT_IMPORT_PACKAGES.md` — production-validated Import Package v1 and resumable job contract.
 - `RESUMABLE_IMPORT_RUNTIME_SAFETY.md` — lease/R2/checkpoint/runtime safety invariants.
 - `ANKI_APKG_EXTRACTION.md` — verified source-recovery workflow outside the production app.
 - `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` — canonical end-to-end ECG migration record including production completion.
 - `ECG_ANKI_INGESTION_RULES.md` — adopted naming/content rules and completed Batch 01 rename audit.
+- `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md` — implemented local/offline human-review and deterministic-finalization contract in draft PR #53. It freezes `review-map.json` v1, edits the real production-shaped manifest, supports fixed-image review/replacement and unresolved-question promotion/rejection, exports reviewed bundles, and finalizes production-compatible `manifest.json + media/` ZIPs. **ChatGPT PPTX/PDF reconstruction/extraction remains a separate workflow and is not implemented by the local tool.**
 
 ### Preview Admin
 
@@ -119,13 +122,11 @@ Milestone ledger current through deployed Tagging Stage B and completed initial 
 
 These are intentional future designs, **not current implemented behavior**.
 
-### `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md`
-
-Agreed pending workflow for converting unstructured PowerPoint/PDF teaching material into a production-shaped review bundle. ChatGPT performs the semantic reconstruction, a reusable local previewer lets the human compare source slides with the actual proposed Import Package content, and a deterministic finalizer validates and strips review-only material before the existing strict Admin importer is used. All slide-ingested learner images are initially fixed Case Assets; final Topic taxonomy and advanced reuse/enrichment are deliberately deferred.
-
 ### `LOCAL_REAL_DATA_UX_WORKFLOW.md`
 
 Pending developer-workflow design for refreshing production-derived content into local D1 for faster UX iteration while keeping production mutation blocked. Convenience commands described there are proposals until an implementation PR lands.
+
+The slide-ingestion **source reconstruction/extraction** step also remains separate future workflow work even after the local reviewer/finalizer lands; do not infer that PPTX/PDF ingestion is automated from the existence of the local review tool.
 
 If pending work is later implemented, its design document must be converted from future/acceptance language into an operational runbook and the project roadmap/handover updated.
 
