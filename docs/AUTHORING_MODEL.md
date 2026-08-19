@@ -156,6 +156,16 @@ What additional conduction abnormality is present?
 
 Exact-image questions remain attached to the exact `stimulus_group_option`. Reusing the Asset elsewhere does not carry those Case-specific questions with it.
 
+In the Admin Case editor, an existing Case question can be moved to an exact image in an active Alternative image set. This is a move of the relationship, not a copy: the active Case-wide relationship is removed, the existing Prompt wording is reused, and the answer is preserved on the image-specific relationship. The same action is available from the image card. Fixed images are not eligible for this workflow; move the image into an Alternative image set first.
+
+For example, alternative ECGs may share the prompt:
+
+```text
+What are the ECG changes?
+```
+
+while each ECG has its own answer. Those questions belong on the individual ECG options rather than as a Case-wide question.
+
 ## 6. Group-level questions are an advanced middle scope
 
 Sometimes a question is valid for every option in one alternative set but is not a general Case or Topic question.

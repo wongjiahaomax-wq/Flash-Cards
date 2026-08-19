@@ -101,6 +101,28 @@ Alternative ECG set — choose one per Review
 
 The Case context stays the same; one active option is chosen and frozen for that Review.
 
+Questions should be placed at the highest scope where both relevance and answer remain valid:
+
+```text
+Topic question             → knowledge shared across a Topic
+Case question              → valid for this clinical presentation
+Alternative-set question   → valid for every image in one set
+Exact-image question       → depends on the selected image
+```
+
+Acute Pericarditis example:
+
+```text
+Case: Acute pericarditis — radiating anterior chest pain
+
+Alternative ECG set
+├── ECG A → What are the ECG changes? → Answer A
+├── ECG B → What are the ECG changes? → Answer B
+└── ECG C → What are the ECG changes? → Answer C
+```
+
+The wording may be identical, but the answers belong to the individual image relationships. Use the Admin Case editor's move action to re-scope an existing Case question without recreating it.
+
 ### Several independent alternative sets
 
 ```text

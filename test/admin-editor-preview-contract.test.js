@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const adminEditor = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
+const adminActions = readFileSync(new URL('../src/routes/admin/+page.server.js', import.meta.url), 'utf8');
 const previewEditor = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const previewWorkspace = readFileSync(new URL('../src/lib/server/db/preview-workspace.js', import.meta.url), 'utf8');
@@ -73,4 +74,12 @@ test('every top-level data key read by the shared Admin Case editor is supplied 
     [],
     `Preview loader is missing shared-editor data: ${missing.join(', ')}. Extend loadPreviewCaseEditor() with a safe Preview implementation before changing the shared UI.`
   );
+});
+
+test('Case question move UX is wired to the dedicated Admin action', () => {
+  assert.match(adminEditor, /Move to an exact image/);
+  assert.match(adminEditor, /Move existing Case question here/);
+  assert.match(adminEditor, /action="\?\/moveCaseQuestionToStimulusOption"/);
+  assert.match(adminActions, /moveCaseQuestionToStimulusOption:/);
+  assert.match(adminActions, /moveCaseQuestionToStimulusOption\(createDb\(platform\.env\.DB\)/);
 });

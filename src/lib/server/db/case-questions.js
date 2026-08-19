@@ -1,6 +1,17 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
-import { caseConcepts, caseQuestions, cases, conceptQuestions, concepts, questionPrompts } from './schema.js';
+import {
+  assets,
+  caseConcepts,
+  caseQuestions,
+  cases,
+  conceptQuestions,
+  concepts,
+  questionPrompts,
+  stimulusGroupOptions,
+  stimulusGroups,
+  stimulusOptionQuestions
+} from './schema.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -110,6 +121,18 @@ async function nextQuestionTime(db, caseId) {
   return new Date(Math.max(Date.now(), Number.isFinite(latest) ? latest + 1 : 0));
 }
 
+/** @param {LearningDb} db @param {string} optionId */
+async function nextStimulusOptionQuestionTime(db, optionId) {
+  const rows = await db
+    .select({ createdAt: stimulusOptionQuestions.createdAt })
+    .from(stimulusOptionQuestions)
+    .where(eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId))
+    .orderBy(desc(stimulusOptionQuestions.createdAt))
+    .limit(1);
+  const latest = rows[0]?.createdAt instanceof Date ? rows[0].createdAt.getTime() : Number(rows[0]?.createdAt ?? 0);
+  return new Date(Math.max(Date.now(), Number.isFinite(latest) ? latest + 1 : 0));
+}
+
 /** @param {LearningDb} db @param {string} conceptId @param {string} promptId @param {string} answerMd */
 async function saveReusableTopicQuestion(db, conceptId, promptId, answerMd) {
   const existing = await db
@@ -210,6 +233,139 @@ export async function saveCaseQuestion(db, input) {
   } else {
     await removeReusableTopicQuestionIfUnused(db, caseId, promptId);
   }
+  return promptId;
+}
+
+/**
+ * Move an active Case question to one exact image in an active Alternative image set.
+ * The prompt is intentionally reused; the answer remains on the destination
+ * relationship so other uses of the same wording are unaffected.
+ *
+ * @param {LearningDb} db
+ * @param {{ caseId: string, promptId: string, optionId: string }} input
+ */
+export async function moveCaseQuestionToStimulusOption(db, input) {
+  const caseId = requiredText(input.caseId, 'Case');
+  const promptId = requiredText(input.promptId, 'Case question');
+  const optionId = requiredText(input.optionId, 'Specific image');
+  const context = await requireCaseContext(db, caseId);
+
+  const question = (
+    await db
+      .select({
+        id: caseQuestions.id,
+        questionPromptId: caseQuestions.questionPromptId,
+        answerMd: caseQuestions.answerMd
+      })
+      .from(caseQuestions)
+      .innerJoin(questionPrompts, eq(questionPrompts.id, caseQuestions.questionPromptId))
+      .where(
+        and(
+          eq(caseQuestions.caseId, caseId),
+          eq(caseQuestions.questionPromptId, promptId),
+          eq(caseQuestions.isActive, true),
+          eq(questionPrompts.isActive, true)
+        )
+      )
+      .limit(1)
+  )[0];
+  if (!question) throw new CaseQuestionInputError('That Case question no longer exists or is inactive.');
+
+  const target = (
+    await db
+      .select({
+        id: stimulusGroupOptions.id,
+        groupId: stimulusGroupOptions.stimulusGroupId,
+        caseId: stimulusGroups.caseId,
+        assetId: stimulusGroupOptions.assetId
+      })
+      .from(stimulusGroupOptions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+      .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
+      .where(eq(stimulusGroupOptions.id, optionId))
+      .limit(1)
+  )[0];
+  if (!target || target.caseId !== caseId) {
+    throw new CaseQuestionInputError('Choose an image from this Case.');
+  }
+  const [optionStatus, groupStatus, caseStatus, assetStatus] = await Promise.all([
+    db.select({ isActive: stimulusGroupOptions.isActive }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.id, target.id)).limit(1),
+    db.select({ isActive: stimulusGroups.isActive }).from(stimulusGroups).where(eq(stimulusGroups.id, target.groupId)).limit(1),
+    db.select({ isActive: cases.isActive, previewSessionId: cases.previewSessionId }).from(cases).where(eq(cases.id, target.caseId)).limit(1),
+    db.select({ isActive: assets.isActive, type: assets.type }).from(assets).where(eq(assets.id, target.assetId)).limit(1)
+  ]);
+  if (
+    !optionStatus[0]?.isActive ||
+    !groupStatus[0]?.isActive ||
+    !caseStatus[0]?.isActive ||
+    caseStatus[0]?.previewSessionId ||
+    !assetStatus[0]?.isActive ||
+    assetStatus[0]?.type !== 'image'
+  ) {
+    throw new CaseQuestionInputError('The selected image is missing or inactive.');
+  }
+
+  const duplicate = (
+    await db
+      .select({ id: stimulusOptionQuestions.id, isActive: stimulusOptionQuestions.isActive })
+      .from(stimulusOptionQuestions)
+      .where(
+        and(
+          eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId),
+          eq(stimulusOptionQuestions.questionPromptId, promptId)
+        )
+      )
+      .limit(1)
+  )[0];
+  if (duplicate?.isActive === true) {
+    throw new CaseQuestionInputError('That image already has an active question with this prompt.');
+  }
+
+  const createdAt = await nextStimulusOptionQuestionTime(db, optionId);
+  const destination = duplicate
+    ? db
+        .update(stimulusOptionQuestions)
+        .set({ answerMd: question.answerMd, isActive: true, createdAt, updatedAt: new Date() })
+        .where(eq(stimulusOptionQuestions.id, duplicate.id))
+    : db.insert(stimulusOptionQuestions).values({
+        id: crypto.randomUUID(),
+        stimulusGroupOptionId: optionId,
+        questionPromptId: promptId,
+        answerMd: question.answerMd,
+        isActive: true,
+        createdAt
+      });
+
+  const otherCaseUses = await db
+    .select({ caseId: caseQuestions.caseId })
+    .from(caseQuestions)
+    .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
+    .innerJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
+    .where(
+      and(
+        eq(caseQuestions.questionPromptId, promptId),
+        eq(caseQuestions.isActive, true),
+        eq(cases.isActive, true),
+        eq(caseConcepts.conceptId, context.conceptId)
+      )
+    );
+  const removeTopicUse = otherCaseUses.some((row) => row.caseId !== caseId)
+    ? null
+    : db
+        .delete(conceptQuestions)
+        .where(and(eq(conceptQuestions.conceptId, context.conceptId), eq(conceptQuestions.questionPromptId, promptId)));
+
+  const writes = /** @type {any[]} */ ([
+    destination,
+    db
+      .update(caseQuestions)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(caseQuestions.id, question.id))
+  ]);
+  if (removeTopicUse) writes.push(removeTopicUse);
+  if (typeof db.batch === 'function') await db.batch(/** @type {[any, ...any[]]} */ (writes));
+  else for (const write of writes) await write;
   return promptId;
 }
 

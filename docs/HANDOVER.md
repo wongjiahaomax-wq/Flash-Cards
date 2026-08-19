@@ -21,6 +21,8 @@ Recent merged infrastructure/product milestones include:
 
 Tagging Stage B is complete for the agreed V1 scope. Shared Question authoring, exact Case-Tag reuse eligibility, resolver integration, Prompt-ID deduplication, normal Automatic/All/Fixed behavior and `tag_shared` Review provenance are live in production.
 
+The Admin Case editor now supports moving an existing Case-wide question to an exact image in an active Alternative image set. The move reuses the Prompt, preserves the relationship answer, deactivates the Case-wide relationship, and is available from both the Case question card and the target image card. No schema change was required; Preview intentionally keeps this production-only action blocked.
+
 ## Read first
 
 ```text

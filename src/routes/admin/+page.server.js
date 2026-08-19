@@ -31,6 +31,7 @@ import {
   CaseQuestionInputError,
   listCaseQuestions,
   moveCaseQuestion,
+  moveCaseQuestionToStimulusOption,
   removeCaseQuestion,
   saveCaseQuestion
 } from '$lib/server/db/case-questions.js';
@@ -340,6 +341,23 @@ export const actions = {
       return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
     }
     redirect(303, selectedCaseRedirect(caseId, 'question-reordered'));
+  },
+
+  moveCaseQuestionToStimulusOption: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    try {
+      await moveCaseQuestionToStimulusOption(createDb(platform.env.DB), {
+        caseId,
+        promptId: formText(formData, 'prompt_id'),
+        optionId: formText(formData, 'option_id')
+      });
+    } catch (error) {
+      return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
+    }
+    redirect(303, selectedCaseRedirect(caseId, 'question-moved-to-image', '#images'));
   },
 
   createStimulusGroup: async ({ request, locals, platform }) => {

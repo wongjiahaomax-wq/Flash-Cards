@@ -111,6 +111,8 @@ Answer: Right bundle branch block.
 
 Reusing the same ECG Asset in Case B does not make that Case inherit this question.
 
+The Case editor also supports moving an existing Case question to an exact image. From the Case Questions section, choose **Move to an exact image** and select an active option using its thumbnail, filename, Alternative image set name, and optional Case-specific caption. From an image card, choose **Move existing Case question here**. Both entry points move the existing relationship, preserve the Prompt and answer, and remove the active Case-wide question. This is useful when alternative ECGs share a prompt such as “What are the ECG changes?” but require different answers. Fixed images are intentionally outside this workflow.
+
 ## 7. Same-Case option Move
 
 Image Management V2 permits:
