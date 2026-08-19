@@ -40,10 +40,13 @@ function parseTarget(target) {
   if (separator < 1) throw new CaseQuestionInputError('Choose a specific image / stimulus.');
   const kind = target.slice(0, separator);
   const id = target.slice(separator + 1).trim();
-  if (!id || !['fixed', 'option'].includes(kind)) {
-    throw new CaseQuestionInputError('Choose a specific image / stimulus.');
-  }
+  if (!id || !['fixed', 'option'].includes(kind)) throw new CaseQuestionInputError('Choose a specific image / stimulus.');
   return { kind, id };
+}
+
+/** @param {LearningDb} db */
+function requireAtomicBatch(db) {
+  if (typeof db.batch !== 'function') throw new CaseQuestionInputError('Atomic fixed-image question assignment requires D1 batch support.');
 }
 
 /** @param {LearningDb} db @param {string} caseId */
@@ -54,17 +57,40 @@ async function requireProductionCaseContext(db, caseId) {
       .from(cases)
       .innerJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
       .innerJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
-      .where(
-        and(
-          eq(cases.id, caseId),
-          eq(cases.isActive, true),
-          isNull(cases.previewSessionId),
-          eq(concepts.isActive, true)
-        )
-      )
+      .where(and(eq(cases.id, caseId), eq(cases.isActive, true), isNull(cases.previewSessionId), eq(concepts.isActive, true)))
       .limit(1)
   )[0];
   if (!row) throw new CaseQuestionInputError('The selected Case or its primary topic is missing or inactive.');
+  return row;
+}
+
+/** @param {LearningDb} db @param {string} caseId @param {string} optionId */
+async function requireActiveOptionTarget(db, caseId, optionId) {
+  const row = (
+    await db
+      .select({
+        optionId: stimulusGroupOptions.id,
+        groupId: stimulusGroups.id,
+        caseId: stimulusGroups.caseId,
+        optionIsActive: stimulusGroupOptions.isActive,
+        groupIsActive: stimulusGroups.isActive,
+        caseIsActive: cases.isActive,
+        casePreviewSessionId: cases.previewSessionId,
+        assetIsActive: assets.isActive,
+        assetType: assets.type,
+        assetPreviewSessionId: assets.previewSessionId
+      })
+      .from(stimulusGroupOptions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+      .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
+      .where(eq(stimulusGroupOptions.id, optionId))
+      .limit(1)
+  )[0];
+  if (!row || row.caseId !== caseId) throw new CaseQuestionInputError('Choose an image from this Case.');
+  if (!row.optionIsActive || !row.groupIsActive || !row.caseIsActive || row.casePreviewSessionId || !row.assetIsActive || row.assetType !== 'image' || row.assetPreviewSessionId) {
+    throw new CaseQuestionInputError('The selected image is missing or inactive.');
+  }
   return row;
 }
 
@@ -79,9 +105,7 @@ async function findOrCreateProductionPrompt(db, promptMd) {
       .limit(1)
   )[0];
   if (existing && !existing.previewSessionId) {
-    if (!existing.isActive) {
-      await db.update(questionPrompts).set({ isActive: true, updatedAt: new Date() }).where(eq(questionPrompts.id, existing.id));
-    }
+    if (!existing.isActive) await db.update(questionPrompts).set({ isActive: true, updatedAt: new Date() }).where(eq(questionPrompts.id, existing.id));
     return existing.id;
   }
   const id = crypto.randomUUID();
@@ -92,12 +116,7 @@ async function findOrCreateProductionPrompt(db, promptMd) {
 /** @param {LearningDb} db @param {string} optionId */
 async function nextOptionQuestionTime(db, optionId) {
   const row = (
-    await db
-      .select({ createdAt: stimulusOptionQuestions.createdAt })
-      .from(stimulusOptionQuestions)
-      .where(eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId))
-      .orderBy(desc(stimulusOptionQuestions.createdAt))
-      .limit(1)
+    await db.select({ createdAt: stimulusOptionQuestions.createdAt }).from(stimulusOptionQuestions).where(eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId)).orderBy(desc(stimulusOptionQuestions.createdAt)).limit(1)
   )[0];
   const latest = row?.createdAt instanceof Date ? row.createdAt.getTime() : Number(row?.createdAt ?? 0);
   return new Date(Math.max(Date.now(), Number.isFinite(latest) ? latest + 1 : 0));
@@ -109,59 +128,29 @@ function automaticGroupName(filename, assetId) {
   return `Image-specific — ${cleaned || assetId.slice(0, 8)}`;
 }
 
-/**
- * Preflight a fixed Case image and prepare the statements required to convert it
- * to a one-option active Stimulus Group. No writes are performed here.
- *
- * @param {LearningDb} db
- * @param {string} caseId
- * @param {string} assetId
- */
+/** @param {LearningDb} db @param {string} caseId @param {string} assetId */
 async function prepareFixedTarget(db, caseId, assetId) {
   await requireProductionCaseContext(db, caseId);
   const fixed = (
     await db
-      .select({
-        captionMd: caseAssets.captionMd,
-        displayOrder: caseAssets.displayOrder,
-        originalFilename: assets.originalFilename,
-        assetIsActive: assets.isActive,
-        assetType: assets.type,
-        assetPreviewSessionId: assets.previewSessionId
-      })
+      .select({ captionMd: caseAssets.captionMd, originalFilename: assets.originalFilename, assetIsActive: assets.isActive, assetType: assets.type, assetPreviewSessionId: assets.previewSessionId })
       .from(caseAssets)
       .innerJoin(assets, eq(assets.id, caseAssets.assetId))
       .where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, assetId)))
       .limit(1)
   )[0];
-  if (!fixed || !fixed.assetIsActive || fixed.assetType !== 'image' || fixed.assetPreviewSessionId) {
-    throw new CaseQuestionInputError('Choose an active fixed image from this Case.');
-  }
+  if (!fixed || !fixed.assetIsActive || fixed.assetType !== 'image' || fixed.assetPreviewSessionId) throw new CaseQuestionInputError('Choose an active fixed image from this Case.');
 
   const duplicateOption = (
-    await db
-      .select({ id: stimulusGroupOptions.id })
-      .from(stimulusGroupOptions)
-      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-      .where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupOptions.assetId, assetId)))
-      .limit(1)
+    await db.select({ id: stimulusGroupOptions.id }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupOptions.assetId, assetId))).limit(1)
   )[0];
   if (duplicateOption) throw new CaseQuestionInputError('That image is already used as an alternative stimulus in this Case.');
 
   const lastGroup = (
-    await db
-      .select({ displayOrder: stimulusGroups.displayOrder })
-      .from(stimulusGroups)
-      .where(eq(stimulusGroups.caseId, caseId))
-      .orderBy(desc(stimulusGroups.displayOrder))
-      .limit(1)
+    await db.select({ displayOrder: stimulusGroups.displayOrder }).from(stimulusGroups).where(eq(stimulusGroups.caseId, caseId)).orderBy(desc(stimulusGroups.displayOrder)).limit(1)
   )[0];
   const remaining = (
-    await db
-      .select({ assetId: caseAssets.assetId })
-      .from(caseAssets)
-      .where(eq(caseAssets.caseId, caseId))
-      .orderBy(asc(caseAssets.displayOrder))
+    await db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(eq(caseAssets.caseId, caseId)).orderBy(asc(caseAssets.displayOrder))
   ).filter((row) => row.assetId !== assetId);
 
   return {
@@ -175,59 +164,32 @@ async function prepareFixedTarget(db, caseId, assetId) {
   };
 }
 
-/** @param {LearningDb} db @param {Awaited<ReturnType<typeof prepareFixedTarget>>} prepared */
-function fixedConversionStatements(db, prepared) {
+/** @param {LearningDb} db @param {string} caseId @param {Awaited<ReturnType<typeof prepareFixedTarget>>} prepared */
+function fixedConversionWrites(db, caseId, prepared) {
   return [
-    db.insert(stimulusGroups).values({
-      id: prepared.groupId,
-      caseId: undefined,
-      name: prepared.groupName,
-      displayOrder: prepared.groupDisplayOrder,
-      selectionCount: 1,
-      specificQuestionMode: 'none',
-      minimumSpecificQuestions: null,
-      isActive: true
-    })
+    db.insert(stimulusGroups).values({ id: prepared.groupId, caseId, name: prepared.groupName, displayOrder: prepared.groupDisplayOrder, selectionCount: 1, specificQuestionMode: 'none', minimumSpecificQuestions: null, isActive: true }),
+    db.insert(stimulusGroupOptions).values({ id: prepared.optionId, stimulusGroupId: prepared.groupId, assetId: prepared.assetId, displayOrder: 0, captionMd: prepared.captionMd, isActive: true }),
+    db.delete(caseAssets).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, prepared.assetId))),
+    ...prepared.remaining.map((row, index) => db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, row.assetId))))
   ];
 }
 
-/**
- * Assign a newly-authored question either to the whole Case or to one specific
- * image/stimulus. Fixed images are converted atomically with exact-image assignment.
- *
- * @param {LearningDb} db
- * @param {{ caseId: unknown, scope: unknown, target?: unknown, promptMd: unknown, answerMd: unknown, reusableForTopic?: unknown }} input
- */
+/** @param {LearningDb} db @param {{ caseId: unknown, scope: unknown, target?: unknown, promptMd: unknown, answerMd: unknown, reusableForTopic?: unknown }} input */
 export async function saveQuestionAtScope(db, input) {
   const caseId = requiredText(input.caseId, 'Case');
   const scope = requiredText(input.scope || 'case', 'Question scope');
   if (scope === 'case') {
-    return saveCaseQuestion(db, {
-      caseId,
-      promptMd: requiredText(input.promptMd, 'Question prompt'),
-      answerMd: requiredText(input.answerMd, 'Question answer'),
-      reusableForTopic: input.reusableForTopic
-    });
+    return saveCaseQuestion(db, { caseId, promptMd: requiredText(input.promptMd, 'Question prompt'), answerMd: requiredText(input.answerMd, 'Question answer'), reusableForTopic: input.reusableForTopic });
   }
   if (scope !== 'stimulus') throw new CaseQuestionInputError('Question scope must be this whole Case or a specific image / stimulus.');
-  if (checked(input.reusableForTopic)) {
-    throw new CaseQuestionInputError('A stimulus-specific question cannot also be shared with the Topic.');
-  }
+  if (checked(input.reusableForTopic)) throw new CaseQuestionInputError('A stimulus-specific question cannot also be shared with the Topic.');
 
   const target = parseTarget(requiredText(input.target, 'Specific image'));
   const promptMd = requiredText(input.promptMd, 'Question prompt');
   const answerMd = requiredText(input.answerMd, 'Question answer');
   if (target.kind === 'option') {
     await requireProductionCaseContext(db, caseId);
-    const ownership = (
-      await db
-        .select({ caseId: stimulusGroups.caseId })
-        .from(stimulusGroupOptions)
-        .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-        .where(eq(stimulusGroupOptions.id, target.id))
-        .limit(1)
-    )[0];
-    if (!ownership || ownership.caseId !== caseId) throw new CaseQuestionInputError('Choose an image from this Case.');
+    await requireActiveOptionTarget(db, caseId, target.id);
     try {
       return await saveStimulusOptionQuestion(db, target.id, { promptMd, answerMd });
     } catch (error) {
@@ -237,6 +199,7 @@ export async function saveQuestionAtScope(db, input) {
   }
 
   const prepared = await prepareFixedTarget(db, caseId, target.id);
+  requireAtomicBatch(db);
   const promptId = await findOrCreateProductionPrompt(db, promptMd);
   try {
     await ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, prepared.groupId);
@@ -244,83 +207,29 @@ export async function saveQuestionAtScope(db, input) {
     if (error instanceof StimulusGroupInputError) throw new CaseQuestionInputError(error.message);
     throw error;
   }
-
-  const optionQuestionId = crypto.randomUUID();
-  const createdAt = await nextOptionQuestionTime(db, prepared.optionId);
   const writes = [
-    db.insert(stimulusGroups).values({
-      id: prepared.groupId,
-      caseId,
-      name: prepared.groupName,
-      displayOrder: prepared.groupDisplayOrder,
-      selectionCount: 1,
-      specificQuestionMode: 'none',
-      minimumSpecificQuestions: null,
-      isActive: true
-    }),
-    db.insert(stimulusGroupOptions).values({
-      id: prepared.optionId,
-      stimulusGroupId: prepared.groupId,
-      assetId: prepared.assetId,
-      displayOrder: 0,
-      captionMd: prepared.captionMd,
-      isActive: true
-    }),
-    db.delete(caseAssets).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, prepared.assetId))),
-    ...prepared.remaining.map((row, index) =>
-      db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, row.assetId)))
-    ),
-    db.insert(stimulusOptionQuestions).values({
-      id: optionQuestionId,
-      stimulusGroupOptionId: prepared.optionId,
-      questionPromptId: promptId,
-      answerMd,
-      isActive: true,
-      createdAt
-    })
+    ...fixedConversionWrites(db, caseId, prepared),
+    db.insert(stimulusOptionQuestions).values({ id: crypto.randomUUID(), stimulusGroupOptionId: prepared.optionId, questionPromptId: promptId, answerMd, isActive: true, createdAt: await nextOptionQuestionTime(db, prepared.optionId) })
   ];
-  if (typeof db.batch !== 'function') {
-    throw new CaseQuestionInputError('Atomic fixed-image question assignment requires D1 batch support.');
-  }
   await db.batch(/** @type {[any, ...any[]]} */ (writes));
   return promptId;
 }
 
-/**
- * Move one active Case-wide question to an existing stimulus option or a fixed image.
- * For fixed images, conversion and question scope change are committed in one batch.
- *
- * @param {LearningDb} db
- * @param {{ caseId: unknown, promptId: unknown, target: unknown }} input
- */
+/** @param {LearningDb} db @param {{ caseId: unknown, promptId: unknown, target: unknown }} input */
 export async function moveCaseQuestionToStimulusTarget(db, input) {
   const caseId = requiredText(input.caseId, 'Case');
   const promptId = requiredText(input.promptId, 'Case question');
   const target = parseTarget(requiredText(input.target, 'Specific image'));
-  if (target.kind === 'option') {
-    return moveCaseQuestionToStimulusOption(db, { caseId, promptId, optionId: target.id });
-  }
+  if (target.kind === 'option') return moveCaseQuestionToStimulusOption(db, { caseId, promptId, optionId: target.id });
 
   const context = await requireProductionCaseContext(db, caseId);
   const question = (
-    await db
-      .select({ id: caseQuestions.id, answerMd: caseQuestions.answerMd })
-      .from(caseQuestions)
-      .innerJoin(questionPrompts, eq(questionPrompts.id, caseQuestions.questionPromptId))
-      .where(
-        and(
-          eq(caseQuestions.caseId, caseId),
-          eq(caseQuestions.questionPromptId, promptId),
-          eq(caseQuestions.isActive, true),
-          eq(questionPrompts.isActive, true),
-          isNull(questionPrompts.previewSessionId)
-        )
-      )
-      .limit(1)
+    await db.select({ id: caseQuestions.id, answerMd: caseQuestions.answerMd }).from(caseQuestions).innerJoin(questionPrompts, eq(questionPrompts.id, caseQuestions.questionPromptId)).where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.questionPromptId, promptId), eq(caseQuestions.isActive, true), eq(questionPrompts.isActive, true), isNull(questionPrompts.previewSessionId))).limit(1)
   )[0];
   if (!question) throw new CaseQuestionInputError('That Case question no longer exists or is inactive.');
 
   const prepared = await prepareFixedTarget(db, caseId, target.id);
+  requireAtomicBatch(db);
   try {
     await ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, prepared.groupId);
   } catch (error) {
@@ -333,56 +242,14 @@ export async function moveCaseQuestionToStimulusTarget(db, input) {
     .from(caseQuestions)
     .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
     .innerJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
-    .where(
-      and(
-        eq(caseQuestions.questionPromptId, promptId),
-        eq(caseQuestions.isActive, true),
-        eq(cases.isActive, true),
-        eq(caseConcepts.conceptId, context.conceptId)
-      )
-    );
-  const createdAt = await nextOptionQuestionTime(db, prepared.optionId);
+    .where(and(eq(caseQuestions.questionPromptId, promptId), eq(caseQuestions.isActive, true), eq(cases.isActive, true), eq(caseConcepts.conceptId, context.conceptId)));
+
   const writes = [
-    db.insert(stimulusGroups).values({
-      id: prepared.groupId,
-      caseId,
-      name: prepared.groupName,
-      displayOrder: prepared.groupDisplayOrder,
-      selectionCount: 1,
-      specificQuestionMode: 'none',
-      minimumSpecificQuestions: null,
-      isActive: true
-    }),
-    db.insert(stimulusGroupOptions).values({
-      id: prepared.optionId,
-      stimulusGroupId: prepared.groupId,
-      assetId: prepared.assetId,
-      displayOrder: 0,
-      captionMd: prepared.captionMd,
-      isActive: true
-    }),
-    db.delete(caseAssets).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, prepared.assetId))),
-    ...prepared.remaining.map((row, index) =>
-      db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, row.assetId)))
-    ),
-    db.insert(stimulusOptionQuestions).values({
-      id: crypto.randomUUID(),
-      stimulusGroupOptionId: prepared.optionId,
-      questionPromptId: promptId,
-      answerMd: question.answerMd,
-      isActive: true,
-      createdAt
-    }),
+    ...fixedConversionWrites(db, caseId, prepared),
+    db.insert(stimulusOptionQuestions).values({ id: crypto.randomUUID(), stimulusGroupOptionId: prepared.optionId, questionPromptId: promptId, answerMd: question.answerMd, isActive: true, createdAt: await nextOptionQuestionTime(db, prepared.optionId) }),
     db.update(caseQuestions).set({ isActive: false, updatedAt: new Date() }).where(eq(caseQuestions.id, question.id))
   ];
-  if (!otherCaseUses.some((row) => row.caseId !== caseId)) {
-    writes.push(
-      db.delete(conceptQuestions).where(and(eq(conceptQuestions.conceptId, context.conceptId), eq(conceptQuestions.questionPromptId, promptId)))
-    );
-  }
-  if (typeof db.batch !== 'function') {
-    throw new CaseQuestionInputError('Atomic fixed-image question assignment requires D1 batch support.');
-  }
+  if (!otherCaseUses.some((row) => row.caseId !== caseId)) writes.push(db.delete(conceptQuestions).where(and(eq(conceptQuestions.conceptId, context.conceptId), eq(conceptQuestions.questionPromptId, promptId))));
   await db.batch(/** @type {[any, ...any[]]} */ (writes));
   return promptId;
 }
