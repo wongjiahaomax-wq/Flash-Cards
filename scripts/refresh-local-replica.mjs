@@ -28,24 +28,24 @@ const stagingDir = '.wrangler/local-replica';
 const dataFile = join(stagingDir, 'production-content.sql');
 const resetFile = join(stagingDir, 'reset-local-content.sql');
 const mediaDir = join(stagingDir, 'media');
-const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const wranglerCli = join('node_modules', 'wrangler', 'bin', 'wrangler.js');
 
 function assertRepository() {
   const pkg = JSON.parse(readFileSync('package.json', 'utf8'));
   if (pkg.name !== 'flash-cards') throw new Error('Run this command from the Flash-Cards repository root.');
   if (!existsSync('wrangler.jsonc')) throw new Error('wrangler.jsonc is required.');
+  if (!existsSync(wranglerCli)) throw new Error('Wrangler CLI is not installed. Run npm ci before local setup.');
 }
 
 /** @param {string[]} args @param {{ capture?: boolean }} [options] */
 function runWrangler(args, { capture = false } = {}) {
   if (capture) {
-    return execFileSync(npx, ['wrangler', ...args], {
+    return execFileSync(process.execPath, [wranglerCli, ...args], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'inherit']
     });
   }
-  execFileSync(npx, ['wrangler', ...args], { stdio: 'inherit' });
+  execFileSync(process.execPath, [wranglerCli, ...args], { stdio: 'inherit' });
   return '';
 }
 
@@ -72,7 +72,7 @@ function ensureDevVars() {
 }
 
 function applyLocalMigrations() {
-  execFileSync(npm, ['run', 'db:migrate:local'], { stdio: 'inherit' });
+  runWrangler(['d1', 'migrations', 'apply', 'DB', '--local']);
 }
 
 function verifyProductionTableContract() {
@@ -160,7 +160,7 @@ function refreshR2(assetRows = null) {
     }
 
     const file = join(mediaDir, stagingFilenameForKey(key));
-    const remote = spawnSync(npx, ['wrangler', ...buildRemoteR2GetArgs(bucket, key, file)], {
+    const remote = spawnSync(process.execPath, [wranglerCli, ...buildRemoteR2GetArgs(bucket, key, file)], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -172,8 +172,8 @@ function refreshR2(assetRows = null) {
     }
 
     const local = spawnSync(
-      npx,
-      ['wrangler', ...buildLocalR2PutArgs(bucket, key, file, String(row.mime_type ?? ''))],
+      process.execPath,
+      [wranglerCli, ...buildLocalR2PutArgs(bucket, key, file, String(row.mime_type ?? ''))],
       { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
     );
     try {
