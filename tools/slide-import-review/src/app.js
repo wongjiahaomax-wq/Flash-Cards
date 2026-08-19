@@ -8,7 +8,7 @@ let bundle = null;
 let bundleFingerprint = null;
 let visibleCases = [];
 let index = 0;
-let revealAnswers = false;
+let revealAnswers = true;
 let coverageMode = false;
 let objectUrls = [];
 

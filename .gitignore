@@ -9,6 +9,9 @@ build/
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# Local standalone slide reviewer build
+tools/slide-import-review/dist/
+
 # Cloudflare / Wrangler
 .wrangler/
 .dev.vars
