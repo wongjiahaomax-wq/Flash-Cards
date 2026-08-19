@@ -8,11 +8,15 @@ import { hashPassword } from 'better-auth/crypto';
 import { buildLocalAdminSql, hasAdminRole, sqlString } from './bootstrap-local-admin-lib.mjs';
 import { extractD1Rows } from './local-replica-lib.mjs';
 
+/** @typedef {string | number | boolean | null} D1Value */
+/** @typedef {Record<string, D1Value>} D1Row */
+
 const tempDir = '.wrangler/local-admin';
 const seedFile = `${tempDir}/bootstrap-local-admin.sql`;
 const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
+/** @param {string[]} args @param {{ capture?: boolean }} [options] */
 function runWrangler(args, { capture = false } = {}) {
   if (args.includes('--remote')) throw new Error('Local administrator bootstrap refuses all --remote Wrangler operations.');
   if (capture) {
@@ -25,12 +29,14 @@ function runWrangler(args, { capture = false } = {}) {
   return '';
 }
 
+/** @param {string} sql @returns {D1Row[]} */
 function queryLocal(sql) {
   return extractD1Rows(
     runWrangler(['d1', 'execute', 'DB', '--local', '--command', sql, '--json'], { capture: true })
   );
 }
 
+/** @param {string} label @returns {Promise<string>} */
 function readHidden(label) {
   if (!stdin.isTTY || !stdout.isTTY || typeof stdin.setRawMode !== 'function') {
     throw new Error('A terminal (TTY) is required so the password can be entered without echoing it.');
@@ -46,6 +52,7 @@ function readHidden(label) {
       stdin.pause();
     };
 
+    /** @param {string} chunk */
     const onData = (chunk) => {
       for (const char of chunk) {
         if (char === '\u0003') {
@@ -139,6 +146,7 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(`\nLocal administrator bootstrap failed: ${error.message}`);
+  const message = error instanceof Error ? error.message : String(error);
+  console.error(`\nLocal administrator bootstrap failed: ${message}`);
   process.exitCode = 1;
 });
