@@ -205,6 +205,7 @@ export async function saveQuestionAtScope(db, input) {
     if (error instanceof StimulusGroupInputError) throw new CaseQuestionInputError(error.message);
     throw error;
   }
+  /** @type {any[]} */
   const writes = [
     ...fixedConversionWrites(db, caseId, prepared),
     db.insert(stimulusOptionQuestions).values({ id: crypto.randomUUID(), stimulusGroupOptionId: prepared.optionId, questionPromptId: promptId, answerMd, isActive: true, createdAt: await nextOptionQuestionTime(db, prepared.optionId) })
@@ -242,6 +243,7 @@ export async function moveCaseQuestionToStimulusTarget(db, input) {
     .innerJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
     .where(and(eq(caseQuestions.questionPromptId, promptId), eq(caseQuestions.isActive, true), eq(cases.isActive, true), eq(caseConcepts.conceptId, context.conceptId)));
 
+  /** @type {any[]} */
   const writes = [
     ...fixedConversionWrites(db, caseId, prepared),
     db.insert(stimulusOptionQuestions).values({ id: crypto.randomUUID(), stimulusGroupOptionId: prepared.optionId, questionPromptId: promptId, answerMd: question.answerMd, isActive: true, createdAt: await nextOptionQuestionTime(db, prepared.optionId) }),
