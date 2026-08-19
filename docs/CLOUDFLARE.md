@@ -1,8 +1,8 @@
 # Cloudflare setup and deployment
 
-_Status: current production + production-backed Preview operational runbook._
+_Status: current production + production-backed Preview + local-replica operational runbook._
 
-_Last updated: 18 August 2026_
+_Last updated: 19 August 2026_
 
 The SvelteKit application deploys to Cloudflare Workers with private runtime bindings:
 
@@ -78,24 +78,73 @@ The separate Worker secrets keep production/Preview sessions cryptographically s
 
 See `PREVIEW_ADMIN_IDENTITY.md` for bootstrap/promotion behavior.
 
-## 4. Local development
+## 4. Local development and production-like local replica
+
+Ordinary local development uses local Wrangler D1/R2 state. The preferred workflow for realistic UI/Admin iteration refreshes production-owned teaching content and referenced media into those local bindings:
 
 ```sh
-npm install
-npm run db:migrate:local
-cp .dev.vars.example .dev.vars
+npm ci
+npm run local:setup
+npm run local:admin
 npm run dev
 ```
 
-Replace local `BETTER_AUTH_SECRET` with a local random value of at least 32 characters. Keep `.dev.vars` out of Git.
+`npm run local:setup` creates `.dev.vars` with a random local Better Auth secret if needed, applies current migrations locally, then performs a one-way production → local refresh.
 
-Local D1/R2 simulations live beneath `.wrangler/` and are ignored by Git. Do not point ordinary local development at production resources.
+The refresh safety boundary is:
 
-Repeatable local auth validation:
+```text
+production D1: fixed SELECT queries only
+production R2: object GET only
+local D1: reset/import/mutations allowed
+local R2: object PUT/mutations allowed
+```
+
+The normal local application does not use writable production bindings. Do not add remote production D1/R2 bindings to ordinary localhost runtime as a convenience shortcut.
+
+Production rows deliberately excluded from the normal local replica include:
+
+```text
+Better Auth users/accounts/sessions/verifications
+learner Reviews/question/asset snapshots and progress
+Preview sessions/workspace ownership state
+resumable import-job state
+```
+
+A local-only administrator is created with:
+
+```sh
+npm run local:admin
+```
+
+The local Admin account is independent from production/Preview identities. Public signup remains disabled.
+
+Refresh current production-derived content/media later with:
+
+```sh
+npm run local:refresh
+```
+
+or separately:
+
+```sh
+npm run local:refresh:d1
+npm run local:refresh:r2
+```
+
+The refresh command requires Cloudflare authorization sufficient to read the production D1 content queries and R2 objects. If authorization is missing, fix the read credential/login boundary; do not weaken the local-vs-production separation or fall back to writable remote runtime bindings.
+
+Local D1/R2 simulations plus replica staging live beneath `.wrangler/` and are ignored by Git. `.dev.vars` is also ignored. Never commit local replica SQL, mirrored media, or secrets.
+
+Repeatable isolated auth validation remains:
 
 ```sh
 node scripts/local-auth-smoke.mjs
 ```
+
+The smoke test has its own disposable local persistence and does not create the normal local administrator.
+
+See `LOCAL_DEVELOPMENT_REPLICA.md` for the complete internal runbook.
 
 ## 5. Current migrations and production state
 
@@ -303,6 +352,14 @@ Do not use unsupported/irrelevant HTTP method behavior on the Better Auth API ro
 
 ## 14. Administrator bootstraps are explicit operator actions
 
+Local development administrator:
+
+```sh
+npm run local:admin
+```
+
+This writes only to local D1 and is safe to use with the production-like local replica.
+
 Production first-admin bootstrap:
 
 ```sh
@@ -315,9 +372,9 @@ Preview role/identity bootstrap:
 npm run preview-admin:bootstrap
 ```
 
-Never place administrator credentials or secrets in source, docs, screenshots, logs, or chat.
+Never place administrator credentials or secrets in source, docs, screenshots, logs, or chat. Never substitute a production/Preview bootstrap for `local:admin` merely to make localhost authentication work.
 
-## 15. R2 teaching images and staging
+## 15. R2 teaching images, local replica and staging
 
 `MEDIA` remains private.
 
@@ -343,11 +400,13 @@ Reviewed import staging uses:
 imports/staging/...
 ```
 
+The local production-like replica selects production R2 objects from mirrored `assets.storage_key` rows, retrieves those objects from production with read-only GET operations, and puts the same bytes/keys into local Wrangler R2. It does not clone unrelated Preview/import staging objects merely because they exist in the bucket.
+
 Preview cleanup may delete only verified Preview-owned media. Import staging cleanup follows the import-job contract. Neither path may delete normal production teaching objects ambiguously.
 
-See `R2_COST_GUARDRAILS.md` and `CONTENT_IMPORT_PACKAGES.md`.
+See `R2_COST_GUARDRAILS.md`, `CONTENT_IMPORT_PACKAGES.md`, and `LOCAL_DEVELOPMENT_REPLICA.md`.
 
-## 16. Production D1 snapshot/operator credentials
+## 16. Production D1 snapshot/operator and local-replica credentials
 
 Read-only production content inspection prefers repository secret:
 
@@ -363,7 +422,11 @@ CLOUDFLARE_D1_WRITE_TOKEN
 
 Do not grant write access to the read token or turn the read-only snapshot workflow into free-form SQL.
 
-See `PRODUCTION_CONTENT_SNAPSHOT.md` and `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md`.
+The local replica refresh likewise needs production **read** authorization for its fixed D1 SELECT queries and R2 object GETs. This may come from a suitably authorized local Wrangler login/session or another explicitly configured local read credential. Keep refresh/operator credentials out of source control, and do not place them in `.dev.vars` unless they are actual Worker runtime variables (the normal replica does not require that).
+
+Never make a missing local read credential a reason to expose production write bindings to localhost.
+
+See `PRODUCTION_CONTENT_SNAPSHOT.md`, `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md`, and `LOCAL_DEVELOPMENT_REPLICA.md`.
 
 ## 17. Routine validation
 
@@ -376,4 +439,4 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-Keep migrations, production deploys, Preview candidate deploy/restore, Cloudflare secret creation, content operators, and administrator bootstrap/promotion as explicit operator actions with independently verified outcomes.
+Keep local-replica refresh, migrations, production deploys, Preview candidate deploy/restore, Cloudflare secret creation, content operators, and administrator bootstrap/promotion as explicit operations with independently verified outcomes. The local-replica command is read-production/write-local only; production mutation remains outside that developer workflow.
