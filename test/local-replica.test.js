@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { buildLocalAdminSql } from '../scripts/bootstrap-local-admin-lib.mjs';
@@ -72,6 +73,12 @@ test('R2 command builders enforce remote GET and local PUT directions', () => {
   assert.equal(put[2], 'put');
   assert.ok(put.includes('--local'));
   assert.equal(put.includes('--remote'), false);
+});
+
+test('Vite platform proxy persists local state and refuses remote binding connections', () => {
+  const config = readFileSync(new URL('../svelte.config.js', import.meta.url), 'utf8');
+  assert.match(config, /persist:\s*true/);
+  assert.match(config, /remoteBindings:\s*false/);
 });
 
 test('local reset deliberately preserves Better Auth identity tables', () => {
