@@ -115,6 +115,7 @@ export const actions = {
   createConcept: async () => fail(403, { error: 'Global Topic editing is unavailable in Preview Mode.' }),
   createCaseTopic: async () => fail(403, { error: 'Creating Topics from a Case editor is unavailable in Preview Mode.' }),
   createCase: async () => fail(403, { error: 'Create a Preview Copy from an existing production Case instead.' }),
+  moveCaseQuestionToStimulusOption: async () => fail(403, { error: 'Moving Case questions to exact images is unavailable in Preview Mode.' }),
 
   attachMany: async (event) => {
     const result = await contextOrFailure(event);
