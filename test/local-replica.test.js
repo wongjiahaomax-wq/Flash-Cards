@@ -9,9 +9,11 @@ import {
   assertReadOnlySelect,
   buildInsertSql,
   buildLocalD1FileArgs,
+  buildLocalResetSql,
   buildLocalR2PutArgs,
   buildRemoteD1QueryArgs,
   buildRemoteR2GetArgs,
+  orderRowsForInsert,
   readR2BucketName
 } from '../scripts/local-replica-lib.mjs';
 
@@ -77,6 +79,37 @@ test('local reset deliberately preserves Better Auth identity tables', () => {
   for (const table of ['reviews', 'review_questions', 'review_assets', 'preview_sessions', 'import_jobs']) {
     assert.equal(LOCAL_RESET_TABLES.includes(table), true);
   }
+  assert.match(buildLocalResetSql(), /UPDATE `concepts` SET `parent_id` = NULL/);
+});
+
+test('Topic rows are inserted parent-first even when source IDs sort child-first', () => {
+  const rows = [
+    { id: 'a-child', parent_id: 'z-parent', name: 'Child' },
+    { id: 'z-parent', parent_id: null, name: 'Parent' },
+    { id: 'b-grandchild', parent_id: 'a-child', name: 'Grandchild' }
+  ];
+  assert.deepEqual(orderRowsForInsert('concepts', rows).map((row) => row.id), [
+    'z-parent',
+    'a-child',
+    'b-grandchild'
+  ]);
+  const sql = buildInsertSql('concepts', rows);
+  assert.ok(sql.indexOf("'z-parent'") < sql.indexOf("'a-child'"));
+});
+
+test('Topic hierarchy import fails closed on missing parents or cycles', () => {
+  assert.throws(
+    () => orderRowsForInsert('concepts', [{ id: 'child', parent_id: 'missing' }]),
+    /missing parent/
+  );
+  assert.throws(
+    () =>
+      orderRowsForInsert('concepts', [
+        { id: 'one', parent_id: 'two' },
+        { id: 'two', parent_id: 'one' }
+      ]),
+    /cycle detected/
+  );
 });
 
 test('row serialization escapes SQL values and preserves nulls', () => {
