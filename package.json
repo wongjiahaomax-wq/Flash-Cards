@@ -18,7 +18,10 @@
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "admin:bootstrap": "node scripts/bootstrap-admin.mjs",
-    "preview-admin:bootstrap": "node scripts/bootstrap-preview-admin.mjs"
+    "preview-admin:bootstrap": "node scripts/bootstrap-preview-admin.mjs",
+    "slide-review:build": "node tools/slide-import-review/scripts/build.mjs",
+    "slide-review:test": "node --test tools/slide-import-review/tests/*.test.js",
+    "slide-review:finalize": "node tools/slide-import-review/scripts/finalize.mjs"
   },
   "dependencies": {
     "better-auth": "1.6.25",
