@@ -2,7 +2,7 @@
 
 Private, case-based medical learning application built on SvelteKit and Cloudflare.
 
-_Last project-wide documentation refresh: 18 August 2026._
+_Last project-wide documentation refresh: 19 August 2026._
 
 ## Current status
 
@@ -236,12 +236,24 @@ Keep compound Tag reuse rules, Tag hierarchy/aliases, Study-by-Tag, FSRS, advanc
 
 ## Local development
 
+For a fresh clone that should contain production-like teaching content and media locally:
+
 ```sh
-npm install
-npm run db:migrate:local
-cp .dev.vars.example .dev.vars
+npm ci
+npm run local:setup
+npm run local:admin
 npm run dev
 ```
+
+`local:setup` reads only the allowlisted production content plus R2 objects referenced by production-owned Asset rows, then writes those copies into local Wrangler D1/R2 state. Production Better Auth users/accounts/sessions, learner Reviews/progress, Preview sessions, and import-job state are excluded. Normal localhost mutations remain local.
+
+When production content changes, refresh the local copy with:
+
+```sh
+npm run local:refresh
+```
+
+See [`docs/LOCAL_DEVELOPMENT_REPLICA.md`](docs/LOCAL_DEVELOPMENT_REPLICA.md) for the internal operational runbook, safety boundary, credentials, cleanup, and troubleshooting.
 
 Before implementation handoff, the repository validation standard is:
 
