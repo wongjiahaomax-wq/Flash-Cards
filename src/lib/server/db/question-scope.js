@@ -66,32 +66,30 @@ async function requireProductionCaseContext(db, caseId) {
 
 /** @param {LearningDb} db @param {string} caseId @param {string} optionId */
 async function requireActiveOptionTarget(db, caseId, optionId) {
-  const row = (
+  const option = (
     await db
-      .select({
-        optionId: stimulusGroupOptions.id,
-        groupId: stimulusGroups.id,
-        caseId: stimulusGroups.caseId,
-        optionIsActive: stimulusGroupOptions.isActive,
-        groupIsActive: stimulusGroups.isActive,
-        caseIsActive: cases.isActive,
-        casePreviewSessionId: cases.previewSessionId,
-        assetIsActive: assets.isActive,
-        assetType: assets.type,
-        assetPreviewSessionId: assets.previewSessionId
-      })
+      .select({ id: stimulusGroupOptions.id, assetId: stimulusGroupOptions.assetId })
       .from(stimulusGroupOptions)
       .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
-      .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
-      .where(eq(stimulusGroupOptions.id, optionId))
+      .where(and(
+        eq(stimulusGroupOptions.id, optionId),
+        eq(stimulusGroups.caseId, caseId),
+        eq(stimulusGroupOptions.isActive, true),
+        eq(stimulusGroups.isActive, true)
+      ))
       .limit(1)
   )[0];
-  if (!row || row.caseId !== caseId) throw new CaseQuestionInputError('Choose an image from this Case.');
-  if (!row.optionIsActive || !row.groupIsActive || !row.caseIsActive || row.casePreviewSessionId || !row.assetIsActive || row.assetType !== 'image' || row.assetPreviewSessionId) {
-    throw new CaseQuestionInputError('The selected image is missing or inactive.');
-  }
-  return row;
+  if (!option) throw new CaseQuestionInputError('Choose an active image from this Case.');
+
+  const asset = (
+    await db
+      .select({ id: assets.id })
+      .from(assets)
+      .where(and(eq(assets.id, option.assetId), eq(assets.isActive, true), eq(assets.type, 'image'), isNull(assets.previewSessionId)))
+      .limit(1)
+  )[0];
+  if (!asset) throw new CaseQuestionInputError('The selected image is missing or inactive.');
+  return option;
 }
 
 /** @param {LearningDb} db @param {string} promptMd */
