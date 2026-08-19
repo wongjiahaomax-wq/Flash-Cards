@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { stdin, stdout } from 'node:process';
 import { createInterface } from 'node:readline/promises';
 import { hashPassword } from 'better-auth/crypto';
@@ -13,19 +14,19 @@ import { extractD1Rows } from './local-replica-lib.mjs';
 
 const tempDir = '.wrangler/local-admin';
 const seedFile = `${tempDir}/bootstrap-local-admin.sql`;
-const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const wranglerCli = join('node_modules', 'wrangler', 'bin', 'wrangler.js');
 
 /** @param {string[]} args @param {{ capture?: boolean }} [options] */
 function runWrangler(args, { capture = false } = {}) {
   if (args.includes('--remote')) throw new Error('Local administrator bootstrap refuses all --remote Wrangler operations.');
+  if (!existsSync(wranglerCli)) throw new Error('Wrangler CLI is not installed. Run npm ci before local admin setup.');
   if (capture) {
-    return execFileSync(npx, ['wrangler', ...args], {
+    return execFileSync(process.execPath, [wranglerCli, ...args], {
       encoding: 'utf8',
       stdio: ['inherit', 'pipe', 'inherit']
     });
   }
-  execFileSync(npx, ['wrangler', ...args], { stdio: 'inherit' });
+  execFileSync(process.execPath, [wranglerCli, ...args], { stdio: 'inherit' });
   return '';
 }
 
@@ -87,7 +88,7 @@ async function main() {
   console.log('Flash-Cards LOCAL administrator bootstrap');
   console.log('This command writes only to the local Wrangler D1 simulation. Production is not accessed.');
 
-  execFileSync(npm, ['run', 'db:migrate:local'], { stdio: 'inherit' });
+  runWrangler(['d1', 'migrations', 'apply', 'DB', '--local']);
 
   const prompts = createInterface({ input: stdin, output: stdout });
   let name = '';
