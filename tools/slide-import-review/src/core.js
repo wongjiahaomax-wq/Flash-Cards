@@ -35,10 +35,20 @@ function assertSourcePageBounds(reviewMap) {
     checkRefs(candidate.promptSourceRefs, `Unresolved Question ${candidate.candidateId} prompt`);
     checkRefs(candidate.answerSourceRefs, `Unresolved Question ${candidate.candidateId} answer`);
   }
+
+  const coverageKeys = new Set();
   for (const coverage of reviewMap.sourceCoverage) {
     const pageCount = pageCounts.get(coverage.sourceId);
     if (pageCount && coverage.page > pageCount) {
       throw new ReviewBundleError(`Source coverage ${coverage.sourceId} page ${coverage.page} exceeds declared pageCount ${pageCount}.`);
+    }
+    coverageKeys.add(`${coverage.sourceId}:${coverage.page}`);
+  }
+  for (const source of reviewMap.sourceFiles) {
+    for (let page = 1; page <= source.pageCount; page += 1) {
+      if (!coverageKeys.has(`${source.sourceId}:${page}`)) {
+        throw new ReviewBundleError(`Source coverage is missing ${source.sourceId} page ${page}.`);
+      }
     }
   }
 }
