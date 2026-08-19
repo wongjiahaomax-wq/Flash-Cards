@@ -159,7 +159,6 @@ test('fixed Case count rejects all-coverage configurations that can require more
       updateCase(fixture.db, {
         caseId: 'seed-anterior-a',
         title: 'Anterior STEMI ECG A',
-        conceptId: 'seed-anterior-stemi',
         questionSelectionMode: 'fixed',
         questionCount: 2
       }),

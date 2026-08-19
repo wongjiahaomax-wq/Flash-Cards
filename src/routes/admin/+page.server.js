@@ -175,9 +175,9 @@ function formText(formData, name) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-/** @param {string} caseId @param {string} status */
-function selectedCaseRedirect(caseId, status) {
-  return `/admin/cases/${encodeURIComponent(caseId)}?status=${encodeURIComponent(status)}`;
+/** @param {string} caseId @param {string} status @param {string} [hash] */
+function selectedCaseRedirect(caseId, status, hash = '') {
+  return `/admin/cases/${encodeURIComponent(caseId)}?status=${encodeURIComponent(status)}${hash}`;
 }
 
 export const actions = {
@@ -223,7 +223,6 @@ export const actions = {
         caseId,
         title: formText(formData, 'title'),
         vignetteMd: formText(formData, 'vignette_md'),
-        conceptId: formText(formData, 'concept_id'),
         questionSelectionMode: formText(formData, 'question_selection_mode'),
         questionCount: formText(formData, 'question_count')
       });
@@ -246,7 +245,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'topic-added'));
+    redirect(303, selectedCaseRedirect(caseId, 'topic-added', '#topics'));
   },
 
   removeSecondaryTopic: async ({ request, locals, platform }) => {
@@ -262,7 +261,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'topic-removed'));
+    redirect(303, selectedCaseRedirect(caseId, 'topic-removed', '#topics'));
   },
 
   promoteTopic: async ({ request, locals, platform }) => {
@@ -278,7 +277,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'topic-promoted'));
+    redirect(303, selectedCaseRedirect(caseId, 'topic-promoted', '#topics'));
   },
 
   vignette: async ({ request, locals, platform }) => {

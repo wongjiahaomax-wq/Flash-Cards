@@ -70,7 +70,7 @@ export async function listAdminConcepts(db) {
 }
 
 /** @param {LearningDb} db @param {string} name */
-export async function createConcept(db, name) {
+async function prepareConcept(db, name) {
   const cleanName = requiredText(name, 'Topic name');
   const base = slugBase(cleanName);
   let slug = base;
@@ -86,20 +86,31 @@ export async function createConcept(db, name) {
   }
 
   const id = crypto.randomUUID();
+  return { id, name: cleanName, slug };
+}
+
+/** @param {LearningDb} db @param {{ id: string, name: string, slug: string }} concept */
+function conceptInsert(db, concept) {
+  return db.insert(concepts).values({
+    id: concept.id,
+    name: concept.name,
+    slug: concept.slug,
+    isActive: true
+  });
+}
+
+/** @param {LearningDb} db @param {string} name */
+export async function createConcept(db, name) {
+  const concept = await prepareConcept(db, name);
   try {
-    await db.insert(concepts).values({
-      id,
-      name: cleanName,
-      slug,
-      isActive: true
-    });
+    await conceptInsert(db, concept);
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       throw new AdminContentInputError('A topic with this generated slug already exists. Try a different name.');
     }
     throw error;
   }
-  return { id, name: cleanName, slug };
+  return concept;
 }
 
 /** @param {LearningDb} db @param {string} conceptId */
@@ -162,51 +173,24 @@ export async function updateCaseVignette(db, caseId, vignetteMd) {
 }
 
 /**
- * Update administrator-facing Case fields and change which attached Topic is
- * canonical/default without erasing other Case Topic relationships.
+ * Update administrator-facing Case fields without changing Topic
+ * relationships. Topic routing is managed by the dedicated relationship
+ * operations below.
  *
  * @param {LearningDb} db
- * @param {{ caseId: string, title: string, vignetteMd?: string | null, conceptId: string, questionSelectionMode?: unknown, questionCount?: unknown }} input
+ * @param {{ caseId: string, title: string, vignetteMd?: string | null, questionSelectionMode?: unknown, questionCount?: unknown }} input
  */
 export async function updateCase(db, input) {
   const caseId = requiredText(input.caseId, 'Case');
   const title = requiredText(input.title, 'Internal Case title');
-  const conceptId = requiredText(input.conceptId, 'Primary topic');
-  await requireActiveConcept(db, conceptId);
   const selection = questionSelection(input.questionSelectionMode, input.questionCount);
 
   await validateCaseQuestionCoverage(db, caseId, selection);
-  const { topicRows, primaryConceptId } = await requireActiveCaseWithOnePrimary(db, caseId);
-
-  /** @type {any[]} */
-  const writes = [
-    db
-      .update(cases)
-      .set({ title, vignetteMd: optionalText(input.vignetteMd), questionSelectionMode: selection.mode, questionCount: selection.count })
-      .where(eq(cases.id, caseId))
-  ];
-
-  if (primaryConceptId !== conceptId) {
-    writes.push(
-      db
-        .update(caseConcepts)
-        .set({ role: 'secondary' })
-        .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, primaryConceptId)))
-    );
-
-    const targetTopic = topicRows.find((topic) => topic.conceptId === conceptId);
-    writes.push(
-      targetTopic
-        ? db
-            .update(caseConcepts)
-            .set({ role: 'primary' })
-            .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, conceptId)))
-        : db.insert(caseConcepts).values({ caseId, conceptId, role: 'primary' })
-    );
-  }
-
-  if (typeof db.batch === 'function') await db.batch(/** @type {[any, ...any[]]} */ (writes));
-  else for (const write of writes) await write;
+  await requireActiveCaseWithOnePrimary(db, caseId);
+  await db
+    .update(cases)
+    .set({ title, vignetteMd: optionalText(input.vignetteMd), questionSelectionMode: selection.mode, questionCount: selection.count })
+    .where(eq(cases.id, caseId));
 }
 
 /**
@@ -344,4 +328,85 @@ export async function promoteCaseTopic(db, input) {
       : db.insert(caseConcepts).values({ caseId, conceptId, role: 'primary' })
   ];
   await runTopicWrites(db, writes);
+}
+
+/**
+ * Create a new active Topic and attach it to an active Case in one domain
+ * operation. D1 batches are transactional; the sequential fallback restores
+ * the previous primary and removes the new Topic if relationship creation
+ * fails.
+ *
+ * @param {LearningDb} db
+ * @param {{ caseId: string, name: string, relationshipIntent: string }} input
+ */
+export async function createCaseTopic(db, input) {
+  const caseId = requiredText(input.caseId, 'Case');
+  const relationshipIntent = requiredText(input.relationshipIntent, 'Topic relationship');
+  if (!['primary', 'secondary'].includes(relationshipIntent)) {
+    throw new AdminContentInputError('Choose whether the new Topic should become primary or an Additional Study Topic.');
+  }
+
+  const { primaryConceptId } = await requireActiveCaseWithOnePrimary(db, caseId);
+  const concept = await prepareConcept(db, input.name);
+  const relationshipWrites = relationshipIntent === 'primary'
+    ? [
+        db
+          .update(caseConcepts)
+          .set({ role: 'secondary' })
+          .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, primaryConceptId))),
+        db.insert(caseConcepts).values({ caseId, conceptId: concept.id, role: 'primary' })
+      ]
+    : [db.insert(caseConcepts).values({ caseId, conceptId: concept.id, role: 'secondary' })];
+
+  let useSequentialFallback = typeof db.batch !== 'function';
+  if (!useSequentialFallback) {
+    try {
+      await db.batch(/** @type {[any, ...any[]]} */ ([conceptInsert(db, concept), ...relationshipWrites]));
+    } catch (error) {
+      if (error instanceof TypeError && /batch is not a function/i.test(error.message)) {
+        useSequentialFallback = true;
+      } else {
+        if (error instanceof Error && /unique|constraint/i.test(error.message)) {
+          throw new AdminContentInputError('A topic with this generated slug already exists. Try a different name.');
+        }
+        throw error;
+      }
+    }
+  }
+
+  if (useSequentialFallback) {
+    let primaryDemoted = false;
+    try {
+      await conceptInsert(db, concept);
+      if (relationshipIntent === 'primary') {
+        await relationshipWrites[0];
+        primaryDemoted = true;
+        await relationshipWrites[1];
+      } else {
+        await relationshipWrites[0];
+      }
+    } catch (error) {
+      if (primaryDemoted) {
+        try {
+          await db
+            .update(caseConcepts)
+            .set({ role: 'primary' })
+            .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, primaryConceptId)));
+        } catch (restoreError) {
+          console.error('Unable to restore the previous Case primary Topic after Topic creation failed.', restoreError);
+        }
+      }
+      try {
+        await db.delete(concepts).where(eq(concepts.id, concept.id));
+      } catch (cleanupError) {
+        console.error('Unable to clean up the Topic created during a failed Case Topic operation.', cleanupError);
+      }
+      if (error instanceof Error && /unique|constraint/i.test(error.message)) {
+        throw new AdminContentInputError('A topic with this generated slug already exists. Try a different name.');
+      }
+      throw error;
+    }
+  }
+
+  return { ...concept, relationshipIntent };
 }
