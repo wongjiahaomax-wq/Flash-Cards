@@ -88,6 +88,7 @@ test('creating against a fixed image atomically creates a one-option group and p
     const option = fixture.sqlite.prepare(`SELECT sgo.id, sgo.asset_id AS assetId, sgo.caption_md AS captionMd, sg.selection_count AS selectionCount, sg.is_active AS groupActive, sgo.is_active AS optionActive
       FROM stimulus_group_options sgo JOIN stimulus_groups sg ON sg.id = sgo.stimulus_group_id
       WHERE sg.case_id = ? AND sgo.asset_id = ?`).get('seed-anterior-a', 'seed-asset-anterior-a');
+    assert.ok(option);
     assert.deepEqual({ ...option }, { id: option.id, assetId: 'seed-asset-anterior-a', captionMd: 'Case-specific ECG caption', selectionCount: 1, groupActive: 1, optionActive: 1 });
     assert.equal(fixture.sqlite.prepare('SELECT answer_md AS answerMd FROM stimulus_option_questions WHERE stimulus_group_option_id = ? AND question_prompt_id = ?').get(option.id, promptId)?.answerMd, 'Widespread concave ST elevation with PR depression.');
   } finally { fixture.sqlite.close(); }
