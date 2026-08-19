@@ -14,7 +14,6 @@ let objectUrls = [];
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const blocking = (warnings=[]) => warnings.filter(w=>w.severity==='blocking');
-const caseMeta = id => bundle.reviewMap.cases.find(x=>x.caseId===id);
 const manifestCase = id => bundle.manifest.cases.find(x=>x.id===id);
 const asset = id => bundle.manifest.assets.find(x=>x.id===id);
 const prompt = id => bundle.manifest.questionPrompts.find(x=>x.id===id);
@@ -24,6 +23,7 @@ const caseQuestions = id => bundle.manifest.caseQuestions.filter(x=>x.caseId===i
 
 function clearUrls(){ for(const url of objectUrls) URL.revokeObjectURL(url); objectUrls=[]; }
 function blobUrl(bytes,type='image/jpeg'){const url=URL.createObjectURL(new Blob([bytes],{type}));objectUrls.push(url);return url;}
+function previewMime(bytes){return detectImageType(bytes)||'image/jpeg';}
 function download(bytes,name,type='application/zip'){const url=URL.createObjectURL(new Blob([bytes],{type}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 function errorText(error){return error instanceof ReviewBundleError ? error.issues.join('\n') : String(error?.message ?? error);}
 function showErrors(title, errors){$('errors').innerHTML=`<div class="error-card"><strong>${esc(title)}</strong><ul>${errors.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></div>`;$('errors').scrollIntoView({behavior:'smooth',block:'nearest'});}
@@ -35,13 +35,13 @@ async function restorePersisted(loaded){try{const db=await openDb();const tx=db.
 
 function counts(){const c={all:bundle.reviewMap.cases.length,pending:0,approved:0,needs_review:0,rejected:0,blocking:0,low:0,missing:0,image:0,unresolved:bundle.reviewMap.unresolvedQuestions.filter(x=>x.reviewStatus!=='rejected'&&!x.resolvedCaseQuestionId).length};for(const x of bundle.reviewMap.cases){c[x.reviewStatus]++;if(x.confidence==='low')c.low++;if(blocking(x.warnings).length||x.assets.some(a=>blocking(a.warnings).length)||x.questions.some(q=>blocking(q.warnings).length))c.blocking++;if(x.assets.some(a=>a.warnings.length))c.image++;}for(const u of bundle.reviewMap.unresolvedQuestions)if(u.warnings.some(w=>w.code==='missing_answer')&&u.reviewStatus!=='rejected')c.missing++;return c;}
 function refreshFilters(){const c=counts();for(const [k,v] of Object.entries(c)){const el=$(`count-${k}`);if(el)el.textContent=v;}}
-function applyFilter(){if(!bundle)return;const f=$('filter').value;visibleCases=bundle.reviewMap.cases.filter(c=>{if(f==='all')return true;if(['pending','approved','needs_review','rejected'].includes(f))return c.reviewStatus===f;if(f==='blocking')return blocking(c.warnings).length||c.assets.some(a=>blocking(a.warnings).length)||c.questions.some(q=>blocking(q.warnings).length);if(f==='low')return c.confidence==='low'||c.assets.some(a=>a.confidence==='low')||c.questions.some(q=>q.confidence==='low');if(f==='missing')return bundle.reviewMap.unresolvedQuestions.some(u=>u.caseId===c.caseId&&u.reviewStatus!=='rejected'&&u.warnings.some(w=>w.code==='missing_answer'));if(f==='image')return c.assets.some(a=>a.warnings.length);if(f==='unresolved')return bundle.reviewMap.unresolvedQuestions.some(u=>u.caseId===c.caseId&&!['rejected'].includes(u.reviewStatus)&&!u.resolvedCaseQuestionId);return true;});index=Math.min(index,Math.max(0,visibleCases.length-1));render();}
+function applyFilter(){if(!bundle)return;const f=$('filter').value;visibleCases=bundle.reviewMap.cases.filter(c=>{if(f==='all')return true;if(['pending','approved','needs_review','rejected'].includes(f))return c.reviewStatus===f;if(f==='blocking')return blocking(c.warnings).length||c.assets.some(a=>blocking(a.warnings).length)||c.questions.some(q=>blocking(q.warnings).length);if(f==='low')return c.confidence==='low'||c.assets.some(a=>a.confidence==='low')||c.questions.some(q=>q.confidence==='low');if(f==='missing')return bundle.reviewMap.unresolvedQuestions.some(u=>u.caseId===c.caseId&&u.reviewStatus!=='rejected'&&u.warnings.some(w=>w.code==='missing_answer'));if(f==='image')return c.assets.some(a=>a.warnings.length);if(f==='unresolved')return bundle.reviewMap.unresolvedQuestions.some(u=>u.caseId===c.caseId&&u.reviewStatus!=='rejected'&&!u.resolvedCaseQuestionId);return true;});index=Math.min(index,Math.max(0,visibleCases.length-1));render();}
 
 function warningHtml(warnings){if(!warnings?.length)return'';return `<div class="warnings">${warnings.map(w=>`<div class="warn ${esc(w.severity)}"><b>${esc(w.severity)}</b> · ${esc(w.code)} — ${esc(w.message)}</div>`).join('')}</div>`;}
 function refsHtml(refs){if(!refs?.length)return '<span class="muted">No source reference</span>';return refs.map(r=>`${esc(r.sourceId)} p.${r.pages.join(', ')}`).join('; ');}
 function statusSelect(kind,id,value){return `<select data-status-kind="${kind}" data-status-id="${esc(id)}"><option ${value==='pending'?'selected':''}>pending</option><option ${value==='approved'?'selected':''}>approved</option><option ${value==='needs_review'?'selected':''}>needs_review</option><option ${value==='rejected'?'selected':''}>rejected</option></select>`;}
 
-function sourcePanel(meta){const refs=meta.sourceRefs;const pages=[];for(const r of refs)for(const p of r.pages){const cov=bundle.reviewMap.sourceCoverage.find(x=>x.sourceId===r.sourceId&&x.page===p);if(cov?.previewPath&&bundle.files.has(cov.previewPath))pages.push({r,p,cov,url:blobUrl(bundle.files.get(cov.previewPath),'image/jpeg')});}
+function sourcePanel(meta){const pages=[];for(const r of meta.sourceRefs)for(const p of r.pages){const cov=bundle.reviewMap.sourceCoverage.find(x=>x.sourceId===r.sourceId&&x.page===p);if(cov?.previewPath&&bundle.files.has(cov.previewPath)){const bytes=bundle.files.get(cov.previewPath);pages.push({r,p,cov,url:blobUrl(bytes,previewMime(bytes))});}}
   return `<section class="panel"><h2>Original source</h2><div class="source-meta"><b>Confidence:</b> ${esc(meta.confidence)}<br><b>Boundary notes:</b> ${esc(meta.caseBoundaryNotes||'—')}</div>${warningHtml(meta.warnings)}<div class="thumbs">${pages.map((x,i)=>`<button class="thumb ${i===0?'selected':''}" data-preview="${esc(x.cov.previewPath)}"><img src="${x.url}" alt="Source preview"><span>${esc(x.r.sourceId)} · ${x.p}</span></button>`).join('')||'<p class="muted">No linked source previews.</p>'}</div><div id="source-large">${pages[0]?`<img class="source-large" src="${pages[0].url}" alt="Selected source page"><p>${esc(pages[0].r.sourceId)} · page/slide ${pages[0].p}</p>`:''}</div></section>`;}
 
 function proposedPanel(c,meta){const cas=manifestCase(c.caseId);const casAssets=caseAssets(c.caseId);const qs=caseQuestions(c.caseId);const unresolved=bundle.reviewMap.unresolvedQuestions.filter(u=>u.caseId===c.caseId&&!u.resolvedCaseQuestionId);
@@ -68,11 +68,51 @@ for(const card of document.querySelectorAll('[data-asset]')){const id=card.datas
 for(const card of document.querySelectorAll('[data-question]')){const q=caseQuestion(card.dataset.question),p=prompt(q.questionPromptId);for(const el of card.querySelectorAll('[data-question-field]'))el.onchange=async()=>{if(el.dataset.questionField==='promptMd')p.promptMd=el.value;else q.answerMd=el.value;await persist();};}
 for(const s of document.querySelectorAll('[data-status-kind]'))s.onchange=async()=>{const kind=s.dataset.statusKind,id=s.dataset.statusId;const target=kind==='asset'?meta.assets.find(x=>x.assetId===id):meta.questions.find(x=>x.caseQuestionId===id);target.reviewStatus=s.value;await persist();refreshFilters();};
 for(const card of document.querySelectorAll('[data-unresolved]')){const id=card.dataset.unresolved;card.querySelector('.resolve-u').onclick=async()=>{try{resolveUnresolvedQuestion(bundle.manifest,bundle.reviewMap,id,{promptMd:card.querySelector('[data-u-prompt]').value,answerMd:card.querySelector('[data-u-answer]').value});await persist();render();}catch(e){showErrors('Cannot resolve question',[errorText(e)]);}};card.querySelector('.reject-u').onclick=async()=>{rejectUnresolvedQuestion(bundle.reviewMap,id);await persist();render();};}
-for(const thumb of document.querySelectorAll('.thumb'))thumb.onclick=()=>{const path=thumb.dataset.preview,bytes=bundle.files.get(path);if(!bytes)return;document.querySelectorAll('.thumb').forEach(x=>x.classList.remove('selected'));thumb.classList.add('selected');$('source-large').innerHTML=`<img class="source-large" src="${blobUrl(bytes,'image/jpeg')}" alt="Selected source page">`;};}
+for(const thumb of document.querySelectorAll('.thumb'))thumb.onclick=()=>{const path=thumb.dataset.preview,bytes=bundle.files.get(path);if(!bytes)return;document.querySelectorAll('.thumb').forEach(x=>x.classList.remove('selected'));thumb.classList.add('selected');$('source-large').innerHTML=`<img class="source-large" src="${blobUrl(bytes,previewMime(bytes))}" alt="Selected source page">`;};}
 
 async function replaceImage(assetId,file){clearErrors();try{if(!file)return;if(!['image/jpeg','image/png'].includes(file.type))throw new ReviewBundleError('Replacement must be JPEG or PNG.');if(file.size<=0||file.size>PRODUCTION_LIMITS.maxImageBytes)throw new ReviewBundleError(`Replacement image must be 1-${PRODUCTION_LIMITS.maxImageBytes} bytes.`);const bytes=new Uint8Array(await file.arrayBuffer()),detected=detectImageType(bytes);if(detected!==file.type)throw new ReviewBundleError('Replacement image bytes do not match the selected MIME type.');const a=asset(assetId),meta=bundle.reviewMap.cases.flatMap(c=>c.assets).find(x=>x.assetId===assetId);bundle.files.set(a.path,bytes);a.mimeType=file.type;a.originalFilename=file.name;meta.sha256=await sha256Hex(bytes);meta.extractionMethod='human_replacement';meta.reviewStatus='needs_review';await persist();render();}catch(e){showErrors('Image replacement failed',[errorText(e)]);}}
 
-async function approveCurrent(){clearErrors();const meta=visibleCases[index];for(const a of meta.assets)if(a.reviewStatus!=='rejected'&&!blocking(a.warnings).length)a.reviewStatus='approved';for(const q of meta.questions)if(q.reviewStatus!=='rejected'&&!blocking(q.warnings).length)q.reviewStatus='approved';const unresolved=bundle.reviewMap.unresolvedQuestions.filter(u=>u.caseId===meta.caseId&&!u.resolvedCaseQuestionId&&u.reviewStatus!=='rejected');const why=[];if(blocking(meta.warnings).length)why.push(...blocking(meta.warnings).map(x=>x.message));for(const a of meta.assets)if(a.reviewStatus!=='approved')why.push(`Image ${a.assetId} still needs review.`);for(const q of meta.questions)if(q.reviewStatus!=='approved')why.push(`Question ${q.caseQuestionId} still needs review.`);for(const u of unresolved)why.push(`Unresolved question ${u.candidateId} is not resolved/rejected.`);const c=manifestCase(meta.caseId);if(!String(c.title||'').trim())why.push('Case title is blank.');if(!c.primaryTopicId)why.push('Primary Topic is missing.');if(why.length){meta.reviewStatus='needs_review';await persist();showErrors('Cannot approve Case',why);render();return;}meta.reviewStatus='approved';await persist();render();}
+async function approveCurrent(){
+  clearErrors();
+  const meta=visibleCases[index],c=manifestCase(meta.caseId),why=[];
+  if(blocking(meta.warnings).length)why.push(...blocking(meta.warnings).map(x=>x.message));
+  if(!String(c?.title||'').trim())why.push('Case title is blank.');
+  if(!c?.primaryTopicId||!bundle.manifest.topics.some(t=>t.id===c.primaryTopicId))why.push('Primary Topic is missing or invalid.');
+  if(!['automatic','all','fixed'].includes(c?.questionSelectionMode||'automatic'))why.push('Question selection mode is invalid.');
+
+  for(const rel of caseAssets(meta.caseId)){
+    const a=asset(rel.assetId),review=meta.assets.find(x=>x.assetId===rel.assetId),issues=[];
+    if(!a)issues.push(`Image ${rel.assetId} is missing from the manifest.`);
+    if(!review)issues.push(`Image ${rel.assetId} has no review metadata.`);
+    if(review&&blocking(review.warnings).length)issues.push(...blocking(review.warnings).map(x=>`Image ${rel.assetId}: ${x.message}`));
+    const bytes=a?.path?bundle.files.get(a.path):null;
+    if(!bytes)issues.push(`Image ${rel.assetId} media is missing.`);
+    if(bytes&&bytes.byteLength>PRODUCTION_LIMITS.maxImageBytes)issues.push(`Image ${rel.assetId} exceeds the current size limit.`);
+    const detected=bytes?detectImageType(bytes):null;
+    if(bytes&&!detected)issues.push(`Image ${rel.assetId} is not a valid JPEG/PNG.`);
+    if(detected&&a?.mimeType!==detected)issues.push(`Image ${rel.assetId} MIME does not match its bytes.`);
+    if(a&&!String(a.altText||'').trim())issues.push(`Image ${rel.assetId} has blank alt text.`);
+    if(review&&bytes){if(!review.sha256)issues.push(`Image ${rel.assetId} has no SHA-256 review hash.`);else if((await sha256Hex(bytes)).toLowerCase()!==review.sha256.toLowerCase())issues.push(`Image ${rel.assetId} SHA-256 does not match reviewed bytes.`);}
+    if(review&&review.reviewStatus==='rejected')issues.push(`Image ${rel.assetId} is rejected but still included by this Case.`);
+    if(review&&issues.length===0)review.reviewStatus='approved';else if(review&&review.reviewStatus!=='rejected')review.reviewStatus='needs_review';
+    why.push(...issues);
+  }
+
+  for(const q of caseQuestions(meta.caseId)){
+    const review=meta.questions.find(x=>x.caseQuestionId===q.id),p=prompt(q.questionPromptId),issues=[];
+    if(!review)issues.push(`Question ${q.id} has no review metadata.`);
+    if(review&&blocking(review.warnings).length)issues.push(...blocking(review.warnings).map(x=>`Question ${q.id}: ${x.message}`));
+    if(!p)issues.push(`Question ${q.id} references a missing Prompt.`);else if(!String(p.promptMd||'').trim())issues.push(`Question ${q.id} has a blank Prompt.`);
+    if(!String(q.answerMd||'').trim())issues.push(`Question ${q.id} has a blank answer.`);
+    if(review&&review.reviewStatus==='rejected')issues.push(`Question ${q.id} is rejected but still included by this Case.`);
+    if(review&&issues.length===0)review.reviewStatus='approved';else if(review&&review.reviewStatus!=='rejected')review.reviewStatus='needs_review';
+    why.push(...issues);
+  }
+
+  for(const u of bundle.reviewMap.unresolvedQuestions.filter(u=>u.caseId===meta.caseId&&!u.resolvedCaseQuestionId&&u.reviewStatus!=='rejected'))why.push(`Unresolved question ${u.candidateId} is not resolved/rejected.`);
+  if(why.length){meta.reviewStatus='needs_review';await persist();showErrors('Cannot approve Case',why);render();return;}
+  meta.reviewStatus='approved';await persist();render();
+}
 async function setCaseStatus(status){const meta=visibleCases[index];meta.reviewStatus=status;await persist();render();}
 
 async function loadFile(file){clearErrors();try{bundle=await restorePersisted(await loadReviewBundle(file));visibleCases=bundle.reviewMap.cases.slice();index=0;coverageMode=false;$('empty-start').hidden=true;$('review-shell').hidden=false;$('batch').textContent=bundle.reviewMap.batchName;applyFilter();await persist();}catch(e){showErrors('Could not open review bundle',errorText(e).split('\n'));}}
