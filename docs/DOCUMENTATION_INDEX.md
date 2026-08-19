@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 18 August 2026_
+_Last reviewed: 19 August 2026_
 
 This file identifies which repository documents describe the **current deployed product**, which are subsystem contracts/runbooks, which are pending designs, and which are historical records.
 
@@ -119,11 +119,15 @@ Milestone ledger current through deployed Tagging Stage B and completed initial 
 
 These are intentional future designs, **not current implemented behavior**.
 
+### `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md`
+
+Agreed pending workflow for converting unstructured PowerPoint/PDF teaching material into a production-shaped review bundle. ChatGPT performs the semantic reconstruction, a reusable local previewer lets the human compare source slides with the actual proposed Import Package content, and a deterministic finalizer validates and strips review-only material before the existing strict Admin importer is used. All slide-ingested learner images are initially fixed Case Assets; final Topic taxonomy and advanced reuse/enrichment are deliberately deferred.
+
 ### `LOCAL_REAL_DATA_UX_WORKFLOW.md`
 
 Pending developer-workflow design for refreshing production-derived content into local D1 for faster UX iteration while keeping production mutation blocked. Convenience commands described there are proposals until an implementation PR lands.
 
-If this work is later implemented, the file must be converted from future/acceptance language into an operational runbook and the project roadmap/handover updated.
+If pending work is later implemented, its design document must be converted from future/acceptance language into an operational runbook and the project roadmap/handover updated.
 
 ## Historical / superseded records
 
