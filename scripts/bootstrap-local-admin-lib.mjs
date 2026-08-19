@@ -1,7 +1,18 @@
+/** @param {unknown} value */
 export function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
 }
 
+/**
+ * @param {{
+ *   userId: string,
+ *   accountId: string,
+ *   name: string,
+ *   email: string,
+ *   passwordHash: string,
+ *   now: number
+ * }} values
+ */
 export function buildLocalAdminSql({ userId, accountId, name, email, passwordHash, now }) {
   return [
     'PRAGMA foreign_keys = ON;',
@@ -10,6 +21,7 @@ export function buildLocalAdminSql({ userId, accountId, name, email, passwordHas
   ].join('\n');
 }
 
+/** @param {unknown} role */
 export function hasAdminRole(role) {
   return String(role ?? '')
     .split(',')
