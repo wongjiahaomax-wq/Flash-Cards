@@ -1,8 +1,8 @@
 # Admin image authoring workflow
 
-_Status: implemented. PR #29 established the Case image-authoring baseline and merged PR #34/Image Management V2 extended it with scalable library behavior, Image Collections, bounded bulk operations, and same-Case option Move._
+_Status: implemented. PR #29 established the Case image-authoring baseline, PR #34/Image Management V2 extended scalable library behaviour, PR #56 added Case-question → exact-option moves, and the stimulus-scope authoring follow-up makes fixed and alternative images equivalent targets from the author's perspective._
 
-_Last updated: 18 August 2026_
+_Last updated: 19 August 2026_
 
 This document records the current Admin image-authoring interaction contract. Learner stimulus semantics remain defined by fixed Case Assets and optional stimulus groups/options; Image Library organisation must not change those semantics.
 
@@ -33,87 +33,105 @@ The Images section preserves two learner relationship types:
 
 Case-specific captions remain on the Case/stimulus relationship. Filename, alt text, source, licence, and Collection remain global Asset metadata.
 
-## 2. Attached-image inspection
+## 2. Author-facing question scope
 
-Fixed Case images use a clinically useful contain-fit preview rather than a crop that could hide diagnostic information.
-
-Fixed images and alternative thumbnails can open the shared Admin image viewer for enlargement.
-
-Alternative option cards expose relevant authoring state/actions including:
-
-- active/inactive state;
-- ordering;
-- Case-specific caption;
-- enlargement;
-- exact-option question authoring;
-- explicit **Move to another set…** when another valid active set exists in the same Case.
-
-Set-wide questions and coverage controls remain visible at the alternative-set level rather than being confused with exact-option questions.
-
-## 3. Add images from library is a contained picker
-
-The Case editor must not permanently render the entire unused Image Library.
-
-**Add images from library** opens a bounded searchable picker showing only the data needed for the contained workflow.
-
-This picker remains separate from the full paginated `/admin/images` library and intentionally has simpler selection/pruning semantics.
-
-Administrators can:
-
-- search/browse eligible Assets;
-- select several Assets;
-- attach them as fixed images where the workflow permits;
-- add them to an alternative set through the safe relationship endpoint;
-- upload a new image from the contained authoring flow when needed.
-
-The picker must respect production/Preview ownership rules and avoid loading an unbounded corpus into the Case editor.
-
-## 4. Upload from Case authoring
-
-Case authoring may upload a new JPEG/PNG through the same protected R2 media pipeline used by the Image Library.
-
-All normal guardrails remain authoritative:
-
-- authenticated/authorized write;
-- current media type/size checks;
-- managed R2 storage ceiling;
-- immutable production object key;
-- optional source/provenance metadata;
-- no invented attribution.
-
-A successful upload creates/reuses the resulting Asset relationship through explicit server logic; client UI state is not authorization.
-
-## 5. Fixed versus alternative semantics stay explicit
-
-Do not silently convert an image between fixed and alternative relationship types merely because the same Asset is selected in a different control.
-
-If an Asset is already fixed in the target Case, bulk Add-to-alternative-set rejects rather than silently converting it.
-
-If an Asset is already in another alternative set in the same Case, bulk Add rejects rather than silently moving it. Use the explicit same-Case Move operation.
-
-Inactive options are not silently reactivated by a bulk Add.
-
-These rules make relationship changes reviewable and protect contextual question/coverage semantics.
-
-## 6. Exact-option questions remain attached to option identity
-
-An exact-image question belongs to the `stimulus_group_option`, not to the global Asset.
-
-This matters because one Asset may be reused in another Case without carrying unrelated questions.
-
-Example:
+Question authors should not have to reason about database relationships. The normal control is:
 
 ```text
-Case A / Option X
-Prompt: What additional conduction abnormality is present?
-Answer: Right bundle branch block.
+Applies to:
+- This whole Case
+- A specific image / stimulus
 ```
 
-Reusing the same ECG Asset in Case B does not make that Case inherit this question.
+**This whole Case** creates/edits a Case Question and may expose **Also reuse this question in the Topic**.
 
-The Case editor also supports moving an existing Case question to an exact image. From the Case Questions section, choose **Move to an exact image** and select an active option using its thumbnail, filename, Alternative image set name, and optional Case-specific caption. From an image card, choose **Move existing Case question here**. Both entry points move the existing relationship, preserve the Prompt and answer, and remove the active Case-wide question. This is useful when alternative ECGs share a prompt such as “What are the ECG changes?” but require different answers. Fixed images are intentionally outside this workflow.
+**A specific image / stimulus** creates/edits an exact-image question. Topic sharing is not a compatible ordinary option and contradictory submitted form data must be rejected server-side.
 
-## 7. Same-Case option Move
+The stimulus picker includes both:
+
+- current fixed Case images;
+- active options in existing Alternative image sets.
+
+Use thumbnails plus filename, Case caption and set context where available. The author should be able to choose a fixed ECG as easily as an existing alternative ECG option.
+
+## 3. Transparent fixed-image conversion for exact questions
+
+General image-management operations still keep fixed-versus-alternative conversion explicit. One deliberate exception exists for stimulus-specific question authoring.
+
+When an author assigns an exact-image question to a currently fixed image, the app may transparently:
+
+1. create an active one-option Stimulus Group with `selection_count = 1`;
+2. convert the fixed Case image into that option;
+3. preserve the Asset identity;
+4. preserve the Case-specific caption;
+5. preserve active learner-visible behaviour;
+6. attach the exact-image question to that option.
+
+The generated group name should be deterministic and human-readable from existing Asset metadata. The author must not need to open **Alternative-set actions** or supply a set name merely to scope a question to that image.
+
+The conversion and question assignment are one semantic mutation. Preflight validation must happen before destructive scope changes, and the D1 batch/transaction convention must prevent a failed assignment from leaving the fixed image unexpectedly converted.
+
+With one active option, that image remains selected whenever the Case is reviewed, preserving the previous fixed-image learner behaviour.
+
+## 4. Existing Case-question scope changes
+
+Every Case-wide question should visibly identify its scope as **This whole Case** and provide an easy path to change it to **A specific image / stimulus**.
+
+Changing Case → stimulus:
+
+- reuses the existing Question Prompt identity where appropriate;
+- preserves the relationship-specific answer exactly;
+- deactivates/removes the active Case-wide relationship;
+- creates/reactivates the exact-image relationship;
+- preserves the cross-Stimulus-Group Prompt conflict invariant;
+- removes Topic reuse only under the existing safe semantics, never by deleting legitimate use belonging to another Case.
+
+After the move, the question no longer belongs in the Case Questions list.
+
+## 5. Keep Case Questions tidy
+
+The Case Questions section contains only questions that apply to the whole Case regardless of the selected stimulus.
+
+Do not duplicate exact-image questions into that section. Stimulus-specific questions are managed primarily beside the image where they live. Alternative-set-wide questions remain at the set level.
+
+This is important when a Case has several ECGs, radiographs, or other stimuli: the Case Questions area must not become a second flattened list of every contextual question.
+
+## 6. Stimulus cards and question management
+
+Fixed and alternative image cards use clinically useful contain-fit previews and can open the shared Admin image viewer.
+
+An image card should remain compact. Show:
+
+- the image;
+- Case-specific caption/set context;
+- **Image-specific questions · N**;
+- a short prompt summary/list when useful;
+- collapsed **Manage questions** controls.
+
+Inside **Manage questions**, preserve the ability to:
+
+- create a new exact-image question;
+- move an existing Case-wide question here;
+- edit an existing exact-image question;
+- remove an existing exact-image question.
+
+Do not render every question/answer textarea open by default.
+
+Alternative option cards also retain active state, ordering, caption editing and explicit same-Case **Move to another set…** behaviour.
+
+## 7. Exact-option identity and Prompt invariant
+
+An exact-image question belongs to the `stimulus_group_option`, not to the global Asset. Reusing the same Asset elsewhere does not carry unrelated Case-specific questions with it.
+
+The invariant in `stimulus-groups.js` remains authoritative:
+
+> The same Question Prompt cannot be independently attached to multiple active Stimulus Groups within one Case where both groups may be selected in the same Review.
+
+Do not bypass this invariant during fixed-image conversion or Case-question moves.
+
+Within different options of the same Alternative set, identical prompt wording may reuse one Question Prompt while each option keeps an independent answer on its own relationship.
+
+## 8. Same-Case option Move
 
 Image Management V2 permits:
 
@@ -130,122 +148,86 @@ The operation re-parents the existing option in place and preserves:
 - active state;
 - exact-option questions/answers.
 
-Set-wide questions remain with their original sets.
+Set-wide questions remain with their original sets. Cross-Case/ownership/conflict/coverage-invalid moves are rejected.
 
-Server validation rejects cross-Case, inactive, conflicting, ownership-invalid, or coverage-invalid moves.
+## 9. Asset picker and uploads
 
-The Image Library does not expose a generic global Asset Move command; this is a Case relationship operation.
+**Add images from library** remains a bounded searchable picker rather than rendering the full library inside the Case editor.
 
-## 8. Image Library scalable selection
+Administrators can search/browse eligible Assets, select several Assets, attach them as fixed images, add them to an alternative set through the safe relationship endpoint, and upload a new image through the protected R2 media pipeline.
 
-The full `/admin/images` and `/preview-admin/images` libraries use the Image Management V2 behavior:
+Normal guardrails remain authoritative: authenticated/authorized writes, supported type/size, managed R2 storage ceiling, immutable production object key, optional source/provenance metadata, and no invented attribution.
+
+## 10. General fixed-versus-alternative safety
+
+Outside the exact-question authoring semantic operation, do not silently convert an image merely because it is selected in another image-management control.
+
+Bulk Add-to-alternative-set rejects a fixed relationship rather than silently converting it. If an Asset is already in another alternative set in the same Case, use the explicit same-Case Move operation. Inactive options are not silently reactivated by bulk Add.
+
+The stimulus-specific question workflow is the narrow exception because conversion is an internal implementation detail required to express the author's requested exact-image scope safely.
+
+## 11. Image Library scalability and Collections
+
+The full `/admin/images` and `/preview-admin/images` libraries retain Image Management V2 behaviour:
 
 - 60 Assets per server-backed page;
 - exact matching result count;
 - deterministic search/filter/sort;
-- explicit selection that can persist across page navigation within one canonical query context;
+- explicit cross-page selection within one canonical query context;
 - exact Select All up to 300 matching Assets;
-- explicit refusal above 300 rather than truncation;
+- explicit refusal above 300;
 - current-page Shift-range only;
-- selection reset when authoritative search/filter/sort context changes.
+- selection reset when authoritative query context changes.
 
-This larger library selection model is intentionally distinct from the bounded Case picker.
+Relationship/metadata bulk mutation requests remain bounded to `<= 30` unique Asset IDs per server request, with larger selections split into sequential browser-side chunks.
 
-## 9. Bounded mutation rule
+Image Collections remain organisational only. Deleting/changing a Collection never changes Case relationships, Tags, questions, Reviews, learner routing, or R2 identity.
 
-Relationship/metadata bulk mutation requests remain bounded to:
+## 12. Production / Preview behaviour
 
-```text
-<= 30 unique Asset IDs per server request
-```
+The production and Preview workspaces continue to share the real Case-editor UI where possible, but mutation authority differs.
 
-Larger explicit selections are split into sequential client-side chunks. Each chunk independently revalidates authorization, Assets, target ownership/conflicts, and applicable coverage rules.
+Production Admin may perform the new stimulus-scope operation on production-owned Cases/assets subject to normal validation.
 
-The first failed chunk stops later work. Successful earlier chunks stay committed, and completed versus remaining work is reported explicitly.
+Preview must not gain unintended production mutation authority. The production-only fixed-conversion/scope endpoint is not exposed as a Preview mutation path; the shared UI hides those controls in Preview while existing Preview-safe named actions continue to follow their ownership rules.
 
-Do not describe these browser-orchestrated operations as globally atomic.
+Preview must never mutate production Asset metadata, production Collections, production R2 objects, production Cases, or production stimulus relationships.
 
-## 10. Image Collections
+`test/admin-editor-preview-contract.test.js` remains the shared-editor contract for named form actions/data and now also asserts that the production stimulus-scope path is not introduced into the Preview adapter.
 
-Production Image Library supports one optional Collection per Asset.
+## 13. Stimulus-specific coverage
 
-- null Collection = **Unsorted**;
-- create/rename/delete Collection in production Admin;
-- assign selected Assets to one Collection or Unsorted;
-- deleting a Collection returns affected Assets to Unsorted without deleting media/content;
-- Collection mutations use the same bounded sequential bulk pattern where applicable.
+Coverage rules remain learner-authoring semantics. Bulk Add, detach, deactivate, conversion, reorder, same-Case Move and question-scope operations must preserve applicable fixed question-count/coverage constraints.
 
-Preview can display/filter/sort production Collection metadata but cannot mutate production Collections or Asset assignments.
+Auto-created one-option groups use the ordinary no-guarantee coverage baseline; adding the exact question does not create a new coverage guarantee by itself.
 
-Collections never change Case/stimulus relationships, learner routing, Tags, questions, Reviews, or R2 identity.
+## 14. Asset metadata versus Case metadata
 
-## 11. Production/Preview behavior
+Global reusable Asset metadata includes administrator filename/name, alt text, source label/URL, licence, Collection, active state, and immutable storage identity.
 
-The same shared Case-editor UI is used for production and Preview where possible, but server mutation authority differs.
+Case relationship metadata includes fixed/alternative membership, display order, Case-specific caption, exact-option contextual questions, and group membership/settings/questions.
 
-Production Admin may mutate production-owned Case/stimulus relationships subject to normal validation.
+Transparent fixed conversion preserves that boundary: the Asset remains the same reusable Asset; only its Case-level learner relationship representation changes.
 
-Preview may mutate only current-session Preview-owned Case/group/option relationships. Production Assets may be selected/reused read-only into Preview-owned relationships where the explicit Preview contract permits it.
+## 15. Regression expectations
 
-Preview must not mutate:
+Changes to image/question authoring should protect:
 
-- production Asset metadata;
-- production Collection assignments;
-- production R2 objects;
-- production Cases;
-- production stimulus relationships.
-
-Any new shared editor action must have a safe Preview implementation or explicit named block covered by the shared-editor contract tests.
-
-## 12. Stimulus-specific coverage
-
-Coverage rules are learner-authoring semantics, not library convenience rules.
-
-Bulk Add, detach, deactivate, conversion, reorder, and same-Case Move operations must preserve/validate configured stimulus-specific coverage and fixed question-count compatibility where relevant.
-
-Do not bypass coverage validation merely because an operation originated from the Image Library.
-
-## 13. Asset metadata versus Case metadata
-
-Global reusable Asset metadata includes:
-
-- administrator-facing filename/name;
-- alt text;
-- source label;
-- source URL;
-- licence;
-- Collection;
-- active state;
-- immutable storage key/R2 object identity.
-
-Case relationship metadata includes:
-
-- fixed/alternative membership;
-- display order;
-- Case-specific caption;
-- exact-option/contextual questions;
-- group membership and group-level settings/questions.
-
-Keep those scopes separate when adding future authoring controls.
-
-## 14. Regression expectations
-
-Changes to image authoring should continue to protect:
-
-- clinically useful contain-fit display/enlargement;
-- bounded Case picker behavior;
-- fixed versus alternative relationship safety;
-- exact-option question identity;
-- 30-Asset mutation bound;
-- sequential bulk failure semantics;
-- scalable library selection rules;
-- Collection semantics;
-- same-Case Move identity preservation;
-- stimulus coverage validation;
+- Case-wide versus stimulus-specific author mental model;
+- clinically useful image display;
+- bounded Case picker behaviour;
+- atomic fixed-image conversion + question assignment;
+- exact-option Prompt/answer identity;
+- cross-group Prompt conflict protection;
+- safe Topic reuse semantics;
+- Case Questions containing only Case-wide questions;
+- compact stimulus question management;
+- one-option learner behaviour equivalent to the previous fixed image;
+- existing PR #56 workflows;
 - production/Preview ownership isolation;
-- learner Review semantics remaining unchanged.
+- existing scalable Image Library and Collection rules.
 
-## 15. Validation standard
+## 16. Validation standard
 
 ```sh
 npm run db:check
