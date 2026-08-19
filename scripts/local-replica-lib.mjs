@@ -146,7 +146,7 @@ export function sqlValue(value) {
 }
 
 export function orderRowsForInsert(tableName, rows) {
-  if (tableName !== 'concepts' || rows.length < 2) return rows;
+  if (tableName !== 'concepts') return rows;
 
   const byId = new Map(rows.map((row) => [String(row.id), row]));
   const state = new Map();
