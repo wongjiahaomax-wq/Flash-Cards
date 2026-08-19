@@ -265,3 +265,44 @@ test('moving a Case question validates Case ownership, active targets, and confl
     fixture.sqlite.close();
   }
 });
+
+test('moving a Case question respects the cross-Alternative-Set prompt invariant', async () => {
+  const fixture = createLearningDb();
+  try {
+    const sourceGroupId = await createStimulusGroup(fixture.db, {
+      caseId: 'seed-anterior-a',
+      name: 'ECG alternatives',
+      specificQuestionMode: 'none'
+    });
+    const sourceOptionId = await convertCaseAssetToStimulusOption(fixture.db, sourceGroupId, 'seed-asset-anterior-a');
+    const targetGroupId = await createStimulusGroup(fixture.db, {
+      caseId: 'seed-anterior-a',
+      name: 'X-ray alternatives',
+      specificQuestionMode: 'none'
+    });
+    const targetOptionId = await addStimulusOption(fixture.db, targetGroupId, 'seed-asset-anterior-b', 'X-ray A');
+    const promptId = await saveStimulusOptionQuestion(fixture.db, sourceOptionId, {
+      promptMd: 'What abnormality is present?',
+      answerMd: 'Source image answer.'
+    });
+    await saveCaseQuestion(fixture.db, {
+      caseId: 'seed-anterior-a',
+      promptMd: 'What abnormality is present?',
+      answerMd: 'Case answer.'
+    });
+
+    await assert.rejects(
+      moveCaseQuestionToStimulusOption(fixture.db, {
+        caseId: 'seed-anterior-a',
+        promptId,
+        optionId: targetOptionId
+      }),
+      /same Question Prompt cannot be independently attached to multiple active Stimulus Groups/
+    );
+    assert.equal(fixture.sqlite.prepare('SELECT is_active AS isActive FROM case_questions WHERE case_id = ? AND question_prompt_id = ?').get('seed-anterior-a', promptId)?.isActive, 1);
+    assert.equal(fixture.sqlite.prepare('SELECT COUNT(*) AS count FROM stimulus_option_questions WHERE stimulus_group_option_id = ? AND question_prompt_id = ?').get(targetOptionId, promptId)?.count, 0);
+    assert.equal(fixture.sqlite.prepare('SELECT answer_md AS answerMd FROM stimulus_option_questions WHERE stimulus_group_option_id = ? AND question_prompt_id = ?').get(sourceOptionId, promptId)?.answerMd, 'Source image answer.');
+  } finally {
+    fixture.sqlite.close();
+  }
+});

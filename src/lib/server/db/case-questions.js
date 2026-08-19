@@ -12,6 +12,7 @@ import {
   stimulusGroups,
   stimulusOptionQuestions
 } from './schema.js';
+import { StimulusGroupInputError, ensurePromptIsNotUsedByAnotherGroup } from './stimulus-groups.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -304,6 +305,13 @@ export async function moveCaseQuestionToStimulusOption(db, input) {
     assetStatus[0]?.type !== 'image'
   ) {
     throw new CaseQuestionInputError('The selected image is missing or inactive.');
+  }
+
+  try {
+    await ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, target.groupId);
+  } catch (error) {
+    if (error instanceof StimulusGroupInputError) throw new CaseQuestionInputError(error.message);
+    throw error;
   }
 
   const duplicate = (

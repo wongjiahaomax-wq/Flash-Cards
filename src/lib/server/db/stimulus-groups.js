@@ -326,7 +326,7 @@ export async function setStimulusOptionActive(db, optionId, isActive) {
 }
 
 /** @param {LearningDb} db @param {string} caseId @param {string} promptId @param {string} groupId */
-async function ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, groupId) {
+export async function ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, groupId) {
   const [groupRows, optionRows] = await Promise.all([
     db.select({ groupId: stimulusGroupQuestions.stimulusGroupId }).from(stimulusGroupQuestions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupQuestions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupQuestions.questionPromptId, promptId), eq(stimulusGroupQuestions.isActive, true))),
     db.select({ groupId: stimulusGroups.id }).from(stimulusOptionQuestions).innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionQuestions.stimulusGroupOptionId)).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusOptionQuestions.questionPromptId, promptId), eq(stimulusOptionQuestions.isActive, true)))

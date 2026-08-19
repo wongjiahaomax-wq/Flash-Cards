@@ -79,7 +79,18 @@ test('every top-level data key read by the shared Admin Case editor is supplied 
 test('Case question move UX is wired to the dedicated Admin action', () => {
   assert.match(adminEditor, /Move to an exact image/);
   assert.match(adminEditor, /Move existing Case question here/);
-  assert.match(adminEditor, /action="\?\/moveCaseQuestionToStimulusOption"/);
+  const moveForms = [...adminEditor.matchAll(/<form method="POST" action="\?\/moveCaseQuestionToStimulusOption"[\s\S]*?<\/form>/g)].map(
+    (match) => match[0]
+  );
+  assert.equal(moveForms.length, 2, 'Both Case-question move entry points should submit to the dedicated action.');
+  assert.ok(
+    moveForms.some((form) => form.includes('name="prompt_id" value={question.questionPromptId}')),
+    'The Case-question card move form must submit the current prompt_id.'
+  );
+  assert.ok(
+    moveForms.some((form) => form.includes('name="prompt_id" required')),
+    'The exact-image card move form must submit a selected prompt_id.'
+  );
   assert.match(adminActions, /moveCaseQuestionToStimulusOption:/);
   assert.match(adminActions, /moveCaseQuestionToStimulusOption\(createDb\(platform\.env\.DB\)/);
 });
