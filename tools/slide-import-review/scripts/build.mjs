@@ -6,7 +6,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
 const [template, core, app] = await Promise.all([
   readFile(resolve(root, 'index.template.html'), 'utf8'),
-  readFile(resolve(root, 'src/core.js'), 'utf8'),
+  readFile(resolve(root, 'src/core-v2.js'), 'utf8'),
   readFile(resolve(root, 'src/app.js'), 'utf8')
 ]);
 const appWithoutImport = app.replace(/^import\s*\{[\s\S]*?\}\s*from\s*['"]\.\/core\.js['"];\s*/m, '');
