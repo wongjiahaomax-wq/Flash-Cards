@@ -240,6 +240,18 @@ Verify live behavior after deployment. A successful Wrangler command is not by i
 
 Migration state and Worker deployment state are separate facts.
 
+### 7.1 One-click production deployment from GitHub
+
+For a repeatable deployment without local Wrangler authentication, use the manual **Deploy production** workflow:
+
+```text
+GitHub → Actions → Deploy production → Run workflow
+```
+
+The workflow runs the repository checks, build, and local auth smoke test before deploying the Worker. Leave **Apply pending production D1 migrations** disabled for code-only releases. Enable it only when the reviewed release includes a migration that has been intentionally approved for production.
+
+The workflow requires the repository secret `CLOUDFLARE_API_TOKEN`. It requires `CLOUDFLARE_D1_WRITE_TOKEN` only when migrations are selected. Both tokens must be scoped to the Cloudflare account that owns `flash-cards-db`; never commit either value to the repository.
+
 ## 8. Preview infrastructure is already released
 
 The initial Preview infrastructure rollout is complete. The current baseline includes:

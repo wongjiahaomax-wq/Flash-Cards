@@ -1,0 +1,90 @@
+name: Deploy production
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply_migrations:
+        description: Apply pending production D1 migrations before deploying
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 0ada6bfd273d96d92682a853c4dd6fd2
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify Cloudflare credentials
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::error::GitHub repository secret CLOUDFLARE_API_TOKEN is not configured."
+            exit 1
+          fi
+          if [ "${{ inputs.apply_migrations }}" = "true" ] && [ -z "${CLOUDFLARE_D1_WRITE_TOKEN:-}" ]; then
+            echo "::error::CLOUDFLARE_D1_WRITE_TOKEN is required when apply_migrations is enabled."
+            exit 1
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check database migrations
+        run: npm run db:check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run Svelte checks
+        run: npm run check
+
+      - name: Build application
+        run: npm run build
+
+      - name: Smoke test local D1 and Better Auth
+        run: node scripts/local-auth-smoke.mjs
+
+      - name: Apply production D1 migrations
+        if: ${{ inputs.apply_migrations == true }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
+        run: npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
+
+      - name: Deploy Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx --yes wrangler@4.123.0 deploy
+
+      - name: Write deployment summary
+        shell: bash
+        run: |
+          {
+            echo "## Production deployment"
+            echo ""
+            echo "- Commit: `${GITHUB_SHA}`"
+            echo "- Worker: https://flash-cards.mmed-fm-flashcardstest.workers.dev"
+            echo "- D1 migrations applied: `${{ inputs.apply_migrations }}`"
+          } >> "$GITHUB_STEP_SUMMARY"
