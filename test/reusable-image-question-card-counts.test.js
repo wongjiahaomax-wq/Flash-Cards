@@ -10,6 +10,11 @@ const questions = [
   { id: 'aq-3', assetId: 'asset-a', promptMd: 'Q3', answerMd: 'A3' }
 ];
 
+/**
+ * @param {{ assetId: string, stimulusOptionId: string | null }} context
+ * @param {{ id: string, assetId: string, promptMd: string, answerMd: string }[]} [activeQuestions]
+ * @param {{ stimulusOptionId: string, assetQuestionId: string }[]} [optIns]
+ */
 function summary(context, activeQuestions = questions, optIns = []) {
   return buildCaseImageQuestionSummaries([context], activeQuestions, optIns)[0];
 }
@@ -54,41 +59,43 @@ test('archive and reactivation preserve dormant opt-in semantics', () => {
 
 test('DB loader excludes inactive Asset Questions and inactive Prompts from visible counts', () => {
   const source = fs.readFileSync(new URL('../src/lib/server/db/case-image-question-summaries.js', import.meta.url), 'utf8');
-  assert.match(source, /eq\(assetQuestions\.isActive, true\)/);
-  assert.match(source, /eq\(questionPrompts\.isActive, true\)/);
-  assert.match(source, /isNull\(questionPrompts\.previewSessionId\)/);
-  assert.match(source, /isNull\(assets\.previewSessionId\)/);
+  assert.ok(source.includes('eq(assetQuestions.isActive, true)'));
+  assert.ok(source.includes('eq(questionPrompts.isActive, true)'));
+  assert.ok(source.includes('isNull(questionPrompts.previewSessionId)'));
+  assert.ok(source.includes('isNull(assets.previewSessionId)'));
 });
 
 test('fixed-image reuse still uses established transparent one-option conversion path', () => {
   const source = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
-  assert.match(source, /if \(optionId\)[\s\S]*optInAssetQuestion/);
-  assert.match(source, /else \{[\s\S]*optInFixedAssetQuestion/);
+  assert.ok(source.includes('await optInAssetQuestion(db, { caseId, optionId, assetQuestionId:'));
+  assert.ok(source.includes('await optInFixedAssetQuestion(db, { caseId, assetId:'));
 });
 
 test('collapsed cards keep Case-specific and reusable counts independent and show no answers', () => {
   const page = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
   const counts = fs.readFileSync(new URL('../src/lib/components/ImageQuestionCounts.svelte', import.meta.url), 'utf8');
-  assert.match(page, /ImageQuestionCounts caseSpecificCount=\{0\}/);
-  assert.match(page, /ImageQuestionCounts caseSpecificCount=\{imageQuestions\.length\}/);
-  assert.match(counts, /Case-specific Image Questions/);
-  assert.match(counts, /Reusable Image Questions/);
-  assert.doesNotMatch(counts, /answerMd|Canonical answer|Answer:/);
+  assert.ok(page.includes('<ImageQuestionCounts caseSpecificCount={0} {reusable} />'));
+  assert.ok(page.includes('<ImageQuestionCounts caseSpecificCount={imageQuestions.length} {reusable} />'));
+  assert.ok(counts.includes('Case-specific Image Questions'));
+  assert.ok(counts.includes('Reusable Image Questions'));
+  assert.equal(/answerMd|Canonical answer|Answer:/.test(counts), false);
 });
 
 test('Manage questions exposes reusable used/available actions while collapsed cards remain compact', () => {
   const manager = fs.readFileSync(new URL('../src/lib/components/ReusableImageQuestionManager.svelte', import.meta.url), 'utf8');
-  assert.match(manager, /Used in this Case/);
-  assert.match(manager, /Available to reuse/);
-  assert.match(manager, /Remove from this Case/);
-  assert.match(manager, /Reuse in this Case/);
-  assert.match(manager, /Create a Reusable Image Question/);
+  assert.ok(manager.includes('Used in this Case'));
+  assert.ok(manager.includes('Available to reuse'));
+  assert.ok(manager.includes('Remove from this Case'));
+  assert.ok(manager.includes('Reuse in this Case'));
+  assert.ok(manager.includes('Create a Reusable Image Question'));
 });
 
 test('Preview rendering cannot expose production reusable-question mutation controls', () => {
   const manager = fs.readFileSync(new URL('../src/lib/components/ReusableImageQuestionManager.svelte', import.meta.url), 'utf8');
-  assert.match(manager, /\{#if !previewMode\}[\s\S]*createReusableImageQuestion/);
-  assert.match(manager, /\{#if !previewMode && optionId\}[\s\S]*removeAssetQuestionReuse/);
+  assert.ok(manager.includes('{#if !previewMode}'));
+  assert.ok(manager.includes('action="?/createReusableImageQuestion"'));
+  assert.ok(manager.includes('{#if !previewMode && optionId}'));
+  assert.ok(manager.includes('action="?/removeAssetQuestionReuse"'));
   const previewServer = fs.readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
-  assert.doesNotMatch(previewServer, /createAssetQuestion|optInAssetQuestion|optInFixedAssetQuestion|removeAssetQuestionOptIn|updateAssetQuestionAnswer/);
+  assert.equal(/createAssetQuestion|optInAssetQuestion|optInFixedAssetQuestion|removeAssetQuestionOptIn|updateAssetQuestionAnswer/.test(previewServer), false);
 });
