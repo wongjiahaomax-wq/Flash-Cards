@@ -190,13 +190,17 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
   const extension = extensionForType(file.type);
   const newStorageKey = `teaching-images/${newAssetId}.${extension}`;
   const now = new Date();
+  /** @type {Map<string, string>} */
   const clonedQuestionIds = new Map(reusableRows.map((row) => [row.id, crypto.randomUUID()]));
 
-  for (const usage of productionOptIns) {
-    if (!clonedQuestionIds.has(usage.oldAssetQuestionId)) {
-      throw new AssetReplacementInputError('Reusable Image Question replacement mapping is incomplete.');
-    }
-  }
+  /** @param {string} oldAssetQuestionId */
+  const clonedQuestionId = (oldAssetQuestionId) => {
+    const id = clonedQuestionIds.get(oldAssetQuestionId);
+    if (!id) throw new AssetReplacementInputError('Reusable Image Question replacement mapping is incomplete.');
+    return id;
+  };
+
+  for (const usage of productionOptIns) clonedQuestionId(usage.oldAssetQuestionId);
 
   await putTeachingImage(bucket, newStorageKey, file);
 
@@ -224,7 +228,7 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
 
     if (reusableRows.length) {
       statements.push(db.insert(assetQuestions).values(reusableRows.map((row) => ({
-        id: clonedQuestionIds.get(row.id),
+        id: clonedQuestionId(row.id),
         assetId: newAssetId,
         questionPromptId: row.questionPromptId,
         answerMd: row.answerMd,
@@ -250,7 +254,7 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
 
     for (const usage of productionOptIns) {
       statements.push(db.update(stimulusOptionAssetQuestions)
-        .set({ assetQuestionId: clonedQuestionIds.get(usage.oldAssetQuestionId) })
+        .set({ assetQuestionId: clonedQuestionId(usage.oldAssetQuestionId) })
         .where(and(
           eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, usage.optionId),
           eq(stimulusOptionAssetQuestions.assetQuestionId, usage.oldAssetQuestionId)
@@ -266,7 +270,7 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
         isNull(assets.supersededByAssetId)
       )));
 
-    await db.batch(statements);
+    await db.batch(/** @type {[any, ...any[]]} */ (statements));
   } catch (error) {
     try {
       await deleteTeachingImage(bucket, newStorageKey);
