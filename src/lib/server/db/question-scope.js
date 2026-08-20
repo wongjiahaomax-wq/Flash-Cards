@@ -75,6 +75,7 @@ async function requireActiveOptionTarget(db, caseId, optionId) {
         eq(stimulusGroupOptions.id, optionId),
         eq(stimulusGroups.caseId, caseId),
         eq(stimulusGroupOptions.isActive, true),
+        eq(stimulusGroupOptions.removedFromCase, false),
         eq(stimulusGroups.isActive, true)
       ))
       .limit(1)

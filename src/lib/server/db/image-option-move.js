@@ -35,7 +35,7 @@ async function simulatedCoverageRequirement(db, caseId, movingOptionId, targetGr
   const groupIds = groups.map((row) => row.id);
   const options = await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId })
     .from(stimulusGroupOptions).innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
-    .where(and(inArray(stimulusGroupOptions.stimulusGroupId, groupIds), eq(stimulusGroupOptions.isActive, true), eq(assets.isActive, true)));
+    .where(and(inArray(stimulusGroupOptions.stimulusGroupId, groupIds), eq(stimulusGroupOptions.isActive, true), eq(stimulusGroupOptions.removedFromCase, false), eq(assets.isActive, true)));
   const optionIds = options.map((row) => row.id);
   const [groupQuestions, optionQuestions] = await Promise.all([
     db.select({ groupId: stimulusGroupQuestions.stimulusGroupId, promptId: stimulusGroupQuestions.questionPromptId })
@@ -102,10 +102,11 @@ export async function moveStimulusOptionWithinCase(db, input) {
     id: stimulusGroupOptions.id,
     assetId: stimulusGroupOptions.assetId,
     sourceGroupId: stimulusGroupOptions.stimulusGroupId,
-    isActive: stimulusGroupOptions.isActive
+    isActive: stimulusGroupOptions.isActive,
+    removedFromCase: stimulusGroupOptions.removedFromCase
   }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.id, optionId)).limit(1))[0];
   if (!option) throw new StimulusOptionMoveError('The selected alternative image is missing.', 'NOT_OWNED');
-  if (option.isActive !== true) throw new StimulusOptionMoveError('Only an active option in an active source set can be moved.');
+  if (option.isActive !== true || option.removedFromCase) throw new StimulusOptionMoveError('Only an active option in an active source set can be moved.');
 
   const source = (await db.select({ id: stimulusGroups.id, caseId: stimulusGroups.caseId, isActive: stimulusGroups.isActive })
     .from(stimulusGroups).where(eq(stimulusGroups.id, option.sourceGroupId)).limit(1))[0];

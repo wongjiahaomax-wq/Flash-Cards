@@ -6,7 +6,7 @@ import test from 'node:test';
 import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
 import { and, eq } from 'drizzle-orm';
-import { caseAssets, stimulusGroupOptions, stimulusGroupQuestions, stimulusOptionQuestions } from '../src/lib/server/db/schema.js';
+import { assets, caseAssets, stimulusGroupOptions, stimulusGroupQuestions, stimulusOptionQuestions } from '../src/lib/server/db/schema.js';
 import { updateCase } from '../src/lib/server/db/admin-content.js';
 import { getReview, startReview } from '../src/lib/server/db/learning.js';
 import { listAssetLibrary } from '../src/lib/server/db/asset-library.js';
@@ -15,6 +15,9 @@ import {
   addStimulusOption,
   convertCaseAssetToStimulusOption,
   createStimulusGroup,
+  getAdminStimulusData,
+  getCaseStimulusCoverageRequirement,
+  removeStimulusOptionFromCase,
   saveStimulusGroupQuestion,
   saveStimulusOptionQuestion,
   setStimulusOptionActive,
@@ -31,6 +34,7 @@ const migrationSql = [
   readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8')
+  , readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -233,6 +237,53 @@ test('Question and Image Libraries include grouped usage without double-counting
     const image = (await listAssetLibrary(fixture.db, { topic: 'seed-anterior-stemi', usage: 'used' })).find((row) => row.id === 'seed-asset-anterior-b');
     assert.ok(image);
     assert.equal(image.usageCount, 2);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Remove from Case archives the option relationship without deleting Asset or historical provenance', async () => {
+  const fixture = createLearningDb();
+  try {
+    const { groupId, optionRows } = await buildGroupedCase(fixture);
+    const reviewId = await startReview({ db: fixture.db, userId: 'learner-archive', conceptId: 'seed-anterior-stemi', rng: () => 0 });
+    assert.ok(reviewId);
+    const reviewBeforeRemoval = await getReview(fixture.db, reviewId, 'learner-archive');
+    const optionId = reviewBeforeRemoval?.assets[0]?.stimulusOptionId;
+    assert.ok(optionId);
+    const option = optionRows.find((/** @type {{ id: string, assetId: string }} */ row) => row.id === optionId);
+    assert.ok(option);
+    await saveStimulusOptionQuestion(fixture.db, optionId, { promptMd: 'Removed image question?', answerMd: 'Retained historical answer.' });
+
+    await removeStimulusOptionFromCase(fixture.db, optionId);
+
+    const archived = (await fixture.db.select({ isActive: stimulusGroupOptions.isActive, removedFromCase: stimulusGroupOptions.removedFromCase }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.id, optionId)))[0];
+    assert.deepEqual(archived, { isActive: false, removedFromCase: true });
+    const asset = (await fixture.db.select({ isActive: assets.isActive }).from(assets).where(eq(assets.id, option.assetId)))[0];
+    assert.equal(asset?.isActive, true);
+
+    const admin = await getAdminStimulusData(fixture.db, 'seed-anterior-a');
+    assert.equal(admin.flatMap((group) => group.options).some((option) => option.id === optionId), false);
+    assert.equal((await getCaseStimulusCoverageRequirement(fixture.db, 'seed-anterior-a')) >= 0, true);
+
+    const historical = await getReview(fixture.db, reviewId, 'learner-archive');
+    assert.equal(historical?.assets.some((assetRow) => assetRow.stimulusOptionId === optionId), true);
+    assert.equal((await fixture.db.select({ count: stimulusOptionQuestions.id }).from(stimulusOptionQuestions).where(eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId))).length, 1);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('re-adding an archived Asset to its original set restores the same option identity', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Restore set', specificQuestionMode: 'none' });
+    const optionId = await addStimulusOption(fixture.db, groupId, 'seed-asset-anterior-b', 'Original caption');
+    await removeStimulusOptionFromCase(fixture.db, optionId);
+    const restoredId = await addStimulusOption(fixture.db, groupId, 'seed-asset-anterior-b', 'Restored caption');
+    assert.equal(restoredId, optionId);
+    const restored = (await fixture.db.select({ isActive: stimulusGroupOptions.isActive, removedFromCase: stimulusGroupOptions.removedFromCase, captionMd: stimulusGroupOptions.captionMd }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.id, optionId)))[0];
+    assert.deepEqual(restored, { isActive: true, removedFromCase: false, captionMd: 'Restored caption' });
   } finally {
     fixture.sqlite.close();
   }

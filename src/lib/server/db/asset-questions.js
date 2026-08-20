@@ -115,6 +115,7 @@ async function requireProductionOption(db, caseId, optionId) {
       isNull(cases.previewSessionId),
       eq(stimulusGroups.isActive, true),
       eq(stimulusGroupOptions.isActive, true),
+      eq(stimulusGroupOptions.removedFromCase, false),
       eq(assets.isActive, true),
       isNull(assets.previewSessionId)
     ))
@@ -156,7 +157,8 @@ async function ensureNoReusablePromptInOtherGroup(db, caseId, promptId, groupId)
       eq(assetQuestions.questionPromptId, promptId),
       eq(assetQuestions.isActive, true),
       eq(stimulusGroups.isActive, true),
-      eq(stimulusGroupOptions.isActive, true)
+      eq(stimulusGroupOptions.isActive, true),
+      eq(stimulusGroupOptions.removedFromCase, false)
     ))
     .limit(1))[0];
   if (conflict && conflict.groupId !== groupId) {

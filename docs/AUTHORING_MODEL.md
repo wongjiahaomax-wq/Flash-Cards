@@ -45,6 +45,8 @@ Use an alternative image set when the presentation and educational intent remain
 
 A Case may contain several independent sets, for example one ECG set and one X-ray set.
 
+An alternative option has three separate lifecycle states: active/current, inactive but still present in the Case, and removed from the Case. **Deactivate** stops future learner selection while keeping the option visible for authoring and allowing Reactivate. **Remove from Case** hides the relationship from the normal Case editor and future selection, but retains the reusable Asset, the option identity, and its historical question/provenance relationships. Asset activation is independent; removing a Case relationship never deletes the Asset or its R2 object.
+
 ### Same image at better quality versus a different image
 
 Asset identity remains clinically meaningful. Use the production Image detail action **Replace with higher-resolution version** only for a better-quality copy of the **same underlying image**.

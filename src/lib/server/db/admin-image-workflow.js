@@ -90,7 +90,7 @@ export async function listCaseImagePicker(db, caseId, options = {}) {
       .select({ assetId: stimulusGroupOptions.assetId })
       .from(stimulusGroupOptions)
       .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-      .where(eq(stimulusGroups.caseId, caseId))
+      .where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupOptions.removedFromCase, false)))
   ]);
   const usedIds = [...new Set([...fixedRows, ...groupedRows].map((row) => row.assetId))];
   const conditions = [eq(assets.isActive, true), eq(assets.type, 'image'), isNull(assets.previewSessionId)];
@@ -152,7 +152,7 @@ export async function attachAssetsToCase(db, caseId, submittedAssetIds) {
       .select({ assetId: stimulusGroupOptions.assetId })
       .from(stimulusGroupOptions)
       .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-      .where(and(eq(stimulusGroups.caseId, caseId), inArray(stimulusGroupOptions.assetId, assetIds)))
+      .where(and(eq(stimulusGroups.caseId, caseId), inArray(stimulusGroupOptions.assetId, assetIds), eq(stimulusGroupOptions.removedFromCase, false)))
   ]);
   if (groupedRows.length) {
     throw new AdminImageWorkflowInputError(
@@ -302,7 +302,8 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
         id: stimulusGroupOptions.id,
         assetId: stimulusGroupOptions.assetId,
         groupId: stimulusGroupOptions.stimulusGroupId,
-        isActive: stimulusGroupOptions.isActive
+        isActive: stimulusGroupOptions.isActive,
+        removedFromCase: stimulusGroupOptions.removedFromCase
       })
       .from(stimulusGroupOptions)
       .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
@@ -322,6 +323,10 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
       throw new AdminImageWorkflowInputError(
         'One or more selected Assets already belong to another alternative set in the target Case. No relationships were moved.'
       );
+    }
+    if (existingOption.removedFromCase) {
+      await db.update(stimulusGroupOptions).set({ isActive: true, removedFromCase: false }).where(eq(stimulusGroupOptions.id, existingOption.id));
+      continue;
     }
     if (!existingOption.isActive) {
       throw new AdminImageWorkflowInputError(

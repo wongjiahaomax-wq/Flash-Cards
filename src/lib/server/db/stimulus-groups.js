@@ -64,7 +64,7 @@ async function loadSpecificQuestionSets(db, groupId) {
       .select({ id: stimulusGroupOptions.id })
       .from(stimulusGroupOptions)
       .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
-      .where(and(eq(stimulusGroupOptions.stimulusGroupId, groupId), eq(stimulusGroupOptions.isActive, true), eq(assets.isActive, true)))
+      .where(and(eq(stimulusGroupOptions.stimulusGroupId, groupId), eq(stimulusGroupOptions.isActive, true), eq(stimulusGroupOptions.removedFromCase, false), eq(assets.isActive, true)))
   ]);
   if (!optionRows.length) return [];
   const optionIds = optionRows.map((option) => option.id);
@@ -209,6 +209,7 @@ export async function getAdminStimulusData(db, caseId) {
       displayOrder: stimulusGroupOptions.displayOrder,
       captionMd: stimulusGroupOptions.captionMd,
       isActive: stimulusGroupOptions.isActive,
+      removedFromCase: stimulusGroupOptions.removedFromCase,
       storageKey: assets.storageKey,
       mimeType: assets.mimeType,
       originalFilename: assets.originalFilename,
@@ -217,7 +218,7 @@ export async function getAdminStimulusData(db, caseId) {
     })
     .from(stimulusGroupOptions)
     .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
-    .where(inArray(stimulusGroupOptions.stimulusGroupId, groupIds))
+    .where(and(inArray(stimulusGroupOptions.stimulusGroupId, groupIds), eq(stimulusGroupOptions.removedFromCase, false)))
     .orderBy(asc(stimulusGroupOptions.displayOrder), asc(stimulusGroupOptions.createdAt));
   const groupQuestions = await db
     .select({ id: stimulusGroupQuestions.id, stimulusGroupId: stimulusGroupQuestions.stimulusGroupId, questionPromptId: stimulusGroupQuestions.questionPromptId, promptMd: questionPrompts.promptMd, answerMd: stimulusGroupQuestions.answerMd, isActive: stimulusGroupQuestions.isActive })
@@ -270,9 +271,19 @@ export async function addStimulusOption(db, groupId, assetId, captionMd = null) 
   const group = await requireGroup(db, requiredText(groupId, 'Stimulus Group'));
   await requireAsset(db, requiredText(assetId, 'Asset'));
   await validateNewOptionCoverage(db, group);
-  const duplicate = await db.select({ id: stimulusGroupOptions.id }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, group.caseId), eq(stimulusGroupOptions.assetId, assetId))).limit(1);
+  const duplicate = await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, removedFromCase: stimulusGroupOptions.removedFromCase }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, group.caseId), eq(stimulusGroupOptions.assetId, assetId))).limit(1);
   const fixed = await db.select({ captionMd: caseAssets.captionMd }).from(caseAssets).where(and(eq(caseAssets.caseId, group.caseId), eq(caseAssets.assetId, assetId))).limit(1);
-  if (duplicate[0] || fixed[0]) throw new StimulusGroupInputError('That Asset is already used in this Case. Convert or remove the existing attachment first.');
+  if (duplicate[0]) {
+    if (duplicate[0].removedFromCase && duplicate[0].groupId === group.id) {
+      const caption = optionalText(captionMd);
+      await db.update(stimulusGroupOptions).set({ isActive: true, removedFromCase: false, ...(caption ? { captionMd: caption } : {}) }).where(eq(stimulusGroupOptions.id, duplicate[0].id));
+      return duplicate[0].id;
+    }
+    throw new StimulusGroupInputError(duplicate[0].removedFromCase
+      ? 'That Asset has a removed relationship in another alternative set in this Case. Restore it from that set before adding it elsewhere.'
+      : 'That Asset is already used in this Case. Convert or remove the existing attachment first.');
+  }
+  if (fixed[0]) throw new StimulusGroupInputError('That Asset is already used in this Case. Convert or remove the existing attachment first.');
   const last = await db.select({ displayOrder: stimulusGroupOptions.displayOrder }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.stimulusGroupId, group.id)).orderBy(desc(stimulusGroupOptions.displayOrder)).limit(1);
   const id = crypto.randomUUID();
   await db.insert(stimulusGroupOptions).values({ id, stimulusGroupId: group.id, assetId, displayOrder: (last[0]?.displayOrder ?? -1) + 1, captionMd: optionalText(captionMd) });
@@ -286,8 +297,20 @@ export async function convertCaseAssetToStimulusOption(db, groupId, assetId) {
   await validateNewOptionCoverage(db, group);
   const fixed = (await db.select({ captionMd: caseAssets.captionMd }).from(caseAssets).where(and(eq(caseAssets.caseId, group.caseId), eq(caseAssets.assetId, assetId))).limit(1))[0];
   if (!fixed) return addStimulusOption(db, groupId, assetId);
-  const duplicate = (await db.select({ id: stimulusGroupOptions.id }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, group.caseId), eq(stimulusGroupOptions.assetId, assetId))).limit(1))[0];
-  if (duplicate) throw new StimulusGroupInputError('That Asset is already used as a Stimulus Option in this Case.');
+  const duplicate = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, removedFromCase: stimulusGroupOptions.removedFromCase }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, group.caseId), eq(stimulusGroupOptions.assetId, assetId))).limit(1))[0];
+  if (duplicate) {
+    if (!duplicate.removedFromCase || duplicate.groupId !== group.id) throw new StimulusGroupInputError(duplicate.removedFromCase
+      ? 'That Asset has a removed relationship in another alternative set in this Case. Restore it from that set before moving it elsewhere.'
+      : 'That Asset is already used as a Stimulus Option in this Case.');
+    const last = await db.select({ displayOrder: stimulusGroupOptions.displayOrder }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.stimulusGroupId, group.id)).orderBy(desc(stimulusGroupOptions.displayOrder)).limit(1);
+    const remaining = (await db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(eq(caseAssets.caseId, group.caseId)).orderBy(asc(caseAssets.displayOrder))).filter((row) => row.assetId !== assetId);
+    const restore = db.update(stimulusGroupOptions).set({ isActive: true, removedFromCase: false }).where(eq(stimulusGroupOptions.id, duplicate.id));
+    const fixedDelete = db.delete(caseAssets).where(and(eq(caseAssets.caseId, group.caseId), eq(caseAssets.assetId, assetId)));
+    const reorderStatements = remaining.map((row, index) => db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, group.caseId), eq(caseAssets.assetId, row.assetId))));
+    if (typeof db.batch === 'function') await db.batch([restore, fixedDelete, ...reorderStatements]);
+    else { await restore; await fixedDelete; for (const statement of reorderStatements) await statement; }
+    return duplicate.id;
+  }
 
   const last = await db.select({ displayOrder: stimulusGroupOptions.displayOrder }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.stimulusGroupId, group.id)).orderBy(desc(stimulusGroupOptions.displayOrder)).limit(1);
   const remaining = (await db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(eq(caseAssets.caseId, group.caseId)).orderBy(asc(caseAssets.displayOrder))).filter((row) => row.assetId !== assetId);
@@ -307,8 +330,9 @@ export async function convertCaseAssetToStimulusOption(db, groupId, assetId) {
 
 /** @param {LearningDb} db @param {string} optionId @param {boolean} isActive */
 export async function setStimulusOptionActive(db, optionId, isActive) {
-  const row = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, assetId: stimulusGroupOptions.assetId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
+  const row = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, assetId: stimulusGroupOptions.assetId, removedFromCase: stimulusGroupOptions.removedFromCase }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
   if (!row) throw new StimulusGroupInputError('The selected Stimulus Option is missing.');
+  if (row.removedFromCase) throw new StimulusGroupInputError('The selected Stimulus Option has been removed from this Case. Add the Asset again to restore it.');
   if (isActive) {
     await requireAsset(db, row.assetId);
     const group = await requireGroup(db, row.groupId);
@@ -325,11 +349,24 @@ export async function setStimulusOptionActive(db, optionId, isActive) {
   await db.update(stimulusGroupOptions).set({ isActive }).where(eq(stimulusGroupOptions.id, optionId));
 }
 
+/** @param {LearningDb} db @param {string} optionId */
+export async function removeStimulusOptionFromCase(db, optionId) {
+  const row = (await db.select({ id: stimulusGroupOptions.id, removedFromCase: stimulusGroupOptions.removedFromCase })
+    .from(stimulusGroupOptions)
+    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+    .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+    .where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId)))
+    .limit(1))[0];
+  if (!row) throw new StimulusGroupInputError('The selected Stimulus Option is missing.');
+  if (row.removedFromCase) return;
+  await db.update(stimulusGroupOptions).set({ isActive: false, removedFromCase: true }).where(eq(stimulusGroupOptions.id, optionId));
+}
+
 /** @param {LearningDb} db @param {string} caseId @param {string} promptId @param {string} groupId */
 export async function ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, groupId) {
   const [groupRows, optionRows] = await Promise.all([
     db.select({ groupId: stimulusGroupQuestions.stimulusGroupId }).from(stimulusGroupQuestions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupQuestions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupQuestions.questionPromptId, promptId), eq(stimulusGroupQuestions.isActive, true))),
-    db.select({ groupId: stimulusGroups.id }).from(stimulusOptionQuestions).innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionQuestions.stimulusGroupOptionId)).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusOptionQuestions.questionPromptId, promptId), eq(stimulusOptionQuestions.isActive, true)))
+    db.select({ groupId: stimulusGroups.id }).from(stimulusOptionQuestions).innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionQuestions.stimulusGroupOptionId)).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusOptionQuestions.questionPromptId, promptId), eq(stimulusOptionQuestions.isActive, true), eq(stimulusGroupOptions.removedFromCase, false)))
   ]);
   if ([...groupRows.map((row) => row.groupId), ...optionRows.map((row) => row.groupId)].some((id) => id !== groupId)) {
     throw new StimulusGroupInputError('The same Question Prompt cannot be independently attached to multiple active Stimulus Groups in one Case.');
@@ -339,7 +376,7 @@ export async function ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, 
 /** @param {LearningDb} db @param {string} groupId @param {string} optionId @param {'up'|'down'} direction */
 export async function moveStimulusOption(db, groupId, optionId, direction) {
   await requireGroup(db, groupId);
-  const rows = await db.select({ id: stimulusGroupOptions.id }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.stimulusGroupId, groupId)).orderBy(asc(stimulusGroupOptions.displayOrder));
+  const rows = await db.select({ id: stimulusGroupOptions.id }).from(stimulusGroupOptions).where(and(eq(stimulusGroupOptions.stimulusGroupId, groupId), eq(stimulusGroupOptions.removedFromCase, false))).orderBy(asc(stimulusGroupOptions.displayOrder));
   const index = rows.findIndex((row) => row.id === optionId);
   const next = direction === 'up' ? index - 1 : direction === 'down' ? index + 1 : -1;
   if (index < 0) throw new StimulusGroupInputError('The selected Stimulus Option is missing.');
@@ -384,7 +421,7 @@ export async function saveStimulusGroupQuestion(db, groupId, input) {
 
 /** @param {LearningDb} db @param {string} optionId @param {{ originalPromptId?: string|null, promptMd: unknown, answerMd: unknown }} input */
 export async function saveStimulusOptionQuestion(db, optionId, input) {
-  const option = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
+  const option = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(stimulusGroupOptions.removedFromCase, false), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
   if (!option) throw new StimulusGroupInputError('The selected Stimulus Option is missing or inactive.');
   const group = await requireGroup(db, option.groupId);
   const promptMd = requiredText(input.promptMd, 'Question prompt');
