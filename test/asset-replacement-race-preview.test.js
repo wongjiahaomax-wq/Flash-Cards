@@ -17,11 +17,16 @@ const migrationSql = readdirSync(new URL('../drizzle/', import.meta.url))
   .join('\n')
   .replaceAll('--> statement-breakpoint', '');
 
-function d1Fixture(sqlite, { releaseAfterBatches = 0 } = {}) {
+function d1Fixture(sqlite, { releaseAfterBatches = 0, beforeFirstBatch = null } = {}) {
   let pending = [];
   let barrierOpen = releaseAfterBatches <= 1;
+  let firstBatchStarted = false;
 
   async function executeBatch(statements) {
+    if (!firstBatchStarted) {
+      firstBatchStarted = true;
+      if (beforeFirstBatch) await beforeFirstBatch(sqlite);
+    }
     sqlite.exec('BEGIN');
     try {
       const results = [];
@@ -225,6 +230,42 @@ test('concurrent replacement submissions allow exactly one claim and clean up th
   }
 });
 
+test('source deactivation after upload but before the D1 claim rolls back B and cleans its R2 object', async () => {
+  const fx = fixture({
+    beforeFirstBatch(sqlite) {
+      sqlite.prepare('UPDATE assets SET is_active = 0 WHERE id = ?').run('asset-a');
+    }
+  });
+  try {
+    await assert.rejects(
+      () => replaceAssetWithHigherResolution({
+        db: fx.db,
+        bucket: fx.bucket,
+        assetId: 'asset-a',
+        file: namedBlob('doomed replacement', 'doomed.png'),
+        confirmedSameImage: true
+      }),
+      (error) => error instanceof AssetReplacementInputError && /already replaced/.test(error.message)
+    );
+
+    assert.equal(fx.writes.length, 1);
+    assert.equal(fx.deleted.length, 1);
+    assert.equal(fx.objects.has(fx.deleted[0]), false);
+    assert.equal(fx.objects.has('teaching-images/asset-a.png'), true);
+    assert.equal(
+      fx.sqlite.prepare('SELECT COUNT(*) AS count FROM assets WHERE id <> ?').get('asset-a').count,
+      0
+    );
+    const source = fx.sqlite.prepare(
+      'SELECT is_active, superseded_by_asset_id FROM assets WHERE id = ?'
+    ).get('asset-a');
+    assert.equal(source.is_active, 0);
+    assert.equal(source.superseded_by_asset_id, null);
+  } finally {
+    fx.sqlite.close();
+  }
+});
+
 for (const [label, addReference] of [
   ['fixed Case relationship', addLivePreviewFixedReference],
   ['stimulus option relationship', addLivePreviewOptionReference]
@@ -257,6 +298,47 @@ for (const [label, addReference] of [
     }
   });
 }
+
+test('Preview becoming live after preflight but before the D1 claim rolls back and cleans the new object', async () => {
+  const fx = fixture({
+    beforeFirstBatch(sqlite) {
+      addLivePreviewFixedReference({ sqlite });
+    }
+  });
+  try {
+    await assert.rejects(
+      () => replaceAssetWithHigherResolution({
+        db: fx.db,
+        bucket: fx.bucket,
+        assetId: 'asset-a',
+        file: namedBlob('blocked late', 'blocked-late.png'),
+        confirmedSameImage: true
+      }),
+      (error) => error instanceof AssetReplacementInputError
+        && /active Preview workspace/.test(error.message)
+    );
+
+    assert.equal(fx.writes.length, 1);
+    assert.equal(fx.deleted.length, 1);
+    assert.equal(fx.objects.has(fx.deleted[0]), false);
+    assert.equal(fx.objects.has('teaching-images/asset-a.png'), true);
+    const source = fx.sqlite.prepare(
+      'SELECT is_active, superseded_by_asset_id FROM assets WHERE id = ?'
+    ).get('asset-a');
+    assert.equal(source.is_active, 1);
+    assert.equal(source.superseded_by_asset_id, null);
+    assert.equal(
+      fx.sqlite.prepare('SELECT asset_id FROM case_assets WHERE case_id = ?').get('preview-case').asset_id,
+      'asset-a'
+    );
+    assert.equal(
+      fx.sqlite.prepare('SELECT COUNT(*) AS count FROM assets WHERE id <> ?').get('asset-a').count,
+      0
+    );
+  } finally {
+    fx.sqlite.close();
+  }
+});
 
 test('Admin image detail visibly explains live Preview replacement blocking and renders action errors', () => {
   const ui = readFileSync(
