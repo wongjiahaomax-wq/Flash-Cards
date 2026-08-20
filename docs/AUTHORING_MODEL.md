@@ -1,12 +1,10 @@
 # Flash-Cards — Authoring Model
 
-_Last updated: 19 August 2026_
+_Last updated: 20 August 2026_
 
-This document describes the preferred administrator mental model for entering and refining teaching content. It intentionally uses product language rather than requiring authors to think in database-table names.
+This document describes the preferred administrator mental model for entering and refining teaching content. Product language takes precedence over database-table names in normal authoring UI.
 
-## 1. The authoring hierarchy
-
-The main hierarchy remains:
+## 1. Authoring hierarchy
 
 ```text
 Topic
@@ -16,412 +14,260 @@ Topic
     └── contextual questions
 ```
 
-Three additional concepts sit across or beside that hierarchy:
+Cross-cutting concepts remain distinct:
 
 ```text
-Tag        = cross-cutting clinical metadata
-Shared Q   = reusable knowledge eligible by one Case Tag
-Collection = Image Library organisation only
+Tag                     = cross-cutting clinical metadata
+Shared Question         = reusable knowledge eligible by one Case Tag
+Reusable Image Question = reusable knowledge intrinsic to one exact Asset
+Collection              = Image Library organisation only
 ```
 
-These concepts must not be collapsed into one taxonomy.
+Do not collapse these into one taxonomy.
 
-## 2. Topic = a learner study route
+## 2. Topic = learner study route
 
-A Topic is the Admin-facing name for the existing `concepts` model.
-
-Topics may be diagnoses, findings, investigations, procedures, or broader curriculum groupings.
-
-Examples:
-
-```text
-Hypocalcaemia
-Prolonged QTc
-Anterior STEMI
-Cardiology
-```
-
-Topics may form a hierarchy and may own reusable Topic questions.
-
-A Case has exactly one **primary/default Topic** plus zero or more **Additional Study Topics**.
-
-Example:
-
-```text
-Case: Vitamin-D-deficiency hypocalcaemia with prolonged QTc
-
-Topics
-- Hypocalcaemia   [Default]
-- Prolonged QTc
-```
-
-The Case is stored once. A learner entering through either valid Topic may encounter it. The Topic route actually used becomes the Review's Study Topic and supplies direct reusable Topic questions for that Review.
-
-### Study-Topic validity rule
+A Topic is the Admin-facing name for the existing `concepts` model. A Case has exactly one primary/default Topic and zero or more Additional Study Topics. The same stored Case may therefore be encountered through more than one valid Study Topic.
 
 Attach an Additional Study Topic only when every valid random configuration of the Case remains a legitimate example of that Topic.
 
-> A learner entering through an attached Topic must never receive a valid stimulus selection that fails to demonstrate that Topic.
-
-If only one alternative ECG contains Osborn waves, `Osborn waves` is not a valid Case-level Study Topic merely because that option exists. Keep that teaching point exact-image-specific.
-
 ## 3. Case = one coherent clinical presentation
 
-A Case is one coherent clinical scenario/study unit.
-
-Cases may have different stems, causes, findings, or educational intent even when they share Topics or Tags.
-
-Example:
-
-```text
-Topic: Hypocalcaemia
-
-├── Case: Post-thyroidectomy hypocalcaemia
-│   └── different clinical context
-│
-└── Case: Vitamin-D-deficiency hypocalcaemia
-    └── different clinical context
-```
-
-These remain separate Cases because the presentations are different.
+A Case is one coherent scenario/study unit. Different stems, causes, findings, or educational intent generally remain separate Cases even when they share Topics or Tags.
 
 Use Case questions when the answer depends on that exact presentation.
 
-```text
-What is the likely cause in this patient?
-```
-
-A post-thyroidectomy Case and a vitamin-D-deficiency Case should not share one answer merely because both belong to Hypocalcaemia.
-
 ## 4. Images: fixed versus alternatives
 
-### Fixed images
+Use fixed Case images when all of them should appear whenever the Case is reviewed. Fixed images are ordered and may have Case-specific captions.
 
-Use fixed Case images when all of them should appear whenever the Case is reviewed.
+Use an alternative image set when the presentation and educational intent remain the same but the example stimulus can vary. One active option is selected per active set when a Review starts and is frozen for that Review.
 
-Examples:
-
-- a dermatology Case requiring two views of the same presentation;
-- an ECG plus a radiograph that are both essential to the Case.
-
-Fixed Case images are ordered and may have Case-specific captions.
-
-### Alternative image sets
-
-Use an alternative image set when the clinical presentation and educational intent remain the same but the example stimulus can vary between Reviews.
-
-Example:
-
-```text
-Case: Hypercalcaemia
-
-Alternative ECG set
-├── ECG A — shortened QTc
-├── ECG B — shortened QTc + incidental feature
-└── ECG C — another shortened-QTc tracing
-```
-
-One active option is selected per active set when the Review starts and is frozen for that Review.
-
-A Case may contain several independent sets:
-
-```text
-Case: Multiple myeloma with hypercalcaemia
-
-├── ECG alternatives — choose one
-└── X-ray alternatives — choose one
-```
-
-Do not duplicate the entire Case solely to vary a stimulus when an alternative set expresses the teaching intent more accurately.
+A Case may contain several independent sets, for example one ECG set and one X-ray set.
 
 ## 5. Question scope is an author-facing choice
 
-The normal authoring question is:
+The normal question is:
 
 > **Where should this question apply?**
 
-The Case editor exposes two ordinary scopes:
+The principal scopes are:
 
 ```text
-This whole Case
-A specific image / stimulus
+exact reusable Asset
+→ Reusable with this image
+
+exact Asset in this particular Case/stimulus context
+→ Only in this Case
+
+every option in one alternative set
+→ Stimulus Group Question
+
+whole clinical presentation
+→ Case Question
+
+general reusable knowledge
+→ Topic / Shared Question
 ```
 
-Authors do not need to understand whether an image is currently stored as a fixed Case Asset or as a Stimulus Group Option before assigning a question.
+### This whole Case
 
-### Case-wide questions
+Use Case scope when the question remains relevant and correct regardless of which stimulus is selected. Only this scope can normally expose Topic reuse.
 
-Use **This whole Case** when the question remains relevant and correct regardless of which stimulus is selected. Only this scope can normally expose **Also reuse this question in the Topic**.
+### Only in this Case
 
-### Stimulus-specific questions
-
-Use **A specific image / stimulus** when relevance or the correct answer depends on the selected image.
+Use the existing exact-option scope when the answer depends on the exact selected image **and this Case context**.
 
 Example:
 
 ```text
-ECG A
-What are the ECG changes?
+What is the most likely diagnosis in this patient?
+→ Acute pericarditis.
+```
+
+The answer belongs to the Case/stimulus relationship. Reusing the global Asset elsewhere does not carry this question with it.
+
+### Reusable with this image
+
+Use a Reusable Image Question when the wording and answer are intrinsically true of the exact image Asset itself.
+
+Example:
+
+```text
+Asset: ECG-123
+
+What does this ECG show?
 → Widespread concave ST elevation with PR depression.
-
-ECG B
-What are the ECG changes?
-→ A different ECG-specific answer.
 ```
 
-Exact-image questions remain attached to the Case-specific `stimulus_group_option`. Reusing the global Asset elsewhere does not carry those questions with it.
+The canonical question belongs to the global Asset. A Case/stimulus using the same Asset receives it **only after an explicit opt-in**.
 
-If the target is already an option in an Alternative image set, the exact-image relationship is created normally.
+> Reusing an Asset in another Case does not automatically carry its reusable Image Questions. The author must opt that Case/stimulus usage in.
 
-If the target is currently a fixed image, the Admin authoring operation may transparently represent it internally as a one-option Stimulus Group and attach the exact-image question there. The Asset identity and Case-specific caption are preserved. With one active option and `selection_count = 1`, learner-visible behaviour remains equivalent to the previous fixed image: that image is selected whenever the Case is reviewed.
+This prevents accidental cross-Case leakage while still allowing one canonical Prompt/answer to serve several deliberate uses.
 
-This transparent conversion is an implementation detail of stimulus-specific question authoring. Authors should not have to manually open **Alternative-set actions** or invent a set name merely to say that one question applies to one image.
+## 6. Fixed-image conversion is an implementation detail
 
-Moving an existing Case-wide question to a stimulus is a move of the relationship, not a copy: the existing Prompt wording is reused, the answer is preserved, the active Case-wide relationship is removed, and safe Topic-reuse semantics are applied. The Case Questions section therefore continues to contain only questions that apply to the whole Case.
+Do not create a parallel fixed-image-question system.
 
-## 6. Group-level questions are an advanced middle scope
-
-Sometimes a question is valid for every option in one alternative set but is not a general Case or Topic question.
-
-Example:
+When an author assigns an exact-option question or explicitly opts a fixed image into a Reusable Image Question, the application may transparently convert:
 
 ```text
-Alternative set: Hypocalcaemia ECGs
-
-What QT interval abnormality is demonstrated by these ECG examples?
-→ QT prolongation.
+fixed case_assets relationship
+→ one-option stimulus group
+→ image-specific question relationship
 ```
 
-This is a stimulus-group question.
+The operation preserves Asset identity, Case-specific caption, and learner-visible behavior. With one active option and `selection_count = 1`, the image still appears whenever the Case is reviewed.
 
-Use group-level questions when they model real educational scope, not simply to fill every possible layer.
+Preflight validation must occur before destructive relationship changes and the semantic mutation must be atomic.
 
-## 7. Question Prompt wording is not the answer
+## 7. Group-level questions are an advanced middle scope
+
+Use a Stimulus Group Question when the same answer applies to every option in one alternative set but is not broad enough for the whole Case or a reusable Topic/Shared scope.
+
+Do not populate every possible layer merely for conceptual completeness.
+
+## 8. Question Prompt wording is not the answer
 
 `question_prompts` stores reusable wording only.
 
-A Prompt such as:
+Answers belong to contextual relationships:
 
 ```text
-What is the diagnosis?
+Topic Question
+Case Question
+Stimulus Group Question
+Exact-option Question
+Reusable Image Question
+Shared Question
 ```
 
-has no single clinical answer. The answer belongs to the context in which the Prompt is used.
+A Reusable Image Question stores its canonical answer on `asset_questions`, never on `question_prompts`.
 
-The same Prompt can therefore be reused while Case, Topic, group, option, or Shared Question relationships supply different correct answers.
+## 9. Author at the broadest valid scope
 
-## 8. Author questions at the broadest valid scope
-
-The core rule is:
-
-> **Attach a question at the broadest scope where its answer and educational meaning remain reliably correct.**
+Attach a question at the broadest scope where its answer and educational meaning remain reliably correct.
 
 | Example | Preferred scope |
 |---|---|
-| How is severe symptomatic hypocalcaemia treated? | Topic: Hypocalcaemia |
-| How is QTc assessed? | Topic: Prolonged QTc |
+| How is severe symptomatic hypocalcaemia treated? | Topic |
 | What is the likely cause in this patient? | Case |
-| What applies to every image in this one alternative set? | Alternative set |
-| Describe this exact ECG. | Specific image |
-| What finding is visible only on this image? | Specific image |
+| What applies to every image in this alternative set? | Stimulus Group |
+| What does this exact ECG intrinsically show wherever it is reused? | Reusable Image Question |
+| What is the diagnosis in this patient given this ECG? | Exact image, Only in this Case |
 | What reusable knowledge applies to every Case carrying one clinical Tag? | Shared Question |
 
-It is acceptable to start conservatively at Case scope and promote knowledge later once reuse is demonstrated by real content.
+Starting conservatively at Case/exact-option scope and promoting later is acceptable. Do not infer reusability automatically from matching text or answers.
 
-## 9. Tags describe cross-cutting clinical meaning
+## 10. Tags and Shared Questions
 
-Tags do not replace Topics.
+Tags remain flat cross-cutting metadata and do not replace Topics.
 
-```text
-Topic
-= learner study route / hierarchy
+A Shared Question is reusable medical knowledge whose answer remains valid across Cases carrying one defined Reuse Scope Tag. Descriptive Tags do not create learner eligibility.
 
-Tag
-= flat cross-cutting metadata
-```
-
-A Case may carry Tags such as:
-
-```text
-Hypocalcaemia
-Prolonged QTc
-Post-thyroidectomy
-```
-
-Contextual Case Questions may have their own Tags describing what they test.
-
-Case Tags do not automatically become Question Tags. A Case may teach several concepts while an individual Question tests only one of them.
-
-## 10. Shared Questions reuse knowledge by one Case Tag
-
-A Shared Question is global reusable medical knowledge whose answer remains valid across Cases with a defined Tag.
-
-Example:
-
-```text
-Shared Question
-Prompt: What ECG abnormality is associated with severe hypocalcaemia?
-Answer: QT prolongation / prolonged QTc
-
-Reuse Scope Tag:
-- Hypocalcaemia
-
-Descriptive Tags:
-- Hypocalcaemia
-- Prolonged QTc
-```
-
-The **Reuse Scope Tag** and **Descriptive Tags** are different concepts:
-
-- Reuse Scope Tag = which tagged Cases make the Question eligible;
-- Descriptive Tags = what knowledge the Question teaches/tests.
-
-The current implementation requires exactly one active Reuse Scope Tag. Descriptive Tags never create learner eligibility.
+Reusable Image Questions are different: their reuse key is exact Asset identity, not a clinical Tag.
 
 ## 11. Current learner precedence
 
-When the same Question Prompt appears from more than one source, the current resolver uses:
+When the same Question Prompt appears from more than one source, the resolver uses:
 
 ```text
-selected stimulus option
-> stimulus group
-> Case
-> exact Study Topic
-> tag-shared Question
+Case-specific exact-image question
+> Reusable Image Question explicitly selected for that stimulus
+> Stimulus Group question
+> Case question
+> exact Study Topic question
+> Tag-shared question
 > nearest eligible inheritable ancestor Topic
 > more distant eligible ancestors
 ```
 
-The final candidate set is deduplicated by `question_prompt_id`.
+The final pool is deduplicated by `question_prompt_id`.
 
-This means exact image/Case context always wins over broad reusable knowledge using the same wording.
+This means the most specific Case/stimulus context wins while broad reusable knowledge remains available where no narrower override exists.
 
-## 12. Case question-count modes
+The same Prompt may not be configured ambiguously across independently selectable stimulus groups in one Case.
 
-Authors can configure:
+## 12. Question-count and coverage modes
 
-- **Automatic** — normal target/cap behavior with configured stimulus-specific coverage;
-- **All** — every deduplicated eligible question;
-- **Fixed** — a chosen count.
+Authors can configure Automatic, All, or Fixed question selection.
 
-Do not force one question from every source layer for artificial variety. Question count should follow educational need.
+Reusable Image Questions enter the ordinary final eligible pool only when their selected stimulus explicitly opted in. They carry stimulus-group context and therefore count as stimulus-specific for existing coverage semantics.
 
-Stimulus-specific coverage can be used when a selected image/set would otherwise risk appearing without any question that meaningfully tests it.
+Do not force one reusable image question into every Review unless the existing Case/group coverage configuration requires enough stimulus-specific questions.
 
-## 13. Image Collection = organisation, not teaching meaning
+## 13. Editing and removal semantics
 
-Image Management V2 adds **Collections** for Admin library organisation.
+A Reusable Image Question is shared canonical content.
 
-Examples might be operational groupings such as a source batch, image cleanup set, or curation bucket.
+Editing its canonical answer affects all current opt-ins for **future Reviews**. Existing and in-progress Reviews remain unchanged because Prompt/answer text is snapshotted at Review creation.
 
-A Collection is not:
+Prompt wording remains shared wording and is protected by the existing Questions Library blast-radius/stale-edit workflow. Asset Question usages are included in those usage counts.
 
-- a Topic;
-- a Tag;
-- a stimulus group;
-- a learner category.
+Distinguish:
 
-An Asset belongs to zero or one Collection. No Collection is displayed as **Unsorted**.
+```text
+Remove from this Case
+→ delete only this stimulus option's opt-in
 
-Changing/deleting a Collection never changes Case relationships, Tags, questions, Reviews, or R2 identity.
+Archive reusable question
+→ deactivate the global Asset Question
+```
 
-## 14. Preferred routine Admin workflow
+Removing one Case opt-in must not affect other Cases.
 
-The common Case-authoring path is:
+## 14. Production versus Preview
+
+Reusable Image Questions are production-global Asset teaching content in the current implementation.
+
+Production Admin may create/edit/archive them and explicitly opt production Case/stimulus usages in or out.
+
+Preview Admin must not mutate production Assets, Asset Questions, Question Prompts, Cases, or stimulus relationships. Reusable-image mutation controls/endpoints are production-only and database triggers reject Preview-owned Assets or Prompts as reusable Asset Question backing content.
+
+## 15. Image Collection = organisation, not teaching meaning
+
+Collections remain Admin library organisation only. Changing a Collection does not change Topics, Tags, Case relationships, questions, Reviews, learner routing, or R2 identity.
+
+Reusable Image Questions are teaching content, not Collection metadata.
+
+## 16. Import and progressive enrichment
+
+Reviewed slide/Anki imports should initially reconstruct ordinary Topic/Case/Asset/Case-question content faithfully. Import Package v1 remains unchanged.
+
+Reusable-image authoring is later editorial enrichment. Existing exact-option questions are not migrated or promoted automatically merely because they use the same Asset or appear semantically similar.
+
+## 17. Preferred routine workflow
 
 ```text
 Topics
 → Case
 → Images
-→ Case questions
+→ contextual Case/image questions
 → Preview
+→ later enrichment/reuse where proven
 ```
 
-Within Images:
+When reviewing an image question, ask:
 
-```text
-attach fixed image(s)
-→ inspect at clinically useful size
-→ optionally create/use an alternative set
-→ add or upload images
-→ add only genuinely image-specific questions
-```
-
-Question authoring should keep the scope visible:
-
-```text
-Applies to this Case
-→ managed in Case Questions
-
-Applies to this stimulus
-→ managed beside that image
-```
-
-Image cards should stay compact: show a question count and short prompt summaries, with editing/creation/removal inside **Manage questions** rather than rendering every answer form open by default.
-
-The Case editor uses a bounded searchable Asset picker rather than rendering the entire unused Image Library.
-
-Advanced controls remain available for:
-
-- multiple alternative sets;
-- set-wide questions;
-- stimulus-specific coverage;
-- activation/order;
-- identity-preserving same-Case option Move.
-
-They should not dominate simple content entry.
-
-## 15. Image Library workflow
-
-The current library supports server-backed pagination/search/filter/sort, Image Collections, explicit cross-page selection, exact Select All up to 300 matching Assets, and sequential bulk mutations in server-safe chunks of at most 30 Assets.
-
-This workflow is for corpus management. It must not blur media organisation into learner stimulus semantics.
-
-## 16. Anki/imported content should be progressively enriched
-
-Imported material does not need to arrive perfectly normalized.
-
-Recommended workflow:
-
-1. extract/clinically review source material outside the production app;
-2. construct strict Import Package v1;
-3. import ordinary Topic/Case/Asset/questions;
-4. preserve source content faithfully enough for review;
-5. add Additional Study Topics when alternate learner routes become clear;
-6. group interchangeable images when genuine alternatives emerge;
-7. curate Case/Question Tags;
-8. promote repeated knowledge to Shared Questions only when the answer is reliably reusable;
-9. use Image Collections for operational organisation if helpful.
-
-Tag fields are deliberately not required by Import Package v1.
-
-The first ECG corpus validated this workflow: all 66 source notes are represented in production, and further work is now enrichment rather than ingestion.
-
-## 17. Practical authoring checklist
-
-When modelling new material, ask in this order:
-
-1. **What is the coherent clinical presentation?** Create one Case.
-2. **Which Topic should be the default?** Set the primary/default Study Topic.
-3. **Is the Case always a valid example of another Topic?** Add an Additional Study Topic only if yes.
-4. **Which stimuli must always appear?** Attach fixed images.
-5. **Which stimuli are interchangeable examples of the same task?** Use alternative sets.
-6. **Where should each contextual question apply?** Choose this whole Case or one specific stimulus.
-7. **Which questions are truly reusable across a Topic?** Use Topic questions.
-8. **Which knowledge is reusable across Cases carrying one clinical Tag?** Consider a Shared Question.
-9. **What does the Case or Question teach?** Add explicit Tags where useful.
-10. **How should the media be organised administratively?** Use a Collection if helpful, without changing teaching semantics.
+1. Is the answer intrinsically true of this exact Asset wherever it appears? → **Reusable with this image**.
+2. Does the answer depend on this clinical Case/stimulus context? → **Only in this Case**.
+3. Does it apply to every option in one alternative set? → **Stimulus Group Question**.
+4. Does it apply to the whole presentation? → **Case Question**.
+5. Is it general reusable knowledge? → **Topic / Shared Question**.
 
 ## 18. Schema boundaries to preserve
 
 Do not add a parallel `topics` table: Topics remain `concepts`.
 
-Do not add Tags to `question_prompts`: Prompts remain wording only.
+Do not add Tags or answers to `question_prompts`: Prompts remain wording only.
 
 Do not use Collections as a substitute for Topics, Tags, or stimulus groups.
 
-Do not add a parallel fixed-image-question table. Exact-image questions remain `stimulus_option_questions`; fixed images may be transparently converted to a one-option Stimulus Group when that scope is required.
+Do not add a parallel fixed-image-question table. Fixed images may be transparently represented as one-option stimulus groups when image-specific question scope requires it.
 
-Do not add Asset→Topic or stimulus-option→Topic routing solely to avoid using exact-image questions. Reconsider stimulus-level routing only if real learner behavior requires one Case whose valid alternatives belong to genuinely different Study Topics.
+Do not infer reusable Image Questions from existing `stimulus_option_questions`.
 
-Do not add compound Shared Question reuse logic until real curated content demonstrates a need.
+Do not extend Import Package v1 merely to support this editorial enrichment feature.
+
+Higher-resolution Asset replacement/versioning, `image_identity`, Asset families, automatic transfer to replacement Assets, and automatic reusable-question opt-in are deliberately deferred to a separate follow-up.
