@@ -55,7 +55,7 @@ Reusing an Asset in another Case must never silently add its reusable questions.
 
 The stimulus picker includes both current fixed Case images and active options in existing Alternative image sets. Use thumbnails plus filename, Case caption and set context where available.
 
-The production Image Library Asset detail page is the canonical global management surface for Reusable Image Questions. It lists every Case/stimulus using that Asset, distinguishes explicit opt-ins, and provides **Reuse in this Case** / **Remove from this Case** actions. Exact contextual questions remain managed beside the Case image.
+The production Image Library Asset detail page remains a canonical global management surface for Reusable Image Questions. The Case editor also exposes the active reusable questions for the exact Asset inside **Manage questions**, where production authors can create canonical reusable questions, edit canonical answers, and explicitly reuse/remove them for the current stimulus. Exact contextual questions remain separate as **Case-specific Image Questions**.
 
 ## 3. Transparent fixed-image conversion for exact or reusable questions
 
@@ -98,25 +98,66 @@ Existing exact-option questions are not automatically promoted to Reusable Image
 
 The Case Questions section contains only questions that apply to the whole Case regardless of the selected stimulus.
 
-Do not duplicate exact-image or reusable-image opt-ins into that section. Stimulus-specific contextual questions remain managed beside the image; canonical reusable questions are managed from the Asset detail surface. Alternative-set-wide questions remain at the set level.
+Do not duplicate exact-image or reusable-image opt-ins into that section. Stimulus-specific contextual questions remain managed beside the image; canonical reusable questions are managed from the image's **Manage questions** surface and the Asset detail surface. Alternative-set-wide questions remain at the set level.
 
 ## 6. Stimulus cards and question management
 
 Fixed and alternative image cards use clinically useful contain-fit previews and can open the shared Admin image viewer.
 
-An image card should remain compact. Show the image, Case-specific caption/set context, image-specific question count/summary, and collapsed management controls where appropriate.
-
-The author-facing distinction is:
+Every fixed-image card and every individual alternative-option card must expose both question categories before the author opens **Manage questions**. The compact card contract is:
 
 ```text
-Only in this Case
-→ exact-option question/answer
+Case-specific Image Questions · N
 
-Reusable with this image
-→ canonical Asset Question + explicit current stimulus opt-in
+Reusable Image Questions · N
+X used in this Case · Y available to reuse
+
+[Manage questions]
 ```
 
-A reusable question may be discovered anywhere the exact same Asset is used, but discovery is not eligibility. Explicit reuse is always required.
+When `used = 0`, prefer the more compact reusable status:
+
+```text
+Reusable Image Questions · 3
+3 available to reuse
+```
+
+When no active reusable questions exist:
+
+```text
+Reusable Image Questions · 0
+```
+
+The reusable headline counts only active `asset_questions` whose `question_prompts` row is also active. `used in this Case` means an explicit opt-in for that exact stimulus option. `available to reuse` is the remaining active reusable questions for the Asset. Under normal valid state:
+
+```text
+total reusable = used here + available
+```
+
+Archived Asset Questions or inactive Prompts do not appear in these visible counts. Dormant opt-in rows may remain so reactivation restores the valid used state without destructive relationship rewriting.
+
+A fixed image cannot already have a reusable opt-in. It therefore normally shows all active reusable questions as available. Opting one in uses the established safe fixed-image → one-option conversion; the resulting option card then reports the exact used/available split.
+
+The collapsed card shows **counts/status only**. It must not render full reusable answers, Case-specific answers, or expanded editing controls. Full question content and actions remain behind **Manage questions**.
+
+Inside **Manage questions**, preserve the semantic split:
+
+```text
+Case-specific Image Questions
+= questions belonging only to this Case + image context
+
+Reusable Image Questions used in this Case
+= canonical Asset Questions explicitly opted into this exact stimulus
+
+Reusable Image Questions available to reuse
+= active canonical Asset Questions not currently opted into this exact stimulus
+```
+
+Do not label the first category merely **Image-specific questions** because Reusable Image Questions are also image-specific.
+
+An available reusable question may still be rejected by existing authoring invariants, including cross-Stimulus-Group Prompt conflicts. The compact card does not need a separate blocked count; the management action must retain existing validation and must never silently permit an invalid relationship.
+
+Removing an opt-in moves a question from `used` to `available` without editing or archiving the canonical Asset Question.
 
 Alternative option cards retain active state, ordering, caption editing and explicit same-Case **Move to another set…** behaviour.
 
@@ -186,7 +227,7 @@ Reusable Image Questions are global production Asset-level teaching content in t
 
 Production Admin may create/edit/archive canonical Asset Questions and opt production Case/stimulus usages in or out.
 
-Preview Admin must not mutate production Assets, production Asset Questions, production Question Prompts, production Cases, or production stimulus relationships. No reusable-image mutation endpoint is exposed under Preview Admin, and database triggers reject Preview-owned Assets or Prompts as reusable Asset Question backing content.
+Preview may render the compact distinction where shared Case-editor data makes it safe, but must never gain production reusable-question mutation authority. Reusable create/edit/reuse/remove controls are production-only. Preview Admin must not mutate production Assets, production Asset Questions, production Question Prompts, production Cases, or production stimulus relationships. No reusable-image mutation endpoint is exposed under Preview Admin, and database triggers reject Preview-owned Assets or Prompts as reusable Asset Question backing content.
 
 Existing Preview-safe Case/image behavior remains unchanged.
 
