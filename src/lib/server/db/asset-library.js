@@ -191,7 +191,8 @@ const usedExpr = sql`exists (
     and (
       exists (select 1 from case_assets usage_ca where usage_ca.case_id = usage_case.id and usage_ca.asset_id = ${assets.id})
       or exists (
-        select 1 from stimulus_group_options usage_sgo
+        select 1
+        from stimulus_group_options usage_sgo
         join stimulus_groups usage_sg on usage_sg.id = usage_sgo.stimulus_group_id
         where usage_sg.case_id = usage_case.id and usage_sgo.asset_id = ${assets.id}
       )
@@ -265,7 +266,7 @@ function libraryOrder(sort) {
 /** @param {LearningDb} db @param {string[]} assetIds */
 async function listUsageRows(db, assetIds) {
   if (!assetIds.length) return [];
-  const fixedRows = await db.select({ assetId: caseAssets.assetId, caseId: cases.id, caseTitle: cases.title, caseIsActive: cases.isActive, captionMd: caseAssets.captionMd, displayOrder: caseAssets.displayOrder, conceptId: caseConcepts.conceptId, conceptName: concepts.name, stimulusGroupName: sql`null`.as('stimulus_group_name') })
+  const fixedRows = await db.select({ assetId: caseAssets.assetId, caseId: cases.id, caseTitle: cases.title, caseIsActive: cases.isActive, captionMd: caseAssets.captionMd, displayOrder: caseAssets.displayOrder, conceptId: caseConcepts.conceptId, conceptName: concepts.name, stimulusGroupId: sql`null`.as('stimulus_group_id'), stimulusGroupName: sql`null`.as('stimulus_group_name'), stimulusOptionId: sql`null`.as('stimulus_option_id') })
     .from(caseAssets).innerJoin(cases, eq(cases.id, caseAssets.caseId)).leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary'))).leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
     .where(and(isNull(cases.previewSessionId), inArray(caseAssets.assetId, assetIds))).orderBy(asc(cases.title), asc(caseAssets.displayOrder), asc(cases.id));
   const groupedRows = await db.select({ assetId: stimulusGroupOptions.assetId, caseId: cases.id, caseTitle: cases.title, caseIsActive: cases.isActive, captionMd: stimulusGroupOptions.captionMd, displayOrder: stimulusGroupOptions.displayOrder, conceptId: caseConcepts.conceptId, conceptName: concepts.name, stimulusGroupId: stimulusGroups.id, stimulusGroupName: stimulusGroups.name, stimulusOptionId: stimulusGroupOptions.id })
