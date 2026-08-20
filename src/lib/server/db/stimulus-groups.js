@@ -67,25 +67,57 @@ async function loadSpecificQuestionSets(db, groupId, restoredOptionId = null) {
     db
       .select({ questionPromptId: stimulusGroupQuestions.questionPromptId })
       .from(stimulusGroupQuestions)
-      .where(and(eq(stimulusGroupQuestions.stimulusGroupId, groupId), eq(stimulusGroupQuestions.isActive, true))),
+      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusGroupQuestions.questionPromptId))
+      .where(and(
+        eq(stimulusGroupQuestions.stimulusGroupId, groupId),
+        eq(stimulusGroupQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
+      )),
     db
-      .select({ id: stimulusGroupOptions.id })
+      .select({ id: stimulusGroupOptions.id, assetId: stimulusGroupOptions.assetId })
       .from(stimulusGroupOptions)
       .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
       .where(and(eq(stimulusGroupOptions.stimulusGroupId, groupId), optionLifecycle, eq(assets.isActive, true)))
   ]);
   if (!optionRows.length) return [];
   const optionIds = optionRows.map((option) => option.id);
-  const optionQuestionRows = await db
-    .select({ stimulusGroupOptionId: stimulusOptionQuestions.stimulusGroupOptionId, questionPromptId: stimulusOptionQuestions.questionPromptId })
-    .from(stimulusOptionQuestions)
-    .where(and(inArray(stimulusOptionQuestions.stimulusGroupOptionId, optionIds), eq(stimulusOptionQuestions.isActive, true)));
+  const [optionQuestionRows, reusableQuestionRows] = await Promise.all([
+    db
+      .select({ stimulusGroupOptionId: stimulusOptionQuestions.stimulusGroupOptionId, questionPromptId: stimulusOptionQuestions.questionPromptId })
+      .from(stimulusOptionQuestions)
+      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusOptionQuestions.questionPromptId))
+      .where(and(
+        inArray(stimulusOptionQuestions.stimulusGroupOptionId, optionIds),
+        eq(stimulusOptionQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
+      )),
+    db
+      .select({
+        stimulusGroupOptionId: stimulusOptionAssetQuestions.stimulusGroupOptionId,
+        questionPromptId: assetQuestions.questionPromptId,
+        assetId: assetQuestions.assetId
+      })
+      .from(stimulusOptionAssetQuestions)
+      .innerJoin(assetQuestions, eq(assetQuestions.id, stimulusOptionAssetQuestions.assetQuestionId))
+      .innerJoin(questionPrompts, eq(questionPrompts.id, assetQuestions.questionPromptId))
+      .where(and(
+        inArray(stimulusOptionAssetQuestions.stimulusGroupOptionId, optionIds),
+        eq(assetQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
+      ))
+  ]);
   const groupPromptIds = groupQuestionRows.map((question) => question.questionPromptId);
   return optionRows.map((option) => ({
     optionId: option.id,
     promptIds: new Set([
       ...groupPromptIds,
-      ...optionQuestionRows.filter((question) => question.stimulusGroupOptionId === option.id).map((question) => question.questionPromptId)
+      ...optionQuestionRows.filter((question) => question.stimulusGroupOptionId === option.id).map((question) => question.questionPromptId),
+      ...reusableQuestionRows
+        .filter((question) => question.stimulusGroupOptionId === option.id && question.assetId === option.assetId)
+        .map((question) => question.questionPromptId)
     ])
   }));
 }
@@ -254,12 +286,25 @@ export async function validateStimulusOptionRestoration(db, optionId) {
     db
       .select({ promptId: stimulusOptionQuestions.questionPromptId })
       .from(stimulusOptionQuestions)
-      .where(and(eq(stimulusOptionQuestions.stimulusGroupOptionId, option.id), eq(stimulusOptionQuestions.isActive, true))),
+      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusOptionQuestions.questionPromptId))
+      .where(and(
+        eq(stimulusOptionQuestions.stimulusGroupOptionId, option.id),
+        eq(stimulusOptionQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
+      )),
     db
       .select({ promptId: assetQuestions.questionPromptId })
       .from(stimulusOptionAssetQuestions)
       .innerJoin(assetQuestions, eq(assetQuestions.id, stimulusOptionAssetQuestions.assetQuestionId))
-      .where(and(eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, option.id), eq(assetQuestions.isActive, true)))
+      .innerJoin(questionPrompts, eq(questionPrompts.id, assetQuestions.questionPromptId))
+      .where(and(
+        eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, option.id),
+        eq(assetQuestions.assetId, option.assetId),
+        eq(assetQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
+      ))
   ]);
   const retainedPromptIds = new Set([...specificRows, ...reusableRows].map((row) => row.promptId));
   for (const promptId of retainedPromptIds) {
