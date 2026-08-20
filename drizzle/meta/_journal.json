@@ -2,68 +2,15 @@
   "version": "7",
   "dialect": "sqlite",
   "entries": [
-    {
-      "idx": 0,
-      "version": "6",
-      "when": 1786718139474,
-      "tag": "0000_dashing_centennial",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "6",
-      "when": 1786745807620,
-      "tag": "0001_better_auth",
-      "breakpoints": true
-    },
-    {
-      "idx": 2,
-      "version": "6",
-      "when": 1786750000000,
-      "tag": "0002_optional_stimulus_groups",
-      "breakpoints": true
-    },
-    {
-      "idx": 3,
-      "version": "6",
-      "when": 1786795200000,
-      "tag": "0003_multi_topic_study_routing",
-      "breakpoints": true
-    },
-    {
-      "idx": 4,
-      "version": "6",
-      "when": 1786849200000,
-      "tag": "0004_resumable_import_jobs",
-      "breakpoints": true
-    },
-    {
-      "idx": 5,
-      "version": "6",
-      "when": 1786866000000,
-      "tag": "0005_tag_foundation",
-      "breakpoints": true
-    },
-    {
-      "idx": 6,
-      "version": "6",
-      "when": 1786932000000,
-      "tag": "0006_preview_admin_workspace",
-      "breakpoints": true
-    },
-    {
-      "idx": 7,
-      "version": "6",
-      "when": 1786976057405,
-      "tag": "0007_image_collections",
-      "breakpoints": true
-    },
-    {
-      "idx": 8,
-      "version": "6",
-      "when": 1787043480000,
-      "tag": "0008_tag_shared_questions",
-      "breakpoints": true
-    }
+    { "idx": 0, "version": "6", "when": 1786718139474, "tag": "0000_dashing_centennial", "breakpoints": true },
+    { "idx": 1, "version": "6", "when": 1786745807620, "tag": "0001_better_auth", "breakpoints": true },
+    { "idx": 2, "version": "6", "when": 1786750000000, "tag": "0002_optional_stimulus_groups", "breakpoints": true },
+    { "idx": 3, "version": "6", "when": 1786795200000, "tag": "0003_multi_topic_study_routing", "breakpoints": true },
+    { "idx": 4, "version": "6", "when": 1786849200000, "tag": "0004_resumable_import_jobs", "breakpoints": true },
+    { "idx": 5, "version": "6", "when": 1786866000000, "tag": "0005_tag_foundation", "breakpoints": true },
+    { "idx": 6, "version": "6", "when": 1786932000000, "tag": "0006_preview_admin_workspace", "breakpoints": true },
+    { "idx": 7, "version": "6", "when": 1786976057405, "tag": "0007_image_collections", "breakpoints": true },
+    { "idx": 8, "version": "6", "when": 1787043480000, "tag": "0008_tag_shared_questions", "breakpoints": true },
+    { "idx": 9, "version": "6", "when": 1787191200000, "tag": "0009_reusable_image_questions", "breakpoints": true }
   ]
 }
