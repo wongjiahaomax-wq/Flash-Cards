@@ -2,8 +2,9 @@ import { error, redirect } from '@sveltejs/kit';
 
 import { createDb } from '$lib/server/db/index.js';
 import { completeReview, getReview, revealReview, startReview } from '$lib/server/db/learning.js';
+import { listOwnedReviewMedia } from '$lib/server/db/review-media.js';
 import { isPreviewAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
-import { getTeachingImageUrl } from '$lib/server/storage/media.js';
+import { getReviewImageUrl } from '$lib/server/storage/media.js';
 
 /** @param {App.Locals['user']} user @param {App.Platform | undefined} platform */
 function assertLearnerStudyAccess(user, platform) {
@@ -17,8 +18,12 @@ function assertLearnerStudyAccess(user, platform) {
 
 export async function load({ locals, params, platform }) {
   const context = assertLearnerStudyAccess(locals.user, platform);
-  const review = await getReview(createDb(context.database), params.reviewId, context.user.id);
+  const db = createDb(context.database);
+  const review = await getReview(db, params.reviewId, context.user.id);
   if (!review) throw error(404, 'Review not found.');
+
+  const reviewMedia = await listOwnedReviewMedia(db, review.id, context.user.id);
+  const reviewAssetIdByAssetId = new Map(reviewMedia.map((row) => [row.assetId, row.reviewAssetId]));
 
   return {
     caseStudy: {
@@ -32,10 +37,14 @@ export async function load({ locals, params, platform }) {
       status: review.status,
       rating: review.rating,
       revealed: review.revealed,
-      assets: review.assets.map((asset) => ({
-        ...asset,
-        imageUrl: getTeachingImageUrl(asset.assetId)
-      })),
+      assets: review.assets.map((asset) => {
+        const reviewAssetId = reviewAssetIdByAssetId.get(asset.assetId);
+        if (!reviewAssetId) throw error(500, 'Review media snapshot is incomplete.');
+        return {
+          ...asset,
+          imageUrl: getReviewImageUrl(review.id, reviewAssetId)
+        };
+      }),
       questions: review.questions.map((question) => ({
         prompt: question.prompt,
         answer: question.answer,
@@ -44,11 +53,13 @@ export async function load({ locals, params, platform }) {
             ? 'Case-specific answer'
             : question.sourceType === 'stimulus_option'
               ? 'Selected stimulus option answer'
-              : question.sourceType === 'stimulus_group'
-                ? 'Stimulus group answer'
-            : question.sourceType === 'ancestor_concept'
-              ? 'Inherited topic question'
-              : 'Topic question'
+              : question.sourceType === 'asset'
+                ? 'Reusable image answer'
+                : question.sourceType === 'stimulus_group'
+                  ? 'Stimulus group answer'
+                  : question.sourceType === 'ancestor_concept'
+                    ? 'Inherited topic question'
+                    : 'Topic question'
       }))
     }
   };
