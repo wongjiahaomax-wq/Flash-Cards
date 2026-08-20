@@ -69,6 +69,10 @@ Shortest verified-production-versus-current-main-versus-next-work status map.
 
 Detailed implementation handover: current migrations, Preview boundaries, Stage B, Image Management V2, recent PR #53–#59 additions, ECG migration verification, and next sequence.
 
+### `PERFORMANCE_AND_READ_MODEL_PLAN.md`
+
+Current performance/read-model guidance: dashboard-specific aggregate reads, exact Case detail reads, lightweight timing instrumentation, structural before/after analysis, and the intentionally deferred performance passes.
+
 ### `CURRENT_DESIGN.md`
 
 Living product/design summary across Topic → Case → stimuli, Tags, Shared Questions, Collections, resolver, imports, Preview, and priorities.
@@ -98,6 +102,7 @@ Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual
 - `IMAGE_MANAGEMENT_V2_PLAN.md` — deployed behavior record for pagination, selection, Collections, bounded bulk execution, option Move, and Preview isolation.
 - `REUSABLE_IMAGE_QUESTIONS.md` — exact-Asset reusable question semantics, explicit Case/stimulus opt-in, resolver precedence, Review provenance, fixed-image conversion, and Preview restrictions on current `main`.
 - `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md` — current-main narrow same-image quality upgrade contract: new immutable Asset/R2 object, supersession lineage, current relationship transfer, reusable-question cloning, stable Stimulus Option IDs, historical Review media delivery, rollback, and Preview isolation.
+- `PERFORMANCE_AND_READ_MODEL_PLAN.md` — Admin/read-path performance rule: query only page-required data, filter/bound in SQL, keep list/detail/dashboard reads distinct, and use lightweight measurement before caching/index tuning.
 
 ### Topics / multi-Topic routing
 

@@ -6,6 +6,8 @@ _Refreshed: 20 August 2026_
 
 The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A and Stage B, Image Management V2, Reusable Image Questions, a wide responsive Admin workspace, the reviewed/resumable content-import path, a local production-like development replica, a local slide-review/deterministic-finalizer toolchain, narrow higher-resolution Asset replacement on current `main`, and a fully imported/verified initial ECG Anki corpus.
 
+This branch adds the first narrow performance/read-model pass without schema changes: `/admin` uses targeted aggregate counts plus a bounded six-Case work queue, `getAdminCaseData()` uses an exact active production Case-by-ID lookup instead of loading the full Case library, and lightweight timing instrumentation is available for the dashboard and Case-editor read. See `PERFORMANCE_AND_READ_MODEL_PLAN.md`. Later pagination, auth-cache investigation, learner `startReview` optimisation, editor lazy-loading, thumbnails, and measured query-plan/index tuning remain intentionally deferred.
+
 Recent merged infrastructure/product milestones include:
 
 - PR #29 — Admin Case image-authoring workflow;
@@ -40,6 +42,7 @@ PR #59 is merged on current `main` and provides the narrow production Admin work
 
 ```text
 docs/CURRENT_PRODUCT_ROADMAP.md
+docs/PERFORMANCE_AND_READ_MODEL_PLAN.md
 docs/IMAGE_MANAGEMENT_V2_PLAN.md
 docs/ADMIN_IMAGE_AUTHORING_WORKFLOW.md
 docs/REUSABLE_IMAGE_QUESTIONS.md

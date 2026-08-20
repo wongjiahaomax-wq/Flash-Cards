@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, isNull, like } from 'drizzle-orm';
 
+import { withServerReadTiming } from '../performance-timing.js';
 import { assets, caseAssets, caseConcepts, cases, concepts, stimulusGroupOptions, stimulusGroups } from './schema.js';
 import { listCaseTopics } from './admin-content.js';
 
@@ -38,6 +39,26 @@ export async function listAdminCases(db, search = '') {
     .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
     .where(cleanSearch ? and(base, like(cases.title, `%${cleanSearch}%`)) : base)
     .orderBy(asc(cases.title));
+}
+
+/** @param {LearningDb} db @param {string} caseId */
+export async function getAdminCaseById(db, caseId) {
+  const rows = await db
+    .select({
+      id: cases.id,
+      title: cases.title,
+      vignetteMd: cases.vignetteMd,
+      questionSelectionMode: cases.questionSelectionMode,
+      questionCount: cases.questionCount,
+      conceptId: caseConcepts.conceptId,
+      conceptName: concepts.name
+    })
+    .from(cases)
+    .leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
+    .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .where(and(eq(cases.id, caseId), eq(cases.isActive, true), isNull(cases.previewSessionId)))
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 /** @param {LearningDb} db @param {string} caseId */
@@ -111,39 +132,38 @@ async function availableAssetRows(db) {
  * @param {{ includeAvailable?: boolean }} [options]
  */
 export async function getAdminCaseData(db, caseId, options = {}) {
-  const caseRows = await listAdminCases(db);
-  const selectedCase = caseRows.find((item) => item.id === caseId);
-  if (!selectedCase) return null;
-  const settings = (await db.select({ questionSelectionMode: cases.questionSelectionMode, questionCount: cases.questionCount }).from(cases).where(and(eq(cases.id, caseId), isNull(cases.previewSessionId))).limit(1))[0];
-  const topics = await listCaseTopics(db, caseId);
-  const primaryTopic = topics.find((topic) => topic.role === 'primary');
+  return withServerReadTiming('admin-case-editor-read', async () => {
+    const selectedCase = await getAdminCaseById(db, caseId);
+    if (!selectedCase) return null;
+    const topics = await listCaseTopics(db, caseId);
+    const primaryTopic = topics.find((topic) => topic.role === 'primary');
 
-  const attached = await attachedRows(db, caseId);
-  /** @type {Awaited<ReturnType<typeof availableAssetRows>>} */
-  let available = [];
-  if (options.includeAvailable !== false) {
-    const attachedIds = new Set(attached.map((asset) => asset.assetId));
-    const groupedRows = await db
-      .select({ assetId: stimulusGroupOptions.assetId })
-      .from(stimulusGroupOptions)
-      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-      .where(eq(stimulusGroups.caseId, caseId));
-    const groupedIds = new Set(groupedRows.map((row) => row.assetId));
-    const rows = await availableAssetRows(db);
-    available = rows.filter((asset) => !attachedIds.has(asset.assetId) && !groupedIds.has(asset.assetId));
-  }
+    const attached = await attachedRows(db, caseId);
+    /** @type {Awaited<ReturnType<typeof availableAssetRows>>} */
+    let available = [];
+    if (options.includeAvailable !== false) {
+      const attachedIds = new Set(attached.map((asset) => asset.assetId));
+      const groupedRows = await db
+        .select({ assetId: stimulusGroupOptions.assetId })
+        .from(stimulusGroupOptions)
+        .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+        .where(eq(stimulusGroups.caseId, caseId));
+      const groupedIds = new Set(groupedRows.map((row) => row.assetId));
+      const rows = await availableAssetRows(db);
+      available = rows.filter((asset) => !attachedIds.has(asset.assetId) && !groupedIds.has(asset.assetId));
+    }
 
-  return {
-    case: {
-      ...selectedCase,
-      ...settings,
-      conceptId: primaryTopic?.id ?? selectedCase.conceptId ?? null,
-      conceptName: primaryTopic?.name ?? selectedCase.conceptName ?? null
-    },
-    topics,
-    attached,
-    available
-  };
+    return {
+      case: {
+        ...selectedCase,
+        conceptId: primaryTopic?.id ?? selectedCase.conceptId ?? null,
+        conceptName: primaryTopic?.name ?? selectedCase.conceptName ?? null
+      },
+      topics,
+      attached,
+      available
+    };
+  });
 }
 
 /** @param {LearningDb} db @param {string} caseId @param {string} assetId @param {string | null} captionMd */
