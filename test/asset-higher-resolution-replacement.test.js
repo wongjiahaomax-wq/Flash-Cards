@@ -243,7 +243,7 @@ function fixture(options = {}) {
 
   sqlite.prepare(
     'INSERT INTO preview_sessions (id, user_id, status, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1)'
-  ).run('preview-session', 'preview-user', 'active', Date.now() + 60_000);
+  ).run('preview-session', 'preview-user', 'active', Date.now() - 60_000);
   sqlite.prepare(
     'INSERT INTO cases (id, title, vignette_md, question_selection_mode, question_count, preview_session_id, is_active, created_at, updated_at) VALUES (?, ?, NULL, ?, NULL, ?, 1, 1, 1)'
   ).run('preview-case', 'Preview case', 'all', 'preview-session');
@@ -337,7 +337,6 @@ test('replacement creates B, migrates production relationships, clones reusable 
     assert.equal(fixed.asset_id, result.newAssetId);
     assert.equal(fixed.display_order, 2);
     assert.equal(fixed.caption_md, 'Fixed caption');
-
     const option = fx.sqlite.prepare(
       'SELECT * FROM stimulus_group_options WHERE id = ?'
     ).get('option-1');
