@@ -3,7 +3,16 @@ import { and, eq } from 'drizzle-orm';
 
 import { AdminContentInputError, createCaseTopic, listAdminConcepts } from '$lib/server/db/admin-content.js';
 import { createAssetFromUpload, AssetLibraryInputError } from '$lib/server/db/asset-library.js';
+import {
+  AssetQuestionInputError,
+  createAssetQuestion,
+  optInAssetQuestion,
+  optInFixedAssetQuestion,
+  removeAssetQuestionOptIn,
+  updateAssetQuestionAnswer
+} from '$lib/server/db/asset-questions.js';
 import { canManageCaseAssets, getAdminCaseData } from '$lib/server/db/case-assets.js';
+import { listCaseImageQuestionSummaries } from '$lib/server/db/case-image-question-summaries.js';
 import { listCaseQuestions } from '$lib/server/db/case-questions.js';
 import {
   AdminImageWorkflowInputError,
@@ -40,6 +49,13 @@ function emptyImagePicker(open = false, search = '') {
   return { open, search, assets: [], hasMore: false, limit: 60, targetGroupId: null, targetGroupName: null };
 }
 
+/** @param {unknown} errorValue */
+function reusableQuestionActionError(errorValue) {
+  const clientError = errorValue instanceof AssetQuestionInputError;
+  if (!clientError) console.error('Case reusable image question action failed.', errorValue);
+  return fail(clientError ? 400 : 500, { error: errorValue instanceof Error ? errorValue.message : 'Unable to update the reusable image question.' });
+}
+
 export async function load({ locals, platform, params, url }) {
   const pickerOpen = url.searchParams.get('picker') === '1';
   const pickerSearch = url.searchParams.get('image_q')?.trim() ?? '';
@@ -65,6 +81,12 @@ export async function load({ locals, platform, params, url }) {
       imageUrl: option.assetIsActive ? getTeachingImageUrl(option.assetId) : null
     }))
   }));
+  const imageQuestionContexts = [
+    ...manager.attached.map((asset) => ({ assetId: asset.assetId, stimulusOptionId: null })),
+    ...stimulusGroups.flatMap((group) => group.options.map((option) => ({ assetId: option.assetId, stimulusOptionId: option.id })))
+  ];
+  const reusableImageQuestions = await listCaseImageQuestionSummaries(db, imageQuestionContexts);
+
   const targetRequested = url.searchParams.get('target_group')?.trim() ?? '';
   const targetGroup = stimulusGroups.find((group) => group.id === targetRequested && group.isActive) ?? null;
   if (targetRequested && !targetGroup) {
@@ -81,6 +103,7 @@ export async function load({ locals, platform, params, url }) {
       ...manager,
       questions,
       stimulusGroups,
+      reusableImageQuestions,
       attached: manager.attached.map((asset) => ({
         ...asset,
         imageUrl: asset.isActive ? getTeachingImageUrl(asset.assetId) : null
@@ -212,6 +235,70 @@ export const actions = {
       return fail(clientError ? 400 : 500, { error: clientError ? errorValue.message : 'Unable to update the alternative image caption.' });
     }
     redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=option-caption-updated#images`);
+  },
+
+  createReusableImageQuestion: async ({ request, locals, platform, params }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id') || params.caseId;
+    if (caseId !== params.caseId) return fail(400, { error: 'The selected Case does not match this editor.' });
+    try {
+      await createAssetQuestion(createDb(platform.env.DB), {
+        assetId: formText(formData, 'asset_id'),
+        promptMd: formText(formData, 'prompt_md'),
+        answerMd: formText(formData, 'answer_md')
+      });
+    } catch (errorValue) { return reusableQuestionActionError(errorValue); }
+    redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=reusable-question-created#images`);
+  },
+
+  saveReusableImageAnswer: async ({ request, locals, platform, params }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id') || params.caseId;
+    if (caseId !== params.caseId) return fail(400, { error: 'The selected Case does not match this editor.' });
+    try {
+      await updateAssetQuestionAnswer(createDb(platform.env.DB), {
+        assetQuestionId: formText(formData, 'asset_question_id'),
+        answerMd: formText(formData, 'answer_md')
+      });
+    } catch (errorValue) { return reusableQuestionActionError(errorValue); }
+    redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=reusable-question-saved#images`);
+  },
+
+  reuseAssetQuestion: async ({ request, locals, platform, params }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id') || params.caseId;
+    if (caseId !== params.caseId) return fail(400, { error: 'The selected Case does not match this editor.' });
+    const db = createDb(platform.env.DB);
+    try {
+      const optionId = formText(formData, 'option_id');
+      if (optionId) {
+        await optInAssetQuestion(db, { caseId, optionId, assetQuestionId: formText(formData, 'asset_question_id') });
+      } else {
+        await optInFixedAssetQuestion(db, { caseId, assetId: formText(formData, 'asset_id'), assetQuestionId: formText(formData, 'asset_question_id') });
+      }
+    } catch (errorValue) { return reusableQuestionActionError(errorValue); }
+    redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=reusable-question-added#images`);
+  },
+
+  removeAssetQuestionReuse: async ({ request, locals, platform, params }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id') || params.caseId;
+    if (caseId !== params.caseId) return fail(400, { error: 'The selected Case does not match this editor.' });
+    try {
+      await removeAssetQuestionOptIn(createDb(platform.env.DB), {
+        optionId: formText(formData, 'option_id'),
+        assetQuestionId: formText(formData, 'asset_question_id')
+      });
+    } catch (errorValue) { return reusableQuestionActionError(errorValue); }
+    redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=reusable-question-removed#images`);
   },
 
   startAlternativeSet: async ({ request, locals, platform, params }) => {
