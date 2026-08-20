@@ -168,6 +168,15 @@ Image Collection            → Admin library organisation
 
 An Asset can be reused across Cases without duplicating its R2 object. A Collection never changes Case relationships, Topic routing, Tags, questions, Reviews, or R2 identity.
 
+The Image Library keeps Asset status separate from derived usage state:
+
+- **Asset status** is the independently managed **Active** / **Inactive** lifecycle. It controls whether an image is available for current learner use and future authoring.
+- **Current** means an active Asset participates in an active production Case: either as a fixed attachment, or through an active alternative set and active, non-removed option.
+- **Historical only** means there is no current use, but a retained production relationship, Review snapshot, reusable Asset Question, or Asset-supersession relationship still provides provenance and requires the Asset record.
+- **Unused** means neither a current use nor a retained historical/provenance dependency exists.
+
+Usage state is calculated from relationships; it is not a manually stored Asset flag. Preview-session relationships do not affect production Image Library classification. Historical-only and unused views are cleanup aids, not permanent deletion controls—removing Asset records and R2 objects requires a separate conservative workflow.
+
 ## Reviewed imports and Anki migration
 
 The production application does not ingest arbitrary `.apkg` files directly. The supported path is:

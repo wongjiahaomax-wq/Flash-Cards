@@ -52,7 +52,7 @@ function booleanValue(value) {
 
 /**
  * @param {URLSearchParams | { get(name: string): string | null }} params
- * @returns {{ search: string, topic: string, collection: string, usage: 'all' | 'used' | 'unused', status: 'all' | 'active' | 'inactive', source: 'all' | 'known' | 'unknown', sort: 'newest' | 'oldest' | 'name-asc' | 'name-desc' | 'most-used' | 'least-used' | 'collection-asc' | 'collection-desc' | 'unsorted-first' }}
+ * @returns {{ search: string, topic: string, collection: string, usage: 'all' | 'current' | 'historical' | 'unused', status: 'all' | 'active' | 'inactive', source: 'all' | 'known' | 'unknown', sort: 'newest' | 'oldest' | 'name-asc' | 'name-desc' | 'most-used' | 'least-used' | 'collection-asc' | 'collection-desc' | 'unsorted-first' }}
  */
 export function parseAssetLibraryFilters(params) {
   const sortValue = params.get('sort');
@@ -64,7 +64,7 @@ export function parseAssetLibraryFilters(params) {
     search: params.get('q')?.trim() ?? '',
     topic: params.get('topic')?.trim() ?? '',
     collection: collectionValue === 'unsorted' ? 'unsorted' : collectionValue,
-    usage: usageValue === 'used' || usageValue === 'unused' ? usageValue : 'all',
+    usage: usageValue === 'used' ? 'current' : usageValue === 'current' || usageValue === 'historical' || usageValue === 'unused' ? usageValue : 'all',
     status: statusValue === 'active' || statusValue === 'inactive' ? statusValue : 'all',
     source: sourceValue === 'known' || sourceValue === 'unknown' ? sourceValue : 'all',
     sort: sortValue === 'oldest' || sortValue === 'name-asc' || sortValue === 'name-desc' || sortValue === 'most-used' || sortValue === 'least-used' || sortValue === 'collection-asc' || sortValue === 'collection-desc' || sortValue === 'unsorted-first' ? sortValue : 'newest'
@@ -162,13 +162,17 @@ export async function deleteImageCollection(db, collectionId) {
   return { id: normalizedId, name: existing[0].name, assetCount };
 }
 
-// Count distinct production Cases using an Asset. This is one scalar correlated
+// Count distinct active production Cases currently using an active Asset. This
+// matches learner eligibility: fixed relationships need an active Case, while
+// alternatives also need an active group and active, non-removed option. This is one scalar correlated
 // subquery over cases, which SQLite supports reliably; the nested EXISTS clauses
 // avoid the unsupported "outer reference inside derived UNION table" pattern.
 const usageCountExpr = sql`(
   select count(*)
   from cases usage_case
   where usage_case.preview_session_id is null
+    and usage_case.is_active = true
+    and ${assets.isActive} = true
     and (
       exists (
         select 1 from case_assets usage_ca
@@ -181,14 +185,18 @@ const usageCountExpr = sql`(
         join stimulus_groups usage_sg on usage_sg.id = usage_sgo.stimulus_group_id
         where usage_sg.case_id = usage_case.id
           and usage_sgo.asset_id = ${assets.id}
+          and usage_sg.is_active = true
+          and usage_sgo.is_active = true
           and usage_sgo.removed_from_case = false
       )
     )
 )`;
 
-const usedExpr = sql`exists (
+const currentUseExpr = sql`exists (
   select 1 from cases usage_case
   where usage_case.preview_session_id is null
+    and usage_case.is_active = true
+    and ${assets.isActive} = true
     and (
       exists (select 1 from case_assets usage_ca where usage_ca.case_id = usage_case.id and usage_ca.asset_id = ${assets.id})
       or exists (
@@ -196,9 +204,41 @@ const usedExpr = sql`exists (
         from stimulus_group_options usage_sgo
         join stimulus_groups usage_sg on usage_sg.id = usage_sgo.stimulus_group_id
         where usage_sg.case_id = usage_case.id and usage_sgo.asset_id = ${assets.id}
+          and usage_sg.is_active = true and usage_sgo.is_active = true
           and usage_sgo.removed_from_case = false
       )
     )
+)`;
+
+// Any retained production relationship or provenance that would make deletion
+// unsafe. Current relationships deliberately satisfy this too; the derived
+// Historical-only state adds NOT currentUseExpr.
+const retainedHistoryExpr = sql`(
+  exists (
+    select 1 from case_assets history_ca
+    join cases history_case on history_case.id = history_ca.case_id
+    where history_ca.asset_id = ${assets.id}
+      and history_case.preview_session_id is null
+  )
+  or exists (
+    select 1 from stimulus_group_options history_sgo
+    join stimulus_groups history_sg on history_sg.id = history_sgo.stimulus_group_id
+    join cases history_case on history_case.id = history_sg.case_id
+    where history_sgo.asset_id = ${assets.id}
+      and history_case.preview_session_id is null
+  )
+  or exists (select 1 from review_assets history_ra where history_ra.asset_id = ${assets.id})
+  or exists (select 1 from asset_questions history_aq where history_aq.asset_id = ${assets.id})
+  or ${assets.supersededByAssetId} is not null
+  or exists (select 1 from assets history_predecessor where history_predecessor.superseded_by_asset_id = ${assets.id})
+)`;
+
+const historicalOnlyExpr = sql`not (${currentUseExpr}) and ${retainedHistoryExpr}`;
+const unusedExpr = sql`not (${currentUseExpr}) and not (${retainedHistoryExpr})`;
+const historicalReviewCountExpr = sql`(
+  select count(distinct history_ra.review_id)
+  from review_assets history_ra
+  where history_ra.asset_id = ${assets.id}
 )`;
 
 /** @param {ReturnType<typeof parseAssetLibraryFilters>} filters */
@@ -220,8 +260,9 @@ function libraryConditions(filters) {
     const condition = and(isNull(assets.sourceLabel), isNull(assets.sourceUrl), isNull(assets.licence));
     if (condition) conditions.push(condition);
   }
-  if (filters.usage === 'used') conditions.push(usedExpr);
-  if (filters.usage === 'unused') conditions.push(not(usedExpr));
+  if (filters.usage === 'current') conditions.push(currentUseExpr);
+  if (filters.usage === 'historical') conditions.push(historicalOnlyExpr);
+  if (filters.usage === 'unused') conditions.push(unusedExpr);
   if (filters.topic) {
     conditions.push(sql`(
       exists (
@@ -242,7 +283,6 @@ function libraryConditions(filters) {
         where topic_sgo.asset_id = ${assets.id}
           and topic_case.preview_session_id is null
           and topic_cc.concept_id = ${filters.topic}
-          and topic_sgo.removed_from_case = false
       )
     )`);
   }
@@ -267,14 +307,14 @@ function libraryOrder(sort) {
 }
 
 /** @param {LearningDb} db @param {string[]} assetIds */
-async function listUsageRows(db, assetIds) {
+async function listRetainedUsageRows(db, assetIds) {
   if (!assetIds.length) return [];
-  const fixedRows = await db.select({ assetId: caseAssets.assetId, caseId: cases.id, caseTitle: cases.title, caseIsActive: cases.isActive, captionMd: caseAssets.captionMd, displayOrder: caseAssets.displayOrder, conceptId: caseConcepts.conceptId, conceptName: concepts.name, stimulusGroupId: sql`null`.as('stimulus_group_id'), stimulusGroupName: sql`null`.as('stimulus_group_name'), stimulusOptionId: sql`null`.as('stimulus_option_id') })
-    .from(caseAssets).innerJoin(cases, eq(cases.id, caseAssets.caseId)).leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary'))).leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+  const fixedRows = await db.select({ assetId: caseAssets.assetId, caseId: cases.id, caseTitle: cases.title, caseIsActive: cases.isActive, relationshipIsCurrent: sql`${cases.isActive} = true and ${assets.isActive} = true`.mapWith(Boolean), captionMd: caseAssets.captionMd, displayOrder: caseAssets.displayOrder, conceptId: caseConcepts.conceptId, conceptName: concepts.name, stimulusGroupId: sql`null`.as('stimulus_group_id'), stimulusGroupName: sql`null`.as('stimulus_group_name'), stimulusOptionId: sql`null`.as('stimulus_option_id'), stimulusGroupIsActive: sql`null`.as('stimulus_group_is_active'), stimulusOptionIsActive: sql`null`.as('stimulus_option_is_active'), removedFromCase: sql`false`.mapWith(Boolean).as('removed_from_case') })
+    .from(caseAssets).innerJoin(cases, eq(cases.id, caseAssets.caseId)).innerJoin(assets, eq(assets.id, caseAssets.assetId)).leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary'))).leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
     .where(and(isNull(cases.previewSessionId), inArray(caseAssets.assetId, assetIds))).orderBy(asc(cases.title), asc(caseAssets.displayOrder), asc(cases.id));
-  const groupedRows = await db.select({ assetId: stimulusGroupOptions.assetId, caseId: cases.id, caseTitle: cases.title, caseIsActive: cases.isActive, captionMd: stimulusGroupOptions.captionMd, displayOrder: stimulusGroupOptions.displayOrder, conceptId: caseConcepts.conceptId, conceptName: concepts.name, stimulusGroupId: stimulusGroups.id, stimulusGroupName: stimulusGroups.name, stimulusOptionId: stimulusGroupOptions.id })
-    .from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary'))).leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
-    .where(and(isNull(cases.previewSessionId), inArray(stimulusGroupOptions.assetId, assetIds), eq(stimulusGroupOptions.removedFromCase, false))).orderBy(asc(cases.title), asc(stimulusGroupOptions.displayOrder), asc(cases.id));
+  const groupedRows = await db.select({ assetId: stimulusGroupOptions.assetId, caseId: cases.id, caseTitle: cases.title, caseIsActive: cases.isActive, relationshipIsCurrent: sql`${cases.isActive} = true and ${assets.isActive} = true and ${stimulusGroups.isActive} = true and ${stimulusGroupOptions.isActive} = true and ${stimulusGroupOptions.removedFromCase} = false`.mapWith(Boolean), captionMd: stimulusGroupOptions.captionMd, displayOrder: stimulusGroupOptions.displayOrder, conceptId: caseConcepts.conceptId, conceptName: concepts.name, stimulusGroupId: stimulusGroups.id, stimulusGroupName: stimulusGroups.name, stimulusOptionId: stimulusGroupOptions.id, stimulusGroupIsActive: stimulusGroups.isActive, stimulusOptionIsActive: stimulusGroupOptions.isActive, removedFromCase: stimulusGroupOptions.removedFromCase })
+    .from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId)).leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary'))).leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .where(and(isNull(cases.previewSessionId), inArray(stimulusGroupOptions.assetId, assetIds))).orderBy(asc(cases.title), asc(stimulusGroupOptions.displayOrder), asc(cases.id));
   return [...fixedRows, ...groupedRows];
 }
 
@@ -309,30 +349,59 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
     collectionId: assets.imageCollectionId,
     collectionName: imageCollections.name,
     isActive: assets.isActive,
+    hasCurrentUsage: currentUseExpr.mapWith(Boolean),
+    hasRetainedHistory: retainedHistoryExpr.mapWith(Boolean),
+    historicalReviewCount: historicalReviewCountExpr.mapWith(Number),
     createdAt: assets.createdAt,
     updatedAt: assets.updatedAt
   }).from(assets).leftJoin(imageCollections, eq(assets.imageCollectionId, imageCollections.id)).where(where).orderBy(...libraryOrder(filters.sort)).limit(pageSize).offset((page - 1) * pageSize);
   const ids = rawRows.map((row) => row.id);
-  const usageRows = await listUsageRows(db, ids);
+  const usageRows = await listRetainedUsageRows(db, ids);
   const usageCasesByAsset = new Map();
-  const topicsByAsset = new Map();
+  const currentTopicsByAsset = new Map();
+  const historicalTopicsByAsset = new Map();
   for (const row of usageRows) {
-    const usageCases = usageCasesByAsset.get(row.assetId) ?? new Set();
-    usageCases.add(row.caseId);
-    usageCasesByAsset.set(row.assetId, usageCases);
-    if (!row.conceptId || !row.conceptName) continue;
-    const topics = topicsByAsset.get(row.assetId) ?? new Map();
-    topics.set(row.conceptId, row.conceptName);
-    topicsByAsset.set(row.assetId, topics);
+    if (row.relationshipIsCurrent) {
+      const usageCases = usageCasesByAsset.get(row.assetId) ?? new Set();
+      usageCases.add(row.caseId);
+      usageCasesByAsset.set(row.assetId, usageCases);
+      if (row.conceptId && row.conceptName) {
+        const currentTopics = currentTopicsByAsset.get(row.assetId) ?? new Map();
+        currentTopics.set(row.conceptId, row.conceptName);
+        currentTopicsByAsset.set(row.assetId, currentTopics);
+      }
+    }
+  }
+  // Historical Topics are retained Topic associations not also represented by
+  // any current relationship for the same Asset. The page-bounded rows are
+  // already loaded, so this is an in-memory pass: a Topic that is both current
+  // and historical on one card must only appear under Current Topics.
+  for (const row of usageRows) {
+    if (row.relationshipIsCurrent || !row.conceptId || !row.conceptName) continue;
+    const currentTopics = currentTopicsByAsset.get(row.assetId);
+    if (currentTopics?.has(row.conceptId)) continue;
+    const historicalTopics = historicalTopicsByAsset.get(row.assetId) ?? new Map();
+    historicalTopics.set(row.conceptId, row.conceptName);
+    historicalTopicsByAsset.set(row.assetId, historicalTopics);
   }
   const rows = rawRows.map((asset) => {
-    const topicNames = [...(topicsByAsset.get(asset.id)?.values() ?? [])];
+    const currentTopicNames = [...(currentTopicsByAsset.get(asset.id)?.values() ?? [])];
+    const historicalTopicNames = [...(historicalTopicsByAsset.get(asset.id)?.values() ?? [])];
+    // Aggregate retained for the enlarged-image viewer subtitle and legacy callers.
+    const topicNames = [...new Set([...currentTopicNames, ...historicalTopicNames])];
+    /** @type {'current' | 'historical' | 'unused'} */
+    const usageState = asset.hasCurrentUsage ? 'current' : asset.hasRetainedHistory ? 'historical' : 'unused';
     return {
       ...asset,
       usageCount: usageCasesByAsset.get(asset.id)?.size ?? 0,
+      usageState,
       imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null,
       topicNames,
-      topicSummary: topicSummary(topicNames)
+      topicSummary: topicSummary(topicNames),
+      currentTopicNames,
+      historicalTopicNames,
+      currentTopicSummary: topicSummary(currentTopicNames),
+      historicalTopicSummary: topicSummary(historicalTopicNames)
     };
   });
   let allMatchingIds = null;
@@ -377,8 +446,9 @@ export async function getAssetLibraryDetail(db, assetId) {
   }).from(assets).leftJoin(imageCollections, eq(assets.imageCollectionId, imageCollections.id)).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
   const asset = rows[0];
   if (!asset) return null;
-  const usages = await listUsageRows(db, [asset.id]);
-  return { asset: { ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null, usageCount: new Set(usages.map((usage) => usage.caseId)).size }, usages };
+  const usages = await listRetainedUsageRows(db, [asset.id]);
+  const currentUsages = usages.filter((usage) => usage.relationshipIsCurrent);
+  return { asset: { ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null, usageCount: new Set(currentUsages.map((usage) => usage.caseId)).size }, usages, currentUsages };
 }
 
 /**

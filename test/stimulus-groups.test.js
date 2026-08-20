@@ -34,8 +34,10 @@ const migrationSql = [
   readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8')
-  , readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0013_review_assets_asset_lookup.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -241,7 +243,7 @@ test('Question and Image Libraries include grouped usage without double-counting
     assert.ok(detail);
     assert.equal(detail.stimulusGroupUsages.length, 1);
     assert.equal(detail.stimulusOptionUsages.length, 1);
-    const image = (await listAssetLibrary(fixture.db, { topic: 'seed-anterior-stemi', usage: 'used' })).find((row) => row.id === 'seed-asset-anterior-b');
+    const image = (await listAssetLibrary(fixture.db, { topic: 'seed-anterior-stemi', usage: 'current' })).find((row) => row.id === 'seed-asset-anterior-b');
     assert.ok(image);
     assert.equal(image.usageCount, 2);
   } finally {

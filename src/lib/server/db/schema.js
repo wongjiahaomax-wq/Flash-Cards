@@ -441,6 +441,7 @@ export const reviewAssets = sqliteTable(
   (table) => [
     uniqueIndex('review_assets_review_order_unique').on(table.reviewId, table.displayOrder),
     uniqueIndex('review_assets_review_asset_unique').on(table.reviewId, table.assetId),
+    index('review_assets_asset_review_idx').on(table.assetId, table.reviewId),
     check('review_assets_display_order_nonnegative', sql`${table.displayOrder} >= 0`)
   ]
 );
