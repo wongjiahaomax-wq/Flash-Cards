@@ -1,6 +1,6 @@
 # Admin image authoring workflow
 
-_Status: implemented baseline plus Reusable Image Questions and the higher-resolution replacement workflow on the current feature branch. PR #29 established the Case image-authoring baseline, PR #34/Image Management V2 extended scalable library behaviour, PR #56 added Case-question → exact-option moves, and the stimulus-scope authoring follow-up makes fixed and alternative images equivalent targets from the author's perspective._
+_Status: implemented on current `main`. PR #29 established the Case image-authoring baseline, PR #34/Image Management V2 extended scalable library behaviour, PR #56 added Case-question → exact-option moves, PR #57 made fixed and alternative images equivalent author-facing targets through **This whole Case / A specific image or stimulus**, PR #58 added Reusable Image Questions, and PR #59 added the narrow higher-resolution replacement workflow._
 
 _Last updated: 20 August 2026_
 
@@ -36,21 +36,27 @@ Case-specific captions remain on the Case/stimulus relationship. Filename, alt t
 
 ## 2. Author-facing question scope
 
-Question authors should not have to reason about database relationships. The normal mental model is:
+Question authors should not have to reason about database relationships. The Case-editor scope choice is:
 
 ```text
 Where should this question apply?
 
 - This whole Case
-- Only in this Case / exact image context
-- Reusable with this image
+- A specific image or stimulus
+```
+
+When an image/stimulus is involved, the image card keeps two ownership categories explicit:
+
+```text
+Case-specific Image Questions
+Reusable Image Questions
 ```
 
 **This whole Case** creates/edits a Case Question and may expose **Also reuse this question in the Topic**.
 
-**Only in this Case / exact image context** creates/edits the existing exact-option question. Topic sharing is not a compatible ordinary option and contradictory submitted form data must be rejected server-side.
+**A specific image or stimulus** creates/edits the existing exact-option relationship and appears as a **Case-specific Image Question** beside that image. Topic sharing is not a compatible ordinary option and contradictory submitted form data must be rejected server-side.
 
-**Reusable with this image** means the Prompt/answer is intrinsically true of the exact global Asset. The canonical answer belongs to `asset_questions`; a Case receives it only through an explicit `stimulus_option_asset_questions` opt-in.
+**Reusable Image Questions** are a separate exact-Asset reuse model. **Reusable with this image** means the Prompt/answer is intrinsically true of the exact global Asset. The canonical answer belongs to `asset_questions`; a Case receives it only through an explicit `stimulus_option_asset_questions` opt-in.
 
 Reusing an Asset in another Case must never silently add its reusable questions. The author must opt that Case/stimulus usage in.
 
@@ -62,7 +68,7 @@ The production Image Library Asset detail page remains a canonical global manage
 
 General image-management operations still keep fixed-versus-alternative conversion explicit. One deliberate exception exists when image-specific question semantics require a stimulus option.
 
-When an author assigns an exact-image question or explicitly reuses an Asset Question on a currently fixed image, the app may transparently:
+When an author assigns a Case-specific Image Question or explicitly reuses an Asset Question on a currently fixed image, the app may transparently:
 
 1. validate the complete mutation before changing relationships;
 2. create an active one-option Stimulus Group with `selection_count = 1`;
@@ -80,26 +86,26 @@ With one active option, that image remains selected whenever the Case is reviewe
 
 ## 4. Existing Case-question scope changes
 
-Every Case-wide question should visibly identify its scope as **This whole Case** and provide an easy path to change it to **Only in this Case / a specific image**.
+Every Case-wide question should visibly identify its scope as **This whole Case** and provide an easy path to change it to **A specific image or stimulus**.
 
 Changing Case → stimulus:
 
 - reuses the existing Question Prompt identity where appropriate;
 - preserves the relationship-specific answer exactly;
 - deactivates/removes the active Case-wide relationship;
-- creates/reactivates the exact-image relationship;
+- creates/reactivates the Case-specific Image Question relationship;
 - preserves the cross-Stimulus-Group Prompt conflict invariant;
 - removes Topic reuse only under the existing safe semantics, never by deleting legitimate use belonging to another Case.
 
 After the move, the question no longer belongs in the Case Questions list.
 
-Existing exact-option questions are not automatically promoted to Reusable Image Questions. Reusability is an explicit editorial decision.
+Existing Case-specific Image Questions are not automatically promoted to Reusable Image Questions. Reusability is an explicit editorial decision.
 
 ## 5. Keep Case Questions tidy
 
 The Case Questions section contains only questions that apply to the whole Case regardless of the selected stimulus.
 
-Do not duplicate exact-image or reusable-image opt-ins into that section. Stimulus-specific contextual questions remain managed beside the image; canonical reusable questions are managed from the image's **Manage questions** surface and the Asset detail surface. Alternative-set-wide questions remain at the set level.
+Do not duplicate Case-specific Image Questions or reusable-image opt-ins into that section. Stimulus-specific contextual questions remain managed beside the image; canonical reusable questions are managed from the image's **Manage questions** surface and the Asset detail surface. Alternative-set-wide questions remain at the set level.
 
 ## 6. Stimulus cards and question management
 
@@ -164,7 +170,7 @@ Alternative option cards retain active state, ordering, caption editing and expl
 
 ## 7. Exact-option identity, reusable Asset identity, and Prompt invariant
 
-An exact-image contextual question belongs to the Case's `stimulus_group_option`, not to the global Asset. Reusing the same Asset elsewhere does not carry those Case-specific questions with it.
+A Case-specific Image Question belongs to the Case's `stimulus_group_option`, not to the global Asset. Reusing the same Asset elsewhere does not carry those Case-specific questions with it.
 
 A Reusable Image Question belongs to the exact global `Asset`. Its answer is canonical across all opt-ins, but each stimulus option independently decides whether to use it.
 
@@ -177,7 +183,7 @@ The invariant includes reusable Asset Question opt-ins. Do not bypass it during 
 Within one selected stimulus context, precedence resolves duplicate Prompt IDs as:
 
 ```text
-exact Case-specific option question
+Case-specific Image Question
 > explicitly reused Asset Question
 > group question
 > broader Case/Topic/shared knowledge
@@ -194,7 +200,7 @@ Case A / Alternative Set 1 / Option X
 → Case A / Alternative Set 2 / Option X
 ```
 
-The operation re-parents the existing option in place and preserves option ID, Asset identity, Case-specific caption, active state, and exact-option questions/answers.
+The operation re-parents the existing option in place and preserves option ID, Asset identity, Case-specific caption, active state, and Case-specific Image Questions/answers.
 
 Reusable-image opt-ins are attached to the option identity and therefore move with that option, subject to the same cross-group Prompt/coverage validity. Set-wide questions remain with their original sets.
 
@@ -250,7 +256,7 @@ Auto-created one-option groups retain the ordinary no-guarantee baseline unless 
 
 Global reusable Asset data/content includes administrator filename/name, alt text, source label/URL, licence, Collection, active state, immutable storage identity, supersession lineage, and Reusable Image Questions.
 
-Case relationship metadata includes fixed/alternative membership, display order, Case-specific caption, exact-option contextual questions, group membership/settings/questions, and the explicit decision to opt a stimulus into a canonical Reusable Image Question.
+Case relationship metadata includes fixed/alternative membership, display order, Case-specific caption, Case-specific Image Questions, group membership/settings/questions, and the explicit decision to opt a stimulus into a canonical Reusable Image Question.
 
 Removing an opt-in from one Case must not archive or delete the global Asset Question.
 
@@ -303,7 +309,7 @@ Current production `case_assets.asset_id` references move A → B in place. Case
 
 Current production `stimulus_group_options.asset_id` references move A → B in place. The **Stimulus Option ID is preserved**, as are the Stimulus Group, display order, caption and active state.
 
-Because exact-image Case questions belong to the Stimulus Option identity, existing `stimulus_option_questions` remain unchanged and continue to apply to the replacement image.
+Because Case-specific Image Questions belong to the Stimulus Option identity, existing `stimulus_option_questions` remain unchanged and continue to apply to the replacement image.
 
 ### Reusable Image Questions
 
@@ -375,12 +381,12 @@ Do not infer existing `stimulus_option_questions` as reusable merely from matchi
 
 Changes to image/question authoring should protect:
 
-- Case-wide versus contextual exact-image versus reusable exact-Asset mental model;
+- Case-wide versus Case-specific Image Question versus reusable exact-Asset mental model;
 - explicit reusable opt-in with no automatic cross-Case leakage;
 - canonical answer storage outside `question_prompts`;
 - clinically useful image display;
 - atomic fixed-image conversion + question assignment;
-- exact-option precedence over reusable Asset knowledge;
+- Case-specific Image Question precedence over reusable Asset knowledge;
 - one Prompt per Review;
 - cross-group Prompt conflict protection;
 - shared Prompt edit protection;

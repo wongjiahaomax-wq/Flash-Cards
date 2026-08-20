@@ -2,7 +2,7 @@
 
 _Last reviewed: 20 August 2026_
 
-This file identifies which repository documents describe the **current deployed product**, which are subsystem contracts/runbooks, which are pending designs, and which are historical records.
+This file identifies which repository documents describe the **verified deployed product**, which describe **current `main`**, which are subsystem contracts/runbooks, which are pending designs, and which are historical records.
 
 ## Conflict rule
 
@@ -17,9 +17,9 @@ When documentation appears to disagree, use this order:
 
 An old PR instruction, draft rollout note, or agent task is never authority over current `main`.
 
-## Current production baseline
+## Verified production baseline versus current `main`
 
-As of 18 August 2026 the deployed/current baseline includes:
+The last explicitly recorded production baseline includes:
 
 - learner Study/Review persistence;
 - private R2 teaching images;
@@ -35,23 +35,39 @@ As of 18 August 2026 the deployed/current baseline includes:
 
 Remaining ECG work is curation/enrichment.
 
-Repository developer tooling now also includes the production-like local D1/R2 replica workflow documented in `LOCAL_DEVELOPMENT_REPLICA.md`. This is not a deployed learner/Admin feature.
+Current `main` is ahead of that verified baseline and now also contains the merged PR #53–#59 sequence:
 
-The local slide-review/finalizer tooling is repository tooling and is not a deployed production-application feature. Its implementation is tracked by draft PR #53 until merged.
+- PR #53 — local/offline slide review and deterministic finalizer tooling;
+- PR #54 — Case-editor Topic management and inline Topic creation;
+- PR #55 — production-like local D1/R2 development replica;
+- PR #56 — moving an existing Case-wide question to an exact image/stimulus option;
+- PR #57 — author-facing **Applies to: This whole Case / A specific image or stimulus** scope, including transparent fixed-image conversion;
+- PR #58 — Reusable Image Questions with explicit per-stimulus opt-in;
+- PR #59 — narrow same-image higher-resolution Asset replacement and supersession lineage.
 
-Reusable Image Questions are implemented on current `main` and documented in `REUSABLE_IMAGE_QUESTIONS.md`.
+Repository developer tooling includes both the local D1/R2 replica (`LOCAL_DEVELOPMENT_REPLICA.md`) and the local slide-review/finalizer (`SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md`). Neither is itself a deployed learner/Admin feature.
 
-Higher-resolution Asset replacement is implemented on the current feature branch and documented in `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md`. Until that PR is merged/deployed, treat that document as the authoritative contract for the pending feature rather than as deployed production behavior.
+Current `main` contains migrations through:
+
+```text
+0009_reusable_image_questions.sql
+0010_reusable_image_reactivation_guard.sql
+0011_asset_supersession.sql
+```
+
+Their presence on `main` is a repository/schema fact. Do **not** infer that a migration is applied to production, or that the corresponding Worker behavior is deployed, without explicit rollout verification.
+
+The repository contains an explicit production rollout trigger commit for merged PR #56. A trigger commit alone is not treated here as proof that the workflow completed successfully; production deployment remains an explicitly verified fact, separate from merge status.
 
 ## Start here — authoritative orientation
 
 ### `CURRENT_PRODUCT_ROADMAP.md`
 
-Shortest merged/deployed-versus-next-work status map.
+Shortest verified-production-versus-current-main-versus-next-work status map.
 
 ### `HANDOVER.md`
 
-Detailed implementation handover: migrations, Preview boundaries, Stage B, Image Management V2, ECG migration verification, and next sequence.
+Detailed implementation handover: current migrations, Preview boundaries, Stage B, Image Management V2, recent PR #53–#59 additions, ECG migration verification, and next sequence.
 
 ### `CURRENT_DESIGN.md`
 
@@ -63,7 +79,7 @@ Current shipped V1 behavior specification plus the next small V1 Admin increment
 
 ### `V1_DATA_MODEL.md`
 
-Authoritative implemented domain model, including Preview ownership, Image Collections, multi-Topic routing, stimulus groups, Tags, Shared Questions, Reusable Image Questions, Review snapshots/provenance, and the current higher-resolution Asset supersession contract on its feature branch.
+Authoritative implemented domain model, including Preview ownership, Image Collections, multi-Topic routing, stimulus groups, Tags, Shared Questions, Reusable Image Questions, Review snapshots/provenance, and higher-resolution Asset supersession on current `main`.
 
 ### `AUTHORING_MODEL.md`
 
@@ -80,8 +96,8 @@ Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual
 - `ADMIN_CONTENT_MANAGEMENT_PLAN.md` — historical filename, current implemented Admin CMS contract and next Admin work.
 - `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` — current Case/Image Library authoring interaction contract.
 - `IMAGE_MANAGEMENT_V2_PLAN.md` — deployed behavior record for pagination, selection, Collections, bounded bulk execution, option Move, and Preview isolation.
-- `REUSABLE_IMAGE_QUESTIONS.md` — exact-Asset reusable question semantics, explicit Case/stimulus opt-in, resolver precedence, Review provenance, fixed-image conversion, and Preview restrictions.
-- `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md` — narrow same-image quality upgrade contract: new immutable Asset/R2 object, supersession lineage, current relationship transfer, reusable-question cloning, stable Stimulus Option IDs, historical Review media delivery, rollback, and Preview isolation.
+- `REUSABLE_IMAGE_QUESTIONS.md` — exact-Asset reusable question semantics, explicit Case/stimulus opt-in, resolver precedence, Review provenance, fixed-image conversion, and Preview restrictions on current `main`.
+- `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md` — current-main narrow same-image quality upgrade contract: new immutable Asset/R2 object, supersession lineage, current relationship transfer, reusable-question cloning, stable Stimulus Option IDs, historical Review media delivery, rollback, and Preview isolation.
 
 ### Topics / multi-Topic routing
 
@@ -105,7 +121,7 @@ Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual
 - `ANKI_APKG_EXTRACTION.md` — verified source-recovery workflow outside the production app.
 - `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` — canonical end-to-end ECG migration record including production completion.
 - `ECG_ANKI_INGESTION_RULES.md` — adopted naming/content rules and completed Batch 01 rename audit.
-- `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md` — implemented local/offline human-review and deterministic-finalization contract in draft PR #53. It freezes `review-map.json` v1, edits the real production-shaped manifest, supports fixed-image review/replacement and unresolved-question promotion/rejection, exports reviewed bundles, and finalizes production-compatible `manifest.json + media/` ZIPs. **ChatGPT PPTX/PDF reconstruction/extraction remains a separate workflow and is not implemented by the local tool.**
+- `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md` — implemented local/offline human-review and deterministic-finalization contract merged in PR #53. It freezes `review-map.json` v1, edits the real production-shaped manifest, supports fixed-image review/replacement and unresolved-question promotion/rejection, exports reviewed bundles, and finalizes production-compatible `manifest.json + media/` ZIPs. **ChatGPT PPTX/PDF reconstruction/extraction remains a separate workflow and is not implemented by the local tool.**
 
 ### Preview Admin
 
@@ -127,13 +143,13 @@ Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual
 
 ### `IMPLEMENTATION_PLAN.md`
 
-Milestone ledger current through deployed Tagging Stage B and completed initial ECG migration.
+Milestone ledger current through the merged PR #53–#59 sequence, while keeping production rollout/application status separate from merge status.
 
 ## Pending / forward designs
 
 These are intentional future designs, **not current implemented behavior**.
 
-The slide-ingestion **source reconstruction/extraction** step remains separate future workflow work even after the local reviewer/finalizer lands; do not infer that PPTX/PDF ingestion is automated from the existence of the local review tool.
+The slide-ingestion **source reconstruction/extraction** step remains separate future workflow work even though the local reviewer/finalizer is implemented; do not infer that PPTX/PDF ingestion is automated from the existence of the local review tool.
 
 The narrow higher-resolution replacement workflow does **not** imply generic Asset families, arbitrary version history, automatic visual similarity, different-image substitution, or bulk replacement. Those remain outside current scope.
 
@@ -187,8 +203,8 @@ For future PRs:
 1. Update the subsystem behavior document in the same PR when behavior changes.
 2. Update `V1_DATA_MODEL.md` in the same PR when schema/relationship semantics change.
 3. Update `CURRENT_PRODUCT_ROADMAP.md` and `HANDOVER.md` when a milestone is merged/deployed or materially changes priorities.
-4. Convert `planned` / `draft` / `for review` language to implemented/deployed records after rollout.
-5. Keep migration application and Worker deployment as separate explicitly verified facts.
+4. Convert `planned` / `draft` / `for review` language to implemented records after merge, and to deployed records only after deployment is explicitly verified.
+5. Keep migration presence, migration application, and Worker deployment as separate explicitly verified facts.
 6. Preserve historical decision records but label them clearly.
 7. Record production content migrations with exact accounting/verification.
 8. Keep terminology consistent: Topic, Case, Tag, Asset, Collection, Question Prompt, Shared Question, Reusable Image Question.

@@ -28,6 +28,32 @@ This lets the developer navigate real Topics, Cases, Questions, Shared Questions
 
 The production-backed Preview Worker remains the final integration gate before merge. Local replica mode is for fast iteration, not a replacement for Preview/CI/deployment verification.
 
+## Relationship to import and slide-review tooling
+
+The project now has several local/offline workflows with different responsibilities. Do not collapse them into one system:
+
+```text
+Local production-like replica
+= read production content → write disposable local D1/R2 → run the app locally
+
+Local slide reviewer/finalizer
+= open a Reviewable Import Bundle → human edit/approve → produce Import Package v1
+
+Production Admin importer
+= validate exact production package → resumable production D1/R2 writes
+```
+
+The local replica:
+
+- does not consume `*-review.zip` bundles;
+- does not finalize slide review bundles;
+- does not mirror or resume production `import_jobs`;
+- does not mirror production `imports/staging/` operational R2 objects;
+- does not act as a production import dry-run authority;
+- does not create a two-way content sync or production backup.
+
+The slide reviewer uses browser/ZIP state and IndexedDB for editorial work and is independent of the replica D1/R2 state.
+
 ## Safety contract
 
 `npm run local:refresh` has a deliberately narrow remote surface:
@@ -107,9 +133,11 @@ ignored .wrangler staging file
 local R2 object PUT at the same key
 ```
 
-Preview/import staging objects are therefore not copied merely because they exist in the bucket. A missing production object is reported explicitly. Stale unreferenced objects may remain in local R2 after a refresh; they are harmless because the refreshed local D1 no longer references them.
+Preview/import staging objects are therefore not copied merely because they exist in the bucket. In particular, `imports/staging/` ZIPs, execution plans and import media sidecars are production operational state and are outside the replica contract.
 
-Inactive superseded Assets remain production content and are mirrored when present because historical Asset lineage and old immutable teaching-image objects may be relevant to current authoring/history inspection.
+A missing production teaching object referenced by a mirrored Asset is reported explicitly. Stale unreferenced objects may remain in local R2 after a refresh; they are harmless because the refreshed local D1 no longer references them.
+
+Inactive superseded Assets remain production content and are mirrored when present because Asset lineage and retained immutable teaching-image objects may be relevant to current authoring/history inspection. Learner Review rows themselves remain excluded.
 
 ## Requirements
 
@@ -146,7 +174,7 @@ If `.dev.vars` already exists it is preserved.
 
 ### Self-referencing content import order
 
-The checked-out schema now has two self-referencing content relationships that require deterministic dependency ordering during local import:
+The checked-out schema has two self-referencing content relationships that require deterministic dependency ordering during local import:
 
 ```text
 concepts.parent_id
@@ -205,6 +233,8 @@ Refresh is intentionally destructive to local content edits and local Review/pro
 
 Component/CSS/Svelte changes can then be inspected with Vite hot reload without creating a PR or deploying a Worker for every iteration.
 
+If the work is instead reviewing a slide reconstruction bundle, use the separate `slide-review:*` workflow rather than refreshing D1/R2.
+
 ## Individual refresh commands
 
 Refresh D1 content only:
@@ -252,7 +282,7 @@ local admin can sign in
 /study can navigate production-derived Cases
 ```
 
-For current image authoring, also verify that Reusable Image Questions and their current Case/stimulus opt-ins appear locally for mirrored production Assets.
+For current image authoring, also verify that Reusable Image Questions and their current Case/stimulus opt-ins appear locally for mirrored production Assets, and that superseded Asset lineage can be represented without requiring production Review history.
 
 ## Local mutation safety check
 
@@ -304,7 +334,7 @@ If a branch changes table semantics such that the current production rows can no
 
 The Asset supersession self-FK is an example: the refresh implementation must topologically order Assets rather than relying on `ORDER BY id` to satisfy the checked-out branch schema.
 
-## Production/Preview commands remain separate
+## Production/Preview/import commands remain separate
 
 Do not confuse this workflow with:
 
@@ -313,6 +343,9 @@ npm run admin:bootstrap              production administrator operator
 npm run preview-admin:bootstrap      production-backed Preview identity operator
 npm run db:migrate:remote            production migration operation
 wrangler deploy                      production/Preview deployment
+Admin → Import package               production reviewed-package import
+npm run slide-review:build           local review UI build
+npm run slide-review:finalize        local deterministic package finalizer
 ```
 
 Local replica refresh is a read-production/write-local developer operation only.

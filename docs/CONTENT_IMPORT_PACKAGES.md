@@ -1,26 +1,72 @@
 # Flash-Cards Import Packages
 
-_Status: implemented and production-validated. PR #22 established strict reviewed-package import; PR #23 added resumable bounded execution. The workflow has been used successfully for the complete initial ECG migration._
+_Status: implemented and production-validated. PR #22 established strict reviewed-package import; PR #23 added resumable bounded execution. The workflow has been used successfully for the complete initial ECG migration. PR #53 adds a separate local slide-review/finalization layer that produces packages compatible with this importer without weakening its contract._
 
-_Last updated: 18 August 2026_
+_Last updated: 20 August 2026_
 
 ## Purpose and boundary
 
-Flash-Cards imports a **reviewed Flash-Cards Import Package v1**, not an arbitrary Anki/APKG file.
+Flash-Cards imports a **reviewed Flash-Cards Import Package v1**, not an arbitrary Anki/APKG, PowerPoint, PDF, review bundle, or source archive.
 
-External tooling may interpret source cards and prepare a reviewed package, but the production application does not:
+External tooling may recover source material, perform semantic reconstruction, and prepare a reviewed package, but the production application does not:
 
 - parse arbitrary APKG semantics;
+- interpret PPTX/PDF teaching content;
 - OCR teaching slides;
 - infer diagnoses/taxonomy;
 - infer Tags;
-- decide how Anki fields map into the learning model.
+- decide how source fields/slides map into the learning model;
+- perform the human editorial review of reconstructed content.
 
 Those decisions happen before the strict package reaches Production Admin.
 
 The safety contract from PR #22 remains authoritative: strict package structure, hardened ZIP parsing, deterministic application identities/R2 teaching-image keys, explicit `create` / `use` / `skip`, fail-closed dependency checks, exact-ZIP SHA-256 confirmation, deterministic conflict handling, parent-first Topics, and R2 cleanup around D1 failure.
 
-PR #23 adds resumable execution without Cloudflare Queues, Durable Objects, Cron, or paid-only infrastructure.
+PR #23 adds resumable execution without Cloudflare Queues, Durable Objects, Cron, or paid-only infrastructure primitives.
+
+## Upstream source/review artifacts are not production packages
+
+Several upstream artifact types now exist and must remain distinct:
+
+```text
+Anki .apkg / PPTX / PDF
+        ↓
+source recovery / semantic reconstruction
+        ↓
+normalized source or Reviewable Import Bundle
+        ↓
+human review
+        ↓
+deterministic finalization
+        ↓
+Flash-Cards Import Package v1
+        ↓
+Production Admin importer
+```
+
+For slide material, the local reviewer consumes:
+
+```text
+<batch>-review.zip
+├── manifest.json
+├── media/
+├── review-map.json
+└── source-previews/
+```
+
+and exports/finalizes a production package containing only:
+
+```text
+flashcards-import-v1.zip
+├── manifest.json
+└── media/
+```
+
+The review-only ZIP is intentionally rejected by the production package parser because `review-map.json` and `source-previews/` are outside Import Package v1.
+
+The local reviewer/finalizer performs no production D1/R2 writes. The production importer performs no source reconstruction or medical interpretation.
+
+See `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md` for the slide review/finalization contract and `ANKI_APKG_EXTRACTION.md` / `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` for the Anki source path.
 
 ## 1. Package v1 structure
 
@@ -61,7 +107,18 @@ topicQuestions
 
 The package never supplies application SQL or arbitrary table names.
 
-Import Package v1 remains deliberately **Tag-free**. Tags, Additional Study Topics, stimulus alternatives, and Shared Questions can be curated after ingestion.
+Import Package v1 remains deliberately conservative. It does not directly encode current later-stage editorial structures such as:
+
+- Tags;
+- Shared Questions;
+- Reusable Image Questions / `asset_questions`;
+- explicit Reusable Image Question stimulus opt-ins;
+- Image Collections;
+- inferred alternative stimulus groups/options;
+- higher-resolution Asset supersession lineage;
+- automatic medical taxonomy decisions.
+
+These can be curated after ingestion. A future additive package version may carry already-reviewed metadata only when repeated migrations demonstrate a concrete need.
 
 ## 2. `create`, `use`, and `skip`
 
@@ -132,12 +189,12 @@ browser POST process-next
         |
        ...
         v
-complete + remove staged ZIP
+complete + remove staged ZIP/sidecars
 ```
 
 The browser is the **conductor**, not the source of truth.
 
-D1 is authoritative for status, phase, cursor, progress, error, and lease state. R2 holds the exact confirmed package while the job can resume.
+D1 is authoritative for status, phase, cursor, progress, error, and lease state. Private R2 staging holds the exact confirmed package and server-derived execution sidecars while the job can resume.
 
 There is no background continuation. If the browser closes, the laptop sleeps, connectivity drops, or the administrator presses Pause, no new request is sent. Completed chunks remain committed/checkpointed. Resume continues from persisted D1 state.
 
@@ -223,11 +280,13 @@ IMPORT_ITEMS_PER_REQUEST = 7
 IMPORT_D1_OPERATION_BUDGET = 40
 ```
 
-This is intentionally conservative relative to the Worker/D1 query ceiling the feature was designed against. Normal import operation does not depend on Workers Paid.
+This is intentionally conservative relative to the Worker/D1 query ceiling the feature was designed against. Normal import operation does not require a paid-only Cloudflare orchestration primitive.
 
 Regression instrumentation counts representative D1 operations so request growth remains visible.
 
 Do not raise these limits casually to make large imports “faster”; bounded predictable requests are a core safety feature.
+
+External Cloudflare plan/limit values may change. Reverify provider documentation before making new numeric plan claims or changing request budgets.
 
 ## 8. Private R2 staging
 
@@ -237,18 +296,20 @@ Confirmed ZIPs are stored under server-derived immutable keys:
 imports/staging/<job-id>.zip
 ```
 
-The browser cannot choose the key.
+The runtime may also derive private execution sidecars such as the normalized plan and only the media needed for create-Asset processing.
 
-Staged ZIPs:
+The browser cannot choose staging keys.
+
+Staging objects:
 
 - are not Asset rows;
 - are not learner-served media;
 - do not use the teaching-image `putTeachingImage()` path;
-- remain subject to package size limits;
-- count toward the managed R2 ceiling;
-- fail if the immutable job-specific staging key unexpectedly already exists.
+- remain subject to package/storage limits;
+- are private operational state;
+- are not copied by the normal local production-like replica merely because they exist in production R2.
 
-Every normal processing request loads the package by job ID, verifies stored SHA-256, parses through the hardened package reader, and derives the plan server-side.
+Every processing request derives execution from server-owned job/staging state rather than accepting a browser-supplied write plan.
 
 Successful completion deletes staging. Finalization is retry-safe if a response is lost after deletion.
 
@@ -262,7 +323,7 @@ A short D1 lease prevents two browser tabs from processing the same checkpoint c
 
 A process request conditionally claims the job only when no unexpired lease exists. A second tab receives a harmless busy result and stops its local loop.
 
-Checkpoint updates compare persisted phase/cursor/lease token.
+The runtime renews/fences the exact lease token + phase + cursor before bounded side effects and checkpoint updates remain conditional on that same execution identity.
 
 Cancellation must not race an actively leased processing request; pause/allow the active lease/request to finish before cancellation.
 
@@ -298,7 +359,7 @@ On failure:
 - status becomes `failed`;
 - exact phase/cursor remain persisted;
 - `last_error` records the problem;
-- staged ZIP remains;
+- staged operational data remains for investigation/retry;
 - Retry/resume starts from that checkpoint after correction.
 
 On cancellation before writes, no domain content has been committed and staging is removed.
@@ -307,16 +368,17 @@ On cancellation after writes begin, processing stops/staging is removed, but pre
 
 ## 12. Administrator workflow
 
-1. Open **Admin → Import package**.
-2. Select the reviewed ZIP and run **Validate and preview**.
-3. Review package ID/counts and resolve static/package errors.
-4. Select the exact same ZIP again, confirm explicitly, and start the resumable job.
-5. Keep the page open for automatic sequential continuation if convenient.
-6. Watch status, phase, cursor, and completed/total progress.
-7. Pause or close/refresh to stop browser continuation without losing D1 progress.
-8. Resume later from persisted checkpoint.
-9. On failure, inspect phase/error, correct the underlying conflict where appropriate, then Retry/resume.
-10. Cancel only with the understanding that already committed chunks are not rolled back.
+1. Finalize a reviewed package outside production where applicable.
+2. Open **Admin → Import package**.
+3. Select the reviewed production ZIP and run **Validate and preview**.
+4. Review package ID/counts and resolve static/package errors.
+5. Select the exact same ZIP again, confirm explicitly, and start the resumable job.
+6. Keep the page open for automatic sequential continuation if convenient.
+7. Watch status, phase, cursor, and completed/total progress.
+8. Pause or close/refresh to stop browser continuation without losing D1 progress.
+9. Resume later from persisted checkpoint.
+10. On failure, inspect phase/error, correct the underlying conflict where appropriate, then Retry/resume.
+11. Cancel only with the understanding that already committed chunks are not rolled back.
 
 ## 13. Security
 
@@ -330,9 +392,11 @@ The browser cannot submit an arbitrary execution plan.
 
 Preview Admin does not gain unrestricted production import authority merely because it shares D1/R2 resources; import routes remain governed by the production Admin/Preview boundary.
 
+The local slide reviewer and the local production-like development replica do not grant or proxy production import authority.
+
 ## 14. Production validation — initial ECG migration complete
 
-The reviewed/resumable import path has now been exercised against the real ECG corpus.
+The reviewed/resumable import path has been exercised against the real ECG corpus.
 
 Production verification on 18 August 2026 confirmed:
 
@@ -353,16 +417,19 @@ Therefore the next content milestone is **curation/enrichment**, not “try the 
 
 Keep Import Package v1 conservative unless real migrations justify expansion.
 
-Current package intentionally does not require:
+Current package intentionally does not require later-stage authoring structures such as Tags, Shared Questions, Reusable Image Questions, Additional Study Topics, alternative stimulus groups, Image Collections, or Asset supersession lineage.
 
-- Tags;
-- Shared Questions;
-- compound reuse rules;
-- Image Collections;
-- inferred alternative stimulus groups;
-- automatic medical taxonomy generation.
+For source-to-package workflows, the recommended principle is:
 
-Those can be curated after import. A future additive package version may carry already-reviewed metadata when repeated migrations demonstrate value.
+```text
+faithfully reconstruct source content
+→ human review
+→ deterministic Import Package v1
+→ production import
+→ progressive authoring enrichment
+```
+
+Do not make the production importer responsible for medical reconstruction merely because those later authoring features exist.
 
 ## 16. Regression expectations
 
@@ -374,7 +441,7 @@ Coverage should continue protecting:
 - multi-request validation;
 - no domain writes before validation is complete;
 - fresh-context resume;
-- stale lease handling;
+- stale lease handling/fencing;
 - deterministic retry;
 - conditional R2 teaching-image creation;
 - parent-first Topic ordering across chunks;
@@ -384,4 +451,5 @@ Coverage should continue protecting:
 - final staging cleanup;
 - migration fresh/upgrade behavior;
 - D1-operation-budget instrumentation;
-- PR #22 strict package tests.
+- PR #22 strict package tests;
+- local slide finalizer → real current `parseImportPackage()` compatibility.

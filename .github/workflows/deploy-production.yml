@@ -24,6 +24,15 @@ jobs:
       CLOUDFLARE_ACCOUNT_ID: 0ada6bfd273d96d92682a853c4dd6fd2
 
     steps:
+      - name: Require main branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF}" != "refs/heads/main" ]; then
+            echo "::error::Production deployment must be dispatched from main. Current ref: ${GITHUB_REF}"
+            exit 1
+          fi
+
       - name: Check out repository
         uses: actions/checkout@v5
 
@@ -84,6 +93,7 @@ jobs:
           {
             echo "## Production deployment"
             echo ""
+            echo "- Ref: `${GITHUB_REF}`"
             echo "- Commit: `${GITHUB_SHA}`"
             echo "- Worker: https://flash-cards.mmed-fm-flashcardstest.workers.dev"
             echo "- D1 migrations applied: `${{ inputs.apply_migrations }}`"

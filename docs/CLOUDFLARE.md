@@ -1,8 +1,8 @@
 # Cloudflare setup and deployment
 
-_Status: current production + production-backed Preview + local-replica operational runbook._
+_Status: current repository operational runbook through PR #59. Production migration, Worker deployment, and live verification state must be established separately._
 
-_Last updated: 19 August 2026_
+_Last updated: 20 August 2026._
 
 The SvelteKit application deploys to Cloudflare Workers with private runtime bindings:
 
@@ -10,63 +10,52 @@ The SvelteKit application deploys to Cloudflare Workers with private runtime bin
 - `MEDIA` — Cloudflare R2, used for teaching images plus reviewed-import/Preview operational objects;
 - `ASSETS` — generated SvelteKit static assets.
 
-## 1. Production resources
+## 1. Release-state vocabulary
 
-Production resources recorded by the repository configuration include:
+Do not use **merged**, **migrated**, and **deployed** as synonyms.
 
-```text
-D1 database: flash-cards-db
-D1 database ID: ea6f3ec4-eb09-4fb1-8314-cd027436a2f8
-R2 bucket: flash-cards-media
-Worker: flash-cards
-origin: https://flash-cards.mmed-fm-flashcardstest.workers.dev
-```
-
-Better Auth is live in production. Public sign-up remains disabled.
-
-Normal production Admin authorization uses the `admin` role.
-
-## 2. Preview Worker
-
-Production-backed Preview Admin uses a second **Worker target only**:
+The project has three independent release facts:
 
 ```text
-Worker: flash-cards-preview
-origin: https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev
-Wrangler environment: preview
+Merged to main
+= the repository default branch contains the change
+
+Production D1 migration applied
+= the reviewed remote D1 migration command completed for the intended database
+
+Production Worker deployed
+= the intended repository commit/SHA was deployed to the production Worker
 ```
 
-with:
+A fourth fact should be recorded separately:
 
 ```text
-PREVIEW_MODE=true
-BETTER_AUTH_URL=https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev
+Production behavior verified
+= the intended live route/data behavior was checked after release
 ```
 
-The Preview Worker deliberately binds to the same existing production resources:
+Therefore:
 
-```text
-DB    -> flash-cards-db
-MEDIA -> flash-cards-media
-```
+- merging a PR does not apply D1 migrations;
+- merging a PR does not deploy the Worker;
+- a committed migration file does not prove production D1 has applied it;
+- a deployment-trigger commit does not by itself prove the corresponding Actions run succeeded;
+- a successful Worker deploy does not prove a migration was applied unless that migration step was also explicitly run and succeeded;
+- a successful migration does not deploy application code.
 
-No second D1 database or R2 bucket is part of the current architecture.
+When documenting current production state, record these facts separately and cite the relevant workflow/run/log or post-release verification where available.
 
-D1/R2 bindings and relevant vars are repeated under `env.preview` because Wrangler environment bindings/vars are non-inheritable.
+## 2. Production and Preview resources
+
+Production uses one Worker with private D1/R2 bindings. Better Auth is live and public sign-up remains disabled. Normal production Admin authorization uses the `admin` role.
+
+Production-backed Preview uses a second Worker target with the `preview` Wrangler environment and `PREVIEW_MODE=true`.
+
+Preview deliberately binds to the same existing production D1 and R2 resources. There is no second synchronized D1 database or R2 bucket in the current architecture.
 
 This is application-level isolation, not hard resource isolation. See `PREVIEW_ADMIN_WORKSPACE.md`.
 
-## 3. Production and Preview Better Auth secrets
-
-Production and Preview Workers use separate `BETTER_AUTH_SECRET` values.
-
-Configure the Preview environment secret with:
-
-```sh
-npx --yes wrangler@4.123.0 secret put BETTER_AUTH_SECRET --env preview
-```
-
-Never commit or print secret values.
+Production and Preview Workers use separate `BETTER_AUTH_SECRET` values. Never commit or print secret values.
 
 The owner may use the same Better Auth identity for both environments with the combined role:
 
@@ -74,13 +63,13 @@ The owner may use the same Better Auth identity for both environments with the c
 admin,preview_admin
 ```
 
-The separate Worker secrets keep production/Preview sessions cryptographically separate even when they read the same Better Auth identity/account rows from D1.
+The separate Worker secrets keep production/Preview sessions cryptographically separate even when both environments read the same Better Auth identity/account rows.
 
 See `PREVIEW_ADMIN_IDENTITY.md` for bootstrap/promotion behavior.
 
-## 4. Local development and production-like local replica
+## 3. Local development and production-like local replica
 
-Ordinary local development uses local Wrangler D1/R2 state. The preferred workflow for realistic UI/Admin iteration refreshes production-owned teaching content and referenced media into those local bindings:
+Ordinary local development uses local Wrangler D1/R2 state. The preferred workflow for realistic UI/Admin iteration refreshes allowlisted production-owned teaching content and referenced media into those local bindings:
 
 ```sh
 npm ci
@@ -88,8 +77,6 @@ npm run local:setup
 npm run local:admin
 npm run dev
 ```
-
-`npm run local:setup` creates `.dev.vars` with a random local Better Auth secret if needed, applies current migrations locally, then performs a one-way production → local refresh.
 
 The refresh safety boundary is:
 
@@ -100,26 +87,11 @@ local D1: reset/import/mutations allowed
 local R2: object PUT/mutations allowed
 ```
 
-The normal local application does not use writable production bindings. Do not add remote production D1/R2 bindings to ordinary localhost runtime as a convenience shortcut.
+The normal local application does not use writable production bindings. Do not add writable remote production D1/R2 bindings to ordinary localhost runtime as a convenience shortcut.
 
-Production rows deliberately excluded from the normal local replica include:
+Production auth identities/sessions, learner Reviews/progress, Preview workspace state and resumable import-job state are deliberately excluded from the normal replica.
 
-```text
-Better Auth users/accounts/sessions/verifications
-learner Reviews/question/asset snapshots and progress
-Preview sessions/workspace ownership state
-resumable import-job state
-```
-
-A local-only administrator is created with:
-
-```sh
-npm run local:admin
-```
-
-The local Admin account is independent from production/Preview identities. Public signup remains disabled.
-
-Refresh current production-derived content/media later with:
+Refresh current production-derived content/media with:
 
 ```sh
 npm run local:refresh
@@ -132,9 +104,7 @@ npm run local:refresh:d1
 npm run local:refresh:r2
 ```
 
-The refresh command requires Cloudflare authorization sufficient to read the production D1 content queries and R2 objects. If authorization is missing, fix the read credential/login boundary; do not weaken the local-vs-production separation or fall back to writable remote runtime bindings.
-
-Local D1/R2 simulations plus replica staging live beneath `.wrangler/` and are ignored by Git. `.dev.vars` is also ignored. Never commit local replica SQL, mirrored media, or secrets.
+Local D1/R2 simulations plus replica staging live beneath `.wrangler/`; `.dev.vars` is also local-only. Never commit mirrored production content/media, local credentials or secrets.
 
 Repeatable isolated auth validation remains:
 
@@ -142,11 +112,9 @@ Repeatable isolated auth validation remains:
 node scripts/local-auth-smoke.mjs
 ```
 
-The smoke test has its own disposable local persistence and does not create the normal local administrator.
-
 See `LOCAL_DEVELOPMENT_REPLICA.md` for the complete internal runbook.
 
-## 5. Current migrations and production state
+## 4. Current migration ledger
 
 Current committed learning-domain migrations are:
 
@@ -160,16 +128,14 @@ Current committed learning-domain migrations are:
 0006_preview_admin_workspace.sql
 0007_image_collections.sql
 0008_tag_shared_questions.sql
+0009_reusable_image_questions.sql
+0010_reusable_image_reactivation_guard.sql
+0011_asset_supersession.sql
 ```
 
-Current production state recorded in `HANDOVER.md` / `IMPLEMENTATION_PLAN.md`:
+Previously verified production records establish that `0006`, `0007` and `0008` were applied as part of their corresponding released features.
 
-- `0006_preview_admin_workspace.sql` — applied to production D1;
-- `0007_image_collections.sql` — landed/applied as the Image Management V2 schema foundation;
-- `0008_tag_shared_questions.sql` — applied to production D1 before PR #43 behavior rollout;
-- PR #43 behavior/Admin code — merged and deployed without another migration.
-
-Do not create/apply a new migration merely to reproduce the PR #43 rollout sequence.
+`0009`, `0010` and `0011` are present on current `main`. **Repository presence is not production-application evidence.** Do not label these migrations production-applied unless the remote migration state or a successful release run has been explicitly checked.
 
 After changing learning schema locally:
 
@@ -181,40 +147,79 @@ npm run db:migrate:local
 
 Always review generated SQL before committing it.
 
-Production migration application remains an explicit release operation.
+Production migration application is an explicit release operation.
 
-## 6. Wrangler versions
+## 5. Wrangler versions
 
-`package.json` currently pins:
-
-```text
-wrangler 4.115.0
-```
-
-Release-critical repository procedures have been validated with explicit:
-
-```text
-wrangler 4.123.0
-```
+`package.json` currently pins a repository Wrangler version. Release-critical procedures in the current workflows intentionally invoke Wrangler `4.123.0` explicitly.
 
 Use the repository's deliberately selected release command/version for production migration/deploy procedures until the pin/release process is intentionally updated.
 
-Do not assume `npx wrangler` resolving a newer external version is harmless for a release-critical action.
+Do not assume an arbitrary newer `npx wrangler` version is harmless for a release-critical action.
 
-## 7. Production deployment procedure
+## 6. Normal production release path
 
-Confirm intended `main`:
+The durable GitHub Actions release workflow is:
+
+```text
+.github/workflows/deploy-production.yml
+```
+
+It is manually dispatched and has an explicit boolean input:
+
+```text
+apply_migrations = false | true
+```
+
+This is the preferred production release path when GitHub Actions is available.
+
+**Dispatch this workflow from `main`.** The workflow now fails closed unless `GITHUB_REF` is exactly `refs/heads/main`, so selecting another branch/ref is not a supported production release path.
+
+Before dispatch, identify the intended current `main` SHA and decide whether the release is:
+
+```text
+code only
+or
+code + reviewed D1 migration(s)
+```
+
+With an authenticated GitHub CLI, the code-only form is:
+
+```sh
+gh workflow run deploy-production.yml \
+  --repo wongjiahaomax-wq/Flash-Cards \
+  --ref main \
+  -f apply_migrations=false
+```
+
+Use `-f apply_migrations=true` only when the reviewed release deliberately includes pending production D1 migration application.
+
+For a code-only release, leave migration application disabled.
+
+For a release whose code requires reviewed pending migrations, enable migration application deliberately. The workflow then performs validation, applies remote migrations first, and deploys the Worker only after the migration step succeeds.
+
+The workflow requires the deployment credential for Worker deploys and a separate D1 write credential only when migration application is enabled. Keep credentials least-privilege and never commit or print their values.
+
+After the run, verify the workflow summary reports:
+
+```text
+Ref: refs/heads/main
+Commit: <GITHUB_SHA>
+```
+
+and confirm that the reported commit exactly matches the `main` SHA intended for release. A green run against an unexpected SHA is not acceptable production-release evidence.
+
+A successful run summary is evidence for the exact commit deployed and whether that run attempted migrations. Where migration state is operationally important, verify the remote migration result rather than relying only on prose in a PR or commit message.
+
+### Local/terminal equivalent
+
+When deliberately releasing from an authenticated terminal, first confirm the intended `main` SHA and run the standard validation:
 
 ```sh
 git fetch origin
 git switch main
 git pull --ff-only origin main
 git rev-parse HEAD
-```
-
-Install/validate:
-
-```sh
 npm ci
 npm run db:check
 npm test
@@ -224,153 +229,96 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-If the release includes a reviewed migration, apply it **before** deploying code that requires it:
+If the release includes reviewed pending migrations:
 
 ```sh
 npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
 ```
 
-Then deploy production:
+Then deploy:
 
 ```sh
 npx --yes wrangler@4.123.0 deploy
 ```
 
-Verify live behavior after deployment. A successful Wrangler command is not by itself proof that all intended runtime behavior/data migrations were verified.
+Verify live behavior afterwards.
 
-Migration state and Worker deployment state are separate facts.
+## 7. Legacy/exceptional one-shot production workflow
 
-### 7.1 One-click production deployment from GitHub
-
-For a repeatable deployment without local Wrangler authentication, use the manual **Deploy production** workflow:
+The repository also contains:
 
 ```text
-GitHub → Actions → Deploy production → Run workflow
+.github/workflows/deploy-main-once.yml
 ```
 
-The workflow runs the repository checks, build, and local auth smoke test before deploying the Worker. Leave **Apply pending production D1 migrations** disabled for code-only releases. Enable it only when the reviewed release includes a migration that has been intentionally approved for production.
+This is **not triggered by an ordinary merge to `main`**. Its `push` trigger is path-filtered to the workflow file itself, so it runs only when that file changes on `main`.
 
-The workflow requires the repository secret `CLOUDFLARE_API_TOKEN`. It requires `CLOUDFLARE_D1_WRITE_TOKEN` only when migrations are selected. Both tokens must be scoped to the Cloudflare account that owns `flash-cards-db`; never commit either value to the repository.
+Its current behavior is also materially different from the durable manual release workflow: when triggered, it applies production D1 migrations and then deploys the Worker without a separate `apply_migrations` choice.
 
-## 8. Preview infrastructure is already released
+Treat this as a historical/exceptional one-shot mechanism, not the normal release path.
 
-The initial Preview infrastructure rollout is complete. The current baseline includes:
+Do not edit its trigger comment merely to deploy routine code when the permanent manual `Deploy production` workflow is available. Do not infer that later merged PRs were deployed merely because this file exists or because an older trigger commit exists.
 
-- Preview Worker;
-- migration `0006` ownership/session structures;
-- separate Preview Better Auth secret/session boundary;
-- Preview Admin identity support;
-- manual Deploy PR to Preview workflow;
-- Reset Preview Workspace;
-- Restore Main to Preview workflow;
-- production/Preview route/data isolation tests.
+If this workflow is ever intentionally used again, record the exact run result and treat migration/deployment/post-flight as separate verified facts.
 
-Do not rerun initial infrastructure-bootstrap instructions as though Preview were not yet deployed.
+## 8. Preview infrastructure and normal lifecycle
 
-Use the current operator workflows/runbooks for normal ongoing Preview operation.
-
-## 9. Preview Admin bootstrap / identity promotion
-
-Current command:
-
-```sh
-npm run preview-admin:bootstrap
-```
-
-For an existing valid production Admin identity, the bootstrap can promote/reuse that identity by adding the `preview_admin` role rather than creating a duplicate account.
-
-The intended owner role is:
-
-```text
-admin,preview_admin
-```
-
-The bootstrap preserves production Admin authorization while independently enabling Preview access.
-
-Follow `PREVIEW_ADMIN_IDENTITY.md`; never copy credentials into repository source, documentation, screenshots, Actions logs, or chat.
-
-## 10. Manual PR → Preview deployment
-
-Permanent workflow:
+The Preview infrastructure baseline is already released. Normal ongoing Preview operation uses:
 
 ```text
 .github/workflows/deploy-pr-to-preview.yml
+.github/workflows/restore-main-to-preview.yml
 ```
 
-Use this workflow instead of temporary deployment workflows or deployment-only source commits.
+The candidate deployment workflow:
 
-It requires an open same-repository PR targeting `main`, resolves the exact head SHA, runs repository validation, and deploys only with:
-
-```sh
-npx --yes wrangler@4.123.0 deploy --env preview
-```
-
-It never applies remote D1 migrations and does not use the D1 write token.
-
-See `PREVIEW_DEPLOYMENT.md` for the exact dispatch/operator procedure.
-
-## 11. Schema-changing PRs and Preview
-
-Production-backed Preview deliberately fails closed for candidate changes that alter the D1 schema/migrations or critical Wrangler binding configuration.
-
-Do not weaken that guard to make a schema-changing PR previewable against production D1.
-
-Preferred sequence when a feature needs schema then code UI inspection:
-
-1. review/land the schema foundation through the protected process;
-2. apply the reviewed migration to the intended D1 environment explicitly;
-3. update/rebase the behavior PR so migration/schema files are no longer candidate changes relative to `main`;
-4. deploy the resulting code-only head to Preview;
-5. inspect/reset/restore as normal.
-
-Image Management V2 used this safety pattern around `0007_image_collections.sql`.
-
-## 12. Restore Main to Preview
-
-After reviewing a candidate PR, use the permanent Restore Main workflow so the Preview Worker returns to current `main`.
+- requires an open same-repository PR targeting `main`;
+- resolves and deploys the exact PR head SHA;
+- runs repository validation;
+- deploys only to the Preview Worker;
+- never applies remote D1 migrations;
+- rejects candidate migration/schema changes and critical Wrangler binding changes.
 
 Normal lifecycle:
 
 ```text
 main on Preview
+→ feature PR CI green
 → Deploy PR to Preview
-→ inspect candidate
-→ Reset Preview Workspace
+→ inspect exact candidate SHA
+→ Reset Preview Workspace when appropriate
 → Restore Main to Preview
-→ next candidate
 ```
 
-Do not leave arbitrary candidate code deployed indefinitely.
+Restoring Main changes Preview Worker code only. It does not roll back D1 schema or production data.
 
-## 13. Live authentication checks
+See `PREVIEW_DEPLOYMENT.md` for the exact operator playbook.
 
-Useful signed-out production checks:
+## 9. Schema-changing features and Preview
 
-```sh
-curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/sign-in
-curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/study
-curl -I https://flash-cards.mmed-fm-flashcardstest.workers.dev/admin
-curl -i https://flash-cards.mmed-fm-flashcardstest.workers.dev/api/auth/get-session
-```
+Production-backed Preview must fail closed when the candidate diff changes D1 schema/migrations or critical Wrangler binding configuration.
 
-Expected shape:
+Do not weaken that guard merely to make a feature previewable.
 
-- `/sign-in` loads;
-- anonymous `/study` redirects to sign-in;
-- anonymous `/admin` redirects to sign-in;
-- signed-out Better Auth session GET returns no active session.
+Preferred sequence:
 
-Do not use unsupported/irrelevant HTTP method behavior on the Better Auth API route as the sole health indicator.
+1. review and merge the schema foundation;
+2. explicitly apply the reviewed migration to the intended production D1 when that release step is approved;
+3. verify migration application;
+4. update/rebase the behavior PR so migration/schema files are no longer candidate changes relative to `main`;
+5. deploy the resulting code-only PR head to Preview;
+6. inspect/reset/restore as normal;
+7. later deploy production code through the normal production release path.
 
-## 14. Administrator bootstraps are explicit operator actions
+Step 1 and step 2 are separate. A merged migration file is not automatically applied.
 
-Local development administrator:
+## 10. Administrator bootstraps are explicit operator actions
+
+Local administrator:
 
 ```sh
 npm run local:admin
 ```
-
-This writes only to local D1 and is safe to use with the production-like local replica.
 
 Production first-admin bootstrap:
 
@@ -386,11 +334,11 @@ npm run preview-admin:bootstrap
 
 Never place administrator credentials or secrets in source, docs, screenshots, logs, or chat. Never substitute a production/Preview bootstrap for `local:admin` merely to make localhost authentication work.
 
-## 15. R2 teaching images, local replica and staging
+## 11. R2 teaching images, Preview and staging
 
 `MEDIA` remains private.
 
-Normal teaching-image and Preview image uploads use the central media helper (`putTeachingImage()`), not arbitrary route-level direct writes.
+Normal teaching-image and Preview image uploads use the central media helper rather than arbitrary route-level writes.
 
 Current application guardrails include:
 
@@ -400,47 +348,54 @@ Current application guardrails include:
 - Standard storage;
 - immutable production object keys.
 
-Preview uploads use:
+Preview uploads use the Preview-owned prefix. Reviewed import staging uses the separate `imports/staging/...` namespace.
 
-```text
-preview/<preview-session-id>/...
-```
-
-Reviewed import staging uses:
-
-```text
-imports/staging/...
-```
-
-The local production-like replica selects production R2 objects from mirrored `assets.storage_key` rows, retrieves those objects from production with read-only GET operations, and puts the same bytes/keys into local Wrangler R2. It does not clone unrelated Preview/import staging objects merely because they exist in the bucket.
+Higher-resolution replacement creates a new immutable production object rather than overwriting the old object. On success, the old object is retained for historical Review snapshots; on D1 failure, only the newly uploaded replacement object is eligible for cleanup. Do not add blanket garbage collection that deletes superseded historical objects.
 
 Preview cleanup may delete only verified Preview-owned media. Import staging cleanup follows the import-job contract. Neither path may delete normal production teaching objects ambiguously.
 
-See `R2_COST_GUARDRAILS.md`, `CONTENT_IMPORT_PACKAGES.md`, and `LOCAL_DEVELOPMENT_REPLICA.md`.
+See `R2_COST_GUARDRAILS.md`, `CONTENT_IMPORT_PACKAGES.md`, `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md`, and `LOCAL_DEVELOPMENT_REPLICA.md`.
 
-## 16. Production D1 snapshot/operator and local-replica credentials
+## 12. Production content inspection and fixed-purpose operators
 
-Read-only production content inspection prefers repository secret:
+Read-only production content inspection uses the repository's fixed `Production content snapshot` workflow and should prefer the dedicated D1-read credential.
+
+The snapshot is evidence about the queried production **data**, not about which Worker commit is deployed and not about migration application beyond what those queried tables can directly demonstrate. Current Case-route output explicitly excludes Preview-owned Cases (`preview_session_id IS NULL`).
+
+Production write operators such as the agreed-taxonomy workflow are fixed-purpose, reviewed operations. They are not generic SQL consoles and must not be generalized into free-form mutation paths. Their machine checks cover defined invariants; human inspection remains required where the operator deliberately preserves unrelated relationships.
+
+Keep read and write credentials separate. Do not grant write access to the read token.
+
+See `PRODUCTION_CONTENT_SNAPSHOT.md` and `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md`.
+
+## 13. Release verification checklist
+
+For every production release, record the applicable facts independently:
 
 ```text
-CLOUDFLARE_D1_READ_TOKEN
+[ ] intended main SHA identified
+[ ] production workflow dispatched from main / ref guard passed
+[ ] CI/release validation passed
+[ ] required D1 migration(s) explicitly applied and verified, or confirmed not required
+[ ] reported workflow GITHUB_SHA matches intended main SHA
+[ ] intended Worker SHA deployed
+[ ] live behavior/post-flight checked
+[ ] any fixed-purpose data operator run separately verified
 ```
 
-The fixed-purpose agreed-taxonomy operator uses separate least-privilege write credential:
+For documentation, prefer wording such as:
 
 ```text
-CLOUDFLARE_D1_WRITE_TOKEN
+merged on main
+migration present on main
+migration verified applied to production D1
+Worker SHA verified deployed
+live behavior verified
 ```
 
-Do not grant write access to the read token or turn the read-only snapshot workflow into free-form SQL.
+rather than the ambiguous single word `deployed` when several facts are involved.
 
-The local replica refresh likewise needs production **read** authorization for its fixed D1 SELECT queries and R2 object GETs. This may come from a suitably authorized local Wrangler login/session or another explicitly configured local read credential. Keep refresh/operator credentials out of source control, and do not place them in `.dev.vars` unless they are actual Worker runtime variables (the normal replica does not require that).
-
-Never make a missing local read credential a reason to expose production write bindings to localhost.
-
-See `PRODUCTION_CONTENT_SNAPSHOT.md`, `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md`, and `LOCAL_DEVELOPMENT_REPLICA.md`.
-
-## 17. Routine validation
+## 14. Routine validation
 
 ```sh
 npm run db:check
@@ -451,4 +406,4 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-Keep local-replica refresh, migrations, production deploys, Preview candidate deploy/restore, Cloudflare secret creation, content operators, and administrator bootstrap/promotion as explicit operations with independently verified outcomes. The local-replica command is read-production/write-local only; production mutation remains outside that developer workflow.
+Keep local-replica refresh, migrations, production deploys, Preview candidate deploy/restore, Cloudflare secret creation, content operators and administrator bootstrap/promotion as explicit operations with independently verified outcomes.

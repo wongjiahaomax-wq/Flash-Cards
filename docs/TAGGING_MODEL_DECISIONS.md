@@ -1,10 +1,10 @@
 # Tagging Model — Agreed Decisions
 
-_Status: authoritative current architecture. Tagging Stage A and Stage B are merged; Stage B learner behavior and Shared Question Admin authoring are deployed in production._
+_Status: authoritative current Tag/Shared Question architecture. Tagging Stage A and Stage B are merged; the Stage B learner/Admin baseline is explicitly recorded as deployed. Current `main` also contains Reusable Image Questions, which are a separate reuse mechanism and do not change Tag semantics._
 
-_Last updated: 18 August 2026_
+_Last updated: 20 August 2026_
 
-This document records the agreed Topic/Case/Question Tag architecture after validation against the real ECG Anki corpus. `PROPOSED_TAGGING_MODEL.md` is historical exploration; this file is authoritative unless a later decision record explicitly changes it.
+This document records the agreed Topic/Case/Question Tag architecture after validation against the real ECG corpus. `PROPOSED_TAGGING_MODEL.md` is historical exploration; this file is authoritative for Tag semantics unless a later decision record explicitly changes them.
 
 ## 1. Tags are flat and manually curated
 
@@ -14,7 +14,7 @@ Tags do not have parent/child relationships. Topic hierarchy remains separate an
 
 Administrators curate Tags explicitly. Current V1 does not require AI inference, automatic Anki Tag ingestion, or automatic taxonomy generation.
 
-## 2. Tags and Topics are different
+## 2. Tags, Topics, and exact-Asset reuse are different
 
 ```text
 Topic
@@ -22,9 +22,13 @@ Topic
 
 Tag
 = cross-cutting clinical metadata
+
+Reusable Image Question
+= canonical Prompt/answer intrinsically true of one exact Asset,
+  eligible only through explicit stimulus opt-in
 ```
 
-A Case may belong to several Study Topics and also carry several Tags. Similar names across those lists do not make the relationships interchangeable.
+A Case may belong to several Study Topics and carry several Tags. An Asset may have Reusable Image Questions without having any Tag relationship. Similar clinical wording across these mechanisms does not make them interchangeable.
 
 ## 3. Current Tag attachment scope
 
@@ -37,11 +41,11 @@ Current implemented Tag relationships include:
 
 Tags are not stored directly on `question_prompts`, and image Assets do not currently have Tag relationships.
 
+`asset_questions` does **not** represent Asset Tags. It represents reusable exact-Asset teaching content.
+
 ## 4. Case Tags do not automatically become Question Tags
 
 Case Tags describe concepts covered by the Case. Question Tags describe knowledge tested by that contextual/shared Question.
-
-Example:
 
 ```text
 Case Tags
@@ -58,6 +62,8 @@ Question Tags
 
 The Question does not silently inherit all Case Tags.
 
+Likewise, attaching an Asset to a tagged Case does not tag the Asset or its Reusable Image Questions.
+
 ## 5. Clinical meaning does not belong on `question_prompts`
 
 `question_prompts` stores reusable wording only.
@@ -66,7 +72,18 @@ The Question does not silently inherit all Case Tags.
 What is the diagnosis?
 ```
 
-can occur across many unrelated conditions. The answer/clinical meaning belongs to contextual Question relationships or to `shared_questions`, not to the Prompt row.
+can occur across unrelated contexts. The answer/clinical meaning belongs to the object or relationship that makes it correct, including:
+
+```text
+concept_questions
+case_questions
+stimulus_group_questions
+stimulus_option_questions
+asset_questions
+shared_questions
+```
+
+The Prompt row is never the answer owner.
 
 ## 6. Shared Question descriptive Tags and reuse scope are separate
 
@@ -79,8 +96,6 @@ Descriptive Tags
 Reuse Scope Tag
 = which tagged Cases make the Question eligible
 ```
-
-Example:
 
 ```text
 Shared Question
@@ -101,7 +116,7 @@ The Reuse Scope Tag is not automatically inserted into `shared_question_tags`.
 
 Every active Shared Question has exactly one non-null Reuse Scope Tag.
 
-This deliberately avoids compound ANY/ALL logic before the real curated corpus demonstrates a need.
+This deliberately avoids compound ANY/ALL logic before the curated corpus demonstrates a need.
 
 Multiple/compound scopes may be added later as an additive feature if required.
 
@@ -123,29 +138,45 @@ AND case_tags contains (selected Case, Reuse Scope Tag)
 
 `shared_question_tags` does not participate in eligibility. Topic/Concept ancestry does not infer Tag matches.
 
+Reusable Image Question eligibility is independent:
+
+```text
+selected active stimulus option
++ matching active asset_questions row
++ active production Question Prompt
++ explicit stimulus_option_asset_questions opt-in
+```
+
+A Case Tag never creates Reusable Image Question eligibility, and Asset identity never creates Shared Question Tag eligibility.
+
 ## 9. Resolver precedence
 
 When the same Question Prompt is available from several sources, the more contextual answer wins:
 
 ```text
-selected stimulus option
-> stimulus group
-> Case
-> exact Study Topic
-> tag-shared Question
+Case-specific exact stimulus option question
+> explicitly reused Asset Question for selected option
+> stimulus group question
+> Case question
+> exact Study Topic question
+> Tag-shared Question
 > nearest eligible inheritable ancestor Topic
 > more distant eligible ancestors
 ```
 
 The final candidate set is deduplicated by `question_prompt_id`.
 
+This means Tag-shared knowledge remains broader than selected-stimulus exact-Asset knowledge. A matching Tag does not override a more specific Case/image answer.
+
 ## 10. Question-count interaction
 
-Eligible Shared Questions join the normal final deduplicated pool before selection.
+Eligible Shared Questions and explicitly opted-in Reusable Image Questions join the normal final deduplicated pool before selection.
 
-- **Automatic** preserves existing target/cap and stimulus-specific coverage semantics.
+- **Automatic** preserves target/cap and stimulus-specific coverage semantics.
 - **All** includes every deduplicated eligible question.
-- **Fixed** respects the configured count; Shared Questions do not increase the Review beyond it.
+- **Fixed** respects the configured count; reusable sources do not increase the Review beyond it.
+
+Reusable Image Questions carry selected stimulus context and can count toward group-specific coverage; Tag-shared Questions do not become stimulus-specific merely because the Case has an image.
 
 ## 11. Tags are not learner navigation in current V1
 
@@ -156,6 +187,8 @@ Tags currently support:
 - Shared Question reuse.
 
 Learner Study-by-Tag remains deferred. Topics remain the learner-navigation hierarchy.
+
+Reusable Image Questions likewise do not create learner navigation routes.
 
 ## 12. Reviews snapshot content/provenance, not Tag relationships
 
@@ -170,13 +203,18 @@ prompt_snapshot_md = exact Prompt shown
 answer_snapshot_md = exact reusable answer shown
 ```
 
-Reviews do not snapshot:
+For a selected Reusable Image Question, provenance is separate:
 
-- Reuse Scope Tag ID;
-- descriptive Shared Question Tag IDs;
-- Case Tag IDs.
+```text
+source_type = 'asset'
+source_asset_question_id = <asset_questions.id>
+source_stimulus_group_id = selected group
+source_stimulus_option_id = selected option
+```
 
-Historical Review wording/answer/source identity therefore remains stable even if curation later changes eligibility Tags.
+Reviews do not snapshot Reuse Scope Tag IDs, descriptive Shared Question Tag IDs, or Case Tag IDs.
+
+Historical Review wording/answer/source identity therefore remains stable even if later Tag curation changes Shared Question eligibility or an Asset is later superseded.
 
 ## 13. Import Package v1 remains unchanged
 
@@ -191,7 +229,7 @@ Topic/deck
 → images/stimuli
 ```
 
-Tags and Shared Questions are progressive curation after or alongside import. A future package version may carry reviewed Tag data only if that becomes useful.
+Tags, Shared Questions, and Reusable Image Questions are progressive curation after or alongside import. A future package version may carry reviewed Tag data only if that becomes useful.
 
 ## 14. No Tag alias/synonym system yet
 
@@ -209,9 +247,11 @@ Several Cases may share the same diagnosis/Tags while having different vignettes
 Case = one coherent clinical presentation/vignette
 ```
 
+Reusable Image Questions also do not define Case identity. Reusing one Asset across Cases preserves separate Case context and requires independent opt-in to the Asset's canonical questions.
+
 ## 16. Implemented Stage A
 
-Migration `0005_tag_foundation.sql` and the associated Admin behavior implement:
+Migration `0005_tag_foundation.sql` and associated Admin behavior implement:
 
 - `tags`;
 - Case ↔ Tag relationships;
@@ -238,11 +278,32 @@ Because SQLite/D1 cannot alter the existing Review source-type CHECK in place, t
 
 `shared_questions` deliberately has no `preview_session_id`. They are global production-curated knowledge objects.
 
-The `0008` foundation was applied to production D1 before Stage B behavior was deployed.
+The `0008` foundation is explicitly recorded as applied to production D1 before Stage B behavior was deployed.
 
-## 18. Implemented/deployed Stage B behavior
+## 18. Reusable Image Questions do not modify the Tag model
 
-PR #43 is merged and deployed in production.
+Migrations `0009_reusable_image_questions.sql` and `0010_reusable_image_reactivation_guard.sql` add exact-Asset reusable knowledge and its invariants. They do not add:
+
+- Asset Tags;
+- Tag eligibility for Asset Questions;
+- Tag inheritance from Case to Asset;
+- a second Shared Question reuse-scope mechanism.
+
+The two reuse systems are intentionally orthogonal:
+
+```text
+Shared Question
+→ Case Tag eligibility
+
+Reusable Image Question
+→ exact Asset identity + explicit selected-stimulus opt-in
+```
+
+The cross-Stimulus-Group Prompt invariant includes reusable-image opt-ins, but that is a stimulus ambiguity rule, not a Tag rule.
+
+## 19. Implemented/deployed Stage B behavior
+
+PR #43 is merged and explicitly recorded as deployed in production.
 
 The deployed behavior includes:
 
@@ -251,7 +312,7 @@ The deployed behavior includes:
 - exactly one active Reuse Scope Tag;
 - independent zero-or-more descriptive Tags;
 - exact active Case-Tag eligibility;
-- resolver integration using section 9 precedence;
+- resolver integration using the precedence above;
 - final Prompt-ID deduplication;
 - normal Automatic/All/Fixed interaction;
 - `tag_shared` Review provenance and snapshots;
@@ -259,11 +320,11 @@ The deployed behavior includes:
 - preservation/display of existing inactive descriptive Tag assignments during unrelated edits, with explicit removal supported;
 - Tag Admin usage details distinguishing Shared Question Reuse Scope versus Descriptive usage.
 
-The final PR #43 validation passed 240/240 tests before merge. PR #43 added no migration; its schema dependency was the already-applied `0008_tag_shared_questions.sql`.
+PR #43 added no migration; its schema dependency was the already-applied `0008_tag_shared_questions.sql`.
 
 See `TAGGING_STAGE_B_BEHAVIOR.md` for the exact operational behavior contract.
 
-## 19. ECG corpus validation and current outcome
+## 20. ECG corpus validation and current outcome
 
 The original ECG source contains 66 notes, each with a front-side ECG reference and a dominant structure of vignette → ECG → subquestions → answers.
 
@@ -273,13 +334,13 @@ This corpus validated the progressive model:
 Topic
 └── Case
     ├── vignette
-    ├── fixed ECG Asset
+    ├── ECG Asset
     └── contextual Case Questions
 ```
 
-Repeated diagnoses do not require merged Cases. Repeated knowledge can be promoted later to Shared Questions after review.
+Repeated diagnoses do not require merged Cases. Repeated medical knowledge may be promoted to Shared Questions after review; image-intrinsic knowledge may be promoted separately to Reusable Image Questions when exact Asset identity is the correct reuse key.
 
-The initial ECG migration is now complete in production:
+The initial ECG migration is explicitly recorded as complete in production:
 
 ```text
 13 Batch 01 imports
@@ -290,7 +351,7 @@ The initial ECG migration is now complete in production:
 
 The next tagging work is real corpus curation, not architecture completion.
 
-## 20. Deferred
+## 21. Deferred
 
 Current V1 deliberately does not include:
 
@@ -304,9 +365,9 @@ Current V1 deliberately does not include:
 - automatic Case Tag → Question Tag inheritance;
 - Tags on `question_prompts`;
 - Tag fields in Import Package v1;
-- answer-side image relationships as part of the tagging model.
+- automatic Tag derivation from Reusable Image Questions or Asset metadata.
 
-## 21. Architecture summary
+## 22. Architecture summary
 
 ```text
 TOPIC
@@ -332,8 +393,12 @@ SHARED QUESTION REUSE SCOPE
 
 SHARED QUESTION DESCRIPTIVE TAGS
 = independent metadata describing what the Question teaches/tests
+
+REUSABLE IMAGE QUESTION
+= canonical answer/meaning intrinsic to one exact Asset;
+  eligibility requires explicit selected-stimulus opt-in, not a Tag
 ```
 
 The design principle remains:
 
-> **Attach knowledge at the broadest scope where its answer and educational meaning remain reliably correct, while keeping more specific stimulus and Case context authoritative when scopes overlap.**
+> **Attach knowledge at the broadest scope where its answer and educational meaning remain reliably correct, while keeping more specific selected-stimulus and Case context authoritative when scopes overlap.**

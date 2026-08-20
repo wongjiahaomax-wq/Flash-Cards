@@ -1,19 +1,19 @@
 # Flash-Cards — V1 Implementation Plan
 
-_Last updated: 18 August 2026_
+_Last updated: 20 August 2026_
 
-This document tracks current implementation state. For the shortest merged-versus-pending view, read `CURRENT_PRODUCT_ROADMAP.md` first. Detailed architecture lives in `AUTHORING_MODEL.md`, `V1_DATA_MODEL.md`, `STIMULUS_GROUPS_DESIGN.md`, `MULTI_TOPIC_STUDY_ROUTES.md`, `TAGGING_MODEL_DECISIONS.md`, `TAGGING_STAGE_B_BEHAVIOR.md`, `CONTENT_IMPORT_PACKAGES.md`, `ADMIN_IMAGE_AUTHORING_WORKFLOW.md`, `IMAGE_MANAGEMENT_V2_PLAN.md`, and `PREVIEW_ADMIN_WORKSPACE.md`.
+This document tracks current implementation state. For the shortest verified-production-versus-current-main-versus-next-work view, read `CURRENT_PRODUCT_ROADMAP.md` first. Detailed architecture lives in `AUTHORING_MODEL.md`, `V1_DATA_MODEL.md`, `STIMULUS_GROUPS_DESIGN.md`, `MULTI_TOPIC_STUDY_ROUTES.md`, `TAGGING_MODEL_DECISIONS.md`, `TAGGING_STAGE_B_BEHAVIOR.md`, `CONTENT_IMPORT_PACKAGES.md`, `ADMIN_IMAGE_AUTHORING_WORKFLOW.md`, `IMAGE_MANAGEMENT_V2_PLAN.md`, `REUSABLE_IMAGE_QUESTIONS.md`, `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md`, and `PREVIEW_ADMIN_WORKSPACE.md`.
 
 ## Current product state
 
-Implemented/merged baseline includes:
+Implemented/merged baseline on current `main` includes:
 
 - SvelteKit + Cloudflare Workers application scaffold;
 - D1/Drizzle learning-domain model;
 - Better Auth administrator/user boundary;
 - D1-backed learner Study/Review flow;
 - protected private R2 teaching-image pipeline;
-- Admin CMS for Cases, Questions, Images, Topics, Tags and reviewed imports;
+- Admin CMS for Cases, Questions, Shared Questions, Images, Topics, Tags and reviewed imports;
 - optional alternative stimulus groups/options and contextual questions;
 - multi-Topic Case learner routing/Admin authoring;
 - resumable reviewed-package imports;
@@ -24,9 +24,18 @@ Implemented/merged baseline includes:
 - PR #29 Admin image-authoring baseline;
 - Image Management V2 from PR #34;
 - wide responsive Admin desktop workspace from PR #40;
-- Tagging Stage B schema foundation from `0008_tag_shared_questions.sql`, already applied to production D1;
+- Tagging Stage B schema foundation from `0008_tag_shared_questions.sql`, explicitly recorded as applied to production D1;
 - Tagging Stage B behavior/Admin authoring from PR #43, merged and deployed: Case-Tag eligibility, Shared Question Admin, Prompt deduplication, normal count-mode integration, and `tag_shared` Review provenance;
-- initial real ECG/Anki migration fully imported and production-verified: 13 Batch 01 + 51 Batch 02 + 2 pre-existing mapped calcium Cases = 66/66 source notes represented.
+- initial real ECG/Anki migration fully imported and production-verified: 13 Batch 01 + 51 Batch 02 + 2 pre-existing mapped calcium Cases = 66/66 source notes represented;
+- PR #53 local/offline slide reviewer and deterministic finalizer tooling;
+- PR #54 Case-editor Topic management and inline Topic creation;
+- PR #55 production-like local D1/R2 development replica;
+- PR #56 exact-image/stimulus movement for existing Case-wide questions;
+- PR #57 author-facing **Applies to: This whole Case / A specific image or stimulus** question scope with transparent fixed-image conversion;
+- PR #58 Reusable Image Questions with explicit per-stimulus opt-in;
+- PR #59 narrow same-image higher-resolution Asset replacement and supersession lineage.
+
+Merge status and deployment status are separate. Current `main` contains migrations `0009`–`0011` and the related code. The repository contains an explicit production rollout trigger commit for merged PR #56, but this plan does not treat the trigger alone as proof of a completed deployment. Do not mark `0009`–`0011` applied, or PR #57–#59 behavior deployed, without explicit production verification.
 
 Real ECG/Anki work now continues as curation/enrichment rather than source ingestion.
 
@@ -44,14 +53,19 @@ Topic/Concept
     └── contextual questions
 
 Global reusable knowledge
-└── Shared Question
+├── Shared Question
+│   ├── reusable Question Prompt wording
+│   ├── reusable answer
+│   ├── one Reuse Scope Tag
+│   └── optional descriptive Tags
+└── Reusable Image Question
+    ├── one exact Asset
     ├── reusable Question Prompt wording
-    ├── reusable answer
-    ├── one Reuse Scope Tag
-    └── optional descriptive Tags
+    ├── canonical Asset-specific answer
+    └── explicit per-stimulus opt-in
 ```
 
-A Case can have one primary/default Topic and additional Study Topics through `case_concepts`. Questions belong at the highest context where the answer remains correct. Tags are cross-cutting metadata and do not replace Topic/Case ownership.
+A Case can have one primary/default Topic and additional Study Topics through `case_concepts`. Questions belong at the highest context where the answer remains correct. Tags are cross-cutting metadata and do not replace Topic/Case ownership. Reusable Image Questions belong to one exact Asset and never auto-propagate merely because that Asset is reused elsewhere.
 
 ## Milestone 1 — application scaffold
 
@@ -61,7 +75,9 @@ SvelteKit, Cloudflare Workers adapter/runtime, Wrangler configuration, protected
 
 ## Milestone 2 — D1 + Drizzle learning model
 
-Status: **complete for the current Stage B model**.
+Status: **complete for current `main`; production migration application tracked separately**.
+
+Current repository migrations are:
 
 ```text
 0000_dashing_centennial.sql
@@ -73,11 +89,16 @@ Status: **complete for the current Stage B model**.
 0006_preview_admin_workspace.sql
 0007_image_collections.sql
 0008_tag_shared_questions.sql
+0009_reusable_image_questions.sql
+0010_reusable_image_reactivation_guard.sql
+0011_asset_supersession.sql
 ```
 
-Migration `0006_preview_admin_workspace.sql` was applied successfully to production D1 on 17 August 2026. Migration `0007_image_collections.sql` landed with Image Management V2. Migration `0008_tag_shared_questions.sql` is the Tagging Stage B schema foundation and was applied to production D1 before PR #43 implementation began.
+Migration `0006_preview_admin_workspace.sql` was applied successfully to production D1 on 17 August 2026. Migration `0007_image_collections.sql` landed with Image Management V2. Migration `0008_tag_shared_questions.sql` is the Tagging Stage B schema foundation and was explicitly recorded as applied to production D1 before PR #43 implementation began.
 
-PR #43 is intentionally schema-free: no new migration is required and no production migration or Worker deployment belongs in the behavior/authoring PR.
+Migrations `0009`/`0010` establish Reusable Image Question identity, Review provenance and opt-in/reactivation integrity. Migration `0011` adds the narrow nullable Asset supersession self-FK/index required for same-image higher-resolution replacement.
+
+`0009`–`0011` are present on current `main`; their production application is not inferred from merge status and must be verified independently.
 
 ## Milestone 3 — authentication/permissions
 
@@ -89,18 +110,21 @@ Production and Preview Workers use separate `BETTER_AUTH_SECRET` values even whe
 
 ## Milestone 4 — learner Study flow
 
-Status: **complete current V1 including deployed Tag-shared eligibility from PR #43**.
+Status: **verified deployed baseline includes Tag-shared eligibility; current `main` also includes Reusable Image Question eligibility**.
 
 Learner routing supports valid Case Topics, fixed/alternative stimuli, contextual-question precedence, Automatic/All/Fixed selection, stimulus-specific coverage, durable Review snapshots and whole-Case Again/Good rating.
 
-Preview-owned Cases/Prompts/Assets are excluded from normal learner Review construction, with D1 trigger defense in depth for Preview Cases and for Preview Prompts being attached to global Shared Questions.
+Preview-owned Cases/Prompts/Assets are excluded from normal learner Review construction, with D1 trigger defense in depth for Preview Cases and for Preview Prompts being attached to global reusable content.
 
-Stage B adds eligible Shared Questions to the existing learner resolver when the selected production Case has an active Tag matching the Shared Question's active `reuse_scope_tag_id`. Descriptive `shared_question_tags` do not affect eligibility. Topic ancestry does not infer Tag eligibility.
+Tagging Stage B adds eligible Shared Questions to the resolver when the selected production Case has an active Tag matching the Shared Question's active `reuse_scope_tag_id`. Descriptive `shared_question_tags` do not affect eligibility. Topic ancestry does not infer Tag eligibility.
 
-Implemented duplicate-Prompt precedence is:
+Current-main Reusable Image Question behavior adds explicitly opted-in active Asset Questions for the selected exact stimulus usage. Merely reusing an Asset does not opt in its reusable questions.
+
+Current-main duplicate-Prompt precedence is:
 
 ```text
-selected stimulus option
+selected exact stimulus option question
+> explicitly reused Asset Question for the selected option
 > stimulus group
 > Case
 > exact Study Concept
@@ -109,21 +133,23 @@ selected stimulus option
 > more distant inheritable ancestors
 ```
 
-The final pool is deduplicated by `question_prompt_id`. Automatic/All/Fixed operate on that normal deduplicated pool; Shared Questions do not bypass selection or Fixed count limits.
+The final pool is deduplicated by `question_prompt_id`. Automatic/All/Fixed operate on that normal deduplicated pool; Shared Questions and Asset Questions do not bypass selection or Fixed count limits.
 
-Selected Shared Questions snapshot Prompt/answer content and persist `source_type = tag_shared` plus `source_shared_question_id`. Tag IDs are not snapshotted.
+Selected Shared Questions snapshot Prompt/answer content and persist `source_type = tag_shared` plus `source_shared_question_id`. Current-main Reusable Image Questions persist `source_type = asset` plus `source_asset_question_id`. Tag IDs and mutable reuse relationships are not substituted for Review snapshots.
 
 ## Milestone 5 — protected R2 teaching images
 
-Status: **complete for current V1**.
+Status: **complete baseline; current `main` adds immutable same-image replacement semantics**.
 
 Teaching images are private, immutable, JPEG/PNG only, limited to 5 MiB each and governed by the managed R2 ceiling. Preview uploads use the same bucket under the isolated Preview prefix and remain subject to central media guardrails.
 
 Image Management V2 does not rename/delete production R2 objects or change media limits.
 
+Merged PR #59 preserves immutable production keys by creating a new object/new Asset for a higher-resolution copy of the same underlying image, retaining the old bytes for historical Review delivery. This current-main behavior depends on migration `0011`; production deployment/application must be verified separately.
+
 ## Milestone 6 — Admin CMS baseline
 
-Status: **complete baseline; product refinements continue**.
+Status: **complete baseline; current-main authoring refinements merged**.
 
 Production surfaces include:
 
@@ -146,23 +172,38 @@ Topics → Case → Images → Case questions → Preview
 
 Normal Admin read models exclude disposable Preview ownership.
 
+The upper **Topics / Learner routing** section is authoritative for primary/additional Study Topic relationships. Current main allows inline Topic creation and attachment from the Case editor while keeping ordinary Case-detail saves separate from Topic-relationship changes.
+
+Ordinary question authoring now exposes:
+
+```text
+Applies to this whole Case
+Applies to a specific image / stimulus
+```
+
+Exact-image assignment may transparently convert a currently fixed image to a one-option active Stimulus Group while preserving Asset identity/caption and learner-visible behavior. Case-wide Topic reuse remains valid only for Case-wide scope.
+
+Reusable Image Questions are managed separately from Case-specific exact-image questions. Canonical Asset Questions live on the exact Asset and require explicit reuse opt-in per stimulus usage.
+
 Stage B Shared Question Admin authoring supports list/create/edit/archive/reactivate, reuse of an existing active production Question Prompt or creation of new production Prompt wording, one required active Reuse Scope Tag, and zero-or-more independent descriptive Tags. UI copy explicitly states that only the Reuse Scope Tag controls Case eligibility.
 
-The existing Questions detail/editor includes Shared Question Prompt usages in its global-wording blast-radius/stale-edit guard.
+The existing Questions detail/editor includes Shared Question and Reusable Image Question Prompt usages in its global-wording blast-radius/stale-edit guard where applicable.
 
 ## Milestone 7 — content/model validation
 
 Status: **in progress**.
 
-Representative content should continue to exercise ECG/Cardiology, ENT, Eye, Dermatology, multi-image Cases, alternative stimuli, reusable Topic questions, image-specific questions, Tags, Shared Questions and multi-Topic routes.
+Representative content should continue to exercise ECG/Cardiology, ENT, Eye, Dermatology, multi-image Cases, alternative stimuli, reusable Topic questions, image-specific questions, Reusable Image Questions, Tags, Shared Questions and multi-Topic routes.
 
-Migration strategy remains progressive enrichment: reviewed material can begin as ordinary Topic/Case/Asset/questions and gain alternate routes, stimulus grouping, Tags and tag-shared reusable knowledge later.
+Migration strategy remains progressive enrichment: reviewed material can begin as ordinary Topic/Case/Asset/questions and gain alternate routes, stimulus grouping, Tags and reusable knowledge later.
 
 ## Milestone 7A — multi-Topic Case routing
 
 Status: **merged baseline**.
 
 One Case may have one primary/default Topic plus additional Study Topics. Learner routing deduplicates Case eligibility and persists canonical primary Topic plus actual Study Topic provenance.
+
+PR #54 adds a more direct Case-editor authoring path for promoting an existing Topic or creating/attaching a new primary/additional Study Topic without routing those changes through the ordinary Case-content save.
 
 ## Milestone 7B — Tagging Stage A
 
@@ -184,11 +225,11 @@ Large reviewed packages run through bounded sequential requests with D1 checkpoi
 
 ## Milestone 7E — Production-backed Preview Admin workspace
 
-Status: **merged and deployed**.
+Status: **merged and deployed baseline**.
 
 Architecture remains one production D1/R2 shared by production and Preview Workers, with explicit Preview ownership and clone-then-mutate isolation. Deploy PR to Preview validates an exact trusted PR head and blocks schema/migration/`wrangler.jsonc` candidate changes. Restore Main to Preview returns the Preview Worker to current `main`.
 
-Stage B Shared Questions remain global production-curated objects and do not gain Preview ownership. PR #43 adds no Preview Shared Question mutation authority. Because PR #43 is schema-free, it may later be manually deployed to Preview for human UI inspection only if the operator chooses to run the existing workflow; opening the PR does not deploy anything.
+Shared Questions and Asset Questions remain global production-curated objects and do not gain Preview ownership. Production-only question-scope conversion and higher-resolution replacement actions do not grant Preview mutation authority over production content.
 
 ## Milestone 7F — Admin image-authoring baseline
 
@@ -260,20 +301,19 @@ existing option in Case A / Set 1
 → Case A / Set 2
 ```
 
-by updating the existing option's parent group in place. It preserves option ID, Asset, Case-specific caption, active state and exact-option questions. Group-level questions stay with their existing groups. Target order is assigned safely.
+by updating the existing option's parent group in place. It preserves option ID, Asset, Case-specific caption, active state, exact-option questions and current reusable-image opt-ins. Group-level questions stay with their existing groups. Target order is assigned safely.
 
 Move rejects cross-Case, inactive/missing, duplicate/conflicting, ownership-invalid and coverage-invalid changes. Production Admin rejects Preview ownership; Preview Move is limited to current-session Preview-owned Case/group/option relationships.
 
-Fixed image conversion remains a distinct explicit operation; Case Questions are not inferred/re-scoped automatically.
+The V2 bulk/Move operation itself does not infer question scope. Separately, the current Case authoring workflow may transparently convert a fixed image to a one-option Stimulus Group when assigning an exact-image question or explicit reusable-image opt-in.
 
 ### V2 non-goals retained
 
 - no global Asset folders/albums beyond Image Collections;
 - no Asset Tags;
 - no generic library-wide Asset Move;
-- no learner stimulus semantic change;
-- no Review snapshot/provenance semantic change from image management;
-- no R2 object identity change.
+- no learner stimulus semantic change from the V2 library operations themselves;
+- no generic R2 object identity rewrite.
 
 See `IMAGE_MANAGEMENT_V2_PLAN.md` and `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` for final behaviour.
 
@@ -315,13 +355,33 @@ See `TAGGING_STAGE_B_BEHAVIOR.md` for the exact contract.
 
 Deferred unless separately justified: compound ANY/ALL reuse scope, Tag hierarchy, aliases/synonyms, Study-by-Tag, Review Tag snapshots, automatic inference and Asset Tags.
 
+## Milestone 7I — local slide review and developer replica tooling
+
+Status: **merged on current `main`; repository tooling, not deployed learner/Admin features**.
+
+PR #53 implements the local/offline human-review + deterministic-finalization layer for slide ingestion. The reviewer edits the production-shaped manifest directly, validates `review-map.json` v1, supports unresolved-question resolution/rejection and human image replacement, and finalizes a strict production-compatible Import Package ZIP. ChatGPT PPTX/PDF semantic reconstruction remains a separate workflow.
+
+PR #55 implements the read-production/write-local D1/R2 replica workflow for local development. Production D1 operations generated by the workflow are SELECT-only and production R2 access is GET-only; ordinary application writes remain local.
+
+## Milestone 7J — image/stimulus question authoring and exact-Asset reuse
+
+Status: **merged on current `main`; deployment of newer migrations/behavior tracked separately**.
+
+PR #56 allows an existing Case-wide question to move to an exact active stimulus option while preserving Prompt/answer identity.
+
+PR #57 makes question scope an author-facing **whole Case vs specific image/stimulus** choice and transparently converts a fixed image to a one-option group when needed.
+
+PR #58 adds Reusable Image Questions (`asset_questions`) plus explicit stimulus-option opt-ins, Review provenance and fixed-image conversion integration. Migrations `0009`/`0010` are present on current `main`.
+
+PR #59 adds narrow same-image higher-resolution replacement with immutable new Asset/R2 object creation, current relationship transfer, Reusable Image Question cloning/remapping, historical Review media preservation, race safety and live Preview blocking. Migration `0011` is present on current `main`.
+
 ## Milestone 8 — real ECG/Anki reviewed migration
 
 Status: **initial deck migration complete and production-verified; curation/enrichment active**.
 
 The initial 66-note ECG source deck is fully accounted for in production: 13 Batch 01 imports, 51 Batch 02 imports and 2 pre-existing mapped calcium Cases. Both import jobs are complete with their reviewed package SHA-256 values, and exact production verification confirmed all 64 imported Cases/ECG Assets/Case↔ECG links plus the two active image-backed mapped Cases.
 
-Continue progressive enrichment of those Cases with alternate Study Topics, stimuli, Tags and Shared Questions. Initial ingestion did not wait for complete ontology/tagging; Image Management V2 and Stage B now provide the curation layer for the imported corpus.
+Continue progressive enrichment of those Cases with alternate Study Topics, stimuli, Tags, Shared Questions and Reusable Image Questions. Initial ingestion did not wait for complete ontology/tagging; the current authoring and reusable-content model now provides the curation layer for the imported corpus.
 
 ## Milestone 9 — learner accounts / role acceptance
 
@@ -338,7 +398,6 @@ Initial scope: learner list, recent Reviews, filters, Again/Good summaries and r
 ## Deferred work
 
 - Asset/Stimulus→Topic relationships unless real content requires them;
-- global Asset folders/groups unless corpus-management evidence justifies a separate architecture decision;
 - finding ontology;
 - Deck/Collection unless curriculum use requires it;
 - FSRS/scheduling controls;
@@ -354,7 +413,12 @@ Initial scope: learner list, recent Reviews, filters, Again/Good summaries and r
 - Preview application of unmerged migrations;
 - multiple/compound Shared Question reuse scopes;
 - Tag hierarchy/aliases and learner Study-by-Tag;
-- Review Tag snapshots.
+- Review Tag snapshots;
+- generic Asset families or arbitrary version-history UI;
+- automatic visual same-image detection;
+- automatic deduplication;
+- bulk Asset replacement;
+- different-clinical-image replacement through the higher-resolution replacement action.
 
 ## Validation required for implementation PRs
 
@@ -367,4 +431,4 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-GitHub PR CI covers this exact validation set. PR #43 is merged and deployed. Its final CI passed 240/240 tests; no additional Stage B migration is pending.
+GitHub PR CI covers this validation set. Merged PR #59's final CI passed the repository-authoritative sequence, including 342 tests. CI and merge success do not substitute for explicit production migration/deployment verification.
