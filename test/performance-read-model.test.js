@@ -22,6 +22,7 @@ function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(migrationSql);
+  /** @type {string[]} */
   const preparedSql = [];
   const d1 = {
     /** @param {string} sql */
@@ -159,6 +160,7 @@ test('getAdminCaseData does not reintroduce listAdminCases for a detail read', (
 });
 
 test('timing instrumentation preserves return values and failure semantics', async () => {
+  /** @type {{ operation: string, durationMs: number, outcome: 'ok' | 'error' }[]} */
   const timings = [];
   const value = await withServerReadTiming('admin dashboard read', async () => ({ ok: true }), (timing) => timings.push(timing));
   assert.deepEqual(value, { ok: true });
