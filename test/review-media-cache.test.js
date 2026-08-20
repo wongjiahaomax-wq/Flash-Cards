@@ -5,17 +5,19 @@ import { serveReviewImage, serveTeachingImage } from '../src/lib/server/storage/
 
 function bucketFixture() {
   const etag = '"review-object-etag"';
-  return /** @type {R2Bucket} */ ({
+  const bucket = {
     async get() {
       return /** @type {any} */ ({
         body: new Blob(['historical-image']).stream(),
         httpEtag: etag,
+        /** @param {Headers} headers */
         writeHttpMetadata(headers) {
           headers.set('Content-Type', 'image/png');
         }
       });
     }
-  });
+  };
+  return /** @type {R2Bucket} */ (/** @type {unknown} */ (bucket));
 }
 
 test('Review-owned media forces browser revalidation while retaining ETag support', async () => {
