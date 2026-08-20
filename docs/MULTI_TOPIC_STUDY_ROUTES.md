@@ -1,12 +1,12 @@
 # Flash-Cards — Multi-Topic Case Study Routes
 
-_Last updated: 18 August 2026_
+_Last updated: 20 August 2026_
 
 ## Status
 
-**Implemented and part of the current production baseline.** Learner multi-Topic routing and Review provenance landed through PR #18, and production Admin multi-Topic Case authoring is also implemented.
+**Implemented and part of the verified production baseline.** Learner multi-Topic routing and Review provenance landed through PR #18, and production Admin multi-Topic Case authoring is implemented. Current `main` additionally includes Case-editor Topic management/inline Topic creation from PR #54; merge status and deployment status remain separate facts.
 
-This remains the preferred model before introducing any Asset-to-Topic relationship.
+This remains the preferred model before introducing any Asset-to-Topic or stimulus-option-to-Topic learner-routing relationship.
 
 The key rule is:
 
@@ -17,8 +17,6 @@ The implementation reuses `case_concepts`; there is no parallel Topic table or C
 ## 1. Why this exists
 
 A single coherent Case can teach the same presentation through several valid educational lenses.
-
-Example:
 
 ```text
 Case: Post-thyroidectomy hypocalcaemia with prolonged QTc
@@ -76,37 +74,42 @@ study_concept_id
 
 This distinction preserves both administrative classification and learner-route provenance.
 
-## 4. Route-specific reusable Topic questions
+## 4. Route-specific reusable Topic questions and selected-stimulus knowledge
 
 The learner resolver uses the actual `study_concept_id` as the direct reusable Topic-question context.
-
-Example:
 
 ```text
 Study Hypocalcaemia
 → same Case may appear
 → direct Hypocalcaemia Topic questions
   + Case/stimulus questions
+  + explicitly opted-in Reusable Image Questions for selected stimuli
 
 Study Prolonged QTc
 → same Case may appear
 → direct Prolonged-QTc Topic questions
   + the same Case/stimulus questions
+  + explicitly opted-in Reusable Image Questions for selected stimuli
 ```
 
-The resolver does **not** mix reusable question banks from every attached Case Topic.
+The resolver does **not** mix direct reusable Topic-question banks from every attached Case Topic.
 
-Current broader precedence also includes tag-shared knowledge:
+Reusable Image Questions are independent of Study Topic identity. Their eligibility comes from the selected stimulus option plus an explicit `stimulus_option_asset_questions` opt-in, not from `case_concepts`.
+
+Current duplicate-Prompt precedence is:
 
 ```text
-selected stimulus option
-> stimulus group
-> Case
-> exact Study Topic
-> tag-shared Question
+Case-specific exact stimulus option question
+> explicitly reused Asset Question for selected option
+> stimulus group question
+> Case question
+> exact Study Topic question
+> Tag-shared Question
 > nearest eligible inheritable ancestor Topic
 > more distant eligible ancestors
 ```
+
+The final candidate set is deduplicated by `question_prompt_id` before Automatic/All/Fixed selection.
 
 ## 5. Primary/default Topic changes
 
@@ -122,13 +125,13 @@ Current Admin behavior supports:
 - retaining unrelated secondary relationships;
 - showing inactive historical Topic relationships for safe orientation/editing.
 
+Current `main` also allows an administrator to create a new Topic from the Case editor and immediately attach it as either the new primary/default Topic or an Additional Study Topic. This is an authoring convenience over the same `concepts` + `case_concepts` model; it does not create a second Topic system.
+
 A primary cannot simply be removed without establishing another valid active primary.
 
 ## 6. Study-Topic validity rule
 
 A Topic should be attached as a learner Study route only when **every valid random configuration of the Case remains a legitimate example of that Topic**.
-
-Example:
 
 ```text
 Case: Hypercalcaemia
@@ -152,15 +155,19 @@ Unsafe Case Study Topic if only option B demonstrates it:
 Osborn waves
 ```
 
-That image-only finding should remain an exact-option question/teaching point.
+That image-only finding should remain stimulus-specific teaching: a Case-specific exact-image question, a Reusable Image Question if intrinsically true of the exact Asset, or other selected-stimulus context where appropriate.
 
-This rule is why the current product does not need stimulus-option → Topic learner routing.
+The existence of a Reusable Image Question on one option does not make its finding a valid Case-level Study Topic. Study-route validity is still evaluated across all valid Case stimulus configurations.
 
-## 7. Topic hierarchy remains separate from Tags
+This is why the current product does not need stimulus-option → Topic learner routing.
+
+## 7. Topic hierarchy remains separate from Tags and exact-Asset reuse
 
 Multi-Topic routing is learner navigation/curriculum structure.
 
 Tags are flat cross-cutting metadata and Shared Question reuse scope.
+
+Reusable Image Questions are canonical exact-Asset teaching content with explicit per-stimulus opt-in.
 
 ```text
 Study Topic relationship
@@ -168,17 +175,24 @@ Study Topic relationship
 
 Case Tag
 = Case contains/covers this cross-cutting clinical concept
+
+Reusable Image Question
+= exact selected Asset may contribute this canonical Prompt/answer after explicit opt-in
 ```
 
-A Case may have both a Study Topic and a same-named Tag when both semantics are useful, but one does not imply the other.
+These mechanisms may describe overlapping clinical ideas but do not imply one another.
 
 ## 8. Interaction with stimulus groups
 
 Alternative stimulus selection is independent of which attached Topic is the administrative default.
 
-The valid Study Topic route is resolved for the Review; then fixed/alternative stimuli and questions are resolved using the normal Case behavior.
+The Study Topic route is resolved for the Review; then fixed/alternative stimuli and questions are resolved using normal Case behavior.
 
-The Study-Topic validity rule must be checked against all active alternative configurations. If a Case's alternatives diverge so much that one attached Topic is only valid for some options, split/refine the Case or consider a future stimulus-level routing feature only if real learner requirements justify it.
+The Study-Topic validity rule must be checked against all active alternative configurations. If alternatives diverge so much that one attached Topic is only valid for some options, split/refine the Case or consider a future stimulus-level routing feature only if real learner requirements justify it.
+
+Transparent fixed-image conversion for exact-image question scope does not change Topic routing. A one-option group created to support image-specific teaching remains learner-equivalent to the previous fixed image and keeps the same Case Topic relationships.
+
+Higher-resolution replacement likewise does not alter `case_concepts` or Review Study Topic semantics.
 
 ## 9. Review history and migration
 
@@ -191,6 +205,8 @@ study_concept_id = primary_concept_id
 That preserves pre-migration meaning because historical Reviews used primary-Topic routing.
 
 New Reviews record the actual Study Topic route used.
+
+Later question/image features do not rewrite these Topic snapshots. Reusable-image provenance lives on `review_questions`; historical media identity lives on `review_assets.storage_key_snapshot`.
 
 ## 10. Production taxonomy example
 
@@ -233,6 +249,8 @@ Topics
 - Prolonged QTc
 ```
 
+Authors may select an existing active Topic or create a new Topic inline, but every mutation still resolves to the same canonical `concepts` / `case_concepts` relationships.
+
 Helper guidance should remind authors:
 
 > Add an Additional Study Topic only when the Case is a valid example of that Topic regardless of which valid alternative stimuli are selected.
@@ -248,4 +266,4 @@ Do not add:
 
 Reconsider stimulus-level learner routing only when real content demonstrates a Case that genuinely must remain one presentation while some valid alternatives are legitimate routes for a Topic and others are not.
 
-Until then, `case_concepts` plus contextual stimulus questions remains the simpler and safer model.
+Until then, `case_concepts` plus contextual stimulus questions, exact-Asset reusable questions, Tags/Shared Questions, and the existing learner resolver remain the simpler and safer model.
