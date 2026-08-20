@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { hashPassword } from 'better-auth/crypto';
 
 const baseURL = 'http://127.0.0.1:8787';
@@ -11,11 +12,12 @@ const password = 'LocalSmokePassword123!';
 const userId = '00000000-0000-4000-8000-000000000001';
 const accountId = '00000000-0000-4000-8000-000000000002';
 const secret = 'local-auth-smoke-secret-32-characters-minimum';
-const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
-const wrangler = ['--yes', 'wrangler@4.123.0'];
+const wranglerCli = fileURLToPath(
+  new URL('../node_modules/wrangler/bin/wrangler.js', import.meta.url)
+);
 
 function runWrangler(args) {
-  execFileSync(npxCommand, [...wrangler, ...args], { stdio: 'inherit' });
+  execFileSync(process.execPath, [wranglerCli, ...args], { stdio: 'inherit' });
 }
 
 function sqlString(value) {
@@ -100,9 +102,9 @@ runWrangler([
 
 const logs = [];
 const worker = spawn(
-  npxCommand,
+  process.execPath,
   [
-    ...wrangler,
+    wranglerCli,
     'dev',
     '--local',
     '--ip',
