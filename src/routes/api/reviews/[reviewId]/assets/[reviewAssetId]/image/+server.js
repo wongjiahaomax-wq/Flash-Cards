@@ -1,8 +1,16 @@
 import { createDb } from '$lib/server/db/index.js';
 import { getOwnedReviewMediaSnapshot } from '$lib/server/db/review-media.js';
+import { isPreviewAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 import { serveReviewImage } from '$lib/server/storage/serve.js';
 
 export async function GET({ locals, params, platform, request }) {
+  if (isPreviewWorker(platform?.env) || isPreviewAdmin(locals.user)) {
+    return new Response('Learner Study is unavailable for Preview Admin.', {
+      status: 403,
+      headers: { 'Cache-Control': 'no-store' }
+    });
+  }
+
   if (!locals.user) {
     return new Response('Authentication required.', {
       status: 401,
