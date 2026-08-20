@@ -4,6 +4,7 @@
   let { caseSpecificCount = 0, reusable } = $props();
 </script>
 
+<!-- Both rows describe image-specific knowledge; the labels keep Case-specific and reusable ownership distinct. -->
 <div class="question-counts" aria-label="Image question counts">
   <div class="count-row">
     <strong>Case-specific Image Questions · {caseSpecificCount}</strong>
