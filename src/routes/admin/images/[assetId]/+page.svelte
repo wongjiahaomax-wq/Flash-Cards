@@ -1,6 +1,7 @@
 <script>
   let { data } = $props();
   let detail = $derived(data.detail);
+  /** @param {string} optionId @param {string} questionId */
   const opted = (optionId, questionId) => data.optedKeys?.includes(`${optionId}:${questionId}`) ?? false;
 </script>
 
