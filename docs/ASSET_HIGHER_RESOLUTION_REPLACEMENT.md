@@ -175,20 +175,73 @@ new Review
 → new R2 object
 ```
 
+## Live Preview protection
+
+Preview-owned relationships are never migrated by production replacement. In addition, replacement must not deactivate A while a **live Preview workspace** is currently showing A, because the ordinary current-Asset media route rejects inactive Assets.
+
+A Preview workspace is live under the existing Preview contract when:
+
+```text
+preview_sessions.status = 'active'
+AND preview_sessions.expires_at > now
+```
+
+Both of these usages block replacement:
+
+- a live Preview Case has A in `case_assets`;
+- a live Preview Case has A in one of its `stimulus_group_options`.
+
+The domain operation checks for those relationships before R2 upload and returns a clear Admin error instructing the administrator to reset the Preview workspace or allow it to expire.
+
+The same no-live-Preview condition is repeated inside the D1 source-Asset claim. That closes the interval between preflight and commit: if a Preview becomes live while replacement is underway, the D1 batch fails and the newly uploaded replacement object is cleaned up. The Preview relationship itself is still never rewritten.
+
+Expired/non-live Preview rows do not block production replacement and remain outside the mutation set.
+
+## Race-safe source claim
+
+Two concurrent/double submissions for the same source Asset must not both succeed.
+
+The D1 batch therefore treats A as a claimable source. A claim is permitted only while A is:
+
+```text
+production-owned
+AND active
+AND superseded_by_asset_id IS NULL
+AND not referenced by a live Preview workspace
+```
+
+The batch conditionally updates A to `is_active = false` and `superseded_by_asset_id = B.id`, then immediately performs a database-enforced assertion that the claim belongs to that exact B.
+
+A conditional D1 `UPDATE` that affects zero rows is not sufficient by itself because zero-row updates do not make `db.batch()` fail. The assertion deliberately relies on an existing NOT NULL constraint: if A was already claimed by another submission, or became blocked by a live Preview, the assertion produces a D1 constraint error and rolls back the entire batch.
+
+Therefore under two concurrent replacement submissions:
+
+```text
+one batch claims A and succeeds
+other batch loses the claim and rolls back
+loser's newly uploaded R2 object is deleted
+old A object remains
+winner's B object remains
+```
+
+No second replacement Asset/question/relationship state survives the losing D1 transaction.
+
 ## R2/D1 failure safety
 
 R2 and D1 do not share a transaction. The operation follows this sequence:
 
 ```text
-1. validate source Asset and full semantic preflight
+1. validate source Asset and full semantic preflight, including live Preview usage
 2. upload one new immutable R2 object through existing media guardrails
 3. execute the D1 replacement semantics in one D1 batch
-4. if D1 fails:
+4. claim A exactly once inside that batch
+5. if the claim or any later D1 statement fails:
+     roll back the entire D1 batch
      delete only the newly uploaded object
-     leave A and all original relationships unchanged
+     leave the prior committed source state intact
 ```
 
-The D1 batch contains the new Asset, cloned reusable questions, current fixed relationship moves, current Stimulus Option Asset changes, reusable opt-in remapping, and old-Asset deactivation/supersession.
+The D1 batch contains the new Asset, the source claim/deactivation, cloned reusable questions, current fixed relationship moves, current Stimulus Option Asset changes, and reusable opt-in remapping.
 
 After success both old and new R2 objects remain. Old media is historical Review data and is not garbage-collected by this workflow.
 
@@ -204,6 +257,37 @@ Replacement uses the existing teaching-image storage helpers and therefore retai
 
 No direct overwrite of an existing teaching-image key is permitted.
 
+## Local production-like replica
+
+The local replica must reproduce the current image-authoring state introduced by Reusable Image Questions and supersession.
+
+Its D1 allowlist therefore includes:
+
+```text
+asset_questions
+stimulus_option_asset_questions
+```
+
+in addition to the existing Asset/Case/stimulus tables.
+
+Because `assets.superseded_by_asset_id` is an immediate self-FK, local import must not rely on arbitrary Asset ID ordering. For lineage:
+
+```text
+A → B → C
+```
+
+Asset rows are inserted **successor-first**:
+
+```text
+C
+B
+A
+```
+
+Missing successor rows or cycles fail closed. During local reset, the local-only workflow clears `assets.superseded_by_asset_id` before deleting Asset rows and deletes reusable-image child relationships before their parent rows.
+
+This changes only read-production/write-local development behavior. It creates no production mutation path.
+
 ## Production / Preview boundary
 
 This is a production Admin mutation.
@@ -212,7 +296,8 @@ This is a production Admin mutation.
 - Preview-owned Assets are rejected;
 - only production Case/stimulus relationships are migrated;
 - Preview Admin receives no equivalent replacement action;
-- Preview-owned relationships are not silently rewritten.
+- Preview-owned relationships are not silently rewritten;
+- a live Preview reference temporarily blocks source-Asset deactivation.
 
 ## Import boundary
 
