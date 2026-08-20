@@ -1,20 +1,22 @@
 # Slide-to-Flash-Cards Reviewed Import Workflow
 
-_Status: local review/finalization layer implemented in draft PR #53; ChatGPT source reconstruction remains a separate workflow._
+_Status: local review/finalization layer implemented and merged in PR #53; semantic PPTX/PDF source reconstruction remains a separate ChatGPT workflow._
 
-_Last updated: 19 August 2026._
+_Last updated: 20 August 2026._
 
 ## 1. Purpose and boundary
 
 Teaching material will often arrive as unstructured PPTX/PDF slides containing vignettes, images, question/answer slides, multi-slide Cases, tables and non-Case teaching material.
 
-The application does **not** attempt to interpret arbitrary slides itself. The governing architecture remains:
+The application does **not** attempt to interpret arbitrary slides itself. The governing architecture is:
 
 > **ChatGPT reconstructs → human reviews the actual proposed manifest → deterministic code finalizes → existing importer writes production.**
 
 There is one semantic AI step only. The local reviewer/finalizer performs no medical reasoning, source interpretation, taxonomy inference, Prompt rewriting or answer rewriting.
 
-This implementation does **not** implement PPTX/PDF extraction, OCR or the ChatGPT reconstruction step.
+The repository now implements the reusable local review/finalization layer. It does **not** implement PPTX/PDF semantic extraction, OCR orchestration or the ChatGPT reconstruction step.
+
+Current `main` therefore contains the middle and final local tooling, not an end-to-end autonomous slide-ingestion system.
 
 ## 2. Architecture
 
@@ -22,6 +24,7 @@ This implementation does **not** implement PPTX/PDF extraction, OCR or the ChatG
 Original PPTX / PDF
         ↓
       ChatGPT
+semantic source reconstruction
         ↓
 Reviewable Import Bundle
 ├── manifest.json
@@ -30,6 +33,8 @@ Reviewable Import Bundle
 └── source-previews/
         ↓
 Reusable Local Review Previewer
+        ↓
+Human review / editing
         ↓
 Reviewed Import Bundle
         ↓
@@ -40,15 +45,53 @@ flashcards-import-v1.zip
 └── media/
         ↓
 Existing Admin Importer
+        ↓
+resumable D1/R2 import
 ```
 
 The core invariant is:
 
 > **The manifest content the human approves is the content that the production importer receives.**
 
-The proposed-import panel edits the actual in-memory Import Package-shaped manifest. There is no duplicate candidate content model and no second semantic conversion.
+The proposed-import panel edits the actual in-memory Import Package-shaped manifest. There is no duplicate candidate content model and no second semantic conversion after human approval.
 
-## 3. Implemented local tool
+## 3. Source-reconstruction contract
+
+The semantic reconstruction step is an upstream editorial workflow, not part of the local reviewer/finalizer and not part of the production Worker.
+
+For each source batch, the reconstruction step should start from current `main` and use the current executable Import Package v1 validator as the authority for `manifest.json` shape.
+
+The reconstruction output is one Reviewable Import Bundle:
+
+```text
+<batch-name>-review.zip
+├── manifest.json
+├── media/
+├── review-map.json
+└── source-previews/
+```
+
+Important boundaries:
+
+- `manifest.json` already contains the actual production-shaped content proposed for approval;
+- `review-map.json` contains review state, provenance, source references, confidence and warnings only;
+- source evidence must support emitted Prompt/answer content; missing material must remain unresolved rather than being invented;
+- one temporary holding Topic is preferred for a logical slide batch unless explicitly instructed otherwise;
+- slide-derived learner images initially remain fixed Case Assets unless the source/review explicitly establishes a different supported relationship;
+- Tags, Shared Questions, Reusable Image Questions, Additional Study Topics, alternative stimulus groups, Image Collections and higher-resolution supersession are later editorial enrichment, not automatic source-reconstruction output;
+- do not generate a per-bundle `preview.html`; the reviewer is the reusable application;
+- do not place the original PPTX/PDF inside the review ZIP unless explicitly required for a particular workflow.
+
+This preserves one semantic transformation:
+
+```text
+source material
+→ proposed Flash-Cards content
+```
+
+Everything after that is human review plus deterministic validation/finalization.
+
+## 4. Implemented local tool
 
 The reusable local tooling lives under:
 
@@ -93,7 +136,7 @@ npm run slide-review:finalize -- reviewed.zip [output.zip]
 
 No new npm dependency is required for the reviewer/finalizer.
 
-## 4. Review bundle
+## 5. Review bundle
 
 The reviewer consumes:
 
@@ -109,7 +152,7 @@ This ZIP is intentionally **not** a production Import Package. Review-only paths
 
 The browser reads the ZIP selected or dropped by the user through File APIs. It does not fetch sibling files under `file://`, upload bundle contents, or automatically fetch `Asset.sourceUrl`.
 
-## 5. Production-shaped manifest profile
+## 6. Production-shaped manifest profile
 
 The current Import Package v1 validator remains authoritative and is not weakened by this workflow.
 
@@ -136,9 +179,9 @@ Created slide-derived Cases normally use:
 
 All slide-ingested learner images initially remain fixed Case Assets and preserve source order through `caseAssets.displayOrder`.
 
-The reviewer does not expose automatic taxonomy, Tags, Shared Questions, Additional Study Topics, alternative stimulus groups or Image Collections.
+The reviewer does not expose automatic taxonomy, Tags, Shared Questions, Reusable Image Questions, Additional Study Topics, alternative stimulus groups, Image Collections or Asset supersession.
 
-## 6. Review-map v1 contract
+## 7. Review-map v1 contract
 
 The machine-readable contract is frozen at:
 
@@ -287,7 +330,7 @@ The SHA-256 records the exact learner media bytes being reviewed.
 
 The `CaseQuestion` points to its production `QuestionPrompt` through the manifest relationship.
 
-## 7. Unresolved source questions
+## 8. Unresolved source questions
 
 The production Import Package validator requires every created Case Question to have a non-empty answer. Therefore a source question with no reliable answer must **not** appear as an invalid `caseQuestions[]` record.
 
@@ -343,7 +386,7 @@ No Prompt or Case Question is created. The candidate remains in editorial histor
 
 An unresolved candidate that remains `pending` or `needs_review` blocks finalization.
 
-## 8. Review UI
+## 9. Review UI
 
 The primary view is side-by-side:
 
@@ -375,7 +418,7 @@ Shortcuts are ignored while focus is inside an input, textarea, select or conten
 
 Answers are hidden by default and the Case title is clearly identified as Admin-only.
 
-## 9. Direct manifest editing
+## 10. Direct manifest editing
 
 The reviewer directly edits:
 
@@ -395,7 +438,7 @@ CaseQuestion.answerMd
 
 These are the actual manifest fields later finalized. There is no post-review semantic conversion.
 
-## 10. Image review and replacement
+## 11. Image review and replacement
 
 Each learner Asset is shown as the actual learner-facing image together with source references, extraction method, confidence, warnings and SHA-256 state.
 
@@ -415,9 +458,11 @@ Replace image
 
 The current production per-image limit is enforced. The tool does not silently recompress, resize or degrade diagnostically meaningful images.
 
+This review-time image replacement changes bytes **inside the not-yet-imported review bundle**. It is distinct from the production Admin **Replace with higher-resolution version** workflow, which creates Asset supersession lineage after an Asset already exists in production.
+
 `Asset.altText` is directly editable. A `possible_answer_leakage` warning remains visually prominent and blocking when marked blocking.
 
-## 11. Case/component review semantics
+## 12. Case/component review semantics
 
 Review status is represented independently for:
 
@@ -434,7 +479,7 @@ A rejected Case remains represented in `review-map.json` editorial history but i
 
 At finalization the dependency selector removes the rejected Case plus relationships/entities/media no longer referenced by approved Cases. References are evaluated before pruning; referenced entities are not deleted merely because another Case was rejected.
 
-## 12. Source Coverage
+## 13. Source Coverage
 
 `sourceCoverage[]` accounts for source pages/slides with:
 
@@ -453,7 +498,7 @@ The Source Coverage view displays source file, page/slide, classification, linke
 
 A referenced preview path must exist in the selected ZIP; broken Case/source references fail validation.
 
-## 13. Local persistence
+## 14. Local persistence
 
 Review work is persisted in IndexedDB keyed by `bundleId`, including edited manifest/review metadata and replacement learner media.
 
@@ -461,7 +506,9 @@ This protects against accidental page closure, but browser persistence is not th
 
 Use **Export Reviewed Bundle** for the durable editorial/audit artifact.
 
-## 14. Reviewed bundle export
+This IndexedDB state is unrelated to the application's local D1/R2 production-like replica. The slide reviewer does not read or mutate the replica database.
+
+## 15. Reviewed bundle export
 
 The explicit export is:
 
@@ -475,7 +522,7 @@ The explicit export is:
 
 It preserves human edits, statuses, warnings, source evidence, rejected metadata, unresolved-question history and source coverage.
 
-## 15. Deterministic finalizer
+## 16. Deterministic finalizer
 
 The browser and CLI use the same finalization core.
 
@@ -518,7 +565,7 @@ topicQuestions = []
 
 Rejected Cases, unresolved review candidates, review history and source previews are excluded.
 
-## 16. Finalizer output and ZIP compatibility
+## 17. Finalizer output and ZIP compatibility
 
 Successful output is exactly:
 
@@ -559,7 +606,7 @@ It also checks the current hardened reviewed-package facade.
 
 The CLI additionally invokes the real production parser before writing its output.
 
-## 17. Media validation
+## 18. Media validation
 
 Before final output, selected learner media are checked for:
 
@@ -576,7 +623,7 @@ Only selected declared media are included in the production ZIP. Media belonging
 
 The reviewed input bundle itself rejects undeclared `media/` paths.
 
-## 18. Referential and package validation
+## 19. Referential and package validation
 
 Finalization fails on broken references such as:
 
@@ -594,7 +641,7 @@ Current production Import Package limits are mirrored from the actual implementa
 
 No image is silently degraded to satisfy package limits.
 
-## 19. Fail-closed behavior
+## 20. Fail-closed behavior
 
 Examples that block finalization include:
 
@@ -621,13 +668,15 @@ Errors are shown as actionable grouped failures. The code does not guess a medic
 
 If a stored final package exceeds the current compressed-size limit, split the review batch rather than reducing image quality automatically.
 
-## 20. Existing production importer remains authoritative
+## 21. Existing production importer remains authoritative
 
 The generated production ZIP is still selected in the existing Admin Import Package v1 workflow and follows its established validation, preview/confirmation and resumable import path.
 
 This local tooling adds an editorial review layer before production import; it does not create a new production Admin route or bypass D1/R2/import safety controls.
 
-## 21. Security
+The local production-like development replica is also separate. It mirrors allowlisted production content for development and deliberately excludes `import_jobs`; it is not a destination for review bundles or an alternate production-import mechanism.
+
+## 22. Security
 
 Bundle content is untrusted.
 
@@ -635,7 +684,7 @@ The reviewer does not execute vignette, Prompt, answer, caption, notes, slide te
 
 All routine bundle handling remains on the local machine.
 
-## 22. Tests
+## 23. Tests
 
 The dedicated suite covers:
 
@@ -668,26 +717,26 @@ production parseImportPackage compatibility
 The normal repository commands remain part of the acceptance boundary:
 
 ```bash
+npm run slide-review:test
 npm run check
 npm test
 npm run build
 ```
 
-## 23. Remaining scope
+## 24. Remaining separate scope
 
-This PR implements the reusable human-review and deterministic-finalization layer only.
-
-Still separate/future work includes:
+The repository implements the reusable human-review and deterministic-finalization layer. Still separate work includes:
 
 ```text
-PPTX extraction
-PDF extraction
-OCR
+PPTX semantic extraction
+PDF semantic extraction
+OCR when source material genuinely requires it
 ChatGPT source reconstruction orchestration
 medical correction
 automatic taxonomy
 Tags
 Shared Questions
+Reusable Image Questions
 Additional Study Topics
 alternative stimulus groups
 Image Collections
@@ -695,4 +744,6 @@ cross-Case deduplication
 hosted review infrastructure
 ```
 
-Therefore the full slide-ingestion pipeline must **not** be described as fully automated or fully implemented merely because the local reviewer/finalizer exists.
+Higher-resolution replacement of an already-imported production Asset is implemented elsewhere as a production Admin authoring workflow; it is **not** part of review-bundle finalization.
+
+Therefore the full slide-ingestion pipeline must **not** be described as fully automated merely because the local reviewer/finalizer is implemented.
