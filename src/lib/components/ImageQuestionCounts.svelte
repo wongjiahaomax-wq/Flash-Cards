@@ -1,4 +1,6 @@
 <script>
+  /** @typedef {{ total: number, used: number, available: number }} ReusableImageCountSummary */
+  /** @type {{ caseSpecificCount?: number, reusable?: ReusableImageCountSummary }} */
   let { caseSpecificCount = 0, reusable } = $props();
 </script>
 
