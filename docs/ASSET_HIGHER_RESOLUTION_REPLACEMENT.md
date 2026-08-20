@@ -1,10 +1,12 @@
 # Higher-resolution Asset replacement
 
-_Status: implemented on the current feature branch_
+_Status: implemented and merged on current `main` via PR #59. Production migration application and Worker deployment remain separate facts that must be verified explicitly._
 
 _Last updated: 20 August 2026_
 
 This document defines the narrow production Admin operation **Replace with higher-resolution version**.
+
+Current `main` contains `0011_asset_supersession.sql`, which adds the narrow Asset supersession lineage required by this workflow. Presence of the migration on `main` does not by itself prove that it has been applied to production.
 
 ## Purpose
 
@@ -97,7 +99,7 @@ The operation preserves:
 - caption;
 - active state.
 
-This identity preservation is what keeps existing Case-specific exact-image `stimulus_option_questions` intact. Those question rows and answers are not moved, cloned or rewritten.
+This identity preservation is what keeps existing Case-specific Image Questions (`stimulus_option_questions`) intact. Those question rows and answers are not moved, cloned or rewritten.
 
 ## Reusable Image Questions
 

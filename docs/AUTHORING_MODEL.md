@@ -61,18 +61,31 @@ Replacement creates a new Asset/R2 object for current authoring while retaining 
 
 ## 5. Question scope is an author-facing choice
 
-The normal question is:
+The normal Case-editor scope choice is:
 
-> **Where should this question apply?**
+```text
+This whole Case
+A specific image or stimulus
+```
 
-The principal scopes are:
+Once an image/stimulus is involved, the image card keeps ownership explicit with two separate categories:
+
+```text
+Case-specific Image Questions
+= exact image/stimulus questions belonging only to this Case context
+
+Reusable Image Questions
+= canonical questions belonging to the exact global Asset
+```
+
+Across the full authoring model, the principal scopes are:
 
 ```text
 exact reusable Asset
-→ Reusable with this image
+→ Reusable Image Question / Reusable with this image
 
 exact Asset in this particular Case/stimulus context
-→ Only in this Case
+→ A specific image or stimulus / Case-specific Image Question
 
 every option in one alternative set
 → Stimulus Group Question
@@ -88,7 +101,7 @@ general reusable knowledge
 
 Use Case scope when the question remains relevant and correct regardless of which stimulus is selected. Only this scope can normally expose Topic reuse.
 
-### Only in this Case
+### A specific image or stimulus — Case-specific Image Question
 
 Use the existing exact-option scope when the answer depends on the exact selected image **and this Case context**.
 
@@ -101,7 +114,7 @@ What is the most likely diagnosis in this patient?
 
 The answer belongs to the Case/stimulus relationship. Reusing the global Asset elsewhere does not carry this question with it.
 
-### Reusable with this image
+### Reusable Image Question — Reusable with this image
 
 Use a Reusable Image Question when the wording and answer are intrinsically true of the exact image Asset itself.
 
@@ -116,7 +129,7 @@ What does this ECG show?
 
 The canonical question belongs to the global Asset. A Case/stimulus using the same Asset receives it **only after an explicit opt-in**.
 
-> Reusing an Asset in another Case does not automatically carry its reusable Image Questions. The author must opt that Case/stimulus usage in.
+> Reusing an Asset in another Case does not automatically carry its Reusable Image Questions. The author must opt that Case/stimulus usage in.
 
 This prevents accidental cross-Case leakage while still allowing one canonical Prompt/answer to serve several deliberate uses.
 
@@ -126,7 +139,7 @@ Higher-resolution replacement is the one narrow operation where current reusable
 
 Do not create a parallel fixed-image-question system.
 
-When an author assigns an exact-option question or explicitly opts a fixed image into a Reusable Image Question, the application may transparently convert:
+When an author assigns a Case-specific Image Question or explicitly opts a fixed image into a Reusable Image Question, the application may transparently convert:
 
 ```text
 fixed case_assets relationship
@@ -154,7 +167,7 @@ Answers belong to contextual relationships:
 Topic Question
 Case Question
 Stimulus Group Question
-Exact-option Question
+Case-specific Image Question
 Reusable Image Question
 Shared Question
 ```
@@ -171,10 +184,10 @@ Attach a question at the broadest scope where its answer and educational meaning
 | What is the likely cause in this patient? | Case |
 | What applies to every image in this alternative set? | Stimulus Group |
 | What does this exact ECG intrinsically show wherever it is reused? | Reusable Image Question |
-| What is the diagnosis in this patient given this ECG? | Exact image, Only in this Case |
+| What is the diagnosis in this patient given this ECG? | A specific image or stimulus — Case-specific Image Question |
 | What reusable knowledge applies to every Case carrying one clinical Tag? | Shared Question |
 
-Starting conservatively at Case/exact-option scope and promoting later is acceptable. Do not infer reusability automatically from matching text or answers.
+Starting conservatively at Case/Case-specific Image Question scope and promoting later is acceptable. Do not infer reusability automatically from matching text or answers.
 
 ## 10. Tags and Shared Questions
 
@@ -189,12 +202,12 @@ Reusable Image Questions are different: their reuse key is exact Asset identity,
 When the same Question Prompt appears from more than one source, the resolver uses:
 
 ```text
-Case-specific exact-image question
+Case-specific Image Question for the selected option
 > Reusable Image Question explicitly selected for that stimulus
-> Stimulus Group question
-> Case question
-> exact Study Topic question
-> Tag-shared question
+> Stimulus Group Question
+> Case Question
+> exact Study Topic Question
+> Tag-shared Question
 > nearest eligible inheritable ancestor Topic
 > more distant eligible ancestors
 ```
@@ -205,7 +218,7 @@ This means the most specific Case/stimulus context wins while broad reusable kno
 
 The same Prompt may not be configured ambiguously across independently selectable stimulus groups in one Case.
 
-Higher-resolution replacement does not change this precedence. It preserves existing Stimulus Option IDs so exact-image Case questions remain attached to the same contextual identity, and remaps current reusable opt-ins to cloned questions for the new Asset.
+Higher-resolution replacement does not change this precedence. It preserves existing Stimulus Option IDs so Case-specific Image Questions remain attached to the same contextual identity, and remaps current reusable opt-ins to cloned questions for the new Asset.
 
 ## 12. Question-count and coverage modes
 
@@ -257,7 +270,7 @@ A higher-resolution replacement inherits the old Asset's Collection as ordinary 
 
 Reviewed slide/Anki imports should initially reconstruct ordinary Topic/Case/Asset/Case-question content faithfully. Import Package v1 remains unchanged.
 
-Reusable-image authoring is later editorial enrichment. Existing exact-option questions are not migrated or promoted automatically merely because they use the same Asset or appear semantically similar.
+Reusable-image authoring is later editorial enrichment. Existing Case-specific Image Questions are not migrated or promoted automatically merely because they use the same Asset or appear semantically similar.
 
 Higher-resolution replacement is likewise a post-import Admin authoring operation; replacement/version fields are not added to Import Package v1.
 
@@ -289,10 +302,10 @@ Topics
 
 When reviewing an image question, ask:
 
-1. Is the answer intrinsically true of this exact Asset wherever it appears? → **Reusable with this image**.
-2. Does the answer depend on this clinical Case/stimulus context? → **Only in this Case**.
-3. Does it apply to every option in one alternative set? → **Stimulus Group Question**.
-4. Does it apply to the whole presentation? → **Case Question**.
+1. Does the answer apply to the whole clinical presentation? → **This whole Case**.
+2. Does the answer depend on this exact image/stimulus in this Case? → **A specific image or stimulus / Case-specific Image Question**.
+3. Is the answer intrinsically true of this exact Asset wherever it appears? → **Reusable Image Question / Reusable with this image**.
+4. Does it apply to every option in one alternative set? → **Stimulus Group Question**.
 5. Is it general reusable knowledge? → **Topic / Shared Question**.
 
 When replacing media, ask separately:
@@ -310,7 +323,7 @@ Do not use Collections as a substitute for Topics, Tags, or stimulus groups.
 
 Do not add a parallel fixed-image-question table. Fixed images may be transparently represented as one-option stimulus groups when image-specific question scope requires it.
 
-Do not infer reusable Image Questions from existing `stimulus_option_questions`.
+Do not infer Reusable Image Questions from existing `stimulus_option_questions`.
 
 Do not extend Import Package v1 merely to support editorial enrichment or higher-resolution replacement.
 
