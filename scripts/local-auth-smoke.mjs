@@ -11,10 +11,15 @@ const password = 'LocalSmokePassword123!';
 const userId = '00000000-0000-4000-8000-000000000001';
 const accountId = '00000000-0000-4000-8000-000000000002';
 const secret = 'local-auth-smoke-secret-32-characters-minimum';
-const wrangler = ['--yes', 'wrangler@4.123.0'];
+const wranglerCommand = 'npx';
+const wrangler = ['--yes', 'wrangler@4.124.0'];
+const useShell = process.platform === 'win32';
 
 function runWrangler(args) {
-  execFileSync('npx', [...wrangler, ...args], { stdio: 'inherit' });
+  execFileSync(wranglerCommand, [...wrangler, ...args], {
+    stdio: 'inherit',
+    shell: useShell
+  });
 }
 
 function sqlString(value) {
@@ -99,7 +104,7 @@ runWrangler([
 
 const logs = [];
 const worker = spawn(
-  'npx',
+  wranglerCommand,
   [
     ...wrangler,
     'dev',
@@ -119,7 +124,8 @@ const worker = spawn(
   ],
   {
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: process.platform !== 'win32'
+    detached: process.platform !== 'win32',
+    shell: useShell
   }
 );
 

@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 19 August 2026_
+_Last reviewed: 20 August 2026_
 
 This file identifies which repository documents describe the **current deployed product**, which are subsystem contracts/runbooks, which are pending designs, and which are historical records.
 
@@ -39,6 +39,8 @@ Repository developer tooling now also includes the production-like local D1/R2 r
 
 The local slide-review/finalizer tooling is repository tooling and is not a deployed production-application feature. Its implementation is tracked by draft PR #53 until merged.
 
+Reusable Image Questions are implemented on the current feature branch and documented in `REUSABLE_IMAGE_QUESTIONS.md`; until that PR is merged/deployed, treat that document as the authoritative contract for the pending feature rather than as deployed production behavior.
+
 ## Start here — authoritative orientation
 
 ### `CURRENT_PRODUCT_ROADMAP.md`
@@ -76,6 +78,7 @@ Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual
 - `ADMIN_CONTENT_MANAGEMENT_PLAN.md` — historical filename, current implemented Admin CMS contract and next Admin work.
 - `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` — current Case/Image Library authoring interaction contract.
 - `IMAGE_MANAGEMENT_V2_PLAN.md` — deployed behavior record for pagination, selection, Collections, bounded bulk execution, option Move, and Preview isolation.
+- `REUSABLE_IMAGE_QUESTIONS.md` — exact-Asset reusable question semantics, explicit Case/stimulus opt-in, resolver precedence, Review provenance, fixed-image conversion, and Preview restrictions for the reusable-image feature branch.
 
 ### Topics / multi-Topic routing
 
@@ -129,6 +132,8 @@ These are intentional future designs, **not current implemented behavior**.
 
 The slide-ingestion **source reconstruction/extraction** step remains separate future workflow work even after the local reviewer/finalizer lands; do not infer that PPTX/PDF ingestion is automated from the existence of the local review tool.
 
+Higher-resolution Asset replacement/versioning remains separate from Reusable Image Questions. Do not infer Asset identity families, version history, or automatic transfer of reusable questions to replacement Assets from this feature.
+
 If pending work is later implemented, its design document must be converted from future/acceptance language into an operational runbook and the project roadmap/handover updated.
 
 ## Historical / superseded records
@@ -163,7 +168,7 @@ These files may retain short historical rollout notes because they explain safet
 
 ```text
 curate real ECG Case Tags
-→ promote genuinely reusable knowledge into Shared Questions
+→ promote genuinely reusable knowledge into Shared Questions / Reusable Image Questions where scope is proven
 → add useful alternate Study Topics/stimuli
 → observe real Admin/learner friction
 → implement learner-account administration
@@ -183,6 +188,6 @@ For future PRs:
 5. Keep migration application and Worker deployment as separate explicitly verified facts.
 6. Preserve historical decision records but label them clearly.
 7. Record production content migrations with exact accounting/verification.
-8. Keep terminology consistent: Topic, Case, Tag, Asset, Collection, Question Prompt, Shared Question.
+8. Keep terminology consistent: Topic, Case, Tag, Asset, Collection, Question Prompt, Shared Question, Reusable Image Question.
 9. Do not call a pending design implemented merely because the design doc exists.
 10. Before editing project-wide status, compare documentation with current code, migrations, merged PR state, and explicitly verified production state.

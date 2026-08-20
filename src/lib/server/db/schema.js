@@ -314,6 +314,37 @@ export const stimulusOptionQuestions = sqliteTable(
   ]
 );
 
+export const assetQuestions = sqliteTable(
+  'asset_questions',
+  {
+    id: text('id').primaryKey(),
+    assetId: text('asset_id').notNull().references(() => assets.id, { onDelete: 'restrict' }),
+    questionPromptId: text('question_prompt_id').notNull().references(() => questionPrompts.id, { onDelete: 'restrict' }),
+    answerMd: text('answer_md').notNull(),
+    isActive: activeFlag(),
+    createdAt: timestamp('created_at'),
+    updatedAt: timestamp('updated_at')
+  },
+  (table) => [
+    uniqueIndex('asset_questions_asset_prompt_unique').on(table.assetId, table.questionPromptId),
+    index('asset_questions_prompt_idx').on(table.questionPromptId),
+    index('asset_questions_asset_active_idx').on(table.assetId, table.isActive)
+  ]
+);
+
+export const stimulusOptionAssetQuestions = sqliteTable(
+  'stimulus_option_asset_questions',
+  {
+    stimulusGroupOptionId: text('stimulus_group_option_id').notNull().references(() => stimulusGroupOptions.id, { onDelete: 'restrict' }),
+    assetQuestionId: text('asset_question_id').notNull().references(() => assetQuestions.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at')
+  },
+  (table) => [
+    primaryKey({ columns: [table.stimulusGroupOptionId, table.assetQuestionId], name: 'stimulus_option_asset_questions_pk' }),
+    index('stimulus_option_asset_questions_question_idx').on(table.assetQuestionId)
+  ]
+);
+
 export const reviews = sqliteTable(
   'reviews',
   {
@@ -360,6 +391,7 @@ export const reviewQuestions = sqliteTable(
     sourceConceptId: text('source_concept_id').references(() => concepts.id, { onDelete: 'restrict' }),
     sourceStimulusGroupId: text('source_stimulus_group_id').references(() => stimulusGroups.id, { onDelete: 'restrict' }),
     sourceStimulusOptionId: text('source_stimulus_option_id').references(() => stimulusGroupOptions.id, { onDelete: 'restrict' }),
+    sourceAssetQuestionId: text('source_asset_question_id').references(() => assetQuestions.id, { onDelete: 'restrict' }),
     // The D1 migration enforces this FK to shared_questions. Declaring it here
     // would create a schema.js <-> tag-schema.js module cycle for one nullable
     // provenance field, so Drizzle keeps the column shape without the callback.
@@ -372,10 +404,11 @@ export const reviewQuestions = sqliteTable(
     uniqueIndex('review_questions_review_order_unique').on(table.reviewId, table.displayOrder),
     uniqueIndex('review_questions_review_prompt_unique').on(table.reviewId, table.questionPromptId),
     index('review_questions_prompt_idx').on(table.questionPromptId),
+    index('review_questions_asset_question_idx').on(table.sourceAssetQuestionId),
     index('review_questions_shared_question_idx').on(table.sourceSharedQuestionId),
     check(
       'review_questions_source_type_check',
-      sql`${table.sourceType} in ('case', 'concept', 'ancestor_concept', 'stimulus_group', 'stimulus_option', 'tag_shared')`
+      sql`${table.sourceType} in ('case', 'concept', 'ancestor_concept', 'stimulus_group', 'asset', 'stimulus_option', 'tag_shared')`
     ),
     check('review_questions_display_order_nonnegative', sql`${table.displayOrder} >= 0`)
   ]
