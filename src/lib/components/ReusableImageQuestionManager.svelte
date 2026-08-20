@@ -1,4 +1,7 @@
 <script>
+  /** @typedef {{ id: string, assetId: string, promptMd: string, answerMd: string, usedInCase: boolean }} ReusableImageQuestion */
+  /** @typedef {{ assetId: string, stimulusOptionId: string | null, total: number, used: number, available: number, questions: ReusableImageQuestion[] }} ReusableImageQuestionSummary */
+  /** @type {{ summary?: ReusableImageQuestionSummary, caseId: string, assetId: string, optionId?: string | null, previewMode?: boolean }} */
   let { summary, caseId, assetId, optionId = null, previewMode = false } = $props();
   let usedQuestions = $derived((summary?.questions ?? []).filter((question) => question.usedInCase));
   let availableQuestions = $derived((summary?.questions ?? []).filter((question) => !question.usedInCase));
