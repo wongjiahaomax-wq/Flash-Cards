@@ -358,20 +358,37 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
   const ids = rawRows.map((row) => row.id);
   const usageRows = await listRetainedUsageRows(db, ids);
   const usageCasesByAsset = new Map();
-  const topicsByAsset = new Map();
+  const currentTopicsByAsset = new Map();
+  const historicalTopicsByAsset = new Map();
   for (const row of usageRows) {
     if (row.relationshipIsCurrent) {
       const usageCases = usageCasesByAsset.get(row.assetId) ?? new Set();
       usageCases.add(row.caseId);
       usageCasesByAsset.set(row.assetId, usageCases);
+      if (row.conceptId && row.conceptName) {
+        const currentTopics = currentTopicsByAsset.get(row.assetId) ?? new Map();
+        currentTopics.set(row.conceptId, row.conceptName);
+        currentTopicsByAsset.set(row.assetId, currentTopics);
+      }
     }
-    if (!row.conceptId || !row.conceptName) continue;
-    const topics = topicsByAsset.get(row.assetId) ?? new Map();
-    topics.set(row.conceptId, row.conceptName);
-    topicsByAsset.set(row.assetId, topics);
+  }
+  // Historical Topics are retained Topic associations not also represented by
+  // any current relationship for the same Asset. The page-bounded rows are
+  // already loaded, so this is an in-memory pass: a Topic that is both current
+  // and historical on one card must only appear under Current Topics.
+  for (const row of usageRows) {
+    if (row.relationshipIsCurrent || !row.conceptId || !row.conceptName) continue;
+    const currentTopics = currentTopicsByAsset.get(row.assetId);
+    if (currentTopics?.has(row.conceptId)) continue;
+    const historicalTopics = historicalTopicsByAsset.get(row.assetId) ?? new Map();
+    historicalTopics.set(row.conceptId, row.conceptName);
+    historicalTopicsByAsset.set(row.assetId, historicalTopics);
   }
   const rows = rawRows.map((asset) => {
-    const topicNames = [...(topicsByAsset.get(asset.id)?.values() ?? [])];
+    const currentTopicNames = [...(currentTopicsByAsset.get(asset.id)?.values() ?? [])];
+    const historicalTopicNames = [...(historicalTopicsByAsset.get(asset.id)?.values() ?? [])];
+    // Aggregate retained for the enlarged-image viewer subtitle and legacy callers.
+    const topicNames = [...new Set([...currentTopicNames, ...historicalTopicNames])];
     /** @type {'current' | 'historical' | 'unused'} */
     const usageState = asset.hasCurrentUsage ? 'current' : asset.hasRetainedHistory ? 'historical' : 'unused';
     return {
@@ -380,7 +397,11 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
       usageState,
       imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null,
       topicNames,
-      topicSummary: topicSummary(topicNames)
+      topicSummary: topicSummary(topicNames),
+      currentTopicNames,
+      historicalTopicNames,
+      currentTopicSummary: topicSummary(currentTopicNames),
+      historicalTopicSummary: topicSummary(historicalTopicNames)
     };
   });
   let allMatchingIds = null;

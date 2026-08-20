@@ -235,6 +235,10 @@ test('Image Library supports deterministic sorting, Topic filtering, and card co
     assert.equal(emergencyAssets[0].usageCount, 2);
     assert.deepEqual(new Set(emergencyAssets[0].topicNames), new Set(['Anterior STEMI', 'Emergency Medicine']));
     assert.equal(emergencyAssets[0].topicSummary, 'Anterior STEMI · Emergency Medicine');
+    assert.deepEqual(emergencyAssets[0].currentTopicNames, ['Anterior STEMI', 'Emergency Medicine']);
+    assert.deepEqual(emergencyAssets[0].historicalTopicNames, []);
+    assert.equal(emergencyAssets[0].currentTopicSummary, 'Anterior STEMI · Emergency Medicine');
+    assert.equal(emergencyAssets[0].historicalTopicSummary, '');
     assert.ok(emergencyAssets[0].createdAt);
 
     const composed = await listAssetLibrary(fixture.db, {
@@ -245,6 +249,68 @@ test('Image Library supports deterministic sorting, Topic filtering, and card co
       source: 'unknown'
     });
     assert.deepEqual(composed.map((asset) => asset.id), ['seed-asset-anterior-a']);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Image Library separates current and historical Topics on Asset cards', async () => {
+  const fixture = createLearningDb();
+  try {
+    for (const [id, name] of [['card-topic-cardiology', 'Cardiology'], ['card-topic-emergency', 'Emergency Medicine']]) {
+      fixture.sqlite.prepare('INSERT INTO concepts (id, name, slug, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id, name, id, 1, 20_000, 20_000);
+    }
+    fixture.sqlite.prepare('INSERT INTO cases (id, title, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run('card-case-current', 'Current cardiology case', 1, 20_000, 20_000);
+    fixture.sqlite.prepare('INSERT INTO cases (id, title, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run('card-case-historical-cardiology', 'Historical cardiology case', 0, 20_000, 20_000);
+    fixture.sqlite.prepare('INSERT INTO cases (id, title, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run('card-case-historical-emergency', 'Historical emergency case', 0, 20_000, 20_000);
+    for (const [caseId, conceptId] of [
+      ['card-case-current', 'card-topic-cardiology'],
+      ['card-case-historical-cardiology', 'card-topic-cardiology'],
+      ['card-case-historical-emergency', 'card-topic-emergency']
+    ]) {
+      fixture.sqlite.prepare('INSERT INTO case_concepts (case_id, concept_id, role, created_at) VALUES (?, ?, ?, ?)').run(caseId, conceptId, 'primary', 20_000);
+    }
+    for (const id of ['card-asset-current-only', 'card-asset-historical-only', 'card-asset-mixed']) {
+      insertTestAsset(fixture.sqlite, { id, name: `${id}.png`, createdAt: 20_001 });
+    }
+    fixture.sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, ?, ?, ?)').run('card-case-current', 'card-asset-current-only', 0, null, 20_001);
+    fixture.sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, ?, ?, ?)').run('card-case-historical-emergency', 'card-asset-historical-only', 0, null, 20_001);
+    fixture.sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, ?, ?, ?)').run('card-case-current', 'card-asset-mixed', 1, null, 20_001);
+    fixture.sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, ?, ?, ?)').run('card-case-historical-cardiology', 'card-asset-mixed', 0, null, 20_001);
+    fixture.sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, ?, ?, ?)').run('card-case-historical-emergency', 'card-asset-mixed', 1, null, 20_001);
+
+    const library = await listAssetLibrary(fixture.db, { search: 'card-asset-' });
+    const byId = Object.fromEntries(library.map((asset) => [asset.id, asset]));
+
+    // 1. Asset with only current Topic relationships.
+    assert.equal(byId['card-asset-current-only'].usageState, 'current');
+    assert.deepEqual(byId['card-asset-current-only'].currentTopicNames, ['Cardiology']);
+    assert.equal(byId['card-asset-current-only'].currentTopicSummary, 'Cardiology');
+    assert.deepEqual(byId['card-asset-current-only'].historicalTopicNames, []);
+    assert.equal(byId['card-asset-current-only'].historicalTopicSummary, '');
+
+    // 2. Asset with only historical Topic relationships.
+    assert.equal(byId['card-asset-historical-only'].usageState, 'historical');
+    assert.deepEqual(byId['card-asset-historical-only'].currentTopicNames, []);
+    assert.equal(byId['card-asset-historical-only'].currentTopicSummary, '');
+    assert.deepEqual(byId['card-asset-historical-only'].historicalTopicNames, ['Emergency Medicine']);
+    assert.equal(byId['card-asset-historical-only'].historicalTopicSummary, 'Emergency Medicine');
+
+    // 3. Asset with current + historical relationships to Topic A and a
+    // historical-only relationship to Topic B. Topic A must not be duplicated
+    // into Historical Topics.
+    assert.equal(byId['card-asset-mixed'].usageState, 'current');
+    assert.deepEqual(byId['card-asset-mixed'].currentTopicNames, ['Cardiology']);
+    assert.equal(byId['card-asset-mixed'].currentTopicSummary, 'Cardiology');
+    assert.deepEqual(byId['card-asset-mixed'].historicalTopicNames, ['Emergency Medicine']);
+    assert.equal(byId['card-asset-mixed'].historicalTopicSummary, 'Emergency Medicine');
+
+    // 4. Topic + Historical only filter still matches retained historical
+    // relationships; current-only Assets are excluded.
+    const historicalEmergency = await listAssetLibrary(fixture.db, { search: 'card-asset-', topic: 'card-topic-emergency', usage: 'historical' });
+    assert.deepEqual(historicalEmergency.map((asset) => asset.id), ['card-asset-historical-only']);
+    const allEmergency = await listAssetLibrary(fixture.db, { search: 'card-asset-', topic: 'card-topic-emergency' });
+    assert.deepEqual(new Set(allEmergency.map((asset) => asset.id)), new Set(['card-asset-historical-only', 'card-asset-mixed']));
   } finally {
     fixture.sqlite.close();
   }
