@@ -12,6 +12,17 @@ export function getTeachingImageUrl(assetId) {
   return `/api/assets/${encodeURIComponent(normalizedId)}/image`;
 }
 
+/** @param {string} reviewId @param {string} reviewAssetId */
+export function getReviewImageUrl(reviewId, reviewAssetId) {
+  const normalizedReviewId = String(reviewId ?? '').trim();
+  const normalizedReviewAssetId = String(reviewAssetId ?? '').trim();
+  if (!normalizedReviewId || !normalizedReviewAssetId) {
+    throw new Error('Review and Review Asset IDs are required to build a historical image URL.');
+  }
+
+  return `/api/reviews/${encodeURIComponent(normalizedReviewId)}/assets/${encodeURIComponent(normalizedReviewAssetId)}/image`;
+}
+
 export class MediaStorageLimitError extends Error {
   /**
    * @param {'INVALID_SIZE' | 'IMAGE_TOO_LARGE' | 'BUCKET_LIMIT' | 'OBJECT_EXISTS' | 'UNSUPPORTED_TYPE'} code
