@@ -58,7 +58,10 @@ async function loadAsset(db, assetId) {
   }).from(assets).where(eq(assets.id, assetId)).limit(1))[0] ?? null;
 }
 
-/** @param {Awaited<ReturnType<typeof loadAsset>>} source */
+/**
+ * @param {Awaited<ReturnType<typeof loadAsset>>} source
+ * @returns {NonNullable<Awaited<ReturnType<typeof loadAsset>>>}
+ */
 function assertReplaceableAsset(source) {
   if (!source) throw new AssetReplacementInputError('Asset not found.');
   if (source.previewSessionId) {
@@ -71,6 +74,7 @@ function assertReplaceableAsset(source) {
   if (!source.isActive) {
     throw new AssetReplacementInputError('Only an active production image Asset can be replaced.');
   }
+  return source;
 }
 
 /**
@@ -147,8 +151,7 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
   assertSupportedImageType(file.type);
   assertImageSize(file.size);
 
-  const source = await loadAsset(db, normalizedAssetId);
-  assertReplaceableAsset(source);
+  const source = assertReplaceableAsset(await loadAsset(db, normalizedAssetId));
 
   const [fixedRows, optionRows, reusableRows, productionOptIns] = await Promise.all([
     db.select({ caseId: caseAssets.caseId })
@@ -189,79 +192,81 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
   const now = new Date();
   const clonedQuestionIds = new Map(reusableRows.map((row) => [row.id, crypto.randomUUID()]));
 
-  await putTeachingImage(bucket, newStorageKey, file);
-
-  const statements = [
-    db.insert(assets).values({
-      id: newAssetId,
-      type: source.type,
-      storageKey: newStorageKey,
-      mimeType: file.type,
-      originalFilename: replacementFilename(file, source.originalFilename),
-      altText: source.altText,
-      sourceLabel: source.sourceLabel,
-      sourceUrl: source.sourceUrl,
-      licence: source.licence,
-      imageCollectionId: source.imageCollectionId,
-      previewSessionId: null,
-      supersededByAssetId: null,
-      isActive: true,
-      createdAt: now,
-      updatedAt: now
-    })
-  ];
-
-  if (reusableRows.length) {
-    statements.push(db.insert(assetQuestions).values(reusableRows.map((row) => ({
-      id: clonedQuestionIds.get(row.id),
-      assetId: newAssetId,
-      questionPromptId: row.questionPromptId,
-      answerMd: row.answerMd,
-      isActive: row.isActive,
-      createdAt: now,
-      updatedAt: now
-    }))));
-  }
-
-  const fixedCaseIds = fixedRows.map((row) => row.caseId);
-  if (fixedCaseIds.length) {
-    statements.push(db.update(caseAssets)
-      .set({ assetId: newAssetId })
-      .where(and(eq(caseAssets.assetId, normalizedAssetId), inArray(caseAssets.caseId, fixedCaseIds))));
-  }
-
-  const optionIds = optionRows.map((row) => row.optionId);
-  if (optionIds.length) {
-    statements.push(db.update(stimulusGroupOptions)
-      .set({ assetId: newAssetId })
-      .where(and(eq(stimulusGroupOptions.assetId, normalizedAssetId), inArray(stimulusGroupOptions.id, optionIds))));
-  }
-
   for (const usage of productionOptIns) {
-    const clonedQuestionId = clonedQuestionIds.get(usage.oldAssetQuestionId);
-    if (!clonedQuestionId) {
-      await deleteTeachingImage(bucket, newStorageKey);
+    if (!clonedQuestionIds.has(usage.oldAssetQuestionId)) {
       throw new AssetReplacementInputError('Reusable Image Question replacement mapping is incomplete.');
     }
-    statements.push(db.update(stimulusOptionAssetQuestions)
-      .set({ assetQuestionId: clonedQuestionId })
-      .where(and(
-        eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, usage.optionId),
-        eq(stimulusOptionAssetQuestions.assetQuestionId, usage.oldAssetQuestionId)
-      )));
   }
 
-  statements.push(db.update(assets)
-    .set({ isActive: false, supersededByAssetId: newAssetId, updatedAt: now })
-    .where(and(
-      eq(assets.id, normalizedAssetId),
-      eq(assets.isActive, true),
-      isNull(assets.previewSessionId),
-      isNull(assets.supersededByAssetId)
-    )));
+  await putTeachingImage(bucket, newStorageKey, file);
 
   try {
-    await db.batch(/** @type {any} */ (statements));
+    /** @type {any[]} */
+    const statements = [
+      db.insert(assets).values({
+        id: newAssetId,
+        type: source.type,
+        storageKey: newStorageKey,
+        mimeType: file.type,
+        originalFilename: replacementFilename(file, source.originalFilename),
+        altText: source.altText,
+        sourceLabel: source.sourceLabel,
+        sourceUrl: source.sourceUrl,
+        licence: source.licence,
+        imageCollectionId: source.imageCollectionId,
+        previewSessionId: null,
+        supersededByAssetId: null,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now
+      })
+    ];
+
+    if (reusableRows.length) {
+      statements.push(db.insert(assetQuestions).values(reusableRows.map((row) => ({
+        id: clonedQuestionIds.get(row.id),
+        assetId: newAssetId,
+        questionPromptId: row.questionPromptId,
+        answerMd: row.answerMd,
+        isActive: row.isActive,
+        createdAt: now,
+        updatedAt: now
+      }))));
+    }
+
+    const fixedCaseIds = fixedRows.map((row) => row.caseId);
+    if (fixedCaseIds.length) {
+      statements.push(db.update(caseAssets)
+        .set({ assetId: newAssetId })
+        .where(and(eq(caseAssets.assetId, normalizedAssetId), inArray(caseAssets.caseId, fixedCaseIds))));
+    }
+
+    const optionIds = optionRows.map((row) => row.optionId);
+    if (optionIds.length) {
+      statements.push(db.update(stimulusGroupOptions)
+        .set({ assetId: newAssetId })
+        .where(and(eq(stimulusGroupOptions.assetId, normalizedAssetId), inArray(stimulusGroupOptions.id, optionIds))));
+    }
+
+    for (const usage of productionOptIns) {
+      statements.push(db.update(stimulusOptionAssetQuestions)
+        .set({ assetQuestionId: clonedQuestionIds.get(usage.oldAssetQuestionId) })
+        .where(and(
+          eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, usage.optionId),
+          eq(stimulusOptionAssetQuestions.assetQuestionId, usage.oldAssetQuestionId)
+        )));
+    }
+
+    statements.push(db.update(assets)
+      .set({ isActive: false, supersededByAssetId: newAssetId, updatedAt: now })
+      .where(and(
+        eq(assets.id, normalizedAssetId),
+        eq(assets.isActive, true),
+        isNull(assets.previewSessionId),
+        isNull(assets.supersededByAssetId)
+      )));
+
+    await db.batch(statements);
   } catch (error) {
     try {
       await deleteTeachingImage(bucket, newStorageKey);
