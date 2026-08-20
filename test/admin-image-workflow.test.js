@@ -17,7 +17,7 @@ import {
   validateStimulusGroupTargetForNewAssets
 } from '../src/lib/server/db/admin-image-workflow.js';
 import { createDb } from '../src/lib/server/db/index.js';
-import { createStimulusGroup } from '../src/lib/server/db/stimulus-groups.js';
+import { createStimulusGroup, removeStimulusOptionFromCase } from '../src/lib/server/db/stimulus-groups.js';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -33,7 +33,12 @@ const migrationSql = [
   readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0010_reusable_image_reactivation_guard.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -298,6 +303,31 @@ test('bulk grouping rejects fixed or cross-set Case conflicts and invalid Assets
     await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, firstGroup, ['conflict-free']), /another alternative set/);
     await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, firstGroup, ['conflict-inactive']), /missing or inactive/);
     await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, firstGroup, ['missing']), /missing or inactive/);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('bulk restoration preflights the entire batch before restoring any archived option', async () => {
+  const fixture = createLearningDb();
+  try {
+    insertAsset(fixture.sqlite, { id: 'bulk-archived', name: 'Bulk archived' });
+    insertAsset(fixture.sqlite, { id: 'bulk-later-conflict', name: 'Bulk later conflict' });
+    const targetGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Bulk restore target', specificQuestionMode: 'none' });
+    const otherGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Bulk restore other', specificQuestionMode: 'none' });
+
+    await bulkAddAssetsToStimulusGroup(fixture.db, targetGroup, ['bulk-archived']);
+    const archivedOption = fixture.sqlite.prepare('SELECT id FROM stimulus_group_options WHERE stimulus_group_id = ? AND asset_id = ?').get(targetGroup, 'bulk-archived');
+    assert.ok(archivedOption?.id);
+    await removeStimulusOptionFromCase(fixture.db, String(archivedOption.id));
+    await bulkAddAssetsToStimulusGroup(fixture.db, otherGroup, ['bulk-later-conflict']);
+
+    await assert.rejects(
+      () => bulkAddAssetsToStimulusGroup(fixture.db, targetGroup, ['bulk-archived', 'bulk-later-conflict']),
+      /another alternative set/
+    );
+    const unchanged = fixture.sqlite.prepare('SELECT is_active, removed_from_case FROM stimulus_group_options WHERE id = ?').get(archivedOption.id);
+    assert.deepEqual({ ...unchanged }, { is_active: 0, removed_from_case: 1 });
   } finally {
     fixture.sqlite.close();
   }

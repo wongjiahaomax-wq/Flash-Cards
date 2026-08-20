@@ -64,7 +64,7 @@ function activeStimulusGroupUsageCondition() {
 }
 
 function activeStimulusOptionUsageCondition() {
-  return and(eq(questionPrompts.isActive, true), eq(stimulusOptionQuestions.isActive, true), eq(stimulusGroupOptions.isActive, true), eq(stimulusGroups.isActive, true), eq(cases.isActive, true));
+  return and(eq(questionPrompts.isActive, true), eq(stimulusOptionQuestions.isActive, true), eq(stimulusGroupOptions.isActive, true), eq(stimulusGroupOptions.removedFromCase, false), eq(stimulusGroups.isActive, true), eq(cases.isActive, true));
 }
 
 /**

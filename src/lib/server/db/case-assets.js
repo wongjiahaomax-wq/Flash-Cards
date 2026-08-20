@@ -147,7 +147,7 @@ export async function getAdminCaseData(db, caseId, options = {}) {
         .select({ assetId: stimulusGroupOptions.assetId })
         .from(stimulusGroupOptions)
         .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-        .where(eq(stimulusGroups.caseId, caseId));
+        .where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupOptions.removedFromCase, false)));
       const groupedIds = new Set(groupedRows.map((row) => row.assetId));
       const rows = await availableAssetRows(db);
       available = rows.filter((asset) => !attachedIds.has(asset.assetId) && !groupedIds.has(asset.assetId));
@@ -181,7 +181,7 @@ export async function attachAssetToCase(db, caseId, assetId, captionMd = null) {
     .select({ id: stimulusGroupOptions.id })
     .from(stimulusGroupOptions)
     .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-    .where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupOptions.assetId, assetId)))
+    .where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupOptions.assetId, assetId), eq(stimulusGroupOptions.removedFromCase, false)))
     .limit(1);
   if (grouped[0]) throw new CaseAssetInputError('That Asset is already an option in this Case.');
 

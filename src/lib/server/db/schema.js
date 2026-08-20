@@ -206,6 +206,7 @@ export const stimulusGroupOptions = sqliteTable(
     displayOrder: integer('display_order').notNull(),
     captionMd: text('caption_md'),
     isActive: activeFlag(),
+    removedFromCase: integer('removed_from_case', { mode: 'boolean' }).notNull().default(false),
     createdAt: timestamp('created_at')
   },
   (table) => [
@@ -213,6 +214,7 @@ export const stimulusGroupOptions = sqliteTable(
     uniqueIndex('stimulus_group_options_group_order_unique').on(table.stimulusGroupId, table.displayOrder),
     index('stimulus_group_options_asset_idx').on(table.assetId),
     index('stimulus_group_options_active_idx').on(table.stimulusGroupId, table.isActive),
+    index('stimulus_group_options_removed_idx').on(table.stimulusGroupId, table.removedFromCase),
     check('stimulus_group_options_display_order_nonnegative', sql`${table.displayOrder} >= 0`)
   ]
 );

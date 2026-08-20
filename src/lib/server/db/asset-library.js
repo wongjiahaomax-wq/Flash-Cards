@@ -181,6 +181,7 @@ const usageCountExpr = sql`(
         join stimulus_groups usage_sg on usage_sg.id = usage_sgo.stimulus_group_id
         where usage_sg.case_id = usage_case.id
           and usage_sgo.asset_id = ${assets.id}
+          and usage_sgo.removed_from_case = false
       )
     )
 )`;
@@ -195,6 +196,7 @@ const usedExpr = sql`exists (
         from stimulus_group_options usage_sgo
         join stimulus_groups usage_sg on usage_sg.id = usage_sgo.stimulus_group_id
         where usage_sg.case_id = usage_case.id and usage_sgo.asset_id = ${assets.id}
+          and usage_sgo.removed_from_case = false
       )
     )
 )`;
@@ -240,6 +242,7 @@ function libraryConditions(filters) {
         where topic_sgo.asset_id = ${assets.id}
           and topic_case.preview_session_id is null
           and topic_cc.concept_id = ${filters.topic}
+          and topic_sgo.removed_from_case = false
       )
     )`);
   }
@@ -271,7 +274,7 @@ async function listUsageRows(db, assetIds) {
     .where(and(isNull(cases.previewSessionId), inArray(caseAssets.assetId, assetIds))).orderBy(asc(cases.title), asc(caseAssets.displayOrder), asc(cases.id));
   const groupedRows = await db.select({ assetId: stimulusGroupOptions.assetId, caseId: cases.id, caseTitle: cases.title, caseIsActive: cases.isActive, captionMd: stimulusGroupOptions.captionMd, displayOrder: stimulusGroupOptions.displayOrder, conceptId: caseConcepts.conceptId, conceptName: concepts.name, stimulusGroupId: stimulusGroups.id, stimulusGroupName: stimulusGroups.name, stimulusOptionId: stimulusGroupOptions.id })
     .from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary'))).leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
-    .where(and(isNull(cases.previewSessionId), inArray(stimulusGroupOptions.assetId, assetIds))).orderBy(asc(cases.title), asc(stimulusGroupOptions.displayOrder), asc(cases.id));
+    .where(and(isNull(cases.previewSessionId), inArray(stimulusGroupOptions.assetId, assetIds), eq(stimulusGroupOptions.removedFromCase, false))).orderBy(asc(cases.title), asc(stimulusGroupOptions.displayOrder), asc(cases.id));
   return [...fixedRows, ...groupedRows];
 }
 

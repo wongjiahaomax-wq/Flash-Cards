@@ -414,6 +414,10 @@ export const actions = {
     redirect(303, caseRedirect(caseId, 'stimulus-option-saved', '#stimuli'));
   },
 
+  // The shared editor exposes this production-only lifecycle mutation, but
+  // Preview relationships remain disposable and use no archive semantics.
+  removeStimulusOptionFromCase: async () => fail(403, { error: 'Remove from Case is available only for production Cases.' }),
+
   reorderStimulusOption: async (event) => {
     const result = await contextOrFailure(event);
     if (!result.context) return result.failure;

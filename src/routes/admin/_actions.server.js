@@ -16,6 +16,7 @@ import {
   convertCaseAssetToStimulusOption,
   createStimulusGroup,
   moveStimulusOption,
+  removeStimulusOptionFromCase,
   removeStimulusGroupQuestion,
   removeStimulusOptionQuestion,
   saveStimulusGroupQuestion,
@@ -327,6 +328,15 @@ export const actions = {
     try { await setStimulusOptionActive(createDb(platform.env.DB), formText(formData, 'option_id'), formText(formData, 'active') === 'true'); }
     catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
     redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-saved'));
+  },
+
+  removeStimulusOptionFromCase: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData(); const caseId = formText(formData, 'case_id');
+    try { await removeStimulusOptionFromCase(createDb(platform.env.DB), formText(formData, 'option_id')); }
+    catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-removed'));
   },
 
   reorderStimulusOption: async ({ request, locals, platform }) => {

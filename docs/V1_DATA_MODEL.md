@@ -31,6 +31,8 @@ A migration file being committed on `main` is not, by itself, proof that it has 
 
 `0011` adds only the narrow nullable self-FK `assets.superseded_by_asset_id` plus an index. It does not add an Asset-family/version table and does not mutate historical Review rows.
 
+`0012` adds `stimulus_group_options.removed_from_case`, defaulting to false for existing options. This relationship archive state is separate from `is_active`: Deactivate keeps an option visible to authors while excluding it from future Reviews; Remove from Case excludes it from normal authoring/runtime selection while retaining the Asset, option identity, exact-image question relationships, and Review foreign-key provenance. The Asset and its R2 object are not deleted.
+
 ## 2. General design rules
 
 1. Use application-generated text IDs for domain objects.
@@ -212,10 +214,11 @@ asset_id
 display_order
 caption_md
 is_active
+removed_from_case
 created_at
 ```
 
-Current learner behavior selects exactly one active option per active group and freezes it at Review creation. Option ID is stable and is the exact Case/stimulus-context identity.
+Current learner behavior selects exactly one active, non-removed option per active group and freezes it at Review creation. Option ID is stable and is the exact Case/stimulus-context identity. A removed relationship is retained so restrictive foreign keys from historical Review and question/provenance rows remain valid. Re-adding the same Asset to the same alternative set can restore that archived relationship when there is no group conflict.
 
 A fixed image may be transparently converted to a one-option active group when an exact-image question or explicit reusable-image opt-in requires a stimulus-option relationship. Asset identity and Case caption are preserved; with one active option and `selection_count = 1`, learner-visible behavior remains equivalent to the prior fixed image.
 

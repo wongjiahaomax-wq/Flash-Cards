@@ -456,7 +456,11 @@ export async function cloneCaseToPreview(db, input) {
 
   const groupIds = groupRows.map((row) => row.id);
   const optionRows = groupIds.length
-    ? await db.select().from(stimulusGroupOptions).where(inArray(stimulusGroupOptions.stimulusGroupId, groupIds)).orderBy(asc(stimulusGroupOptions.displayOrder))
+    ? await db
+        .select()
+        .from(stimulusGroupOptions)
+        .where(and(inArray(stimulusGroupOptions.stimulusGroupId, groupIds), eq(stimulusGroupOptions.removedFromCase, false)))
+        .orderBy(asc(stimulusGroupOptions.displayOrder))
     : [];
   const optionIds = optionRows.map((row) => row.id);
   const groupQuestionRows = groupIds.length
