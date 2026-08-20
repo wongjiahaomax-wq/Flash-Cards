@@ -45,6 +45,20 @@ Use an alternative image set when the presentation and educational intent remain
 
 A Case may contain several independent sets, for example one ECG set and one X-ray set.
 
+### Same image at better quality versus a different image
+
+Asset identity remains clinically meaningful. Use the production Image detail action **Replace with higher-resolution version** only for a better-quality copy of the **same underlying image**.
+
+```text
+same image + higher quality/resolution
+→ replacement workflow
+
+different image + same condition
+→ new independent Asset
+```
+
+Replacement creates a new Asset/R2 object for current authoring while retaining the old Asset/media for historical Reviews. It is not a general way to substitute another ECG, X-ray, photograph or diagram showing the same diagnosis.
+
 ## 5. Question scope is an author-facing choice
 
 The normal question is:
@@ -105,6 +119,8 @@ The canonical question belongs to the global Asset. A Case/stimulus using the sa
 > Reusing an Asset in another Case does not automatically carry its reusable Image Questions. The author must opt that Case/stimulus usage in.
 
 This prevents accidental cross-Case leakage while still allowing one canonical Prompt/answer to serve several deliberate uses.
+
+Higher-resolution replacement is the one narrow operation where current reusable content is deliberately carried forward: the old Asset Questions remain historically attached to the old Asset, while new Asset Question rows are cloned onto the replacement and current production opt-ins are remapped to those clones. Prompt identities and canonical answers are preserved; historical Review provenance is not rewritten.
 
 ## 6. Fixed-image conversion is an implementation detail
 
@@ -189,6 +205,8 @@ This means the most specific Case/stimulus context wins while broad reusable kno
 
 The same Prompt may not be configured ambiguously across independently selectable stimulus groups in one Case.
 
+Higher-resolution replacement does not change this precedence. It preserves existing Stimulus Option IDs so exact-image Case questions remain attached to the same contextual identity, and remaps current reusable opt-ins to cloned questions for the new Asset.
+
 ## 12. Question-count and coverage modes
 
 Authors can configure Automatic, All, or Fixed question selection.
@@ -225,11 +243,15 @@ Production Admin may create/edit/archive them and explicitly opt production Case
 
 Preview Admin must not mutate production Assets, Asset Questions, Question Prompts, Cases, or stimulus relationships. Reusable-image mutation controls/endpoints are production-only and database triggers reject Preview-owned Assets or Prompts as reusable Asset Question backing content.
 
+Higher-resolution replacement is also production-only. Preview-owned Assets cannot be replaced by this workflow, and Preview-owned Case/stimulus relationships are not silently rewritten.
+
 ## 15. Image Collection = organisation, not teaching meaning
 
 Collections remain Admin library organisation only. Changing a Collection does not change Topics, Tags, Case relationships, questions, Reviews, learner routing, or R2 identity.
 
 Reusable Image Questions are teaching content, not Collection metadata.
+
+A higher-resolution replacement inherits the old Asset's Collection as ordinary semantic/organisational metadata; the operation still creates a new immutable storage identity.
 
 ## 16. Import and progressive enrichment
 
@@ -237,7 +259,24 @@ Reviewed slide/Anki imports should initially reconstruct ordinary Topic/Case/Ass
 
 Reusable-image authoring is later editorial enrichment. Existing exact-option questions are not migrated or promoted automatically merely because they use the same Asset or appear semantically similar.
 
-## 17. Preferred routine workflow
+Higher-resolution replacement is likewise a post-import Admin authoring operation; replacement/version fields are not added to Import Package v1.
+
+## 17. Historical Review media
+
+A Review freezes the exact media selected when it starts. `review_assets.storage_key_snapshot` is the historical media authority.
+
+Study image URLs therefore resolve through an authenticated Review-specific route which verifies Review ownership and serves the snapshotted object key even if the original Asset was later superseded/inactivated. The normal current-Asset image route keeps rejecting inactive Assets.
+
+This preserves:
+
+```text
+old Review → old image bytes
+new Review → current replacement image bytes
+```
+
+without reactivating the old Asset or overwriting its R2 object.
+
+## 18. Preferred routine workflow
 
 ```text
 Topics
@@ -256,7 +295,12 @@ When reviewing an image question, ask:
 4. Does it apply to the whole presentation? → **Case Question**.
 5. Is it general reusable knowledge? → **Topic / Shared Question**.
 
-## 18. Schema boundaries to preserve
+When replacing media, ask separately:
+
+1. Is this literally the same underlying image, only at better quality/resolution? → **Replace with higher-resolution version**.
+2. Is it another clinical image, even if it shows the same condition? → **Create/use a separate Asset**.
+
+## 19. Schema boundaries to preserve
 
 Do not add a parallel `topics` table: Topics remain `concepts`.
 
@@ -268,6 +312,6 @@ Do not add a parallel fixed-image-question table. Fixed images may be transparen
 
 Do not infer reusable Image Questions from existing `stimulus_option_questions`.
 
-Do not extend Import Package v1 merely to support this editorial enrichment feature.
+Do not extend Import Package v1 merely to support editorial enrichment or higher-resolution replacement.
 
-Higher-resolution Asset replacement/versioning, `image_identity`, Asset families, automatic transfer to replacement Assets, and automatic reusable-question opt-in are deliberately deferred to a separate follow-up.
+The narrow supersession field `assets.superseded_by_asset_id` records only “Asset A was superseded by Asset B”. Do not infer an Asset family, `image_identity`, generic version table, automatic visual matching, or arbitrary different-image replacement from this contract.

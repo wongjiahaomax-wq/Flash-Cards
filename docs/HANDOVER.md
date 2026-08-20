@@ -1,10 +1,10 @@
 # Flash-Cards agent handover
 
-_Refreshed: 19 August 2026_
+_Refreshed: 20 August 2026_
 
 ## Current outcome
 
-The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A and Stage B, Image Management V2, a wide responsive Admin workspace, the reviewed/resumable content-import path, and a fully imported/verified initial ECG Anki corpus.
+The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A and Stage B, Image Management V2, Reusable Image Questions, a wide responsive Admin workspace, the reviewed/resumable content-import path, a local production-like development replica, and a fully imported/verified initial ECG Anki corpus.
 
 Recent merged infrastructure/product milestones include:
 
@@ -18,13 +18,16 @@ Recent merged infrastructure/product milestones include:
 - PR #41/#42 — Tagging Stage B schema foundation and production application of `0008_tag_shared_questions.sql`;
 - PR #43 — Tagging Stage B behavior/Admin authoring, merged and deployed to production;
 - PR #44–#46 — one-time read-only production verification of the completed ECG migration;
-- PR #56 — moving an existing Case-wide question to an exact option in an Alternative image set.
+- PR #56 — moving an existing Case-wide question to an exact option in an Alternative image set;
+- PR #58 — Reusable Image Questions and explicit per-stimulus opt-ins.
 
-The stimulus-scope authoring follow-up is implemented on `agent/stimulus-scope-authoring-ux` for review. It changes the Admin author mental model from database relationships to **Applies to: This whole Case / A specific image or stimulus**. Fixed images and existing alternative options are both selectable targets. Assigning an exact-image question to a fixed image transparently converts that Case relationship to a one-option active Stimulus Group in the same D1 batch as question assignment, preserving Asset identity and Case-specific caption. No schema change is required.
+The stimulus-scope authoring follow-up changes the Admin author mental model from database relationships to **Applies to: This whole Case / A specific image or stimulus**. Fixed images and existing alternative options are both selectable targets. Assigning an exact-image question to a fixed image transparently converts that Case relationship to a one-option active Stimulus Group in the same D1 batch as question assignment, preserving Asset identity and Case-specific caption. No second fixed-image-question schema is required.
 
 The Case Questions section continues to return/display only active Case-wide questions. Exact-image questions are summarized and managed beside their image. Topic reuse remains compatible only with Case-wide scope and contradictory stimulus+Topic submissions are rejected server-side. Cross-Stimulus-Group Prompt conflict protection remains authoritative.
 
-Preview does not gain this production mutation authority. The new production scope endpoint is not mirrored into Preview; shared UI controls that would invoke fixed conversion or production scope moves are hidden in Preview while existing Preview-safe named actions remain available.
+Preview does not gain production mutation authority for reusable production content or higher-resolution Asset replacement. Shared UI controls that would mutate production-only content remain gated while existing Preview-safe named actions remain available.
+
+Draft PR #59 adds the narrow production Admin workflow **Replace with higher-resolution version** for a better-quality copy of the **same underlying image**. It must remain draft/unmerged until review and validation are complete.
 
 ## Read first
 
@@ -32,6 +35,9 @@ Preview does not gain this production mutation authority. The new production sco
 docs/CURRENT_PRODUCT_ROADMAP.md
 docs/IMAGE_MANAGEMENT_V2_PLAN.md
 docs/ADMIN_IMAGE_AUTHORING_WORKFLOW.md
+docs/REUSABLE_IMAGE_QUESTIONS.md
+docs/ASSET_HIGHER_RESOLUTION_REPLACEMENT.md
+docs/LOCAL_DEVELOPMENT_REPLICA.md
 docs/TAGGING_MODEL_DECISIONS.md
 docs/TAGGING_STAGE_B_BEHAVIOR.md
 docs/STAGE_A_TAG_FOUNDATION.md
@@ -72,13 +78,19 @@ Applies to this stimulus
 → managed beside the image
 ```
 
-A currently fixed image may be transparently represented internally as a one-option Stimulus Group when an exact-image question is assigned. This is intentionally an authoring implementation detail, not a new fixed-image-question schema. With one active option and `selection_count = 1`, learner-visible image selection remains effectively equivalent to the previous fixed image.
+A currently fixed image may be transparently represented internally as a one-option Stimulus Group when an exact-image question or explicit reusable-image opt-in is assigned. This is intentionally an authoring implementation detail, not a new fixed-image-question schema. With one active option and `selection_count = 1`, learner-visible image selection remains effectively equivalent to the previous fixed image.
 
-Questions belong at the highest context where the answer remains correct. Stage B adds a global reusable knowledge scope:
+Questions belong at the highest context where the answer remains correct. Current global reusable scopes include:
 
 ```text
 question_prompts
 = reusable wording only
+
+asset_questions
+= canonical answer/meaning intrinsic to one exact Asset
+
+stimulus_option_asset_questions
+= explicit decision to reuse an Asset Question in one exact stimulus usage
 
 shared_questions
 = reusable medical meaning + answer
@@ -87,12 +99,14 @@ shared_question_tags
 = descriptive knowledge tested
 
 reuse_scope_tag_id
-= exactly one Case Tag controlling eligibility
+= exactly one Case Tag controlling Shared Question eligibility
 ```
 
 Tags are cross-cutting metadata. Case Tags and contextual Case Question Tags do not replace Topic/Case ownership. The Reuse Scope Tag is separate from descriptive Shared Question Tags and is not automatically copied into `shared_question_tags`.
 
 Case-specific image captions remain relationship metadata. Exact-image questions stay attached to their exact `stimulus_group_option`. A Case-specific `stimulus_group` is a learner alternative-stimulus concept, not a generic media folder.
+
+Reusable Image Questions belong to an exact global Asset, not to a Case. Reusing an Asset in another Case never silently reuses its Asset Questions; each stimulus usage must explicitly opt in.
 
 ## Tagging Stage B behavior
 
@@ -113,7 +127,8 @@ Stage A `case_tags` has no relationship-level archive flag; current semantics ar
 Resolver duplicate-Prompt precedence is:
 
 ```text
-selected stimulus option
+selected exact stimulus option question
+> explicitly reused Asset Question for the selected option
 > stimulus group
 > Case
 > exact Study Topic/Concept
@@ -124,7 +139,7 @@ selected stimulus option
 
 The final candidate set is deduplicated by `question_prompt_id`; higher-priority context wins.
 
-Shared Questions enter the normal eligible pool before Automatic/All/Fixed selection. Automatic semantics and stimulus-specific coverage remain unchanged, All includes all deduplicated eligible Questions, and Fixed does not exceed the configured count because Shared Questions were added.
+Shared Questions and explicitly reused Asset Questions enter the normal eligible pool before Automatic/All/Fixed selection. Automatic semantics and stimulus-specific coverage remain unchanged, All includes all deduplicated eligible Questions, and Fixed does not exceed the configured count because a reusable source was added.
 
 Selected Shared Questions snapshot Prompt wording and answer like every other Review Question and persist:
 
@@ -133,7 +148,14 @@ source_type = 'tag_shared'
 source_shared_question_id = <shared_questions.id>
 ```
 
-Reuse Scope Tag IDs, descriptive Tag IDs, and Case Tag IDs are not snapshotted. Those remain mutable curation metadata.
+Selected Reusable Image Questions persist:
+
+```text
+source_type = 'asset'
+source_asset_question_id = <asset_questions.id>
+```
+
+Reuse Scope Tag IDs, descriptive Tag IDs, Case Tag IDs, and mutable authoring relationships are not used in place of Review snapshots.
 
 ## Shared Question Admin state
 
@@ -155,6 +177,25 @@ Import package
 Creation can reuse an existing active production Question Prompt or create new production Prompt wording. Every Shared Question requires exactly one active Reuse Scope Tag and may carry zero or more independent descriptive Tags. The UI explicitly states that only the Reuse Scope Tag controls Case eligibility.
 
 Shared Questions are global production-curated objects and are not Preview-owned. Application validation rejects Preview-owned Prompts; migration `0008` provides D1 trigger defense in depth. Existing Questions detail/edit pages include Shared Question Prompt usages in global-wording blast-radius/stale-edit protection.
+
+## Reusable Image Question Admin state
+
+Production Image detail and Case image **Manage questions** surfaces expose Reusable Image Questions separately from Case-specific exact-image questions.
+
+The compact Case image-card contract remains:
+
+```text
+Case-specific Image Questions · N
+
+Reusable Image Questions · N
+X used in this Case · Y available to reuse
+```
+
+The reusable total counts active `asset_questions` backed by active `question_prompts`. `used in this Case` means an explicit opt-in for that exact stimulus usage; `available to reuse` is the remainder. Archived Asset Questions/inactive Prompts are omitted from visible active counts.
+
+The canonical answer lives on `asset_questions`, not on `question_prompts`. Removing one opt-in never archives the canonical Asset Question or affects another Case's opt-in.
+
+For one selected stimulus context, exact Case-specific option content has precedence over an explicitly reused Asset Question with the same Prompt. The existing cross-Stimulus-Group Prompt conflict invariant remains authoritative.
 
 ## ECG Anki migration status
 
@@ -181,13 +222,13 @@ Read-only production D1 verification on 18 August 2026 confirmed:
 
 An initial verification query using a long `LIKE` pattern hit Cloudflare D1 internal error 7500 (`LIKE or GLOB pattern too complex`). This was an audit-query-shape failure, not an import failure. The final verification used simple deterministic-prefix comparisons and passed.
 
-Initial source migration is therefore complete. Ongoing ECG work is curation/enrichment: Tags, Shared Questions, additional Study Topics/stimulus variants and medical content review where useful.
+Initial source migration is therefore complete. Ongoing ECG work is curation/enrichment: Tags, Shared Questions, Reusable Image Questions, additional Study Topics/stimulus variants and medical content review where useful.
 
 ## Image Management V2 baseline
 
 Image Management V2 is merged. `/admin/images` and `/preview-admin/images` use 60-item server pages with exact matching counts, deterministic search/filter/sort pagination, cross-page explicit selection within one canonical query context, exact Select All up to 300 Assets, and the retained 30-Asset server mutation bound with sequential client chunks for larger explicit selections.
 
-Same-Case option Move preserves `stimulus_group_options.id`, Asset identity, Case-specific caption, active state and exact-option questions while changing the parent alternative set. Cross-Case/ownership/conflict/coverage-invalid moves are rejected.
+Same-Case option Move preserves `stimulus_group_options.id`, Asset identity, Case-specific caption, active state, exact-option questions, and reusable-image opt-ins while changing the parent alternative set. Cross-Case/ownership/conflict/coverage-invalid moves are rejected.
 
 Image Collections are organisational metadata separate from Topics and Tags. An Asset has zero or one Collection; deleting a Collection preserves Assets and relationships and returns affected images to Unsorted.
 
@@ -195,7 +236,7 @@ Image management does not change learner stimulus semantics or Review snapshots/
 
 ## Stimulus-scope authoring safety
 
-The production semantic helper centralizes the new authoring operation rather than duplicating route-specific conversion logic.
+The production semantic helper centralizes stimulus-scope authoring rather than duplicating route-specific conversion logic.
 
 For a fixed target it preflights:
 
@@ -207,9 +248,63 @@ For a fixed target it preflights:
 - Prompt/Case-question state as applicable;
 - Topic-reuse cleanup semantics.
 
-Only then does one D1 batch create the group/option, preserve caption/Asset identity, remove/reorder the fixed relationship, create the exact-image question, deactivate the Case-wide relationship for a move, and conditionally remove Topic reuse. Failure of the assignment must therefore not leave the fixed image partially converted.
+Only then does one D1 batch create the group/option, preserve caption/Asset identity, remove/reorder the fixed relationship, create the exact-image question or explicit reusable opt-in, deactivate the Case-wide relationship for a move where applicable, and conditionally remove Topic reuse. Failure of the assignment must therefore not leave the fixed image partially converted.
 
 The same Question Prompt may carry different option-specific answers for ECG A and ECG B inside one group. It remains forbidden to independently attach that Prompt to two active groups in the same Case where both groups can be selected in one Review.
+
+## Higher-resolution Asset replacement — draft PR #59
+
+Use **Replace with higher-resolution version** only for the same underlying image at better quality/resolution. A different ECG, X-ray, photograph or diagram remains an independent Asset even when it shows the same diagnosis.
+
+Production R2 keys remain immutable. Successful A → B replacement creates a new R2 object and new Asset B, moves current production fixed/stimulus relationships to B, preserves Stimulus Option IDs, clones A's Asset Questions to new B Asset Questions, remaps current production reusable opt-ins, then leaves A inactive with:
+
+```text
+A.superseded_by_asset_id = B.id
+```
+
+Old A Asset Questions and old R2 bytes remain for historical provenance. Historical Review Prompt/answer snapshots are not rewritten.
+
+`review_assets.storage_key_snapshot` is authoritative for historical media. Study uses an authenticated Review-owned media route that serves the snapshotted R2 key even when the original Asset has since become inactive/superseded. The ordinary Asset route continues to serve only active current Assets.
+
+### Race safety
+
+Exactly one concurrent/double submission may claim an active unsuperseded source Asset. The D1 batch conditionally claims A and immediately performs a database-enforced assertion that the claim belongs to that exact B. A lost claim makes the entire D1 batch fail. The losing submission's newly uploaded R2 object is deleted; no losing Asset/question/relationship state survives.
+
+### Live Preview safety
+
+Replacement never rewrites Preview-owned relationships. It also refuses to deactivate A while a live Preview workspace currently references it. Live means:
+
+```text
+preview_sessions.status = 'active'
+AND expires_at > now
+```
+
+Both Preview fixed `case_assets` and Preview `stimulus_group_options` references block replacement. The check runs before R2 upload and is repeated in the D1 claim, so a Preview that becomes live during the operation causes D1 rollback plus cleanup of only the new replacement object.
+
+Expired/non-live Preview relationships remain outside the mutation set and are not rewritten.
+
+### R2/D1 failure safety
+
+R2 and D1 are not transactional together. Replacement uploads the new immutable object first, then performs one D1 semantic batch. If D1 fails for a lost claim, live Preview race, or any other semantic/database failure, the new object is deleted through the narrow teaching-image cleanup helper. The old object is never deleted or overwritten.
+
+Import Package v1 remains unchanged.
+
+## Local production-like development replica
+
+`npm run local:refresh` remains read-production/write-local only. Production D1 access is hard-coded SELECT-only and production R2 access is object GET-only.
+
+The replica allowlist includes current image-question authoring state:
+
+```text
+asset_questions
+stimulus_option_asset_questions
+```
+
+along with the existing production content tables. Production Better Auth identities/sessions, learner Reviews, Preview sessions and import jobs remain excluded.
+
+Because `assets.superseded_by_asset_id` is an immediate self-FK, Asset import is dependency-ordered rather than ID-ordered. For A → B → C, local import inserts C, then B, then A. Missing successors/cycles fail closed. Local reset clears the Asset self-FK before deleting Assets and deletes reusable-image child rows before their parents.
+
+See `docs/LOCAL_DEVELOPMENT_REPLICA.md` for the operational contract.
 
 ## Production-backed Preview Admin workspace
 
@@ -231,9 +326,9 @@ Preview may browse/search/filter/paginate/select production Assets read-only. Pr
 
 Preview must never mutate production Case rows, production Asset metadata, production R2 objects or production stimulus relationships.
 
-`shared_questions` is deliberately **not** Preview-owned and has no `preview_session_id`. Preview has no mutation authority over them.
+`shared_questions` and `asset_questions` are global production content and are not Preview-owned authoring targets. Preview has no mutation authority over them.
 
-The new `/admin/cases/[caseId]/question-scope` production endpoint is deliberately not implemented under `/preview-admin`. Shared Svelte markup guards production-only scope controls with `data.previewMode`, and the contract test asserts that Preview has not gained that route/action.
+Production-only question-scope and higher-resolution replacement actions are deliberately not implemented under `/preview-admin`.
 
 ## Shared Case editor contract
 
@@ -241,7 +336,7 @@ Preview renders the real production Case-editor Svelte component. It does not ma
 
 `test/admin-editor-preview-contract.test.js` remains the contract for shared named form actions/data. Any future named shared-editor action must have a safe Preview implementation or an explicit named `403` block. Production-only non-named endpoints must likewise be gated so Preview cannot submit to them.
 
-The Shared Question Admin UI is a separate production Admin surface and therefore does not extend the shared Case-editor contract.
+The Shared Question Admin UI and production Image Asset reusable-question/replacement actions are separate production Admin surfaces and therefore do not extend the shared Case-editor Preview mutation contract.
 
 ## Critical request/data isolation
 
@@ -259,6 +354,8 @@ Normal learner Case eligibility remains constrained to production Cases (`cases.
 Normal Review loading also excludes Preview-owned Question Prompts and Assets. Stage B uses the same active production Prompt map for Shared Question candidates, so a Preview-owned Prompt cannot enter learner eligibility even before the D1 Shared Question trigger is considered.
 
 Normal production Admin libraries/counts/details continue excluding disposable Preview ownership.
+
+The historical Review media route requires Review ownership and retains the existing Preview Worker/Preview Admin learner-access denial.
 
 ## Preview reset/deployment lifecycle
 
@@ -283,6 +380,8 @@ main on Preview
 → next PR
 ```
 
+PR #59 contains migration `0011_asset_supersession.sql`, so the existing Preview deployment guard remains authoritative for whether that PR can be deployed through the normal no-migration Preview path.
+
 ## Current migrations
 
 ```text
@@ -295,11 +394,16 @@ main on Preview
 0006_preview_admin_workspace.sql
 0007_image_collections.sql
 0008_tag_shared_questions.sql
+0009_reusable_image_questions.sql
+0010_reusable_image_reactivation_guard.sql
+0011_asset_supersession.sql
 ```
 
-No migration is required for stimulus-scope authoring. Do not add a second fixed-image-question schema.
+No second fixed-image-question schema is required.
 
 `0008_tag_shared_questions.sql` adds Shared Question tables/links, `tag_shared` Review provenance, and D1 trigger defense against Preview-owned Prompts. It does not seed production content and does not snapshot Tag IDs onto Reviews.
+
+`0009`/`0010` establish Reusable Image Question identity/opt-in integrity. `0011` adds only the narrow nullable Asset supersession self-FK and index required for higher-resolution replacement.
 
 ## R2 rules
 
@@ -307,7 +411,9 @@ Teaching images remain private. All production/Preview image writes continue thr
 
 Production teaching-image keys are immutable. Preview uploads use only the isolated Preview prefix and are cleaned during Reset after ownership/usage checks. Reviewed import staging remains separate operational data and is not an Asset.
 
-Stimulus-scope authoring changes only Case/stimulus/question relationships; it does not rewrite or duplicate R2 media.
+Stimulus-scope/reusable-question authoring changes relationships/content without rewriting existing R2 media.
+
+Higher-resolution replacement intentionally creates a second immutable production object while retaining the old object for historical Review delivery. Failed replacement removes only the new uncommitted object.
 
 ## Authentication boundaries
 
@@ -323,15 +429,17 @@ Authorization is server-side, not hard-coded by email.
 ## Validation required before handoff
 
 ```sh
+git diff --check
 npm run db:check
 npm test
 npm run check
 npm run build
 node scripts/local-auth-smoke.mjs
-git diff --check
 ```
 
 PR CI covers this validation set. When an agent cannot execute the repository locally, use the PR workflow result as the validation source and document any environment-specific failure precisely rather than broadening the product PR.
+
+For PR #59, keep the pull request **DRAFT** and unmerged after validation unless the user explicitly requests a later state change.
 
 ## Intentionally deferred
 
@@ -343,16 +451,23 @@ PR CI covers this validation set. When an agent cannot execute the repository lo
 - automatic/AI Tag inference;
 - Asset Tags;
 - Tag fields in Import Package v1;
-- Preview editing of global Shared Questions;
-- a generic redesign of fixed/alternative image management beyond the narrow transparent conversion required for exact-image question scope.
+- Preview editing of global Shared Questions or Reusable Image Questions;
+- generic Asset families or `image_identity`;
+- generic image version-history UI;
+- automatic visual similarity/same-image detection;
+- automatic deduplication;
+- bulk Asset replacement;
+- different-clinical-image replacement through the higher-resolution action;
+- automatic R2 garbage collection;
+- a generic redesign of fixed/alternative image management beyond the narrow transparent conversion required for image-specific question scope.
 
 ## Next intended implementation workflow
 
-The platform baseline and initial ECG ingestion are complete. After this stimulus-scope UX is reviewed, prioritize real content curation and learner/Admin friction rather than expanding schema for completeness:
+The platform baseline and initial ECG ingestion are complete. After PR #59 is reviewed, prioritize real content curation and learner/Admin friction rather than expanding schema for completeness:
 
 ```text
 curate real ECG Case Tags
-→ promote genuinely reusable knowledge into Shared Questions
+→ promote genuinely reusable knowledge into Shared Questions / Reusable Image Questions
 → exercise Case-wide vs exact-image authoring on real ECG variants
 → observe learner/Admin behavior
 → implement smallest learner-account Admin workflow

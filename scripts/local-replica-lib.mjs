@@ -11,6 +11,10 @@ export const CONTENT_TABLES = Object.freeze([
   { name: 'assets', selectSql: 'SELECT * FROM `assets` WHERE `preview_session_id` IS NULL ORDER BY `id`;' },
   { name: 'question_prompts', selectSql: 'SELECT * FROM `question_prompts` WHERE `preview_session_id` IS NULL ORDER BY `id`;' },
   {
+    name: 'asset_questions',
+    selectSql: 'SELECT aq.* FROM `asset_questions` aq JOIN `assets` a ON a.`id` = aq.`asset_id` JOIN `question_prompts` qp ON qp.`id` = aq.`question_prompt_id` WHERE a.`preview_session_id` IS NULL AND qp.`preview_session_id` IS NULL ORDER BY aq.`id`;'
+  },
+  {
     name: 'case_concepts',
     selectSql: 'SELECT cc.* FROM `case_concepts` cc JOIN `cases` c ON c.`id` = cc.`case_id` WHERE c.`preview_session_id` IS NULL ORDER BY cc.`case_id`, cc.`concept_id`;'
   },
@@ -25,6 +29,10 @@ export const CONTENT_TABLES = Object.freeze([
   {
     name: 'stimulus_group_options',
     selectSql: 'SELECT sgo.* FROM `stimulus_group_options` sgo JOIN `stimulus_groups` sg ON sg.`id` = sgo.`stimulus_group_id` JOIN `cases` c ON c.`id` = sg.`case_id` JOIN `assets` a ON a.`id` = sgo.`asset_id` WHERE c.`preview_session_id` IS NULL AND a.`preview_session_id` IS NULL ORDER BY sgo.`stimulus_group_id`, sgo.`display_order`, sgo.`id`;'
+  },
+  {
+    name: 'stimulus_option_asset_questions',
+    selectSql: 'SELECT soaq.* FROM `stimulus_option_asset_questions` soaq JOIN `stimulus_group_options` sgo ON sgo.`id` = soaq.`stimulus_group_option_id` JOIN `stimulus_groups` sg ON sg.`id` = sgo.`stimulus_group_id` JOIN `cases` c ON c.`id` = sg.`case_id` JOIN `asset_questions` aq ON aq.`id` = soaq.`asset_question_id` JOIN `assets` a ON a.`id` = aq.`asset_id` WHERE c.`preview_session_id` IS NULL AND a.`preview_session_id` IS NULL ORDER BY soaq.`stimulus_group_option_id`, soaq.`asset_question_id`;'
   },
   {
     name: 'concept_questions',
@@ -82,10 +90,12 @@ export const LOCAL_RESET_TABLES = Object.freeze([
   'shared_questions',
   'case_question_tags',
   'case_tags',
+  'stimulus_option_asset_questions',
   'stimulus_option_questions',
   'stimulus_group_questions',
   'case_questions',
   'concept_questions',
+  'asset_questions',
   'stimulus_group_options',
   'stimulus_groups',
   'case_assets',
@@ -155,7 +165,7 @@ export function sqlValue(value) {
 
 /** @param {string} tableName @param {D1Row[]} rows @returns {D1Row[]} */
 export function orderRowsForInsert(tableName, rows) {
-  if (tableName !== 'concepts') return rows;
+  if (tableName !== 'concepts' && tableName !== 'assets') return rows;
 
   /** @type {Map<string, D1Row>} */
   const byId = new Map(rows.map((row) => [String(row.id), row]));
@@ -163,20 +173,24 @@ export function orderRowsForInsert(tableName, rows) {
   const state = new Map();
   /** @type {D1Row[]} */
   const ordered = [];
+  const relationshipColumn = tableName === 'concepts' ? 'parent_id' : 'superseded_by_asset_id';
+  const entityLabel = tableName === 'concepts' ? 'Topic' : 'Asset';
+  const relationshipLabel = tableName === 'concepts' ? 'parent' : 'successor';
 
   /** @param {D1Row} row */
   const visit = (row) => {
     const id = String(row.id);
     const current = state.get(id);
     if (current === 'done') return;
-    if (current === 'visiting') throw new Error(`Topic hierarchy cycle detected at ${id}.`);
+    if (current === 'visiting') throw new Error(`${entityLabel} ${relationshipLabel} cycle detected at ${id}.`);
 
     state.set(id, 'visiting');
-    if (row.parent_id != null) {
-      const parentId = String(row.parent_id);
-      const parent = byId.get(parentId);
-      if (!parent) throw new Error(`Topic ${id} references missing parent ${parentId}.`);
-      visit(parent);
+    const relatedIdValue = row[relationshipColumn];
+    if (relatedIdValue != null) {
+      const relatedId = String(relatedIdValue);
+      const related = byId.get(relatedId);
+      if (!related) throw new Error(`${entityLabel} ${id} references missing ${relationshipLabel} ${relatedId}.`);
+      visit(related);
     }
     state.set(id, 'done');
     ordered.push(row);
@@ -204,8 +218,9 @@ export function buildInsertSql(tableName, rows) {
 export function buildLocalResetSql() {
   return [
     '-- Generated local-only reset. Better Auth user/account/session tables are intentionally preserved.',
-    '-- Break the self-referencing Topic hierarchy locally before deleting all Topic rows.',
+    '-- Break self-referencing production content locally before deleting rows.',
     'UPDATE `concepts` SET `parent_id` = NULL WHERE `parent_id` IS NOT NULL;',
+    'UPDATE `assets` SET `superseded_by_asset_id` = NULL WHERE `superseded_by_asset_id` IS NOT NULL;',
     ...LOCAL_RESET_TABLES.map((table) => `DELETE FROM ${sqlIdentifier(table)};`),
     ''
   ].join('\n');

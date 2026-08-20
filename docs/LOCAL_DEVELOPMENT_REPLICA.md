@@ -8,7 +8,7 @@
 
 _Status: implemented local developer workflow._
 
-_Last reviewed: 19 August 2026._
+_Last reviewed: 20 August 2026._
 
 ## Purpose
 
@@ -24,7 +24,7 @@ npm run dev
 localhost:5173
 ```
 
-This lets the developer navigate real Topics, Cases, Questions, Shared Questions, Tags, Assets, Image Collections and stimulus relationships while UI/content experiments remain disposable local changes.
+This lets the developer navigate real Topics, Cases, Questions, Shared Questions, Tags, Assets, Reusable Image Questions, Image Collections and stimulus relationships while UI/content experiments remain disposable local changes.
 
 The production-backed Preview Worker remains the final integration gate before merge. Local replica mode is for fast iteration, not a replacement for Preview/CI/deployment verification.
 
@@ -53,10 +53,12 @@ tags
 cases
 assets
 question_prompts
+asset_questions
 case_concepts
 case_assets
 stimulus_groups
 stimulus_group_options
+stimulus_option_asset_questions
 concept_questions
 case_questions
 stimulus_group_questions
@@ -67,7 +69,7 @@ shared_questions
 shared_question_tags
 ```
 
-Rows belonging to a Preview Session are filtered out from `cases`, `assets`, `question_prompts`, and dependent relationship/question rows.
+Rows belonging to a Preview Session are filtered out from `cases`, `assets`, `question_prompts`, and dependent relationship/question rows. `asset_questions` and `stimulus_option_asset_questions` are included so the local replica reproduces current Reusable Image Question authoring state rather than only the image relationships.
 
 The allowlist lives in `scripts/local-replica-lib.mjs`. Treat additions as security/privacy-sensitive changes: a new table is **not** mirrored merely because it exists.
 
@@ -107,6 +109,8 @@ local R2 object PUT at the same key
 
 Preview/import staging objects are therefore not copied merely because they exist in the bucket. A missing production object is reported explicitly. Stale unreferenced objects may remain in local R2 after a refresh; they are harmless because the refreshed local D1 no longer references them.
 
+Inactive superseded Assets remain production content and are mirrored when present because historical Asset lineage and old immutable teaching-image objects may be relevant to current authoring/history inspection.
+
 ## Requirements
 
 Before using the replica:
@@ -139,6 +143,23 @@ npm run dev
 6. copies R2 objects referenced by the mirrored Asset rows into local R2.
 
 If `.dev.vars` already exists it is preserved.
+
+### Self-referencing content import order
+
+The checked-out schema now has two self-referencing content relationships that require deterministic dependency ordering during local import:
+
+```text
+concepts.parent_id
+assets.superseded_by_asset_id
+```
+
+Topic rows are inserted parent-first. Asset supersession rows are inserted **successor-first**: for `A → B → C`, local import inserts C, then B, then A. This means refresh correctness does not depend on arbitrary Asset ID ordering and the immediate D1 self-FK remains satisfied.
+
+Missing referenced parents/successors or cycles fail closed rather than silently dropping lineage.
+
+Before local content reset, the script clears both self-FKs locally (`concepts.parent_id` and `assets.superseded_by_asset_id`) and then deletes child tables before parent tables. `stimulus_option_asset_questions` is deleted before `asset_questions`, and `asset_questions` before `assets`.
+
+These operations are **local-only**. They do not add any production mutation path.
 
 ## Local administrator
 
@@ -231,6 +252,8 @@ local admin can sign in
 /study can navigate production-derived Cases
 ```
 
+For current image authoring, also verify that Reusable Image Questions and their current Case/stimulus opt-ins appear locally for mirrored production Assets.
+
 ## Local mutation safety check
 
 A useful manual confirmation after first setup is to make a harmless local content edit and verify it persists locally. Do not perform a production write merely to prove that production was untouched.
@@ -241,7 +264,9 @@ The structural safety proof is instead in the command contract/tests:
 - remote R2 builder exposes `get` only;
 - D1 import/reset builders require `--local`;
 - R2 put builder requires `--local`;
-- forbidden production tables are absent from the mirror allowlist.
+- forbidden production tables are absent from the mirror allowlist;
+- Asset supersession ordering is dependency-based rather than ID-based;
+- Reusable Image Question tables are explicitly allowlisted/reset.
 
 ## Local state and cleanup
 
@@ -277,6 +302,8 @@ The refresh script applies the checked-out branch's migrations locally before im
 
 If a branch changes table semantics such that the current production rows can no longer be imported safely, the refresh should fail visibly. Do not weaken production safety or silently pretend schema compatibility.
 
+The Asset supersession self-FK is an example: the refresh implementation must topologically order Assets rather than relying on `ORDER BY id` to satisfy the checked-out branch schema.
+
 ## Production/Preview commands remain separate
 
 Do not confuse this workflow with:
@@ -303,7 +330,7 @@ node scripts/local-auth-smoke.mjs
 git diff --check
 ```
 
-Also exercise `npm run local:refresh` with suitable Cloudflare read authorization and verify local Admin navigation plus image rendering.
+Also exercise `npm run local:refresh` with suitable Cloudflare read authorization and verify local Admin navigation plus image rendering when credentials/local machine access are available.
 
 ## Open-source note
 

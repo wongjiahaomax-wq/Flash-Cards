@@ -39,7 +39,9 @@ Repository developer tooling now also includes the production-like local D1/R2 r
 
 The local slide-review/finalizer tooling is repository tooling and is not a deployed production-application feature. Its implementation is tracked by draft PR #53 until merged.
 
-Reusable Image Questions are implemented on the current feature branch and documented in `REUSABLE_IMAGE_QUESTIONS.md`; until that PR is merged/deployed, treat that document as the authoritative contract for the pending feature rather than as deployed production behavior.
+Reusable Image Questions are implemented on current `main` and documented in `REUSABLE_IMAGE_QUESTIONS.md`.
+
+Higher-resolution Asset replacement is implemented on the current feature branch and documented in `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md`. Until that PR is merged/deployed, treat that document as the authoritative contract for the pending feature rather than as deployed production behavior.
 
 ## Start here — authoritative orientation
 
@@ -61,7 +63,7 @@ Current shipped V1 behavior specification plus the next small V1 Admin increment
 
 ### `V1_DATA_MODEL.md`
 
-Authoritative implemented domain model, including Preview ownership, Image Collections, multi-Topic routing, stimulus groups, Tags, Shared Questions, import jobs, and Review snapshots/provenance.
+Authoritative implemented domain model, including Preview ownership, Image Collections, multi-Topic routing, stimulus groups, Tags, Shared Questions, Reusable Image Questions, Review snapshots/provenance, and the current higher-resolution Asset supersession contract on its feature branch.
 
 ### `AUTHORING_MODEL.md`
 
@@ -78,7 +80,8 @@ Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual
 - `ADMIN_CONTENT_MANAGEMENT_PLAN.md` — historical filename, current implemented Admin CMS contract and next Admin work.
 - `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` — current Case/Image Library authoring interaction contract.
 - `IMAGE_MANAGEMENT_V2_PLAN.md` — deployed behavior record for pagination, selection, Collections, bounded bulk execution, option Move, and Preview isolation.
-- `REUSABLE_IMAGE_QUESTIONS.md` — exact-Asset reusable question semantics, explicit Case/stimulus opt-in, resolver precedence, Review provenance, fixed-image conversion, and Preview restrictions for the reusable-image feature branch.
+- `REUSABLE_IMAGE_QUESTIONS.md` — exact-Asset reusable question semantics, explicit Case/stimulus opt-in, resolver precedence, Review provenance, fixed-image conversion, and Preview restrictions.
+- `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md` — narrow same-image quality upgrade contract: new immutable Asset/R2 object, supersession lineage, current relationship transfer, reusable-question cloning, stable Stimulus Option IDs, historical Review media delivery, rollback, and Preview isolation.
 
 ### Topics / multi-Topic routing
 
@@ -132,7 +135,7 @@ These are intentional future designs, **not current implemented behavior**.
 
 The slide-ingestion **source reconstruction/extraction** step remains separate future workflow work even after the local reviewer/finalizer lands; do not infer that PPTX/PDF ingestion is automated from the existence of the local review tool.
 
-Higher-resolution Asset replacement/versioning remains separate from Reusable Image Questions. Do not infer Asset identity families, version history, or automatic transfer of reusable questions to replacement Assets from this feature.
+The narrow higher-resolution replacement workflow does **not** imply generic Asset families, arbitrary version history, automatic visual similarity, different-image substitution, or bulk replacement. Those remain outside current scope.
 
 If pending work is later implemented, its design document must be converted from future/acceptance language into an operational runbook and the project roadmap/handover updated.
 

@@ -17,9 +17,15 @@ This document records the current implemented V1 application data model. It comp
 0007_image_collections.sql
 0008_tag_shared_questions.sql
 0009_reusable_image_questions.sql
+0010_reusable_image_reactivation_guard.sql
+0011_asset_supersession.sql
 ```
 
 `0009` is additive except for the conservative SQLite rebuild of `review_questions` required to extend its source-type CHECK and add nullable reusable-image provenance. Existing Review IDs, Prompt/answer snapshots and previous provenance fields are copied unchanged.
+
+`0010` adds defense-in-depth validation when an archived Reusable Image Question is reactivated.
+
+`0011` adds the narrow nullable self-FK `assets.superseded_by_asset_id` plus an index. It does not add an Asset-family/version table and does not mutate historical Review rows.
 
 ## 2. General design rules
 
@@ -33,6 +39,7 @@ This document records the current implemented V1 application data model. It comp
 8. Keep Topics, Tags, stimulus groups, Image Collections and exact-Asset reuse semantically separate.
 9. Keep new content structures additive/backward-compatible; ordinary Cases do not require alternatives, Tags, Shared Questions, Collections or Reusable Image Questions.
 10. Preview ownership is explicit provenance, not a naming convention or UI-only filter.
+11. Production teaching-image object keys are immutable; higher-resolution replacement creates a new Asset/R2 object rather than overwriting one.
 
 ## 3. Authentication and Preview ownership
 
@@ -41,6 +48,8 @@ Better Auth owns authentication/session/account tables. Current application role
 `preview_sessions` provides durable ownership/lifecycle state for disposable Preview Admin content. Production Cases/Assets/Prompts have `preview_session_id = NULL`; Preview-owned equivalents carry a session ID where supported.
 
 Global Shared Questions and Reusable Image Questions are production-curated objects. Preview-owned Prompts or Assets may not back them.
+
+Higher-resolution Asset replacement is also production-only. Preview-owned Assets cannot be source Assets for the operation, and production replacement does not silently rewrite Preview-owned Case/stimulus relationships.
 
 ## 4. Topics and Cases
 
@@ -103,6 +112,7 @@ source_url
 licence
 image_collection_id nullable
 preview_session_id nullable
+superseded_by_asset_id nullable FK -> assets.id
 is_active
 created_at
 updated_at
@@ -110,9 +120,50 @@ updated_at
 
 `storage_key` is immutable production object identity. A null Collection is presented as Unsorted.
 
-Higher-resolution replacement/versioning is **not** part of Reusable Image Questions. There is no `image_identity`, Asset family/version history or automatic question transfer to replacement Assets in V1.
+`superseded_by_asset_id` has one narrow meaning:
 
-## 6. Case image relationships
+```text
+Asset A was superseded by Asset B
+```
+
+For a successful same-image quality upgrade:
+
+```text
+A.is_active = false
+A.superseded_by_asset_id = B.id
+B.is_active = true
+```
+
+A later replacement may naturally create A → B → C by replacing B. An already-superseded A is not directly replaceable/reactivatable.
+
+This is not an Asset-family abstraction. There is no `image_identity`, generic version table or automatic similarity/deduplication system.
+
+## 6. Higher-resolution replacement invariant
+
+Use the replacement operation only for:
+
+```text
+same underlying image + better quality/resolution
+```
+
+A different ECG/X-ray/photograph/diagram showing the same condition remains a new independent Asset.
+
+Replacement creates a new immutable R2 object and a new Asset row. Appropriate semantic metadata is copied from A to B, while the uploaded file supplies the new storage key/MIME/original filename. Old R2 bytes remain untouched and retained for historical Reviews.
+
+Current production semantic changes are executed together after preflight:
+
+```text
+new Asset B
++ cloned Asset Questions for B
++ production case_assets A → B
++ production stimulus_group_options A → B, same option IDs
++ production reusable opt-ins old AQ → cloned BQ
++ old Asset A inactive/superseded
+```
+
+R2/D1 are not a shared transaction. A D1 failure deletes only the newly uploaded R2 object; A and all original relationships remain unchanged. A successful operation keeps both R2 objects.
+
+## 7. Case image relationships
 
 ### `case_assets` — fixed images
 
@@ -125,6 +176,8 @@ created_at
 ```
 
 Fixed active production Assets are shown in every applicable Review. `caption_md` is Case-specific relationship metadata.
+
+Higher-resolution replacement updates current production `asset_id` A → B in place and preserves Case ID, order and caption.
 
 ### `stimulus_groups`
 
@@ -157,7 +210,9 @@ Current learner behavior selects exactly one active option per active group and 
 
 A fixed image may be transparently converted to a one-option group when an image-specific question relationship requires an option. Asset identity and caption are preserved.
 
-## 7. `question_prompts`
+Higher-resolution replacement changes the production option's `asset_id` A → B **without recreating the option**. Stable option identity preserves group membership, caption/order/active state and attached exact-option questions.
+
+## 8. `question_prompts`
 
 Reusable learner-facing wording only:
 
@@ -174,7 +229,7 @@ No answer belongs on this table.
 
 The same Prompt can therefore be reused by Topic, Case, group, exact option, Shared Question or Reusable Image Question contexts with different answers where semantics permit.
 
-## 8. Contextual Question tables
+## 9. Contextual Question tables
 
 ### `concept_questions`
 
@@ -194,7 +249,9 @@ Case-specific exact-option questions/answers. These remain contextual even when 
 
 Existing `stimulus_option_questions` are not migrated or automatically inferred as reusable image knowledge.
 
-## 9. `asset_questions` — Reusable Image Questions
+Because higher-resolution replacement preserves `stimulus_group_options.id`, these exact-image Case questions remain unchanged when the option's current Asset changes from A to B.
+
+## 10. `asset_questions` — Reusable Image Questions
 
 Added by `0009_reusable_image_questions.sql`.
 
@@ -221,7 +278,20 @@ Important rules:
 
 Database triggers reject Preview-owned Assets or Prompts as reusable-image backing content.
 
-## 10. `stimulus_option_asset_questions` — explicit reuse opt-in
+### Replacement behavior
+
+Existing Asset Questions are never mutated from old Asset A to new Asset B. Doing so would make historical `review_questions.source_asset_question_id` provenance lie about the Asset identity that relationship originally represented.
+
+Instead every A Asset Question is cloned to B with:
+
+- a new Asset Question ID;
+- the same `question_prompt_id`;
+- the same canonical `answer_md`;
+- the same active/inactive state.
+
+Old Asset Questions remain attached to A. Prompts are reused, not duplicated.
+
+## 11. `stimulus_option_asset_questions` — explicit reuse opt-in
 
 Added by `0009`.
 
@@ -250,7 +320,9 @@ This prevents an Asset Question being attached to an option displaying a differe
 
 Removing one row removes reuse from only that stimulus. It does not archive/deactivate the global Asset Question or affect another opt-in.
 
-## 11. Tags and Shared Questions
+During replacement the preserved production option is first moved to B, then its current opt-ins are updated to the corresponding cloned B Asset Questions. This ordering keeps the database Asset-identity trigger valid. Preview-owned opt-ins are not rewritten.
+
+## 12. Tags and Shared Questions
 
 Tagging Stage A remains based on `tags`, `case_tags`, and `case_question_tags`.
 
@@ -260,17 +332,17 @@ Tagging Stage A remains based on `tags`, `case_tags`, and `case_question_tags`.
 
 Reusable Image Questions are distinct from Shared Questions: their reuse key is exact Asset identity plus explicit stimulus opt-in, not a Case Tag.
 
-## 12. `import_jobs`
+## 13. `import_jobs`
 
 Resumable Import Package v1 operational state remains unchanged.
 
-Reusable Image Questions do not extend `flashcards-import-v1` in this feature. Reviewed imports may reconstruct ordinary Cases/images/questions first and enrich exact-Asset reuse later.
+Reusable Image Questions and higher-resolution supersession do not extend `flashcards-import-v1`. Reviewed imports may reconstruct ordinary Cases/images/questions first and enrich/replace media later through production Admin authoring.
 
-## 13. `reviews`
+## 14. `reviews`
 
 One learner attempt at one resolved Case/Study Topic. Review rows preserve canonical primary Topic and actual Study Topic route plus Case title/vignette snapshots and status/rating timestamps.
 
-## 14. `review_questions`
+## 15. `review_questions`
 
 `0009` adds exact reusable-image provenance while preserving immutable Prompt/answer snapshots.
 
@@ -321,19 +393,49 @@ Uniqueness remains:
 
 Therefore one Review cannot contain two copies of the same Prompt ID.
 
-Editing a canonical Asset Question later does not change an existing Review because `prompt_snapshot_md` and `answer_snapshot_md` were frozen when the Review started.
+Editing or replacing current canonical content later does not change an existing Review because `prompt_snapshot_md` and `answer_snapshot_md` were frozen when the Review started. Replacement also does not rewrite `source_asset_question_id`; an old Review keeps the old A Asset Question ID while future Reviews resolve B's cloned question.
 
-## 15. `review_assets`
+## 16. `review_assets`
 
-Snapshots exact fixed/selected media shown in a Review, including storage key, caption, alt text and selected group/option provenance. This model is unchanged by Reusable Image Questions.
+Snapshots exact fixed/selected media shown in a Review:
 
-## 16. Relationship overview
+```text
+id
+review_id
+asset_id
+display_order
+storage_key_snapshot
+caption_snapshot_md
+alt_text_snapshot
+source_stimulus_group_id
+source_stimulus_option_id
+```
+
+`storage_key_snapshot` is the authoritative historical media identity.
+
+Current Study rendering uses an authenticated Review-specific image endpoint which:
+
+- verifies the Review belongs to the requesting learner;
+- verifies the requested Review Asset belongs to that Review;
+- reads the R2 key only from `review_assets.storage_key_snapshot`;
+- serves the historical object even when the referenced Asset is inactive/superseded;
+- does not accept arbitrary R2 keys;
+- uses `Cache-Control: private, max-age=0, must-revalidate` so a browser must re-run the authenticated Review ownership check before reusing an owner-specific response, while retaining ETag-based `304 Not Modified` support.
+
+The normal active-Asset endpoint remains separate and continues to reject inactive Assets. Its existing long-lived private immutable cache policy is not used for owner-specific Review URLs.
+
+Therefore changing current relationships from A to B does not alter an already-started Review or require reactivating A.
+
+## 17. Relationship overview
 
 ```text
 preview_sessions
   ├── cases.preview_session_id
   ├── assets.preview_session_id
   └── question_prompts.preview_session_id
+
+assets
+  └── assets.superseded_by_asset_id -> assets.id (nullable narrow lineage)
 
 concepts
   └── concepts.parent_id
@@ -362,9 +464,10 @@ reviews
   │    ├── source_asset_question_id ── asset_questions (nullable)
   │    └── source_shared_question_id ── shared_questions (nullable)
   └── review_assets
+       └── storage_key_snapshot -> immutable historical R2 key value
 ```
 
-## 17. Learner question resolution
+## 18. Learner question resolution
 
 For a selected active production Case and resolved Study Topic:
 
@@ -394,7 +497,9 @@ Reusable Image Questions carry the selected `stimulusGroupId`/`stimulusOptionId`
 
 The same Prompt cannot be configured ambiguously across independently selectable groups in one Case. Within one selected group, narrower precedence may override a broader source safely.
 
-## 18. Fixed-image conversion invariant
+Higher-resolution replacement does not alter resolver precedence. It only changes the current Asset/reusable-question identities behind preserved authoring relationships for future Reviews.
+
+## 19. Fixed-image conversion invariant
 
 No parallel fixed-image reusable-question table exists.
 
@@ -409,30 +514,33 @@ one-option stimulus group
 
 With one active option and `selection_count = 1`, learner-visible image behavior remains equivalent.
 
-## 19. Prompt shared-edit protection
+## 20. Prompt shared-edit protection
 
 Question Prompt wording remains globally reusable wording. Questions Library usage/blast-radius calculations include active Reusable Image Question usages as well as existing contextual and Shared Question usages.
 
 Prompt stale/shared-edit protections must not be bypassed when a Prompt participates in `asset_questions`.
 
-## 20. Production / Preview defense
+## 21. Production / Preview defense
 
 Normal learner construction excludes Preview-owned Cases/Prompts/Assets.
 
 Reusable Image Questions are production-global in this implementation. Preview Admin does not receive reusable-image mutation authority, and migration triggers reject Preview-owned backing Assets/Prompts.
 
-## 21. Progress queries
+Higher-resolution replacement likewise rejects Preview-owned source Assets and filters relationship movement by production Case ownership. Preview Admin has no equivalent production replacement action.
+
+## 22. Progress queries
 
 Completed Reviews continue to provide the existing V1 progress derivations. No new learner-progress table is introduced by this feature.
 
-## 22. Deliberately deferred schema
+## 23. Deliberately deferred schema/features
 
 Do not add without concrete behavior requirements:
 
 - `asset_concepts` or `stimulus_option_concepts`;
 - Asset Tags;
-- `image_identity`, Asset family/version/replacement tables;
-- automatic reusable-question transfer to replacement Assets;
+- `image_identity`, Asset families or generic version-history tables beyond the narrow `superseded_by_asset_id` lineage;
+- automatic visual similarity/identity detection;
+- arbitrary different-image replacement or bulk replacement;
 - Tag hierarchy/alias tables;
 - compound Shared Question reuse expressions;
 - learner Study-by-Tag structures;
