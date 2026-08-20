@@ -71,7 +71,8 @@ test('question scope UX exposes Case-wide and fixed/alternative stimulus targets
   assert.match(adminEditor, /value={`fixed:\$\{asset\.assetId\}`}/);
   assert.match(adminEditor, /value={`option:\$\{option\.id\}`}/);
   assert.match(imageQuestionCounts, /Case-specific Image Questions · \{caseSpecificCount\}/);
-  assert.match(imageQuestionCounts, /Reusable Image Questions · \{reusable\?\.total \?\? 0\}/);
+  assert.match(imageQuestionCounts, /let reusableTotal = \$derived\(reusable\?\.total \?\? 0\)/);
+  assert.match(imageQuestionCounts, /Reusable Image Questions · \{reusableTotal\}/);
   assert.match(adminEditor, /Manage questions/);
   assert.match(questionScopeRoute, /moveCaseQuestionToStimulusTarget/);
   assert.match(questionScopeRoute, /saveQuestionAtScope/);

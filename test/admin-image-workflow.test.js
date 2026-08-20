@@ -418,7 +418,8 @@ test('Case editor keeps Images before Case questions and no longer embeds the un
   assert.ok(source.indexOf('id="images"') < source.indexOf('id="questions"'));
   assert.match(source, />Images </);
   assert.match(source, /Add images from library/);
-  assert.match(source, /image-specific/);
+  assert.match(source, /Case-specific Image Questions/);
+  assert.match(source, /Reusable Image Questions/);
   assert.match(source, /updateStimulusOptionCaption/);
   assert.match(source, /reconcileCasePickerSelection/);
   assert.doesNotMatch(source, /selectedCase\.available/);
