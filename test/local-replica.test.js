@@ -30,6 +30,8 @@ test('replica allowlist excludes auth, learner progress, preview sessions and im
     'case_questions',
     'stimulus_groups',
     'stimulus_group_options',
+    'asset_questions',
+    'stimulus_option_asset_questions',
     'tags',
     'shared_questions',
     'image_collections'
@@ -39,7 +41,7 @@ test('replica allowlist excludes auth, learner progress, preview sessions and im
 });
 
 test('preview-owned rows are filtered from production-owned content queries', () => {
-  for (const name of ['cases', 'assets', 'question_prompts']) {
+  for (const name of ['cases', 'assets', 'question_prompts', 'asset_questions', 'stimulus_option_asset_questions']) {
     const query = CONTENT_TABLES.find((table) => table.name === name)?.selectSql ?? '';
     assert.match(query, /preview_session_id/);
     assert.match(query, /IS NULL/i);
@@ -83,10 +85,22 @@ test('Vite platform proxy persists local state and refuses remote binding connec
 
 test('local reset deliberately preserves Better Auth identity tables', () => {
   for (const table of ['user', 'account', 'session', 'verification']) assert.equal(LOCAL_RESET_TABLES.includes(table), false);
-  for (const table of ['reviews', 'review_questions', 'review_assets', 'preview_sessions', 'import_jobs']) {
+  for (const table of [
+    'reviews',
+    'review_questions',
+    'review_assets',
+    'preview_sessions',
+    'import_jobs',
+    'asset_questions',
+    'stimulus_option_asset_questions'
+  ]) {
     assert.equal(LOCAL_RESET_TABLES.includes(table), true);
   }
-  assert.match(buildLocalResetSql(), /UPDATE `concepts` SET `parent_id` = NULL/);
+  const sql = buildLocalResetSql();
+  assert.match(sql, /UPDATE `concepts` SET `parent_id` = NULL/);
+  assert.match(sql, /UPDATE `assets` SET `superseded_by_asset_id` = NULL/);
+  assert.ok(sql.indexOf('DELETE FROM `stimulus_option_asset_questions`') < sql.indexOf('DELETE FROM `asset_questions`'));
+  assert.ok(sql.indexOf('DELETE FROM `asset_questions`') < sql.indexOf('DELETE FROM `assets`'));
 });
 
 test('Topic rows are inserted parent-first even when source IDs sort child-first', () => {
@@ -114,6 +128,37 @@ test('Topic hierarchy import fails closed on missing parents or cycles', () => {
       orderRowsForInsert('concepts', [
         { id: 'one', parent_id: 'two' },
         { id: 'two', parent_id: 'one' }
+      ]),
+    /cycle detected/
+  );
+});
+
+test('Asset supersession rows are inserted successor-first regardless of Asset ID ordering', () => {
+  const rows = [
+    { id: 'a-old', superseded_by_asset_id: 'm-current', storage_key: 'old.png' },
+    { id: 'm-current', superseded_by_asset_id: 'z-newest', storage_key: 'current.png' },
+    { id: 'z-newest', superseded_by_asset_id: null, storage_key: 'newest.png' }
+  ];
+  assert.deepEqual(orderRowsForInsert('assets', rows).map((row) => row.id), [
+    'z-newest',
+    'm-current',
+    'a-old'
+  ]);
+  const sql = buildInsertSql('assets', rows);
+  assert.ok(sql.indexOf("'z-newest'") < sql.indexOf("'m-current'"));
+  assert.ok(sql.indexOf("'m-current'") < sql.indexOf("'a-old'"));
+});
+
+test('Asset supersession import fails closed on missing successors or cycles', () => {
+  assert.throws(
+    () => orderRowsForInsert('assets', [{ id: 'old', superseded_by_asset_id: 'missing' }]),
+    /missing successor/
+  );
+  assert.throws(
+    () =>
+      orderRowsForInsert('assets', [
+        { id: 'one', superseded_by_asset_id: 'two' },
+        { id: 'two', superseded_by_asset_id: 'one' }
       ]),
     /cycle detected/
   );
