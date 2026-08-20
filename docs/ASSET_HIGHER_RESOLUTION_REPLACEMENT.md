@@ -158,10 +158,12 @@ Study pages use an authenticated Review-specific image URL instead of the ordina
 4. reads only `review_assets.storage_key_snapshot` as the R2 key;
 5. serves that immutable object even if its original Asset is now inactive;
 6. does not accept an arbitrary R2 key from the request;
-7. uses private immutable cache semantics;
+7. uses `Cache-Control: private, max-age=0, must-revalidate` so a browser must re-run the ownership check before reusing an owner-specific Review response, while retaining ETag-based `304 Not Modified` support;
 8. returns not-found/denial without reading R2 when ownership does not match.
 
-The ordinary `/api/assets/{assetId}/image` path keeps its existing contract for active current Assets and continues to reject inactive Assets.
+Review-specific URLs deliberately do not use the ordinary one-year fresh immutable browser-cache policy. On a shared browser, a long fresh lifetime could otherwise allow a previously cached learner-owned Review image to be reused after application logout/login without contacting the authenticated endpoint again.
+
+The ordinary `/api/assets/{assetId}/image` path keeps its existing contract for active current Assets and continues to reject inactive Assets. Ordinary active teaching Assets may retain the existing long-lived private immutable cache policy because their authorization contract is not bound to one specific Review owner.
 
 Therefore:
 
