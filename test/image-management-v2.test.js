@@ -13,6 +13,7 @@ import {
   deleteImageCollection,
   assetLibraryQueryContext,
   getAssetLibraryPage,
+  getAssetLibraryDetail,
   listAssetLibraryCollections,
   parseAssetLibraryFilters,
   parseAssetLibraryPage,
@@ -39,7 +40,8 @@ const migrationSql = [
   readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0013_review_assets_asset_lookup.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function fixture() {
@@ -110,6 +112,7 @@ test('Image Library derives current, historical-only, and unused lifecycle state
 
     const reviewSource = sqlite.prepare(`SELECT c.id AS case_id, cc.concept_id FROM cases c JOIN case_concepts cc ON cc.case_id = c.id AND cc.role = 'primary' WHERE c.preview_session_id IS NULL LIMIT 1`).get();
     assert.ok(reviewSource);
+    sqlite.prepare(`INSERT INTO case_concepts (case_id, concept_id, role, created_at) VALUES (?, ?, 'primary', ?)`).run('lifecycle-case', reviewSource.concept_id, 12_002);
     sqlite.prepare(`INSERT INTO reviews (id, user_id, case_id, primary_concept_id, study_concept_id, case_title_snapshot, status) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run('lifecycle-review-row', 'lifecycle-user', reviewSource.case_id, reviewSource.concept_id, reviewSource.concept_id, 'Historical Case', 'completed');
     sqlite.prepare(`INSERT INTO review_assets (id, review_id, asset_id, display_order, storage_key_snapshot) VALUES (?, ?, ?, ?, ?)`)
@@ -129,6 +132,14 @@ test('Image Library derives current, historical-only, and unused lifecycle state
     assert.equal(states['lifecycle-unused'], 'unused');
     assert.equal(states['lifecycle-preview-only'], 'unused');
     assert.equal(rows.rows.find((row) => row.id === 'lifecycle-review')?.historicalReviewCount, 1);
+    assert.ok(rows.rows.find((row) => row.id === 'lifecycle-inactive-option')?.topicNames.length);
+
+    const historicalDetail = await getAssetLibraryDetail(db, 'lifecycle-inactive-option');
+    assert.ok(historicalDetail);
+    assert.equal(historicalDetail.asset.usageCount, 0);
+    assert.equal(historicalDetail.currentUsages.length, 0);
+    assert.equal(historicalDetail.usages.length, 1);
+    assert.equal(historicalDetail.usages[0].relationshipIsCurrent, false);
 
     const current = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=lifecycle-&usage=current')));
     const historical = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=lifecycle-&usage=historical')));
@@ -136,6 +147,14 @@ test('Image Library derives current, historical-only, and unused lifecycle state
     assert.deepEqual(new Set(current.rows.map((row) => row.id)), new Set(['lifecycle-fixed', 'lifecycle-option']));
     assert.deepEqual(new Set(historical.rows.map((row) => row.id)), new Set(['lifecycle-inactive-option', 'lifecycle-removed-option', 'lifecycle-review']));
     assert.deepEqual(new Set(unused.rows.map((row) => row.id)), new Set(['lifecycle-unused', 'lifecycle-preview-only']));
+
+    const lifecycleConceptId = sqlite.prepare(`SELECT concept_id FROM case_concepts WHERE case_id = 'lifecycle-case' AND role = 'primary'`).get()?.concept_id;
+    assert.ok(lifecycleConceptId);
+    const historicalByTopic = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams(`topic=${lifecycleConceptId}&usage=historical&q=lifecycle-`)));
+    assert.deepEqual(new Set(historicalByTopic.rows.map((row) => row.id)), new Set(['lifecycle-inactive-option', 'lifecycle-removed-option']));
+
+    const reviewPlan = sqlite.prepare(`EXPLAIN QUERY PLAN SELECT COUNT(DISTINCT review_id) FROM review_assets WHERE asset_id = ?`).all('lifecycle-review');
+    assert.match(reviewPlan.map((row) => String(row.detail)).join(' '), /review_assets_asset_review_idx/);
 
     const beforeSmallPage = getQueryCount();
     await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=lifecycle-')), { pageSize: 1 });

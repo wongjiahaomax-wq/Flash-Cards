@@ -111,8 +111,8 @@
             {#if question.isActive}
               <div class="reuse-section">
                 <strong>Case/stimulus opt-ins</strong>
-                {#if detail.usages.length === 0}<p class="muted compact">Attach this Asset to a Case before reusing the question.</p>{/if}
-                {#each detail.usages as usage}
+                {#if detail.currentUsages.length === 0}<p class="muted compact">Attach this active Asset to an active Case relationship before reusing the question.</p>{/if}
+                {#each detail.currentUsages as usage}
                   <div class="reuse-row">
                     <span><a href={`/admin/cases/${usage.caseId}`}>{usage.caseTitle}</a>{#if usage.stimulusGroupName}<small>{usage.stimulusGroupName}</small>{:else}<small>Fixed image · converts transparently to a one-option image set on opt-in</small>{/if}</span>
                     {#if usage.stimulusOptionId && opted(usage.stimulusOptionId, question.id)}
@@ -130,8 +130,8 @@
     {/if}
   </section>
 
-  <section class="panel usage-panel"><div class="panel-heading"><div><p class="eyebrow">Relationship usage</p><h2>Cases using this Asset <span class="count">{detail.asset.usageCount}</span></h2></div><span class="muted">Captions are shown for context but remain Case-specific.</span></div>
-    {#if detail.usages.length === 0}<p class="empty-state">This image is not attached to any Case yet.</p>{:else}<div class="usage-list">{#each detail.usages as usage}<a class="usage-row" href={`/admin/cases/${usage.caseId}`}><span><strong>{usage.caseTitle}</strong>{#if usage.stimulusGroupName}<small>Alternative stimulus: {usage.stimulusGroupName}</small>{/if}{#if usage.captionMd}<small>Case caption: {usage.captionMd}</small>{/if}</span><span class="usage-status">{usage.caseIsActive ? 'Active Case' : 'Inactive Case'} →</span></a>{/each}</div>{/if}
+  <section class="panel usage-panel"><div class="panel-heading"><div><p class="eyebrow">Relationship usage</p><h2>Retained Case relationships <span class="count">{detail.usages.length}</span></h2></div><span class="muted">{detail.asset.usageCount} current {detail.asset.usageCount === 1 ? 'Case' : 'Cases'} · historical relationships remain visible for context.</span></div>
+    {#if detail.usages.length === 0}<p class="empty-state">This image has no retained production Case relationship.</p>{:else}<div class="usage-list">{#each detail.usages as usage}<a class="usage-row" href={`/admin/cases/${usage.caseId}`}><span><strong>{usage.caseTitle}</strong>{#if usage.stimulusGroupName}<small>Alternative stimulus: {usage.stimulusGroupName}</small>{/if}{#if usage.removedFromCase}<small>Removed from Case</small>{:else if usage.stimulusOptionId && !usage.stimulusOptionIsActive}<small>Deactivated alternative</small>{:else if usage.stimulusGroupId && !usage.stimulusGroupIsActive}<small>Inactive alternative set</small>{/if}{#if usage.captionMd}<small>Case caption: {usage.captionMd}</small>{/if}</span><span class="usage-status">{usage.relationshipIsCurrent ? 'Current' : usage.caseIsActive ? 'Historical' : 'Inactive Case'} →</span></a>{/each}</div>{/if}
   </section>
 {/if}
 
