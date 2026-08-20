@@ -116,6 +116,7 @@ jobs:
             FROM cases ca
             JOIN case_concepts cc ON cc.case_id = ca.id
             JOIN concepts c ON c.id = cc.concept_id
+            WHERE ca.preview_session_id IS NULL
             ORDER BY
               ca.is_active DESC,
               ca.title,
@@ -157,8 +158,8 @@ jobs:
 
           Included by default:
           - `concepts`
-          - `cases`
-          - `case_concepts`
+          - production-owned `cases` where `preview_session_id IS NULL`
+          - `case_concepts` routes for those production-owned Cases
 
           Optional:
           - `concept_questions`

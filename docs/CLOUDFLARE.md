@@ -1,6 +1,6 @@
 # Cloudflare setup and deployment
 
-_Status: current production + production-backed Preview + local-replica operational runbook. Current through repository `main` after PR #59._
+_Status: current repository operational runbook through PR #59. Production migration, Worker deployment, and live verification state must be established separately._
 
 _Last updated: 20 August 2026._
 
@@ -173,7 +173,9 @@ apply_migrations = false | true
 
 This is the preferred production release path when GitHub Actions is available.
 
-Before dispatch, identify the intended `main` commit and decide whether the release is:
+**Dispatch this workflow from `main`.** The workflow now fails closed unless `GITHUB_REF` is exactly `refs/heads/main`, so selecting another branch/ref is not a supported production release path.
+
+Before dispatch, identify the intended current `main` SHA and decide whether the release is:
 
 ```text
 code only
@@ -181,13 +183,33 @@ or
 code + reviewed D1 migration(s)
 ```
 
+With an authenticated GitHub CLI, the code-only form is:
+
+```sh
+gh workflow run deploy-production.yml \
+  --repo wongjiahaomax-wq/Flash-Cards \
+  --ref main \
+  -f apply_migrations=false
+```
+
+Use `-f apply_migrations=true` only when the reviewed release deliberately includes pending production D1 migration application.
+
 For a code-only release, leave migration application disabled.
 
 For a release whose code requires reviewed pending migrations, enable migration application deliberately. The workflow then performs validation, applies remote migrations first, and deploys the Worker only after the migration step succeeds.
 
 The workflow requires the deployment credential for Worker deploys and a separate D1 write credential only when migration application is enabled. Keep credentials least-privilege and never commit or print their values.
 
-A successful run summary should be treated as evidence for the exact commit deployed and whether that run attempted migrations. Where migration state is operationally important, verify the remote migration result rather than relying only on prose in a PR or commit message.
+After the run, verify the workflow summary reports:
+
+```text
+Ref: refs/heads/main
+Commit: <GITHUB_SHA>
+```
+
+and confirm that the reported commit exactly matches the `main` SHA intended for release. A green run against an unexpected SHA is not acceptable production-release evidence.
+
+A successful run summary is evidence for the exact commit deployed and whether that run attempted migrations. Where migration state is operationally important, verify the remote migration result rather than relying only on prose in a PR or commit message.
 
 ### Local/terminal equivalent
 
@@ -338,9 +360,9 @@ See `R2_COST_GUARDRAILS.md`, `CONTENT_IMPORT_PACKAGES.md`, `ASSET_HIGHER_RESOLUT
 
 Read-only production content inspection uses the repository's fixed `Production content snapshot` workflow and should prefer the dedicated D1-read credential.
 
-The snapshot is evidence about the queried production **data**, not about which Worker commit is deployed and not about migration application beyond what those queried tables can directly demonstrate.
+The snapshot is evidence about the queried production **data**, not about which Worker commit is deployed and not about migration application beyond what those queried tables can directly demonstrate. Current Case-route output explicitly excludes Preview-owned Cases (`preview_session_id IS NULL`).
 
-Production write operators such as the agreed-taxonomy workflow are fixed-purpose, reviewed operations. They are not generic SQL consoles and must not be generalized into free-form mutation paths.
+Production write operators such as the agreed-taxonomy workflow are fixed-purpose, reviewed operations. They are not generic SQL consoles and must not be generalized into free-form mutation paths. Their machine checks cover defined invariants; human inspection remains required where the operator deliberately preserves unrelated relationships.
 
 Keep read and write credentials separate. Do not grant write access to the read token.
 
@@ -352,8 +374,10 @@ For every production release, record the applicable facts independently:
 
 ```text
 [ ] intended main SHA identified
+[ ] production workflow dispatched from main / ref guard passed
 [ ] CI/release validation passed
 [ ] required D1 migration(s) explicitly applied and verified, or confirmed not required
+[ ] reported workflow GITHUB_SHA matches intended main SHA
 [ ] intended Worker SHA deployed
 [ ] live behavior/post-flight checked
 [ ] any fixed-purpose data operator run separately verified

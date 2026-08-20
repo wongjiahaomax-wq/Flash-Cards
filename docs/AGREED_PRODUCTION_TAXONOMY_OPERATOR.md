@@ -48,11 +48,19 @@ A future direct production repair that cannot safely be performed through Admin 
 
 The script sends its fixed mutation to D1 using the existing batched execution model. Do not add ad-hoc transaction wrappers around the workflow merely to replay it.
 
-Before apply, machine checks require the expected target rows/current route shape and reject unexpected drift.
+Before apply, the machine preconditions validate a **defined critical subset** of state:
 
-After apply, machine post-flight verification checks the intended Topic hierarchy and Case route result.
+- the known Cardiology Topic still identifies active Cardiology;
+- both target Cases still exist and are active;
+- each target Case has exactly one primary route;
+- that primary route is either the original Cardiology route or the intended new primary Topic;
+- reserved fallback Topic IDs are not occupied by unrelated slugs.
 
-A failed machine check is a stop condition. Do not follow it with manual free-form SQL.
+These checks do **not** prove that no additional secondary Topic relationships exist. The human-readable pre-flight lists the target Case relationships and must still be inspected for unexpected additional routes. An unexplained extra secondary relationship is a stop condition even if the machine preconditions pass.
+
+After apply, machine post-flight verification checks the intended Topic hierarchy, exactly one intended primary route per target Case, the required Short/Prolonged QTc secondary route, and removal of the direct Cardiology routes. It likewise does not assert that no other secondary relationships exist, so the human-readable post-flight must also be reviewed.
+
+A failed machine check or unexpected human pre-/post-flight result is a stop condition. Do not follow it with manual free-form SQL.
 
 ## 4. Credential separation
 
@@ -68,9 +76,9 @@ The historical safe procedure was:
 
 1. merge the reviewed implementation only after green CI;
 2. run the operator in dry-run/pre-flight mode;
-3. compare the pre-flight against a fresh `Production content snapshot`;
-4. run apply only when the expected current state was confirmed;
-5. inspect machine post-flight verification;
+3. compare the pre-flight against a fresh `Production content snapshot` and inspect **all** displayed Topic relationships for the two target Cases;
+4. run apply only when both the machine-checked invariants and the human relationship review match the expected state;
+5. inspect machine post-flight verification and again review the complete displayed route sets for unexpected additional relationships;
 6. run the read-only snapshot again and retain the workflow runs as the audit trail.
 
 Important release-state distinction:
@@ -85,7 +93,9 @@ This workflow mutates production content; it does not deploy application code an
 
 ## 6. Idempotency boundary
 
-The operator was intentionally written to tolerate a rerun of the recorded target state while rejecting unrelated drift.
+The operator was intentionally written to tolerate a rerun of the recorded target state while rejecting drift in the **machine-checked invariants listed above**.
+
+It does not prove that there are no unrelated or additional secondary Topic relationships. Human inspection of the pre-flight/post-flight relationship output remains part of the safety contract.
 
 That does not make it a general-purpose reusable migration framework.
 
@@ -97,7 +107,7 @@ If pre-flight is unexpected, do not apply.
 
 If the fixed D1 mutation fails, retain the workflow evidence and inspect the read-only production snapshot before any further write.
 
-If post-flight verification is unexpected, stop further mutation and prepare a separately reviewed recovery change based on the recorded prior/target state. Do not paste free-form SQL into GitHub Actions and do not broaden the write credential.
+If post-flight verification or the complete route read-back is unexpected, stop further mutation and prepare a separately reviewed recovery change based on the recorded prior/target state. Do not paste free-form SQL into GitHub Actions and do not broaden the write credential.
 
 ## 8. Current maintenance rule
 

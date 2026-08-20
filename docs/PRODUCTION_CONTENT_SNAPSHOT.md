@@ -21,10 +21,20 @@ A completed snapshot is evidence about the production **rows queried by that wor
 It can support statements such as:
 
 ```text
-these Topics/Cases/relationships currently exist in production D1
+these production-owned Topics/Cases/relationships currently exist in production D1
 ```
 
-It is not authoritative evidence for:
+For Case routing, the current workflow explicitly excludes disposable Preview-owned Cases with:
+
+```sql
+cases.preview_session_id IS NULL
+```
+
+The `CASE_TOPIC_ROUTES` output therefore represents production-owned Cases and their Topic relationships rather than all Case rows sharing the production D1 database. Topics themselves are global rows and are queried independently.
+
+Historical snapshot runs produced before this filter was added may have included Preview-owned Cases if a Preview workspace existed at the time. Do not reuse an older run as authoritative production-Case evidence without checking which workflow revision produced it.
+
+The snapshot is not authoritative evidence for:
 
 ```text
 which Git commit is deployed to the production Worker
@@ -46,6 +56,7 @@ The workflow is intentionally constrained:
 - all database operations are `SELECT` queries;
 - there is no free-form SQL workflow input;
 - it queries only the explicitly approved learning-content tables;
+- Case-route output filters out rows owned by a Preview Session;
 - it does not query Better Auth tables, users, sessions, learner Reviews, or learner progress;
 - Cloudflare credentials remain GitHub repository secrets and are never printed deliberately.
 
@@ -73,15 +84,15 @@ The default run queries:
 
 ```text
 concepts
-cases
-case_concepts
+production-owned cases where preview_session_id IS NULL
+case_concepts for those Cases
 ```
 
 It emits:
 
 - Topic identity/name/slug/description/parent/active state;
-- Case identity/internal title, bounded vignette preview and active state;
-- Case↔Topic relationships;
+- production-owned Case identity/internal title, bounded vignette preview and active state;
+- Case↔Topic relationships for those production-owned Cases;
 - relationship role (`primary` or `secondary`);
 - Topic active state for each route.
 
@@ -126,7 +137,7 @@ If a future task genuinely requires sensitive/learner data, design a separate pu
 3. Choose **Run workflow**.
 4. Leave `include_topic_questions` off for normal taxonomy review, or enable it when Topic-question context is needed.
 5. Open the completed run and `snapshot` job.
-6. Inspect the grouped output.
+6. Inspect the grouped output and confirm the workflow revision includes the production-owned Case filter when using Case routes as evidence.
 
 Record the workflow run when using the output as evidence for a production-content decision.
 
@@ -141,7 +152,7 @@ The historical agreed taxonomy change has a separate fixed-purpose operator:
 scripts/apply-agreed-taxonomy.mjs
 ```
 
-That operator is deliberately not a generic production mutation API. It has fixed targets, fixed SQL/logic, pre-flight checks, post-flight verification and a separate least-privilege D1 write credential.
+That operator is deliberately not a generic production mutation API. It has fixed targets, fixed SQL/logic, a defined set of machine preconditions/postconditions and a separate least-privilege D1 write credential. Human inspection of its complete target relationship output remains necessary because its machine checks do not reject every possible additional secondary relationship.
 
 See `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md` for the audit/recovery contract.
 
@@ -154,7 +165,7 @@ For any approved fixed-purpose production content mutation, the preferred operat
 ```text
 read-only snapshot / pre-flight
 → reviewed fixed-purpose mutation
-→ machine post-flight verification
+→ machine post-flight verification + human relationship review
 → read-only snapshot again
 ```
 
@@ -183,4 +194,4 @@ Do not infer unqueried feature/deployment/migration state from snapshot output.
 
 ## 12. Maintenance rule
 
-Any future change to queried tables/fields, credential selection, logging, or the safety/privacy boundary must update this document in the same reviewed change.
+Any future change to queried tables/fields, Preview ownership filtering, credential selection, logging, or the safety/privacy boundary must update this document in the same reviewed change.
