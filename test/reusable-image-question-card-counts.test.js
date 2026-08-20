@@ -71,14 +71,24 @@ test('fixed-image reuse still uses established transparent one-option conversion
   assert.ok(source.includes('await optInFixedAssetQuestion(db, { caseId, assetId:'));
 });
 
-test('collapsed cards keep Case-specific and reusable counts independent and show no answers', () => {
+test('option cards show Case-specific Q/A pairs while keeping reusable counts independent', () => {
   const page = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
   const counts = fs.readFileSync(new URL('../src/lib/components/ImageQuestionCounts.svelte', import.meta.url), 'utf8');
   assert.ok(page.includes('<ImageQuestionCounts caseSpecificCount={0} {reusable} />'));
-  assert.ok(page.includes('<ImageQuestionCounts caseSpecificCount={imageQuestions.length} {reusable} />'));
+  assert.ok(page.includes('<ImageQuestionCounts caseSpecificCount={imageQuestions.length} caseSpecificQuestions={imageQuestions} {reusable} />'));
   assert.ok(counts.includes('Case-specific Image Questions'));
   assert.ok(counts.includes('Reusable Image Questions'));
-  assert.equal(/answerMd|Canonical answer|Answer:/.test(counts), false);
+  assert.ok(counts.includes('question.promptMd'));
+  assert.ok(counts.includes('question.answerMd'));
+  assert.ok(counts.includes('qa-label answer'));
+});
+
+test('Manage questions waits for the editor DOM, then reveals and focuses it', () => {
+  const page = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
+  assert.ok(page.includes("import { tick } from 'svelte'"));
+  assert.ok(page.includes('await tick()'));
+  assert.ok(page.includes("scrollIntoView({ behavior: 'smooth', block: 'start' })"));
+  assert.ok(page.includes('tabindex="-1"'));
 });
 
 test('Manage questions exposes reusable used/available actions while collapsed cards remain compact', () => {

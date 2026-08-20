@@ -1,4 +1,5 @@
 <script>
+  import { tick } from 'svelte';
   import { reconcileCasePickerSelection } from '$lib/admin-image-selection.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
   import ImageQuestionCounts from '$lib/components/ImageQuestionCounts.svelte';
@@ -55,10 +56,13 @@
   }
 
   /** @param {string} optionId */
-  function selectOption(optionId) {
+  async function selectOption(optionId) {
     selectedOptionId = selectedOptionId === optionId ? null : optionId;
     if (selectedOptionId) {
-      requestAnimationFrame(() => document.getElementById(`option-editor-${optionId}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+      await tick();
+      const editor = document.getElementById(`option-editor-${optionId}`);
+      editor?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      editor?.focus({ preventScroll: true });
     }
   }
 
@@ -160,7 +164,7 @@
                   <div class="option-heading"><span class="order-badge">{optionIndex + 1}</span><span class:inactive={!option.isActive || !option.assetIsActive} class="status-badge">{option.isActive && option.assetIsActive ? 'Active' : 'Inactive'}</span></div>
                   {#if option.imageUrl}<button class="option-thumbnail" type="button" onclick={() => showImage(option, `${group.name} alternative`)} aria-label={`Enlarge ${option.originalFilename ?? 'alternative image'}`}><img src={option.imageUrl} alt={option.altText ?? 'Alternative image'} loading="lazy" /></button>{:else}<div class="inactive-image option-thumb">Inactive image</div>{/if}
                   <div class="option-copy"><strong>{option.originalFilename ?? option.assetId}</strong><span class="muted">{option.captionMd ?? 'No option caption'}</span></div>
-                  <ImageQuestionCounts caseSpecificCount={imageQuestions.length} {reusable} />
+                  <ImageQuestionCounts caseSpecificCount={imageQuestions.length} caseSpecificQuestions={imageQuestions} {reusable} />
                   <button class="button small option-edit" type="button" aria-expanded={selectedOptionId === option.id} aria-controls={`option-editor-${option.id}`} onclick={() => selectOption(option.id)}>{selectedOptionId === option.id ? 'Close questions' : 'Manage questions'}</button>
                   <div class="actions compact-actions"><form method="POST" action="?/reorderStimulusOption"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="direction" value="up" /><button class="button small" disabled={optionIndex === 0} aria-label={`Move ${option.originalFilename ?? 'image'} up`}>↑</button></form><form method="POST" action="?/reorderStimulusOption"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="direction" value="down" /><button class="button small" disabled={optionIndex === group.options.length - 1} aria-label={`Move ${option.originalFilename ?? 'image'} down`}>↓</button></form><form method="POST" action="?/setStimulusOptionActive"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="active" value={option.isActive ? 'false' : 'true'} /><button class="button small" type="submit">{option.isActive ? 'Deactivate' : 'Reactivate'}</button></form></div>
                 </article>
@@ -171,7 +175,7 @@
               {@const imageQuestions = group.optionQuestions.filter((question) => question.stimulusGroupOptionId === option?.id && question.isActive)}
               {#if option}
                 {@const reusable = reusableSummary(option.assetId, option.id)}
-                <section id={`option-editor-${option.id}`} class="option-editor" aria-labelledby={`option-editor-heading-${option.id}`}>
+                <section id={`option-editor-${option.id}`} class="option-editor" aria-labelledby={`option-editor-heading-${option.id}`} tabindex="-1">
                   <div class="option-editor-heading"><div><p class="eyebrow">Manage questions</p><h4 id={`option-editor-heading-${option.id}`}>{option.originalFilename ?? option.assetId}</h4><p class="muted">Case-specific Image Questions and Reusable Image Questions are managed separately below.</p></div><button class="button small" type="button" onclick={() => selectOption(option.id)}>Close questions</button></div>
                   <div class="option-editor-layout">
                     <div class="option-editor-preview">{#if option.imageUrl}<button class="option-thumbnail" type="button" onclick={() => showImage(option, `${group.name} alternative`)} aria-label={`Enlarge ${option.originalFilename ?? 'alternative image'}`}><img src={option.imageUrl} alt={option.altText ?? 'Alternative image'} /></button>{:else}<div class="inactive-image option-thumb">Inactive image</div>{/if}<span class:inactive={!option.isActive || !option.assetIsActive} class="status-badge">{option.isActive && option.assetIsActive ? 'Active' : 'Inactive'}</span></div>
