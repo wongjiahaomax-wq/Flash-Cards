@@ -4,7 +4,7 @@ _Refreshed: 20 August 2026_
 
 ## Current outcome
 
-The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A and Stage B, Image Management V2, Reusable Image Questions, a wide responsive Admin workspace, the reviewed/resumable content-import path, a local production-like development replica, and a fully imported/verified initial ECG Anki corpus.
+The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A and Stage B, Image Management V2, Reusable Image Questions, a wide responsive Admin workspace, the reviewed/resumable content-import path, a local production-like development replica, a local slide-review/deterministic-finalizer toolchain, narrow higher-resolution Asset replacement on current `main`, and a fully imported/verified initial ECG Anki corpus.
 
 Recent merged infrastructure/product milestones include:
 
@@ -18,8 +18,15 @@ Recent merged infrastructure/product milestones include:
 - PR #41/#42 — Tagging Stage B schema foundation and production application of `0008_tag_shared_questions.sql`;
 - PR #43 — Tagging Stage B behavior/Admin authoring, merged and deployed to production;
 - PR #44–#46 — one-time read-only production verification of the completed ECG migration;
+- PR #53 — local/offline slide review and deterministic finalizer tooling;
+- PR #54 — Case-editor Topic management and inline Topic creation;
+- PR #55 — production-like local D1/R2 development replica;
 - PR #56 — moving an existing Case-wide question to an exact option in an Alternative image set;
-- PR #58 — Reusable Image Questions and explicit per-stimulus opt-ins.
+- PR #57 — author-facing whole-Case vs specific-image/stimulus question scope, including transparent fixed-image conversion;
+- PR #58 — Reusable Image Questions and explicit per-stimulus opt-ins;
+- PR #59 — safe same-image higher-resolution Asset replacement and supersession lineage.
+
+Merge status and production deployment status are intentionally separate. Current `main` contains migrations `0009`–`0011` and the PR #53–#59 code above. The repository also contains an explicit production rollout trigger commit for merged PR #56, but a trigger commit alone is not treated as proof that the workflow completed successfully. Do not label later merged features or migrations as deployed/applied without explicit rollout verification.
 
 The stimulus-scope authoring follow-up changes the Admin author mental model from database relationships to **Applies to: This whole Case / A specific image or stimulus**. Fixed images and existing alternative options are both selectable targets. Assigning an exact-image question to a fixed image transparently converts that Case relationship to a one-option active Stimulus Group in the same D1 batch as question assignment, preserving Asset identity and Case-specific caption. No second fixed-image-question schema is required.
 
@@ -27,7 +34,7 @@ The Case Questions section continues to return/display only active Case-wide que
 
 Preview does not gain production mutation authority for reusable production content or higher-resolution Asset replacement. Shared UI controls that would mutate production-only content remain gated while existing Preview-safe named actions remain available.
 
-Draft PR #59 adds the narrow production Admin workflow **Replace with higher-resolution version** for a better-quality copy of the **same underlying image**. It must remain draft/unmerged until review and validation are complete.
+PR #59 is merged on current `main` and provides the narrow production Admin workflow **Replace with higher-resolution version** for a better-quality copy of the **same underlying image**. Its presence on `main` does not by itself establish that migration `0011_asset_supersession.sql` is applied to production or that the corresponding Worker behavior is deployed.
 
 ## Read first
 
@@ -252,7 +259,7 @@ Only then does one D1 batch create the group/option, preserve caption/Asset iden
 
 The same Question Prompt may carry different option-specific answers for ECG A and ECG B inside one group. It remains forbidden to independently attach that Prompt to two active groups in the same Case where both groups can be selected in one Review.
 
-## Higher-resolution Asset replacement — draft PR #59
+## Higher-resolution Asset replacement — merged on current `main`
 
 Use **Replace with higher-resolution version** only for the same underlying image at better quality/resolution. A different ECG, X-ray, photograph or diagram remains an independent Asset even when it shows the same diagnosis.
 
@@ -380,7 +387,7 @@ main on Preview
 → next PR
 ```
 
-PR #59 contains migration `0011_asset_supersession.sql`, so the existing Preview deployment guard remains authoritative for whether that PR can be deployed through the normal no-migration Preview path.
+Current `main` includes migration `0011_asset_supersession.sql` from merged PR #59. The existing Preview deployment guard remains authoritative for candidate PRs containing migration changes; production/Preview schema application must still be verified separately from merge status.
 
 ## Current migrations
 
@@ -404,6 +411,8 @@ No second fixed-image-question schema is required.
 `0008_tag_shared_questions.sql` adds Shared Question tables/links, `tag_shared` Review provenance, and D1 trigger defense against Preview-owned Prompts. It does not seed production content and does not snapshot Tag IDs onto Reviews.
 
 `0009`/`0010` establish Reusable Image Question identity/opt-in integrity. `0011` adds only the narrow nullable Asset supersession self-FK and index required for higher-resolution replacement.
+
+Migrations `0009`–`0011` are present on current `main`. Their production application is not inferred from merge status and should be recorded as applied only after explicit remote migration verification.
 
 ## R2 rules
 
@@ -439,7 +448,7 @@ node scripts/local-auth-smoke.mjs
 
 PR CI covers this validation set. When an agent cannot execute the repository locally, use the PR workflow result as the validation source and document any environment-specific failure precisely rather than broadening the product PR.
 
-For PR #59, keep the pull request **DRAFT** and unmerged after validation unless the user explicitly requests a later state change.
+Merged PR #59's final CI passed the repository-authoritative suite, including 342 tests, but CI/merge success does not substitute for production migration/deployment verification.
 
 ## Intentionally deferred
 
@@ -463,7 +472,7 @@ For PR #59, keep the pull request **DRAFT** and unmerged after validation unless
 
 ## Next intended implementation workflow
 
-The platform baseline and initial ECG ingestion are complete. After PR #59 is reviewed, prioritize real content curation and learner/Admin friction rather than expanding schema for completeness:
+The platform baseline, recent PR #53–#59 implementation sequence and initial ECG ingestion are complete on current `main`. Prioritize real content curation and learner/Admin friction rather than expanding schema for completeness:
 
 ```text
 curate real ECG Case Tags
