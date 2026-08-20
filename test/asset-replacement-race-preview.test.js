@@ -257,3 +257,14 @@ for (const [label, addReference] of [
     }
   });
 }
+
+test('Admin image detail visibly explains live Preview replacement blocking and renders action errors', () => {
+  const ui = readFileSync(
+    new URL('../src/routes/admin/images/[assetId]/+page.svelte', import.meta.url),
+    'utf8'
+  );
+  assert.match(ui, /form\?\.error/);
+  assert.match(ui, /livePreviewUsage\?\.hasUsage/);
+  assert.match(ui, /referenced by an active Preview workspace/);
+  assert.match(ui, /Reset that Preview workspace or let it expire/);
+});
