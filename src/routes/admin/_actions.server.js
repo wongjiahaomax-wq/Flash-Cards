@@ -1,13 +1,11 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { and, desc, eq, isNull } from 'drizzle-orm';
 import { createDb } from '$lib/server/db/index.js';
-import { assets, caseQuestions, cases, questionPrompts } from '$lib/server/db/schema.js';
+import { assets } from '$lib/server/db/schema.js';
 import {
   AdminContentInputError,
   addCaseSecondaryTopic,
   createCase,
   createConcept,
-  listAdminConcepts,
   promoteCaseTopic,
   removeCaseSecondaryTopic,
   updateCase,
@@ -17,7 +15,6 @@ import {
   addStimulusOption,
   convertCaseAssetToStimulusOption,
   createStimulusGroup,
-  getAdminStimulusData,
   moveStimulusOption,
   removeStimulusGroupQuestion,
   removeStimulusOptionQuestion,
@@ -29,7 +26,6 @@ import {
 } from '$lib/server/db/stimulus-groups.js';
 import {
   CaseQuestionInputError,
-  listCaseQuestions,
   moveCaseQuestion,
   moveCaseQuestionToStimulusOption,
   removeCaseQuestion,
@@ -40,15 +36,12 @@ import {
   canManageCaseAssets,
   CaseAssetInputError,
   detachAssetFromCase,
-  getAdminCaseData,
-  listAdminCases,
   moveCaseAsset,
   updateCaseAssetCaption
 } from '$lib/server/db/case-assets.js';
 import {
   assertSupportedImageType,
   deleteTeachingImage,
-  getTeachingImageUrl,
   MediaStorageLimitError,
   putTeachingImage
 } from '$lib/server/storage/media.js';
