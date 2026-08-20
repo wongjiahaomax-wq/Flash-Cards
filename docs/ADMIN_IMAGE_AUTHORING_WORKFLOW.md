@@ -1,6 +1,6 @@
 # Admin image authoring workflow
 
-_Status: implemented baseline plus Reusable Image Questions and the higher-resolution replacement workflow on the current feature branch. PR #29 established the Case image-authoring baseline, PR #34/Image Management V2 extended scalable library behaviour, and PR #56 added Case-question → exact-option moves._
+_Status: implemented baseline plus Reusable Image Questions and the higher-resolution replacement workflow on the current feature branch. PR #29 established the Case image-authoring baseline, PR #34/Image Management V2 extended scalable library behaviour, PR #56 added Case-question → exact-option moves, and the stimulus-scope authoring follow-up makes fixed and alternative images equivalent targets from the author's perspective._
 
 _Last updated: 20 August 2026_
 
@@ -54,11 +54,13 @@ Where should this question apply?
 
 Reusing an Asset in another Case must never silently add its reusable questions. The author must opt that Case/stimulus usage in.
 
-The production Image Library Asset detail page remains the canonical global management surface for Reusable Image Questions. The Case editor also exposes the active reusable questions for the exact Asset inside **Manage questions**. Exact contextual questions remain separate as **Case-specific Image Questions**.
+The stimulus picker includes both current fixed Case images and active options in existing Alternative image sets. Use thumbnails plus filename, Case caption and set context where available.
+
+The production Image Library Asset detail page remains a canonical global management surface for Reusable Image Questions. The Case editor also exposes the active reusable questions for the exact Asset inside **Manage questions**, where production authors can create canonical reusable questions, edit canonical answers, and explicitly reuse/remove them for the current stimulus. Exact contextual questions remain separate as **Case-specific Image Questions**.
 
 ## 3. Transparent fixed-image conversion for exact or reusable questions
 
-General image-management operations keep fixed-versus-alternative conversion explicit. One deliberate exception exists when image-specific question semantics require a stimulus option.
+General image-management operations still keep fixed-versus-alternative conversion explicit. One deliberate exception exists when image-specific question semantics require a stimulus option.
 
 When an author assigns an exact-image question or explicitly reuses an Asset Question on a currently fixed image, the app may transparently:
 
@@ -70,7 +72,9 @@ When an author assigns an exact-image question or explicitly reuses an Asset Que
 6. preserve active learner-visible behaviour;
 7. attach the exact-option relationship or reusable-image opt-in as requested.
 
-The conversion and question assignment are one semantic mutation. Preflight validation occurs before destructive scope changes and D1 batch semantics prevent a failed assignment from leaving the fixed image unexpectedly converted.
+The generated group name should be deterministic and human-readable from existing Asset metadata. The author must not need to invent a set name merely to express image-specific question scope.
+
+The conversion and question assignment are one semantic mutation. Preflight validation must happen before destructive scope changes, and D1 batch semantics must prevent a failed assignment from leaving the fixed image unexpectedly converted.
 
 With one active option, that image remains selected whenever the Case is reviewed, preserving the previous fixed-image learner behaviour.
 
@@ -87,19 +91,21 @@ Changing Case → stimulus:
 - preserves the cross-Stimulus-Group Prompt conflict invariant;
 - removes Topic reuse only under the existing safe semantics, never by deleting legitimate use belonging to another Case.
 
+After the move, the question no longer belongs in the Case Questions list.
+
 Existing exact-option questions are not automatically promoted to Reusable Image Questions. Reusability is an explicit editorial decision.
 
 ## 5. Keep Case Questions tidy
 
 The Case Questions section contains only questions that apply to the whole Case regardless of the selected stimulus.
 
-Do not duplicate exact-image or reusable-image opt-ins into that section. Stimulus-specific contextual questions remain managed beside the image; canonical reusable questions are managed from the image's **Manage questions** surface and Asset detail. Alternative-set-wide questions remain at the set level.
+Do not duplicate exact-image or reusable-image opt-ins into that section. Stimulus-specific contextual questions remain managed beside the image; canonical reusable questions are managed from the image's **Manage questions** surface and the Asset detail surface. Alternative-set-wide questions remain at the set level.
 
 ## 6. Stimulus cards and question management
 
 Fixed and alternative image cards use clinically useful contain-fit previews and can open the shared Admin image viewer.
 
-Every fixed-image card and every individual alternative-option card exposes both question categories before the author opens **Manage questions**:
+Every fixed-image card and every individual alternative-option card must expose both question categories before the author opens **Manage questions**. The compact card contract is:
 
 ```text
 Case-specific Image Questions · N
@@ -110,11 +116,30 @@ X used in this Case · Y available to reuse
 [Manage questions]
 ```
 
-The reusable headline counts only active `asset_questions` whose `question_prompts` row is also active. `used in this Case` means an explicit opt-in for that exact stimulus option. `available to reuse` is the remaining active reusable questions for the Asset.
+When `used = 0`, prefer the more compact reusable status:
 
-Archived Asset Questions or inactive Prompts do not appear in visible counts. A fixed image cannot already have a reusable opt-in; opting one in uses the established safe fixed-image → one-option conversion.
+```text
+Reusable Image Questions · 3
+3 available to reuse
+```
 
-The collapsed card shows counts/status only. Full question content/actions remain behind **Manage questions**.
+When no active reusable questions exist:
+
+```text
+Reusable Image Questions · 0
+```
+
+The reusable headline counts only active `asset_questions` whose `question_prompts` row is also active. `used in this Case` means an explicit opt-in for that exact stimulus option. `available to reuse` is the remaining active reusable questions for the Asset. Under normal valid state:
+
+```text
+total reusable = used here + available
+```
+
+Archived Asset Questions or inactive Prompts do not appear in these visible counts. Dormant opt-in rows may remain so reactivation restores the valid used state without destructive relationship rewriting.
+
+A fixed image cannot already have a reusable opt-in. It therefore normally shows all active reusable questions as available. Opting one in uses the established safe fixed-image → one-option conversion; the resulting option card then reports the exact used/available split.
+
+The collapsed card shows **counts/status only**. It must not render full reusable answers, Case-specific answers, or expanded editing controls. Full question content and actions remain behind **Manage questions**.
 
 Inside **Manage questions**, preserve the semantic split:
 
@@ -129,17 +154,25 @@ Reusable Image Questions available to reuse
 = active canonical Asset Questions not currently opted into this exact stimulus
 ```
 
+Do not label the first category merely **Image-specific questions** because Reusable Image Questions are also image-specific.
+
+An available reusable question may still be rejected by existing authoring invariants, including cross-Stimulus-Group Prompt conflicts. The compact card does not need a separate blocked count; the management action must retain existing validation and must never silently permit an invalid relationship.
+
 Removing an opt-in moves a question from `used` to `available` without editing or archiving the canonical Asset Question.
+
+Alternative option cards retain active state, ordering, caption editing and explicit same-Case **Move to another set…** behaviour.
 
 ## 7. Exact-option identity, reusable Asset identity, and Prompt invariant
 
 An exact-image contextual question belongs to the Case's `stimulus_group_option`, not to the global Asset. Reusing the same Asset elsewhere does not carry those Case-specific questions with it.
 
-A Reusable Image Question belongs to the exact global Asset. Its answer is canonical across all opt-ins, but each stimulus option independently decides whether to use it.
+A Reusable Image Question belongs to the exact global `Asset`. Its answer is canonical across all opt-ins, but each stimulus option independently decides whether to use it.
 
 The invariant remains:
 
 > The same Question Prompt cannot be independently attached to multiple active Stimulus Groups within one Case where both groups may be selected in the same Review.
+
+The invariant includes reusable Asset Question opt-ins. Do not bypass it during fixed-image conversion, Case-question moves, reusable-image opt-in, higher-resolution replacement, or later legacy question edits.
 
 Within one selected stimulus context, precedence resolves duplicate Prompt IDs as:
 
@@ -163,7 +196,7 @@ Case A / Alternative Set 1 / Option X
 
 The operation re-parents the existing option in place and preserves option ID, Asset identity, Case-specific caption, active state, and exact-option questions/answers.
 
-Reusable-image opt-ins are attached to the option identity and therefore move with that option, subject to the same cross-group Prompt/coverage validity.
+Reusable-image opt-ins are attached to the option identity and therefore move with that option, subject to the same cross-group Prompt/coverage validity. Set-wide questions remain with their original sets.
 
 ## 9. Asset picker and ordinary uploads
 
@@ -183,7 +216,7 @@ Bulk Add-to-alternative-set rejects a fixed relationship rather than silently co
 
 ## 11. Image Library scalability and Collections
 
-The full `/admin/images` and `/preview-admin/images` libraries retain Image Management V2 behaviour: 60 Assets per server-backed page, exact matching counts, deterministic search/filter/sort pagination, bounded selection/bulk mutations, and explicit cross-page selection rules.
+The full `/admin/images` and `/preview-admin/images` libraries retain Image Management V2 behaviour: 60 Assets per server-backed page, exact result count, deterministic filtering/sort, bounded selection and bulk mutations, and explicit cross-page selection rules.
 
 Image Collections remain organisational only. Deleting/changing a Collection never changes Case relationships, Tags, questions, Reviews, learner routing, or R2 identity.
 
@@ -195,21 +228,29 @@ Reusable Image Questions are global production Asset-level teaching content in t
 
 Production Admin may create/edit/archive canonical Asset Questions and opt production Case/stimulus usages in or out.
 
-Preview may render shared read-only information where safe, but must never gain production reusable-question mutation authority. Database triggers reject Preview-owned Assets or Prompts as reusable Asset Question backing content.
+Preview may render the compact distinction where shared Case-editor data makes it safe, but must never gain production reusable-question mutation authority. Reusable create/edit/reuse/remove controls are production-only. Preview Admin must not mutate production Assets, production Asset Questions, production Question Prompts, production Cases, or production stimulus relationships. No reusable-image mutation endpoint is exposed under Preview Admin, and database triggers reject Preview-owned Assets or Prompts as reusable Asset Question backing content.
 
-The higher-resolution replacement operation is also production-only. Preview-owned Assets are not eligible source Assets, Preview Admin has no equivalent replacement action, and Preview-owned Case/stimulus relationships are not silently rewritten by a production replacement.
+Existing Preview-safe Case/image behavior remains unchanged.
+
+The higher-resolution replacement operation is also production-only. Preview-owned Assets are not eligible source Assets, Preview Admin has no equivalent replacement action, and Preview-owned Case/stimulus relationships are never silently rewritten by a production replacement.
+
+A production Asset referenced by a **live Preview workspace** is temporarily ineligible for replacement. For this boundary, live means the Preview session is `active` and `expires_at` is still in the future. Both fixed Preview `case_assets` references and Preview `stimulus_group_options` references block replacement. The operation checks this before uploading the replacement and repeats the condition when claiming the source Asset inside the D1 batch, so a Preview that becomes live during the operation causes the batch to fail and the new R2 object to be cleaned up.
+
+Expired/non-live Preview relationships remain outside the mutation set; they are not rewritten.
 
 ## 13. Stimulus-specific coverage
 
-Reusable Image Questions explicitly opted into the selected stimulus are stimulus-specific candidates because the resolver attaches selected `stimulusGroupId`/`stimulusOptionId` context to them.
+Reusable Image Questions explicitly opted into the selected stimulus are stimulus-specific candidates because the resolver attaches the selected `stimulusGroupId`/`stimulusOptionId` context to them.
 
-They participate in learner Automatic/All/Fixed selection through the existing final eligible pool and count toward configured coverage when selected for that group. They are not artificially forced into every Review unless existing coverage requires enough stimulus-specific questions.
+They therefore participate in learner `Automatic`, `All`, and `Fixed` selection through the existing final eligible pool and count toward configured coverage when selected for that group. They are not artificially forced into every Review unless existing coverage rules require enough stimulus-specific questions.
+
+Auto-created one-option groups retain the ordinary no-guarantee baseline unless an author later configures coverage.
 
 ## 14. Asset metadata versus Case metadata
 
 Global reusable Asset data/content includes administrator filename/name, alt text, source label/URL, licence, Collection, active state, immutable storage identity, supersession lineage, and Reusable Image Questions.
 
-Case relationship metadata includes fixed/alternative membership, display order, Case-specific caption, exact-option contextual questions, group membership/settings/questions, and explicit reusable-question opt-ins.
+Case relationship metadata includes fixed/alternative membership, display order, Case-specific caption, exact-option contextual questions, group membership/settings/questions, and the explicit decision to opt a stimulus into a canonical Reusable Image Question.
 
 Removing an opt-in from one Case must not archive or delete the global Asset Question.
 
@@ -217,9 +258,9 @@ Removing an opt-in from one Case must not archive or delete the global Asset Que
 
 Editing a canonical reusable answer changes future Reviews for every current opt-in. Existing/in-progress Reviews remain unchanged because `review_questions` snapshots Prompt and answer text at Review creation.
 
-Reusable Image Questions persist `source_asset_question_id` provenance with `source_type = asset`.
+Reusable Image Questions add `source_asset_question_id` provenance with `source_type = asset`.
 
-Prompt wording remains globally reusable wording. Questions Library shared-edit/stale-usage guards include active Asset Question usage so canonical Prompt edits cannot bypass blast-radius confirmation.
+Prompt wording remains globally reusable wording. The Questions Library shared-edit/stale-usage guard includes active Asset Question usage so canonical Prompt edits cannot bypass existing blast-radius confirmation merely because the new scope is involved.
 
 ## 16. Replace with higher-resolution version
 
@@ -245,6 +286,7 @@ Asset A + old immutable R2 object
 create new immutable R2 object
 create Asset B
         ↓
+claim A for B inside the D1 batch
 move current production relationships A → B
 clone reusable Asset Questions AQs → new BQs
 remap current production reusable opt-ins
@@ -279,16 +321,20 @@ The narrow lineage field is `assets.superseded_by_asset_id`. A later quality upg
 
 This is not generic Asset versioning. Do not infer Asset families, `image_identity`, automatic visual similarity/deduplication, arbitrary different-image replacement, or bulk replacement.
 
-### R2/D1 failure safety
+### Race and R2/D1 failure safety
 
 R2 and D1 do not share a transaction. The route/domain operation follows:
 
 ```text
-1. validate full replacement semantics
+1. validate full replacement semantics, including no live Preview usage
 2. upload one new immutable R2 object through existing guardrails
 3. execute one D1 semantic batch
-4. if D1 fails, delete only the newly uploaded object
+4. inside that batch, exactly one replacement may claim active unsuperseded A
+5. if the claim or any later D1 statement fails, roll back the whole batch
+6. on D1 failure, delete only the newly uploaded object
 ```
+
+The claim is conditional on A still being active, production-owned, not already superseded, and not referenced by a live Preview workspace. A database-enforced assertion immediately after the conditional claim converts a zero-row/lost claim into a batch failure. Therefore concurrent/double submissions cannot both succeed: one replacement wins; the loser rolls back and its new R2 object is cleaned up.
 
 A successful replacement keeps both old and new R2 objects. The old bytes are historical Review data and are not garbage-collected by this workflow.
 
@@ -344,7 +390,10 @@ Changes to image/question authoring should protect:
 - stable Stimulus Option IDs through higher-resolution replacement;
 - cloning rather than mutating historical Asset Questions;
 - old/new immutable R2 retention and rollback cleanup of only the new object;
+- exactly one successful replacement claim under double/concurrent submission;
+- live Preview protection without Preview relationship rewrites;
 - removal of one opt-in without affecting others;
+- one-option learner behavior equivalent to the previous fixed image;
 - production/Preview ownership isolation;
 - Import Package v1 compatibility;
 - existing scalable Image Library and Collection rules.
