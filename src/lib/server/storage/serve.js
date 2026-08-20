@@ -3,9 +3,9 @@
  */
 
 /**
- * @param {{ user: unknown, bucket: R2Bucket, request: Request, storageKey: string, mimeType?: string | null }} options
+ * @param {{ user: unknown, bucket: R2Bucket, request: Request, storageKey: string, mimeType?: string | null, cacheControl?: string }} options
  */
-async function servePrivateImmutableObject({ user, bucket, request, storageKey, mimeType }) {
+async function servePrivateImmutableObject({ user, bucket, request, storageKey, mimeType, cacheControl = 'private, max-age=31536000, immutable' }) {
   if (!user) {
     return new Response('Authentication required.', {
       status: 401,
@@ -22,7 +22,7 @@ async function servePrivateImmutableObject({ user, bucket, request, storageKey, 
   const headers = new Headers();
   object.writeHttpMetadata(headers);
   if (mimeType) headers.set('Content-Type', mimeType);
-  headers.set('Cache-Control', 'private, max-age=31536000, immutable');
+  headers.set('Cache-Control', cacheControl);
   if (object.httpEtag) headers.set('ETag', object.httpEtag);
 
   if (object.httpEtag && request.headers.get('if-none-match') === object.httpEtag) {
@@ -55,10 +55,18 @@ export async function serveTeachingImage({ user, asset, bucket, request }) {
  * Deliver the exact object snapshotted into one owned Review. Current Asset
  * activity/storage metadata is deliberately irrelevant: the caller supplies a
  * storage key loaded from review_assets.storage_key_snapshot after ownership
- * validation.
+ * validation. Review URLs are owner-specific, so browser caches must revalidate
+ * with the authenticated endpoint instead of treating a successful response as
+ * fresh across later application sessions on the same browser.
  *
  * @param {{ user: unknown, storageKeySnapshot: string, bucket: R2Bucket, request: Request }} options
  */
 export async function serveReviewImage({ user, storageKeySnapshot, bucket, request }) {
-  return servePrivateImmutableObject({ user, bucket, request, storageKey: storageKeySnapshot });
+  return servePrivateImmutableObject({
+    user,
+    bucket,
+    request,
+    storageKey: storageKeySnapshot,
+    cacheControl: 'private, max-age=0, must-revalidate'
+  });
 }
