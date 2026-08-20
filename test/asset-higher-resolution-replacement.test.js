@@ -397,7 +397,6 @@ test('replacement creates B, migrates production relationships, clones reusable 
     assert.equal(historicalReusable.sourceAssetQuestionId, 'aq-old-active');
     assert.equal(historicalReusable.prompt, 'What finding is intrinsic to this image?');
     assert.equal(historicalReusable.answer, 'Canonical reusable answer');
-
     const newReview = await startStimulusReview(fx);
     assert.equal(newReview.assets[0].assetId, result.newAssetId);
     assert.notEqual(newReview.assets[0].assetId, 'asset-a');
@@ -619,7 +618,7 @@ test('historical Review media serves storage_key_snapshot after A is inactive an
     assert.equal(response.status, 200);
     assert.equal(
       response.headers.get('cache-control'),
-      'private, max-age=31536000, immutable'
+      'private, max-age=0, must-revalidate'
     );
     assert.equal(await response.text(), 'old-image-bytes');
     assert.equal(fx.reads.at(-1), 'teaching-images/asset-a.png');
