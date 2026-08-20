@@ -112,20 +112,19 @@ export const actions = {
     if (!(await isProductionAsset(db, params.assetId))) return fail(404, { error: 'Production Asset not found.' });
     const formData = await request.formData();
     const file = formData.get('image');
+    let result;
     try {
-      const result = await replaceAssetWithHigherResolution({
+      result = await replaceAssetWithHigherResolution({
         db,
         bucket: platform.env.MEDIA,
         assetId: params.assetId,
         file: /** @type {any} */ (file),
         confirmedSameImage: formText(formData, 'confirm_same_image') === 'yes'
       });
-      redirect(303, `/admin/images/${encodeURIComponent(result.newAssetId)}?status=replaced`);
     } catch (error) {
-      const redirectError = /** @type {{ status?: number }} */ (error);
-      if (redirectError?.status === 303) throw error;
       return actionError(error);
     }
+    redirect(303, `/admin/images/${encodeURIComponent(result.newAssetId)}?status=replaced`);
   },
 
   createReusableQuestion: async ({ request, locals, params, platform }) => {
