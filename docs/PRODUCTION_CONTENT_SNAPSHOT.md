@@ -1,5 +1,9 @@
 # Production content snapshot
 
+_Status: current read-only production content inspection workflow._
+
+_Last updated: 20 August 2026._
+
 This repository includes a manually triggered GitHub Actions workflow for inspecting a deliberately limited snapshot of learning content from the production Cloudflare D1 database.
 
 Workflow:
@@ -10,7 +14,30 @@ Workflow:
 
 The purpose is to make production taxonomy/content review possible without exposing Cloudflare credentials and without exporting authentication or learner-progress data.
 
-## Safety model
+## 1. What this workflow proves — and what it does not
+
+A completed snapshot is evidence about the production **rows queried by that workflow at that time**.
+
+It can support statements such as:
+
+```text
+these Topics/Cases/relationships currently exist in production D1
+```
+
+It is not authoritative evidence for:
+
+```text
+which Git commit is deployed to the production Worker
+whether a particular migration file was applied
+whether a deployment workflow succeeded
+whether unqueried tables/features are present or active
+```
+
+Keep production data state, migration state and Worker deployment state as separate facts.
+
+For code/migration/deployment status use the release workflow/run evidence described in `CLOUDFLARE.md`.
+
+## 2. Safety model
 
 The workflow is intentionally constrained:
 
@@ -18,43 +45,29 @@ The workflow is intentionally constrained:
 - all SQL is hard-coded in the repository;
 - all database operations are `SELECT` queries;
 - there is no free-form SQL workflow input;
-- it queries only the learning-content tables listed below;
+- it queries only the explicitly approved learning-content tables;
 - it does not query Better Auth tables, users, sessions, learner Reviews, or learner progress;
 - Cloudflare credentials remain GitHub repository secrets and are never printed deliberately.
 
-Because the repository is private, the snapshot is visible only to people who can access its Actions logs. Treat the output as private teaching-content metadata nevertheless.
+Because the repository is private, snapshot output is visible only to people with access to its Actions logs. Treat the output as private teaching-content metadata nevertheless.
 
-## Cloudflare credentials
+## 3. Credentials
 
-The workflow prefers this repository secret:
+The workflow prefers the dedicated repository secret:
 
 ```text
 CLOUDFLARE_D1_READ_TOKEN
 ```
 
-Create this as a least-privilege Cloudflare API token with `D1 Read` permission for the Cloudflare account that owns the production D1 database.
+Use a least-privilege Cloudflare token with D1 read permission for the relevant account.
 
-For compatibility, if that secret is absent the workflow falls back to the existing deployment secret:
+A deployment-token fallback may exist for compatibility, but the dedicated read-only token is preferred because it narrows blast radius and keeps production inspection independent from deployment-token scope.
 
-```text
-CLOUDFLARE_API_TOKEN
-```
+Never commit a token, API key, password, Better Auth secret, account credential or other secret to repository source or workflow YAML.
 
-The existing account ID secret is also required:
+Keep read and write credentials separate. Do not grant write permission merely to make the snapshot work.
 
-```text
-CLOUDFLARE_ACCOUNT_ID
-```
-
-`CLOUDFLARE_ACCOUNT_ID` must identify the same Cloudflare account that owns `flash-cards-db`.
-
-The fallback avoids blocking initial use, but a dedicated read-only token is preferred because it limits the effect of an accidental future workflow change and avoids depending on deployment-token scope.
-
-At the start of each run, the workflow records whether it is using the dedicated D1-read token or the deployment-token fallback. It never prints the token value.
-
-Never commit a token, API key, password, Better Auth secret, or other credential to the repository or workflow YAML.
-
-## What the default snapshot contains
+## 4. Default snapshot scope
 
 The default run queries:
 
@@ -66,15 +79,15 @@ case_concepts
 
 It emits:
 
-- Topic ID, name, slug, description, parent Topic, and active state;
-- Case ID, internal title, a short vignette preview, and active state;
-- every Case↔Topic relationship;
+- Topic identity/name/slug/description/parent/active state;
+- Case identity/internal title, bounded vignette preview and active state;
+- Case↔Topic relationships;
 - relationship role (`primary` or `secondary`);
 - Topic active state for each route.
 
-This is sufficient for most Topic taxonomy, relabelling, hierarchy, and multi-Topic routing reviews after PR #18.
+This is sufficient for most Topic taxonomy, relabelling, hierarchy and multi-Topic routing reviews.
 
-## Optional reusable Topic questions
+## 5. Optional reusable Topic questions
 
 The manual workflow has an `include_topic_questions` input, disabled by default.
 
@@ -85,103 +98,89 @@ concept_questions
 question_prompts
 ```
 
-and emits reusable Topic prompts, a bounded answer preview, inheritance state, and active state.
+and emits reusable Topic prompts, a bounded answer preview, inheritance state and active state.
 
-Use this only when question context is helpful for understanding what a Topic actually teaches.
+Use this only when question context is useful for understanding Topic meaning.
 
-## Explicitly excluded data
+The current snapshot workflow is not a general query surface for newer tables such as Reusable Image Questions. Add any future scope only through a reviewed, purpose-specific change with the privacy/safety boundary updated at the same time.
 
-The workflow must not be expanded casually to include:
+## 6. Explicitly excluded data
+
+Do not expand the snapshot casually to include:
 
 - Better Auth tables;
-- user identities or email addresses;
-- sessions or authentication tokens;
+- user identities/email addresses;
+- sessions/authentication tokens;
 - learner Reviews;
-- learner ratings or progress;
+- learner ratings/progress;
 - administrator credentials;
-- unrestricted database dumps.
+- unrestricted database dumps;
+- arbitrary free-form SQL input.
 
-If a future task genuinely requires learner data, design a separate purpose-specific export with the smallest required fields and document its privacy boundary before implementation.
+If a future task genuinely requires sensitive/learner data, design a separate purpose-specific export with the minimum required fields and document its privacy boundary before implementation.
 
-## Running the snapshot
+## 7. Running the snapshot
 
-After this workflow is merged into the default branch:
+1. Open **GitHub → Actions**.
+2. Select **Production content snapshot**.
+3. Choose **Run workflow**.
+4. Leave `include_topic_questions` off for normal taxonomy review, or enable it when Topic-question context is needed.
+5. Open the completed run and `snapshot` job.
+6. Inspect the grouped output.
 
-1. Open the repository on GitHub.
-2. Open **Actions**.
-3. Select **Production content snapshot**.
-4. Choose **Run workflow**.
-5. Leave `include_topic_questions` off for normal taxonomy review, or enable it when reusable question context is needed.
-6. Open the completed run and the `snapshot` job.
-7. The grouped log sections `TOPICS`, `CASE_TOPIC_ROUTES`, and optionally `TOPIC_QUESTIONS` contain the production snapshot.
+Record the workflow run when using the output as evidence for a production-content decision.
 
-The workflow uses the D1 binding `DB` defined in `wrangler.jsonc`, which currently points to production database `flash-cards-db` when Wrangler is invoked with `--remote`.
+## 8. Fixed-purpose production taxonomy operator
 
-## Applying the agreed taxonomy change
+The snapshot workflow is read-only and must remain read-only.
 
-The snapshot workflow is read-only and must remain read-only. The agreed production taxonomy update has a separate manually triggered operator:
+The historical agreed taxonomy change has a separate fixed-purpose operator:
 
 ```text
 .github/workflows/apply-agreed-production-taxonomy.yml
 scripts/apply-agreed-taxonomy.mjs
 ```
 
-Configure a separate GitHub repository secret:
+That operator is deliberately not a generic production mutation API. It has fixed targets, fixed SQL/logic, pre-flight checks, post-flight verification and a separate least-privilege D1 write credential.
+
+See `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md` for the audit/recovery contract.
+
+For future unrelated production data changes, do not reuse or broaden that workflow. Create a separately reviewed, narrowly scoped operator when direct production mutation is genuinely necessary.
+
+## 9. Snapshot → operator audit pattern
+
+For any approved fixed-purpose production content mutation, the preferred operational pattern remains:
 
 ```text
-CLOUDFLARE_D1_WRITE_TOKEN
+read-only snapshot / pre-flight
+→ reviewed fixed-purpose mutation
+→ machine post-flight verification
+→ read-only snapshot again
 ```
 
-It must be a least-privilege Cloudflare API token with D1 write/edit permission for the account that owns `flash-cards-db`. Do not grant write permission to `CLOUDFLARE_D1_READ_TOKEN`, and do not use the read token for this workflow.
+Retain the relevant workflow runs as the audit trail.
 
-The operator has no free-form SQL or workflow record-ID inputs. It uses the known production Case IDs and Cardiology ID, resolves the six agreed Topics by fixed slugs, reuses existing Topic rows, creates missing rows with reserved IDs, and updates only the agreed hierarchy and two Case route sets. It does not touch questions, assets, Reviews, users, authentication, or learner progress.
+Do not treat a successful mutation operator as Worker deployment evidence; data mutation and code deployment are separate operations.
 
-Run it safely:
+## 10. Troubleshooting authorization
 
-1. Run **Apply agreed production taxonomy** with `apply = false`. Review the pre-flight output against the latest snapshot.
-2. Run it again with `apply = true` only after the pre-flight matches the expected current state.
-3. Confirm the transaction completes and inspect the post-flight read-back for the hierarchy, one primary plus one secondary route per target Case, and zero direct Cardiology routes for those Cases.
-4. Run **Production content snapshot** again and retain both workflow run links as the audit record.
+If Cloudflare reports that the account/token is not authorized, assume the query did not run successfully until proven otherwise.
 
-The operator is idempotent: rerunning it reuses the same Topic slugs, upserts the two intended Case relationships, preserves unrelated relationships, and leaves Cardiology active. If pre-flight or post-flight verification is unexpected, stop and use a reviewed rollback operator change; never paste ad-hoc SQL into Actions.
+Check:
 
-## Troubleshooting authorization
+1. the configured account context is the one that owns the intended D1 database;
+2. the selected token has the required read permission for that account.
 
-If Cloudflare returns error `7403` with a message that the account is not valid or is not authorized to access the service, the SQL has not run. Check both of the following:
+Prefer correcting/creating the dedicated read-only credential rather than broadening a deployment or write credential.
 
-1. `CLOUDFLARE_ACCOUNT_ID` is the account that owns `flash-cards-db`.
-2. The token selected by the workflow has D1 access for that account.
+## 11. Intended assistant workflow
 
-Preferred fix:
+A GitHub-capable assistant may inspect the completed snapshot workflow output without receiving the underlying Cloudflare secret.
 
-1. In Cloudflare, create a custom API token scoped to the relevant account with `D1 Read` permission.
-2. In GitHub repository settings, save that token as:
+Use the snapshot as source of truth for the production learning-content rows it actually queried, rather than inferring those rows from seed fixtures or repository examples.
 
-   ```text
-   CLOUDFLARE_D1_READ_TOKEN
-   ```
+Do not infer unqueried feature/deployment/migration state from snapshot output.
 
-3. Keep the existing `CLOUDFLARE_ACCOUNT_ID` only if it is the owning account ID; otherwise correct that secret.
-4. Re-run **Production content snapshot**.
+## 12. Maintenance rule
 
-The workflow prints a notice when the dedicated read token is selected and a warning when it has fallen back to the deployment token. If a fallback run receives error `7403`, do not broaden the deployment token merely to make the snapshot work; prefer the dedicated D1-read token.
-
-## GitHub Actions runtime warning
-
-The workflow uses the current `actions/checkout@v6`. Older runs that used `actions/checkout@v4` may show a Node.js 20 deprecation warning on newer GitHub-hosted runners. That warning is unrelated to Cloudflare D1 authorization and was not the cause of the first snapshot failure.
-
-## Intended ChatGPT/GitHub workflow
-
-Once a run has completed, a connected GitHub-capable assistant can inspect the workflow run/job logs without receiving the Cloudflare secret itself.
-
-Typical request:
-
-```text
-Check the latest Production content snapshot and help me reorganise my production Topics.
-```
-
-The assistant should use the snapshot as the source of truth for production learning content rather than inferring production rows from seed fixtures or repository examples.
-
-## Maintenance rule
-
-Any future change to the snapshot's queried tables or fields, credential selection, or safety boundary must update this document in the same PR.
+Any future change to queried tables/fields, credential selection, logging, or the safety/privacy boundary must update this document in the same reviewed change.

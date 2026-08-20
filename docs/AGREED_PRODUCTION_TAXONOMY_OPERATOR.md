@@ -1,6 +1,10 @@
 # Agreed production taxonomy operator
 
-This is the runbook for the one approved production content change:
+_Status: completed fixed-purpose production operation. Retained as an audit/recovery runbook; not a generic ongoing taxonomy mutation mechanism._
+
+_Last updated: 20 August 2026._
+
+This runbook records the one reviewed production taxonomy change that established:
 
 ```text
 Electrolyte Disorders
@@ -13,66 +17,101 @@ Cardiology
     └── Prolonged QTc
 ```
 
-The two target Cases are resolved by stable production IDs:
+with the two agreed calcium Cases routed through the intended primary/default and Additional Study Topic relationships.
 
-```text
-Hypercalcemia Case: b1f4870e-52fe-4d26-bbea-851ec64357a7
-Hypocalcemia Case: b11b6a14-c55e-4d70-849c-ce1c8953a38f
-Cardiology Topic: 65862404-8493-408c-8de7-ccf385209924
-```
+The implementation's exact stable production IDs and reserved fallback IDs remain fixed in the repository script. Do not copy those values into unrelated workflows or use this operator as a generic record-selection mechanism.
 
-After the update:
+## 1. Safety boundary
 
-```text
-Hypercalcemia Case: primary Hypercalcemia, secondary Short QTc
-Hypocalcemia Case: primary Hypocalcemia, secondary Prolonged QTc
-```
-
-No direct Case→Cardiology relationship remains for these two Cases. Cardiology itself remains active, and the Cases remain reachable through the Cardiology subtree via ECG Findings and its descendants.
-
-## Safety boundary
-
-Use only:
+Use only the existing fixed-purpose pair when auditing/recovering this exact operation:
 
 ```text
 .github/workflows/apply-agreed-production-taxonomy.yml
 scripts/apply-agreed-taxonomy.mjs
 ```
 
-The workflow is `workflow_dispatch` only. The script accepts only `--dry-run` and `--apply`; it does not accept SQL, table names, or arbitrary IDs. Its SQL is fixed in the repository, uses Topic slugs to reuse existing rows, and scopes Case changes to the two stable IDs above.
+The workflow is `workflow_dispatch` only. The script accepts only its fixed dry-run/apply modes; it does not accept free-form SQL, table names or arbitrary record IDs.
 
-Wrangler sends the fixed multi-statement mutation to D1 as one batch. Do not add explicit `BEGIN` or `COMMIT` statements around that batch: D1 supplies the transaction boundary for the batch and rolls the batch back when a statement fails.
+Its mutation scope is repository-defined and machine-checked.
 
-Before either dry-run completion or apply, the script runs machine safety checks. It requires:
+Do not broaden this operator to perform later unrelated taxonomy/content changes.
 
-- the known Cardiology ID to still identify an active `Cardiology` Topic;
-- both known target Cases to exist and remain active;
-- each target Case to have exactly one primary relationship;
-- that primary to be either the original Cardiology route or the intended new primary Topic, so a safe idempotent rerun is allowed but unexpected primary-route drift is rejected;
-- none of the six reserved fallback Topic IDs to be occupied by an unrelated slug.
+## 2. Historical operation versus current Admin authoring
 
-After an apply, the script also performs machine-enforced post-flight verification for all six Topic hierarchy relationships, exactly one primary per target Case, both intended secondary Study Topic relationships, and zero remaining direct Cardiology relationships for the two target Cases. A failed machine check exits the workflow with an error; do not continue with another mutation until the read-only snapshot has been reviewed.
+This operator existed to make one reviewed production correction safely before/alongside the current richer Admin authoring workflow.
 
-The workflow requires:
+Normal ongoing Topic/Case authoring should use the application Admin surfaces where those operations are supported.
+
+A future direct production repair that cannot safely be performed through Admin should receive its own narrowly scoped, reviewed operator with explicit pre-flight/post-flight checks. Do not turn this historical workflow into a free-form production console.
+
+## 3. Transaction and validation model
+
+The script sends its fixed mutation to D1 using the existing batched execution model. Do not add ad-hoc transaction wrappers around the workflow merely to replay it.
+
+Before apply, machine checks require the expected target rows/current route shape and reject unexpected drift.
+
+After apply, machine post-flight verification checks the intended Topic hierarchy and Case route result.
+
+A failed machine check is a stop condition. Do not follow it with manual free-form SQL.
+
+## 4. Credential separation
+
+The operator uses a separate least-privilege D1 write credential.
+
+The read-only production snapshot uses the dedicated D1-read credential and must remain read-only.
+
+Do not grant write permission to the read token, and do not expose credential values in source, documentation, logs, screenshots or chat.
+
+## 5. Recorded safe procedure
+
+The historical safe procedure was:
+
+1. merge the reviewed implementation only after green CI;
+2. run the operator in dry-run/pre-flight mode;
+3. compare the pre-flight against a fresh `Production content snapshot`;
+4. run apply only when the expected current state was confirmed;
+5. inspect machine post-flight verification;
+6. run the read-only snapshot again and retain the workflow runs as the audit trail.
+
+Important release-state distinction:
 
 ```text
-CLOUDFLARE_ACCOUNT_ID
-CLOUDFLARE_D1_WRITE_TOKEN
+operator merged ≠ operator applied
+operator applied ≠ Worker deployed
+Worker deployed ≠ operator applied
 ```
 
-`CLOUDFLARE_D1_WRITE_TOKEN` must be a separate least-privilege Cloudflare token with D1 write/edit permission for the account owning `flash-cards-db`. Keep `CLOUDFLARE_D1_READ_TOKEN` read-only and use it only with the snapshot workflow. The write token is scoped only to the credential-check and fixed operator steps rather than the whole GitHub Actions job. Neither token value is printed.
+This workflow mutates production content; it does not deploy application code and does not apply schema migrations.
 
-## Procedure
+## 6. Idempotency boundary
 
-1. Merge the implementation PR only after review and green CI. Do not deploy or mutate production automatically from the merge.
-2. From **Actions → Apply agreed production taxonomy**, run with `apply = false`.
-3. Compare the human-readable pre-flight output with the latest [Production content snapshot](PRODUCTION_CONTENT_SNAPSHOT.md). Confirm the machine safety checks also pass. Stop if the two target Cases, Cardiology ID, or existing route state is unexpected.
-4. Run the workflow again with `apply = true`.
-5. Inspect the post-flight output and confirm the machine verification passes. Confirm all six Topics are active, the parent tree is exact, each target Case has one intended primary and secondary route, and the direct Cardiology-route result is empty.
-6. Run **Production content snapshot** again and retain the pre-flight, operator, and post-flight run links as the audit trail.
+The operator was intentionally written to tolerate a rerun of the recorded target state while rejecting unrelated drift.
 
-Running the apply workflow again is safe when the recorded target state is still intact: the precondition accepts the intended new primary routes, the mutation reuses the same Topic slugs, and the operator preserves unrelated secondary Case↔Topic links. It does not touch questions, assets, Reviews, users, authentication, or learner progress.
+That does not make it a general-purpose reusable migration framework.
 
-## Recovery
+Only rerun it when investigating/recovering this exact historical taxonomy operation and after reviewing current production state.
 
-If pre-flight or its machine safety checks are unexpected, do not apply. If the D1 mutation batch fails, D1 rolls back the batch. If post-flight machine verification is unexpected, stop further mutation, retain the logs, and prepare a reviewed follow-up operator change that restores the recorded prior Topic parents and the two recorded direct Cardiology relationships. Do not paste free-form SQL into Actions or broaden the write token. Re-run the read-only snapshot after recovery to confirm the final state.
+## 7. Recovery
+
+If pre-flight is unexpected, do not apply.
+
+If the fixed D1 mutation fails, retain the workflow evidence and inspect the read-only production snapshot before any further write.
+
+If post-flight verification is unexpected, stop further mutation and prepare a separately reviewed recovery change based on the recorded prior/target state. Do not paste free-form SQL into GitHub Actions and do not broaden the write credential.
+
+## 8. Current maintenance rule
+
+Keep this document/workflow/script as an audit and recovery record for the agreed taxonomy change.
+
+For new production data operations:
+
+```text
+prefer normal Admin authoring
+→ otherwise use a new narrowly scoped reviewed operator
+→ pre-flight read
+→ fixed mutation
+→ post-flight verification
+→ read-only audit
+```
+
+See `PRODUCTION_CONTENT_SNAPSHOT.md` for the read-only inspection boundary and `CLOUDFLARE.md` for the separate migration/deployment release-state model.
