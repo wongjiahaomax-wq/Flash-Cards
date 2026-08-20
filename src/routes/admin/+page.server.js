@@ -18,16 +18,12 @@ export async function load({ locals, platform, setHeaders }) {
   const db = platform?.env?.DB ? createDb(platform.env.DB) : null;
   if (!db) return empty;
 
-  let timing = null;
   const summary = await withServerReadTiming(
     'admin-dashboard-read',
     () => getAdminDashboardSummary(db),
-    (value) => {
-      timing = value;
+    ({ operation, durationMs }) => {
+      setHeaders({ 'server-timing': serverTimingValue(operation, durationMs) });
     }
   );
-  if (timing) {
-    setHeaders({ 'server-timing': serverTimingValue(timing.operation, timing.durationMs) });
-  }
   return summary;
 }
