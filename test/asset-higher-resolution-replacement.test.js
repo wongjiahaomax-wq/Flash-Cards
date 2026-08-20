@@ -1,3 +1,6 @@
+// Higher-resolution replacement tests intentionally use lightweight D1/R2 fakes and raw SQLite rows.
+// @ts-nocheck
+
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { registerHooks } from 'node:module';
