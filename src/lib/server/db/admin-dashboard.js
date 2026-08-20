@@ -19,7 +19,8 @@ const rowCount = sql`count(*)`.mapWith(Number);
  * @param {{ caseLimit?: number }} [options]
  */
 export async function getAdminDashboardSummary(db, options = {}) {
-  const caseLimit = Number.isInteger(options.caseLimit) && options.caseLimit > 0 ? options.caseLimit : 6;
+  const requestedCaseLimit = options.caseLimit;
+  const caseLimit = Number.isInteger(requestedCaseLimit) && requestedCaseLimit > 0 ? requestedCaseLimit : 6;
   const productionCase = and(eq(cases.isActive, true), isNull(cases.previewSessionId));
 
   const [caseCountRows, questionCountRows, assetCountRows, topicCountRows, dashboardCases] = await Promise.all([
