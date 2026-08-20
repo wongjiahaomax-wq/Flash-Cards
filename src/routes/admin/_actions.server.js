@@ -95,74 +95,6 @@ function extensionForType(mimeType) {
   return mimeType === 'image/png' ? 'png' : 'jpg';
 }
 
-export async function load({ locals, platform, url }) {
-  if (!canManageCaseAssets(locals.user)) {
-    return { assets: [], cases: [], concepts: [], selectedCase: null, selectedConceptId: null };
-  }
-
-  const db = platform?.env?.DB ? createDb(platform.env.DB) : null;
-  if (!db) return { assets: [], cases: [], concepts: [], selectedCase: null, selectedConceptId: null };
-
-  const rows = await db
-    .select()
-    .from(assets)
-    .where(isNull(assets.previewSessionId))
-    .orderBy(desc(assets.createdAt))
-    .limit(100);
-  const search = url.searchParams.get('q')?.trim().toLowerCase() ?? '';
-  const caseRows = await listAdminCases(db, search);
-  const conceptRows = await listAdminConcepts(db);
-  const requestedId = url.searchParams.get('case');
-  const selectedId = caseRows.some((item) => item.id === requestedId) ? requestedId : caseRows[0]?.id;
-  const manager = selectedId ? await getAdminCaseData(db, selectedId) : null;
-  const questionRows = selectedId ? await listCaseQuestions(db, selectedId) : [];
-  const requestedConceptId = url.searchParams.get('concept');
-  const selectedConceptId = conceptRows.some((item) => item.id === requestedConceptId)
-    ? requestedConceptId
-    : conceptRows[0]?.id ?? null;
-
-  const [stimulusGroups, productionQuestionRows] = await Promise.all([
-    selectedId ? getAdminStimulusData(db, selectedId) : [],
-    db
-      .select({ id: caseQuestions.id })
-      .from(caseQuestions)
-      .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
-      .innerJoin(questionPrompts, eq(questionPrompts.id, caseQuestions.questionPromptId))
-      .where(and(isNull(cases.previewSessionId), isNull(questionPrompts.previewSessionId)))
-  ]);
-  return {
-    assets: rows.map((asset) => ({
-      ...asset,
-      imageUrl: getTeachingImageUrl(asset.id)
-    })),
-    concepts: conceptRows,
-    selectedConceptId,
-    cases: caseRows,
-    questionCount: productionQuestionRows.length,
-    selectedCase: manager
-      ? {
-          ...manager,
-          stimulusGroups: stimulusGroups.map((group) => ({
-            ...group,
-            options: group.options.map((asset) => ({
-              ...asset,
-              imageUrl: asset.assetIsActive ? getTeachingImageUrl(asset.assetId) : null
-            }))
-          })),
-          questions: questionRows,
-          attached: manager.attached.map((asset) => ({
-            ...asset,
-            imageUrl: asset.isActive ? getTeachingImageUrl(asset.assetId) : null
-          })),
-          available: manager.available.map((asset) => ({
-            ...asset,
-            imageUrl: getTeachingImageUrl(asset.assetId)
-          }))
-        }
-      : null
-  };
-}
-
 /** @param {unknown} error */
 function actionError(error) {
   return error instanceof CaseAssetInputError || error instanceof AdminContentInputError || error instanceof CaseQuestionInputError || error instanceof StimulusGroupInputError
@@ -181,6 +113,7 @@ function selectedCaseRedirect(caseId, status, hash = '') {
   return `/admin/cases/${encodeURIComponent(caseId)}?status=${encodeURIComponent(status)}${hash}`;
 }
 
+/** @type {import('./$types').Actions} */
 export const actions = {
   createConcept: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
