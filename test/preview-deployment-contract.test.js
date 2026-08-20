@@ -15,7 +15,7 @@ const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[ca
 const previewSignOut = readFileSync(new URL('../src/lib/components/PreviewSignOutButton.svelte', import.meta.url), 'utf8');
 const questionsRoute = readFileSync(new URL('../src/routes/admin/questions/+page.server.js', import.meta.url), 'utf8');
 const imageLibrary = readFileSync(new URL('../src/lib/server/db/asset-library.js', import.meta.url), 'utf8');
-const legacyAdminRoute = readFileSync(new URL('../src/routes/admin/+page.server.js', import.meta.url), 'utf8');
+const adminDashboardReadModel = readFileSync(new URL('../src/lib/server/db/admin-dashboard.js', import.meta.url), 'utf8');
 const topicLibrary = readFileSync(new URL('../src/lib/server/db/topic-library.js', import.meta.url), 'utf8');
 const tagLibrary = readFileSync(new URL('../src/lib/server/db/tag-library.js', import.meta.url), 'utf8');
 
@@ -146,16 +146,17 @@ test('normal Preview logout resets the workspace before Better Auth sign-out', (
   assert.match(previewSignOut, /if \(!response\.ok\)[\s\S]*return;/);
 });
 
-test('normal Admin libraries and legacy dashboard apply explicit production-ownership filters', () => {
+test('normal Admin libraries and dashboard read model apply explicit production-ownership filters', () => {
   assert.match(questionsRoute, /isNull\(questionPrompts\.previewSessionId\)/);
   // Image Management V2 centralizes production Asset ownership in the paginated
   // DB helper shared by production and read-only Preview Image Library routes.
   assert.match(imageLibrary, /isNull\(assets\.previewSessionId\)/);
   assert.match(imageLibrary, /isNull\(cases\.previewSessionId\)/);
-  assert.match(legacyAdminRoute, /isNull\(assets\.previewSessionId\)/);
-  assert.match(legacyAdminRoute, /isNull\(cases\.previewSessionId\)/);
-  assert.match(legacyAdminRoute, /isNull\(questionPrompts\.previewSessionId\)/);
-  assert.doesNotMatch(legacyAdminRoute, /questionCount:\s*\(await db\.select\(\)\.from\(caseQuestions\)\)\.length/);
+  // The dashboard now centralizes its production-ownership filters in its read model.
+  assert.match(adminDashboardReadModel, /isNull\(assets\.previewSessionId\)/);
+  assert.match(adminDashboardReadModel, /isNull\(cases\.previewSessionId\)/);
+  assert.match(adminDashboardReadModel, /isNull\(questionPrompts\.previewSessionId\)/);
+  assert.doesNotMatch(adminDashboardReadModel, /questionCount:\s*\(await db\.select\(\)\.from\(caseQuestions\)\)\.length/);
 });
 
 test('Topic and Tag Admin aggregates/details exclude Preview-owned Cases and Prompts', () => {

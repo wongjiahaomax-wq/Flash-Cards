@@ -16,20 +16,20 @@
 </section>
 
 <section class="stat-grid" aria-label="Content totals">
-  <a class="stat-card" href="/admin/cases"><span>Cases</span><strong>{data.cases.length}</strong></a>
+  <a class="stat-card" href="/admin/cases"><span>Cases</span><strong>{data.caseCount ?? 0}</strong></a>
   <a class="stat-card" href="/admin#questions"><span>Questions</span><strong>{data.questionCount ?? 0}</strong></a>
-  <a class="stat-card" href="/admin#images"><span>Images</span><strong>{data.assets.length}</strong></a>
-  <a class="stat-card" href="/admin#topics"><span>Topics</span><strong>{data.concepts.length}</strong></a>
+  <a class="stat-card" href="/admin#images"><span>Images</span><strong>{data.assetCount ?? 0}</strong></a>
+  <a class="stat-card" href="/admin#topics"><span>Topics</span><strong>{data.topicCount ?? 0}</strong></a>
 </section>
 
 <section class="dashboard-grid">
   <article class="panel">
     <div class="panel-heading"><div><p class="eyebrow">Work queue</p><h2>Cases</h2></div><a href="/admin/cases">View all</a></div>
-    {#if data.cases.length === 0}
+    {#if data.dashboardCases.length === 0}
       <p class="muted">No active Cases yet.</p>
     {:else}
       <div class="case-list">
-        {#each data.cases.slice(0, 6) as item}
+        {#each data.dashboardCases as item}
           <a class="case-row" href={`/admin/cases/${item.id}`}><span><strong>{item.title}</strong><small>{item.conceptName ?? 'No topic'}</small></span><span aria-hidden="true">→</span></a>
         {/each}
       </div>
