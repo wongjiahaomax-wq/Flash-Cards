@@ -115,7 +115,7 @@ export const actions = {
   removeAssetQuestionReuse: async ({ request, locals, platform, params }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' }); if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData(); const caseId = formText(formData, 'case_id') || params.caseId; if (caseId !== params.caseId) return fail(400, { error: 'The selected Case does not match this editor.' });
-    try { await removeAssetQuestionOptIn(createDb(platform.env.DB), { optionId: formText(formData, 'option_id'), assetQuestionId: formText(formData, 'asset_question_id') }); } catch (errorValue) { return reusableQuestionActionError(errorValue); }
+    try { await removeAssetQuestionOptIn(createDb(platform.env.DB), { caseId, optionId: formText(formData, 'option_id'), assetQuestionId: formText(formData, 'asset_question_id') }); } catch (errorValue) { return reusableQuestionActionError(errorValue); }
     redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=reusable-question-removed#images`);
   },
   startAlternativeSet: async ({ request, locals, platform, params }) => {

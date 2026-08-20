@@ -130,7 +130,7 @@ export const actions = {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData();
-    try { await removeAssetQuestionOptIn(createDb(platform.env.DB), { optionId: formText(formData, 'option_id'), assetQuestionId: formText(formData, 'asset_question_id') }); }
+    try { await removeAssetQuestionOptIn(createDb(platform.env.DB), { assetId: params.assetId, optionId: formText(formData, 'option_id'), assetQuestionId: formText(formData, 'asset_question_id') }); }
     catch (error) { return actionError(error); }
     redirect(303, detailRedirect(params.assetId, 'removed-from-case'));
   }

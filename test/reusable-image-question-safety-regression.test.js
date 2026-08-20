@@ -25,3 +25,10 @@ test('removing reusable image usage validates production option and Asset identi
   assert.match(body, /question\.assetId !== option\.assetId/);
   assert.match(body, /delete\(stimulusOptionAssetQuestions\)/);
 });
+
+test('reusable image removal actions pass their owning Case or Asset scope', () => {
+  const caseRoute = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
+  const assetRoute = fs.readFileSync(new URL('../src/routes/admin/images/[assetId]/+page.server.js', import.meta.url), 'utf8');
+  assert.match(caseRoute, /removeAssetQuestionOptIn\([^\n]+\{ caseId, optionId:/);
+  assert.match(assetRoute, /removeAssetQuestionOptIn\([^\n]+\{ assetId: params\.assetId, optionId:/);
+});
