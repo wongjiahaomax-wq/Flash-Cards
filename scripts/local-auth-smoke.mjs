@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
 import { hashPassword } from 'better-auth/crypto';
 
 const baseURL = 'http://127.0.0.1:8787';
@@ -12,12 +11,15 @@ const password = 'LocalSmokePassword123!';
 const userId = '00000000-0000-4000-8000-000000000001';
 const accountId = '00000000-0000-4000-8000-000000000002';
 const secret = 'local-auth-smoke-secret-32-characters-minimum';
-const wranglerCli = fileURLToPath(
-  new URL('../node_modules/wrangler/bin/wrangler.js', import.meta.url)
-);
+const wranglerCommand = 'npx';
+const wrangler = ['--yes', 'wrangler@4.124.0'];
+const useShell = process.platform === 'win32';
 
 function runWrangler(args) {
-  execFileSync(process.execPath, [wranglerCli, ...args], { stdio: 'inherit' });
+  execFileSync(wranglerCommand, [...wrangler, ...args], {
+    stdio: 'inherit',
+    shell: useShell
+  });
 }
 
 function sqlString(value) {
@@ -102,9 +104,9 @@ runWrangler([
 
 const logs = [];
 const worker = spawn(
-  process.execPath,
+  wranglerCommand,
   [
-    wranglerCli,
+    ...wrangler,
     'dev',
     '--local',
     '--ip',
@@ -122,7 +124,8 @@ const worker = spawn(
   ],
   {
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: process.platform !== 'win32'
+    detached: process.platform !== 'win32',
+    shell: useShell
   }
 );
 
