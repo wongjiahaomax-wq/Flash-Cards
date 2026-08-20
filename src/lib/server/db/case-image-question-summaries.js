@@ -26,6 +26,7 @@ import {
  * @param {ActiveReusableOptIn[]} optIns
  */
 export function buildCaseImageQuestionSummaries(contexts, questions, optIns) {
+  /** @type {Map<string, ActiveReusableQuestion[]>} */
   const questionsByAsset = new Map();
   for (const question of questions) {
     const list = questionsByAsset.get(question.assetId) ?? [];
@@ -33,6 +34,7 @@ export function buildCaseImageQuestionSummaries(contexts, questions, optIns) {
     questionsByAsset.set(question.assetId, list);
   }
 
+  /** @type {Map<string, Set<string>>} */
   const usedByOption = new Map();
   for (const optIn of optIns) {
     const ids = usedByOption.get(optIn.stimulusOptionId) ?? new Set();
@@ -72,7 +74,7 @@ export async function listCaseImageQuestionSummaries(db, contexts) {
   if (!normalizedContexts.length) return [];
 
   const assetIds = [...new Set(normalizedContexts.map((context) => context.assetId))];
-  const optionIds = [...new Set(normalizedContexts.map((context) => context.stimulusOptionId).filter(Boolean))];
+  const optionIds = [...new Set(normalizedContexts.flatMap((context) => context.stimulusOptionId ? [context.stimulusOptionId] : []))];
 
   const questions = await db.select({
     id: assetQuestions.id,
