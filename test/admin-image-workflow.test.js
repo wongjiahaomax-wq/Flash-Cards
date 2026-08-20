@@ -32,11 +32,8 @@ const migrationSql = [
   readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0005_tag_foundation.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -93,16 +90,337 @@ function insertPreviewIsolationFixture(sqlite) {
   return { caseId: 'preview-isolation-case', assetId: 'preview-isolation-asset', groupId: 'preview-isolation-group', optionId: 'preview-isolation-option' };
 }
 
-function insertCase(sqlite, id, title = id) {
-  sqlite.prepare('INSERT INTO cases (id, title, vignette_md, question_selection_mode, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, title, '', 'automatic', 1, 9_000, 9_000);
-}
+test('production Case image picker excludes Preview-owned Assets', async () => {
+  const fixture = createLearningDb();
+  try {
+    const preview = insertPreviewIsolationFixture(fixture.sqlite);
+    const beforeCaseAssets = fixture.sqlite.prepare("SELECT * FROM case_assets WHERE case_id='seed-anterior-a'").all();
+    const beforePreviewAsset = fixture.sqlite.prepare('SELECT * FROM assets WHERE id=?').get(preview.assetId);
 
-function insertGroup(sqlite, id, caseId, name = id, active = 1) {
-  sqlite.prepare('INSERT INTO stimulus_groups (id, case_id, name, display_order, selection_count, specific_question_mode, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, caseId, name, 0, 1, 'none', active, 9_000, 9_000);
-}
+    const results = await listCaseImagePicker(fixture.db, 'seed-anterior-a', { search: 'Preview-only', limit: 10 });
 
-function insertOption(sqlite, id, groupId, assetId, active = 1) {
-  sqlite.prepare('INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, groupId, assetId, 0, active, 9_000, 9_000);
-}
+    assert.deepEqual(results.assets, []);
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM case_assets WHERE case_id='seed-anterior-a'").all(), beforeCaseAssets);
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM assets WHERE id=?').get(preview.assetId), beforePreviewAsset);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
 
-// Keep the remainder of this test file unchanged below this line.
+test('production multi-attach rejects a Preview-owned Asset without changing production rows', async () => {
+  const fixture = createLearningDb();
+  try {
+    const preview = insertPreviewIsolationFixture(fixture.sqlite);
+    const beforeCaseAssets = fixture.sqlite.prepare("SELECT * FROM case_assets WHERE case_id='seed-anterior-a'").all();
+    const beforeAsset = fixture.sqlite.prepare('SELECT * FROM assets WHERE id=?').get(preview.assetId);
+
+    await assert.rejects(
+      () => attachAssetsToCase(fixture.db, 'seed-anterior-a', [preview.assetId]),
+      /missing or inactive/
+    );
+
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM case_assets WHERE case_id='seed-anterior-a'").all(), beforeCaseAssets);
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM assets WHERE id=?').get(preview.assetId), beforeAsset);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('production bulk target discovery excludes Preview-owned groups', async () => {
+  const fixture = createLearningDb();
+  try {
+    const preview = insertPreviewIsolationFixture(fixture.sqlite);
+    const productionGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Production set', specificQuestionMode: 'none' });
+    const beforeGroups = fixture.sqlite.prepare('SELECT * FROM stimulus_groups ORDER BY id').all();
+
+    const targets = await listActiveStimulusGroupTargets(fixture.db);
+
+    assert.ok(targets.some((target) => target.id === productionGroup));
+    assert.equal(targets.some((target) => target.id === preview.groupId), false);
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM stimulus_groups ORDER BY id').all(), beforeGroups);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('production bulk-add rejects a Preview-owned group submitted directly without changing rows', async () => {
+  const fixture = createLearningDb();
+  try {
+    const preview = insertPreviewIsolationFixture(fixture.sqlite);
+    insertAsset(fixture.sqlite, { id: 'production-bulk-input', name: 'Production bulk input' });
+    const beforeGroupOptions = fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE stimulus_group_id=?').all(preview.groupId);
+    const beforeAsset = fixture.sqlite.prepare("SELECT * FROM assets WHERE id='production-bulk-input'").get();
+
+    await assert.rejects(
+      () => bulkAddAssetsToStimulusGroup(fixture.db, preview.groupId, ['production-bulk-input']),
+      /missing or inactive/
+    );
+
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE stimulus_group_id=?').all(preview.groupId), beforeGroupOptions);
+    assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM assets WHERE id='production-bulk-input'").get(), beforeAsset);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('production option-caption mutation rejects a Preview-owned option without changing it', async () => {
+  const fixture = createLearningDb();
+  try {
+    const preview = insertPreviewIsolationFixture(fixture.sqlite);
+    const beforeOption = fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE id=?').get(preview.optionId);
+
+    await assert.rejects(
+      () => updateStimulusOptionCaption(fixture.db, preview.caseId, preview.optionId, 'Must not cross the production boundary'),
+      /not attached/
+    );
+
+    assert.deepEqual(fixture.sqlite.prepare('SELECT * FROM stimulus_group_options WHERE id=?').get(preview.optionId), beforeOption);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Case image picker is bounded, searchable, and excludes Assets already used by the Case', async () => {
+  const fixture = createLearningDb();
+  try {
+    insertAsset(fixture.sqlite, { id: 'picker-ecg-a', name: 'Prolonged QTc ECG alpha', source: 'ECG archive' });
+    insertAsset(fixture.sqlite, { id: 'picker-ecg-b', name: 'Prolonged QTc ECG beta' });
+    await attachAssetToCase(fixture.db, 'seed-anterior-a', 'picker-ecg-a');
+
+    const results = await listCaseImagePicker(fixture.db, 'seed-anterior-a', { search: 'QTc', limit: 10 });
+    assert.deepEqual(results.assets.map((asset) => asset.id), ['picker-ecg-b']);
+    assert.equal(results.hasMore, false);
+    assert.equal(results.assets[0].imageUrl, '/api/assets/picker-ecg-b/image');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('multi-attach validates every Asset, supports one or many, and treats fixed duplicates idempotently', async () => {
+  const fixture = createLearningDb();
+  try {
+    insertAsset(fixture.sqlite, { id: 'attach-one', name: 'Attach one' });
+    insertAsset(fixture.sqlite, { id: 'attach-two', name: 'Attach two' });
+    insertAsset(fixture.sqlite, { id: 'attach-inactive', name: 'Inactive', active: 0 });
+
+    const first = await attachAssetsToCase(fixture.db, 'seed-anterior-a', ['attach-one']);
+    assert.deepEqual(first, { requestedCount: 1, attachedCount: 1, alreadyAttachedCount: 0 });
+    const second = await attachAssetsToCase(fixture.db, 'seed-anterior-a', ['attach-one', 'attach-two', 'attach-two']);
+    assert.deepEqual(second, { requestedCount: 2, attachedCount: 1, alreadyAttachedCount: 1 });
+    const repeat = await attachAssetsToCase(fixture.db, 'seed-anterior-a', ['attach-one', 'attach-two']);
+    assert.deepEqual(repeat, { requestedCount: 2, attachedCount: 0, alreadyAttachedCount: 2 });
+
+    await assert.rejects(() => attachAssetsToCase(fixture.db, 'seed-anterior-a', ['missing-asset']), AdminImageWorkflowInputError);
+    await assert.rejects(() => attachAssetsToCase(fixture.db, 'seed-anterior-a', ['attach-inactive']), /missing or inactive/);
+    await assert.rejects(
+      () => attachAssetsToCase(fixture.db, 'seed-anterior-a', Array.from({ length: ADMIN_IMAGE_BULK_LIMIT + 1 }, (_, index) => `too-many-${index}`)),
+      /limited to/
+    );
+
+    const manager = await getAdminCaseData(fixture.db, 'seed-anterior-a', { includeAvailable: false });
+    assert.ok(manager);
+    assert.equal(manager.available.length, 0);
+    assert.ok(manager.attached.some((asset) => asset.assetId === 'attach-one'));
+    assert.ok(manager.attached.some((asset) => asset.assetId === 'attach-two'));
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('bulk grouping adds only intended Case-scoped option relationships and is idempotent', async () => {
+  const fixture = createLearningDb();
+  try {
+    insertAsset(fixture.sqlite, { id: 'bulk-a', name: 'Bulk A' });
+    insertAsset(fixture.sqlite, { id: 'bulk-b', name: 'Bulk B' });
+    const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Bulk ECG set', specificQuestionMode: 'none' });
+
+    fixture.sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, ?, ?, ?)').run('seed-anterior-b', 'bulk-a', 20, 'Other Case relationship', 9_000);
+    const beforeOtherCase = fixture.sqlite.prepare('SELECT case_id, asset_id, caption_md FROM case_assets WHERE case_id = ? AND asset_id = ?').get('seed-anterior-b', 'bulk-a');
+
+    const result = await bulkAddAssetsToStimulusGroup(fixture.db, groupId, ['bulk-a', 'bulk-b']);
+    assert.equal(result.addedCount, 2);
+    const options = fixture.sqlite.prepare('SELECT asset_id FROM stimulus_group_options WHERE stimulus_group_id = ? ORDER BY display_order').all(groupId).map((row) => row.asset_id);
+    assert.deepEqual(options, ['bulk-a', 'bulk-b']);
+    assert.deepEqual({ ...fixture.sqlite.prepare('SELECT case_id, asset_id, caption_md FROM case_assets WHERE case_id = ? AND asset_id = ?').get('seed-anterior-b', 'bulk-a') }, { ...beforeOtherCase });
+
+    const repeat = await bulkAddAssetsToStimulusGroup(fixture.db, groupId, ['bulk-a', 'bulk-b']);
+    assert.equal(repeat.addedCount, 0);
+    assert.equal(repeat.alreadyPresentCount, 2);
+    const optionCount = fixture.sqlite.prepare('SELECT count(*) AS count FROM stimulus_group_options WHERE stimulus_group_id = ?').get(groupId);
+    assert.ok(optionCount);
+    assert.equal(optionCount.count, 2);
+
+    await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, 'missing-group', ['bulk-a']), /missing or inactive/);
+    fixture.sqlite.prepare('UPDATE stimulus_groups SET is_active = 0 WHERE id = ?').run(groupId);
+    await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, groupId, ['bulk-a']), /missing or inactive/);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('alternative image captions remain editable after picker-based grouping', async () => {
+  const fixture = createLearningDb();
+  try {
+    insertAsset(fixture.sqlite, { id: 'caption-option', name: 'Caption option' });
+    const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Caption set', specificQuestionMode: 'none' });
+    await bulkAddAssetsToStimulusGroup(fixture.db, groupId, ['caption-option']);
+    const option = fixture.sqlite.prepare('SELECT id FROM stimulus_group_options WHERE stimulus_group_id = ? AND asset_id = ?').get(groupId, 'caption-option');
+    assert.ok(option?.id);
+
+    await updateStimulusOptionCaption(fixture.db, 'seed-anterior-a', String(option.id), '  Case-specific ECG caption  ');
+    const savedCaption = fixture.sqlite.prepare('SELECT caption_md FROM stimulus_group_options WHERE id = ?').get(option.id);
+    assert.ok(savedCaption);
+    assert.equal(savedCaption.caption_md, 'Case-specific ECG caption');
+    await assert.rejects(() => updateStimulusOptionCaption(fixture.db, 'seed-anterior-b', String(option.id), 'Wrong Case'), /not attached/);
+    const unchangedCaption = fixture.sqlite.prepare('SELECT caption_md FROM stimulus_group_options WHERE id = ?').get(option.id);
+    assert.ok(unchangedCaption);
+    assert.equal(unchangedCaption.caption_md, 'Case-specific ECG caption');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('bulk grouping rejects fixed or cross-set Case conflicts and invalid Assets without partial relationship changes', async () => {
+  const fixture = createLearningDb();
+  try {
+    insertAsset(fixture.sqlite, { id: 'conflict-free', name: 'Conflict free' });
+    insertAsset(fixture.sqlite, { id: 'conflict-fixed', name: 'Conflict fixed' });
+    insertAsset(fixture.sqlite, { id: 'conflict-inactive', name: 'Conflict inactive', active: 0 });
+    await attachAssetToCase(fixture.db, 'seed-anterior-a', 'conflict-fixed');
+    const firstGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'First set', specificQuestionMode: 'none' });
+    const secondGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Second set', specificQuestionMode: 'none' });
+
+    await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, firstGroup, ['conflict-free', 'conflict-fixed']), /fixed images/);
+    const firstGroupCount = fixture.sqlite.prepare('SELECT count(*) AS count FROM stimulus_group_options WHERE stimulus_group_id = ?').get(firstGroup);
+    assert.ok(firstGroupCount);
+    assert.equal(firstGroupCount.count, 0);
+    await bulkAddAssetsToStimulusGroup(fixture.db, secondGroup, ['conflict-free']);
+    await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, firstGroup, ['conflict-free']), /another alternative set/);
+    await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, firstGroup, ['conflict-inactive']), /missing or inactive/);
+    await assert.rejects(() => bulkAddAssetsToStimulusGroup(fixture.db, firstGroup, ['missing']), /missing or inactive/);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('active bulk targets expose the existing Case-scoped grouping model only', async () => {
+  const fixture = createLearningDb();
+  try {
+    const active = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Visible set', specificQuestionMode: 'none' });
+    const inactive = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Hidden set', specificQuestionMode: 'none' });
+    fixture.sqlite.prepare('UPDATE stimulus_groups SET is_active = 0 WHERE id = ?').run(inactive);
+    const targets = await listActiveStimulusGroupTargets(fixture.db);
+    assert.ok(targets.some((target) => target.id === active && target.caseId === 'seed-anterior-a'));
+    assert.equal(targets.some((target) => target.id === inactive), false);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('new alternative Asset target validation rejects insufficient set-wide coverage before upload', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, {
+      caseId: 'seed-anterior-a',
+      name: 'Minimum coverage set',
+      specificQuestionMode: 'minimum',
+      minimumSpecificQuestions: 1
+    });
+    await assert.rejects(
+      () => validateStimulusGroupTargetForNewAssets(fixture.db, groupId, { expectedCaseId: 'seed-anterior-a' }),
+      /below this set's minimum of 1/
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Case picker load fails closed for a requested missing or inactive target group', async () => {
+  const fixture = createLearningDb();
+  try {
+    const inactive = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Inactive picker set', specificQuestionMode: 'none' });
+    fixture.sqlite.prepare('UPDATE stimulus_groups SET is_active = 0 WHERE id = ?').run(inactive);
+    const { load } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
+
+    for (const target of ['missing-target', inactive]) {
+      await assert.rejects(
+        () => load(/** @type {any} */ ({
+          locals: { user: { role: 'admin' } },
+          platform: { env: { DB: fixture.d1 } },
+          params: { caseId: 'seed-anterior-a' },
+          url: new URL(`http://localhost/admin/cases/seed-anterior-a?picker=1&target_group=${encodeURIComponent(target)}`)
+        })),
+        (error) => Boolean(error && typeof error === 'object' && 'status' in error && error.status === 400)
+      );
+    }
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('upload-to-alternative-set prevalidation does not create an Asset when target coverage is invalid', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, {
+      caseId: 'seed-anterior-a',
+      name: 'Upload blocked set',
+      specificQuestionMode: 'minimum',
+      minimumSpecificQuestions: 1
+    });
+    const before = assetCount(fixture.sqlite);
+    const { actions } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
+    const formData = new FormData();
+    formData.set('case_id', 'seed-anterior-a');
+    formData.set('target_group_id', groupId);
+    formData.set('alt_text', 'Blocked upload alt text');
+    formData.set('image', new File([new Uint8Array([137, 80, 78, 71])], 'blocked.png', { type: 'image/png' }));
+
+    const result = await actions.uploadAndAttach(/** @type {any} */ ({
+      request: new Request('http://localhost/admin/cases/seed-anterior-a?/uploadAndAttach', { method: 'POST', body: formData }),
+      locals: { user: { role: 'admin' } },
+      params: { caseId: 'seed-anterior-a' },
+      platform: { env: { DB: fixture.d1, MEDIA: {} } }
+    }));
+    assert.equal('status' in result ? result.status : null, 400);
+    assert.equal(assetCount(fixture.sqlite), before);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Case image actions require administrator authorization', async () => {
+  const { actions } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
+  const formData = new FormData();
+  formData.set('case_id', 'seed-anterior-a');
+  formData.append('asset_id', 'seed-asset-anterior-b');
+  const result = await actions.attachMany(/** @type {any} */ ({
+    request: new Request('http://localhost/admin/cases/seed-anterior-a?/attachMany', { method: 'POST', body: formData }),
+    locals: { user: { role: 'user' } },
+    params: { caseId: 'seed-anterior-a' }
+  }));
+  assert.equal('status' in result ? result.status : null, 403);
+});
+
+test('Images-library bulk grouping action requires administrator authorization', async () => {
+  const { actions } = await import('../src/routes/admin/images/+page.server.js');
+  const formData = new FormData();
+  formData.set('group_id', 'not-trusted');
+  formData.append('asset_id', 'seed-asset-anterior-b');
+  const result = await actions.bulkAddToStimulusGroup(/** @type {any} */ ({
+    request: new Request('http://localhost/admin/images?/bulkAddToStimulusGroup', { method: 'POST', body: formData }),
+    locals: { user: { role: 'user' } }
+  }));
+  assert.equal('status' in result ? result.status : null, 403);
+});
+
+test('Case editor keeps Images before Case questions and no longer embeds the unused Asset Library', () => {
+  const source = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
+  assert.ok(source.indexOf('id="images"') < source.indexOf('id="questions"'));
+  assert.match(source, />Images </);
+  assert.match(source, /Add images from library/);
+  assert.match(source, /image-specific/);
+  assert.match(source, /updateStimulusOptionCaption/);
+  assert.match(source, /reconcileCasePickerSelection/);
+  assert.doesNotMatch(source, /selectedCase\.available/);
+  assert.doesNotMatch(source, /<h3>Image library<\/h3>/);
+});

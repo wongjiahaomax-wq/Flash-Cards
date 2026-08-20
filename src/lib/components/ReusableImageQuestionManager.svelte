@@ -3,8 +3,9 @@
   /** @typedef {{ assetId: string, stimulusOptionId: string | null, total: number, used: number, available: number, questions: ReusableImageQuestion[] }} ReusableImageQuestionSummary */
   /** @type {{ summary?: ReusableImageQuestionSummary, caseId: string, assetId: string, optionId?: string | null, previewMode?: boolean }} */
   let { summary, caseId, assetId, optionId = null, previewMode = false } = $props();
-  let usedQuestions = $derived((summary?.questions ?? []).filter((question) => question.usedInCase));
-  let availableQuestions = $derived((summary?.questions ?? []).filter((question) => !question.usedInCase));
+  let questions = $derived(summary?.questions ?? []);
+  let usedQuestions = $derived(questions.filter((question) => question.usedInCase));
+  let availableQuestions = $derived(questions.filter((question) => !question.usedInCase));
 </script>
 
 <section class="reusable-manager" aria-label="Reusable Image Questions">
@@ -69,11 +70,11 @@
       </form>
     </details>
 
-    {#if (summary?.questions?.length ?? 0) > 0}
+    {#if questions.length > 0}
       <details class="edit-answers">
         <summary>Edit canonical answers</summary>
         <div class="edit-list">
-          {#each summary.questions as question}
+          {#each questions as question}
             <form method="POST" action="?/saveReusableImageAnswer" class="answer-form">
               <input type="hidden" name="case_id" value={caseId} />
               <input type="hidden" name="asset_question_id" value={question.id} />

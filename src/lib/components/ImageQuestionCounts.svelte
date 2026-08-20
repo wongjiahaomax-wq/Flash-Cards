@@ -2,6 +2,9 @@
   /** @typedef {{ total: number, used: number, available: number }} ReusableImageCountSummary */
   /** @type {{ caseSpecificCount?: number, reusable?: ReusableImageCountSummary }} */
   let { caseSpecificCount = 0, reusable } = $props();
+  let reusableTotal = $derived(reusable?.total ?? 0);
+  let reusableUsed = $derived(reusable?.used ?? 0);
+  let reusableAvailable = $derived(reusable?.available ?? reusableTotal);
 </script>
 
 <!-- Both rows describe image-specific knowledge; the labels keep Case-specific and reusable ownership distinct. -->
@@ -10,13 +13,13 @@
     <strong>Case-specific Image Questions · {caseSpecificCount}</strong>
   </div>
   <div class="count-row reusable-row">
-    <strong>Reusable Image Questions · {reusable?.total ?? 0}</strong>
-    {#if (reusable?.total ?? 0) > 0}
+    <strong>Reusable Image Questions · {reusableTotal}</strong>
+    {#if reusableTotal > 0}
       <span class="muted">
-        {#if (reusable?.used ?? 0) > 0}
-          {reusable.used} used in this Case · {reusable.available} available to reuse
+        {#if reusableUsed > 0}
+          {reusableUsed} used in this Case · {reusableAvailable} available to reuse
         {:else}
-          {reusable?.available ?? reusable?.total ?? 0} available to reuse
+          {reusableAvailable} available to reuse
         {/if}
       </span>
     {/if}

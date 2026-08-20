@@ -58,7 +58,7 @@ async function findOrCreateProductionPrompt(db, promptMd) {
 /** @param {LearningDb} db @param {string} assetId */
 export async function listAssetQuestions(db, assetId) {
   await requireProductionAsset(db, assetId);
-  const rows = await db.select({
+  return db.select({
     id: assetQuestions.id,
     assetId: assetQuestions.assetId,
     questionPromptId: assetQuestions.questionPromptId,
@@ -72,7 +72,6 @@ export async function listAssetQuestions(db, assetId) {
     .innerJoin(questionPrompts, eq(questionPrompts.id, assetQuestions.questionPromptId))
     .where(and(eq(assetQuestions.assetId, assetId), isNull(questionPrompts.previewSessionId)))
     .orderBy(desc(assetQuestions.isActive), asc(assetQuestions.createdAt), asc(assetQuestions.id));
-  return rows;
 }
 
 /** @param {LearningDb} db @param {{ assetId: unknown, promptMd: unknown, answerMd: unknown }} input */
@@ -90,7 +89,7 @@ export async function createAssetQuestion(db, input) {
     if (existing.answerMd !== answerMd) {
       throw new AssetQuestionInputError('This image already has a reusable question with that wording. Edit the canonical question instead of creating a second answer.');
     }
-    if (!existing.isActive) await db.update(assetQuestions).set({ isActive: true, updatedAt: new Date() }).where(eq(assetQuestions.id, existing.id));
+    if (!existing.isActive) await setAssetQuestionActive(db, { assetQuestionId: existing.id, isActive: true });
     return existing.id;
   }
   const id = crypto.randomUUID();
@@ -124,6 +123,27 @@ async function requireProductionOption(db, caseId, optionId) {
   return row;
 }
 
+/** @param {LearningDb} db @param {string} optionId */
+async function requireProductionOptionIdentity(db, optionId) {
+  const row = (await db.select({
+    optionId: stimulusGroupOptions.id,
+    assetId: stimulusGroupOptions.assetId,
+    caseId: stimulusGroups.caseId
+  })
+    .from(stimulusGroupOptions)
+    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+    .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+    .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
+    .where(and(
+      eq(stimulusGroupOptions.id, optionId),
+      isNull(cases.previewSessionId),
+      isNull(assets.previewSessionId)
+    ))
+    .limit(1))[0];
+  if (!row) throw new AssetQuestionInputError('The reusable image question usage is not attached to a production Case.');
+  return row;
+}
+
 /** @param {LearningDb} db @param {string} caseId @param {string} promptId @param {string} groupId */
 async function ensureNoReusablePromptInOtherGroup(db, caseId, promptId, groupId) {
   const conflict = (await db.select({ groupId: stimulusGroups.id })
@@ -144,6 +164,17 @@ async function ensureNoReusablePromptInOtherGroup(db, caseId, promptId, groupId)
   }
 }
 
+/** @param {LearningDb} db @param {string} caseId @param {string} promptId @param {string} groupId */
+async function ensurePromptMayBeSpecificInGroup(db, caseId, promptId, groupId) {
+  try {
+    await ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, groupId);
+  } catch (error) {
+    if (error instanceof StimulusGroupInputError) throw new AssetQuestionInputError(error.message);
+    throw error;
+  }
+  await ensureNoReusablePromptInOtherGroup(db, caseId, promptId, groupId);
+}
+
 /** @param {LearningDb} db @param {{ caseId: unknown, optionId: unknown, assetQuestionId: unknown }} input */
 export async function optInAssetQuestion(db, input) {
   const caseId = requiredText(input.caseId, 'Case');
@@ -157,13 +188,7 @@ export async function optInAssetQuestion(db, input) {
     .limit(1))[0];
   if (!question) throw new AssetQuestionInputError('The reusable image question is missing or inactive.');
   if (question.assetId !== option.assetId) throw new AssetQuestionInputError('The reusable image question belongs to a different Asset.');
-  try {
-    await ensurePromptIsNotUsedByAnotherGroup(db, caseId, question.promptId, option.stimulusGroupId);
-  } catch (error) {
-    if (error instanceof StimulusGroupInputError) throw new AssetQuestionInputError(error.message);
-    throw error;
-  }
-  await ensureNoReusablePromptInOtherGroup(db, caseId, question.promptId, option.stimulusGroupId);
+  await ensurePromptMayBeSpecificInGroup(db, caseId, question.promptId, option.stimulusGroupId);
   const existing = await db.select({ assetQuestionId: stimulusOptionAssetQuestions.assetQuestionId })
     .from(stimulusOptionAssetQuestions)
     .where(and(eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, optionId), eq(stimulusOptionAssetQuestions.assetQuestionId, assetQuestionId)))
@@ -172,10 +197,30 @@ export async function optInAssetQuestion(db, input) {
   return assetQuestionId;
 }
 
-/** @param {LearningDb} db @param {{ optionId: unknown, assetQuestionId: unknown }} input */
+/**
+ * @param {LearningDb} db
+ * @param {{ optionId: unknown, assetQuestionId: unknown, caseId?: unknown, assetId?: unknown }} input
+ */
 export async function removeAssetQuestionOptIn(db, input) {
   const optionId = requiredText(input.optionId, 'Stimulus option');
   const assetQuestionId = requiredText(input.assetQuestionId, 'Reusable image question');
+  const expectedCaseId = String(input.caseId ?? '').trim();
+  const expectedAssetId = String(input.assetId ?? '').trim();
+  const option = await requireProductionOptionIdentity(db, optionId);
+  if (expectedCaseId && option.caseId !== expectedCaseId) {
+    throw new AssetQuestionInputError('The selected reusable image question usage does not belong to this Case.');
+  }
+  if (expectedAssetId && option.assetId !== expectedAssetId) {
+    throw new AssetQuestionInputError('The selected reusable image question usage belongs to a different Asset.');
+  }
+  const question = (await db.select({ assetId: assetQuestions.assetId })
+    .from(assetQuestions)
+    .innerJoin(assets, eq(assets.id, assetQuestions.assetId))
+    .where(and(eq(assetQuestions.id, assetQuestionId), isNull(assets.previewSessionId)))
+    .limit(1))[0];
+  if (!question || question.assetId !== option.assetId) {
+    throw new AssetQuestionInputError('The reusable image question does not belong to this stimulus Asset.');
+  }
   await db.delete(stimulusOptionAssetQuestions).where(and(
     eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, optionId),
     eq(stimulusOptionAssetQuestions.assetQuestionId, assetQuestionId)
@@ -198,12 +243,39 @@ export async function updateAssetQuestionAnswer(db, input) {
 /** @param {LearningDb} db @param {{ assetQuestionId: unknown, isActive: boolean }} input */
 export async function setAssetQuestionActive(db, input) {
   const id = requiredText(input.assetQuestionId, 'Reusable image question');
-  const row = (await db.select({ id: assetQuestions.id })
+  const row = (await db.select({
+    id: assetQuestions.id,
+    promptId: assetQuestions.questionPromptId,
+    isActive: assetQuestions.isActive
+  })
     .from(assetQuestions)
     .innerJoin(assets, eq(assets.id, assetQuestions.assetId))
     .where(and(eq(assetQuestions.id, id), isNull(assets.previewSessionId)))
     .limit(1))[0];
   if (!row) throw new AssetQuestionInputError('The reusable image question no longer exists.');
+
+  if (input.isActive && !row.isActive) {
+    const contexts = await db.select({ caseId: stimulusGroups.caseId, groupId: stimulusGroups.id })
+      .from(stimulusOptionAssetQuestions)
+      .innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionAssetQuestions.stimulusGroupOptionId))
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+      .where(and(
+        eq(stimulusOptionAssetQuestions.assetQuestionId, id),
+        eq(cases.isActive, true),
+        isNull(cases.previewSessionId),
+        eq(stimulusGroups.isActive, true),
+        eq(stimulusGroupOptions.isActive, true)
+      ));
+    const checked = new Set();
+    for (const context of contexts) {
+      const key = `${context.caseId}:${context.groupId}`;
+      if (checked.has(key)) continue;
+      checked.add(key);
+      await ensurePromptMayBeSpecificInGroup(db, context.caseId, row.promptId, context.groupId);
+    }
+  }
+
   await db.update(assetQuestions).set({ isActive: input.isActive, updatedAt: new Date() }).where(eq(assetQuestions.id, id));
 }
 
@@ -259,13 +331,7 @@ export async function optInFixedAssetQuestion(db, input) {
   const remaining = (await db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(eq(caseAssets.caseId, caseId)).orderBy(asc(caseAssets.displayOrder))).filter((row) => row.assetId !== assetId);
   const groupId = crypto.randomUUID();
   const optionId = crypto.randomUUID();
-  try {
-    await ensurePromptIsNotUsedByAnotherGroup(db, caseId, question.promptId, groupId);
-  } catch (error) {
-    if (error instanceof StimulusGroupInputError) throw new AssetQuestionInputError(error.message);
-    throw error;
-  }
-  await ensureNoReusablePromptInOtherGroup(db, caseId, question.promptId, groupId);
+  await ensurePromptMayBeSpecificInGroup(db, caseId, question.promptId, groupId);
   const writes = [
     db.insert(stimulusGroups).values({ id: groupId, caseId, name: automaticGroupName(fixed.originalFilename, assetId), displayOrder: (lastGroup?.displayOrder ?? -1) + 1, selectionCount: 1, specificQuestionMode: 'none', minimumSpecificQuestions: null, isActive: true }),
     db.insert(stimulusGroupOptions).values({ id: optionId, stimulusGroupId: groupId, assetId, displayOrder: 0, captionMd: fixed.captionMd, isActive: true }),
