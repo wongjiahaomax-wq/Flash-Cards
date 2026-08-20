@@ -350,11 +350,11 @@ Study pages now use an authenticated Review-specific media URL. Its server path:
 - verifies the requested `review_assets` row belongs to that Review;
 - reads only `storage_key_snapshot` as the R2 key;
 - serves the historical object even if its original Asset is inactive/superseded;
-- uses private immutable caching;
+- uses `Cache-Control: private, max-age=0, must-revalidate` so owner-specific Review media must re-run the authenticated ownership check before browser reuse, while retaining ETag-based `304 Not Modified` support;
 - does not permit arbitrary R2-key access;
 - returns not-found/denial for another learner without reading R2.
 
-The ordinary `/api/assets/{assetId}/image` route retains its active-current-Asset semantics and continues to reject inactive Assets.
+The ordinary `/api/assets/{assetId}/image` route retains its active-current-Asset semantics and continues to reject inactive Assets. Its existing long-lived private immutable cache policy remains separate from the owner-specific Review route.
 
 Therefore:
 
