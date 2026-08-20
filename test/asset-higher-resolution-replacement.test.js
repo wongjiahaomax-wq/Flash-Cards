@@ -659,7 +659,7 @@ test('schema/UI/routes keep replacement narrow, production-only, and outside Imp
   assert.match(adminUi, /historical Reviews/);
 
   const previewServer = readFileSync(
-    new URL('../src/routes/preview-admin/images/[assetId]/+page.server.js', import.meta.url),
+    new URL('../src/routes/preview-admin/images/+page.server.js', import.meta.url),
     'utf8'
   );
   assert.doesNotMatch(previewServer, /replaceHigherResolution|replaceAssetWithHigherResolution/);
