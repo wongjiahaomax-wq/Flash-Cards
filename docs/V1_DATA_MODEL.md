@@ -420,9 +420,9 @@ Current Study rendering uses an authenticated Review-specific image endpoint whi
 - reads the R2 key only from `review_assets.storage_key_snapshot`;
 - serves the historical object even when the referenced Asset is inactive/superseded;
 - does not accept arbitrary R2 keys;
-- uses private immutable caching.
+- uses `Cache-Control: private, max-age=0, must-revalidate` so a browser must re-run the authenticated Review ownership check before reusing an owner-specific response, while retaining ETag-based `304 Not Modified` support.
 
-The normal active-Asset endpoint remains separate and continues to reject inactive Assets.
+The normal active-Asset endpoint remains separate and continues to reject inactive Assets. Its existing long-lived private immutable cache policy is not used for owner-specific Review URLs.
 
 Therefore changing current relationships from A to B does not alter an already-started Review or require reactivating A.
 
