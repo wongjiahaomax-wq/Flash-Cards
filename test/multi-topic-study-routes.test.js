@@ -16,7 +16,8 @@ const currentSchemaMigrationSql = [
   '0005_tag_foundation.sql',
   '0006_preview_admin_workspace.sql',
   '0007_image_collections.sql',
-  '0008_tag_shared_questions.sql'
+  '0008_tag_shared_questions.sql',
+  '0009_reusable_image_questions.sql'
 ]
   .map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8'))
   .join('\n')
