@@ -1,10 +1,11 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNull, notExists, sql } from 'drizzle-orm';
 
 import {
   assetQuestions,
   assets,
   caseAssets,
   cases,
+  previewSessions,
   stimulusGroupOptions,
   stimulusGroups,
   stimulusOptionAssetQuestions
@@ -77,6 +78,54 @@ function assertReplaceableAsset(source) {
   return source;
 }
 
+/** @param {LearningDb} db @param {string} assetId @param {Date} now */
+function livePreviewFixedReferenceQuery(db, assetId, now) {
+  return db.select({ id: caseAssets.caseId })
+    .from(caseAssets)
+    .innerJoin(cases, eq(cases.id, caseAssets.caseId))
+    .innerJoin(previewSessions, eq(previewSessions.id, cases.previewSessionId))
+    .where(and(
+      eq(caseAssets.assetId, assetId),
+      eq(previewSessions.status, 'active'),
+      gt(previewSessions.expiresAt, now)
+    ));
+}
+
+/** @param {LearningDb} db @param {string} assetId @param {Date} now */
+function livePreviewOptionReferenceQuery(db, assetId, now) {
+  return db.select({ id: stimulusGroupOptions.id })
+    .from(stimulusGroupOptions)
+    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+    .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+    .innerJoin(previewSessions, eq(previewSessions.id, cases.previewSessionId))
+    .where(and(
+      eq(stimulusGroupOptions.assetId, assetId),
+      eq(previewSessions.status, 'active'),
+      gt(previewSessions.expiresAt, now)
+    ));
+}
+
+/** @param {LearningDb} db @param {string} assetId @param {Date} now */
+async function loadLivePreviewUsage(db, assetId, now) {
+  const [fixedRows, optionRows] = await Promise.all([
+    livePreviewFixedReferenceQuery(db, assetId, now),
+    livePreviewOptionReferenceQuery(db, assetId, now)
+  ]);
+  return {
+    fixedRelationships: fixedRows.length,
+    stimulusOptions: optionRows.length,
+    hasUsage: fixedRows.length > 0 || optionRows.length > 0
+  };
+}
+
+/** @param {{ hasUsage: boolean }} usage */
+function assertNoLivePreviewUsage(usage) {
+  if (!usage.hasUsage) return;
+  throw new AssetReplacementInputError(
+    'Replacement is temporarily blocked because this image is referenced by an active Preview workspace. Reset that Preview workspace or let it expire, then retry.'
+  );
+}
+
 /**
  * Return production-only supersession state and the impact summary used by the
  * Admin confirmation surface. Preview-owned relationships are intentionally
@@ -91,7 +140,8 @@ export async function getAssetReplacementSummary(db, assetId) {
   const source = await loadAsset(db, normalizedAssetId);
   if (!source || source.previewSessionId) return null;
 
-  const [predecessor, fixedRows, optionRows, questionRows] = await Promise.all([
+  const now = new Date();
+  const [predecessor, fixedRows, optionRows, questionRows, livePreviewUsage] = await Promise.all([
     db.select({ id: assets.id, originalFilename: assets.originalFilename })
       .from(assets)
       .where(and(eq(assets.supersededByAssetId, normalizedAssetId), isNull(assets.previewSessionId)))
@@ -106,7 +156,8 @@ export async function getAssetReplacementSummary(db, assetId) {
       .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
       .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
       .where(and(eq(stimulusGroupOptions.assetId, normalizedAssetId), isNull(cases.previewSessionId))),
-    db.select({ id: assetQuestions.id }).from(assetQuestions).where(eq(assetQuestions.assetId, normalizedAssetId))
+    db.select({ id: assetQuestions.id }).from(assetQuestions).where(eq(assetQuestions.assetId, normalizedAssetId)),
+    loadLivePreviewUsage(db, normalizedAssetId, now)
   ]);
 
   const successor = source.supersededByAssetId
@@ -122,7 +173,8 @@ export async function getAssetReplacementSummary(db, assetId) {
     supersededByAssetId: source.supersededByAssetId,
     supersededBy: successor,
     supersedes: predecessor,
-    canReplace: source.type === 'image' && source.isActive && !source.supersededByAssetId,
+    canReplace: source.type === 'image' && source.isActive && !source.supersededByAssetId && !livePreviewUsage.hasUsage,
+    livePreviewUsage,
     impact: {
       fixedCaseRelationships: fixedRows.length,
       fixedCases: new Set(fixedRows.map((row) => row.caseId)).size,
@@ -152,6 +204,8 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
   assertImageSize(file.size);
 
   const source = assertReplaceableAsset(await loadAsset(db, normalizedAssetId));
+  const now = new Date();
+  assertNoLivePreviewUsage(await loadLivePreviewUsage(db, normalizedAssetId, now));
 
   const [fixedRows, optionRows, reusableRows, productionOptIns] = await Promise.all([
     db.select({ caseId: caseAssets.caseId })
@@ -189,7 +243,6 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
   const newAssetId = crypto.randomUUID();
   const extension = extensionForType(file.type);
   const newStorageKey = `teaching-images/${newAssetId}.${extension}`;
-  const now = new Date();
   /** @type {Map<string, string>} */
   const clonedQuestionIds = new Map(reusableRows.map((row) => [row.id, crypto.randomUUID()]));
 
@@ -223,7 +276,25 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
         isActive: true,
         createdAt: now,
         updatedAt: now
-      })
+      }),
+      db.update(assets)
+        .set({ isActive: false, supersededByAssetId: newAssetId, updatedAt: now })
+        .where(and(
+          eq(assets.id, normalizedAssetId),
+          eq(assets.isActive, true),
+          isNull(assets.previewSessionId),
+          isNull(assets.supersededByAssetId),
+          notExists(livePreviewFixedReferenceQuery(db, normalizedAssetId, now)),
+          notExists(livePreviewOptionReferenceQuery(db, normalizedAssetId, now))
+        )),
+      // D1 batch updates do not fail merely because a conditional UPDATE changed
+      // zero rows. Make the claim observable through an existing NOT NULL
+      // constraint so a lost double-submit/Preview race aborts the whole batch.
+      db.update(assets)
+        .set({
+          type: sql`(SELECT ${assets.type} FROM ${assets} WHERE ${assets.id} = ${normalizedAssetId} AND ${assets.isActive} = 0 AND ${assets.supersededByAssetId} = ${newAssetId})`
+        })
+        .where(eq(assets.id, newAssetId))
     ];
 
     if (reusableRows.length) {
@@ -261,21 +332,25 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
         )));
     }
 
-    statements.push(db.update(assets)
-      .set({ isActive: false, supersededByAssetId: newAssetId, updatedAt: now })
-      .where(and(
-        eq(assets.id, normalizedAssetId),
-        eq(assets.isActive, true),
-        isNull(assets.previewSessionId),
-        isNull(assets.supersededByAssetId)
-      )));
-
     await db.batch(/** @type {[any, ...any[]]} */ (statements));
   } catch (error) {
     try {
       await deleteTeachingImage(bucket, newStorageKey);
     } catch (cleanupError) {
       console.error('Failed to remove newly uploaded replacement object after D1 rollback.', cleanupError);
+    }
+
+    const current = await loadAsset(db, normalizedAssetId);
+    if (current?.supersededByAssetId || current?.isActive === false) {
+      throw new AssetReplacementInputError(
+        'This image was already replaced by another submission. Refresh the page and use the current replacement Asset.'
+      );
+    }
+    const livePreviewUsage = await loadLivePreviewUsage(db, normalizedAssetId, new Date());
+    if (livePreviewUsage.hasUsage) {
+      throw new AssetReplacementInputError(
+        'Replacement is temporarily blocked because this image is referenced by an active Preview workspace. Reset that Preview workspace or let it expire, then retry.'
+      );
     }
     throw error;
   }
