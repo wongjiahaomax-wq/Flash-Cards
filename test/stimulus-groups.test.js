@@ -6,7 +6,8 @@ import test from 'node:test';
 import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
 import { and, eq } from 'drizzle-orm';
-import { assets, caseAssets, stimulusGroupOptions, stimulusGroupQuestions, stimulusOptionQuestions } from '../src/lib/server/db/schema.js';
+import { createAssetQuestion, optInAssetQuestion } from '../src/lib/server/db/asset-questions.js';
+import { assets, caseAssets, stimulusGroupOptions, stimulusGroupQuestions, stimulusOptionAssetQuestions, stimulusOptionQuestions } from '../src/lib/server/db/schema.js';
 import { updateCase } from '../src/lib/server/db/admin-content.js';
 import { getReview, startReview } from '../src/lib/server/db/learning.js';
 import { listAssetLibrary } from '../src/lib/server/db/asset-library.js';
@@ -119,6 +120,12 @@ test('inactive options are excluded and historical snapshots survive later chang
   try {
     const { groupId, optionRows } = await buildGroupedCase(fixture);
     await setStimulusOptionActive(fixture.db, optionRows[0].id, false);
+    const deactivatedRow = fixture.sqlite.prepare('SELECT is_active FROM stimulus_group_options WHERE id = ?').get(optionRows[0].id);
+    assert.ok(deactivatedRow);
+    assert.equal(deactivatedRow.is_active, 0);
+    const admin = await getAdminStimulusData(fixture.db, 'seed-anterior-a');
+    const deactivated = admin.flatMap((group) => group.options).find((option) => option.id === optionRows[0].id);
+    assert.ok(deactivated);
     const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', rng: () => 0 });
     assert.ok(reviewId);
     await setStimulusOptionActive(fixture.db, optionRows[1].id, false);
@@ -254,6 +261,8 @@ test('Remove from Case archives the option relationship without deleting Asset o
     const option = optionRows.find((/** @type {{ id: string, assetId: string }} */ row) => row.id === optionId);
     assert.ok(option);
     await saveStimulusOptionQuestion(fixture.db, optionId, { promptMd: 'Removed image question?', answerMd: 'Retained historical answer.' });
+    const usageBeforeRemoval = (await listAssetLibrary(fixture.db, { status: 'active' })).find((row) => row.id === option.assetId);
+    assert.ok(usageBeforeRemoval);
 
     await removeStimulusOptionFromCase(fixture.db, optionId);
 
@@ -264,11 +273,90 @@ test('Remove from Case archives the option relationship without deleting Asset o
 
     const admin = await getAdminStimulusData(fixture.db, 'seed-anterior-a');
     assert.equal(admin.flatMap((group) => group.options).some((option) => option.id === optionId), false);
-    assert.equal((await getCaseStimulusCoverageRequirement(fixture.db, 'seed-anterior-a')) >= 0, true);
+    const usageAfterRemoval = (await listAssetLibrary(fixture.db, { status: 'active' })).find((row) => row.id === option.assetId);
+    assert.equal(usageAfterRemoval?.isActive, true);
+    assert.equal(usageAfterRemoval?.usageCount, (usageBeforeRemoval.usageCount ?? 0) - 1);
 
     const historical = await getReview(fixture.db, reviewId, 'learner-archive');
     assert.equal(historical?.assets.some((assetRow) => assetRow.stimulusOptionId === optionId), true);
     assert.equal((await fixture.db.select({ count: stimulusOptionQuestions.id }).from(stimulusOptionQuestions).where(eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId))).length, 1);
+    const newReviewId = await startReview({ db: fixture.db, userId: 'learner-after-archive', conceptId: 'seed-anterior-stemi', rng: () => 0 });
+    assert.ok(newReviewId);
+    const newReview = await getReview(fixture.db, newReviewId, 'learner-after-archive');
+    assert.equal(newReview?.assets.some((assetRow) => assetRow.stimulusOptionId === optionId), false);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('archived restoration uses retained option questions for minimum coverage', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Minimum restoration set', specificQuestionMode: 'none' });
+    const optionId = await addStimulusOption(fixture.db, groupId, 'seed-asset-anterior-b');
+    await saveStimulusOptionQuestion(fixture.db, optionId, { promptMd: 'Retained minimum question?', answerMd: 'Yes.' });
+    await updateStimulusGroup(fixture.db, { groupId, name: 'Minimum restoration set', specificQuestionMode: 'minimum', minimumSpecificQuestions: 1, isActive: true });
+    await removeStimulusOptionFromCase(fixture.db, optionId);
+    assert.equal(await getCaseStimulusCoverageRequirement(fixture.db, 'seed-anterior-a'), 0);
+    assert.equal(await addStimulusOption(fixture.db, groupId, 'seed-asset-anterior-b'), optionId);
+    assert.equal(await getCaseStimulusCoverageRequirement(fixture.db, 'seed-anterior-a'), 1);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('archived restoration revalidates all coverage against a changed fixed Case count', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'All restoration set', specificQuestionMode: 'none' });
+    const retainedOptionId = await addStimulusOption(fixture.db, groupId, 'seed-asset-anterior-b');
+    const otherOptionId = await addStimulusOption(fixture.db, groupId, 'seed-asset-anterior-c');
+    await saveStimulusOptionQuestion(fixture.db, retainedOptionId, { promptMd: 'Retained all question one?', answerMd: 'One.' });
+    await saveStimulusOptionQuestion(fixture.db, retainedOptionId, { promptMd: 'Retained all question two?', answerMd: 'Two.' });
+    await saveStimulusOptionQuestion(fixture.db, otherOptionId, { promptMd: 'Other all question?', answerMd: 'Other.' });
+    await updateStimulusGroup(fixture.db, { groupId, name: 'All restoration set', specificQuestionMode: 'all', isActive: true });
+    await updateCase(fixture.db, { caseId: 'seed-anterior-a', title: 'Anterior STEMI ECG A', questionSelectionMode: 'fixed', questionCount: 2 });
+    assert.equal(await getCaseStimulusCoverageRequirement(fixture.db, 'seed-anterior-a'), 2);
+
+    await removeStimulusOptionFromCase(fixture.db, retainedOptionId);
+    assert.equal(await getCaseStimulusCoverageRequirement(fixture.db, 'seed-anterior-a'), 1);
+    await updateCase(fixture.db, { caseId: 'seed-anterior-a', title: 'Anterior STEMI ECG A', questionSelectionMode: 'fixed', questionCount: 1 });
+    await assert.rejects(() => addStimulusOption(fixture.db, groupId, 'seed-asset-anterior-b'), /can require at least 2 questions/);
+    const stillArchived = (await fixture.db.select({ isActive: stimulusGroupOptions.isActive, removedFromCase: stimulusGroupOptions.removedFromCase }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.id, retainedOptionId)))[0];
+    assert.deepEqual(stillArchived, { isActive: false, removedFromCase: true });
+
+    await updateCase(fixture.db, { caseId: 'seed-anterior-a', title: 'Anterior STEMI ECG A', questionSelectionMode: 'fixed', questionCount: 2 });
+    assert.equal(await addStimulusOption(fixture.db, groupId, 'seed-asset-anterior-b'), retainedOptionId);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('archived restoration rejects retained specific and reusable prompts that became current elsewhere', async () => {
+  const fixture = createLearningDb();
+  try {
+    const firstGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'First restoration set', specificQuestionMode: 'none' });
+    const secondGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Second restoration set', specificQuestionMode: 'none' });
+    const firstOption = await addStimulusOption(fixture.db, firstGroup, 'seed-asset-anterior-b');
+    const secondOption = await addStimulusOption(fixture.db, secondGroup, 'seed-asset-anterior-c');
+    await saveStimulusOptionQuestion(fixture.db, firstOption, { promptMd: 'Shared retained prompt?', answerMd: 'First.' });
+    const reusableFirst = await createAssetQuestion(fixture.db, { assetId: 'seed-asset-anterior-b', promptMd: 'Shared reusable prompt?', answerMd: 'Reusable first.' });
+    await optInAssetQuestion(fixture.db, { caseId: 'seed-anterior-a', optionId: firstOption, assetQuestionId: reusableFirst });
+    await removeStimulusOptionFromCase(fixture.db, firstOption);
+    await saveStimulusOptionQuestion(fixture.db, secondOption, { promptMd: 'Shared retained prompt?', answerMd: 'Second.' });
+    await assert.rejects(() => addStimulusOption(fixture.db, firstGroup, 'seed-asset-anterior-b'), /Question Prompt/);
+
+    const reusableFirstGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Reusable first set', specificQuestionMode: 'none' });
+    const reusableSecondGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Reusable second set', specificQuestionMode: 'none' });
+    const reusableFirstOption = await addStimulusOption(fixture.db, reusableFirstGroup, 'seed-asset-pityriasis-trunk');
+    const reusableSecondOption = await addStimulusOption(fixture.db, reusableSecondGroup, 'seed-asset-pityriasis-herald');
+    const reusableSecond = await createAssetQuestion(fixture.db, { assetId: 'seed-asset-pityriasis-trunk', promptMd: 'Shared reusable prompt?', answerMd: 'Reusable second.' });
+    await optInAssetQuestion(fixture.db, { caseId: 'seed-anterior-a', optionId: reusableFirstOption, assetQuestionId: reusableSecond });
+    await removeStimulusOptionFromCase(fixture.db, reusableFirstOption);
+    const reusableOther = await createAssetQuestion(fixture.db, { assetId: 'seed-asset-pityriasis-herald', promptMd: 'Shared reusable prompt?', answerMd: 'Reusable other.' });
+    await optInAssetQuestion(fixture.db, { caseId: 'seed-anterior-a', optionId: reusableSecondOption, assetQuestionId: reusableOther });
+    await assert.rejects(() => addStimulusOption(fixture.db, reusableFirstGroup, 'seed-asset-pityriasis-trunk'), /Question Prompt/);
+    assert.equal((await fixture.db.select().from(stimulusOptionAssetQuestions).where(eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, firstOption))).length, 1);
   } finally {
     fixture.sqlite.close();
   }

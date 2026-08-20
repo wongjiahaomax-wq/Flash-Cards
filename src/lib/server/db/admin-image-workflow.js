@@ -9,6 +9,7 @@ import {
   stimulusGroupQuestions,
   stimulusGroups
 } from './schema.js';
+import { StimulusGroupInputError, validateStimulusOptionRestoration } from './stimulus-groups.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -231,7 +232,7 @@ export async function listActiveStimulusGroupTargets(db) {
  *
  * @param {LearningDb} db
  * @param {string} groupId
- * @param {{ expectedCaseId?: string | null }} [options]
+ * @param {{ expectedCaseId?: string | null, allowArchivedRestoration?: boolean }} [options]
  */
 export async function validateStimulusGroupTargetForNewAssets(db, groupId, options = {}) {
   const normalizedGroupId = String(groupId ?? '').trim();
@@ -261,7 +262,7 @@ export async function validateStimulusGroupTargetForNewAssets(db, groupId, optio
     throw new AdminImageWorkflowInputError('The selected alternative image set does not belong to this Case.');
   }
 
-  if (group.specificQuestionMode === 'minimum') {
+  if (group.specificQuestionMode === 'minimum' && !options.allowArchivedRestoration) {
     const groupQuestions = await db
       .select({ id: stimulusGroupQuestions.id })
       .from(stimulusGroupQuestions)
@@ -288,7 +289,7 @@ export async function validateStimulusGroupTargetForNewAssets(db, groupId, optio
  * @param {{ expectedCaseId?: string | null }} [options]
  */
 export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetIds, options = {}) {
-  const group = await validateStimulusGroupTargetForNewAssets(db, groupId, options);
+  const group = await validateStimulusGroupTargetForNewAssets(db, groupId, { ...options, allowArchivedRestoration: true });
   const assetIds = boundedAssetIds(submittedAssetIds);
   await requireActiveImageAssets(db, assetIds);
 
@@ -316,6 +317,7 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
   }
 
   const byAsset = new Map(optionRows.map((row) => [row.assetId, row]));
+  const archivedOptions = [];
   for (const assetId of assetIds) {
     const existingOption = byAsset.get(assetId);
     if (!existingOption) continue;
@@ -325,7 +327,13 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
       );
     }
     if (existingOption.removedFromCase) {
-      await db.update(stimulusGroupOptions).set({ isActive: true, removedFromCase: false }).where(eq(stimulusGroupOptions.id, existingOption.id));
+      try {
+        await validateStimulusOptionRestoration(db, existingOption.id);
+      } catch (error) {
+        if (error instanceof StimulusGroupInputError) throw new AdminImageWorkflowInputError(error.message);
+        throw error;
+      }
+      archivedOptions.push(existingOption);
       continue;
     }
     if (!existingOption.isActive) {
@@ -336,7 +344,12 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
   }
 
   const newIds = assetIds.filter((id) => !byAsset.has(id));
+  if (newIds.length) await validateStimulusGroupTargetForNewAssets(db, groupId, options);
+  const restoreStatements = archivedOptions.map((option) =>
+    db.update(stimulusGroupOptions).set({ isActive: true, removedFromCase: false }).where(eq(stimulusGroupOptions.id, option.id))
+  );
   if (!newIds.length) {
+    if (restoreStatements.length) await db.batch(/** @type {[any, ...any[]]} */ (restoreStatements));
     return { caseId: group.caseId, requestedCount: assetIds.length, addedCount: 0, alreadyPresentCount: assetIds.length };
   }
   const last = (
@@ -370,7 +383,7 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
         isActive: true
       })
     );
-    await db.batch([firstStatement, ...remainingStatements]);
+    await db.batch(/** @type {[any, ...any[]]} */ ([...restoreStatements, firstStatement, ...remainingStatements]));
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       throw new AdminImageWorkflowInputError('The alternative image set changed while updating. Refresh and try again.');
