@@ -33,8 +33,12 @@ registerHooks({
 const migrationSql = [
   readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
@@ -43,9 +47,11 @@ function fixture() {
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(migrationSql);
   sqlite.exec(buildSeedSql());
+  let queryCount = 0;
   const d1 = {
     /** @param {string} sql */
     prepare(sql) {
+      queryCount += 1;
       return {
         /** @param {...any} params */
         bind(...params) {
@@ -63,7 +69,7 @@ function fixture() {
     /** @param {any[]} statements */
     async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); }
   };
-  return { sqlite, db: createDb(/** @type {any} */ (d1)) };
+  return { sqlite, db: createDb(/** @type {any} */ (d1)), getQueryCount: () => queryCount };
 }
 
 /** @param {DatabaseSync} sqlite @param {string} id @param {number} createdAt @param {string | null} [previewSessionId] */
@@ -89,6 +95,56 @@ function insertOption(sqlite, id, groupId, assetId, order, caption = null, activ
   sqlite.prepare('INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(id, groupId, assetId, order, caption, active ? 1 : 0, 11_000 + order);
 }
+
+test('Image Library derives current, historical-only, and unused lifecycle states', async () => {
+  const { sqlite, db, getQueryCount } = fixture();
+  try {
+    for (const id of ['lifecycle-fixed', 'lifecycle-option', 'lifecycle-inactive-option', 'lifecycle-removed-option', 'lifecycle-review', 'lifecycle-unused', 'lifecycle-preview-only']) insertAsset(sqlite, id, 12_000);
+    insertCase(sqlite, 'lifecycle-case');
+    sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, created_at) VALUES (?, ?, ?, ?)').run('lifecycle-case', 'lifecycle-fixed', 0, 12_001);
+    insertGroup(sqlite, 'lifecycle-group', 'lifecycle-case', 0);
+    insertOption(sqlite, 'lifecycle-option-row', 'lifecycle-group', 'lifecycle-option', 0);
+    insertOption(sqlite, 'lifecycle-inactive-row', 'lifecycle-group', 'lifecycle-inactive-option', 1, null, false);
+    insertOption(sqlite, 'lifecycle-removed-row', 'lifecycle-group', 'lifecycle-removed-option', 2);
+    sqlite.prepare('UPDATE stimulus_group_options SET is_active = 0, removed_from_case = 1 WHERE id = ?').run('lifecycle-removed-row');
+
+    const reviewSource = sqlite.prepare(`SELECT c.id AS case_id, cc.concept_id FROM cases c JOIN case_concepts cc ON cc.case_id = c.id AND cc.role = 'primary' WHERE c.preview_session_id IS NULL LIMIT 1`).get();
+    assert.ok(reviewSource);
+    sqlite.prepare(`INSERT INTO reviews (id, user_id, case_id, primary_concept_id, study_concept_id, case_title_snapshot, status) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run('lifecycle-review-row', 'lifecycle-user', reviewSource.case_id, reviewSource.concept_id, reviewSource.concept_id, 'Historical Case', 'completed');
+    sqlite.prepare(`INSERT INTO review_assets (id, review_id, asset_id, display_order, storage_key_snapshot) VALUES (?, ?, ?, ?, ?)`)
+      .run('lifecycle-review-asset', 'lifecycle-review-row', 'lifecycle-review', 0, 'teaching-images/lifecycle-review.png');
+
+    sqlite.prepare(`INSERT INTO preview_sessions (id, user_id, status, expires_at) VALUES (?, ?, 'active', ?)`).run('lifecycle-preview', 'lifecycle-preview-user', 4_102_444_800_000);
+    insertCase(sqlite, 'lifecycle-preview-case', 'lifecycle-preview');
+    sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, created_at) VALUES (?, ?, ?, ?)').run('lifecycle-preview-case', 'lifecycle-preview-only', 0, 12_001);
+
+    const rows = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=lifecycle-&sort=name-asc')), { pageSize: 20 });
+    const states = Object.fromEntries(rows.rows.map((row) => [row.id, row.usageState]));
+    assert.equal(states['lifecycle-fixed'], 'current');
+    assert.equal(states['lifecycle-option'], 'current');
+    assert.equal(states['lifecycle-inactive-option'], 'historical');
+    assert.equal(states['lifecycle-removed-option'], 'historical');
+    assert.equal(states['lifecycle-review'], 'historical');
+    assert.equal(states['lifecycle-unused'], 'unused');
+    assert.equal(states['lifecycle-preview-only'], 'unused');
+    assert.equal(rows.rows.find((row) => row.id === 'lifecycle-review')?.historicalReviewCount, 1);
+
+    const current = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=lifecycle-&usage=current')));
+    const historical = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=lifecycle-&usage=historical')));
+    const unused = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=lifecycle-&usage=unused')));
+    assert.deepEqual(new Set(current.rows.map((row) => row.id)), new Set(['lifecycle-fixed', 'lifecycle-option']));
+    assert.deepEqual(new Set(historical.rows.map((row) => row.id)), new Set(['lifecycle-inactive-option', 'lifecycle-removed-option', 'lifecycle-review']));
+    assert.deepEqual(new Set(unused.rows.map((row) => row.id)), new Set(['lifecycle-unused', 'lifecycle-preview-only']));
+
+    const beforeSmallPage = getQueryCount();
+    await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=lifecycle-')), { pageSize: 1 });
+    const smallPageQueries = getQueryCount() - beforeSmallPage;
+    const beforeLargePage = getQueryCount();
+    await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=lifecycle-')), { pageSize: 20 });
+    assert.equal(getQueryCount() - beforeLargePage, smallPageQueries, 'query count must remain constant as page size grows');
+  } finally { sqlite.close(); }
+});
 
 test('Image Library pagination returns deterministic bounded pages and exact counts', async () => {
   const { sqlite, db } = fixture();
