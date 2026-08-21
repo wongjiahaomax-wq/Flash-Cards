@@ -19,8 +19,7 @@
   <button
     type="button"
     class="info-trigger"
-    aria-label={`About ${label}`}
-    aria-description={text}
+    aria-label={`About ${label}: ${text}`}
     aria-expanded={open}
     onclick={toggle}
     onkeydown={keydown}
