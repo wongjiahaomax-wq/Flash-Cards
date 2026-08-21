@@ -1,364 +1,265 @@
 # Case editor fast-review design
 
-_Status: pending design for future implementation. This document does not describe current implemented behavior._
+_Status: implemented in `agent/case-editor-fast-review-compact` for review. This status describes the implementation branch, not production deployment. Classic mode remains the compatibility path._
 
 _Last updated: 22 August 2026_
 
 ## 1. Goal
 
-The Compact Case editor should primarily support **fast review of all clinically relevant information in one Case**.
+The Compact Case editor is designed primarily for **fast review of all clinically relevant information in one Case**.
 
-The author should be able to scan the Case, its stimuli and every question/answer pair quickly enough to detect missing, incorrect, duplicated or mis-scoped content without repeatedly opening disclosures or remembering which image a question belongs to.
-
-The governing interaction rule is:
+The governing interaction rule remains:
 
 > Information needed to judge whether the Case is correct stays visible. Controls needed only to manipulate the Case may be visually secondary.
 
-This is a presentation/interaction design. It must preserve the existing content model, learner resolver, Review provenance and current safe image/stimulus mutations unless a later implementation PR explicitly scopes a behavioral change.
+The implementation is a presentation/read-projection refactor. It does not change the content model, learner resolver, Review provenance, fixed/alternative semantics, reusable-image opt-in rules, or image mutation safety.
 
-## 2. Scope
+## 2. Scope and compatibility
 
-This design applies to **Compact mode** only.
+This implementation applies to **Compact mode** only. Classic mode retains the preceding editor presentation and interaction paths.
 
-Classic mode should remain behaviorally unchanged during the first implementation pass unless a later decision explicitly retires it.
+No schema or migration is introduced. The final audit and completeness counts are derived from the bounded `selectedCase` editor read model already loaded for the current Case.
 
-The first implementation should be a UI/UX refactor rather than a schema project. No migration should be required merely to implement this design.
+A future `Review focus` toggle remains out of scope.
 
-## 3. Core review principles
+## 3. Prompt and Answer remain visible together
 
-### 3.1 Prompt and answer remain visible together
+Compact mode keeps ordinary Case-wide Prompt/Answer fields visible together. On wide screens the existing Case-wide rows preserve their side-by-side rhythm.
 
-Do not collapse ordinary questions into prompt-only outline rows.
+The fast-review implementation extends that same principle to:
 
-For Case-wide, Case-specific Image, Reusable Image and set-wide questions, the review surface should preserve a consistent two-column rhythm:
+- Case-specific Image Questions;
+- Reusable Image Questions explicitly used by the current Case/stimulus;
+- Alternative-Set-wide questions.
 
-```text
-Prompt | Answer
-```
+Image-linked review rows use a compact image reference plus Prompt and Answer columns on wide screens, and reflow on narrower screens rather than forcing unusably narrow columns.
 
-The author should be able to scan both sides simultaneously. Editing controls may be compact, but the Prompt and Answer themselves should not require an extra click to reveal.
+Reusable Image Questions that merely exist on the Asset but are not opted into the current stimulus are not rendered as Case questions. Their available count remains secondary through the existing management affordance.
 
-Text areas/fields should be dense enough for rapid review without becoming spreadsheet-like one-line cells. They should allow common 2–4 line content to remain readable and may grow for longer content.
+## 4. Accessible explanatory help
 
-### 3.2 Clinical content expanded; management controls secondary
+Compact mode reduces permanent explanatory copy where the relationship is already represented by a concise label. Small `ⓘ` controls provide the longer meaning for concepts including:
 
-Keep visible by default:
+- Primary Topic and Study Topic;
+- Case/Topic routing;
+- fixed images;
+- Alternative Sets;
+- Case-wide questions;
+- Case-specific Image Questions;
+- Reusable Image Questions;
+- set-wide questions;
+- the final all-questions audit.
 
-- Case title and stem;
-- current Topic context;
-- learner-facing images/stimuli;
-- Case-specific Image Question Prompt/Answer pairs;
-- Reusable Image Question Prompt/Answer pairs that are explicitly used in this Case/stimulus;
-- alternative-set-wide Prompt/Answer pairs where applicable;
-- Case-wide Prompt/Answer pairs;
-- a final all-questions audit view.
+The help control supports pointer hover, keyboard focus, click/tap, `aria-expanded`, descriptive accessibility text, and Escape dismissal. Essential semantics continue to be present in the visible labels and are not color-only or hover-only.
 
-Controls such as moving images, changing set membership, deactivating/reactivating, removing relationships, editing provenance, advanced coverage settings and other low-frequency administration may be placed behind concise menus/disclosures as long as the existing actions remain easy to discover.
+## 5. Case completeness summary
 
-### 3.3 Explanations behind accessible info controls
+Compact mode now shows a quiet structural summary before the main section navigation. It includes:
 
-Long permanent explanatory prose should be reduced where the relationship can be represented clearly through labels and badges.
+- Primary Topic and active Additional Study Topics;
+- active fixed-image count;
+- active Alternative Set and option counts;
+- Case-wide question count;
+- active Case-specific Image Question count;
+- explicitly-used Reusable Image Question count;
+- active set-wide question count;
+- total rows in the final Case audit.
 
-Use small `ⓘ` help controls next to concepts such as:
-
-- Primary Topic;
-- Study Topic;
-- Fixed image;
-- Alternative image;
-- Case-wide question;
-- Case-specific Image Question;
-- Reusable Image Question;
-- set-wide question.
-
-On pointer devices, the explanation may appear on hover. It must also be keyboard/focus accessible, and touch devices need an equivalent tap interaction. Do not make essential semantics mouse-hover-only.
-
-## 4. Page hierarchy
-
-Compact mode should read as an authoring workspace rather than a long stack of equally weighted admin panels.
-
-Recommended high-level order:
-
-```text
-Case header / review summary
-Case details
-Topics / routing summary
-Images and stimulus sets
-  → image-specific/reusable/set-wide Q&A
-All questions in this Case
-Preview / review actions
-```
-
-A restrained sticky or side section navigation is appropriate on wide screens. Mobile/tablet layouts may collapse back to a horizontal or otherwise space-efficient navigation.
-
-The page should use fewer nested bordered boxes. Reserve strong card treatment for real objects such as an image/stimulus set, while using spacing and subtle separators for question rows.
-
-## 5. Case header and review summary
-
-The top of the editor should provide a fast completeness summary, for example:
-
-```text
-Acute pericarditis
-Cardiology · Primary
-ECG · Study Topic
-1 fixed image · 3 ECG alternatives · 8 Case-wide questions · 5 image questions · 3 reusable questions used
-```
-
-Exact copy and counts may be refined during implementation, but the purpose is to let the author detect obvious structural omissions before scrolling.
-
-Normal/valid state should remain visually quiet. Draw stronger attention to actionable problems such as:
-
-- missing answer;
-- inactive or unavailable image;
-- missing primary Topic;
-- empty required content;
-- invalid/incomplete relationship state.
-
-Avoid filling the page with redundant green success indicators.
+The summary is intended to expose obvious omissions quickly without adding success-state decoration to every object.
 
 ## 6. Images and stimulus sets
 
-### 6.1 Preserve the real relationship model
+### 6.1 Relationship model remains explicit
 
-Do not reduce the model to a misleading binary `Fixed / Not fixed` toggle.
-
-The UI should identify the real learner relationship:
+The UI continues to distinguish:
 
 ```text
 FIXED
 ```
 
-or:
+from:
 
 ```text
 ALTERNATIVE · <set name>
 ```
 
-and provide a concise placement/relationship control that maps to the existing safe mutations.
+An alternative option is never presented as merely “not fixed”.
 
-### 6.2 Preserve current image controls
+### 6.2 Horizontal overview strips
 
-The visual redesign must not accidentally remove existing authoring capabilities.
+When a Case has several fixed images, Compact mode adds a horizontally scrollable fixed-image overview strip.
 
-In particular, alternative-option management currently includes concepts such as:
+Every Alternative Set has its own ordered strip when it contains options. Each strip:
 
-- reorder within a set;
+- preserves current display order;
+- keeps set membership visible in the option label;
+- supports touch/trackpad horizontal scrolling;
+- exposes keyboard-focusable image targets;
+- provides left/right scroll controls on wider screens;
+- jumps to the corresponding detailed image/Q&A block when an item is activated;
+- uses no third-party carousel dependency.
+
+The detailed image block remains the place for full authoring controls and opens the existing shared Admin image viewer.
+
+### 6.3 Existing image controls are preserved
+
+The implementation retains the existing authoring paths for:
+
+- fixed-image attach/picker/upload;
+- fixed-image caption and reorder/removal workflows;
+- starting or entering Alternative Sets;
+- alternative-option reorder;
 - activate/deactivate;
-- move the existing option to another set in the same Case;
-- remove the image relationship from the Case while retaining the reusable Asset in the Image Library and preserving historical Reviews;
-- manage Case-specific captions;
-- manage Case-specific Image Questions;
-- manage explicit Reusable Image Question opt-ins.
+- Case-specific captions;
+- Case-specific Image Question management;
+- Reusable Image Question opt-in management;
+- same-Case **Move to another set…**;
+- **Remove from Case**;
+- advanced set/coverage management.
 
-Fixed-image workflows also need the existing safe paths for attaching images, creating/entering alternative sets and removing Case relationships where currently supported.
-
-The redesign may consolidate these operations under a concise `Change placement`, `⋯`, or similar control, but it must preserve the semantic distinction between:
-
-```text
-move to another set
-```
-
-and:
-
-```text
-remove from this Case
-```
-
-Removing an alternative image from its Case is not the same operation as silently converting it back to a fixed image.
-
-### 6.3 Carousel/strip for multiple images
-
-For Cases with several related images or several options in an Alternative Set, use a compact horizontal image carousel/strip at the top of that set rather than forcing every full-size image into a wide multi-column layout.
-
-Example:
-
-```text
-ALTERNATIVE SET · ECG
-◀  [ ECG A ] [ ECG B ] [ ECG C ] [ ECG D ]  ▶
-```
-
-The carousel is an overview/navigation surface. It should make set membership and order obvious and allow the author to jump to the corresponding detailed image/Q&A block.
-
-For fixed images, a similar compact strip/grid may be used where several fixed images form the Case presentation.
-
-The implementation should remain usable with one image, many images and multiple independent Alternative Sets in the same Case.
+Move and Remove remain distinct semantic operations. Removing an option from a Case does not convert it into a fixed image or delete the reusable Asset.
 
 ## 7. Image-centred Q&A review
 
-### 7.1 Keep image-linked Q&A content visible
+Compact alternative-option blocks now expose actual clinically relevant Q&A in the main scroll flow instead of relying on counts plus `Manage questions`.
 
-The current compact-card counts are not sufficient for the fast-review goal.
+### Case-specific Image Questions
 
-For each image/stimulus that participates in the Case, Compact mode should show the relevant Prompt/Answer content directly with that image rather than requiring the author to open `Manage questions` merely to read it.
-
-At minimum, show full two-column Q&A for:
+Each active relationship row shows:
 
 ```text
-Case-specific Image Questions
-Reusable Image Questions used in this Case
+small exact-image reference | Prompt | Answer | Save
 ```
 
-If the Alternative Set has set-wide questions, those should also be reviewable without losing their set context.
+The Prompt and contextual answer remain directly editable with the existing `saveStimulusOptionQuestion` action. The small image reference opens the existing Admin image viewer.
 
-Reusable Image Questions that exist on the Asset but are **not** opted into the current Case/stimulus are not part of the current Case's possible learner questions. Their available count and management affordance may remain secondary rather than cluttering the main review surface.
+### Reusable Image Questions used in this Case
 
-### 7.2 Keep the associated image visible while scrolling
+Only explicit current opt-ins are expanded into the main review surface. The exact-image reference, canonical Prompt, and canonical Answer remain visible together.
 
-A long image block may contain many questions. The author should not have to scroll back upward to remember which ECG/X-ray/photograph the question refers to.
+Production Admin can edit the canonical answer through the existing reusable-image action. Shared Prompt wording continues to use the existing guarded shared-edit path in the Asset/Question management surface rather than bypassing blast-radius semantics from the Case editor.
 
-Recommended wide-screen structure:
+Preview Admin renders canonical reusable content read-only, preserving the existing production-only reusable mutation boundary.
+
+### Available reusable questions
+
+Available-but-unused Asset Questions remain secondary as a count/management path. They are not included in the Case audit and are not presented as questions currently belonging to the Case.
+
+## 8. Set-wide Q&A
+
+For an active Alternative Set with active options, active set-wide Prompt/Answer pairs are visible in Compact mode without opening the advanced disclosure.
+
+They are labeled:
 
 ```text
-[small image] | Prompt | Answer
-[small image] | Prompt | Answer
-[small image] | Prompt | Answer
+SET-WIDE · <set name>
 ```
 
-The repeated image cell may use a compact thumbnail, a sticky image reference within the block, or an equivalent implementation that keeps stimulus identity visually available while reviewing lower rows.
+and remain directly editable through the existing `saveStimulusGroupQuestion` mutation.
 
-The image should remain clickable/tappable to open the shared Admin image viewer.
-
-On smaller screens, preserve the association without forcing an unusably narrow three-column layout; the thumbnail may move above/beside the row responsively.
-
-## 8. Question scope/source labels
-
-Use concise scope/source labels to make question provenance immediately understandable:
-
-```text
-CASE-WIDE
-IMAGE-SPECIFIC · ECG A
-REUSABLE · ECG A
-SET-WIDE · ECG alternatives
-```
-
-The exact user-facing terminology should stay aligned with the established model:
-
-- **Case-specific Image Question** means Case + exact-image context;
-- **Reusable Image Question** means canonical exact-Asset content explicitly opted into this stimulus;
-- **set-wide** means valid for every option in that Alternative Set;
-- **Case-wide** means applicable regardless of selected stimulus.
-
-Badges should aid scanning rather than dominate it. Avoid a highly saturated rainbow of scope colors when a neutral badge plus source identity is sufficient.
+The set strip remains nearby. The UI does not falsely attach a set-wide question to any one exact option.
 
 ## 9. Final master audit — All questions in this Case
 
-The bottom of Compact mode should provide a final overview of **all questions that can currently participate in this Case**, not only Case-wide questions.
+Compact mode adds a final **All questions in this Case** audit below the ordinary authoring sections.
 
-This is a Case-centred audit view of the same underlying relationships already shown in their authoring context. It must not create duplicate question records or alter resolver precedence.
+It is an Admin-only projection of the existing bounded Case editor data. It creates no database rows, does not feed the learner resolver, and does not persist a cross-scope order.
 
-Recommended columns:
+Current audit sources are:
 
-```text
-# | Prompt | Source / scope | Answer | compact actions
-```
+- active Case-wide questions;
+- active set-wide questions for active sets with an active selectable option;
+- active Case-specific Image Questions for active/selectable exact options;
+- active Reusable Image Questions explicitly opted into those exact options.
 
-Example:
+The audit excludes:
 
-```text
-Q1 | What is the diagnosis?        | CASE-WIDE              | Acute pericarditis
-Q2 | What are the ECG changes?     | IMAGE-SPECIFIC · ECG A | Diffuse concave ST elevation...
-Q3 | What is the treatment?        | CASE-WIDE              | NSAIDs and colchicine
-Q4 | What rhythm is present?       | REUSABLE · ECG A       | Sinus rhythm
-Q5 | What feature is common to...? | SET-WIDE · ECG set     | ...
-```
+- reusable Asset Questions that are only available to reuse;
+- inactive Case/group/option question relationships;
+- inactive/unselectable stimulus contexts;
+- duplicate copies of the same relationship emitted by the review projection.
 
-The audit should include, when active/eligible for the Case:
+### Deterministic presentation order
 
-- Case-wide questions;
-- Case-specific Image Questions;
-- Reusable Image Questions explicitly used in this Case/stimulus;
-- Alternative-set-wide questions.
+The audit order is structural rather than educational:
 
-It should not treat reusable Asset Questions that are merely available-but-not-opted-in as questions in the Case.
+1. whole-Case questions in their existing Case order;
+2. any current fixed-image reusable context, if one is ever present in the read model;
+3. active Alternative Sets in their existing loaded/display order;
+4. active set-wide questions in their existing scope order;
+5. active options in their existing display order;
+6. within an option, Case-specific questions followed by explicitly-used reusable questions.
 
-The row should identify the exact source image/set whenever the question is not Case-wide.
+This ordering is not persisted and does not claim learner priority. Learner precedence and final Review ordering remain separate resolver concerns.
 
-### 9.1 Hover/focus source thumbnail
+## 10. Audit source previews
 
-To keep the master table narrow, the Source/scope column does not need a permanently rendered image thumbnail.
+Image-bound audit rows show a compact source label and image indicator rather than a permanent thumbnail column.
 
-For an image-bound source, show a compact source label such as:
+The source indicator exposes a small preview by hover/focus and supports click/tap pinning. The preview can open the shared Admin image viewer. Keyboard users can dismiss pinned state with Escape.
 
-```text
-IMAGE-SPECIFIC · ECG A  [image indicator]
-```
+Set-wide rows preview a small strip of the relevant active set instead of pretending one exact image owns the question.
 
-Hovering or keyboard-focusing the image indicator should reveal a small preview thumbnail/popover of the exact stimulus. Touch users need an equivalent tap interaction.
+## 11. Responsive behavior
 
-The preview should be sufficient to confirm stimulus identity without navigating away. The author should still be able to open the full shared image viewer when required.
+The Compact implementation is designed for:
 
-This source preview is particularly valuable when a Case contains several visually similar ECGs/X-rays in one or more Alternative Sets.
-
-## 10. Editing behavior
-
-The review surface may remain directly editable. Prompt and Answer fields should not require entering a separate edit mode merely to make a small correction.
-
-Low-frequency destructive/structural actions can remain secondary.
-
-Where practical, save feedback should be compact and contextual. A future implementation may explore dirty/saved state, but this design does not require changing the server mutation model in the first pass.
-
-## 11. Optional later Review Focus
-
-A later enhancement may add a `Review focus` toggle within Compact mode.
-
-Its purpose would be to hide most manipulation controls temporarily while preserving:
-
-```text
-Case stem
-images/stimuli
-all visible Prompt | Answer content
-scope/source identity
-final all-questions audit
-```
-
-This is optional follow-on work and should not block the main Compact-mode redesign.
-
-## 12. Responsive behavior
-
-The design must work for:
-
-- a simple Case with no image;
+- no-image Cases;
 - one fixed image;
-- several fixed images presented together;
+- several fixed images;
 - one Alternative Set with many options;
-- multiple independent Alternative Sets, for example ECG + CXR;
-- mixtures of Case-wide, Case-specific, Reusable Image and set-wide questions;
+- multiple independent Alternative Sets;
+- mixed fixed + alternative stimuli;
 - long Prompt/Answer content;
-- desktop, tablet and narrow mobile widths.
+- many exact-image questions;
+- used Reusable Image Questions;
+- set-wide questions.
 
-Do not make the fast-review surface depend on hover alone. Hover may enrich desktop interaction, but focus/tap equivalents are required.
+Wide layouts keep image reference, Prompt and Answer aligned. Tablet layouts reduce the row to two columns. Narrow mobile layouts stack the fields while retaining the exact image/source label.
 
-## 13. Non-goals for the first implementation
+The final audit converts from a table to labeled stacked rows at narrow widths.
 
-Do not use this redesign as justification to:
+## 12. Performance/read-model boundary
+
+The final audit and summary are built by `src/lib/admin-case-question-audit.js` from the current Case editor `selectedCase` payload.
+
+No broad Case, Asset, or Question library read was added. The existing reusable-image join already selects the current Case's reusable questions; the implementation exposes `questionPromptId` from that same joined row so the audit can retain stable Prompt/source identity without another query.
+
+The Case editor's recent exact-ID/bounded read-model work remains intact.
+
+## 13. Tests
+
+Focused pure-helper tests cover:
+
+- Case-wide source mapping;
+- exact-image source mapping;
+- reusable exact-image source mapping;
+- set-wide source mapping;
+- exclusion of available-but-unused reusable questions;
+- exclusion of inactive/non-participating relationships;
+- deterministic structural ordering;
+- duplicate suppression for repeated copies of one valid relationship;
+- fast completeness counts.
+
+Existing Case-editor and image-workflow tests continue to guard the underlying authoring semantics.
+
+## 14. Non-goals retained
+
+This first pass does not:
 
 - change learner selection/resolver semantics;
 - change question ownership semantics;
-- redesign the reusable Asset Question model;
-- change Review snapshot/provenance behavior;
-- remove existing safe image movement/removal actions;
-- add a new schema solely for layout state;
-- merge or deduplicate Questions/Assets;
-- redesign the Image Library itself;
-- retire Classic mode without a separate decision.
+- change Review snapshots/provenance;
+- add schema or migrations;
+- introduce a global persisted question order;
+- add autosave;
+- replace the Reusable Image Question model;
+- redesign the Image Library;
+- retire or deliberately redesign Classic mode;
+- implement the optional Review Focus toggle.
 
-## 14. Acceptance direction for a later implementation PR
+## 15. Deployment/status boundary
 
-A later implementation should be considered successful when:
+This document describes the implementation present on the feature branch / implementation PR once those commits exist. It must not be used as evidence that the behavior is deployed to production.
 
-1. Compact mode is clearly optimized for rapid Case review.
-2. Prompt and Answer remain visible together for every current Case question category.
-3. Case-specific and currently used Reusable Image Question content is visible with the relevant image without opening `Manage questions` just to read it.
-4. Several images and several Alternative Sets remain easy to understand through a compact image carousel/strip and clear set membership.
-5. The relevant stimulus remains visually identifiable while the author scrolls through its Q&A.
-6. Existing image management semantics, including same-Case option Move and Remove from Case, remain available and distinct.
-7. Scope explanations move behind accessible `ⓘ` help rather than consuming permanent page space.
-8. A final **All questions in this Case** audit shows all current Case-participating question sources with Prompt and Answer visible.
-9. Image-specific/reusable rows identify their exact image/set source.
-10. Hover/focus/tap source previews let the author verify the exact image from the final audit without making the table permanently image-heavy.
-11. No schema or learner-behavior change is introduced merely for this visual redesign.
-
-## 15. Relationship to current documentation
-
-Until this design is implemented, `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` remains authoritative for current Case/Image authoring behavior, including its current compact-card counts and `Manage questions` interaction.
-
-This document intentionally records a future Compact-mode presentation change that would make more Q&A content visible by default while preserving the underlying relationships and mutation safety described by the current workflow document.
+After merge, repository status documents may describe the feature as implemented on current `main`. Production deployment remains a separately verified operational fact.
