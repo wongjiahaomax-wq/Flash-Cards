@@ -1,6 +1,6 @@
 <script>
   import { onMount, tick } from 'svelte';
-  import { readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
+  import { getCaseEditorStorage, readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
   import { reconcileCasePickerSelection } from '$lib/admin-image-selection.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
   import ImageQuestionCounts from '$lib/components/ImageQuestionCounts.svelte';
@@ -29,12 +29,12 @@
   let pickerContextKey = $state(null);
 
   onMount(() => {
-    editorLayout = readCaseEditorLayout(window.localStorage);
+    editorLayout = readCaseEditorLayout(getCaseEditorStorage(window));
   });
 
   /** @param {CaseEditorLayout} layout */
   function setEditorLayout(layout) {
-    editorLayout = writeCaseEditorLayout(window.localStorage, layout);
+    editorLayout = writeCaseEditorLayout(getCaseEditorStorage(window), layout);
   }
 
   $effect(() => {
