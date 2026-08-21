@@ -2,7 +2,7 @@
 
 _Status: current permanent Preview deployment workflow._
 
-_Last updated: 20 August 2026._
+_Last updated: 22 August 2026._
 
 This repository has a permanent GitHub Actions workflow for deploying an open same-repository pull request to the production-backed Preview Worker:
 
@@ -11,6 +11,36 @@ This repository has a permanent GitHub Actions workflow for deploying an open sa
 ```
 
 Use that workflow instead of creating temporary deployment workflows, CI jobs, deployment-only source commits, or ad-hoc Wrangler commands.
+
+For the broader laptop-versus-mobile execution policy, including GitHub Actions minute conservation, see:
+
+```text
+docs/DEVELOPMENT_EXECUTION_WORKFLOW.md
+```
+
+## Execution environment policy
+
+The permanent Preview workflow is a **remote integration/deployment gate**, not the normal inner development loop.
+
+When a laptop/terminal is available:
+
+```text
+local Vite iteration
+→ local production-style `npm run preview`
+→ local validation
+→ PR / normal CI
+→ Deploy PR to Preview only at a meaningful checkpoint
+```
+
+`npm run preview` is local and does not consume GitHub Actions minutes. `Deploy PR to Preview` runs on GitHub Actions and does consume remote workflow runtime.
+
+When working from mobile/no terminal:
+
+- use ChatGPT's connected GitHub tooling for supported repository/PR/CI inspection and mutations;
+- rely on configured GitHub CI for executable validation that cannot run locally;
+- if the active GitHub integration exposes authorized workflow dispatch, it may invoke the existing permanent Preview workflow;
+- if workflow dispatch is not exposed, use the GitHub Actions mobile/web UI or another authorized terminal environment;
+- never add a temporary workflow, empty deployment commit, source-code trigger, or guard bypass solely because the current connector cannot dispatch the workflow.
 
 ## 1. What Preview deployment means
 
@@ -107,7 +137,13 @@ Do not proceed to a behavior Preview that requires new schema until the shared p
 
 Do not modify CI or add temporary workflow files merely to manufacture a deployment trigger.
 
-Use the permanent workflow manually from GitHub Actions, or use a terminal-enabled environment with authenticated `gh` access.
+Use one of these supported paths:
+
+1. if the active ChatGPT/GitHub integration exposes workflow dispatch, invoke the existing permanent workflow there;
+2. otherwise use the permanent workflow manually from the GitHub Actions mobile/web UI;
+3. or use another terminal-enabled environment with authenticated `gh` access.
+
+Missing workflow-dispatch capability is not a reason to create a new trigger or deployment-only commit.
 
 ## 6. Normal Preview lifecycle
 
@@ -171,9 +207,10 @@ Do not summarize this as simply `deployed` without naming the environment.
 When the user says **deploy Preview**, **update Preview**, **refresh Preview**, or equivalent for an open PR:
 
 1. resolve the target PR number;
-2. dispatch `.github/workflows/deploy-pr-to-preview.yml` from `main` when the available environment supports it;
-3. watch/inspect the run to completion;
+2. use `.github/workflows/deploy-pr-to-preview.yml` from `main` when the available environment exposes an authorized dispatch path;
+3. watch/inspect the run to completion when the available tooling supports it;
 4. report the exact Preview-deployed PR head SHA and success/failure;
 5. never run D1 migrations during Preview deployment;
 6. never create temporary deployment workflows or deployment-only commits when the permanent workflow can be used;
-7. keep Preview deployment status separate from merge and production deployment status.
+7. keep Preview deployment status separate from merge and production deployment status;
+8. if the current ChatGPT/GitHub connector cannot dispatch `workflow_dispatch`, say so explicitly and use the GitHub Actions UI/another authorized environment rather than inventing a workaround.
