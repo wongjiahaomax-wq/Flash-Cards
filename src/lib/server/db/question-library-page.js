@@ -16,8 +16,10 @@ import {
 import { caseQuestionTags, sharedQuestions, tags } from './tag-schema.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
+/** @typedef {{ id: string, promptMd: string, isActive: boolean, updatedAt: Date }} QuestionLibraryPromptRow */
 
 export const QUESTION_LIBRARY_PAGE_SIZE = 60;
+const UNICODE_SEARCH_BATCH_SIZE = QUESTION_LIBRARY_PAGE_SIZE;
 
 /**
  * @param {URLSearchParams | { get(name: string): string | null }} params
@@ -153,6 +155,59 @@ function questionSearchCondition(search) {
   )`;
 }
 
+function questionHasNonAsciiSearchableTextCondition() {
+  return sql`(
+    length(${questionPrompts.promptMd}) != length(cast(${questionPrompts.promptMd} as blob))
+    or exists (
+      select 1 from concept_questions unicode_cq
+      join concepts unicode_concept on unicode_concept.id = unicode_cq.concept_id
+      where unicode_cq.question_prompt_id = ${questionPrompts.id}
+        and unicode_cq.is_active = true and unicode_concept.is_active = true
+        and length(unicode_cq.answer_md) != length(cast(unicode_cq.answer_md as blob))
+    )
+    or exists (
+      select 1 from case_questions unicode_caseq
+      join cases unicode_case on unicode_case.id = unicode_caseq.case_id
+      where unicode_caseq.question_prompt_id = ${questionPrompts.id}
+        and unicode_caseq.is_active = true and unicode_case.is_active = true
+        and unicode_case.preview_session_id is null
+        and length(unicode_caseq.answer_md) != length(cast(unicode_caseq.answer_md as blob))
+    )
+    or exists (
+      select 1 from stimulus_group_questions unicode_groupq
+      join stimulus_groups unicode_group on unicode_group.id = unicode_groupq.stimulus_group_id
+      join cases unicode_group_case on unicode_group_case.id = unicode_group.case_id
+      where unicode_groupq.question_prompt_id = ${questionPrompts.id}
+        and unicode_groupq.is_active = true and unicode_group.is_active = true
+        and unicode_group_case.is_active = true and unicode_group_case.preview_session_id is null
+        and length(unicode_groupq.answer_md) != length(cast(unicode_groupq.answer_md as blob))
+    )
+    or exists (
+      select 1 from stimulus_option_questions unicode_optionq
+      join stimulus_group_options unicode_option on unicode_option.id = unicode_optionq.stimulus_group_option_id
+      join stimulus_groups unicode_option_group on unicode_option_group.id = unicode_option.stimulus_group_id
+      join cases unicode_option_case on unicode_option_case.id = unicode_option_group.case_id
+      where unicode_optionq.question_prompt_id = ${questionPrompts.id}
+        and unicode_optionq.is_active = true and unicode_option.is_active = true
+        and unicode_option.removed_from_case = false and unicode_option_group.is_active = true
+        and unicode_option_case.is_active = true and unicode_option_case.preview_session_id is null
+        and length(unicode_optionq.answer_md) != length(cast(unicode_optionq.answer_md as blob))
+    )
+    or exists (
+      select 1 from shared_questions unicode_sharedq
+      where unicode_sharedq.question_prompt_id = ${questionPrompts.id}
+        and unicode_sharedq.is_active = true
+        and length(unicode_sharedq.answer_md) != length(cast(unicode_sharedq.answer_md as blob))
+    )
+    or exists (
+      select 1 from asset_questions unicode_assetq
+      where unicode_assetq.question_prompt_id = ${questionPrompts.id}
+        and unicode_assetq.is_active = true
+        and length(unicode_assetq.answer_md) != length(cast(unicode_assetq.answer_md as blob))
+    )
+  )`;
+}
+
 /** @param {string} topicId */
 function questionTopicCondition(topicId) {
   return sql`(
@@ -214,15 +269,128 @@ function questionTagCondition(tagId) {
   )`;
 }
 
-/** @param {{ search: string, topicId: string, scope: 'all' | 'shared' | 'case', tagId: string }} filters */
-function questionLibraryConditions(filters) {
+/**
+ * @param {{ search: string, topicId: string, scope: 'all' | 'shared' | 'case', tagId: string }} filters
+ * @param {{ includeSearch?: boolean }} [options]
+ */
+function questionLibraryConditions(filters, options = {}) {
   const conditions = [eq(questionPrompts.isActive, true), isNull(questionPrompts.previewSessionId)];
-  if (filters.search) conditions.push(questionSearchCondition(filters.search));
+  if (filters.search && options.includeSearch !== false) conditions.push(questionSearchCondition(filters.search));
   if (filters.topicId) conditions.push(questionTopicCondition(filters.topicId));
   if (filters.scope === 'shared') conditions.push(sql`(${conceptUsageExists} or ${reusableSharedUsageExists} or ${reusableAssetUsageExists})`);
   if (filters.scope === 'case') conditions.push(sql`(${caseUsageExists} or ${groupUsageExists} or ${optionUsageExists})`);
   if (filters.tagId) conditions.push(questionTagCondition(filters.tagId));
   return conditions;
+}
+
+/** @param {LearningDb} db @param {string[]} promptIds */
+async function loadCurrentSearchAnswerRows(db, promptIds) {
+  /** @type {Map<string, string[]>} */
+  const answersByPrompt = new Map();
+  if (!promptIds.length) return answersByPrompt;
+
+  const [conceptRows, caseRows, groupRows, optionRows, sharedRows, assetRows] = await Promise.all([
+    db.select({ promptId: conceptQuestions.questionPromptId, answerMd: conceptQuestions.answerMd })
+      .from(conceptQuestions)
+      .innerJoin(concepts, eq(concepts.id, conceptQuestions.conceptId))
+      .where(and(inArray(conceptQuestions.questionPromptId, promptIds), eq(conceptQuestions.isActive, true), eq(concepts.isActive, true))),
+    db.select({ promptId: caseQuestions.questionPromptId, answerMd: caseQuestions.answerMd })
+      .from(caseQuestions)
+      .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
+      .where(and(inArray(caseQuestions.questionPromptId, promptIds), eq(caseQuestions.isActive, true), eq(cases.isActive, true), isNull(cases.previewSessionId))),
+    db.select({ promptId: stimulusGroupQuestions.questionPromptId, answerMd: stimulusGroupQuestions.answerMd })
+      .from(stimulusGroupQuestions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupQuestions.stimulusGroupId))
+      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+      .where(and(inArray(stimulusGroupQuestions.questionPromptId, promptIds), eq(stimulusGroupQuestions.isActive, true), eq(stimulusGroups.isActive, true), eq(cases.isActive, true), isNull(cases.previewSessionId))),
+    db.select({ promptId: stimulusOptionQuestions.questionPromptId, answerMd: stimulusOptionQuestions.answerMd })
+      .from(stimulusOptionQuestions)
+      .innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionQuestions.stimulusGroupOptionId))
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+      .where(and(inArray(stimulusOptionQuestions.questionPromptId, promptIds), eq(stimulusOptionQuestions.isActive, true), eq(stimulusGroupOptions.isActive, true), eq(stimulusGroupOptions.removedFromCase, false), eq(stimulusGroups.isActive, true), eq(cases.isActive, true), isNull(cases.previewSessionId))),
+    db.select({ promptId: sharedQuestions.questionPromptId, answerMd: sharedQuestions.answerMd })
+      .from(sharedQuestions)
+      .where(and(inArray(sharedQuestions.questionPromptId, promptIds), eq(sharedQuestions.isActive, true))),
+    db.select({ promptId: assetQuestions.questionPromptId, answerMd: assetQuestions.answerMd })
+      .from(assetQuestions)
+      .where(and(inArray(assetQuestions.questionPromptId, promptIds), eq(assetQuestions.isActive, true)))
+  ]);
+
+  for (const row of [...conceptRows, ...caseRows, ...groupRows, ...optionRows, ...sharedRows, ...assetRows]) {
+    const current = answersByPrompt.get(row.promptId) ?? [];
+    current.push(row.answerMd);
+    answersByPrompt.set(row.promptId, current);
+  }
+  return answersByPrompt;
+}
+
+/**
+ * SQLite/D1 lower() only guarantees ASCII case folding. For a query that
+ * contains non-ASCII text, scan only Prompts with a direct normalized match or
+ * non-ASCII searchable content in fixed-size SQL batches, then verify the old
+ * Unicode-aware substring rule with JavaScript toLocaleLowerCase(). This
+ * preserves exact search semantics without reintroducing one unbounded
+ * Prompt/relationship materialisation.
+ *
+ * @param {LearningDb} db
+ * @param {{ search: string, topicId: string, scope: 'all' | 'shared' | 'case', tagId: string }} filters
+ * @param {number} requestedPage
+ * @param {number} pageSize
+ */
+async function getUnicodeSearchPromptPage(db, filters, requestedPage, pageSize) {
+  const normalizedSearch = filters.search.toLocaleLowerCase();
+  const candidateWhere = and(
+    ...questionLibraryConditions(filters, { includeSearch: false }),
+    sql`(${questionSearchCondition(normalizedSearch)} or ${questionHasNonAsciiSearchableTextCondition()})`
+  );
+  const requestedStart = (requestedPage - 1) * pageSize;
+  const requestedEnd = requestedStart + pageSize;
+  /** @type {QuestionLibraryPromptRow[]} */
+  const requestedRows = [];
+  /** @type {QuestionLibraryPromptRow[]} */
+  const tailRows = [];
+  let totalCount = 0;
+  let candidateOffset = 0;
+
+  while (true) {
+    const candidateRows = await db.select({
+      id: questionPrompts.id,
+      promptMd: questionPrompts.promptMd,
+      isActive: questionPrompts.isActive,
+      updatedAt: questionPrompts.updatedAt
+    })
+      .from(questionPrompts)
+      .where(candidateWhere)
+      .orderBy(asc(questionPrompts.promptMd), asc(questionPrompts.id))
+      .limit(UNICODE_SEARCH_BATCH_SIZE)
+      .offset(candidateOffset);
+
+    if (!candidateRows.length) break;
+    const answersByPrompt = await loadCurrentSearchAnswerRows(db, candidateRows.map((row) => row.id));
+    for (const prompt of candidateRows) {
+      const searchableText = [prompt.promptMd, ...(answersByPrompt.get(prompt.id) ?? [])].join('\n').toLocaleLowerCase();
+      if (!searchableText.includes(normalizedSearch)) continue;
+
+      if (totalCount >= requestedStart && totalCount < requestedEnd) requestedRows.push(prompt);
+      totalCount += 1;
+      tailRows.push(prompt);
+      if (tailRows.length > pageSize) tailRows.shift();
+    }
+
+    candidateOffset += candidateRows.length;
+    if (candidateRows.length < UNICODE_SEARCH_BATCH_SIZE) break;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const page = Math.min(requestedPage, totalPages);
+  let promptRows = requestedRows;
+  if (page !== requestedPage && totalCount > 0) {
+    const lastPageLength = totalCount % pageSize || pageSize;
+    promptRows = tailRows.slice(-lastPageLength);
+  }
+
+  return { promptRows, totalCount, totalPages, page };
 }
 
 /** @param {LearningDb} db @param {string[]} promptIds */
@@ -293,9 +461,11 @@ function addCounts(counts, rows) {
 /**
  * Purpose-built bounded read model for /admin/questions.
  *
- * SQL identifies/counts matching production Prompt IDs first. Relationship
- * materialisation is then restricted to the visible Prompt IDs, avoiding the
- * previous global Prompt/usage/tag collections.
+ * SQL identifies/counts matching production Prompt IDs first for normal ASCII
+ * search/filter requests. Non-ASCII search keeps the old Unicode-aware
+ * toLocaleLowerCase() semantics by scanning only direct/non-ASCII candidates
+ * in fixed-size SQL batches. Final usage/topic/Tag materialisation remains
+ * restricted to the visible Prompt IDs.
  *
  * @param {LearningDb} db
  * @param {{ search: string, topicId: string, scope: 'all' | 'shared' | 'case', tagId: string }} filters
@@ -304,23 +474,34 @@ function addCounts(counts, rows) {
 export async function getQuestionLibraryPage(db, filters, options = {}) {
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? QUESTION_LIBRARY_PAGE_SIZE) || QUESTION_LIBRARY_PAGE_SIZE, QUESTION_LIBRARY_PAGE_SIZE));
   const requestedPage = Math.max(1, Number(options.page ?? 1) || 1);
-  const where = and(...questionLibraryConditions(filters));
-  const countRows = await db.select({ count: sql`count(*)`.mapWith(Number) }).from(questionPrompts).where(where);
-  const totalCount = Number(countRows[0]?.count ?? 0);
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-  const page = Math.min(requestedPage, totalPages);
 
-  const promptRows = await db.select({
-    id: questionPrompts.id,
-    promptMd: questionPrompts.promptMd,
-    isActive: questionPrompts.isActive,
-    updatedAt: questionPrompts.updatedAt
-  })
-    .from(questionPrompts)
-    .where(where)
-    .orderBy(asc(questionPrompts.promptMd), asc(questionPrompts.id))
-    .limit(pageSize)
-    .offset((page - 1) * pageSize);
+  /** @type {QuestionLibraryPromptRow[]} */
+  let promptRows;
+  let totalCount;
+  let totalPages;
+  let page;
+
+  if (filters.search && /[^\x00-\x7f]/u.test(filters.search)) {
+    ({ promptRows, totalCount, totalPages, page } = await getUnicodeSearchPromptPage(db, filters, requestedPage, pageSize));
+  } else {
+    const where = and(...questionLibraryConditions(filters));
+    const countRows = await db.select({ count: sql`count(*)`.mapWith(Number) }).from(questionPrompts).where(where);
+    totalCount = Number(countRows[0]?.count ?? 0);
+    totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    page = Math.min(requestedPage, totalPages);
+
+    promptRows = await db.select({
+      id: questionPrompts.id,
+      promptMd: questionPrompts.promptMd,
+      isActive: questionPrompts.isActive,
+      updatedAt: questionPrompts.updatedAt
+    })
+      .from(questionPrompts)
+      .where(where)
+      .orderBy(asc(questionPrompts.promptMd), asc(questionPrompts.id))
+      .limit(pageSize)
+      .offset((page - 1) * pageSize);
+  }
 
   const promptIds = promptRows.map((row) => row.id);
   const usage = await loadPageUsageRows(db, promptIds);
