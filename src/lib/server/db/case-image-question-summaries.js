@@ -11,7 +11,7 @@ import {
 
 /**
  * @typedef {{ assetId: string, stimulusOptionId: string | null }} ImageQuestionContext
- * @typedef {{ id: string, assetId: string, questionPromptId: string, promptMd: string, answerMd: string }} ActiveReusableQuestion
+ * @typedef {{ id: string, assetId: string, questionPromptId?: string, promptMd: string, answerMd: string }} ActiveReusableQuestion
  * @typedef {{ stimulusOptionId: string, assetQuestionId: string }} ActiveReusableOptIn
  */
 
