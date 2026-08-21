@@ -16,6 +16,11 @@ export function isPreviewAdmin(user) {
   return parseRoles(user?.role).includes('preview_admin');
 }
 
+/** @param {{ role?: unknown } | null | undefined} user */
+export function isPreviewOnlyAdmin(user) {
+  return isPreviewAdmin(user) && !isProductionAdmin(user);
+}
+
 /** @param {{ PREVIEW_MODE?: unknown } | null | undefined} env */
 export function isPreviewWorker(env) {
   return String(env?.PREVIEW_MODE ?? '').toLowerCase() === 'true';

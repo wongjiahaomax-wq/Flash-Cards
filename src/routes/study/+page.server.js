@@ -2,12 +2,12 @@ import { error, redirect } from '@sveltejs/kit';
 
 import { createDb } from '$lib/server/db/index.js';
 import { listStudyConcepts, startReview } from '$lib/server/db/learning.js';
-import { isPreviewAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
+import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 
 /** @param {App.Locals['user']} user @param {App.Platform | undefined} platform */
 function assertLearnerStudyAccess(user, platform) {
-  if (isPreviewWorker(platform?.env) || isPreviewAdmin(user)) {
-    throw error(403, 'Learner Study is unavailable for Preview Admin.');
+  if (isPreviewWorker(platform?.env) || isPreviewOnlyAdmin(user)) {
+    throw error(403, 'Learner Study is unavailable for Preview-only Admin.');
   }
 }
 

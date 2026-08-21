@@ -3,13 +3,13 @@ import { error, redirect } from '@sveltejs/kit';
 import { createDb } from '$lib/server/db/index.js';
 import { completeReview, getReview, revealReview, startReview } from '$lib/server/db/learning.js';
 import { listOwnedReviewMedia } from '$lib/server/db/review-media.js';
-import { isPreviewAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
+import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 import { getReviewImageUrl } from '$lib/server/storage/media.js';
 
 /** @param {App.Locals['user']} user @param {App.Platform | undefined} platform */
 function assertLearnerStudyAccess(user, platform) {
-  if (isPreviewWorker(platform?.env) || isPreviewAdmin(user)) {
-    throw error(403, 'Learner Study is unavailable for Preview Admin.');
+  if (isPreviewWorker(platform?.env) || isPreviewOnlyAdmin(user)) {
+    throw error(403, 'Learner Study is unavailable for Preview-only Admin.');
   }
   const database = platform?.env?.DB;
   if (!database || !user) throw error(503, 'Study database is not configured.');

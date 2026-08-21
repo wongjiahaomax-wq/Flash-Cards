@@ -55,7 +55,8 @@ Current hard boundaries include:
 Preview Worker /admin/**              -> forbidden
 Preview Worker /study/**              -> forbidden
 Preview Worker /api/auth/admin/**     -> forbidden
-preview_admin on production /study/** -> forbidden by current policy
+preview-only Admin on production /study/** -> forbidden
+admin,preview_admin on production /study/** -> allowed
 ```
 
 The Preview Worker is not a general production Admin endpoint and is not a learner Study endpoint.
