@@ -1,44 +1,44 @@
-import { canManageCaseAssets, listAdminCases } from '$lib/server/db/case-assets.js';
+import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
+import { getCaseLibraryPage, parseCaseLibraryFilters, parseCaseLibraryPage } from '$lib/server/db/case-library.js';
 import { createDb } from '$lib/server/db/index.js';
-import { listActiveTags, listCurrentCaseTagAssignments } from '$lib/server/db/tag-library.js';
+import { listActiveTagOptions } from '$lib/server/db/library-options.js';
+import { serverTimingValue, withServerReadTiming } from '$lib/server/performance-timing.js';
 
 export { actions } from '../+page.server.js';
 
-export async function load({ locals, platform, url }) {
-  const filters = {
-    search: url.searchParams.get('q')?.trim() ?? '',
-    tagId: url.searchParams.get('tag')?.trim() ?? ''
-  };
+export async function load({ locals, platform, url, setHeaders }) {
+  const filters = parseCaseLibraryFilters(url.searchParams);
+  const requestedPage = parseCaseLibraryPage(url.searchParams);
+  const emptyPagination = { totalCount: 0, totalPages: 1, page: 1, pageSize: 60 };
 
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) {
-    return { tags: [], caseFilters: filters, cases: [] };
+    return { tags: [], caseFilters: filters, cases: [], pagination: emptyPagination };
   }
 
   const db = createDb(platform.env.DB);
-  const [caseRows, tagRows, assignments] = await Promise.all([
-    listAdminCases(db, filters.search.toLowerCase()),
-    listActiveTags(db),
-    listCurrentCaseTagAssignments(db)
-  ]);
-
-  /** @type {Map<string, Array<{ id: string, name: string }>>} */
-  const tagsByCase = new Map();
-  for (const assignment of assignments) {
-    const current = tagsByCase.get(assignment.caseId) ?? [];
-    current.push({ id: assignment.tagId, name: assignment.tagName });
-    tagsByCase.set(assignment.caseId, current);
-  }
-
-  const decoratedCases = caseRows.map((item) => ({
-    ...item,
-    tags: tagsByCase.get(item.id) ?? []
-  }));
+  const { pageData, tagRows } = await withServerReadTiming(
+    'admin-case-library-read',
+    async () => {
+      const [pageData, tagRows] = await Promise.all([
+        getCaseLibraryPage(db, filters, { page: requestedPage }),
+        listActiveTagOptions(db)
+      ]);
+      return { pageData, tagRows };
+    },
+    ({ operation, durationMs }) => {
+      setHeaders({ 'server-timing': serverTimingValue(operation, durationMs) });
+    }
+  );
 
   return {
     tags: tagRows,
     caseFilters: filters,
-    cases: filters.tagId
-      ? decoratedCases.filter((item) => item.tags.some((tag) => tag.id === filters.tagId))
-      : decoratedCases
+    cases: pageData.rows,
+    pagination: {
+      totalCount: pageData.totalCount,
+      totalPages: pageData.totalPages,
+      page: pageData.page,
+      pageSize: pageData.pageSize
+    }
   };
 }

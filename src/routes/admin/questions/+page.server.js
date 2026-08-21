@@ -1,56 +1,46 @@
-import { isNull } from 'drizzle-orm';
-
-import { createDb } from '$lib/server/db/index.js';
 import { listAdminConcepts } from '$lib/server/db/admin-content.js';
-import { questionPrompts } from '$lib/server/db/schema.js';
-import { listQuestionLibraryWithShared } from '$lib/server/db/shared-question-prompt-usage.js';
-import { listActiveTags, listCurrentPromptTagAssignments } from '$lib/server/db/tag-library.js';
+import { createDb } from '$lib/server/db/index.js';
+import { listActiveTagOptions } from '$lib/server/db/library-options.js';
+import { getQuestionLibraryPage, parseQuestionLibraryFilters, parseQuestionLibraryPage } from '$lib/server/db/question-library-page.js';
+import { serverTimingValue, withServerReadTiming } from '$lib/server/performance-timing.js';
 
-export async function load({ platform, url }) {
-  const filters = {
-    search: url.searchParams.get('q')?.trim() ?? '',
-    topicId: url.searchParams.get('topic')?.trim() ?? '',
-    scope: /** @type {'all' | 'shared' | 'case'} */ (url.searchParams.get('scope') ?? 'all'),
-    tagId: url.searchParams.get('tag')?.trim() ?? ''
-  };
+// Production Prompt ownership is centralized in getQuestionLibraryPage via
+// isNull(questionPrompts.previewSessionId); the route intentionally stays a thin read-model adapter.
+export async function load({ platform, url, setHeaders }) {
+  const filters = parseQuestionLibraryFilters(url.searchParams);
+  const requestedPage = parseQuestionLibraryPage(url.searchParams);
+  const emptyPagination = { totalCount: 0, totalPages: 1, page: 1, pageSize: 60 };
 
   if (!platform?.env?.DB) {
-    return { questions: [], topics: [], tags: [], filters };
+    return { questions: [], topics: [], tags: [], filters, pagination: emptyPagination };
   }
 
   const db = createDb(platform.env.DB);
-  const [questionRows, topics, tags, assignments, productionPromptRows] = await Promise.all([
-    listQuestionLibraryWithShared(db, filters),
-    listAdminConcepts(db),
-    listActiveTags(db),
-    listCurrentPromptTagAssignments(db),
-    db.select({ id: questionPrompts.id }).from(questionPrompts).where(isNull(questionPrompts.previewSessionId))
-  ]);
-  const productionPromptIds = new Set(productionPromptRows.map((row) => row.id));
-
-  const tagsByPrompt = new Map();
-  for (const assignment of assignments) {
-    if (!productionPromptIds.has(assignment.promptId)) continue;
-    const current = tagsByPrompt.get(assignment.promptId) ?? new Map();
-    current.set(assignment.tagId, assignment.tagName);
-    tagsByPrompt.set(assignment.promptId, current);
-  }
-
-  const questions = questionRows
-    .filter((question) => productionPromptIds.has(question.id))
-    .map((question) => ({
-      ...question,
-      tags: [...(tagsByPrompt.get(question.id) ?? new Map()).entries()]
-        .map(([id, name]) => ({ id, name }))
-        .sort((left, right) => left.name.localeCompare(right.name))
-    }));
+  const { pageData, topics, tags } = await withServerReadTiming(
+    'admin-question-library-read',
+    async () => {
+      const [pageData, topics, tags] = await Promise.all([
+        getQuestionLibraryPage(db, filters, { page: requestedPage }),
+        listAdminConcepts(db),
+        listActiveTagOptions(db)
+      ]);
+      return { pageData, topics, tags };
+    },
+    ({ operation, durationMs }) => {
+      setHeaders({ 'server-timing': serverTimingValue(operation, durationMs) });
+    }
+  );
 
   return {
-    questions: filters.tagId
-      ? questions.filter((question) => question.tags.some((tag) => tag.id === filters.tagId))
-      : questions,
+    questions: pageData.rows,
     topics,
     tags,
-    filters
+    filters,
+    pagination: {
+      totalCount: pageData.totalCount,
+      totalPages: pageData.totalPages,
+      page: pageData.page,
+      pageSize: pageData.pageSize
+    }
   };
 }
