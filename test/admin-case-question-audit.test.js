@@ -7,6 +7,7 @@ import {
   usedReusableQuestions
 } from '../src/lib/admin-case-question-audit.js';
 
+/** @returns {any} */
 function fixture() {
   return {
     questions: [
@@ -81,7 +82,9 @@ test('Case audit maps whole-Case, exact-image, reusable, and set-wide sources', 
   assert.equal(rows[2].preview.image.assetId, 'asset-a');
   assert.equal(rows[3].preview.image.assetId, 'asset-a');
   assert.equal(rows[1].preview.type, 'set');
-  assert.deepEqual(rows[1].preview.images.map((image) => image.assetId), ['asset-a', 'asset-b']);
+  /** @type {any[]} */
+  const previewImages = rows[1].preview.images;
+  assert.deepEqual(previewImages.map((image) => image.assetId), ['asset-a', 'asset-b']);
 });
 
 test('available-but-unused reusable questions are excluded from the Case audit', () => {
