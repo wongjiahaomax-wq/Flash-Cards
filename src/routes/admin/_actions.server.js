@@ -226,8 +226,9 @@ export const actions = {
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData();
     const caseId = formText(formData, 'case_id');
+    let savedPromptId = null;
     try {
-      await saveCaseQuestion(createDb(platform.env.DB), {
+      savedPromptId = await saveCaseQuestion(createDb(platform.env.DB), {
         caseId,
         originalPromptId: formText(formData, 'original_prompt_id') || null,
         promptMd: formText(formData, 'prompt_md'),
@@ -237,7 +238,8 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'question-saved', '#questions'));
+    const hash = savedPromptId ? `#question-${encodeURIComponent(savedPromptId)}` : '#questions';
+    redirect(303, selectedCaseRedirect(caseId, 'question-saved', hash));
   },
 
   removeQuestion: async ({ request, locals, platform }) => {

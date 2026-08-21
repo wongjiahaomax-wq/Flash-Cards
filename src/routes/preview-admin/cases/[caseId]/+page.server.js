@@ -273,8 +273,9 @@ export const actions = {
     if (!result.context) return result.failure;
     const formData = await event.request.formData();
     const caseId = formText(formData, 'case_id') || event.params.caseId;
+    let savedPromptId = null;
     try {
-      await savePreviewCaseQuestion(result.context.db, result.context.session.id, caseId, {
+      savedPromptId = await savePreviewCaseQuestion(result.context.db, result.context.session.id, caseId, {
         originalPromptId: formText(formData, 'original_prompt_id') || null,
         promptMd: formText(formData, 'prompt_md'),
         answerMd: formText(formData, 'answer_md'),
@@ -283,7 +284,8 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'question-saved', '#questions'));
+    const hash = savedPromptId ? `#question-${encodeURIComponent(savedPromptId)}` : '#questions';
+    redirect(303, caseRedirect(caseId, 'question-saved', hash));
   },
 
   removeQuestion: async (event) => {
