@@ -143,6 +143,9 @@ test('Case Library is bounded, counted, SQL-filtered, deterministic, and page-en
   const fixture = createLearningDb();
   try {
     seedCases(fixture);
+    fixture.sqlite.exec("INSERT INTO concepts (id, name, slug, is_active) VALUES ('topic-b', 'Topic B', 'topic-b', 1)");
+    fixture.sqlite.exec("INSERT INTO case_concepts (case_id, concept_id, role) VALUES ('case-005', 'topic-b', 'primary')");
+
     fixture.statements.length = 0;
     const first = await getCaseLibraryPage(fixture.db, { search: '', tagId: '' }, { page: 1, pageSize: 10 });
     assert.equal(first.rows.length, 10);
@@ -150,6 +153,13 @@ test('Case Library is bounded, counted, SQL-filtered, deterministic, and page-en
     assert.equal(first.totalPages, 7);
     assert.deepEqual(first.rows[0].tags, [{ id: 'tag-a', name: 'Alpha' }, { id: 'tag-b', name: 'Beta' }]);
     assert.equal(first.rows[1].tags.length, 0, 'inactive Tags are not displayed');
+    assert.equal(first.rows.find((row) => row.id === 'case-005')?.conceptId, 'topic-a', 'malformed duplicate primaries are enriched deterministically without duplicating the Case');
+
+    const primaryQuery = fixture.statements.find((statement) => /from "case_concepts"/.test(statement.sql) && / in \(/.test(statement.sql));
+    assert.ok(primaryQuery, 'expected page-bounded primary Topic enrichment');
+    const primaryCaseIds = primaryQuery.params.filter((value) => typeof value === 'string' && value.startsWith('case-'));
+    assert.deepEqual(primaryCaseIds, first.rows.map((row) => row.id));
+    assert.ok(!primaryCaseIds.includes('case-065'));
 
     const tagQuery = fixture.statements.find((statement) => /from "case_tags"/.test(statement.sql) && / in \(/.test(statement.sql));
     assert.ok(tagQuery, 'expected page-bounded Case Tag enrichment');
@@ -243,6 +253,77 @@ test('Question Library preserves search, Topic, scopes, Tags, reusable usage, an
     assert.equal(byId.get('prompt-inactive-case')?.usageCount, 0);
     assert.equal(byId.get('prompt-inactive-topic')?.usageCount, 0);
     assert.ok(!page.rows.some((row) => row.id === 'prompt-preview'));
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('production Prompt usage on a Preview Case remains excluded even in a malformed legacy state', async () => {
+  const fixture = createLearningDb();
+  try {
+    seedQuestions(fixture);
+    fixture.sqlite.exec("INSERT INTO question_prompts (id, prompt_md, is_active) VALUES ('prompt-preview-leak', 'Preview leak production prompt', 1)");
+
+    assert.throws(() => {
+      fixture.sqlite.exec("INSERT INTO case_questions (id, case_id, question_prompt_id, answer_md, is_active) VALUES ('caseq-preview-leak', 'case-preview', 'prompt-preview-leak', 'preview-production-answer-token', 1)");
+    }, 'the normal database ownership trigger should reject production Prompt usage on a Preview Case');
+
+    fixture.sqlite.exec('DROP TRIGGER case_questions_preview_prompt_ownership_insert');
+    fixture.sqlite.exec("INSERT INTO case_questions (id, case_id, question_prompt_id, answer_md, is_active) VALUES ('caseq-preview-leak', 'case-preview', 'prompt-preview-leak', 'preview-production-answer-token', 1)");
+    fixture.sqlite.exec("INSERT INTO case_question_tags (case_question_id, tag_id) VALUES ('caseq-preview-leak', 'tag-a')");
+
+    const visiblePrompt = await getQuestionLibraryPage(fixture.db, { ...questionFilters(), search: 'Preview leak production prompt' }, { pageSize: 60 });
+    assert.equal(visiblePrompt.totalCount, 1, 'the production Prompt itself remains a valid library row');
+    assert.equal(visiblePrompt.rows[0]?.usageCount, 0);
+    assert.equal(visiblePrompt.rows[0]?.caseUsageCount, 0);
+    assert.deepEqual(visiblePrompt.rows[0]?.tags, []);
+
+    const caseScope = await getQuestionLibraryPage(fixture.db, { ...questionFilters(), search: 'Preview leak production prompt', scope: 'case' }, { pageSize: 60 });
+    assert.equal(caseScope.totalCount, 0, 'Preview Case usage must not satisfy scope=case');
+
+    const answerSearch = await getQuestionLibraryPage(fixture.db, { ...questionFilters(), search: 'preview-production-answer-token' }, { pageSize: 60 });
+    assert.equal(answerSearch.totalCount, 0, 'Preview Case answer content must not be searchable in production');
+
+    const topic = await getQuestionLibraryPage(fixture.db, { ...questionFilters(), search: 'Preview leak production prompt', topicId: 'topic-a' }, { pageSize: 60 });
+    assert.equal(topic.totalCount, 0, 'Preview Case usage must not create a production Topic association');
+
+    const tag = await getQuestionLibraryPage(fixture.db, { ...questionFilters(), search: 'Preview leak production prompt', tagId: 'tag-a' }, { pageSize: 60 });
+    assert.equal(tag.totalCount, 0, 'Preview Case usage must not satisfy production Question Tag filtering');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('inactive stimulus parents and question relationships do not count as current Question usage', async () => {
+  const fixture = createLearningDb();
+  try {
+    seedQuestions(fixture);
+
+    async function assertExcluded(promptId, promptSearch, answerSearch, usageField) {
+      const answerPage = await getQuestionLibraryPage(fixture.db, { ...questionFilters(), search: answerSearch }, { pageSize: 60 });
+      assert.equal(answerPage.totalCount, 0, `${answerSearch} must not be searchable while its relationship is inactive`);
+
+      const promptPage = await getQuestionLibraryPage(fixture.db, { ...questionFilters(), search: promptSearch }, { pageSize: 60 });
+      const row = promptPage.rows.find((item) => item.id === promptId);
+      assert.ok(row, `expected production Prompt ${promptId} to remain visible`);
+      assert.equal(row.usageCount, 0);
+      assert.equal(row[usageField], 0);
+
+      const caseScope = await getQuestionLibraryPage(fixture.db, { ...questionFilters(), search: promptSearch, scope: 'case' }, { pageSize: 60 });
+      assert.ok(!caseScope.rows.some((item) => item.id === promptId), `${promptId} must not satisfy scope=case`);
+    }
+
+    fixture.sqlite.exec("UPDATE stimulus_groups SET is_active = 0 WHERE id = 'group-a'");
+    await assertExcluded('prompt-group', 'Group prompt', 'group-answer-token', 'stimulusGroupUsageCount');
+    await assertExcluded('prompt-option', 'Option prompt', 'option-answer-token', 'stimulusOptionUsageCount');
+
+    fixture.sqlite.exec("UPDATE stimulus_groups SET is_active = 1 WHERE id = 'group-a'");
+    fixture.sqlite.exec("UPDATE stimulus_group_questions SET is_active = 0 WHERE id = 'groupq-a'");
+    await assertExcluded('prompt-group', 'Group prompt', 'group-answer-token', 'stimulusGroupUsageCount');
+
+    fixture.sqlite.exec("UPDATE stimulus_group_questions SET is_active = 1 WHERE id = 'groupq-a'");
+    fixture.sqlite.exec("UPDATE stimulus_option_questions SET is_active = 0 WHERE id = 'optionq-a'");
+    await assertExcluded('prompt-option', 'Option prompt', 'option-answer-token', 'stimulusOptionUsageCount');
   } finally {
     fixture.sqlite.close();
   }
