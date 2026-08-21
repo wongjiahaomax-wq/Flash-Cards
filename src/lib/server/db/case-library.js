@@ -89,6 +89,7 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
 
   const caseIds = rawRows.map((row) => row.id);
   const tagRows = await listPageCaseTags(db, caseIds);
+  /** @type {Map<string, { id: string, name: string }[]>} */
   const tagsByCase = new Map();
   for (const tag of tagRows) {
     const current = tagsByCase.get(tag.caseId) ?? [];
