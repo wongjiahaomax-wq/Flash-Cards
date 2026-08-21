@@ -2,7 +2,7 @@
 
 _Status: implemented design record._
 
-_Last reviewed: 20 August 2026._
+_Last reviewed: 22 August 2026._
 
 The developer workflow described by this design is implemented as the local production-like development replica.
 
@@ -10,6 +10,12 @@ Operational instructions are authoritative in:
 
 ```text
 docs/LOCAL_DEVELOPMENT_REPLICA.md
+```
+
+The decision about **where** development/validation should execute when the developer is on a laptop versus mobile is authoritative in:
+
+```text
+docs/DEVELOPMENT_EXECUTION_WORKFLOW.md
 ```
 
 ## Implemented decision
@@ -31,6 +37,12 @@ local code
 The local application does **not** use writable production bindings during ordinary development.
 
 The earlier design considered a read-only remote R2 binding. The implemented workflow chose the safer fallback anticipated by the design: mirror the teaching objects referenced by production-owned Asset rows into local R2. This keeps runtime reads and all developer mutations fully local.
+
+## Laptop versus mobile execution
+
+This workflow is specifically the **laptop/local** path. When a laptop is available, prefer local Vite iteration, local replica reuse, local validation and `npm run preview` before spending GitHub Actions minutes on remote deployment.
+
+When the developer is mobile or has no terminal access, do not pretend the local replica ran. Use the connected GitHub tooling and configured CI for supported repository/validation work, then use the permanent production-backed Preview workflow only when a remote Preview is actually needed. See `DEVELOPMENT_EXECUTION_WORKFLOW.md` for the exact fallback rules when workflow dispatch is or is not available from the active GitHub integration.
 
 ## Relationship to other local tooling
 
@@ -78,7 +90,10 @@ npm run local:refresh:d1
 npm run local:refresh:r2
 npm run local:admin
 npm run dev
+npm run preview
 ```
+
+Use `npm run dev` for the normal hot-reload loop. Use `npm run preview` as a later local production-style Worker/runtime check; it remains local and does not deploy the Cloudflare Preview Worker.
 
 Related but separate slide-review commands are:
 
@@ -88,7 +103,7 @@ npm run slide-review:test
 npm run slide-review:finalize -- reviewed.zip [output.zip]
 ```
 
-See `LOCAL_DEVELOPMENT_REPLICA.md` for exact setup, credentials, troubleshooting, cleanup, and open-source handling. See `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md` for the review/finalization contract.
+See `LOCAL_DEVELOPMENT_REPLICA.md` for exact setup, credentials, troubleshooting, cleanup, and open-source handling. See `DEVELOPMENT_EXECUTION_WORKFLOW.md` for laptop-versus-mobile execution and GitHub Actions minute policy. See `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md` for the review/finalization contract.
 
 ## Non-goals retained
 
