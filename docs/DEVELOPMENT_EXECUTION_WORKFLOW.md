@@ -28,6 +28,17 @@ docs/PREVIEW_DEPLOYMENT.md
 docs/CLOUDFLARE.md
 ```
 
+### Production release authority
+
+This document intentionally does **not** duplicate production deployment or production D1 migration commands.
+
+`docs/CLOUDFLARE.md` is the authoritative production release runbook. It contains both:
+
+- the normal GitHub Actions production release path; and
+- the authenticated local/terminal equivalent for releasing from a laptop.
+
+When choosing between laptop and mobile execution, use this document to choose the operating mode, then follow `CLOUDFLARE.md` for the exact current production release procedure. If release commands, Wrangler versions, migration handling or production safety rules change, update `CLOUDFLARE.md` rather than copying the changed commands here.
+
 ## Core decision rule
 
 Use **local-first execution when a laptop/terminal is available**.
@@ -48,6 +59,8 @@ Mobile / no terminal
 ```
 
 The two modes produce the same repository/PR outcome. They differ mainly in where computation and validation happen.
+
+For a production release after merge, follow `docs/CLOUDFLARE.md`; do not infer production release steps from the development/Preview flow above.
 
 ## Do not confuse the two meanings of “Preview”
 
@@ -166,6 +179,8 @@ Vite local UX loop
 
 If terminal + GitHub CLI are available, dispatch the permanent workflow as documented in `PREVIEW_DEPLOYMENT.md`.
 
+After a PR is merged and a production release is intended, stop following this development sequence and use the exact current release procedure in `CLOUDFLARE.md`.
+
 ## Mode B — mobile / no terminal access
 
 When the developer is working from a phone or does not have the local clone available, use the repository and GitHub automation instead of pretending a laptop-local step occurred.
@@ -199,6 +214,8 @@ If the active ChatGPT/GitHub integration exposes an authorized workflow-dispatch
 If workflow dispatch is **not** exposed by the active connector/session, use the GitHub Actions mobile/web UI to run the permanent workflow, or use another authorized terminal environment. Do not create a temporary workflow, source-code trigger, empty deployment commit, or unsafe bypass merely to compensate for missing workflow-dispatch capability.
 
 After deployment, inspect/report the exact PR head SHA that was deployed and keep Preview deployment status separate from merge/production status.
+
+For an actual production release from mobile/no-terminal mode, use the permanent production release path documented in `CLOUDFLARE.md`. This document does not reproduce its commands or migration options.
 
 ## GitHub Actions minute policy
 
@@ -236,21 +253,25 @@ When changing `compatibility_date` or Wrangler-related tooling:
 4. do not lower a compatibility date merely to hide an outdated local runtime unless that rollback is itself an intentional reviewed change;
 5. keep local-preview, CI and deployment Wrangler choices documented and avoid silent version drift between them.
 
+Release-critical Wrangler versions and commands belong in `CLOUDFLARE.md`; do not duplicate them here.
+
 ## Agent instruction
 
 When the user explicitly says they **have laptop access**:
 
 - prefer local commands for repeated validation and UX preview;
-- give exact terminal commands when a local action is required;
+- give exact terminal commands when a local development/validation action is required;
 - do not spend extra GitHub Actions minutes merely because a remote workflow exists;
-- still use normal PR CI and production-backed Preview when they are meaningful safety/integration gates.
+- still use normal PR CI and production-backed Preview when they are meaningful safety/integration gates;
+- for production deployment or production D1 migration instructions, read and follow `CLOUDFLARE.md` rather than relying on copied commands in another document.
 
 When the user says they are **on mobile**, **away from the laptop**, or otherwise have **no terminal access**:
 
 - use the GitHub connector for supported repository/PR operations;
 - rely on configured GitHub CI for executable validation that cannot run locally;
 - use only permanent deployment workflows;
-- if workflow dispatch is unavailable through the connector, state that clearly and use the GitHub Actions UI/another authorized environment rather than inventing a workaround.
+- if workflow dispatch is unavailable through the connector, state that clearly and use the GitHub Actions UI/another authorized environment rather than inventing a workaround;
+- for production release details, read and follow `CLOUDFLARE.md`.
 
 If the user's access mode is not stated and the choice affects Actions usage, ask or infer conservatively from the immediate context. Do not assume a local validation step occurred.
 
@@ -261,5 +282,5 @@ If the user's access mode is not stated and the choice affects Actions usage, as
 - Preview deployment must not apply D1 migrations.
 - A migration merged to `main` is not proof that it is applied to production D1.
 - Preview Worker deployment is not production Worker deployment.
-- Production release/migration operations remain separate explicit operator actions.
+- Production release/migration operations remain separate explicit operator actions whose exact procedure is authoritative in `CLOUDFLARE.md`.
 - Never add temporary workflows or broaden credentials simply to make mobile execution resemble a laptop environment.
