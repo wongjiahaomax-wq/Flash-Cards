@@ -12,7 +12,7 @@
   let imageName = $derived(asset.originalFilename ?? asset.assetId);
 </script>
 
-<section id={`option-review-${optionId}`} class="image-question-review" aria-label={`Questions for ${imageName}`}>
+<section id={`option-review-${optionId}`} class="image-question-review" aria-label={`Questions for ${imageName}`} tabindex="-1">
   <div class="review-heading">
     <div>
       <strong>{imageName}</strong>
@@ -92,6 +92,7 @@
 
 <style>
   .image-question-review { display: grid; gap: 0.65rem; padding-top: 0.7rem; border-top: 1px solid #e4e7ec; scroll-margin-top: 5rem; }
+  .image-question-review:focus-visible { outline: 3px solid #84adff; outline-offset: 3px; }
   .review-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
   .review-heading > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.45rem; min-width: 0; }
   .relationship, .scope-label { color: #667085; font-size: 0.7rem; font-weight: 750; letter-spacing: 0.035em; text-transform: uppercase; }
