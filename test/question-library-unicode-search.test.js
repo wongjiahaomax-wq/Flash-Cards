@@ -64,6 +64,7 @@ function createLearningDb() {
   return { db: createDb(/** @type {D1Database} */ (d1)), sqlite, statements };
 }
 
+/** @param {string} search */
 function filters(search) {
   return { search, topicId: '', scope: /** @type {'all'} */ ('all'), tagId: '' };
 }
