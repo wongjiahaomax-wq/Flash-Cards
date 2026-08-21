@@ -9,8 +9,10 @@ test('Case editor exposes one shared Classic/Compact authoring tree', () => {
   assert.match(editor, /> Classic<\/label>/);
   assert.match(editor, /> Compact<\/label>/);
   assert.match(editor, /let editorLayout = \$state\('compact'\)/);
-  assert.match(editor, /readCaseEditorLayout\(window\.localStorage\)/);
-  assert.match(editor, /writeCaseEditorLayout\(window\.localStorage, layout\)/);
+  assert.match(editor, /readCaseEditorLayout\(getCaseEditorStorage\(window\)\)/);
+  assert.match(editor, /writeCaseEditorLayout\(getCaseEditorStorage\(window\), layout\)/);
+  assert.doesNotMatch(editor, /readCaseEditorLayout\(window\.localStorage\)/);
+  assert.doesNotMatch(editor, /writeCaseEditorLayout\(window\.localStorage,/);
   assert.doesNotMatch(editor, /ClassicCaseEditor|CompactCaseEditor/);
 });
 
