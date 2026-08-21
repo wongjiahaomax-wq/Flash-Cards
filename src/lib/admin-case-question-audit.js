@@ -18,14 +18,18 @@ function active(value) {
 
 /** @param {any} selectedCase @param {string} assetId @param {string | null} optionId */
 export function reusableSummaryForContext(selectedCase, assetId, optionId = null) {
-  return selectedCase?.reusableImageQuestions?.find(
+  /** @type {any[]} */
+  const summaries = selectedCase?.reusableImageQuestions ?? [];
+  return summaries.find(
     (summary) => summary.assetId === assetId && (summary.stimulusOptionId ?? null) === optionId
   ) ?? { assetId, stimulusOptionId: optionId, total: 0, used: 0, available: 0, questions: [] };
 }
 
 /** @param {any} summary */
 export function usedReusableQuestions(summary) {
-  return (summary?.questions ?? []).filter((question) => question.usedInCase === true);
+  /** @type {any[]} */
+  const questions = summary?.questions ?? [];
+  return questions.filter((question) => question.usedInCase === true);
 }
 
 /** @param {any} option */
@@ -63,10 +67,13 @@ function fixedImage(asset) {
  * preserved from the Case editor read model.
  *
  * @param {any} selectedCase
+ * @returns {any[]}
  */
 export function buildCaseQuestionAudit(selectedCase) {
   if (!selectedCase) return [];
+  /** @type {any[]} */
   const rows = [];
+  /** @type {Set<string>} */
   const seen = new Set();
 
   /** @param {string} key @param {any} row */
@@ -76,7 +83,9 @@ export function buildCaseQuestionAudit(selectedCase) {
     rows.push({ key, ...row });
   }
 
-  for (const question of selectedCase.questions ?? []) {
+  /** @type {any[]} */
+  const caseQuestions = selectedCase.questions ?? [];
+  for (const question of caseQuestions) {
     if (!active(question.isActive ?? true)) continue;
     const promptId = text(question.questionPromptId);
     push(`case:${promptId}`, {
@@ -91,7 +100,9 @@ export function buildCaseQuestionAudit(selectedCase) {
     });
   }
 
-  for (const asset of selectedCase.attached ?? []) {
+  /** @type {any[]} */
+  const attached = selectedCase.attached ?? [];
+  for (const asset of attached) {
     if (!active(asset.isActive)) continue;
     const reusable = reusableSummaryForContext(selectedCase, asset.assetId, null);
     for (const question of usedReusableQuestions(reusable)) {
@@ -109,13 +120,19 @@ export function buildCaseQuestionAudit(selectedCase) {
     }
   }
 
-  for (const group of selectedCase.stimulusGroups ?? []) {
+  /** @type {any[]} */
+  const stimulusGroups = selectedCase.stimulusGroups ?? [];
+  for (const group of stimulusGroups) {
     if (!active(group.isActive)) continue;
-    const activeOptions = (group.options ?? []).filter((option) => active(option.isActive) && active(option.assetIsActive));
+    /** @type {any[]} */
+    const options = group.options ?? [];
+    const activeOptions = options.filter((option) => active(option.isActive) && active(option.assetIsActive));
     if (activeOptions.length === 0) continue;
     const setImages = activeOptions.map(optionImage);
 
-    for (const question of group.questions ?? []) {
+    /** @type {any[]} */
+    const groupQuestions = group.questions ?? [];
+    for (const question of groupQuestions) {
       if (!active(question.isActive)) continue;
       const promptId = text(question.questionPromptId);
       push(`group:${group.id}:${promptId}`, {
@@ -130,10 +147,12 @@ export function buildCaseQuestionAudit(selectedCase) {
       });
     }
 
+    /** @type {any[]} */
+    const optionQuestions = group.optionQuestions ?? [];
     for (const option of activeOptions) {
       const optionName = option.originalFilename ?? option.assetId;
       const image = optionImage(option);
-      for (const question of group.optionQuestions ?? []) {
+      for (const question of optionQuestions) {
         if (question.stimulusGroupOptionId !== option.id || !active(question.isActive)) continue;
         const promptId = text(question.questionPromptId);
         push(`option:${option.id}:${promptId}`, {
@@ -183,8 +202,14 @@ export function buildCaseFastReviewSummary(selectedCase) {
     };
   }
 
-  const activeFixed = (selectedCase.attached ?? []).filter((asset) => active(asset.isActive));
-  const activeGroups = (selectedCase.stimulusGroups ?? []).filter((group) => active(group.isActive));
+  /** @type {any[]} */
+  const attached = selectedCase.attached ?? [];
+  /** @type {any[]} */
+  const stimulusGroups = selectedCase.stimulusGroups ?? [];
+  /** @type {any[]} */
+  const caseQuestions = selectedCase.questions ?? [];
+  const activeFixed = attached.filter((asset) => active(asset.isActive));
+  const activeGroups = stimulusGroups.filter((group) => active(group.isActive));
   let alternativeImages = 0;
   let caseSpecificImageQuestions = 0;
   let reusableImageQuestionsUsed = 0;
@@ -197,12 +222,18 @@ export function buildCaseFastReviewSummary(selectedCase) {
   }
 
   for (const group of activeGroups) {
-    const activeOptions = (group.options ?? []).filter((option) => active(option.isActive) && active(option.assetIsActive));
+    /** @type {any[]} */
+    const options = group.options ?? [];
+    /** @type {any[]} */
+    const groupQuestions = group.questions ?? [];
+    /** @type {any[]} */
+    const optionQuestions = group.optionQuestions ?? [];
+    const activeOptions = options.filter((option) => active(option.isActive) && active(option.assetIsActive));
     alternativeImages += activeOptions.length;
     if (activeOptions.length === 0) continue;
-    setWideQuestions += (group.questions ?? []).filter((question) => active(question.isActive)).length;
+    setWideQuestions += groupQuestions.filter((question) => active(question.isActive)).length;
     for (const option of activeOptions) {
-      caseSpecificImageQuestions += (group.optionQuestions ?? []).filter(
+      caseSpecificImageQuestions += optionQuestions.filter(
         (question) => question.stimulusGroupOptionId === option.id && active(question.isActive)
       ).length;
       reusableImageQuestionsUsed += usedReusableQuestions(
@@ -216,7 +247,7 @@ export function buildCaseFastReviewSummary(selectedCase) {
     fixedImages: activeFixed.length,
     alternativeSets: activeGroups.length,
     alternativeImages,
-    caseWideQuestions: (selectedCase.questions ?? []).filter((question) => active(question.isActive ?? true)).length,
+    caseWideQuestions: caseQuestions.filter((question) => active(question.isActive ?? true)).length,
     caseSpecificImageQuestions,
     reusableImageQuestionsUsed,
     setWideQuestions,
