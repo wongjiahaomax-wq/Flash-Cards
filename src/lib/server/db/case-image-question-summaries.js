@@ -11,7 +11,7 @@ import {
 
 /**
  * @typedef {{ assetId: string, stimulusOptionId: string | null }} ImageQuestionContext
- * @typedef {{ id: string, assetId: string, promptMd: string, answerMd: string }} ActiveReusableQuestion
+ * @typedef {{ id: string, assetId: string, questionPromptId: string, promptMd: string, answerMd: string }} ActiveReusableQuestion
  * @typedef {{ stimulusOptionId: string, assetQuestionId: string }} ActiveReusableOptIn
  */
 
@@ -79,6 +79,7 @@ export async function listCaseImageQuestionSummaries(db, contexts) {
   const questions = await db.select({
     id: assetQuestions.id,
     assetId: assetQuestions.assetId,
+    questionPromptId: assetQuestions.questionPromptId,
     promptMd: questionPrompts.promptMd,
     answerMd: assetQuestions.answerMd
   })
