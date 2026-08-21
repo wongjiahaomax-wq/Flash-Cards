@@ -91,9 +91,7 @@ Use the same email/password for both Workers when the identity has `admin,previe
 
 ## Current Study restriction
 
-The existing safety policy deliberately denies any identity carrying `preview_admin` from learner `/study` routes on the production Worker, and the Preview Worker blocks `/study` entirely.
-
-Therefore an owner account promoted to `admin,preview_admin` remains usable for production Admin and Preview Admin, but is not a learner Study identity. If a future product decision requires the same owner identity to study as a learner too, that should be reviewed as a separate authorization change rather than weakening this bootstrap implicitly.
+The Preview Worker blocks `/study` entirely. On the production Worker, Preview-only identities remain denied from learner `/study` routes, while an owner account promoted to `admin,preview_admin` may use production learner Study as well as both Admin surfaces.
 
 ## Security invariants
 
@@ -104,5 +102,6 @@ This identity reuse does not change the Preview content-isolation model:
 - Preview Worker `/api/auth/admin/**` remains blocked;
 - Preview authoring still requires both `preview_admin` and `PREVIEW_MODE=true`;
 - production Admin still requires the `admin` role;
+- combined `admin,preview_admin` accounts may use production learner Study;
 - Preview Cases/Prompts/Assets remain explicitly session-owned and excluded from learner/normal Admin read models;
 - no second D1 database or R2 bucket is introduced.

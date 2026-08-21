@@ -79,3 +79,8 @@ test('question scope UX exposes Case-wide and fixed/alternative stimulus targets
   assert.doesNotMatch(previewRoute, /question-scope/);
   assert.match(adminEditor, /data\.previewMode \? '\?\/saveQuestion' : `\/admin\/cases\/\$\{selectedCase\.case\.id\}\/question-scope`/);
 });
+
+test('Preview Case editor does not expose a learner Study link on the Preview Worker', () => {
+  assert.match(adminEditor, /\{#if data\.previewMode\}<span class="muted">Learner Study is unavailable in Preview Mode/);
+  assert.match(adminEditor, /\{#if data\.previewMode\}<p class="muted">Learner Study is available on the production Worker only/);
+});

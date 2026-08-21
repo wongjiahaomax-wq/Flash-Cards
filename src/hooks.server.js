@@ -2,7 +2,7 @@ import { building } from '$app/environment';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 
 import { createAuth } from '$lib/server/auth.js';
-import { isPreviewAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
+import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 
 /** @param {string} pathname @param {string} root */
 function isRouteWithin(pathname, root) {
@@ -63,10 +63,12 @@ export async function handle({ event, resolve }) {
   event.locals.session = session?.session ?? null;
   event.locals.user = session?.user ?? null;
 
-  // The dedicated Preview identity must never create or mutate ordinary learner
-  // Reviews, even if its credentials are used against the production Worker.
-  if (isPreviewAdmin(event.locals.user) && isRouteWithin(pathname, '/study')) {
-    return forbidden('Preview Admin accounts cannot use learner Study.');
+  // Preview-only identities must never create or mutate ordinary learner
+  // Reviews. A combined production Admin + Preview Admin owner may use the
+  // production learner flow; the Preview Worker boundary above still blocks
+  // Study regardless of role.
+  if (isPreviewOnlyAdmin(event.locals.user) && isRouteWithin(pathname, '/study')) {
+    return forbidden('Preview-only Admin accounts cannot use learner Study.');
   }
 
   return svelteKitHandler({

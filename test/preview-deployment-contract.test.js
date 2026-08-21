@@ -117,9 +117,12 @@ test('Preview Worker blocks Better Auth Admin API before Better Auth can mutate 
   assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth\/get-session'\)/);
 });
 
-test('preview_admin cannot enter Study or create and mutate learner Reviews', () => {
-  assert.match(hooks, /isPreviewAdmin\(event\.locals\.user\)[\s\S]*isRouteWithin\(pathname, '\/study'\)/);
-  assert.match(studyLayout, /isPreviewAdmin\(locals\.user\)[\s\S]*error\(403/);
+test('Preview-only Admin cannot enter Study, while combined production Admin/Preview Admin can use production Study', () => {
+  assert.match(hooks, /isPreviewOnlyAdmin\(event\.locals\.user\)[\s\S]*isRouteWithin\(pathname, '\/study'\)/);
+  assert.match(studyLayout, /isPreviewOnlyAdmin\(locals\.user\)[\s\S]*error\(403/);
+  assert.match(studyRoute, /isPreviewOnlyAdmin\(user\)/);
+  assert.match(reviewRoute, /isPreviewOnlyAdmin\(user\)/);
+  assert.match(reviewRoute, /isPreviewWorker\(platform\?\.env\) \|\| isPreviewOnlyAdmin\(user\)/);
   assert.match(studyRoute, /assertLearnerStudyAccess\(locals\.user, platform\)/);
   assert.match(studyRoute, /startReview\(/);
   assert.match(reviewRoute, /function assertLearnerStudyAccess/);

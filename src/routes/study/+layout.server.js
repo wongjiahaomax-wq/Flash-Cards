@@ -1,6 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 
-import { isPreviewAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
+import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 
 export function load({ locals, platform, url }) {
   if (isPreviewWorker(platform?.env)) {
@@ -12,8 +12,8 @@ export function load({ locals, platform, url }) {
     redirect(303, `/sign-in?redirect=${destination}`);
   }
 
-  if (isPreviewAdmin(locals.user)) {
-    error(403, 'Preview Admin accounts cannot use learner Study.');
+  if (isPreviewOnlyAdmin(locals.user)) {
+    error(403, 'Preview-only Admin accounts cannot use learner Study.');
   }
 
   return {

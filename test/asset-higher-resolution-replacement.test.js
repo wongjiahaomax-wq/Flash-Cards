@@ -679,7 +679,7 @@ test('schema/UI/routes keep replacement narrow, production-only, and outside Imp
   assert.match(reviewRoute, /getOwnedReviewMediaSnapshot/);
   assert.match(reviewRoute, /storageKeySnapshot/);
   assert.match(reviewRoute, /isPreviewWorker/);
-  assert.match(reviewRoute, /isPreviewAdmin/);
+  assert.match(reviewRoute, /isPreviewOnlyAdmin/);
 
   const currentAssetRoute = readFileSync(
     new URL('../src/routes/api/assets/[assetId]/image/+server.js', import.meta.url),

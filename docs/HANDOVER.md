@@ -434,7 +434,7 @@ Higher-resolution replacement intentionally creates a second immutable productio
 - `admin,preview_admin` -> owner may use the respective Admin surfaces while sessions/secrets stay separate;
 - Better Auth Admin-plugin API -> production Worker only;
 - normal learner -> Study on production Worker only;
-- any identity carrying `preview_admin` is currently denied production learner Study by policy.
+- Preview-only identities are denied production learner Study by policy; combined `admin,preview_admin` owner accounts may use production learner Study.
 
 Authorization is server-side, not hard-coded by email.
 

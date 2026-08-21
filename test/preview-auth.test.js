@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   isPreviewAdmin,
+  isPreviewOnlyAdmin,
   isPreviewWorker,
   isProductionAdmin,
   requirePreviewAdmin
@@ -14,10 +15,13 @@ test('preview_admin is distinct from production admin', () => {
   const learner = { id: 'learner-user', role: 'user' };
 
   assert.equal(isPreviewAdmin(previewUser), true);
+  assert.equal(isPreviewOnlyAdmin(previewUser), true);
   assert.equal(isProductionAdmin(previewUser), false);
   assert.equal(isProductionAdmin(productionAdmin), true);
   assert.equal(isPreviewAdmin(productionAdmin), false);
+  assert.equal(isPreviewOnlyAdmin(productionAdmin), false);
   assert.equal(isPreviewAdmin(learner), false);
+  assert.equal(isPreviewOnlyAdmin(learner), false);
 });
 
 test('one identity can intentionally hold both production Admin and Preview Admin roles', () => {
@@ -25,6 +29,7 @@ test('one identity can intentionally hold both production Admin and Preview Admi
 
   assert.equal(isProductionAdmin(combined), true);
   assert.equal(isPreviewAdmin(combined), true);
+  assert.equal(isPreviewOnlyAdmin(combined), false);
   assert.equal(requirePreviewAdmin({ user: combined, env: { PREVIEW_MODE: 'true' } }), 'owner-admin');
 });
 
