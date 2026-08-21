@@ -17,9 +17,12 @@ test('Case editor layout defaults to Compact for missing or unknown preferences'
 });
 
 test('Case editor layout reads and persists Classic and Compact values', () => {
+  /** @type {Map<string, string>} */
   const values = new Map();
   const storage = {
+    /** @param {string} key */
     getItem(key) { return values.get(key) ?? null; },
+    /** @param {string} key @param {string} value */
     setItem(key, value) { values.set(key, value); }
   };
 
