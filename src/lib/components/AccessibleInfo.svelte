@@ -2,7 +2,6 @@
   /** @type {{ label: string, text: string }} */
   let { label, text } = $props();
   let open = $state(false);
-  const id = `help-${crypto.randomUUID()}`;
 
   function toggle() {
     open = !open;
@@ -21,12 +20,12 @@
     type="button"
     class="info-trigger"
     aria-label={`About ${label}`}
-    aria-describedby={id}
+    aria-description={text}
     aria-expanded={open}
     onclick={toggle}
     onkeydown={keydown}
   >ⓘ</button>
-  <span id={id} class="info-popover" role="tooltip">{text}</span>
+  <span class="info-popover" role="tooltip">{text}</span>
 </span>
 
 <style>
