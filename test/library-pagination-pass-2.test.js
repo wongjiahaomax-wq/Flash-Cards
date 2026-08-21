@@ -209,7 +209,7 @@ test('Question Library preserves search, Topic, scopes, Tags, reusable usage, an
     }
     assert.deepEqual(
       (await getQuestionLibraryPage(fixture.db, { ...questionFilters(), search: 'Case prompt' }, { pageSize: 60 })).rows.map((row) => row.id),
-      ['prompt-case']
+      ['prompt-case', 'prompt-inactive-case']
     );
 
     for (const hiddenAnswer of ['removed-answer-token', 'inactive-case-answer-token', 'inactive-topic-answer-token', 'preview-answer-token']) {
