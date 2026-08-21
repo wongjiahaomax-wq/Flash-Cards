@@ -1,9 +1,24 @@
 <script>
   let { data } = $props();
   let query = $state('');
+  let firstShown = $derived(data.pagination.totalCount === 0 ? 0 : (data.pagination.page - 1) * data.pagination.pageSize + 1);
+  let lastShown = $derived(Math.min(data.pagination.page * data.pagination.pageSize, data.pagination.totalCount));
+
   $effect(() => {
     query = data.filters.search;
   });
+
+  /** @param {number} page */
+  function pageHref(page) {
+    const params = new URLSearchParams();
+    if (data.filters.search) params.set('q', data.filters.search);
+    if (data.filters.topicId) params.set('topic', data.filters.topicId);
+    if (data.filters.scope !== 'all') params.set('scope', data.filters.scope);
+    if (data.filters.tagId) params.set('tag', data.filters.tagId);
+    if (page > 1) params.set('page', String(page));
+    const search = params.toString();
+    return search ? `/admin/questions?${search}` : '/admin/questions';
+  }
 </script>
 
 <svelte:head><title>Questions | Admin | Flash-Cards</title></svelte:head>
@@ -21,7 +36,7 @@
 </form>
 
 <section class="panel" aria-labelledby="question-list-heading">
-  <div class="panel-heading"><h2 id="question-list-heading">Question Prompts <span class="count">{data.questions.length}</span></h2><span class="muted">Displayed Tags come only from active Case Question usages.</span></div>
+  <div class="panel-heading"><div><h2 id="question-list-heading">Question Prompts <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Prompts · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">Displayed Tags come only from active Case Question usages.</span></div>
   {#if data.questions.length === 0}
     <p class="empty-state">No active Question Prompts match these filters.</p>
   {:else}
@@ -31,17 +46,24 @@
         <a class="table-row" href={'/admin/questions/' + question.id}>
           <strong>{question.promptMd}</strong>
           <span><span class:shared={question.hasSharedUsage} class="scope-badge">{question.scope}</span></span>
-          <span>{question.topicNames.length ? question.topicNames.join(', ') : '—'}</span>
+          <span>{question.topicNames.length ? question.topicNames.slice().sort().join(', ') : '—'}</span>
           <span class="tag-list">{#if question.tags.length}{#each question.tags as tag}<span class="tag-chip">{tag.name}</span>{/each}{:else}—{/if}</span>
           <span class="usage-count">{question.usageCount}</span>
         </a>
       {/each}
     </div>
   {/if}
+
+  <nav class="pagination" aria-label="Question Library pages">
+    {#if data.pagination.page > 1}<a class="button" href={pageHref(data.pagination.page - 1)}>Previous</a>{:else}<span></span>{/if}
+    <span>Page {data.pagination.page} of {data.pagination.totalPages}</span>
+    {#if data.pagination.page < data.pagination.totalPages}<a class="button" href={pageHref(data.pagination.page + 1)}>Next</a>{/if}
+  </nav>
 </section>
 
 <style>
   .page-heading, .panel-heading { display: flex; justify-content: space-between; align-items: end; gap: 1rem; }
+  .panel-heading > div { display: grid; gap: 0.3rem; }
   h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 4vw, 2.5rem); } h2 { margin-bottom: 0; font-size: 1.15rem; }
   .eyebrow { margin-bottom: 0.3rem; color: #667085; font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; } .muted { color: #667085; }
   .filter-form { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(140px, 0.8fr) minmax(140px, 0.8fr) minmax(150px, 0.9fr) auto; gap: 0.75rem; align-items: end; margin: 1.5rem 0 1rem; } label { display: grid; gap: 0.35rem; color: #344054; font-weight: 650; } input, select { width: 100%; min-width: 0; box-sizing: border-box; padding: 0.7rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } .filter-actions { display: flex; gap: 0.5rem; }
@@ -51,6 +73,7 @@
   .scope-badge { display: inline-block; padding: 0.2rem 0.4rem; border-radius: 999px; background: #f2f4f7; color: #475467; font-size: 0.78rem; font-weight: 650; } .scope-badge.shared { background: #ecfdf3; color: #027a48; }
   .tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; } .tag-chip { display: inline-block; padding: 0.18rem 0.4rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; }
   .empty-state { padding: 1rem; border: 1px dashed #d0d5dd; border-radius: 8px; }
+  .pagination { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.75rem; margin-top: 1rem; } .pagination > :last-child { justify-self: end; }
   @media (max-width: 1050px) { .filter-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .search-field { grid-column: 1 / -1; } .filter-actions { grid-column: 1 / -1; } }
-  @media (max-width: 680px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .filter-form { grid-template-columns: minmax(0, 1fr); } .search-field, .filter-actions { grid-column: auto; } .table-header { display: none; } .table-row { grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem 0.75rem; } .table-row strong, .tag-list { grid-column: 1 / -1; } .usage-count { text-align: left; } }
+  @media (max-width: 680px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .filter-form { grid-template-columns: minmax(0, 1fr); } .search-field, .filter-actions { grid-column: auto; } .table-header { display: none; } .table-row { grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem 0.75rem; } .table-row strong, .tag-list { grid-column: 1 / -1; } .usage-count { text-align: left; } .pagination { grid-template-columns: 1fr 1fr; } .pagination > span { grid-column: 1 / -1; grid-row: 1; text-align: center; } .pagination > a:first-of-type { grid-column: 1; } .pagination > a:last-of-type { grid-column: 2; } }
 </style>

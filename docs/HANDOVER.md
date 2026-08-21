@@ -1,12 +1,12 @@
 # Flash-Cards agent handover
 
-_Refreshed: 20 August 2026_
+_Refreshed: 21 August 2026_
 
 ## Current outcome
 
-The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A and Stage B, Image Management V2, Reusable Image Questions, a wide responsive Admin workspace, the reviewed/resumable content-import path, a local production-like development replica, a local slide-review/deterministic-finalizer toolchain, narrow higher-resolution Asset replacement on current `main`, and a fully imported/verified initial ECG Anki corpus.
+The project has a D1-backed learner Study flow, protected/private R2 teaching images, an Admin CMS, optional stimulus groups, multi-Topic Case routing, Tagging Stage A and Stage B, Image Management V2, Reusable Image Questions, a wide responsive Admin workspace, the reviewed/resumable content-import path, a local production-like development replica, a local slide-review/deterministic-finalizer toolchain, narrow higher-resolution Asset replacement, image lifecycle/cleanup organisation, the first targeted performance/read-model pass, and a fully imported/verified initial ECG Anki corpus on current `main`.
 
-This branch adds the first narrow performance/read-model pass without schema changes: `/admin` uses targeted aggregate counts plus a bounded six-Case work queue, `getAdminCaseData()` uses an exact active production Case-by-ID lookup instead of loading the full Case library, and lightweight timing instrumentation is available for the dashboard and Case-editor read. See `PERFORMANCE_AND_READ_MODEL_PLAN.md`. Later pagination, auth-cache investigation, learner `startReview` optimisation, editor lazy-loading, thumbnails, and measured query-plan/index tuning remain intentionally deferred.
+This branch adds **Performance Read-Model Pass 2** without schema changes. `/admin/cases` and `/admin/questions` now use 60-row server-side pages with SQL filtering/counting, deterministic ordering, and relationship enrichment restricted to the visible Case/Prompt IDs. The Case Tag filter no longer loads all Case↔Tag relationships and filters them in JavaScript. The Questions Library no longer materialises global active Prompt/usage/Tag collections before final filtering. Existing detail/edit reads and learner behavior are intentionally unchanged. See `PERFORMANCE_AND_READ_MODEL_PLAN.md`.
 
 Recent merged infrastructure/product milestones include:
 
@@ -26,9 +26,11 @@ Recent merged infrastructure/product milestones include:
 - PR #56 — moving an existing Case-wide question to an exact option in an Alternative image set;
 - PR #57 — author-facing whole-Case vs specific-image/stimulus question scope, including transparent fixed-image conversion;
 - PR #58 — Reusable Image Questions and explicit per-stimulus opt-ins;
-- PR #59 — safe same-image higher-resolution Asset replacement and supersession lineage.
+- PR #59 — safe same-image higher-resolution Asset replacement and supersession lineage;
+- PR #61 — Performance Read-Model Pass 1: targeted Admin dashboard and Case-detail reads plus lightweight timing;
+- PR #63 — Image Library lifecycle/cleanup organisation, including current/historical/unused distinctions.
 
-Merge status and production deployment status are intentionally separate. Current `main` contains migrations `0009`–`0011` and the PR #53–#59 code above. The repository also contains an explicit production rollout trigger commit for merged PR #56, but a trigger commit alone is not treated as proof that the workflow completed successfully. Do not label later merged features or migrations as deployed/applied without explicit rollout verification.
+Merge status and production deployment status are intentionally separate. Current `main` contains migrations through `0013_review_assets_asset_lookup.sql` and the later product/performance work above. A migration or trigger commit being present on `main` is not proof that its production workflow completed successfully. Do not label later merged features or migrations as deployed/applied without explicit rollout verification.
 
 The stimulus-scope authoring follow-up changes the Admin author mental model from database relationships to **Applies to: This whole Case / A specific image or stimulus**. Fixed images and existing alternative options are both selectable targets. Assigning an exact-image question to a fixed image transparently converts that Case relationship to a one-option active Stimulus Group in the same D1 batch as question assignment, preserving Asset identity and Case-specific caption. No second fixed-image-question schema is required.
 
@@ -244,6 +246,33 @@ Image Collections are organisational metadata separate from Topics and Tags. An 
 
 Image management does not change learner stimulus semantics or Review snapshots/provenance.
 
+## Admin library read-model convention
+
+Performance Pass 2 establishes the same bounded-read principle for Cases and Questions that the Image Library already follows:
+
+```text
+getXLibraryPage(filters, { page })
+→ SQL filter
+→ aggregate total count
+→ deterministic bounded page
+→ relationship enrichment for visible IDs only
+```
+
+`/admin/cases` preserves `q` and `tag`; `/admin/questions` preserves `q`, `topic`, `scope`, and `tag`. Previous/Next navigation keeps those filters, while submitting a new filter naturally returns to page 1.
+
+Question list eligibility/search/counts preserve current Concept, Case-wide, Stimulus Group, Stimulus Option, reusable Shared Question, and reusable Asset Question semantics. Preview-owned Cases do not contribute production list usage/search, removed options do not count as current usage, and Question detail remains the historical/inactive inspection surface.
+
+The remaining planned performance passes are:
+
+```text
+Pass 3 — Better Auth short-lived session cookie-cache investigation
+Pass 4 — learner Study/startReview read-model optimisation
+Pass 5 — Case editor lazy-loading/read boundaries
+Later  — image thumbnails and measured EXPLAIN/index tuning
+```
+
+These are not implemented by Pass 2.
+
 ## Stimulus-scope authoring safety
 
 The production semantic helper centralizes stimulus-scope authoring rather than duplicating route-specific conversion logic.
@@ -390,7 +419,7 @@ main on Preview
 → next PR
 ```
 
-Current `main` includes migration `0011_asset_supersession.sql` from merged PR #59. The existing Preview deployment guard remains authoritative for candidate PRs containing migration changes; production/Preview schema application must still be verified separately from merge status.
+Current `main` includes later migrations through `0013_review_assets_asset_lookup.sql`. The existing Preview deployment guard remains authoritative for candidate PRs containing migration changes; production/Preview schema application must still be verified separately from merge status.
 
 ## Current migrations
 
@@ -407,15 +436,17 @@ Current `main` includes migration `0011_asset_supersession.sql` from merged PR #
 0009_reusable_image_questions.sql
 0010_reusable_image_reactivation_guard.sql
 0011_asset_supersession.sql
+0012_archive_stimulus_options.sql
+0013_review_assets_asset_lookup.sql
 ```
 
 No second fixed-image-question schema is required.
 
 `0008_tag_shared_questions.sql` adds Shared Question tables/links, `tag_shared` Review provenance, and D1 trigger defense against Preview-owned Prompts. It does not seed production content and does not snapshot Tag IDs onto Reviews.
 
-`0009`/`0010` establish Reusable Image Question identity/opt-in integrity. `0011` adds only the narrow nullable Asset supersession self-FK and index required for higher-resolution replacement.
+`0009`/`0010` establish Reusable Image Question identity/opt-in integrity. `0011` adds only the narrow nullable Asset supersession self-FK and index required for higher-resolution replacement. `0012` archives removed stimulus options without deleting their historical relationships. `0013` adds the review-asset lookup index used by current image lifecycle/history reads.
 
-Migrations `0009`–`0011` are present on current `main`. Their production application is not inferred from merge status and should be recorded as applied only after explicit remote migration verification.
+Migration presence on current `main` is not inferred as production application; record production status only after explicit remote migration verification.
 
 ## R2 rules
 
@@ -455,6 +486,11 @@ Merged PR #59's final CI passed the repository-authoritative suite, including 34
 
 ## Intentionally deferred
 
+- Performance Pass 3: Better Auth short-lived session cookie-cache investigation;
+- Performance Pass 4: learner Study/`startReview` read-model optimisation;
+- Performance Pass 5: Case editor lazy-loading/read boundaries;
+- image thumbnail optimisation when measurements justify it;
+- measured `EXPLAIN QUERY PLAN`/index tuning for demonstrated slow queries;
 - multiple Reuse Scope Tags or ANY/ALL expressions;
 - Tag hierarchy;
 - aliases/synonyms;
@@ -475,7 +511,7 @@ Merged PR #59's final CI passed the repository-authoritative suite, including 34
 
 ## Next intended implementation workflow
 
-The platform baseline, recent PR #53–#59 implementation sequence and initial ECG ingestion are complete on current `main`. Prioritize real content curation and learner/Admin friction rather than expanding schema for completeness:
+The platform baseline, later image-management/read-model work and initial ECG ingestion are complete on current `main`. Prioritize real content curation and learner/Admin friction rather than expanding schema for completeness. Performance work should continue through the explicitly deferred passes above when justified:
 
 ```text
 curate real ECG Case Tags
