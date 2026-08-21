@@ -43,6 +43,7 @@ test('Case editor layout fails safely when browser storage methods are unavailab
 });
 
 test('Case editor layout fails safely when localStorage property access is blocked', () => {
+  /** @type {{ readonly localStorage?: { getItem: (key: string) => string | null, setItem: (key: string, value: string) => void } }} */
   const blockedWindow = {};
   Object.defineProperty(blockedWindow, 'localStorage', {
     get() {
