@@ -2,13 +2,23 @@ export const CASE_EDITOR_LAYOUT_STORAGE_KEY = 'flash-cards-admin-case-editor-lay
 export const DEFAULT_CASE_EDITOR_LAYOUT = 'compact';
 
 /** @typedef {'classic' | 'compact'} CaseEditorLayout */
+/** @typedef {{ getItem: (key: string) => string | null, setItem: (key: string, value: string) => void }} CaseEditorStorage */
 
 /** @param {unknown} value @returns {CaseEditorLayout} */
 export function normalizeCaseEditorLayout(value) {
   return value === 'classic' || value === 'compact' ? value : DEFAULT_CASE_EDITOR_LAYOUT;
 }
 
-/** @param {{ getItem: (key: string) => string | null } | null | undefined} storage @returns {CaseEditorLayout} */
+/** @param {{ readonly localStorage?: CaseEditorStorage } | null | undefined} browserWindow @returns {CaseEditorStorage | null} */
+export function getCaseEditorStorage(browserWindow) {
+  try {
+    return browserWindow?.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** @param {Pick<CaseEditorStorage, 'getItem'> | null | undefined} storage @returns {CaseEditorLayout} */
 export function readCaseEditorLayout(storage) {
   try {
     return normalizeCaseEditorLayout(storage?.getItem(CASE_EDITOR_LAYOUT_STORAGE_KEY));
@@ -17,7 +27,7 @@ export function readCaseEditorLayout(storage) {
   }
 }
 
-/** @param {{ setItem: (key: string, value: string) => void } | null | undefined} storage @param {unknown} layout @returns {CaseEditorLayout} */
+/** @param {Pick<CaseEditorStorage, 'setItem'> | null | undefined} storage @param {unknown} layout @returns {CaseEditorLayout} */
 export function writeCaseEditorLayout(storage, layout) {
   const normalized = normalizeCaseEditorLayout(layout);
   try {
