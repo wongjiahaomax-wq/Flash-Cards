@@ -73,7 +73,7 @@ test('Question Library preserves Unicode-aware case-insensitive Prompt and answe
   const fixture = createLearningDb();
   try {
     fixture.sqlite.exec("INSERT INTO tags (id, name, normalized_name, is_active) VALUES ('tag-a', 'Alpha', 'alpha', 1)");
-    fixture.sqlite.exec("INSERT INTO question_prompts (id, prompt_md, is_active) VALUES ('prompt-unicode-prompt', 'β-blocker teaching prompt', 1), ('prompt-unicode-answer', 'Unicode answer prompt', 1)");
+    fixture.sqlite.exec("INSERT INTO question_prompts (id, prompt_md, is_active) VALUES ('prompt-unicode-prompt', 'β-blocker teaching prompt', 1), ('prompt-unicode-answer', 'Unicode answer prompt', 1), ('prompt-unicode-ascii-query', 'Ketamine safety prompt', 1)");
     fixture.sqlite.exec("INSERT INTO shared_questions (id, question_prompt_id, answer_md, reuse_scope_tag_id, is_active) VALUES ('shared-unicode-answer', 'prompt-unicode-answer', 'α-agonist teaching point', 'tag-a', 1)");
 
     for (let index = 1; index <= 65; index += 1) {
@@ -92,6 +92,10 @@ test('Question Library preserves Unicode-aware case-insensitive Prompt and answe
     assert.equal(answerSearch.totalCount, 1);
     assert.deepEqual(answerSearch.rows.map((row) => row.id), ['prompt-unicode-answer']);
     assert.equal(answerSearch.rows[0]?.sharedQuestionUsageCount, 1);
+
+    const asciiQuerySearch = await getQuestionLibraryPage(fixture.db, filters('ketamine'), { pageSize: 10 });
+    assert.equal(asciiQuerySearch.totalCount, 1);
+    assert.deepEqual(asciiQuerySearch.rows.map((row) => row.id), ['prompt-unicode-ascii-query']);
 
     const relationshipQueries = fixture.statements.filter(
       (statement) => / in \(/.test(statement.sql) && /(concept_questions|case_questions|stimulus_group_questions|stimulus_option_questions|shared_questions|asset_questions)/.test(statement.sql)
