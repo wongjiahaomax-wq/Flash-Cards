@@ -155,6 +155,8 @@ Milestone ledger current through the merged PR #53–#59 sequence, while keeping
 
 These are intentional future designs, **not current implemented behavior**.
 
+- `CASE_EDITOR_FAST_REVIEW_DESIGN.md` — pending Compact-mode Case editor redesign centered on rapid full-Case review: persistent side-by-side Prompt/Answer visibility, accessible `ⓘ` explanations, compact image carousels/strips for multiple stimuli, always-visible image-linked Q&A, exact source identity while scrolling, preservation of existing image Move/Remove semantics, and a final **All questions in this Case** audit with hover/focus/tap image-source previews.
+
 The slide-ingestion **source reconstruction/extraction** step remains separate future workflow work even though the local reviewer/finalizer is implemented; do not infer that PPTX/PDF ingestion is automated from the existence of the local review tool.
 
 The narrow higher-resolution replacement workflow does **not** imply generic Asset families, arbitrary version history, automatic visual similarity, different-image substitution, or bulk replacement. Those remain outside current scope.
