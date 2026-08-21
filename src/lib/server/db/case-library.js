@@ -27,7 +27,7 @@ export function parseCaseLibraryPage(params) {
 /** @param {{ search: string, tagId: string }} filters */
 function caseLibraryConditions(filters) {
   const conditions = [eq(cases.isActive, true), isNull(cases.previewSessionId)];
-  if (filters.search) conditions.push(like(cases.title, `%${filters.search}%`));
+  if (filters.search) conditions.push(like(cases.title, `%${filters.search.toLowerCase()}%`));
   if (filters.tagId) {
     conditions.push(sql`exists (
       select 1
