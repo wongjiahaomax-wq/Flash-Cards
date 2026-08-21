@@ -299,6 +299,12 @@ test('inactive stimulus parents and question relationships do not count as curre
   try {
     seedQuestions(fixture);
 
+    /**
+     * @param {string} promptId
+     * @param {string} promptSearch
+     * @param {string} answerSearch
+     * @param {'stimulusGroupUsageCount' | 'stimulusOptionUsageCount'} usageField
+     */
     async function assertExcluded(promptId, promptSearch, answerSearch, usageField) {
       const answerPage = await getQuestionLibraryPage(fixture.db, { ...questionFilters(), search: answerSearch }, { pageSize: 60 });
       assert.equal(answerPage.totalCount, 0, `${answerSearch} must not be searchable while its relationship is inactive`);
@@ -307,7 +313,8 @@ test('inactive stimulus parents and question relationships do not count as curre
       const row = promptPage.rows.find((item) => item.id === promptId);
       assert.ok(row, `expected production Prompt ${promptId} to remain visible`);
       assert.equal(row.usageCount, 0);
-      assert.equal(row[usageField], 0);
+      if (usageField === 'stimulusGroupUsageCount') assert.equal(row.stimulusGroupUsageCount, 0);
+      else assert.equal(row.stimulusOptionUsageCount, 0);
 
       const caseScope = await getQuestionLibraryPage(fixture.db, { ...questionFilters(), search: promptSearch, scope: 'case' }, { pageSize: 60 });
       assert.ok(!caseScope.rows.some((item) => item.id === promptId), `${promptId} must not satisfy scope=case`);
