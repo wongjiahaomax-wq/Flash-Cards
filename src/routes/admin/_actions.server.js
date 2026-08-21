@@ -237,7 +237,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'question-saved'));
+    redirect(303, selectedCaseRedirect(caseId, 'question-saved', '#questions'));
   },
 
   removeQuestion: async ({ request, locals, platform }) => {
