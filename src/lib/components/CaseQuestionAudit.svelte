@@ -45,6 +45,7 @@
                 <div class="source-cell">
                   <span><strong>{row.sourceLabel}</strong><small>{row.sourceName}</small></span>
                   {#if row.preview}
+                    {@const preview = row.preview}
                     <span class="source-preview" class:pinned={pinnedKey === row.key}>
                       <button
                         type="button"
@@ -55,18 +56,20 @@
                         onkeydown={previewKeydown}
                       >▧</button>
                       <span class="preview-popover" role="group" aria-label={`Source preview for ${row.sourceName}`}>
-                        {#if row.preview.type === 'image'}
-                          {#if row.preview.image.imageUrl}
-                            <button class="preview-image-button" type="button" onclick={() => onimageopen(row.preview.image, row.preview.subtitle)} aria-label={`Open ${row.sourceName} in full image viewer`}>
-                              <img src={row.preview.image.imageUrl} alt={row.preview.image.altText ?? ''} loading="lazy" />
+                        {#if preview.type === 'image'}
+                          {@const imagePreview = preview}
+                          {#if imagePreview.image.imageUrl}
+                            <button class="preview-image-button" type="button" onclick={() => onimageopen(imagePreview.image, imagePreview.subtitle)} aria-label={`Open ${row.sourceName} in full image viewer`}>
+                              <img src={imagePreview.image.imageUrl} alt={imagePreview.image.altText ?? ''} loading="lazy" />
                             </button>
                           {:else}<span class="missing">Image unavailable</span>{/if}
                         {:else}
+                          {@const setPreview = preview}
                           <span class="set-name">SET-WIDE · {row.sourceName}</span>
                           <span class="set-strip">
-                            {#each row.preview.images as image (image.id ?? image.assetId)}
+                            {#each setPreview.images as image (image.id ?? image.assetId)}
                               {#if image.imageUrl}
-                                <button type="button" onclick={() => onimageopen(image, row.preview.subtitle)} aria-label={`Open ${image.originalFilename ?? 'set image'} in full image viewer`}><img src={image.imageUrl} alt={image.altText ?? ''} loading="lazy" /></button>
+                                <button type="button" onclick={() => onimageopen(image, setPreview.subtitle)} aria-label={`Open ${image.originalFilename ?? 'set image'} in full image viewer`}><img src={image.imageUrl} alt={image.altText ?? ''} loading="lazy" /></button>
                               {/if}
                             {/each}
                           </span>
