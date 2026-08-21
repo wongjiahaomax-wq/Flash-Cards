@@ -326,12 +326,15 @@ async function loadCurrentSearchAnswerRows(db, promptIds) {
 }
 
 /**
- * SQLite/D1 lower() only guarantees ASCII case folding. For a query that
- * contains non-ASCII text, scan only Prompts with a direct normalized match or
- * non-ASCII searchable content in fixed-size SQL batches, then verify the old
- * Unicode-aware substring rule with JavaScript toLocaleLowerCase(). This
- * preserves exact search semantics without reintroducing one unbounded
- * Prompt/relationship materialisation.
+ * SQLite/D1 lower() only guarantees ASCII case folding. Direct SQL matches are
+ * therefore not fully equivalent to the previous JavaScript search even when
+ * the query itself is ASCII: non-ASCII stored text such as `Ketamine` can
+ * lowercase to an ASCII match such as `ketamine`. For every explicit search,
+ * scan only Prompts with a direct normalized match or non-ASCII searchable
+ * content in fixed-size SQL batches, then verify the old Unicode-aware
+ * substring rule with JavaScript toLocaleLowerCase(). This preserves exact
+ * search semantics without reintroducing one unbounded Prompt/relationship
+ * materialisation.
  *
  * @param {LearningDb} db
  * @param {{ search: string, topicId: string, scope: 'all' | 'shared' | 'case', tagId: string }} filters
@@ -461,8 +464,8 @@ function addCounts(counts, rows) {
 /**
  * Purpose-built bounded read model for /admin/questions.
  *
- * SQL identifies/counts matching production Prompt IDs first for normal ASCII
- * search/filter requests. Non-ASCII search keeps the old Unicode-aware
+ * Filter-only requests identify/count matching production Prompt IDs directly
+ * in SQL. Every explicit search keeps the old Unicode-aware
  * toLocaleLowerCase() semantics by scanning only direct/non-ASCII candidates
  * in fixed-size SQL batches. Final usage/topic/Tag materialisation remains
  * restricted to the visible Prompt IDs.
@@ -481,7 +484,7 @@ export async function getQuestionLibraryPage(db, filters, options = {}) {
   let totalPages;
   let page;
 
-  if (filters.search && /[^\x00-\x7f]/u.test(filters.search)) {
+  if (filters.search) {
     ({ promptRows, totalCount, totalPages, page } = await getUnicodeSearchPromptPage(db, filters, requestedPage, pageSize));
   } else {
     const where = and(...questionLibraryConditions(filters));
