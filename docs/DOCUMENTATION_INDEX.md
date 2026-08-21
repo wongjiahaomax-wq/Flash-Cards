@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 20 August 2026_
+_Last reviewed: 22 August 2026_
 
 This file identifies which repository documents describe the **verified deployed product**, which describe **current `main`**, which are subsystem contracts/runbooks, which are pending designs, and which are historical records.
 
@@ -153,6 +153,8 @@ Milestone ledger current through the merged PR #53–#59 sequence, while keeping
 ## Pending / forward designs
 
 These are intentional future designs, **not current implemented behavior**.
+
+- `CASE_EDITOR_FAST_REVIEW_DESIGN.md` — pending Compact-mode Case editor redesign centered on rapid full-Case review: persistent side-by-side Prompt/Answer visibility, accessible `ⓘ` explanations, compact image carousels/strips for multiple stimuli, always-visible image-linked Q&A, exact source identity while scrolling, preservation of existing image Move/Remove semantics, and a final **All questions in this Case** audit with hover/focus/tap image-source previews.
 
 The slide-ingestion **source reconstruction/extraction** step remains separate future workflow work even though the local reviewer/finalizer is implemented; do not infer that PPTX/PDF ingestion is automated from the existence of the local review tool.
 
