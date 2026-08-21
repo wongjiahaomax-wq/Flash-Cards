@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   CASE_EDITOR_LAYOUT_STORAGE_KEY,
   DEFAULT_CASE_EDITOR_LAYOUT,
+  getCaseEditorStorage,
   normalizeCaseEditorLayout,
   readCaseEditorLayout,
   writeCaseEditorLayout
@@ -35,8 +36,21 @@ test('Case editor layout reads and persists Classic and Compact values', () => {
   assert.equal(readCaseEditorLayout(storage), 'compact');
 });
 
-test('Case editor layout fails safely when browser storage is unavailable', () => {
+test('Case editor layout fails safely when browser storage methods are unavailable', () => {
   assert.equal(readCaseEditorLayout({ getItem() { throw new Error('blocked'); } }), 'compact');
   assert.equal(writeCaseEditorLayout({ setItem() { throw new Error('blocked'); } }, 'classic'), 'classic');
   assert.equal(writeCaseEditorLayout(null, 'invalid'), 'compact');
+});
+
+test('Case editor layout fails safely when localStorage property access is blocked', () => {
+  const blockedWindow = {};
+  Object.defineProperty(blockedWindow, 'localStorage', {
+    get() {
+      throw new Error('blocked');
+    }
+  });
+
+  assert.equal(getCaseEditorStorage(blockedWindow), null);
+  assert.equal(readCaseEditorLayout(getCaseEditorStorage(blockedWindow)), 'compact');
+  assert.equal(writeCaseEditorLayout(getCaseEditorStorage(blockedWindow), 'classic'), 'classic');
 });
