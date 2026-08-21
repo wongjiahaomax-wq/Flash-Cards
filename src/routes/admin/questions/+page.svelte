@@ -46,7 +46,7 @@
         <a class="table-row" href={'/admin/questions/' + question.id}>
           <strong>{question.promptMd}</strong>
           <span><span class:shared={question.hasSharedUsage} class="scope-badge">{question.scope}</span></span>
-          <span>{question.topicNames.length ? question.topicNames.join(', ') : '—'}</span>
+          <span>{question.topicNames.length ? question.topicNames.slice().sort().join(', ') : '—'}</span>
           <span class="tag-list">{#if question.tags.length}{#each question.tags as tag}<span class="tag-chip">{tag.name}</span>{/each}{:else}—{/if}</span>
           <span class="usage-count">{question.usageCount}</span>
         </a>
