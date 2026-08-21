@@ -85,7 +85,7 @@ test('option cards show Case-specific Q/A pairs while keeping reusable counts in
 
 test('Manage questions waits for the editor DOM, then reveals and focuses it', () => {
   const page = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
-  assert.ok(page.includes("import { tick } from 'svelte'"));
+  assert.match(page, /import \{[^}]*\btick\b[^}]*\} from 'svelte'/);
   assert.ok(page.includes('await tick()'));
   assert.ok(page.includes("scrollIntoView({ behavior: 'smooth', block: 'start' })"));
   assert.ok(page.includes('tabindex="-1"'));
