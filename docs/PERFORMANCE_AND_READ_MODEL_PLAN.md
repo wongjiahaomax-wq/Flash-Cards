@@ -91,15 +91,16 @@ The active Tag selector itself uses a lightweight Tag taxonomy query and does no
 
 `/admin/questions` now uses `getQuestionLibraryPage()` with a 60-row page size.
 
-For ordinary ASCII search/filter requests, the database identifies and bounds matching active production Question Prompt IDs before relationship materialisation. SQL-level matching preserves the established list semantics for:
+For filter-only requests with no search term, the database identifies, counts, and bounds matching active production Question Prompt IDs before relationship materialisation. SQL predicates preserve the established list semantics for:
 
-- Prompt and current answer-content search;
 - Topic association through active Concept/Case/Stimulus Group/Stimulus Option usages;
 - `scope=shared`, including active Concept Questions plus reusable Shared Questions and reusable Asset Questions;
 - `scope=case`, including active Case-wide, Stimulus Group, and Stimulus Option Questions;
 - Case Question Tag filtering through active production Case Question usage.
 
-SQLite/D1's built-in `lower()` does not provide full Unicode case folding. The previous Question Library searched with JavaScript `toLocaleLowerCase()` and therefore matched non-ASCII case pairs such as Greek `β`/`Β`. Pass 2 preserves that behavior rather than narrowing search semantics: when the search term contains non-ASCII text, SQL first restricts candidates to direct matches or Prompts with non-ASCII current searchable content, reads those candidates in fixed batches of at most 60 Prompt IDs, and verifies the exact legacy `toLocaleLowerCase().includes()` substring rule in JavaScript. It does not materialise the complete Prompt/relationship corpus in one read, and final usage/Topic/Tag enrichment remains restricted to the visible result page.
+Prompt/current-answer search retains the previous JavaScript search semantics. SQLite/D1's built-in `lower()` does not provide full Unicode case folding, whereas the previous Question Library used `toLocaleLowerCase().includes()`. This matters both for non-ASCII query terms such as Greek `Β-BLOCKER` matching stored `β-blocker`, and for an ASCII query that can match non-ASCII stored text after Unicode lowercasing, such as `ketamine` matching `Ketamine`.
+
+For every explicit search, SQL first applies production/current/Topic/scope/Tag predicates and restricts candidates to either a direct normalized SQL match or a Prompt with non-ASCII current searchable content. Those candidates are read in deterministic fixed batches of at most 60 Prompt IDs. Current searchable answers are fetched only for each bounded batch and the exact legacy `toLocaleLowerCase().includes()` substring rule is verified in JavaScript. The complete Prompt/relationship corpus is never materialised in one read, exact result totals/pages are preserved, and final usage/Topic/Tag enrichment remains restricted to the visible result page.
 
 After the page of Prompt IDs is selected, usage/topic summaries and displayed Case Question Tags are loaded only for those visible Prompt IDs. Reusable Shared/Asset Question usages continue to contribute to search, reusable classification, and usage counts without becoming Case Question Tags.
 
@@ -185,9 +186,9 @@ Before — Questions:
 
 After Pass 2 — Questions:
 
-- ordinary ASCII searches/filters derive the matching production Prompt IDs/count in SQL and select one bounded deterministic Prompt page;
-- non-ASCII searches preserve the previous Unicode-aware JavaScript matching rule over SQL-prefiltered candidates read in fixed 60-ID batches;
-- usage/topic/tag summaries are materialised only for visible Prompt IDs.
+- filter-only requests derive the matching production Prompt IDs/count in SQL and select one bounded deterministic Prompt page;
+- every explicit search preserves the previous Unicode-aware JavaScript matching rule over SQL-prefiltered candidates read in fixed 60-ID batches;
+- usage/topic/tag summaries are materialised only for visible result-page Prompt IDs.
 
 No benchmark numbers are claimed. The evidence is the structural reduction in rows materialised and transferred per navigation.
 
