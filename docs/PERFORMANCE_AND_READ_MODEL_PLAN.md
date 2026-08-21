@@ -79,9 +79,11 @@ The Case list now:
 
 1. filters active production Cases by title and optional active Case Tag in SQL;
 2. counts all matching Cases in SQL;
-3. selects one deterministic page ordered by title then Case ID;
-4. fetches active Tag relationships only for the visible Case IDs;
+3. selects one deterministic Case-only page ordered by title then Case ID;
+4. fetches primary Topic and active Tag relationships only for the visible Case IDs;
 5. returns true total/page metadata to the UI.
+
+Paginating the Case table before relationship enrichment is intentional. It prevents malformed duplicate primary-Topic relationships from consuming more than one page slot even though normal authoring enforces one primary Topic at the application layer.
 
 The active Tag selector itself uses a lightweight Tag taxonomy query and does not load global Case/Question Tag usage rows merely to populate an option list.
 
@@ -89,13 +91,15 @@ The active Tag selector itself uses a lightweight Tag taxonomy query and does no
 
 `/admin/questions` now uses `getQuestionLibraryPage()` with a 60-row page size.
 
-The database identifies and bounds matching active production Question Prompt IDs before relationship materialisation. SQL-level matching preserves the established list semantics for:
+For ordinary ASCII search/filter requests, the database identifies and bounds matching active production Question Prompt IDs before relationship materialisation. SQL-level matching preserves the established list semantics for:
 
 - Prompt and current answer-content search;
 - Topic association through active Concept/Case/Stimulus Group/Stimulus Option usages;
 - `scope=shared`, including active Concept Questions plus reusable Shared Questions and reusable Asset Questions;
 - `scope=case`, including active Case-wide, Stimulus Group, and Stimulus Option Questions;
 - Case Question Tag filtering through active production Case Question usage.
+
+SQLite/D1's built-in `lower()` does not provide full Unicode case folding. The previous Question Library searched with JavaScript `toLocaleLowerCase()` and therefore matched non-ASCII case pairs such as Greek `β`/`Β`. Pass 2 preserves that behavior rather than narrowing search semantics: when the search term contains non-ASCII text, SQL first restricts candidates to direct matches or Prompts with non-ASCII current searchable content, reads those candidates in fixed batches of at most 60 Prompt IDs, and verifies the exact legacy `toLocaleLowerCase().includes()` substring rule in JavaScript. It does not materialise the complete Prompt/relationship corpus in one read, and final usage/Topic/Tag enrichment remains restricted to the visible result page.
 
 After the page of Prompt IDs is selected, usage/topic summaries and displayed Case Question Tags are loaded only for those visible Prompt IDs. Reusable Shared/Asset Question usages continue to contribute to search, reusable classification, and usage counts without becoming Case Question Tags.
 
@@ -172,8 +176,8 @@ After Pass 2 — Cases:
 
 - matching Cases are counted in SQL;
 - Tag filtering happens in SQL;
-- one bounded deterministic page is loaded;
-- Tag relationships are fetched only for visible Case IDs.
+- one bounded deterministic Case-only page is loaded before relationship enrichment;
+- primary Topic and Tag relationships are fetched only for visible Case IDs.
 
 Before — Questions:
 
@@ -181,8 +185,8 @@ Before — Questions:
 
 After Pass 2 — Questions:
 
-- matching production Prompt IDs/count are derived in SQL;
-- one bounded deterministic Prompt page is selected;
+- ordinary ASCII searches/filters derive the matching production Prompt IDs/count in SQL and select one bounded deterministic Prompt page;
+- non-ASCII searches preserve the previous Unicode-aware JavaScript matching rule over SQL-prefiltered candidates read in fixed 60-ID batches;
 - usage/topic/tag summaries are materialised only for visible Prompt IDs.
 
 No benchmark numbers are claimed. The evidence is the structural reduction in rows materialised and transferred per navigation.
