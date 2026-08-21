@@ -14,7 +14,7 @@
 
 <div class="image-strip-shell" aria-label={label}>
   <button class="scroll-button" type="button" aria-label={`Scroll ${label} left`} onclick={() => scroll(-1)}>←</button>
-  <div class="image-strip" bind:this={strip} role="list" tabindex="0" aria-label={`${label}, ${items.length} images`}>
+  <div class="image-strip" bind:this={strip} role="list" aria-label={`${label}, ${items.length} images`}>
     {#each items as item, index (item.id)}
       <span class="strip-list-item" role="listitem">
         <button
