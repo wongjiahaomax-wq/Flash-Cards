@@ -42,6 +42,21 @@ function caseLibraryConditions(filters) {
 }
 
 /** @param {LearningDb} db @param {string[]} caseIds */
+async function listPagePrimaryTopics(db, caseIds) {
+  if (!caseIds.length) return [];
+  return db
+    .select({
+      caseId: caseConcepts.caseId,
+      conceptId: caseConcepts.conceptId,
+      conceptName: concepts.name
+    })
+    .from(caseConcepts)
+    .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .where(and(inArray(caseConcepts.caseId, caseIds), eq(caseConcepts.role, 'primary')))
+    .orderBy(asc(caseConcepts.caseId), asc(concepts.name), asc(caseConcepts.conceptId));
+}
+
+/** @param {LearningDb} db @param {string[]} caseIds */
 async function listPageCaseTags(db, caseIds) {
   if (!caseIds.length) return [];
   return db
@@ -55,8 +70,9 @@ async function listPageCaseTags(db, caseIds) {
 /**
  * Purpose-built bounded read model for /admin/cases.
  *
- * Filtering/counting and pagination happen in SQL. Tag relationship
- * enrichment is a second query restricted to the visible Case IDs.
+ * Filtering/counting and pagination happen against Cases only. Primary Topic
+ * and Tag relationship enrichment are then restricted to the visible Case IDs,
+ * so malformed duplicate primary relationships cannot consume page slots.
  *
  * @param {LearningDb} db
  * @param {{ search: string, tagId: string }} filters
@@ -75,20 +91,25 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
     .select({
       id: cases.id,
       title: cases.title,
-      vignetteMd: cases.vignetteMd,
-      conceptId: caseConcepts.conceptId,
-      conceptName: concepts.name
+      vignetteMd: cases.vignetteMd
     })
     .from(cases)
-    .leftJoin(caseConcepts, and(eq(caseConcepts.caseId, cases.id), eq(caseConcepts.role, 'primary')))
-    .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
     .where(where)
     .orderBy(asc(cases.title), asc(cases.id))
     .limit(pageSize)
     .offset((page - 1) * pageSize);
 
   const caseIds = rawRows.map((row) => row.id);
-  const tagRows = await listPageCaseTags(db, caseIds);
+  const [primaryRows, tagRows] = await Promise.all([listPagePrimaryTopics(db, caseIds), listPageCaseTags(db, caseIds)]);
+
+  /** @type {Map<string, { conceptId: string, conceptName: string | null }>} */
+  const primaryByCase = new Map();
+  for (const primary of primaryRows) {
+    if (!primaryByCase.has(primary.caseId)) {
+      primaryByCase.set(primary.caseId, { conceptId: primary.conceptId, conceptName: primary.conceptName });
+    }
+  }
+
   /** @type {Map<string, { id: string, name: string }[]>} */
   const tagsByCase = new Map();
   for (const tag of tagRows) {
@@ -98,7 +119,12 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
   }
 
   return {
-    rows: rawRows.map((row) => ({ ...row, tags: tagsByCase.get(row.id) ?? [] })),
+    rows: rawRows.map((row) => ({
+      ...row,
+      conceptId: primaryByCase.get(row.id)?.conceptId ?? null,
+      conceptName: primaryByCase.get(row.id)?.conceptName ?? null,
+      tags: tagsByCase.get(row.id) ?? []
+    })),
     totalCount,
     totalPages,
     page,
