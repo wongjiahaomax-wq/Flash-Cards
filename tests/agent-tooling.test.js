@@ -63,7 +63,7 @@ test('CI validation overrides only diff semantics while sharing the full check s
     command: 'git',
     args: ['diff', '--check', 'HEAD^1', 'HEAD'],
   });
-  assert.deepEqual(commands.at(-1).args, ['scripts/local-auth-smoke.mjs']);
+  assert.deepEqual(commands.at(-1)?.args, ['scripts/local-auth-smoke.mjs']);
 });
 
 test('PR CI delegates ordinary checks to the shared CI runner', () => {
