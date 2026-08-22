@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { VALIDATION_MODE_CHECK_IDS, validationCommandsForMode } from './validation-contract.mjs';
 
 /** @typedef {'fast' | 'full'} ValidationMode */
 /** @typedef {[string, string[]]} ValidationCommand */
@@ -7,22 +8,17 @@ import { pathToFileURL } from 'node:url';
 /** @typedef {(command: string, args: string[], options: { stdio: 'inherit', shell: false }) => ValidationResult} ValidationSpawn */
 /** @typedef {{ npm_execpath?: string, [key: string]: string | undefined }} NpmExecutionEnv */
 
-/** @type {Readonly<Record<ValidationMode, ValidationCommand[]>>} */
-export const VALIDATION_MODES = Object.freeze({
-  fast: [
-    ['git', ['diff', '--check']],
-    ['npm', ['test']],
-    ['npm', ['run', 'check']],
-  ],
-  full: [
-    ['git', ['diff', '--check']],
-    ['npm', ['run', 'db:check']],
-    ['npm', ['test']],
-    ['npm', ['run', 'check']],
-    ['npm', ['run', 'build']],
-    ['node', ['scripts/local-auth-smoke.mjs']],
-  ],
-});
+/**
+ * Backward-compatible derived command view. The manually maintained authority is
+ * VALIDATION_MODE_CHECK_IDS in validation-contract.mjs.
+ * @type {Readonly<Record<ValidationMode, ValidationCommand[]>>}
+ */
+export const VALIDATION_MODES = Object.freeze(Object.fromEntries(
+  Object.keys(VALIDATION_MODE_CHECK_IDS).map((mode) => [
+    mode,
+    validationCommandsForMode(mode).map(({ command, args }) => [command, args]),
+  ]),
+));
 
 /**
  * Resolve logical commands without relying on Windows `.cmd` child-process wrappers.
@@ -49,9 +45,9 @@ export function runValidation(mode, spawn = defaultSpawn) {
     console.error(`Unknown validation mode: ${mode}. Use fast or full.`);
     return 2;
   }
-  const commands = VALIDATION_MODES[mode];
+  const commands = validationCommandsForMode(mode);
 
-  for (const [command, args] of commands) {
+  for (const { command, args } of commands) {
     console.log(`\n> ${command} ${args.join(' ')}`);
     const invocation = resolveInvocation(command, args);
     const result = spawn(invocation.executable, invocation.args, { stdio: 'inherit', shell: false });
