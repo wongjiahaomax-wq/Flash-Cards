@@ -4,6 +4,24 @@ Purpose: route a coding task to the **minimum current context** needed before ed
 
 Always read the root `AGENTS.md`, the nearest scoped `AGENTS.md`, and the directly related implementation/tests. Load more context only when the task crosses subsystem boundaries.
 
+## Local agent commands
+
+Use these from the repository root:
+
+```sh
+npm run agent:doctor
+npm run validate:fast
+npm run validate:full
+```
+
+`agent:doctor` is a read-only pre-edit environment check. It reports Git state, the Node 22 contract, repository-installed Wrangler consistency, and the presence of local developer state without reading secrets or modifying D1/R2.
+
+`validate:fast` is the normal iteration loop: whitespace validation, Node tests, and Svelte checks.
+
+`validate:full` is the ordinary local pre-handoff contract: whitespace validation, migration/schema checks, Node tests, Svelte checks, build, and the existing local Better Auth/D1 smoke test. It does not install dependencies or run production operations.
+
+Runtime-affecting changes still require the separate existing `npm run runtime:smoke` contract. This v1 deliberately does not implement changed-file validation intelligence.
+
 | Task | Scoped guidance | Minimum authoritative context | Common checks |
 | --- | --- | --- | --- |
 | Admin UX / Case editor | `src/routes/admin/AGENTS.md` | `AUTHORING_MODEL.md`; relevant current Admin/image design | `npm test`; `npm run check`; `npm run build` |
