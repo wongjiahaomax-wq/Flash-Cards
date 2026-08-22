@@ -1,15 +1,17 @@
 <script>
-  import { onMount, tick } from 'svelte';
+  import { onMount } from 'svelte';
   import { getCaseEditorStorage, readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
-  import { buildCaseFastReviewSummary, buildCaseQuestionAudit, reusableSummaryForContext } from '$lib/admin-case-question-audit.js';
-  import { reconcileCasePickerSelection } from '$lib/admin-image-selection.js';
-  import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
+  import { buildCaseFastReviewSummary, buildCaseQuestionAudit } from '$lib/admin-case-question-audit.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
-  import CaseImageStrip from '$lib/components/CaseImageStrip.svelte';
   import CaseQuestionAudit from '$lib/components/CaseQuestionAudit.svelte';
-  import ImageQuestionCounts from '$lib/components/ImageQuestionCounts.svelte';
-  import ImageQuestionReview from '$lib/components/ImageQuestionReview.svelte';
-  import ReusableImageQuestionManager from '$lib/components/ReusableImageQuestionManager.svelte';
+  import CaseDetailsSection from '$lib/components/case-editor/CaseDetailsSection.svelte';
+  import CaseEditorHeader from '$lib/components/case-editor/CaseEditorHeader.svelte';
+  import CaseEditorNavigation from '$lib/components/case-editor/CaseEditorNavigation.svelte';
+  import CaseImagePickerDialog from '$lib/components/case-editor/CaseImagePickerDialog.svelte';
+  import CaseImagesSection from '$lib/components/case-editor/CaseImagesSection.svelte';
+  import CasePreviewSection from '$lib/components/case-editor/CasePreviewSection.svelte';
+  import CaseQuestionsSection from '$lib/components/case-editor/CaseQuestionsSection.svelte';
+  import CaseTopicsSection from '$lib/components/case-editor/CaseTopicsSection.svelte';
 
   /** @typedef {{ imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, assetId?: string }} ViewableAsset */
   /** @typedef {'classic' | 'compact'} CaseEditorLayout */
@@ -19,21 +21,10 @@
   let editorBase = $derived(data.previewMode ? '/preview-admin' : '/admin');
   let fastReviewSummary = $derived(buildCaseFastReviewSummary(selectedCase));
   let caseQuestionAudit = $derived(buildCaseQuestionAudit(selectedCase));
-  let newQuestionScope = $state('case');
   /** @type {CaseEditorLayout} */
   let editorLayout = $state('compact');
-  /** @type {string | null} */
-  let selectedOptionId = $state(null);
   /** @type {{ src: string, alt: string, title: string, subtitle: string } | null} */
   let viewerImage = $state(null);
-  /** @type {HTMLDialogElement | undefined} */
-  let pickerDialog = $state();
-  /** @type {HTMLButtonElement | undefined} */
-  let pickerCloseButton = $state();
-  /** @type {Set<string>} */
-  let pickerSelected = $state(new Set());
-  /** @type {string | null} */
-  let pickerContextKey = $state(null);
 
   onMount(() => {
     editorLayout = readCaseEditorLayout(getCaseEditorStorage(window));
@@ -44,65 +35,11 @@
     editorLayout = writeCaseEditorLayout(getCaseEditorStorage(window), layout);
   }
 
-  $effect(() => {
-    const nextContextKey = `${selectedCase?.case.id ?? ''}:${data.imagePicker?.targetGroupId ?? 'fixed'}`;
-    const orderedIds = data.imagePicker?.assets?.map((asset) => asset.id) ?? [];
-    const visibleIds = new Set(orderedIds);
-    const contextChanged = Boolean(pickerContextKey && pickerContextKey !== nextContextKey);
-    const hasHiddenSelection = [...pickerSelected].some((assetId) => !visibleIds.has(assetId));
-    if (contextChanged || hasHiddenSelection) {
-      const reconciled = reconcileCasePickerSelection({ selectedIds: pickerSelected, previousContextKey: pickerContextKey, nextContextKey, orderedIds });
-      pickerSelected = reconciled.selectedIds;
-    }
-    pickerContextKey = nextContextKey;
-    if (data.imagePicker?.open && pickerDialog && !pickerDialog.open) {
-      pickerDialog.showModal();
-      requestAnimationFrame(() => pickerCloseButton?.focus());
-    }
-  });
-
   /** @param {ViewableAsset} asset @param {string} [subtitle] */
   function showImage(asset, subtitle = '') {
     if (!asset?.imageUrl) return;
     viewerImage = { src: asset.imageUrl, alt: asset.altText ?? '', title: asset.originalFilename ?? asset.assetId ?? 'Teaching image', subtitle };
   }
-
-  /** @param {string} assetId */
-  function togglePickerAsset(assetId) {
-    const next = new Set(pickerSelected);
-    if (next.has(assetId)) next.delete(assetId);
-    else next.add(assetId);
-    pickerSelected = next;
-  }
-
-  /** @param {string} targetId */
-  async function focusReviewTarget(targetId) {
-    await tick();
-    const target = document.getElementById(targetId);
-    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    target?.focus({ preventScroll: true });
-  }
-
-  /** @param {string} optionId */
-  async function selectOption(optionId) {
-    selectedOptionId = selectedOptionId === optionId ? null : optionId;
-    if (selectedOptionId) {
-      await tick();
-      const editor = document.getElementById(`option-editor-${optionId}`);
-      editor?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      editor?.focus({ preventScroll: true });
-    }
-  }
-
-  /** @param {string} assetId @param {string | null} [optionId] */
-  function reusableSummary(assetId, optionId = null) {
-    return reusableSummaryForContext(selectedCase, assetId, optionId);
-  }
-
-  $effect(() => {
-    const optionIds = selectedCase?.stimulusGroups.flatMap((group) => group.options.map((option) => option.id)) ?? [];
-    if (selectedOptionId && !optionIds.includes(selectedOptionId)) selectedOptionId = null;
-  });
 </script>
 
 <svelte:head><title>{selectedCase?.case.title ?? 'Case'} | Admin | Flash-Cards</title></svelte:head>
@@ -110,241 +47,28 @@
 {#if !selectedCase}
   <section class="panel"><h1>Case not found</h1><p class="muted">This Case may be inactive or no longer available.</p><a class="button" href="/admin/cases">Back to Cases</a></section>
 {:else}
-  <section class="page-heading">
-    <div><p class="eyebrow">Case editor</p><h1>{selectedCase.case.title}</h1><p class="muted">Topic: {#if selectedCase.case.conceptId}<a class="topic-link" href={'/admin/topics/' + selectedCase.case.conceptId}>{selectedCase.case.conceptName}</a>{:else}No primary Topic assigned{/if}</p></div>
-    <div class="actions"><a class="button" href="/admin/cases">All Cases</a>{#if data.previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href="/study">Preview in Study</a>{/if}</div>
-  </section>
+  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} />
 
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   <div class="case-editor" data-editor-layout={editorLayout}>
-    <div class="layout-preference">
-      <fieldset class="layout-selector">
-        <legend>Layout</legend>
-        <label class:selected={editorLayout === 'classic'}><input type="radio" name="case_editor_layout" value="classic" checked={editorLayout === 'classic'} onchange={() => setEditorLayout('classic')} /> Classic</label>
-        <label class:selected={editorLayout === 'compact'}><input type="radio" name="case_editor_layout" value="compact" checked={editorLayout === 'compact'} onchange={() => setEditorLayout('compact')} /> Compact</label>
-      </fieldset>
-    </div>
-
-    {#if editorLayout === 'compact'}
-      <section class="fast-review-summary" aria-label="Case completeness summary">
-        <div class="fast-topic-context">
-          {#if primaryTopic}<a class="topic-pill" href={'/admin/topics/' + primaryTopic.id}>{primaryTopic.name}<span>PRIMARY</span></a>{/if}
-          {#each selectedCase.topics.filter((topic) => topic.role === 'secondary' && topic.isActive) as topic}<a class="topic-pill secondary" href={'/admin/topics/' + topic.id}>{topic.name}<span>STUDY TOPIC</span></a>{/each}
-        </div>
-        <div class="fast-counts">
-          <span><strong>{fastReviewSummary.fixedImages}</strong> fixed {fastReviewSummary.fixedImages === 1 ? 'image' : 'images'}</span>
-          <span><strong>{fastReviewSummary.alternativeImages}</strong> alternatives in {fastReviewSummary.alternativeSets} {fastReviewSummary.alternativeSets === 1 ? 'set' : 'sets'}</span>
-          <span><strong>{fastReviewSummary.caseWideQuestions}</strong> Case-wide</span>
-          <span><strong>{fastReviewSummary.caseSpecificImageQuestions}</strong> image-specific</span>
-          <span><strong>{fastReviewSummary.reusableImageQuestionsUsed}</strong> reusable used</span>
-          <span><strong>{fastReviewSummary.setWideQuestions}</strong> set-wide</span>
-          <a href="#all-questions"><strong>{fastReviewSummary.allQuestions}</strong> total Case questions</a>
-        </div>
-      </section>
-      <div class="compact-authoring-rule"><strong>Question scope</strong><AccessibleInfo label="question scope" text="Case-wide questions apply to the whole presentation. Case-specific Image Questions belong to this Case plus one exact stimulus. Reusable Image Questions belong to the exact Asset and require explicit opt-in. Set-wide questions apply to every option in one Alternative Set." /></div>
-    {:else}
-      <div class="authoring-rule"><strong>Authoring rule:</strong> choose where the question applies. Case-wide questions belong to the clinical presentation; Case-specific Image Questions belong only to this Case + image context; Reusable Image Questions belong to the exact Asset and require explicit Case opt-in.</div>
-    {/if}
-
-    <nav class="section-nav" aria-label="Case editor sections">
-      <a href="#topics">Topics <span>{selectedCase.topics.length}</span></a><a href="#case">Case</a><a href="#images">Images <span>{selectedCase.attached.length + selectedCase.stimulusGroups.reduce((count, group) => count + group.options.length, 0)}</span></a><a href="#questions">Case questions <span>{selectedCase.questions.length}</span></a>{#if editorLayout === 'compact'}<a href="#all-questions">All questions <span>{caseQuestionAudit.length}</span></a>{/if}<a href="#preview">Preview</a>
-    </nav>
-
-    <section id="topics" class="panel stack">
-      <div><p class="eyebrow">Learner routing</p><h2>Topics <span class="count">{selectedCase.topics.length}</span>{#if editorLayout === 'compact'}<AccessibleInfo label="Topics" text="The Primary Topic is the Case's canonical classification. Additional Study Topics are separate learner routes and should only be attached when every valid Case configuration remains a legitimate example." />{/if}</h2><p class="muted compact-hide-explainer">The Primary/default Topic is the Case's canonical classification. Additional Study Topics are separate learner routes and may be selected during study.</p></div>
-      <div class="topic-primary">
-        <div class="topic-row-heading"><div><strong>Primary/default Topic</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Primary Topic" text="Exactly one active Topic is the canonical/default classification for this Case." />{/if}<span class="topic-help">Exactly one active Case Topic must be primary.</span></div>{#if selectedCase.topics.find((topic) => topic.role === 'primary' && !topic.isActive)}<span class="status-badge inactive">Inactive relationship</span>{/if}</div>
-        <div class="topic-primary-current">{#if primaryTopic}<a href={'/admin/topics/' + primaryTopic.id}>{primaryTopic.name}</a> · <a href={'/admin/topics/' + primaryTopic.id}>Edit Topic</a>{#if !primaryTopic.isActive}<span class="status-badge inactive">Topic inactive — select an active replacement</span>{/if}{:else}<span class="form-error inline-error">No primary Topic is attached. Select an active replacement below.</span>{/if}</div>
-        <form method="POST" action="?/promoteTopic" class="topic-primary-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><label class="topic-select-label">Change primary/default Topic<select name="concept_id" required><option value="" disabled selected>Select an active Topic</option>{#each data.concepts as concept}{#if concept.id !== primaryTopic?.id}<option value={concept.id}>{concept.name}</option>{/if}{/each}</select></label><button class="button primary" type="submit">Save primary Topic</button></form>
-      </div>
-      <div class="topic-secondary">
-        <div class="topic-row-heading"><div><strong>Additional Study Topics</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Study Topic" text="An Additional Study Topic is another learner route to this same Case. It is not a generic Tag." />{/if}<span class="topic-help">These attachments preserve cross-topic learner routing; they are not generic tags.</span></div></div>
-        {#if selectedCase.topics.filter((topic) => topic.role === 'secondary').length === 0}<p class="empty-state">No additional Study Topics are attached.</p>{:else}<div class="topic-list">{#each selectedCase.topics.filter((topic) => topic.role === 'secondary') as topic}<div class="topic-list-row"><div><a href={'/admin/topics/' + topic.id}>{topic.name}</a>{#if !topic.isActive}<span class="status-badge inactive">Inactive Topic — historical attachment</span>{/if}</div><div class="actions">{#if topic.isActive}<form method="POST" action="?/promoteTopic"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="concept_id" value={topic.id} /><button class="button small" type="submit">Make primary</button></form>{/if}<form method="POST" action="?/removeSecondaryTopic"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="concept_id" value={topic.id} /><button class="button danger small" type="submit">Remove</button></form></div></div>{/each}</div>{/if}
-        <form method="POST" action="?/addSecondaryTopic" class="topic-add-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><label>Add an active Study Topic<select name="concept_id" required><option value="" disabled selected>Select a Topic</option>{#each data.concepts as concept}{#if !selectedCase.topics.some((topic) => topic.id === concept.id)}<option value={concept.id}>{concept.name}</option>{/if}{/each}</select></label><button class="button" type="submit">Add Topic</button></form>
-        {#if !data.previewMode}
-          <div class="topic-create">
-            <div class="topic-row-heading"><div><strong>Create a new Topic</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Create Topic" text="Create a Topic here, then choose whether it becomes the canonical Primary Topic or an Additional Study Topic for this Case." />{/if}<span class="topic-help">Create it here and choose how it should route learners for this Case.</span></div></div>
-            <form method="POST" action="?/createCaseTopic" class="topic-create-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><label>Topic name<input name="name" maxlength="200" required placeholder="e.g. Pericarditis" /></label><div class="actions"><button class="button primary" type="submit" name="relationship_intent" value="primary">Create &amp; make primary</button><button class="button" type="submit" name="relationship_intent" value="secondary">Create &amp; add as Study Topic</button></div></form>
-          </div>
-        {/if}
-      </div>
-    </section>
-
-    <section id="case" class="panel stack">
-      <div><p class="eyebrow">Clinical presentation</p><h2>Case{#if editorLayout === 'compact'}<AccessibleInfo label="Case" text="The Case is one coherent clinical presentation. The internal title is Admin-facing; the learner sees the vignette/stem and selected stimuli." />{/if}</h2><p class="muted compact-hide-explainer">Cases under the same Topic can have different stems, causes, findings, or educational intent. The internal title is not shown to learners.</p></div>
-      <form method="POST" action="?/updateCase" class="form-grid"><input type="hidden" name="case_id" value={selectedCase.case.id} /><label>Internal Case title<input name="title" value={selectedCase.case.title} maxlength="300" required /></label><div class="wide current-case-topic"><span class="muted">Current primary/default Topic:</span> {#if primaryTopic}<a href={'/admin/topics/' + primaryTopic.id}>{primaryTopic.name}</a>{:else}No primary Topic assigned{/if}. Manage Topic relationships in the <a href="#topics">Topics section</a>.</div><label class="wide">Case stem / vignette <span class="muted">(optional)</span><textarea name="vignette_md" rows="7" maxlength="5000">{selectedCase.case.vignetteMd ?? ''}</textarea></label><label>Questions per Review<select name="question_selection_mode"><option value="automatic" selected={selectedCase.case.questionSelectionMode === 'automatic'}>Automatic</option><option value="all" selected={selectedCase.case.questionSelectionMode === 'all'}>Ask all eligible</option><option value="fixed" selected={selectedCase.case.questionSelectionMode === 'fixed'}>Choose N questions</option></select></label><label>Question count <span class="muted">(used for Choose N)</span><input type="number" name="question_count" min="1" value={selectedCase.case.questionCount ?? ''} /></label><div class="wide"><button class="button primary" type="submit">Save Case</button></div></form>
-    </section>
-
-    <section id="images" class="panel stack image-authoring">
-      <div class="panel-heading"><div><p class="eyebrow">Clinical presentation</p><h2>Images{#if editorLayout === 'compact'}<AccessibleInfo label="Case images" text="Fixed images are shown whenever this Case is reviewed. Each active Alternative Set selects one active option according to the existing learner rules." />{/if}</h2><p class="muted compact-hide-explainer">Fixed images appear in every applicable Review. Each active alternative set selects one active image according to the existing stimulus rules.</p></div><a class="button primary" href={`?picker=1#images`}>Add images from library</a></div>
-      <div class="image-subsection stack">
-        <div><h3>Fixed images <span class="count">{selectedCase.attached.length}</span>{#if editorLayout === 'compact'}<AccessibleInfo label="Fixed image" text="A fixed image is a Case Asset shown in every applicable Review. It is distinct from an option inside an Alternative Set." />{/if}</h3><p class="muted compact-hide-explainer">These images are always shown with this Case. You can assign Case-specific questions or explicitly reuse canonical Asset questions.</p></div>
-        {#if editorLayout === 'compact' && selectedCase.attached.length > 1}
-          <CaseImageStrip label="Fixed Case images" items={selectedCase.attached.map((asset) => ({ ...asset, id: `fixed-${asset.assetId}`, status: 'FIXED' }))} onselect={(item) => focusReviewTarget(`fixed-image-${item.assetId}`)} />
-        {/if}
-        {#if selectedCase.attached.length === 0}<p class="empty-state">No fixed images attached yet.</p>{/if}
-        {#each selectedCase.attached as asset, index}
-          {@const reusable = reusableSummary(asset.assetId)}
-          <article id={`fixed-image-${asset.assetId}`} class="fixed-asset-card" tabindex="-1">
-            <div class="asset-card-heading"><div class="asset-title"><span class="order-badge">{index + 1}</span><div><strong>{asset.originalFilename ?? asset.assetId}</strong><span class="muted">{asset.altText || 'No alt text'}</span></div></div><span class="status-badge">Fixed</span></div>
-            {#if asset.imageUrl}<button class="fixed-image-preview" type="button" onclick={() => showImage(asset, 'Fixed Case image')} aria-label={`Enlarge ${asset.originalFilename ?? 'fixed image'}`}><img src={asset.imageUrl} alt={asset.altText ?? ''} /></button>{:else}<div class="inactive-image large">Inactive image</div>{/if}
-            <div class="asset-meta">{#if asset.sourceLabel}<span>Source: {#if asset.sourceUrl}<a href={asset.sourceUrl} target="_blank" rel="noreferrer">{asset.sourceLabel}</a>{:else}{asset.sourceLabel}{/if}</span>{/if}{#if asset.licence}<span>Licence: {asset.licence}</span>{/if}</div>
-            <form method="POST" action="?/caption" class="stack"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><label>Case-specific caption<textarea name="caption" rows="2" maxlength="1000">{asset.captionMd ?? ''}</textarea></label><button class="button small" type="submit">Save caption</button></form>
-            <ImageQuestionCounts caseSpecificCount={0} {reusable} />
-            {#if !data.previewMode && asset.isActive}
-              <details class="specific-questions"><summary>Manage questions</summary><div class="specific-body stack">
-                <section class="question-management-section"><div><h4>Case-specific Image Questions <span class="count">0</span></h4><p class="muted">These belong only to this Case + image context. Adding one keeps the same learner-visible image behaviour and performs the existing safe fixed-image conversion automatically.</p></div>
-                  <form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack image-question-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="scope" value="stimulus" /><input type="hidden" name="target" value={`fixed:${asset.assetId}`} /><label class="question-prompt-field">Question prompt<textarea name="prompt_md" rows="2" required placeholder="e.g. What are the ECG changes?"></textarea></label><label class="question-answer-field">Answer for this Case and image<textarea name="answer_md" rows="2" required></textarea></label><div class="image-question-actions"><button class="button small" type="submit">Add Case-specific Image Question</button></div></form>
-                  {#if selectedCase.questions.length > 0}<details class="move-existing-question"><summary>Move existing Case question here</summary><form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="specific-body stack"><input type="hidden" name="intent" value="move" /><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="target" value={`fixed:${asset.assetId}`} /><label>Case question<select name="prompt_id" required><option value="" disabled selected>Choose a Case question</option>{#each selectedCase.questions as caseQuestion}<option value={caseQuestion.questionPromptId}>{caseQuestion.promptMd}</option>{/each}</select></label><div><button class="button small" type="submit">Move question here</button></div></form></details>{/if}
-                </section>
-                <ReusableImageQuestionManager summary={reusable} caseId={selectedCase.case.id} assetId={asset.assetId} previewMode={data.previewMode} />
-              </div></details>
-            {/if}
-            <div class="actions"><form method="POST" action="?/reorder"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><input type="hidden" name="direction" value="up" /><button class="button small" type="submit" disabled={index === 0}>Move up</button></form><form method="POST" action="?/reorder"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><input type="hidden" name="direction" value="down" /><button class="button small" type="submit" disabled={index === selectedCase.attached.length - 1}>Move down</button></form><form method="POST" action="?/detach"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><button class="button danger small" type="submit">Detach</button></form></div>
-            <details class="advanced compact-disclosure"><summary>Alternative-set actions</summary><div class="advanced-body stack"><form method="POST" action="?/startAlternativeSet" class="move-to-alternatives"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><label>Start a new alternative set from this image<input name="set_name" required placeholder="e.g. ECG" /></label><button class="button small" type="submit">Start alternative set</button></form>{#if selectedCase.stimulusGroups.length > 0}<form method="POST" action="?/addStimulusOption" class="move-to-alternatives"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="asset_id" value={asset.assetId} /><input type="hidden" name="convert_fixed" value="on" /><label>Move into an existing set<select name="group_id" required><option value="">Choose alternative set</option>{#each selectedCase.stimulusGroups as group}<option value={group.id}>{group.name}</option>{/each}</select></label><button class="button small" type="submit">Move into set</button></form>{/if}</div></details>
-          </article>
-        {/each}
-      </div>
-
-      <div class="image-subsection stack">
-        <div class="subsection-heading"><div><h3>Alternative image sets <span class="count">{selectedCase.stimulusGroups.length}</span>{#if editorLayout === 'compact'}<AccessibleInfo label="Alternative image set" text="An Alternative Set contains interchangeable image options for the same Case. Each active set selects one active option; an option is not merely a non-fixed image." />{/if}</h3><p class="muted compact-hide-explainer">Use these when the Case stays the same but one example image may vary between attempts.</p></div></div>
-        <details class="create-set-disclosure"><summary>Create an empty alternative set</summary><div class="advanced-body"><form method="POST" action="?/createStimulusGroup" class="start-alternative-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="specific_question_mode" value="none" /><label>Set name<input name="name" required placeholder="e.g. ECG" /></label><button class="button" type="submit">Create set</button></form></div></details>
-        {#if selectedCase.stimulusGroups.length === 0}<p class="empty-state">No alternative image sets yet. Start one from a fixed image or create an empty set.</p>{/if}
-        {#each selectedCase.stimulusGroups as group}
-          <article class="alternative-set">
-            <div class="card-heading"><div><p class="eyebrow">Alternative set</p><h3>{group.name} <span class="count">{group.options.length} images</span></h3></div><div class="actions"><span class:inactive={!group.isActive} class="status-badge">{group.isActive ? 'Active' : 'Inactive'}</span>{#if group.isActive}<a class="button small" href={`?picker=1&target_group=${group.id}#images`}>+ Add image</a>{/if}</div></div>
-            {#if editorLayout === 'compact' && group.options.length > 0}
-              <CaseImageStrip label={`${group.name} alternative images`} items={group.options.map((option) => ({ ...option, status: option.isActive && option.assetIsActive ? `ALTERNATIVE · ${group.name}` : `INACTIVE · ${group.name}` }))} onselect={(item) => focusReviewTarget(`option-review-${item.id}`)} />
-            {/if}
-            {#if group.options.length === 0}<p class="empty-state">No images in this set yet.</p>{:else}
-              <div class="alternative-grid">
-                {#each group.options as option, optionIndex}
-                  {@const imageQuestions = group.optionQuestions.filter((question) => question.stimulusGroupOptionId === option.id && question.isActive)}
-                  {@const reusable = reusableSummary(option.assetId, option.id)}
-                  <article class="option-card" class:selected={selectedOptionId === option.id}>
-                    <div class="option-heading"><span class="order-badge">{optionIndex + 1}</span><span class:inactive={!option.isActive || !option.assetIsActive} class="status-badge">{option.isActive && option.assetIsActive ? 'Active' : 'Inactive'}</span></div>
-                    {#if option.imageUrl}<button class="option-thumbnail" type="button" onclick={() => showImage(option, `${group.name} alternative`)} aria-label={`Enlarge ${option.originalFilename ?? 'alternative image'}`}><img src={option.imageUrl} alt={option.altText ?? 'Alternative image'} loading="lazy" /></button>{:else}<div class="inactive-image option-thumb">Inactive image</div>{/if}
-                    <div class="option-copy"><strong>{option.originalFilename ?? option.assetId}</strong><span class="muted">{option.captionMd ?? 'No option caption'}</span></div>
-                    {#if editorLayout === 'compact'}
-                      <ImageQuestionReview caseId={selectedCase.case.id} optionId={option.id} asset={option} groupName={group.name} caseSpecificQuestions={imageQuestions} {reusable} previewMode={data.previewMode} onimageopen={showImage} />
-                    {:else}
-                      <ImageQuestionCounts caseSpecificCount={imageQuestions.length} caseSpecificQuestions={imageQuestions} {reusable} />
-                    {/if}
-                    <button class="button small option-edit" type="button" aria-expanded={selectedOptionId === option.id} aria-controls={`option-editor-${option.id}`} onclick={() => selectOption(option.id)}>{selectedOptionId === option.id ? 'Close questions' : 'Manage questions'}</button>
-                    <div class="actions compact-actions"><form method="POST" action="?/reorderStimulusOption"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="direction" value="up" /><button class="button small" disabled={optionIndex === 0} aria-label={`Move ${option.originalFilename ?? 'image'} up`}>↑</button></form><form method="POST" action="?/reorderStimulusOption"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="direction" value="down" /><button class="button small" disabled={optionIndex === group.options.length - 1} aria-label={`Move ${option.originalFilename ?? 'image'} down`}>↓</button></form><form method="POST" action="?/setStimulusOptionActive"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="active" value={option.isActive ? 'false' : 'true'} /><button class="button small" type="submit">{option.isActive ? 'Deactivate' : 'Reactivate'}</button></form><form method="POST" action="?/removeStimulusOptionFromCase" onsubmit={(event) => { if (!window.confirm('Remove this image from this Case? The reusable image will remain in the Image Library and historical Reviews will not be changed.')) event.preventDefault(); }}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><button class="button danger small" type="submit">Remove from Case</button></form></div>
-                  </article>
-                {/each}
-              </div>
-              {#if selectedOptionId && group.options.some((option) => option.id === selectedOptionId)}
-                {@const option = group.options.find((candidate) => candidate.id === selectedOptionId)}
-                {@const imageQuestions = group.optionQuestions.filter((question) => question.stimulusGroupOptionId === option?.id && question.isActive)}
-                {#if option}
-                  {@const reusable = reusableSummary(option.assetId, option.id)}
-                  <section id={`option-editor-${option.id}`} class="option-editor" aria-labelledby={`option-editor-heading-${option.id}`} tabindex="-1">
-                    <div class="option-editor-heading"><div><p class="eyebrow">Manage questions</p><h4 id={`option-editor-heading-${option.id}`}>{option.originalFilename ?? option.assetId}</h4><p class="muted">Case-specific Image Questions and Reusable Image Questions are managed separately below.</p></div><button class="button small" type="button" onclick={() => selectOption(option.id)}>Close questions</button></div>
-                    <div class="option-editor-layout">
-                      <div class="option-editor-preview">{#if option.imageUrl}<button class="option-thumbnail" type="button" onclick={() => showImage(option, `${group.name} alternative`)} aria-label={`Enlarge ${option.originalFilename ?? 'alternative image'}`}><img src={option.imageUrl} alt={option.altText ?? 'Alternative image'} /></button>{:else}<div class="inactive-image option-thumb">Inactive image</div>{/if}<span class:inactive={!option.isActive || !option.assetIsActive} class="status-badge">{option.isActive && option.assetIsActive ? 'Active' : 'Inactive'}</span></div>
-                      <div class="option-editor-fields stack">
-                        <form method="POST" action="?/updateStimulusOptionCaption" class="specific-body stack"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><label>Case-specific caption<textarea name="caption" rows="3" maxlength="1000">{option.captionMd ?? ''}</textarea></label><div><button class="button small" type="submit">Save caption</button></div></form>
-                        {#if option.isActive && group.isActive && selectedCase.stimulusGroups.some((candidate) => candidate.id !== group.id && candidate.isActive)}
-                          <details class="option-move"><summary>Move to another set…</summary><form method="POST" action={`${editorBase}/cases/${selectedCase.case.id}/move-option`} class="specific-body stack"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><label>Target alternative set<select name="target_group_id" required><option value="" disabled selected>Choose a set</option>{#each selectedCase.stimulusGroups as candidate}{#if candidate.id !== group.id && candidate.isActive}<option value={candidate.id}>{candidate.name}</option>{/if}{/each}</select></label><p class="muted">The option identity, Case-specific caption and exact-image questions stay attached. Set-wide questions stay with their current sets.</p><div><button class="button small" type="submit">Move image</button></div></form></details>
-                        {/if}
-                        <section class="specific-questions option-editor-questions" aria-labelledby={`questions-${option.id}`}><div class="section-heading"><h4 id={`questions-${option.id}`}>Case-specific Image Questions <span class="count">{imageQuestions.length}</span></h4><p class="muted">These belong only to this Case + exact image context.</p></div><form method="POST" action="?/saveStimulusOptionQuestion" class="stack image-question-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><label class="question-prompt-field">Question prompt<textarea name="prompt_md" rows="3" required placeholder="e.g. Describe this ECG."></textarea></label><label class="question-answer-field">Answer for this Case and image<textarea name="answer_md" rows="3" required></textarea></label><div class="image-question-actions"><button class="button small" type="submit">Add Case-specific Image Question</button></div></form>{#if !data.previewMode && selectedCase.questions.length > 0}<details class="move-existing-question"><summary>Move existing Case question here</summary><div class="specific-body stack"><p class="muted">Move a question from this Case to this exact image. Its prompt and answer will be preserved.</p><form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack"><input type="hidden" name="intent" value="move" /><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="target" value={`option:${option.id}`} /><label>Case question<select name="prompt_id" required><option value="" disabled selected>Choose a Case question</option>{#each selectedCase.questions as caseQuestion}<option value={caseQuestion.questionPromptId}>{caseQuestion.promptMd}</option>{/each}</select></label><div><button class="button small" type="submit">Move question here</button></div></form></div></details>{/if}{#each imageQuestions as question}<div class="question-card compact"><form method="POST" action="?/saveStimulusOptionQuestion" class="stack image-question-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="original_prompt_id" value={question.questionPromptId} /><label class="question-prompt-field">Question prompt<textarea name="prompt_md" rows="2" required>{question.promptMd}</textarea></label><label class="question-answer-field">Answer for this Case and image<textarea name="answer_md" rows="2" required>{question.answerMd}</textarea></label><div class="image-question-actions"><button class="button small" type="submit">Save Case-specific Image Question</button></div></form><form method="POST" action="?/removeStimulusQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="scope" value="option" /><input type="hidden" name="context_id" value={option.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><button class="button danger small" type="submit">Remove</button></form></div>{/each}</section>
-                        <ReusableImageQuestionManager summary={reusable} caseId={selectedCase.case.id} assetId={option.assetId} optionId={option.id} previewMode={data.previewMode} />
-                      </div>
-                    </div>
-                  </section>
-                {/if}
-              {/if}
-            {/if}
-            {#if editorLayout === 'compact' && group.isActive && group.options.some((option) => option.isActive && option.assetIsActive) && group.questions.some((question) => question.isActive)}
-              <section id={`set-wide-${group.id}`} class="compact-set-wide-review" tabindex="-1">
-                <div class="scope-review-heading"><strong>SET-WIDE · {group.name}</strong><AccessibleInfo label="Set-wide question" text="A set-wide Prompt/Answer pair applies to every active image option in this Alternative Set. It is not attached to one exact image." /></div>
-                {#each group.questions.filter((question) => question.isActive) as question (question.questionPromptId)}
-                  <form method="POST" action="?/saveStimulusGroupQuestion" class="compact-set-wide-row"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} /><input type="hidden" name="original_prompt_id" value={question.questionPromptId} /><label>Prompt<textarea name="prompt_md" rows="2" required>{question.promptMd}</textarea></label><label>Answer<textarea name="answer_md" rows="2" required>{question.answerMd}</textarea></label><div><button class="button small" type="submit">Save</button></div></form>
-                {/each}
-              </section>
-            {/if}
-            <details class="advanced"><summary>Advanced set settings</summary><div class="advanced-body stack"><p class="muted">Coverage controls how strongly questions specific to this alternative set are represented in a Review.</p><form method="POST" action="?/updateStimulusGroup" class="form-grid"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} /><label>Set name<input name="name" value={group.name} required /></label><label>Specific-question coverage<select name="specific_question_mode"><option value="none" selected={group.specificQuestionMode === 'none'}>No guarantee</option><option value="minimum" selected={group.specificQuestionMode === 'minimum'}>At least N</option><option value="all" selected={group.specificQuestionMode === 'all'}>All available</option></select></label><label>Minimum specific questions<input type="number" name="minimum_specific_questions" min="1" value={group.minimumSpecificQuestions ?? ''} /></label><label class="checkbox-label"><input type="checkbox" name="is_active" checked={group.isActive} /> Active set</label><div><button class="button" type="submit">Save set settings</button></div></form></div></details>
-            <details class="advanced"><summary>{group.questions.length} set-wide {group.questions.length === 1 ? 'question' : 'questions'} — advanced</summary><div class="advanced-body stack"><p class="muted">Use this only when a prompt and answer are valid for every image in this set but should not be a general Topic or Case question.</p><form method="POST" action="?/saveStimulusGroupQuestion" class="form-grid"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="group_id" value={group.id} /><label>Question prompt<textarea name="prompt_md" rows="2" required></textarea></label><label>Answer<textarea name="answer_md" rows="2" required></textarea></label><div><button class="button" type="submit">Add set-wide question</button></div></form>{#each group.questions as question}<div class="question-card compact"><strong>{question.promptMd}</strong><span>{question.answerMd}</span><form method="POST" action="?/removeStimulusQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="scope" value="group" /><input type="hidden" name="context_id" value={group.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><button class="button danger small" type="submit">Remove</button></form></div>{/each}</div></details>
-          </article>
-        {/each}
-      </div>
-    </section>
-
-    <section id="questions" class="panel stack">
-      <div><p class="eyebrow">This clinical presentation</p><h2>Case questions <span class="count">{selectedCase.questions.length}</span>{#if editorLayout === 'compact'}<AccessibleInfo label="Case-wide question" text="A Case-wide Prompt/Answer pair applies to the whole clinical presentation regardless of which image option is selected." />{/if}</h2><p class="muted compact-hide-explainer">This section contains only questions that apply to the whole Case, regardless of which stimulus is selected.</p></div>
-      <form method="POST" action={data.previewMode ? '?/saveQuestion' : `/admin/cases/${selectedCase.case.id}/question-scope`} class="form-grid question-authoring"><input type="hidden" name="case_id" value={selectedCase.case.id} /><label>Question prompt<textarea name="prompt_md" rows="3" maxlength="2000" required placeholder="e.g. What is the likely cause in this patient?"></textarea></label><label>Answer<textarea name="answer_md" rows="3" maxlength="5000" required placeholder="The answer shown after reveal."></textarea></label>
-        {#if !data.previewMode}
-          <fieldset class="scope-choice wide"><legend>Applies to:</legend><label><input type="radio" name="scope" value="case" bind:group={newQuestionScope} /> This whole Case</label><label><input type="radio" name="scope" value="stimulus" bind:group={newQuestionScope} /> A specific image / stimulus</label></fieldset>
-          {#if newQuestionScope === 'case'}<label class="checkbox-label wide"><input name="reusable_for_topic" type="checkbox" /> Also reuse this question in the Topic</label>{:else}<fieldset class="stimulus-picker wide"><legend>Choose the image / stimulus</legend><div class="move-image-options">{#each selectedCase.attached.filter((asset) => asset.isActive) as asset}<label class="move-image-option"><input type="radio" name="target" value={`fixed:${asset.assetId}`} required />{#if asset.imageUrl}<img src={asset.imageUrl} alt={asset.altText ?? 'Case image'} loading="lazy" />{/if}<span><strong>{asset.originalFilename ?? asset.assetId}</strong><small>Always shown with this Case</small>{#if asset.captionMd}<small>{asset.captionMd}</small>{/if}</span></label>{/each}{#each selectedCase.stimulusGroups.filter((group) => group.isActive) as group}{#each group.options.filter((option) => option.isActive && option.assetIsActive) as option}<label class="move-image-option"><input type="radio" name="target" value={`option:${option.id}`} required />{#if option.imageUrl}<img src={option.imageUrl} alt={option.altText ?? 'Alternative image'} loading="lazy" />{/if}<span><strong>{option.originalFilename ?? option.assetId}</strong><small>{group.name}</small>{#if option.captionMd}<small>{option.captionMd}</small>{/if}</span></label>{/each}{/each}</div></fieldset>{/if}
-        {:else}<label class="checkbox-label wide"><input name="reusable_for_topic" type="checkbox" /> Share this question with the Topic</label>{/if}
-        <div><button class="button primary" type="submit">Add question</button></div>
-      </form>
-      {#if selectedCase.questions.length === 0}<p class="empty-state">No Case-wide questions yet. Compatible Topic and stimulus-specific questions can still be used in Reviews.</p>{/if}
-      <div class="question-list">{#each selectedCase.questions as question, index}<article id={`question-${question.questionPromptId}`} class="question-card"><div class="card-heading"><div><strong>Question {index + 1}</strong><span class="scope-label">Applies to: <strong>This whole Case</strong></span></div>{#if question.reusableForTopic}<span class="badge">Shared with {selectedCase.case.conceptName}</span>{/if}</div><form id={`question-edit-${question.questionPromptId}`} method="POST" action="?/saveQuestion" class="stack question-edit-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="original_prompt_id" value={question.questionPromptId} /><label class="question-prompt-field">Prompt<textarea name="prompt_md" rows="2" maxlength="2000" required>{question.promptMd}</textarea></label><label class="question-answer-field">Answer<textarea name="answer_md" rows="3" maxlength="5000" required>{question.answerMd}</textarea></label><label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" checked={question.reusableForTopic} /> Share this question with the Topic</label><div class="actions classic-question-save"><button class="button" type="submit">Save question</button></div></form>
-        {#if !data.previewMode}
-          <details class="scope-change" open={editorLayout === 'classic'}><summary>Change scope</summary><div class="scope-change-body stack"><strong class="classic-scope-heading">Change scope</strong><form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack"><input type="hidden" name="intent" value="move" /><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><label>Applies to<select name="target" required><option value="" disabled selected>A specific image / stimulus…</option>{#each selectedCase.attached.filter((asset) => asset.isActive) as asset}<option value={`fixed:${asset.assetId}`}>{asset.originalFilename ?? asset.assetId} — always shown</option>{/each}{#each selectedCase.stimulusGroups.filter((group) => group.isActive) as group}{#each group.options.filter((option) => option.isActive && option.assetIsActive) as targetOption}<option value={`option:${targetOption.id}`}>{targetOption.originalFilename ?? targetOption.assetId} — {group.name}{targetOption.captionMd ? ` — ${targetOption.captionMd}` : ''}</option>{/each}{/each}</select></label><div><button class="button small" type="submit">Apply specific stimulus scope</button></div></form></div></details>
-        {/if}
-        <div class="actions question-actions"><button class="button primary compact-question-save" type="submit" form={`question-edit-${question.questionPromptId}`}>Save question</button><div class="question-order-actions"><form method="POST" action="?/reorderQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="up" /><button class="button small" type="submit" disabled={index === 0} aria-label="Move question up"><span class="classic-order-label">Move up</span><span class="compact-order-label" aria-hidden="true">↑</span></button></form><form method="POST" action="?/reorderQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="down" /><button class="button small" type="submit" disabled={index === selectedCase.questions.length - 1} aria-label="Move question down"><span class="classic-order-label">Move down</span><span class="compact-order-label" aria-hidden="true">↓</span></button></form></div><form method="POST" action="?/removeQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><button class="button danger small" type="submit">Remove</button></form></div></article>{/each}</div>
-    </section>
-
+    <CaseEditorNavigation {selectedCase} {primaryTopic} {editorLayout} {fastReviewSummary} auditCount={caseQuestionAudit.length} onlayoutchange={setEditorLayout} />
+    <CaseTopicsSection {selectedCase} concepts={data.concepts} {primaryTopic} previewMode={data.previewMode} {editorLayout} />
+    <CaseDetailsSection {selectedCase} {primaryTopic} {editorLayout} />
+    <CaseImagesSection {selectedCase} previewMode={data.previewMode} {editorLayout} {editorBase} onimageopen={showImage} />
+    <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} {editorLayout} />
     {#if editorLayout === 'compact'}<CaseQuestionAudit rows={caseQuestionAudit} onimageopen={showImage} />{/if}
-
-    <section id="preview" class="panel preview-panel"><p class="eyebrow">Learner view</p><h2>Preview</h2>{#if data.previewMode}<p class="muted">Learner Study is available on the production Worker only. Preview Mode is limited to inspecting and editing the disposable Preview Case workspace.</p>{:else}<p class="muted">Open the Study flow to verify the Case stem, selected images, question composition, and answer reveal behaviour.</p><a class="button primary" href="/study">Open Study preview</a>{/if}</section>
+    <CasePreviewSection previewMode={data.previewMode} />
   </div>
 
-  {#if data.imagePicker?.open}
-    <dialog bind:this={pickerDialog} class="image-picker" aria-labelledby="image-picker-heading"><div class="picker-shell"><div class="picker-heading"><div><p class="eyebrow">Asset Library</p><h2 id="image-picker-heading">{data.imagePicker.targetGroupName ? `Add images to ${data.imagePicker.targetGroupName}` : 'Add images from library'}</h2><p class="muted">Search is server-backed and limited to Assets not already used by this Case.</p></div><button bind:this={pickerCloseButton} class="button" type="button" onclick={() => pickerDialog?.close()}>Close</button></div><form method="GET" action={`${editorBase}/cases/${selectedCase.case.id}`} class="picker-search"><input type="hidden" name="picker" value="1" />{#if data.imagePicker.targetGroupId}<input type="hidden" name="target_group" value={data.imagePicker.targetGroupId} />{/if}<label>Search filename, alt text, or source<input name="image_q" value={data.imagePicker.search} placeholder="e.g. prolonged QTc" /></label><button class="button" type="submit">Search</button></form>{#if data.imagePicker.assets.length === 0}<p class="empty-state">No unused active images match this search.</p>{:else}<div class="picker-grid">{#each data.imagePicker.assets as asset}<label class:selected={pickerSelected.has(asset.id)} class="picker-card"><input type="checkbox" checked={pickerSelected.has(asset.id)} onchange={() => togglePickerAsset(asset.id)} /><img src={asset.imageUrl} alt={asset.altText ?? ''} loading="lazy" /><span><strong>{asset.originalFilename ?? asset.id}</strong><small>{asset.altText || 'No alt text'}</small>{#if asset.sourceLabel}<small>Source: {asset.sourceLabel}</small>{/if}</span></label>{/each}</div>{#if data.imagePicker.hasMore}<p class="picker-note">Showing the first {data.imagePicker.limit} matches. Refine the search to narrow the result set.</p>{/if}{/if}<form method="POST" action="?/attachMany" class="picker-actions">{#each [...pickerSelected] as assetId}<input type="hidden" name="asset_id" value={assetId} />{/each}<input type="hidden" name="case_id" value={selectedCase.case.id} />{#if data.imagePicker.targetGroupId}<input type="hidden" name="target_group_id" value={data.imagePicker.targetGroupId} />{/if}<strong>{pickerSelected.size} selected</strong><button class="button primary" type="submit" disabled={pickerSelected.size === 0 || pickerSelected.size > 30}>{data.imagePicker.targetGroupName ? `Add ${pickerSelected.size} to set` : `Attach ${pickerSelected.size} images`}</button></form><details class="upload-disclosure"><summary>Upload new image</summary><div class="advanced-body"><p class="muted">JPEG or PNG, up to the existing storage limit. The new Asset remains reusable elsewhere.</p><form method="POST" action="?/uploadAndAttach" enctype="multipart/form-data" class="form-grid"><input type="hidden" name="case_id" value={selectedCase.case.id} />{#if data.imagePicker.targetGroupId}<input type="hidden" name="target_group_id" value={data.imagePicker.targetGroupId} />{/if}<label class="wide">Image file<input name="image" type="file" accept="image/jpeg,image/png" required /></label><label>Admin image name <span class="muted">(optional)</span><input name="image_name" maxlength="500" /></label><label>Alt text<input name="alt_text" maxlength="500" required /></label><label>Source label <span class="muted">(optional)</span><input name="source_label" maxlength="300" /></label><label>Source URL <span class="muted">(optional)</span><input name="source_url" type="url" maxlength="2000" /></label><label>Licence / permission <span class="muted">(optional)</span><input name="licence" maxlength="500" /></label><div class="wide"><button class="button primary" type="submit">Upload and {data.imagePicker.targetGroupName ? 'add to set' : 'attach'}</button></div></form></div></details></div></dialog>
-  {/if}
+  <CaseImagePickerDialog {selectedCase} imagePicker={data.imagePicker} {editorBase} />
   <AdminImageViewer image={viewerImage} onclose={() => (viewerImage = null)} />
 {/if}
 
 <style>
-  .page-heading, .card-heading, .panel-heading, .asset-card-heading, .subsection-heading, .picker-heading, .option-heading { display: flex; justify-content: space-between; align-items: end; gap: 1rem; }
-  h1, h2, h3, h4, p { margin-top: 0; } h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 4vw, 2.5rem); } h2 { margin-bottom: 0.2rem; font-size: 1.2rem; } h3 { margin-bottom: 0.25rem; font-size: 1.05rem; } h4 { margin-bottom: 0.2rem; font-size: 0.98rem; } .eyebrow { margin-bottom: 0.3rem; color: #667085; font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; } .muted { color: #667085; } .topic-link { color: inherit; font-weight: 650; }
-  .stack { display: grid; gap: 0.85rem; } .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; } .actions form { display: contents; } .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; } .button.primary { border-color: #172033; background: #172033; color: #fff; } .button.small { padding: 0.5rem 0.65rem; font-size: 0.82rem; } .button.danger { border-color: #fecdca; color: #b42318; } button:disabled { cursor: not-allowed; opacity: 0.45; } button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex="-1"]:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
-  .layout-preference { display: flex; justify-content: flex-end; margin: 0.75rem 0 -0.25rem; } .layout-selector { display: flex; align-items: center; gap: 0.3rem; margin: 0; padding: 0; border: 0; color: #667085; font-size: 0.8rem; } .layout-selector legend { float: left; margin-right: 0.2rem; padding: 0; font-weight: 650; } .layout-selector label { display: flex; align-items: center; gap: 0.3rem; padding: 0.35rem 0.5rem; border: 1px solid #dfe5ee; border-radius: 7px; background: #fff; color: #475467; font-size: 0.8rem; font-weight: 600; cursor: pointer; } .layout-selector label.selected { border-color: #98a2b3; background: #f2f4f7; color: #172033; } .layout-selector input { width: auto; margin: 0; }
-  .fast-review-summary { display: grid; gap: 0.65rem; margin-top: 0.8rem; padding: 0.8rem 0; border-bottom: 1px solid #dfe5ee; } .fast-topic-context, .fast-counts { display: flex; flex-wrap: wrap; gap: 0.45rem; align-items: center; } .topic-pill { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.32rem 0.5rem; border: 1px solid #d0d5dd; border-radius: 999px; color: #344054; text-decoration: none; font-size: 0.8rem; font-weight: 650; } .topic-pill span { color: #667085; font-size: 0.62rem; letter-spacing: 0.05em; } .topic-pill.secondary { font-weight: 550; } .fast-counts span, .fast-counts a { padding-right: 0.65rem; border-right: 1px solid #e4e7ec; color: #667085; font-size: 0.78rem; text-decoration: none; } .fast-counts strong { color: #344054; } .compact-authoring-rule { display: flex; align-items: center; gap: 0.15rem; margin-top: 0.55rem; color: #667085; font-size: 0.8rem; }
-  .topic-primary, .topic-secondary { display: grid; gap: 0.75rem; padding: 0.9rem; border: 1px solid #eaecf0; border-radius: 8px; background: #f8fafc; } .topic-row-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: start; } .topic-help { display: block; margin-top: 0.2rem; color: #667085; font-size: 0.86rem; font-weight: 400; } .topic-primary-current { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; font-size: 1.05rem; font-weight: 700; } .topic-primary-current a, .topic-list-row a { color: #172033; } .topic-primary-form, .topic-add-form, .topic-create-form { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: end; } .topic-select-label, .topic-add-form label, .topic-create-form label { flex: 1; min-width: min(100%, 280px); } .topic-create { display: grid; gap: 0.75rem; margin-top: 0.35rem; padding-top: 0.9rem; border-top: 1px solid #e4e7ec; } .current-case-topic { padding: 0.65rem 0; color: #344054; } .topic-list { display: grid; gap: 0.5rem; } .topic-list-row { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.65rem 0; border-bottom: 1px solid #e4e7ec; } .topic-list-row:last-child { border-bottom: 0; } .topic-list-row > div:first-child { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-  .status-badge { display: inline-block; width: max-content; padding: 0.2rem 0.45rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; white-space: nowrap; } .status-badge.inactive, .status-badge[class~="inactive"] { background: #f2f4f7; color: #667085; } .inline-error { margin: 0; }
-  .authoring-rule { margin: 1rem 0; padding: 0.8rem 0.9rem; border: 1px solid #cfd8e5; border-radius: 8px; background: #f8fafc; color: #344054; line-height: 1.5; } .panel { margin-top: 1rem; padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; } .form-error { margin: 1rem 0; padding: 0.75rem; border-radius: 8px; background: #fef3f2; color: #b42318; } .section-nav { display: flex; flex-wrap: wrap; gap: 0.25rem; margin: 1.5rem 0 0.5rem; padding-bottom: 0.5rem; border-bottom: 1px solid #dfe5ee; } .section-nav a { padding: 0.55rem 0.7rem; border-radius: 6px; color: #344054; font-weight: 650; text-decoration: none; } .section-nav a:hover { background: #e9eef5; } .section-nav span, .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
-  .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.85rem; } label { display: grid; gap: 0.35rem; color: #344054; font-weight: 650; } input, textarea, select { width: 100%; box-sizing: border-box; padding: 0.65rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } textarea { resize: vertical; } .wide { grid-column: 1 / -1; } .checkbox-label { display: flex; align-items: center; gap: 0.45rem; font-weight: 500; } .checkbox-label input { width: auto; }
-  .question-list { display: grid; gap: 0.85rem; } .question-card, .fixed-asset-card, .alternative-set { display: grid; gap: 0.75rem; padding: 0.85rem; border: 1px solid #eaecf0; border-radius: 8px; background: #f8fafc; } .question-card.compact { background: #fff; font-size: 0.88rem; } .badge { color: #475467; font-size: 0.82rem; font-weight: 500; } .empty-state { padding: 0.85rem; border: 1px dashed #d0d5dd; border-radius: 8px; color: #667085; } .compact-question-save, .compact-order-label { display: none; } .question-order-actions { display: flex; align-items: center; gap: 0.35rem; }
-  .image-authoring { gap: 1.25rem; } .image-subsection { padding-top: 0.2rem; } .image-subsection + .image-subsection { padding-top: 1.2rem; border-top: 1px solid #e4e7ec; } .asset-title { display: flex; align-items: center; gap: 0.65rem; min-width: 0; } .asset-title > div { display: grid; gap: 0.2rem; overflow-wrap: anywhere; } .order-badge { display: grid; place-items: center; flex: 0 0 1.7rem; height: 1.7rem; border-radius: 999px; background: #172033; color: #fff; font-size: 0.78rem; font-weight: 700; }
-  .fixed-asset-card { max-width: 980px; background: #fff; } .fixed-image-preview { width: 100%; padding: 0; overflow: hidden; border: 1px solid #dfe5ee; border-radius: 9px; background: #eef2f6; cursor: zoom-in; } .fixed-image-preview img { display: block; width: 100%; height: clamp(300px, 42vw, 440px); object-fit: contain; } .asset-meta { display: flex; flex-wrap: wrap; gap: 0.45rem 1rem; color: #667085; font-size: 0.86rem; } .asset-meta a { color: inherit; } .inactive-image { display: grid; place-items: center; min-height: 120px; border-radius: 8px; background: #eef2f6; color: #667085; } .inactive-image.large { min-height: 300px; }
-  .move-to-alternatives, .start-alternative-form { display: flex; align-items: end; gap: 0.6rem; flex-wrap: wrap; } .move-to-alternatives label, .start-alternative-form label { min-width: min(100%, 260px); flex: 1; } .compact-disclosure, .create-set-disclosure, .advanced, .specific-questions, .option-move, .upload-disclosure, .scope-change { border: 1px solid #e4e7ec; border-radius: 8px; background: #f8fafc; } summary { padding: 0.72rem 0.85rem; cursor: pointer; color: #344054; font-weight: 650; } .advanced-body, .specific-body, .scope-change-body { padding: 0.75rem 0.85rem; } .alternative-set { gap: 0.9rem; }
-  .case-editor[data-editor-layout="classic"] .scope-change > summary { display: none; } .case-editor[data-editor-layout="compact"] .classic-scope-heading { display: none; } .case-editor[data-editor-layout="compact"] .compact-hide-explainer, .case-editor[data-editor-layout="compact"] .topic-help { display: none; }
-  .alternative-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 0.75rem; } .option-card { display: grid; align-content: start; gap: 0.55rem; min-width: 0; padding: 0.65rem; border: 1px solid #e4e7ec; border-radius: 8px; background: #f8fafc; } .option-card.selected { border-color: #84adff; box-shadow: 0 0 0 2px #dbeafe; } .option-heading { align-items: center; } .option-thumbnail { width: 100%; padding: 0; border: 1px solid #dfe5ee; border-radius: 7px; overflow: hidden; background: #eef2f6; cursor: zoom-in; } .option-thumbnail img, .option-thumb { display: block; width: 100%; height: 145px; object-fit: contain; } .option-copy { display: grid; gap: 0.2rem; min-width: 0; overflow-wrap: anywhere; font-size: 0.84rem; } .option-copy .muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .option-edit { width: 100%; } .compact-actions { gap: 0.35rem; } .specific-questions, .option-move, .move-existing-question { margin-top: 0.15rem; background: #fff; } .specific-body p { margin-bottom: 0; font-size: 0.84rem; } .scope-choice, .stimulus-picker { margin: 0; padding: 0.65rem; border: 1px solid #e4e7ec; border-radius: 8px; background: #f8fafc; } .scope-choice legend, .stimulus-picker legend { padding: 0 0.25rem; color: #344054; font-weight: 700; } .scope-choice { display: flex; flex-wrap: wrap; gap: 0.75rem 1.25rem; } .scope-choice label { display: flex; align-items: center; gap: 0.45rem; font-weight: 500; } .scope-choice input { width: auto; } .move-image-options { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.55rem; } .move-image-option { display: grid; grid-template-columns: auto 1fr; align-items: start; gap: 0.45rem; padding: 0.45rem; border: 1px solid #e4e7ec; border-radius: 7px; background: #f8fafc; cursor: pointer; font-weight: 500; } .move-image-option:has(input:checked) { border-color: #172033; box-shadow: 0 0 0 2px #d0d5dd; } .move-image-option input { width: auto; margin-top: 0.15rem; } .move-image-option img { grid-column: 1 / -1; width: 100%; height: 90px; object-fit: contain; border-radius: 5px; background: #eef2f6; } .move-image-option span { display: grid; gap: 0.15rem; min-width: 0; overflow-wrap: anywhere; } .move-image-option small { color: #667085; font-weight: 400; } .question-summary { display: grid; gap: 0.3rem; font-size: 0.86rem; } .scope-label { display: block; margin-top: 0.2rem; color: #667085; font-size: 0.82rem; }
-  .question-management-section { display: grid; gap: 0.75rem; padding: 0.8rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; } .question-management-section > div p { margin-bottom: 0; font-size: 0.84rem; }
-  .option-editor { display: grid; gap: 1rem; margin-top: 1rem; padding: 1rem; border: 1px solid #cfd8e5; border-radius: 10px; background: #f8fafc; scroll-margin-top: 1rem; } .option-editor-heading { display: flex; justify-content: space-between; align-items: start; gap: 1rem; } .option-editor-heading h4 { margin: 0 0 0.2rem; font-size: 1.05rem; overflow-wrap: anywhere; } .option-editor-layout { display: grid; grid-template-columns: minmax(180px, 250px) minmax(0, 1fr); gap: 1.2rem; align-items: start; } .option-editor-preview { display: grid; gap: 0.55rem; position: sticky; top: 1rem; } .option-editor-preview .option-thumbnail img, .option-editor-preview .option-thumb { height: 200px; } .option-editor-fields { min-width: 0; } .option-editor-fields > form { padding: 0; border: 0; background: transparent; } .option-editor-questions { display: grid; gap: 0.85rem; padding: 0.9rem; border: 1px solid #dfe5ee; border-radius: 8px; } .section-heading h4 { margin: 0 0 0.2rem; font-size: 1rem; }
-  .compact-set-wide-review { display: grid; gap: 0.6rem; padding: 0.75rem 0; border-top: 1px solid #d0d5dd; border-bottom: 1px solid #e4e7ec; scroll-margin-top: 5rem; } .scope-review-heading { display: flex; align-items: center; gap: 0.15rem; color: #475467; font-size: 0.76rem; letter-spacing: 0.035em; } .compact-set-wide-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto; gap: 0.75rem; align-items: end; padding-top: 0.65rem; border-top: 1px solid #eaecf0; } .compact-set-wide-row label { font-size: 0.78rem; }
-  .image-picker { width: min(94vw, 1120px); max-width: none; max-height: 92vh; padding: 0; border: 0; border-radius: 12px; box-shadow: 0 24px 80px rgb(16 24 40 / 28%); } .image-picker::backdrop { background: rgb(16 24 40 / 64%); } .picker-shell { display: grid; gap: 1rem; max-height: 92vh; overflow: auto; padding: 1rem; } .picker-heading { align-items: start; position: sticky; top: -1rem; z-index: 2; padding: 1rem 0 0.4rem; background: #fff; border-bottom: 1px solid #eaecf0; } .picker-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.65rem; } .picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 0.7rem; } .picker-card { position: relative; display: grid; grid-template-rows: 130px auto; gap: 0; overflow: hidden; border: 2px solid #e4e7ec; border-radius: 9px; background: #fff; cursor: pointer; } .picker-card.selected { border-style: solid; border-width: 3px; } .picker-card > input { position: absolute; z-index: 1; top: 0.5rem; left: 0.5rem; width: 1.15rem; height: 1.15rem; accent-color: #172033; } .picker-card img { width: 100%; height: 130px; object-fit: contain; background: #eef2f6; } .picker-card > span { display: grid; gap: 0.2rem; padding: 0.6rem; overflow-wrap: anywhere; } .picker-card small { color: #667085; font-weight: 400; } .picker-actions { position: sticky; bottom: -1rem; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.8rem; border: 1px solid #d0d5dd; border-radius: 9px; background: #fff; box-shadow: 0 -6px 20px rgb(16 24 40 / 8%); } .picker-note { margin-bottom: 0; color: #667085; font-size: 0.85rem; }
-  .preview-panel { padding-bottom: 1.4rem; }
-  .case-editor[data-editor-layout="compact"] .topic-primary, .case-editor[data-editor-layout="compact"] .topic-secondary { background: #fff; }
-  .case-editor[data-editor-layout="compact"] .fixed-asset-card { max-width: none; padding: 0.85rem 0; border-width: 1px 0 0; border-radius: 0; }
-  .case-editor[data-editor-layout="compact"] .fixed-image-preview { width: min(100%, 360px); }
-  .case-editor[data-editor-layout="compact"] .fixed-image-preview img { height: clamp(170px, 24vw, 230px); }
-  .case-editor[data-editor-layout="compact"] .inactive-image.large { min-height: 180px; max-width: 360px; }
-  .case-editor[data-editor-layout="compact"] .alternative-grid { grid-template-columns: minmax(0, 1fr); }
-  .case-editor[data-editor-layout="compact"] .option-card { padding: 0.8rem 0; border-width: 1px 0 0; border-radius: 0; background: #fff; }
-  .case-editor[data-editor-layout="compact"] .option-card.selected { border-color: #84adff; box-shadow: none; }
-  .case-editor[data-editor-layout="compact"] .option-card > .option-thumbnail { width: min(100%, 320px); }
-  .case-editor[data-editor-layout="compact"] .option-card > .option-thumbnail img, .case-editor[data-editor-layout="compact"] .option-card > .option-thumb { height: 175px; }
-  .case-editor[data-editor-layout="compact"] .option-edit { width: fit-content; }
-  @media (min-width: 1024px) {
-    .case-editor[data-editor-layout="compact"] .section-nav { position: sticky; top: 0; z-index: 4; margin-top: 1rem; padding: 0.45rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; box-shadow: 0 4px 14px rgb(16 24 40 / 8%); }
-    .case-editor[data-editor-layout="compact"] :is(#topics, #case, #images, #questions, #all-questions, #preview) { scroll-margin-top: 4.75rem; }
-    .case-editor[data-editor-layout="compact"] .question-edit-form, .case-editor[data-editor-layout="compact"] .image-question-form { grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); column-gap: 1rem; align-items: start; }
-    .case-editor[data-editor-layout="compact"] .question-prompt-field { grid-column: 1; }
-    .case-editor[data-editor-layout="compact"] .question-answer-field { grid-column: 2; }
-    .case-editor[data-editor-layout="compact"] .question-reuse-field, .case-editor[data-editor-layout="compact"] .image-question-actions { grid-column: 1 / -1; }
-    .case-editor[data-editor-layout="compact"] .classic-question-save { display: none; }
-    .case-editor[data-editor-layout="compact"] .compact-question-save { display: inline-block; }
-    .case-editor[data-editor-layout="compact"] .question-actions { flex-wrap: nowrap; }
-    .case-editor[data-editor-layout="compact"] .question-order-actions { margin-left: auto; }
-    .case-editor[data-editor-layout="compact"] .classic-order-label { display: none; }
-    .case-editor[data-editor-layout="compact"] .compact-order-label { display: inline; }
-  }
-  @media (max-width: 760px) { .page-heading, .card-heading, .panel-heading, .asset-card-heading, .subsection-heading, .picker-heading, .option-editor-heading { align-items: start; flex-direction: column; } .form-grid { grid-template-columns: minmax(0, 1fr); } .wide { grid-column: auto; } .fixed-image-preview img { height: clamp(240px, 70vw, 360px); } .picker-search { grid-template-columns: minmax(0, 1fr); } .picker-actions { align-items: stretch; flex-direction: column; } .option-editor-layout { grid-template-columns: minmax(0, 1fr); } .option-editor-preview { position: static; } .option-editor-preview .option-thumbnail img, .option-editor-preview .option-thumb { height: clamp(180px, 52vw, 280px); } .layout-preference { justify-content: flex-start; } .compact-set-wide-row { grid-template-columns: minmax(0, 1fr); align-items: start; } .case-editor[data-editor-layout="compact"] .fixed-image-preview img { height: min(58vw, 230px); } }
+  h1, p { margin-top: 0; } h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 4vw, 2.5rem); }
+  .muted { color: #667085; }
+  .panel { margin-top: 1rem; padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; }
+  .form-error { margin: 1rem 0; padding: 0.75rem; border-radius: 8px; background: #fef3f2; color: #b42318; }
+  .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; }
+  a:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
 </style>

@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const adminEditor = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
+const caseEditorComponentDirectory = new URL('../src/lib/components/case-editor/', import.meta.url);
+const caseEditorComponents = readdirSync(caseEditorComponentDirectory, { withFileTypes: true })
+  .filter((entry) => entry.isFile() && entry.name.endsWith('.svelte'))
+  .map((entry) => readFileSync(new URL(entry.name, caseEditorComponentDirectory), 'utf8'));
+const sharedEditorSource = [adminEditor, ...caseEditorComponents].join('\n');
 const previewEditor = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const previewWorkspace = readFileSync(new URL('../src/lib/server/db/preview-workspace.js', import.meta.url), 'utf8');
@@ -44,7 +49,7 @@ test('Preview renders the real production Case editor rather than a copied UI', 
 });
 
 test('every named action used by the shared Admin Case editor has a Preview adapter action', () => {
-  const requiredActions = editorActionNames(adminEditor);
+  const requiredActions = editorActionNames(sharedEditorSource);
   const previewActions = adapterActionNames(previewRoute);
   const missing = [...requiredActions].filter((name) => !previewActions.has(name)).sort();
 
@@ -64,23 +69,33 @@ test('every top-level data key read by the shared Admin Case editor is supplied 
   assert.deepEqual(missing, [], `Preview loader is missing shared-editor data: ${missing.join(', ')}. Extend loadPreviewCaseEditor() with a safe Preview implementation before changing the shared UI.`);
 });
 
+test('shared Case editor preserves critical form field contracts after component extraction', () => {
+  for (const name of [
+    'case_id', 'concept_id', 'relationship_intent', 'title', 'vignette_md', 'question_selection_mode', 'question_count',
+    'asset_id', 'group_id', 'option_id', 'target_group_id', 'prompt_md', 'answer_md', 'original_prompt_id',
+    'scope', 'target', 'reusable_for_topic', 'direction', 'active'
+  ]) {
+    assert.match(sharedEditorSource, new RegExp(`\\bname=["']${escapeRegExp(name)}["']`), `Missing shared Case-editor form field: ${name}`);
+  }
+});
+
 test('question scope UX exposes Case-wide and fixed/alternative stimulus targets without adding Preview production writes', () => {
-  assert.match(adminEditor, /Applies to:/);
-  assert.match(adminEditor, /This whole Case/);
-  assert.match(adminEditor, /A specific image \/ stimulus/);
-  assert.match(adminEditor, /value={`fixed:\$\{asset\.assetId\}`}/);
-  assert.match(adminEditor, /value={`option:\$\{option\.id\}`}/);
+  assert.match(sharedEditorSource, /Applies to:/);
+  assert.match(sharedEditorSource, /This whole Case/);
+  assert.match(sharedEditorSource, /A specific image \/ stimulus/);
+  assert.match(sharedEditorSource, /value={`fixed:\$\{asset\.assetId\}`}/);
+  assert.match(sharedEditorSource, /value={`option:\$\{option\.id\}`}/);
   assert.match(imageQuestionCounts, /Case-specific Image Questions · \{caseSpecificCount\}/);
   assert.match(imageQuestionCounts, /let reusableTotal = \$derived\(reusable\?\.total \?\? 0\)/);
   assert.match(imageQuestionCounts, /Reusable Image Questions · \{reusableTotal\}/);
-  assert.match(adminEditor, /Manage questions/);
+  assert.match(sharedEditorSource, /Manage questions/);
   assert.match(questionScopeRoute, /moveCaseQuestionToStimulusTarget/);
   assert.match(questionScopeRoute, /saveQuestionAtScope/);
   assert.doesNotMatch(previewRoute, /question-scope/);
-  assert.match(adminEditor, /data\.previewMode \? '\?\/saveQuestion' : `\/admin\/cases\/\$\{selectedCase\.case\.id\}\/question-scope`/);
+  assert.match(sharedEditorSource, /previewMode \? '\?\/saveQuestion' : `\/admin\/cases\/\$\{selectedCase\.case\.id\}\/question-scope`/);
 });
 
 test('Preview Case editor does not expose a learner Study link on the Preview Worker', () => {
-  assert.match(adminEditor, /\{#if data\.previewMode\}<span class="muted">Learner Study is unavailable in Preview Mode/);
-  assert.match(adminEditor, /\{#if data\.previewMode\}<p class="muted">Learner Study is available on the production Worker only/);
+  assert.match(sharedEditorSource, /\{#if previewMode\}<span class="muted">Learner Study is unavailable in Preview Mode/);
+  assert.match(sharedEditorSource, /\{#if previewMode\}<p class="muted">Learner Study is available on the production Worker only/);
 });
