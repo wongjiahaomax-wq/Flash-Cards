@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { findRepositoryRoot } from './agent-doctor-lib.mjs';
 import { classifyChangedFiles } from './agent-checks-lib.mjs';
+import { validationCommand } from './validation-contract.mjs';
 import { resolveDiffBase } from './validation-git.mjs';
 
 /** @param {string[]} argv */
@@ -70,6 +71,30 @@ export function changedFilesFromGit(root, mergeBase) {
   )].sort();
 }
 
+/**
+ * Apply invocation-specific Git context to the classifier's generic check IDs.
+ * Real Git-backed runs get the same merge-base whitespace command as local validation;
+ * fixture mode intentionally keeps the generic command representation.
+ * @param {{ files: string[], areas: string[], requiredChecks: string[], requiredCommands: string[], recommendations: string[], notRequiredChecks: string[], notRequiredCommands: string[], unclassifiedImportant: string[] }} report
+ * @param {string | null} [mergeBase]
+ */
+export function contextualizeAgentChecksReport(report, mergeBase = null) {
+  /** @param {string} checkId */
+  const formatCommand = (checkId) => {
+    const { command, args } = validationCommand(
+      checkId,
+      mergeBase ? { diffArgs: ['diff', '--check', mergeBase] } : {},
+    );
+    return `${command} ${args.join(' ')}`;
+  };
+
+  return {
+    ...report,
+    requiredCommands: report.requiredChecks.map(formatCommand),
+    notRequiredCommands: report.notRequiredChecks.map(formatCommand),
+  };
+}
+
 /** @param {string} title @param {string[]} values @param {string} [emptyText] */
 function printSection(title, values, emptyText = '(none)') {
   console.log(`\n${title}`);
@@ -118,7 +143,7 @@ export function runAgentChecks(argv = process.argv.slice(2)) {
     }
     const { baseRef, mergeBase } = resolveDiffBase(root, args.base);
     const files = changedFilesFromGit(root, mergeBase);
-    const report = classifyChangedFiles(files);
+    const report = contextualizeAgentChecksReport(classifyChangedFiles(files), mergeBase);
     printAgentChecksReport(report, `${baseRef} (merge-base ${mergeBase.slice(0, 12)})`);
     return 0;
   } catch (error) {
