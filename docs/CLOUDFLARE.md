@@ -1,6 +1,6 @@
 # Cloudflare setup and deployment
 
-_Status: current repository operational runbook through PR #59. Production migration, Worker deployment, and live verification state must be established separately._
+_Status: current repository operational runbook. Production migration, Worker deployment, and live verification state must be established separately._
 
 _Last updated: 22 August 2026._
 
@@ -252,23 +252,13 @@ npm run deploy
 
 Both commands resolve to the repository-pinned Wrangler. Verify live behavior afterwards.
 
-## 7. Legacy/exceptional one-shot production workflow
+## 7. Historical one-shot production workflow
 
-The repository also contains:
+The former `.github/workflows/deploy-main-once.yml` workflow has been removed. It was a historical/exceptional deployment mechanism and is not part of the current release path.
 
-```text
-.github/workflows/deploy-main-once.yml
-```
+Do not recreate, modify, or add a one-shot workflow merely to trigger a routine production deployment. Use `.github/workflows/deploy-production.yml` for normal GitHub-hosted production releases, or the authenticated local/terminal procedure above.
 
-This is **not triggered by an ordinary merge to `main`**. Its `push` trigger is path-filtered to the workflow file itself, so it runs only when that file changes on `main`.
-
-Its current behavior is also materially different from the durable manual release workflow: when triggered, it applies production D1 migrations and then deploys the Worker without a separate `apply_migrations` choice.
-
-Treat this as a historical/exceptional one-shot mechanism, not the normal release path.
-
-Do not edit its trigger comment merely to deploy routine code when the permanent manual `Deploy production` workflow is available. Do not infer that later merged PRs were deployed merely because this file exists or because an older trigger commit exists.
-
-If this workflow is ever intentionally used again, record the exact run result and treat migration/deployment/post-flight as separate verified facts.
+Older commits or workflow runs that reference `deploy-main-once.yml` are historical release evidence only; they do not describe a currently available deployment path.
 
 ## 8. Preview infrastructure and normal lifecycle
 
