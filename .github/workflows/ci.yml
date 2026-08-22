@@ -12,9 +12,6 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Check diff whitespace
-        run: git diff --check HEAD^1 HEAD
-
       - name: Set up Node.js
         uses: actions/setup-node@v5
         with:
@@ -23,28 +20,5 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Check database migrations
-        run: npm run db:check
-
-      - name: Run learning logic tests
-        shell: bash
-        run: |
-          set -o pipefail
-          if npm test 2>&1 | tee /tmp/node-test-output.log; then
-            exit 0
-          fi
-          diagnostic="$(grep -E '^(not ok|  error:|  code:|  failureType:|  location:|  stack:|    at )' /tmp/node-test-output.log || true)"
-          diagnostic="${diagnostic//'%'/'%25'}"
-          diagnostic="${diagnostic//$'\r'/'%0D'}"
-          diagnostic="${diagnostic//$'\n'/'%0A'}"
-          echo "::error title=Node test failure::${diagnostic}"
-          exit 1
-
-      - name: Run Svelte checks
-        run: npm run check
-
-      - name: Build application
-        run: npm run build
-
-      - name: Smoke test local D1 and Better Auth
-        run: node scripts/local-auth-smoke.mjs
+      - name: Run repository validation
+        run: node scripts/validate-ci.mjs --diff-base HEAD^1 --diff-head HEAD
