@@ -5,12 +5,12 @@
   /** @typedef {{ id: string, questionPromptId?: string, promptMd: string, answerMd: string, usedInCase: boolean }} ReusableQuestion */
   /** @typedef {{ total?: number, used?: number, available?: number, questions?: ReusableQuestion[] }} ReusableSummary */
   /** @typedef {{ id?: string, assetId: string, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, isActive?: boolean, assetIsActive?: boolean }} ReviewAsset */
-  /** @type {{ caseId: string, optionId: string, asset: ReviewAsset, groupName: string, caseSpecificQuestions?: CaseSpecificQuestion[], reusable?: ReusableSummary, previewMode?: boolean, onimageopen?: (asset: ReviewAsset, subtitle: string) => void }} */
-  let { caseId, optionId, asset, groupName, caseSpecificQuestions = [], reusable, previewMode = false, onimageopen = () => {} } = $props();
+  /** @type {{ caseId: string, optionId: string, asset: ReviewAsset, groupName: string, groupActive?: boolean, caseSpecificQuestions?: CaseSpecificQuestion[], reusable?: ReusableSummary, previewMode?: boolean, onimageopen?: (asset: ReviewAsset, subtitle: string) => void }} */
+  let { caseId, optionId, asset, groupName, groupActive = true, caseSpecificQuestions = [], reusable, previewMode = false, onimageopen = () => {} } = $props();
   let usedReusable = $derived((reusable?.questions ?? []).filter((question) => question.usedInCase));
   let availableCount = $derived(reusable?.available ?? 0);
   let imageName = $derived(asset.originalFilename ?? asset.assetId);
-  let currentParticipant = $derived(asset.isActive !== false && asset.assetIsActive !== false);
+  let currentParticipant = $derived(groupActive && asset.isActive !== false && asset.assetIsActive !== false);
 </script>
 
 <section id={`option-review-${optionId}`} class="image-question-review" class:inactive-review={!currentParticipant} aria-label={`${currentParticipant ? '' : 'Inactive '}questions for ${imageName}`} tabindex="-1">
@@ -23,7 +23,7 @@
   </div>
 
   {#if !currentParticipant}
-    <p class="inactive-note">Historical/inactive option content. It is retained for authoring context but is excluded from the current learner-participating Case audit.</p>
+    <p class="inactive-note">Historical/inactive set or option content. It is retained for authoring context but is excluded from the current learner-participating Case audit.</p>
   {/if}
 
   {#if caseSpecificQuestions.length > 0}
