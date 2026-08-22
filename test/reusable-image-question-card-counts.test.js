@@ -65,6 +65,11 @@ test('DB loader excludes inactive Asset Questions and inactive Prompts from visi
   assert.ok(source.includes('isNull(assets.previewSessionId)'));
 });
 
+test('DB loader orders reusable Asset Questions by creation time then ID', () => {
+  const source = fs.readFileSync(new URL('../src/lib/server/db/case-image-question-summaries.js', import.meta.url), 'utf8');
+  assert.ok(source.includes('.orderBy(asc(assetQuestions.createdAt), asc(assetQuestions.id))'));
+});
+
 test('fixed-image reuse still uses established transparent one-option conversion path', () => {
   const source = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
   assert.ok(source.includes('await optInAssetQuestion(db, { caseId, optionId, assetQuestionId:'));
