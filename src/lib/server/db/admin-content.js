@@ -1,5 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm';
 
+import { ContentGuardError, requireProductionCase } from './content-guards.js';
 import { caseConcepts, cases, concepts } from './schema.js';
 import { getCaseStimulusCoverageRequirement } from './stimulus-groups.js';
 
@@ -123,6 +124,18 @@ async function requireActiveConcept(db, conceptId) {
   if (!rows[0]) throw new AdminContentInputError('The selected topic is missing or inactive.');
 }
 
+/** @param {LearningDb} db @param {string} caseId */
+async function requireActiveProductionCase(db, caseId) {
+  try {
+    return await requireProductionCase(db, caseId);
+  } catch (error) {
+    if (error instanceof ContentGuardError) {
+      throw new AdminContentInputError('The selected Case is missing or inactive.');
+    }
+    throw error;
+  }
+}
+
 /**
  * @param {LearningDb} db
  * @param {{ title: string, vignetteMd?: string | null, conceptId: string, questionSelectionMode?: unknown, questionCount?: unknown }} input
@@ -159,13 +172,7 @@ export async function createCase(db, input) {
 
 /** @param {LearningDb} db @param {string} caseId @param {string | null} vignetteMd */
 export async function updateCaseVignette(db, caseId, vignetteMd) {
-  const rows = await db
-    .select({ id: cases.id })
-    .from(cases)
-    .where(and(eq(cases.id, caseId), eq(cases.isActive, true)))
-    .limit(1);
-  if (!rows[0]) throw new AdminContentInputError('The selected Case is missing or inactive.');
-
+  await requireActiveProductionCase(db, caseId);
   await db
     .update(cases)
     .set({ vignetteMd: optionalText(vignetteMd) })
@@ -185,8 +192,8 @@ export async function updateCase(db, input) {
   const title = requiredText(input.title, 'Internal Case title');
   const selection = questionSelection(input.questionSelectionMode, input.questionCount);
 
-  await validateCaseQuestionCoverage(db, caseId, selection);
   await requireActiveCaseWithOnePrimary(db, caseId);
+  await validateCaseQuestionCoverage(db, caseId, selection);
   await db
     .update(cases)
     .set({ title, vignetteMd: optionalText(input.vignetteMd), questionSelectionMode: selection.mode, questionCount: selection.count })
@@ -219,12 +226,7 @@ export async function listCaseTopics(db, caseId) {
 /** @param {LearningDb} db @param {string} caseId */
 async function requireActiveCaseWithOnePrimary(db, caseId) {
   const cleanCaseId = requiredText(caseId, 'Case');
-  const caseRows = await db
-    .select({ id: cases.id })
-    .from(cases)
-    .where(and(eq(cases.id, cleanCaseId), eq(cases.isActive, true)))
-    .limit(1);
-  if (!caseRows[0]) throw new AdminContentInputError('The selected Case is missing or inactive.');
+  await requireActiveProductionCase(db, cleanCaseId);
 
   const topicRows = await db
     .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
