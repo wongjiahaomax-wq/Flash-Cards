@@ -102,11 +102,13 @@ SvelteKit `redirect()` throws internally.
 - Do not claim a command, test, build, deployment, migration, or smoke check ran unless it actually ran.
 - Use the validation commands documented by the repository and the task.
 - `npm run agent:doctor` is the read-only pre-edit environment check.
+- After a coherent implementation change, run `npm run agent:checks` to inspect the branch diff and identify repository-specific required and recommended validation. It is advisory and must not mutate Git, contact GitHub, access production, or auto-run the recommended suites.
 - During active editing, use the cheapest feedback that can meaningfully catch the likely failure. For presentation-only UX changes, batch small copy, spacing, class, and layout edits under Vite/HMR instead of running repository validation after every edit.
 - `npm run validate:fast` is checkpoint validation after a coherent batch of work, not an every-edit loop. Run focused tests earlier when changed logic warrants them.
 - `npm run validate:full` is the ordinary local pre-handoff validation after implementation is complete. Do not repeatedly run it during normal iteration.
+- Ordinary PR CI and local `validate:full` share the same repository-owned validation definitions. Do not add a second manually maintained ordinary-validation command list in workflow YAML or another script.
 - Do not rerun an unchanged validation command merely because another small edit was made; rerun it when subsequent changes could invalidate what it checked.
-- For runtime-affecting files, also run `npm run runtime:smoke` at an appropriate checkpoint before handoff.
+- Run specialized checks such as `npm run runtime:smoke` or `npm run slide-review:test` when `agent:checks`, the task contract, or the affected subsystem requires them.
 - Report every check you could not run and the exact reason.
 - Do not describe an unexecuted check as passing based only on code inspection.
 - If implementation and documentation disagree, report the discrepancy and which source of truth you followed.
