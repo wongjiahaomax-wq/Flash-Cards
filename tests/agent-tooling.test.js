@@ -27,9 +27,10 @@ function makeGitRepository() {
   runGit(root, ['config', 'user.name', 'Validation Test']);
   runGit(root, ['config', 'user.email', 'validation@example.invalid']);
   fs.writeFileSync(path.join(root, 'base.txt'), 'base\n');
-  runGit(root, ['add', 'base.txt']);
+  fs.writeFileSync(path.join(root, 'changed.txt'), 'clean\n');
+  runGit(root, ['add', 'base.txt', 'changed.txt']);
   runGit(root, ['commit', '-m', 'base']);
-  const base = runGit(root, ['rev-parse', 'HEAD']).stdout.trim();
+  const base = String(runGit(root, ['rev-parse', 'HEAD']).stdout ?? '').trim();
   runGit(root, ['update-ref', 'refs/remotes/origin/main', base]);
   return { root, base };
 }
@@ -39,7 +40,7 @@ function commitFile(root, file, content, message) {
   fs.writeFileSync(path.join(root, file), content);
   runGit(root, ['add', file]);
   runGit(root, ['commit', '-m', message]);
-  return runGit(root, ['rev-parse', 'HEAD']).stdout.trim();
+  return String(runGit(root, ['rev-parse', 'HEAD']).stdout ?? '').trim();
 }
 
 test('Node major parsing and compatibility are deterministic', () => {
