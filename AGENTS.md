@@ -55,13 +55,14 @@ Never commit:
 
 ## Production/Preview mutation guards
 
-High-risk mutation code should use explicit semantic guards from `src/lib/server/db/content-guards.js` where the invariant matches:
+High-risk production mutation code should use explicit semantic guards from `src/lib/server/db/content-guards.js` where the invariant matches:
 
 - `requireProductionCase(...)` for active production-only Case mutation paths;
-- `requireProductionImageAsset(...)` for active production image Asset mutation paths;
-- `requireOwnedPreviewCase(...)` where ownership by the current Preview Session is required.
+- `requireProductionImageAsset(...)` for active production image Asset mutation paths.
 
-Do not replace these with vague “scoped entity” helpers. Do not use the production Asset guard for Preview paths that intentionally allow production Asset reuse.
+Preview Case ownership has one authority: `requireOwnedPreviewCase(...)` exported by `src/lib/server/db/preview-workspace.js`. Preserve its full Case return value and `PreviewWorkspaceError` behavior; do not add a second independent implementation in `content-guards.js` or rewrite Preview mutation call sites merely to share an abstraction.
+
+Do not replace these guards with vague “scoped entity” helpers. Do not use the production Asset guard for Preview paths that intentionally allow production Asset reuse.
 
 ## Asset and R2 safety
 
@@ -83,6 +84,7 @@ SvelteKit `redirect()` throws internally.
 
 - The exact `wrangler` version in `package.json` / `package-lock.json` is the repository Wrangler authority.
 - Normal scripts and workflows must use that installed Wrangler; do not silently download a second version with `npx wrangler@...`.
+- Direct Wrangler invocations in ordinary GitHub Actions shell steps must use `./node_modules/.bin/wrangler`; do not assume repository-local binaries are on the shell `PATH`.
 - Do not lower `wrangler.jsonc` `compatibility_date` merely to make an older local runtime start.
 - Run `npm run runtime:smoke` when Wrangler/runtime-affecting files change.
 - The runtime smoke is local-only and must not acquire production D1/R2 bindings or secrets.
