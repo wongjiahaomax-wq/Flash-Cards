@@ -102,9 +102,13 @@ export async function runForeground(
   args,
   { cwd = repoRoot, env = /** @type {Environment} */ (process.env) } = {}
 ) {
+  // Materializing the child environment from process.env satisfies the repository's
+  // augmented Node ProcessEnv type while the caller-facing plan stays a generic,
+  // testable record. Explicit child overrides (XDG/auth) remain authoritative.
+  const childEnv = { ...process.env, ...env };
   const child = spawn(command, args, {
     cwd,
-    env,
+    env: childEnv,
     stdio: 'inherit'
   });
 
