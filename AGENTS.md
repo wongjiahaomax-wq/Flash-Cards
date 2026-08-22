@@ -108,7 +108,7 @@ SvelteKit `redirect()` throws internally.
 - `npm run validate:full` is the ordinary local pre-handoff validation after implementation is complete. Do not repeatedly run it during normal iteration.
 - Ordinary PR CI and local `validate:full` share the same repository-owned validation definitions. Do not add a second manually maintained ordinary-validation command list in workflow YAML or another script.
 - Do not rerun an unchanged validation command merely because another small edit was made; rerun it when subsequent changes could invalidate what it checked.
-- Run specialized checks such as `npm run runtime:smoke` or `npm run slide-review:test` when `agent:checks`, the task contract, or the affected subsystem requires them.
+- Run specialized checks when `agent:checks`, the task contract, or the affected subsystem requires them. Examples include `npm run runtime:smoke`; slide-review tooling requires both `npm run slide-review:test` and `npm run slide-review:build`.
 - Report every check you could not run and the exact reason.
 - Do not describe an unexecuted check as passing based only on code inspection.
 - If implementation and documentation disagree, report the discrepancy and which source of truth you followed.
