@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { branchStatus, nodeMajorStatus, overallDoctorStatus, parseNodeMajor, wranglerVersionStatus } from '../scripts/agent-doctor-lib.mjs';
@@ -63,6 +64,21 @@ test('CI validation overrides only diff semantics while sharing the full check s
     args: ['diff', '--check', 'HEAD^1', 'HEAD'],
   });
   assert.deepEqual(commands.at(-1).args, ['scripts/local-auth-smoke.mjs']);
+});
+
+test('PR CI delegates ordinary checks to the shared CI runner', () => {
+  const workflow = fs.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /run: npm ci/);
+  assert.match(workflow, /node scripts\/validate-ci\.mjs --diff-base HEAD\^1 --diff-head HEAD/);
+  for (const duplicate of [
+    'npm run db:check',
+    'npm test',
+    'npm run check',
+    'npm run build',
+    'node scripts/local-auth-smoke.mjs',
+  ]) {
+    assert.equal(workflow.includes(duplicate), false, `${duplicate} should come from the shared validation contract`);
+  }
 });
 
 test('npm and Node invocations use deterministic Node entrypoints where available', () => {
