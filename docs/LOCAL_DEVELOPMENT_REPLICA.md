@@ -8,7 +8,7 @@
 
 _Status: implemented local developer workflow._
 
-_Last reviewed: 20 August 2026._
+_Last reviewed: 22 August 2026._
 
 ## Purpose
 
@@ -27,6 +27,50 @@ localhost:5173
 This lets the developer navigate real Topics, Cases, Questions, Shared Questions, Tags, Assets, Reusable Image Questions, Image Collections and stimulus relationships while UI/content experiments remain disposable local changes.
 
 The production-backed Preview Worker remains the final integration gate before merge. Local replica mode is for fast iteration, not a replacement for Preview/CI/deployment verification.
+
+## Local runtime command contract
+
+Keep these three commands distinct:
+
+### `npm run dev`
+
+Fast UX development:
+
+- Vite/Svelte hot reload;
+- local D1;
+- local R2;
+- local Better Auth;
+- no production mutation;
+- no remote runtime bindings.
+
+The Node launcher creates/uses a writable repository-local XDG configuration root at:
+
+```text
+.wrangler/xdg-config/
+```
+
+and sets `XDG_CONFIG_HOME` only for the Vite child process. This prevents Wrangler/Miniflare platform-proxy startup from depending on a writable user-global directory such as `%APPDATA%\xdg.config\.wrangler` on Windows. It does not change the caller's global environment.
+
+The existing Cloudflare adapter safety contract remains authoritative: local state is persistent and remote bindings are disabled. Do not add `remote: true`.
+
+### `npm run preview`
+
+Production-style **local** verification:
+
+1. build the SvelteKit Cloudflare Worker;
+2. apply checked-out D1 migrations to `DB --local`;
+3. start the built Worker under the repository-pinned Wrangler/workerd runtime;
+4. use the same repository-local XDG configuration root;
+5. override only the local Wrangler runtime binding to `BETTER_AUTH_URL=http://localhost:8787` by default;
+6. keep D1, R2 and Better Auth local.
+
+The preview port can be changed with `LOCAL_PREVIEW_PORT`; the Better Auth origin is derived from that port. The production `BETTER_AUTH_URL` in `wrangler.jsonc` remains unchanged.
+
+`npm run preview` does **not** deploy anything and does **not** run `local:refresh`. Schema migration and production-derived content refresh are separate concerns.
+
+### `npm run deploy`
+
+Actual production deployment. This remains an authenticated operator/release command and uses the user's normal Wrangler authentication/configuration state. The local XDG override is intentionally scoped to the `dev`/local `preview` launchers and is not applied to `deploy`, `db:migrate:remote`, `local:setup`, `local:refresh*`, `admin:bootstrap`, or `preview-admin:bootstrap`.
 
 ## Relationship to import and slide-review tooling
 
@@ -233,7 +277,35 @@ Refresh is intentionally destructive to local content edits and local Review/pro
 
 Component/CSS/Svelte changes can then be inspected with Vite hot reload without creating a PR or deploying a Worker for every iteration.
 
+Before treating a branch as locally production-like, run:
+
+```sh
+npm run preview
+```
+
+This automatically applies any checked-out migrations that the local D1 replica has not yet seen. It does not refresh the content rows or mirrored R2 objects.
+
 If the work is instead reviewing a slide reconstruction bundle, use the separate `slide-review:*` workflow rather than refreshing D1/R2.
+
+## Local schema migration versus content refresh
+
+Use:
+
+```sh
+npm run db:migrate:local
+```
+
+to apply the repository's checked-out migrations to the existing local D1 schema. This changes local schema only.
+
+Use:
+
+```sh
+npm run local:refresh
+```
+
+when you deliberately want to replace the local production-derived teaching content/media with a fresh read-only snapshot from production. Refresh also applies local migrations as part of its setup, but it has a broader content-replica purpose and requires the appropriate read credentials.
+
+`npm run preview` automatically performs the local migration step because running newer application code against stale local schema is unsafe. It never substitutes `--remote` and never refreshes production-derived content automatically.
 
 ## Individual refresh commands
 
@@ -294,9 +366,33 @@ The structural safety proof is instead in the command contract/tests:
 - remote R2 builder exposes `get` only;
 - D1 import/reset builders require `--local`;
 - R2 put builder requires `--local`;
+- local Preview migration arguments require `--local` and reject/omit `--remote`;
+- ordinary Vite platform bindings remain local-only;
 - forbidden production tables are absent from the mirror allowlist;
 - Asset supersession ordering is dependency-based rather than ID-based;
 - Reusable Image Question tables are explicitly allowlisted/reset.
+
+## Windows troubleshooting
+
+### `npm ci` fails with `EPERM` on the Rolldown native module
+
+A running Vite/Wrangler/Node process can keep the native Rolldown `.node` binary open on Windows. If `npm ci` has already started replacing `node_modules`, later errors such as `'vite' is not recognized` or a missing `node_modules/wrangler/bin/wrangler.js` are secondary symptoms of the partial install.
+
+Recovery:
+
+1. stop Vite/Wrangler/Node processes associated with this repository;
+2. remove the incomplete `node_modules` directory;
+3. rerun `npm ci`.
+
+Do **not** delete `.wrangler` for this recovery. That tree contains the local D1/R2 replica and other intentionally persistent local state.
+
+### Wrangler/Miniflare global config permissions
+
+`npm run dev` and `npm run preview` automatically scope `XDG_CONFIG_HOME` to `.wrangler/xdg-config/` for their child runtimes. Manual PowerShell environment setup should not be necessary. Authenticated operator/remote commands are deliberately not redirected and continue to use normal user Wrangler authentication state.
+
+### Runtime smoke cleanup on Windows
+
+`npm run runtime:smoke` still fails if Wrangler/workerd fails to start or the compatibility/readiness check fails. After readiness has passed, cleanup retries a small bounded number of times for transient Windows `EBUSY`/`EPERM` locks in Miniflare temporary observability state. Non-transient cleanup errors and locks that remain after the retry bound still fail the smoke.
 
 ## Local state and cleanup
 
@@ -313,22 +409,23 @@ The generated SQL staging files are stored under:
 .wrangler/local-replica/
 ```
 
-Treat this material as private even though it is ignored by Git.
+The local-only Wrangler/XDG runtime configuration used by `npm run dev` and `npm run preview` lives under:
 
-When disposing of or transferring a development machine, remove `.dev.vars` and `.wrangler/` securely as appropriate.
-
-To rebuild from scratch, stop the dev server, remove local Wrangler state, then rerun:
-
-```sh
-npm run local:setup
-npm run local:admin
+```text
+.wrangler/xdg-config/
 ```
 
-Removing local Wrangler state also removes the local administrator, so bootstrap it again afterwards.
+Treat this material as private even though it is ignored by Git.
+
+Do not remove `.wrangler/` as generic troubleshooting: it contains the local D1/R2 replica and local identities/state. If an intentional full local-replica reset is ever required, treat that as destructive maintenance and preserve/recreate the local administrator and replica deliberately rather than using it as the first response to an npm/runtime error.
+
+When disposing of or transferring a development machine, remove `.dev.vars` and `.wrangler/` securely as appropriate.
 
 ## Schema-changing branches
 
 The refresh script applies the checked-out branch's migrations locally before importing production-derived rows. It never applies branch migrations remotely.
+
+`npm run preview` also applies checked-out migrations locally before starting the Worker so branch switching or pulling newer `main` cannot silently run newer application queries against an older local D1 schema.
 
 If a branch changes table semantics such that the current production rows can no longer be imported safely, the refresh should fail visibly. Do not weaken production safety or silently pretend schema compatibility.
 
@@ -342,28 +439,34 @@ Do not confuse this workflow with:
 npm run admin:bootstrap              production administrator operator
 npm run preview-admin:bootstrap      production-backed Preview identity operator
 npm run db:migrate:remote            production migration operation
-wrangler deploy                      production/Preview deployment
+npm run deploy                       production Worker deployment
+wrangler deploy --env preview        production-backed Preview deployment
 Admin → Import package               production reviewed-package import
 npm run slide-review:build           local review UI build
 npm run slide-review:finalize        local deterministic package finalizer
 ```
 
-Local replica refresh is a read-production/write-local developer operation only.
+Local replica refresh is a read-production/write-local developer operation only. Local production-style `npm run preview` is also local-only and must not be confused with deploying the production-backed Preview Worker.
 
 ## Validation before merging changes to this tooling
 
 Run:
 
 ```sh
+npm ci
 npm run db:check
 npm test
 npm run check
 npm run build
-node scripts/local-auth-smoke.mjs
+npm run runtime:smoke
 git diff --check
 ```
 
-Also exercise `npm run local:refresh` with suitable Cloudflare read authorization and verify local Admin navigation plus image rendering when credentials/local machine access are available.
+Also inspect the diff for accidental `npx wrangler@...`, a second Wrangler version authority, `--remote` in local-preview migration arguments, or any new remote binding configuration.
+
+When local machine access is available, exercise both `npm run dev` and `npm run preview`. Confirm local sign-in, Case Editor navigation and teaching-image rendering; for Preview also confirm local migrations are current and no manual XDG/Better Auth override is needed. Do not claim Windows-specific `EPERM`/`EBUSY` reproduction when the validating machine is not Windows.
+
+Exercise `npm run local:refresh` separately only when suitable Cloudflare read authorization and an intentional content refresh are available.
 
 ## Open-source note
 
