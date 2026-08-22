@@ -21,9 +21,11 @@ function groupActiveForOption(selectedCase, optionId) {
   if (!optionId) return true;
   /** @type {any[]} */
   const groups = selectedCase?.stimulusGroups ?? [];
-  const group = groups.find((candidate) =>
-    (candidate.options ?? []).some((option) => option.id === optionId)
-  );
+  const group = groups.find((candidate) => {
+    /** @type {any[]} */
+    const options = candidate.options ?? [];
+    return options.some((option) => option.id === optionId);
+  });
   return group?.isActive !== false;
 }
 
