@@ -161,6 +161,16 @@ test('runtime/toolchain changes require repository runtime smoke', () => {
   assert.equal(report.requiredCommands.includes('npm run runtime:smoke'), true);
 });
 
+test('local replica helper stays automated-light and marks credential-dependent verification', () => {
+  const report = classifyChangedFiles(['scripts/local-replica-lib.mjs']);
+  assert.equal(report.areas.includes('Local production-like replica tooling'), true);
+  assert.deepEqual(report.requiredCommands, ['git diff --check', 'npm test']);
+  assert.equal(report.requiredCommands.includes('npm run runtime:smoke'), false);
+  const recommendation = report.recommendations.join('\n');
+  assert.match(recommendation, /Credential-dependent/);
+  assert.match(recommendation, /do not access production automatically/i);
+});
+
 test('slide-review changes require only their specialized suite plus whitespace by default', () => {
   const report = classifyChangedFiles(['tools/slide-import-review/scripts/finalize.mjs']);
   assert.deepEqual(report.requiredCommands, ['git diff --check', 'npm run slide-review:test']);
