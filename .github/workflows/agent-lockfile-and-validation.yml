@@ -1,0 +1,92 @@
+name: Agent lockfile and validation
+
+on:
+  push:
+    branches:
+      - agent/coding-agent-safety-refactor-pass-1
+    paths:
+      - '.github/workflows/agent-lockfile-and-validation.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finish-safety-pass:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Regenerate repository lockfile from pinned Wrangler
+        run: npm install --save-dev --save-exact wrangler@4.125.0 --package-lock-only
+
+      - name: Verify clean install from generated lockfile
+        run: npm ci
+
+      - name: Verify Wrangler lock consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          const packagePin = pkg.devDependencies?.wrangler;
+          const rootPin = lock.packages?.['']?.devDependencies?.wrangler;
+          const installed = lock.packages?.['node_modules/wrangler']?.version;
+          const workerd = lock.packages?.['node_modules/workerd']?.version;
+          console.log({ packagePin, rootPin, installed, workerd });
+          if (packagePin !== '4.125.0' || rootPin !== '4.125.0' || installed !== '4.125.0') {
+            throw new Error('Wrangler package/lock versions are not aligned at 4.125.0.');
+          }
+          NODE
+
+      - name: Audit alternate hard-coded Wrangler pins
+        shell: bash
+        run: |
+          set -euo pipefail
+          matches="$(git grep -n -F 'npx --yes wrangler@' || true)"
+          if [ -n "$matches" ]; then
+            printf '%s\n' "$matches"
+          else
+            echo 'No npx --yes wrangler@ pins found.'
+          fi
+
+      - name: Validate database schema
+        run: npm run db:check
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run Svelte checks
+        run: npm run check
+
+      - name: Build application
+        run: npm run build
+
+      - name: Smoke-test repository Wrangler runtime
+        run: npm run runtime:smoke
+
+      - name: Check whitespace
+        run: git diff --check
+
+      - name: Commit generated lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add package.json package-lock.json
+          if git diff --cached --quiet; then
+            echo 'Lockfile already aligned.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Align Wrangler lockfile with repository pin'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
