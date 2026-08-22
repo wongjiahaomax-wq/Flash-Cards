@@ -93,6 +93,7 @@ export function changedFilesFromGit(root, mergeBase) {
   )].sort();
 }
 
+/** @param {string} title @param {string[]} values @param {string} [emptyText] */
 function printSection(title, values, emptyText = '(none)') {
   console.log(`\n${title}`);
   console.log('-'.repeat(title.length));
