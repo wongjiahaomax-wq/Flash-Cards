@@ -91,9 +91,24 @@ npm run local:refresh:r2
 npm run local:admin
 npm run dev
 npm run preview
+npm run deploy
 ```
 
-Use `npm run dev` for the normal hot-reload loop. Use `npm run preview` as a later local production-style Worker/runtime check; it remains local and does not deploy the Cloudflare Preview Worker.
+The three runtime commands have deliberately different contracts:
+
+### `npm run dev`
+
+Fast UX development. It runs Vite/Svelte hot reload against local D1, local R2 and the local Better Auth identity. The launcher gives Wrangler/Miniflare a writable repository-local `XDG_CONFIG_HOME` under `.wrangler/` rather than depending on a writable user-global Wrangler directory. The existing Cloudflare platform proxy remains persistent and local; remote bindings stay disabled.
+
+### `npm run preview`
+
+Production-style **local** verification. It builds the SvelteKit Cloudflare Worker, applies the checked-out migrations to local D1, then runs the built Worker with the repository-pinned Wrangler/workerd runtime. The launcher supplies the repository-local XDG directory and a localhost Better Auth base URL (normally `http://localhost:8787`). D1 and R2 remain local. It does not deploy a Worker and it does not refresh production-derived content automatically.
+
+`db:migrate:local` and `local:refresh` are different operations: the former brings the local schema up to date; the latter explicitly refreshes production-derived content/media into the disposable local replica. `npm run preview` performs the schema step only.
+
+### `npm run deploy`
+
+Actual production Worker deployment. This is an operator/release command and keeps the normal user Wrangler authentication/configuration context. It is not redirected into the repository-local XDG directory by the local runtime wrappers.
 
 Related but separate slide-review commands are:
 

@@ -106,11 +106,45 @@ npm run local:refresh:r2
 
 Local D1/R2 simulations plus replica staging live beneath `.wrangler/`; `.dev.vars` is also local-only. Never commit mirrored production content/media, local credentials or secrets.
 
+### Local runtime commands
+
+`npm run dev` is the fast hot-reload path. A small Node launcher runs repository Vite with `XDG_CONFIG_HOME` scoped to `.wrangler/xdg-config/` for the child process. This keeps Wrangler/Miniflare local platform-proxy registry/log state writable even when a Windows user-global Wrangler directory is read-only. The Cloudflare adapter remains `persist: true` with `remoteBindings: false`.
+
+`npm run preview` is production-style **local** Worker verification. It:
+
+1. builds the application;
+2. applies the checked-out migrations with the repository-installed Wrangler using `d1 migrations apply DB --local`;
+3. starts the built Worker in local mode under the repository-pinned Wrangler/workerd runtime;
+4. scopes XDG state to `.wrangler/xdg-config/`;
+5. overrides the local runtime `BETTER_AUTH_URL` to `http://localhost:8787` by default (or the origin derived from `LOCAL_PREVIEW_PORT`).
+
+It still uses local D1/R2, does not deploy, and does not run `local:refresh`. The production `BETTER_AUTH_URL` and production/Preview bindings in `wrangler.jsonc` remain unchanged.
+
+`npm run deploy` is the actual production deployment command. Authenticated remote/operator commands — including `db:migrate:remote`, `deploy`, `local:setup`, `local:refresh*`, `admin:bootstrap`, and `preview-admin:bootstrap` — deliberately retain the user's normal Wrangler authentication/configuration state instead of inheriting the local runtime XDG override.
+
+Schema migration and replica refresh are separate operations:
+
+```text
+npm run db:migrate:local
+= apply checked-out schema migrations to local D1 only
+
+npm run local:refresh
+= explicitly refresh allowlisted production-derived content/media into local D1/R2
+```
+
+`npm run preview` automatically performs the first operation so newer application code is not run against stale local schema. It never changes that migration path to `--remote`.
+
 Repeatable isolated auth validation remains:
 
 ```sh
 node scripts/local-auth-smoke.mjs
 ```
+
+### Windows dependency-install recovery
+
+If `npm ci` fails with `EPERM` while unlinking the Rolldown native `.node` module, a repository Node/Vite/Wrangler process is usually still holding that binary open. Stop those processes, remove the incomplete `node_modules`, and rerun `npm ci`. Secondary errors such as missing `vite` or missing `node_modules/wrangler/bin/wrangler.js` can result from the partial install.
+
+Do not delete `.wrangler` as this recovery step; it contains the local D1/R2 replica and other persistent local state.
 
 See `LOCAL_DEVELOPMENT_REPLICA.md` for the complete internal runbook.
 
@@ -163,6 +197,8 @@ npm run runtime:smoke
 ```
 
 `runtime:smoke` starts a temporary binding-free local Worker under the repository-pinned Wrangler/workerd runtime and verifies readiness. It intentionally does not load the repository D1/R2 bindings or production credentials.
+
+On Windows, successful readiness can briefly race Miniflare cleanup of temporary observability state. Cleanup retries a bounded number of times only for transient `EBUSY`/`EPERM` errors. Wrangler/workerd startup failures, compatibility/readiness failures, non-transient cleanup errors, and locks that outlive the retry bound still fail the smoke.
 
 A path-filtered PR workflow also runs this smoke test when runtime/toolchain files change, avoiding the cost on unrelated UX/content PRs.
 
@@ -353,6 +389,8 @@ Higher-resolution replacement creates a new immutable production object rather t
 
 Preview cleanup may delete only verified Preview-owned media. Import staging cleanup follows the import-job contract. Neither path may delete normal production teaching objects ambiguously.
 
+Teaching-image delivery remains through the private binding and authenticated application routes. Local Vite development copies serializable `R2Object.httpMetadata` values into response headers instead of calling the proxied `writeHttpMetadata(Headers)` method; this preserves Content-Type/ETag/cache behavior without making R2 public or weakening authorization.
+
 See `R2_COST_GUARDRAILS.md`, `CONTENT_IMPORT_PACKAGES.md`, `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md`, and `LOCAL_DEVELOPMENT_REPLICA.md`.
 
 ## 12. Production content inspection and fixed-purpose operators
@@ -397,18 +435,17 @@ rather than the ambiguous single word `deployed` when several facts are involved
 ## 14. Routine validation
 
 ```sh
+npm ci
 npm run db:check
 npm test
 npm run check
 npm run build
-node scripts/local-auth-smoke.mjs
+npm run runtime:smoke
 git diff --check
 ```
 
-When Wrangler/runtime-affecting files change, also run:
+For local-runtime reliability changes, also inspect the diff for accidental Wrangler version drift, `npx wrangler@...`, `--remote` in a local-preview migration path, or remote ordinary-development bindings.
 
-```sh
-npm run runtime:smoke
-```
+When a suitable local machine is available, manually exercise `npm run dev` and `npm run preview` and verify local sign-in, Case Editor navigation and teaching-image rendering. `npm run preview` should need neither a manual XDG override nor a manual Better Auth URL override. Do not claim Windows-specific `EPERM`/`EBUSY` reproduction from a non-Windows validation environment.
 
 Keep local-replica refresh, migrations, production deploys, Preview candidate deploy/restore, Cloudflare secret creation, content operators and administrator bootstrap/promotion as explicit operations with independently verified outcomes.

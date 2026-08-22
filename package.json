@@ -7,9 +7,9 @@
     "node": ">=22 <23"
   },
   "scripts": {
-    "dev": "vite dev",
+    "dev": "node scripts/local-dev.mjs",
     "build": "vite build",
-    "preview": "npm run build && wrangler dev",
+    "preview": "node scripts/local-preview.mjs",
     "prepare": "svelte-kit sync",
     "check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json",
     "test": "node --test",

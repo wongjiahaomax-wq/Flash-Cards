@@ -10,9 +10,12 @@ function bucketFixture() {
       return /** @type {any} */ ({
         body: new Blob(['historical-image']).stream(),
         httpEtag: etag,
-        /** @param {Headers} headers */
-        writeHttpMetadata(headers) {
-          headers.set('Content-Type', 'image/png');
+        httpMetadata: {
+          contentType: 'image/png',
+          cacheControl: 'public, max-age=60'
+        },
+        writeHttpMetadata() {
+          throw new Error('writeHttpMetadata must not be called through the Vite platform proxy');
         }
       });
     }
@@ -20,7 +23,7 @@ function bucketFixture() {
   return /** @type {R2Bucket} */ (/** @type {unknown} */ (bucket));
 }
 
-test('Review-owned media forces browser revalidation while retaining ETag support', async () => {
+test('Review-owned media forces browser revalidation while retaining metadata and ETag support', async () => {
   const bucket = bucketFixture();
   const first = await serveReviewImage({
     user: { id: 'learner-a' },
@@ -30,6 +33,7 @@ test('Review-owned media forces browser revalidation while retaining ETag suppor
   });
 
   assert.equal(first.status, 200);
+  assert.equal(first.headers.get('content-type'), 'image/png');
   assert.equal(first.headers.get('cache-control'), 'private, max-age=0, must-revalidate');
   assert.equal(first.headers.get('etag'), '"review-object-etag"');
   assert.equal(await first.text(), 'historical-image');
@@ -44,6 +48,7 @@ test('Review-owned media forces browser revalidation while retaining ETag suppor
   });
 
   assert.equal(revalidated.status, 304);
+  assert.equal(revalidated.headers.get('content-type'), 'image/png');
   assert.equal(revalidated.headers.get('cache-control'), 'private, max-age=0, must-revalidate');
   assert.equal(revalidated.headers.get('etag'), '"review-object-etag"');
 });
