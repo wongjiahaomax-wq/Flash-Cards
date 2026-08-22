@@ -10,6 +10,7 @@ const CHECK_ORDER = Object.freeze([
   'authSmoke',
   'runtimeSmoke',
   'slideReviewTest',
+  'slideReviewBuild',
 ]);
 
 /** @typedef {{ id: string, area: string, patterns: readonly RegExp[], excludePatterns?: readonly RegExp[], required: readonly string[], recommendations?: readonly string[] }} ValidationRule */
@@ -82,10 +83,7 @@ export const VALIDATION_RULES = Object.freeze([
     id: 'slide-review',
     area: 'Slide-review tooling',
     patterns: Object.freeze([/^tools\/slide-import-review\//]),
-    required: Object.freeze(['diff', 'slideReviewTest']),
-    recommendations: Object.freeze([
-      'Conditional command: run npm run slide-review:build when the changed previewer/finalizer build output needs verification.',
-    ]),
+    required: Object.freeze(['diff', 'slideReviewTest', 'slideReviewBuild']),
   }),
   Object.freeze({
     id: 'github-automation',
@@ -103,7 +101,7 @@ export const VALIDATION_RULES = Object.freeze([
     patterns: Object.freeze([
       /^scripts\/agent-(?:checks|doctor)(?:-lib)?\.mjs$/,
       /^scripts\/validate(?:-ci)?\.mjs$/,
-      /^scripts\/validation-contract\.mjs$/,
+      /^scripts\/validation-(?:contract|git)\.mjs$/,
       /^tests\/agent-tooling\.test\.js$/,
     ]),
     required: Object.freeze([...ORDINARY_FULL_CHECKS]),
@@ -206,7 +204,7 @@ export function classifyChangedFiles(changedFiles) {
   ].includes(area));
   const filteredAreas = specificApplicationArea ? areas.filter((area) => area !== 'Application code') : areas;
   const requiredChecks = uniqueInCheckOrder(required);
-  const notRequired = ['runtimeSmoke', 'slideReviewTest'].filter((checkId) => !requiredChecks.includes(checkId));
+  const notRequired = ['runtimeSmoke', 'slideReviewTest', 'slideReviewBuild'].filter((checkId) => !requiredChecks.includes(checkId));
 
   return {
     files,
