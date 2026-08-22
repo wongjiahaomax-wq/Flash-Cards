@@ -28,9 +28,10 @@ test('validation modes preserve the intended contracts', () => {
   assert.equal(VALIDATION_MODES.full.some(([, args]) => args.includes('db:check')), true);
 });
 
-test('npm executable is cross-platform', () => {
+test('executables are cross-platform and Node is deterministic', () => {
   assert.equal(executableFor('npm', 'win32'), 'npm.cmd');
   assert.equal(executableFor('npm', 'linux'), 'npm');
+  assert.equal(executableFor('node', 'win32'), process.execPath);
 });
 
 test('validation stops and propagates the first failing exit code', () => {
