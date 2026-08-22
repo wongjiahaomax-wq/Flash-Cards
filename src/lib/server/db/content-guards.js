@@ -63,29 +63,3 @@ export async function requireProductionImageAsset(db, assetId) {
   }
   return rows[0];
 }
-
-/**
- * Require a Case owned by the current Preview Session. Production Cases and
- * Cases owned by another Preview Session are intentionally rejected.
- *
- * This guard does not add an active-state requirement because Preview
- * ownership and Case lifecycle state are separate invariants.
- *
- * @param {LearningDb} db
- * @param {string} previewSessionId
- * @param {string} caseId
- */
-export async function requireOwnedPreviewCase(db, previewSessionId, caseId) {
-  const rows = await db
-    .select({ id: cases.id, previewSessionId: cases.previewSessionId })
-    .from(cases)
-    .where(and(eq(cases.id, caseId), eq(cases.previewSessionId, previewSessionId)))
-    .limit(1);
-  if (!rows[0]) {
-    throw new ContentGuardError(
-      'The selected Case is not owned by this Preview Session.',
-      'PREVIEW_CASE_OWNERSHIP_REQUIRED'
-    );
-  }
-  return rows[0];
-}
