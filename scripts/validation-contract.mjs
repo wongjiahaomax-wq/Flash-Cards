@@ -2,6 +2,11 @@
  * Repository-owned validation definitions.
  * Local validation, CI validation, and agent:checks all consume this data.
  */
+
+/** @typedef {{ label: string, command: string, args: readonly string[] }} ValidationCheck */
+/** @typedef {{ id: string, label: string, command: string, args: string[] }} ValidationCommand */
+
+/** @type {Readonly<Record<string, ValidationCheck>>} */
 export const VALIDATION_CHECKS = Object.freeze({
   diff: Object.freeze({
     label: 'Check diff whitespace',
@@ -45,12 +50,13 @@ export const VALIDATION_CHECKS = Object.freeze({
   }),
 });
 
+/** @type {Readonly<Record<string, readonly string[]>>} */
 export const VALIDATION_MODE_CHECK_IDS = Object.freeze({
   fast: Object.freeze(['diff', 'test', 'svelte']),
   full: Object.freeze(['diff', 'db', 'test', 'svelte', 'build', 'authSmoke']),
 });
 
-/** @param {string} checkId */
+/** @param {string} checkId @returns {ValidationCheck} */
 export function validationCheck(checkId) {
   const check = VALIDATION_CHECKS[checkId];
   if (!check) throw new Error(`Unknown validation check: ${checkId}`);
@@ -60,6 +66,7 @@ export function validationCheck(checkId) {
 /**
  * @param {string} checkId
  * @param {{ diffArgs?: string[] }} [options]
+ * @returns {ValidationCommand}
  */
 export function validationCommand(checkId, options = {}) {
   const check = validationCheck(checkId);
@@ -75,6 +82,7 @@ export function validationCommand(checkId, options = {}) {
 /**
  * @param {string} mode
  * @param {{ diffArgs?: string[] }} [options]
+ * @returns {ValidationCommand[]}
  */
 export function validationCommandsForMode(mode, options = {}) {
   const checkIds = VALIDATION_MODE_CHECK_IDS[mode];
