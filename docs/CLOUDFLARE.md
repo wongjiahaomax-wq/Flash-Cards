@@ -2,7 +2,7 @@
 
 _Status: current repository operational runbook through PR #59. Production migration, Worker deployment, and live verification state must be established separately._
 
-_Last updated: 20 August 2026._
+_Last updated: 22 August 2026._
 
 The SvelteKit application deploys to Cloudflare Workers with private runtime bindings:
 
@@ -149,13 +149,22 @@ Always review generated SQL before committing it.
 
 Production migration application is an explicit release operation.
 
-## 5. Wrangler versions
+## 5. Wrangler/runtime contract
 
-`package.json` currently pins a repository Wrangler version. Release-critical procedures in the current workflows intentionally invoke Wrangler `4.123.0` explicitly.
+`package.json` and `package-lock.json` pin one exact repository-local Wrangler version. That installed package is the Wrangler authority for local Preview, D1 commands, Preview deployment and production deployment.
 
-Use the repository's deliberately selected release command/version for production migration/deploy procedures until the pin/release process is intentionally updated.
+Normal repository scripts/workflows must use the installed Wrangler (`wrangler ...` or `./node_modules/.bin/wrangler ...`). Do not silently download another release-critical Wrangler version with `npx wrangler@...`; doing so can make local, CI and deployment workerd runtimes disagree.
 
-Do not assume an arbitrary newer `npx wrangler` version is harmless for a release-critical action.
+`wrangler.jsonc` `compatibility_date` is part of the same contract. Do not lower it merely to accommodate an outdated local runtime. When Wrangler or the compatibility date changes, run:
+
+```sh
+npm ci
+npm run runtime:smoke
+```
+
+`runtime:smoke` starts a temporary binding-free local Worker under the repository-pinned Wrangler/workerd runtime and verifies readiness. It intentionally does not load the repository D1/R2 bindings or production credentials.
+
+A path-filtered PR workflow also runs this smoke test when runtime/toolchain files change, avoiding the cost on unrelated UX/content PRs.
 
 ## 6. Normal production release path
 
@@ -232,16 +241,16 @@ git diff --check
 If the release includes reviewed pending migrations:
 
 ```sh
-npx --yes wrangler@4.123.0 d1 migrations apply DB --remote
+npm run db:migrate:remote
 ```
 
 Then deploy:
 
 ```sh
-npx --yes wrangler@4.123.0 deploy
+npm run deploy
 ```
 
-Verify live behavior afterwards.
+Both commands resolve to the repository-pinned Wrangler. Verify live behavior afterwards.
 
 ## 7. Legacy/exceptional one-shot production workflow
 
@@ -404,6 +413,12 @@ npm run check
 npm run build
 node scripts/local-auth-smoke.mjs
 git diff --check
+```
+
+When Wrangler/runtime-affecting files change, also run:
+
+```sh
+npm run runtime:smoke
 ```
 
 Keep local-replica refresh, migrations, production deploys, Preview candidate deploy/restore, Cloudflare secret creation, content operators and administrator bootstrap/promotion as explicit operations with independently verified outcomes.
