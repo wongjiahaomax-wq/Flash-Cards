@@ -48,6 +48,11 @@ export const VALIDATION_CHECKS = Object.freeze({
     command: 'npm',
     args: Object.freeze(['run', 'slide-review:test']),
   }),
+  slideReviewBuild: Object.freeze({
+    label: 'Build slide-review tooling',
+    command: 'npm',
+    args: Object.freeze(['run', 'slide-review:build']),
+  }),
 });
 
 /** @type {Readonly<Record<string, readonly string[]>>} */
