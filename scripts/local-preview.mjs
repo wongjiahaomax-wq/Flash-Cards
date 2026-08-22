@@ -6,6 +6,10 @@ import {
   runForeground
 } from './local-runtime-lib.mjs';
 
+/**
+ * @param {{ command: string, args: string[] }} step
+ * @param {Record<string, string | undefined>} env
+ */
 async function runStep(step, env) {
   const result = await runForeground(step.command, step.args, { cwd: repoRoot, env });
   if (result.signal || result.code !== 0) {

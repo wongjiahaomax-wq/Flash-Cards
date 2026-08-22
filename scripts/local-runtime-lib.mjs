@@ -3,6 +3,9 @@ import { spawn } from 'node:child_process';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/** @typedef {Record<string, string | undefined>} Environment */
+/** @typedef {{ code: number | null, signal: NodeJS.Signals | null }} ChildExit */
+
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 export const repoRoot = resolve(scriptDir, '..');
 export const localXdgConfigHome = join(repoRoot, '.wrangler', 'xdg-config');
@@ -14,7 +17,12 @@ export async function ensureLocalXdgConfigHome() {
   await mkdir(localXdgConfigHome, { recursive: true });
 }
 
-export function createLocalRuntimeEnv(baseEnv = process.env, overrides = {}) {
+/**
+ * @param {Environment} [baseEnv]
+ * @param {Environment} [overrides]
+ * @returns {Environment}
+ */
+export function createLocalRuntimeEnv(baseEnv = /** @type {Environment} */ (process.env), overrides = {}) {
   return {
     ...baseEnv,
     XDG_CONFIG_HOME: localXdgConfigHome,
@@ -22,7 +30,8 @@ export function createLocalRuntimeEnv(baseEnv = process.env, overrides = {}) {
   };
 }
 
-export function resolveLocalPreviewPort(env = process.env) {
+/** @param {Environment} [env] */
+export function resolveLocalPreviewPort(env = /** @type {Environment} */ (process.env)) {
   const raw = String(env.LOCAL_PREVIEW_PORT ?? '').trim();
   if (!raw) return defaultLocalPreviewPort;
   if (!/^\d+$/.test(raw)) {
@@ -35,11 +44,13 @@ export function resolveLocalPreviewPort(env = process.env) {
   return port;
 }
 
+/** @param {number} port */
 export function localPreviewOrigin(port) {
   return `http://localhost:${port}`;
 }
 
-export function createLocalDevPlan(baseEnv = process.env) {
+/** @param {Environment} [baseEnv] */
+export function createLocalDevPlan(baseEnv = /** @type {Environment} */ (process.env)) {
   return {
     command: process.execPath,
     args: [viteCli, 'dev'],
@@ -48,7 +59,8 @@ export function createLocalDevPlan(baseEnv = process.env) {
   };
 }
 
-export function createLocalPreviewPlan(baseEnv = process.env) {
+/** @param {Environment} [baseEnv] */
+export function createLocalPreviewPlan(baseEnv = /** @type {Environment} */ (process.env)) {
   const port = resolveLocalPreviewPort(baseEnv);
   const origin = localPreviewOrigin(port);
   const env = createLocalRuntimeEnv(baseEnv, { BETTER_AUTH_URL: origin });
@@ -79,13 +91,24 @@ export function createLocalPreviewPlan(baseEnv = process.env) {
   };
 }
 
-export async function runForeground(command, args, { cwd = repoRoot, env = process.env } = {}) {
+/**
+ * @param {string} command
+ * @param {string[]} args
+ * @param {{ cwd?: string, env?: Environment }} [options]
+ * @returns {Promise<ChildExit>}
+ */
+export async function runForeground(
+  command,
+  args,
+  { cwd = repoRoot, env = /** @type {Environment} */ (process.env) } = {}
+) {
   const child = spawn(command, args, {
     cwd,
     env,
     stdio: 'inherit'
   });
 
+  /** @param {NodeJS.Signals} signal */
   const forwardSignal = (signal) => {
     if (child.exitCode === null && child.signalCode === null) {
       try {
@@ -111,6 +134,7 @@ export async function runForeground(command, args, { cwd = repoRoot, env = proce
   }
 }
 
+/** @param {ChildExit} result */
 export function applyChildExit(result) {
   if (result.signal) {
     try {

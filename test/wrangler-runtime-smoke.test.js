@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { removeRuntimeSmokeDirectory } from '../scripts/wrangler-runtime-smoke-lib.mjs';
 
+/** @param {string} code */
 function codedError(code) {
   return Object.assign(new Error(code), { code });
 }
@@ -10,6 +11,7 @@ function codedError(code) {
 test('runtime smoke cleanup retries transient Windows EBUSY and EPERM failures', async () => {
   for (const code of ['EBUSY', 'EPERM']) {
     let attempts = 0;
+    /** @type {number[]} */
     const delays = [];
     await removeRuntimeSmokeDirectory('ignored', {
       platform: 'win32',

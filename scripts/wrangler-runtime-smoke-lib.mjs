@@ -2,12 +2,32 @@ import { rm } from 'node:fs/promises';
 
 const transientWindowsCleanupCodes = new Set(['EBUSY', 'EPERM']);
 
+/** @param {number} ms */
 function delay(ms) {
   return new Promise((resolveDelay) => setTimeout(resolveDelay, ms));
 }
 
+/** @param {string} target */
+function removeDirectory(target) {
+  return rm(target, { recursive: true, force: true });
+}
+
+/**
+ * @typedef {{
+ *   remove?: (target: string) => Promise<void>,
+ *   sleep?: (ms: number) => Promise<void>,
+ *   platform?: string,
+ *   maxAttempts?: number,
+ *   baseDelayMs?: number
+ * }} CleanupOptions
+ */
+
+/**
+ * @param {string} path
+ * @param {CleanupOptions} [options]
+ */
 export async function removeRuntimeSmokeDirectory(path, {
-  remove = (target) => rm(target, { recursive: true, force: true }),
+  remove = removeDirectory,
   sleep = delay,
   platform = process.platform,
   maxAttempts = 5,
@@ -18,7 +38,10 @@ export async function removeRuntimeSmokeDirectory(path, {
       await remove(path);
       return;
     } catch (error) {
-      const retryable = platform === 'win32' && transientWindowsCleanupCodes.has(error?.code);
+      const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+        ? error.code
+        : '';
+      const retryable = platform === 'win32' && transientWindowsCleanupCodes.has(code);
       if (!retryable || attempt === maxAttempts) throw error;
       await sleep(baseDelayMs * attempt);
     }

@@ -16,6 +16,7 @@ import {
 } from '../scripts/local-runtime-lib.mjs';
 
 test('local runtime state is repository-local and environment construction is non-mutating', () => {
+  /** @type {Record<string, string | undefined>} */
   const base = { EXISTING: 'yes', XDG_CONFIG_HOME: 'C:/read-only/global' };
   const env = createLocalRuntimeEnv(base, { BETTER_AUTH_URL: 'http://localhost:8787' });
 
@@ -37,6 +38,7 @@ test('local preview uses 8787 by default and supports a validated override', () 
 });
 
 test('local dev uses repository Vite with only child-scoped XDG state', () => {
+  /** @type {Record<string, string | undefined>} */
   const base = { XDG_CONFIG_HOME: '/global' };
   const plan = createLocalDevPlan(base);
   assert.equal(plan.command, process.execPath);
@@ -47,6 +49,7 @@ test('local dev uses repository Vite with only child-scoped XDG state', () => {
 });
 
 test('local preview uses repository Wrangler, localhost auth, and local-only migrations', () => {
+  /** @type {Record<string, string | undefined>} */
   const base = { LOCAL_PREVIEW_PORT: '9123', XDG_CONFIG_HOME: '/global' };
   const plan = createLocalPreviewPlan(base);
 

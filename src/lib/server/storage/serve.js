@@ -5,6 +5,7 @@
 /** @param {Headers} headers @param {R2HTTPMetadata | undefined} metadata */
 function copyHttpMetadata(headers, metadata) {
   if (!metadata) return;
+  /** @type {Array<[string, string | undefined]>} */
   const stringHeaders = [
     ['Content-Type', metadata.contentType],
     ['Content-Language', metadata.contentLanguage],
