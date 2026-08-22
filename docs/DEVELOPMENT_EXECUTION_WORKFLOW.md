@@ -156,20 +156,41 @@ npm run runtime:smoke
 
 The smoke starts only a temporary local Worker. It does not load production D1/R2 bindings or require production secrets.
 
-### 5. Move normal validation work to the laptop when practical
+### 5. Let the repository-owned validation policy choose the checks
 
-At a meaningful checkpoint run the relevant commands locally:
+After syncing a laptop checkout, or whenever the local environment may have drifted, run:
 
 ```sh
-npm run db:check
-npm test
-npm run check
-npm run build
-node scripts/local-auth-smoke.mjs
-git diff --check
+npm run agent:doctor
 ```
 
-You do not need to rerun every command after every small edit. Run the focused check during iteration and the full relevant set before handing the branch back for final PR review.
+Before a meaningful handoff or PR review checkpoint, ask the repository which validation applies to the current feature change:
+
+```sh
+npm run agent:checks
+```
+
+`agent:checks` is read-only and advisory. It classifies the current branch diff plus working-tree changes and reports:
+
+- affected repository areas;
+- required automated checks;
+- recommended manual or credential-dependent follow-up;
+- specialized checks that are not required for the current change.
+
+It prefers the locally available `origin/main` remote-tracking ref as the normal branch base, with local `main` as fallback. It does not fetch, mutate refs, switch branches or otherwise modify Git state.
+
+Use the repository-owned validation runners instead of maintaining another manual command list in this runbook:
+
+```sh
+npm run validate:fast
+npm run validate:full
+```
+
+Use `validate:fast` for an ordinary iteration checkpoint when the focused contract is sufficient. Use `validate:full` before handoff when `agent:checks` calls for the ordinary full contract, and run any additional specialized commands that `agent:checks` reports, such as runtime or slide-review validation.
+
+Local `validate:*` resolves the same feature-branch base used by `agent:checks`. Its whitespace check compares that merge-base with the current tracked working tree, so committed feature changes, staged changes and unstaged tracked changes are all included. CI consumes the same ordinary full validation check IDs but keeps PR-checkout-specific diff semantics and GitHub annotations explicit.
+
+You do not need to rerun every command after every small edit. Run focused checks during iteration and the repository-selected full/specialized set before handing the branch back for final PR review.
 
 Opening/updating a PR may still trigger repository CI automatically. The local-first policy reduces avoidable extra remote runs; it does not weaken configured PR gates.
 
@@ -278,7 +299,7 @@ When the user explicitly says they **have laptop access**:
 - still use normal PR CI and production-backed Preview when they are meaningful safety/integration gates;
 - for production deployment or production D1 migration instructions, read and follow `CLOUDFLARE.md` rather than relying on copied commands in another document.
 
-When the user says they are **on mobile**, **away from the laptop**, or otherwise have **no terminal access**:
+When the user says they are **on mobile**, **away from the laptop**, or otherwise has **no terminal access**:
 
 - use the GitHub connector for supported repository/PR operations;
 - rely on configured GitHub CI for executable validation that cannot run locally;
