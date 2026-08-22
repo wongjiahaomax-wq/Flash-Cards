@@ -6,11 +6,14 @@ import test from 'node:test';
 import { updateCaseVignette, AdminContentInputError } from '../src/lib/server/db/admin-content.js';
 import {
   ContentGuardError,
-  requireOwnedPreviewCase,
   requireProductionCase,
   requireProductionImageAsset
 } from '../src/lib/server/db/content-guards.js';
 import { createDb } from '../src/lib/server/db/index.js';
+import {
+  PreviewWorkspaceError,
+  requireOwnedPreviewCase
+} from '../src/lib/server/db/preview-workspace.js';
 import {
   removeStimulusOptionQuestion,
   saveStimulusGroupQuestion,
@@ -37,11 +40,13 @@ function createFixture() {
 
     INSERT INTO cases (id, title, vignette_md, question_selection_mode, question_count, is_active, preview_session_id) VALUES
       ('case-production', 'Production Case', 'Production vignette', 'automatic', NULL, 1, NULL),
+      ('case-production-inactive', 'Inactive Production Case', 'Inactive production vignette', 'automatic', NULL, 0, NULL),
       ('case-preview-a', 'Preview A Case', 'Preview A vignette', 'automatic', NULL, 1, 'preview-a'),
       ('case-preview-b', 'Preview B Case', 'Preview B vignette', 'automatic', NULL, 1, 'preview-b');
 
     INSERT INTO assets (id, type, storage_key, mime_type, original_filename, alt_text, is_active, preview_session_id) VALUES
       ('asset-production-image', 'image', 'test/production.png', 'image/png', 'production.png', 'Production image', 1, NULL),
+      ('asset-production-image-inactive', 'image', 'test/production-inactive.png', 'image/png', 'production-inactive.png', 'Inactive production image', 0, NULL),
       ('asset-preview-image', 'image', 'test/preview.png', 'image/png', 'preview.png', 'Preview image', 1, 'preview-a'),
       ('asset-production-non-image', 'document', 'test/document.bin', 'application/octet-stream', 'document.bin', 'Document', 1, NULL);
 
@@ -91,7 +96,7 @@ function createFixture() {
   };
 }
 
-test('production Case guard accepts production and rejects Preview-owned Cases', async () => {
+test('production Case guard accepts active production and rejects Preview-owned or inactive Cases', async () => {
   const fixture = createFixture();
   try {
     assert.deepEqual(await requireProductionCase(fixture.db, 'case-production'), { id: 'case-production' });
@@ -99,12 +104,16 @@ test('production Case guard accepts production and rejects Preview-owned Cases',
       () => requireProductionCase(fixture.db, 'case-preview-a'),
       (error) => error instanceof ContentGuardError && error.code === 'PRODUCTION_CASE_REQUIRED'
     );
+    await assert.rejects(
+      () => requireProductionCase(fixture.db, 'case-production-inactive'),
+      (error) => error instanceof ContentGuardError && error.code === 'PRODUCTION_CASE_REQUIRED'
+    );
   } finally {
     fixture.sqlite.close();
   }
 });
 
-test('production image Asset guard rejects Preview-owned and non-image Assets', async () => {
+test('production image Asset guard rejects Preview-owned, inactive, and non-image Assets', async () => {
   const fixture = createFixture();
   try {
     assert.deepEqual(await requireProductionImageAsset(fixture.db, 'asset-production-image'), {
@@ -116,6 +125,10 @@ test('production image Asset guard rejects Preview-owned and non-image Assets', 
       (error) => error instanceof ContentGuardError && error.code === 'PRODUCTION_ASSET_REQUIRED'
     );
     await assert.rejects(
+      () => requireProductionImageAsset(fixture.db, 'asset-production-image-inactive'),
+      (error) => error instanceof ContentGuardError && error.code === 'PRODUCTION_ASSET_REQUIRED'
+    );
+    await assert.rejects(
       () => requireProductionImageAsset(fixture.db, 'asset-production-non-image'),
       (error) => error instanceof ContentGuardError && error.code === 'PRODUCTION_IMAGE_ASSET_REQUIRED'
     );
@@ -124,20 +137,21 @@ test('production image Asset guard rejects Preview-owned and non-image Assets', 
   }
 });
 
-test('Preview Case ownership guard accepts only the current Preview Session', async () => {
+test('Preview workspace remains the sole Preview Case ownership authority', async () => {
   const fixture = createFixture();
   try {
-    assert.deepEqual(await requireOwnedPreviewCase(fixture.db, 'preview-a', 'case-preview-a'), {
-      id: 'case-preview-a',
-      previewSessionId: 'preview-a'
-    });
+    const ownedCase = await requireOwnedPreviewCase(fixture.db, 'preview-a', 'case-preview-a');
+    assert.equal(ownedCase.id, 'case-preview-a');
+    assert.equal(ownedCase.previewSessionId, 'preview-a');
+    assert.equal(ownedCase.vignetteMd, 'Preview A vignette');
+
     await assert.rejects(
       () => requireOwnedPreviewCase(fixture.db, 'preview-a', 'case-preview-b'),
-      (error) => error instanceof ContentGuardError && error.code === 'PREVIEW_CASE_OWNERSHIP_REQUIRED'
+      (error) => error instanceof PreviewWorkspaceError && error.code === 'NOT_OWNED'
     );
     await assert.rejects(
       () => requireOwnedPreviewCase(fixture.db, 'preview-a', 'case-production'),
-      (error) => error instanceof ContentGuardError && error.code === 'PREVIEW_CASE_OWNERSHIP_REQUIRED'
+      (error) => error instanceof PreviewWorkspaceError && error.code === 'NOT_OWNED'
     );
   } finally {
     fixture.sqlite.close();
