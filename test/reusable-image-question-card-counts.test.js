@@ -88,6 +88,13 @@ test('option cards show Case-specific Q/A pairs while keeping reusable counts in
   assert.ok(counts.includes('qa-label answer'));
 });
 
+test('Compact review clearly distinguishes inactive alternative-option content', () => {
+  const review = fs.readFileSync(new URL('../src/lib/components/ImageQuestionReview.svelte', import.meta.url), 'utf8');
+  assert.ok(review.includes("'INACTIVE · '"));
+  assert.ok(review.includes('class:inactive-review={!currentParticipant}'));
+  assert.ok(review.includes('excluded from the current learner-participating Case audit'));
+});
+
 test('Manage questions waits for the editor DOM, then reveals and focuses it', () => {
   const page = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
   assert.match(page, /import \{[^}]*\btick\b[^}]*\} from 'svelte'/);
