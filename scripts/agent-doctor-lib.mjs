@@ -1,20 +1,26 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
+/** @typedef {'ok' | 'warning' | 'error'} DoctorLevel */
+/** @typedef {{ level: DoctorLevel }} DoctorCheck */
+
+/** @param {unknown} version @returns {number | null} */
 export function parseNodeMajor(version) {
   const match = String(version ?? '').match(/^v?(\d+)/);
   return match ? Number(match[1]) : null;
 }
 
+/** @param {unknown} currentVersion @param {number | null} expectedMajor */
 export function nodeMajorStatus(currentVersion, expectedMajor) {
   const currentMajor = parseNodeMajor(currentVersion);
   return {
-    ok: currentMajor === expectedMajor,
+    ok: Number.isInteger(expectedMajor) && currentMajor === expectedMajor,
     currentMajor,
     expectedMajor,
   };
 }
 
+/** @param {string | null | undefined} expected @param {string | null | undefined} installed */
 export function wranglerVersionStatus(expected, installed) {
   return {
     ok: Boolean(expected && installed && expected === installed),
@@ -23,6 +29,7 @@ export function wranglerVersionStatus(expected, installed) {
   };
 }
 
+/** @param {string | null | undefined} branch */
 export function branchStatus(branch) {
   return {
     branch: branch || '(detached/unknown)',
@@ -30,11 +37,13 @@ export function branchStatus(branch) {
   };
 }
 
+/** @param {DoctorCheck[]} checks @returns {DoctorLevel} */
 export function overallDoctorStatus(checks) {
   return checks.some((check) => check.level === 'error') ? 'error' :
     checks.some((check) => check.level === 'warning') ? 'warning' : 'ok';
 }
 
+/** @param {string} [startDir] @returns {string | null} */
 export function findRepositoryRoot(startDir = process.cwd()) {
   let current = path.resolve(startDir);
   while (true) {
