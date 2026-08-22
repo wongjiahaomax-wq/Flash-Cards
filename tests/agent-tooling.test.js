@@ -15,11 +15,27 @@ test('Wrangler comparison requires exact repository version', () => {
   assert.equal(wranglerVersionStatus('4.125.0', '4.124.0').ok, false);
 });
 
-test('main branch is a warning, not an error', () => {
-  const status = branchStatus('main');
-  assert.ok(status.warning);
-  assert.match(status.warning, /feature branch/);
+test('branch state distinguishes feature, main, detached, and unreadable Git state', () => {
+  assert.deepEqual(branchStatus('agent/example'), {
+    branch: 'agent/example',
+    level: 'ok',
+    message: null,
+  });
+
+  const main = branchStatus('main');
+  assert.equal(main.level, 'warning');
+  assert.match(main.message, /feature branch/);
+
+  const detached = branchStatus('');
+  assert.equal(detached.level, 'warning');
+  assert.match(detached.message, /detached/);
+
+  const unreadable = branchStatus(null, false);
+  assert.equal(unreadable.level, 'error');
+  assert.match(unreadable.message, /could not be read/);
+
   assert.equal(overallDoctorStatus([{ level: 'warning' }]), 'warning');
+  assert.equal(overallDoctorStatus([{ level: 'error' }]), 'error');
 });
 
 test('validation modes preserve the intended contracts', () => {
