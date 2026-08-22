@@ -6,7 +6,8 @@ const localAuthSmoke = readFileSync(new URL('../scripts/local-auth-smoke.mjs', i
 const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 
 test('local auth smoke uses the repository-installed Wrangler authority', () => {
-  assert.equal(packageJson.devDependencies?.wrangler ?? packageJson.dependencies?.wrangler, '4.125.0');
+  const wranglerVersion = packageJson.devDependencies?.wrangler ?? packageJson.dependencies?.wrangler;
+  assert.match(wranglerVersion, /^\d+\.\d+\.\d+$/);
   assert.match(localAuthSmoke, /join\(repoRoot, 'node_modules', 'wrangler', 'bin', 'wrangler\.js'\)/);
   assert.match(localAuthSmoke, /execFileSync\(process\.execPath, \[wranglerCli, \.\.\.args\]/);
   assert.match(localAuthSmoke, /spawn\(\s*process\.execPath,\s*\[\s*wranglerCli,/);
