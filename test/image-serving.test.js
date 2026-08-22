@@ -63,13 +63,16 @@ test('missing R2 objects return 404', async () => {
   assert.deepEqual(calls, [asset.storageKey]);
 });
 
-test('successful image serving preserves MIME type, ETag, and private immutable caching', async () => {
+test('successful image serving preserves metadata, ETag, and private immutable caching without proxy method calls', async () => {
   const object = {
     body: new Blob(['image-bytes']).stream(),
     httpEtag: '"asset-etag"',
-    /** @param {Headers} headers */
-    writeHttpMetadata(headers) {
-      headers.set('Content-Type', 'application/octet-stream');
+    httpMetadata: {
+      contentType: 'application/octet-stream',
+      contentLanguage: 'en'
+    },
+    writeHttpMetadata() {
+      throw new Error('writeHttpMetadata must not be called through the Vite platform proxy');
     }
   };
   const { bucket } = mockBucket(object);
@@ -82,16 +85,20 @@ test('successful image serving preserves MIME type, ETag, and private immutable 
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('content-type'), 'image/png');
+  assert.equal(response.headers.get('content-language'), 'en');
   assert.equal(response.headers.get('cache-control'), 'private, max-age=31536000, immutable');
   assert.equal(response.headers.get('etag'), '"asset-etag"');
   assert.equal(await response.text(), 'image-bytes');
 });
 
-test('matching ETag returns 304 without serving image bytes', async () => {
+test('matching ETag returns 304 without serving image bytes or calling the proxied metadata method', async () => {
   const object = {
     body: new Blob(['image-bytes']).stream(),
     httpEtag: '"asset-etag"',
-    writeHttpMetadata() {}
+    httpMetadata: { contentType: 'image/png' },
+    writeHttpMetadata() {
+      throw new Error('writeHttpMetadata must not be called through the Vite platform proxy');
+    }
   };
   const { bucket } = mockBucket(object);
   const response = await serveTeachingImage({
@@ -104,5 +111,6 @@ test('matching ETag returns 304 without serving image bytes', async () => {
   });
 
   assert.equal(response.status, 304);
+  assert.equal(response.headers.get('content-type'), 'image/png');
   assert.equal(response.headers.get('etag'), '"asset-etag"');
 });
