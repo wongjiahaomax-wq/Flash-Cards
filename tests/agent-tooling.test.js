@@ -1,12 +1,46 @@
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { branchStatus, nodeMajorStatus, overallDoctorStatus, parseNodeMajor, wranglerVersionStatus } from '../scripts/agent-doctor-lib.mjs';
 import { classifyChangedFiles } from '../scripts/agent-checks-lib.mjs';
 import { parseAgentChecksArgs } from '../scripts/agent-checks.mjs';
-import { escapeGithubCommandData, extractNodeTestDiagnostic, parseCiArgs } from '../scripts/validate-ci.mjs';
+import { CI_TEST_MAX_BUFFER_BYTES, escapeGithubCommandData, extractNodeTestDiagnostic, parseCiArgs } from '../scripts/validate-ci.mjs';
 import { resolveInvocation, runValidation, VALIDATION_MODES } from '../scripts/validate.mjs';
 import { VALIDATION_MODE_CHECK_IDS, validationCommandsForMode } from '../scripts/validation-contract.mjs';
+import { localDiffCheck, resolveDiffBase } from '../scripts/validation-git.mjs';
+
+/** @param {string} cwd @param {string[]} args @param {{ allowFailure?: boolean }} [options] */
+function runGit(cwd, args, options = {}) {
+  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
+  if (!options.allowFailure) {
+    assert.equal(result.status, 0, `git ${args.join(' ')} failed: ${result.stderr || result.error?.message || ''}`);
+  }
+  return result;
+}
+
+function makeGitRepository() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flash-cards-validation-'));
+  runGit(root, ['init', '-b', 'main']);
+  runGit(root, ['config', 'user.name', 'Validation Test']);
+  runGit(root, ['config', 'user.email', 'validation@example.invalid']);
+  fs.writeFileSync(path.join(root, 'base.txt'), 'base\n');
+  runGit(root, ['add', 'base.txt']);
+  runGit(root, ['commit', '-m', 'base']);
+  const base = runGit(root, ['rev-parse', 'HEAD']).stdout.trim();
+  runGit(root, ['update-ref', 'refs/remotes/origin/main', base]);
+  return { root, base };
+}
+
+/** @param {string} root @param {string} file @param {string} content @param {string} message */
+function commitFile(root, file, content, message) {
+  fs.writeFileSync(path.join(root, file), content);
+  runGit(root, ['add', file]);
+  runGit(root, ['commit', '-m', message]);
+  return runGit(root, ['rev-parse', 'HEAD']).stdout.trim();
+}
 
 test('Node major parsing and compatibility are deterministic', () => {
   assert.equal(parseNodeMajor('v22.18.0'), 22);
@@ -98,12 +132,14 @@ test('npm and Node invocations use deterministic Node entrypoints where availabl
 
 test('validation stops and propagates the first failing exit code', () => {
   let calls = 0;
-  const status = runValidation('fast', () => ({ status: ++calls === 2 ? 7 : 0 }));
+  const status = runValidation('fast', () => ({ status: ++calls === 2 ? 7 : 0 }), {
+    diffArgs: ['diff', '--check', 'TEST_BASE'],
+  });
   assert.equal(status, 7);
   assert.equal(calls, 2);
 });
 
-test('CI Node-test diagnostics preserve useful GitHub annotations', () => {
+test('CI Node-test diagnostics preserve useful GitHub annotations without the default small output buffer', () => {
   const output = [
     'TAP version 13',
     'not ok 2 - classifier',
@@ -121,6 +157,7 @@ test('CI Node-test diagnostics preserve useful GitHub annotations', () => {
     diffBase: 'HEAD^1',
     diffHead: 'HEAD',
   });
+  assert.equal(CI_TEST_MAX_BUFFER_BYTES >= 64 * 1024 * 1024, true);
 });
 
 test('agent:checks CLI accepts a base override or explicit file fixture list', () => {
@@ -129,6 +166,62 @@ test('agent:checks CLI accepts a base override or explicit file fixture list', (
     base: null,
     files: ['src/a.js', 'docs/b.md'],
   });
+});
+
+test('diff base prefers current origin/main when local main is stale', () => {
+  const { root, base } = makeGitRepository();
+  try {
+    commitFile(root, 'b.txt', 'b\n', 'B');
+    const currentMain = commitFile(root, 'c.txt', 'c\n', 'C');
+    runGit(root, ['update-ref', 'refs/remotes/origin/main', currentMain]);
+    runGit(root, ['switch', '-c', 'agent/example']);
+    commitFile(root, 'd.txt', 'd\n', 'D');
+    runGit(root, ['branch', '-f', 'main', base]);
+
+    const resolved = resolveDiffBase(root);
+    assert.equal(resolved.baseRef, 'origin/main');
+    assert.equal(resolved.mergeBase, currentMain);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('local validation diff covers committed, staged, and unstaged tracked whitespace errors', async (t) => {
+  for (const scenario of ['committed', 'staged', 'unstaged']) {
+    await t.test(scenario, () => {
+      const { root, base } = makeGitRepository();
+      try {
+        runGit(root, ['switch', '-c', `agent/${scenario}`]);
+        fs.writeFileSync(path.join(root, 'changed.txt'), 'trailing whitespace  \n');
+        if (scenario === 'staged' || scenario === 'committed') runGit(root, ['add', 'changed.txt']);
+        if (scenario === 'committed') runGit(root, ['commit', '-m', 'bad whitespace']);
+
+        const diff = localDiffCheck(root);
+        assert.equal(diff.baseRef, 'origin/main');
+        assert.equal(diff.mergeBase, base);
+        assert.deepEqual(diff.args, ['diff', '--check', base]);
+        assert.notEqual(runGit(root, diff.args, { allowFailure: true }).status, 0);
+      } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test('local validation runner injects the resolved merge-base diff check', () => {
+  const { root, base } = makeGitRepository();
+  try {
+    runGit(root, ['switch', '-c', 'agent/local-validation']);
+    const calls = [];
+    const status = runValidation('fast', (command, args) => {
+      calls.push({ command, args });
+      return { status: 0 };
+    }, { root });
+    assert.equal(status, 0);
+    assert.deepEqual(calls[0], { command: 'git', args: ['diff', '--check', base] });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('Admin/Svelte changes require application checks but not runtime smoke', () => {
@@ -171,9 +264,13 @@ test('local replica helper stays automated-light and marks credential-dependent 
   assert.match(recommendation, /do not access production automatically/i);
 });
 
-test('slide-review changes require only their specialized suite plus whitespace by default', () => {
+test('slide-review changes require both specialized test and build contracts', () => {
   const report = classifyChangedFiles(['tools/slide-import-review/scripts/finalize.mjs']);
-  assert.deepEqual(report.requiredCommands, ['git diff --check', 'npm run slide-review:test']);
+  assert.deepEqual(report.requiredCommands, [
+    'git diff --check',
+    'npm run slide-review:test',
+    'npm run slide-review:build',
+  ]);
   assert.equal(report.requiredCommands.includes('npm run runtime:smoke'), false);
 });
 
