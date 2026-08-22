@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { findRepositoryRoot } from './agent-doctor-lib.mjs';
@@ -42,12 +45,30 @@ function gitOutput(root, args, description) {
   return result.stdout.trim();
 }
 
+/** @param {string} value */
+function gitPathList(value) {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/** @param {string} root */
+export function untrackedFilesFromGit(root) {
+  return gitPathList(gitOutput(
+    root,
+    ['ls-files', '--others', '--exclude-standard'],
+    'Unable to read untracked files',
+  ));
+}
+
 /**
  * Include committed feature-branch changes, tracked working-tree changes, and untracked files.
  * @param {string} root
  * @param {string} mergeBase
+ * @param {string[] | null} [knownUntracked]
  */
-export function changedFilesFromGit(root, mergeBase) {
+export function changedFilesFromGit(root, mergeBase, knownUntracked = null) {
   const committed = gitOutput(
     root,
     ['diff', '--name-only', '--diff-filter=ACDMRTUXB', `${mergeBase}..HEAD`],
@@ -58,17 +79,45 @@ export function changedFilesFromGit(root, mergeBase) {
     ['diff', '--name-only', '--diff-filter=ACDMRTUXB', 'HEAD'],
     'Unable to read working-tree diff',
   );
-  const untracked = gitOutput(
-    root,
-    ['ls-files', '--others', '--exclude-standard'],
-    'Unable to read untracked files',
-  );
-  return [...new Set(
-    [committed, working, untracked]
-      .flatMap((value) => value.split(/\r?\n/))
-      .map((value) => value.trim())
-      .filter(Boolean),
-  )].sort();
+  const untracked = knownUntracked ?? untrackedFilesFromGit(root);
+  return [...new Set([
+    ...gitPathList(committed),
+    ...gitPathList(working),
+    ...untracked,
+  ])].sort();
+}
+
+/**
+ * Git diff whitespace validation does not include completely untracked files. Check those files
+ * separately with Git's own whitespace engine against a temporary empty file. A normal no-index
+ * difference exits 1; whitespace/fatal errors exit above 1 and are reported.
+ * @param {string} root
+ * @param {string[]} files
+ */
+export function checkUntrackedWhitespace(root, files) {
+  if (!files.length) return { checkedFiles: [], diagnostics: [] };
+
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'flash-cards-agent-whitespace-'));
+  const emptyFile = path.join(tempRoot, 'empty');
+  fs.writeFileSync(emptyFile, '');
+
+  /** @type {string[]} */
+  const diagnostics = [];
+  try {
+    for (const file of files) {
+      const result = git(root, ['diff', '--no-index', '--check', '--', emptyFile, path.resolve(root, file)]);
+      if (result.status === 0 || result.status === 1) continue;
+      const detail = [result.stdout, result.stderr]
+        .map((value) => value?.trim())
+        .filter(Boolean)
+        .join('\n');
+      diagnostics.push(detail || `${file}: git diff --no-index --check exited with ${result.status}`);
+    }
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+
+  return { checkedFiles: [...files], diagnostics };
 }
 
 /**
@@ -106,12 +155,23 @@ function printSection(title, values, emptyText = '(none)') {
   for (const value of values) console.log(`- ${value}`);
 }
 
-/** @param {{ files: string[], areas: string[], requiredCommands: string[], recommendations: string[], notRequiredCommands: string[], unclassifiedImportant: string[] }} report @param {string} baseDescription */
-export function printAgentChecksReport(report, baseDescription) {
+/**
+ * @param {{ files: string[], areas: string[], requiredCommands: string[], recommendations: string[], notRequiredCommands: string[], unclassifiedImportant: string[] }} report
+ * @param {string} baseDescription
+ * @param {{ checkedFiles: string[], diagnostics: string[] } | null} [untrackedWhitespace]
+ */
+export function printAgentChecksReport(report, baseDescription, untrackedWhitespace = null) {
   console.log(`Diff base: ${baseDescription}`);
   printSection('Changed files', report.files, '(no changed files detected)');
   printSection('Affected areas', report.areas, '(none)');
   printSection('Required automated checks', report.requiredCommands, '(none)');
+  if (untrackedWhitespace?.checkedFiles.length) {
+    console.log('\nUntracked whitespace validation');
+    console.log('-------------------------------');
+    console.log(`- ${untrackedWhitespace.diagnostics.length ? 'FAIL' : 'PASS'}: checked ${untrackedWhitespace.checkedFiles.length} untracked file(s) directly with Git whitespace rules.`);
+    console.log('- The required merge-base git diff command covers tracked changes; this direct check covers untracked files.');
+    for (const diagnostic of untrackedWhitespace.diagnostics) console.log(`- ${diagnostic}`);
+  }
   printSection('Recommended follow-up', report.recommendations, '(none)');
   printSection('Not required', report.notRequiredCommands, '(none)');
   if (report.unclassifiedImportant.length) {
@@ -142,10 +202,12 @@ export function runAgentChecks(argv = process.argv.slice(2)) {
       return 0;
     }
     const { baseRef, mergeBase } = resolveDiffBase(root, args.base);
-    const files = changedFilesFromGit(root, mergeBase);
+    const untrackedFiles = untrackedFilesFromGit(root);
+    const files = changedFilesFromGit(root, mergeBase, untrackedFiles);
+    const untrackedWhitespace = checkUntrackedWhitespace(root, untrackedFiles);
     const report = contextualizeAgentChecksReport(classifyChangedFiles(files), mergeBase);
-    printAgentChecksReport(report, `${baseRef} (merge-base ${mergeBase.slice(0, 12)})`);
-    return 0;
+    printAgentChecksReport(report, `${baseRef} (merge-base ${mergeBase.slice(0, 12)})`, untrackedWhitespace);
+    return untrackedWhitespace.diagnostics.length ? 1 : 0;
   } catch (error) {
     console.error(`ERROR: ${error instanceof Error ? error.message : error}`);
     return 1;
