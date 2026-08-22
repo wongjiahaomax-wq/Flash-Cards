@@ -3,14 +3,15 @@
 
   /** @typedef {{ questionPromptId: string, promptMd: string, answerMd: string }} CaseSpecificQuestion */
   /** @typedef {{ id: string, questionPromptId?: string, promptMd: string, answerMd: string, usedInCase: boolean }} ReusableQuestion */
-  /** @typedef {{ total?: number, used?: number, available?: number, questions?: ReusableQuestion[] }} ReusableSummary */
+  /** @typedef {{ total?: number, used?: number, available?: number, groupActive?: boolean, questions?: ReusableQuestion[] }} ReusableSummary */
   /** @typedef {{ id?: string, assetId: string, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, isActive?: boolean, assetIsActive?: boolean }} ReviewAsset */
   /** @type {{ caseId: string, optionId: string, asset: ReviewAsset, groupName: string, groupActive?: boolean, caseSpecificQuestions?: CaseSpecificQuestion[], reusable?: ReusableSummary, previewMode?: boolean, onimageopen?: (asset: ReviewAsset, subtitle: string) => void }} */
-  let { caseId, optionId, asset, groupName, groupActive = true, caseSpecificQuestions = [], reusable, previewMode = false, onimageopen = () => {} } = $props();
+  let { caseId, optionId, asset, groupName, groupActive, caseSpecificQuestions = [], reusable, previewMode = false, onimageopen = () => {} } = $props();
   let usedReusable = $derived((reusable?.questions ?? []).filter((question) => question.usedInCase));
   let availableCount = $derived(reusable?.available ?? 0);
   let imageName = $derived(asset.originalFilename ?? asset.assetId);
-  let currentParticipant = $derived(groupActive && asset.isActive !== false && asset.assetIsActive !== false);
+  let effectiveGroupActive = $derived(groupActive ?? reusable?.groupActive ?? true);
+  let currentParticipant = $derived(effectiveGroupActive && asset.isActive !== false && asset.assetIsActive !== false);
 </script>
 
 <section id={`option-review-${optionId}`} class="image-question-review" class:inactive-review={!currentParticipant} aria-label={`${currentParticipant ? '' : 'Inactive '}questions for ${imageName}`} tabindex="-1">
