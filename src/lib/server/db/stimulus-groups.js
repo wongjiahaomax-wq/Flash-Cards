@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, or } from 'drizzle-orm';
 
+import { ContentGuardError, requireProductionCase, requireProductionImageAsset } from './content-guards.js';
 import {
   assets,
   assetQuestions,
@@ -192,8 +193,14 @@ async function validateCoverageFitsCase(db, caseId, replacingGroupId, selected, 
 
 /** @param {LearningDb} db @param {string} caseId */
 async function requireCase(db, caseId) {
-  const row = (await db.select({ id: cases.id }).from(cases).where(and(eq(cases.id, caseId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
-  if (!row) throw new StimulusGroupInputError('The selected Case is missing or inactive.');
+  try {
+    await requireProductionCase(db, caseId);
+  } catch (error) {
+    if (error instanceof ContentGuardError) {
+      throw new StimulusGroupInputError('The selected Case is missing or inactive.');
+    }
+    throw error;
+  }
 }
 
 /** @param {LearningDb} db @param {string} groupId */
@@ -218,9 +225,18 @@ async function requireGroup(db, groupId) {
 
 /** @param {LearningDb} db @param {string} assetId */
 async function requireAsset(db, assetId) {
-  const row = (await db.select({ id: assets.id, type: assets.type }).from(assets).where(and(eq(assets.id, assetId), eq(assets.isActive, true), isNull(assets.previewSessionId))).limit(1))[0];
-  if (!row) throw new StimulusGroupInputError('The selected Asset is missing or inactive.');
-  if (row.type !== 'image') throw new StimulusGroupInputError('Only image Assets can be stimulus options.');
+  try {
+    await requireProductionImageAsset(db, assetId);
+  } catch (error) {
+    if (error instanceof ContentGuardError) {
+      throw new StimulusGroupInputError(
+        error.code === 'PRODUCTION_IMAGE_ASSET_REQUIRED'
+          ? 'Only image Assets can be stimulus options.'
+          : 'The selected Asset is missing or inactive.'
+      );
+    }
+    throw error;
+  }
 }
 
 /** @param {LearningDb} db @param {ReturnType<typeof requireGroup> extends Promise<infer T> ? T : never} group */
@@ -520,7 +536,7 @@ export async function moveStimulusOption(db, groupId, optionId, direction) {
 
 /** @param {LearningDb} db @param {string} promptMd */
 async function findOrCreatePrompt(db, promptMd) {
-  const existing = (await db.select({ id: questionPrompts.id, isActive: questionPrompts.isActive }).from(questionPrompts).where(eq(questionPrompts.promptMd, promptMd)).orderBy(asc(questionPrompts.createdAt)).limit(1))[0];
+  const existing = (await db.select({ id: questionPrompts.id, isActive: questionPrompts.isActive }).from(questionPrompts).where(and(eq(questionPrompts.promptMd, promptMd), isNull(questionPrompts.previewSessionId))).orderBy(asc(questionPrompts.createdAt)).limit(1))[0];
   if (existing) {
     if (!existing.isActive) await db.update(questionPrompts).set({ isActive: true, updatedAt: new Date() }).where(eq(questionPrompts.id, existing.id));
     return existing.id;
@@ -580,5 +596,12 @@ export async function removeStimulusGroupQuestion(db, groupId, promptId) {
 
 /** @param {LearningDb} db @param {string} optionId @param {string} promptId */
 export async function removeStimulusOptionQuestion(db, optionId, promptId) {
+  const option = (await db
+    .select({ groupId: stimulusGroupOptions.stimulusGroupId })
+    .from(stimulusGroupOptions)
+    .where(eq(stimulusGroupOptions.id, optionId))
+    .limit(1))[0];
+  if (!option) throw new StimulusGroupInputError('The selected Stimulus Option is missing or inactive.');
+  await requireGroup(db, option.groupId);
   await db.update(stimulusOptionQuestions).set({ isActive: false, updatedAt: new Date() }).where(and(eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId), eq(stimulusOptionQuestions.questionPromptId, promptId)));
 }
