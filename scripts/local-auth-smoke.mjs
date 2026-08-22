@@ -1,8 +1,13 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { hashPassword } from 'better-auth/crypto';
 
+const scriptDir = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(scriptDir, '..');
+const wranglerCli = join(repoRoot, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
 const baseURL = 'http://127.0.0.1:8787';
 const stateDir = '.wrangler/auth-smoke';
 const seedFile = `${stateDir}/seed-auth-smoke.sql`;
@@ -11,14 +16,10 @@ const password = 'LocalSmokePassword123!';
 const userId = '00000000-0000-4000-8000-000000000001';
 const accountId = '00000000-0000-4000-8000-000000000002';
 const secret = 'local-auth-smoke-secret-32-characters-minimum';
-const wranglerCommand = 'npx';
-const wrangler = ['--yes', 'wrangler@4.124.0'];
-const useShell = process.platform === 'win32';
 
 function runWrangler(args) {
-  execFileSync(wranglerCommand, [...wrangler, ...args], {
-    stdio: 'inherit',
-    shell: useShell
+  execFileSync(process.execPath, [wranglerCli, ...args], {
+    stdio: 'inherit'
   });
 }
 
@@ -70,6 +71,8 @@ function stopWorker(processHandle) {
 rmSync(stateDir, { recursive: true, force: true });
 mkdirSync(stateDir, { recursive: true });
 
+runWrangler(['--version']);
+
 runWrangler([
   'd1',
   'migrations',
@@ -104,9 +107,9 @@ runWrangler([
 
 const logs = [];
 const worker = spawn(
-  wranglerCommand,
+  process.execPath,
   [
-    ...wrangler,
+    wranglerCli,
     'dev',
     '--local',
     '--ip',
@@ -124,8 +127,7 @@ const worker = spawn(
   ],
   {
     stdio: ['ignore', 'pipe', 'pipe'],
-    detached: process.platform !== 'win32',
-    shell: useShell
+    detached: process.platform !== 'win32'
   }
 );
 
