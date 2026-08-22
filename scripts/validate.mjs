@@ -5,6 +5,7 @@ import { pathToFileURL } from 'node:url';
 /** @typedef {[string, string[]]} ValidationCommand */
 /** @typedef {{ status: number | null, error?: Error }} ValidationResult */
 /** @typedef {(command: string, args: string[], options: { stdio: 'inherit', shell: false }) => ValidationResult} ValidationSpawn */
+/** @typedef {{ npm_execpath?: string }} NpmExecutionEnv */
 
 /** @type {Readonly<Record<ValidationMode, ValidationCommand[]>>} */
 export const VALIDATION_MODES = Object.freeze({
@@ -28,7 +29,7 @@ export const VALIDATION_MODES = Object.freeze({
  * npm exposes its CLI entrypoint through `npm_execpath` for npm-run scripts.
  * @param {string} command
  * @param {string[]} args
- * @param {NodeJS.ProcessEnv} [env]
+ * @param {NpmExecutionEnv} [env]
  * @returns {{ executable: string, args: string[] }}
  */
 export function resolveInvocation(command, args, env = process.env) {
