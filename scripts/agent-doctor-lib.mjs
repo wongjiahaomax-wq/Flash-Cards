@@ -29,12 +29,34 @@ export function wranglerVersionStatus(expected, installed) {
   };
 }
 
-/** @param {string | null | undefined} branch */
-export function branchStatus(branch) {
-  return {
-    branch: branch || '(detached/unknown)',
-    warning: branch === 'main' ? 'Working directly on main; create a feature branch before editing.' : null,
-  };
+/**
+ * Classify branch state while distinguishing an unreadable Git result from a detached HEAD.
+ * @param {string | null | undefined} branch
+ * @param {boolean} [readable]
+ */
+export function branchStatus(branch, readable = true) {
+  if (!readable) {
+    return {
+      branch: '(unknown)',
+      level: 'error',
+      message: 'Git branch state could not be read.',
+    };
+  }
+  if (!branch) {
+    return {
+      branch: '(detached HEAD)',
+      level: 'warning',
+      message: 'HEAD is detached; use a named feature branch before editing.',
+    };
+  }
+  if (branch === 'main') {
+    return {
+      branch,
+      level: 'warning',
+      message: 'Working directly on main; create a feature branch before editing.',
+    };
+  }
+  return { branch, level: 'ok', message: null };
 }
 
 /** @param {DoctorCheck[]} checks @returns {DoctorLevel} */
