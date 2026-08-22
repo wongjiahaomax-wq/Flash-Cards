@@ -1,9 +1,10 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
+import { removeRuntimeSmokeDirectory } from './wrangler-runtime-smoke-lib.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..');
@@ -139,7 +140,7 @@ async function main() {
     throw error;
   } finally {
     await stopProcessTree(child);
-    await rm(workDir, { recursive: true, force: true });
+    await removeRuntimeSmokeDirectory(workDir);
   }
 }
 

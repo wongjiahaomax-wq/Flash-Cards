@@ -2,6 +2,26 @@
  * @typedef {{ isActive: boolean, mimeType: string, storageKey: string }} TeachingAsset
  */
 
+/** @param {Headers} headers @param {R2HTTPMetadata | undefined} metadata */
+function copyHttpMetadata(headers, metadata) {
+  if (!metadata) return;
+  /** @type {Array<[string, string | undefined]>} */
+  const stringHeaders = [
+    ['Content-Type', metadata.contentType],
+    ['Content-Language', metadata.contentLanguage],
+    ['Content-Disposition', metadata.contentDisposition],
+    ['Content-Encoding', metadata.contentEncoding],
+    ['Cache-Control', metadata.cacheControl]
+  ];
+  for (const [name, value] of stringHeaders) {
+    if (value) headers.set(name, value);
+  }
+  if (metadata.cacheExpiry) {
+    const expiry = metadata.cacheExpiry instanceof Date ? metadata.cacheExpiry : new Date(metadata.cacheExpiry);
+    if (!Number.isNaN(expiry.getTime())) headers.set('Expires', expiry.toUTCString());
+  }
+}
+
 /**
  * @param {{ user: unknown, bucket: R2Bucket, request: Request, storageKey: string, mimeType?: string | null, cacheControl?: string }} options
  */
@@ -20,7 +40,10 @@ async function servePrivateImmutableObject({ user, bucket, request, storageKey, 
   if (!object) return new Response('Not found.', { status: 404, headers: { 'Cache-Control': 'no-store' } });
 
   const headers = new Headers();
-  object.writeHttpMetadata(headers);
+  // The Vite Cloudflare platform proxy serializes R2 objects. Passing a Headers
+  // instance back into a proxied writeHttpMetadata() method crosses that
+  // boundary and fails devalue serialization, while httpMetadata is plain data.
+  copyHttpMetadata(headers, object.httpMetadata);
   if (mimeType) headers.set('Content-Type', mimeType);
   headers.set('Cache-Control', cacheControl);
   if (object.httpEtag) headers.set('ETag', object.httpEtag);

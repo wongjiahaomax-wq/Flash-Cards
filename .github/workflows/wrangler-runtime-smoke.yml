@@ -8,6 +8,7 @@ on:
       - 'wrangler.jsonc'
       - 'svelte.config.js'
       - 'scripts/wrangler-runtime-smoke.mjs'
+      - 'scripts/wrangler-runtime-smoke-lib.mjs'
       - '.github/workflows/**'
 
 permissions:
