@@ -12,7 +12,7 @@ const CHECK_ORDER = Object.freeze([
   'slideReviewTest',
 ]);
 
-/** @typedef {{ id: string, area: string, patterns: RegExp[], excludePatterns?: RegExp[], required: readonly string[], recommendations?: readonly string[] }} ValidationRule */
+/** @typedef {{ id: string, area: string, patterns: readonly RegExp[], excludePatterns?: readonly RegExp[], required: readonly string[], recommendations?: readonly string[] }} ValidationRule */
 
 /** @type {ReadonlyArray<ValidationRule>} */
 export const VALIDATION_RULES = Object.freeze([
@@ -134,6 +134,7 @@ export const VALIDATION_RULES = Object.freeze([
   }),
 ]);
 
+/** @param {string} file */
 function normalizePath(file) {
   return String(file ?? '').trim().replaceAll('\\', '/').replace(/^\.\//, '');
 }
@@ -145,6 +146,7 @@ function ruleMatches(rule, file) {
   return included && !excluded;
 }
 
+/** @param {string} file */
 function isImportantUnknown(file) {
   if (/^(src|scripts|tools)\//.test(file)) return true;
   if (/^\.github\//.test(file) && !/(?:^|\/)AGENTS\.md$/.test(file)) return true;
@@ -152,6 +154,7 @@ function isImportantUnknown(file) {
   return false;
 }
 
+/** @param {string[]} values */
 function uniqueInCheckOrder(values) {
   const set = new Set(values);
   return CHECK_ORDER.filter((checkId) => set.has(checkId));
@@ -164,8 +167,11 @@ function uniqueInCheckOrder(values) {
 export function classifyChangedFiles(changedFiles) {
   const files = [...new Set(changedFiles.map(normalizePath).filter(Boolean))].sort();
   const matchedRules = new Set();
+  /** @type {string[]} */
   const required = [];
+  /** @type {string[]} */
   const recommendations = [];
+  /** @type {string[]} */
   const unclassifiedImportant = [];
 
   for (const file of files) {
@@ -183,6 +189,7 @@ export function classifyChangedFiles(changedFiles) {
     }
   }
 
+  /** @type {string[]} */
   const areas = [];
   for (const rule of VALIDATION_RULES) {
     if (matchedRules.has(rule.id)) areas.push(rule.area);
