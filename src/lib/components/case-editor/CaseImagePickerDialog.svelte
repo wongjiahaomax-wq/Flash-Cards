@@ -1,10 +1,17 @@
 <script>
   import { reconcileCasePickerSelection } from '$lib/admin-image-selection.js';
 
+  /** @typedef {{ id: string, imageUrl: string, altText?: string | null, originalFilename?: string | null, sourceLabel?: string | null }} PickerAsset */
+  /** @typedef {{ open: boolean, search: string, assets: PickerAsset[], hasMore: boolean, limit: number, targetGroupId: string | null, targetGroupName: string | null }} ImagePicker */
+  /** @type {{ selectedCase: { case: { id: string } }, imagePicker: ImagePicker, editorBase: string }} */
   let { selectedCase, imagePicker, editorBase } = $props();
+  /** @type {HTMLDialogElement | undefined} */
   let pickerDialog = $state();
+  /** @type {HTMLButtonElement | undefined} */
   let pickerCloseButton = $state();
+  /** @type {Set<string>} */
   let pickerSelected = $state(new Set());
+  /** @type {string | null} */
   let pickerContextKey = $state(null);
 
   $effect(() => {
@@ -24,6 +31,7 @@
     }
   });
 
+  /** @param {string} assetId */
   function togglePickerAsset(assetId) {
     const next = new Set(pickerSelected);
     if (next.has(assetId)) next.delete(assetId);
