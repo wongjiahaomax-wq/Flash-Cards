@@ -99,6 +99,7 @@ Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual
 
 - `ADMIN_CONTENT_MANAGEMENT_PLAN.md` — historical filename, current implemented Admin CMS contract and next Admin work.
 - `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` — current Case/Image Library authoring interaction contract.
+- `CASE_EDITOR_FAST_REVIEW_DESIGN.md` — Compact-mode fast-review design/implementation record for PR #72: persistent Prompt/Answer visibility, accessible `ⓘ` explanations, image strips, image-linked Q&A, preserved Move/Remove semantics, and the final **All questions in this Case** audit. Production deployment remains separately verified.
 - `IMAGE_MANAGEMENT_V2_PLAN.md` — deployed behavior record for pagination, selection, Collections, bounded bulk execution, option Move, and Preview isolation.
 - `REUSABLE_IMAGE_QUESTIONS.md` — exact-Asset reusable question semantics, explicit Case/stimulus opt-in, resolver precedence, Review provenance, fixed-image conversion, and Preview restrictions on current `main`.
 - `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md` — current-main narrow same-image quality upgrade contract: new immutable Asset/R2 object, supersession lineage, current relationship transfer, reusable-question cloning, stable Stimulus Option IDs, historical Review media delivery, rollback, and Preview isolation.
@@ -155,7 +156,7 @@ Milestone ledger current through the merged PR #53–#59 sequence, while keeping
 
 These are intentional future designs, **not current implemented behavior**.
 
-- `CASE_EDITOR_FAST_REVIEW_DESIGN.md` — pending Compact-mode Case editor redesign centered on rapid full-Case review: persistent side-by-side Prompt/Answer visibility, accessible `ⓘ` explanations, compact image carousels/strips for multiple stimuli, always-visible image-linked Q&A, exact source identity while scrolling, preservation of existing image Move/Remove semantics, and a final **All questions in this Case** audit with hover/focus/tap image-source previews.
+The optional `Review focus` concept described in `CASE_EDITOR_FAST_REVIEW_DESIGN.md` remains follow-on work and is not part of PR #72.
 
 The slide-ingestion **source reconstruction/extraction** step remains separate future workflow work even though the local reviewer/finalizer is implemented; do not infer that PPTX/PDF ingestion is automated from the existence of the local review tool.
 
