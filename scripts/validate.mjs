@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 
 export const VALIDATION_MODES = Object.freeze({
   fast: [
@@ -26,6 +27,7 @@ export function runValidation(mode, spawn = spawnSync) {
     console.error(`Unknown validation mode: ${mode}. Use fast or full.`);
     return 2;
   }
+
   for (const [command, args] of commands) {
     console.log(`\n> ${command} ${args.join(' ')}`);
     const result = spawn(executableFor(command), args, { stdio: 'inherit', shell: false });
@@ -38,10 +40,10 @@ export function runValidation(mode, spawn = spawnSync) {
       return result.status ?? 1;
     }
   }
+
   console.log(`\nvalidate:${mode} passed.`);
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].replaceAll('\\', '/')}`).href) {
-  process.exitCode = runValidation(process.argv[2]);
-}
+const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) process.exitCode = runValidation(process.argv[2]);
