@@ -1,8 +1,9 @@
 import { and, asc, desc, eq, isNull, like } from 'drizzle-orm';
 
 import { withServerReadTiming } from '../performance-timing.js';
-import { assets, caseAssets, caseConcepts, cases, concepts, stimulusGroupOptions, stimulusGroups } from './schema.js';
 import { listCaseTopics } from './admin-content.js';
+import { ContentGuardError, requireProductionCase, requireProductionImageAsset } from './content-guards.js';
+import { assets, caseAssets, caseConcepts, cases, concepts, stimulusGroupOptions, stimulusGroups } from './schema.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -63,23 +64,27 @@ export async function getAdminCaseById(db, caseId) {
 
 /** @param {LearningDb} db @param {string} caseId */
 async function requireActiveCase(db, caseId) {
-  const rows = await db
-    .select({ id: cases.id })
-    .from(cases)
-    .where(and(eq(cases.id, caseId), eq(cases.isActive, true), isNull(cases.previewSessionId)))
-    .limit(1);
-  if (!rows[0]) throw new CaseAssetInputError('The selected production Case is missing or inactive.');
+  try {
+    await requireProductionCase(db, caseId);
+  } catch (error) {
+    if (error instanceof ContentGuardError) {
+      throw new CaseAssetInputError('The selected production Case is missing or inactive.');
+    }
+    throw error;
+  }
 }
 
 /** @param {LearningDb} db @param {string} assetId */
 async function requireActiveAsset(db, assetId) {
-  const rows = await db
-    .select({ id: assets.id, type: assets.type })
-    .from(assets)
-    .where(and(eq(assets.id, assetId), eq(assets.isActive, true), isNull(assets.previewSessionId)))
-    .limit(1);
-  if (!rows[0]) throw new CaseAssetInputError('The selected production Asset is missing or inactive.');
-  if (rows[0].type !== 'image') throw new CaseAssetInputError('Only image Assets can be attached to a Case.');
+  try {
+    await requireProductionImageAsset(db, assetId);
+  } catch (error) {
+    if (!(error instanceof ContentGuardError)) throw error;
+    if (error.code === 'PRODUCTION_IMAGE_ASSET_REQUIRED') {
+      throw new CaseAssetInputError('Only image Assets can be attached to a Case.');
+    }
+    throw new CaseAssetInputError('The selected production Asset is missing or inactive.');
+  }
 }
 
 /** @param {LearningDb} db @param {string} caseId */
