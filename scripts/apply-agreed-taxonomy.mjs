@@ -305,7 +305,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   console.log('Scope: six agreed Topics and two known Case route sets only.');
   console.log('Credential values are not printed.');
   execute('PRE-FLIGHT / CURRENT TARGET STATE', preflightSql, auth);
-  const preconditions = executeAssertion('PRE-FIGHT / MACHINE SAFETY CHECKS', preconditionSql, auth);
+  const preconditions = executeAssertion('PRE-FLIGHT / MACHINE SAFETY CHECKS', preconditionSql, auth);
   assertPreconditions(preconditions);
   console.log('Pre-flight machine safety checks passed.');
 
