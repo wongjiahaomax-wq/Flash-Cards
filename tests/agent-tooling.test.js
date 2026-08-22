@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { branchStatus, nodeMajorStatus, overallDoctorStatus, parseNodeMajor, wranglerVersionStatus } from '../scripts/agent-doctor-lib.mjs';
-import { executableFor, runValidation, VALIDATION_MODES } from '../scripts/validate.mjs';
+import { resolveInvocation, runValidation, VALIDATION_MODES } from '../scripts/validate.mjs';
 
 test('Node major parsing and compatibility are deterministic', () => {
   assert.equal(parseNodeMajor('v22.18.0'), 22);
   assert.equal(nodeMajorStatus('v22.18.0', 22).ok, true);
   assert.equal(nodeMajorStatus('v24.0.0', 22).ok, false);
+  assert.equal(nodeMajorStatus('invalid', null).ok, false);
 });
 
 test('Wrangler comparison requires exact repository version', () => {
@@ -15,7 +16,9 @@ test('Wrangler comparison requires exact repository version', () => {
 });
 
 test('main branch is a warning, not an error', () => {
-  assert.match(branchStatus('main').warning, /feature branch/);
+  const status = branchStatus('main');
+  assert.ok(status.warning);
+  assert.match(status.warning, /feature branch/);
   assert.equal(overallDoctorStatus([{ level: 'warning' }]), 'warning');
 });
 
@@ -28,10 +31,19 @@ test('validation modes preserve the intended contracts', () => {
   assert.equal(VALIDATION_MODES.full.some(([, args]) => args.includes('db:check')), true);
 });
 
-test('executables are cross-platform and Node is deterministic', () => {
-  assert.equal(executableFor('npm', 'win32'), 'npm.cmd');
-  assert.equal(executableFor('npm', 'linux'), 'npm');
-  assert.equal(executableFor('node', 'win32'), process.execPath);
+test('npm and Node invocations use deterministic Node entrypoints where available', () => {
+  assert.deepEqual(resolveInvocation('npm', ['test'], { npm_execpath: '/npm/npm-cli.js' }), {
+    executable: process.execPath,
+    args: ['/npm/npm-cli.js', 'test'],
+  });
+  assert.deepEqual(resolveInvocation('node', ['script.mjs'], {}), {
+    executable: process.execPath,
+    args: ['script.mjs'],
+  });
+  assert.deepEqual(resolveInvocation('git', ['diff'], {}), {
+    executable: 'git',
+    args: ['diff'],
+  });
 });
 
 test('validation stops and propagates the first failing exit code', () => {
