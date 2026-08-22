@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { findRepositoryRoot } from './agent-doctor-lib.mjs';
 import { classifyChangedFiles } from './agent-checks-lib.mjs';
+import { resolveDiffBase } from './validation-git.mjs';
 
 /** @param {string[]} argv */
 export function parseAgentChecksArgs(argv) {
@@ -38,30 +39,6 @@ function gitOutput(root, args, description) {
     throw new Error(`${description}: ${detail}`);
   }
   return result.stdout.trim();
-}
-
-/**
- * Resolve the intended branch base without network access or Git mutation.
- * @param {string} root
- * @param {string | null} [override]
- */
-export function resolveDiffBase(root, override = null) {
-  const candidates = override ? [override] : ['main', 'origin/main'];
-  let baseRef = null;
-  for (const candidate of candidates) {
-    const result = git(root, ['rev-parse', '--verify', '--quiet', `${candidate}^{commit}`]);
-    if (result.status === 0) {
-      baseRef = candidate;
-      break;
-    }
-  }
-  if (!baseRef) {
-    const requested = override ? `Git ref "${override}"` : 'local main or origin/main';
-    throw new Error(`Unable to resolve ${requested}. Fetch/update the intended base locally or rerun with --base <ref>. No Git state was changed.`);
-  }
-  const mergeBase = gitOutput(root, ['merge-base', 'HEAD', baseRef], `Unable to compute merge-base with ${baseRef}`);
-  if (!mergeBase) throw new Error(`Git returned an empty merge-base for ${baseRef}.`);
-  return { baseRef, mergeBase };
 }
 
 /**
