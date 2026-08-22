@@ -4,6 +4,7 @@ import { resolveInvocation } from './validate.mjs';
 import { validationCommandsForMode } from './validation-contract.mjs';
 
 const NODE_TEST_DIAGNOSTIC = /^(not ok|  error:|  code:|  failureType:|  location:|  stack:|    at )/;
+export const CI_TEST_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 /** @param {unknown} value */
 export function escapeGithubCommandData(value) {
@@ -64,6 +65,7 @@ export function runCiValidation(options = {}) {
     const captureOutput = id === 'test';
     const result = spawnSync(invocation.executable, invocation.args, captureOutput ? {
       encoding: 'utf8',
+      maxBuffer: CI_TEST_MAX_BUFFER_BYTES,
       shell: false,
     } : {
       stdio: 'inherit',
