@@ -18,7 +18,9 @@ export const VALIDATION_MODES = Object.freeze({
 });
 
 export function executableFor(command, platform = process.platform) {
-  return command === 'npm' && platform === 'win32' ? 'npm.cmd' : command;
+  if (command === 'node') return process.execPath;
+  if (command === 'npm' && platform === 'win32') return 'npm.cmd';
+  return command;
 }
 
 export function runValidation(mode, spawn = spawnSync) {
