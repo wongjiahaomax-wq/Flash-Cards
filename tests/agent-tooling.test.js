@@ -213,6 +213,7 @@ test('local validation runner injects the resolved merge-base diff check', () =>
   const { root, base } = makeGitRepository();
   try {
     runGit(root, ['switch', '-c', 'agent/local-validation']);
+    /** @type {{ command: string, args: string[] }[]} */
     const calls = [];
     const status = runValidation('fast', (command, args) => {
       calls.push({ command, args });
