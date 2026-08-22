@@ -11,4 +11,6 @@ This file supplements the repository-wide `AGENTS.md` for `src/routes/admin/`.
 
 Minimum context is task-specific; start with `docs/AGENT_TASK_MAP.md` and inspect directly related route tests/helpers.
 
-Relevant validation normally includes `npm test`, `npm run check`, and `npm run build`.
+For presentation-only UX work, batch small copy, spacing, class, and layout edits under Vite/HMR and inspect the result before running broader repository checks. Do not run the full test/check/build cycle after every visual edit.
+
+When Admin logic changes, run the relevant focused tests as soon as they are useful. Use `npm run validate:fast` at a coherent checkpoint and `npm run validate:full` once before handoff; rerun them only when later changes could invalidate what they checked.
