@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
+import { reusableSummaryForContext } from '../src/lib/admin-case-question-audit.js';
 import { buildCaseImageQuestionSummaries } from '../src/lib/server/db/case-image-question-summaries.js';
 
 const questions = [
@@ -65,6 +66,11 @@ test('DB loader excludes inactive Asset Questions and inactive Prompts from visi
   assert.ok(source.includes('isNull(assets.previewSessionId)'));
 });
 
+test('DB loader orders reusable Asset Questions by creation time then ID', () => {
+  const source = fs.readFileSync(new URL('../src/lib/server/db/case-image-question-summaries.js', import.meta.url), 'utf8');
+  assert.ok(source.includes('.orderBy(asc(assetQuestions.createdAt), asc(assetQuestions.id))'));
+});
+
 test('fixed-image reuse still uses established transparent one-option conversion path', () => {
   const source = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
   assert.ok(source.includes('await optInAssetQuestion(db, { caseId, optionId, assetQuestionId:'));
@@ -81,6 +87,24 @@ test('option cards show Case-specific Q/A pairs while keeping reusable counts in
   assert.ok(counts.includes('question.promptMd'));
   assert.ok(counts.includes('question.answerMd'));
   assert.ok(counts.includes('qa-label answer'));
+});
+
+test('Compact review distinguishes inactive Alternative Sets, options, and Assets', () => {
+  const review = fs.readFileSync(new URL('../src/lib/components/ImageQuestionReview.svelte', import.meta.url), 'utf8');
+  const inactiveSetSummary = reusableSummaryForContext(
+    {
+      stimulusGroups: [{ id: 'group-a', isActive: false, options: [{ id: 'option-a' }] }],
+      reusableImageQuestions: [{ assetId: 'asset-a', stimulusOptionId: 'option-a', total: 0, used: 0, available: 0, questions: [] }]
+    },
+    'asset-a',
+    'option-a'
+  );
+  assert.equal(inactiveSetSummary.groupActive, false);
+  assert.ok(review.includes("'INACTIVE · '"));
+  assert.ok(review.includes('groupActive ?? reusable?.groupActive ?? true'));
+  assert.ok(review.includes('effectiveGroupActive && asset.isActive !== false && asset.assetIsActive !== false'));
+  assert.ok(review.includes('class:inactive-review={!currentParticipant}'));
+  assert.ok(review.includes('excluded from the current learner-participating Case audit'));
 });
 
 test('Manage questions waits for the editor DOM, then reveals and focuses it', () => {

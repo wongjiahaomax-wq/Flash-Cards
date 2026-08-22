@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 
 import {
   assetQuestions,
@@ -11,7 +11,7 @@ import {
 
 /**
  * @typedef {{ assetId: string, stimulusOptionId: string | null }} ImageQuestionContext
- * @typedef {{ id: string, assetId: string, promptMd: string, answerMd: string }} ActiveReusableQuestion
+ * @typedef {{ id: string, assetId: string, questionPromptId?: string, promptMd: string, answerMd: string }} ActiveReusableQuestion
  * @typedef {{ stimulusOptionId: string, assetQuestionId: string }} ActiveReusableOptIn
  */
 
@@ -64,6 +64,11 @@ export function buildCaseImageQuestionSummaries(contexts, questions, optIns) {
  * rows remain in D1, but inactive Asset Questions or Prompts disappear from
  * visible counts until reactivated.
  *
+ * Reusable questions are explicitly ordered by Asset Question creation time,
+ * then ID as a stable tiebreaker. The pure summary helper preserves that order
+ * within each Asset, so Compact review/audit output never depends on SQLite's
+ * unspecified row-return order.
+ *
  * @param {LearningDb} db
  * @param {ImageQuestionContext[]} contexts
  */
@@ -79,6 +84,7 @@ export async function listCaseImageQuestionSummaries(db, contexts) {
   const questions = await db.select({
     id: assetQuestions.id,
     assetId: assetQuestions.assetId,
+    questionPromptId: assetQuestions.questionPromptId,
     promptMd: questionPrompts.promptMd,
     answerMd: assetQuestions.answerMd
   })
@@ -91,7 +97,8 @@ export async function listCaseImageQuestionSummaries(db, contexts) {
       eq(questionPrompts.isActive, true),
       isNull(questionPrompts.previewSessionId),
       isNull(assets.previewSessionId)
-    ));
+    ))
+    .orderBy(asc(assetQuestions.createdAt), asc(assetQuestions.id));
 
   const optIns = optionIds.length
     ? await db.select({
