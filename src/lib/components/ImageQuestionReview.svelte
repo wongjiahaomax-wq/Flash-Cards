@@ -4,22 +4,27 @@
   /** @typedef {{ questionPromptId: string, promptMd: string, answerMd: string }} CaseSpecificQuestion */
   /** @typedef {{ id: string, questionPromptId?: string, promptMd: string, answerMd: string, usedInCase: boolean }} ReusableQuestion */
   /** @typedef {{ total?: number, used?: number, available?: number, questions?: ReusableQuestion[] }} ReusableSummary */
-  /** @typedef {{ id?: string, assetId: string, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null }} ReviewAsset */
+  /** @typedef {{ id?: string, assetId: string, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, isActive?: boolean, assetIsActive?: boolean }} ReviewAsset */
   /** @type {{ caseId: string, optionId: string, asset: ReviewAsset, groupName: string, caseSpecificQuestions?: CaseSpecificQuestion[], reusable?: ReusableSummary, previewMode?: boolean, onimageopen?: (asset: ReviewAsset, subtitle: string) => void }} */
   let { caseId, optionId, asset, groupName, caseSpecificQuestions = [], reusable, previewMode = false, onimageopen = () => {} } = $props();
   let usedReusable = $derived((reusable?.questions ?? []).filter((question) => question.usedInCase));
   let availableCount = $derived(reusable?.available ?? 0);
   let imageName = $derived(asset.originalFilename ?? asset.assetId);
+  let currentParticipant = $derived(asset.isActive !== false && asset.assetIsActive !== false);
 </script>
 
-<section id={`option-review-${optionId}`} class="image-question-review" aria-label={`Questions for ${imageName}`} tabindex="-1">
+<section id={`option-review-${optionId}`} class="image-question-review" class:inactive-review={!currentParticipant} aria-label={`${currentParticipant ? '' : 'Inactive '}questions for ${imageName}`} tabindex="-1">
   <div class="review-heading">
     <div>
       <strong>{imageName}</strong>
-      <span class="relationship">ALTERNATIVE · {groupName}</span>
+      <span class="relationship">{currentParticipant ? '' : 'INACTIVE · '}ALTERNATIVE · {groupName}</span>
     </div>
     <span class="counts">{caseSpecificQuestions.length} image-specific · {usedReusable.length} reusable used{availableCount ? ` · ${availableCount} available` : ''}</span>
   </div>
+
+  {#if !currentParticipant}
+    <p class="inactive-note">Historical/inactive option content. It is retained for authoring context but is excluded from the current learner-participating Case audit.</p>
+  {/if}
 
   {#if caseSpecificQuestions.length > 0}
     <div class="scope-heading">
@@ -93,6 +98,9 @@
 <style>
   .image-question-review { display: grid; gap: 0.65rem; padding-top: 0.7rem; border-top: 1px solid #e4e7ec; scroll-margin-top: 5rem; }
   .image-question-review:focus-visible { outline: 3px solid #84adff; outline-offset: 3px; }
+  .inactive-review { padding: 0.7rem; border: 1px dashed #d0d5dd; border-radius: 7px; background: #f8fafc; }
+  .inactive-review .relationship { color: #7a5d00; }
+  .inactive-note { margin: -0.1rem 0 0; color: #667085; font-size: 0.76rem; line-height: 1.4; }
   .review-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 0.75rem; }
   .review-heading > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.45rem; min-width: 0; }
   .relationship, .scope-label { color: #667085; font-size: 0.7rem; font-weight: 750; letter-spacing: 0.035em; text-transform: uppercase; }
