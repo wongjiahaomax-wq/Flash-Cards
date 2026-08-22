@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 /** @typedef {[string, string[]]} ValidationCommand */
 /** @typedef {{ status: number | null, error?: Error }} ValidationResult */
 /** @typedef {(command: string, args: string[], options: { stdio: 'inherit', shell: false }) => ValidationResult} ValidationSpawn */
-/** @typedef {{ npm_execpath?: string }} NpmExecutionEnv */
+/** @typedef {{ npm_execpath?: string, [key: string]: string | undefined }} NpmExecutionEnv */
 
 /** @type {Readonly<Record<ValidationMode, ValidationCommand[]>>} */
 export const VALIDATION_MODES = Object.freeze({
