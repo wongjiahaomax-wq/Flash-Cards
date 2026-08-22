@@ -4,7 +4,7 @@ _Last reviewed: 22 August 2026_
 
 This file identifies which repository documents describe the **verified deployed product**, which describe **current `main`**, which are subsystem contracts/runbooks, which are pending designs, and which are historical records.
 
-Repository-wide coding-agent safety rules live in the root `AGENTS.md` and apply alongside these documents; this index deliberately does not duplicate that contract.
+Repository-wide coding-agent safety rules live in the root `AGENTS.md` and apply alongside these documents; this index deliberately does not duplicate that contract. Coding agents should use `AGENT_TASK_MAP.md` to choose the minimum current context for a task before loading broader documentation.
 
 ## Conflict rule
 
@@ -62,6 +62,10 @@ Their presence on `main` is a repository/schema fact. Do **not** infer that a mi
 The repository contains an explicit production rollout trigger commit for merged PR #56. A trigger commit alone is not treated here as proof that the workflow completed successfully; production deployment remains an explicitly verified fact, separate from merge status.
 
 ## Start here — authoritative orientation
+
+### `AGENT_TASK_MAP.md`
+
+Small coding-agent routing guide: maps common task categories to the nearest scoped `AGENTS.md`, minimum authoritative documents, and common checks. It is not an architecture guide and does not replace this index.
 
 ### `CURRENT_PRODUCT_ROADMAP.md`
 
