@@ -70,7 +70,7 @@ jobs:
 
             echo "::group::${label}"
             set +e
-            output=$(wrangler d1 execute DB --remote --json --command "$sql" 2>&1)
+            output=$(./node_modules/.bin/wrangler d1 execute DB --remote --json --command "$sql" 2>&1)
             status=$?
             set -e
             printf '%s\n' "$output"
@@ -140,7 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::TOPIC_QUESTIONS"
-          wrangler d1 execute DB --remote --json --command "
+          ./node_modules/.bin/wrangler d1 execute DB --remote --json --command "
             SELECT
               cq.concept_id AS topic_id,
               c.name AS topic_name,
