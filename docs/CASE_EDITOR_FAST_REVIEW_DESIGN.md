@@ -1,6 +1,6 @@
 # Case editor fast-review design
 
-_Status: implemented in `agent/case-editor-fast-review-compact` for review. This status describes the implementation branch, not production deployment. Classic mode remains the compatibility path._
+_Status: implementation record for Draft PR #72. This is not a production deployment record. Classic mode remains the compatibility path._
 
 _Last updated: 22 August 2026_
 
@@ -145,6 +145,8 @@ Preview Admin renders canonical reusable content read-only, preserving the exist
 
 Available-but-unused Asset Questions remain secondary as a count/management path. They are not included in the Case audit and are not presented as questions currently belonging to the Case.
 
+Inactive option Q&A may remain visible for authoring context, but it is explicitly labeled `INACTIVE · ALTERNATIVE · <set name>` and visually subdued so it cannot be mistaken for current learner-participating content.
+
 ## 8. Set-wide Q&A
 
 For an active Alternative Set with active options, active set-wide Prompt/Answer pairs are visible in Compact mode without opening the advanced disclosure.
@@ -189,6 +191,8 @@ The audit order is structural rather than educational:
 4. active set-wide questions in their existing scope order;
 5. active options in their existing display order;
 6. within an option, Case-specific questions followed by explicitly-used reusable questions.
+
+Reusable Asset Questions are explicitly loaded in `asset_questions.created_at` order with `asset_questions.id` as a deterministic tiebreaker before the projection preserves their per-Asset order. The audit therefore does not depend on unspecified SQL row-return order.
 
 This ordering is not persisted and does not claim learner priority. Learner precedence and final Review ordering remain separate resolver concerns.
 
@@ -241,6 +245,8 @@ Focused pure-helper tests cover:
 - duplicate suppression for repeated copies of one valid relationship;
 - fast completeness counts.
 
+The reusable-image loader test also asserts the explicit `createdAt` + `id` ordering contract that feeds the audit.
+
 Existing Case-editor and image-workflow tests continue to guard the underlying authoring semantics.
 
 ## 14. Non-goals retained
@@ -260,6 +266,6 @@ This first pass does not:
 
 ## 15. Deployment/status boundary
 
-This document describes the implementation present on the feature branch / implementation PR once those commits exist. It must not be used as evidence that the behavior is deployed to production.
+This document describes the implementation reviewed in PR #72. It must not be used as evidence that the behavior is deployed to production.
 
 After merge, repository status documents may describe the feature as implemented on current `main`. Production deployment remains a separately verified operational fact.
