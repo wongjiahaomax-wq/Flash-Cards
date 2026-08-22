@@ -16,13 +16,25 @@ function active(value) {
   return value === true;
 }
 
+/** @param {any} selectedCase @param {string | null} optionId */
+function groupActiveForOption(selectedCase, optionId) {
+  if (!optionId) return true;
+  /** @type {any[]} */
+  const groups = selectedCase?.stimulusGroups ?? [];
+  const group = groups.find((candidate) =>
+    (candidate.options ?? []).some((option) => option.id === optionId)
+  );
+  return group?.isActive !== false;
+}
+
 /** @param {any} selectedCase @param {string} assetId @param {string | null} optionId */
 export function reusableSummaryForContext(selectedCase, assetId, optionId = null) {
   /** @type {any[]} */
   const summaries = selectedCase?.reusableImageQuestions ?? [];
-  return summaries.find(
-    (summary) => summary.assetId === assetId && (summary.stimulusOptionId ?? null) === optionId
+  const summary = summaries.find(
+    (candidate) => candidate.assetId === assetId && (candidate.stimulusOptionId ?? null) === optionId
   ) ?? { assetId, stimulusOptionId: optionId, total: 0, used: 0, available: 0, questions: [] };
+  return { ...summary, groupActive: groupActiveForOption(selectedCase, optionId) };
 }
 
 /** @param {any} summary */
