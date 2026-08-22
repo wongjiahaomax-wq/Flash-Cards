@@ -1,12 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { findRepositoryRoot } from './agent-doctor-lib.mjs';
 import { validationCommandsForMode } from './validation-contract.mjs';
+import { localDiffCheck } from './validation-git.mjs';
 
 /** @typedef {'fast' | 'full'} ValidationMode */
 /** @typedef {[string, string[]]} ValidationCommand */
 /** @typedef {{ status: number | null, error?: Error }} ValidationResult */
 /** @typedef {(command: string, args: string[], options: { stdio: 'inherit', shell: false }) => ValidationResult} ValidationSpawn */
 /** @typedef {{ npm_execpath?: string, [key: string]: string | undefined }} NpmExecutionEnv */
+/** @typedef {{ root?: string, base?: string | null, diffArgs?: string[] }} ValidationRunOptions */
 
 /** @param {ValidationMode} mode @returns {ValidationCommand[]} */
 function commandView(mode) {
@@ -42,13 +45,31 @@ export function resolveInvocation(command, args, env = process.env) {
 /** @type {ValidationSpawn} */
 const defaultSpawn = (command, args, options) => spawnSync(command, args, options);
 
-/** @param {string} mode @param {ValidationSpawn} [spawn] */
-export function runValidation(mode, spawn = defaultSpawn) {
+/** @param {string} mode @param {ValidationSpawn} [spawn] @param {ValidationRunOptions} [options] */
+export function runValidation(mode, spawn = defaultSpawn, options = {}) {
   if (mode !== 'fast' && mode !== 'full') {
     console.error(`Unknown validation mode: ${mode}. Use fast or full.`);
     return 2;
   }
-  const commands = validationCommandsForMode(mode);
+
+  let diffArgs = options.diffArgs;
+  if (!diffArgs) {
+    const root = options.root ?? findRepositoryRoot();
+    if (!root) {
+      console.error('Unable to resolve repository root for local diff validation. Run this command from inside the Flash-Cards checkout.');
+      return 1;
+    }
+    try {
+      const diff = localDiffCheck(root, options.base ?? null);
+      diffArgs = diff.args;
+      console.log(`Local diff base: ${diff.baseRef} (merge-base ${diff.mergeBase.slice(0, 12)})`);
+    } catch (error) {
+      console.error(`Unable to resolve local validation diff: ${error instanceof Error ? error.message : error}`);
+      return 1;
+    }
+  }
+
+  const commands = validationCommandsForMode(mode, { diffArgs });
 
   for (const { command, args } of commands) {
     console.log(`\n> ${command} ${args.join(' ')}`);
