@@ -45,10 +45,10 @@ test('manual Preview deployment resolves exact same-repository SHA and never run
   assert.match(workflow, /base_ref.*main/);
   assert.match(workflow, /steps\.pr\.outputs\.head_sha/);
   assert.match(workflow, /ref:\s*\$\{\{ steps\.pr\.outputs\.head_sha \}\}/);
-  assert.match(workflow, /wrangler@4\.123\.0 deploy --env preview/);
+  assert.match(workflow, /\.\/node_modules\/\.bin\/wrangler deploy --env preview/);
   assert.doesNotMatch(workflow, /d1 migrations apply[^\n]*--remote/);
   assert.doesNotMatch(workflow, /db:migrate:remote/);
-  assert.doesNotMatch(workflow, /run:\s*npx --yes wrangler@4\.123\.0 deploy\s*$/m);
+  assert.doesNotMatch(workflow, /npx --yes wrangler@/);
   assert.match(workflow, /drizzle\//);
   assert.match(workflow, /src\/lib\/server\/db\/schema/);
   assert.match(workflow, /This PR changes the D1 schema/);
@@ -70,7 +70,7 @@ test('Preview deployment refuses Worker-config-changing PRs and installs from th
 
 test('Cloudflare credentials are scoped only to the final Preview deploy step', () => {
   const firstSecret = workflow.indexOf('secrets.CLOUDFLARE_API_TOKEN');
-  const deploy = workflow.indexOf('wrangler@4.123.0 deploy --env preview');
+  const deploy = workflow.indexOf('./node_modules/.bin/wrangler deploy --env preview');
   const validation = workflow.indexOf('npm run db:check');
   assert.ok(firstSecret > validation);
   assert.ok(deploy > firstSecret);

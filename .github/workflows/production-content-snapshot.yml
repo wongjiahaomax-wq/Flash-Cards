@@ -25,6 +25,15 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v6
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Select and verify Cloudflare credentials
         shell: bash
         run: |
@@ -61,7 +70,7 @@ jobs:
 
             echo "::group::${label}"
             set +e
-            output=$(npx --yes wrangler@4.123.0 d1 execute DB --remote --json --command "$sql" 2>&1)
+            output=$(./node_modules/.bin/wrangler d1 execute DB --remote --json --command "$sql" 2>&1)
             status=$?
             set -e
             printf '%s\n' "$output"
@@ -131,7 +140,7 @@ jobs:
         run: |
           set -euo pipefail
           echo "::group::TOPIC_QUESTIONS"
-          npx --yes wrangler@4.123.0 d1 execute DB --remote --json --command "
+          ./node_modules/.bin/wrangler d1 execute DB --remote --json --command "
             SELECT
               cq.concept_id AS topic_id,
               c.name AS topic_name,

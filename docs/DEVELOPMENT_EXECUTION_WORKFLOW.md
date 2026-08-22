@@ -28,6 +28,8 @@ docs/PREVIEW_DEPLOYMENT.md
 docs/CLOUDFLARE.md
 ```
 
+Coding agents should also begin with the root `AGENTS.md` safety contract before using this runbook.
+
 ### Production release authority
 
 This document intentionally does **not** duplicate production deployment or production D1 migration commands.
@@ -70,7 +72,7 @@ For a production release after merge, follow `docs/CLOUDFLARE.md`; do not infer 
 npm run preview
 ```
 
-This runs on the laptop. It builds the application and starts a local Wrangler Workers runtime against local development bindings/state.
+This runs on the laptop. It builds the application and starts the repository-pinned local Wrangler Workers runtime against local development bindings/state.
 
 It:
 
@@ -109,7 +111,7 @@ git switch <branch>
 git pull --ff-only origin <branch>
 ```
 
-Run `npm ci` after dependency/lockfile changes or when the local install is not known to match the branch.
+Run `npm ci` after dependency/lockfile changes or when the local install is not known to match the branch. The committed lockfile is authoritative; do not use `npm install` in CI as an implicit lockfile repair step.
 
 ### 2. Use the local replica only when realistic production-derived content is useful
 
@@ -144,7 +146,15 @@ When the change looks correct under Vite and you want production-style runtime b
 npm run preview
 ```
 
-This is the preferred local check for Worker/runtime compatibility and does not spend GitHub Actions minutes.
+This is the preferred local check for Worker/runtime behavior and does not spend GitHub Actions minutes.
+
+When the change touches `package.json`, `package-lock.json`, `wrangler.jsonc`, Svelte/Worker runtime configuration, or the runtime-smoke tooling itself, also run the narrow binding-free compatibility check:
+
+```sh
+npm run runtime:smoke
+```
+
+The smoke starts only a temporary local Worker. It does not load production D1/R2 bindings or require production secrets.
 
 ### 5. Move normal validation work to the laptop when practical
 
@@ -199,7 +209,7 @@ ChatGPT may use the connected GitHub tooling to perform supported repository ope
 
 When the local machine is unavailable, GitHub CI becomes the primary executable validation environment for changes made from mobile.
 
-Do not claim that `npm run dev`, the local D1/R2 replica, `npm run preview`, or other laptop-only commands were executed unless they actually ran in an environment that supports them.
+Do not claim that `npm run dev`, the local D1/R2 replica, `npm run preview`, `npm run runtime:smoke`, or other laptop-only commands were executed unless they actually ran in an environment that supports them.
 
 ### Preview deployment from mobile
 
@@ -239,21 +249,24 @@ GitHub-hosted CI is a shared/limited resource. Prefer spending it on checks that
 
 Avoid rerunning already-successful jobs unless the candidate changed or the run was genuinely transient/flaky.
 
-If an additional expensive CI smoke test is added later, prefer making it conditional on files that can affect that concern (for example Wrangler/config/toolchain files) rather than charging every unrelated UX PR when the narrower gate is sufficient.
+The dedicated Wrangler runtime smoke workflow is intentionally path-filtered to runtime/toolchain files instead of charging every unrelated UX/content PR. If its scope changes later, preserve that principle unless a broader gate is required for reliability.
 
 ## Wrangler / compatibility-date maintenance
 
-Wrangler/workerd and `wrangler.jsonc` compatibility dates must be maintained as one runtime contract.
+Wrangler/workerd and `wrangler.jsonc` compatibility dates are one runtime contract.
+
+The exact `wrangler` devDependency recorded by `package.json` and `package-lock.json` is the repository authority. Normal package scripts and deployment workflows use that installed copy; do not add an alternate `npx wrangler@...` version for one command or environment.
 
 When changing `compatibility_date` or Wrangler-related tooling:
 
-1. ensure the selected Wrangler/workerd runtime supports the requested date;
-2. test `npm run preview` locally when laptop access is available;
-3. run the relevant CI/toolchain validation;
-4. do not lower a compatibility date merely to hide an outdated local runtime unless that rollback is itself an intentional reviewed change;
-5. keep local-preview, CI and deployment Wrangler choices documented and avoid silent version drift between them.
+1. update the exact repository pin and lockfile together when the runtime version changes;
+2. ensure the selected Wrangler/workerd runtime supports the requested date;
+3. run `npm run runtime:smoke`;
+4. test `npm run preview` locally when laptop access is available and the full application runtime is relevant;
+5. run the relevant CI/toolchain validation;
+6. do not lower a compatibility date merely to hide an outdated local runtime unless that rollback is itself an intentional reviewed change.
 
-Release-critical Wrangler versions and commands belong in `CLOUDFLARE.md`; do not duplicate them here.
+Release-critical procedures remain documented in `CLOUDFLARE.md`; do not duplicate them here.
 
 ## Agent instruction
 

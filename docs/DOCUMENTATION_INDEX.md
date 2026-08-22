@@ -4,6 +4,8 @@ _Last reviewed: 22 August 2026_
 
 This file identifies which repository documents describe the **verified deployed product**, which describe **current `main`**, which are subsystem contracts/runbooks, which are pending designs, and which are historical records.
 
+Repository-wide coding-agent safety rules live in the root `AGENTS.md` and apply alongside these documents; this index deliberately does not duplicate that contract.
+
 ## Conflict rule
 
 When documentation appears to disagree, use this order:

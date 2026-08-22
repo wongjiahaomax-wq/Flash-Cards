@@ -112,12 +112,14 @@ function resultRows(payload) {
   return /** @type {Array<Record<string, unknown>>} */ (result.results);
 }
 
+const wranglerBin = resolve('node_modules/wrangler/bin/wrangler.js');
+
 /** @param {string} label @param {string} sql @param {{ accountId: string, apiToken: string }} auth */
 function execute(label, sql, auth) {
   console.log(`\n== ${label} ==`);
   const output = execFileSync(
-    'npx',
-    ['--yes', 'wrangler@4.123.0', 'd1', 'execute', 'DB', '--remote', '--json', '--command', sql],
+    process.execPath,
+    [wranglerBin, 'd1', 'execute', 'DB', '--remote', '--json', '--command', sql],
     {
       env: {
         ...process.env,
