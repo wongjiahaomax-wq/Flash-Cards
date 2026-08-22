@@ -229,12 +229,13 @@ function firstResultRow(payload) {
   return /** @type {Record<string, unknown>} */ (result.results[0]);
 }
 
+const wranglerBin = resolve('node_modules/wrangler/bin/wrangler.js');
+
 /** @param {string} label @param {string} sql @param {{ accountId: string, apiToken: string }} auth */
 function execute(label, sql, auth) {
   console.log(`\n== ${label} ==`);
-  execFileSync('npx', [
-    '--yes',
-    'wrangler@4.123.0',
+  execFileSync(process.execPath, [
+    wranglerBin,
     'd1',
     'execute',
     'DB',
@@ -251,9 +252,8 @@ function execute(label, sql, auth) {
 /** @param {string} label @param {string} sql @param {{ accountId: string, apiToken: string }} auth */
 function executeAssertion(label, sql, auth) {
   console.log(`\n== ${label} ==`);
-  const output = execFileSync('npx', [
-    '--yes',
-    'wrangler@4.123.0',
+  const output = execFileSync(process.execPath, [
+    wranglerBin,
     'd1',
     'execute',
     'DB',
@@ -305,7 +305,7 @@ export function main(argv = process.argv.slice(2), env = process.env) {
   console.log('Scope: six agreed Topics and two known Case route sets only.');
   console.log('Credential values are not printed.');
   execute('PRE-FLIGHT / CURRENT TARGET STATE', preflightSql, auth);
-  const preconditions = executeAssertion('PRE-FLIGHT / MACHINE SAFETY CHECKS', preconditionSql, auth);
+  const preconditions = executeAssertion('PRE-FIGHT / MACHINE SAFETY CHECKS', preconditionSql, auth);
   assertPreconditions(preconditions);
   console.log('Pre-flight machine safety checks passed.');
 
