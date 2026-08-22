@@ -70,6 +70,7 @@ export const VALIDATION_RULES = Object.freeze([
     area: 'Local production-like replica tooling',
     patterns: Object.freeze([
       /^scripts\/refresh-local-replica(?:-lib)?\.mjs$/,
+      /^scripts\/local-replica-lib\.mjs$/,
       /^scripts\/bootstrap-local-admin(?:-lib)?\.mjs$/,
     ]),
     required: Object.freeze(['diff', 'test']),
@@ -89,7 +90,8 @@ export const VALIDATION_RULES = Object.freeze([
   Object.freeze({
     id: 'github-automation',
     area: 'GitHub workflows / automation',
-    patterns: Object.freeze([/^\.github\/workflows\//, /^\.github\/dependabot\.yml$/]),
+    patterns: Object.freeze([/^\.github\//]),
+    excludePatterns: Object.freeze([/^\.github\/AGENTS\.md$/]),
     required: Object.freeze(['diff']),
     recommendations: Object.freeze([
       'Manual: review the changed workflow/automation in GitHub after push and confirm the relevant Actions run; do not emulate GitHub Actions locally unless an established repository mechanism exists.',
