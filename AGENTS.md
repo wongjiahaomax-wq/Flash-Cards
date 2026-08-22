@@ -8,8 +8,9 @@ It is a safety contract, not a replacement for the project documentation.
 Before changing code, read:
 
 1. `docs/DOCUMENTATION_INDEX.md`
-2. `docs/HANDOVER.md`
-3. the domain-specific documents linked from the documentation index for the task you are changing.
+2. `docs/AGENT_TASK_MAP.md` to choose the minimum current task context
+3. `docs/HANDOVER.md` only when project-wide status or recent implementation state is materially relevant
+4. the domain-specific documents linked from the documentation index/task map for the task you are changing.
 
 For Cloudflare, Preview, local replicas, imports, authoring, or schema work, read the corresponding authoritative documents before editing those areas.
 
@@ -100,14 +101,10 @@ SvelteKit `redirect()` throws internally.
 
 - Do not claim a command, test, build, deployment, migration, or smoke check ran unless it actually ran.
 - Use the validation commands documented by the repository and the task.
-- For normal safety/refactor work, relevant checks commonly include:
-  - `npm ci`
-  - `npm run db:check`
-  - `npm test`
-  - `npm run check`
-  - `npm run build`
-  - `npm run runtime:smoke` when runtime-affecting files change
-  - `git diff --check`
+- `npm run agent:doctor` is the read-only pre-edit environment check.
+- `npm run validate:fast` is the normal iteration validation interface.
+- `npm run validate:full` is the ordinary local pre-handoff validation interface.
+- For runtime-affecting files, also run `npm run runtime:smoke`.
 - Report every check you could not run and the exact reason.
 - Do not describe an unexecuted check as passing based only on code inspection.
 - If implementation and documentation disagree, report the discrepancy and which source of truth you followed.
