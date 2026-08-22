@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
-import { VALIDATION_MODE_CHECK_IDS, validationCommandsForMode } from './validation-contract.mjs';
+import { validationCommandsForMode } from './validation-contract.mjs';
 
 /** @typedef {'fast' | 'full'} ValidationMode */
 /** @typedef {[string, string[]]} ValidationCommand */
@@ -8,17 +8,20 @@ import { VALIDATION_MODE_CHECK_IDS, validationCommandsForMode } from './validati
 /** @typedef {(command: string, args: string[], options: { stdio: 'inherit', shell: false }) => ValidationResult} ValidationSpawn */
 /** @typedef {{ npm_execpath?: string, [key: string]: string | undefined }} NpmExecutionEnv */
 
+/** @param {ValidationMode} mode @returns {ValidationCommand[]} */
+function commandView(mode) {
+  return validationCommandsForMode(mode).map(({ command, args }) => [command, args]);
+}
+
 /**
  * Backward-compatible derived command view. The manually maintained authority is
  * VALIDATION_MODE_CHECK_IDS in validation-contract.mjs.
  * @type {Readonly<Record<ValidationMode, ValidationCommand[]>>}
  */
-export const VALIDATION_MODES = Object.freeze(Object.fromEntries(
-  Object.keys(VALIDATION_MODE_CHECK_IDS).map((mode) => [
-    mode,
-    validationCommandsForMode(mode).map(({ command, args }) => [command, args]),
-  ]),
-));
+export const VALIDATION_MODES = Object.freeze({
+  fast: commandView('fast'),
+  full: commandView('full'),
+});
 
 /**
  * Resolve logical commands without relying on Windows `.cmd` child-process wrappers.
