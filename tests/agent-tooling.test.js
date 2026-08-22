@@ -24,15 +24,15 @@ test('branch state distinguishes feature, main, detached, and unreadable Git sta
 
   const main = branchStatus('main');
   assert.equal(main.level, 'warning');
-  assert.match(main.message, /feature branch/);
+  assert.match(main.message ?? '', /feature branch/);
 
   const detached = branchStatus('');
   assert.equal(detached.level, 'warning');
-  assert.match(detached.message, /detached/);
+  assert.match(detached.message ?? '', /detached/);
 
   const unreadable = branchStatus(null, false);
   assert.equal(unreadable.level, 'error');
-  assert.match(unreadable.message, /could not be read/);
+  assert.match(unreadable.message ?? '', /could not be read/);
 
   assert.equal(overallDoctorStatus([{ level: 'warning' }]), 'warning');
   assert.equal(overallDoctorStatus([{ level: 'error' }]), 'error');
