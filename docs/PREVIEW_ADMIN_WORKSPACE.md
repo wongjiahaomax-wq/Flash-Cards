@@ -327,7 +327,7 @@ Current Preview V1 deliberately does not provide:
 - automatic deployment of every PR;
 - Preview application of unmerged migrations;
 - unrestricted editing of global production objects;
-- Preview mutation of global Shared/Re\-usable Image Questions;
+- Preview mutation of global Shared Questions or Reusable Image Questions;
 - Preview higher-resolution Asset replacement;
 - silent migration of Preview relationships when a production Asset is superseded;
 - multiple simultaneous Preview workspaces per owner;
