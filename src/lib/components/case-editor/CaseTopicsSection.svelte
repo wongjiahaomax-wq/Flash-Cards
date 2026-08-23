@@ -6,21 +6,38 @@
   /** @typedef {{ id: string, name: string }} ConceptOption */
   /** @typedef {{ case: { id: string }, topics: CaseTopic[] }} TopicsCase */
   /** @typedef {{ selectedCase: TopicsCase, concepts: ConceptOption[], primaryTopic?: CaseTopic | null, previewMode: boolean, editorLayout: CaseEditorLayout }} TopicsProps */
-  /** @type {TopicsProps} */
   let { selectedCase, concepts, primaryTopic, previewMode, editorLayout } = $props();
+
+  /** @param {CaseTopic[]} topics */
+  function inactivePrimaryTopic(topics) {
+    return topics.find((topic) => topic.role === 'primary' && !topic.isActive);
+  }
+
+  /** @param {CaseTopic[]} topics */
+  function secondaryTopics(topics) {
+    return topics.filter((topic) => topic.role === 'secondary');
+  }
+
+  /**
+   * @param {CaseTopic[]} topics
+   * @param {string} conceptId
+   */
+  function hasTopic(topics, conceptId) {
+    return topics.some((topic) => topic.id === conceptId);
+  }
 </script>
 
 <section id="topics" class="panel stack">
   <div><p class="eyebrow">Learner routing</p><h2>Topics <span class="count">{selectedCase.topics.length}</span>{#if editorLayout === 'compact'}<AccessibleInfo label="Topics" text="The Primary Topic is the Case's canonical classification. Additional Study Topics are separate learner routes and should only be attached when every valid Case configuration remains a legitimate example." />{/if}</h2><p class="muted compact-hide-explainer">The Primary/default Topic is the Case's canonical classification. Additional Study Topics are separate learner routes and may be selected during study.</p></div>
   <div class="topic-primary">
-    <div class="topic-row-heading"><div><strong>Primary/default Topic</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Primary Topic" text="Exactly one active Topic is the canonical/default classification for this Case." />{/if}<span class="topic-help">Exactly one active Case Topic must be primary.</span></div>{#if selectedCase.topics.find((topic) => topic.role === 'primary' && !topic.isActive)}<span class="status-badge inactive">Inactive relationship</span>{/if}</div>
+    <div class="topic-row-heading"><div><strong>Primary/default Topic</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Primary Topic" text="Exactly one active Topic is the canonical/default classification for this Case." />{/if}<span class="topic-help">Exactly one active Case Topic must be primary.</span></div>{#if inactivePrimaryTopic(selectedCase.topics)}<span class="status-badge inactive">Inactive relationship</span>{/if}</div>
     <div class="topic-primary-current">{#if primaryTopic}<a href={'/admin/topics/' + primaryTopic.id}>{primaryTopic.name}</a> · <a href={'/admin/topics/' + primaryTopic.id}>Edit Topic</a>{#if !primaryTopic.isActive}<span class="status-badge inactive">Topic inactive — select an active replacement</span>{/if}{:else}<span class="form-error inline-error">No primary Topic is attached. Select an active replacement below.</span>{/if}</div>
     <form method="POST" action="?/promoteTopic" class="topic-primary-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><label class="topic-select-label">Change primary/default Topic<select name="concept_id" required><option value="" disabled selected>Select an active Topic</option>{#each concepts as concept}{#if concept.id !== primaryTopic?.id}<option value={concept.id}>{concept.name}</option>{/if}{/each}</select></label><button class="button primary" type="submit">Save primary Topic</button></form>
   </div>
   <div class="topic-secondary">
     <div class="topic-row-heading"><div><strong>Additional Study Topics</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Study Topic" text="An Additional Study Topic is another learner route to this same Case. It is not a generic Tag." />{/if}<span class="topic-help">These attachments preserve cross-topic learner routing; they are not generic tags.</span></div></div>
-    {#if selectedCase.topics.filter((topic) => topic.role === 'secondary').length === 0}<p class="empty-state">No additional Study Topics are attached.</p>{:else}<div class="topic-list">{#each selectedCase.topics.filter((topic) => topic.role === 'secondary') as topic}<div class="topic-list-row"><div><a href={'/admin/topics/' + topic.id}>{topic.name}</a>{#if !topic.isActive}<span class="status-badge inactive">Inactive Topic — historical attachment</span>{/if}</div><div class="actions">{#if topic.isActive}<form method="POST" action="?/promoteTopic"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="concept_id" value={topic.id} /><button class="button small" type="submit">Make primary</button></form>{/if}<form method="POST" action="?/removeSecondaryTopic"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="concept_id" value={topic.id} /><button class="button danger small" type="submit">Remove</button></form></div></div>{/each}</div>{/if}
-    <form method="POST" action="?/addSecondaryTopic" class="topic-add-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><label>Add an active Study Topic<select name="concept_id" required><option value="" disabled selected>Select a Topic</option>{#each concepts as concept}{#if !selectedCase.topics.some((topic) => topic.id === concept.id)}<option value={concept.id}>{concept.name}</option>{/if}{/each}</select></label><button class="button" type="submit">Add Topic</button></form>
+    {#if secondaryTopics(selectedCase.topics).length === 0}<p class="empty-state">No additional Study Topics are attached.</p>{:else}<div class="topic-list">{#each secondaryTopics(selectedCase.topics) as topic}<div class="topic-list-row"><div><a href={'/admin/topics/' + topic.id}>{topic.name}</a>{#if !topic.isActive}<span class="status-badge inactive">Inactive Topic — historical attachment</span>{/if}</div><div class="actions">{#if topic.isActive}<form method="POST" action="?/promoteTopic"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="concept_id" value={topic.id} /><button class="button small" type="submit">Make primary</button></form>{/if}<form method="POST" action="?/removeSecondaryTopic"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="concept_id" value={topic.id} /><button class="button danger small" type="submit">Remove</button></form></div></div>{/each}</div>{/if}
+    <form method="POST" action="?/addSecondaryTopic" class="topic-add-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><label>Add an active Study Topic<select name="concept_id" required><option value="" disabled selected>Select a Topic</option>{#each concepts as concept}{#if !hasTopic(selectedCase.topics, concept.id)}<option value={concept.id}>{concept.name}</option>{/if}{/each}</select></label><button class="button" type="submit">Add Topic</button></form>
     {#if !previewMode}
       <div class="topic-create">
         <div class="topic-row-heading"><div><strong>Create a new Topic</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Create Topic" text="Create a Topic here, then choose whether it becomes the canonical Primary Topic or an Additional Study Topic for this Case." />{/if}<span class="topic-help">Create it here and choose how it should route learners for this Case.</span></div></div>
