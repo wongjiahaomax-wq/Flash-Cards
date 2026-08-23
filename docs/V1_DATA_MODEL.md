@@ -511,7 +511,7 @@ The current schema intentionally does **not** imply:
 - generic Asset families/version tables;
 - automatic visual similarity/deduplication;
 - physical deletion merely because an Asset is classified Unused;
-- Preview ownership of global Shared/Re\-usable Image Questions;
+- Preview ownership of global Shared Questions or Reusable Image Questions;
 - arbitrary different-image substitution through supersession;
 - Import Package support for every later authoring enrichment.
 
