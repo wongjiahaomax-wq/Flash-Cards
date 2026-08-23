@@ -3,39 +3,43 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const editor = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
+const navigation = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorNavigation.svelte', import.meta.url), 'utf8');
+const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
+const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
 
 test('Case editor exposes one shared Classic/Compact authoring tree', () => {
   assert.match(editor, /data-editor-layout=\{editorLayout\}/);
-  assert.match(editor, /> Classic<\/label>/);
-  assert.match(editor, /> Compact<\/label>/);
+  assert.match(navigation, /> Classic<\/label>/);
+  assert.match(navigation, /> Compact<\/label>/);
   assert.match(editor, /let editorLayout = \$state\('compact'\)/);
   assert.match(editor, /readCaseEditorLayout\(getCaseEditorStorage\(window\)\)/);
   assert.match(editor, /writeCaseEditorLayout\(getCaseEditorStorage\(window\), layout\)/);
   assert.doesNotMatch(editor, /readCaseEditorLayout\(window\.localStorage\)/);
   assert.doesNotMatch(editor, /writeCaseEditorLayout\(window\.localStorage,/);
-  assert.doesNotMatch(editor, /ClassicCaseEditor|CompactCaseEditor/);
+  assert.doesNotMatch(`${editor}\n${navigation}`, /ClassicCaseEditor|CompactCaseEditor/);
 });
 
 test('Compact Case questions use accessible scope disclosure and ordering controls', () => {
-  assert.match(editor, /<details class="scope-change" open=\{editorLayout === 'classic'\}>/);
-  assert.match(editor, /<summary>Change scope<\/summary>/);
-  assert.match(editor, /class="scope-label">Applies to: <strong>This whole Case<\/strong>/);
-  assert.match(editor, /aria-label="Move question up"/);
-  assert.match(editor, /aria-label="Move question down"/);
+  assert.match(questions, /<details class="scope-change" open=\{editorLayout === 'classic'\}>/);
+  assert.match(questions, /<summary>Change scope<\/summary>/);
+  assert.match(questions, /class="scope-label">Applies to: <strong>This whole Case<\/strong>/);
+  assert.match(questions, /aria-label="Move question up"/);
+  assert.match(questions, /aria-label="Move question down"/);
 });
 
 test('Compact wide layout uses horizontal question fields and sticky section navigation only at the wide breakpoint', () => {
-  assert.match(editor, /@media \(min-width: 1024px\)/);
-  assert.match(editor, /data-editor-layout="compact"\] \.question-edit-form/);
-  assert.match(editor, /grid-template-columns: minmax\(0, 2fr\) minmax\(0, 3fr\)/);
-  assert.match(editor, /data-editor-layout="compact"\] \.section-nav \{ position: sticky;/);
-  assert.match(editor, /scroll-margin-top: 4\.75rem/);
-  assert.match(editor, /class="stack image-question-form"/);
+  assert.match(questions, /@media \(min-width: 1024px\)/);
+  assert.match(questions, /data-editor-layout="compact"\]\) \.question-edit-form/);
+  assert.match(questions, /grid-template-columns: minmax\(0, 2fr\) minmax\(0, 3fr\)/);
+  assert.match(navigation, /@media \(min-width: 1024px\)/);
+  assert.match(navigation, /data-editor-layout="compact"\]\) \.section-nav \{ position: sticky;/);
+  assert.match(questions, /scroll-margin-top: 4\.75rem/);
+  assert.match(images, /class="stack image-question-form"/);
 });
 
 test('layout switching is presentation-only and keeps the existing question forms mounted', () => {
   assert.match(editor, /function setEditorLayout\(layout\) \{\s*editorLayout = writeCaseEditorLayout/);
   assert.doesNotMatch(editor, /setEditorLayout[\s\S]{0,180}(goto\(|location\.|reload\()/);
-  assert.match(editor, /id=\{`question-edit-\$\{question\.questionPromptId\}`\}/);
-  assert.match(editor, /action="\?\/saveQuestion" class="stack question-edit-form"/);
+  assert.match(questions, /id=\{`question-edit-\$\{question\.questionPromptId\}`\}/);
+  assert.match(questions, /action="\?\/saveQuestion" class="stack question-edit-form"/);
 });
