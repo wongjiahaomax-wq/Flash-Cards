@@ -7,7 +7,8 @@
   /** @typedef {{ topics: CaseTopic[], attached: unknown[], stimulusGroups: StimulusGroupSummary[], questions: unknown[] }} NavigationCase */
   /** @typedef {{ fixedImages: number, alternativeImages: number, alternativeSets: number, caseWideQuestions: number, caseSpecificImageQuestions: number, reusableImageQuestionsUsed: number, setWideQuestions: number, allQuestions: number }} FastReviewSummary */
   /** @typedef {{ selectedCase: NavigationCase, primaryTopic?: CaseTopic | null, editorLayout: CaseEditorLayout, fastReviewSummary: FastReviewSummary, auditCount: number, onlayoutchange: (layout: CaseEditorLayout) => void }} NavigationProps */
-  let { selectedCase, primaryTopic, editorLayout, fastReviewSummary, auditCount, onlayoutchange } = /** @type {NavigationProps} */ ($props());
+  /** @type {NavigationProps} */
+  let { selectedCase, primaryTopic, editorLayout, fastReviewSummary, auditCount, onlayoutchange } = $props();
 </script>
 
 <div class="layout-preference">
