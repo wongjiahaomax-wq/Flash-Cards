@@ -127,7 +127,7 @@ test('Preview Case listing and cloning preserve the existing source and copied C
     assert.equal(clone.is_active, sourceBefore.is_active);
     assert.deepEqual(fixture.sqlite.prepare("SELECT * FROM cases WHERE id='case-source'").get(), sourceBefore);
     assert.deepEqual(
-      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=?').all(caseId),
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=?').all(caseId).map((row) => ({ ...row })),
       [{ concept_id: 'topic-primary', role: 'primary' }]
     );
     assert.deepEqual((await listPreviewCases(fixture.db, session.id)).map((row) => row.id), [caseId]);
@@ -204,14 +204,14 @@ test('Preview Case metadata and Topic mutations stay inside the owning workspace
       conceptId: 'topic-secondary'
     });
     let row = fixture.sqlite.prepare('SELECT title, vignette_md, question_selection_mode, question_count FROM cases WHERE id=?').get(first.caseId);
-    assert.deepEqual(row, {
+    assert.deepEqual({ ...row }, {
       title: 'Edited Preview STEMI',
       vignette_md: 'Edited Preview vignette',
       question_selection_mode: 'fixed',
       question_count: 2
     });
     assert.deepEqual(
-      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=? ORDER BY concept_id').all(first.caseId),
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=? ORDER BY concept_id').all(first.caseId).map((topicRow) => ({ ...topicRow })),
       [
         { concept_id: 'topic-primary', role: 'secondary' },
         { concept_id: 'topic-secondary', role: 'primary' }
@@ -226,7 +226,7 @@ test('Preview Case metadata and Topic mutations stay inside the owning workspace
     await promotePreviewTopic(fixture.db, first.session.id, first.caseId, 'topic-third');
     await removePreviewSecondaryTopic(fixture.db, first.session.id, first.caseId, 'topic-secondary');
     assert.deepEqual(
-      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=? ORDER BY concept_id').all(first.caseId),
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=? ORDER BY concept_id').all(first.caseId).map((topicRow) => ({ ...topicRow })),
       [
         { concept_id: 'topic-primary', role: 'secondary' },
         { concept_id: 'topic-third', role: 'primary' }
