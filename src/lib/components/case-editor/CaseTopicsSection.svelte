@@ -5,8 +5,8 @@
   /** @typedef {{ id: string, name: string, role: string, isActive: boolean }} CaseTopic */
   /** @typedef {{ id: string, name: string }} ConceptOption */
   /** @typedef {{ case: { id: string }, topics: CaseTopic[] }} TopicsCase */
-  /** @type {{ selectedCase: TopicsCase, concepts: ConceptOption[], primaryTopic?: CaseTopic | null, previewMode: boolean, editorLayout: CaseEditorLayout }} */
-  let { selectedCase, concepts, primaryTopic, previewMode, editorLayout } = $props();
+  /** @typedef {{ selectedCase: TopicsCase, concepts: ConceptOption[], primaryTopic?: CaseTopic | null, previewMode: boolean, editorLayout: CaseEditorLayout }} TopicsProps */
+  let { selectedCase, concepts, primaryTopic, previewMode, editorLayout } = /** @type {TopicsProps} */ ($props());
 </script>
 
 <section id="topics" class="panel stack">
