@@ -1,5 +1,11 @@
 <script>
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
+
+  /** @typedef {'classic' | 'compact'} CaseEditorLayout */
+  /** @typedef {{ id: string, name: string, role: string, isActive: boolean }} CaseTopic */
+  /** @typedef {{ id: string, name: string }} ConceptOption */
+  /** @typedef {{ case: { id: string }, topics: CaseTopic[] }} TopicsCase */
+  /** @type {{ selectedCase: TopicsCase, concepts: ConceptOption[], primaryTopic?: CaseTopic | null, previewMode: boolean, editorLayout: CaseEditorLayout }} */
   let { selectedCase, concepts, primaryTopic, previewMode, editorLayout } = $props();
 </script>
 
