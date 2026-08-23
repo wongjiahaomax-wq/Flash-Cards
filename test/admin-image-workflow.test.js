@@ -444,14 +444,19 @@ test('Images-library bulk grouping action requires administrator authorization',
 });
 
 test('Case editor keeps Images before Case questions and no longer embeds the unused Asset Library', () => {
-  const source = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
-  assert.ok(source.indexOf('id="images"') < source.indexOf('id="questions"'));
-  assert.match(source, />Images </);
-  assert.match(source, /Add images from library/);
-  assert.match(source, /Case-specific Image Questions/);
-  assert.match(source, /Reusable Image Questions/);
-  assert.match(source, /updateStimulusOptionCaption/);
-  assert.match(source, /reconcileCasePickerSelection/);
-  assert.doesNotMatch(source, /selectedCase\.available/);
-  assert.doesNotMatch(source, /<h3>Image library<\/h3>/);
+  const route = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
+  const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
+  const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
+  const picker = readFileSync(new URL('../src/lib/components/case-editor/CaseImagePickerDialog.svelte', import.meta.url), 'utf8');
+  assert.ok(route.indexOf('<CaseImagesSection') < route.indexOf('<CaseQuestionsSection'));
+  assert.match(images, /<section id="images"/);
+  assert.match(questions, /<section id="questions"/);
+  assert.match(images, />Images/);
+  assert.match(images, /Add images from library/);
+  assert.match(images, /Case-specific Image Questions/);
+  assert.match(images, /Reusable Image Questions/);
+  assert.match(images, /updateStimulusOptionCaption/);
+  assert.match(picker, /reconcileCasePickerSelection/);
+  assert.doesNotMatch(`${route}\n${images}\n${picker}`, /selectedCase\.available/);
+  assert.doesNotMatch(images, /<h3>Image library<\/h3>/);
 });
