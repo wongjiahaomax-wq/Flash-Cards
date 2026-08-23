@@ -1,5 +1,13 @@
 <script>
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
+
+  /** @typedef {'classic' | 'compact'} CaseEditorLayout */
+  /** @typedef {{ assetId: string, isActive: boolean, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, captionMd?: string | null }} CaseAsset */
+  /** @typedef {{ id: string, assetId: string, isActive: boolean, assetIsActive: boolean, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, captionMd?: string | null }} StimulusOption */
+  /** @typedef {{ name: string, isActive: boolean, options: StimulusOption[] }} StimulusGroup */
+  /** @typedef {{ questionPromptId: string, promptMd: string, answerMd: string, reusableForTopic?: boolean }} CaseQuestion */
+  /** @typedef {{ case: { id: string, conceptName?: string | null }, questions: CaseQuestion[], attached: CaseAsset[], stimulusGroups: StimulusGroup[] }} QuestionsCase */
+  /** @type {{ selectedCase: QuestionsCase, previewMode: boolean, editorLayout: CaseEditorLayout }} */
   let { selectedCase, previewMode, editorLayout } = $props();
   let newQuestionScope = $state('case');
 </script>
@@ -36,7 +44,7 @@
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; } .actions form { display: contents; } .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; } .button.primary { border-color: #172033; background: #172033; color: #fff; } .button.small { padding: 0.5rem 0.65rem; font-size: 0.82rem; } .button.danger { border-color: #fecdca; color: #b42318; }
   button:disabled { cursor: not-allowed; opacity: 0.45; } .compact-question-save, .compact-order-label { display: none; } .question-order-actions { display: flex; align-items: center; gap: 0.35rem; }
   .scope-change { border: 1px solid #e4e7ec; border-radius: 8px; background: #f8fafc; } summary { padding: 0.72rem 0.85rem; cursor: pointer; color: #344054; font-weight: 650; } .scope-change-body { padding: 0.75rem 0.85rem; }
-  button:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible, [tabindex="-1"]:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
+  button:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
   :global(.case-editor[data-editor-layout="classic"]) .scope-change > summary { display: none; } :global(.case-editor[data-editor-layout="compact"]) .classic-scope-heading { display: none; } :global(.case-editor[data-editor-layout="compact"]) .compact-hide-explainer { display: none; }
   @media (min-width: 1024px) {
     :global(.case-editor[data-editor-layout="compact"]) #questions { scroll-margin-top: 4.75rem; }
