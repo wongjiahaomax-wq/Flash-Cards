@@ -1,6 +1,12 @@
 <script>
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
 
+  /** @typedef {'classic' | 'compact'} CaseEditorLayout */
+  /** @typedef {{ id: string, name: string, role: string, isActive: boolean }} CaseTopic */
+  /** @typedef {{ options: unknown[] }} StimulusGroupSummary */
+  /** @typedef {{ topics: CaseTopic[], attached: unknown[], stimulusGroups: StimulusGroupSummary[], questions: unknown[] }} NavigationCase */
+  /** @typedef {{ fixedImages: number, alternativeImages: number, alternativeSets: number, caseWideQuestions: number, caseSpecificImageQuestions: number, reusableImageQuestionsUsed: number, setWideQuestions: number, allQuestions: number }} FastReviewSummary */
+  /** @type {{ selectedCase: NavigationCase, primaryTopic?: CaseTopic | null, editorLayout: CaseEditorLayout, fastReviewSummary: FastReviewSummary, auditCount: number, onlayoutchange: (layout: CaseEditorLayout) => void }} */
   let { selectedCase, primaryTopic, editorLayout, fastReviewSummary, auditCount, onlayoutchange } = $props();
 </script>
 
