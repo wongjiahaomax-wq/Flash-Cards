@@ -1,18 +1,18 @@
 # Production-backed Preview Admin Workspace
 
-_Status: implemented, merged, and part of the current operational baseline. Preview Admin uses a separate Worker with the same production D1 and R2 resources under explicit ownership/isolation rules._
+_Status: implemented and part of the operational baseline. Current `main` also contains a staged, behavior-preserving backend decomposition through Preview fixed Case-image operations._
 
-_Last updated: 20 August 2026_
+_Last updated: 24 August 2026_
 
 ## Purpose
 
-Admin UI changes need real browser inspection against current teaching content, but the project deliberately does not maintain a second synchronized D1 database or R2 bucket.
+Admin UI changes need real browser inspection against current teaching content without maintaining a second synchronized D1 database or R2 bucket.
 
-Preview therefore uses a separate Worker while binding to the same existing D1 database and R2 bucket as production.
+Preview therefore uses a separate Worker bound to the same production D1 and R2 resources.
 
-This is **not** equivalent to an independently isolated staging database. Safety depends on explicit Preview ownership, narrow mutation capability, database constraints, central learner filtering, hard route boundaries, separate authentication secrets/sessions, manual deployment, and deliberate restrictions on global production objects.
+Safety depends on explicit Preview ownership, narrow mutation capability, database constraints, central learner/production filtering, hard request boundaries, separate authentication secrets/sessions, and deliberate restrictions on global production objects.
 
-The safety model is:
+The core rule is:
 
 > **Clone then mutate Preview-owned content. Never mutate production content and rely on rollback as the normal Preview workflow.**
 
@@ -31,244 +31,295 @@ Preview Worker: flash-cards-preview
   -> separate Preview BETTER_AUTH_SECRET
 ```
 
-There is no second D1 or R2 resource in the current design.
+There is no second D1/R2 resource in the current design.
 
-## 2. Identity and role boundary
+## 2. Identity and hard route boundaries
 
-The owner may use the same Better Auth user identity for both production Admin and Preview Admin by holding:
+The owner may hold:
 
 ```text
 admin,preview_admin
 ```
 
-The production and Preview Workers use separate `BETTER_AUTH_SECRET` values, so browser sessions remain cryptographically separate even when the identity/password is the same.
-
-Authorization remains server-side.
-
-See `PREVIEW_ADMIN_IDENTITY.md` for bootstrap/identity details.
-
-## 3. Hard request boundaries
+Production and Preview Workers use separate Better Auth secrets, so sessions remain separate.
 
 Current hard boundaries include:
 
 ```text
-Preview Worker /admin/**              -> forbidden
-Preview Worker /study/**              -> forbidden
-Preview Worker /api/auth/admin/**     -> forbidden
-preview-only Admin on production /study/** -> forbidden
-admin,preview_admin on production /study/** -> allowed
+Preview Worker /admin/**          -> forbidden
+Preview Worker /study/**          -> forbidden
+Preview Worker /api/auth/admin/** -> forbidden
+
+preview-only preview_admin on production /study/** -> forbidden
+combined admin,preview_admin on production /study/** -> allowed
 ```
 
-The Preview Worker is not a general production Admin endpoint and is not a learner Study endpoint.
+The Preview Worker is not a learner endpoint or general production Admin endpoint.
 
-## 4. Preview ownership
+## 3. Preview ownership
 
-Preview-owned domain rows use explicit `preview_session_id` ownership where the schema supports disposable Preview content.
-
-Preview uploads use an isolated R2 prefix:
+Preview-owned domain rows use explicit `preview_session_id` where supported. Preview uploads use:
 
 ```text
 preview/<preview-session-id>/...
 ```
 
-Production content has no Preview session ownership.
+Production rows have no Preview session ownership.
 
-The normal learner path excludes Preview-owned Cases, Question Prompts, and Assets before Review creation. Production Admin read models/counts also exclude disposable Preview ownership where required.
+Normal learner Review construction excludes Preview-owned Cases, Prompts, and Assets. Production Admin read models/counts also exclude disposable Preview ownership where required.
 
-## 5. Clone then mutate
+## 4. Clone then mutate
 
-Preview may inspect/reuse production content read-only and create disposable Preview-owned derivatives where the existing contracts permit it.
+Normal flow:
 
 ```text
 production Case/content
-→ clone relevant authoring state into Preview-owned rows
-→ mutate only Preview-owned relationships/content
-→ inspect shared production editor UI against real assets/data
+→ clone complete relevant authoring state into Preview-owned rows
+→ mutate only Preview-owned Case/workspace relationships/content
+→ inspect shared production editor UI
 → Reset Preview Workspace
 ```
 
-Do not implement Preview by editing production rows and attempting to restore their previous values later.
+Production objects may be reused read-only where existing contracts permit, including attaching eligible production Assets to current-session Preview-owned Cases/options without mutating the production Asset.
 
-## 6. Production Assets in Preview
+## 5. Stable public backend façade
 
-Preview can browse/search/filter/paginate/select real production Assets read-only.
+Application callers should continue importing Preview workspace operations through:
 
-Where the current Case/image authoring contracts allow it, Preview may attach selected production Assets to **current-session Preview-owned** Cases/groups/options without mutating the production Asset itself.
+```text
+src/lib/server/db/preview-workspace.js
+```
 
-Preview may not edit production Asset metadata, Collection assignment, R2 bytes/object identity, supersession lineage, or production Case/stimulus relationships.
+The staged refactor changes internal responsibility ownership, not the caller-facing API, route contracts, error contracts, ownership semantics, or product behavior.
 
-Image Management V2 behavior in Preview includes scalable browsing/selection and safe relationship reuse into Preview-owned content. See `IMAGE_MANAGEMENT_V2_PLAN.md` and `ADMIN_IMAGE_AUTHORING_WORKFLOW.md`.
+Current focused modules are:
 
-## 7. Shared production Case editor
+```text
+src/lib/server/db/preview-workspace/errors.js
+→ PreviewWorkspaceError
 
-Preview renders the real production Case-editor Svelte component rather than maintaining a copied editor UI.
+src/lib/server/db/preview-workspace/input.js
+→ shared input/time normalization primitives
 
-`test/admin-editor-preview-contract.test.js` protects the shared named-action/data contract.
+src/lib/server/db/preview-workspace/session.js
+→ Preview Session lookup/create/reuse/TTL primitives
 
-When a new named action is added to the shared Case editor, Preview must provide either:
+src/lib/server/db/preview-workspace/ownership.js
+→ Preview ownership/security guards
+
+src/lib/server/db/preview-workspace/case.js
+→ production Case discovery/search
+→ complete production → Preview Case clone orchestration
+→ Preview Case listing
+→ title/vignette/question-selection metadata mutations
+→ primary/secondary Topic mutations
+
+src/lib/server/db/preview-workspace/fixed-images.js
+→ fixed Case-image editor reads
+→ single fixed-image attach
+→ bounded bulk fixed-image attach after façade preconditions
+→ Case-specific fixed-image caption update
+→ fixed-image detach + display-order normalization
+→ fixed-image reorder
+```
+
+`preview-workspace.js` remains the public façade and delegates to these focused owners.
+
+## 6. Why Case cloning remains cohesive
+
+The complete Case clone transaction remains owned by `preview-workspace/case.js`, including clone-time child graph copying such as fixed `case_assets` relationships.
+
+That is intentional: clone-time fixed-image copying is part of the complete Case-clone transaction, not an ongoing fixed-image editor mutation. Moving it into `fixed-images.js` merely for symmetry would split one semantic transaction and risk circular dependencies.
+
+The clone continues to preserve production source metadata, Topic/Tag mappings, Preview Session ownership, production Asset reuse where allowed, Preview Prompt isolation, and established ordered batch/write behavior.
+
+## 7. Fixed-image operation boundary
+
+`fixed-images.js` owns ongoing fixed-image operations after the Case exists.
+
+Bulk attach has one important preserved precondition: Case ownership validation occurs before bounded bulk-input validation, preserving the established error precedence for foreign Case IDs even when the submitted selection is empty or oversized.
+
+The public façade owns that ownership-before-input precondition and passes a prevalidated Case into the focused helper, avoiding a redundant second ownership query on success.
+
+Behavior intentionally preserved includes ordering, captions, duplicate/conflict handling, Asset eligibility, batch/fallback behavior, ownership rejection, and public error codes/messages.
+
+## 8. Deliberately still owned by the façade
+
+The staged refactor is not complete. Current façade ownership still includes:
+
+- `ensurePreviewWorkspace()` because it coordinates Session state with cleanup;
+- workspace-wide cleanup/reset orchestration;
+- Alternative Set / Stimulus Group / Stimulus Option operations;
+- fixed → Alternative Set conversion/orchestration where the dominant semantic responsibility is Alternative Set mutation;
+- Case/group/option question operations;
+- question scope and reusable-question operations;
+- composed editor loading where several child domains are assembled together.
+
+Likely next focused sequence:
+
+```text
+Alternative Set / stimulus extraction
+→ question / scope / reusable-question extraction
+→ final façade / cleanup ownership review
+```
+
+Do not extract a function merely because it touches a child table; keep compound operations with the domain that owns their semantic transaction.
+
+## 9. Shared production Case editor
+
+Preview renders the real Production Case-editor component surface rather than maintaining a copied editor.
+
+After PR #78 the shared editor spans the route plus focused components under:
+
+```text
+src/lib/components/case-editor/
+```
+
+`test/admin-editor-preview-contract.test.js` treats that route/component set as the shared editor implementation surface while keeping the route as the top-level server-data boundary.
+
+Whenever a new shared named action is added, Preview must provide either:
 
 - a safe Preview implementation; or
-- an explicit named `403`/blocked implementation.
+- an explicit named blocked/403 implementation.
 
-Production-only non-named endpoints must likewise remain unreachable from Preview mutation controls. Never leave a new production action ambiguously reachable through Preview.
+Production-only non-named endpoints must remain unreachable from Preview mutation controls.
 
-Shared UI may display read-only counts/status for global production content where safe, but display parity does not imply mutation authority.
+## 10. Production Assets in Preview
 
-## 8. Shared Questions and Reusable Image Questions remain production-global
+Preview may browse/search/filter/paginate/select real production Assets read-only and may attach eligible production Assets to Preview-owned Case relationships where explicitly supported.
 
-`shared_questions` deliberately has no `preview_session_id`.
+Preview may not mutate production Asset metadata, Collection assignment, R2 bytes/object identity, supersession lineage, or production Case/stimulus relationships.
 
-`asset_questions` is likewise global production-curated exact-Asset teaching content rather than Preview-owned disposable content.
+Image Library lifecycle classification remains a production-content read concern; Preview-session relationships do not change a production Asset's Current/Historical only/Unused classification.
 
-Preview Admin currently has **no mutation authority** over either global reusable-content type.
+## 11. Shared Questions and Reusable Image Questions remain production-global
 
-Preview-owned Question Prompts are rejected as backing Prompts for Shared Questions by application validation plus D1 triggers from `0008_tag_shared_questions.sql`.
+`shared_questions` and `asset_questions` are global production-curated reusable knowledge. Preview Admin has no canonical mutation authority over either.
 
-For Reusable Image Questions, `0009_reusable_image_questions.sql` rejects Preview-owned Assets or Prompts as backing `asset_questions`. Its Asset-identity and cross-group triggers also protect explicit reusable-image opt-ins. `0010_reusable_image_reactivation_guard.sql` prevents reactivation from reviving an invalid cross-group Prompt configuration.
+D1/application protections reject Preview-owned backing Prompts/Assets and preserve cross-group Prompt invariants.
 
-Preview may safely render the distinction between Case-specific and Reusable Image Questions where shared editor data supports it, but create/edit/archive/reuse/remove controls for canonical Asset Questions remain production-only.
+Preview may display safe counts/status from shared editor data, but display parity does not imply create/edit/archive/reuse/remove authority.
 
-The learner resolver also requires production-owned content for normal Study construction.
+## 12. Option archive/removal compatibility
 
-## 9. Higher-resolution replacement is production-only and Preview-aware
+Migration `0012_archive_stimulus_options.sql` adds the current `removed_from_case` relationship archive state.
 
-**Replace with higher-resolution version** is a production Admin mutation for a better-quality copy of the same underlying production Asset.
+Preview behavior must preserve the same semantic distinction wherever those options are cloned/edited:
 
-Preview-owned Assets are never eligible source Assets. Preview Admin has no equivalent replacement action, and production replacement never rewrites Preview-owned Case/stimulus relationships.
+```text
+Deactivate option
+≠ Remove from Case
+```
 
-There is an additional protection because Preview and production share R2/current-Asset serving semantics: a production Asset currently referenced by a **live Preview workspace** must not be deactivated by replacement.
+Removed relationships are excluded from current learner/current-authoring semantics while retained rows preserve historical/question/provenance relationships. Internal Preview refactors must not collapse that state into ordinary `is_active` handling.
 
-For this boundary, live means:
+## 13. Higher-resolution replacement is production-only and Preview-aware
+
+Production **Replace with higher-resolution version** remains unavailable in Preview.
+
+A production Asset referenced by a live Preview workspace is temporarily ineligible as a replacement source. Live means:
 
 ```text
 preview_sessions.status = 'active'
-AND preview_sessions.expires_at > now
+AND expires_at > now
 ```
 
-Both of these Preview usages block replacement:
+Both Preview fixed `case_assets` and Preview option references block replacement. Production replacement checks before R2 upload and repeats the condition in the D1 claim so a newly live Preview reference causes rollback and cleanup of only the new uncommitted object.
 
-- a live Preview Case has the Asset in `case_assets`;
-- a live Preview Case has the Asset in `stimulus_group_options`.
+Preview relationships are never silently rewritten by production replacement.
 
-The replacement operation checks for live Preview usage before uploading the new object and repeats the condition in the D1 source-Asset claim. If a Preview reference becomes live during the operation, the D1 batch fails and only the newly uploaded replacement object is cleaned up. The Preview relationship itself is not rewritten.
-
-Expired/non-live Preview rows remain outside the mutation set and do not block the current production operation.
-
-## 10. Preview Session lifecycle
+## 14. Preview Session lifecycle
 
 V1 supports one live Preview workspace per Preview Admin with a 24-hour expiry.
 
-Workspace state is represented in D1 rather than only in browser memory.
+Session state is durable in D1. Existing behavior intentionally preserves:
 
-Reset/cleanup removes explicitly Preview-owned rows and Preview R2 objects after ownership/usage checks.
+- active-session reuse;
+- TTL/expiry semantics;
+- expired-session cleanup before replacement workspace creation;
+- surfaced cleanup failure rather than falsely declaring success;
+- retry behavior;
+- owner-scoped Session/Case/Prompt/Group/Option access.
 
-Cleanup is designed to be idempotent. A failed cleanup is surfaced rather than silently declaring the workspace reset.
+PR #80 extracted primitives behind the unchanged façade and added characterization coverage around these contracts.
 
-Production rows and production R2 objects must remain untouched.
+Reset/cleanup must remain idempotent and may remove only explicitly owned Preview rows/objects.
 
-A live Preview reference may therefore temporarily block a production Asset replacement until the workspace is reset or expires. That is an intentional safety boundary, not a reason to mutate Preview data from the replacement workflow.
+## 15. Preview R2 cleanup
 
-## 11. Preview R2 cleanup
+Preview writes use the isolated Preview prefix and central media guardrails.
 
-Preview media writes must use the isolated Preview prefix and the same central media/storage guardrails as production teaching-image writes.
+Reset may delete only objects proven to belong to the relevant Preview session. Reviewed-import staging and failed production replacement cleanup are different storage lifecycles and must not be confused with Preview ownership.
 
-Reset may remove only objects proven to belong to the relevant Preview session.
+## 16. Deploy PR to Preview
 
-Reviewed import staging is a separate operational concept and must not be confused with Preview Asset ownership.
-
-Production higher-resolution replacement cleanup is also separate: on failed replacement, only the newly uploaded uncommitted production replacement object may be deleted by the narrow replacement cleanup path.
-
-## 12. Deploy PR to Preview
-
-The permanent manual workflow is:
+The permanent manual workflow remains:
 
 ```text
 .github/workflows/deploy-pr-to-preview.yml
 ```
 
-It resolves an exact open same-repository PR head targeting `main`, runs the standard validation set, and deploys only to the Preview environment.
+It resolves an exact trusted same-repository PR head targeting `main`, validates it, and deploys only to Preview. Candidate schema/migration/`wrangler.jsonc` changes remain blocked; the workflow never applies a remote migration.
 
-The workflow deliberately blocks candidate PRs that change:
+Use `PREVIEW_DEPLOYMENT.md` for the operator playbook and capability-based dispatch guidance.
 
-- D1 migrations/schema;
-- `wrangler.jsonc`.
+Local `npm run preview` is production-style **local verification** and is not this remote Preview deployment.
 
-It never applies a remote migration.
+## 17. Restore Main to Preview
 
-This protects the production-backed D1 binding from unreviewed schema changes.
+After candidate inspection, return Preview to current `main` through the permanent Restore Main workflow rather than leaving arbitrary candidate code deployed.
 
-For schema-changing features, land/apply the reviewed schema foundation through the protected migration path first, then Preview a code-only head once those schema files are no longer candidate changes relative to `main`.
-
-The presence of migrations `0009`–`0011` on repository `main` must not be confused with proof that each migration is applied to production. Migration application and Worker deployment remain separately verified operational facts.
-
-See `PREVIEW_DEPLOYMENT.md` for the operator playbook.
-
-## 13. Restore Main to Preview
-
-After inspecting a PR, return the Preview Worker to current `main` through the permanent Restore Main workflow rather than leaving an arbitrary candidate deployed.
-
-Normal lifecycle:
+Typical lifecycle:
 
 ```text
 main on Preview
 → Deploy PR to Preview
 → inspect candidate
-→ Reset Preview Workspace
+→ Reset Preview Workspace as appropriate
 → Restore Main to Preview
-→ next candidate
 ```
 
-The exact operator order may vary when a reset is required before restore, but the end state should not leave stale candidate code or disposable workspace data unintentionally active.
+## 18. Migration compatibility map
 
-## 14. Production data isolation requirements
-
-Future code must preserve these boundaries:
-
-- learner Case eligibility excludes Preview Cases;
-- Review loading excludes Preview-owned Prompts/Assets;
-- production Admin libraries/counts/details exclude disposable Preview ownership;
-- Preview cannot mutate production Cases, production Asset metadata, production Collections, production R2 objects, production supersession state, or production stimulus relationships;
-- Shared Questions remain production-global mutable content with no Preview mutation authority;
-- Reusable Image Questions remain production-global mutable content with no Preview mutation authority;
-- higher-resolution replacement remains production-only and refuses live Preview source-Asset usage rather than rewriting Preview relationships;
-- Better Auth Admin-plugin API remains production Worker only.
-
-Database constraints/triggers should continue providing defense in depth where practical rather than relying exclusively on UI hiding.
-
-## 15. Current migrations related to Preview boundaries
-
-Preview ownership foundation is:
+Preview ownership foundation:
 
 ```text
 0006_preview_admin_workspace.sql
 ```
 
-Later migrations remain compatible with the Preview boundary:
+Later repository migrations remain compatible with the same boundary:
 
-- `0007_image_collections.sql` — global Asset organisation; Preview may read metadata but cannot mutate production assignments;
-- `0008_tag_shared_questions.sql` — global Shared Questions plus protection against Preview-owned backing Prompts;
-- `0009_reusable_image_questions.sql` — global Reusable Image Questions, explicit exact-Asset opt-ins, Preview backing-content rejection, and cross-group Prompt protection;
-- `0010_reusable_image_reactivation_guard.sql` — reactivation defense for the same global reusable-image invariant;
-- `0011_asset_supersession.sql` — narrow Asset supersession self-FK/index used by the production-only replacement workflow.
+- `0007_image_collections.sql` — global Asset organisation;
+- `0008_tag_shared_questions.sql` — global Shared Questions + Preview backing-Prompt protection;
+- `0009_reusable_image_questions.sql` — global Reusable Image Questions + backing-content/cross-group protection;
+- `0010_reusable_image_reactivation_guard.sql` — reactivation defense;
+- `0011_asset_supersession.sql` — production-only replacement lineage;
+- `0012_archive_stimulus_options.sql` — retained option relationship archive state;
+- `0013_review_assets_asset_lookup.sql` — Asset-leading historical Review lookup index; no new Preview ownership semantics.
 
-These files are present on current `main`. Do not infer Preview mutation authority from shared D1 visibility, and do not infer production migration application merely from repository presence.
+Repository presence is not proof of production application.
 
-## 16. Validation expectations
+## 19. Validation expectations
 
-Preview-related changes should preserve the repository validation standard:
+Preview-related changes should use root `AGENTS.md` + `AGENT_TASK_MAP.md` and preserve characterization/regression coverage for:
 
-```sh
-npm run db:check
-npm test
-npm run check
-npm run build
-node scripts/local-auth-smoke.mjs
-git diff --check
-```
+- public façade/export contracts;
+- Session lifecycle/reuse/TTL/cleanup failure;
+- ownership isolation across Session/Case/Prompt/Group/Option;
+- production Asset usability in Preview;
+- complete Case clone behavior and write ordering;
+- fixed-image ordering/captions/attach/detach/reorder;
+- ownership-before-input error precedence for bulk attach;
+- shared editor action/data contracts;
+- route hard blocks;
+- R2 prefix safety;
+- reusable-content restrictions;
+- live-Preview replacement blocking;
+- option archive/current-state semantics.
 
-Focused tests should continue covering route hard blocks, production/Preview ownership filtering, shared-editor action contracts, Preview Reset idempotency, R2 prefix safety, reusable-content restrictions, live-Preview replacement blocking, and subsystem-specific Preview boundaries.
+`agent:checks` should determine the relevant ordinary/specialized command set when local execution is available. GitHub-only sessions must report CI evidence separately from locally executed commands.
 
-## 17. Non-goals
+## 20. Non-goals
 
 Current Preview V1 deliberately does not provide:
 
@@ -276,12 +327,10 @@ Current Preview V1 deliberately does not provide:
 - automatic deployment of every PR;
 - Preview application of unmerged migrations;
 - unrestricted editing of global production objects;
-- Preview editing of global Shared Questions;
-- Preview creation/edit/archive/reuse/removal of global Reusable Image Questions;
+- Preview mutation of global Shared Questions or Reusable Image Questions;
 - Preview higher-resolution Asset replacement;
 - silent migration of Preview relationships when a production Asset is superseded;
 - multiple simultaneous Preview workspaces per owner;
 - learner Study on the Preview Worker;
-- production Admin-plugin operations through Preview.
-
-Add broader Preview capabilities only when the ownership, provenance, rollback, and failure model is explicit and testable.
+- production Auth Admin-plugin operations through Preview;
+- premature child-module extraction that splits a cohesive clone/conversion/cleanup transaction.

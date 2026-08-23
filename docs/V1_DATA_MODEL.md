@@ -1,8 +1,8 @@
 # Flash-Cards — V1 Data Model
 
-_Last updated: 20 August 2026_
+_Last updated: 24 August 2026_
 
-This document records the current implemented V1 application data model on repository `main`. It complements `V1_SPEC.md` and should agree with the current Drizzle schema, committed D1 migrations, and the subsystem invariant documents.
+This document records the implemented V1 application data model on repository `main`. It should agree with the current Drizzle schema, committed D1 migrations, and subsystem invariant documents.
 
 ## 1. Migration ledger and deployment boundary
 
@@ -21,44 +21,45 @@ Current `main` contains:
 0009_reusable_image_questions.sql
 0010_reusable_image_reactivation_guard.sql
 0011_asset_supersession.sql
+0012_archive_stimulus_options.sql
+0013_review_assets_asset_lookup.sql
 ```
 
-A migration file being committed on `main` is not, by itself, proof that it has been applied to production D1. Production migration application and Worker deployment are separate operational facts and must be verified independently.
+A migration file being committed on `main` is not proof that it has been applied to production D1. Production migration application, Worker deployment, and behavior verification remain separate operational facts.
 
-`0009` adds canonical exact-Asset reusable questions, explicit stimulus-option opt-ins, cross-group Prompt defense, reusable-image Review provenance, and the conservative SQLite rebuild of `review_questions` required to extend its source-type CHECK. Existing Review IDs, Prompt/answer snapshots, order, and prior provenance are copied unchanged.
+Relevant later migrations:
 
-`0010` adds defense in depth so reactivating a dormant Reusable Image Question cannot resurrect an invalid cross-Stimulus-Group Prompt configuration.
-
-`0011` adds only the narrow nullable self-FK `assets.superseded_by_asset_id` plus an index. It does not add an Asset-family/version table and does not mutate historical Review rows.
-
-`0012` adds `stimulus_group_options.removed_from_case`, defaulting to false for existing options. This relationship archive state is separate from `is_active`: Deactivate keeps an option visible to authors while excluding it from future Reviews; Remove from Case excludes it from normal authoring/runtime selection while retaining the Asset, option identity, exact-image question relationships, and Review foreign-key provenance. The Asset and its R2 object are not deleted.
+- `0009` — exact-Asset Reusable Image Questions, explicit stimulus-option opt-ins, reusable-image Review provenance, and cross-group Prompt protection;
+- `0010` — defense in depth when reactivating dormant Reusable Image Questions;
+- `0011` — nullable `assets.superseded_by_asset_id` self-FK/index for narrow same-image higher-resolution replacement;
+- `0012` — `stimulus_group_options.removed_from_case`, separating archived removal from ordinary `is_active` deactivation;
+- `0013` — `review_assets(asset_id, review_id)` index for Asset-leading historical Review existence/count lookups used by Image Library lifecycle classification. It changes access-path performance, not domain semantics.
 
 ## 2. General design rules
 
 1. Use application-generated text IDs for domain objects.
 2. Keep Better Auth tables conceptually separate from learning-domain tables.
-3. Use foreign keys, checks, unique indexes and defensive triggers where practical.
+3. Use foreign keys, checks, unique indexes, and defensive triggers where practical.
 4. Prefer deactivation/archive over destructive deletion for teaching content.
 5. Store private R2 object keys, not public/provider media URLs.
 6. Snapshot what the learner actually saw when a Review begins.
-7. Store answer/clinical meaning on the relationship/object that makes it correct, never on reusable Prompt wording.
-8. Keep Topics, Tags, stimulus groups, Image Collections and exact-Asset reuse semantically separate.
-9. Keep new content structures additive/backward-compatible; ordinary Cases do not require alternatives, Tags, Shared Questions, Collections or Reusable Image Questions.
+7. Store answers/clinical meaning on the relationship/object that makes them correct; `question_prompts` stores wording only.
+8. Keep Topics, Tags, stimulus groups, Image Collections, and exact-Asset reuse semantically separate.
+9. Keep new content structures additive/backward-compatible.
 10. Preview ownership is explicit provenance, not a naming convention or UI-only filter.
-11. Production teaching-image object keys are immutable; higher-resolution replacement creates a new Asset/R2 object rather than overwriting one.
-12. Stable stimulus-option identity is the anchor for Case-specific exact-image teaching; global Asset identity is the anchor for reusable exact-image teaching.
+11. Production teaching-image object keys are immutable; quality replacement creates a new Asset/R2 object.
+12. Stable Stimulus Option identity anchors Case-specific exact-image teaching; exact Asset identity anchors reusable exact-image teaching.
+13. Asset lifecycle status and derived usage classification are distinct concepts.
 
 ## 3. Authentication and Preview ownership
 
-Better Auth owns authentication/session/account tables. Current application role concepts include `admin`, `user`, and `preview_admin`.
+Better Auth owns authentication/session/account tables. Application role concepts include `admin`, `user`, and `preview_admin`.
 
-`preview_sessions` provides durable ownership/lifecycle state for disposable Preview Admin content. Production Cases/Assets/Prompts have `preview_session_id = NULL`; Preview-owned equivalents carry a session ID where supported.
+`preview_sessions` provides durable ownership/lifecycle state for disposable Preview content. Production Cases/Assets/Prompts have `preview_session_id = NULL`; Preview-owned equivalents carry a session ID where supported.
 
-Global Shared Questions and Reusable Image Questions are production-curated objects. Preview-owned Prompts or Assets may not back them. D1 triggers provide defense in depth for reusable Asset Questions.
+Global Shared Questions and Reusable Image Questions are production-curated. Preview-owned Prompts or Assets may not back them. D1 triggers provide defense in depth.
 
-Higher-resolution Asset replacement is production-only. Preview-owned Assets cannot be source Assets, Preview Admin has no equivalent mutation authority, and production replacement never silently rewrites Preview-owned Case/stimulus relationships.
-
-A production Asset currently referenced by a live Preview workspace temporarily blocks replacement. A live Preview is an active, unexpired Preview session; both Preview fixed-image and Preview stimulus-option references are relevant. The check is performed before upload and repeated in the replacement claim so a race rolls the D1 batch back and cleans up only the new uncommitted R2 object.
+Higher-resolution replacement is production-only. Preview-owned Assets cannot be source Assets, and a production Asset referenced by a live Preview workspace temporarily blocks replacement rather than causing Preview relationships to be rewritten.
 
 ## 4. Topics and Cases
 
@@ -83,7 +84,7 @@ title
 vignette_md
 question_selection_mode automatic | all | fixed
 question_count nullable; required/positive for fixed
-preview_session_id
+preview_session_id nullable
 is_active
 created_at
 updated_at
@@ -99,15 +100,17 @@ created_at
 PRIMARY KEY (case_id, concept_id)
 ```
 
-Every learner-presentable active production Case has one primary/default Topic and may have Additional Study Topics. One attached Study Topic is resolved per Review and supplies direct Topic questions for that Review.
+Every learner-presentable active production Case has one primary/default Topic and may have Additional Study Topics. The actual Study Topic route is resolved per Review.
 
 ## 5. Image organisation and Assets
 
 ### `image_collections`
 
-Global Admin Image Library organisation only. Collections have no learner-routing, Tag, Case, question or Review semantics.
+Global Admin Image Library organisation only. Collections have no learner-routing, Tag, Case, question, or Review semantics.
 
 ### `assets`
+
+Conceptually:
 
 ```text
 id
@@ -127,9 +130,7 @@ created_at
 updated_at
 ```
 
-`storage_key` is immutable production object identity. A null Collection is presented as Unsorted.
-
-`superseded_by_asset_id` has one narrow meaning:
+`storage_key` is immutable object identity. `superseded_by_asset_id` means only:
 
 ```text
 Asset A was superseded by Asset B
@@ -143,40 +144,30 @@ A.superseded_by_asset_id = B.id
 B.is_active = true
 ```
 
-A later replacement may naturally create A → B → C by replacing B. An already-superseded A is not directly replaceable/reactivatable through the ordinary current-Asset workflow.
+A later upgrade may produce A → B → C. This is not a generic Asset-family/version abstraction.
 
-This is not an Asset-family abstraction. There is no `image_identity`, generic version table or automatic similarity/deduplication system.
+### Derived Image Library usage state
 
-## 6. Higher-resolution replacement invariant
-
-Use the replacement operation only for:
+Usage is computed from current/historical relationships rather than stored as an Asset flag:
 
 ```text
-same underlying image + better quality/resolution
+Current
+→ active Asset in an active production Case as fixed image
+  OR active Asset on active, non-removed option in active group.
+
+Historical only
+→ no Current use, but retained production relationship, Review snapshot,
+  Reusable Image Question, or supersession relationship still requires provenance.
+
+Unused
+→ neither Current use nor retained historical/provenance dependency.
 ```
 
-A different ECG/X-ray/photograph/diagram showing the same condition remains a new independent Asset.
+Preview-session relationships do not affect production lifecycle classification.
 
-Replacement creates a new immutable R2 object and a new Asset row. Appropriate semantic/provenance metadata is copied from A to B, while the upload supplies the new storage key, MIME type and original filename. Old R2 bytes remain untouched for historical Reviews.
+## 6. Fixed Case images
 
-Current production semantic changes are committed together after preflight:
-
-```text
-new Asset B
-+ cloned Asset Questions for B
-+ production case_assets A → B
-+ production stimulus_group_options A → B, same option IDs
-+ production reusable opt-ins old AQ → cloned BQ
-+ old Asset A inactive/superseded
-```
-
-R2 and D1 are not a shared transaction. The new immutable object is uploaded first. If the D1 claim or any later D1 statement fails, the D1 batch rolls back and only the newly uploaded object is deleted. A successful operation keeps both old and new objects.
-
-Exactly one concurrent replacement may claim an active unsuperseded source Asset. A lost claim must fail the whole D1 batch rather than silently succeeding with zero affected source rows.
-
-## 7. Case image relationships
-
-### `case_assets` — fixed images
+### `case_assets`
 
 ```text
 case_id
@@ -186,9 +177,11 @@ caption_md
 created_at
 ```
 
-Fixed active production Assets are shown in every applicable Review. `caption_md` is Case-specific relationship metadata.
+The relationship carries Case-specific order/caption; global Asset metadata remains on `assets`.
 
-Higher-resolution replacement updates current production `asset_id` A → B in place and preserves Case ID, order and caption.
+Higher-resolution replacement updates current production `asset_id` A → B in place while preserving Case/order/caption.
+
+## 7. Alternative Sets and option archive state
 
 ### `stimulus_groups`
 
@@ -218,63 +211,64 @@ removed_from_case
 created_at
 ```
 
-Current learner behavior selects exactly one active, non-removed option per active group and freezes it at Review creation. Option ID is stable and is the exact Case/stimulus-context identity. A removed relationship is retained so restrictive foreign keys from historical Review and question/provenance rows remain valid. Re-adding the same Asset to the same alternative set can restore that archived relationship when there is no group conflict.
+Current learner selection considers active, non-removed options in active groups. Stimulus Option ID is stable exact Case/stimulus-context identity.
 
-A fixed image may be transparently converted to a one-option active group when an exact-image question or explicit reusable-image opt-in requires a stimulus-option relationship. Asset identity and Case caption are preserved; with one active option and `selection_count = 1`, learner-visible behavior remains equivalent to the prior fixed image.
+`is_active` and `removed_from_case` are deliberately different:
 
-Higher-resolution replacement changes the production option's `asset_id` A → B without recreating the option. Stable option identity preserves group membership, caption/order/active state and attached Case-specific exact-option questions.
+- `is_active = false` deactivates the option while retaining it in normal authoring/history;
+- `removed_from_case = true` archives the Case relationship out of current authoring/selection while preserving the row for restrictive foreign keys, question relationships, restoration, and Review provenance.
 
-## 8. `question_prompts`
+Re-adding the same Asset to its original group can restore that archived relationship when there is no current group conflict and retained teaching remains valid.
 
-Reusable learner-facing wording only:
+Removing an option does not delete the Asset, R2 object, exact-option questions, Reusable Image Questions, or Review rows.
+
+Higher-resolution replacement changes a current production option's `asset_id` A → B without changing the option ID.
+
+## 8. Question Prompt
+
+### `question_prompts`
 
 ```text
 id
 prompt_md
-preview_session_id
+preview_session_id nullable
 is_active
 created_at
 updated_at
 ```
 
-No answer belongs on this table.
+Prompt wording is reusable; answers live on the relationship/object supplying the correct context.
 
-The same Prompt can therefore be reused by Topic, Case, group, exact option, Shared Question or Reusable Image Question contexts with different answers where semantics permit.
-
-## 9. Contextual Question tables
+## 9. Contextual Question relationships
 
 ### `concept_questions`
 
-Topic-scoped reusable knowledge with `answer_md` and optional inheritance to descendants.
+Topic-scoped reusable knowledge with `answer_md` and optional descendant inheritance.
 
 ### `case_questions`
 
-Whole-Case questions/overrides with relationship-specific `answer_md`.
+Whole-Case questions/answers.
 
 ### `stimulus_group_questions`
 
-Questions/answers valid for every option in one alternative set.
+Set-wide questions/answers valid across one Alternative Set.
 
 ### `stimulus_option_questions`
 
-Case-specific exact-option questions/answers. These remain contextual even when the same Asset is reused elsewhere.
+Case-specific exact-option questions/answers. Reusing the same Asset elsewhere does not carry these relationships.
 
-Existing `stimulus_option_questions` are not migrated or automatically inferred as reusable image knowledge.
+An existing whole-Case question can be explicitly moved to one exact stimulus while reusing Prompt identity and preserving answer where valid. This is a relationship-scope mutation, not Prompt recreation.
 
-Because higher-resolution replacement preserves `stimulus_group_options.id`, these Case-specific exact-image questions remain unchanged when the option's current Asset changes from A to B.
+## 10. Reusable Image Questions
 
-An existing Case-wide question can be explicitly moved to one exact stimulus through the authoring semantic helper. That is a relationship-scope change, not a new Question Prompt identity: the existing Prompt and answer are preserved where valid, the active Case-wide relationship is removed/deactivated, the exact-option relationship is created/reactivated, and incompatible Topic reuse is cleaned up only under the existing safe semantics.
+### `asset_questions`
 
-## 10. `asset_questions` — Reusable Image Questions
-
-Added by `0009_reusable_image_questions.sql`.
-
-A Reusable Image Question is canonical knowledge intrinsically true of one exact global Asset.
+Canonical knowledge intrinsically true of one exact global Asset:
 
 ```text
 id
-asset_id                FK -> assets
-question_prompt_id      FK -> question_prompts
+asset_id FK -> assets
+question_prompt_id FK -> question_prompts
 answer_md
 is_active
 created_at
@@ -282,66 +276,35 @@ updated_at
 UNIQUE (asset_id, question_prompt_id)
 ```
 
-Important rules:
+Rules:
 
-- the answer lives here, not on `question_prompts`;
-- the Asset and Prompt must be production-owned for normal reusable authoring;
-- archive/deactivate is preferred over destructive deletion;
-- one Asset+Prompt pair has one canonical answer relationship;
-- attaching/reusing the Asset elsewhere does not create learner eligibility by itself;
+- canonical answer lives here, not on `question_prompts`;
+- normal backing Asset/Prompt must be production-owned;
+- one Asset+Prompt pair has one canonical relationship;
+- archive/deactivate is preferred to destructive deletion;
+- merely using the Asset in another Case creates no learner eligibility;
 - reactivation must not recreate an invalid cross-group Prompt configuration.
 
-Database triggers reject Preview-owned Assets or Prompts as reusable-image backing content. Migration `0010` adds the reactivation cross-group guard.
+### `stimulus_option_asset_questions`
 
-### Replacement behavior
-
-Existing Asset Questions are never mutated from old Asset A to new Asset B. Doing so would make historical `review_questions.source_asset_question_id` provenance misrepresent the exact Asset relationship that existed when that Review was created.
-
-Instead every A Asset Question is cloned to B with:
-
-- a new Asset Question ID;
-- the same `question_prompt_id`;
-- the same canonical `answer_md`;
-- the same active/inactive state.
-
-Old Asset Questions remain attached to A. Prompts are reused, not duplicated.
-
-## 11. `stimulus_option_asset_questions` — explicit reuse opt-in
-
-Added by `0009`.
+Explicit exact-stimulus reuse decision:
 
 ```text
-stimulus_group_option_id   FK -> stimulus_group_options
-asset_question_id          FK -> asset_questions
+stimulus_group_option_id FK -> stimulus_group_options
+asset_question_id FK -> asset_questions
 created_at
 PRIMARY KEY (stimulus_group_option_id, asset_question_id)
 ```
 
-This row means:
+The option Asset and Asset Question Asset must match. Removing one opt-in changes only that exact usage.
 
-> this exact Case/stimulus usage deliberately opts into this canonical Asset Question.
+When a currently fixed image needs an exact-image question or reusable-image opt-in, authoring may atomically convert it to a one-option active Stimulus Group while preserving Asset/caption/effective learner visibility.
 
-No row means no reuse, even when the option uses the same Asset.
+## 11. Cross-Stimulus-Group Prompt invariant
 
-Application validation and D1 triggers require:
+One Prompt must not independently become stimulus-specific in two active, independently selectable groups in the same Case.
 
-```text
-stimulus_group_options.asset_id
-=
-asset_questions.asset_id
-```
-
-This prevents an Asset Question being attached to an option displaying a different image.
-
-Removing one row removes reuse from only that stimulus. It does not archive/deactivate the global Asset Question or affect another opt-in.
-
-During replacement the preserved production option is moved to B and its opt-ins are remapped to the corresponding cloned B Asset Questions within the same semantic batch. The statement ordering preserves the Asset-identity invariant. Preview-owned opt-ins are not rewritten.
-
-## 12. Cross-Stimulus-Group Prompt invariant
-
-A Question Prompt must not independently become stimulus-specific in two active, independently selectable groups in the same Case.
-
-The invariant spans all stimulus-specific sources:
+The invariant spans:
 
 ```text
 stimulus_group_questions
@@ -349,37 +312,50 @@ stimulus_option_questions
 stimulus_option_asset_questions -> asset_questions.question_prompt_id
 ```
 
-Within one selected group, narrower precedence can safely override a broader source. Across separate groups that may both be selected in one Review, the same Prompt would be ambiguous and is rejected.
+Application preflight plus D1 triggers defend the invariant. `0010` extends protection to Asset Question reactivation.
 
-Application preflight enforces this during normal authoring. D1 triggers from `0009` protect reusable opt-in insertion and relevant group/option question insertion or updates; `0010` additionally protects Asset Question reactivation after surrounding relationships have changed.
+## 12. Tags and Shared Questions
 
-Higher-resolution replacement must preserve this invariant while remapping opt-ins.
+Tagging Stage A uses:
 
-## 13. Tags and Shared Questions
+```text
+tags
+case_tags
+case_question_tags
+```
 
-Tagging Stage A remains based on `tags`, `case_tags`, and `case_question_tags`.
+`shared_questions` stores reusable answer/meaning plus exactly one `reuse_scope_tag_id`. `shared_question_tags` stores descriptive metadata only.
 
-`shared_questions` remains reusable knowledge eligible through exactly one active Case Reuse Scope Tag and stores its answer outside `question_prompts`.
+Shared Question eligibility requires an active Shared Question/Prompt/Reuse Scope Tag and explicit matching Case Tag. Descriptive Tags and Topic ancestry do not infer eligibility.
 
-`shared_question_tags` remains descriptive metadata independent from eligibility.
+## 13. Question resolver precedence
 
-Reusable Image Questions are distinct from Shared Questions: their reuse key is exact Asset identity plus explicit stimulus opt-in, not a Case Tag. Assets still do not gain Tag relationships merely because they may own reusable questions.
+Current-main duplicate-Prompt precedence is:
 
-## 14. `import_jobs`
+```text
+selected exact stimulus-option question
+> explicitly reused Asset Question for selected option
+> stimulus group
+> Case
+> exact Study Topic
+> tag-shared Question
+> nearest eligible inheritable ancestor Topic
+> more distant eligible ancestors
+```
 
-Resumable Import Package v1 operational state remains unchanged.
+The final candidate set is deduplicated by `question_prompt_id` before Automatic/All/Fixed selection.
 
-Reusable Image Questions and higher-resolution supersession do not extend `flashcards-import-v1`. Reviewed imports may reconstruct ordinary Cases/images/questions first and enrich/re-scope/replace media later through production Admin authoring.
+## 14. Import jobs
 
-## 15. `reviews`
+`import_jobs` stores authoritative resumable Import Package v1 execution state. The reviewed Import Package contract remains intentionally independent from Tags, Reusable Image Questions, option archival, and Asset supersession; those can be later production-Admin enrichment.
 
-One learner attempt at one resolved Case/Study Topic. Review rows preserve canonical primary Topic and actual Study Topic route plus Case title/vignette snapshots and status/rating timestamps.
+## 15. Reviews
 
-## 16. `review_questions`
+A `reviews` row represents one learner attempt at one resolved Case/Study Topic. It preserves canonical primary Topic and actual Study Topic provenance plus Case title/vignette snapshots and completion/rating state.
 
-`0009` adds exact reusable-image provenance while preserving immutable Prompt/answer snapshots.
+## 16. Review Questions
 
-Current fields include:
+Current conceptual fields include:
 
 ```text
 id
@@ -396,7 +372,7 @@ prompt_snapshot_md
 answer_snapshot_md
 ```
 
-Current source types:
+Current source types include:
 
 ```text
 case
@@ -408,7 +384,7 @@ stimulus_option
 tag_shared
 ```
 
-For a Reusable Image Question:
+For Reusable Image Questions:
 
 ```text
 source_type = asset
@@ -417,20 +393,18 @@ source_stimulus_group_id = selected group
 source_stimulus_option_id = selected option
 ```
 
-Uniqueness remains:
+For Shared Questions:
 
 ```text
-(review_id, display_order)
-(review_id, question_prompt_id)
+source_type = tag_shared
+source_shared_question_id = shared_questions.id
 ```
 
-Therefore one Review cannot contain two copies of the same Prompt ID.
+Uniqueness preserves one Prompt per Review and deterministic display order. Snapshot wording/answers are immutable historical truth even if current canonical content later changes.
 
-Editing or replacing current canonical content later does not change an existing Review because `prompt_snapshot_md` and `answer_snapshot_md` were frozen when the Review started. Replacement also does not rewrite `source_asset_question_id`; an old Review keeps the old A Asset Question ID while future Reviews resolve B's clone.
+## 17. Review Assets
 
-## 17. `review_assets`
-
-Snapshots exact fixed/selected media shown in a Review:
+Conceptually:
 
 ```text
 id
@@ -444,22 +418,54 @@ source_stimulus_group_id
 source_stimulus_option_id
 ```
 
-`storage_key_snapshot` is the authoritative historical media identity.
+`storage_key_snapshot` is authoritative historical media identity.
 
-Current Study rendering uses an authenticated Review-specific image endpoint which:
+The authenticated Review-owned media route verifies learner ownership and serves only the snapshotted R2 key, even when the referenced Asset is now inactive/superseded. It uses owner-specific revalidation semantics rather than the ordinary active-Asset route's long-lived current-media cache behavior.
 
-- verifies the Review belongs to the requesting learner;
-- verifies the requested Review Asset belongs to that Review;
-- reads the R2 key only from `review_assets.storage_key_snapshot`;
-- serves the historical object even when the referenced Asset is inactive/superseded;
-- does not accept arbitrary R2 keys;
-- uses `Cache-Control: private, max-age=0, must-revalidate` so owner-specific media re-runs the ownership check before browser reuse, while retaining ETag-based `304 Not Modified` support.
+`0013_review_assets_asset_lookup.sql` adds:
 
-The normal active-Asset endpoint remains separate and continues to reject inactive Assets. Its ordinary current-Asset cache semantics are not used for owner-specific historical Review URLs.
+```text
+review_assets_asset_review_idx (asset_id, review_id)
+```
 
-Therefore changing current relationships from A to B does not alter an already-started Review or require reactivating A.
+This supports Asset-leading historical usage existence/count queries used by Image Library lifecycle views. It does not change Review ownership or snapshot semantics.
 
-## 18. Relationship overview
+## 18. Higher-resolution replacement invariant
+
+Use replacement only for:
+
+```text
+same underlying image + better quality/resolution
+```
+
+Successful current-production semantic changes are committed together after preflight:
+
+```text
+new Asset B
++ cloned Asset Questions for B
++ production case_assets A → B
++ production stimulus_group_options A → B, same option IDs
++ production reusable opt-ins old AQ → cloned BQ
++ old Asset A inactive/superseded
+```
+
+Old Asset Questions and old R2 bytes remain for historical provenance. Existing Review rows are never rewritten.
+
+R2 and D1 are not a shared transaction: the new object is uploaded first; if the D1 semantic batch fails, the new object alone is cleaned up. A conditional claim makes concurrent/double source replacement fail closed.
+
+## 19. Preview workspace implementation boundary
+
+Schema ownership remains the same regardless of internal code refactors. Current backend implementation keeps the public API at:
+
+```text
+src/lib/server/db/preview-workspace.js
+```
+
+Focused internal modules currently own Session lifecycle, ownership/security, Case lifecycle/cloning, and fixed-image operations. These are implementation responsibility boundaries, not new database ownership models.
+
+The complete Case clone transaction remains cohesive in `preview-workspace/case.js`, including clone-time child graph copying. Alternative Set/question/cleanup extraction remains staged future refactoring.
+
+## 20. Relationship overview
 
 ```text
 preview_sessions
@@ -467,129 +473,46 @@ preview_sessions
   ├── assets.preview_session_id
   └── question_prompts.preview_session_id
 
-assets
-  ├── assets.superseded_by_asset_id -> assets.id (nullable narrow lineage)
-  └── asset_questions
-       └── question_prompts
-
 concepts
-  └── concepts.parent_id
+  └── case_concepts ── cases
 
 cases
-  ├── case_concepts ── concepts
-  ├── case_assets ──── assets
-  ├── case_questions ─ question_prompts
-  ├── case_tags ────── tags
-  └── stimulus_groups
-       ├── stimulus_group_questions ── question_prompts
-       └── stimulus_group_options ── assets
-            ├── stimulus_option_questions ── question_prompts
-            └── stimulus_option_asset_questions
-                 └── asset_questions
+  ├── case_assets ── assets
+  ├── stimulus_groups
+  │   ├── stimulus_group_questions ── question_prompts
+  │   └── stimulus_group_options ── assets
+  │       ├── stimulus_option_questions ── question_prompts
+  │       └── stimulus_option_asset_questions ── asset_questions
+  ├── case_questions ── question_prompts
+  └── case_tags ── tags
 
-question_prompts
-  └── shared_questions
-       ├── reuse_scope_tag_id ── tags
-       └── shared_question_tags ── tags
+assets
+  ├── image_collection_id ── image_collections
+  ├── superseded_by_asset_id ── assets
+  └── asset_questions ── question_prompts
+
+shared_questions
+  ├── question_prompt_id ── question_prompts
+  ├── reuse_scope_tag_id ── tags
+  └── shared_question_tags ── tags
 
 reviews
   ├── review_questions
-  │    ├── source_asset_question_id ── asset_questions (nullable)
-  │    └── source_shared_question_id ── shared_questions (nullable)
   └── review_assets
-       └── storage_key_snapshot -> immutable historical R2 key value
 ```
 
-## 19. Learner question resolution
+## 21. Non-goals encoded by the current model
 
-For a selected active production Case and resolved Study Topic:
+The current schema intentionally does **not** imply:
 
-1. resolve/freeze fixed assets and exactly one active option from each active stimulus group;
-2. load active production Prompts;
-3. load only active Reusable Image Questions whose explicit opt-in belongs to a selected active option and whose backing Prompt is active;
-4. require the Asset Question's Asset identity to match that selected option;
-5. collect the other existing contextual/reusable sources;
-6. deduplicate by `question_prompt_id` with precedence;
-7. apply Automatic/All/Fixed plus group coverage;
-8. snapshot Review questions/assets before rendering.
+- Tag hierarchy or compound Shared Question scopes;
+- automatic Case Tag → Question Tag inheritance;
+- automatic reusable-image opt-in;
+- generic Asset families/version tables;
+- automatic visual similarity/deduplication;
+- physical deletion merely because an Asset is classified Unused;
+- Preview ownership of global Shared Questions or Reusable Image Questions;
+- arbitrary different-image substitution through supersession;
+- Import Package support for every later authoring enrichment.
 
-Precedence is:
-
-```text
-Case-specific exact stimulus option question
-> explicitly reused Asset Question for selected option
-> stimulus group question
-> Case question
-> exact Study Topic question
-> Tag-shared Question
-> nearest eligible inheritable ancestor Topic
-> more distant eligible ancestors
-```
-
-Reusable Image Questions carry the selected `stimulusGroupId`/`stimulusOptionId`, so they are stimulus-specific for coverage purposes.
-
-The same Prompt cannot be configured ambiguously across independently selectable groups in one Case. Within one selected group, narrower precedence may override a broader source safely.
-
-Higher-resolution replacement does not alter resolver precedence. It changes the current Asset/reusable-question identities behind preserved authoring relationships for future Reviews while leaving historical snapshots/provenance untouched.
-
-## 20. Fixed-image conversion invariant
-
-No parallel fixed-image-question or fixed-image-reusable-question table exists.
-
-When a fixed Case Asset receives an exact-image Case question or is explicitly opted into a Reusable Image Question, the semantic helper performs complete preflight validation before atomically changing relationships.
-
-The resulting structure is:
-
-```text
-one-option active stimulus group
-+ stimulus option using the same Asset/caption
-+ requested stimulus_option_questions and/or stimulus_option_asset_questions relationship
-- old fixed case_assets relationship
-```
-
-With one active option and `selection_count = 1`, learner-visible image behavior remains equivalent to the prior fixed relationship.
-
-A failed question assignment or opt-in must not leave the fixed image partially converted.
-
-## 21. Prompt shared-edit protection
-
-Question Prompt wording remains globally reusable wording. Questions Library usage/blast-radius calculations include active Reusable Image Question usages as well as existing contextual and Shared Question usages.
-
-Prompt stale/shared-edit protections must not be bypassed when a Prompt participates in `asset_questions`.
-
-## 22. Production / Preview defense
-
-Normal learner construction excludes Preview-owned Cases/Prompts/Assets.
-
-Reusable Image Questions are production-global in this implementation. Preview Admin does not receive reusable-image mutation authority, and migration triggers reject Preview-owned backing Assets/Prompts.
-
-Higher-resolution replacement likewise rejects Preview-owned source Assets, moves only production Case/stimulus relationships, and refuses to deactivate a production Asset while a live Preview workspace currently references it. Preview Admin has no equivalent production replacement action.
-
-## 23. Progress queries
-
-Completed Reviews continue to provide the existing V1 progress derivations. No new learner-progress table is introduced by these image/question features.
-
-## 24. Deliberately deferred schema/features
-
-Do not add without concrete behavior requirements:
-
-- `asset_concepts` or `stimulus_option_concepts`;
-- Asset Tags;
-- `image_identity`, Asset families or generic version-history tables beyond the narrow `superseded_by_asset_id` lineage;
-- automatic visual similarity/identity detection;
-- arbitrary different-image replacement or bulk replacement;
-- automatic promotion of Case-specific exact-image questions into Reusable Image Questions;
-- Tag hierarchy/alias tables;
-- compound Shared Question reuse expressions;
-- learner Study-by-Tag structures;
-- Review Tag snapshot tables;
-- finding ontologies;
-- curriculum Deck/Course entities distinct from current Topics/Collections;
-- scheduling/due-state tables;
-- per-question learner mastery;
-- structured marking points;
-- curricula/cohorts/institutional tenancy;
-- arbitrary structured laboratory stimulus schema;
-- answer alternatives/automated marking structures.
-
-The model should continue to grow from real authoring/learner evidence rather than theoretical normalization alone.
+Add schema only when a concrete product/content requirement justifies it.
