@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 22 August 2026_
+_Last reviewed: 23 August 2026_
 
 This file identifies which repository documents describe the **verified deployed product**, which describe **current `main`**, which are subsystem contracts/runbooks, which are pending designs, and which are historical records.
 
@@ -65,7 +65,7 @@ The repository contains an explicit production rollout trigger commit for merged
 
 ### `AGENT_TASK_MAP.md`
 
-Small coding-agent routing guide: maps common task categories to the nearest scoped `AGENTS.md`, minimum authoritative documents, and common checks. It is not an architecture guide and does not replace this index.
+Small coding-agent routing guide: maps common task categories to the nearest scoped `AGENTS.md`, minimum authoritative documents, execution-mode selection, and common checks. It is not an architecture guide and does not replace this index.
 
 ### `CURRENT_PRODUCT_ROADMAP.md`
 
@@ -139,14 +139,14 @@ Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual
 
 - `PREVIEW_ADMIN_WORKSPACE.md` — current production-backed Preview ownership/isolation model.
 - `PREVIEW_ADMIN_IDENTITY.md` — current role/identity bootstrap/promotion rules.
-- `PREVIEW_DEPLOYMENT.md` — current Deploy PR / Restore Main operator playbook, including laptop-versus-mobile dispatch rules and the distinction between local `npm run preview` and remote production-backed Preview deployment.
+- `PREVIEW_DEPLOYMENT.md` — current Deploy PR / Restore Main operator playbook, including execution-surface dispatch rules and the distinction between local `npm run preview` and remote production-backed Preview deployment.
 
 ### Cloudflare / operations / local development
 
 - `CLOUDFLARE.md` — current Worker/D1/R2 migration/deployment/Preview runbook.
-- `DEVELOPMENT_EXECUTION_WORKFLOW.md` — **internal execution policy** for laptop/local-first development versus mobile/ChatGPT+GitHub operation, including GitHub Actions minute conservation, local versus remote Preview semantics, and workflow-dispatch fallback rules.
+- `DEVELOPMENT_EXECUTION_WORKFLOW.md` — **internal execution policy** for capability-based local-checkout, remote-GitHub, and hybrid operation, including automatic capability detection, GitHub Actions minute conservation, local versus remote Preview semantics, validation evidence, and workflow-dispatch fallback rules.
 - `LOCAL_DEVELOPMENT_REPLICA.md` — **internal operational runbook** for read-production/write-local D1/R2 developer replication, local Admin bootstrap, refresh and cleanup.
-- `LOCAL_REAL_DATA_UX_WORKFLOW.md` — implemented design record for the local real-data workflow; operational details live in `LOCAL_DEVELOPMENT_REPLICA.md`, while laptop-versus-mobile execution policy lives in `DEVELOPMENT_EXECUTION_WORKFLOW.md`.
+- `LOCAL_REAL_DATA_UX_WORKFLOW.md` — implemented design record for the local real-data workflow; operational details live in `LOCAL_DEVELOPMENT_REPLICA.md`, while execution-mode selection lives in `DEVELOPMENT_EXECUTION_WORKFLOW.md`.
 - `R2_COST_GUARDRAILS.md` — application-managed storage/write/delete guardrails; external provider pricing must be reverified before changing cost assumptions.
 - `IMAGE_PROVENANCE.md` — current image naming/source/licence/runtime-serving rules.
 - `PRODUCTION_CONTENT_SNAPSHOT.md` — read-only production-content snapshot plus fixed-purpose taxonomy-operator linkage.
