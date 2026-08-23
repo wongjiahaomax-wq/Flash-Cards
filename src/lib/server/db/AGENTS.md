@@ -7,8 +7,9 @@ This file supplements the repository-wide `AGENTS.md` for `src/lib/server/db/`.
 - Reuse `content-guards.js` and the focused Preview workspace helpers where their exact invariants apply.
 - `preview-workspace.js` remains the stable Preview backend façade/coordinator during the staged refactor.
 - `preview-workspace/ownership.js` and `preview-workspace/session.js` own Preview ownership/security and Session lifecycle foundations.
-- `preview-workspace/case.js` owns production-Case discovery for Preview, complete Case-clone orchestration, Preview Case listing, Case metadata/vignette mutations, and Case Topic-role mutations.
-- Fixed-image, Alternative Set/stimulus, and question/scope/reusable-question mutation APIs remain in `preview-workspace.js` until their later focused extraction PRs.
+- `preview-workspace/case.js` owns production-Case discovery for Preview, complete Case-clone orchestration (including fixed-image copying inside the clone transaction), Preview Case listing, Case metadata/vignette mutations, and Case Topic-role mutations.
+- `preview-workspace/fixed-images.js` owns fixed Case-image editor reads and ongoing fixed-image relationship mutations: single/bulk attach, Case-specific caption updates, detach, and reorder.
+- Alternative Set/stimulus and question/scope/reusable-question mutation APIs remain in `preview-workspace.js` until their later focused extraction PRs.
 - Before schema work, inspect `schema.js`, `migrations/`, and migration contract tests. Real schema changes require a new migration; never rewrite history.
 - Prefer focused SQL/read models that fetch only page-required data. Avoid broad load-all-then-filter behavior.
 - Keep list, detail, and dashboard read models distinct where the current code does.
