@@ -190,6 +190,7 @@ export async function validatePreviewStimulusGroupTarget(db, previewSessionId, g
 
 /** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {unknown[]} assetIds */
 export async function attachPreviewAssetsToCase(db, previewSessionId, caseId, assetIds) {
+  await requireOwnedPreviewCase(db, previewSessionId, caseId);
   return attachPreviewAssetsToCaseFixedImages(db, previewSessionId, caseId, boundedPreviewAssetIds(assetIds));
 }
 

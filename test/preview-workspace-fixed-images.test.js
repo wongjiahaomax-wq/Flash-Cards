@@ -15,6 +15,7 @@ import {
   detachPreviewAsset,
   loadPreviewCaseEditor,
   movePreviewCaseAsset,
+  PREVIEW_IMAGE_BULK_LIMIT,
   PreviewWorkspaceError,
   updatePreviewAssetCaption
 } from '../src/lib/server/db/preview-workspace.js';
@@ -238,9 +239,23 @@ test('fixed-image mutations cannot cross Preview workspace ownership boundaries'
     const second = await createClone(fixture, 'owner-b');
     const before = fixedRows(fixture.sqlite, second.caseId);
     const ownershipMessage = 'This Case is not owned by the current Preview workspace.';
+    const oversizedSelection = Array.from(
+      { length: PREVIEW_IMAGE_BULK_LIMIT + 1 },
+      (_, index) => `asset-oversized-${index}`
+    );
 
     await expectPreviewError(
       attachPreviewAsset(fixture.db, first.session.id, second.caseId, 'asset-extra'),
+      'NOT_OWNED',
+      ownershipMessage
+    );
+    await expectPreviewError(
+      attachPreviewAssetsToCase(fixture.db, first.session.id, second.caseId, []),
+      'NOT_OWNED',
+      ownershipMessage
+    );
+    await expectPreviewError(
+      attachPreviewAssetsToCase(fixture.db, first.session.id, second.caseId, oversizedSelection),
       'NOT_OWNED',
       ownershipMessage
     );
