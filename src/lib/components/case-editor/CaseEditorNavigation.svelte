@@ -7,8 +7,17 @@
   /** @typedef {{ topics: CaseTopic[], attached: unknown[], stimulusGroups: StimulusGroupSummary[], questions: unknown[] }} NavigationCase */
   /** @typedef {{ fixedImages: number, alternativeImages: number, alternativeSets: number, caseWideQuestions: number, caseSpecificImageQuestions: number, reusableImageQuestionsUsed: number, setWideQuestions: number, allQuestions: number }} FastReviewSummary */
   /** @typedef {{ selectedCase: NavigationCase, primaryTopic?: CaseTopic | null, editorLayout: CaseEditorLayout, fastReviewSummary: FastReviewSummary, auditCount: number, onlayoutchange: (layout: CaseEditorLayout) => void }} NavigationProps */
-  /** @type {NavigationProps} */
   let { selectedCase, primaryTopic, editorLayout, fastReviewSummary, auditCount, onlayoutchange } = $props();
+
+  /** @param {CaseTopic[]} topics */
+  function activeSecondaryTopics(topics) {
+    return topics.filter((topic) => topic.role === 'secondary' && topic.isActive);
+  }
+
+  /** @param {StimulusGroupSummary[]} groups */
+  function stimulusOptionCount(groups) {
+    return groups.reduce((count, group) => count + group.options.length, 0);
+  }
 </script>
 
 <div class="layout-preference">
@@ -23,7 +32,7 @@
   <section class="fast-review-summary" aria-label="Case completeness summary">
     <div class="fast-topic-context">
       {#if primaryTopic}<a class="topic-pill" href={'/admin/topics/' + primaryTopic.id}>{primaryTopic.name}<span>PRIMARY</span></a>{/if}
-      {#each selectedCase.topics.filter((topic) => topic.role === 'secondary' && topic.isActive) as topic}<a class="topic-pill secondary" href={'/admin/topics/' + topic.id}>{topic.name}<span>STUDY TOPIC</span></a>{/each}
+      {#each activeSecondaryTopics(selectedCase.topics) as topic}<a class="topic-pill secondary" href={'/admin/topics/' + topic.id}>{topic.name}<span>STUDY TOPIC</span></a>{/each}
     </div>
     <div class="fast-counts">
       <span><strong>{fastReviewSummary.fixedImages}</strong> fixed {fastReviewSummary.fixedImages === 1 ? 'image' : 'images'}</span>
@@ -41,7 +50,7 @@
 {/if}
 
 <nav class="section-nav" aria-label="Case editor sections">
-  <a href="#topics">Topics <span>{selectedCase.topics.length}</span></a><a href="#case">Case</a><a href="#images">Images <span>{selectedCase.attached.length + selectedCase.stimulusGroups.reduce((count, group) => count + group.options.length, 0)}</span></a><a href="#questions">Case questions <span>{selectedCase.questions.length}</span></a>{#if editorLayout === 'compact'}<a href="#all-questions">All questions <span>{auditCount}</span></a>{/if}<a href="#preview">Preview</a>
+  <a href="#topics">Topics <span>{selectedCase.topics.length}</span></a><a href="#case">Case</a><a href="#images">Images <span>{selectedCase.attached.length + stimulusOptionCount(selectedCase.stimulusGroups)}</span></a><a href="#questions">Case questions <span>{selectedCase.questions.length}</span></a>{#if editorLayout === 'compact'}<a href="#all-questions">All questions <span>{auditCount}</span></a>{/if}<a href="#preview">Preview</a>
 </nav>
 
 <style>
