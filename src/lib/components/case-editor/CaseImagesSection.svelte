@@ -7,9 +7,20 @@
   import ImageQuestionReview from '$lib/components/ImageQuestionReview.svelte';
   import ReusableImageQuestionManager from '$lib/components/ReusableImageQuestionManager.svelte';
 
+  /** @typedef {'classic' | 'compact'} CaseEditorLayout */
+  /** @typedef {{ questionPromptId: string, promptMd: string, answerMd: string, isActive: boolean, stimulusGroupOptionId?: string | null }} ScopedQuestion */
+  /** @typedef {{ questionPromptId: string, promptMd: string }} CaseQuestion */
+  /** @typedef {{ assetId: string, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, captionMd?: string | null, isActive: boolean, sourceLabel?: string | null, sourceUrl?: string | null, licence?: string | null }} FixedAsset */
+  /** @typedef {{ id: string, assetId: string, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, captionMd?: string | null, isActive: boolean, assetIsActive: boolean }} StimulusOption */
+  /** @typedef {{ id: string, name: string, isActive: boolean, options: StimulusOption[], optionQuestions: ScopedQuestion[], questions: ScopedQuestion[], specificQuestionMode?: string, minimumSpecificQuestions?: number | null }} StimulusGroup */
+  /** @typedef {{ case: { id: string }, attached: FixedAsset[], questions: CaseQuestion[], stimulusGroups: StimulusGroup[], reusableImageQuestions?: any[] }} ImagesCase */
+  /** @typedef {{ imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, assetId?: string, id?: string }} ViewableAsset */
+  /** @type {{ selectedCase: ImagesCase, previewMode: boolean, editorLayout: CaseEditorLayout, editorBase: string, onimageopen?: (asset: ViewableAsset, subtitle?: string) => void }} */
   let { selectedCase, previewMode, editorLayout, editorBase, onimageopen } = $props();
+  /** @type {string | null} */
   let selectedOptionId = $state(null);
 
+  /** @param {string} targetId */
   async function focusReviewTarget(targetId) {
     await tick();
     const target = document.getElementById(targetId);
@@ -17,6 +28,7 @@
     target?.focus({ preventScroll: true });
   }
 
+  /** @param {string} optionId */
   async function selectOption(optionId) {
     selectedOptionId = selectedOptionId === optionId ? null : optionId;
     if (selectedOptionId) {
@@ -27,10 +39,12 @@
     }
   }
 
+  /** @param {string} assetId @param {string | null} [optionId] */
   function reusableSummary(assetId, optionId = null) {
     return reusableSummaryForContext(selectedCase, assetId, optionId);
   }
 
+  /** @param {ViewableAsset} asset @param {string} [subtitle] */
   function showImage(asset, subtitle = '') {
     onimageopen?.(asset, subtitle);
   }
