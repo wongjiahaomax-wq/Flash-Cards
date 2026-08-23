@@ -39,9 +39,9 @@ export async function listPreviewFixedCaseAssets(db, caseId) {
 }
 
 /**
- * Attach already-bounded Asset IDs to a Preview Case as fixed images.
- * Input bounding/deduplication remains in the public facade because the same input
- * contract is shared with Alternative Set bulk-add operations.
+ * Attach already-bounded Asset IDs to an ownership-validated Preview Case as fixed images.
+ * The public facade performs the Case ownership check before bounding/deduplicating input
+ * so error precedence and the original single ownership-query behavior are preserved.
  *
  * @param {LearningDb} db
  * @param {string} previewSessionId
@@ -49,7 +49,6 @@ export async function listPreviewFixedCaseAssets(db, caseId) {
  * @param {string[]} assetIds
  */
 export async function attachPreviewAssetsToCase(db, previewSessionId, caseId, assetIds) {
-  const ownedCase = await requireOwnedPreviewCase(db, previewSessionId, caseId);
   for (const assetId of assetIds) await requirePreviewUsableAsset(db, previewSessionId, assetId);
 
   const [fixedRows, groupedRows] = await Promise.all([
@@ -74,7 +73,7 @@ export async function attachPreviewAssetsToCase(db, previewSessionId, caseId, as
   const existing = new Set(fixedRows.map((row) => row.assetId));
   const newIds = assetIds.filter((id) => !existing.has(id));
   if (!newIds.length) {
-    return { attachedCount: 0, alreadyAttachedCount: assetIds.length, caseId: ownedCase.id };
+    return { attachedCount: 0, alreadyAttachedCount: assetIds.length, caseId };
   }
 
   const last = (
@@ -100,7 +99,7 @@ export async function attachPreviewAssetsToCase(db, previewSessionId, caseId, as
   return {
     attachedCount: newIds.length,
     alreadyAttachedCount: assetIds.length - newIds.length,
-    caseId: ownedCase.id
+    caseId
   };
 }
 
