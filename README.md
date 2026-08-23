@@ -312,7 +312,7 @@ See:
 
 The platform architecture and first ECG ingestion are working baselines. Current product work should prioritize:
 
-1. curate the real ECG corpus with Case Tags and genuinely reusable Shared/Re\-usable Image Questions;
+1. curate the real ECG corpus with Case Tags and genuinely reusable Shared Questions and Reusable Image Questions;
 2. add additional Study Topics or stimulus alternatives only where they improve learning/authoring;
 3. continue behavior-preserving modularity/performance work where it reduces future coding-agent reasoning cost or measured runtime cost;
 4. observe real Admin and learner friction before expanding the schema;
