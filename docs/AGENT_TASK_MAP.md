@@ -4,9 +4,115 @@ Purpose: route a coding task to the **minimum current context** needed before ed
 
 Always read the root `AGENTS.md`, the nearest scoped `AGENTS.md`, and the directly related implementation/tests. Load more context only when the task crosses subsystem boundaries.
 
+## Execution mode selection
+
+Detect the agent's actual capabilities at task start, then select the best supported workflow automatically. Do not use the user's phone/laptop status as a proxy for agent capabilities. Explicit user execution constraints override automatic selection.
+
+Before creating or selecting a branch, identify the requested work state. If an existing PR or branch is explicitly targeted, inspect and continue that current head against its intended base. If no existing work state is targeted, resolve the intended base, normally the latest `main`, and create a feature branch from that resolved base.
+
+```text
+usable checkout + command execution + repository workflow
+→ Local checkout mode
+
+GitHub repository/PR access without usable local execution
+→ Remote GitHub mode
+
+both local execution and GitHub access
+→ Hybrid mode
+```
+
+All modes use the same minimum-context routing:
+
+1. root `AGENTS.md`;
+2. this task map;
+3. nearest relevant scoped `AGENTS.md`;
+4. directly relevant authoritative documentation;
+5. directly relevant implementation and tests.
+
+`docs/HANDOVER.md` remains optional unless project-wide state or recent implementation status is materially relevant.
+
+### Local checkout mode
+
+When a usable checkout and command execution are available, preserve the repository's local flow:
+
+```text
+npm run agent:doctor
+        ↓
+implement narrowly
+        ↓
+npm run agent:checks
+        ↓
+run the relevant focused checks
+        ↓
+npm run validate:full before handoff when applicable
+        ↓
+run specialized checks identified by agent:checks
+```
+
+Do not weaken local validation merely because GitHub access also exists.
+
+### Remote GitHub mode
+
+When GitHub access is useful but no usable local checkout/execution environment exists, use repository and PR state as the working surface:
+
+```text
+identify requested work state
+        ↓
+existing PR/branch explicitly targeted?
+        ├─ yes → inspect/use that PR head and intended base
+        └─ no  → resolve current intended base, normally latest main,
+                 then create feature branch
+        ↓
+load minimum routed context
+        ↓
+inspect directly related implementation/tests
+        ↓
+form a coherent implementation
+        ↓
+make coherent GitHub changes
+        ↓
+review the complete branch/PR diff
+        ↓
+commit/push
+        ↓
+inspect GitHub CI and specialized check evidence
+        ↓
+make coherent follow-up fixes when genuinely required
+        ↓
+leave the draft PR as durable handoff state
+```
+
+GitHub API/integration reads and writes have higher round-trip cost than a local filesystem. Inspect sufficient context before editing, avoid repeatedly fetching unchanged files, batch related writes where practical, and use logical commits rather than one commit per file. Do not use GitHub Actions as the first debugger for speculative edits; self-review the coherent change before relying on CI.
+
+A remote agent must distinguish inspection from execution. Do not report `npm run validate:full`, `runtime:smoke`, or another repository command as passed unless that command actually ran in an environment the agent controlled. Report GitHub CI/check results as GitHub CI/check evidence, and state what could not be executed locally.
+
+Before the principal handoff/push, review the complete change against the task goal, behavioral invariants, acceptance criteria, accidental scope expansion, unrelated cleanup, stale references/imports, missing or inappropriate tests, unintended behavior changes, and documentation accuracy. Refactor-only work must explicitly check behavior preservation.
+
+The draft PR should be sufficient durable context for later sessions through its title/body, current diff, commits, conversation/review threads, and CI/check state. Keep the PR description concise but include Goal, Behavioral invariants / constraints, Implementation, Validation, Remaining review points, and Explicitly out of scope when those sections improve handoff quality.
+
+### Hybrid mode
+
+When both a usable local checkout/execution environment and GitHub access are available, use each where it is strongest:
+
+```text
+local checkout
+→ repository exploration
+→ implementation
+→ focused testing
+→ repository validation
+
+GitHub
+→ branch collaboration
+→ PR/review discussion
+→ CI/check state
+→ durable handoff
+```
+
+Do not perform expensive remote reads for information already available in the local checkout, and do not ignore PR/check state merely because local validation exists.
+
 ## Local agent commands
 
-Use these from the repository root:
+Use these from the repository root when command execution is available:
 
 ```sh
 npm run agent:doctor
@@ -27,23 +133,7 @@ Local `validate:*` uses the same preferred feature-branch base resolution as `ag
 
 During active editing, prefer the cheapest feedback that meaningfully tests the current risk. Presentation-only UX changes such as copy, spacing, classes, and layout should normally be batched under Vite/HMR. Run focused tests earlier when logic changes warrant them. Do not rerun a previously passing command unless subsequent changes could invalidate what it checked.
 
-Recommended coding-agent flow:
-
-```text
-npm run agent:doctor
-        ↓
-implement narrowly
-        ↓
-npm run agent:checks
-        ↓
-run the relevant focused checks
-        ↓
-npm run validate:full before handoff when applicable
-        ↓
-run specialized checks identified by agent:checks
-```
-
-Runtime and slide-review suites remain specialized rather than universal gates. `agent:checks` surfaces `npm run runtime:smoke` when runtime-sensitive paths change, and requires both `npm run slide-review:test` and `npm run slide-review:build` for `tools/slide-import-review/**` changes.
+Runtime and slide-review suites remain specialized rather than universal gates. `agent:checks` surfaces `npm run runtime:smoke` when runtime-sensitive paths change, and requires both `npm run slide-review:test` and `npm run slide-review:build` for `tools/slide-import-review/**` changes. When command execution is unavailable, inspect equivalent GitHub check/workflow evidence where available and report anything required that could not be verified; do not convert specialized checks into universal CI.
 
 | Task | Scoped guidance | Minimum authoritative context | Common checks |
 | --- | --- | --- | --- |
