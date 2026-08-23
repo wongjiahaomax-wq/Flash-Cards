@@ -19,64 +19,29 @@ import {
   stimulusOptionQuestions
 } from './schema.js';
 import { caseQuestionTags, caseTags } from './tag-schema.js';
+import { PreviewWorkspaceError } from './preview-workspace/errors.js';
+import { booleanValue, optionalHttpUrl, optionalText, requiredText, timeMs } from './preview-workspace/input.js';
+import {
+  requireOwnedPreviewCase,
+  requireOwnedPreviewGroup,
+  requireOwnedPreviewOption,
+  requireOwnedPreviewPrompt,
+  requireOwnedSession,
+  requirePreviewUsableAsset
+} from './preview-workspace/ownership.js';
+import { PREVIEW_SESSION_TTL_MS, createPreviewSession, getLivePreviewSession } from './preview-workspace/session.js';
+
+export { PreviewWorkspaceError } from './preview-workspace/errors.js';
+export { requireOwnedPreviewCase } from './preview-workspace/ownership.js';
+export { PREVIEW_SESSION_TTL_MS, createPreviewSession, getLivePreviewSession } from './preview-workspace/session.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
-export const PREVIEW_SESSION_TTL_MS = 24 * 60 * 60 * 1000;
 export const PREVIEW_IMAGE_PICKER_LIMIT = 60;
 export const PREVIEW_IMAGE_BULK_LIMIT = 30;
 
-export class PreviewWorkspaceError extends Error {
-  /** @param {string} message @param {string} [code] */
-  constructor(message, code = 'PREVIEW_WORKSPACE_ERROR') {
-    super(message);
-    this.name = 'PreviewWorkspaceError';
-    this.code = code;
-  }
-}
-
 function newId() {
   return crypto.randomUUID();
-}
-
-/** @param {unknown} value @param {string} label */
-function requiredText(value, label) {
-  const text = String(value ?? '').trim();
-  if (!text) throw new PreviewWorkspaceError(`${label} is required.`, 'INVALID_INPUT');
-  return text;
-}
-
-/** @param {unknown} value */
-function optionalText(value) {
-  const text = String(value ?? '').trim();
-  return text || null;
-}
-
-/** @param {unknown} value */
-function optionalHttpUrl(value) {
-  const text = optionalText(value);
-  if (!text) return null;
-  let parsed;
-  try {
-    parsed = new URL(text);
-  } catch {
-    throw new PreviewWorkspaceError('Source URL must be a valid http(s) URL.', 'INVALID_INPUT');
-  }
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    throw new PreviewWorkspaceError('Source URL must be a valid http(s) URL.', 'INVALID_INPUT');
-  }
-  return parsed.toString();
-}
-
-/** @param {unknown} value */
-function booleanValue(value) {
-  return value === true || value === 'true' || value === 'on' || value === '1';
-}
-
-/** @param {Date | number | string | null | undefined} value */
-function timeMs(value) {
-  if (value instanceof Date) return value.getTime();
-  return Number(value ?? 0);
 }
 
 /** @param {string} mimeType */
@@ -91,38 +56,6 @@ function mappedId(idMap, sourceId, label) {
     throw new PreviewWorkspaceError(`The source Case contains a missing ${label} clone mapping.`, 'INVALID_SOURCE');
   }
   return mapped;
-}
-
-/** @param {LearningDb} db @param {string} userId */
-export async function getLivePreviewSession(db, userId) {
-  const rows = await db
-    .select()
-    .from(previewSessions)
-    .where(and(eq(previewSessions.userId, userId), inArray(previewSessions.status, ['active', 'cleanup_required'])))
-    .orderBy(desc(previewSessions.createdAt))
-    .limit(1);
-  return rows[0] ?? null;
-}
-
-/** @param {LearningDb} db @param {string} userId @param {number} [now] */
-export async function createPreviewSession(db, userId, now = Date.now()) {
-  const existing = await getLivePreviewSession(db, userId);
-  if (existing) return existing;
-  const id = newId();
-  await db.insert(previewSessions).values({
-    id,
-    userId,
-    status: 'active',
-    expiresAt: new Date(now + PREVIEW_SESSION_TTL_MS),
-    lastError: null
-  });
-  return (await getLivePreviewSession(db, userId)) ?? {
-    id,
-    userId,
-    status: 'active',
-    expiresAt: new Date(now + PREVIEW_SESSION_TTL_MS),
-    lastError: null
-  };
 }
 
 /**
@@ -144,101 +77,6 @@ export async function ensurePreviewWorkspace({ db, bucket, userId, now = Date.no
   }
   await cleanupPreviewWorkspace({ db, bucket, previewSessionId: existing.id, userId });
   return createPreviewSession(db, userId, now);
-}
-
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} userId */
-async function requireOwnedSession(db, previewSessionId, userId) {
-  const row = (
-    await db
-      .select()
-      .from(previewSessions)
-      .where(and(eq(previewSessions.id, previewSessionId), eq(previewSessions.userId, userId)))
-      .limit(1)
-  )[0];
-  if (!row) throw new PreviewWorkspaceError('The Preview workspace does not belong to this user.', 'NOT_OWNED');
-  return row;
-}
-
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId */
-export async function requireOwnedPreviewCase(db, previewSessionId, caseId) {
-  const row = (
-    await db
-      .select()
-      .from(cases)
-      .where(and(eq(cases.id, caseId), eq(cases.previewSessionId, previewSessionId)))
-      .limit(1)
-  )[0];
-  if (!row) throw new PreviewWorkspaceError('This Case is not owned by the current Preview workspace.', 'NOT_OWNED');
-  return row;
-}
-
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} promptId */
-async function requireOwnedPreviewPrompt(db, previewSessionId, promptId) {
-  const row = (
-    await db
-      .select()
-      .from(questionPrompts)
-      .where(and(eq(questionPrompts.id, promptId), eq(questionPrompts.previewSessionId, previewSessionId)))
-      .limit(1)
-  )[0];
-  if (!row) throw new PreviewWorkspaceError('This Question Prompt is not owned by the current Preview workspace.', 'NOT_OWNED');
-  return row;
-}
-
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} groupId */
-async function requireOwnedPreviewGroup(db, previewSessionId, groupId) {
-  const row = (
-    await db
-      .select({
-        id: stimulusGroups.id,
-        caseId: stimulusGroups.caseId,
-        isActive: stimulusGroups.isActive,
-        specificQuestionMode: stimulusGroups.specificQuestionMode,
-        minimumSpecificQuestions: stimulusGroups.minimumSpecificQuestions
-      })
-      .from(stimulusGroups)
-      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
-      .where(and(eq(stimulusGroups.id, groupId), eq(cases.previewSessionId, previewSessionId)))
-      .limit(1)
-  )[0];
-  if (!row) throw new PreviewWorkspaceError('This Stimulus Group is not owned by the current Preview workspace.', 'NOT_OWNED');
-  return row;
-}
-
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} optionId */
-async function requireOwnedPreviewOption(db, previewSessionId, optionId) {
-  const row = (
-    await db
-      .select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, caseId: stimulusGroups.caseId })
-      .from(stimulusGroupOptions)
-      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
-      .where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.previewSessionId, previewSessionId)))
-      .limit(1)
-  )[0];
-  if (!row) throw new PreviewWorkspaceError('This Stimulus Option is not owned by the current Preview workspace.', 'NOT_OWNED');
-  return row;
-}
-
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} assetId */
-async function requirePreviewUsableAsset(db, previewSessionId, assetId) {
-  const row = (
-    await db
-      .select()
-      .from(assets)
-      .where(
-        and(
-          eq(assets.id, assetId),
-          eq(assets.isActive, true),
-          or(isNull(assets.previewSessionId), eq(assets.previewSessionId, previewSessionId))
-        )
-      )
-      .limit(1)
-  )[0];
-  if (!row || row.type !== 'image') {
-    throw new PreviewWorkspaceError('The selected image is not available to this Preview workspace.', 'NOT_OWNED');
-  }
-  return row;
 }
 
 /**
