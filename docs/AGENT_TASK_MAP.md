@@ -131,7 +131,7 @@ npm run validate:full
 
 Local `validate:*` uses the same preferred feature-branch base resolution as `agent:checks`; its diff check compares the merge-base with the current tracked working tree, so committed branch changes plus staged and unstaged tracked changes are covered. The ordinary `validate:full` sequence and PR CI consume the same repository-owned validation definitions. CI still installs dependencies separately and keeps its PR-specific diff semantics and GitHub failure annotations explicit.
 
-During active editing, prefer the cheapest feedback that can meaningfully test the current risk. Presentation-only UX changes such as copy, spacing, classes, and layout should normally be batched under Vite/HMR. Run focused tests earlier when logic changes warrant them. Do not rerun a previously passing command unless subsequent changes could invalidate what it checked.
+During active editing, prefer the cheapest feedback that meaningfully tests the current risk. Presentation-only UX changes such as copy, spacing, classes, and layout should normally be batched under Vite/HMR. Run focused tests earlier when logic changes warrant them. Do not rerun a previously passing command unless subsequent changes could invalidate what it checked.
 
 Runtime and slide-review suites remain specialized rather than universal gates. `agent:checks` surfaces `npm run runtime:smoke` when runtime-sensitive paths change, and requires both `npm run slide-review:test` and `npm run slide-review:build` for `tools/slide-import-review/**` changes. When command execution is unavailable, inspect equivalent GitHub check/workflow evidence where available and report anything required that could not be verified; do not convert specialized checks into universal CI.
 
