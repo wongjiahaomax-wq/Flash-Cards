@@ -7,6 +7,7 @@ This file supplements the repository-wide `AGENTS.md` for `scripts/`.
 - Local replica refresh is read-production/write-local only; preserve its hard-coded SELECT / R2 GET remote surface.
 - The exact package/lockfile Wrangler pin is the only Wrangler authority. Use the repository-installed Wrangler; never add `npx --yes wrangler@<version>`.
 - Prefer `process.execPath` for repository Node scripts and cross-platform child-process handling for npm/Windows.
+- `npm run local:stop` is the repository-scoped cleanup command for local `dev`/`preview` servers. Preserve its exact Flash-Cards Vite/Wrangler process matching; never replace it with broad Node termination such as `taskkill /IM node.exe`, `killall node`, or equivalent.
 - Never print `.dev.vars` contents, tokens, secrets, or production-derived data.
 - Keep diagnostics read-only unless their command is explicitly an operator mutation command.
 - Keep `agent:checks` classification deterministic and repository-specific. Extend the explicit path/capability rules and focused tests instead of adding fuzzy inference or a generic configuration DSL.
