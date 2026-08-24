@@ -188,12 +188,17 @@ This feature intentionally separates schema/Admin curation from learner exposure
 
 ### Phase A — schema and Admin curation
 
-1. Merge and deploy the code with learner System navigation still disabled.
-2. Apply migration `0015_contextual_system_topic_tag_navigation.sql` through the normal production migration process.
-3. Create Systems and arrange Topics in `/admin/topics`.
-4. Curate System↔Tag exposure where clinically useful.
-5. Use coverage and overlap reporting to verify that intended Cases are reachable and that multi-route matches are understood.
-6. Keep the existing Topic learner Study UI active during this phase.
+Use the normal production release workflow from `docs/CLOUDFLARE.md` with the reviewed migration included. That workflow applies requested D1 migrations **before** deploying the Worker, which avoids running the new Admin taxonomy queries against a pre-`0015` production schema.
+
+1. Merge the reviewed PR to `main` with `SYSTEM_STUDY_NAVIGATION_ENABLED` still absent/false in production.
+2. Dispatch the normal production release from `main` with `apply_migrations=true` so pending reviewed D1 migrations are applied before Worker deployment.
+3. Verify separately that migration `0015_contextual_system_topic_tag_navigation.sql` completed and that the intended Worker SHA deployed.
+4. Create Systems and arrange Topics in `/admin/topics`.
+5. Curate System↔Tag exposure where clinically useful.
+6. Use coverage and overlap reporting to verify that intended Cases are reachable and that multi-route matches are understood.
+7. Keep the existing Topic learner Study UI active during this phase.
+
+Do not deploy the new Admin taxonomy code first and defer `0015` until afterward; those routes intentionally query `concepts.kind` and `system_tags` directly.
 
 ### Phase B — learner System navigation
 
