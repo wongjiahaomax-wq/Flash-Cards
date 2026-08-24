@@ -162,6 +162,8 @@ function pickQuestionsForReview(source, questionPoolMode, rng) {
  * @param {string | null} [options.studySystemConceptId]
  * @param {'topic'|'tag'} [options.routeType]
  * @param {string | null} [options.studyTagId]
+ * @param {SystemRouteType | null} [options.navigationRouteType]
+ * @param {string | null} [options.navigationRouteId]
  */
 async function createReviewForCase({
   db,
@@ -172,7 +174,9 @@ async function createReviewForCase({
   rng,
   studySystemConceptId = null,
   routeType = 'topic',
-  studyTagId = null
+  studyTagId = null,
+  navigationRouteType = null,
+  navigationRouteId = null
 }) {
   const source = await loadCaseSource(db, caseId, studyConceptId, questionPoolMode, rng);
   if (!source) return null;
@@ -187,6 +191,8 @@ async function createReviewForCase({
     studySystemConceptId,
     routeType,
     studyTagId,
+    navigationRouteType,
+    navigationRouteId,
     caseTitleSnapshot: source.case.title,
     vignetteSnapshotMd: source.case.vignetteMd,
     questionPoolMode,
@@ -284,6 +290,8 @@ export async function startSystemReview({
     studySystemConceptId: selectedCase.studySystemConceptId,
     routeType: selectedCase.routeType,
     studyTagId: selectedCase.studyTagId,
+    navigationRouteType: routeType,
+    navigationRouteId: routeType === 'all' ? null : routeId,
     questionPoolMode,
     rng
   });
@@ -305,6 +313,8 @@ export async function continueReviewWithExpandedLearning({ db, userId, reviewId,
     studySystemConceptId: review.studySystemConceptId,
     routeType: review.routeType,
     studyTagId: review.studyTagId,
+    navigationRouteType: review.navigationRouteType,
+    navigationRouteId: review.navigationRouteId,
     questionPoolMode: 'expanded',
     rng
   });
