@@ -110,13 +110,18 @@ export const actions = {
     if (!reviewId) throw error(404, 'This case is no longer available for study.');
     redirect(303, `/study/${reviewId}`);
   },
-  next: async ({ locals, params, platform }) => {
+  next: async ({ locals, params, platform, request }) => {
     const context = assertLearnerStudyAccess(locals.user, platform);
     const db = createDb(context.database);
     const review = await getReview(db, params.reviewId, context.user.id);
     if (!review) throw error(404, 'Review not found.');
     if (review.status !== 'completed') throw error(400, 'Complete this review before starting another case.');
-    if (!isQuestionPoolMode(review.questionPoolMode)) throw error(500, 'Review question set is invalid.');
+
+    const formData = await request.formData();
+    const questionPoolMode = formData.get('questionPoolMode');
+    if (!isQuestionPoolMode(questionPoolMode)) {
+      return fail(400, { message: 'Choose Original questions or Expanded Learning for the next review.' });
+    }
 
     let reviewId;
     try {
@@ -124,7 +129,7 @@ export const actions = {
         db,
         userId: context.user.id,
         conceptId: review.primaryConceptId,
-        questionPoolMode: review.questionPoolMode
+        questionPoolMode
       });
     } catch (cause) {
       if (cause instanceof QuestionPoolUnavailableError) return fail(400, { message: cause.message });
