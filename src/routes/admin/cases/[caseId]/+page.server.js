@@ -7,6 +7,7 @@ import { AssetQuestionInputError, createAssetQuestion, optInAssetQuestion, optIn
 import { canManageCaseAssets, getAdminCaseData } from '$lib/server/db/case-assets.js';
 import { listCaseImageQuestionSummaries } from '$lib/server/db/case-image-question-summaries.js';
 import { listCaseQuestions } from '$lib/server/db/case-questions.js';
+import { listProductionCaseTags } from '$lib/server/db/case-tag-read.ts';
 import { AdminImageWorkflowInputError, attachAssetsToCase, bulkAddAssetsToStimulusGroup, listCaseImagePicker, updateStimulusOptionCaption, validateStimulusGroupTargetForNewAssets } from '$lib/server/db/admin-image-workflow.js';
 import { createDb } from '$lib/server/db/index.js';
 import { caseAssets, stimulusGroups } from '$lib/server/db/schema.js';
@@ -29,8 +30,8 @@ export async function load({ locals, platform, params, url }) {
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { concepts: [], selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
 
   const db = createDb(platform.env.DB);
-  const [concepts, manager, questions, stimulusGroupsData] = await Promise.all([
-    listAdminConcepts(db), getAdminCaseData(db, params.caseId, { includeAvailable: false }), listCaseQuestions(db, params.caseId), getAdminStimulusData(db, params.caseId)
+  const [concepts, manager, questions, stimulusGroupsData, caseTags] = await Promise.all([
+    listAdminConcepts(db), getAdminCaseData(db, params.caseId, { includeAvailable: false }), listCaseQuestions(db, params.caseId), getAdminStimulusData(db, params.caseId), listProductionCaseTags(db, params.caseId)
   ]);
   if (!manager) return { concepts, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
 
@@ -48,7 +49,7 @@ export async function load({ locals, platform, params, url }) {
 
   return {
     concepts, previewMode: false,
-    selectedCase: { ...manager, questions, stimulusGroups, reusableImageQuestions, attached: manager.attached.map((asset) => ({ ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.assetId) : null })) },
+    selectedCase: { ...manager, questions, stimulusGroups, reusableImageQuestions, caseTags, attached: manager.attached.map((asset) => ({ ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.assetId) : null })) },
     imagePicker: { open: pickerOpen, ...pickerResults, targetGroupId: targetGroup?.id ?? null, targetGroupName: targetGroup?.name ?? null }
   };
 }
