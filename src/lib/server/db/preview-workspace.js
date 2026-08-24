@@ -1,6 +1,8 @@
 import { and, asc, desc, eq, inArray, isNull, like, notInArray, or } from 'drizzle-orm';
 
 import { getTeachingImageUrl, putTeachingImage, deleteTeachingImage, assertSupportedImageType } from '../storage/media.js';
+import { listAdminConcepts, listCaseTopics } from './admin-content.js';
+import { listPreviewCaseTags } from './case-tag-read.ts';
 import {
   assets,
   caseAssets,
@@ -258,14 +260,10 @@ export async function listPreviewCases(db, previewSessionId) {
  */
 export async function loadPreviewCaseEditor(db, previewSessionId, caseId, options = {}) {
   const selected = await requireOwnedPreviewCase(db, previewSessionId, caseId);
-  const [allConcepts, topicRows, fixedRows, questionRows, groupRows, ownCases] = await Promise.all([
-    db.select({ id: concepts.id, name: concepts.name, slug: concepts.slug }).from(concepts).where(eq(concepts.isActive, true)).orderBy(asc(concepts.name)),
-    db
-      .select({ id: concepts.id, name: concepts.name, role: caseConcepts.role, isActive: concepts.isActive })
-      .from(caseConcepts)
-      .innerJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
-      .where(eq(caseConcepts.caseId, caseId))
-      .orderBy(asc(caseConcepts.createdAt)),
+  const [allConcepts, topicRows, caseTagsForEditor, fixedRows, questionRows, groupRows, ownCases] = await Promise.all([
+    listAdminConcepts(db),
+    listCaseTopics(db, caseId),
+    listPreviewCaseTags(db, previewSessionId, caseId),
     listPreviewFixedCaseAssets(db, caseId),
     db
       .select({
@@ -405,6 +403,7 @@ export async function loadPreviewCaseEditor(db, previewSessionId, caseId, option
         previewSessionId
       },
       topics: topicRows,
+      caseTags: caseTagsForEditor,
       questions: questionRows.map((row) => ({ ...row, reusableForTopic: false })),
       attached: fixedRows.map((row) => ({
         ...row,
