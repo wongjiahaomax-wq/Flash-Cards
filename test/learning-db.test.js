@@ -165,7 +165,7 @@ test('Original start with no Core questions fails without creating or silently e
       startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'only-reusable-topic', questionPoolMode: 'core', rng: () => 0 }),
       (error) => error instanceof QuestionPoolUnavailableError && /no Original questions/.test(error.message)
     );
-    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM reviews WHERE case_id = 'only-reusable-case'").get().count, 0);
+    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM reviews WHERE case_id = 'only-reusable-case'").get()?.count, 0);
 
     const expandedId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'only-reusable-topic', questionPoolMode: 'expanded', rng: () => 0 });
     assert.ok(expandedId);
