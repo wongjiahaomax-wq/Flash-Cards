@@ -87,7 +87,7 @@ function attachCaseTag(sqlite, tagId) {
 
 /** @param {ReturnType<typeof fixture>} f */
 async function review(f) {
-  const reviewId = await startReview({ db: f.db, userId: 'learner-stage-b', conceptId: 'stage-b-topic', rng: () => 0 });
+  const reviewId = await startReview({ db: f.db, userId: 'learner-stage-b', conceptId: 'stage-b-topic', questionPoolMode: 'expanded', rng: () => 0 });
   assert.ok(reviewId);
   const row = await getReview(f.db, reviewId, 'learner-stage-b');
   assert.ok(row);
