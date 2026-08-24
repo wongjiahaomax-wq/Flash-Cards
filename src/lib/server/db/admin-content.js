@@ -1,6 +1,12 @@
 import { and, asc, eq } from 'drizzle-orm';
 
 import { conceptBreadcrumb } from '../learning/taxonomy-graph.ts';
+import {
+  buildTopicConceptInsert,
+  listActiveConceptTaxonomy,
+  listConceptTaxonomy,
+  requireActiveTopicConcept
+} from './concept-taxonomy-compat.ts';
 import { ContentGuardError, requireProductionCase } from './content-guards.js';
 import { caseConcepts, cases, concepts } from './schema.js';
 import { getCaseStimulusCoverageRequirement } from './stimulus-groups.js';
@@ -64,19 +70,7 @@ function slugBase(name) {
 
 /** @param {LearningDb} db */
 export async function listAdminConcepts(db) {
-  const rows = await db
-    .select({
-      id: concepts.id,
-      name: concepts.name,
-      slug: concepts.slug,
-      kind: concepts.kind,
-      parentId: concepts.parentId,
-      isActive: concepts.isActive
-    })
-    .from(concepts)
-    .where(eq(concepts.isActive, true))
-    .orderBy(asc(concepts.name), asc(concepts.id));
-
+  const rows = await listActiveConceptTaxonomy(db);
   return rows
     .filter((concept) => concept.kind === 'topic')
     .map((concept) => ({
@@ -112,12 +106,11 @@ async function prepareConcept(db, name) {
 }
 
 /** @param {LearningDb} db @param {{ id: string, name: string, slug: string }} concept */
-function conceptInsert(db, concept) {
-  return db.insert(concepts).values({
+async function conceptInsert(db, concept) {
+  return buildTopicConceptInsert(db, {
     id: concept.id,
     name: concept.name,
     slug: concept.slug,
-    kind: 'topic',
     isActive: true
   });
 }
@@ -126,7 +119,7 @@ function conceptInsert(db, concept) {
 export async function createConcept(db, name) {
   const concept = await prepareConcept(db, name);
   try {
-    await conceptInsert(db, concept);
+    await (await conceptInsert(db, concept));
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       throw new AdminContentInputError('A topic with this generated slug already exists. Try a different name.');
@@ -138,12 +131,8 @@ export async function createConcept(db, name) {
 
 /** @param {LearningDb} db @param {string} conceptId */
 async function requireActiveConcept(db, conceptId) {
-  const rows = await db
-    .select({ id: concepts.id })
-    .from(concepts)
-    .where(and(eq(concepts.id, conceptId), eq(concepts.kind, 'topic'), eq(concepts.isActive, true)))
-    .limit(1);
-  if (!rows[0]) throw new AdminContentInputError('The selected Topic is missing, inactive, or classified as a System.');
+  const row = await requireActiveTopicConcept(db, conceptId);
+  if (!row) throw new AdminContentInputError('The selected Topic is missing, inactive, or classified as a System.');
 }
 
 /** @param {LearningDb} db @param {string} caseId */
@@ -233,38 +222,32 @@ export async function listCaseTopics(db, caseId) {
   const cleanCaseId = requiredText(caseId, 'Case');
   const [attachedRows, conceptRows] = await Promise.all([
     db
-      .select({
-        id: concepts.id,
-        name: concepts.name,
-        slug: concepts.slug,
-        kind: concepts.kind,
-        parentId: concepts.parentId,
-        isActive: concepts.isActive,
-        role: caseConcepts.role
-      })
+      .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
       .from(caseConcepts)
-      .innerJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
       .where(eq(caseConcepts.caseId, cleanCaseId))
-      .orderBy(asc(caseConcepts.role), asc(concepts.name), asc(concepts.id)),
-    db
-      .select({
-        id: concepts.id,
-        name: concepts.name,
-        kind: concepts.kind,
-        parentId: concepts.parentId,
-        isActive: concepts.isActive
-      })
-      .from(concepts)
+      .orderBy(asc(caseConcepts.role), asc(caseConcepts.conceptId)),
+    listConceptTaxonomy(db)
   ]);
+  const conceptById = new Map(conceptRows.map((concept) => [concept.id, concept]));
 
-  return attachedRows.map((topic) => ({
-    ...topic,
-    breadcrumb: conceptBreadcrumb(topic.id, conceptRows).map((item) => ({
-      id: item.id,
-      name: item.name ?? item.id,
-      kind: item.kind
-    }))
-  }));
+  return attachedRows.flatMap((relationship) => {
+    const topic = conceptById.get(relationship.conceptId);
+    if (!topic || topic.kind !== 'topic') return [];
+    return [{
+      id: topic.id,
+      name: topic.name,
+      slug: topic.slug,
+      kind: topic.kind,
+      parentId: topic.parentId,
+      isActive: topic.isActive,
+      role: relationship.role,
+      breadcrumb: conceptBreadcrumb(topic.id, conceptRows).map((item) => ({
+        id: item.id,
+        name: item.name ?? item.id,
+        kind: item.kind
+      }))
+    }];
+  });
 }
 
 /** @param {LearningDb} db @param {string} caseId */
@@ -272,11 +255,15 @@ async function requireActiveCaseWithOnePrimary(db, caseId) {
   const cleanCaseId = requiredText(caseId, 'Case');
   await requireActiveProductionCase(db, cleanCaseId);
 
-  const topicRows = await db
-    .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
-    .from(caseConcepts)
-    .innerJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
-    .where(and(eq(caseConcepts.caseId, cleanCaseId), eq(concepts.kind, 'topic')));
+  const [relationshipRows, conceptRows] = await Promise.all([
+    db
+      .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
+      .from(caseConcepts)
+      .where(eq(caseConcepts.caseId, cleanCaseId)),
+    listConceptTaxonomy(db)
+  ]);
+  const topicIds = new Set(conceptRows.filter((concept) => concept.kind === 'topic').map((concept) => concept.id));
+  const topicRows = relationshipRows.filter((relationship) => topicIds.has(relationship.conceptId));
   const primaryRows = topicRows.filter((topic) => topic.role === 'primary');
   if (primaryRows.length !== 1) {
     throw new AdminContentInputError('The selected active Case must have exactly one primary Topic before it can be edited.');
@@ -395,6 +382,7 @@ export async function createCaseTopic(db, input) {
 
   const { primaryConceptId } = await requireActiveCaseWithOnePrimary(db, caseId);
   const concept = await prepareConcept(db, input.name);
+  const conceptWrite = await conceptInsert(db, concept);
   const relationshipWrites = relationshipIntent === 'primary'
     ? [
         db
@@ -408,7 +396,7 @@ export async function createCaseTopic(db, input) {
   let useSequentialFallback = typeof db.batch !== 'function';
   if (!useSequentialFallback) {
     try {
-      await db.batch(/** @type {[any, ...any[]]} */ ([conceptInsert(db, concept), ...relationshipWrites]));
+      await db.batch(/** @type {[any, ...any[]]} */ ([conceptWrite, ...relationshipWrites]));
     } catch (error) {
       if (error instanceof TypeError && /batch is not a function/i.test(error.message)) {
         useSequentialFallback = true;
@@ -424,7 +412,7 @@ export async function createCaseTopic(db, input) {
   if (useSequentialFallback) {
     let primaryDemoted = false;
     try {
-      await conceptInsert(db, concept);
+      await conceptWrite;
       if (relationshipIntent === 'primary') {
         await relationshipWrites[0];
         primaryDemoted = true;
