@@ -120,19 +120,24 @@ export async function listActiveConceptTaxonomy(db: import('./index.js').Learnin
 }
 
 /**
- * Resolve one Concept with post-0015 kind information when available. On a
- * genuinely pre-0015 database every Concept is treated as a Topic, matching
- * migration 0015's default/backfill semantics.
+ * Resolve one Concept with post-0015 kind information when available. Probe
+ * through the legacy-compatible shape first so a missing ID costs only one D1
+ * read on either schema version. Existing post-0015 rows are then re-read with
+ * kind information so Systems can never masquerade as Topics. On a genuinely
+ * pre-0015 database every existing Concept has Topic semantics, matching
+ * migration 0015's default/backfill behavior.
  */
 export async function findConceptTaxonomyById(
   db: import('./index.js').LearningDb,
   conceptId: string
 ) {
+  const legacyRow = await selectLegacyConceptTaxonomyById(db, conceptId);
+  if (!legacyRow) return null;
   try {
-    return await selectConceptTaxonomyById(db, conceptId);
+    return (await selectConceptTaxonomyById(db, conceptId)) ?? legacyRow;
   } catch (error) {
     if (!missingKindColumn(error)) throw error;
-    return selectLegacyConceptTaxonomyById(db, conceptId);
+    return legacyRow;
   }
 }
 
