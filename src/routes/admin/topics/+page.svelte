@@ -9,6 +9,11 @@
     return data.hierarchyOptions.filter((candidate) => candidate.id !== conceptId && candidate.isActive);
   }
 
+  /** @param {{ breadcrumbLabel: string, kind: string }} item */
+  function hierarchyLabel(item) {
+    return `${item.breadcrumbLabel}.${item.kind}`;
+  }
+
   const activeSystems = $derived(data.hierarchyOptions.filter((item) => item.kind === 'system' && item.isActive));
 </script>
 
@@ -87,7 +92,7 @@
         {:else}
           <label><span class="sr-only">Parent for {topic.name}</span><select name={'parent:' + topic.id}>
             <option value="" selected={!topic.parentId}>Unassigned / no parent</option>
-            {#each parentOptions(topic.id) as parent}<option value={parent.id} selected={topic.parentId === parent.id}>{parent.breadcrumbLabel}</option>{/each}
+            {#each parentOptions(topic.id) as parent}<option value={parent.id} selected={topic.parentId === parent.id}>{hierarchyLabel(parent)}</option>{/each}
           </select></label>
         {/if}
       </div>

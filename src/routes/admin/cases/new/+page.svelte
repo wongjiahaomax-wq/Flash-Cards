@@ -42,7 +42,7 @@
   {:else}
     <form method="POST" action="?/createCase" class="form-grid">
       <label>Internal Case title<input name="title" maxlength="300" required placeholder="e.g. ECG with anterior changes" /></label>
-      <label>Primary topic / Concept<select name="concept_id" required>{#each data.concepts as concept}<option value={concept.id} selected={concept.id === data.selectedConceptId}>{concept.name}</option>{/each}</select></label>
+      <label>Primary topic / Concept<select name="concept_id" required>{#each data.concepts as concept}<option value={concept.id} selected={concept.id === data.selectedConceptId}>{concept.name}.topic</option>{/each}</select></label>
       <label class="wide">Case stem / vignette <span class="muted">(optional)</span><textarea name="vignette_md" rows="8" maxlength="5000" placeholder="Context shown to the learner during review."></textarea></label>
       <div class="wide actions"><button class="button primary" type="submit">Create Case</button><a class="button" href="/admin/cases">Cancel</a></div>
     </form>
