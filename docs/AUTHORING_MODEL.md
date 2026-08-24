@@ -47,7 +47,7 @@ When a System explicitly exposes one of those Tags, the learner may reach the Ca
 
 Additional Study Topics are retired. Do not create a secondary Case↔Topic relationship to make a Case appear elsewhere. Changing Primary Topic replaces the canonical current relationship rather than keeping the old Topic as an alternate route.
 
-Historical secondary Topic rows and historical Reviews remain migration/history concerns and must not be rewritten by ordinary authoring.
+Historical secondary Topic rows remain legacy compatibility data, and historical Reviews remain immutable historical truth. Neither requires a cleanup migration or an ordinary-authoring rewrite.
 
 ## 3. Case = one coherent clinical presentation
 
