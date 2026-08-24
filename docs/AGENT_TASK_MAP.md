@@ -8,7 +8,7 @@ Always read the root `AGENTS.md`, the nearest scoped `AGENTS.md`, and the direct
 
 Detect the agent's actual capabilities at task start, then select the best supported workflow automatically. Do not use the user's phone/laptop status as a proxy for agent capabilities. Explicit user execution constraints override automatic selection.
 
-Before creating or selecting a branch, identify the requested work state. If an existing PR or branch is explicitly targeted, inspect and continue that current head against its intended base. If no existing work state is targeted, resolve the intended base, normally the latest `main`, and create the feature branch from that resolved base.
+Before creating or selecting a branch, identify the requested work state. If an existing PR or branch is explicitly targeted, inspect and continue that current head against its intended base. If no existing work state is targeted, resolve the intended base, normally the latest `main`, and create a feature branch from that resolved base.
 
 ```text
 usable checkout + command execution + repository workflow
