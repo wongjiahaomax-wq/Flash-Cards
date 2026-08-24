@@ -11,7 +11,8 @@ import {
 import { listOwnedReviewMedia } from '$lib/server/db/review-media.js';
 import {
   QUESTION_POOL_MODE_DETAILS,
-  QuestionPoolUnavailableError
+  QuestionPoolUnavailableError,
+  isQuestionPoolMode
 } from '$lib/server/learning/question-pool-mode.ts';
 import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 import { getReviewImageUrl } from '$lib/server/storage/media.js';
@@ -31,6 +32,7 @@ export async function load({ locals, params, platform }) {
   const db = createDb(context.database);
   const review = await getReview(db, params.reviewId, context.user.id);
   if (!review) throw error(404, 'Review not found.');
+  if (!isQuestionPoolMode(review.questionPoolMode)) throw error(500, 'Review question set is invalid.');
 
   const reviewMedia = await listOwnedReviewMedia(db, review.id, context.user.id);
   const reviewAssetIdByAssetId = new Map(reviewMedia.map((row) => [row.assetId, row.reviewAssetId]));
@@ -114,12 +116,20 @@ export const actions = {
     const review = await getReview(db, params.reviewId, context.user.id);
     if (!review) throw error(404, 'Review not found.');
     if (review.status !== 'completed') throw error(400, 'Complete this review before starting another case.');
-    const reviewId = await startReview({
-      db,
-      userId: context.user.id,
-      conceptId: review.primaryConceptId,
-      questionPoolMode: review.questionPoolMode
-    });
+    if (!isQuestionPoolMode(review.questionPoolMode)) throw error(500, 'Review question set is invalid.');
+
+    let reviewId;
+    try {
+      reviewId = await startReview({
+        db,
+        userId: context.user.id,
+        conceptId: review.primaryConceptId,
+        questionPoolMode: review.questionPoolMode
+      });
+    } catch (cause) {
+      if (cause instanceof QuestionPoolUnavailableError) return fail(400, { message: cause.message });
+      throw cause;
+    }
     if (!reviewId) throw error(404, 'No active study cases are available for this topic.');
     redirect(303, `/study/${reviewId}`);
   }
