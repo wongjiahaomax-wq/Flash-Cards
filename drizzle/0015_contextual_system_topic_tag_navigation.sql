@@ -57,10 +57,10 @@ CREATE TRIGGER `concepts_no_cycle_update`
 BEFORE UPDATE OF `parent_id` ON `concepts`
 WHEN NEW.`parent_id` IS NOT NULL
 BEGIN
-  SELECT CASE
+  SELECT (CASE
     WHEN NEW.`parent_id` = NEW.`id`
     THEN RAISE(ABORT, 'Concept cannot be its own parent.')
-  END;
+  END);
 
   WITH RECURSIVE ancestors(`id`, `parent_id`) AS (
     SELECT `id`, `parent_id` FROM `concepts` WHERE `id` = NEW.`parent_id`
