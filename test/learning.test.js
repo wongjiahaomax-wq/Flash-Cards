@@ -149,6 +149,7 @@ test('Original mode cannot use a reusable Asset Question to satisfy stimulus cov
     caseQuestions: [{ questionPromptId: 'case', promptMd: 'Case', answerMd: 'Case answer' }],
     assetQuestions: [{ questionPromptId: 'asset', promptMd: 'Asset', answerMd: 'Asset answer', sourceAssetQuestionId: 'asset-question-1', stimulusGroupId: 'group-1', stimulusOptionId: 'option-1' }]
   };
+  /** @type {{ groupId: string, mode: 'none'|'minimum'|'all', minimum: number }[]} */
   const coverage = [{ groupId: 'group-1', mode: 'minimum', minimum: 1 }];
 
   const original = resolveQuestionPoolForMode('core', input);
@@ -190,9 +191,7 @@ test('review selection defaults to three questions and snapshots display order',
   const pool = ['a', 'b', 'c', 'd', 'e'].map((id) => ({
     questionPromptId: id,
     promptMd: id,
-    answerMd: id,
-    sourceType: 'concept',
-    sourceConceptId: 'concept'
+    answerMd: id
   }));
 
   const picked = pickReviewQuestions(pool, { rng: () => 0 });
