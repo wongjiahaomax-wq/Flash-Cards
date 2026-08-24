@@ -1,7 +1,7 @@
 import { asc, eq } from 'drizzle-orm';
 
 import { taxonomyConcepts } from './contextual-schema.ts';
-import { concepts } from './schema.js';
+import { pre0015Concepts } from './pre-0015-compat-schema.ts';
 
 function missingKindColumn(error: unknown) {
   let current: unknown = error;
@@ -41,17 +41,17 @@ async function selectLegacyConceptTaxonomy(
 ) {
   const query = db
     .select({
-      id: concepts.id,
-      name: concepts.name,
-      slug: concepts.slug,
-      descriptionMd: concepts.descriptionMd,
-      parentId: concepts.parentId,
-      isActive: concepts.isActive
+      id: pre0015Concepts.id,
+      name: pre0015Concepts.name,
+      slug: pre0015Concepts.slug,
+      descriptionMd: pre0015Concepts.descriptionMd,
+      parentId: pre0015Concepts.parentId,
+      isActive: pre0015Concepts.isActive
     })
-    .from(concepts);
+    .from(pre0015Concepts);
   const rows = activeOnly
-    ? await query.where(eq(concepts.isActive, true)).orderBy(asc(concepts.name), asc(concepts.id))
-    : await query.orderBy(asc(concepts.name), asc(concepts.id));
+    ? await query.where(eq(pre0015Concepts.isActive, true)).orderBy(asc(pre0015Concepts.name), asc(pre0015Concepts.id))
+    : await query.orderBy(asc(pre0015Concepts.name), asc(pre0015Concepts.id));
   return rows.map((row) => ({ ...row, kind: 'topic' as const }));
 }
 
@@ -98,5 +98,5 @@ export function buildTopicConceptInsert(
     isActive?: boolean;
   }
 ) {
-  return db.insert(concepts).values(value);
+  return db.insert(pre0015Concepts).values(value);
 }
