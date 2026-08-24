@@ -45,7 +45,11 @@ export async function listTaxonomyLibrary(
       .select({ conceptId: caseConcepts.conceptId, caseId: cases.id })
       .from(caseConcepts)
       .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
-      .where(and(eq(cases.isActive, true), isNull(cases.previewSessionId))),
+      .where(and(
+        eq(caseConcepts.role, 'primary'),
+        eq(cases.isActive, true),
+        isNull(cases.previewSessionId)
+      )),
     db
       .select({
         id: cases.id,
@@ -57,7 +61,11 @@ export async function listTaxonomyLibrary(
       })
       .from(caseConcepts)
       .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
-      .where(and(eq(cases.isActive, true), isNull(cases.previewSessionId))),
+      .where(and(
+        eq(caseConcepts.role, 'primary'),
+        eq(cases.isActive, true),
+        isNull(cases.previewSessionId)
+      )),
     db
       .select({ conceptId: conceptQuestions.conceptId, questionId: conceptQuestions.id })
       .from(conceptQuestions)
@@ -237,8 +245,12 @@ export async function getTaxonomyDetail(db: import('./index.js').LearningDb, con
       })
       .from(caseConcepts)
       .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
-      .where(and(eq(caseConcepts.conceptId, conceptId), isNull(cases.previewSessionId)))
-      .orderBy(asc(caseConcepts.role), asc(cases.title), asc(cases.id)),
+      .where(and(
+        eq(caseConcepts.conceptId, conceptId),
+        eq(caseConcepts.role, 'primary'),
+        isNull(cases.previewSessionId)
+      ))
+      .orderBy(asc(cases.title), asc(cases.id)),
     db
       .select({
         usageId: conceptQuestions.id,
