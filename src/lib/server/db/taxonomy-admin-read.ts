@@ -38,13 +38,13 @@ export async function listTaxonomyLibrary(
   db: import('./index.js').LearningDb,
   filters: { search?: string } = {}
 ) {
-  const [conceptRows, primaryCaseRows, studyRows, questionRows] = await Promise.all([
+  const [conceptRows, directCaseRows, studyRows, questionRows] = await Promise.all([
     loadAllConcepts(db),
     db
       .select({ conceptId: caseConcepts.conceptId, caseId: cases.id })
       .from(caseConcepts)
       .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
-      .where(and(eq(caseConcepts.role, 'primary'), eq(cases.isActive, true), isNull(cases.previewSessionId))),
+      .where(and(eq(cases.isActive, true), isNull(cases.previewSessionId))),
     db
       .select({
         id: cases.id,
@@ -71,9 +71,9 @@ export async function listTaxonomyLibrary(
   ]);
 
   const activeNodes = conceptRows.filter((row) => row.isActive) as TaxonomyNode[];
-  const primaryCounts = new Map<string, number>();
+  const directCaseCounts = new Map<string, number>();
   const questionCounts = new Map<string, number>();
-  for (const row of primaryCaseRows) primaryCounts.set(row.conceptId, (primaryCounts.get(row.conceptId) ?? 0) + 1);
+  for (const row of directCaseRows) directCaseCounts.set(row.conceptId, (directCaseCounts.get(row.conceptId) ?? 0) + 1);
   for (const row of questionRows) questionCounts.set(row.conceptId, (questionCounts.get(row.conceptId) ?? 0) + 1);
 
   const search = cleanText(filters.search).toLocaleLowerCase();
@@ -94,7 +94,7 @@ export async function listTaxonomyLibrary(
         breadcrumbLabel: breadcrumb.map((item) => item.name).join(' → '),
         systemId,
         unassigned: concept.kind === 'topic' && !systemId,
-        directCaseCount: concept.isActive ? (primaryCounts.get(concept.id) ?? 0) : 0,
+        directCaseCount: concept.isActive ? (directCaseCounts.get(concept.id) ?? 0) : 0,
         descendantStudyCaseCount,
         activeSharedQuestionCount: concept.isActive ? (questionCounts.get(concept.id) ?? 0) : 0
       };
@@ -231,12 +231,13 @@ export async function getTaxonomyDetail(db: import('./index.js').LearningDb, con
       .select({
         caseId: cases.id,
         caseTitle: cases.title,
-        caseIsActive: cases.isActive
+        caseIsActive: cases.isActive,
+        role: caseConcepts.role
       })
       .from(caseConcepts)
       .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
-      .where(and(eq(caseConcepts.conceptId, conceptId), eq(caseConcepts.role, 'primary'), isNull(cases.previewSessionId)))
-      .orderBy(asc(cases.title), asc(cases.id)),
+      .where(and(eq(caseConcepts.conceptId, conceptId), isNull(cases.previewSessionId)))
+      .orderBy(asc(caseConcepts.role), asc(cases.title), asc(cases.id)),
     db
       .select({
         usageId: conceptQuestions.id,
