@@ -201,6 +201,10 @@ ALTER TABLE `reviews` ADD `route_type` text NOT NULL DEFAULT 'topic' CHECK (`rou
 --> statement-breakpoint
 ALTER TABLE `reviews` ADD `study_tag_id` text REFERENCES `tags`(`id`) ON DELETE restrict;
 --> statement-breakpoint
+ALTER TABLE `reviews` ADD `navigation_route_type` text CHECK (`navigation_route_type` IS NULL OR `navigation_route_type` IN ('all', 'topic', 'tag'));
+--> statement-breakpoint
+ALTER TABLE `reviews` ADD `navigation_route_id` text;
+--> statement-breakpoint
 CREATE INDEX `reviews_study_system_completed_idx` ON `reviews` (`study_system_concept_id`, `completed_at`);
 --> statement-breakpoint
 CREATE INDEX `reviews_study_tag_completed_idx` ON `reviews` (`study_tag_id`, `completed_at`);
@@ -216,13 +220,38 @@ WHEN (
     SELECT 1 FROM `concepts`
     WHERE `id` = NEW.`study_system_concept_id` AND `kind` = 'system'
   ))
+  OR
+  (NEW.`study_system_concept_id` IS NULL AND (NEW.`navigation_route_type` IS NOT NULL OR NEW.`navigation_route_id` IS NOT NULL))
+  OR
+  (NEW.`study_system_concept_id` IS NOT NULL AND NEW.`navigation_route_type` IS NULL)
+  OR
+  (NEW.`navigation_route_type` = 'all' AND NEW.`navigation_route_id` IS NOT NULL)
+  OR
+  (NEW.`navigation_route_type` = 'topic' AND (
+    NEW.`route_type` <> 'topic'
+    OR NEW.`navigation_route_id` IS NULL
+    OR NOT EXISTS (
+      SELECT 1 FROM `concepts`
+      WHERE `id` = NEW.`navigation_route_id` AND `kind` = 'topic'
+    )
+  ))
+  OR
+  (NEW.`navigation_route_type` = 'tag' AND (
+    NEW.`route_type` <> 'tag'
+    OR NEW.`navigation_route_id` IS NULL
+    OR NEW.`navigation_route_id` <> NEW.`study_tag_id`
+    OR NOT EXISTS (
+      SELECT 1 FROM `tags`
+      WHERE `id` = NEW.`navigation_route_id`
+    )
+  ))
 )
 BEGIN
   SELECT RAISE(ABORT, 'Review study-route provenance is invalid.');
 END;
 --> statement-breakpoint
 CREATE TRIGGER `reviews_route_provenance_update`
-BEFORE UPDATE OF `study_system_concept_id`, `route_type`, `study_tag_id` ON `reviews`
+BEFORE UPDATE OF `study_system_concept_id`, `route_type`, `study_tag_id`, `navigation_route_type`, `navigation_route_id` ON `reviews`
 WHEN (
   (NEW.`route_type` = 'topic' AND NEW.`study_tag_id` IS NOT NULL)
   OR
@@ -231,6 +260,31 @@ WHEN (
   (NEW.`study_system_concept_id` IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM `concepts`
     WHERE `id` = NEW.`study_system_concept_id` AND `kind` = 'system'
+  ))
+  OR
+  (NEW.`study_system_concept_id` IS NULL AND (NEW.`navigation_route_type` IS NOT NULL OR NEW.`navigation_route_id` IS NOT NULL))
+  OR
+  (NEW.`study_system_concept_id` IS NOT NULL AND NEW.`navigation_route_type` IS NULL)
+  OR
+  (NEW.`navigation_route_type` = 'all' AND NEW.`navigation_route_id` IS NOT NULL)
+  OR
+  (NEW.`navigation_route_type` = 'topic' AND (
+    NEW.`route_type` <> 'topic'
+    OR NEW.`navigation_route_id` IS NULL
+    OR NOT EXISTS (
+      SELECT 1 FROM `concepts`
+      WHERE `id` = NEW.`navigation_route_id` AND `kind` = 'topic'
+    )
+  ))
+  OR
+  (NEW.`navigation_route_type` = 'tag' AND (
+    NEW.`route_type` <> 'tag'
+    OR NEW.`navigation_route_id` IS NULL
+    OR NEW.`navigation_route_id` <> NEW.`study_tag_id`
+    OR NOT EXISTS (
+      SELECT 1 FROM `tags`
+      WHERE `id` = NEW.`navigation_route_id`
+    )
   ))
 )
 BEGIN
