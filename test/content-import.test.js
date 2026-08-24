@@ -192,6 +192,29 @@ test('explicitly reused Topic and explicitly skipped Case are validated by appli
   } finally { fixture.sqlite.close(); }
 });
 
+test('post-0015 Topic resolution rejects System IDs and deterministic Topic collisions', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.exec("ALTER TABLE concepts ADD COLUMN kind TEXT NOT NULL DEFAULT 'topic'");
+    fixture.sqlite.prepare("INSERT INTO concepts (id, name, slug, kind, is_active) VALUES (?, ?, ?, 'system', 1)").run('system-cardio', 'Cardiology', 'cardiology');
+
+    const systemUseManifest = baseManifest({
+      topics: [{ id: 'topic-existing', operation: 'use', applicationId: 'system-cardio' }],
+      cases: [], assets: [], caseAssets: [], questionPrompts: [], caseQuestions: [], topicQuestions: []
+    });
+    const systemUse = await validateImportPackage(fixture.db, await parsedValidPackage(systemUseManifest, []));
+    assert.equal(systemUse.valid, false);
+    assert.match(systemUse.errors.join('\n'), /System, not a Topic/);
+
+    const deterministicId = deterministicApplicationId('test-package', 'topic', 'topic-new');
+    fixture.sqlite.prepare("INSERT INTO concepts (id, name, slug, description_md, parent_id, kind, is_active) VALUES (?, ?, ?, ?, ?, 'system', 1)")
+      .run(deterministicId, 'Imported Topic', 'imported-topic', null, 'seed-stemi');
+    const collision = await validateImportPackage(fixture.db, await parsedValidPackage());
+    assert.equal(collision.valid, false);
+    assert.match(collision.errors.join('\n'), /Topic topic-new conflicts with an existing application row/);
+  } finally { fixture.sqlite.close(); }
+});
+
 test('an unexpected existing deterministic ID is a conflict, not an overwrite', async () => {
   const fixture = createLearningDb();
   try {
