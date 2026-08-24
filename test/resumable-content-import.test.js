@@ -17,7 +17,8 @@ import {
   getImportJob,
   itemsForPhase,
   prepareResumableImportPlan,
-  processNextImportChunk
+  processNextImportChunk,
+  validateImportChunk
 } from '../src/lib/server/import/resumable-content-package.js';
 import { parseImportPackage } from '../src/lib/server/import/reviewed-content-package.js';
 import { importPackageStorageKey } from '../src/lib/server/storage/import-packages.js';
@@ -168,6 +169,21 @@ test('static plan preserves skip safety and parent-first Topic ordering', async 
   })));
   const plan = prepareResumableImportPlan(parsed);
   assert.deepEqual(itemsForPhase(plan, 'import_topics').map((item) => item.id), ['parent', 'child']);
+});
+
+test('post-0015 resumable Topic validation rejects System application IDs', async () => {
+  const { sqlite, d1 } = setup();
+  try {
+    sqlite.exec("ALTER TABLE concepts ADD COLUMN kind TEXT NOT NULL DEFAULT 'topic'");
+    sqlite.prepare("INSERT INTO concepts (id, name, slug, kind, is_active) VALUES (?, ?, ?, 'system', 1)").run('system-cardio', 'Cardiology', 'cardiology');
+    const parsed = await parseImportPackage(archiveFor(manifest({
+      topics: [{ id: 'topic-existing', operation: 'use', applicationId: 'system-cardio' }]
+    })));
+    const plan = prepareResumableImportPlan(parsed);
+    const db = (await import('../src/lib/server/db/index.js')).createDb(d1);
+    const result = await validateImportChunk(db, plan, 'validate_topics', 0, 1);
+    assert.match(result.issues.join('\n'), /System, not a Topic/);
+  } finally { sqlite.close(); }
 });
 
 test('job start stages the exact package and creates the initial durable checkpoint', async () => {
