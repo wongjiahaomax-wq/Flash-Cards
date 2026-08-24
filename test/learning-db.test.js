@@ -292,9 +292,12 @@ test('0014 backfills historical Reviews to expanded without rewriting Review chi
     `);
 
     const before = sqlite.prepare("SELECT prompt_snapshot_md, answer_snapshot_md FROM review_questions WHERE id = 'historical-question'").get();
+    assert.ok(before);
     sqlite.exec(questionPoolModeMigrationSql);
     const review = sqlite.prepare("SELECT question_pool_mode FROM reviews WHERE id = 'historical-review'").get();
     const after = sqlite.prepare("SELECT prompt_snapshot_md, answer_snapshot_md FROM review_questions WHERE id = 'historical-question'").get();
+    assert.ok(review);
+    assert.ok(after);
 
     assert.equal(review.question_pool_mode, 'expanded');
     assert.deepEqual(after, before);
