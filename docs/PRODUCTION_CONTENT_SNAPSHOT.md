@@ -2,7 +2,7 @@
 
 _Status: current read-only production content inspection workflow._
 
-_Last updated: 20 August 2026._
+_Last updated: 25 August 2026._
 
 This repository includes a manually triggered GitHub Actions workflow for inspecting a deliberately limited snapshot of learning content from the production Cloudflare D1 database.
 
@@ -21,16 +21,16 @@ A completed snapshot is evidence about the production **rows queried by that wor
 It can support statements such as:
 
 ```text
-these production-owned Topics/Cases/relationships currently exist in production D1
+these production-owned Topics/Cases/Case↔Topic rows currently exist in production D1
 ```
 
-For Case routing, the current workflow explicitly excludes disposable Preview-owned Cases with:
+For Case routing, the workflow excludes disposable Preview-owned Cases with:
 
 ```sql
 cases.preview_session_id IS NULL
 ```
 
-The `CASE_TOPIC_ROUTES` output therefore represents production-owned Cases and their Topic relationships rather than all Case rows sharing the production D1 database. Topics themselves are global rows and are queried independently.
+The `CASE_TOPIC_ROUTES` output therefore represents production-owned Cases and their stored Topic relationships rather than all Case rows sharing production D1.
 
 Historical snapshot runs produced before this filter was added may have included Preview-owned Cases if a Preview workspace existed at the time. Do not reuse an older run as authoritative production-Case evidence without checking which workflow revision produced it.
 
@@ -43,11 +43,30 @@ whether a deployment workflow succeeded
 whether unqueried tables/features are present or active
 ```
 
-Keep production data state, migration state and Worker deployment state as separate facts.
+Keep production data state, migration state, Worker deployment state, feature enablement, and learner rollout separate.
 
-For code/migration/deployment status use the release workflow/run evidence described in `CLOUDFLARE.md`.
+## 2. Current meaning of stored secondary Case Topic rows
 
-## 2. Safety model
+The snapshot intentionally still emits `case_concepts.role` so stored legacy relationships remain inspectable.
+
+Current application semantics are:
+
+```text
+role = primary
+→ canonical Case Topic used by current authoring/learner behavior
+
+role = secondary
+→ legacy compatibility data only
+→ not a current learner route or authoring relationship
+```
+
+A snapshot showing a secondary row therefore does **not** mean Additional Study Topics remain a current feature or that the row must be migrated/deleted before learner launch.
+
+PR #90 intentionally requires no cleanup migration. Clinically useful alternate discovery should be curated explicitly through Case Tags + System↔Tag exposure rather than inferred from a stored secondary Topic name.
+
+The current snapshot workflow does not need to become a Topic→Tag conversion tool merely because old secondary rows are visible.
+
+## 3. Safety model
 
 The workflow is intentionally constrained:
 
@@ -55,14 +74,14 @@ The workflow is intentionally constrained:
 - all SQL is hard-coded in the repository;
 - all database operations are `SELECT` queries;
 - there is no free-form SQL workflow input;
-- it queries only the explicitly approved learning-content tables;
+- it queries only explicitly approved learning-content tables;
 - Case-route output filters out rows owned by a Preview Session;
 - it does not query Better Auth tables, users, sessions, learner Reviews, or learner progress;
 - Cloudflare credentials remain GitHub repository secrets and are never printed deliberately.
 
 Because the repository is private, snapshot output is visible only to people with access to its Actions logs. Treat the output as private teaching-content metadata nevertheless.
 
-## 3. Credentials
+## 4. Credentials
 
 The workflow prefers the dedicated repository secret:
 
@@ -78,7 +97,7 @@ Never commit a token, API key, password, Better Auth secret, account credential 
 
 Keep read and write credentials separate. Do not grant write permission merely to make the snapshot work.
 
-## 4. Default snapshot scope
+## 5. Default snapshot scope
 
 The default run queries:
 
@@ -92,13 +111,13 @@ It emits:
 
 - Topic identity/name/slug/description/parent/active state;
 - production-owned Case identity/internal title, bounded vignette preview and active state;
-- Case↔Topic relationships for those production-owned Cases;
-- relationship role (`primary` or `secondary`);
-- Topic active state for each route.
+- stored Case↔Topic relationships for those production-owned Cases;
+- relationship role (`primary` or legacy `secondary`);
+- Topic active state for each stored relationship.
 
-This is sufficient for most Topic taxonomy, relabelling, hierarchy and multi-Topic routing reviews.
+This is useful for taxonomy review and for identifying legacy relationships that remain physically stored. Current learner/Admin routing behavior itself should be determined from current code/docs, not inferred from the mere presence of a secondary row in this report.
 
-## 5. Optional reusable Topic questions
+## 6. Optional reusable Topic questions
 
 The manual workflow has an `include_topic_questions` input, disabled by default.
 
@@ -113,9 +132,9 @@ and emits reusable Topic prompts, a bounded answer preview, inheritance state an
 
 Use this only when question context is useful for understanding Topic meaning.
 
-The current snapshot workflow is not a general query surface for newer tables such as Reusable Image Questions. Add any future scope only through a reviewed, purpose-specific change with the privacy/safety boundary updated at the same time.
+The current snapshot workflow is not a general query surface for newer tables such as Reusable Image Questions or learner data. Add future scope only through a reviewed, purpose-specific change with the privacy/safety boundary updated at the same time.
 
-## 6. Explicitly excluded data
+## 7. Explicitly excluded data
 
 Do not expand the snapshot casually to include:
 
@@ -130,37 +149,37 @@ Do not expand the snapshot casually to include:
 
 If a future task genuinely requires sensitive/learner data, design a separate purpose-specific export with the minimum required fields and document its privacy boundary before implementation.
 
-## 7. Running the snapshot
+## 8. Running the snapshot
 
 1. Open **GitHub → Actions**.
 2. Select **Production content snapshot**.
 3. Choose **Run workflow**.
-4. Leave `include_topic_questions` off for normal taxonomy review, or enable it when Topic-question context is needed.
+4. Leave `include_topic_questions` off for normal taxonomy review, or enable it when Topic-question context is useful.
 5. Open the completed run and `snapshot` job.
-6. Inspect the grouped output and confirm the workflow revision includes the production-owned Case filter when using Case routes as evidence.
+6. Inspect the grouped output and confirm the workflow revision includes the production-owned Case filter when using Case rows as evidence.
 
 Record the workflow run when using the output as evidence for a production-content decision.
 
-## 8. Fixed-purpose production taxonomy operator
+## 9. Fixed-purpose historical production taxonomy operator
 
 The snapshot workflow is read-only and must remain read-only.
 
-The historical agreed taxonomy change has a separate fixed-purpose operator:
+The repository also contains the earlier fixed-purpose taxonomy operation:
 
 ```text
 .github/workflows/apply-agreed-production-taxonomy.yml
 scripts/apply-agreed-taxonomy.mjs
 ```
 
-That operator is deliberately not a generic production mutation API. It has fixed targets, fixed SQL/logic, a defined set of machine preconditions/postconditions and a separate least-privilege D1 write credential. Human inspection of its complete target relationship output remains necessary because its machine checks do not reject every possible additional secondary relationship.
+That operator records a specific historical production taxonomy change. It is deliberately not a generic production mutation API and should not be broadened into a Topic→Tag cleanup mechanism for PR #90.
 
-See `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md` for the audit/recovery contract.
+See `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md` for its historical audit/recovery contract.
 
-For future unrelated production data changes, do not reuse or broaden that workflow. Create a separately reviewed, narrowly scoped operator when direct production mutation is genuinely necessary.
+For any future direct production data mutation, use a separately reviewed, narrowly scoped operator only when the mutation is genuinely needed.
 
-## 9. Snapshot → operator audit pattern
+## 10. Snapshot → operator audit pattern
 
-For any approved fixed-purpose production content mutation, the preferred operational pattern remains:
+For an approved future fixed-purpose production content mutation, the preferred operational pattern remains:
 
 ```text
 read-only snapshot / pre-flight
@@ -169,11 +188,13 @@ read-only snapshot / pre-flight
 → read-only snapshot again
 ```
 
-Retain the relevant workflow runs as the audit trail.
+Retain relevant workflow runs as the audit trail.
 
 Do not treat a successful mutation operator as Worker deployment evidence; data mutation and code deployment are separate operations.
 
-## 10. Troubleshooting authorization
+PR #90 does not require such an operator merely to retire Additional Study Topics from current behavior.
+
+## 11. Troubleshooting authorization
 
 If Cloudflare reports that the account/token is not authorized, assume the query did not run successfully until proven otherwise.
 
@@ -184,14 +205,16 @@ Check:
 
 Prefer correcting/creating the dedicated read-only credential rather than broadening a deployment or write credential.
 
-## 11. Intended assistant workflow
+## 12. Intended assistant workflow
 
-A GitHub-capable assistant may inspect the completed snapshot workflow output without receiving the underlying Cloudflare secret.
+A GitHub-capable assistant may inspect completed snapshot workflow output without receiving the underlying Cloudflare secret.
 
 Use the snapshot as source of truth for the production learning-content rows it actually queried, rather than inferring those rows from seed fixtures or repository examples.
 
-Do not infer unqueried feature/deployment/migration state from snapshot output.
+Do not infer unqueried feature/deployment/migration/learner state from snapshot output.
 
-## 12. Maintenance rule
+Do not treat stored secondary rows as current learner routes merely because the snapshot emits them.
+
+## 13. Maintenance rule
 
 Any future change to queried tables/fields, Preview ownership filtering, credential selection, logging, or the safety/privacy boundary must update this document in the same reviewed change.
