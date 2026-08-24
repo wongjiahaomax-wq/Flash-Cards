@@ -18,6 +18,7 @@ declare global {
         BETTER_AUTH_SECRET: string;
         BETTER_AUTH_URL?: string;
         PREVIEW_MODE?: string;
+        SYSTEM_STUDY_NAVIGATION_ENABLED?: string;
       };
       cf?: CfProperties;
       ctx?: ExecutionContext;
