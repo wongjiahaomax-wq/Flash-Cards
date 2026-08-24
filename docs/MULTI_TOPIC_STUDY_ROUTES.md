@@ -1,12 +1,12 @@
 # Flash-Cards — Multi-Topic Case Study Routes
 
-_Last updated: 20 August 2026_
+_Last updated: 24 August 2026_
 
 ## Status
 
 **Implemented and part of the verified production baseline.** Learner multi-Topic routing and Review provenance landed through PR #18, and production Admin multi-Topic Case authoring is implemented. Current `main` additionally includes Case-editor Topic management/inline Topic creation from PR #54; merge status and deployment status remain separate facts.
 
-This remains the preferred model before introducing any Asset-to-Topic or stimulus-option-to-Topic learner-routing relationship.
+The contextual System/Topic/Tag navigation feature extends learner entry routing around this established model without replacing it. See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for the System hierarchy, contextual Tag exposure, Phase A/Phase B rollout, and additive Review route provenance.
 
 The key rule is:
 
@@ -56,6 +56,8 @@ Additional Study Topics
 
 rather than implying secondary Topics are weak metadata tags.
 
+With contextual System navigation, `case_concepts` may reference only `concepts.kind = 'topic'`. Systems group Topics for navigation but are never Case relationships.
+
 ## 3. Learner routing
 
 When a learner selects a Topic, eligible Cases include Cases attached through valid active primary or secondary Study Topic relationships, subject to the normal Topic/subtree selection rules implemented by the Study flow.
@@ -73,6 +75,8 @@ study_concept_id
 ```
 
 This distinction preserves both administrative classification and learner-route provenance.
+
+A later System navigation layer may additionally record the System and Tag used to enter the Review. Those fields do not change the meaning of `primary_concept_id` or `study_concept_id`.
 
 ## 4. Route-specific reusable Topic questions and selected-stimulus knowledge
 
@@ -182,6 +186,15 @@ Reusable Image Question
 
 These mechanisms may describe overlapping clinical ideas but do not imply one another.
 
+Contextual System navigation adds one further relationship:
+
+```text
+System → exposed Tag
+= this existing flat Tag is offered as a learner route inside this System
+```
+
+This does not move the Tag into a hierarchy, and the same Tag may be exposed by several Systems.
+
 ## 8. Interaction with stimulus groups
 
 Alternative stimulus selection is independent of which attached Topic is the administrative default.
@@ -207,6 +220,8 @@ That preserves pre-migration meaning because historical Reviews used primary-Top
 New Reviews record the actual Study Topic route used.
 
 Later question/image features do not rewrite these Topic snapshots. Reusable-image provenance lives on `review_questions`; historical media identity lives on `review_assets.storage_key_snapshot`.
+
+Contextual System navigation adds separate, nullable System/Tag route provenance. Historical Reviews remain Topic-routed by default and their snapshots are not rebuilt.
 
 ## 10. Production taxonomy example
 
@@ -235,6 +250,8 @@ Hypocalcaemia Case
 - Additional Study Topic: Prolonged QTc
 ```
 
+Under contextual System navigation, a top-level System can own the Cardiology/ECG Topic hierarchy while a curated Tag such as `QT prolongation` can also be exposed in that System. The same Case may therefore be reachable by both its Additional Study Topic and the Tag; System → All deduplicates it and prefers native Topic provenance.
+
 The `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md` runbook records the fixed-purpose production taxonomy operation used for the agreed data change. It is not a generic free-form taxonomy mutation API.
 
 ## 11. Admin authoring contract
@@ -255,6 +272,8 @@ Helper guidance should remind authors:
 
 > Add an Additional Study Topic only when the Case is a valid example of that Topic regardless of which valid alternative stimuli are selected.
 
+Global System/Topic hierarchy changes and System↔Tag exposure belong on the Admin Systems & Topics surfaces, not in a Case-local editor. Preview Admin may change only Preview Case Topic relationships; it does not gain global taxonomy mutation authority.
+
 ## 12. Schema decision
 
 Do not add:
@@ -267,3 +286,23 @@ Do not add:
 Reconsider stimulus-level learner routing only when real content demonstrates a Case that genuinely must remain one presentation while some valid alternatives are legitimate routes for a Topic and others are not.
 
 Until then, `case_concepts` plus contextual stimulus questions, exact-Asset reusable questions, Tags/Shared Questions, and the existing learner resolver remain the simpler and safer model.
+
+## 13. Contextual System route interaction
+
+The learner System layer deliberately routes **into** the model documented above.
+
+### System → Topic
+
+The selected descendant Topic is resolved through the normal multi-Topic Case algorithm. A cross-topic Case therefore keeps its canonical Primary Topic while `study_concept_id` records the selected attached Topic.
+
+### System → Tag
+
+A curated Tag can select a Case regardless of which System contains its Primary Topic. The Tag is navigation context only, so the Case enters the existing question resolver with its canonical Primary Topic as `study_concept_id`.
+
+This prevents Tag navigation from silently changing Topic-question inheritance.
+
+### System → All
+
+The union of native descendant Topic routes and curated Tag routes is deduplicated by Case. If a Case is reachable through both, native Topic provenance wins because it carries the more specific established Study Topic context.
+
+Full route provenance and rollout behavior are defined in `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md`.
