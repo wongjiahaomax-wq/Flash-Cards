@@ -296,14 +296,26 @@ export async function updatePreviewCaseVignette(db, previewSessionId, caseId, vi
     .where(and(eq(cases.id, caseId), eq(cases.previewSessionId, previewSessionId)));
 }
 
-/** @deprecated Additional Study Topics are not part of current Preview authoring. */
-export async function addPreviewSecondaryTopic(db, previewSessionId, caseId) {
+/**
+ * @deprecated Additional Study Topics are not part of current Preview authoring.
+ * @param {LearningDb} db
+ * @param {string} previewSessionId
+ * @param {string} caseId
+ * @param {string} _conceptId
+ */
+export async function addPreviewSecondaryTopic(db, previewSessionId, caseId, _conceptId) {
   await requireOwnedPreviewCase(db, previewSessionId, caseId);
   throw new PreviewWorkspaceError('Additional Study Topics are no longer supported. Use Case Tags for alternate or cross-cutting classification.', 'INVALID_INPUT');
 }
 
-/** @deprecated Legacy secondary Topic removal is handled only by the reviewed migration/operator step. */
-export async function removePreviewSecondaryTopic(db, previewSessionId, caseId) {
+/**
+ * @deprecated Legacy secondary Topic removal is handled only by the reviewed migration/operator step.
+ * @param {LearningDb} db
+ * @param {string} previewSessionId
+ * @param {string} caseId
+ * @param {string} _conceptId
+ */
+export async function removePreviewSecondaryTopic(db, previewSessionId, caseId, _conceptId) {
   await requireOwnedPreviewCase(db, previewSessionId, caseId);
   throw new PreviewWorkspaceError('Additional Study Topics are no longer supported. Use Case Tags for alternate or cross-cutting classification.', 'INVALID_INPUT');
 }
