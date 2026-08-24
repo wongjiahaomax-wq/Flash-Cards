@@ -4,6 +4,7 @@ import { createDb } from '$lib/server/db/index.js';
 import { listStudyConcepts, startReview, startSystemReview } from '$lib/server/db/learning.js';
 import { listStudySystems, StudyNavigationInputError } from '$lib/server/db/study-navigation.ts';
 import { QuestionPoolUnavailableError, isQuestionPoolMode } from '$lib/server/learning/question-pool-mode';
+import { systemStudyNavigationEnabled } from '$lib/server/learning/system-review-navigation.ts';
 import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 
 /** @param {App.Locals['user']} user @param {App.Platform | undefined} platform */
@@ -11,11 +12,6 @@ function assertLearnerStudyAccess(user, platform) {
   if (isPreviewWorker(platform?.env) || isPreviewOnlyAdmin(user)) {
     throw error(403, 'Learner Study is unavailable for Preview-only Admin.');
   }
-}
-
-/** @param {App.Platform | undefined} platform */
-function systemNavigationEnabled(platform) {
-  return platform?.env?.SYSTEM_STUDY_NAVIGATION_ENABLED === 'true';
 }
 
 /**
@@ -35,7 +31,7 @@ function parseSystemRoute(value) {
 
 export async function load({ locals, platform }) {
   assertLearnerStudyAccess(locals.user, platform);
-  const enabled = systemNavigationEnabled(platform);
+  const enabled = systemStudyNavigationEnabled(platform?.env);
   const database = platform?.env?.DB;
   if (!database) return { concepts: [], systems: [], systemNavigationEnabled: enabled, databaseConfigured: false };
 
@@ -86,7 +82,7 @@ export const actions = {
 
   startSystem: async ({ locals, platform, request }) => {
     assertLearnerStudyAccess(locals.user, platform);
-    if (!systemNavigationEnabled(platform)) throw error(404, 'System study navigation is not enabled.');
+    if (!systemStudyNavigationEnabled(platform?.env)) throw error(404, 'System study navigation is not enabled.');
     if (!platform?.env?.DB || !locals.user) throw error(503, 'Study database is not configured.');
     const formData = await request.formData();
     const systemId = formData.get('systemId');
