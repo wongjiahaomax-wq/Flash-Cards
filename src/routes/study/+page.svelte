@@ -1,7 +1,7 @@
 <script>
   import SignOutButton from '$lib/components/SignOutButton.svelte';
 
-  let { data } = $props();
+  let { data, form } = $props();
 </script>
 
 <svelte:head>
@@ -14,8 +14,8 @@
       <p class="eyebrow">Learner study</p>
       <h1>Choose a topic to review</h1>
       <p class="muted intro">
-        Choose a topic and Flash-Cards will select a compatible case and snapshot its questions and
-        teaching images for this review.
+        Choose a topic and question set. Flash-Cards will select a compatible case and snapshot its
+        questions and teaching images for this review.
       </p>
     </div>
 
@@ -44,8 +44,40 @@
           <p class="muted">{topic.description ?? 'Case-based medical learning.'}</p>
         </div>
 
-        <form method="POST" action="?/start">
+        <form method="POST" action="?/start" class="start-form">
           <input type="hidden" name="conceptId" value={topic.id} />
+          <fieldset class="question-set">
+            <legend>Choose question set</legend>
+            <label class="mode-option">
+              <input
+                type="radio"
+                name="questionPoolMode"
+                value="core"
+                checked={form?.conceptId === topic.id ? form.questionPoolMode === 'core' : true}
+              />
+              <span>
+                <strong>Original questions</strong>
+                <small>Questions curated specifically for this Case.</small>
+              </span>
+            </label>
+            <label class="mode-option">
+              <input
+                type="radio"
+                name="questionPoolMode"
+                value="expanded"
+                checked={form?.conceptId === topic.id && form.questionPoolMode === 'expanded'}
+              />
+              <span>
+                <strong>Expanded Learning</strong>
+                <small>Includes reusable questions relevant to this Case.</small>
+              </span>
+            </label>
+          </fieldset>
+
+          {#if form?.message && form.conceptId === topic.id}
+            <p class="start-error" role="alert">{form.message}</p>
+          {/if}
+
           <button class="button primary" type="submit">Start review →</button>
         </form>
       </section>
@@ -120,7 +152,8 @@
     padding: 1.25rem;
   }
 
-  .topic-heading {
+  .topic-heading,
+  .start-form {
     display: grid;
     gap: 0.75rem;
   }
@@ -128,6 +161,58 @@
   .topic-heading p:last-child {
     margin: 0;
     line-height: 1.5;
+  }
+
+  .question-set {
+    display: grid;
+    gap: 0.6rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+  }
+
+  .question-set legend {
+    margin-bottom: 0.15rem;
+    color: #344054;
+    font-size: 0.88rem;
+    font-weight: 700;
+  }
+
+  .mode-option {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 0.65rem;
+    padding: 0.75rem;
+    border: 1px solid #dfe5ee;
+    border-radius: 10px;
+    cursor: pointer;
+  }
+
+  .mode-option:has(input:checked) {
+    border-color: #98a2b3;
+    background: #f8fafc;
+  }
+
+  .mode-option input {
+    margin-top: 0.18rem;
+  }
+
+  .mode-option span {
+    display: grid;
+    gap: 0.2rem;
+  }
+
+  .mode-option small {
+    color: #667085;
+    line-height: 1.4;
+  }
+
+  .start-error {
+    margin: 0;
+    color: #b42318;
+    font-size: 0.88rem;
+    line-height: 1.45;
   }
 
   @media (max-width: 760px) {
