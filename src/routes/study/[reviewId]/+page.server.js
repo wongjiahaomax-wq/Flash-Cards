@@ -6,7 +6,8 @@ import {
   continueReviewWithExpandedLearning,
   getReview,
   revealReview,
-  startReview
+  startReview,
+  startSystemReview
 } from '$lib/server/db/learning.js';
 import { listOwnedReviewMedia } from '$lib/server/db/review-media.js';
 import {
@@ -14,6 +15,7 @@ import {
   QuestionPoolUnavailableError,
   isQuestionPoolMode
 } from '$lib/server/learning/question-pool-mode';
+import { StudyNavigationInputError } from '$lib/server/db/study-navigation.ts';
 import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 import { getReviewImageUrl } from '$lib/server/storage/media.js';
 
@@ -44,7 +46,11 @@ export async function load({ locals, params, platform }) {
       // The database title is an internal/admin label and is deliberately not
       // rendered here because it may disclose the diagnosis before reveal.
       title: 'Case review',
-      concept: review.conceptName,
+      concept: review.routeLabel,
+      systemName: review.systemName,
+      routeType: review.routeType,
+      studyTagId: review.studyTagId,
+      studyConceptId: review.studyConceptId,
       primaryConceptId: review.primaryConceptId,
       vignette: review.vignette,
       status: review.status,
@@ -72,9 +78,11 @@ export async function load({ locals, params, platform }) {
                 ? 'Reusable image answer'
                 : question.sourceType === 'stimulus_group'
                   ? 'Stimulus group answer'
-                  : question.sourceType === 'ancestor_concept'
-                    ? 'Inherited topic question'
-                    : 'Topic question'
+                  : question.sourceType === 'tag_shared'
+                    ? 'Shared Tag-scoped answer'
+                    : question.sourceType === 'ancestor_concept'
+                      ? 'Inherited topic question'
+                      : 'Topic question'
       }))
     }
   };
@@ -125,17 +133,28 @@ export const actions = {
 
     let reviewId;
     try {
-      reviewId = await startReview({
-        db,
-        userId: context.user.id,
-        conceptId: review.primaryConceptId,
-        questionPoolMode
-      });
+      if (review.studySystemConceptId) {
+        reviewId = await startSystemReview({
+          db,
+          userId: context.user.id,
+          systemId: review.studySystemConceptId,
+          routeType: review.routeType,
+          routeId: review.routeType === 'tag' ? review.studyTagId : review.studyConceptId,
+          questionPoolMode
+        });
+      } else {
+        reviewId = await startReview({
+          db,
+          userId: context.user.id,
+          conceptId: review.primaryConceptId,
+          questionPoolMode
+        });
+      }
     } catch (cause) {
-      if (cause instanceof QuestionPoolUnavailableError) return fail(400, { message: cause.message });
+      if (cause instanceof QuestionPoolUnavailableError || cause instanceof StudyNavigationInputError) return fail(400, { message: cause.message });
       throw cause;
     }
-    if (!reviewId) throw error(404, 'No active study cases are available for this topic.');
+    if (!reviewId) throw error(404, 'No active study cases are available for this route.');
     redirect(303, `/study/${reviewId}`);
   }
 };
