@@ -1,12 +1,15 @@
 <script>
   let { data, form } = $props();
   let query = $state('');
+  let createKind = $state('topic');
   $effect(() => { query = data.filters.search; });
 
   /** @param {string} conceptId */
   function parentOptions(conceptId) {
     return data.hierarchyOptions.filter((candidate) => candidate.id !== conceptId && candidate.isActive);
   }
+
+  const activeSystems = $derived(data.hierarchyOptions.filter((item) => item.kind === 'system' && item.isActive));
 </script>
 
 <svelte:head><title>Systems &amp; Topics | Admin | Flash-Cards</title></svelte:head>
@@ -38,8 +41,10 @@
   <div><p class="eyebrow">Create classification</p><h2>New System or Topic</h2><p class="muted">New Topics may be temporarily unassigned. Systems are always top-level.</p></div>
   <form method="POST" action="?/createConcept" class="create-form">
     <label>Name<input name="name" maxlength="200" required placeholder="e.g. Cardiology or Pericarditis" /></label>
-    <label>Kind<select name="kind" required><option value="topic">Topic</option><option value="system">System</option></select></label>
-    <label>Parent for Topic<select name="parent_id"><option value="">Unassigned / top-level Topic</option>{#each data.hierarchyOptions.filter((item) => item.isActive) as parent}<option value={parent.id}>{parent.breadcrumbLabel}</option>{/each}</select></label>
+    <label>Kind<select name="kind" bind:value={createKind} required><option value="topic">Topic</option><option value="system">System</option></select></label>
+    {#if createKind === 'topic'}
+      <label>Parent System<select name="parent_id"><option value="">Unassigned</option>{#each activeSystems as parent}<option value={parent.id}>{parent.name}</option>{/each}</select></label>
+    {/if}
     <label class="wide">Description<textarea name="description_md" rows="2" placeholder="Optional Admin/learner context"></textarea></label>
     <button class="button primary" type="submit">Create</button>
   </form>
