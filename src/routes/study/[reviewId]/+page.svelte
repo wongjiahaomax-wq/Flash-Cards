@@ -122,8 +122,16 @@
             <button class="button action-button" type="submit">Continue with Expanded Learning</button>
           </form>
         {/if}
-        <form method="POST" action="?/next">
-          <button class="button primary action-button" type="submit">Next case →</button>
+        <form method="POST" action="?/next" class="next-case-form">
+          <span class="next-case-prompt">Choose the question set for your next case</span>
+          <div class="next-case-buttons">
+            <button class="button primary action-button" type="submit" name="questionPoolMode" value="core">
+              Next case — Original questions →
+            </button>
+            <button class="button action-button" type="submit" name="questionPoolMode" value="expanded">
+              Next case — Expanded Learning →
+            </button>
+          </div>
         </form>
       </div>
     {/if}
@@ -376,12 +384,26 @@
   }
 
   .rating-buttons,
-  .completion-buttons {
+  .completion-buttons,
+  .next-case-buttons {
     display: flex;
     gap: 0.6rem;
     align-items: center;
     flex-wrap: wrap;
     justify-content: flex-end;
+  }
+
+  .completion-buttons,
+  .next-case-form {
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .next-case-prompt {
+    color: #667085;
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-align: right;
   }
 
   .action-error {
@@ -411,13 +433,18 @@
     }
 
     .rating-buttons,
-    .completion-buttons {
+    .completion-buttons,
+    .next-case-buttons {
       display: grid;
       grid-template-columns: 1fr;
     }
 
     .rating-buttons {
       grid-template-columns: 1fr 1fr;
+    }
+
+    .next-case-prompt {
+      text-align: left;
     }
 
     .action-button,
