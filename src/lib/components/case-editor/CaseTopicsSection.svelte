@@ -32,11 +32,6 @@
     return topics.find((topic) => topic.role === 'primary' && !topic.isActive);
   }
 
-  /** @param {CaseTopic[]} topics */
-  function legacyNonPrimaryTopics(topics) {
-    return topics.filter((topic) => topic.role !== 'primary');
-  }
-
   /** @param {CaseTag[] | undefined} caseTags @param {string} tagId */
   function hasTag(caseTags, tagId) {
     return Boolean(caseTags?.some((tag) => tag.id === tagId));
@@ -72,13 +67,6 @@
     </div>
     {#if !previewMode}<div class="taxonomy-links"><a href="/admin/topics">Manage Systems &amp; Topics</a>{#if primaryTopic}<a href={'/admin/topics/' + primaryTopic.id}>Open primary Topic</a>{/if}</div>{/if}
   </div>
-
-  {#if legacyNonPrimaryTopics(selectedCase.topics).length}
-    <div class="legacy-warning" role="status">
-      <strong>Legacy non-primary Topic relationships detected.</strong>
-      <span>This Case must be handled by the reviewed Topic-to-Tag data migration before this feature can be released.</span>
-    </div>
-  {/if}
 
   <div class="topic-primary">
     <div class="topic-row-heading">
@@ -144,7 +132,6 @@
   .muted { color: #667085; } .stack { display: grid; gap: 0.85rem; }
   .panel { margin-top: 1rem; padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; }
   .taxonomy-context,.case-tags-context { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.8rem .9rem; border:1px solid #dfe5ee; border-radius:8px; background:#fff; } .taxonomy-context > div:first-child,.case-tags-heading { display:grid; gap:.2rem; } .taxonomy-context small,.case-tags-context small { color:#667085; } .breadcrumb { color:#344054; font-weight:650; } .taxonomy-links { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.6rem; } .taxonomy-links a,.manage-tags { color:#344054; font-size:.86rem; }
-  .legacy-warning { display:grid; gap:.2rem; padding:.75rem .85rem; border:1px solid #fedf89; border-radius:8px; background:#fffaeb; color:#7a2e0e; }
   .case-tags-context { align-items:flex-start; flex-wrap:wrap; } .tag-chips { display:flex; flex:1; flex-wrap:wrap; gap:.45rem; } .tag-chip-wrap { display:flex; align-items:center; gap:.25rem; } .tag-chip { display:inline-block; padding:.18rem .45rem; border-radius:999px; background:#eef4ff; color:#3538cd; font-size:.78rem; font-weight:650; text-decoration:none; } .tag-chip.inactive { background:#f2f4f7; color:#667085; } .tag-remove { padding:.18rem .35rem; border:0; background:transparent; color:#b42318; cursor:pointer; font:inherit; font-size:.75rem; }
   .tag-add-form { display:flex; flex-wrap:wrap; align-items:end; gap:.55rem; width:100%; } .tag-add-form label { flex:1; min-width:min(100%,260px); }
   .topic-primary { display: grid; gap: 0.75rem; padding: 0.9rem; border: 1px solid #eaecf0; border-radius: 8px; background: #f8fafc; }
@@ -158,7 +145,7 @@
   .status-badge { display: inline-block; width: max-content; padding: 0.2rem 0.45rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; white-space: nowrap; }
   .status-badge.inactive, .status-badge[class~="inactive"] { background: #f2f4f7; color: #667085; }
   .form-error { margin: 1rem 0; padding: 0.75rem; border-radius: 8px; background: #fef3f2; color: #b42318; } .inline-error { margin: 0; }
-  .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; }
+  .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor:pointer; font: inherit; }
   .button.primary { border-color: #172033; background: #172033; color: #fff; }
   label { display: grid; gap: 0.35rem; color: #344054; font-weight: 650; } input, select { width: 100%; box-sizing: border-box; padding: 0.65rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; }
   button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
