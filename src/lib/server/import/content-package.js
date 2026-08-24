@@ -10,9 +10,9 @@ import {
   caseQuestions,
   cases,
   conceptQuestions,
-  concepts,
   questionPrompts
 } from '../db/schema.js';
+import { pre0015Concepts } from '../db/pre-0015-compat-schema.ts';
 import { deleteTeachingImage, putTeachingImage, assertSupportedImageType, MAX_IMAGE_BYTES } from '../storage/media.js';
 
 export const IMPORT_PACKAGE_VERSION = 1;
@@ -37,7 +37,7 @@ const PACKAGE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/;
 const MIME_TYPES = new Set(['image/jpeg', 'image/png']);
 
 const TABLES = {
-  topics: concepts,
+  topics: pre0015Concepts,
   cases,
   assets,
   questionPrompts,
@@ -496,7 +496,7 @@ export async function validateImportPackage(db, parsed) {
 
   for (const item of manifest.topics) {
     const appId = item.operation === 'create' ? deterministicApplicationId(manifest.packageId, 'topic', item.id) : item.applicationId;
-    const row = item.operation === 'create' ? await rowById(db, concepts, appId) : await requireExisting(db, concepts, appId, `Topic ${item.id}`, issues);
+    const row = item.operation === 'create' ? await rowById(db, pre0015Concepts, appId) : await requireExisting(db, pre0015Concepts, appId, `Topic ${item.id}`, issues);
     const parentTopic = item.parentTopicId ? topicById.get(item.parentTopicId) : null;
     const expectedParentId = parentTopic ? parentTopic.operation === 'create' ? deterministicApplicationId(manifest.packageId, 'topic', parentTopic.id) : parentTopic.applicationId : null;
     if (item.operation === 'create' && row && !fieldsMatch(row, { id: appId, name: item.name, slug: item.slug, descriptionMd: item.descriptionMd, parentId: expectedParentId, isActive: item.isActive })) issues.push(`Topic ${item.id} conflicts with an existing application row.`);
@@ -572,7 +572,7 @@ export async function importContentPackage(db, bucket, validation) {
       uploadedKeys.push(key);
     }
     const statements = [];
-    for (const topic of manifest.topics) if (topic.operation === 'create' && !(await rowById(db, concepts, resolved.topics.get(topic.id)))) statements.push(db.insert(concepts).values({ id: resolved.topics.get(topic.id), name: topic.name, slug: topic.slug, descriptionMd: topic.descriptionMd, parentId: topic.parentTopicId ? resolved.topics.get(topic.parentTopicId) : null, isActive: topic.isActive }));
+    for (const topic of manifest.topics) if (topic.operation === 'create' && !(await rowById(db, pre0015Concepts, resolved.topics.get(topic.id)))) statements.push(db.insert(pre0015Concepts).values({ id: resolved.topics.get(topic.id), name: topic.name, slug: topic.slug, descriptionMd: topic.descriptionMd, parentId: topic.parentTopicId ? resolved.topics.get(topic.parentTopicId) : null, isActive: topic.isActive }));
     for (const item of manifest.questionPrompts) if (item.operation === 'create' && !(await rowById(db, questionPrompts, resolved.questionPrompts.get(item.id)))) statements.push(db.insert(questionPrompts).values({ id: resolved.questionPrompts.get(item.id), promptMd: item.promptMd, isActive: item.isActive }));
     for (const item of manifest.cases) if (item.operation === 'create' && !(await rowById(db, cases, resolved.cases.get(item.id)))) statements.push(db.insert(cases).values({ id: resolved.cases.get(item.id), title: item.title, vignetteMd: item.vignetteMd, questionSelectionMode: item.questionSelectionMode, questionCount: item.questionCount, isActive: item.isActive }));
     for (const item of manifest.assets) if (item.operation === 'create' && !(await rowById(db, assets, resolved.assets.get(item.id)))) statements.push(db.insert(assets).values({ id: resolved.assets.get(item.id), type: 'image', storageKey: deterministicStorageKey(manifest.packageId, item.id, item.mimeType), mimeType: item.mimeType, originalFilename: item.originalFilename, altText: item.altText, sourceLabel: item.sourceLabel, sourceUrl: item.sourceUrl, licence: item.licence, isActive: item.isActive }));
