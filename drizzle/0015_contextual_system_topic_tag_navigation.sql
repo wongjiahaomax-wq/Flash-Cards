@@ -159,6 +159,26 @@ BEGIN
   SELECT RAISE(ABORT, 'System Tag relationships require an active System.');
 END;
 --> statement-breakpoint
+CREATE TRIGGER `system_tags_active_tag_insert`
+BEFORE INSERT ON `system_tags`
+WHEN NOT EXISTS (
+  SELECT 1 FROM `tags`
+  WHERE `id` = NEW.`tag_id` AND `is_active` = 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'System Tag relationships require an active Tag.');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `system_tags_active_tag_update`
+BEFORE UPDATE OF `tag_id` ON `system_tags`
+WHEN NOT EXISTS (
+  SELECT 1 FROM `tags`
+  WHERE `id` = NEW.`tag_id` AND `is_active` = 1
+)
+BEGIN
+  SELECT RAISE(ABORT, 'System Tag relationships require an active Tag.');
+END;
+--> statement-breakpoint
 CREATE TRIGGER `concepts_system_tags_block_kind_change`
 BEFORE UPDATE OF `kind` ON `concepts`
 WHEN OLD.`kind` = 'system' AND NEW.`kind` <> 'system'
