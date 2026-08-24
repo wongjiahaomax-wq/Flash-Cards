@@ -118,6 +118,16 @@ async function lastCompletedCaseId(db, userId) {
   return row[0]?.caseId ?? null;
 }
 
+/** @param {LearningDb} db @param {string} caseId */
+async function currentPrimaryConceptIdForCase(db, caseId) {
+  const rows = await db
+    .select({ conceptId: caseConcepts.conceptId })
+    .from(caseConcepts)
+    .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.role, 'primary')))
+    .limit(1);
+  return rows[0]?.conceptId ?? null;
+}
+
 /** @param {Awaited<ReturnType<typeof loadCaseSource>> extends infer T ? Exclude<T, null> : never} source @param {QuestionPoolMode} questionPoolMode @param {() => number} rng */
 function pickQuestionsForReview(source, questionPoolMode, rng) {
   try {
@@ -305,11 +315,13 @@ export async function continueReviewWithExpandedLearning({ db, userId, reviewId,
   if (!review) throw new Error('Review not found.');
   if (review.status !== 'completed') throw new Error('Complete this review before continuing with Expanded Learning.');
   if (review.questionPoolMode !== 'core') throw new Error('Expanded Learning continuation is only available after an Original questions review.');
+  const primaryConceptId = await currentPrimaryConceptIdForCase(db, review.caseId);
+  if (!primaryConceptId) return null;
   return createReviewForCase({
     db,
     userId,
     caseId: review.caseId,
-    studyConceptId: review.studyConceptId,
+    studyConceptId: primaryConceptId,
     studySystemConceptId: review.studySystemConceptId,
     routeType: review.routeType,
     studyTagId: review.studyTagId,
@@ -341,7 +353,9 @@ async function loadCaseSource(db, caseId, studyConceptId, questionPoolMode, rng)
     .from(caseConcepts)
     .where(eq(caseConcepts.caseId, caseId));
   const primaryConceptId = caseTopicRows.find((topic) => topic.role === 'primary')?.conceptId;
-  const studyLink = caseTopicRows.find((topic) => topic.conceptId === studyConceptId);
+  const studyLink = caseTopicRows.find(
+    (topic) => topic.conceptId === studyConceptId && topic.role === 'primary'
+  );
   if (!primaryConceptId || !studyLink) return null;
 
   const conceptRows = (await listActiveConceptTaxonomy(db)).map((concept) => ({
