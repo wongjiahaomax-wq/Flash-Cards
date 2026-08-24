@@ -37,9 +37,11 @@ Relevant later migrations:
 - `0012` — `stimulus_group_options.removed_from_case`, separating archived removal from ordinary `is_active` deactivation;
 - `0013` — `review_assets(asset_id, review_id)` index for Asset-leading historical Review existence/count lookups used by Image Library lifecycle classification;
 - `0014` — non-null `reviews.question_pool_mode`, defaulting historical Reviews to `expanded`, matching the pre-feature full resolver behavior without rebuilding snapshots;
-- `0015` — `concepts.kind`, contextual `system_tags`, taxonomy/relationship guards, and additive Review System/Tag route provenance.
+- `0015` — `concepts.kind`, contextual `system_tags`, taxonomy/relationship guards, effective Review System/Tag provenance, and learner-selected System navigation provenance.
 
-`0015` defaults all existing Concepts to `kind = 'topic'` and all historical Reviews to `route_type = 'topic'` with null System/Tag provenance. It does not rewrite `review_questions` or `review_assets` snapshots.
+`0015` defaults all existing Concepts to `kind = 'topic'` and all historical Reviews to `route_type = 'topic'` with null System/Tag and selected-navigation provenance. It does not rewrite `review_questions` or `review_assets` snapshots.
+
+`src/lib/server/db/schema.js` is the authoritative post-0015 Drizzle model loaded by `drizzle.config.js`. Narrow pre-0015 Topic-only rollout compatibility uses `pre-0015-compat-schema.ts`, which is intentionally excluded from Drizzle generation/check configuration; `contextual-schema.ts` aliases the canonical tables instead of defining a second physical schema.
 
 ## 2. General design rules
 
@@ -58,6 +60,7 @@ Relevant later migrations:
 13. Asset lifecycle status and derived usage classification are distinct concepts.
 14. Learner question-pool eligibility and Case question-count selection are orthogonal concerns: source eligibility is decided before duplicate-Prompt resolution, then existing Automatic/All/Fixed selection is applied.
 15. System/Tag learner navigation chooses Case entry context; it does not replace Topic-question resolution.
+16. A Review distinguishes the learner-selected System route from the effective Topic/Tag provenance that actually selected its Case.
 
 ## 3. Authentication and Preview ownership
 
@@ -450,7 +453,7 @@ Reviewed source-derived questions continue to become Case Questions, which is ex
 
 ## 15. Reviews
 
-A `reviews` row represents one learner attempt at one resolved Case and question pool. It preserves canonical primary Topic, actual Topic context, optional System/Tag navigation provenance, Case title/vignette snapshots, and completion/rating state.
+A `reviews` row represents one learner attempt at one resolved Case and question pool. It preserves canonical primary Topic, actual Topic context, optional System/Tag effective provenance, learner-selected System navigation provenance, Case title/vignette snapshots, and completion/rating state.
 
 Relevant conceptual fields include:
 
@@ -463,6 +466,8 @@ study_concept_id
 study_system_concept_id nullable
 route_type topic | tag
 study_tag_id nullable
+navigation_route_type nullable all | topic | tag
+navigation_route_id nullable
 case_title_snapshot
 vignette_snapshot_md
 question_pool_mode core | expanded
@@ -485,25 +490,45 @@ pre-0015 Review
 → route_type = topic
 → study_system_concept_id = NULL
 → study_tag_id = NULL
+→ navigation_route_type = NULL
+→ navigation_route_id = NULL
 ```
 
-because the older learner path resolved the full reusable pool through Topic routing. Additive defaults provide this meaning without rewriting `review_questions` or `review_assets`.
+because the older learner path resolved the full reusable pool through Topic routing. Additive defaults/nulls provide this meaning without rewriting `review_questions` or `review_assets`.
 
-Route-provenance rules are:
+Effective route-provenance rules are:
 
 ```text
-topic route
+topic effective route
 → study_tag_id MUST be NULL
 → study_system_concept_id may be NULL for legacy Topic navigation
-  or contain the System used by System → Topic / All routing
+  or contain the System used by System navigation
 
-tag route
+tag effective route
 → study_system_concept_id required
 → study_tag_id required
 → study_concept_id remains the selected Case's canonical Primary Topic
 ```
 
-Original → Expanded continuation preserves the same System/route provenance.
+Selected navigation provenance is deliberately separate:
+
+```text
+System → All
+→ navigation_route_type = all
+→ navigation_route_id = NULL
+→ effective route_type may be topic or tag for the selected Case
+
+System → Topic
+→ navigation_route_type = topic
+→ navigation_route_id = the Topic the learner selected
+→ study_concept_id may resolve to a more specific descendant Topic
+
+System → Tag
+→ navigation_route_type = tag
+→ navigation_route_id = study_tag_id
+```
+
+Original → Expanded continuation preserves both selected and effective provenance. “Next case” reconstructs the selected navigation route, so `All` remains `All` and a parent Topic selection does not narrow to the first Case's descendant Study Topic.
 
 Question-pool mode is orthogonal to `cases.question_selection_mode`:
 
@@ -672,6 +697,7 @@ reviews
   ├── study_concept_id ── concepts   [Topic]
   ├── study_system_concept_id ── concepts [nullable System]
   ├── study_tag_id ── tags [nullable]
+  ├── navigation_route_type / navigation_route_id [selected System route]
   ├── review_questions
   └── review_assets
 ```
@@ -694,9 +720,9 @@ System → All
 → native Topic provenance wins when both routes match
 ```
 
-A Tag can be exposed by more than one System. Each Review records the actual System context used.
+A Tag can be exposed by more than one System. Each Review records both the actual effective System/Topic/Tag context used for that Case and, for System navigation, the learner-selected `All`/Topic/Tag route needed to continue navigation correctly.
 
-The learner System surface is rollout-gated by `SYSTEM_STUDY_NAVIGATION_ENABLED=true`. Absence of that exact value retains the existing Topic learner navigation while allowing schema/Admin taxonomy curation to deploy first.
+The learner System surface is rollout-gated by `SYSTEM_STUDY_NAVIGATION_ENABLED=true`. Absence of that exact value retains the existing Topic learner navigation and blocks “Next case” from selecting another System-routed Case even when an older System Review remains open. Existing Reviews remain readable/completable; same-Case Original → Expanded continuation may finish the current Case without selecting another System Case.
 
 See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for the operational Phase A/Phase B contract.
 
