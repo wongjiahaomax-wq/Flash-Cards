@@ -30,6 +30,7 @@
     "local:refresh:d1": "node scripts/refresh-local-replica.mjs d1",
     "local:refresh:r2": "node scripts/refresh-local-replica.mjs r2",
     "local:admin": "node scripts/bootstrap-local-admin.mjs",
+    "local:stop": "node scripts/local-stop.mjs",
     "admin:bootstrap": "node scripts/bootstrap-admin.mjs",
     "preview-admin:bootstrap": "node scripts/bootstrap-preview-admin.mjs",
     "slide-review:build": "node tools/slide-import-review/scripts/build.mjs",
