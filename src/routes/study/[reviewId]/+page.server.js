@@ -16,6 +16,11 @@ import {
   isQuestionPoolMode
 } from '$lib/server/learning/question-pool-mode';
 import { StudyNavigationInputError } from '$lib/server/db/study-navigation.ts';
+import {
+  SystemStudyNavigationDisabledError,
+  resolveNextSystemStudyRoute,
+  systemStudyNavigationEnabled
+} from '$lib/server/learning/system-review-navigation.ts';
 import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 import { getReviewImageUrl } from '$lib/server/storage/media.js';
 
@@ -52,6 +57,7 @@ export async function load({ locals, params, platform }) {
       studyTagId: review.studyTagId,
       studyConceptId: review.studyConceptId,
       primaryConceptId: review.primaryConceptId,
+      nextCaseAvailable: !review.studySystemConceptId || systemStudyNavigationEnabled(platform?.env),
       vignette: review.vignette,
       status: review.status,
       rating: review.rating,
@@ -133,13 +139,17 @@ export const actions = {
 
     let reviewId;
     try {
-      if (review.studySystemConceptId) {
+      const systemRoute = resolveNextSystemStudyRoute(
+        review,
+        systemStudyNavigationEnabled(platform?.env)
+      );
+      if (systemRoute) {
         reviewId = await startSystemReview({
           db,
           userId: context.user.id,
-          systemId: review.studySystemConceptId,
-          routeType: review.routeType,
-          routeId: review.routeType === 'tag' ? review.studyTagId : review.studyConceptId,
+          systemId: systemRoute.systemId,
+          routeType: systemRoute.routeType,
+          routeId: systemRoute.routeId,
           questionPoolMode
         });
       } else {
@@ -151,7 +161,13 @@ export const actions = {
         });
       }
     } catch (cause) {
-      if (cause instanceof QuestionPoolUnavailableError || cause instanceof StudyNavigationInputError) return fail(400, { message: cause.message });
+      if (
+        cause instanceof QuestionPoolUnavailableError
+        || cause instanceof StudyNavigationInputError
+        || cause instanceof SystemStudyNavigationDisabledError
+      ) {
+        return fail(400, { message: cause.message });
+      }
       throw cause;
     }
     if (!reviewId) throw error(404, 'No active study cases are available for this route.');
