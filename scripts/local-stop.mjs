@@ -117,13 +117,13 @@ export function createProcessListPlan(platform = process.platform) {
         '-NoProfile',
         '-NonInteractive',
         '-Command',
-        'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress'
+        '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine | ConvertTo-Json -Compress'
       ]
     };
   }
   return {
     command: 'ps',
-    args: ['-axo', 'pid=,ppid=,command=']
+    args: ['-axww', '-o', 'pid=,ppid=,command=']
   };
 }
 
