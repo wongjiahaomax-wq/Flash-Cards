@@ -140,7 +140,7 @@ test('Additional Study Topic mutation APIs fail closed in favor of Case Tags', a
   }
 });
 
-test('legacy secondary Topic rows remain visible but block silent Primary Topic replacement', async () => {
+test('legacy secondary Topic rows stay stored but are hidden and do not block Primary Topic replacement', async () => {
   const fixture = createLearningDb();
   try {
     const created = await createCase(fixture.db, { title: 'Legacy relationship Case', conceptId: 'seed-anterior-stemi' });
@@ -148,14 +148,27 @@ test('legacy secondary Topic rows remain visible but block silent Primary Topic 
     fixture.sqlite.prepare("UPDATE concepts SET is_active = 0 WHERE id = 'seed-pityriasis-rosea'").run();
 
     const topics = await listCaseTopics(fixture.db, created.id);
-    assert.equal(topics.find((topic) => topic.id === 'seed-pityriasis-rosea')?.isActive, false);
-    await assert.rejects(
-      promoteCaseTopic(fixture.db, { caseId: created.id, conceptId: 'seed-stemi' }),
-      (error) => error instanceof AdminContentInputError && /legacy non-primary Topic relationships/i.test(error.message)
-    );
+    assert.deepEqual(topics.map((topic) => topic.id), ['seed-anterior-stemi']);
+
+    await promoteCaseTopic(fixture.db, { caseId: created.id, conceptId: 'seed-stemi' });
     assert.deepEqual(topicRelationships(fixture.sqlite, created.id), [
-      { concept_id: 'seed-anterior-stemi', role: 'primary' },
-      { concept_id: 'seed-pityriasis-rosea', role: 'secondary' }
+      { concept_id: 'seed-pityriasis-rosea', role: 'secondary' },
+      { concept_id: 'seed-stemi', role: 'primary' }
+    ]);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('choosing a Topic already stored as a legacy secondary makes it canonical without duplicate relationships', async () => {
+  const fixture = createLearningDb();
+  try {
+    const created = await createCase(fixture.db, { title: 'Legacy promotion Case', conceptId: 'seed-anterior-stemi' });
+    fixture.sqlite.prepare("INSERT INTO case_concepts (case_id, concept_id, role) VALUES (?, 'seed-pityriasis-rosea', 'secondary')").run(created.id);
+
+    await promoteCaseTopic(fixture.db, { caseId: created.id, conceptId: 'seed-pityriasis-rosea' });
+    assert.deepEqual(topicRelationships(fixture.sqlite, created.id), [
+      { concept_id: 'seed-pityriasis-rosea', role: 'primary' }
     ]);
   } finally {
     fixture.sqlite.close();
