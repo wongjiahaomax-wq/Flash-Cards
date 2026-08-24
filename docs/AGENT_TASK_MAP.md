@@ -8,7 +8,7 @@ Always read the root `AGENTS.md`, the nearest scoped `AGENTS.md`, and the direct
 
 Detect the agent's actual capabilities at task start, then select the best supported workflow automatically. Do not use the user's phone/laptop status as a proxy for agent capabilities. Explicit user execution constraints override automatic selection.
 
-Before creating or selecting a branch, identify the requested work state. If an existing PR or branch is explicitly targeted, inspect and continue that current head against its intended base. If no existing work state is targeted, resolve the intended base, normally the latest `main`, and create a feature branch from that resolved base.
+Before creating or selecting a branch, identify the requested work state. If an existing PR or branch is explicitly targeted, inspect and continue that current head against its intended base. If no existing work state is targeted, resolve the intended base, normally the latest `main`, and create the feature branch from that resolved base.
 
 ```text
 usable checkout + command execution + repository workflow
@@ -30,6 +30,8 @@ All modes use the same minimum-context routing:
 5. directly relevant implementation and tests.
 
 `docs/HANDOVER.md` remains optional unless project-wide state or recent implementation status is materially relevant.
+
+Load `docs/ENGINEERING_ARCHITECTURE_GUIDELINES.md` when the task performs a substantial refactor, introduces a new domain/module boundary, decomposes an architectural hotspot, or performs meaningful JavaScript-to-TypeScript extraction/migration. It is not required context for every trivial coding task.
 
 ### Local checkout mode
 
@@ -137,6 +139,7 @@ Runtime and slide-review suites remain specialized rather than universal gates. 
 
 | Task | Scoped guidance | Minimum authoritative context | Common checks |
 | --- | --- | --- | --- |
+| Substantial refactor / new module boundary / hotspot decomposition / meaningful JS→TS extraction | nearest relevant scoped guidance | `ENGINEERING_ARCHITECTURE_GUIDELINES.md` plus the affected subsystem authority | `agent:checks`; focused characterization tests where sensitive legacy behavior is being decomposed; normal validation at checkpoint/handoff |
 | Admin UX / Case editor | `src/routes/admin/AGENTS.md` | `AUTHORING_MODEL.md`; relevant current Admin/image design | Vite/HMR for presentation-only iteration; focused tests for logic; `agent:checks`; `validate:full` before handoff when applicable |
 | Database / read models | `src/lib/server/db/AGENTS.md` | `V1_DATA_MODEL.md`; `PERFORMANCE_AND_READ_MODEL_PLAN.md` | `agent:checks`; `npm run db:check`; focused tests; normal validation at checkpoint/handoff |
 | Schema / migrations | `src/lib/server/db/AGENTS.md` | `V1_DATA_MODEL.md`; current schema + migrations | `agent:checks`; `npm run db:check`; focused tests; full validation before handoff |
