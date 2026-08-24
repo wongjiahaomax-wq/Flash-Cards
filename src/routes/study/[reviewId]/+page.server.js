@@ -13,7 +13,7 @@ import {
   QUESTION_POOL_MODE_DETAILS,
   QuestionPoolUnavailableError,
   isQuestionPoolMode
-} from '$lib/server/learning/question-pool-mode.ts';
+} from '$lib/server/learning/question-pool-mode';
 import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 import { getReviewImageUrl } from '$lib/server/storage/media.js';
 
