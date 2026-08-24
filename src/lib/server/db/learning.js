@@ -178,7 +178,7 @@ async function createReviewForCase({
   if (!source) return null;
   const pickedQuestions = pickQuestionsForReview(source, questionPoolMode, rng);
   const reviewId = newId();
-  const reviewInsert = await buildReviewInsertWithOptionalRouteProvenance(db, {
+  const reviewInsert = buildReviewInsertWithOptionalRouteProvenance(db, {
     id: reviewId,
     userId,
     caseId: source.case.id,
