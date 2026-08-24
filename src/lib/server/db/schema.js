@@ -44,6 +44,7 @@ export const concepts = sqliteTable(
     name: text('name').notNull(),
     slug: text('slug').notNull(),
     descriptionMd: text('description_md'),
+    kind: text('kind', { enum: ['system', 'topic'] }).notNull().default('topic'),
     parentId: text('parent_id').references(
       /** @returns {import('drizzle-orm/sqlite-core').AnySQLiteColumn} */ () => concepts.id,
       { onDelete: 'restrict' }
@@ -55,6 +56,8 @@ export const concepts = sqliteTable(
   (table) => [
     uniqueIndex('concepts_slug_unique').on(table.slug),
     index('concepts_parent_idx').on(table.parentId),
+    index('concepts_kind_active_parent_idx').on(table.kind, table.isActive, table.parentId),
+    check('concepts_kind_check', sql`${table.kind} in ('system', 'topic')`),
     check('concepts_parent_not_self', sql`${table.parentId} is null or ${table.parentId} <> ${table.id}`)
   ]
 );
@@ -366,6 +369,14 @@ export const reviews = sqliteTable(
     studyConceptId: text('study_concept_id')
       .notNull()
       .references(() => concepts.id, { onDelete: 'restrict' }),
+    studySystemConceptId: text('study_system_concept_id').references(() => concepts.id, { onDelete: 'restrict' }),
+    routeType: text('route_type', { enum: ['topic', 'tag'] }).notNull().default('topic'),
+    // Migration 0015 enforces this FK to tags. Declaring it here would create a
+    // schema.js <-> tag-schema.js module cycle, so Drizzle keeps the column
+    // shape while D1 remains the referential-integrity authority.
+    studyTagId: text('study_tag_id'),
+    navigationRouteType: text('navigation_route_type', { enum: ['all', 'topic', 'tag'] }),
+    navigationRouteId: text('navigation_route_id'),
     caseTitleSnapshot: text('case_title_snapshot').notNull(),
     vignetteSnapshotMd: text('vignette_snapshot_md'),
     questionPoolMode: text('question_pool_mode').notNull().default('expanded'),
@@ -380,6 +391,13 @@ export const reviews = sqliteTable(
     index('reviews_case_completed_idx').on(table.caseId, table.completedAt),
     index('reviews_concept_completed_idx').on(table.primaryConceptId, table.completedAt),
     index('reviews_study_concept_completed_idx').on(table.studyConceptId, table.completedAt),
+    index('reviews_study_system_completed_idx').on(table.studySystemConceptId, table.completedAt),
+    index('reviews_study_tag_completed_idx').on(table.studyTagId, table.completedAt),
+    check('reviews_route_type_check', sql`${table.routeType} in ('topic', 'tag')`),
+    check(
+      'reviews_navigation_route_type_check',
+      sql`${table.navigationRouteType} is null or ${table.navigationRouteType} in ('all', 'topic', 'tag')`
+    ),
     check('reviews_question_pool_mode_check', sql`${table.questionPoolMode} in ('core', 'expanded')`),
     check('reviews_status_check', sql`${table.status} in ('started', 'completed')`),
     check('reviews_rating_check', sql`${table.rating} is null or ${table.rating} in ('again', 'good')`)
