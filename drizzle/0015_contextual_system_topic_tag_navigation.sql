@@ -124,6 +124,17 @@ BEGIN
   SELECT RAISE(ABORT, 'Reusable Concept Questions may only attach to Topics.');
 END;
 --> statement-breakpoint
+CREATE TRIGGER `concepts_used_topic_block_system_kind`
+BEFORE UPDATE OF `kind` ON `concepts`
+WHEN OLD.`kind` = 'topic' AND NEW.`kind` = 'system'
+  AND (
+    EXISTS (SELECT 1 FROM `case_concepts` WHERE `concept_id` = OLD.`id`)
+    OR EXISTS (SELECT 1 FROM `concept_questions` WHERE `concept_id` = OLD.`id`)
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'Move Case and reusable-question Topic usages before classifying as a System.');
+END;
+--> statement-breakpoint
 CREATE TRIGGER `system_tags_active_system_insert`
 BEFORE INSERT ON `system_tags`
 WHEN NOT EXISTS (
