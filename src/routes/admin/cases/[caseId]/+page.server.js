@@ -30,8 +30,8 @@ export async function load({ locals, platform, params, url }) {
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { concepts: [], selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
 
   const db = createDb(platform.env.DB);
-  const [concepts, manager, questions, stimulusGroupsData, caseTags] = await Promise.all([
-    listAdminConcepts(db), getAdminCaseData(db, params.caseId, { includeAvailable: false }), listCaseQuestions(db, params.caseId), getAdminStimulusData(db, params.caseId), listProductionCaseTags(db, params.caseId)
+  const [concepts, manager, questions, stimulusGroupsData] = await Promise.all([
+    listAdminConcepts(db), getAdminCaseData(db, params.caseId, { includeAvailable: false }), listCaseQuestions(db, params.caseId), getAdminStimulusData(db, params.caseId)
   ]);
   if (!manager) return { concepts, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
 
@@ -44,8 +44,11 @@ export async function load({ locals, platform, params, url }) {
     ...manager.attached.map((asset) => ({ assetId: asset.assetId, stimulusOptionId: null })),
     ...stimulusGroups.flatMap((group) => group.options.map((option) => ({ assetId: option.assetId, stimulusOptionId: option.id })))
   ];
-  const reusableImageQuestions = await listCaseImageQuestionSummaries(db, imageQuestionContexts);
-  const pickerResults = pickerOpen ? await listCaseImagePicker(db, params.caseId, { search: pickerSearch }) : { assets: [], hasMore: false, limit: 60, search: pickerSearch };
+  const [caseTags, reusableImageQuestions, pickerResults] = await Promise.all([
+    listProductionCaseTags(db, params.caseId),
+    listCaseImageQuestionSummaries(db, imageQuestionContexts),
+    pickerOpen ? listCaseImagePicker(db, params.caseId, { search: pickerSearch }) : Promise.resolve({ assets: [], hasMore: false, limit: 60, search: pickerSearch })
+  ]);
 
   return {
     concepts, previewMode: false,
