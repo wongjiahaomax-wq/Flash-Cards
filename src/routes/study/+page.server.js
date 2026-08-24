@@ -1,7 +1,8 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 
 import { createDb } from '$lib/server/db/index.js';
-import { listStudyConcepts, startReview } from '$lib/server/db/learning.js';
+import { listStudyConcepts, startReview, startSystemReview } from '$lib/server/db/learning.js';
+import { listStudySystems, StudyNavigationInputError } from '$lib/server/db/study-navigation.ts';
 import { QuestionPoolUnavailableError, isQuestionPoolMode } from '$lib/server/learning/question-pool-mode';
 import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 
@@ -12,14 +13,42 @@ function assertLearnerStudyAccess(user, platform) {
   }
 }
 
+/** @param {App.Platform | undefined} platform */
+function systemNavigationEnabled(platform) {
+  return platform?.env?.SYSTEM_STUDY_NAVIGATION_ENABLED === 'true';
+}
+
+/** @param {unknown} value */
+function parseSystemRoute(value) {
+  if (value === 'all') return { routeType: 'all', routeId: null };
+  if (typeof value !== 'string') return null;
+  const separator = value.indexOf(':');
+  if (separator < 1) return null;
+  const routeType = value.slice(0, separator);
+  const routeId = value.slice(separator + 1).trim();
+  if ((routeType !== 'topic' && routeType !== 'tag') || !routeId) return null;
+  return { routeType, routeId };
+}
+
 export async function load({ locals, platform }) {
   assertLearnerStudyAccess(locals.user, platform);
+  const enabled = systemNavigationEnabled(platform);
   const database = platform?.env?.DB;
-  if (!database) return { concepts: [], databaseConfigured: false };
+  if (!database) return { concepts: [], systems: [], systemNavigationEnabled: enabled, databaseConfigured: false };
 
   const db = createDb(database);
+  if (enabled) {
+    return {
+      concepts: [],
+      systems: await listStudySystems(db),
+      systemNavigationEnabled: true,
+      databaseConfigured: true
+    };
+  }
   return {
     concepts: await listStudyConcepts(db),
+    systems: [],
+    systemNavigationEnabled: false,
     databaseConfigured: true
   };
 }
@@ -49,6 +78,39 @@ export const actions = {
       throw cause;
     }
     if (!reviewId) throw error(404, 'No active study cases are available for this topic.');
+    redirect(303, `/study/${reviewId}`);
+  },
+
+  startSystem: async ({ locals, platform, request }) => {
+    assertLearnerStudyAccess(locals.user, platform);
+    if (!systemNavigationEnabled(platform)) throw error(404, 'System study navigation is not enabled.');
+    if (!platform?.env?.DB || !locals.user) throw error(503, 'Study database is not configured.');
+    const formData = await request.formData();
+    const systemId = formData.get('systemId');
+    const routeValue = formData.get('route');
+    const questionPoolMode = formData.get('questionPoolMode');
+    const route = parseSystemRoute(routeValue);
+    if (typeof systemId !== 'string' || !systemId) throw error(400, 'A study System is required.');
+    if (!route) throw error(400, 'Choose All, a Topic, or a Tag within this System.');
+    if (!isQuestionPoolMode(questionPoolMode)) throw error(400, 'Choose Original questions or Expanded Learning.');
+
+    let reviewId;
+    try {
+      reviewId = await startSystemReview({
+        db: createDb(platform.env.DB),
+        userId: locals.user.id,
+        systemId,
+        routeType: route.routeType,
+        routeId: route.routeId,
+        questionPoolMode
+      });
+    } catch (cause) {
+      if (cause instanceof QuestionPoolUnavailableError || cause instanceof StudyNavigationInputError) {
+        return fail(400, { message: cause.message, systemId, route: routeValue, questionPoolMode });
+      }
+      throw cause;
+    }
+    if (!reviewId) throw error(404, 'No active study cases are available for this System route.');
     redirect(303, `/study/${reviewId}`);
   }
 };
