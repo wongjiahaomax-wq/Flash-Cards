@@ -24,13 +24,14 @@ function actionFailure(cause) {
 
 export async function load({ platform, url }) {
   const filters = { search: url.searchParams.get('q')?.trim() ?? '' };
-  if (!platform?.env?.DB) return { topics: [], coverage: null, filters };
+  if (!platform?.env?.DB) return { topics: [], hierarchyOptions: [], coverage: null, filters };
   const db = createDb(platform.env.DB);
-  const [topics, coverage] = await Promise.all([
+  const [topics, hierarchyOptions, coverage] = await Promise.all([
     listTaxonomyLibrary(db, filters),
+    filters.search ? listTaxonomyLibrary(db) : Promise.resolve(null),
     getTaxonomyCoverageReport(db)
   ]);
-  return { topics, coverage, filters };
+  return { topics, hierarchyOptions: hierarchyOptions ?? topics, coverage, filters };
 }
 
 export const actions = {
