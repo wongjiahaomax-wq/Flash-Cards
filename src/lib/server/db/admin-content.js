@@ -1,5 +1,6 @@
 import { and, asc, eq } from 'drizzle-orm';
 
+import { conceptBreadcrumb } from '../learning/taxonomy-graph.ts';
 import { ContentGuardError, requireProductionCase } from './content-guards.js';
 import { caseConcepts, cases, concepts } from './schema.js';
 import { getCaseStimulusCoverageRequirement } from './stimulus-groups.js';
@@ -63,11 +64,31 @@ function slugBase(name) {
 
 /** @param {LearningDb} db */
 export async function listAdminConcepts(db) {
-  return db
-    .select({ id: concepts.id, name: concepts.name, slug: concepts.slug })
+  const rows = await db
+    .select({
+      id: concepts.id,
+      name: concepts.name,
+      slug: concepts.slug,
+      kind: concepts.kind,
+      parentId: concepts.parentId,
+      isActive: concepts.isActive
+    })
     .from(concepts)
     .where(eq(concepts.isActive, true))
-    .orderBy(asc(concepts.name));
+    .orderBy(asc(concepts.name), asc(concepts.id));
+
+  return rows
+    .filter((concept) => concept.kind === 'topic')
+    .map((concept) => ({
+      id: concept.id,
+      name: concept.name,
+      slug: concept.slug,
+      breadcrumb: conceptBreadcrumb(concept.id, rows).map((item) => ({
+        id: item.id,
+        name: item.name ?? item.id,
+        kind: item.kind
+      }))
+    }));
 }
 
 /** @param {LearningDb} db @param {string} name */
@@ -96,6 +117,7 @@ function conceptInsert(db, concept) {
     id: concept.id,
     name: concept.name,
     slug: concept.slug,
+    kind: 'topic',
     isActive: true
   });
 }
@@ -119,9 +141,9 @@ async function requireActiveConcept(db, conceptId) {
   const rows = await db
     .select({ id: concepts.id })
     .from(concepts)
-    .where(and(eq(concepts.id, conceptId), eq(concepts.isActive, true)))
+    .where(and(eq(concepts.id, conceptId), eq(concepts.kind, 'topic'), eq(concepts.isActive, true)))
     .limit(1);
-  if (!rows[0]) throw new AdminContentInputError('The selected topic is missing or inactive.');
+  if (!rows[0]) throw new AdminContentInputError('The selected Topic is missing, inactive, or classified as a System.');
 }
 
 /** @param {LearningDb} db @param {string} caseId */
@@ -209,18 +231,40 @@ export async function updateCase(db, input) {
  */
 export async function listCaseTopics(db, caseId) {
   const cleanCaseId = requiredText(caseId, 'Case');
-  return db
-    .select({
-      id: concepts.id,
-      name: concepts.name,
-      slug: concepts.slug,
-      isActive: concepts.isActive,
-      role: caseConcepts.role
-    })
-    .from(caseConcepts)
-    .innerJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
-    .where(eq(caseConcepts.caseId, cleanCaseId))
-    .orderBy(asc(caseConcepts.role), asc(concepts.name), asc(concepts.id));
+  const [attachedRows, conceptRows] = await Promise.all([
+    db
+      .select({
+        id: concepts.id,
+        name: concepts.name,
+        slug: concepts.slug,
+        kind: concepts.kind,
+        parentId: concepts.parentId,
+        isActive: concepts.isActive,
+        role: caseConcepts.role
+      })
+      .from(caseConcepts)
+      .innerJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+      .where(eq(caseConcepts.caseId, cleanCaseId))
+      .orderBy(asc(caseConcepts.role), asc(concepts.name), asc(concepts.id)),
+    db
+      .select({
+        id: concepts.id,
+        name: concepts.name,
+        kind: concepts.kind,
+        parentId: concepts.parentId,
+        isActive: concepts.isActive
+      })
+      .from(concepts)
+  ]);
+
+  return attachedRows.map((topic) => ({
+    ...topic,
+    breadcrumb: conceptBreadcrumb(topic.id, conceptRows).map((item) => ({
+      id: item.id,
+      name: item.name ?? item.id,
+      kind: item.kind
+    }))
+  }));
 }
 
 /** @param {LearningDb} db @param {string} caseId */
@@ -231,7 +275,8 @@ async function requireActiveCaseWithOnePrimary(db, caseId) {
   const topicRows = await db
     .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
     .from(caseConcepts)
-    .where(eq(caseConcepts.caseId, cleanCaseId));
+    .innerJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .where(and(eq(caseConcepts.caseId, cleanCaseId), eq(concepts.kind, 'topic')));
   const primaryRows = topicRows.filter((topic) => topic.role === 'primary');
   if (primaryRows.length !== 1) {
     throw new AdminContentInputError('The selected active Case must have exactly one primary Topic before it can be edited.');
