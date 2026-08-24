@@ -280,7 +280,7 @@ identify requested work state
 → commit/push
 → inspect GitHub CI and specialized checks
 → make coherent follow-up fixes if required
-→ leave draft PR as durable handoff state
+→ leave draft PR as durable handover state
 ```
 
 This is guidance rather than a rigid algorithm.
