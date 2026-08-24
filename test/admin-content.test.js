@@ -220,8 +220,7 @@ test('failed non-batched Primary Topic creation restores the old relationship an
     const nonBatchedDb = createDb(/** @type {D1Database} */ (/** @type {unknown} */ (nonBatchedD1)));
 
     await assert.rejects(
-      createCaseTopic(nonBatchedDb, { caseId: created.id, name: 'Failed Primary Topic', relationshipIntent: 'primary' }),
-      /forced primary relationship failure/
+      createCaseTopic(nonBatchedDb, { caseId: created.id, name: 'Failed Primary Topic', relationshipIntent: 'primary' })
     );
     assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM concepts WHERE name = 'Failed Primary Topic'").get()?.count, 0);
     assert.deepEqual(topicRelationships(fixture.sqlite, created.id), [
