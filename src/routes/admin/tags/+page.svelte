@@ -13,7 +13,7 @@
   <div>
     <p class="eyebrow">Cross-cutting metadata</p>
     <h1>Tags</h1>
-    <p class="muted">Curate flat clinical Tags used by Cases, Case Questions, and Shared Questions. Shared Question reuse scope and descriptive metadata remain separate roles.</p>
+    <p class="muted">Curate flat clinical Tags used by Cases, Case Questions, Shared Questions, and explicit learner-facing System exposure. A Tag is never globally learner-visible.</p>
   </div>
 </section>
 
@@ -22,7 +22,7 @@
 <section class="panel" aria-labelledby="create-heading">
   <div class="panel-heading">
     <div><p class="eyebrow">Canonical vocabulary</p><h2 id="create-heading">Create Tag</h2></div>
-    <span class="muted">Aliases and hierarchy are intentionally deferred.</span>
+    <span class="muted">Aliases and Tag hierarchy are intentionally deferred.</span>
   </div>
   <form method="POST" action="?/createTag" class="inline-form">
     <label class="grow">Tag name<input name="name" maxlength="120" required placeholder="e.g. Prolonged QTc" /></label>
@@ -57,6 +57,7 @@
             <strong>{tag.name}</strong>
             <span class="status-badge" class:active={tag.isActive}>{tag.isActive ? 'Active' : 'Inactive'}</span>
             <span class="muted">{tag.activeCaseCount} Case{tag.activeCaseCount === 1 ? '' : 's'} · {tag.activeCaseQuestionCount} Case Question{tag.activeCaseQuestionCount === 1 ? '' : 's'} · {tag.activeSharedReuseScopeCount} Shared reuse scope · {tag.activeSharedDescriptiveCount} Shared descriptive</span>
+            <span class="muted">Learner Systems: {#if tag.systems.length}{#each tag.systems as system, index}{#if index > 0}, {/if}<a href={'/admin/topics/' + system.systemId}>{system.systemName}</a>{/each}{:else}None{/if}</span>
           </div>
           <form method="POST" action="?/renameTag" class="rename-form">
             <input type="hidden" name="tag_id" value={tag.id} />
@@ -69,6 +70,30 @@
             <button class="button small" type="submit">{tag.isActive ? 'Deactivate' : 'Reactivate'}</button>
           </form>
         </article>
+      {/each}
+    </div>
+  {/if}
+</section>
+
+<section class="panel" aria-labelledby="system-exposure-heading">
+  <div class="panel-heading">
+    <div><p class="eyebrow">Contextual learner navigation</p><h2 id="system-exposure-heading">System exposure</h2></div>
+    <span class="muted">Add, remove, and reorder exposure on each System detail page.</span>
+  </div>
+  <p class="scope-note">A Tag appears to learners only inside Systems where Admin explicitly exposes it. Exposure does not change Case Tags or Shared Question reuse scope.</p>
+  {#if data.systemExposures.length === 0}
+    <p class="empty-state">No System ↔ Tag exposures match this filter.</p>
+  {:else}
+    <div class="assignment-list">
+      {#each data.systemExposures as exposure}
+        <div class="assignment-row" class:inactive={!exposure.systemIsActive || !exposure.tagIsActive}>
+          <div>
+            <strong>{exposure.tagName}</strong>
+            <span>exposed in <a href={'/admin/topics/' + exposure.systemId}>{exposure.systemName}</a></span>
+            <span class="tag-chip">Order {exposure.displayOrder}</span>
+            {#if !exposure.systemIsActive || !exposure.tagIsActive}<span class="muted">Inactive System or Tag; not learner-visible</span>{/if}
+          </div>
+        </div>
       {/each}
     </div>
   {/if}
