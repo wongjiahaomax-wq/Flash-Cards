@@ -309,7 +309,7 @@ export async function addPreviewSecondaryTopic(db, previewSessionId, caseId, _co
 }
 
 /**
- * @deprecated Legacy secondary Topic removal is handled only by the reviewed migration/operator step.
+ * @deprecated Secondary Study Topic mutation is not part of current Preview authoring.
  * @param {LearningDb} db
  * @param {string} previewSessionId
  * @param {string} caseId
@@ -326,18 +326,51 @@ export async function promotePreviewTopic(db, previewSessionId, caseId, conceptI
   await requireActiveConcept(db, conceptId);
   const rows = await db.select().from(caseConcepts).where(eq(caseConcepts.caseId, caseId));
   const currentPrimary = rows.find((row) => row.role === 'primary');
-  const legacySecondary = rows.find((row) => row.role === 'secondary');
-  if (legacySecondary) {
-    throw new PreviewWorkspaceError('This Preview Case still has a legacy non-primary Topic relationship. Re-copy it after the reviewed Topic-to-Tag migration.', 'INVALID_INPUT');
-  }
+  const targetSecondary = rows.find((row) => row.role === 'secondary' && row.conceptId === conceptId);
   if (currentPrimary?.conceptId === conceptId) return;
   if (!currentPrimary) {
     if (!options.allowInsert) throw new PreviewWorkspaceError('This Preview Case has no canonical Topic.', 'INVALID_INPUT');
+    if (targetSecondary) {
+      await db
+        .update(caseConcepts)
+        .set({ role: 'primary' })
+        .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, conceptId)));
+      return;
+    }
     await db.insert(caseConcepts).values({ caseId, conceptId, role: 'primary' });
     return;
   }
-  await db
+
+  const primaryWrite = db
     .update(caseConcepts)
     .set({ conceptId, role: 'primary' })
     .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, currentPrimary.conceptId)));
+  if (!targetSecondary) {
+    await primaryWrite;
+    return;
+  }
+
+  const secondaryDelete = db
+    .delete(caseConcepts)
+    .where(and(
+      eq(caseConcepts.caseId, caseId),
+      eq(caseConcepts.conceptId, conceptId),
+      eq(caseConcepts.role, 'secondary')
+    ));
+  if (typeof db.batch === 'function') {
+    await db.batch(/** @type {[any, ...any[]]} */ ([secondaryDelete, primaryWrite]));
+    return;
+  }
+
+  await secondaryDelete;
+  try {
+    await primaryWrite;
+  } catch (error) {
+    try {
+      await db.insert(caseConcepts).values({ caseId, conceptId, role: 'secondary' });
+    } catch (cleanupError) {
+      console.error('Unable to restore a legacy Preview secondary Topic after a failed Primary Topic change.', cleanupError);
+    }
+    throw error;
+  }
 }
