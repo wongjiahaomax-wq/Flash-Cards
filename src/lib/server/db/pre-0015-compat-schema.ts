@@ -1,4 +1,10 @@
+import { sql } from 'drizzle-orm';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+
+const timestamp = (name: string) =>
+  integer(name, { mode: 'timestamp_ms' })
+    .notNull()
+    .default(sql`(unixepoch() * 1000)`);
 
 /**
  * Compatibility-only table shapes for code paths that intentionally remain
@@ -14,9 +20,9 @@ export const pre0015Concepts = sqliteTable('concepts', {
   slug: text('slug').notNull(),
   descriptionMd: text('description_md'),
   parentId: text('parent_id'),
-  isActive: integer('is_active', { mode: 'boolean' }).notNull(),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: timestamp('created_at'),
+  updatedAt: timestamp('updated_at')
 });
 
 export const pre0015Reviews = sqliteTable('reviews', {
@@ -27,10 +33,10 @@ export const pre0015Reviews = sqliteTable('reviews', {
   studyConceptId: text('study_concept_id').notNull(),
   caseTitleSnapshot: text('case_title_snapshot').notNull(),
   vignetteSnapshotMd: text('vignette_snapshot_md'),
-  questionPoolMode: text('question_pool_mode').notNull(),
-  status: text('status').notNull(),
+  questionPoolMode: text('question_pool_mode').notNull().default('expanded'),
+  status: text('status').notNull().default('started'),
   rating: text('rating'),
-  startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
+  startedAt: timestamp('started_at'),
   revealedAt: integer('revealed_at', { mode: 'timestamp_ms' }),
   completedAt: integer('completed_at', { mode: 'timestamp_ms' })
 });
