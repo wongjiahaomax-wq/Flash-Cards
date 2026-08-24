@@ -2,7 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 
 import { createDb } from '$lib/server/db/index.js';
 import { listStudyConcepts, startReview } from '$lib/server/db/learning.js';
-import { QuestionPoolUnavailableError, isQuestionPoolMode } from '$lib/server/learning/question-pool-mode.ts';
+import { QuestionPoolUnavailableError, isQuestionPoolMode } from '$lib/server/learning/question-pool-mode';
 import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 
 /** @param {App.Locals['user']} user @param {App.Platform | undefined} platform */
@@ -33,22 +33,18 @@ export const actions = {
     const questionPoolMode = formData.get('questionPoolMode');
     if (typeof conceptId !== 'string' || !conceptId) throw error(400, 'A study topic is required.');
     if (!isQuestionPoolMode(questionPoolMode)) throw error(400, 'Choose Original questions or Expanded Learning.');
-
-    let reviewId;
     try {
-      reviewId = await startReview({
+      const reviewId = await startReview({
         db: createDb(platform.env.DB),
         userId: locals.user.id,
         conceptId,
         questionPoolMode
       });
+      if (!reviewId) throw error(404, 'No eligible cases found for this topic.');
+      throw redirect(303, `/study/${reviewId}`);
     } catch (cause) {
-      if (cause instanceof QuestionPoolUnavailableError) {
-        return fail(400, { message: cause.message, conceptId, questionPoolMode });
-      }
+      if (cause instanceof QuestionPoolUnavailableError) return fail(400, { message: cause.message, conceptId, questionPoolMode });
       throw cause;
     }
-    if (!reviewId) throw error(404, 'No active study cases are available for this topic.');
-    redirect(303, `/study/${reviewId}`);
   }
 };
