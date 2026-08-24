@@ -1,16 +1,22 @@
 # Contextual System / Topic / Tag Navigation
 
-_Status: implemented by the contextual System/Topic/Tag navigation feature branch. Deployment, production migration application, taxonomy curation, and learner rollout remain separate operational steps._
+_Status: current product/domain model on this draft branch. Deployment, production migration application, taxonomy curation, and learner rollout remain separate operational steps._
+
+_Last updated: 25 August 2026_
 
 ## Purpose
 
-The study taxonomy now distinguishes three different concepts that must not be conflated:
+The study taxonomy distinguishes three concepts:
 
 - **System** — a top-level learner-navigation grouping such as Cardiovascular.
-- **Topic** — the existing Case classification and reusable Topic-question scope. Cases attach to Topics as Primary or Additional Study Topic relationships.
-- **Tag** — flat cross-cutting metadata. A Tag may classify Cases, Case Questions, or Shared Questions. A System may additionally choose to **expose** selected Tags as learner navigation choices without changing the underlying Tag semantics.
+- **Topic** — the canonical Case classification and reusable direct Topic-question scope.
+- **Tag** — flat cross-cutting metadata that may classify Cases/questions and may be explicitly exposed by one or more Systems as learner navigation choices.
 
-The feature is designed so the existing Topic and question-resolution model remains authoritative. System and Tag choices route learners to Cases; they do not create a second question taxonomy.
+The current Case-local classification rule is:
+
+> **One canonical Primary Topic plus zero or more Case Tags.**
+
+Additional Study Topics are retired. Historical secondary relationships and Review provenance remain compatibility/history concerns only.
 
 ## Core invariants
 
@@ -18,245 +24,269 @@ The feature is designed so the existing Topic and question-resolution model rema
 
 `concepts.kind` is either `system` or `topic`.
 
-- Systems are always top-level (`parent_id IS NULL`).
-- Topics may be top-level while taxonomy curation is incomplete, or may sit under a System/Topic hierarchy.
+- Systems are top-level (`parent_id IS NULL`).
+- Topics may sit under a System/Topic hierarchy.
 - Parent references must exist and be active.
-- Parent changes must not create a cycle.
-- A concept with active children cannot be deactivated until those children are moved or deactivated.
+- Parent changes must not create cycles.
 - Cases may attach only to Topics, never Systems.
+- Current learner-presentable Cases have exactly one canonical Topic relationship.
 - reusable `concept_questions` may attach only to Topics, never Systems.
-- A Topic with Case or Topic-question usage cannot simply be reclassified as a System.
 
-These rules are checked in the taxonomy domain before writes and are also protected by migration-level SQLite/D1 constraints/triggers where practical.
+These rules are checked in domain code and migration-level SQLite/D1 guards where practical.
+
+### Case classification
+
+For current authoring and learner behavior:
+
+```text
+Case
+├── exactly one Primary Topic
+└── zero or more Case Tags
+```
+
+The Primary Topic answers:
+
+> What does this Case fundamentally teach?
+
+It remains the direct Topic-question context regardless of how the learner discovered the Case.
+
+Case Tags answer:
+
+> What other clinically meaningful concepts does this Case demonstrate or relate to?
+
+They support cross-cutting classification, contextual learner discovery, and existing Tag-scoped Shared Question eligibility.
+
+Legacy `case_concepts.role = 'secondary'` rows are not current learner routes and current authoring does not create them.
 
 ### System ↔ Tag exposure
 
-`system_tags` is contextual navigation metadata:
+`system_tags` is contextual learner-navigation metadata:
 
 ```text
 System → exposed Tag
 ```
 
-It does **not** mean:
+It does **not** mean a Tag belongs to exactly one System. The same Tag may be exposed by several Systems.
 
-```text
-Tag belongs to exactly one System
-```
-
-The same Tag may be exposed in several Systems. For example, `QT prolongation` can be learner-visible in both Cardiovascular and another clinically appropriate System without duplicating or moving the Tag.
-
-Only active Systems and active Tags may form new System↔Tag exposure relationships. Ordering is explicit per System.
-
-### Case Topic relationships remain unchanged
-
-A Case still has:
-
-- exactly one canonical **Primary Topic** for normal authoring semantics; and
-- zero or more **Additional Study Topics** when the same Case is genuinely valid through another Topic route.
-
-The System hierarchy does not replace these Case relationships. Admin Topic coverage therefore distinguishes:
-
-- direct Case attachments to one exact Topic, including both Primary and Additional Study Topic relationships; and
-- deduplicated descendant Study Case eligibility.
+Only active Systems and active Tags may form new exposure relationships. Ordering is explicit per System.
 
 ## Learner routing
 
-When System navigation is enabled, the learner first chooses a System and can then study:
+When System navigation is enabled, the learner chooses a System and may study:
 
 1. **All** — every Case reachable through the System's native descendant Topics or curated Tags, deduplicated by Case;
-2. a descendant **Topic** — existing multi-Topic Case routing applies;
-3. an exposed **Tag** — Cases carrying that Tag are eligible in that System.
+2. a descendant **Topic** — Cases canonically classified under that Topic/subtree;
+3. an exposed **Tag** — Cases carrying that Tag in that System.
 
 ### Topic route
 
-A Topic route uses the existing `resolveCaseStudyCandidates` behavior.
+A Topic route resolves Cases through canonical Primary Topic relationships only.
 
-If a Case is canonically `Hypocalcaemia` but has `Prolonged QTc` as an Additional Study Topic, studying:
+Example:
+
+```text
+Case: prolonged QTc caused by hypocalcaemia
+Primary Topic: Prolonged QTc
+Tags: Hypocalcaemia
+```
+
+Studying:
 
 ```text
 Cardiovascular → Prolonged QTc
 ```
 
-may select that Case with:
+may create a Review with:
 
 ```text
-primaryConceptId = Hypocalcaemia
-studyConceptId   = Prolonged QTc
-routeType        = topic
+primaryConceptId     = Prolonged QTc
+studyConceptId       = Prolonged QTc
+studySystemConceptId = Cardiovascular
+routeType            = topic
+studyTagId           = null
 ```
 
-Existing Topic-question inheritance therefore uses the actual Study Topic, exactly as before.
-
-A learner may also choose a parent Topic whose eligible Case resolves through a more specific descendant Study Topic. The selected parent Topic is retained separately as navigation provenance so “Next case” stays inside the parent Topic route rather than narrowing to that first Case's descendant Topic.
+A selected parent Topic may still resolve a Case through a more specific descendant canonical Topic. The selected parent route is retained separately as navigation provenance so “Next case” stays in the learner-selected route.
 
 ### Tag route
 
-A Tag route is contextual navigation, not a replacement Study Topic.
+A Tag route is contextual discovery, not a substitute Study Topic.
 
-For the same Case studied through:
-
-```text
-Cardiovascular → QT prolongation [Tag]
-```
-
-Review routing records effective provenance:
+For the same Case, if Endocrine exposes the `Hypocalcaemia` Tag:
 
 ```text
-primaryConceptId      = Hypocalcaemia
-studyConceptId        = Hypocalcaemia
-studySystemConceptId  = Cardiovascular
-routeType             = tag
-studyTagId            = QT prolongation
+Endocrine → Hypocalcaemia [Tag]
 ```
 
-The canonical Primary Topic remains the Topic input to the existing question resolver. Existing Case Tags can still make Shared Questions eligible according to the established Tagging Stage B rules.
+may create:
+
+```text
+primaryConceptId     = Prolonged QTc
+studyConceptId       = Prolonged QTc
+studySystemConceptId = Endocrine
+routeType            = tag
+studyTagId           = Hypocalcaemia
+```
+
+The canonical Primary Topic therefore remains the input to direct reusable Topic-question resolution. Existing Case Tags may independently make Tag-scoped Shared Questions eligible according to the established Tagging rules.
 
 ### All route precedence
 
 A Case can match several routes in one System. `All` deduplicates by Case.
 
-When the same Case is reachable both through a native Topic relationship and through a curated Tag, **native Topic provenance wins**. This preserves the more specific existing Study Topic route instead of silently replacing it with Tag provenance.
+When a Case is reachable both through its native canonical Topic and through a curated Tag in the same System, native Topic provenance wins for that Case.
 
-The effective winning provenance is not the same thing as the learner's selected `All` route. A Review started from `System → All` records `navigation_route_type = all` even when the selected Case's effective `route_type` is `topic` or `tag`. “Next case” therefore resolves the System's full `All` union again.
+The effective winning provenance is distinct from the learner-selected `All` route. A Review started from `System → All` records `navigation_route_type = all`, so “Next case” resolves the full `All` union again.
 
 ## Review provenance
 
-Migration `0015_contextual_system_topic_tag_navigation.sql` adds two deliberately separate kinds of Review routing provenance.
+Migration `0015_contextual_system_topic_tag_navigation.sql` stores two layers of routing provenance.
 
 **Effective Case/question provenance:**
 
+- `primary_concept_id` — canonical Case Topic at Review creation;
+- `study_concept_id` — actual direct Topic-question context;
 - `study_system_concept_id` — nullable System used to enter the Review;
-- `route_type` — `topic` or `tag`, default `topic` for historical behavior;
-- `study_tag_id` — nullable Tag when the winning Case provenance is Tag-based;
-- `study_concept_id` — the actual Topic context passed to the existing question resolver.
+- `route_type` — `topic` or `tag`;
+- `study_tag_id` — nullable Tag when effective provenance is Tag-based.
 
 **Learner-selected navigation provenance:**
 
 - `navigation_route_type` — nullable `all`, `topic`, or `tag`;
-- `navigation_route_id` — the selected Topic/Tag ID, or null for `all`.
+- `navigation_route_id` — selected Topic/Tag ID, or null for `all`.
 
-This distinction matters because a selected `All` route resolves to one effective Topic/Tag provenance for a particular Case, and a selected parent Topic can resolve to a more specific descendant Study Topic. Effective provenance controls question resolution and auditability; selected navigation provenance controls route continuity for the next Case.
+For current Reviews, `study_concept_id` remains the canonical Primary Topic even when the Case is reached through a Tag.
 
-Historical Reviews are not rewritten. Existing Review snapshots and question/asset provenance remain unchanged. Pre-0015 Reviews have null System, Tag, and selected-navigation provenance and retain Topic semantics.
+Historical Reviews are not rewritten. Reviews created under the retired multi-Topic model may legitimately have:
 
-For a Tag-routed Review, both `study_system_concept_id` and `study_tag_id` are required. Topic-routed Reviews never store a `study_tag_id`.
+```text
+primary_concept_id != study_concept_id
+```
 
-Original → Expanded Learning continuation preserves both the effective provenance and the learner-selected navigation provenance. “Next case” reconstructs the learner-selected System route, so `All` remains `All` and a parent Topic remains that parent Topic.
+That remains valid historical provenance.
 
-## Drizzle schema authority and pre-0015 compatibility
+Original → Expanded Learning preserves the existing Review routing provenance. “Next case” reconstructs the learner-selected System route.
 
-`src/lib/server/db/schema.js` is the authoritative post-0015 Drizzle model and includes `concepts.kind` plus the Review System/Tag and selected-navigation fields. `drizzle.config.js` continues to load that canonical schema for `db:check` / `db:generate`.
+## Question resolution
 
-Two narrowly scoped compatibility helpers still support established Topic-only paths against a pre-0015 database during a migration rollout. Their legacy physical shapes live in `pre-0015-compat-schema.ts`, which is intentionally **not** part of `drizzle.config.js`. `contextual-schema.ts` contains aliases to the canonical `schema.js` tables rather than defining competing physical-table models.
+Removing Additional Study Topics does not create a new question taxonomy.
 
-This compatibility layer does not make System functionality available before migration 0015. System Admin/navigation code requires the post-0015 schema.
+Current direct Topic resolution is based on the canonical Primary Topic and eligible ancestors. Cross-cutting/contextual reusable knowledge continues through:
+
+- Case Questions;
+- Tag-scoped Shared Questions;
+- Stimulus Group Questions;
+- exact Stimulus Option Questions;
+- explicitly opted-in Reusable Image Questions.
+
+A Tag route does not import the direct Topic-question bank of some alternate Topic merely because the Tag is clinically related.
 
 ## Admin surfaces
 
 ### Systems & Topics library
 
-`/admin/topics` is the global taxonomy management surface. It provides:
-
-- System/Topic identity and status;
-- hierarchy breadcrumbs;
-- staged parent moves applied atomically after whole-graph validation;
-- direct Case attachment counts;
-- deduplicated descendant Study Case counts;
-- reusable Topic-question counts;
-- coverage reporting for unassigned Topics and Cases not reachable from any System.
+`/admin/topics` manages global taxonomy identity/hierarchy and coverage.
 
 ### System detail
 
-A System detail page provides:
-
-- descendant Topic coverage;
-- contextual Tag exposure and per-System order;
-- deduplicated `All` Case count;
-- Cases matching several Topic/Tag routes, for auditability.
+A System detail page manages contextual System↔Tag exposure and shows route/coverage information.
 
 ### Case editor
 
-The Case editor remains responsible only for Case-local relationships:
+The Case editor owns only Case-local classification:
 
-- Primary Topic;
-- Additional Study Topics;
-- read-only taxonomy breadcrumb/context;
-- Case Tags.
+```text
+Primary Topic
+Case Tags
+```
 
 It does not mutate global System hierarchy or System↔Tag exposure.
 
+Changing Primary Topic replaces the canonical current relationship; the old Topic is not retained as an alternate learner route.
+
 ### Tag library
 
-The Tag library shows which Systems expose a Tag, but System↔Tag mutation remains on the relevant System detail surface. This keeps three separate relationships visibly distinct:
-
-- Case ↔ Tag classification;
-- Shared Question ↔ Tag reuse/descriptive semantics;
-- System ↔ Tag learner-navigation exposure.
+The Tag library shows Tag use/exposure context. System↔Tag mutation remains a System-level operation.
 
 ## Preview Admin boundary
 
-Preview Admin continues to share global production Topics and Tags read-only.
+Preview shares global production Topics and Tags read-only.
 
-- Preview Cases may attach/reorder only Topics.
-- Systems are not valid Case relationships.
-- Preview does not gain global taxonomy, System, or System↔Tag mutation authority.
-- Production/Preview Case ownership and Asset rules remain unchanged.
+Preview cloning copies:
 
-The server mutation guard and the database constraint both reject a System submitted as a Case Topic.
+- exactly one canonical Primary Topic;
+- Case Tags;
+- the normal Preview-owned Case/question/stimulus relationships.
+
+Legacy secondary Topic relationships are intentionally not recreated. Preview may replace its canonical Topic but cannot create Additional Study Topics and does not gain global taxonomy, Tag, System, or System↔Tag mutation authority.
+
+## Import boundary
+
+Import Package v1 retains `secondaryTopicIds` for package-shape compatibility, but it must be empty for current reviewed imports.
+
+Non-empty secondary Topic declarations are rejected before planning/writes. Resumable staging and staged execution-plan reads also reject snapshots that could recreate secondary relationships.
+
+## Migration 0016 and production data
+
+`0016_primary_case_topics_only.sql` is deliberately fail-closed.
+
+Before it can apply, production legacy secondary/multiple Case↔Topic relationships must be resolved through a separately reviewed stable-ID conversion plan. No Topic→Tag conversion may be inferred from labels.
+
+The reviewed conversion must verify, for each affected relationship:
+
+1. exact Case and secondary Topic IDs;
+2. intended replacement Case Tag ID;
+3. required System↔Tag exposure for learner reachability;
+4. direct Topic-question behavior being intentionally retired or otherwise represented;
+5. preservation of historical Reviews.
+
+Once legacy rows are clean, migration 0016 installs database guards preventing new non-primary or multiple current Case Topic relationships.
+
+It does not rewrite historical Review provenance.
 
 ## Phase A / Phase B rollout
 
-This feature intentionally separates schema/Admin curation from learner exposure.
+The contextual System feature still separates schema/Admin curation from learner exposure.
 
 ### Phase A — schema and Admin curation
 
-Use the normal production release workflow from `docs/CLOUDFLARE.md` with the reviewed migration included. That workflow applies requested D1 migrations **before** deploying the Worker, which avoids running the new Admin taxonomy queries against a pre-`0015` production schema.
+Apply reviewed migrations through the normal production release workflow, verify the intended Worker SHA and schema, then curate Systems, Topic hierarchy, and System↔Tag exposure.
 
-1. Merge the reviewed PR to `main` with `SYSTEM_STUDY_NAVIGATION_ENABLED` still absent/false in production.
-2. Dispatch the normal production release from `main` with `apply_migrations=true` so pending reviewed D1 migrations are applied before Worker deployment.
-3. Verify separately that migration `0015_contextual_system_topic_tag_navigation.sql` completed and that the intended Worker SHA deployed.
-4. Create Systems and arrange Topics in `/admin/topics`.
-5. Curate System↔Tag exposure where clinically useful.
-6. Use coverage and overlap reporting to verify that intended Cases are reachable and that multi-route matches are understood.
-7. Keep the existing Topic learner Study UI active during this phase.
-
-Do not deploy the new Admin taxonomy code first and defer `0015` until afterward; those routes intentionally query `concepts.kind` and `system_tags` directly.
+For PR #90 specifically, do **not** apply migration 0016 until the production secondary→Tag/reachability audit and reviewed conversion are complete.
 
 ### Phase B — learner System navigation
 
-Only after Phase A curation is reviewed, explicitly set:
+Only after taxonomy curation and migration state are reviewed should production explicitly enable:
 
 ```text
 SYSTEM_STUDY_NAVIGATION_ENABLED=true
 ```
 
-The learner Study page will then expose System → All / Topic / Tag choices.
-
-If the flag is absent or not exactly `true`, the existing Topic-based learner Study surface and legacy start action remain active. The server also refuses **Next case** from an already-open System Review, so disabling the flag stops selection of further System-routed Cases rather than only hiding the landing-page controls.
-
-An already-created Review remains readable/completable after rollback. Original → Expanded Learning for that **same Case** also remains allowed because it does not perform another System Case selection; it preserves the historical routing provenance of the existing Case attempt.
+If absent or not exactly `true`, new System-routed Case selection remains disabled according to the existing rollout contract. Existing Reviews remain readable/completable; same-Case Original → Expanded continuation preserves historical provenance.
 
 ## Rollback principles
 
-- Disabling `SYSTEM_STUDY_NAVIGATION_ENABLED` returns learners to the legacy Topic navigation surface and prevents new System-routed Case selection, including “Next case” from an existing System Review.
-- Existing System Reviews may still be viewed/completed, and same-Case Original → Expanded continuation may finish that Case's learning sequence.
-- System hierarchy and System↔Tag relationships are additive metadata; disabling the learner flag does not change Case Topic relationships or question eligibility.
-- Do not delete historical Review provenance as a rollback mechanism.
-- Do not edit historical migrations. Any schema reversal must be handled as an explicit forward migration after production impact is assessed.
+- Disabling `SYSTEM_STUDY_NAVIGATION_ENABLED` prevents new System-routed Case selection according to the existing feature-flag contract.
+- Existing Reviews remain historical records and are not rewritten.
+- System hierarchy and System↔Tag relationships are additive metadata; disabling learner navigation does not mutate them.
+- Do not restore Additional Study Topics as a rollback mechanism.
+- Do not edit historical migrations. Any schema reversal requires an explicit forward migration after impact review.
 
 ## Validation expectations
 
-The feature requires coverage for:
+Regression coverage should prove:
 
-- cycle/top-level/active-parent graph validation;
-- Case/Concept Question Topic-only relationships;
-- multi-System Tag exposure;
-- Topic versus Tag route semantics;
-- `All` deduplication and native Topic precedence;
-- learner-selected `All` and parent-Topic route continuity across “Next case”;
-- rollout-flag rollback blocking new System Case selection from an existing Review;
-- effective versus selected Review provenance and historical Review defaults;
-- canonical post-0015 Drizzle schema authority with isolated pre-0015 compatibility;
-- the Hypocalcaemia + Prolonged QTc cross-topic scenario;
-- Preview inability to attach Systems to Cases;
-- existing question resolver behavior remaining unchanged after route selection.
+- taxonomy cycle/top-level/active-parent validation;
+- one canonical current Case Topic;
+- new secondary Case↔Topic relationships cannot be created;
+- canonical Topic routes resolve canonical Topic questions;
+- cross-System Tag routes find Cases without changing `study_concept_id`;
+- `All` deduplicates native Topic + Tag reachability;
+- learner-selected `All` and parent-Topic continuity across “Next case”;
+- historical Review provenance remains valid;
+- Tag-shared eligibility remains based on Case Tags;
+- Preview ownership/isolation and primary-only cloning;
+- reviewed/resumable imports cannot recreate secondary relationships;
+- Original/Expanded continuation remains intact.
+
+For the history and migration rationale behind the retired model, see `MULTI_TOPIC_STUDY_ROUTES.md`.
