@@ -8,7 +8,7 @@ import {
   uniqueIndex
 } from 'drizzle-orm/sqlite-core';
 
-import { caseQuestions, cases, questionPrompts } from './schema.js';
+import { caseQuestions, cases, concepts, questionPrompts } from './schema.js';
 
 /** @param {string} name */
 const timestamp = (name) =>
@@ -21,8 +21,8 @@ const activeFlag = () => integer('is_active', { mode: 'boolean' }).notNull().def
 /**
  * Flat, administrator-curated clinical Tags.
  *
- * Tags deliberately remain separate from Topics: Topics are learner study
- * routes, while Tags describe cross-cutting clinical concepts.
+ * Tags deliberately remain separate from Topics. Learner visibility is
+ * contextual and comes only from explicit System↔Tag curation.
  */
 export const tags = sqliteTable(
   'tags',
@@ -37,6 +37,29 @@ export const tags = sqliteTable(
   (table) => [
     uniqueIndex('tags_normalized_name_unique').on(table.normalizedName),
     index('tags_active_name_idx').on(table.isActive, table.name)
+  ]
+);
+
+/**
+ * Explicit learner-navigation exposure of one Tag inside one System.
+ * A Tag may be exposed in several Systems; display order is System-local.
+ */
+export const systemTags = sqliteTable(
+  'system_tags',
+  {
+    systemConceptId: text('system_concept_id')
+      .notNull()
+      .references(() => concepts.id, { onDelete: 'restrict' }),
+    tagId: text('tag_id')
+      .notNull()
+      .references(() => tags.id, { onDelete: 'restrict' }),
+    displayOrder: integer('display_order').notNull(),
+    createdAt: timestamp('created_at')
+  },
+  (table) => [
+    primaryKey({ columns: [table.systemConceptId, table.tagId], name: 'system_tags_pk' }),
+    uniqueIndex('system_tags_system_order_unique').on(table.systemConceptId, table.displayOrder),
+    index('system_tags_tag_system_idx').on(table.tagId, table.systemConceptId)
   ]
 );
 
