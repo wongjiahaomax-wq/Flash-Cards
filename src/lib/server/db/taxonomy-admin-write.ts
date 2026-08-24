@@ -1,6 +1,6 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, or } from 'drizzle-orm';
 
-import { concepts } from './schema.js';
+import { caseConcepts, conceptQuestions, concepts } from './schema.js';
 import { systemTags, tags } from './tag-schema.js';
 import {
   applyParentChanges,
@@ -129,6 +129,16 @@ export async function updateTaxonomyConcept(
   const target = graph.find((node) => node.id === conceptId);
   if (!target) throw new TaxonomyInputError('The selected concept does not exist.');
 
+  if (target.kind === 'topic' && kind === 'system') {
+    const [caseUsage, questionUsage] = await Promise.all([
+      db.select({ id: caseConcepts.caseId }).from(caseConcepts).where(eq(caseConcepts.conceptId, conceptId)).limit(1),
+      db.select({ id: conceptQuestions.id }).from(conceptQuestions).where(eq(conceptQuestions.conceptId, conceptId)).limit(1)
+    ]);
+    if (caseUsage[0] || questionUsage[0]) {
+      throw new TaxonomyInputError('A Topic with Case or reusable-question usages cannot be reclassified as a System. Move those Topic usages first.');
+    }
+  }
+
   if (target.kind === 'system' && kind !== 'system') {
     const relationships = await db
       .select({ tagId: systemTags.tagId })
@@ -196,13 +206,9 @@ export async function applyTaxonomyHierarchy(
     throw new TaxonomyInputError('Atomic hierarchy updates require D1 batch support.');
   }
 
-  const detachWrites = changedIds.map((id) => {
-    const targetParent = proposedById.get(id)?.parentId ?? null;
-    return db
-      .update(concepts)
-      .set(targetParent === null ? { parentId: null, updatedAt: new Date() } : { parentId: null })
-      .where(eq(concepts.id, id));
-  });
+  const detachWrites = changedIds.map((id) =>
+    db.update(concepts).set({ parentId: null, updatedAt: new Date() }).where(eq(concepts.id, id))
+  );
   const attachWrites = changedIds.flatMap((id) => {
     const parentId = proposedById.get(id)?.parentId ?? null;
     if (!parentId) return [];
