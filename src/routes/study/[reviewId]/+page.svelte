@@ -122,17 +122,24 @@
             <button class="button action-button" type="submit">Continue with Expanded Learning</button>
           </form>
         {/if}
-        <form method="POST" action="?/next" class="next-case-form">
-          <span class="next-case-prompt">Choose the question set for your next case</span>
-          <div class="next-case-buttons">
-            <button class="button primary action-button" type="submit" name="questionPoolMode" value="core">
-              Next case — Original questions →
-            </button>
-            <button class="button action-button" type="submit" name="questionPoolMode" value="expanded">
-              Next case — Expanded Learning →
-            </button>
+        {#if caseStudy.nextCaseAvailable}
+          <form method="POST" action="?/next" class="next-case-form">
+            <span class="next-case-prompt">Choose the question set for your next case</span>
+            <div class="next-case-buttons">
+              <button class="button primary action-button" type="submit" name="questionPoolMode" value="core">
+                Next case — Original questions →
+              </button>
+              <button class="button action-button" type="submit" name="questionPoolMode" value="expanded">
+                Next case — Expanded Learning →
+              </button>
+            </div>
+          </form>
+        {:else}
+          <div class="next-case-form">
+            <span class="next-case-prompt">System study navigation is currently unavailable.</span>
+            <a class="button action-button" href="/study">Return to Study to choose a Topic</a>
           </div>
-        </form>
+        {/if}
       </div>
     {/if}
   </section>
