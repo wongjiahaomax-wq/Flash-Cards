@@ -183,7 +183,9 @@ Examples include:
 - Asset ownership/lifecycle restrictions;
 - Admin authorization.
 
-Do not duplicate security guards across modules. Use one canonical implementation for each invariant and preserve the repository-specific semantics documented in `AGENTS.md` and the relevant subsystem authority.
+Do not duplicate independent implementations of the same semantic security rule across modules. Use one canonical implementation for each invariant and preserve the repository-specific semantics documented in `AGENTS.md` and the relevant subsystem authority.
+
+A canonical semantic guard does **not** imply that an invariant should have only one enforcement layer. Preserve complementary database predicates, ownership/session scoping, request-boundary authorization, or other defense-in-depth constraints where they independently protect the same invariant. Avoid duplicate implementations of the rule; do not remove complementary enforcement merely because a canonical guard also exists.
 
 ## 11. Transaction boundaries
 
