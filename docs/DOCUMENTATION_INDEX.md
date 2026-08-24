@@ -4,7 +4,7 @@ _Last reviewed: 24 August 2026_
 
 This index identifies which repository documents describe the **explicitly verified production baseline**, which describe **current `main`**, which are subsystem contracts/runbooks, which are pending designs, and which are historical records.
 
-Repository-wide coding-agent safety rules live in root `AGENTS.md`. Coding agents should use `AGENT_TASK_MAP.md` to select the minimum current context and the correct execution/validation mode before loading broader documentation.
+Repository-wide coding-agent safety rules live in root `AGENTS.md`. Coding agents should use `AGENT_TASK_MAP.md` to select the minimum current context and the correct execution/validation mode before loading broader documentation. Repository-wide structural direction for substantial refactors and new/extracted application modules lives in `ENGINEERING_ARCHITECTURE_GUIDELINES.md`.
 
 ## Conflict rule
 
@@ -98,6 +98,10 @@ Concrete examples for stems, fixed/alternative stimuli, Study Topics, contextual
 ### `AGENT_TASK_MAP.md`
 
 Small coding-agent routing guide: maps common task categories to scoped guidance, minimum authoritative documents, execution-mode selection, repository-owned validation commands, and current Preview backend ownership boundaries.
+
+### `ENGINEERING_ARCHITECTURE_GUIDELINES.md`
+
+Authoritative repository-wide engineering direction for substantial structural work: modular-monolith dependency flow, incremental TypeScript adoption, cohesive module ownership, thin routes, purpose-specific reads/mutations, security and transaction boundaries, characterization testing, abstraction discipline, staged facades, and scope control. These are directional defaults rather than a requirement to refactor every touched area.
 
 ### `PERFORMANCE_AND_READ_MODEL_PLAN.md`
 

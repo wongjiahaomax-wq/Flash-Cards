@@ -50,6 +50,15 @@ A draft PR is an important durable handover artifact for remote work. Keep its t
 - For capable coding agents, task prompts should normally supply the goal, behavioral/product invariants, constraints, acceptance criteria, and authority; use repository guidance to discover exact implementation details rather than requiring large hard-coded file lists unless the task genuinely needs them.
 - If you notice an unrelated issue, fix it only when required to complete the requested task safely; otherwise leave it out of the focused PR and record a meaningful follow-up observation when appropriate.
 
+## Architecture direction
+
+For substantial structural work, consult `docs/ENGINEERING_ARCHITECTURE_GUIDELINES.md`.
+
+- New or extracted application modules should normally prefer TypeScript where the current toolchain supports it; do not convert existing JavaScript merely because a file is touched.
+- Prefer cohesive modules with explicit domain ownership, thin routes/coordinators, and downward dependency flow.
+- Do not append another independent responsibility to an architectural hotspot without evaluating a focused extraction boundary.
+- Keep ordinary feature and bug-fix PRs focused. Architectural direction is incremental guidance, not a requirement to broaden unrelated work into a migration.
+
 ## Production and Preview safety
 
 - Never mutate production D1 or R2 merely to test, debug, seed, or preview a change.
