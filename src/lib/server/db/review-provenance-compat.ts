@@ -22,30 +22,39 @@ type ReviewInsert = {
   rating: string | null;
 };
 
+async function supportsReviewRouteProvenance(db: import('./index.js').LearningDb) {
+  try {
+    await db.select({ routeType: reviews.routeType }).from(reviews).limit(1);
+    return true;
+  } catch (error) {
+    if (!missingProvenanceColumn(error)) throw error;
+    return false;
+  }
+}
+
 /**
- * Migration 0015 is additive. This fallback keeps the pre-0015 Topic-review
- * shape readable during tests/rollback windows without inventing System/Tag
- * provenance that the older schema cannot represent.
+ * Migration 0015 is additive. Build the Review insert for the schema that is
+ * actually present so Review + Review Question/Asset writes can still share
+ * the caller's D1 batch transaction. The fallback represents Topic reviews
+ * only; System/Tag routing requires the provenance columns from migration 0015.
  */
-export async function insertReviewWithOptionalRouteProvenance(
+export async function buildReviewInsertWithOptionalRouteProvenance(
   db: import('./index.js').LearningDb,
   value: ReviewInsert
 ) {
-  try {
-    await db.insert(reviews).values(value);
-  } catch (error) {
-    if (!missingProvenanceColumn(error)) throw error;
-    if (value.studySystemConceptId || value.routeType !== 'topic' || value.studyTagId) {
-      throw new Error('System-routed Reviews require migration 0015.');
-    }
-    const {
-      studySystemConceptId: _studySystemConceptId,
-      routeType: _routeType,
-      studyTagId: _studyTagId,
-      ...legacyValue
-    } = value;
-    await db.insert(reviews).values(legacyValue);
+  if (await supportsReviewRouteProvenance(db)) {
+    return db.insert(reviews).values(value);
   }
+  if (value.studySystemConceptId || value.routeType !== 'topic' || value.studyTagId) {
+    throw new Error('System-routed Reviews require migration 0015.');
+  }
+  const {
+    studySystemConceptId: _studySystemConceptId,
+    routeType: _routeType,
+    studyTagId: _studyTagId,
+    ...legacyValue
+  } = value;
+  return db.insert(reviews).values(legacyValue);
 }
 
 const reviewSelection = {
