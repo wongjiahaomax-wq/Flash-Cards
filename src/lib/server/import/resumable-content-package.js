@@ -6,6 +6,7 @@
 
 import { and, eq } from 'drizzle-orm';
 
+import { findConceptTaxonomyById } from '../db/concept-taxonomy-compat.ts';
 import { createDb } from '../db/index.js';
 import {
   assets,
@@ -67,11 +68,13 @@ const RESUMABLE_STATUSES = new Set(['validating', 'ready', 'importing', 'failed'
 
 /** @param {any} row @param {Record<string, unknown>} expected */
 function fieldsMatch(row, expected) {
+  if (row?.kind === 'system') return false;
   return Object.entries(expected).every(([key, value]) => row?.[key] === value);
 }
 
 /** @param {any} db @param {any} table @param {string} id */
 async function rowById(db, table, id) {
+  if (table === pre0015Concepts) return findConceptTaxonomyById(db, id);
   return (await db.select().from(table).where(eq(table.id, id)).limit(1))[0] ?? null;
 }
 
@@ -79,6 +82,7 @@ async function rowById(db, table, id) {
 async function requireExisting(db, table, id, label, issues) {
   const row = await rowById(db, table, id);
   if (!row) issues.push(`${label} references missing application ID ${id}.`);
+  else if (table === pre0015Concepts && row.kind !== 'topic') issues.push(`${label} application ID ${id} is a System, not a Topic.`);
   return row;
 }
 
