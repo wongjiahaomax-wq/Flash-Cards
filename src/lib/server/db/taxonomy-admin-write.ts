@@ -1,5 +1,6 @@
-import { and, asc, eq, inArray, or } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 
+import { taxonomyConcepts } from './contextual-schema.ts';
 import { caseConcepts, conceptQuestions, concepts } from './schema.js';
 import { systemTags, tags } from './tag-schema.js';
 import {
@@ -65,14 +66,14 @@ async function uniqueSlug(db: import('./index.js').LearningDb, name: string) {
 async function loadGraph(db: import('./index.js').LearningDb) {
   return db
     .select({
-      id: concepts.id,
-      name: concepts.name,
-      kind: concepts.kind,
-      parentId: concepts.parentId,
-      isActive: concepts.isActive
+      id: taxonomyConcepts.id,
+      name: taxonomyConcepts.name,
+      kind: taxonomyConcepts.kind,
+      parentId: taxonomyConcepts.parentId,
+      isActive: taxonomyConcepts.isActive
     })
-    .from(concepts)
-    .orderBy(asc(concepts.name), asc(concepts.id));
+    .from(taxonomyConcepts)
+    .orderBy(asc(taxonomyConcepts.name), asc(taxonomyConcepts.id));
 }
 
 function graphError(error: unknown): never {
@@ -98,7 +99,7 @@ export async function createTaxonomyConcept(
   }
   const slug = await uniqueSlug(db, name);
   try {
-    await db.insert(concepts).values({
+    await db.insert(taxonomyConcepts).values({
       id,
       name,
       slug,
@@ -169,9 +170,9 @@ export async function updateTaxonomyConcept(
 
   try {
     await db
-      .update(concepts)
+      .update(taxonomyConcepts)
       .set({ name, descriptionMd: optionalText(input.descriptionMd), kind, isActive, updatedAt: new Date() })
-      .where(eq(concepts.id, conceptId));
+      .where(eq(taxonomyConcepts.id, conceptId));
   } catch (error) {
     if (error instanceof Error && /constraint|abort/i.test(error.message)) {
       throw new TaxonomyInputError(error.message);
@@ -238,9 +239,9 @@ export async function replaceSystemTags(
   }
 
   const system = await db
-    .select({ id: concepts.id })
-    .from(concepts)
-    .where(and(eq(concepts.id, systemId), eq(concepts.kind, 'system'), eq(concepts.isActive, true)))
+    .select({ id: taxonomyConcepts.id })
+    .from(taxonomyConcepts)
+    .where(and(eq(taxonomyConcepts.id, systemId), eq(taxonomyConcepts.kind, 'system'), eq(taxonomyConcepts.isActive, true)))
     .limit(1);
   if (!system[0]) throw new TaxonomyInputError('The selected System is missing, inactive, or not classified as a System.');
 
