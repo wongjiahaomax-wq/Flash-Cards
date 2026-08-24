@@ -1,14 +1,14 @@
 import { and, eq } from 'drizzle-orm';
 
 import { reviewsWithRouteProvenance } from './contextual-schema.ts';
-import { reviews } from './schema.js';
+import { pre0015Reviews } from './pre-0015-compat-schema.ts';
 
 function missingProvenanceColumn(error: unknown) {
   let current: unknown = error;
   for (let depth = 0; depth < 5 && current; depth += 1) {
     if (
       current instanceof Error
-      && /no such column:.*(study_system_concept_id|route_type|study_tag_id)|has no column named (study_system_concept_id|route_type|study_tag_id)/i.test(current.message)
+      && /no such column:.*(study_system_concept_id|route_type|study_tag_id|navigation_route_type|navigation_route_id)|has no column named (study_system_concept_id|route_type|study_tag_id|navigation_route_type|navigation_route_id)/i.test(current.message)
     ) {
       return true;
     }
@@ -27,6 +27,8 @@ type ReviewInsert = {
   studySystemConceptId: string | null;
   routeType: 'topic' | 'tag';
   studyTagId: string | null;
+  navigationRouteType: 'all' | 'topic' | 'tag' | null;
+  navigationRouteId: string | null;
   caseTitleSnapshot: string;
   vignetteSnapshotMd: string | null;
   questionPoolMode: 'core' | 'expanded';
@@ -36,24 +38,32 @@ type ReviewInsert = {
 
 /**
  * Build (without executing) the Review insert while preserving the caller's
- * D1 batch boundary. Established Topic Reviews use the pre-0015 table shape;
- * migrated databases supply the additive route defaults. System/Tag routes use
- * the 0015 overlay and therefore intentionally require migration 0015.
+ * D1 batch boundary. Established Topic Reviews use the compatibility-only
+ * pre-0015 shape; System routes require migration 0015 and use the canonical
+ * post-0015 Review schema.
  */
 export function buildReviewInsertWithOptionalRouteProvenance(
   db: import('./index.js').LearningDb,
   value: ReviewInsert
 ) {
-  if (value.studySystemConceptId || value.routeType !== 'topic' || value.studyTagId) {
+  if (
+    value.studySystemConceptId
+    || value.routeType !== 'topic'
+    || value.studyTagId
+    || value.navigationRouteType
+    || value.navigationRouteId
+  ) {
     return db.insert(reviewsWithRouteProvenance).values(value);
   }
   const {
     studySystemConceptId: _studySystemConceptId,
     routeType: _routeType,
     studyTagId: _studyTagId,
+    navigationRouteType: _navigationRouteType,
+    navigationRouteId: _navigationRouteId,
     ...legacyValue
   } = value;
-  return db.insert(reviews).values(legacyValue);
+  return db.insert(pre0015Reviews).values(legacyValue);
 }
 
 const reviewSelection = {
@@ -64,6 +74,8 @@ const reviewSelection = {
   studySystemConceptId: reviewsWithRouteProvenance.studySystemConceptId,
   routeType: reviewsWithRouteProvenance.routeType,
   studyTagId: reviewsWithRouteProvenance.studyTagId,
+  navigationRouteType: reviewsWithRouteProvenance.navigationRouteType,
+  navigationRouteId: reviewsWithRouteProvenance.navigationRouteId,
   questionPoolMode: reviewsWithRouteProvenance.questionPoolMode,
   title: reviewsWithRouteProvenance.caseTitleSnapshot,
   vignette: reviewsWithRouteProvenance.vignetteSnapshotMd,
@@ -74,17 +86,17 @@ const reviewSelection = {
 };
 
 const legacyReviewSelection = {
-  id: reviews.id,
-  caseId: reviews.caseId,
-  primaryConceptId: reviews.primaryConceptId,
-  studyConceptId: reviews.studyConceptId,
-  questionPoolMode: reviews.questionPoolMode,
-  title: reviews.caseTitleSnapshot,
-  vignette: reviews.vignetteSnapshotMd,
-  status: reviews.status,
-  rating: reviews.rating,
-  revealedAt: reviews.revealedAt,
-  completedAt: reviews.completedAt
+  id: pre0015Reviews.id,
+  caseId: pre0015Reviews.caseId,
+  primaryConceptId: pre0015Reviews.primaryConceptId,
+  studyConceptId: pre0015Reviews.studyConceptId,
+  questionPoolMode: pre0015Reviews.questionPoolMode,
+  title: pre0015Reviews.caseTitleSnapshot,
+  vignette: pre0015Reviews.vignetteSnapshotMd,
+  status: pre0015Reviews.status,
+  rating: pre0015Reviews.rating,
+  revealedAt: pre0015Reviews.revealedAt,
+  completedAt: pre0015Reviews.completedAt
 };
 
 type ReviewWithOptionalRouteProvenance = {
@@ -95,6 +107,8 @@ type ReviewWithOptionalRouteProvenance = {
   studySystemConceptId: string | null;
   routeType: 'topic' | 'tag';
   studyTagId: string | null;
+  navigationRouteType: 'all' | 'topic' | 'tag' | null;
+  navigationRouteId: string | null;
   questionPoolMode: string;
   title: string;
   vignette: string | null;
@@ -120,10 +134,19 @@ export async function readReviewWithOptionalRouteProvenance(
     if (!missingProvenanceColumn(error)) throw error;
     const rows = await db
       .select(legacyReviewSelection)
-      .from(reviews)
-      .where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId)))
+      .from(pre0015Reviews)
+      .where(and(eq(pre0015Reviews.id, reviewId), eq(pre0015Reviews.userId, userId)))
       .limit(1);
     const row = rows[0];
-    return row ? { ...row, studySystemConceptId: null, routeType: 'topic', studyTagId: null } : null;
+    return row
+      ? {
+          ...row,
+          studySystemConceptId: null,
+          routeType: 'topic',
+          studyTagId: null,
+          navigationRouteType: null,
+          navigationRouteId: null
+        }
+      : null;
   }
 }
