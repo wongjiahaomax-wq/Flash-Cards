@@ -1,6 +1,7 @@
 import { and, asc, eq, isNull } from 'drizzle-orm';
 
-import { caseConcepts, cases, concepts } from './schema.js';
+import { taxonomyConcepts as concepts } from './contextual-schema.ts';
+import { caseConcepts, cases } from './schema.js';
 import { caseTags, systemTags, tags } from './tag-schema.js';
 import {
   buildSystemStudyNavigation,
