@@ -106,7 +106,7 @@ async function prepareConcept(db, name) {
 }
 
 /** @param {LearningDb} db @param {{ id: string, name: string, slug: string }} concept */
-async function conceptInsert(db, concept) {
+function conceptInsert(db, concept) {
   return buildTopicConceptInsert(db, {
     id: concept.id,
     name: concept.name,
@@ -119,7 +119,7 @@ async function conceptInsert(db, concept) {
 export async function createConcept(db, name) {
   const concept = await prepareConcept(db, name);
   try {
-    await (await conceptInsert(db, concept));
+    await conceptInsert(db, concept);
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       throw new AdminContentInputError('A topic with this generated slug already exists. Try a different name.');
@@ -382,7 +382,7 @@ export async function createCaseTopic(db, input) {
 
   const { primaryConceptId } = await requireActiveCaseWithOnePrimary(db, caseId);
   const concept = await prepareConcept(db, input.name);
-  const conceptWrite = await conceptInsert(db, concept);
+  const conceptWrite = conceptInsert(db, concept);
   const relationshipWrites = relationshipIntent === 'primary'
     ? [
         db
