@@ -87,6 +87,8 @@ routeType        = topic
 
 Existing Topic-question inheritance therefore uses the actual Study Topic, exactly as before.
 
+A learner may also choose a parent Topic whose eligible Case resolves through a more specific descendant Study Topic. The selected parent Topic is retained separately as navigation provenance so “Next case” stays inside the parent Topic route rather than narrowing to that first Case's descendant Topic.
+
 ### Tag route
 
 A Tag route is contextual navigation, not a replacement Study Topic.
@@ -97,7 +99,7 @@ For the same Case studied through:
 Cardiovascular → QT prolongation [Tag]
 ```
 
-Review routing records:
+Review routing records effective provenance:
 
 ```text
 primaryConceptId      = Hypocalcaemia
@@ -115,19 +117,39 @@ A Case can match several routes in one System. `All` deduplicates by Case.
 
 When the same Case is reachable both through a native Topic relationship and through a curated Tag, **native Topic provenance wins**. This preserves the more specific existing Study Topic route instead of silently replacing it with Tag provenance.
 
+The effective winning provenance is not the same thing as the learner's selected `All` route. A Review started from `System → All` records `navigation_route_type = all` even when the selected Case's effective `route_type` is `topic` or `tag`. “Next case” therefore resolves the System's full `All` union again.
+
 ## Review provenance
 
-Migration `0015_contextual_system_topic_tag_navigation.sql` adds additive Review navigation provenance:
+Migration `0015_contextual_system_topic_tag_navigation.sql` adds two deliberately separate kinds of Review routing provenance.
+
+**Effective Case/question provenance:**
 
 - `study_system_concept_id` — nullable System used to enter the Review;
 - `route_type` — `topic` or `tag`, default `topic` for historical behavior;
-- `study_tag_id` — nullable Tag used for a Tag-routed Review.
+- `study_tag_id` — nullable Tag when the winning Case provenance is Tag-based;
+- `study_concept_id` — the actual Topic context passed to the existing question resolver.
 
-Historical Reviews are not rewritten. Existing Review snapshots and question/asset provenance remain unchanged.
+**Learner-selected navigation provenance:**
+
+- `navigation_route_type` — nullable `all`, `topic`, or `tag`;
+- `navigation_route_id` — the selected Topic/Tag ID, or null for `all`.
+
+This distinction matters because a selected `All` route resolves to one effective Topic/Tag provenance for a particular Case, and a selected parent Topic can resolve to a more specific descendant Study Topic. Effective provenance controls question resolution and auditability; selected navigation provenance controls route continuity for the next Case.
+
+Historical Reviews are not rewritten. Existing Review snapshots and question/asset provenance remain unchanged. Pre-0015 Reviews have null System, Tag, and selected-navigation provenance and retain Topic semantics.
 
 For a Tag-routed Review, both `study_system_concept_id` and `study_tag_id` are required. Topic-routed Reviews never store a `study_tag_id`.
 
-Original → Expanded Learning continuation preserves the same System/route provenance. “Next case” also remains within the current resolved System route when the Review came from System navigation.
+Original → Expanded Learning continuation preserves both the effective provenance and the learner-selected navigation provenance. “Next case” reconstructs the learner-selected System route, so `All` remains `All` and a parent Topic remains that parent Topic.
+
+## Drizzle schema authority and pre-0015 compatibility
+
+`src/lib/server/db/schema.js` is the authoritative post-0015 Drizzle model and includes `concepts.kind` plus the Review System/Tag and selected-navigation fields. `drizzle.config.js` continues to load that canonical schema for `db:check` / `db:generate`.
+
+Two narrowly scoped compatibility helpers still support established Topic-only paths against a pre-0015 database during a migration rollout. Their legacy physical shapes live in `pre-0015-compat-schema.ts`, which is intentionally **not** part of `drizzle.config.js`. `contextual-schema.ts` contains aliases to the canonical `schema.js` tables rather than defining competing physical-table models.
+
+This compatibility layer does not make System functionality available before migration 0015. System Admin/navigation code requires the post-0015 schema.
 
 ## Admin surfaces
 
@@ -210,11 +232,14 @@ SYSTEM_STUDY_NAVIGATION_ENABLED=true
 
 The learner Study page will then expose System → All / Topic / Tag choices.
 
-If the flag is absent or not exactly `true`, the existing Topic-based learner Study surface and legacy start action remain active.
+If the flag is absent or not exactly `true`, the existing Topic-based learner Study surface and legacy start action remain active. The server also refuses **Next case** from an already-open System Review, so disabling the flag stops selection of further System-routed Cases rather than only hiding the landing-page controls.
+
+An already-created Review remains readable/completable after rollback. Original → Expanded Learning for that **same Case** also remains allowed because it does not perform another System Case selection; it preserves the historical routing provenance of the existing Case attempt.
 
 ## Rollback principles
 
-- Disabling `SYSTEM_STUDY_NAVIGATION_ENABLED` returns learners to the legacy Topic navigation surface without deleting taxonomy data.
+- Disabling `SYSTEM_STUDY_NAVIGATION_ENABLED` returns learners to the legacy Topic navigation surface and prevents new System-routed Case selection, including “Next case” from an existing System Review.
+- Existing System Reviews may still be viewed/completed, and same-Case Original → Expanded continuation may finish that Case's learning sequence.
 - System hierarchy and System↔Tag relationships are additive metadata; disabling the learner flag does not change Case Topic relationships or question eligibility.
 - Do not delete historical Review provenance as a rollback mechanism.
 - Do not edit historical migrations. Any schema reversal must be handled as an explicit forward migration after production impact is assessed.
@@ -228,7 +253,10 @@ The feature requires coverage for:
 - multi-System Tag exposure;
 - Topic versus Tag route semantics;
 - `All` deduplication and native Topic precedence;
-- Review provenance and historical Review defaults;
+- learner-selected `All` and parent-Topic route continuity across “Next case”;
+- rollout-flag rollback blocking new System Case selection from an existing Review;
+- effective versus selected Review provenance and historical Review defaults;
+- canonical post-0015 Drizzle schema authority with isolated pre-0015 compatibility;
 - the Hypocalcaemia + Prolonged QTc cross-topic scenario;
 - Preview inability to attach Systems to Cases;
 - existing question resolver behavior remaining unchanged after route selection.
