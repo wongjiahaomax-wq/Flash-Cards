@@ -281,13 +281,21 @@ function secondaryTopicsRemovedError() {
   return new AdminContentInputError('Additional Study Topics are no longer supported. Use Case Tags for alternate or cross-cutting classification.');
 }
 
-/** @deprecated Secondary Study Topic creation was removed in favor of Case Tags. */
-export async function addCaseSecondaryTopic() {
+/**
+ * @deprecated Secondary Study Topic creation was removed in favor of Case Tags.
+ * @param {LearningDb} _db
+ * @param {{ caseId: string, conceptId: string }} _input
+ */
+export async function addCaseSecondaryTopic(_db, _input) {
   throw secondaryTopicsRemovedError();
 }
 
-/** @deprecated Secondary Study Topic removal is handled only by the reviewed data migration/operator step. */
-export async function removeCaseSecondaryTopic() {
+/**
+ * @deprecated Secondary Study Topic removal is handled only by the reviewed data migration/operator step.
+ * @param {LearningDb} _db
+ * @param {{ caseId: string, conceptId: string }} _input
+ */
+export async function removeCaseSecondaryTopic(_db, _input) {
   throw secondaryTopicsRemovedError();
 }
 
