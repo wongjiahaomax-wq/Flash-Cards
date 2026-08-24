@@ -1,8 +1,8 @@
 # Flash-Cards — V1 Data Model
 
-_Last updated: 24 August 2026_
+_Last updated: 25 August 2026_
 
-This document records the implemented V1 application data model represented by the repository after the contextual System/Topic/Tag navigation change. It should agree with the current Drizzle schema, committed D1 migrations, and subsystem invariant documents.
+This document records the implemented V1 application data model represented by the repository after the contextual System/Topic/Tag navigation and primary-Topic-only Case classification changes. It should agree with the current Drizzle schema, committed D1 migrations, and subsystem invariant documents.
 
 A migration file being committed is not proof that it has been applied to production D1. Merge status, production migration application, Worker deployment, taxonomy curation, learner feature enablement, and behavior verification remain separate operational facts.
 
@@ -27,6 +27,7 @@ The repository migration sequence contains:
 0013_review_assets_asset_lookup.sql
 0014_review_question_pool_mode.sql
 0015_contextual_system_topic_tag_navigation.sql
+0016_primary_case_topics_only.sql
 ```
 
 Relevant later migrations:
@@ -37,11 +38,14 @@ Relevant later migrations:
 - `0012` — `stimulus_group_options.removed_from_case`, separating archived removal from ordinary `is_active` deactivation;
 - `0013` — `review_assets(asset_id, review_id)` index for Asset-leading historical Review existence/count lookups used by Image Library lifecycle classification;
 - `0014` — non-null `reviews.question_pool_mode`, defaulting historical Reviews to `expanded`, matching the pre-feature full resolver behavior without rebuilding snapshots;
-- `0015` — `concepts.kind`, contextual `system_tags`, taxonomy/relationship guards, effective Review System/Tag provenance, and learner-selected System navigation provenance.
+- `0015` — `concepts.kind`, contextual `system_tags`, taxonomy/relationship guards, effective Review System/Tag provenance, and learner-selected System navigation provenance;
+- `0016` — fail-closed primary-only Case Topic gate plus database guards preventing new non-primary or multiple current Case Topic relationships after legacy rows have been explicitly resolved.
 
 `0015` defaults all existing Concepts to `kind = 'topic'` and all historical Reviews to `route_type = 'topic'` with null System/Tag and selected-navigation provenance. It does not rewrite `review_questions` or `review_assets` snapshots.
 
-`src/lib/server/db/schema.js` is the authoritative post-0015 Drizzle model loaded by `drizzle.config.js`. Narrow pre-0015 Topic-only rollout compatibility uses `pre-0015-compat-schema.ts`, which is intentionally excluded from Drizzle generation/check configuration; `contextual-schema.ts` aliases the canonical tables instead of defining a second physical schema.
+`0016` deliberately does not infer Topic→Tag mappings and does not rewrite Reviews. It refuses to apply while legacy secondary/multiple Case↔Topic relationships remain. Production application therefore requires a separately reviewed stable-ID conversion/reachability audit before this migration is run.
+
+`src/lib/server/db/schema.js` remains the authoritative post-0015 Drizzle model loaded by `drizzle.config.js`. The physical `case_concepts.role` shape remains for compatibility/history; current product behavior no longer creates or routes through secondary Case Topics.
 
 ## 2. General design rules
 
@@ -53,14 +57,15 @@ Relevant later migrations:
 6. Snapshot what the learner actually saw when a Review begins.
 7. Store answers/clinical meaning on the relationship/object that makes them correct; `question_prompts` stores wording only.
 8. Keep Systems, Topics, Tags, stimulus groups, Image Collections, and exact-Asset reuse semantically separate.
-9. Keep new content structures additive/backward-compatible.
+9. Keep new content structures additive/backward-compatible where safe; compatibility shapes must not preserve retired product behavior accidentally.
 10. Preview ownership is explicit provenance, not a naming convention or UI-only filter.
 11. Production teaching-image object keys are immutable; quality replacement creates a new Asset/R2 object.
 12. Stable Stimulus Option identity anchors Case-specific exact-image teaching; exact Asset identity anchors reusable exact-image teaching.
 13. Asset lifecycle status and derived usage classification are distinct concepts.
 14. Learner question-pool eligibility and Case question-count selection are orthogonal concerns: source eligibility is decided before duplicate-Prompt resolution, then existing Automatic/All/Fixed selection is applied.
-15. System/Tag learner navigation chooses Case entry context; it does not replace Topic-question resolution.
+15. System/Tag learner navigation chooses Case entry context; it does not replace canonical Topic-question resolution.
 16. A Review distinguishes the learner-selected System route from the effective Topic/Tag provenance that actually selected its Case.
+17. A current learner-presentable Case has exactly one canonical Primary Topic; alternate/cross-cutting classification uses Case Tags rather than Additional Study Topics.
 
 ## 3. Authentication and Preview ownership
 
@@ -95,7 +100,7 @@ system
 = top-level learner-navigation grouping
 
 topic
-= Case classification and reusable Topic-question scope
+= canonical Case classification and reusable Topic-question scope
 ```
 
 Taxonomy invariants include:
@@ -123,6 +128,8 @@ updated_at
 
 ### `case_concepts`
 
+Physical compatibility shape:
+
 ```text
 case_id
 concept_id
@@ -131,9 +138,19 @@ created_at
 PRIMARY KEY (case_id, concept_id)
 ```
 
-Every learner-presentable active production Case has one primary/default Topic and may have Additional Study Topics. The actual Study Topic route is resolved per Review.
+Current product invariant:
 
-`case_concepts.concept_id` may reference Topics only, never Systems. This is enforced in application mutation paths and by `0015` database triggers.
+```text
+one active/current Case
+→ exactly one Topic relationship
+→ role = primary
+```
+
+`secondary` is legacy compatibility/history only. Current Admin, Preview, learner routing, and reviewed import paths do not create secondary relationships or treat them as learner routes.
+
+`case_concepts.concept_id` may reference Topics only, never Systems. `0015` protects Topic-vs-System use; once legacy data is resolved, `0016` additionally protects the primary-only/max-one current Case Topic invariant.
+
+Changing a Case's Primary Topic replaces its canonical current relationship rather than demoting the old Topic to secondary.
 
 `question_selection_mode` answers **how many questions** are selected from an already eligible pool. It is not overloaded to represent Original versus Expanded source eligibility.
 
@@ -375,6 +392,8 @@ case_question_tags
 
 Tags remain a flat canonical vocabulary.
 
+Case Tags now also carry the Case-level alternate/cross-cutting classification role that should not change canonical Topic ownership.
+
 ### `system_tags`
 
 `0015` adds contextual learner-navigation exposure:
@@ -415,7 +434,7 @@ selected exact stimulus-option question
 > explicitly reused Asset Question for selected option
 > stimulus group
 > Case
-> exact Study Topic
+> exact canonical Study Topic
 > tag-shared Question
 > nearest eligible inheritable ancestor Topic
 > more distant eligible ancestors
@@ -443,13 +462,19 @@ expanded / Expanded Learning
 
 The mode is applied to resolver inputs, not already-resolved output. Expanded remains the regression baseline for pre-feature learner question-pool behavior.
 
-System/Tag routing happens before this question pipeline. Topic routes pass the resolved actual Study Topic. Tag routes pass the selected Case's canonical Primary Topic. This prevents contextual Tag navigation from silently altering Topic-question inheritance.
+System/Tag routing happens before this question pipeline. Current Topic routes and Tag routes both pass the selected Case's canonical Primary Topic as `study_concept_id`. A Tag may make Tag-scoped Shared Questions eligible, but it does not substitute an alternate direct Topic bank.
+
+Historical Reviews may retain a different `study_concept_id` from the retired multi-Topic model; that history is not re-resolved.
 
 ## 14. Import jobs
 
-`import_jobs` stores authoritative resumable Import Package v1 execution state. The reviewed Import Package contract remains intentionally independent from Tags, Reusable Image Questions, option archival, Asset supersession, learner question-pool mode, and System navigation; those can be later Admin/learner behavior layered on the same imported Case Questions.
+`import_jobs` stores authoritative resumable Import Package v1 execution state.
+
+Import Package v1 retains the `secondaryTopicIds` field for package-shape compatibility, but current reviewed imports require it to be empty. Non-empty arrays are rejected before planning/writes. Resumable staging and staged execution-plan reads also reject snapshots that could recreate a secondary Case↔Topic relationship.
 
 Reviewed source-derived questions continue to become Case Questions, which is exactly the ownership used for Original/Core eligibility.
+
+Tags, Reusable Image Questions, option archival, Asset supersession, learner question-pool mode, and System navigation remain later authoring/learner layers unless explicitly included by their own reviewed import contract.
 
 ## 15. Reviews
 
@@ -478,6 +503,22 @@ revealed_at
 completed_at
 ```
 
+For new Reviews under the current model:
+
+```text
+study_concept_id = primary_concept_id
+```
+
+whether the Case is reached by its native Topic or by an exposed Tag. `route_type`/`study_tag_id` still record effective Tag provenance where applicable.
+
+Historical Reviews are deliberately different. Reviews created through the retired Additional Study Topic model may legitimately have:
+
+```text
+study_concept_id != primary_concept_id
+```
+
+That remains immutable historical truth describing the direct Topic-question context used at the time.
+
 `question_pool_mode` records which source family was eligible when the immutable Review snapshot was created. It is per Review start and is not a persistent learner preference.
 
 Historical compatibility is:
@@ -503,6 +544,7 @@ topic effective route
 → study_tag_id MUST be NULL
 → study_system_concept_id may be NULL for legacy Topic navigation
   or contain the System used by System navigation
+→ current study_concept_id is the canonical Primary Topic
 
 tag effective route
 → study_system_concept_id required
@@ -521,14 +563,14 @@ System → All
 System → Topic
 → navigation_route_type = topic
 → navigation_route_id = the Topic the learner selected
-→ study_concept_id may resolve to a more specific descendant Topic
+→ current Case resolution still uses that Case's canonical eligible descendant Topic
 
 System → Tag
 → navigation_route_type = tag
 → navigation_route_id = study_tag_id
 ```
 
-Original → Expanded continuation preserves both selected and effective provenance. “Next case” reconstructs the selected navigation route, so `All` remains `All` and a parent Topic selection does not narrow to the first Case's descendant Study Topic.
+Original → Expanded continuation preserves both selected and effective provenance. “Next case” reconstructs the selected navigation route, so `All` remains `All` and a parent Topic selection does not narrow to the first Case's descendant canonical Topic.
 
 Question-pool mode is orthogonal to `cases.question_selection_mode`:
 
@@ -654,9 +696,9 @@ src/lib/server/db/preview-workspace.js
 
 Focused internal modules own Session lifecycle, ownership/security, Case lifecycle/cloning, and fixed-image operations. These are implementation responsibility boundaries, not new database ownership models.
 
-The complete Case clone transaction remains cohesive in `preview-workspace/case.js`, including clone-time child graph copying. Alternative Set/question/cleanup extraction remains staged future refactoring.
+The complete Case clone transaction remains cohesive in `preview-workspace/case.js`, including clone-time child graph copying. It copies only the canonical Primary Topic plus Case Tags; legacy secondary Topic rows are intentionally not recreated. Alternative Set/question/cleanup extraction remains staged future refactoring.
 
-Preview Case Topic mutations accept Topics only. Preview does not gain System, hierarchy, or System↔Tag global mutation authority. Production/Preview ownership rules otherwise remain unchanged.
+Preview may replace its canonical Topic. Deprecated secondary-Topic Preview helpers fail closed. Preview does not gain System, hierarchy, Tag, or System↔Tag global mutation authority. Production/Preview ownership rules otherwise remain unchanged.
 
 ## 20. Relationship overview
 
@@ -668,7 +710,7 @@ preview_sessions
 
 concepts
   ├── parent_id ── concepts
-  ├── case_concepts ── cases          [Topic only]
+  ├── case_concepts ── cases          [Topic only; current one Primary per Case]
   ├── concept_questions               [Topic only]
   └── system_tags ── tags             [System only]
 
@@ -694,7 +736,7 @@ shared_questions
 
 reviews
   ├── primary_concept_id ── concepts [Topic]
-  ├── study_concept_id ── concepts   [Topic]
+  ├── study_concept_id ── concepts   [Topic; may differ historically]
   ├── study_system_concept_id ── concepts [nullable System]
   ├── study_tag_id ── tags [nullable]
   ├── navigation_route_type / navigation_route_id [selected System route]
@@ -708,7 +750,7 @@ For a chosen System, learner routes are derived rather than stored on Cases:
 
 ```text
 System → Topic
-→ descendant Topic route using existing multi-Topic Case resolution
+→ descendant Topic route using canonical Primary Case Topic resolution
 
 System → Tag
 → Cases with the selected exposed Case Tag
@@ -717,12 +759,12 @@ System → Tag
 System → All
 → union of native descendant Topic routes and curated Tag routes
 → deduplicated by Case
-→ native Topic provenance wins when both routes match
+→ native canonical Topic provenance wins when both routes match
 ```
 
 A Tag can be exposed by more than one System. Each Review records both the actual effective System/Topic/Tag context used for that Case and, for System navigation, the learner-selected `All`/Topic/Tag route needed to continue navigation correctly.
 
-The learner System surface is rollout-gated by `SYSTEM_STUDY_NAVIGATION_ENABLED=true`. Absence of that exact value retains the existing Topic learner navigation and blocks “Next case” from selecting another System-routed Case even when an older System Review remains open. Existing Reviews remain readable/completable; same-Case Original → Expanded continuation may finish the current Case without selecting another System Case.
+The learner System surface is rollout-gated by `SYSTEM_STUDY_NAVIGATION_ENABLED=true`. Absence of that exact value retains the existing rollout behavior and blocks “Next case” from selecting another System-routed Case even when an older System Review remains open. Existing Reviews remain readable/completable; same-Case Original → Expanded continuation may finish the current Case without selecting another System Case.
 
 See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for the operational Phase A/Phase B contract.
 
@@ -730,6 +772,7 @@ See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for the operational Phase A/Phas
 
 The current schema intentionally does **not** imply:
 
+- Additional Study Topic authoring or current learner routing;
 - Tag hierarchy or single-System Tag ownership;
 - System-level reusable Topic-question inheritance;
 - automatic Case Tag → Question Tag inheritance;
@@ -740,7 +783,7 @@ The current schema intentionally does **not** imply:
 - physical deletion merely because an Asset is classified Unused;
 - Preview ownership of global Systems, Topics, Tags, Shared Questions, or Reusable Image Questions;
 - arbitrary different-image substitution through supersession;
-- Import Package support for every later authoring enrichment;
+- an Import Package secondary-Topic creation path;
 - an `original_question` flag or frozen import-era question set;
 - a learner-level persistent Core/Expanded preference;
 - automatic Core/Expanded switching based on Case completion history;
