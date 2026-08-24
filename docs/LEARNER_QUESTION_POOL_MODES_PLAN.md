@@ -315,6 +315,13 @@ The column is non-null with database default:
 expanded
 ```
 
+and a database `CHECK` constrains persisted values to:
+
+```text
+core
+expanded
+```
+
 This preserves historical compatibility because pre-feature Reviews were created using the full reusable resolver behavior. The migration does not rebuild or rewrite existing `review_questions` or `review_assets` rows.
 
 The existing immutable Review snapshot contract remains unchanged:
@@ -356,11 +363,7 @@ After completing an Original Review, the learner is offered the voluntary action
 Continue with Expanded Learning
 ```
 
-alongside:
-
-```text
-Next case
-```
+alongside the ordinary next-Case controls.
 
 The Expanded action:
 
@@ -377,9 +380,16 @@ The action does not route through ordinary random Case selection and does not al
 
 `Next case` remains a separate ordinary Review-start path. It continues to use normal Case selection/history behavior rather than forcing the same Case.
 
-The next Review carries forward the completed Review's explicitly selected question-pool mode. Completion history therefore continues to affect only ordinary Case choice; it does not reinterpret Core as Expanded or vice versa.
+Starting the next Review requires a new explicit question-set choice. The completion UI offers:
 
-If the selected mode is unavailable for the next chosen Case, the start is rejected rather than silently changing modes.
+```text
+Next case — Original questions
+Next case — Expanded Learning
+```
+
+Choosing Expanded Learning is therefore an explicit opt-in for that new Review rather than an inherited property of the completed Review.
+
+If the explicitly chosen mode is unavailable for the next selected Case, the start is rejected rather than silently changing modes.
 
 ## Alternative-stimulus behavior
 
@@ -494,13 +504,14 @@ PR #87 contains focused coverage for the agreed behavior, including:
 18. explicit Original never silently changes to Expanded because no Core questions exist;
 19. chosen mode is persisted on the Review;
 20. historical Review migration compatibility defaults to Expanded without rewriting child snapshots;
-21. Review question/media snapshots remain immutable after source edits;
-22. Continue with Expanded Learning creates a new same-Case Review;
-23. continuation preserves Study Topic context;
-24. continuation creates an Expanded Review;
-25. continuation enforces learner ownership;
-26. ordinary Next-case behavior remains independent of the same-Case continuation path;
-27. existing Preview-only Study restrictions remain in the route guards.
+21. invalid persisted question-pool modes are rejected by the database constraint;
+22. Review question/media snapshots remain immutable after source edits;
+23. Continue with Expanded Learning creates a new same-Case Review;
+24. continuation preserves Study Topic context;
+25. continuation creates an Expanded Review;
+26. continuation enforces learner ownership;
+27. ordinary Next-case selection/history behavior remains independent of same-Case continuation and requires a new explicit question-set choice rather than inheriting the prior mode;
+28. existing Preview-only Study restrictions remain in the route guards.
 
 Existing resolver precedence, question selection, learner ownership, stimulus coverage, reusable-image, Shared Question, and snapshot tests remain part of the repository suite.
 
