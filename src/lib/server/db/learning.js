@@ -127,10 +127,12 @@ async function createReviewForCase({ db, userId, caseId, studyConceptId, questio
   return reviewId;
 }
 
-/** @param {object} options @param {LearningDb} options.db @param {string} options.userId @param {string} options.conceptId @param {QuestionPoolMode} options.questionPoolMode @param {() => number} [options.rng] */
-export async function startReview({ db, userId, conceptId, questionPoolMode, rng = Math.random }) {
+/** @param {object} options @param {LearningDb} options.db @param {string} options.userId @param {string} options.conceptId @param {QuestionPoolMode} [options.questionPoolMode] @param {() => number} [options.rng] */
+export async function startReview({ db, userId, conceptId, questionPoolMode = 'expanded', rng = Math.random }) {
   requiredId(userId);
   requiredId(conceptId);
+  // Learner-facing routes require an explicit choice. This fallback preserves
+  // pre-feature behavior for legacy internal/programmatic callers.
   assertQuestionPoolMode(questionPoolMode);
   const eligibleCases = await listEligibleCases(db, conceptId);
   const selectedCase = pickCase(eligibleCases, { lastCompletedCaseId: await lastCompletedCaseId(db, userId), rng });
