@@ -12,6 +12,7 @@ import {
   conceptQuestions,
   questionPrompts
 } from '../db/schema.js';
+import { findConceptTaxonomyById } from '../db/concept-taxonomy-compat.ts';
 import { pre0015Concepts } from '../db/pre-0015-compat-schema.ts';
 import { deleteTeachingImage, putTeachingImage, assertSupportedImageType, MAX_IMAGE_BYTES } from '../storage/media.js';
 
@@ -417,6 +418,7 @@ export function deterministicStorageKey(packageId, id, mimeType) {
 
 /** @param {any} db @param {any} table @param {string} id */
 async function rowById(db, table, id) {
+  if (table === pre0015Concepts) return findConceptTaxonomyById(db, id);
   return (await db.select().from(table).where(eq(table.id, id)).limit(1))[0] ?? null;
 }
 
@@ -424,11 +426,13 @@ async function rowById(db, table, id) {
 async function requireExisting(db, table, id, label, issues) {
   const row = await rowById(db, table, id);
   if (!row) issues.push(`${label} references missing application ID ${id}.`);
+  else if (table === pre0015Concepts && row.kind !== 'topic') issues.push(`${label} application ID ${id} is a System, not a Topic.`);
   return row;
 }
 
 /** @param {any} row @param {Record<string, unknown>} expected */
 function fieldsMatch(row, expected) {
+  if (row?.kind === 'system') return false;
   return Object.entries(expected).every(([key, value]) => row[key] === value);
 }
 
