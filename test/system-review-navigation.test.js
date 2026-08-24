@@ -61,8 +61,10 @@ function createContextualDb() {
   `);
 
   const d1 = {
+    /** @param {string} sql */
     prepare(sql) {
       return {
+        /** @param {...any} params */
         bind(...params) {
           return {
             async all() {
@@ -83,8 +85,9 @@ function createContextualDb() {
         }
       };
     },
+    /** @param {any[]} statements */
     async batch(statements) {
-      return Promise.all(statements.map((statement) => statement.run()));
+      return Promise.all(statements.map((/** @param {any} statement */ statement) => statement.run()));
     }
   };
 
