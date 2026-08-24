@@ -70,12 +70,6 @@ async function lastCompletedCaseId(db, userId) {
   return row[0]?.caseId ?? null;
 }
 
-/**
- * @param {ReturnType<typeof pickReviewQuestions> extends Promise<infer T> ? T : never} _unused
- */
-function unusedQuestionType(_unused) {}
-void unusedQuestionType;
-
 /** @param {Awaited<ReturnType<typeof loadCaseSource>> extends infer T ? Exclude<T, null> : never} source @param {QuestionPoolMode} questionPoolMode @param {() => number} rng */
 function pickQuestionsForReview(source, questionPoolMode, rng) {
   try {
@@ -95,7 +89,10 @@ function pickQuestionsForReview(source, questionPoolMode, rng) {
     return pickedQuestions;
   } catch (cause) {
     if (cause instanceof QuestionPoolUnavailableError) throw cause;
-    if (cause instanceof Error && cause.message.startsWith('Stimulus Group ')) {
+    if (
+      cause instanceof Error &&
+      (cause.message.startsWith('Stimulus Group ') || cause.message.includes('stimulus-specific question coverage'))
+    ) {
       throw new QuestionPoolUnavailableError(
         questionPoolMode === 'core'
           ? 'Original questions cannot satisfy this case’s stimulus-specific question requirement. Choose Expanded Learning or ask an Admin to review the case.'
