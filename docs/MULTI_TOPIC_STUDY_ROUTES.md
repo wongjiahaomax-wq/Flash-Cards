@@ -8,7 +8,7 @@ _Last updated: 25 August 2026_
 
 Migration `0003_multi_topic_study_routing.sql` and the associated learner/Admin work introduced Additional Study Topics. PR #90 retires that product behavior in favor of one canonical Case Topic plus Tags.
 
-Keep this document because it explains legacy `case_concepts.role = 'secondary'` rows and historical Review provenance. Do **not** use it as current authoring or learner-routing guidance.
+Keep this document because it explains why the historical schema still allows `case_concepts.role = 'secondary'` and why stored Review provenance may contain a Study Topic different from the Primary Topic. Do **not** use it as current authoring or learner-routing guidance.
 
 Current behavior is documented in `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` and `ADDITIONAL_STUDY_TOPICS_TO_TAGS_PLAN.md`.
 
@@ -42,11 +42,11 @@ System → Tag   → Case
 System → All   → deduplicated union
 ```
 
-A Case Tag can now provide the alternate/cross-System discovery role without changing the Case's canonical Topic.
+A Case Tag can provide alternate/cross-System discovery without changing the Case's canonical Topic.
 
-Tags also participate in the existing Tag-scoped Shared Question model. The only material capability that Additional Study Topics still uniquely provided was switching the direct reusable Topic-question bank according to the alternate route.
+Tags also participate in Tag-scoped Shared Question reuse. The main capability unique to Additional Study Topics was switching the direct reusable Topic-question bank according to the alternate route.
 
-PR #90 intentionally removes that switching behavior. Current Reviews always use the Case's canonical Primary Topic as the direct Topic-question context; a Tag route supplies navigation/eligibility context rather than a substitute Study Topic.
+PR #90 intentionally retires that switching behavior. Current route selection uses the Case's canonical Primary Topic as the direct Topic-question context; a Tag route supplies navigation context rather than a substitute Study Topic.
 
 ## 3. Current Case classification model
 
@@ -54,7 +54,7 @@ For current authoring and learner behavior:
 
 ```text
 Case
-├── exactly one canonical Primary Topic
+├── exactly one behaviorally active canonical Primary Topic
 └── zero or more Case Tags
 ```
 
@@ -79,7 +79,7 @@ Systems remain global learner-navigation groupings. A Case never attaches direct
 
 A Topic route can select a Case only through its canonical Primary Topic, subject to the normal Topic hierarchy/descendant rules.
 
-For a current Review:
+For a current new Review:
 
 ```text
 primary_concept_id = canonical Case Topic
@@ -109,7 +109,7 @@ study_tag_id       = selected Tag
 
 `All` remains the deduplicated union of native Topic reachability and exposed Tag reachability. When the same Case is reachable both ways in the same System, native canonical Topic provenance takes precedence for that Case while the Review separately retains `navigation_route_type = all` for route continuity.
 
-## 5. Question resolution after removal
+## 5. Question resolution after retirement
 
 Direct Topic questions are resolved from the canonical Primary Topic and eligible ancestors.
 
@@ -122,8 +122,6 @@ Cross-cutting reusable knowledge can be represented through the existing context
 - explicitly opted-in Reusable Image Questions.
 
 Reusable Image Questions remain selected-stimulus knowledge and are independent of Case Topic identity.
-
-The current duplicate-Prompt precedence remains defined by the learner resolver; removing Additional Study Topics does not introduce a second question taxonomy.
 
 ## 6. Current Admin authoring
 
@@ -145,6 +143,8 @@ Promote secondary Topic while retaining the old primary as secondary
 
 Changing Primary Topic replaces the Case's current canonical relationship. It does not preserve the previous Topic as an alternate learner route.
 
+Stored legacy secondary rows are hidden and ignored by current Case/Topic read models. They do not need to be deleted merely to support the current product model.
+
 Global System/Topic hierarchy and System↔Tag exposure remain global Admin operations rather than Case-local operations.
 
 ## 7. Preview behavior
@@ -157,7 +157,7 @@ Preview cloning copies:
 
 Legacy secondary Topic relationships are deliberately not recreated. Preview shares global production Topics and Tags read-only and does not gain global System, Tag, or System↔Tag mutation authority.
 
-Deprecated secondary-Topic mutation helpers remain only as fail-closed compatibility adapters while callers/tests are transitioned; they do not create or remove current secondary relationships.
+Deprecated secondary-Topic mutation helpers remain only as fail-closed compatibility adapters; they do not create or remove current secondary relationships.
 
 ## 8. Import behavior
 
@@ -165,56 +165,70 @@ Import Package v1 retains the `secondaryTopicIds` field for package-shape compat
 
 A package containing a non-empty `secondaryTopicIds` array is rejected before planning/writes. Resumable staging and staged execution-plan reads also reject legacy snapshots that could recreate secondary Case↔Topic relationships.
 
-Use Tags through the reviewed Tag workflow rather than encoding alternate Case classification as secondary Topics.
+Use Tags through reviewed Tag authoring rather than encoding alternate Case classification as secondary Topics.
 
-## 9. Database compatibility and migration 0016
+## 9. Database compatibility — no new migration
 
-The physical `case_concepts.role` shape is temporarily retained because rebuilding the historical relationship model is not required to remove product behavior safely.
+The existing physical schema remains:
 
-`0016_primary_case_topics_only.sql` is intentionally a release gate:
+```text
+case_concepts.role = primary | secondary
+```
 
-1. it refuses to apply while any legacy secondary/multiple Case↔Topic relationships remain;
-2. after the data is clean, it installs database guards preventing new non-primary or multiple current Case Topic relationships.
+PR #90 deliberately does **not** add a migration to remove or forbid the `secondary` value at database level.
 
-This migration does **not** guess Topic→Tag mappings and does not rewrite Reviews.
+Instead, current application semantics are:
 
-Production conversion requires an explicit reviewed stable-ID mapping plus reachability verification before `0016` is applied.
+```text
+primary
+→ active product behavior
 
-## 10. Historical Reviews remain historical truth
+secondary
+→ legacy stored compatibility data only
+```
 
-Do not rewrite historical Reviews merely because current authoring has changed.
+This avoids a schema/data conversion that is unnecessary for the product change. Existing secondary rows may remain in D1. Current learner selection, Admin/Preview authoring, taxonomy read models, cloning, and reviewed imports do not use them as active Case classification.
 
-A historical Review may legitimately contain:
+The project has not yet been made available to learners, so there is no learner-facing data transition that requires converting those rows before launch.
+
+If cleanup is ever desired for maintenance reasons, it should be a separately reviewed data operation. It must not infer a Topic→Tag mapping merely from matching names.
+
+## 10. Stored Review provenance
+
+Do not rewrite stored Reviews merely because current authoring has changed.
+
+A Review created under older development/multi-Topic behavior may contain:
 
 ```text
 primary_concept_id != study_concept_id
 ```
 
-when it was created through the old Additional Study Topic route. That remains valid provenance describing what question context the learner actually received at the time.
+That stored provenance remains readable. Review Prompt/answer/media snapshots and later System/Tag navigation provenance remain immutable historical records.
 
-Review Prompt/answer/media snapshots and later System/Tag navigation provenance remain immutable historical records.
+Because there has been no learner rollout, these rows do not create a learner migration prerequisite for PR #90.
 
-## 11. Legacy production examples
+## 11. Legacy content examples
 
-Historical production examples included relationships such as:
+Historical development/production content included relationships such as:
 
 ```text
 Hypercalcaemia → Short QTc
 Hypocalcaemia  → Prolonged QTc
 ```
 
-Those examples are useful for migration auditing but are **not** authorization to convert by matching names. A reviewed conversion must identify the exact Case, Topic, Tag, and required System↔Tag exposure by stable IDs.
+Those relationships may remain stored as legacy secondary rows without affecting current routing.
 
-If a safe mapping cannot be established, stop the production conversion rather than guessing.
+If clinicians want equivalent alternate discovery before learner launch, they should explicitly curate the appropriate Case Tags and System↔Tag exposure. Do not automatically convert based on labels; Topic and Tag vocabulary need not be one-to-one.
 
-## 12. Why migration/history references still mention “secondary”
+## 12. Why the repository still mentions `secondary`
 
-The repository intentionally retains references to secondary Topics in:
+The repository intentionally retains secondary-Topic references in:
 
-- historical migrations;
-- historical Review provenance tests;
-- migration guards/audits;
+- historical migration `0003`;
+- stored compatibility schema;
+- tests proving legacy rows are ignored;
 - deprecated fail-closed compatibility helpers;
+- import compatibility fields that must now be empty;
 - this historical decision record.
 
 Those references do not mean Additional Study Topics remain a current product feature.
