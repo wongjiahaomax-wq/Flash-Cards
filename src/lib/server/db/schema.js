@@ -380,6 +380,7 @@ export const reviews = sqliteTable(
     index('reviews_case_completed_idx').on(table.caseId, table.completedAt),
     index('reviews_concept_completed_idx').on(table.primaryConceptId, table.completedAt),
     index('reviews_study_concept_completed_idx').on(table.studyConceptId, table.completedAt),
+    check('reviews_question_pool_mode_check', sql`${table.questionPoolMode} in ('core', 'expanded')`),
     check('reviews_status_check', sql`${table.status} in ('started', 'completed')`),
     check('reviews_rating_check', sql`${table.rating} is null or ${table.rating} in ('again', 'good')`)
   ]
