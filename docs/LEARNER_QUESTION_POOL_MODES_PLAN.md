@@ -1,23 +1,21 @@
 # Learner Original Questions and Expanded Learning
 
-_Status: pending design / agreed product direction. No implementation is included in this document._
+_Status: implemented in draft PR #87. Merge, D1 migration application, production deployment, and production verification remain separate future operational facts._
 
 _Last reviewed: 24 August 2026._
 
 ## Purpose
 
-Flash-Cards currently resolves a Case together with all eligible contextual and reusable questions, then applies the Case's existing `automatic`, `all`, or `fixed` question-selection rules.
-
-The product direction is to let the learner deliberately choose between:
+Flash-Cards now lets the learner deliberately choose between:
 
 - the curated questions that belong specifically to the Case; and
 - a broader learning pass that also includes eligible reusable questions.
 
 This preserves the educational value of the handcrafted Case while keeping reusable Topic, Shared, and Image Questions available for reinforcement.
 
-The feature must **not** change how reviewed slide imports reconstruct Cases, and it must **not** require authors to mark questions as "original" manually.
+The feature does **not** change how reviewed slide imports reconstruct Cases, and it does **not** require authors to mark questions as "original" manually.
 
-## Agreed learner-facing modes
+## Learner-facing modes
 
 Use two learner-facing choices:
 
@@ -26,13 +24,13 @@ Original questions
 Expanded Learning
 ```
 
-Internally, prefer a stable domain concept such as:
+The implementation uses the stable domain concept:
 
 ```ts
 type QuestionPoolMode = 'core' | 'expanded';
 ```
 
-`core` is preferable to storing `original` as the domain value because the feature is about current Case-specific ownership, not a frozen historical copy of the import.
+`core` is used rather than storing `original` as the domain value because the feature is about current Case-specific ownership, not a frozen historical copy of the import.
 
 ### Original questions
 
@@ -59,7 +57,7 @@ later completions     -> Expanded
 
 Completion history must not silently change the learner's question pool.
 
-Instead, the learner chooses which mode they want when starting a Review:
+The implemented Study flow is:
 
 ```text
 Choose Topic
@@ -71,21 +69,19 @@ Choose question set
 Resolve Case + questions in that mode
 ```
 
-Expanded Learning should be an **explicit opt-in**, not an automatic consequence of having completed the Case previously.
+Original questions is the initially selected UI choice. Expanded Learning remains an **explicit opt-in**, not an automatic consequence of having completed the Case previously.
 
-A future UI may present Original questions as the initially selected/conservative choice and require an explicit action to select Expanded Learning, but the important product invariant is that the learner can intentionally choose either mode whenever they study.
-
-There is therefore no need for a learner preference such as:
+There is no learner preference such as:
 
 ```text
 Study new Cases with their original questions
 ```
 
-and no need for a persistent `learner_study_preferences` table for this feature.
+and no persistent `learner_study_preferences` table for this feature.
 
 ## Question ownership defines the pools
 
-The feature should use the existing question ownership model rather than adding an `original` flag.
+The feature uses the existing question ownership model rather than adding an `original` flag.
 
 ### Core / Original pool
 
@@ -209,15 +205,15 @@ stimulus_option
 > ancestor_concept
 ```
 
-Expanded mode should preserve current learner resolver behavior except for the new explicit mode selection and Review provenance.
+Expanded mode preserves current learner resolver behavior except for the new explicit mode selection and Review provenance.
 
-## Filtering must happen before precedence/deduplication
+## Filtering happens before precedence/deduplication
 
 Do **not** resolve the full Expanded pool and then remove reusable `sourceType`s afterward.
 
 A duplicate reusable question can currently override a lower-precedence source with the same `question_prompt_id`. Filtering after resolution could therefore accidentally remove a valid Core question.
 
-Correct conceptual sequence:
+The implemented sequence is:
 
 ```text
 QuestionPoolMode
@@ -229,11 +225,17 @@ resolve precedence + deduplicate
 apply Case automatic/all/fixed selection
 ```
 
-This is a core acceptance invariant for implementation.
+The canonical source-selection rule lives in:
+
+```text
+src/lib/server/learning/question-pool-mode.ts
+```
+
+Core passes only Case, stimulus-group, and stimulus-option inputs into the existing resolver. Expanded passes the complete current source input set. This keeps the existing resolver precedence authoritative rather than introducing a parallel resolver.
 
 ## Existing question-count behavior remains intact
 
-Core/Expanded mode must not replace or reinterpret the existing Case-level question-selection configuration.
+Core/Expanded mode does not replace or reinterpret the existing Case-level question-selection configuration.
 
 For example, reviewed slide imports commonly use:
 
@@ -241,7 +243,7 @@ For example, reviewed slide imports commonly use:
 questionSelectionMode = all
 ```
 
-For an Original review this naturally means:
+For an Original review this means:
 
 ```text
 Core pool
@@ -252,6 +254,8 @@ Case selection mode = all
 ```
 
 For Expanded Learning the same Case configuration applies to the larger eligible pool according to existing semantics.
+
+Existing `automatic` and `fixed` selection continue to run after the mode-specific pool has been resolved.
 
 ## Stimulus-specific coverage
 
@@ -265,7 +269,7 @@ all
 
 stimulus-specific questions.
 
-Original mode must not silently pull in a Reusable Image Question merely to satisfy coverage.
+Original mode does not pull in a Reusable Image Question merely to satisfy coverage.
 
 For Original mode, stimulus-specific coverage can only be satisfied by Case-owned stimulus sources:
 
@@ -276,37 +280,42 @@ stimulus_option
 
 The reusable `asset` source remains Expanded-only.
 
-If an authored coverage rule cannot be satisfied from the Original pool, implementation should surface a clear domain/preflight failure rather than violating the selected mode.
+If the existing coverage/selection preflight cannot be satisfied from the Original pool, Review creation fails before any Review row is written. The learner receives a safe message rather than having the selected mode silently widened.
 
-This edge case requires explicit tests.
+Regression coverage explicitly verifies that a reusable Asset Question cannot satisfy an Original-mode minimum-specific-question requirement.
 
 ## Cases with no Original questions
 
 A Case can theoretically have no active Case-specific questions but have reusable questions.
 
-Do not create a zero-question Review.
+The implementation does not create a zero-question Review and does not silently switch an explicitly selected Original Review to Expanded Learning.
 
-Recommended behavior:
+Instead, Original start rejects before persistence with a learner-safe message explaining that the Case has no Original questions available and that Expanded Learning can be chosen explicitly.
 
-- make Original mode unavailable for that Review/Case when no eligible Core questions exist; or
-- reject that start attempt with a clear learner-safe message and allow the learner to choose Expanded Learning.
-
-Do **not** silently switch an explicitly selected Original Review to Expanded Learning, because that would violate the learner's mode choice.
-
-The eventual implementation prompt should choose the simplest UX consistent with this invariant.
+Expanded Learning can still be started independently when reusable questions are eligible.
 
 ## Review snapshot and provenance
 
-The Review should snapshot the chosen mode, conceptually:
+The Review snapshots the chosen mode:
 
 ```text
 reviews.question_pool_mode
 = core | expanded
 ```
 
-This records why a Review contains the question set it does and supports correct learner-facing labels and history later.
+Migration:
 
-Existing historical Reviews should remain readable. If a migration adds a non-null mode, existing Reviews should be treated/backfilled as `expanded`, because current production behavior resolves the full eligible reusable pool.
+```text
+0014_review_question_pool_mode.sql
+```
+
+The column is non-null with database default:
+
+```text
+expanded
+```
+
+This preserves historical compatibility because pre-feature Reviews were created using the full reusable resolver behavior. The migration does not rebuild or rewrite existing `review_questions` or `review_assets` rows.
 
 The existing immutable Review snapshot contract remains unchanged:
 
@@ -317,13 +326,13 @@ The existing immutable Review snapshot contract remains unchanged:
 - selected Assets/stimulus context;
 - historical media storage information.
 
-Later authoring changes must never rewrite an existing Review.
+Later authoring changes never rewrite an existing Review.
 
 ## Learner Review UI
 
-A Review should make the selected question mode visible without exposing unnecessary authoring internals.
+A Review makes the selected question mode visible without exposing unnecessary authoring internals.
 
-Suggested labels:
+Implemented labels:
 
 ```text
 Original questions
@@ -337,42 +346,56 @@ Expanded Learning
 Includes reusable questions relevant to this Case.
 ```
 
-The existing post-reveal source/scope labels may continue to distinguish Case-specific, Topic, reusable image, inherited Topic, and other source types.
-
-Do not label every unanswered question as "original" or "reusable" unless future learner testing shows that this improves learning.
+The existing post-reveal source/scope labels remain available. Individual unanswered questions are not newly labelled as original/reusable.
 
 ## Optional same-Case continuation
 
-After completing an Original Review, it is useful to offer a voluntary shortcut:
+After completing an Original Review, the learner is offered the voluntary action:
 
 ```text
 Continue with Expanded Learning
 ```
 
-This must remain an **opt-in action**, not an automatic transition.
-
-A completed Original Review could therefore offer:
+alongside:
 
 ```text
-Continue with Expanded Learning
 Next case
 ```
 
-The Expanded action should create a new Review for the **same Case** and same Study Topic context, explicitly in `expanded` mode.
+The Expanded action:
 
-This is a convenience flow only. It does not imply that future Reviews of the Case should automatically use Expanded mode.
+- requires ownership of the completed source Review;
+- requires that the source Review is completed and has `question_pool_mode = core`;
+- creates a **new** Review;
+- uses the **same Case**;
+- preserves the same **Study Topic** context;
+- explicitly uses `expanded` mode.
+
+The action does not route through ordinary random Case selection and does not alter future defaults/preferences.
+
+## Next case behavior
+
+`Next case` remains a separate ordinary Review-start path. It continues to use normal Case selection/history behavior rather than forcing the same Case.
+
+The next Review carries forward the completed Review's explicitly selected question-pool mode. Completion history therefore continues to affect only ordinary Case choice; it does not reinterpret Core as Expanded or vice versa.
+
+If the selected mode is unavailable for the next chosen Case, the start is rejected rather than silently changing modes.
 
 ## Alternative-stimulus behavior
 
-For an Original -> Expanded same-Case continuation, the first implementation does not need to add a new mechanism to replay the exact same randomly selected option from a multi-option Stimulus Group.
+For an Original -> Expanded same-Case continuation, this first implementation does not add a mechanism to replay the exact same randomly selected option from a multi-option Stimulus Group.
 
-Preserve the current stimulus-selection behavior unless later learner testing demonstrates that same-stimulus continuity is important.
+Current stimulus-selection behavior is preserved:
 
-One-option groups and ordinary fixed images naturally remain stable.
+- fixed images remain fixed;
+- one-option groups naturally remain stable;
+- a true multi-option Alternative Set may select another currently active option for the new Review.
+
+Exact stimulus replay/versioning remains intentionally deferred.
 
 ## Admin behavior
 
-No new Admin authoring control is required.
+No new Admin authoring control is added.
 
 Do not add:
 
@@ -381,7 +404,7 @@ Do not add:
 - import-origin controls;
 - automatic source promotion/demotion.
 
-Existing ownership already expresses the distinction:
+Existing ownership expresses the distinction:
 
 ```text
 Case Question
@@ -395,34 +418,45 @@ Reusable Image Question
 -> reusable enrichment / Expanded Learning
 ```
 
-## Expected implementation boundary
+## Implemented architecture boundary
 
-This document does not implement the feature. A later coding PR should remain focused on learner question-pool selection and Review provenance.
+PR #87 keeps the existing learner DB facade while adding one focused typed domain boundary:
 
-Likely areas of work include:
+```text
+Study / Review routes
+        ↓
+src/lib/server/db/learning.js
+        ↓
+src/lib/server/learning/question-pool-mode.ts
+        ↓
+existing question resolver / selection
+        ↓
+Review snapshot persistence
+```
 
-- learner Study start UI/action contract;
-- a focused `core | expanded` question-pool domain contract;
-- Review-start workflow orchestration;
-- eligibility before resolver precedence/deduplication;
-- Review mode snapshot persistence;
-- learner Review mode display;
-- optional same-Case Expanded continuation;
-- characterization/regression tests.
+The TypeScript module owns:
 
-Follow repository architecture guidance: keep routes thin, put the business rule in a canonical learner/question-selection domain owner, prefer TypeScript for a new/extracted application module where proportionate, and do not broaden the PR into unrelated learner refactoring.
+- `QuestionPoolMode`;
+- learner-facing mode metadata shared by the Review UI;
+- runtime mode validation;
+- mode-specific resolver input eligibility;
+- a learner-safe unavailable-pool domain error.
 
-## Expected migration scope
+The existing `learning.js` facade continues to coordinate DB reads, random Case/stimulus selection, existing question-count selection, and immutable persistence. This PR deliberately does not perform a broader learner-subsystem extraction while changing product behavior.
 
-If implementation persists the mode on Reviews, the likely schema change is limited to something conceptually equivalent to:
+Routes remain orchestration surfaces and retain the existing Preview-only learner-access guard.
+
+## Schema scope
+
+The only new learning-domain column is:
 
 ```text
 reviews.question_pool_mode
 ```
 
-No learner-preference table is required under the agreed explicit-choice model.
+No learner-preference table was added.
 
-No schema change should be required for:
+No schema changes were made to:
 
 ```text
 cases
@@ -434,15 +468,15 @@ stimulus_group_questions
 stimulus_option_questions
 ```
 
-The eventual implementation must inspect current `main` before choosing the migration number and exact schema mechanics.
+Import Package v1 is unchanged.
 
-## Characterization and acceptance coverage
+## Characterization and regression coverage
 
-A future coding PR should include focused coverage for at least:
+PR #87 contains focused coverage for the agreed behavior, including:
 
-1. explicit Original start -> Core mode;
-2. explicit Expanded start -> Expanded mode;
-3. Case completion history does not silently choose or change the mode;
+1. explicit Original start -> Core Review mode;
+2. explicit Expanded start -> Expanded Review mode;
+3. Case completion history does not silently choose or change mode;
 4. Original includes ordinary Case Questions;
 5. Original includes Case-specific `stimulus_group` questions;
 6. Original includes Case-specific `stimulus_option` questions;
@@ -450,41 +484,54 @@ A future coding PR should include focused coverage for at least:
 8. Original excludes inherited Topic questions;
 9. Original excludes tag-shared questions;
 10. Original excludes Reusable Image/Asset questions;
-11. Expanded preserves current full resolver semantics;
-12. filtering occurs before precedence/deduplication so a duplicate reusable Prompt cannot erase a valid Original Prompt;
-13. imported-style `questionSelectionMode = all` returns the complete Core set;
-14. existing `automatic` and `fixed` behavior remains valid in both modes;
-15. stimulus coverage cannot smuggle a reusable Asset question into Original mode;
-16. an explicit Original request never silently becomes Expanded because the Core pool is empty;
-17. Reviews snapshot the chosen `core | expanded` mode;
-18. existing historical Reviews remain readable after any migration;
-19. Review question/media snapshots remain immutable;
-20. optional Continue with Expanded Learning starts the same Case and Study Topic in Expanded mode;
-21. continuation respects learner ownership/authorization;
-22. existing Next case behavior remains unchanged;
-23. existing Preview-only learner-access restrictions remain unchanged.
+11. Expanded preserves the current full resolver semantics;
+12. eligibility filtering occurs before precedence/deduplication;
+13. a duplicate reusable Prompt cannot erase a valid Original question;
+14. imported-style `questionSelectionMode = all` returns the complete Core set;
+15. existing `automatic` behavior remains valid;
+16. existing `fixed` behavior remains valid;
+17. stimulus coverage cannot smuggle a reusable Asset Question into Original mode;
+18. explicit Original never silently changes to Expanded because no Core questions exist;
+19. chosen mode is persisted on the Review;
+20. historical Review migration compatibility defaults to Expanded without rewriting child snapshots;
+21. Review question/media snapshots remain immutable after source edits;
+22. Continue with Expanded Learning creates a new same-Case Review;
+23. continuation preserves Study Topic context;
+24. continuation creates an Expanded Review;
+25. continuation enforces learner ownership;
+26. ordinary Next-case behavior remains independent of the same-Case continuation path;
+27. existing Preview-only Study restrictions remain in the route guards.
 
-## Explicit non-goals
+Existing resolver precedence, question selection, learner ownership, stimulus coverage, reusable-image, Shared Question, and snapshot tests remain part of the repository suite.
 
-Keep the following out of this feature unless separately requested:
+## Explicit non-goals / deferred behavior
+
+The implementation deliberately does **not** add or change:
 
 - automatic first-time/later-time mode switching;
+- mode changes based on Case completion history;
 - mastery-based automatic mode selection;
-- a learner preference that changes modes based on Case history;
+- persistent learner study-mode preferences;
 - historical source-version reproduction;
 - per-question scheduling changes;
-- changes to Again/Good rating semantics;
-- learner progress dashboards;
+- Again/Good semantics;
+- learner-progress dashboards;
 - learner-selectable individual Case browsing;
-- Import Package changes;
-- changes to reusable-question authoring/eligibility semantics;
+- Import Package v1 or Import Package v2 fields;
+- reusable-question authoring rules;
+- Shared Question eligibility rules;
+- Reusable Image Question eligibility rules;
 - Admin Core/Expanded controls;
 - broad learner Study performance/refactoring work;
-- generic question-source frameworks.
+- Better Auth/session caching;
+- generic question-source frameworks;
+- exact stimulus replay across Reviews.
+
+A future feature may revisit exact multi-option stimulus continuity only if learner/content requirements justify the extra snapshot/replay mechanism.
 
 ## Product contract summary
 
-The agreed behavior is:
+The implemented behavior is:
 
 ```text
 Learner chooses a Topic
@@ -496,6 +543,8 @@ Learner explicitly chooses question set
         └── Expanded Learning
               = Case-owned + eligible reusable questions
         ↓
+Mode selects eligible resolver inputs
+        ↓
 Existing precedence/deduplication
         ↓
 Existing automatic/all/fixed rules
@@ -503,6 +552,6 @@ Existing automatic/all/fixed rules
 Immutable Review snapshot records chosen mode
 ```
 
-The central invariant is:
+The central invariant remains:
 
 > **Original questions are defined by current Case-specific ownership, not by historical import provenance. Expanded Learning is reusable enrichment and is always learner-chosen, never automatically selected because the Case has been completed before.**
