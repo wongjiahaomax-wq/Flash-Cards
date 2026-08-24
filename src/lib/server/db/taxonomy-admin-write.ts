@@ -217,7 +217,7 @@ export async function applyTaxonomyHierarchy(
   });
 
   try {
-    await db.batch(/** @type {[any, ...any[]]} */ ([...detachWrites, ...attachWrites]));
+    await db.batch([...detachWrites, ...attachWrites] as [any, ...any[]]);
   } catch (error) {
     if (error instanceof Error && /constraint|abort|cycle|parent/i.test(error.message)) {
       throw new TaxonomyInputError(error.message);
@@ -259,7 +259,7 @@ export async function replaceSystemTags(
     writes.push(db.insert(systemTags).values(tagIds.map((tagId, displayOrder) => ({ systemConceptId: systemId, tagId, displayOrder }))));
   }
   try {
-    await db.batch(/** @type {[any, ...any[]]} */ (writes));
+    await db.batch(writes as [any, ...any[]]);
   } catch (error) {
     if (error instanceof Error && /constraint|abort/i.test(error.message)) {
       throw new TaxonomyInputError(error.message);

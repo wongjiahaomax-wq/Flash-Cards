@@ -87,11 +87,28 @@ const legacyReviewSelection = {
   completedAt: reviews.completedAt
 };
 
+type ReviewWithOptionalRouteProvenance = {
+  id: string;
+  caseId: string;
+  primaryConceptId: string;
+  studyConceptId: string;
+  studySystemConceptId: string | null;
+  routeType: 'topic' | 'tag';
+  studyTagId: string | null;
+  questionPoolMode: string;
+  title: string;
+  vignette: string | null;
+  status: string;
+  rating: string | null;
+  revealedAt: Date | null;
+  completedAt: Date | null;
+};
+
 export async function readReviewWithOptionalRouteProvenance(
   db: import('./index.js').LearningDb,
   reviewId: string,
   userId: string
-) {
+): Promise<ReviewWithOptionalRouteProvenance | null> {
   try {
     const rows = await db
       .select(reviewSelection)
@@ -107,6 +124,6 @@ export async function readReviewWithOptionalRouteProvenance(
       .where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId)))
       .limit(1);
     const row = rows[0];
-    return row ? { ...row, studySystemConceptId: null, routeType: 'topic' as const, studyTagId: null } : null;
+    return row ? { ...row, studySystemConceptId: null, routeType: 'topic', studyTagId: null } : null;
   }
 }

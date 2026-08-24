@@ -1,6 +1,7 @@
 <script>
   let { data, form } = $props();
 
+  /** @param {string} tagId */
   function curatedTag(tagId) {
     return data.topic?.systemCoverage?.curatedTags.find((tag) => tag.tagId === tagId) ?? null;
   }

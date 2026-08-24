@@ -28,6 +28,7 @@ const migrationNamesBefore0015 = [
   '0014_review_question_pool_mode.sql'
 ];
 
+/** @param {string[]} names */
 function migrationSql(names) {
   return names
     .map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8'))

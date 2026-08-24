@@ -3,6 +3,7 @@
   let query = $state('');
   $effect(() => { query = data.filters.search; });
 
+  /** @param {string} conceptId */
   function parentOptions(conceptId) {
     return data.hierarchyOptions.filter((candidate) => candidate.id !== conceptId && candidate.isActive);
   }
@@ -52,7 +53,7 @@
 </form>
 
 <section class="panel" aria-labelledby="topic-list-heading">
-  <div class="panel-heading"><div><h2 id="topic-list-heading">Taxonomy <span class="count">{data.topics.length}</span></h2><p class="muted section-copy">Direct Cases are primary relationships on that exact Topic. Descendant Study Cases are deduplicated across the whole subtree.</p></div><span class="muted">System rows are top-level</span></div>
+  <div class="panel-heading"><div><h2 id="topic-list-heading">Taxonomy <span class="count">{data.topics.length}</span></h2><p class="muted section-copy">Direct Cases are exact Topic attachments, including canonical Primary and Additional Study Topic relationships. Descendant Study Cases are deduplicated across the whole subtree.</p></div><span class="muted">System rows are top-level</span></div>
   {#if data.topics.length === 0}<p class="empty-state">No Systems or Topics match this search.</p>{:else}
     <div class="topic-table" role="list">
       <div class="table-header" aria-hidden="true"><span>Classification</span><span>Kind</span><span>Direct Cases</span><span>Study Cases</span><span>Questions</span><span>Status</span></div>

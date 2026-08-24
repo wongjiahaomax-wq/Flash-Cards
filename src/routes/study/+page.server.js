@@ -18,7 +18,10 @@ function systemNavigationEnabled(platform) {
   return platform?.env?.SYSTEM_STUDY_NAVIGATION_ENABLED === 'true';
 }
 
-/** @param {unknown} value */
+/**
+ * @param {unknown} value
+ * @returns {{ routeType: import('$lib/server/learning/system-study-routes.ts').SystemRouteType, routeId: string | null } | null}
+ */
 function parseSystemRoute(value) {
   if (value === 'all') return { routeType: 'all', routeId: null };
   if (typeof value !== 'string') return null;
