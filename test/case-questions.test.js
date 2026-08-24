@@ -163,7 +163,7 @@ test('reusable topic answers retain Case-specific precedence in learner reviews'
       'seed-anterior-stemi',
       promptId
     );
-    const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', rng: () => 0 });
+    const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', questionPoolMode: 'expanded', rng: () => 0 });
     assert.ok(reviewId);
     const review = await getReview(fixture.db, reviewId, 'learner-1');
     assert.ok(review);
