@@ -6,6 +6,7 @@
   const PreviewCaseEditor = /** @type {any} */ (AdminCaseEditor);
   let { data, form } = $props();
   let navigationNotice = $state('');
+  let previewEditor = /** @type {HTMLDivElement | undefined} */ (undefined);
 
   onMount(() => {
     const reusable = /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('input[name="reusable_for_topic"]'));
@@ -14,6 +15,14 @@
       input.disabled = true;
       input.closest('label')?.setAttribute('title', 'Topic-level sharing is unavailable in Preview Mode.');
     }
+
+    previewEditor?.addEventListener('click', guardNavigation);
+    previewEditor?.addEventListener('keydown', guardNavigation);
+
+    return () => {
+      previewEditor?.removeEventListener('click', guardNavigation);
+      previewEditor?.removeEventListener('keydown', guardNavigation);
+    };
   });
 
   /** @param {MouseEvent | KeyboardEvent} event */
@@ -53,7 +62,7 @@
 {#if data.workspaceBlocked}
   <p class="navigation-notice error" role="alert">This workspace is blocked pending cleanup. Use the Preview banner reset control before editing.</p>
 {:else}
-  <div class="preview-editor" role="group" aria-label="Preview Case editor" onclick={guardNavigation} onkeydown={guardNavigation}>
+  <div bind:this={previewEditor} class="preview-editor" role="group" aria-label="Preview Case editor">
     <PreviewCaseEditor {data} {form} />
   </div>
 {/if}
