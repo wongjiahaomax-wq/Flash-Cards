@@ -40,6 +40,15 @@ export {
 const HARDENING_VERSION = 1;
 const UTF8 = new TextDecoder('utf-8', { fatal: true });
 
+/** @param {any} manifest */
+function secondaryTopicIssues(manifest) {
+  return (manifest?.cases ?? []).flatMap((item) =>
+    Array.isArray(item.secondaryTopicIds) && item.secondaryTopicIds.length
+      ? [`Case ${item.id} declares Additional Study Topics. Import Package v1 now requires secondaryTopicIds to be empty; use the reviewed Topic-to-Tag workflow instead.`]
+      : []
+  );
+}
+
 /** @param {ArrayBuffer | Uint8Array | Blob} input */
 async function toBytes(input) {
   if (input instanceof Uint8Array) return input;
@@ -279,6 +288,10 @@ export async function parseImportPackage(input) {
   const bytes = await toBytes(input);
   await preflightZip(bytes);
   const parsed = await parseImportPackageCore(bytes);
+  const issues = secondaryTopicIssues(parsed.manifest);
+  if (issues.length) {
+    throw new ContentPackageError('Additional Study Topics are no longer supported by reviewed imports.', issues);
+  }
   return { ...parsed, hardeningVersion: HARDENING_VERSION };
 }
 
@@ -313,8 +326,8 @@ function rejectDuplicateCreates(items, keyFor, labelFor, issues) {
 
 /** @param {any} parsed */
 function manifestHardeningIssues(parsed) {
-  const issues = [];
   const manifest = parsed.manifest;
+  const issues = [...secondaryTopicIssues(manifest)];
 
   const visiting = new Set();
   const visited = new Set();

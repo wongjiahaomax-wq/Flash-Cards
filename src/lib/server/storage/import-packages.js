@@ -12,6 +12,15 @@ const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
 
 export const IMPORT_STAGING_PREFIX = 'imports/staging/';
 
+/** @param {any} manifest */
+function assertPrimaryTopicOnlyManifest(manifest) {
+  for (const item of manifest?.cases ?? []) {
+    if (Array.isArray(item.secondaryTopicIds) && item.secondaryTopicIds.length) {
+      throw new Error(`Case ${item.id} declares Additional Study Topics. Import Package v1 now requires secondaryTopicIds to be empty; use the reviewed Topic-to-Tag workflow instead.`);
+    }
+  }
+}
+
 /** @param {string} jobId */
 function normalizedJobId(jobId) {
   const normalized = String(jobId ?? '').trim();
@@ -123,6 +132,7 @@ export async function stageImportPackage(bucket, jobId, bytes, snapshot = null) 
     const packageSha256 = String(snapshot.packageSha256 ?? '').trim();
     if (!/^[0-9a-f]{64}$/i.test(packageSha256)) throw new Error('A valid package SHA-256 is required for the execution snapshot.');
     if (!snapshot.manifest || typeof snapshot.manifest !== 'object') throw new Error('A normalized import manifest is required for the execution snapshot.');
+    assertPrimaryTopicOnlyManifest(snapshot.manifest);
 
     const planBytes = TEXT_ENCODER.encode(JSON.stringify({
       version: 1,
@@ -203,6 +213,7 @@ export async function readStagedImportPlan(bucket, jobId) {
   if (parsed?.version !== 1 || !/^[0-9a-f]{64}$/i.test(String(parsed?.packageSha256 ?? '')) || !parsed?.manifest || typeof parsed.manifest !== 'object') {
     throw new Error('The staged import execution plan is invalid.');
   }
+  assertPrimaryTopicOnlyManifest(parsed.manifest);
   return parsed;
 }
 
