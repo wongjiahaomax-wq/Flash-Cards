@@ -1,5 +1,6 @@
 import { asc, eq } from 'drizzle-orm';
 
+import { taxonomyConcepts } from './contextual-schema.ts';
 import { concepts } from './schema.js';
 
 function missingKindColumn(error: unknown) {
@@ -20,18 +21,18 @@ async function selectConceptTaxonomy(
 ) {
   const query = db
     .select({
-      id: concepts.id,
-      name: concepts.name,
-      slug: concepts.slug,
-      descriptionMd: concepts.descriptionMd,
-      kind: concepts.kind,
-      parentId: concepts.parentId,
-      isActive: concepts.isActive
+      id: taxonomyConcepts.id,
+      name: taxonomyConcepts.name,
+      slug: taxonomyConcepts.slug,
+      descriptionMd: taxonomyConcepts.descriptionMd,
+      kind: taxonomyConcepts.kind,
+      parentId: taxonomyConcepts.parentId,
+      isActive: taxonomyConcepts.isActive
     })
-    .from(concepts);
+    .from(taxonomyConcepts);
   return activeOnly
-    ? query.where(eq(concepts.isActive, true)).orderBy(asc(concepts.name), asc(concepts.id))
-    : query.orderBy(asc(concepts.name), asc(concepts.id));
+    ? query.where(eq(taxonomyConcepts.isActive, true)).orderBy(asc(taxonomyConcepts.name), asc(taxonomyConcepts.id))
+    : query.orderBy(asc(taxonomyConcepts.name), asc(taxonomyConcepts.id));
 }
 
 async function selectLegacyConceptTaxonomy(
@@ -82,9 +83,9 @@ export async function requireActiveTopicConcept(db: import('./index.js').Learnin
 }
 
 /**
- * Build (without executing) a Topic insert. Migration 0015 gives `kind` a
- * `topic` default, so omitting that additive column keeps this write valid on
- * both legacy schemas and the migrated schema while preserving D1 batching.
+ * Build (without executing) a Topic insert through the pre-0015 table shape.
+ * Migration 0015 gives `kind` a `topic` database default, so the same query is
+ * valid before and after the migration and remains safe to place in D1 batch.
  */
 export function buildTopicConceptInsert(
   db: import('./index.js').LearningDb,
