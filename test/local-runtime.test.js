@@ -14,6 +14,12 @@ import {
   viteCli,
   wranglerCli
 } from '../scripts/local-runtime-lib.mjs';
+import {
+  classifyLocalServerCommand,
+  descendantPids,
+  parsePosixProcessList,
+  parseWindowsProcessList
+} from '../scripts/local-stop.mjs';
 
 test('local runtime state is repository-local and environment construction is non-mutating', () => {
   /** @type {Record<string, string | undefined>} */
@@ -77,4 +83,46 @@ test('local preview uses repository Wrangler, localhost auth, and local-only mig
 
   const serialized = JSON.stringify(plan);
   assert.doesNotMatch(serialized, /\bnpx\b|wrangler@\d+\.\d+\.\d+/);
+});
+
+test('local stop recognizes only this repository Vite and Wrangler dev entrypoints', () => {
+  assert.equal(classifyLocalServerCommand(`node "${viteCli}" dev`), 'dev');
+  assert.equal(classifyLocalServerCommand(`node "${wranglerCli}" dev --local --port 8787`), 'preview');
+  assert.equal(classifyLocalServerCommand(`node "${viteCli}" build`), null);
+  assert.equal(classifyLocalServerCommand('node scripts/local-dev.mjs'), null);
+  assert.equal(classifyLocalServerCommand('node /another/project/node_modules/vite/bin/vite.js dev'), null);
+
+  const windowsVite = viteCli.replaceAll('/', '\\').toUpperCase();
+  assert.equal(classifyLocalServerCommand(`node "${windowsVite}" dev`, 'win32'), 'dev');
+});
+
+test('local stop process-list parsers preserve pid, parent pid, and command line', () => {
+  assert.deepEqual(
+    parsePosixProcessList(`  10   1 node ${viteCli} dev\n  11  10 workerd\n`),
+    [
+      { pid: 10, ppid: 1, commandLine: `node ${viteCli} dev` },
+      { pid: 11, ppid: 10, commandLine: 'workerd' }
+    ]
+  );
+
+  assert.deepEqual(
+    parseWindowsProcessList(JSON.stringify([
+      { ProcessId: 20, ParentProcessId: 2, CommandLine: `node ${wranglerCli} dev --local` },
+      { ProcessId: 21, ParentProcessId: 20, CommandLine: 'workerd.exe' }
+    ])),
+    [
+      { pid: 20, ppid: 2, commandLine: `node ${wranglerCli} dev --local` },
+      { pid: 21, ppid: 20, commandLine: 'workerd.exe' }
+    ]
+  );
+});
+
+test('local stop discovers descendants without targeting unrelated processes', () => {
+  const processes = [
+    { pid: 10, ppid: 1, commandLine: 'server' },
+    { pid: 11, ppid: 10, commandLine: 'child' },
+    { pid: 12, ppid: 11, commandLine: 'grandchild' },
+    { pid: 20, ppid: 1, commandLine: 'unrelated' }
+  ];
+  assert.deepEqual(descendantPids(10, processes), [11, 12]);
 });
