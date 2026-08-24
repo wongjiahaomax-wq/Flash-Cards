@@ -1,8 +1,8 @@
 # Tagging Model — Agreed Decisions
 
-_Status: authoritative current Tag/Shared Question architecture. Tagging Stage A and Stage B are merged; the Stage B learner/Admin baseline is explicitly recorded as deployed. Current `main` also contains Reusable Image Questions, which are a separate reuse mechanism and do not change Tag semantics._
+_Status: authoritative current Tag/Shared Question architecture. Tagging Stage A and Stage B are merged; the Stage B learner/Admin baseline is explicitly recorded as deployed. Current repository work also includes contextual System→Tag learner navigation and Primary-Topic-only Case behavior. Reusable Image Questions remain a separate reuse mechanism and do not change Tag semantics._
 
-_Last updated: 20 August 2026_
+_Last updated: 25 August 2026_
 
 This document records the agreed Topic/Case/Question Tag architecture after validation against the real ECG corpus. `PROPOSED_TAGGING_MODEL.md` is historical exploration; this file is authoritative for Tag semantics unless a later decision record explicitly changes them.
 
@@ -10,7 +10,7 @@ This document records the agreed Topic/Case/Question Tag architecture after vali
 
 The current model uses canonical flat Tags.
 
-Tags do not have parent/child relationships. Topic hierarchy remains separate and supplies curated learner study routes.
+Tags do not have parent/child relationships. Topic hierarchy remains separate and supplies canonical learner study structure.
 
 Administrators curate Tags explicitly. Current V1 does not require AI inference, automatic Anki Tag ingestion, or automatic taxonomy generation.
 
@@ -18,17 +18,20 @@ Administrators curate Tags explicitly. Current V1 does not require AI inference,
 
 ```text
 Topic
-= learner study route / hierarchy
+= canonical Case educational home / learner route hierarchy
 
 Tag
 = cross-cutting clinical metadata
+= possible contextual learner route when explicitly exposed by a System
 
 Reusable Image Question
 = canonical Prompt/answer intrinsically true of one exact Asset,
   eligible only through explicit stimulus opt-in
 ```
 
-A Case may belong to several Study Topics and carry several Tags. An Asset may have Reusable Image Questions without having any Tag relationship. Similar clinical wording across these mechanisms does not make them interchangeable.
+A current Case has one canonical Primary Topic and may carry several Tags. The historical `case_concepts.role = secondary` shape may still contain old stored rows, but those are not current Case classification or learner routes.
+
+An Asset may have Reusable Image Questions without having any Tag relationship. Similar clinical wording across these mechanisms does not make them interchangeable.
 
 ## 3. Current Tag attachment scope
 
@@ -37,7 +40,8 @@ Current implemented Tag relationships include:
 - Case ↔ Tag (`case_tags`);
 - contextual Case Question ↔ Tag (`case_question_tags`);
 - Shared Question ↔ descriptive Tags (`shared_question_tags`);
-- exactly one Shared Question Reuse Scope Tag (`shared_questions.reuse_scope_tag_id`).
+- exactly one Shared Question Reuse Scope Tag (`shared_questions.reuse_scope_tag_id`);
+- System ↔ exposed Tag (`system_tags`) for contextual learner navigation.
 
 Tags are not stored directly on `question_prompts`, and image Assets do not currently have Tag relationships.
 
@@ -136,7 +140,7 @@ AND case_tags contains (selected Case, Reuse Scope Tag)
 
 `case_tags` has no relationship-level archive flag; the relationship exists when the row exists and the referenced Tag is active.
 
-`shared_question_tags` does not participate in eligibility. Topic/Concept ancestry does not infer Tag matches.
+`shared_question_tags` does not participate in eligibility. Topic/Concept ancestry does not infer Tag matches. System↔Tag exposure also does not create Shared Question eligibility; it only controls whether a Tag is offered as learner navigation in that System.
 
 Reusable Image Question eligibility is independent:
 
@@ -158,7 +162,7 @@ Case-specific exact stimulus option question
 > explicitly reused Asset Question for selected option
 > stimulus group question
 > Case question
-> exact Study Topic question
+> exact canonical Study Topic question
 > Tag-shared Question
 > nearest eligible inheritable ancestor Topic
 > more distant eligible ancestors
@@ -178,19 +182,28 @@ Eligible Shared Questions and explicitly opted-in Reusable Image Questions join 
 
 Reusable Image Questions carry selected stimulus context and can count toward group-specific coverage; Tag-shared Questions do not become stimulus-specific merely because the Case has an image.
 
-## 11. Tags are not learner navigation in current V1
+## 11. Tags may be contextual learner navigation
 
-Tags currently support:
+The original Tagging Stage A/B design intentionally kept Tags out of learner navigation. That historical constraint was later superseded by contextual System/Topic/Tag navigation.
 
-- Admin curation;
-- search/filtering/retrieval;
-- Shared Question reuse.
+Current behavior is:
 
-Learner Study-by-Tag remains deferred. Topics remain the learner-navigation hierarchy.
+```text
+Case Tag
+→ cross-cutting Case classification
+→ Shared Question reuse-scope eligibility when explicitly matched
+
+System ↔ Tag exposure
+→ offers that existing Tag as a learner route inside that System
+```
+
+A Tag is not globally learner-visible merely because it exists or is attached to a Case. Learner visibility requires explicit System↔Tag exposure.
+
+Tag navigation does not replace the Case's canonical Primary Topic. A Tag-routed Case continues to use its Primary Topic as `study_concept_id` for direct/inherited Topic-question resolution.
 
 Reusable Image Questions likewise do not create learner navigation routes.
 
-## 12. Reviews snapshot content/provenance, not Tag relationships
+## 12. Reviews snapshot content/provenance, not mutable Tag relationships
 
 Tags are mutable curation metadata.
 
@@ -214,9 +227,11 @@ source_stimulus_option_id = selected option
 
 Reviews do not snapshot Reuse Scope Tag IDs, descriptive Shared Question Tag IDs, or Case Tag IDs.
 
+Contextual System navigation separately records effective `study_tag_id`/System route provenance at Review level when a Tag route selects the Case. That does not turn mutable Case/Question Tag relationships into Review snapshots.
+
 Historical Review wording/answer/source identity therefore remains stable even if later Tag curation changes Shared Question eligibility or an Asset is later superseded.
 
-## 13. Import Package v1 remains unchanged
+## 13. Import Package v1 remains conservative
 
 Tags are not required by current reviewed Import Package v1.
 
@@ -230,6 +245,8 @@ Topic/deck
 ```
 
 Tags, Shared Questions, and Reusable Image Questions are progressive curation after or alongside import. A future package version may carry reviewed Tag data only if that becomes useful.
+
+The historical `secondaryTopicIds` package field is not a Tag substitute. Current reviewed imports require that compatibility field to be empty rather than creating Additional Study Topics.
 
 ## 14. No Tag alias/synonym system yet
 
@@ -331,11 +348,12 @@ The original ECG source contains 66 notes, each with a front-side ECG reference 
 This corpus validated the progressive model:
 
 ```text
-Topic
+Primary Topic
 └── Case
     ├── vignette
     ├── ECG Asset
-    └── contextual Case Questions
+    ├── contextual Case Questions
+    └── Case Tags as cross-cutting enrichment
 ```
 
 Repeated diagnoses do not require merged Cases. Repeated medical knowledge may be promoted to Shared Questions after review; image-intrinsic knowledge may be promoted separately to Reusable Image Questions when exact Asset identity is the correct reuse key.
@@ -358,8 +376,8 @@ Current V1 deliberately does not include:
 - multiple/compound Reuse Scope Tags or ANY/ALL expressions;
 - Tag hierarchy;
 - Tag aliases/synonyms;
-- learner Study-by-Tag;
-- Review Tag snapshots;
+- global/unscoped learner Study-by-Tag outside the contextual System model;
+- Review snapshots of mutable Case/Question Tag relationships;
 - automatic/AI Tag inference;
 - Asset Tags;
 - automatic Case Tag → Question Tag inheritance;
@@ -370,14 +388,21 @@ Current V1 deliberately does not include:
 ## 22. Architecture summary
 
 ```text
+SYSTEM
+= top-level learner navigation grouping
+
 TOPIC
-= curated learner study route / hierarchy
+= canonical Case educational home / direct Topic-question scope
 
 CASE
 = one coherent clinical presentation
 
 CASE TAGS
 = cross-cutting clinical concepts covered by the Case
+= possible contextual learner routes when explicitly exposed by a System
+
+SYSTEM ↔ TAG
+= contextual learner-navigation exposure
 
 CONTEXTUAL QUESTION TAGS
 = knowledge tested by that contextual Question
