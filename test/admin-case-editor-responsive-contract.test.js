@@ -27,6 +27,12 @@ test('Compact Case questions use accessible scope disclosure and ordering contro
   assert.match(questions, /aria-label="Move question down"/);
 });
 
+test('Case question heading and authoring form have separate visual boxes', () => {
+  assert.match(questions, /<div class="question-section-heading">[\s\S]*Case questions/);
+  assert.match(questions, /<div class="new-question-panel">[\s\S]*class="form-grid question-authoring"/);
+  assert.match(questions, /\.question-section-heading, \.new-question-panel \{[\s\S]*border: 1px solid #cfd8e5;/);
+});
+
 test('Compact wide layout uses horizontal question fields and sticky section navigation only at the wide breakpoint', () => {
   assert.match(questions, /@media \(min-width: 1024px\)/);
   assert.match(questions, /data-editor-layout="compact"\]\) \.question-edit-form/);
