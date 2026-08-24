@@ -29,27 +29,28 @@ Topic  = one canonical educational home for a Case
 Tag    = flat cross-cutting classification / contextual discovery
 
 Case
-├── exactly one Primary Topic
+├── exactly one behaviorally active Primary Topic
 └── zero or more Case Tags
 ```
 
-Additional Study Topics are retired as current authoring/learner behavior. Historical secondary `case_concepts` rows and Reviews may still exist until the reviewed stable-ID data conversion is completed.
+Additional Study Topics are retired as current authoring/learner behavior. The physical `case_concepts.role = primary | secondary` schema remains unchanged, so historical secondary rows may still be stored; current code hides and ignores them rather than requiring a cleanup migration.
 
-Do not infer Topic→Tag conversion from labels. `0016_primary_case_topics_only.sql` deliberately refuses to apply while legacy secondary/multiple Case Topic rows remain.
+No Topic→Tag conversion is inferred from labels. Clinically useful Case Tags and System↔Tag exposure are explicit curation decisions that can be made before learner rollout without rewriting old secondary rows.
 
 ## Repository migration boundary
 
 The repository migration sequence currently extends through:
 
 ```text
-0016_primary_case_topics_only.sql
+0015_contextual_system_topic_tag_navigation.sql
 ```
 
 Important recent migrations include:
 
 - `0014_review_question_pool_mode.sql` — Original/Core versus Expanded Review source-mode provenance;
-- `0015_contextual_system_topic_tag_navigation.sql` — System/Topic taxonomy, System↔Tag exposure, and System-route Review provenance;
-- `0016_primary_case_topics_only.sql` — fail-closed legacy-data gate plus primary-only Case Topic database guards after reviewed conversion.
+- `0015_contextual_system_topic_tag_navigation.sql` — System/Topic taxonomy, System↔Tag exposure, and System-route Review provenance.
+
+There is intentionally **no new migration** for retiring Additional Study Topics. This is a behavior/read-model/import-authoring change over the existing compatibility schema.
 
 A committed migration is not proof that it has been applied to production. Merge, migration application, Worker deployment, taxonomy/data curation, learner feature enablement, and behavior verification are separate facts.
 
@@ -73,7 +74,7 @@ Current V1 behavior specification.
 
 ### `V1_DATA_MODEL.md`
 
-Authoritative implemented domain model, including the physical compatibility shape of `case_concepts`, current one-Primary-Topic invariant, Tags/System exposure, question-pool modes, Review provenance, Preview ownership, and migration ledger.
+Authoritative implemented domain model, including the physical compatibility shape of `case_concepts`, current Primary-Topic behavior, Tags/System exposure, question-pool modes, Review provenance, Preview ownership, and migration ledger.
 
 ### `AUTHORING_MODEL.md`
 
@@ -101,15 +102,15 @@ Authoritative current System/Topic/Tag learner-routing contract:
 - Tag routes discover the Case without changing direct Topic-question context;
 - System → All deduplicates Topic + exposed-Tag reachability;
 - effective Review provenance is separate from learner-selected navigation provenance;
-- production migration/data curation and learner rollout remain separate operational steps.
+- taxonomy curation, Worker deployment, and learner rollout remain separate operational steps.
 
 ### `ADDITIONAL_STUDY_TOPICS_TO_TAGS_PLAN.md`
 
-PR #90 product/domain decision and audit record. It explains the historical semantic difference, the no-name-inference migration rule, and acceptance criteria for removing Additional Study Topics.
+PR #90 product/domain decision record. It explains the historical semantic difference, the no-migration compatibility choice, import/Preview behavior, and the rule that current product behavior ignores stored secondary rows.
 
 ### `MULTI_TOPIC_STUDY_ROUTES.md`
 
-**Historical/superseded decision record.** Read only to understand migration `0003`, legacy secondary `case_concepts` rows, and historical Reviews whose `study_concept_id` may differ from `primary_concept_id`.
+**Historical/superseded decision record.** Read only to understand migration `0003`, legacy secondary `case_concepts` rows, and older/development Reviews whose `study_concept_id` may differ from `primary_concept_id`.
 
 ### `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md`
 
@@ -133,7 +134,7 @@ Current Case Tags additionally carry alternate/cross-cutting Case classification
 - `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md` — narrow same-image quality replacement contract.
 - `PERFORMANCE_AND_READ_MODEL_PLAN.md` — bounded reads/measurement guidance.
 
-The Case editor is componentized under `src/lib/components/case-editor/`. Current classification actions are Primary Topic plus Case Tags; Additional Study Topic actions are retired/fail closed.
+The Case editor is componentized under `src/lib/components/case-editor/`. Current classification actions are Primary Topic plus Case Tags; Additional Study Topic actions are retired/fail closed. Stored legacy secondary rows are not shown.
 
 ## Stimulus behavior
 
@@ -185,12 +186,11 @@ Notable examples:
 
 ## Current next product sequence
 
-After this PR's code is reviewed and the production migration blocker is resolved safely:
+After this PR's code is reviewed:
 
 ```text
-complete reviewed stable-ID secondary Topic → Case Tag/System reachability conversion
-→ apply reviewed migration through normal release workflow
-→ curate real ECG Case Tags and System↔Tag exposure
+curate clinically useful Case Tags and System↔Tag exposure before learner rollout
+→ verify intended Topic/Tag/System learner reachability
 → promote genuinely reusable Shared/Image Questions where scope is proven
 → add useful stimulus variants
 → observe Admin/learner friction
@@ -198,6 +198,8 @@ complete reviewed stable-ID secondary Topic → Case Tag/System reachability con
 → learner-account administration
 → learner-progress administration
 ```
+
+Existing secondary rows do not need to be deleted before this sequence. Clean them later only if a concrete maintenance reason justifies a reviewed data operation.
 
 Do not expand schema/taxonomy merely for conceptual completeness.
 
@@ -208,6 +210,6 @@ Do not expand schema/taxonomy merely for conceptual completeness.
 3. Update roadmap/handover only when status or priorities materially change; do not call a draft/merged feature deployed without explicit verification.
 4. Keep migration presence, production migration application, Worker deployment, curation, feature enablement, and behavior verification as separate facts.
 5. Preserve historical decision records but label them clearly.
-6. Record production data migrations with stable IDs and exact verification; never infer clinical mapping from matching labels.
+6. If a future production data change is needed, use explicit reviewed identifiers and verification; never infer clinical mapping from matching labels.
 7. Keep terminology consistent: System, Topic, Case, Tag, Asset, Collection, Question Prompt, Shared Question, Reusable Image Question.
 8. Behavior-preserving refactors should update ownership/routing docs when future agents need a new file/module boundary.
