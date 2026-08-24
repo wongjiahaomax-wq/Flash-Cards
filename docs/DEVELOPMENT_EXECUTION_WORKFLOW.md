@@ -6,7 +6,7 @@
 
 _Status: current development/operator workflow._
 
-_Last reviewed: 23 August 2026._
+_Last reviewed: 24 August 2026._
 
 ## Purpose
 
@@ -132,6 +132,8 @@ git pull --ff-only origin <branch>
 
 Run `npm ci` after dependency/lockfile changes or when the local install is not known to match the branch. The committed lockfile is authoritative; do not use `npm install` in CI as an implicit lockfile repair step.
 
+On Windows, if a repository Vite/Wrangler server may still be running and holding native Node modules open, run `npm run local:stop` before `npm ci`. The command is repository-scoped and must be preferred over broad `node.exe` termination.
+
 ### 2. Use the local replica only when realistic production-derived content is useful
 
 First setup:
@@ -159,13 +161,16 @@ Use this for repeated component, layout, CSS, routing and authoring UX changes b
 
 ### 4. Use local Wrangler preview at a checkpoint
 
-When the change looks correct under Vite and production-style runtime behavior is relevant:
+When the change looks correct under Vite and production-style runtime behavior is relevant, stop the Vite server before starting Wrangler Preview:
 
 ```sh
+npm run local:stop
 npm run preview
 ```
 
-This is the preferred local check for Worker/runtime behavior and does not spend GitHub Actions minutes.
+`npm run local:stop` matches only this checkout's repository-installed Vite `dev` and Wrangler `dev` process trees. It is safe when nothing is running and must not be replaced with broad machine-wide Node termination.
+
+This is the preferred local check for Worker/runtime behavior and does not spend GitHub Actions minutes. When Preview is finished, run `npm run local:stop` again before returning to the Vite loop or when you want to release local runtime file locks.
 
 When the change touches `package.json`, `package-lock.json`, `wrangler.jsonc`, Svelte/Worker runtime configuration, or the runtime-smoke tooling itself, also run the narrow binding-free compatibility check:
 
@@ -221,7 +226,9 @@ A good sequence is:
 
 ```text
 Vite local UX loop
+→ npm run local:stop
 → local production-style preview
+→ npm run local:stop when leaving Preview
 → local validation
 → PR / CI
 → production-backed Preview once the candidate is worth manual integration review

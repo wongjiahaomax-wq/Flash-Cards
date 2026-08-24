@@ -37,6 +37,18 @@
         : 'Global production Admin pages are intentionally unavailable from Preview Mode.';
     }
   }
+
+  /** @param {HTMLDivElement} node */
+  function interceptPreviewNavigation(node) {
+    node.addEventListener('click', guardNavigation);
+    node.addEventListener('keydown', guardNavigation);
+    return {
+      destroy() {
+        node.removeEventListener('click', guardNavigation);
+        node.removeEventListener('keydown', guardNavigation);
+      }
+    };
+  }
 </script>
 
 <svelte:head><title>{data.selectedCase?.case.title ?? 'Preview Case'} | Preview Admin | Flash-Cards</title></svelte:head>
@@ -53,7 +65,7 @@
 {#if data.workspaceBlocked}
   <p class="navigation-notice error" role="alert">This workspace is blocked pending cleanup. Use the Preview banner reset control before editing.</p>
 {:else}
-  <div class="preview-editor" role="group" aria-label="Preview Case editor" onclick={guardNavigation} onkeydown={guardNavigation}>
+  <div use:interceptPreviewNavigation class="preview-editor" role="group" aria-label="Preview Case editor">
     <PreviewCaseEditor {data} {form} />
   </div>
 {/if}

@@ -130,6 +130,7 @@ SvelteKit `redirect()` throws internally.
 - Follow `docs/LOCAL_DEVELOPMENT_REPLICA.md` for local production-derived data.
 - Production reads used to build a local replica must remain within the documented read-only contract.
 - Application/runtime writes during local development belong in local D1/R2 only.
+- Use `npm run local:stop` when local Flash-Cards `dev`/`preview` servers need to be stopped, especially before `npm ci` or when switching runtime modes. It is intentionally repository-scoped; do not substitute broad Node-process termination.
 - Do not commit replica databases, exports, mirrored media, or generated local secrets.
 
 ## Validation and reporting

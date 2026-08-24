@@ -176,7 +176,7 @@ Alternative Set and question-domain operations plus workspace-wide cleanup orche
 - `PRODUCTION_CONTENT_SNAPSHOT.md` — read-only production-content snapshot plus fixed-purpose taxonomy-operator linkage.
 - `OPEN_SOURCE_READINESS.md` — private-repository publication-cleanup checklist.
 
-`npm run dev` and `npm run preview` now route through repository-owned local launchers that use repository-local Wrangler/XDG state. `npm run preview` is production-style **local** verification; it is not deployment of the production-backed Preview Worker.
+`npm run dev` and `npm run preview` now route through repository-owned local launchers that use repository-local Wrangler/XDG state. `npm run local:stop` safely stops only this checkout's repository-installed Vite/Wrangler local server process trees and is the preferred cleanup before switching runtime modes or a Windows `npm ci`; it must not be replaced with broad Node-process termination. `npm run preview` remains production-style **local** verification, not deployment of the production-backed Preview Worker.
 
 ## Current implementation tracking
 

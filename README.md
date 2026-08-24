@@ -284,7 +284,7 @@ npm run local:admin
 npm run dev
 ```
 
-`npm run dev` and `npm run preview` use repository-owned launchers and repository-local Wrangler/XDG state so local development does not depend on a writable global Wrangler directory. `npm run preview` is a production-style **local** verification command; it is not Preview Worker deployment.
+`npm run dev` and `npm run preview` use repository-owned launchers and repository-local Wrangler/XDG state so local development does not depend on a writable global Wrangler directory. `npm run preview` is a production-style **local** verification command; it is not Preview Worker deployment. Use `npm run local:stop` to stop only this checkout's repository-installed Vite/Wrangler local servers before switching between `dev` and `preview`, before a Windows `npm ci` when native modules may be locked, or instead of broad machine-wide Node termination.
 
 When production content changes, refresh the local copy with:
 

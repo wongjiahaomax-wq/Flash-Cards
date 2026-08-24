@@ -121,6 +121,7 @@ npm run agent:doctor
 npm run agent:checks
 npm run validate:fast
 npm run validate:full
+npm run local:stop
 ```
 
 `agent:doctor` is a read-only pre-edit environment check. It reports Git state, the Node 22 contract, repository-installed Wrangler consistency, and the presence of local developer state without reading secrets or modifying D1/R2.
@@ -130,6 +131,8 @@ npm run validate:full
 `validate:fast` is checkpoint validation: feature-diff whitespace validation, Node tests, and Svelte checks. Use it after a coherent batch of edits or when a broader checkpoint is useful; do not treat it as an every-edit loop.
 
 `validate:full` is the ordinary local pre-handoff contract: feature-diff whitespace validation, migration/schema checks, Node tests, Svelte checks, build, and the existing local Better Auth/D1 smoke test. Run it after implementation is complete, not repeatedly during normal iteration. It does not install dependencies or run production operations.
+
+`local:stop` is the repository-scoped local server cleanup command. It stops only this checkout's repository-installed Vite `dev` and Wrangler `dev` process trees and is safe when nothing is running. Prefer it before switching between `npm run dev` and `npm run preview`, before a Windows `npm ci` that could encounter locked native modules, or when stale local runtime processes are suspected. Do not replace it with broad `node.exe`/Node termination.
 
 Local `validate:*` uses the same preferred feature-branch base resolution as `agent:checks`; its diff check compares the merge-base with the current tracked working tree, so committed branch changes plus staged and unstaged tracked changes are covered. The ordinary `validate:full` sequence and PR CI consume the same repository-owned validation definitions. CI still installs dependencies separately and keeps its PR-specific diff semantics and GitHub failure annotations explicit.
 

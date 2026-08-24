@@ -2,7 +2,7 @@
 
 _Status: current repository operational runbook. Production migration, Worker deployment, and live verification state must be established separately._
 
-_Last updated: 22 August 2026._
+_Last updated: 24 August 2026._
 
 The SvelteKit application deploys to Cloudflare Workers with private runtime bindings:
 
@@ -110,6 +110,8 @@ Local D1/R2 simulations plus replica staging live beneath `.wrangler/`; `.dev.va
 
 `npm run dev` is the fast hot-reload path. A small Node launcher runs repository Vite with `XDG_CONFIG_HOME` scoped to `.wrangler/xdg-config/` for the child process. This keeps Wrangler/Miniflare local platform-proxy registry/log state writable even when a Windows user-global Wrangler directory is read-only. The Cloudflare adapter remains `persist: true` with `remoteBindings: false`.
 
+`npm run local:stop` is repository-scoped cleanup for local Flash-Cards servers. It matches only this checkout's repository-installed Vite `dev` and Wrangler `dev` process trees, is safe when nothing is running, and does not delete local D1/R2, `.dev.vars`, XDG state, or other developer data. Prefer it before switching between `npm run dev` and `npm run preview`, before a Windows `npm ci` when native modules may be locked, or whenever stale local runtime processes are suspected. Do not substitute broad machine-wide Node termination.
+
 `npm run preview` is production-style **local** Worker verification. It:
 
 1. builds the application;
@@ -118,7 +120,7 @@ Local D1/R2 simulations plus replica staging live beneath `.wrangler/`; `.dev.va
 4. scopes XDG state to `.wrangler/xdg-config/`;
 5. overrides the local runtime `BETTER_AUTH_URL` to `http://localhost:8787` by default (or the origin derived from `LOCAL_PREVIEW_PORT`).
 
-It still uses local D1/R2, does not deploy, and does not run `local:refresh`. The production `BETTER_AUTH_URL` and production/Preview bindings in `wrangler.jsonc` remain unchanged.
+It still uses local D1/R2, does not deploy, and does not run `local:refresh`. The production `BETTER_AUTH_URL` and production/Preview bindings in `wrangler.jsonc` remain unchanged. When moving from the Vite loop to Preview, run `npm run local:stop` first; run it again when leaving Preview before returning to Vite or when local runtime file locks should be released.
 
 `npm run deploy` is the actual production deployment command. Authenticated remote/operator commands — including `db:migrate:remote`, `deploy`, `local:setup`, `local:refresh*`, `admin:bootstrap`, and `preview-admin:bootstrap` — deliberately retain the user's normal Wrangler authentication/configuration state instead of inheriting the local runtime XDG override.
 
@@ -142,9 +144,9 @@ node scripts/local-auth-smoke.mjs
 
 ### Windows dependency-install recovery
 
-If `npm ci` fails with `EPERM` while unlinking the Rolldown native `.node` module, a repository Node/Vite/Wrangler process is usually still holding that binary open. Stop those processes, remove the incomplete `node_modules`, and rerun `npm ci`. Secondary errors such as missing `vite` or missing `node_modules/wrangler/bin/wrangler.js` can result from the partial install.
+If `npm ci` fails with `EPERM` while unlinking the Rolldown native `.node` module, a repository Node/Vite/Wrangler process is usually still holding that binary open. Run `npm run local:stop`, remove the incomplete `node_modules`, and rerun `npm ci`. Secondary errors such as missing `vite` or missing `node_modules/wrangler/bin/wrangler.js` can result from the partial install.
 
-Do not delete `.wrangler` as this recovery step; it contains the local D1/R2 replica and other persistent local state.
+Do not use broad `taskkill /IM node.exe`, `killall node`, or equivalent cleanup: unrelated repositories, editors, terminals, and coding-agent processes may also be using Node. Do not delete `.wrangler` as this recovery step; it contains the local D1/R2 replica and other persistent local state.
 
 See `LOCAL_DEVELOPMENT_REPLICA.md` for the complete internal runbook.
 
@@ -444,8 +446,8 @@ npm run runtime:smoke
 git diff --check
 ```
 
-For local-runtime reliability changes, also inspect the diff for accidental Wrangler version drift, `npx wrangler@...`, `--remote` in a local-preview migration path, or remote ordinary-development bindings.
+For local-runtime reliability changes, also inspect the diff for accidental Wrangler version drift, `npx wrangler@...`, `--remote` in a local-preview migration path, broad Node-process termination, or remote ordinary-development bindings.
 
-When a suitable local machine is available, manually exercise `npm run dev` and `npm run preview` and verify local sign-in, Case Editor navigation and teaching-image rendering. `npm run preview` should need neither a manual XDG override nor a manual Better Auth URL override. Do not claim Windows-specific `EPERM`/`EBUSY` reproduction from a non-Windows validation environment.
+When a suitable local machine is available, manually exercise `npm run dev`, `npm run local:stop`, and `npm run preview` and verify local sign-in, Case Editor navigation and teaching-image rendering. Run `npm run local:stop` after Preview and verify a second invocation is a harmless no-op. `npm run preview` should need neither a manual XDG override nor a manual Better Auth URL override. Do not claim Windows-specific `EPERM`/`EBUSY` reproduction from a non-Windows validation environment.
 
 Keep local-replica refresh, migrations, production deploys, Preview candidate deploy/restore, Cloudflare secret creation, content operators and administrator bootstrap/promotion as explicit operations with independently verified outcomes.

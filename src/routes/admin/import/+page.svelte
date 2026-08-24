@@ -4,7 +4,7 @@
 
   let { data, form } = /** @type {any} */ ($props());
   let confirmImport = $state(false);
-  let jobs = $state([...(data?.jobs ?? [])]);
+  let jobs = $state((() => [...(data?.jobs ?? [])])());
   let runningJobId = $state(null);
   let requestInFlight = $state(false);
   let localError = $state('');
