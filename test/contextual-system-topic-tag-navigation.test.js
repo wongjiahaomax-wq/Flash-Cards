@@ -59,13 +59,6 @@ function qtcFixture() {
         isActive: true,
         conceptId: 'hypocalcaemia',
         role: 'primary'
-      },
-      {
-        id: 'hypocalcaemia-case',
-        title: 'Hypocalcaemia with prolonged QTc',
-        isActive: true,
-        conceptId: 'prolonged-qtc',
-        role: 'secondary'
       }
     ],
     caseTagRows: [
@@ -109,42 +102,60 @@ test('taxonomy graph rejects cycles, inactive parents, and nested Systems before
   );
 });
 
-test('QTc/Hypocalcaemia Case resolves through Topic and Tag routes without changing canonical Topic semantics', () => {
+test('QTc/Hypocalcaemia Case uses its canonical Topic and cross-System Tag without secondary Topic routing', () => {
   const fixture = qtcFixture();
 
-  const topicCases = resolveSystemStudyCandidates({
+  const legacyCardioTopicRoute = resolveSystemStudyCandidates({
     ...fixture,
     systemId: 'cardio',
     routeType: 'topic',
     routeId: 'prolonged-qtc'
   });
-  assert.equal(topicCases.length, 1);
-  assert.equal(topicCases[0].primaryConceptId, 'hypocalcaemia');
-  assert.equal(topicCases[0].studyConceptId, 'prolonged-qtc');
-  assert.equal(topicCases[0].studySystemConceptId, 'cardio');
-  assert.equal(topicCases[0].routeType, 'topic');
-  assert.equal(topicCases[0].studyTagId, null);
+  assert.deepEqual(legacyCardioTopicRoute, []);
 
-  const tagCases = resolveSystemStudyCandidates({
+  const metabolicTopic = resolveSystemStudyCandidates({
+    ...fixture,
+    systemId: 'metabolic',
+    routeType: 'topic',
+    routeId: 'hypocalcaemia'
+  });
+  assert.equal(metabolicTopic.length, 1);
+  assert.equal(metabolicTopic[0].primaryConceptId, 'hypocalcaemia');
+  assert.equal(metabolicTopic[0].studyConceptId, 'hypocalcaemia');
+  assert.equal(metabolicTopic[0].studySystemConceptId, 'metabolic');
+  assert.equal(metabolicTopic[0].routeType, 'topic');
+  assert.equal(metabolicTopic[0].studyTagId, null);
+
+  const cardioTag = resolveSystemStudyCandidates({
     ...fixture,
     systemId: 'cardio',
     routeType: 'tag',
     routeId: 'qt-prolongation'
   });
-  assert.equal(tagCases.length, 1);
-  assert.equal(tagCases[0].primaryConceptId, 'hypocalcaemia');
-  assert.equal(tagCases[0].studyConceptId, 'hypocalcaemia');
-  assert.equal(tagCases[0].routeType, 'tag');
-  assert.equal(tagCases[0].studyTagId, 'qt-prolongation');
+  assert.equal(cardioTag.length, 1);
+  assert.equal(cardioTag[0].primaryConceptId, 'hypocalcaemia');
+  assert.equal(cardioTag[0].studyConceptId, 'hypocalcaemia');
+  assert.equal(cardioTag[0].studySystemConceptId, 'cardio');
+  assert.equal(cardioTag[0].routeType, 'tag');
+  assert.equal(cardioTag[0].studyTagId, 'qt-prolongation');
 
-  const allCases = resolveSystemStudyCandidates({
+  const cardioAll = resolveSystemStudyCandidates({
     ...fixture,
     systemId: 'cardio',
     routeType: 'all'
   });
-  assert.equal(allCases.length, 1, 'System All must deduplicate the same Case across Topic and Tag routes');
-  assert.equal(allCases[0].routeType, 'topic', 'native Topic provenance takes precedence in System All');
-  assert.equal(allCases[0].studyConceptId, 'prolonged-qtc');
+  assert.equal(cardioAll.length, 1);
+  assert.equal(cardioAll[0].routeType, 'tag');
+  assert.equal(cardioAll[0].studyConceptId, 'hypocalcaemia');
+
+  const metabolicAll = resolveSystemStudyCandidates({
+    ...fixture,
+    systemId: 'metabolic',
+    routeType: 'all'
+  });
+  assert.equal(metabolicAll.length, 1, 'System All must deduplicate the same Case across native Topic and Tag routes');
+  assert.equal(metabolicAll[0].routeType, 'topic', 'native canonical Topic provenance takes precedence in System All');
+  assert.equal(metabolicAll[0].studyConceptId, 'hypocalcaemia');
 });
 
 test('Next case preserves the learner-selected All and parent-Topic System routes', () => {
@@ -234,6 +245,8 @@ test('the same curated Tag can be exposed independently in several Systems', () 
   assert.equal(cardio[0].studySystemConceptId, 'cardio');
   assert.equal(metabolic[0].studySystemConceptId, 'metabolic');
   assert.equal(cardio[0].studyTagId, metabolic[0].studyTagId);
+  assert.equal(cardio[0].studyConceptId, 'hypocalcaemia');
+  assert.equal(metabolic[0].studyConceptId, 'hypocalcaemia');
 });
 
 test('migration 0015 backfills historical Topics and Reviews without rewriting snapshots', () => {
