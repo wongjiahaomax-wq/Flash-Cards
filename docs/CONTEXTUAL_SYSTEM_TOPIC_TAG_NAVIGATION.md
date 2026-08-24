@@ -1,6 +1,6 @@
 # Contextual System / Topic / Tag Navigation
 
-_Status: current product/domain model on this draft branch. Deployment, production migration application, taxonomy curation, and learner rollout remain separate operational steps._
+_Status: current product/domain model on this draft branch. Deployment, taxonomy curation, and learner rollout remain separate operational steps. PR #90 does not add a database migration._
 
 _Last updated: 25 August 2026_
 
@@ -16,7 +16,7 @@ The current Case-local classification rule is:
 
 > **One canonical Primary Topic plus zero or more Case Tags.**
 
-Additional Study Topics are retired. Historical secondary relationships and Review provenance remain compatibility/history concerns only.
+Additional Study Topics are retired from current product behavior. Historical `role = secondary` rows may remain physically stored under the existing schema but are hidden/ignored by current application paths.
 
 ## Core invariants
 
@@ -29,10 +29,10 @@ Additional Study Topics are retired. Historical secondary relationships and Revi
 - Parent references must exist and be active.
 - Parent changes must not create cycles.
 - Cases may attach only to Topics, never Systems.
-- Current learner-presentable Cases have exactly one canonical Topic relationship.
+- Current learner-presentable Cases require exactly one behaviorally active canonical Primary Topic.
 - reusable `concept_questions` may attach only to Topics, never Systems.
 
-These rules are checked in domain code and migration-level SQLite/D1 guards where practical.
+These rules are checked in domain code and existing SQLite/D1 guards where practical.
 
 ### Case classification
 
@@ -56,7 +56,7 @@ Case Tags answer:
 
 They support cross-cutting classification, contextual learner discovery, and existing Tag-scoped Shared Question eligibility.
 
-Legacy `case_concepts.role = 'secondary'` rows are not current learner routes and current authoring does not create them.
+Legacy `case_concepts.role = 'secondary'` rows are compatibility data only. Current read models do not present them as Case classification, learner routing does not use them, and current Admin/Preview/import paths do not create them.
 
 ### System ↔ Tag exposure
 
@@ -157,13 +157,13 @@ Migration `0015_contextual_system_topic_tag_navigation.sql` stores two layers of
 
 For current Reviews, `study_concept_id` remains the canonical Primary Topic even when the Case is reached through a Tag.
 
-Historical Reviews are not rewritten. Reviews created under the retired multi-Topic model may legitimately have:
+Stored Reviews created under older development/multi-Topic behavior may have:
 
 ```text
 primary_concept_id != study_concept_id
 ```
 
-That remains valid historical provenance.
+This PR does not rewrite those rows or immutable Review snapshots. The project has not yet been rolled out to learners, so no learner-facing migration is required to change current routing behavior.
 
 Original → Expanded Learning preserves the existing Review routing provenance. “Next case” reconstructs the learner-selected System route.
 
@@ -185,7 +185,7 @@ A Tag route does not import the direct Topic-question bank of some alternate Top
 
 ### Systems & Topics library
 
-`/admin/topics` manages global taxonomy identity/hierarchy and coverage.
+`/admin/topics` manages global taxonomy identity/hierarchy and coverage. Current direct Case counts and Topic detail Case lists use Primary Topic relationships only.
 
 ### System detail
 
@@ -202,7 +202,7 @@ Case Tags
 
 It does not mutate global System hierarchy or System↔Tag exposure.
 
-Changing Primary Topic replaces the canonical current relationship; the old Topic is not retained as an alternate learner route.
+Changing Primary Topic replaces the canonical current relationship; the old Topic is not retained as an alternate learner route. Stored unrelated legacy secondary rows remain hidden/inert and do not block ordinary Primary Topic changes.
 
 ### Tag library
 
@@ -226,67 +226,72 @@ Import Package v1 retains `secondaryTopicIds` for package-shape compatibility, b
 
 Non-empty secondary Topic declarations are rejected before planning/writes. Resumable staging and staged execution-plan reads also reject snapshots that could recreate secondary relationships.
 
-## Migration 0016 and production data
+## No new migration for Additional Study Topic retirement
 
-`0016_primary_case_topics_only.sql` is deliberately fail-closed.
+PR #90 intentionally keeps the historical `case_concepts.role = primary | secondary` schema unchanged.
 
-Before it can apply, production legacy secondary/multiple Case↔Topic relationships must be resolved through a separately reviewed stable-ID conversion plan. No Topic→Tag conversion may be inferred from labels.
+The compatibility rule is:
 
-The reviewed conversion must verify, for each affected relationship:
+```text
+primary
+→ current behavior
 
-1. exact Case and secondary Topic IDs;
-2. intended replacement Case Tag ID;
-3. required System↔Tag exposure for learner reachability;
-4. direct Topic-question behavior being intentionally retired or otherwise represented;
-5. preservation of historical Reviews.
+secondary
+→ stored legacy data only
+```
 
-Once legacy rows are clean, migration 0016 installs database guards preventing new non-primary or multiple current Case Topic relationships.
+There is no requirement to delete or convert existing secondary rows before this product change can ship. In particular, do not create an automatic Topic→Tag conversion based on matching labels.
 
-It does not rewrite historical Review provenance.
+If an author wants alternate learner discovery for a Case, curate the appropriate Case Tag and System↔Tag exposure explicitly. Because learner rollout has not yet occurred, this curation can be reviewed before learners are enabled without a production relationship migration.
+
+A future cleanup of stored secondary rows is optional maintenance work only if there is a concrete reason to do it.
 
 ## Phase A / Phase B rollout
 
-The contextual System feature still separates schema/Admin curation from learner exposure.
+The contextual System feature still separates Admin/taxonomy curation from learner exposure.
 
-### Phase A — schema and Admin curation
+### Phase A — deploy behavior and curate taxonomy
 
-Apply reviewed migrations through the normal production release workflow, verify the intended Worker SHA and schema, then curate Systems, Topic hierarchy, and System↔Tag exposure.
+1. Merge/deploy reviewed application changes through the normal release workflow.
+2. Verify the intended Worker SHA and existing required schema, including migration `0015` where applicable.
+3. Curate Systems, Topic hierarchy, Case Tags, and System↔Tag exposure.
+4. Verify intended Topic/Tag/System Case reachability before learner launch.
 
-For PR #90 specifically, do **not** apply migration 0016 until the production secondary→Tag/reachability audit and reviewed conversion are complete.
+PR #90 itself does not add or require a D1 migration.
 
 ### Phase B — learner System navigation
 
-Only after taxonomy curation and migration state are reviewed should production explicitly enable:
+Only after taxonomy curation is reviewed should production explicitly enable:
 
 ```text
 SYSTEM_STUDY_NAVIGATION_ENABLED=true
 ```
 
-If absent or not exactly `true`, new System-routed Case selection remains disabled according to the existing rollout contract. Existing Reviews remain readable/completable; same-Case Original → Expanded continuation preserves historical provenance.
+If absent or not exactly `true`, new System-routed Case selection remains disabled according to the existing rollout contract.
 
 ## Rollback principles
 
 - Disabling `SYSTEM_STUDY_NAVIGATION_ENABLED` prevents new System-routed Case selection according to the existing feature-flag contract.
-- Existing Reviews remain historical records and are not rewritten.
+- Existing stored Review rows are not rewritten.
 - System hierarchy and System↔Tag relationships are additive metadata; disabling learner navigation does not mutate them.
 - Do not restore Additional Study Topics as a rollback mechanism.
-- Do not edit historical migrations. Any schema reversal requires an explicit forward migration after impact review.
+- PR #90 has no schema migration to reverse.
 
 ## Validation expectations
 
 Regression coverage should prove:
 
 - taxonomy cycle/top-level/active-parent validation;
-- one canonical current Case Topic;
-- new secondary Case↔Topic relationships cannot be created;
+- one canonical current Case Topic is used for learner routing;
+- current Admin/Preview/import mutation paths do not create secondary Case↔Topic relationships;
+- stored legacy secondary rows do not create learner eligibility or appear in current Case/Topic read models;
 - canonical Topic routes resolve canonical Topic questions;
 - cross-System Tag routes find Cases without changing `study_concept_id`;
 - `All` deduplicates native Topic + Tag reachability;
 - learner-selected `All` and parent-Topic continuity across “Next case”;
-- historical Review provenance remains valid;
 - Tag-shared eligibility remains based on Case Tags;
 - Preview ownership/isolation and primary-only cloning;
 - reviewed/resumable imports cannot recreate secondary relationships;
-- Original/Expanded continuation remains intact.
+- Original/Expanded behavior remains intact.
 
-For the history and migration rationale behind the retired model, see `MULTI_TOPIC_STUDY_ROUTES.md`.
+For the history behind the retired model, see `MULTI_TOPIC_STUDY_ROUTES.md`.
