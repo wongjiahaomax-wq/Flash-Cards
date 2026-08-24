@@ -84,6 +84,46 @@ BEGIN
   SELECT RAISE(ABORT, 'Deactivate or move active child concepts first.');
 END;
 --> statement-breakpoint
+CREATE TRIGGER `case_concepts_topic_only_insert`
+BEFORE INSERT ON `case_concepts`
+WHEN NOT EXISTS (
+  SELECT 1 FROM `concepts`
+  WHERE `id` = NEW.`concept_id` AND `kind` = 'topic'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Cases may only attach to Topics, not Systems.');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `case_concepts_topic_only_update`
+BEFORE UPDATE OF `concept_id` ON `case_concepts`
+WHEN NOT EXISTS (
+  SELECT 1 FROM `concepts`
+  WHERE `id` = NEW.`concept_id` AND `kind` = 'topic'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Cases may only attach to Topics, not Systems.');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `concept_questions_topic_only_insert`
+BEFORE INSERT ON `concept_questions`
+WHEN NOT EXISTS (
+  SELECT 1 FROM `concepts`
+  WHERE `id` = NEW.`concept_id` AND `kind` = 'topic'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Reusable Concept Questions may only attach to Topics.');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `concept_questions_topic_only_update`
+BEFORE UPDATE OF `concept_id` ON `concept_questions`
+WHEN NOT EXISTS (
+  SELECT 1 FROM `concepts`
+  WHERE `id` = NEW.`concept_id` AND `kind` = 'topic'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Reusable Concept Questions may only attach to Topics.');
+END;
+--> statement-breakpoint
 CREATE TRIGGER `system_tags_active_system_insert`
 BEFORE INSERT ON `system_tags`
 WHEN NOT EXISTS (
