@@ -2,13 +2,13 @@
 
 _Last updated: 24 August 2026_
 
-This document records the implemented V1 application data model on repository `main`. It should agree with the current Drizzle schema, committed D1 migrations, and subsystem invariant documents.
+This document records the implemented V1 application data model represented by the repository after the contextual System/Topic/Tag navigation change. It should agree with the current Drizzle schema, committed D1 migrations, and subsystem invariant documents.
 
-Draft PR #87 proposes one additive Review-provenance field for learner-selectable question pools. The relevant sections below identify that draft boundary explicitly; the feature must not be described as merged, migrated, deployed, or production-verified until those separate events occur.
+A migration file being committed is not proof that it has been applied to production D1. Merge status, production migration application, Worker deployment, taxonomy curation, learner feature enablement, and behavior verification remain separate operational facts.
 
 ## 1. Migration ledger and deployment boundary
 
-Current `main` contains:
+The repository migration sequence contains:
 
 ```text
 0000_dashing_centennial.sql
@@ -25,9 +25,9 @@ Current `main` contains:
 0011_asset_supersession.sql
 0012_archive_stimulus_options.sql
 0013_review_assets_asset_lookup.sql
+0014_review_question_pool_mode.sql
+0015_contextual_system_topic_tag_navigation.sql
 ```
-
-A migration file being committed on `main` is not proof that it has been applied to production D1. Production migration application, Worker deployment, and behavior verification remain separate operational facts.
 
 Relevant later migrations:
 
@@ -35,15 +35,11 @@ Relevant later migrations:
 - `0010` — defense in depth when reactivating dormant Reusable Image Questions;
 - `0011` — nullable `assets.superseded_by_asset_id` self-FK/index for narrow same-image higher-resolution replacement;
 - `0012` — `stimulus_group_options.removed_from_case`, separating archived removal from ordinary `is_active` deactivation;
-- `0013` — `review_assets(asset_id, review_id)` index for Asset-leading historical Review existence/count lookups used by Image Library lifecycle classification. It changes access-path performance, not domain semantics.
+- `0013` — `review_assets(asset_id, review_id)` index for Asset-leading historical Review existence/count lookups used by Image Library lifecycle classification;
+- `0014` — non-null `reviews.question_pool_mode`, defaulting historical Reviews to `expanded`, matching the pre-feature full resolver behavior without rebuilding snapshots;
+- `0015` — `concepts.kind`, contextual `system_tags`, taxonomy/relationship guards, and additive Review System/Tag route provenance.
 
-Draft PR #87 additionally contains:
-
-```text
-0014_review_question_pool_mode.sql
-```
-
-`0014` adds non-null `reviews.question_pool_mode` with database default `expanded`. The default gives existing historical Reviews the semantic value that matches the pre-feature full resolver behavior without rebuilding or rewriting Review question/media snapshots. This migration is part of the draft PR only until merged and separately applied.
+`0015` defaults all existing Concepts to `kind = 'topic'` and all historical Reviews to `route_type = 'topic'` with null System/Tag provenance. It does not rewrite `review_questions` or `review_assets` snapshots.
 
 ## 2. General design rules
 
@@ -54,13 +50,14 @@ Draft PR #87 additionally contains:
 5. Store private R2 object keys, not public/provider media URLs.
 6. Snapshot what the learner actually saw when a Review begins.
 7. Store answers/clinical meaning on the relationship/object that makes them correct; `question_prompts` stores wording only.
-8. Keep Topics, Tags, stimulus groups, Image Collections, and exact-Asset reuse semantically separate.
+8. Keep Systems, Topics, Tags, stimulus groups, Image Collections, and exact-Asset reuse semantically separate.
 9. Keep new content structures additive/backward-compatible.
 10. Preview ownership is explicit provenance, not a naming convention or UI-only filter.
 11. Production teaching-image object keys are immutable; quality replacement creates a new Asset/R2 object.
 12. Stable Stimulus Option identity anchors Case-specific exact-image teaching; exact Asset identity anchors reusable exact-image teaching.
 13. Asset lifecycle status and derived usage classification are distinct concepts.
 14. Learner question-pool eligibility and Case question-count selection are orthogonal concerns: source eligibility is decided before duplicate-Prompt resolution, then existing Automatic/All/Fixed selection is applied.
+15. System/Tag learner navigation chooses Case entry context; it does not replace Topic-question resolution.
 
 ## 3. Authentication and Preview ownership
 
@@ -68,24 +65,44 @@ Better Auth owns authentication/session/account tables. Application role concept
 
 `preview_sessions` provides durable ownership/lifecycle state for disposable Preview content. Production Cases/Assets/Prompts have `preview_session_id = NULL`; Preview-owned equivalents carry a session ID where supported.
 
-Global Shared Questions and Reusable Image Questions are production-curated. Preview-owned Prompts or Assets may not back them. D1 triggers provide defense in depth.
+Global Systems, Topics, Tags, Shared Questions, and Reusable Image Questions are production-curated. Preview may read global taxonomy/Tags, but Preview does not own or mutate those global structures.
 
 Higher-resolution replacement is production-only. Preview-owned Assets cannot be source Assets, and a production Asset referenced by a live Preview workspace temporarily blocks replacement rather than causing Preview relationships to be rewritten.
 
-## 4. Topics and Cases
+## 4. Systems, Topics, and Cases
 
-### `concepts` — Topics
+### `concepts` — Systems and Topics
 
 ```text
 id
 name
 slug UNIQUE
+kind system | topic
 parent_id nullable self-FK
 description_md
 is_active
 created_at
 updated_at
 ```
+
+`kind` has distinct semantics:
+
+```text
+system
+= top-level learner-navigation grouping
+
+topic
+= Case classification and reusable Topic-question scope
+```
+
+Taxonomy invariants include:
+
+- Systems are top-level (`parent_id IS NULL`);
+- a non-null parent must exist and be active;
+- the hierarchy must be acyclic;
+- active children block parent deactivation until moved/deactivated;
+- Topics may temporarily remain top-level while curation is incomplete;
+- a Topic with Case/Topic-question usage cannot be reclassified as a System without first resolving those usages.
 
 ### `cases`
 
@@ -113,7 +130,9 @@ PRIMARY KEY (case_id, concept_id)
 
 Every learner-presentable active production Case has one primary/default Topic and may have Additional Study Topics. The actual Study Topic route is resolved per Review.
 
-`question_selection_mode` continues to answer **how many questions** are selected from an already eligible pool. It is not overloaded to represent Original versus Expanded source eligibility.
+`case_concepts.concept_id` may reference Topics only, never Systems. This is enforced in application mutation paths and by `0015` database triggers.
+
+`question_selection_mode` answers **how many questions** are selected from an already eligible pool. It is not overloaded to represent Original versus Expanded source eligibility.
 
 ## 5. Image organisation and Assets
 
@@ -258,6 +277,8 @@ Prompt wording is reusable; answers live on the relationship/object supplying th
 
 Topic-scoped reusable knowledge with `answer_md` and optional descendant inheritance.
 
+`concept_questions.concept_id` may reference Topics only, never Systems. System navigation does not create System-level reusable-question inheritance.
+
 ### `case_questions`
 
 Whole-Case questions/answers.
@@ -272,7 +293,7 @@ Case-specific exact-option questions/answers. Reusing the same Asset elsewhere d
 
 An existing whole-Case question can be explicitly moved to one exact stimulus while reusing Prompt identity and preserving answer where valid. This is a relationship-scope mutation, not Prompt recreation.
 
-For draft PR #87 learner question-pool semantics, the current Case-owned relationships are:
+Current learner question-pool ownership is:
 
 ```text
 case_questions            -> source_type case            -> Original/Core
@@ -323,7 +344,7 @@ The option Asset and Asset Question Asset must match. Removing one opt-in change
 
 When a currently fixed image needs an exact-image question or reusable-image opt-in, authoring may atomically convert it to a one-option active Stimulus Group while preserving Asset/caption/effective learner visibility.
 
-For draft PR #87, `source_type = asset` remains a reusable source and is eligible only for Expanded Learning. Case-specific exact-image questions remain `stimulus_option` and therefore belong to Original/Core.
+`source_type = asset` is a reusable source and is eligible only for Expanded Learning. Case-specific exact-image questions remain `stimulus_option` and therefore belong to Original/Core.
 
 ## 11. Cross-Stimulus-Group Prompt invariant
 
@@ -339,7 +360,7 @@ stimulus_option_asset_questions -> asset_questions.question_prompt_id
 
 Application preflight plus D1 triggers defend the invariant. `0010` extends protection to Asset Question reactivation.
 
-## 12. Tags and Shared Questions
+## 12. Tags, System Tag exposure, and Shared Questions
 
 Tagging Stage A uses:
 
@@ -349,15 +370,42 @@ case_tags
 case_question_tags
 ```
 
+Tags remain a flat canonical vocabulary.
+
+### `system_tags`
+
+`0015` adds contextual learner-navigation exposure:
+
+```text
+system_concept_id FK -> concepts.id
+tag_id FK -> tags.id
+display_order
+created_at
+PRIMARY KEY (system_concept_id, tag_id)
+UNIQUE (system_concept_id, display_order)
+```
+
+`system_tags` means:
+
+```text
+this existing Tag is exposed as a learner choice inside this System
+```
+
+It does **not** make Tags hierarchical or owned by one System. The same Tag may be exposed in several Systems.
+
+New relationships require an active `concepts.kind = 'system'` row and active Tag. System↔Tag curation is separate from Case Tags and Shared Question Tag semantics.
+
+### Shared Questions
+
 `shared_questions` stores reusable answer/meaning plus exactly one `reuse_scope_tag_id`. `shared_question_tags` stores descriptive metadata only.
 
-Shared Question eligibility requires an active Shared Question/Prompt/Reuse Scope Tag and explicit matching Case Tag. Descriptive Tags and Topic ancestry do not infer eligibility.
+Shared Question eligibility requires an active Shared Question/Prompt/Reuse Scope Tag and explicit matching Case Tag. Descriptive Tags, System exposure, and Topic ancestry do not infer eligibility.
 
-For draft PR #87, eligible Shared Questions continue to use `source_type = tag_shared` and are Expanded-only reusable sources. Their underlying eligibility rule is unchanged.
+Eligible Shared Questions use `source_type = tag_shared` and are Expanded-only reusable sources. Their underlying eligibility rule is unchanged by System navigation.
 
 ## 13. Question resolver precedence and pool mode
 
-Current-main duplicate-Prompt precedence is:
+Duplicate-Prompt precedence is:
 
 ```text
 selected exact stimulus-option question
@@ -372,7 +420,7 @@ selected exact stimulus-option question
 
 The final candidate set is deduplicated by `question_prompt_id` before Automatic/All/Fixed selection.
 
-Draft PR #87 adds a separate `QuestionPoolMode` source-eligibility step **before** that existing resolver precedence:
+`QuestionPoolMode` applies source eligibility **before** that resolver precedence:
 
 ```text
 core / Original
@@ -390,37 +438,72 @@ expanded / Expanded Learning
 → asset
 ```
 
-The mode is applied to resolver inputs, not to already-resolved output. This is required because a higher-precedence reusable candidate can share a Prompt with a Core candidate; post-resolution filtering could otherwise remove the reusable winner and accidentally lose the valid Core Prompt as well.
+The mode is applied to resolver inputs, not already-resolved output. Expanded remains the regression baseline for pre-feature learner question-pool behavior.
 
-Expanded mode therefore remains the regression baseline for pre-feature learner question-pool behavior.
+System/Tag routing happens before this question pipeline. Topic routes pass the resolved actual Study Topic. Tag routes pass the selected Case's canonical Primary Topic. This prevents contextual Tag navigation from silently altering Topic-question inheritance.
 
 ## 14. Import jobs
 
-`import_jobs` stores authoritative resumable Import Package v1 execution state. The reviewed Import Package contract remains intentionally independent from Tags, Reusable Image Questions, option archival, Asset supersession, and learner question-pool mode; those can be later production-Admin/learner behavior layered on the same imported Case Questions.
+`import_jobs` stores authoritative resumable Import Package v1 execution state. The reviewed Import Package contract remains intentionally independent from Tags, Reusable Image Questions, option archival, Asset supersession, learner question-pool mode, and System navigation; those can be later Admin/learner behavior layered on the same imported Case Questions.
 
-Import Package v1 remains unchanged by draft PR #87. Reviewed source-derived questions continue to become Case Questions, which is exactly the ownership used for Original/Core eligibility.
+Reviewed source-derived questions continue to become Case Questions, which is exactly the ownership used for Original/Core eligibility.
 
 ## 15. Reviews
 
-A `reviews` row represents one learner attempt at one resolved Case/Study Topic. It preserves canonical primary Topic and actual Study Topic provenance plus Case title/vignette snapshots and completion/rating state.
+A `reviews` row represents one learner attempt at one resolved Case and question pool. It preserves canonical primary Topic, actual Topic context, optional System/Tag navigation provenance, Case title/vignette snapshots, and completion/rating state.
 
-On current `main`, the established conceptual fields are unchanged through migration `0013`.
-
-Draft PR #87 adds:
+Relevant conceptual fields include:
 
 ```text
+id
+user_id
+case_id
+primary_concept_id
+study_concept_id
+study_system_concept_id nullable
+route_type topic | tag
+study_tag_id nullable
+case_title_snapshot
+vignette_snapshot_md
 question_pool_mode core | expanded
+status
+rating
+started_at
+revealed_at
+completed_at
 ```
 
-The field records which source family was eligible when the immutable Review snapshot was created. It is per Review start and is not a persistent learner preference.
+`question_pool_mode` records which source family was eligible when the immutable Review snapshot was created. It is per Review start and is not a persistent learner preference.
 
 Historical compatibility is:
 
 ```text
-pre-feature Review -> question_pool_mode = expanded
+pre-0014 Review
+→ question_pool_mode = expanded
+
+pre-0015 Review
+→ route_type = topic
+→ study_system_concept_id = NULL
+→ study_tag_id = NULL
 ```
 
-because the pre-feature learner path resolved the full eligible reusable pool. The additive default provides this meaning without rewriting `review_questions` or `review_assets`.
+because the older learner path resolved the full reusable pool through Topic routing. Additive defaults provide this meaning without rewriting `review_questions` or `review_assets`.
+
+Route-provenance rules are:
+
+```text
+topic route
+→ study_tag_id MUST be NULL
+→ study_system_concept_id may be NULL for legacy Topic navigation
+  or contain the System used by System → Topic / All routing
+
+tag route
+→ study_system_concept_id required
+→ study_tag_id required
+→ study_concept_id remains the selected Case's canonical Primary Topic
+```
+
+Original → Expanded continuation preserves the same System/route provenance.
 
 Question-pool mode is orthogonal to `cases.question_selection_mode`:
 
@@ -481,7 +564,7 @@ source_shared_question_id = shared_questions.id
 
 Uniqueness preserves one Prompt per Review and deterministic display order. Snapshot wording/answers are immutable historical truth even if current canonical content later changes.
 
-Question-pool mode does not rewrite this per-question provenance. It explains the Review-level eligibility boundary that produced the final immutable set.
+Review-level question-pool and System/Tag route provenance do not rewrite this per-question provenance.
 
 ## 17. Review Assets
 
@@ -511,7 +594,7 @@ review_assets_asset_review_idx (asset_id, review_id)
 
 This supports Asset-leading historical usage existence/count queries used by Image Library lifecycle views. It does not change Review ownership or snapshot semantics.
 
-Draft PR #87 does not add exact Alternative Set option replay between separate Reviews. A same-Case Original -> Expanded continuation creates a new immutable Review using normal current stimulus selection; fixed/one-option stimuli naturally remain stable while a multi-option group may choose a different active option.
+A same-Case Original → Expanded continuation creates a new immutable Review using normal current stimulus selection; fixed/one-option stimuli naturally remain stable while a multi-option group may choose a different active option.
 
 ## 18. Higher-resolution replacement invariant
 
@@ -544,11 +627,11 @@ Schema ownership remains the same regardless of internal code refactors. Current
 src/lib/server/db/preview-workspace.js
 ```
 
-Focused internal modules currently own Session lifecycle, ownership/security, Case lifecycle/cloning, and fixed-image operations. These are implementation responsibility boundaries, not new database ownership models.
+Focused internal modules own Session lifecycle, ownership/security, Case lifecycle/cloning, and fixed-image operations. These are implementation responsibility boundaries, not new database ownership models.
 
 The complete Case clone transaction remains cohesive in `preview-workspace/case.js`, including clone-time child graph copying. Alternative Set/question/cleanup extraction remains staged future refactoring.
 
-Draft PR #87 does not change Preview content ownership or Preview-only Study restrictions.
+Preview Case Topic mutations accept Topics only. Preview does not gain System, hierarchy, or System↔Tag global mutation authority. Production/Preview ownership rules otherwise remain unchanged.
 
 ## 20. Relationship overview
 
@@ -559,7 +642,10 @@ preview_sessions
   └── question_prompts.preview_session_id
 
 concepts
-  └── case_concepts ── cases
+  ├── parent_id ── concepts
+  ├── case_concepts ── cases          [Topic only]
+  ├── concept_questions               [Topic only]
+  └── system_tags ── tags             [System only]
 
 cases
   ├── case_assets ── assets
@@ -582,27 +668,56 @@ shared_questions
   └── shared_question_tags ── tags
 
 reviews
+  ├── primary_concept_id ── concepts [Topic]
+  ├── study_concept_id ── concepts   [Topic]
+  ├── study_system_concept_id ── concepts [nullable System]
+  ├── study_tag_id ── tags [nullable]
   ├── review_questions
   └── review_assets
 ```
 
-For draft PR #87, `reviews.question_pool_mode` is Review-level scalar provenance and adds no new relationship edge.
+## 21. System study-route semantics
 
-## 21. Non-goals encoded by the current model
+For a chosen System, learner routes are derived rather than stored on Cases:
+
+```text
+System → Topic
+→ descendant Topic route using existing multi-Topic Case resolution
+
+System → Tag
+→ Cases with the selected exposed Case Tag
+→ canonical Primary Topic remains the question-resolution Study Topic
+
+System → All
+→ union of native descendant Topic routes and curated Tag routes
+→ deduplicated by Case
+→ native Topic provenance wins when both routes match
+```
+
+A Tag can be exposed by more than one System. Each Review records the actual System context used.
+
+The learner System surface is rollout-gated by `SYSTEM_STUDY_NAVIGATION_ENABLED=true`. Absence of that exact value retains the existing Topic learner navigation while allowing schema/Admin taxonomy curation to deploy first.
+
+See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for the operational Phase A/Phase B contract.
+
+## 22. Non-goals encoded by the current model
 
 The current schema intentionally does **not** imply:
 
-- Tag hierarchy or compound Shared Question scopes;
+- Tag hierarchy or single-System Tag ownership;
+- System-level reusable Topic-question inheritance;
 - automatic Case Tag → Question Tag inheritance;
+- automatic System Tag exposure from Case Tags;
 - automatic reusable-image opt-in;
 - generic Asset families/version tables;
 - automatic visual similarity/deduplication;
 - physical deletion merely because an Asset is classified Unused;
-- Preview ownership of global Shared Questions or Reusable Image Questions;
+- Preview ownership of global Systems, Topics, Tags, Shared Questions, or Reusable Image Questions;
 - arbitrary different-image substitution through supersession;
 - Import Package support for every later authoring enrichment;
 - an `original_question` flag or frozen import-era question set;
 - a learner-level persistent Core/Expanded preference;
-- automatic Core/Expanded switching based on Case completion history.
+- automatic Core/Expanded switching based on Case completion history;
+- stimulus-option → Topic learner routing merely because one image has an incidental finding.
 
 Add schema only when a concrete product/content requirement justifies it.
