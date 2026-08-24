@@ -4,6 +4,10 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import {
+  SystemStudyNavigationDisabledError,
+  resolveNextSystemStudyRoute
+} from '../src/lib/server/learning/system-review-navigation.ts';
+import {
   resolveSystemStudyCandidates,
   routeBelongsToSystem
 } from '../src/lib/server/learning/system-study-routes.ts';
@@ -143,6 +147,70 @@ test('QTc/Hypocalcaemia Case resolves through Topic and Tag routes without chang
   assert.equal(allCases[0].studyConceptId, 'prolonged-qtc');
 });
 
+test('Next case preserves the learner-selected All and parent-Topic System routes', () => {
+  const allRoute = resolveNextSystemStudyRoute({
+    studySystemConceptId: 'cardio',
+    navigationRouteType: 'all',
+    navigationRouteId: null,
+    routeType: 'topic',
+    studyTagId: null,
+    studyConceptId: 'prolonged-qtc'
+  }, true);
+  assert.deepEqual(allRoute, { systemId: 'cardio', routeType: 'all', routeId: null });
+
+  const parentTopicRoute = resolveNextSystemStudyRoute({
+    studySystemConceptId: 'cardio',
+    navigationRouteType: 'topic',
+    navigationRouteId: 'electrophysiology',
+    routeType: 'topic',
+    studyTagId: null,
+    studyConceptId: 'prolonged-qtc'
+  }, true);
+  assert.deepEqual(parentTopicRoute, {
+    systemId: 'cardio',
+    routeType: 'topic',
+    routeId: 'electrophysiology'
+  });
+});
+
+test('rollout rollback blocks Next case for an existing System Review without blocking legacy Topic Reviews', () => {
+  assert.throws(
+    () => resolveNextSystemStudyRoute({
+      studySystemConceptId: 'cardio',
+      navigationRouteType: 'all',
+      navigationRouteId: null,
+      routeType: 'topic',
+      studyTagId: null,
+      studyConceptId: 'prolonged-qtc'
+    }, false),
+    SystemStudyNavigationDisabledError
+  );
+
+  assert.equal(resolveNextSystemStudyRoute({
+    studySystemConceptId: null,
+    navigationRouteType: null,
+    navigationRouteId: null,
+    routeType: 'topic',
+    studyTagId: null,
+    studyConceptId: 'prolonged-qtc'
+  }, false), null);
+});
+
+test('older System Reviews without selected-route columns fall back to their effective route', () => {
+  assert.deepEqual(resolveNextSystemStudyRoute({
+    studySystemConceptId: 'cardio',
+    navigationRouteType: null,
+    navigationRouteId: null,
+    routeType: 'tag',
+    studyTagId: 'qt-prolongation',
+    studyConceptId: 'hypocalcaemia'
+  }, true), {
+    systemId: 'cardio',
+    routeType: 'tag',
+    routeId: 'qt-prolongation'
+  });
+});
+
 test('the same curated Tag can be exposed independently in several Systems', () => {
   const fixture = qtcFixture();
   assert.equal(routeBelongsToSystem('cardio', 'tag', 'qt-prolongation', fixture), true);
@@ -210,8 +278,20 @@ test('migration 0015 backfills historical Topics and Reviews without rewriting s
       { kind: 'topic', parent_id: null }
     );
     assert.deepEqual(
-      { ...sqlite.prepare('SELECT study_system_concept_id, route_type, study_tag_id FROM reviews WHERE id = ?').get('historical-review') },
-      { study_system_concept_id: null, route_type: 'topic', study_tag_id: null }
+      {
+        ...sqlite.prepare(`
+          SELECT study_system_concept_id, route_type, study_tag_id,
+                 navigation_route_type, navigation_route_id
+          FROM reviews WHERE id = ?
+        `).get('historical-review')
+      },
+      {
+        study_system_concept_id: null,
+        route_type: 'topic',
+        study_tag_id: null,
+        navigation_route_type: null,
+        navigation_route_id: null
+      }
     );
     assert.deepEqual(
       { ...sqlite.prepare('SELECT prompt_snapshot_md, answer_snapshot_md FROM review_questions WHERE id = ?').get('historical-review-question') },
@@ -263,25 +343,62 @@ test('migration 0015 enforces System/Topic relationship and Review provenance in
       INSERT INTO reviews (
         id, user_id, case_id, primary_concept_id, study_concept_id,
         study_system_concept_id, route_type, study_tag_id,
+        navigation_route_type, navigation_route_id,
         case_title_snapshot, question_pool_mode, status
       ) VALUES (
         'tag-review', 'learner', 'case-a', 'qtc', 'qtc',
-        'cardio', 'tag', 'qt-tag',
+        'cardio', 'tag', 'qt-tag', 'tag', 'qt-tag',
+        'Case A', 'expanded', 'started'
+      );
+      INSERT INTO reviews (
+        id, user_id, case_id, primary_concept_id, study_concept_id,
+        study_system_concept_id, route_type,
+        navigation_route_type, navigation_route_id,
+        case_title_snapshot, question_pool_mode, status
+      ) VALUES (
+        'all-review', 'learner', 'case-a', 'qtc', 'qtc',
+        'cardio', 'topic', 'all', NULL,
         'Case A', 'expanded', 'started'
       );
     `);
-    assert.equal(
-      sqlite.prepare('SELECT route_type FROM reviews WHERE id = ?').get('tag-review')?.route_type,
-      'tag'
+    assert.deepEqual(
+      {
+        ...sqlite.prepare(`
+          SELECT route_type, study_tag_id, navigation_route_type, navigation_route_id
+          FROM reviews WHERE id = ?
+        `).get('tag-review')
+      },
+      {
+        route_type: 'tag',
+        study_tag_id: 'qt-tag',
+        navigation_route_type: 'tag',
+        navigation_route_id: 'qt-tag'
+      }
     );
     assert.throws(
       () => sqlite.exec(`
         INSERT INTO reviews (
           id, user_id, case_id, primary_concept_id, study_concept_id,
-          study_system_concept_id, route_type, case_title_snapshot, question_pool_mode, status
+          study_system_concept_id, route_type, study_tag_id,
+          case_title_snapshot, question_pool_mode, status
         ) VALUES (
-          'invalid-tag-review', 'learner', 'case-a', 'qtc', 'qtc',
-          'cardio', 'tag', 'Case A', 'expanded', 'started'
+          'missing-selected-route', 'learner', 'case-a', 'qtc', 'qtc',
+          'cardio', 'tag', 'qt-tag', 'Case A', 'expanded', 'started'
+        );
+      `),
+      /Review study-route provenance is invalid/
+    );
+    assert.throws(
+      () => sqlite.exec(`
+        INSERT INTO reviews (
+          id, user_id, case_id, primary_concept_id, study_concept_id,
+          study_system_concept_id, route_type, study_tag_id,
+          navigation_route_type, navigation_route_id,
+          case_title_snapshot, question_pool_mode, status
+        ) VALUES (
+          'mismatched-tag-route', 'learner', 'case-a', 'qtc', 'qtc',
+          'cardio', 'tag', 'qt-tag', 'tag', 'qtc',
+          'Case A', 'expanded', 'started'
         );
       `),
       /Review study-route provenance is invalid/
@@ -289,4 +406,21 @@ test('migration 0015 enforces System/Topic relationship and Review provenance in
   } finally {
     sqlite.close();
   }
+});
+
+test('canonical Drizzle schema models migration 0015 while pre-0015 shapes stay compatibility-only', () => {
+  const schemaSource = readFileSync(new URL('../src/lib/server/db/schema.js', import.meta.url), 'utf8');
+  const contextualSource = readFileSync(new URL('../src/lib/server/db/contextual-schema.ts', import.meta.url), 'utf8');
+  const compatSource = readFileSync(new URL('../src/lib/server/db/pre-0015-compat-schema.ts', import.meta.url), 'utf8');
+  const drizzleConfig = readFileSync(new URL('../drizzle.config.js', import.meta.url), 'utf8');
+
+  assert.match(schemaSource, /kind:\s*text\('kind'/);
+  assert.match(schemaSource, /navigationRouteType:\s*text\('navigation_route_type'/);
+  assert.match(schemaSource, /navigationRouteId:\s*text\('navigation_route_id'/);
+  assert.doesNotMatch(contextualSource, /sqliteTable\(/);
+  assert.match(contextualSource, /concepts as taxonomyConcepts/);
+  assert.match(contextualSource, /reviews as reviewsWithRouteProvenance/);
+  assert.match(drizzleConfig, /\.\/src\/lib\/server\/db\/schema\.js/);
+  assert.doesNotMatch(drizzleConfig, /pre-0015-compat-schema/);
+  assert.match(compatSource, /Compatibility-only table shapes/);
 });
