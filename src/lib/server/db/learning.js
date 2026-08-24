@@ -21,10 +21,16 @@ import {
 } from './schema.js';
 import { caseTags, sharedQuestions, tags } from './tag-schema.js';
 import { pickCase } from '../learning/cases.js';
-import { pickReviewQuestions, resolveQuestionPool } from '../learning/questions.js';
+import {
+  QuestionPoolUnavailableError,
+  assertQuestionPoolMode,
+  resolveQuestionPoolForMode
+} from '../learning/question-pool-mode.ts';
+import { pickReviewQuestions } from '../learning/questions.js';
 import { resolveCaseStudyCandidates } from '../learning/study-routes.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
+/** @typedef {import('../learning/question-pool-mode.ts').QuestionPoolMode} QuestionPoolMode */
 
 /** @param {string | undefined} value */
 function requiredId(value) {
@@ -64,29 +70,55 @@ async function lastCompletedCaseId(db, userId) {
   return row[0]?.caseId ?? null;
 }
 
-/** @param {object} options @param {LearningDb} options.db @param {string} options.userId @param {string} options.conceptId @param {() => number} [options.rng] */
-export async function startReview({ db, userId, conceptId, rng = Math.random }) {
-  requiredId(userId);
-  requiredId(conceptId);
-  const eligibleCases = await listEligibleCases(db, conceptId);
-  const selectedCase = pickCase(eligibleCases, { lastCompletedCaseId: await lastCompletedCaseId(db, userId), rng });
-  if (!selectedCase) return null;
-  const source = await loadCaseSource(db, selectedCase.id, selectedCase.studyConceptId, rng);
+/** @param {Awaited<ReturnType<typeof loadCaseSource>> extends infer T ? Exclude<T, null> : never} source @param {QuestionPoolMode} questionPoolMode @param {() => number} rng */
+function pickQuestionsForReview(source, questionPoolMode, rng) {
+  try {
+    const pickedQuestions = pickReviewQuestions(source.questionPool, {
+      rng,
+      mode: /** @type {'automatic'|'all'|'fixed'} */ (source.case.questionSelectionMode),
+      count: source.case.questionCount ?? 3,
+      groupCoverage: source.groupCoverage
+    });
+    if (pickedQuestions.length === 0) {
+      throw new QuestionPoolUnavailableError(
+        questionPoolMode === 'core'
+          ? 'This case has no Original questions available. Choose Expanded Learning instead.'
+          : 'This case has no eligible questions available for Expanded Learning.'
+      );
+    }
+    return pickedQuestions;
+  } catch (cause) {
+    if (cause instanceof QuestionPoolUnavailableError) throw cause;
+    if (
+      cause instanceof Error &&
+      (cause.message.startsWith('Stimulus Group ') || cause.message.includes('stimulus-specific question coverage'))
+    ) {
+      throw new QuestionPoolUnavailableError(
+        questionPoolMode === 'core'
+          ? 'Original questions cannot satisfy this case’s stimulus-specific question requirement. Choose Expanded Learning or ask an Admin to review the case.'
+          : 'Expanded Learning cannot satisfy this case’s stimulus-specific question requirement. Ask an Admin to review the case.'
+      );
+    }
+    throw cause;
+  }
+}
+
+/** @param {object} options @param {LearningDb} options.db @param {string} options.userId @param {string} options.caseId @param {string} options.studyConceptId @param {QuestionPoolMode} options.questionPoolMode @param {() => number} options.rng */
+async function createReviewForCase({ db, userId, caseId, studyConceptId, questionPoolMode, rng }) {
+  const source = await loadCaseSource(db, caseId, studyConceptId, questionPoolMode, rng);
   if (!source) return null;
+  const pickedQuestions = pickQuestionsForReview(source, questionPoolMode, rng);
   const reviewId = newId();
-  const pickedQuestions = pickReviewQuestions(source.questionPool, { rng, mode: /** @type {'automatic'|'all'|'fixed'} */ (source.case.questionSelectionMode), count: source.case.questionCount ?? 3, groupCoverage: source.groupCoverage });
-  const reviewInsert = db.insert(reviews).values({ id: reviewId, userId, caseId: source.case.id, primaryConceptId: source.primaryConcept.id, studyConceptId: source.studyConcept.id, caseTitleSnapshot: source.case.title, vignetteSnapshotMd: source.case.vignetteMd, status: 'started', rating: null });
+  const reviewInsert = db.insert(reviews).values({ id: reviewId, userId, caseId: source.case.id, primaryConceptId: source.primaryConcept.id, studyConceptId: source.studyConcept.id, caseTitleSnapshot: source.case.title, vignetteSnapshotMd: source.case.vignetteMd, questionPoolMode, status: 'started', rating: null });
   /** @type {[any, ...any[]]} */
   const writes = [reviewInsert];
-  if (pickedQuestions.length > 0) {
-    writes.push(db.insert(reviewQuestions).values(pickedQuestions.map((question) => ({
-      id: newId(), reviewId, questionPromptId: question.questionPromptId, sourceType: question.sourceType,
-      sourceConceptId: question.sourceConceptId, sourceStimulusGroupId: question.sourceStimulusGroupId,
-      sourceStimulusOptionId: question.sourceStimulusOptionId, sourceAssetQuestionId: question.sourceAssetQuestionId ?? null,
-      sourceSharedQuestionId: question.sourceSharedQuestionId, displayOrder: question.displayOrder,
-      promptSnapshotMd: question.promptMd, answerSnapshotMd: question.answerMd
-    }))));
-  }
+  writes.push(db.insert(reviewQuestions).values(pickedQuestions.map((question) => ({
+    id: newId(), reviewId, questionPromptId: question.questionPromptId, sourceType: question.sourceType,
+    sourceConceptId: question.sourceConceptId, sourceStimulusGroupId: question.sourceStimulusGroupId,
+    sourceStimulusOptionId: question.sourceStimulusOptionId, sourceAssetQuestionId: question.sourceAssetQuestionId ?? null,
+    sourceSharedQuestionId: question.sourceSharedQuestionId, displayOrder: question.displayOrder,
+    promptSnapshotMd: question.promptMd, answerSnapshotMd: question.answerMd
+  }))));
   if (source.assets.length > 0) {
     writes.push(db.insert(reviewAssets).values(source.assets.map((asset) => ({ id: newId(), reviewId, assetId: asset.assetId, displayOrder: asset.displayOrder, storageKeySnapshot: asset.storageKey, captionSnapshotMd: asset.captionMd, altTextSnapshot: asset.altText, sourceStimulusGroupId: asset.stimulusGroupId, sourceStimulusOptionId: asset.stimulusOptionId }))));
   }
@@ -95,8 +127,31 @@ export async function startReview({ db, userId, conceptId, rng = Math.random }) 
   return reviewId;
 }
 
-/** @param {LearningDb} db @param {string} caseId @param {string} studyConceptId @param {() => number} rng */
-async function loadCaseSource(db, caseId, studyConceptId, rng) {
+/** @param {object} options @param {LearningDb} options.db @param {string} options.userId @param {string} options.conceptId @param {QuestionPoolMode} options.questionPoolMode @param {() => number} [options.rng] */
+export async function startReview({ db, userId, conceptId, questionPoolMode, rng = Math.random }) {
+  requiredId(userId);
+  requiredId(conceptId);
+  assertQuestionPoolMode(questionPoolMode);
+  const eligibleCases = await listEligibleCases(db, conceptId);
+  const selectedCase = pickCase(eligibleCases, { lastCompletedCaseId: await lastCompletedCaseId(db, userId), rng });
+  if (!selectedCase) return null;
+  return createReviewForCase({ db, userId, caseId: selectedCase.id, studyConceptId: selectedCase.studyConceptId, questionPoolMode, rng });
+}
+
+/** @param {object} options @param {LearningDb} options.db @param {string} options.userId @param {string} options.reviewId @param {() => number} [options.rng] */
+export async function continueReviewWithExpandedLearning({ db, userId, reviewId, rng = Math.random }) {
+  requiredId(userId);
+  requiredId(reviewId);
+  const rows = await db.select({ caseId: reviews.caseId, studyConceptId: reviews.studyConceptId, status: reviews.status, questionPoolMode: reviews.questionPoolMode }).from(reviews).where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId))).limit(1);
+  const review = rows[0];
+  if (!review) throw new Error('Review not found.');
+  if (review.status !== 'completed') throw new Error('Complete this review before continuing with Expanded Learning.');
+  if (review.questionPoolMode !== 'core') throw new Error('Expanded Learning continuation is only available after an Original questions review.');
+  return createReviewForCase({ db, userId, caseId: review.caseId, studyConceptId: review.studyConceptId, questionPoolMode: 'expanded', rng });
+}
+
+/** @param {LearningDb} db @param {string} caseId @param {string} studyConceptId @param {QuestionPoolMode} questionPoolMode @param {() => number} rng */
+async function loadCaseSource(db, caseId, studyConceptId, questionPoolMode, rng) {
   const caseRows = await db.select({ id: cases.id, title: cases.title, vignetteMd: cases.vignetteMd, questionSelectionMode: cases.questionSelectionMode, questionCount: cases.questionCount }).from(cases).where(and(eq(cases.id, caseId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1);
   const caseRow = caseRows[0];
   if (!caseRow) return null;
@@ -167,7 +222,7 @@ async function loadCaseSource(db, caseId, studyConceptId, rng) {
     if (!selected || !prompts.has(question.questionPromptId)) return [];
     return [{ ...question, promptMd: prompts.get(question.questionPromptId) ?? '', stimulusGroupId: selected.group.id, stimulusOptionId: selected.option.id }];
   });
-  const questionPool = resolveQuestionPool({ caseQuestions: caseQuestionInputs, studyConceptQuestions: studyQuestions, tagSharedQuestions, ancestorConceptQuestions: ancestorQuestions, stimulusGroupQuestions: groupQuestions, assetQuestions: reusableAssetQuestions, stimulusOptionQuestions: optionQuestions });
+  const questionPool = resolveQuestionPoolForMode(questionPoolMode, { caseQuestions: caseQuestionInputs, studyConceptQuestions: studyQuestions, tagSharedQuestions, ancestorConceptQuestions: ancestorQuestions, stimulusGroupQuestions: groupQuestions, assetQuestions: reusableAssetQuestions, stimulusOptionQuestions: optionQuestions });
 
   const selectedAssets = selectedOptions.map(({ group, option }) => ({ assetId: option.assetId, storageKey: option.storageKey, altText: option.altText, sourceLabel: option.sourceLabel, sourceUrl: option.sourceUrl, captionMd: option.captionMd, displayOrder: assetRows.length + group.displayOrder, stimulusGroupId: group.id, stimulusOptionId: option.id }));
   const groupCoverage = selectedOptions.map(({ group }) => ({ groupId: group.id, mode: /** @type {'none'|'minimum'|'all'} */ (group.specificQuestionMode), minimum: group.minimumSpecificQuestions ?? 0 }));
@@ -176,7 +231,7 @@ async function loadCaseSource(db, caseId, studyConceptId, rng) {
 
 /** @param {LearningDb} db @param {string} reviewId @param {string} userId */
 export async function getReview(db, reviewId, userId) {
-  const reviewRows = await db.select({ id: reviews.id, caseId: reviews.caseId, primaryConceptId: reviews.primaryConceptId, studyConceptId: reviews.studyConceptId, title: reviews.caseTitleSnapshot, vignette: reviews.vignetteSnapshotMd, status: reviews.status, rating: reviews.rating, revealedAt: reviews.revealedAt, completedAt: reviews.completedAt }).from(reviews).where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId))).limit(1);
+  const reviewRows = await db.select({ id: reviews.id, caseId: reviews.caseId, primaryConceptId: reviews.primaryConceptId, studyConceptId: reviews.studyConceptId, questionPoolMode: reviews.questionPoolMode, title: reviews.caseTitleSnapshot, vignette: reviews.vignetteSnapshotMd, status: reviews.status, rating: reviews.rating, revealedAt: reviews.revealedAt, completedAt: reviews.completedAt }).from(reviews).where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId))).limit(1);
   const review = reviewRows[0];
   if (!review) return null;
   const conceptRows = await db.select({ name: concepts.name }).from(concepts).where(eq(concepts.id, review.studyConceptId)).limit(1);

@@ -41,7 +41,8 @@ const migrationSql = [
   '0008_tag_shared_questions.sql',
   '0009_reusable_image_questions.sql',
   '0011_asset_supersession.sql',
-  '0012_archive_stimulus_options.sql'
+  '0012_archive_stimulus_options.sql',
+  '0014_review_question_pool_mode.sql'
 ]
   .map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8'))
   .join('\n')
@@ -264,7 +265,7 @@ test('normal learner selection, counts and Review creation exclude Preview Cases
     const concepts = await listStudyConcepts(fixture.db);
     assert.equal(concepts.find((row) => row.id === 'topic-1')?.caseCount, 1);
 
-    const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'topic-1', rng: () => 0 });
+    const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'topic-1', questionPoolMode: 'expanded', rng: () => 0 });
     assert.ok(reviewId);
     assert.equal(fixture.sqlite.prepare('SELECT case_id FROM reviews WHERE id=?').get(reviewId).case_id, 'case-source');
     assert.throws(

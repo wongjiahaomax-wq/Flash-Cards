@@ -126,9 +126,10 @@ test('Preview-only Admin cannot enter Study, while combined production Admin/Pre
   assert.match(studyRoute, /assertLearnerStudyAccess\(locals\.user, platform\)/);
   assert.match(studyRoute, /startReview\(/);
   assert.match(reviewRoute, /function assertLearnerStudyAccess/);
-  assert.equal((reviewRoute.match(/assertLearnerStudyAccess\(locals\.user, platform\)/g) ?? []).length, 4);
+  assert.equal((reviewRoute.match(/assertLearnerStudyAccess\(locals\.user, platform\)/g) ?? []).length, 5);
   assert.match(reviewRoute, /revealReview\(/);
   assert.match(reviewRoute, /completeReview\(/);
+  assert.match(reviewRoute, /continueReviewWithExpandedLearning\(/);
   assert.match(reviewRoute, /startReview\(/);
 });
 

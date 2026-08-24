@@ -20,7 +20,8 @@ const migrationSql = [
   '0006_preview_admin_workspace.sql',
   '0007_image_collections.sql',
   '0008_tag_shared_questions.sql',
-  '0009_reusable_image_questions.sql'
+  '0009_reusable_image_questions.sql',
+  '0014_review_question_pool_mode.sql'
 ].map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8'))
   .join('\n').replaceAll('--> statement-breakpoint', '');
 
@@ -86,7 +87,7 @@ function attachCaseTag(sqlite, tagId) {
 
 /** @param {ReturnType<typeof fixture>} f */
 async function review(f) {
-  const reviewId = await startReview({ db: f.db, userId: 'learner-stage-b', conceptId: 'stage-b-topic', rng: () => 0 });
+  const reviewId = await startReview({ db: f.db, userId: 'learner-stage-b', conceptId: 'stage-b-topic', questionPoolMode: 'expanded', rng: () => 0 });
   assert.ok(reviewId);
   const row = await getReview(f.db, reviewId, 'learner-stage-b');
   assert.ok(row);
@@ -130,8 +131,10 @@ test('inactive Shared Question, inactive Prompt, and inactive attached Tag are e
     addShared(f.sqlite, { id: 'tag-disabled-shared', promptId: 'tag-disabled-prompt', tagId: 'scope' });
     f.sqlite.prepare('UPDATE tags SET is_active = 0 WHERE id = ?').run('scope');
 
-    const { row } = await review(f);
-    assert.equal(row.questions.length, 0);
+    await assert.rejects(
+      () => review(f),
+      /no eligible questions available for Expanded Learning/
+    );
   } finally { f.sqlite.close(); }
 });
 
@@ -232,7 +235,10 @@ test('archiving removes a Shared Question from eligibility and reactivation rest
     addPrompt(f.sqlite, 'p', 'Archive me?');
     addShared(f.sqlite, { id: 'shared', promptId: 'p', tagId: 'scope' });
     await setSharedQuestionActive(f.db, { id: 'shared', isActive: false });
-    assert.equal((await review(f)).row.questions.length, 0);
+    await assert.rejects(
+      () => review(f),
+      /no eligible questions available for Expanded Learning/
+    );
     await setSharedQuestionActive(f.db, { id: 'shared', isActive: true });
     assert.equal((await review(f)).row.questions.length, 1);
   } finally { f.sqlite.close(); }

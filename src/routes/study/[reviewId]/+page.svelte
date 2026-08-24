@@ -1,5 +1,5 @@
 <script>
-  let { data } = $props();
+  let { data, form } = $props();
 
   let caseStudy = $derived(data.caseStudy);
 </script>
@@ -15,8 +15,12 @@
   </nav>
 
   <header class="case-header">
-    <div class="case-meta"><span>{caseStudy.concept}</span></div>
+    <div class="case-meta">
+      <span>{caseStudy.concept}</span>
+      <span class="question-set-badge">{caseStudy.questionSet.label}</span>
+    </div>
     <h1>{caseStudy.title}</h1>
+    <p class="question-set-description">{caseStudy.questionSet.description}</p>
     {#if caseStudy.vignette}<p>{caseStudy.vignette}</p>{/if}
   </header>
 
@@ -110,10 +114,26 @@
       <div>
         <strong>Rated: {caseStudy.rating === 'again' ? 'Again' : 'Good'}</strong>
         <p class="muted">Your review and rating are saved.</p>
+        {#if form?.message}<p class="action-error" role="alert">{form.message}</p>{/if}
       </div>
-      <form method="POST" action="?/next">
-        <button class="button primary action-button" type="submit">Next case →</button>
-      </form>
+      <div class="completion-buttons">
+        {#if caseStudy.questionPoolMode === 'core'}
+          <form method="POST" action="?/continueExpanded">
+            <button class="button action-button" type="submit">Continue with Expanded Learning</button>
+          </form>
+        {/if}
+        <form method="POST" action="?/next" class="next-case-form">
+          <span class="next-case-prompt">Choose the question set for your next case</span>
+          <div class="next-case-buttons">
+            <button class="button primary action-button" type="submit" name="questionPoolMode" value="core">
+              Next case — Original questions →
+            </button>
+            <button class="button action-button" type="submit" name="questionPoolMode" value="expanded">
+              Next case — Expanded Learning →
+            </button>
+          </div>
+        </form>
+      </div>
     {/if}
   </section>
 </main>
@@ -163,13 +183,27 @@
     line-height: 1.65;
   }
 
+  .case-header .question-set-description {
+    color: #667085;
+    font-size: 0.9rem;
+  }
+
   .case-meta {
     display: flex;
     gap: 0.5rem;
     flex-wrap: wrap;
+    align-items: center;
     color: #667085;
     font-size: 0.9rem;
     font-weight: 600;
+  }
+
+  .question-set-badge {
+    padding: 0.2rem 0.5rem;
+    border-radius: 999px;
+    background: #eef2f6;
+    color: #344054;
+    font-size: 0.78rem;
   }
 
   .review-section {
@@ -349,9 +383,31 @@
     font-size: 0.9rem;
   }
 
-  .rating-buttons {
+  .rating-buttons,
+  .completion-buttons,
+  .next-case-buttons {
     display: flex;
     gap: 0.6rem;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .completion-buttons,
+  .next-case-form {
+    display: grid;
+    gap: 0.6rem;
+  }
+
+  .next-case-prompt {
+    color: #667085;
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-align: right;
+  }
+
+  .action-error {
+    color: #b42318;
   }
 
   .action-button,
@@ -376,9 +432,19 @@
       min-height: 260px;
     }
 
-    .rating-buttons {
+    .rating-buttons,
+    .completion-buttons,
+    .next-case-buttons {
       display: grid;
+      grid-template-columns: 1fr;
+    }
+
+    .rating-buttons {
       grid-template-columns: 1fr 1fr;
+    }
+
+    .next-case-prompt {
+      text-align: left;
     }
 
     .action-button,

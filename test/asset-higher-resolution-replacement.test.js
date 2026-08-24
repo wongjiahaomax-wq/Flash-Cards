@@ -266,6 +266,7 @@ async function startStimulusReview(fx) {
     db: fx.db,
     userId: 'learner-a',
     conceptId: 'topic-stimulus',
+    questionPoolMode: 'expanded',
     rng: () => 0
   });
   assert.ok(reviewId);

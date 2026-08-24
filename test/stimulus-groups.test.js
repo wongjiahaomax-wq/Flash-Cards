@@ -37,7 +37,8 @@ const migrationSql = [
   readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0013_review_assets_asset_lookup.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0013_review_assets_asset_lookup.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0014_review_question_pool_mode.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -101,7 +102,7 @@ test('one selected option is frozen with provenance and option precedence', asyn
   const fixture = createLearningDb();
   try {
     const { optionRows } = await buildGroupedCase(fixture);
-    const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', rng: (() => { const values = [0, 0.5]; return () => values.shift() ?? 0; })() });
+    const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', questionPoolMode: 'expanded', rng: (() => { const values = [0, 0.5]; return () => values.shift() ?? 0; })() });
     assert.ok(reviewId);
     const review = await getReview(fixture.db, reviewId, 'learner-1');
     assert.ok(review);
@@ -128,7 +129,7 @@ test('inactive options are excluded and historical snapshots survive later chang
     const admin = await getAdminStimulusData(fixture.db, 'seed-anterior-a');
     const deactivated = admin.flatMap((group) => group.options).find((option) => option.id === optionRows[0].id);
     assert.ok(deactivated);
-    const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', rng: () => 0 });
+    const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', questionPoolMode: 'expanded', rng: () => 0 });
     assert.ok(reviewId);
     await setStimulusOptionActive(fixture.db, optionRows[1].id, false);
     const review = await getReview(fixture.db, reviewId, 'learner-1');
@@ -255,7 +256,7 @@ test('Remove from Case archives the option relationship without deleting Asset o
   const fixture = createLearningDb();
   try {
     const { groupId, optionRows } = await buildGroupedCase(fixture);
-    const reviewId = await startReview({ db: fixture.db, userId: 'learner-archive', conceptId: 'seed-anterior-stemi', rng: () => 0 });
+    const reviewId = await startReview({ db: fixture.db, userId: 'learner-archive', conceptId: 'seed-anterior-stemi', questionPoolMode: 'expanded', rng: () => 0 });
     assert.ok(reviewId);
     const reviewBeforeRemoval = await getReview(fixture.db, reviewId, 'learner-archive');
     const optionId = reviewBeforeRemoval?.assets[0]?.stimulusOptionId;
@@ -282,7 +283,7 @@ test('Remove from Case archives the option relationship without deleting Asset o
     const historical = await getReview(fixture.db, reviewId, 'learner-archive');
     assert.equal(historical?.assets.some((assetRow) => assetRow.stimulusOptionId === optionId), true);
     assert.equal((await fixture.db.select({ count: stimulusOptionQuestions.id }).from(stimulusOptionQuestions).where(eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId))).length, 1);
-    const newReviewId = await startReview({ db: fixture.db, userId: 'learner-after-archive', conceptId: 'seed-anterior-stemi', rng: () => 0 });
+    const newReviewId = await startReview({ db: fixture.db, userId: 'learner-after-archive', conceptId: 'seed-anterior-stemi', questionPoolMode: 'expanded', rng: () => 0 });
     assert.ok(newReviewId);
     const newReview = await getReview(fixture.db, newReviewId, 'learner-after-archive');
     assert.equal(newReview?.assets.some((assetRow) => assetRow.stimulusOptionId === optionId), false);

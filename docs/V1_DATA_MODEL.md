@@ -4,6 +4,8 @@ _Last updated: 24 August 2026_
 
 This document records the implemented V1 application data model on repository `main`. It should agree with the current Drizzle schema, committed D1 migrations, and subsystem invariant documents.
 
+Draft PR #87 proposes one additive Review-provenance field for learner-selectable question pools. The relevant sections below identify that draft boundary explicitly; the feature must not be described as merged, migrated, deployed, or production-verified until those separate events occur.
+
 ## 1. Migration ledger and deployment boundary
 
 Current `main` contains:
@@ -35,6 +37,14 @@ Relevant later migrations:
 - `0012` — `stimulus_group_options.removed_from_case`, separating archived removal from ordinary `is_active` deactivation;
 - `0013` — `review_assets(asset_id, review_id)` index for Asset-leading historical Review existence/count lookups used by Image Library lifecycle classification. It changes access-path performance, not domain semantics.
 
+Draft PR #87 additionally contains:
+
+```text
+0014_review_question_pool_mode.sql
+```
+
+`0014` adds non-null `reviews.question_pool_mode` with database default `expanded`. The default gives existing historical Reviews the semantic value that matches the pre-feature full resolver behavior without rebuilding or rewriting Review question/media snapshots. This migration is part of the draft PR only until merged and separately applied.
+
 ## 2. General design rules
 
 1. Use application-generated text IDs for domain objects.
@@ -50,6 +60,7 @@ Relevant later migrations:
 11. Production teaching-image object keys are immutable; quality replacement creates a new Asset/R2 object.
 12. Stable Stimulus Option identity anchors Case-specific exact-image teaching; exact Asset identity anchors reusable exact-image teaching.
 13. Asset lifecycle status and derived usage classification are distinct concepts.
+14. Learner question-pool eligibility and Case question-count selection are orthogonal concerns: source eligibility is decided before duplicate-Prompt resolution, then existing Automatic/All/Fixed selection is applied.
 
 ## 3. Authentication and Preview ownership
 
@@ -101,6 +112,8 @@ PRIMARY KEY (case_id, concept_id)
 ```
 
 Every learner-presentable active production Case has one primary/default Topic and may have Additional Study Topics. The actual Study Topic route is resolved per Review.
+
+`question_selection_mode` continues to answer **how many questions** are selected from an already eligible pool. It is not overloaded to represent Original versus Expanded source eligibility.
 
 ## 5. Image organisation and Assets
 
@@ -259,6 +272,16 @@ Case-specific exact-option questions/answers. Reusing the same Asset elsewhere d
 
 An existing whole-Case question can be explicitly moved to one exact stimulus while reusing Prompt identity and preserving answer where valid. This is a relationship-scope mutation, not Prompt recreation.
 
+For draft PR #87 learner question-pool semantics, the current Case-owned relationships are:
+
+```text
+case_questions            -> source_type case            -> Original/Core
+stimulus_group_questions  -> source_type stimulus_group  -> Original/Core
+stimulus_option_questions -> source_type stimulus_option -> Original/Core
+```
+
+They are classified by current ownership, not by historical import provenance.
+
 ## 10. Reusable Image Questions
 
 ### `asset_questions`
@@ -300,6 +323,8 @@ The option Asset and Asset Question Asset must match. Removing one opt-in change
 
 When a currently fixed image needs an exact-image question or reusable-image opt-in, authoring may atomically convert it to a one-option active Stimulus Group while preserving Asset/caption/effective learner visibility.
 
+For draft PR #87, `source_type = asset` remains a reusable source and is eligible only for Expanded Learning. Case-specific exact-image questions remain `stimulus_option` and therefore belong to Original/Core.
+
 ## 11. Cross-Stimulus-Group Prompt invariant
 
 One Prompt must not independently become stimulus-specific in two active, independently selectable groups in the same Case.
@@ -328,7 +353,9 @@ case_question_tags
 
 Shared Question eligibility requires an active Shared Question/Prompt/Reuse Scope Tag and explicit matching Case Tag. Descriptive Tags and Topic ancestry do not infer eligibility.
 
-## 13. Question resolver precedence
+For draft PR #87, eligible Shared Questions continue to use `source_type = tag_shared` and are Expanded-only reusable sources. Their underlying eligibility rule is unchanged.
+
+## 13. Question resolver precedence and pool mode
 
 Current-main duplicate-Prompt precedence is:
 
@@ -345,13 +372,65 @@ selected exact stimulus-option question
 
 The final candidate set is deduplicated by `question_prompt_id` before Automatic/All/Fixed selection.
 
+Draft PR #87 adds a separate `QuestionPoolMode` source-eligibility step **before** that existing resolver precedence:
+
+```text
+core / Original
+→ case
+→ stimulus_group
+→ stimulus_option
+
+expanded / Expanded Learning
+→ case
+→ stimulus_group
+→ stimulus_option
+→ concept
+→ ancestor_concept
+→ tag_shared
+→ asset
+```
+
+The mode is applied to resolver inputs, not to already-resolved output. This is required because a higher-precedence reusable candidate can share a Prompt with a Core candidate; post-resolution filtering could otherwise remove the reusable winner and accidentally lose the valid Core Prompt as well.
+
+Expanded mode therefore remains the regression baseline for pre-feature learner question-pool behavior.
+
 ## 14. Import jobs
 
-`import_jobs` stores authoritative resumable Import Package v1 execution state. The reviewed Import Package contract remains intentionally independent from Tags, Reusable Image Questions, option archival, and Asset supersession; those can be later production-Admin enrichment.
+`import_jobs` stores authoritative resumable Import Package v1 execution state. The reviewed Import Package contract remains intentionally independent from Tags, Reusable Image Questions, option archival, Asset supersession, and learner question-pool mode; those can be later production-Admin/learner behavior layered on the same imported Case Questions.
+
+Import Package v1 remains unchanged by draft PR #87. Reviewed source-derived questions continue to become Case Questions, which is exactly the ownership used for Original/Core eligibility.
 
 ## 15. Reviews
 
 A `reviews` row represents one learner attempt at one resolved Case/Study Topic. It preserves canonical primary Topic and actual Study Topic provenance plus Case title/vignette snapshots and completion/rating state.
+
+On current `main`, the established conceptual fields are unchanged through migration `0013`.
+
+Draft PR #87 adds:
+
+```text
+question_pool_mode core | expanded
+```
+
+The field records which source family was eligible when the immutable Review snapshot was created. It is per Review start and is not a persistent learner preference.
+
+Historical compatibility is:
+
+```text
+pre-feature Review -> question_pool_mode = expanded
+```
+
+because the pre-feature learner path resolved the full eligible reusable pool. The additive default provides this meaning without rewriting `review_questions` or `review_assets`.
+
+Question-pool mode is orthogonal to `cases.question_selection_mode`:
+
+```text
+question_pool_mode
+= which source inputs are eligible
+
+question_selection_mode
+= how many questions are selected from the resolved pool
+```
 
 ## 16. Review Questions
 
@@ -402,6 +481,8 @@ source_shared_question_id = shared_questions.id
 
 Uniqueness preserves one Prompt per Review and deterministic display order. Snapshot wording/answers are immutable historical truth even if current canonical content later changes.
 
+Question-pool mode does not rewrite this per-question provenance. It explains the Review-level eligibility boundary that produced the final immutable set.
+
 ## 17. Review Assets
 
 Conceptually:
@@ -429,6 +510,8 @@ review_assets_asset_review_idx (asset_id, review_id)
 ```
 
 This supports Asset-leading historical usage existence/count queries used by Image Library lifecycle views. It does not change Review ownership or snapshot semantics.
+
+Draft PR #87 does not add exact Alternative Set option replay between separate Reviews. A same-Case Original -> Expanded continuation creates a new immutable Review using normal current stimulus selection; fixed/one-option stimuli naturally remain stable while a multi-option group may choose a different active option.
 
 ## 18. Higher-resolution replacement invariant
 
@@ -464,6 +547,8 @@ src/lib/server/db/preview-workspace.js
 Focused internal modules currently own Session lifecycle, ownership/security, Case lifecycle/cloning, and fixed-image operations. These are implementation responsibility boundaries, not new database ownership models.
 
 The complete Case clone transaction remains cohesive in `preview-workspace/case.js`, including clone-time child graph copying. Alternative Set/question/cleanup extraction remains staged future refactoring.
+
+Draft PR #87 does not change Preview content ownership or Preview-only Study restrictions.
 
 ## 20. Relationship overview
 
@@ -501,6 +586,8 @@ reviews
   └── review_assets
 ```
 
+For draft PR #87, `reviews.question_pool_mode` is Review-level scalar provenance and adds no new relationship edge.
+
 ## 21. Non-goals encoded by the current model
 
 The current schema intentionally does **not** imply:
@@ -513,6 +600,9 @@ The current schema intentionally does **not** imply:
 - physical deletion merely because an Asset is classified Unused;
 - Preview ownership of global Shared Questions or Reusable Image Questions;
 - arbitrary different-image substitution through supersession;
-- Import Package support for every later authoring enrichment.
+- Import Package support for every later authoring enrichment;
+- an `original_question` flag or frozen import-era question set;
+- a learner-level persistent Core/Expanded preference;
+- automatic Core/Expanded switching based on Case completion history.
 
 Add schema only when a concrete product/content requirement justifies it.

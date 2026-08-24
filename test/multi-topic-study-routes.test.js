@@ -18,7 +18,8 @@ const currentSchemaMigrationSql = [
   '0007_image_collections.sql',
   '0008_tag_shared_questions.sql',
   '0009_reusable_image_questions.sql',
-  '0012_archive_stimulus_options.sql'
+  '0012_archive_stimulus_options.sql',
+  '0014_review_question_pool_mode.sql'
 ]
   .map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8'))
   .join('\n')
@@ -188,7 +189,7 @@ test('Study Topic selector and Case eligibility count unique Cases across primar
 test('same Case studied through its primary route uses only the primary Topic layer', async () => {
   const fixture = createLearningDb();
   try {
-    const reviewId = await startReview({ db: fixture.db, userId: 'learner', conceptId: 'hypocalcaemia', rng: () => 0 });
+    const reviewId = await startReview({ db: fixture.db, userId: 'learner', conceptId: 'hypocalcaemia', questionPoolMode: 'expanded', rng: () => 0 });
     assert.ok(reviewId);
     const review = await getReview(fixture.db, reviewId, 'learner');
     assert.ok(review);
@@ -206,7 +207,7 @@ test('same Case studied through its primary route uses only the primary Topic la
 test('same Case studied through a secondary route stores both Concepts and prevents default-Topic leakage', async () => {
   const fixture = createLearningDb();
   try {
-    const reviewId = await startReview({ db: fixture.db, userId: 'learner', conceptId: 'prolonged-qtc', rng: () => 0 });
+    const reviewId = await startReview({ db: fixture.db, userId: 'learner', conceptId: 'prolonged-qtc', questionPoolMode: 'expanded', rng: () => 0 });
     assert.ok(reviewId);
     const review = await getReview(fixture.db, reviewId, 'learner');
     assert.ok(review);

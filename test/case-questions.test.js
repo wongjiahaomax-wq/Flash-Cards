@@ -32,7 +32,8 @@ const migrationSql = [
   readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0014_review_question_pool_mode.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -162,7 +163,7 @@ test('reusable topic answers retain Case-specific precedence in learner reviews'
       'seed-anterior-stemi',
       promptId
     );
-    const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', rng: () => 0 });
+    const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'seed-anterior-stemi', questionPoolMode: 'expanded', rng: () => 0 });
     assert.ok(reviewId);
     const review = await getReview(fixture.db, reviewId, 'learner-1');
     assert.ok(review);
