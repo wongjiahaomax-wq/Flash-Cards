@@ -3,6 +3,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { createDb } from '$lib/server/db/index.js';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { listSharedQuestionTagUsages, listTagsWithSharedQuestionUsage } from '$lib/server/db/tag-shared-usage.js';
+import { listSystemTagExposures } from '$lib/server/db/system-tag-usage.ts';
 import {
   addCaseQuestionTag,
   addCaseTag,
@@ -33,23 +34,32 @@ export async function load({ platform, url }) {
       caseAssignments: [],
       questionAssignments: [],
       sharedQuestionUsages: [],
+      systemExposures: [],
       filters
     };
   }
 
   const db = createDb(platform.env.DB);
-  const [tagRows, activeTags, cases, caseQuestions, caseAssignments, questionAssignments, sharedQuestionUsages] = await Promise.all([
+  const [tagRows, activeTags, cases, caseQuestions, caseAssignments, questionAssignments, sharedQuestionUsages, systemExposures] = await Promise.all([
     listTagsWithSharedQuestionUsage(db, { search: filters.search }),
     listActiveTags(db),
     listTaggableCases(db),
     listTaggableCaseQuestions(db),
     listCaseTagAssignments(db),
     listCaseQuestionTagAssignments(db),
-    listSharedQuestionTagUsages(db)
+    listSharedQuestionTagUsages(db),
+    listSystemTagExposures(db)
   ]);
 
+  const filteredSystemExposures = filters.tagId
+    ? systemExposures.filter((exposure) => exposure.tagId === filters.tagId)
+    : systemExposures;
+
   return {
-    tags: tagRows,
+    tags: tagRows.map((tag) => ({
+      ...tag,
+      systems: systemExposures.filter((exposure) => exposure.tagId === tag.id)
+    })),
     activeTags,
     cases,
     caseQuestions,
@@ -62,6 +72,7 @@ export async function load({ platform, url }) {
     sharedQuestionUsages: filters.tagId
       ? sharedQuestionUsages.filter((usage) => usage.tagId === filters.tagId)
       : sharedQuestionUsages,
+    systemExposures: filteredSystemExposures,
     filters
   };
 }
