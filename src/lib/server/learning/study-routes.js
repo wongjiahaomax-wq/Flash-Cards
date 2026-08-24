@@ -28,36 +28,24 @@ export function descendantDistances(rootId, concepts) {
 }
 
 /**
- * Resolve the single attached Study Concept used for one Case route.
+ * Resolve the canonical Topic used for one Case route.
  *
- * Precedence:
- * 1. exact Case link to the explicitly selected Concept;
- * 2. Case primary/default Concept when it lies in the selected subtree;
- * 3. deepest matching secondary Concept in that subtree;
- * 4. stable Concept-ID tie-break.
+ * Current Case behavior has exactly one learner-routable Topic relationship:
+ * the canonical primary Topic. Legacy secondary relationships are historical
+ * compatibility data only and never change current learner eligibility or the
+ * direct reusable Topic-question context.
  *
  * @param {{ selectedConceptId: string, distances: Map<string, number>, links: { conceptId: string, role: string }[] }} input
  */
-export function resolveStudyConceptId({ selectedConceptId, distances, links }) {
-  const exact = links.find((link) => link.conceptId === selectedConceptId && distances.has(link.conceptId));
-  if (exact) return exact.conceptId;
-
+export function resolveStudyConceptId({ distances, links }) {
   const primary = links.find((link) => link.role === 'primary');
-  if (primary && distances.has(primary.conceptId)) return primary.conceptId;
-
-  const matchingSecondary = links
-    .filter((link) => link.role === 'secondary' && distances.has(link.conceptId))
-    .sort((left, right) => {
-      const depthDifference = (distances.get(right.conceptId) ?? 0) - (distances.get(left.conceptId) ?? 0);
-      return depthDifference || left.conceptId.localeCompare(right.conceptId);
-    });
-
-  return matchingSecondary[0]?.conceptId ?? null;
+  return primary && distances.has(primary.conceptId) ? primary.conceptId : null;
 }
 
 /**
  * Deduplicate active Case/Topic relationship rows into one learner candidate per Case.
  * A canonical primary Concept remains required because every created Review snapshots it.
+ * Legacy secondary rows are deliberately ignored for current learner routing.
  *
  * @param {{ selectedConceptId: string, concepts: ConceptNode[], rows: CaseTopicRow[] }} input
  */

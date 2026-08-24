@@ -56,6 +56,8 @@ export async function listProductionCasesForPreview(db, search = '') {
 /**
  * Clone one real Case and every Case-owned relationship that may be edited in Preview Mode.
  * Global Topics, Tags and production Assets are shared read-only; contextual Question Prompts are cloned.
+ * Only the canonical primary Topic is copied. Legacy secondary Topic rows are
+ * intentionally not recreated in Preview.
  *
  * The child-domain copies stay inside this single Case-clone transaction/orchestration boundary;
  * their ongoing image, stimulus, and question mutation APIs remain outside this module for later extraction.
@@ -79,12 +81,15 @@ export async function cloneCaseToPreview(db, input) {
   if (!source) throw new PreviewWorkspaceError('Choose an existing production Case to copy.', 'INVALID_SOURCE');
 
   const [topicRows, fixedRows, groupRows, caseQuestionRows, sourceCaseTags] = await Promise.all([
-    db.select().from(caseConcepts).where(eq(caseConcepts.caseId, source.id)),
+    db.select().from(caseConcepts).where(and(eq(caseConcepts.caseId, source.id), eq(caseConcepts.role, 'primary'))),
     db.select().from(caseAssets).where(eq(caseAssets.caseId, source.id)),
     db.select().from(stimulusGroups).where(eq(stimulusGroups.caseId, source.id)).orderBy(asc(stimulusGroups.displayOrder)),
     db.select().from(caseQuestions).where(eq(caseQuestions.caseId, source.id)).orderBy(asc(caseQuestions.createdAt)),
     db.select().from(caseTags).where(eq(caseTags.caseId, source.id))
   ]);
+  if (topicRows.length !== 1) {
+    throw new PreviewWorkspaceError('The source Case must have exactly one canonical Topic before it can be copied.', 'INVALID_SOURCE');
+  }
 
   const groupIds = groupRows.map((row) => row.id);
   const optionRows = groupIds.length
@@ -145,14 +150,12 @@ export async function cloneCaseToPreview(db, input) {
       isActive: row.isActive
     }))));
   }
-  if (topicRows.length) {
-    writes.push(db.insert(caseConcepts).values(topicRows.map((row) => ({
-      caseId,
-      conceptId: row.conceptId,
-      role: row.role,
-      createdAt: row.createdAt
-    }))));
-  }
+  writes.push(db.insert(caseConcepts).values({
+    caseId,
+    conceptId: topicRows[0].conceptId,
+    role: 'primary',
+    createdAt: topicRows[0].createdAt
+  }));
   if (fixedRows.length) {
     writes.push(db.insert(caseAssets).values(fixedRows.map((row) => ({
       caseId,
@@ -293,27 +296,16 @@ export async function updatePreviewCaseVignette(db, previewSessionId, caseId, vi
     .where(and(eq(cases.id, caseId), eq(cases.previewSessionId, previewSessionId)));
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {string} conceptId */
-export async function addPreviewSecondaryTopic(db, previewSessionId, caseId, conceptId) {
+/** @deprecated Additional Study Topics are not part of current Preview authoring. */
+export async function addPreviewSecondaryTopic(db, previewSessionId, caseId) {
   await requireOwnedPreviewCase(db, previewSessionId, caseId);
-  await requireActiveConcept(db, conceptId);
-  const existing = (
-    await db.select().from(caseConcepts).where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, conceptId))).limit(1)
-  )[0];
-  if (existing) throw new PreviewWorkspaceError('That Topic is already attached to this Case.', 'INVALID_INPUT');
-  await db.insert(caseConcepts).values({ caseId, conceptId, role: 'secondary' });
+  throw new PreviewWorkspaceError('Additional Study Topics are no longer supported. Use Case Tags for alternate or cross-cutting classification.', 'INVALID_INPUT');
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {string} conceptId */
-export async function removePreviewSecondaryTopic(db, previewSessionId, caseId, conceptId) {
+/** @deprecated Legacy secondary Topic removal is handled only by the reviewed migration/operator step. */
+export async function removePreviewSecondaryTopic(db, previewSessionId, caseId) {
   await requireOwnedPreviewCase(db, previewSessionId, caseId);
-  const existing = (
-    await db.select().from(caseConcepts).where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, conceptId))).limit(1)
-  )[0];
-  if (!existing || existing.role !== 'secondary') {
-    throw new PreviewWorkspaceError('Only an attached secondary Topic can be removed.', 'INVALID_INPUT');
-  }
-  await db.delete(caseConcepts).where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, conceptId)));
+  throw new PreviewWorkspaceError('Additional Study Topics are no longer supported. Use Case Tags for alternate or cross-cutting classification.', 'INVALID_INPUT');
 }
 
 /** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {string} conceptId @param {{ allowInsert?: boolean }} [options] */
@@ -322,23 +314,18 @@ export async function promotePreviewTopic(db, previewSessionId, caseId, conceptI
   await requireActiveConcept(db, conceptId);
   const rows = await db.select().from(caseConcepts).where(eq(caseConcepts.caseId, caseId));
   const currentPrimary = rows.find((row) => row.role === 'primary');
+  const legacySecondary = rows.find((row) => row.role === 'secondary');
+  if (legacySecondary) {
+    throw new PreviewWorkspaceError('This Preview Case still has a legacy non-primary Topic relationship. Re-copy it after the reviewed Topic-to-Tag migration.', 'INVALID_INPUT');
+  }
   if (currentPrimary?.conceptId === conceptId) return;
-  const target = rows.find((row) => row.conceptId === conceptId);
-  if (!target && !options.allowInsert) {
-    throw new PreviewWorkspaceError('Attach that Topic before making it the default.', 'INVALID_INPUT');
-  }
-  if (currentPrimary) {
-    await db
-      .update(caseConcepts)
-      .set({ role: 'secondary' })
-      .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, currentPrimary.conceptId)));
-  }
-  if (target) {
-    await db
-      .update(caseConcepts)
-      .set({ role: 'primary' })
-      .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, conceptId)));
-  } else {
+  if (!currentPrimary) {
+    if (!options.allowInsert) throw new PreviewWorkspaceError('This Preview Case has no canonical Topic.', 'INVALID_INPUT');
     await db.insert(caseConcepts).values({ caseId, conceptId, role: 'primary' });
+    return;
   }
+  await db
+    .update(caseConcepts)
+    .set({ conceptId, role: 'primary' })
+    .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, currentPrimary.conceptId)));
 }
