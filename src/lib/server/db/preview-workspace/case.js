@@ -13,6 +13,7 @@ import {
   stimulusOptionQuestions
 } from '../schema.js';
 import { caseQuestionTags, caseTags } from '../tag-schema.js';
+import { requireActiveTopicConcept } from '../concept-taxonomy-compat.ts';
 import { PreviewWorkspaceError } from './errors.js';
 import { optionalText, requiredText } from './input.js';
 import { requireOwnedPreviewCase, requireOwnedSession } from './ownership.js';
@@ -250,13 +251,7 @@ export async function listPreviewCases(db, previewSessionId) {
 
 /** @param {LearningDb} db @param {string} conceptId */
 async function requireActiveConcept(db, conceptId) {
-  const row = (
-    await db
-      .select({ id: concepts.id })
-      .from(concepts)
-      .where(and(eq(concepts.id, conceptId), eq(concepts.isActive, true)))
-      .limit(1)
-  )[0];
+  const row = await requireActiveTopicConcept(db, conceptId);
   if (!row) throw new PreviewWorkspaceError('Choose an active Topic.', 'INVALID_INPUT');
 }
 
