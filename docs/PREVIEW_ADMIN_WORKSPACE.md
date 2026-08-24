@@ -1,8 +1,8 @@
 # Production-backed Preview Admin Workspace
 
-_Status: implemented and part of the operational baseline. Current `main` also contains a staged, behavior-preserving backend decomposition through Preview fixed Case-image operations._
+_Status: implemented and part of the operational baseline. Current repository work also contains a staged, behavior-preserving backend decomposition through Preview fixed Case-image operations._
 
-_Last updated: 24 August 2026_
+_Last updated: 25 August 2026_
 
 ## Purpose
 
@@ -82,6 +82,8 @@ production Case/content
 
 Production objects may be reused read-only where existing contracts permit, including attaching eligible production Assets to current-session Preview-owned Cases/options without mutating the production Asset.
 
+Current Case classification is Primary Topic + Case Tags. Preview clone copies the canonical Primary Topic and Case Tags; legacy stored secondary Topic rows are intentionally not recreated.
+
 ## 5. Stable public backend façade
 
 Application callers should continue importing Preview workspace operations through:
@@ -112,7 +114,8 @@ src/lib/server/db/preview-workspace/case.js
 → complete production → Preview Case clone orchestration
 → Preview Case listing
 → title/vignette/question-selection metadata mutations
-→ primary/secondary Topic mutations
+→ canonical Primary Topic replacement
+→ deprecated secondary-Topic compatibility helpers that fail closed
 
 src/lib/server/db/preview-workspace/fixed-images.js
 → fixed Case-image editor reads
@@ -131,7 +134,7 @@ The complete Case clone transaction remains owned by `preview-workspace/case.js`
 
 That is intentional: clone-time fixed-image copying is part of the complete Case-clone transaction, not an ongoing fixed-image editor mutation. Moving it into `fixed-images.js` merely for symmetry would split one semantic transaction and risk circular dependencies.
 
-The clone continues to preserve production source metadata, Topic/Tag mappings, Preview Session ownership, production Asset reuse where allowed, Preview Prompt isolation, and established ordered batch/write behavior.
+The clone continues to preserve production source metadata, the canonical Primary Topic, Case Tags, Preview Session ownership, production Asset reuse where allowed, Preview Prompt isolation, and established ordered batch/write behavior. Legacy secondary Topic rows are compatibility data in production and are not copied into a new Preview Case.
 
 ## 7. Fixed-image operation boundary
 
@@ -183,6 +186,8 @@ Whenever a new shared named action is added, Preview must provide either:
 - an explicit named blocked/403 implementation.
 
 Production-only non-named endpoints must remain unreachable from Preview mutation controls.
+
+For Primary Topic + Tags, Preview may replace the Preview Case's canonical Topic. Case Tags are cloned/displayed read-only; global Tag curation and production Case-Tag mutation remain outside Preview authority.
 
 ## 10. Production Assets in Preview
 
@@ -295,7 +300,11 @@ Later repository migrations remain compatible with the same boundary:
 - `0010_reusable_image_reactivation_guard.sql` — reactivation defense;
 - `0011_asset_supersession.sql` — production-only replacement lineage;
 - `0012_archive_stimulus_options.sql` — retained option relationship archive state;
-- `0013_review_assets_asset_lookup.sql` — Asset-leading historical Review lookup index; no new Preview ownership semantics.
+- `0013_review_assets_asset_lookup.sql` — Asset-leading historical Review lookup index; no new Preview ownership semantics;
+- `0014_review_question_pool_mode.sql` — Review question-pool provenance;
+- `0015_contextual_system_topic_tag_navigation.sql` — global Systems/Topics/System↔Tag navigation metadata and Review route provenance.
+
+PR #90 adds no Preview/schema migration; it changes how the existing `case_concepts.role` compatibility shape is interpreted by current application behavior.
 
 Repository presence is not proof of production application.
 
@@ -308,6 +317,9 @@ Preview-related changes should use root `AGENTS.md` + `AGENT_TASK_MAP.md` and pr
 - ownership isolation across Session/Case/Prompt/Group/Option;
 - production Asset usability in Preview;
 - complete Case clone behavior and write ordering;
+- clone copying the canonical Primary Topic + Case Tags while omitting legacy secondary Topic rows;
+- Primary Topic replacement remaining owner-scoped even if an older disposable Preview Case contains a secondary compatibility row;
+- secondary-Topic mutation helpers failing closed;
 - fixed-image ordering/captions/attach/detach/reorder;
 - ownership-before-input error precedence for bulk attach;
 - shared editor action/data contracts;
@@ -330,6 +342,8 @@ Current Preview V1 deliberately does not provide:
 - Preview mutation of global Shared Questions or Reusable Image Questions;
 - Preview higher-resolution Asset replacement;
 - silent migration of Preview relationships when a production Asset is superseded;
+- Additional Study Topic authoring;
+- global Case Tag/System↔Tag mutation through Preview;
 - multiple simultaneous Preview workspaces per owner;
 - learner Study on the Preview Worker;
 - production Auth Admin-plugin operations through Preview;
