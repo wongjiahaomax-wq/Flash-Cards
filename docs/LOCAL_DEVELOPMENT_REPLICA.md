@@ -8,7 +8,7 @@
 
 _Status: implemented local developer workflow._
 
-_Last reviewed: 22 August 2026._
+_Last reviewed: 24 August 2026._
 
 ## Purpose
 
@@ -30,7 +30,7 @@ The production-backed Preview Worker remains the final integration gate before m
 
 ## Local runtime command contract
 
-Keep these three commands distinct:
+Keep these four commands distinct:
 
 ### `npm run dev`
 
@@ -67,6 +67,21 @@ Production-style **local** verification:
 The preview port can be changed with `LOCAL_PREVIEW_PORT`; the Better Auth origin is derived from that port. The production `BETTER_AUTH_URL` in `wrangler.jsonc` remains unchanged.
 
 `npm run preview` does **not** deploy anything and does **not** run `local:refresh`. Schema migration and production-derived content refresh are separate concerns.
+
+### `npm run local:stop`
+
+Repository-scoped cleanup for local Flash-Cards servers.
+
+It finds only running processes whose command lines use this checkout's exact repository-installed Vite `dev` or Wrangler `dev` entrypoints, then stops those server process trees. It is safe to run when nothing is active and reports that no Flash-Cards local server was found.
+
+Use it when:
+
+- switching between `npm run dev` and `npm run preview`;
+- a previous local server is still holding its port or native Node modules;
+- preparing to run `npm ci` on Windows after development;
+- you are unsure whether a prior Flash-Cards Vite/Wrangler process is still alive.
+
+Do **not** replace this with broad machine-wide Node termination such as `taskkill /IM node.exe`, `killall node`, or equivalent. Other repositories, terminals, editors and coding-agent processes may also be using Node.
 
 ### `npm run deploy`
 
@@ -277,13 +292,14 @@ Refresh is intentionally destructive to local content edits and local Review/pro
 
 Component/CSS/Svelte changes can then be inspected with Vite hot reload without creating a PR or deploying a Worker for every iteration.
 
-Before treating a branch as locally production-like, run:
+Before treating a branch as locally production-like, stop any existing dev server and run Preview:
 
 ```sh
+npm run local:stop
 npm run preview
 ```
 
-This automatically applies any checked-out migrations that the local D1 replica has not yet seen. It does not refresh the content rows or mirrored R2 objects.
+This automatically applies any checked-out migrations that the local D1 replica has not yet seen. It does not refresh the content rows or mirrored R2 objects. Run `npm run local:stop` again when Preview is finished if you want to return to Vite or release locked local runtime files.
 
 If the work is instead reviewing a slide reconstruction bundle, use the separate `slide-review:*` workflow rather than refreshing D1/R2.
 
@@ -368,6 +384,7 @@ The structural safety proof is instead in the command contract/tests:
 - R2 put builder requires `--local`;
 - local Preview migration arguments require `--local` and reject/omit `--remote`;
 - ordinary Vite platform bindings remain local-only;
+- `local:stop` matches only the exact repository-installed Vite/Wrangler `dev` entrypoints rather than generic Node processes;
 - forbidden production tables are absent from the mirror allowlist;
 - Asset supersession ordering is dependency-based rather than ID-based;
 - Reusable Image Question tables are explicitly allowlisted/reset.
@@ -380,7 +397,7 @@ A running Vite/Wrangler/Node process can keep the native Rolldown `.node` binary
 
 Recovery:
 
-1. stop Vite/Wrangler/Node processes associated with this repository;
+1. run `npm run local:stop` to stop Flash-Cards Vite/Wrangler processes without terminating unrelated Node applications;
 2. remove the incomplete `node_modules` directory;
 3. rerun `npm ci`.
 
@@ -416,6 +433,8 @@ The local-only Wrangler/XDG runtime configuration used by `npm run dev` and `npm
 ```
 
 Treat this material as private even though it is ignored by Git.
+
+`npm run local:stop` stops local server processes only. It does not delete `.dev.vars`, local D1/R2 state, XDG configuration, or any other repository data.
 
 Do not remove `.wrangler/` as generic troubleshooting: it contains the local D1/R2 replica and local identities/state. If an intentional full local-replica reset is ever required, treat that as destructive maintenance and preserve/recreate the local administrator and replica deliberately rather than using it as the first response to an npm/runtime error.
 
@@ -462,9 +481,9 @@ npm run runtime:smoke
 git diff --check
 ```
 
-Also inspect the diff for accidental `npx wrangler@...`, a second Wrangler version authority, `--remote` in local-preview migration arguments, or any new remote binding configuration.
+Also inspect the diff for accidental `npx wrangler@...`, a second Wrangler version authority, `--remote` in local-preview migration arguments, broad Node-process termination, or any new remote binding configuration.
 
-When local machine access is available, exercise both `npm run dev` and `npm run preview`. Confirm local sign-in, Case Editor navigation and teaching-image rendering; for Preview also confirm local migrations are current and no manual XDG/Better Auth override is needed. Do not claim Windows-specific `EPERM`/`EBUSY` reproduction when the validating machine is not Windows.
+When local machine access is available, exercise `npm run dev`, `npm run local:stop`, and `npm run preview`. Confirm local sign-in, Case Editor navigation and teaching-image rendering; for Preview also confirm local migrations are current and no manual XDG/Better Auth override is needed. Run `npm run local:stop` after Preview and verify a second invocation is a harmless no-op. Do not claim Windows-specific `EPERM`/`EBUSY` reproduction when the validating machine is not Windows.
 
 Exercise `npm run local:refresh` separately only when suitable Cloudflare read authorization and an intentional content refresh are available.
 
