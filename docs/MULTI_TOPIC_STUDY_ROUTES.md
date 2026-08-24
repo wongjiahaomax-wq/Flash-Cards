@@ -76,7 +76,7 @@ study_concept_id
 
 This distinction preserves both administrative classification and learner-route provenance.
 
-A later System navigation layer may additionally record the System and Tag used to enter the Review. Those fields do not change the meaning of `primary_concept_id` or `study_concept_id`.
+A later System navigation layer additionally records effective System/Tag provenance and the learner-selected System route. Those fields do not change the meaning of `primary_concept_id` or `study_concept_id`. In particular, a learner-selected parent Topic can resolve a Case through a more specific descendant `study_concept_id` while retaining the parent Topic separately for “Next case” navigation.
 
 ## 4. Route-specific reusable Topic questions and selected-stimulus knowledge
 
@@ -221,7 +221,7 @@ New Reviews record the actual Study Topic route used.
 
 Later question/image features do not rewrite these Topic snapshots. Reusable-image provenance lives on `review_questions`; historical media identity lives on `review_assets.storage_key_snapshot`.
 
-Contextual System navigation adds separate, nullable System/Tag route provenance. Historical Reviews remain Topic-routed by default and their snapshots are not rebuilt.
+Contextual System navigation adds separate, nullable effective System/Tag provenance plus nullable learner-selected System-route provenance. Historical Reviews remain Topic-routed by default and their snapshots are not rebuilt. Original → Expanded preserves both provenance layers. “Next case” uses the selected navigation layer, not a descendant/effective route inferred from the first Case.
 
 ## 10. Production taxonomy example
 
@@ -293,7 +293,7 @@ The learner System layer deliberately routes **into** the model documented above
 
 ### System → Topic
 
-The selected descendant Topic is resolved through the normal multi-Topic Case algorithm. A cross-topic Case therefore keeps its canonical Primary Topic while `study_concept_id` records the selected attached Topic.
+The selected descendant Topic is resolved through the normal multi-Topic Case algorithm. A cross-topic Case therefore keeps its canonical Primary Topic while `study_concept_id` records the actual attached Topic used for question resolution. The learner-selected Topic is retained separately so a parent-Topic selection remains that parent route across “Next case”.
 
 ### System → Tag
 
@@ -304,5 +304,7 @@ This prevents Tag navigation from silently changing Topic-question inheritance.
 ### System → All
 
 The union of native descendant Topic routes and curated Tag routes is deduplicated by Case. If a Case is reachable through both, native Topic provenance wins because it carries the more specific established Study Topic context.
+
+The Review still records `navigation_route_type = all`, separately from that winning effective `route_type`, so “Next case” remains in the full System → All union.
 
 Full route provenance and rollout behavior are defined in `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md`.
