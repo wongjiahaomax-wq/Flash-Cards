@@ -210,8 +210,8 @@ export async function updateCase(db, input) {
 }
 
 /**
- * Return every stored Topic relationship for an active Case. Secondary rows are
- * legacy compatibility data only; current authoring never creates them.
+ * Return the canonical Topic for an active Case. Legacy secondary rows remain
+ * stored compatibility data but are intentionally hidden from current authoring.
  *
  * @param {LearningDb} db
  * @param {string} caseId
@@ -222,8 +222,8 @@ export async function listCaseTopics(db, caseId) {
     db
       .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
       .from(caseConcepts)
-      .where(eq(caseConcepts.caseId, cleanCaseId))
-      .orderBy(asc(caseConcepts.role), asc(caseConcepts.conceptId)),
+      .where(and(eq(caseConcepts.caseId, cleanCaseId), eq(caseConcepts.role, 'primary')))
+      .orderBy(asc(caseConcepts.conceptId)),
     listConceptTaxonomy(db)
   ]);
   const conceptById = new Map(conceptRows.map((concept) => [concept.id, concept]));
@@ -291,7 +291,7 @@ export async function addCaseSecondaryTopic(_db, _input) {
 }
 
 /**
- * @deprecated Secondary Study Topic removal is handled only by the reviewed data migration/operator step.
+ * @deprecated Secondary Study Topic mutation is no longer exposed by current authoring.
  * @param {LearningDb} _db
  * @param {{ caseId: string, conceptId: string }} _input
  */
@@ -300,9 +300,10 @@ export async function removeCaseSecondaryTopic(_db, _input) {
 }
 
 /**
- * Replace the Case's canonical Topic without preserving the old Topic as a
- * learner route. Legacy secondary rows must be resolved explicitly before a
- * primary change so no historical relationship is silently discarded.
+ * Replace the Case's canonical Topic without creating a new secondary route.
+ * Existing unrelated secondary rows are legacy inert compatibility data. If the
+ * requested canonical Topic already exists as a legacy secondary row, that one
+ * conflicting row is removed as part of the explicit primary change.
  *
  * @param {LearningDb} db
  * @param {{ caseId: string, conceptId: string }} input
@@ -311,14 +312,40 @@ export async function promoteCaseTopic(db, input) {
   const { caseId, topicRows, primaryConceptId } = await requireActiveCaseWithOnePrimary(db, input.caseId);
   const conceptId = await requireActiveTopic(db, input.conceptId);
   if (primaryConceptId === conceptId) return;
-  if (topicRows.some((topic) => topic.role === 'secondary')) {
-    throw new AdminContentInputError('This Case still has legacy non-primary Topic relationships. Complete the reviewed Topic-to-Tag migration before changing its Primary Topic.');
-  }
 
-  await db
+  const primaryWrite = db
     .update(caseConcepts)
     .set({ conceptId, role: 'primary' })
     .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, primaryConceptId)));
+  const targetSecondary = topicRows.find((topic) => topic.conceptId === conceptId && topic.role === 'secondary');
+  if (!targetSecondary) {
+    await primaryWrite;
+    return;
+  }
+
+  const secondaryDelete = db
+    .delete(caseConcepts)
+    .where(and(
+      eq(caseConcepts.caseId, caseId),
+      eq(caseConcepts.conceptId, conceptId),
+      eq(caseConcepts.role, 'secondary')
+    ));
+  if (typeof db.batch === 'function') {
+    await db.batch(/** @type {[any, ...any[]]} */ ([secondaryDelete, primaryWrite]));
+    return;
+  }
+
+  await secondaryDelete;
+  try {
+    await primaryWrite;
+  } catch (error) {
+    try {
+      await db.insert(caseConcepts).values({ caseId, conceptId, role: 'secondary' });
+    } catch (cleanupError) {
+      console.error('Unable to restore a legacy secondary Topic after a failed Primary Topic change.', cleanupError);
+    }
+    throw error;
+  }
 }
 
 /**
@@ -333,11 +360,7 @@ export async function createCaseTopic(db, input) {
   const relationshipIntent = requiredText(input.relationshipIntent, 'Topic relationship');
   if (relationshipIntent !== 'primary') throw secondaryTopicsRemovedError();
 
-  const { primaryConceptId, topicRows } = await requireActiveCaseWithOnePrimary(db, caseId);
-  if (topicRows.some((topic) => topic.role === 'secondary')) {
-    throw new AdminContentInputError('This Case still has legacy non-primary Topic relationships. Complete the reviewed Topic-to-Tag migration before changing its Primary Topic.');
-  }
-
+  const { primaryConceptId } = await requireActiveCaseWithOnePrimary(db, caseId);
   const concept = await prepareConcept(db, input.name);
   const conceptWrite = conceptInsert(db, concept);
   const relationshipWrite = db
