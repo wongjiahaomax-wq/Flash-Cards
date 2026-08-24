@@ -239,21 +239,17 @@ test('Expanded continuation canonicalizes historical secondary Study Topic to th
       FROM reviews
       WHERE id = 'historical-secondary-review'
     `).get();
-    assert.deepEqual(historical, {
-      primaryConceptId: 'seed-anterior-stemi',
-      studyConceptId: 'legacy-secondary-topic'
-    });
+    assert.equal(historical?.primaryConceptId, 'seed-anterior-stemi');
+    assert.equal(historical?.studyConceptId, 'legacy-secondary-topic');
 
     const expanded = fixture.sqlite.prepare(`
       SELECT primary_concept_id AS primaryConceptId, study_concept_id AS studyConceptId, question_pool_mode AS questionPoolMode
       FROM reviews
       WHERE id = ?
     `).get(expandedId);
-    assert.deepEqual(expanded, {
-      primaryConceptId: 'seed-anterior-stemi',
-      studyConceptId: 'seed-anterior-stemi',
-      questionPoolMode: 'expanded'
-    });
+    assert.equal(expanded?.primaryConceptId, 'seed-anterior-stemi');
+    assert.equal(expanded?.studyConceptId, 'seed-anterior-stemi');
+    assert.equal(expanded?.questionPoolMode, 'expanded');
 
     const legacyQuestionCount = fixture.sqlite.prepare(`
       SELECT COUNT(*) AS count
