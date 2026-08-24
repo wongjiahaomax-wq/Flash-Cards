@@ -20,6 +20,7 @@ import {
   stimulusOptionQuestions
 } from './schema.js';
 import { caseTags, sharedQuestions, tags } from './tag-schema.js';
+import { listSystemEligibleCases } from './study-navigation.ts';
 import { pickCase } from '../learning/cases.js';
 import {
   QuestionPoolUnavailableError,
@@ -31,6 +32,7 @@ import { resolveCaseStudyCandidates } from '../learning/study-routes.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 /** @typedef {import('../learning/question-pool-mode.ts').QuestionPoolMode} QuestionPoolMode */
+/** @typedef {'all'|'topic'|'tag'} SystemRouteType */
 
 /** @param {string | undefined} value */
 function requiredId(value) {
@@ -48,19 +50,20 @@ async function loadActiveCaseTopicRows(db) {
     .select({ id: cases.id, title: cases.title, vignetteMd: cases.vignetteMd, isActive: cases.isActive, conceptId: caseConcepts.conceptId, role: caseConcepts.role })
     .from(cases)
     .innerJoin(caseConcepts, eq(caseConcepts.caseId, cases.id))
-    .where(and(eq(cases.isActive, true), isNull(cases.previewSessionId)));
+    .innerJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
+    .where(and(eq(cases.isActive, true), isNull(cases.previewSessionId), eq(concepts.kind, 'topic')));
 }
 
 /** @param {LearningDb} db */
 export async function listStudyConcepts(db) {
-  const conceptRows = await db.select({ id: concepts.id, name: concepts.name, slug: concepts.slug, description: concepts.descriptionMd, parentId: concepts.parentId }).from(concepts).where(eq(concepts.isActive, true)).orderBy(asc(concepts.name));
+  const conceptRows = await db.select({ id: concepts.id, name: concepts.name, slug: concepts.slug, description: concepts.descriptionMd, parentId: concepts.parentId }).from(concepts).where(and(eq(concepts.isActive, true), eq(concepts.kind, 'topic'))).orderBy(asc(concepts.name));
   const caseTopicRows = await loadActiveCaseTopicRows(db);
   return conceptRows.map((concept) => ({ ...concept, caseCount: resolveCaseStudyCandidates({ selectedConceptId: concept.id, concepts: conceptRows, rows: caseTopicRows }).length })).filter((concept) => concept.caseCount > 0);
 }
 
 /** @param {LearningDb} db @param {string} conceptId */
 export async function listEligibleCases(db, conceptId) {
-  const conceptRows = await db.select({ id: concepts.id, parentId: concepts.parentId }).from(concepts).where(eq(concepts.isActive, true));
+  const conceptRows = await db.select({ id: concepts.id, parentId: concepts.parentId }).from(concepts).where(and(eq(concepts.isActive, true), eq(concepts.kind, 'topic')));
   return resolveCaseStudyCandidates({ selectedConceptId: conceptId, concepts: conceptRows, rows: await loadActiveCaseTopicRows(db) });
 }
 
@@ -103,13 +106,38 @@ function pickQuestionsForReview(source, questionPoolMode, rng) {
   }
 }
 
-/** @param {object} options @param {LearningDb} options.db @param {string} options.userId @param {string} options.caseId @param {string} options.studyConceptId @param {QuestionPoolMode} options.questionPoolMode @param {() => number} options.rng */
-async function createReviewForCase({ db, userId, caseId, studyConceptId, questionPoolMode, rng }) {
+/**
+ * @param {object} options
+ * @param {LearningDb} options.db
+ * @param {string} options.userId
+ * @param {string} options.caseId
+ * @param {string} options.studyConceptId
+ * @param {QuestionPoolMode} options.questionPoolMode
+ * @param {() => number} options.rng
+ * @param {string | null} [options.studySystemConceptId]
+ * @param {'topic'|'tag'} [options.routeType]
+ * @param {string | null} [options.studyTagId]
+ */
+async function createReviewForCase({ db, userId, caseId, studyConceptId, questionPoolMode, rng, studySystemConceptId = null, routeType = 'topic', studyTagId = null }) {
   const source = await loadCaseSource(db, caseId, studyConceptId, questionPoolMode, rng);
   if (!source) return null;
   const pickedQuestions = pickQuestionsForReview(source, questionPoolMode, rng);
   const reviewId = newId();
-  const reviewInsert = db.insert(reviews).values({ id: reviewId, userId, caseId: source.case.id, primaryConceptId: source.primaryConcept.id, studyConceptId: source.studyConcept.id, caseTitleSnapshot: source.case.title, vignetteSnapshotMd: source.case.vignetteMd, questionPoolMode, status: 'started', rating: null });
+  const reviewInsert = db.insert(reviews).values({
+    id: reviewId,
+    userId,
+    caseId: source.case.id,
+    primaryConceptId: source.primaryConcept.id,
+    studyConceptId: source.studyConcept.id,
+    studySystemConceptId,
+    routeType,
+    studyTagId,
+    caseTitleSnapshot: source.case.title,
+    vignetteSnapshotMd: source.case.vignetteMd,
+    questionPoolMode,
+    status: 'started',
+    rating: null
+  });
   /** @type {[any, ...any[]]} */
   const writes = [reviewInsert];
   writes.push(db.insert(reviewQuestions).values(pickedQuestions.map((question) => ({
@@ -138,16 +166,64 @@ export async function startReview({ db, userId, conceptId, questionPoolMode, rng
   return createReviewForCase({ db, userId, caseId: selectedCase.id, studyConceptId: selectedCase.studyConceptId, questionPoolMode, rng });
 }
 
+/**
+ * @param {object} options
+ * @param {LearningDb} options.db
+ * @param {string} options.userId
+ * @param {string} options.systemId
+ * @param {SystemRouteType} options.routeType
+ * @param {string | null | undefined} [options.routeId]
+ * @param {QuestionPoolMode} options.questionPoolMode
+ * @param {() => number} [options.rng]
+ */
+export async function startSystemReview({ db, userId, systemId, routeType, routeId = null, questionPoolMode, rng = Math.random }) {
+  requiredId(userId);
+  requiredId(systemId);
+  assertQuestionPoolMode(questionPoolMode);
+  const eligibleCases = await listSystemEligibleCases(db, { systemId, routeType, routeId });
+  const selectedCase = pickCase(eligibleCases, { lastCompletedCaseId: await lastCompletedCaseId(db, userId), rng });
+  if (!selectedCase) return null;
+  return createReviewForCase({
+    db,
+    userId,
+    caseId: selectedCase.id,
+    studyConceptId: selectedCase.studyConceptId,
+    studySystemConceptId: selectedCase.studySystemConceptId,
+    routeType: selectedCase.routeType,
+    studyTagId: selectedCase.studyTagId,
+    questionPoolMode,
+    rng
+  });
+}
+
 /** @param {object} options @param {LearningDb} options.db @param {string} options.userId @param {string} options.reviewId @param {() => number} [options.rng] */
 export async function continueReviewWithExpandedLearning({ db, userId, reviewId, rng = Math.random }) {
   requiredId(userId);
   requiredId(reviewId);
-  const rows = await db.select({ caseId: reviews.caseId, studyConceptId: reviews.studyConceptId, status: reviews.status, questionPoolMode: reviews.questionPoolMode }).from(reviews).where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId))).limit(1);
+  const rows = await db.select({
+    caseId: reviews.caseId,
+    studyConceptId: reviews.studyConceptId,
+    studySystemConceptId: reviews.studySystemConceptId,
+    routeType: reviews.routeType,
+    studyTagId: reviews.studyTagId,
+    status: reviews.status,
+    questionPoolMode: reviews.questionPoolMode
+  }).from(reviews).where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId))).limit(1);
   const review = rows[0];
   if (!review) throw new Error('Review not found.');
   if (review.status !== 'completed') throw new Error('Complete this review before continuing with Expanded Learning.');
   if (review.questionPoolMode !== 'core') throw new Error('Expanded Learning continuation is only available after an Original questions review.');
-  return createReviewForCase({ db, userId, caseId: review.caseId, studyConceptId: review.studyConceptId, questionPoolMode: 'expanded', rng });
+  return createReviewForCase({
+    db,
+    userId,
+    caseId: review.caseId,
+    studyConceptId: review.studyConceptId,
+    studySystemConceptId: review.studySystemConceptId,
+    routeType: review.routeType,
+    studyTagId: review.studyTagId,
+    questionPoolMode: 'expanded',
+    rng
+  });
 }
 
 /** @param {LearningDb} db @param {string} caseId @param {string} studyConceptId @param {QuestionPoolMode} questionPoolMode @param {() => number} rng */
@@ -159,19 +235,19 @@ async function loadCaseSource(db, caseId, studyConceptId, questionPoolMode, rng)
   const primaryConceptId = caseTopicRows.find((topic) => topic.role === 'primary')?.conceptId;
   const studyLink = caseTopicRows.find((topic) => topic.conceptId === studyConceptId);
   if (!primaryConceptId || !studyLink) return null;
-  const conceptRows = await db.select({ id: concepts.id, name: concepts.name, parentId: concepts.parentId }).from(concepts).where(eq(concepts.isActive, true));
-  const primaryConcept = conceptRows.find((concept) => concept.id === primaryConceptId);
-  const studyConcept = conceptRows.find((concept) => concept.id === studyConceptId);
+  const conceptRows = await db.select({ id: concepts.id, name: concepts.name, kind: concepts.kind, parentId: concepts.parentId }).from(concepts).where(eq(concepts.isActive, true));
+  const primaryConcept = conceptRows.find((concept) => concept.id === primaryConceptId && concept.kind === 'topic');
+  const studyConcept = conceptRows.find((concept) => concept.id === studyConceptId && concept.kind === 'topic');
   if (!primaryConcept || !studyConcept) return null;
 
-  /** @type {{ id: string, name: string, parentId: string | null, distance: number }[]} */
+  /** @type {{ id: string, name: string, kind: string, parentId: string | null, distance: number }[]} */
   const ancestors = [];
   let parentId = studyConcept.parentId;
   let distance = 1;
   while (parentId) {
     const ancestor = conceptRows.find((concept) => concept.id === parentId);
     if (!ancestor) break;
-    ancestors.push({ ...ancestor, distance });
+    if (ancestor.kind === 'topic') ancestors.push({ ...ancestor, distance });
     parentId = ancestor.parentId;
     distance += 1;
   }
@@ -231,13 +307,34 @@ async function loadCaseSource(db, caseId, studyConceptId, questionPoolMode, rng)
 
 /** @param {LearningDb} db @param {string} reviewId @param {string} userId */
 export async function getReview(db, reviewId, userId) {
-  const reviewRows = await db.select({ id: reviews.id, caseId: reviews.caseId, primaryConceptId: reviews.primaryConceptId, studyConceptId: reviews.studyConceptId, questionPoolMode: reviews.questionPoolMode, title: reviews.caseTitleSnapshot, vignette: reviews.vignetteSnapshotMd, status: reviews.status, rating: reviews.rating, revealedAt: reviews.revealedAt, completedAt: reviews.completedAt }).from(reviews).where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId))).limit(1);
+  const reviewRows = await db.select({
+    id: reviews.id,
+    caseId: reviews.caseId,
+    primaryConceptId: reviews.primaryConceptId,
+    studyConceptId: reviews.studyConceptId,
+    studySystemConceptId: reviews.studySystemConceptId,
+    routeType: reviews.routeType,
+    studyTagId: reviews.studyTagId,
+    questionPoolMode: reviews.questionPoolMode,
+    title: reviews.caseTitleSnapshot,
+    vignette: reviews.vignetteSnapshotMd,
+    status: reviews.status,
+    rating: reviews.rating,
+    revealedAt: reviews.revealedAt,
+    completedAt: reviews.completedAt
+  }).from(reviews).where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId))).limit(1);
   const review = reviewRows[0];
   if (!review) return null;
-  const conceptRows = await db.select({ name: concepts.name }).from(concepts).where(eq(concepts.id, review.studyConceptId)).limit(1);
+  const [conceptRows, systemRows, tagRows] = await Promise.all([
+    db.select({ name: concepts.name }).from(concepts).where(eq(concepts.id, review.studyConceptId)).limit(1),
+    review.studySystemConceptId ? db.select({ name: concepts.name }).from(concepts).where(eq(concepts.id, review.studySystemConceptId)).limit(1) : Promise.resolve([]),
+    review.routeType === 'tag' && review.studyTagId ? db.select({ name: tags.name }).from(tags).where(eq(tags.id, review.studyTagId)).limit(1) : Promise.resolve([])
+  ]);
+  const conceptName = conceptRows[0]?.name ?? 'Selected topic';
+  const routeLabel = review.routeType === 'tag' ? (tagRows[0]?.name ?? 'Selected tag') : conceptName;
   const questions = await db.select({ prompt: reviewQuestions.promptSnapshotMd, answer: reviewQuestions.answerSnapshotMd, sourceType: reviewQuestions.sourceType, sourceStimulusGroupId: reviewQuestions.sourceStimulusGroupId, sourceStimulusOptionId: reviewQuestions.sourceStimulusOptionId, sourceAssetQuestionId: reviewQuestions.sourceAssetQuestionId, sourceSharedQuestionId: reviewQuestions.sourceSharedQuestionId, displayOrder: reviewQuestions.displayOrder }).from(reviewQuestions).where(eq(reviewQuestions.reviewId, reviewId)).orderBy(asc(reviewQuestions.displayOrder));
   const assetRows = await db.select({ assetId: reviewAssets.assetId, storageKey: reviewAssets.storageKeySnapshot, caption: reviewAssets.captionSnapshotMd, altText: reviewAssets.altTextSnapshot, sourceLabel: assets.sourceLabel, sourceUrl: assets.sourceUrl, stimulusGroupId: reviewAssets.sourceStimulusGroupId, stimulusOptionId: reviewAssets.sourceStimulusOptionId, displayOrder: reviewAssets.displayOrder }).from(reviewAssets).leftJoin(assets, eq(assets.id, reviewAssets.assetId)).where(eq(reviewAssets.reviewId, reviewId)).orderBy(asc(reviewAssets.displayOrder));
-  return { ...review, conceptName: conceptRows[0]?.name ?? 'Selected topic', revealed: Boolean(review.revealedAt), questions, assets: assetRows };
+  return { ...review, conceptName, systemName: systemRows[0]?.name ?? null, routeLabel, revealed: Boolean(review.revealedAt), questions, assets: assetRows };
 }
 
 /** @param {LearningDb} db @param {string} reviewId @param {string} userId */
