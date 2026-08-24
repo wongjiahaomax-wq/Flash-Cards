@@ -3,7 +3,15 @@ import { asc, eq } from 'drizzle-orm';
 import { concepts } from './schema.js';
 
 function missingKindColumn(error: unknown) {
-  return error instanceof Error && /no such column:.*kind|has no column named kind/i.test(error.message);
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current; depth += 1) {
+    if (current instanceof Error && /no such column:.*kind|has no column named kind/i.test(current.message)) {
+      return true;
+    }
+    if (typeof current !== 'object' || current === null || !('cause' in current)) break;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 async function selectConceptTaxonomy(
@@ -73,21 +81,12 @@ export async function requireActiveTopicConcept(db: import('./index.js').Learnin
   return rows.find((row) => row.id === conceptId && row.kind === 'topic') ?? null;
 }
 
-async function supportsConceptKind(db: import('./index.js').LearningDb) {
-  try {
-    await db.select({ kind: concepts.kind }).from(concepts).limit(1);
-    return true;
-  } catch (error) {
-    if (!missingKindColumn(error)) throw error;
-    return false;
-  }
-}
-
 /**
- * Build (without executing) a Topic insert for the schema that is actually
- * present so callers can retain their existing D1 batch/transaction boundary.
+ * Build (without executing) a Topic insert. Migration 0015 gives `kind` a
+ * `topic` default, so omitting that additive column keeps this write valid on
+ * both legacy schemas and the migrated schema while preserving D1 batching.
  */
-export async function buildTopicConceptInsert(
+export function buildTopicConceptInsert(
   db: import('./index.js').LearningDb,
   value: {
     id: string;
@@ -98,8 +97,5 @@ export async function buildTopicConceptInsert(
     isActive?: boolean;
   }
 ) {
-  if (await supportsConceptKind(db)) {
-    return db.insert(concepts).values({ ...value, kind: 'topic' });
-  }
   return db.insert(concepts).values(value);
 }
