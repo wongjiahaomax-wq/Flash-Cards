@@ -10,7 +10,7 @@ Flash-Cards is a private medical learning application built around **Cases**, no
 
 The platform baseline is established: learner Study/Review persistence, private teaching images, browser Admin content management, optional stimulus groups, Tags, tag-scoped Shared Questions, Reusable Image Questions, reviewed/resumable imports, Preview Admin, Image Management V2, contextual System/Topic/Tag navigation, and a verified first ECG corpus.
 
-Current Case classification is deliberately simpler than the historical multi-Topic model: one canonical Primary Topic per Case plus Case Tags for cross-cutting/alternate discovery. Historical secondary Topic rows and historical Review provenance remain migration/history concerns only.
+Current Case classification is deliberately simpler than the historical multi-Topic model: one canonical Primary Topic per Case plus Case Tags for cross-cutting/alternate discovery. Historical secondary Topic rows are legacy compatibility data, and older Review provenance remains historical truth; no cleanup migration is required for this behavior change.
 
 Current engineering work is increasingly about content curation, authoring ergonomics, bounded read models, and behavior-preserving modularity rather than adding broad new architecture.
 
