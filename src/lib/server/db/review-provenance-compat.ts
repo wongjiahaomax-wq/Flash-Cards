@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm';
 
+import { reviewsWithRouteProvenance } from './contextual-schema.ts';
 import { reviews } from './schema.js';
 
 function missingProvenanceColumn(error: unknown) {
@@ -35,16 +36,16 @@ type ReviewInsert = {
 
 /**
  * Build (without executing) the Review insert while preserving the caller's
- * D1 batch boundary. Legacy Topic Reviews omit the additive 0015 provenance
- * columns; on migrated schemas their defaults represent the same Topic route.
- * System/Tag routes include the provenance columns and therefore require 0015.
+ * D1 batch boundary. Established Topic Reviews use the pre-0015 table shape;
+ * migrated databases supply the additive route defaults. System/Tag routes use
+ * the 0015 overlay and therefore intentionally require migration 0015.
  */
 export function buildReviewInsertWithOptionalRouteProvenance(
   db: import('./index.js').LearningDb,
   value: ReviewInsert
 ) {
   if (value.studySystemConceptId || value.routeType !== 'topic' || value.studyTagId) {
-    return db.insert(reviews).values(value);
+    return db.insert(reviewsWithRouteProvenance).values(value);
   }
   const {
     studySystemConceptId: _studySystemConceptId,
@@ -56,20 +57,20 @@ export function buildReviewInsertWithOptionalRouteProvenance(
 }
 
 const reviewSelection = {
-  id: reviews.id,
-  caseId: reviews.caseId,
-  primaryConceptId: reviews.primaryConceptId,
-  studyConceptId: reviews.studyConceptId,
-  studySystemConceptId: reviews.studySystemConceptId,
-  routeType: reviews.routeType,
-  studyTagId: reviews.studyTagId,
-  questionPoolMode: reviews.questionPoolMode,
-  title: reviews.caseTitleSnapshot,
-  vignette: reviews.vignetteSnapshotMd,
-  status: reviews.status,
-  rating: reviews.rating,
-  revealedAt: reviews.revealedAt,
-  completedAt: reviews.completedAt
+  id: reviewsWithRouteProvenance.id,
+  caseId: reviewsWithRouteProvenance.caseId,
+  primaryConceptId: reviewsWithRouteProvenance.primaryConceptId,
+  studyConceptId: reviewsWithRouteProvenance.studyConceptId,
+  studySystemConceptId: reviewsWithRouteProvenance.studySystemConceptId,
+  routeType: reviewsWithRouteProvenance.routeType,
+  studyTagId: reviewsWithRouteProvenance.studyTagId,
+  questionPoolMode: reviewsWithRouteProvenance.questionPoolMode,
+  title: reviewsWithRouteProvenance.caseTitleSnapshot,
+  vignette: reviewsWithRouteProvenance.vignetteSnapshotMd,
+  status: reviewsWithRouteProvenance.status,
+  rating: reviewsWithRouteProvenance.rating,
+  revealedAt: reviewsWithRouteProvenance.revealedAt,
+  completedAt: reviewsWithRouteProvenance.completedAt
 };
 
 const legacyReviewSelection = {
@@ -94,8 +95,8 @@ export async function readReviewWithOptionalRouteProvenance(
   try {
     const rows = await db
       .select(reviewSelection)
-      .from(reviews)
-      .where(and(eq(reviews.id, reviewId), eq(reviews.userId, userId)))
+      .from(reviewsWithRouteProvenance)
+      .where(and(eq(reviewsWithRouteProvenance.id, reviewId), eq(reviewsWithRouteProvenance.userId, userId)))
       .limit(1);
     return rows[0] ?? null;
   } catch (error) {
