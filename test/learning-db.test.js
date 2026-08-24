@@ -202,6 +202,76 @@ test('Continue with Expanded Learning creates a new Review for the same Case and
   }
 });
 
+test('Expanded continuation canonicalizes historical secondary Study Topic to the current Primary Topic', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.exec(`
+      INSERT INTO concepts (id, name, slug, description_md, parent_id, is_active, created_at, updated_at)
+      VALUES ('legacy-secondary-topic', 'Legacy secondary', 'legacy-secondary', NULL, NULL, 1, 1, 1);
+      INSERT INTO case_concepts (case_id, concept_id, role, created_at)
+      VALUES ('seed-anterior-a', 'legacy-secondary-topic', 'secondary', 1);
+      INSERT INTO question_prompts (id, prompt_md, is_active, created_at, updated_at)
+      VALUES ('legacy-secondary-prompt', 'Legacy secondary reusable question?', 1, 1, 1);
+      INSERT INTO concept_questions (id, concept_id, question_prompt_id, answer_md, inherit_to_descendants, is_active, created_at, updated_at)
+      VALUES ('legacy-secondary-question', 'legacy-secondary-topic', 'legacy-secondary-prompt', 'Legacy secondary answer', 0, 1, 1, 1);
+      INSERT INTO reviews (
+        id, user_id, case_id, primary_concept_id, study_concept_id,
+        case_title_snapshot, vignette_snapshot_md, question_pool_mode,
+        status, rating, started_at, revealed_at, completed_at
+      ) VALUES (
+        'historical-secondary-review', 'learner-1', 'seed-anterior-a',
+        'seed-anterior-stemi', 'legacy-secondary-topic',
+        'Historical anterior STEMI', 'Historical vignette', 'core',
+        'completed', 'good', 1, 2, 3
+      );
+    `);
+
+    const expandedId = await continueReviewWithExpandedLearning({
+      db: fixture.db,
+      userId: 'learner-1',
+      reviewId: 'historical-secondary-review',
+      rng: () => 0
+    });
+    assert.ok(expandedId);
+
+    const historical = fixture.sqlite.prepare(`
+      SELECT primary_concept_id AS primaryConceptId, study_concept_id AS studyConceptId
+      FROM reviews
+      WHERE id = 'historical-secondary-review'
+    `).get();
+    assert.deepEqual(historical, {
+      primaryConceptId: 'seed-anterior-stemi',
+      studyConceptId: 'legacy-secondary-topic'
+    });
+
+    const expanded = fixture.sqlite.prepare(`
+      SELECT primary_concept_id AS primaryConceptId, study_concept_id AS studyConceptId, question_pool_mode AS questionPoolMode
+      FROM reviews
+      WHERE id = ?
+    `).get(expandedId);
+    assert.deepEqual(expanded, {
+      primaryConceptId: 'seed-anterior-stemi',
+      studyConceptId: 'seed-anterior-stemi',
+      questionPoolMode: 'expanded'
+    });
+
+    const legacyQuestionCount = fixture.sqlite.prepare(`
+      SELECT COUNT(*) AS count
+      FROM review_questions
+      WHERE review_id = ? AND source_concept_id = 'legacy-secondary-topic'
+    `).get(expandedId)?.count;
+    const primaryQuestionCount = fixture.sqlite.prepare(`
+      SELECT COUNT(*) AS count
+      FROM review_questions
+      WHERE review_id = ? AND source_concept_id = 'seed-anterior-stemi'
+    `).get(expandedId)?.count;
+    assert.equal(legacyQuestionCount, 0);
+    assert.ok(Number(primaryQuestionCount) > 0);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('Expanded continuation enforces Review ownership', async () => {
   const fixture = createLearningDb();
   try {
