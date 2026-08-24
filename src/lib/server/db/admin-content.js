@@ -132,7 +132,7 @@ export async function createConcept(db, name) {
 /** @param {LearningDb} db @param {string} conceptId */
 async function requireActiveConcept(db, conceptId) {
   const row = await requireActiveTopicConcept(db, conceptId);
-  if (!row) throw new AdminContentInputError('The selected Topic is missing, inactive, or classified as a System.');
+  if (!row) throw new AdminContentInputError('The selected Topic is missing or inactive, or is classified as a System.');
 }
 
 /** @param {LearningDb} db @param {string} caseId */
