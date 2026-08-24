@@ -55,6 +55,48 @@ async function selectLegacyConceptTaxonomy(
   return rows.map((row) => ({ ...row, kind: 'topic' as const }));
 }
 
+async function selectConceptTaxonomyById(
+  db: import('./index.js').LearningDb,
+  conceptId: string
+) {
+  return (
+    await db
+      .select({
+        id: taxonomyConcepts.id,
+        name: taxonomyConcepts.name,
+        slug: taxonomyConcepts.slug,
+        descriptionMd: taxonomyConcepts.descriptionMd,
+        kind: taxonomyConcepts.kind,
+        parentId: taxonomyConcepts.parentId,
+        isActive: taxonomyConcepts.isActive
+      })
+      .from(taxonomyConcepts)
+      .where(eq(taxonomyConcepts.id, conceptId))
+      .limit(1)
+  )[0] ?? null;
+}
+
+async function selectLegacyConceptTaxonomyById(
+  db: import('./index.js').LearningDb,
+  conceptId: string
+) {
+  const row = (
+    await db
+      .select({
+        id: pre0015Concepts.id,
+        name: pre0015Concepts.name,
+        slug: pre0015Concepts.slug,
+        descriptionMd: pre0015Concepts.descriptionMd,
+        parentId: pre0015Concepts.parentId,
+        isActive: pre0015Concepts.isActive
+      })
+      .from(pre0015Concepts)
+      .where(eq(pre0015Concepts.id, conceptId))
+      .limit(1)
+  )[0] ?? null;
+  return row ? { ...row, kind: 'topic' as const } : null;
+}
+
 /**
  * Read Concept taxonomy while remaining compatible with a database that has
  * not received additive migration 0015 yet. Before 0015 every Concept has
@@ -77,9 +119,26 @@ export async function listActiveConceptTaxonomy(db: import('./index.js').Learnin
   return listConceptTaxonomy(db, { activeOnly: true });
 }
 
+/**
+ * Resolve one Concept with post-0015 kind information when available. On a
+ * genuinely pre-0015 database every Concept is treated as a Topic, matching
+ * migration 0015's default/backfill semantics.
+ */
+export async function findConceptTaxonomyById(
+  db: import('./index.js').LearningDb,
+  conceptId: string
+) {
+  try {
+    return await selectConceptTaxonomyById(db, conceptId);
+  } catch (error) {
+    if (!missingKindColumn(error)) throw error;
+    return selectLegacyConceptTaxonomyById(db, conceptId);
+  }
+}
+
 export async function requireActiveTopicConcept(db: import('./index.js').LearningDb, conceptId: string) {
-  const rows = await listActiveConceptTaxonomy(db);
-  return rows.find((row) => row.id === conceptId && row.kind === 'topic') ?? null;
+  const row = await findConceptTaxonomyById(db, conceptId);
+  return row?.kind === 'topic' && row.isActive ? row : null;
 }
 
 /**
