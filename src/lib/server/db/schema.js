@@ -368,6 +368,7 @@ export const reviews = sqliteTable(
       .references(() => concepts.id, { onDelete: 'restrict' }),
     caseTitleSnapshot: text('case_title_snapshot').notNull(),
     vignetteSnapshotMd: text('vignette_snapshot_md'),
+    questionPoolMode: text('question_pool_mode').notNull().default('expanded'),
     status: text('status').notNull().default('started'),
     rating: text('rating'),
     startedAt: timestamp('started_at'),
