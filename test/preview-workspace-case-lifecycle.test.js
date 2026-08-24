@@ -259,15 +259,25 @@ test('Preview Case metadata and Primary Topic replacement stay inside the owning
   }
 });
 
-test('legacy non-primary Topic rows block silent Preview Primary replacement', async () => {
+test('legacy non-primary Topic rows stay inert during Preview Primary replacement', async () => {
   const fixture = createFixture();
   try {
     const { session, caseId } = await createClone(fixture, 'legacy-owner');
     fixture.sqlite.prepare("INSERT INTO case_concepts (case_id, concept_id, role) VALUES (?, 'topic-secondary', 'secondary')").run(caseId);
-    await expectPreviewError(
-      promotePreviewTopic(fixture.db, session.id, caseId, 'topic-third'),
-      'INVALID_INPUT',
-      'This Preview Case still has a legacy non-primary Topic relationship. Re-copy it after the reviewed Topic-to-Tag migration.'
+
+    await promotePreviewTopic(fixture.db, session.id, caseId, 'topic-third');
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=? ORDER BY concept_id').all(caseId).map((row) => ({ ...row })),
+      [
+        { concept_id: 'topic-secondary', role: 'secondary' },
+        { concept_id: 'topic-third', role: 'primary' }
+      ]
+    );
+
+    await promotePreviewTopic(fixture.db, session.id, caseId, 'topic-secondary');
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=?').all(caseId).map((row) => ({ ...row })),
+      [{ concept_id: 'topic-secondary', role: 'primary' }]
     );
   } finally {
     fixture.sqlite.close();
