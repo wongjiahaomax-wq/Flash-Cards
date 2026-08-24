@@ -6,7 +6,6 @@
   const PreviewCaseEditor = /** @type {any} */ (AdminCaseEditor);
   let { data, form } = $props();
   let navigationNotice = $state('');
-  let previewEditor = /** @type {HTMLDivElement | undefined} */ (undefined);
 
   onMount(() => {
     const reusable = /** @type {NodeListOf<HTMLInputElement>} */ (document.querySelectorAll('input[name="reusable_for_topic"]'));
@@ -15,14 +14,6 @@
       input.disabled = true;
       input.closest('label')?.setAttribute('title', 'Topic-level sharing is unavailable in Preview Mode.');
     }
-
-    previewEditor?.addEventListener('click', guardNavigation);
-    previewEditor?.addEventListener('keydown', guardNavigation);
-
-    return () => {
-      previewEditor?.removeEventListener('click', guardNavigation);
-      previewEditor?.removeEventListener('keydown', guardNavigation);
-    };
   });
 
   /** @param {MouseEvent | KeyboardEvent} event */
@@ -46,6 +37,18 @@
         : 'Global production Admin pages are intentionally unavailable from Preview Mode.';
     }
   }
+
+  /** @param {HTMLDivElement} node */
+  function interceptPreviewNavigation(node) {
+    node.addEventListener('click', guardNavigation);
+    node.addEventListener('keydown', guardNavigation);
+    return {
+      destroy() {
+        node.removeEventListener('click', guardNavigation);
+        node.removeEventListener('keydown', guardNavigation);
+      }
+    };
+  }
 </script>
 
 <svelte:head><title>{data.selectedCase?.case.title ?? 'Preview Case'} | Preview Admin | Flash-Cards</title></svelte:head>
@@ -62,7 +65,7 @@
 {#if data.workspaceBlocked}
   <p class="navigation-notice error" role="alert">This workspace is blocked pending cleanup. Use the Preview banner reset control before editing.</p>
 {:else}
-  <div bind:this={previewEditor} class="preview-editor" role="group" aria-label="Preview Case editor">
+  <div use:interceptPreviewNavigation class="preview-editor" role="group" aria-label="Preview Case editor">
     <PreviewCaseEditor {data} {form} />
   </div>
 {/if}
