@@ -3,6 +3,9 @@
 This file supplements the repository-wide `AGENTS.md` for `src/routes/admin/`.
 
 - Preserve the current authoring model; inspect existing actions, components, and DB helpers before adding patterns.
+- Current Case classification is **one canonical Primary Topic + zero or more Case Tags**. Do not reintroduce Additional Study Topic authoring merely because the historical `case_concepts.role = 'secondary'` storage value still exists.
+- Treat stored secondary Case↔Topic rows as legacy compatibility data: current Admin UI/read models hide them, current mutations do not create them, and no cleanup migration is required solely to remove them.
+- Keep global System/Topic hierarchy and System↔Tag exposure separate from Case-local Primary Topic / Case Tag authoring.
 - Keep UX-only work out of schema/architecture changes unless explicitly required.
 - SvelteKit `redirect()` throws. Do not wrap a successful redirect in a broad catch that converts it to an error response.
 - Keep fallible DB/storage work inside the error boundary, then redirect after success.
@@ -18,7 +21,7 @@ Minimum context is task-specific; start with `docs/AGENT_TASK_MAP.md` and inspec
 Case-editor UI responsibilities live under `src/lib/components/case-editor/`:
 
 - `CaseEditorHeader.svelte` and `CaseEditorNavigation.svelte` — heading, layout preference, completeness summary, section navigation;
-- `CaseTopicsSection.svelte` — primary/default Topic and Additional Study Topic authoring;
+- `CaseTopicsSection.svelte` — canonical Primary Topic and Case Tag presentation/authoring; Preview keeps Case Tags read-only;
 - `CaseDetailsSection.svelte` — core Case metadata and question-selection settings;
 - `CaseImagesSection.svelte` — fixed images, Alternative Sets, image-specific questions, and reusable Image Question controls;
 - `CaseQuestionsSection.svelte` — Case-wide questions and scope changes;
