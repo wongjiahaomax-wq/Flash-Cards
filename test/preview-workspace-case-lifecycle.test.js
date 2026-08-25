@@ -86,6 +86,11 @@ function createFixture() {
     INSERT INTO case_concepts (case_id, concept_id, role) VALUES
       ('case-source', 'topic-primary', 'primary'),
       ('case-inactive', 'topic-primary', 'primary');
+
+    INSERT INTO tags (id, name, normalized_name, is_active)
+    VALUES ('tag-cross-cutting', 'Cross-cutting concept', 'cross-cutting concept', 1);
+    INSERT INTO case_tags (case_id, tag_id)
+    VALUES ('case-source', 'tag-cross-cutting');
   `);
   const db = /** @type {LearningDb} */ (createDb(/** @type {any} */ (createD1(sqlite))));
   return { sqlite, db };
@@ -108,7 +113,7 @@ async function expectPreviewError(promise, code, message) {
   );
 }
 
-test('Preview Case listing and cloning preserve the existing source and copied Case contract', async () => {
+test('Preview Case listing and cloning preserve the source contract, canonical Topic, and Case Tags', async () => {
   const fixture = createFixture();
   try {
     assert.deepEqual((await listProductionCasesForPreview(fixture.db)).map((row) => row.id), ['case-source']);
@@ -129,6 +134,10 @@ test('Preview Case listing and cloning preserve the existing source and copied C
     assert.deepEqual(
       fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=?').all(caseId).map((row) => ({ ...row })),
       [{ concept_id: 'topic-primary', role: 'primary' }]
+    );
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT tag_id FROM case_tags WHERE case_id=?').all(caseId).map((row) => row.tag_id),
+      ['tag-cross-cutting']
     );
     assert.deepEqual((await listPreviewCases(fixture.db, session.id)).map((row) => row.id), [caseId]);
     assert.deepEqual((await listProductionCasesForPreview(fixture.db)).map((row) => row.id), ['case-source']);
@@ -190,7 +199,7 @@ test('Preview Case cloning preserves session ownership and existing invalid-sess
   }
 });
 
-test('Preview Case metadata and Topic mutations stay inside the owning workspace', async () => {
+test('Preview Case metadata and Primary Topic replacement stay inside the owning workspace', async () => {
   const fixture = createFixture();
   try {
     const first = await createClone(fixture, 'owner-a');
@@ -211,30 +220,29 @@ test('Preview Case metadata and Topic mutations stay inside the owning workspace
       question_count: 2
     });
     assert.deepEqual(
-      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=? ORDER BY concept_id').all(first.caseId).map((topicRow) => ({ ...topicRow })),
-      [
-        { concept_id: 'topic-primary', role: 'secondary' },
-        { concept_id: 'topic-secondary', role: 'primary' }
-      ]
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=?').all(first.caseId).map((topicRow) => ({ ...topicRow })),
+      [{ concept_id: 'topic-secondary', role: 'primary' }]
     );
 
     await updatePreviewCaseVignette(fixture.db, first.session.id, first.caseId, null);
     row = fixture.sqlite.prepare('SELECT vignette_md FROM cases WHERE id=?').get(first.caseId);
     assert.equal(row.vignette_md, null);
 
-    await addPreviewSecondaryTopic(fixture.db, first.session.id, first.caseId, 'topic-third');
     await promotePreviewTopic(fixture.db, first.session.id, first.caseId, 'topic-third');
-    await removePreviewSecondaryTopic(fixture.db, first.session.id, first.caseId, 'topic-secondary');
     assert.deepEqual(
-      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=? ORDER BY concept_id').all(first.caseId).map((topicRow) => ({ ...topicRow })),
-      [
-        { concept_id: 'topic-primary', role: 'secondary' },
-        { concept_id: 'topic-third', role: 'primary' }
-      ]
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=?').all(first.caseId).map((topicRow) => ({ ...topicRow })),
+      [{ concept_id: 'topic-third', role: 'primary' }]
     );
 
+    for (const operation of [addPreviewSecondaryTopic, removePreviewSecondaryTopic]) {
+      await expectPreviewError(
+        operation(fixture.db, first.session.id, first.caseId, 'topic-secondary'),
+        'INVALID_INPUT',
+        'Additional Study Topics are no longer supported. Use Case Tags for alternate or cross-cutting classification.'
+      );
+    }
     await expectPreviewError(
-      addPreviewSecondaryTopic(fixture.db, first.session.id, first.caseId, 'topic-inactive'),
+      promotePreviewTopic(fixture.db, first.session.id, first.caseId, 'topic-inactive'),
       'INVALID_INPUT',
       'Choose an active Topic.'
     );
@@ -246,6 +254,31 @@ test('Preview Case metadata and Topic mutations stay inside the owning workspace
 
     assert.equal(fixture.sqlite.prepare("SELECT title FROM cases WHERE id='case-source'").get().title, 'Source STEMI');
     assert.equal(fixture.sqlite.prepare('SELECT title FROM cases WHERE id=?').get(second.caseId).title, 'Source STEMI');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('legacy non-primary Topic rows stay inert during Preview Primary replacement', async () => {
+  const fixture = createFixture();
+  try {
+    const { session, caseId } = await createClone(fixture, 'legacy-owner');
+    fixture.sqlite.prepare("INSERT INTO case_concepts (case_id, concept_id, role) VALUES (?, 'topic-secondary', 'secondary')").run(caseId);
+
+    await promotePreviewTopic(fixture.db, session.id, caseId, 'topic-third');
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=? ORDER BY concept_id').all(caseId).map((row) => ({ ...row })),
+      [
+        { concept_id: 'topic-secondary', role: 'secondary' },
+        { concept_id: 'topic-third', role: 'primary' }
+      ]
+    );
+
+    await promotePreviewTopic(fixture.db, session.id, caseId, 'topic-secondary');
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT concept_id, role FROM case_concepts WHERE case_id=?').all(caseId).map((row) => ({ ...row })),
+      [{ concept_id: 'topic-secondary', role: 'primary' }]
+    );
   } finally {
     fixture.sqlite.close();
   }

@@ -1,8 +1,8 @@
 # Flash-Cards Import Packages
 
-_Status: implemented and production-validated. PR #22 established strict reviewed-package import; PR #23 added resumable bounded execution. The workflow has been used successfully for the complete initial ECG migration. PR #53 adds a separate local slide-review/finalization layer that produces packages compatible with this importer without weakening its contract._
+_Status: implemented and production-validated. PR #22 established strict reviewed-package import; PR #23 added resumable bounded execution. PR #53 adds a separate local slide-review/finalization layer. PR #90 keeps Package v1 shape compatibility while retiring non-empty Additional Study Topic declarations._
 
-_Last updated: 20 August 2026_
+_Last updated: 25 August 2026_
 
 ## Purpose and boundary
 
@@ -20,13 +20,11 @@ External tooling may recover source material, perform semantic reconstruction, a
 
 Those decisions happen before the strict package reaches Production Admin.
 
-The safety contract from PR #22 remains authoritative: strict package structure, hardened ZIP parsing, deterministic application identities/R2 teaching-image keys, explicit `create` / `use` / `skip`, fail-closed dependency checks, exact-ZIP SHA-256 confirmation, deterministic conflict handling, parent-first Topics, and R2 cleanup around D1 failure.
+The safety contract remains: strict package structure, hardened ZIP parsing, deterministic application identities/R2 teaching-image keys, explicit `create` / `use` / `skip`, fail-closed dependency checks, exact-ZIP SHA-256 confirmation, deterministic conflict handling, parent-first Topics, and R2 cleanup around D1 failure.
 
-PR #23 adds resumable execution without Cloudflare Queues, Durable Objects, Cron, or paid-only infrastructure primitives.
+Resumable execution remains browser-driven request orchestration backed by durable D1/R2 state; it does not imply background continuation.
 
 ## Upstream source/review artifacts are not production packages
-
-Several upstream artifact types now exist and must remain distinct:
 
 ```text
 Anki .apkg / PPTX / PDF
@@ -44,17 +42,7 @@ Flash-Cards Import Package v1
 Production Admin importer
 ```
 
-For slide material, the local reviewer consumes:
-
-```text
-<batch>-review.zip
-├── manifest.json
-├── media/
-├── review-map.json
-└── source-previews/
-```
-
-and exports/finalizes a production package containing only:
+For slide material, the local reviewer consumes a review ZIP containing review-only metadata/previews and exports a production ZIP containing only:
 
 ```text
 flashcards-import-v1.zip
@@ -62,11 +50,7 @@ flashcards-import-v1.zip
 └── media/
 ```
 
-The review-only ZIP is intentionally rejected by the production package parser because `review-map.json` and `source-previews/` are outside Import Package v1.
-
 The local reviewer/finalizer performs no production D1/R2 writes. The production importer performs no source reconstruction or medical interpretation.
-
-See `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md` for the slide review/finalization contract and `ANKI_APKG_EXTRACTION.md` / `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` for the Anki source path.
 
 ## 1. Package v1 structure
 
@@ -89,8 +73,6 @@ Current hardened limits include:
 5 MiB per teaching image
 ```
 
-ZIP path, compression, size, metadata consistency, MIME/magic-byte, undeclared-media, and duplicate-entry checks remain fail-closed.
-
 Manifest sections are product objects/relationships rather than raw SQL/table instructions:
 
 ```text
@@ -107,18 +89,30 @@ topicQuestions
 
 The package never supplies application SQL or arbitrary table names.
 
-Import Package v1 remains deliberately conservative. It does not directly encode current later-stage editorial structures such as:
+### Primary Topic compatibility rule
 
-- Tags;
-- Shared Questions;
-- Reusable Image Questions / `asset_questions`;
-- explicit Reusable Image Question stimulus opt-ins;
-- Image Collections;
-- inferred alternative stimulus groups/options;
-- higher-resolution Asset supersession lineage;
-- automatic medical taxonomy decisions.
+Package v1 historically included on each Case:
 
-These can be curated after ingestion. A future additive package version may carry already-reviewed metadata only when repeated migrations demonstrate a concrete need.
+```text
+primaryTopicId
+secondaryTopicIds
+```
+
+Current Case classification is one canonical Primary Topic plus Case Tags. To avoid an unnecessary Package v1 schema-version bump, the field remains accepted only in this form:
+
+```json
+"secondaryTopicIds": []
+```
+
+A **non-empty** `secondaryTopicIds` array is now invalid reviewed input.
+
+The guard exists at multiple supported runtime boundaries:
+
+- hardened reviewed-package parsing/validation;
+- resumable staging before immutable staging objects are written;
+- staged execution-plan reads, so a previously staged legacy plan cannot resume after the invariant changes.
+
+Import Package v1 does not currently encode Case Tags/System↔Tag exposure. Those are reviewed post-import authoring/curation layers.
 
 ## 2. `create`, `use`, and `skip`
 
@@ -142,7 +136,7 @@ These can be curated after ingestion. A future additive package version may carr
 - non-skipped imported content may not depend on it;
 - an existing object required by downstream content must be `use`, not `skip`.
 
-A skipped Case, for example, cannot silently receive newly imported Case Questions or Assets through downstream dependencies.
+A skipped Case cannot silently receive newly imported Case Questions or Assets through downstream dependencies.
 
 ## 3. Exact-ZIP review contract
 
@@ -164,11 +158,11 @@ A successful preview stores a short-lived HttpOnly SHA-256 marker for the exact 
 
 Starting a job re-hashes the newly submitted bytes and fails before staging/domain writes unless they match the most recently successful preview.
 
-Preview performs hardened ZIP/package/static validation and presents package counts. Database conflict validation intentionally runs in bounded durable job phases rather than forcing a large D1 dry run into the preview request.
+Preview performs hardened ZIP/package/static validation. Database conflict validation runs in bounded durable job phases.
 
 **All database validation phases must complete successfully before the first domain write.**
 
-Once the job exists, the SHA-256 persisted on the D1 job and the immutable staged ZIP are authoritative. The browser never supplies phase, cursor, IDs, storage keys, or a write plan.
+Once the job exists, the SHA-256 persisted on the D1 job and the immutable staged ZIP/server-derived plan are authoritative. The browser never supplies phase, cursor, IDs, storage keys, or a write plan.
 
 ## 4. Resumable architecture
 
@@ -177,7 +171,7 @@ Administrator browser
         |
         | start once with exact confirmed ZIP
         v
-D1 import_jobs + private staged ZIP in R2
+D1 import_jobs + private staged ZIP/plan in R2
         |
         | POST process-next (one at a time)
         v
@@ -189,14 +183,14 @@ browser POST process-next
         |
        ...
         v
-complete + remove staged ZIP/sidecars
+complete + remove staging
 ```
 
 The browser is the **conductor**, not the source of truth.
 
 D1 is authoritative for status, phase, cursor, progress, error, and lease state. Private R2 staging holds the exact confirmed package and server-derived execution sidecars while the job can resume.
 
-There is no background continuation. If the browser closes, the laptop sleeps, connectivity drops, or the administrator presses Pause, no new request is sent. Completed chunks remain committed/checkpointed. Resume continues from persisted D1 state.
+If the browser closes, the laptop sleeps, connectivity drops, or the administrator presses Pause, no new request is sent. Completed chunks remain committed/checkpointed. Resume continues from persisted D1 state.
 
 ## 5. Persistence
 
@@ -238,7 +232,7 @@ Deterministic phase + cursor is sufficient for current resume semantics; a separ
 
 ## 6. Validation and import phases
 
-Database validation phases:
+Database validation phases include:
 
 ```text
 validate_topics
@@ -253,7 +247,7 @@ validate_topic_questions
 
 Only after all validation passes can the job become `ready`.
 
-Import phases:
+Import phases include:
 
 ```text
 import_topics
@@ -269,22 +263,20 @@ finalize
 
 Create-Topic work is topologically ordered before chunking so parents precede children even across request boundaries.
 
-Case↔Topic relationships are flattened into bounded work rather than letting one heavily linked Case create an unbounded Worker request.
+The historical `case_topics` phase name remains part of the Package v1/job execution contract. Under the current model it materializes only the Case's canonical Primary Topic relationship; non-empty secondary declarations cannot reach this phase through supported reviewed/resumable entry paths.
 
 ## 7. Request budget
 
-Current import orchestration uses:
+Current orchestration uses:
 
 ```text
 IMPORT_ITEMS_PER_REQUEST = 7
 IMPORT_D1_OPERATION_BUDGET = 40
 ```
 
-This is intentionally conservative relative to the Worker/D1 query ceiling the feature was designed against. Normal import operation does not require a paid-only Cloudflare orchestration primitive.
+This is intentionally conservative. Regression instrumentation counts representative D1 operations so request growth remains visible.
 
-Regression instrumentation counts representative D1 operations so request growth remains visible.
-
-Do not raise these limits casually to make large imports “faster”; bounded predictable requests are a core safety feature.
+Do not raise these limits casually merely to make large imports faster; bounded predictable requests are a safety feature.
 
 External Cloudflare plan/limit values may change. Reverify provider documentation before making new numeric plan claims or changing request budgets.
 
@@ -296,9 +288,7 @@ Confirmed ZIPs are stored under server-derived immutable keys:
 imports/staging/<job-id>.zip
 ```
 
-The runtime may also derive private execution sidecars such as the normalized plan and only the media needed for create-Asset processing.
-
-The browser cannot choose staging keys.
+The runtime may also derive a normalized execution-plan sidecar and separately staged create-Asset media.
 
 Staging objects:
 
@@ -307,13 +297,11 @@ Staging objects:
 - do not use the teaching-image `putTeachingImage()` path;
 - remain subject to package/storage limits;
 - are private operational state;
-- are not copied by the normal local production-like replica merely because they exist in production R2.
+- use server-derived keys.
 
-Every processing request derives execution from server-owned job/staging state rather than accepting a browser-supplied write plan.
+Before a snapshot is staged, current code verifies that its manifest cannot recreate Additional Study Topics. The same invariant is checked when reading a staged plan for processing.
 
-Successful completion deletes staging. Finalization is retry-safe if a response is lost after deletion.
-
-Cancellation removes staging because the job will no longer resume. Failed jobs retain staging for investigation/retry.
+Successful completion deletes staging. Cancellation removes staging because the job will no longer resume. Failed jobs retain staging for investigation/retry.
 
 Successfully imported teaching images are not rolled back/deleted merely because a later package chunk fails or the job is cancelled after writes began.
 
@@ -346,7 +334,7 @@ For a new Asset:
 - D1 row absent but deterministic R2 object already exists → fail explicitly as unsafe orphan rather than overwrite;
 - R2 upload succeeds but D1 Asset insert fails → best-effort R2 cleanup preserves the established safety contract.
 
-See `RESUMABLE_IMPORT_RUNTIME_SAFETY.md` for the focused runtime race/lease details.
+See `RESUMABLE_IMPORT_RUNTIME_SAFETY.md` for focused runtime race/lease details.
 
 ## 11. Transaction/atomicity boundary
 
@@ -359,8 +347,7 @@ On failure:
 - status becomes `failed`;
 - exact phase/cursor remain persisted;
 - `last_error` records the problem;
-- staged operational data remains for investigation/retry;
-- Retry/resume starts from that checkpoint after correction.
+- staged operational data remains for investigation/retry.
 
 On cancellation before writes, no domain content has been committed and staging is removed.
 
@@ -371,10 +358,10 @@ On cancellation after writes begin, processing stops/staging is removed, but pre
 1. Finalize a reviewed package outside production where applicable.
 2. Open **Admin → Import package**.
 3. Select the reviewed production ZIP and run **Validate and preview**.
-4. Review package ID/counts and resolve static/package errors.
+4. Review package ID/counts and resolve static/package errors, including any non-empty `secondaryTopicIds` rejection.
 5. Select the exact same ZIP again, confirm explicitly, and start the resumable job.
 6. Keep the page open for automatic sequential continuation if convenient.
-7. Watch status, phase, cursor, and completed/total progress.
+7. Watch status, phase, cursor, and progress.
 8. Pause or close/refresh to stop browser continuation without losing D1 progress.
 9. Resume later from persisted checkpoint.
 10. On failure, inspect phase/error, correct the underlying conflict where appropriate, then Retry/resume.
@@ -390,9 +377,9 @@ Server-side state determines package SHA, storage key, status/phase/cursor, dete
 
 The browser cannot submit an arbitrary execution plan.
 
-Preview Admin does not gain unrestricted production import authority merely because it shares D1/R2 resources; import routes remain governed by the production Admin/Preview boundary.
+Preview Admin does not gain unrestricted production import authority merely because it shares D1/R2 resources.
 
-The local slide reviewer and the local production-like development replica do not grant or proxy production import authority.
+The local slide reviewer and local production-like replica do not grant or proxy production import authority.
 
 ## 14. Production validation — initial ECG migration complete
 
@@ -407,29 +394,36 @@ Mapped pre-existing calcium Cases: 2
 Total source notes represented: 66 / 66
 ```
 
-Both reviewed import jobs are `complete`, reached `phase = finalize`, match their recorded reviewed-package SHA-256 values, and have `last_error = null`.
+Those completed historical jobs remain valid. The current primary-only rule governs future reviewed imports; it does not rewrite historical imported content or Reviews.
 
 The exact production accounting/verification record is in `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md`.
-
-Therefore the next content milestone is **curation/enrichment**, not “try the importer on the ECG deck”.
 
 ## 15. Current import scope and deferred extensions
 
 Keep Import Package v1 conservative unless real migrations justify expansion.
 
-Current package intentionally does not require later-stage authoring structures such as Tags, Shared Questions, Reusable Image Questions, Additional Study Topics, alternative stimulus groups, Image Collections, or Asset supersession lineage.
+Current package intentionally does not directly encode later-stage authoring structures such as:
 
-For source-to-package workflows, the recommended principle is:
+- Case Tags or System↔Tag exposure;
+- Shared Questions;
+- Reusable Image Questions;
+- alternative stimulus groups;
+- Image Collections;
+- Asset supersession lineage.
+
+Additional Study Topics are not a deferred enrichment target: they are retired. The legacy `secondaryTopicIds` field must remain empty.
+
+Recommended source-to-package principle:
 
 ```text
 faithfully reconstruct source content
 → human review
 → deterministic Import Package v1
 → production import
-→ progressive authoring enrichment
+→ progressive authoring enrichment with Tags/reusable knowledge where proven
 ```
 
-Do not make the production importer responsible for medical reconstruction merely because those later authoring features exist.
+Do not make the production importer responsible for medical reconstruction merely because later authoring features exist.
 
 ## 16. Regression expectations
 
@@ -437,6 +431,9 @@ Coverage should continue protecting:
 
 - exact-package digest safety;
 - static skip/dependency safety;
+- rejection of non-empty `secondaryTopicIds` before planning/writes;
+- resumable staging refusal without partial staging side effects;
+- refusal to execute previously staged legacy secondary-Topic plans;
 - staging/checkpoint creation;
 - multi-request validation;
 - no domain writes before validation is complete;
@@ -451,5 +448,5 @@ Coverage should continue protecting:
 - final staging cleanup;
 - migration fresh/upgrade behavior;
 - D1-operation-budget instrumentation;
-- PR #22 strict package tests;
-- local slide finalizer → real current `parseImportPackage()` compatibility.
+- strict package tests;
+- local slide finalizer → current reviewed `parseImportPackage()` compatibility.

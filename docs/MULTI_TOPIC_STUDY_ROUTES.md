@@ -1,310 +1,242 @@
 # Flash-Cards — Multi-Topic Case Study Routes
 
-_Last updated: 24 August 2026_
+_Last updated: 25 August 2026_
 
 ## Status
 
-**Implemented and part of the verified production baseline.** Learner multi-Topic routing and Review provenance landed through PR #18, and production Admin multi-Topic Case authoring is implemented. Current `main` additionally includes Case-editor Topic management/inline Topic creation from PR #54; merge status and deployment status remain separate facts.
+**Historical / superseded design record.**
 
-The contextual System/Topic/Tag navigation feature extends learner entry routing around this established model without replacing it. See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for the System hierarchy, contextual Tag exposure, Phase A/Phase B rollout, and additive Review route provenance.
+Migration `0003_multi_topic_study_routing.sql` and the associated learner/Admin work introduced Additional Study Topics. PR #90 retires that product behavior in favor of one canonical Case Topic plus Tags.
 
-The key rule is:
+Keep this document because it explains why the historical schema still allows `case_concepts.role = 'secondary'` and why stored Review provenance may contain a Study Topic different from the Primary Topic. Do **not** use it as current authoring or learner-routing guidance.
 
-> **A Case may belong to multiple existing Topics, and every attached active Study Topic may be a valid learner entry route. The `primary` role is the Case's canonical/default administrative classification, not the only learner route.**
+Current behavior is documented in `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` and `ADDITIONAL_STUDY_TOPICS_TO_TAGS_PLAN.md`.
 
-The implementation reuses `case_concepts`; there is no parallel Topic table or Case-Topic model.
+## 1. Historical behavior
 
-## 1. Why this exists
-
-A single coherent Case can teach the same presentation through several valid educational lenses.
+The former model allowed one stored Case to attach to several Study Topics:
 
 ```text
-Case: Post-thyroidectomy hypocalcaemia with prolonged QTc
-
-Topics
-- Hypocalcaemia   [Default]
-- Prolonged QTc   [Additional Study Topic]
+Case
+├── one Primary/default Topic
+└── zero or more Additional Study Topics
 ```
 
-Duplicating the entire Case merely to make it reachable through both Topics would duplicate the vignette, images, Case questions, and maintenance burden.
+Every attached active Topic could be a learner entry route. When a learner entered through an Additional Study Topic, that route became the Review's `study_concept_id` and therefore selected that Topic's direct reusable Topic-question bank.
 
-Multi-Topic routing stores the Case once while preserving route-specific reusable Topic questions.
+The canonical administrative Topic was stored separately as `primary_concept_id`.
 
-## 2. Data model
+This solved three original problems:
 
-`case_concepts` links a Case to one or more Topics/Concepts:
+1. cross-topic discovery without duplicating a Case;
+2. preservation of one vignette/image/question corpus;
+3. route-specific direct reusable Topic questions.
+
+## 2. Why the model was retired
+
+Contextual System/Topic/Tag navigation later made Tags learner-routable inside explicitly curated Systems:
 
 ```text
-case_id
-concept_id
-role = primary | secondary
+System → Topic → Case
+System → Tag   → Case
+System → All   → deduplicated union
 ```
 
-Current invariant for a learner-presentable active Case:
+A Case Tag can provide alternate/cross-System discovery without changing the Case's canonical Topic.
 
-- exactly one active `primary` relationship;
-- zero or more `secondary` relationships;
-- the primary is the canonical/default administrative Topic;
-- active primary and secondary relationships may both be learner Study routes.
+Tags also participate in Tag-scoped Shared Question reuse. The main capability unique to Additional Study Topics was switching the direct reusable Topic-question bank according to the alternate route.
 
-Product UI should describe this as:
+PR #90 intentionally retires that switching behavior. Current route selection uses the Case's canonical Primary Topic as the direct Topic-question context; a Tag route supplies navigation context rather than a substitute Study Topic.
+
+## 3. Current Case classification model
+
+For current authoring and learner behavior:
 
 ```text
-Primary/default Topic
-Additional Study Topics
+Case
+├── exactly one behaviorally active canonical Primary Topic
+└── zero or more Case Tags
 ```
 
-rather than implying secondary Topics are weak metadata tags.
-
-With contextual System navigation, `case_concepts` may reference only `concepts.kind = 'topic'`. Systems group Topics for navigation but are never Case relationships.
-
-## 3. Learner routing
-
-When a learner selects a Topic, eligible Cases include Cases attached through valid active primary or secondary Study Topic relationships, subject to the normal Topic/subtree selection rules implemented by the Study flow.
-
-The same Case must not appear twice in one eligibility set merely because several relevant relationships resolve to it.
-
-When a Review is created, two Topic identities are persisted:
+Use these meanings:
 
 ```text
-primary_concept_id
-= canonical/default Topic of the selected Case at Review creation
-
-study_concept_id
-= actual attached Topic route used for this Review
-```
-
-This distinction preserves both administrative classification and learner-route provenance.
-
-A later System navigation layer additionally records effective System/Tag provenance and the learner-selected System route. Those fields do not change the meaning of `primary_concept_id` or `study_concept_id`. In particular, a learner-selected parent Topic can resolve a Case through a more specific descendant `study_concept_id` while retaining the parent Topic separately for “Next case” navigation.
-
-## 4. Route-specific reusable Topic questions and selected-stimulus knowledge
-
-The learner resolver uses the actual `study_concept_id` as the direct reusable Topic-question context.
-
-```text
-Study Hypocalcaemia
-→ same Case may appear
-→ direct Hypocalcaemia Topic questions
-  + Case/stimulus questions
-  + explicitly opted-in Reusable Image Questions for selected stimuli
-
-Study Prolonged QTc
-→ same Case may appear
-→ direct Prolonged-QTc Topic questions
-  + the same Case/stimulus questions
-  + explicitly opted-in Reusable Image Questions for selected stimuli
-```
-
-The resolver does **not** mix direct reusable Topic-question banks from every attached Case Topic.
-
-Reusable Image Questions are independent of Study Topic identity. Their eligibility comes from the selected stimulus option plus an explicit `stimulus_option_asset_questions` opt-in, not from `case_concepts`.
-
-Current duplicate-Prompt precedence is:
-
-```text
-Case-specific exact stimulus option question
-> explicitly reused Asset Question for selected option
-> stimulus group question
-> Case question
-> exact Study Topic question
-> Tag-shared Question
-> nearest eligible inheritable ancestor Topic
-> more distant eligible ancestors
-```
-
-The final candidate set is deduplicated by `question_prompt_id` before Automatic/All/Fixed selection.
-
-## 5. Primary/default Topic changes
-
-Changing which attached Topic is primary/default must preserve valid alternate routes.
-
-Current Admin behavior supports:
-
-- selecting one active primary/default Topic;
-- adding active Additional Study Topics;
-- removing secondary relationships;
-- promoting a secondary Topic to primary;
-- demoting the previous primary to secondary rather than silently deleting it;
-- retaining unrelated secondary relationships;
-- showing inactive historical Topic relationships for safe orientation/editing.
-
-Current `main` also allows an administrator to create a new Topic from the Case editor and immediately attach it as either the new primary/default Topic or an Additional Study Topic. This is an authoring convenience over the same `concepts` + `case_concepts` model; it does not create a second Topic system.
-
-A primary cannot simply be removed without establishing another valid active primary.
-
-## 6. Study-Topic validity rule
-
-A Topic should be attached as a learner Study route only when **every valid random configuration of the Case remains a legitimate example of that Topic**.
-
-```text
-Case: Hypercalcaemia
-
-Alternative ECGs
-A — shortened QTc
-B — shortened QTc + Osborn waves
-C — shortened QTc
-```
-
-Safe Case Study Topics:
-
-```text
-Hypercalcaemia
-Short QTc
-```
-
-Unsafe Case Study Topic if only option B demonstrates it:
-
-```text
-Osborn waves
-```
-
-That image-only finding should remain stimulus-specific teaching: a Case-specific exact-image question, a Reusable Image Question if intrinsically true of the exact Asset, or other selected-stimulus context where appropriate.
-
-The existence of a Reusable Image Question on one option does not make its finding a valid Case-level Study Topic. Study-route validity is still evaluated across all valid Case stimulus configurations.
-
-This is why the current product does not need stimulus-option → Topic learner routing.
-
-## 7. Topic hierarchy remains separate from Tags and exact-Asset reuse
-
-Multi-Topic routing is learner navigation/curriculum structure.
-
-Tags are flat cross-cutting metadata and Shared Question reuse scope.
-
-Reusable Image Questions are canonical exact-Asset teaching content with explicit per-stimulus opt-in.
-
-```text
-Study Topic relationship
-= learner may enter the Case through this Topic
+Primary Topic
+= what this Case fundamentally teaches
+= direct reusable Topic-question context
 
 Case Tag
-= Case contains/covers this cross-cutting clinical concept
-
-Reusable Image Question
-= exact selected Asset may contribute this canonical Prompt/answer after explicit opt-in
+= cross-cutting concept demonstrated by the Case
+= possible contextual learner route when a System explicitly exposes the Tag
+= possible Shared Question reuse-scope eligibility
 ```
 
-These mechanisms may describe overlapping clinical ideas but do not imply one another.
+Systems remain global learner-navigation groupings. A Case never attaches directly to a System.
 
-Contextual System navigation adds one further relationship:
+## 4. Current learner routing
+
+### Topic route
+
+A Topic route can select a Case only through its canonical Primary Topic, subject to the normal Topic hierarchy/descendant rules.
+
+For a current new Review:
 
 ```text
-System → exposed Tag
-= this existing flat Tag is offered as a learner route inside this System
+primary_concept_id = canonical Case Topic
+study_concept_id   = canonical Case Topic
+route_type         = topic
 ```
 
-This does not move the Tag into a hierarchy, and the same Tag may be exposed by several Systems.
+### Tag route
 
-## 8. Interaction with stimulus groups
-
-Alternative stimulus selection is independent of which attached Topic is the administrative default.
-
-The Study Topic route is resolved for the Review; then fixed/alternative stimuli and questions are resolved using normal Case behavior.
-
-The Study-Topic validity rule must be checked against all active alternative configurations. If alternatives diverge so much that one attached Topic is only valid for some options, split/refine the Case or consider a future stimulus-level routing feature only if real learner requirements justify it.
-
-Transparent fixed-image conversion for exact-image question scope does not change Topic routing. A one-option group created to support image-specific teaching remains learner-equivalent to the previous fixed image and keeps the same Case Topic relationships.
-
-Higher-resolution replacement likewise does not alter `case_concepts` or Review Study Topic semantics.
-
-## 9. Review history and migration
-
-Migration `0003_multi_topic_study_routing.sql` added `reviews.study_concept_id` and conservatively backfilled historical Reviews:
+A Tag route can select a Case when:
 
 ```text
-study_concept_id = primary_concept_id
+Case has Tag
+AND selected System exposes that Tag
 ```
 
-That preserves pre-migration meaning because historical Reviews used primary-Topic routing.
-
-New Reviews record the actual Study Topic route used.
-
-Later question/image features do not rewrite these Topic snapshots. Reusable-image provenance lives on `review_questions`; historical media identity lives on `review_assets.storage_key_snapshot`.
-
-Contextual System navigation adds separate, nullable effective System/Tag provenance plus nullable learner-selected System-route provenance. Historical Reviews remain Topic-routed by default and their snapshots are not rebuilt. Original → Expanded preserves both provenance layers. “Next case” uses the selected navigation layer, not a descendant/effective route inferred from the first Case.
-
-## 10. Production taxonomy example
-
-The agreed current taxonomy pattern includes:
+The Tag does not replace the direct Topic-question context:
 
 ```text
-Electrolyte Disorders
-├── Hypercalcaemia
-└── Hypocalcaemia
-
-Cardiology
-└── ECG Findings
-    ├── Short QTc
-    └── Prolonged QTc
+primary_concept_id = canonical Case Topic
+study_concept_id   = canonical Case Topic
+route_type         = tag
+study_tag_id       = selected Tag
 ```
-
-Example Case routes:
-
-```text
-Hypercalcaemia Case
-- primary/default: Hypercalcaemia
-- Additional Study Topic: Short QTc
-
-Hypocalcaemia Case
-- primary/default: Hypocalcaemia
-- Additional Study Topic: Prolonged QTc
-```
-
-Under contextual System navigation, a top-level System can own the Cardiology/ECG Topic hierarchy while a curated Tag such as `QT prolongation` can also be exposed in that System. The same Case may therefore be reachable by both its Additional Study Topic and the Tag; System → All deduplicates it and prefers native Topic provenance.
-
-The `AGREED_PRODUCTION_TAXONOMY_OPERATOR.md` runbook records the fixed-purpose production taxonomy operation used for the agreed data change. It is not a generic free-form taxonomy mutation API.
-
-## 11. Admin authoring contract
-
-The Case editor must make Topic roles understandable without exposing unnecessary database terminology.
-
-Preferred presentation:
-
-```text
-Topics
-- Hypocalcaemia   [Default]
-- Prolonged QTc
-```
-
-Authors may select an existing active Topic or create a new Topic inline, but every mutation still resolves to the same canonical `concepts` / `case_concepts` relationships.
-
-Helper guidance should remind authors:
-
-> Add an Additional Study Topic only when the Case is a valid example of that Topic regardless of which valid alternative stimuli are selected.
-
-Global System/Topic hierarchy changes and System↔Tag exposure belong on the Admin Systems & Topics surfaces, not in a Case-local editor. Preview Admin may change only Preview Case Topic relationships; it does not gain global taxonomy mutation authority.
-
-## 12. Schema decision
-
-Do not add:
-
-- a parallel `topics` table;
-- a generic `case_topics` table separate from `case_concepts`;
-- Asset → Topic relationships merely for metadata;
-- stimulus-option → Topic relationships merely because an incidental finding exists on one image.
-
-Reconsider stimulus-level learner routing only when real content demonstrates a Case that genuinely must remain one presentation while some valid alternatives are legitimate routes for a Topic and others are not.
-
-Until then, `case_concepts` plus contextual stimulus questions, exact-Asset reusable questions, Tags/Shared Questions, and the existing learner resolver remain the simpler and safer model.
-
-## 13. Contextual System route interaction
-
-The learner System layer deliberately routes **into** the model documented above.
-
-### System → Topic
-
-The selected descendant Topic is resolved through the normal multi-Topic Case algorithm. A cross-topic Case therefore keeps its canonical Primary Topic while `study_concept_id` records the actual attached Topic used for question resolution. The learner-selected Topic is retained separately so a parent-Topic selection remains that parent route across “Next case”.
-
-### System → Tag
-
-A curated Tag can select a Case regardless of which System contains its Primary Topic. The Tag is navigation context only, so the Case enters the existing question resolver with its canonical Primary Topic as `study_concept_id`.
-
-This prevents Tag navigation from silently changing Topic-question inheritance.
 
 ### System → All
 
-The union of native descendant Topic routes and curated Tag routes is deduplicated by Case. If a Case is reachable through both, native Topic provenance wins because it carries the more specific established Study Topic context.
+`All` remains the deduplicated union of native Topic reachability and exposed Tag reachability. When the same Case is reachable both ways in the same System, native canonical Topic provenance takes precedence for that Case while the Review separately retains `navigation_route_type = all` for route continuity.
 
-The Review still records `navigation_route_type = all`, separately from that winning effective `route_type`, so “Next case” remains in the full System → All union.
+## 5. Question resolution after retirement
 
-Full route provenance and rollout behavior are defined in `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md`.
+Direct Topic questions are resolved from the canonical Primary Topic and eligible ancestors.
+
+Cross-cutting reusable knowledge can be represented through the existing contextual models:
+
+- Case Questions;
+- Tag-scoped Shared Questions;
+- Stimulus Group Questions;
+- exact Stimulus Option Questions;
+- explicitly opted-in Reusable Image Questions.
+
+Reusable Image Questions remain selected-stimulus knowledge and are independent of Case Topic identity.
+
+## 6. Current Admin authoring
+
+The Case editor exposes:
+
+```text
+Primary Topic
+Case Tags
+```
+
+It no longer offers:
+
+```text
+Additional Study Topics
+Add Study Topic
+Remove secondary Topic
+Promote secondary Topic while retaining the old primary as secondary
+```
+
+Changing Primary Topic replaces the Case's current canonical relationship. It does not preserve the previous Topic as an alternate learner route.
+
+Stored legacy secondary rows are hidden and ignored by current Case/Topic read models. They do not need to be deleted merely to support the current product model.
+
+Global System/Topic hierarchy and System↔Tag exposure remain global Admin operations rather than Case-local operations.
+
+## 7. Preview behavior
+
+Preview cloning copies:
+
+- the canonical Primary Topic;
+- Case Tags;
+- the normal Preview-owned Case/question/stimulus relationships.
+
+Legacy secondary Topic relationships are deliberately not recreated. Preview shares global production Topics and Tags read-only and does not gain global System, Tag, or System↔Tag mutation authority.
+
+Deprecated secondary-Topic mutation helpers remain only as fail-closed compatibility adapters; they do not create or remove current secondary relationships.
+
+## 8. Import behavior
+
+Import Package v1 retains the `secondaryTopicIds` field for package-shape compatibility, but current reviewed imports require it to be empty.
+
+A package containing a non-empty `secondaryTopicIds` array is rejected before planning/writes. Resumable staging and staged execution-plan reads also reject legacy snapshots that could recreate secondary Case↔Topic relationships.
+
+Use Tags through reviewed Tag authoring rather than encoding alternate Case classification as secondary Topics.
+
+## 9. Database compatibility — no new migration
+
+The existing physical schema remains:
+
+```text
+case_concepts.role = primary | secondary
+```
+
+PR #90 deliberately does **not** add a migration to remove or forbid the `secondary` value at database level.
+
+Instead, current application semantics are:
+
+```text
+primary
+→ active product behavior
+
+secondary
+→ legacy stored compatibility data only
+```
+
+This avoids a schema/data conversion that is unnecessary for the product change. Existing secondary rows may remain in D1. Current learner selection, Admin/Preview authoring, taxonomy read models, cloning, and reviewed imports do not use them as active Case classification.
+
+The project has not yet been made available to learners, so there is no learner-facing data transition that requires converting those rows before launch.
+
+If cleanup is ever desired for maintenance reasons, it should be a separately reviewed data operation. It must not infer a Topic→Tag mapping merely from matching names.
+
+## 10. Stored Review provenance
+
+Do not rewrite stored Reviews merely because current authoring has changed.
+
+A Review created under older development/multi-Topic behavior may contain:
+
+```text
+primary_concept_id != study_concept_id
+```
+
+That stored provenance remains readable. Review Prompt/answer/media snapshots and later System/Tag navigation provenance remain immutable historical records.
+
+Because there has been no learner rollout, these rows do not create a learner migration prerequisite for PR #90.
+
+## 11. Legacy content examples
+
+Historical development/production content included relationships such as:
+
+```text
+Hypercalcaemia → Short QTc
+Hypocalcaemia  → Prolonged QTc
+```
+
+Those relationships may remain stored as legacy secondary rows without affecting current routing.
+
+If clinicians want equivalent alternate discovery before learner launch, they should explicitly curate the appropriate Case Tags and System↔Tag exposure. Do not automatically convert based on labels; Topic and Tag vocabulary need not be one-to-one.
+
+## 12. Why the repository still mentions `secondary`
+
+The repository intentionally retains secondary-Topic references in:
+
+- historical migration `0003`;
+- stored compatibility schema;
+- tests proving legacy rows are ignored;
+- deprecated fail-closed compatibility helpers;
+- import compatibility fields that must now be empty;
+- this historical decision record.
+
+Those references do not mean Additional Study Topics remain a current product feature.
+
+The current mental model is:
+
+```text
+System = where learners navigate
+Topic  = what the Case fundamentally teaches
+Tag    = what else the Case demonstrates / how it may be found contextually
+```

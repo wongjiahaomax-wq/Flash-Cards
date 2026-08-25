@@ -1,35 +1,53 @@
 # Flash-Cards — Authoring Model
 
-_Last updated: 20 August 2026_
+_Last updated: 25 August 2026_
 
 This document describes the preferred administrator mental model for entering and refining teaching content. Product language takes precedence over database-table names in normal authoring UI.
 
 ## 1. Authoring hierarchy
 
 ```text
-Topic
-└── Case
-    ├── fixed images
-    ├── alternative image sets
-    └── contextual questions
+System
+└── Topic hierarchy
+    └── Case
+        ├── Case Tags
+        ├── fixed images
+        ├── alternative image sets
+        └── contextual questions
 ```
 
 Cross-cutting concepts remain distinct:
 
 ```text
-Tag                     = cross-cutting clinical metadata
-Shared Question         = reusable knowledge eligible by one Case Tag
-Reusable Image Question = reusable knowledge intrinsic to one exact Asset
-Collection              = Image Library organisation only
+Primary Topic             = canonical teaching identity of one Case
+Tag                       = cross-cutting clinical metadata / contextual discovery
+Shared Question           = reusable knowledge eligible by one Case Tag
+Reusable Image Question   = reusable knowledge intrinsic to one exact Asset
+Collection                = Image Library organisation only
+System↔Tag exposure       = learner-navigation curation, not Case ownership
 ```
 
 Do not collapse these into one taxonomy.
 
-## 2. Topic = learner study route
+## 2. Primary Topic and Case Tags
 
-A Topic is the Admin-facing name for the existing `concepts` model. A Case has exactly one primary/default Topic and zero or more Additional Study Topics. The same stored Case may therefore be encountered through more than one valid Study Topic.
+A current Case has exactly one canonical **Primary Topic**.
 
-Attach an Additional Study Topic only when every valid random configuration of the Case remains a legitimate example of that Topic.
+The Primary Topic answers:
+
+> **What does this Case fundamentally teach?**
+
+It controls the Case's direct reusable Topic-question context.
+
+Use **Case Tags** for clinically meaningful alternate/cross-cutting concepts:
+
+> **What else does this Case demonstrate or how should it be discoverable contextually?**
+
+When a System explicitly exposes one of those Tags, the learner may reach the Case through that Tag without changing the Case's canonical Topic-question context.
+
+Additional Study Topics are retired. Do not create a secondary Case↔Topic relationship to make a Case appear elsewhere. Changing Primary Topic replaces the canonical current relationship rather than keeping the old Topic as an alternate route.
+
+Historical secondary Topic rows remain legacy compatibility data, and historical Reviews remain immutable historical truth. Neither requires a cleanup migration or an ordinary-authoring rewrite.
 
 ## 3. Case = one coherent clinical presentation
 
@@ -191,13 +209,15 @@ Attach a question at the broadest scope where its answer and educational meaning
 
 Starting conservatively at Case/Case-specific Image Question scope and promoting later is acceptable. Do not infer reusability automatically from matching text or answers.
 
-## 10. Tags and Shared Questions
+## 10. Tags, Systems, and Shared Questions
 
-Tags remain flat cross-cutting metadata and do not replace Topics.
+Tags remain flat cross-cutting metadata and do not replace the canonical Topic.
 
 A Shared Question is reusable medical knowledge whose answer remains valid across Cases carrying one defined Reuse Scope Tag. Descriptive Tags do not create learner eligibility.
 
-Reusable Image Questions are different: their reuse key is exact Asset identity, not a clinical Tag.
+System↔Tag exposure is a separate global learner-navigation decision. Adding a Case Tag does not automatically expose that Tag in any System, and exposing a Tag in a System does not automatically attach it to a Case.
+
+Reusable Image Questions are different again: their reuse key is exact Asset identity, not a clinical Tag.
 
 ## 11. Current learner precedence
 
@@ -208,7 +228,7 @@ Case-specific Image Question for the selected option
 > Reusable Image Question explicitly selected for that stimulus
 > Stimulus Group Question
 > Case Question
-> exact Study Topic Question
+> exact canonical Study Topic Question
 > Tag-shared Question
 > nearest eligible inheritable ancestor Topic
 > more distant eligible ancestors
@@ -227,6 +247,8 @@ Higher-resolution replacement does not change this precedence. It preserves exis
 Authors can configure Automatic, All, or Fixed question selection.
 
 Reusable Image Questions enter the ordinary final eligible pool only when their selected stimulus explicitly opted in. They carry stimulus-group context and therefore count as stimulus-specific for existing coverage semantics.
+
+Original/Core versus Expanded Learning controls which source families are eligible. This is separate from Automatic/All/Fixed count selection.
 
 Do not force one reusable image question into every Review unless the existing Case/group coverage configuration requires enough stimulus-specific questions.
 
@@ -252,9 +274,9 @@ Removing one Case opt-in must not affect other Cases.
 
 ## 14. Production versus Preview
 
-Reusable Image Questions are production-global Asset teaching content in the current implementation.
+Production Admin may author the Case's Primary Topic and Case Tags, plus production-global reusable content.
 
-Production Admin may create/edit/archive them and explicitly opt production Case/stimulus usages in or out.
+Preview Admin shares global production Topics and Tags read-only. A Preview Case clone copies the canonical Primary Topic and Case Tags, but Preview does not gain global Tag/System mutation authority. Preview may replace its canonical Topic; Additional Study Topic mutation is fail-closed.
 
 Preview Admin must not mutate production Assets, Asset Questions, Question Prompts, Cases, or stimulus relationships. Reusable-image mutation controls/endpoints are production-only and database triggers reject Preview-owned Assets or Prompts as reusable Asset Question backing content.
 
@@ -270,37 +292,48 @@ A higher-resolution replacement inherits the old Asset's Collection as ordinary 
 
 ## 16. Import and progressive enrichment
 
-Reviewed slide/Anki imports should initially reconstruct ordinary Topic/Case/Asset/Case-question content faithfully. Import Package v1 remains unchanged.
+Reviewed slide/Anki imports should initially reconstruct ordinary Primary Topic/Case/Asset/Case-question content faithfully.
+
+Import Package v1 retains the `secondaryTopicIds` field only for package-shape compatibility. It must be empty; reviewed imports and resumable staging/plan processing reject non-empty values rather than recreating Additional Study Topics.
+
+Case Tags and System↔Tag exposure are later reviewed authoring/curation layers unless a future import contract explicitly includes them.
 
 Reusable-image authoring is later editorial enrichment. Existing Case-specific Image Questions are not migrated or promoted automatically merely because they use the same Asset or appear semantically similar.
 
 Higher-resolution replacement is likewise a post-import Admin authoring operation; replacement/version fields are not added to Import Package v1.
 
-## 17. Historical Review media
+## 17. Historical Review media and taxonomy provenance
 
-A Review freezes the exact media selected when it starts. `review_assets.storage_key_snapshot` is the historical media authority.
+A Review freezes the exact media and question context selected when it starts. `review_assets.storage_key_snapshot` is the historical media authority.
 
 Study image URLs therefore resolve through an authenticated Review-specific route which verifies Review ownership and serves the snapshotted object key even if the original Asset was later superseded/inactivated. The normal current-Asset image route keeps rejecting inactive Assets.
+
+Historical Reviews created under the retired multi-Topic model may also retain a former secondary `study_concept_id`. Ordinary authoring must not rewrite that provenance.
 
 This preserves:
 
 ```text
-old Review → old image bytes
-new Review → current replacement image bytes
+old Review → old image/question/taxonomy provenance
+new Review → current canonical Topic + current media/question behavior
 ```
-
-without reactivating the old Asset or overwriting its R2 object.
 
 ## 18. Preferred routine workflow
 
 ```text
-Topics
-→ Case
+Choose/confirm Primary Topic
+→ add clinically useful Case Tags
+→ Case details
 → Images
 → contextual Case/image questions
 → Preview
 → later enrichment/reuse where proven
 ```
+
+When reviewing Case classification, ask:
+
+1. What does this Case fundamentally teach? → **Primary Topic**.
+2. What other clinically meaningful concepts does it demonstrate or need contextual discovery under? → **Case Tags**.
+3. Should a Tag appear to learners inside a particular System? → curate **System↔Tag exposure** on the System surface, not in the Case editor.
 
 When reviewing an image question, ask:
 
@@ -318,6 +351,8 @@ When replacing media, ask separately:
 ## 19. Schema boundaries to preserve
 
 Do not add a parallel `topics` table: Topics remain `concepts`.
+
+Do not recreate Additional Study Topics through another Case↔Topic table. Alternate/cross-cutting Case classification is represented by Tags.
 
 Do not add Tags or answers to `question_prompts`: Prompts remain wording only.
 

@@ -1,8 +1,8 @@
 # Flash-Cards — Optional Stimulus Groups Design
 
-_Status: implemented additive Case/stimulus behavior on current `main`. The core schema landed in `0002_optional_stimulus_groups.sql`; later authoring work added exact-image scope, Reusable Image Questions, and identity-preserving media replacement without changing the one-selected-option-per-group learner model._
+_Status: implemented additive Case/stimulus behavior. The core schema landed in `0002_optional_stimulus_groups.sql`; later authoring work added exact-image scope, Reusable Image Questions, option archival, and identity-preserving media replacement without changing the one-selected-option-per-group learner model._
 
-_Last updated: 20 August 2026_
+_Last updated: 25 August 2026_
 
 ## Core principle
 
@@ -42,6 +42,8 @@ Existing ordinary Cases continue to work without stimulus-group metadata:
 
 ```text
 Case
+├── one canonical Primary Topic
+├── zero or more Case Tags
 ├── vignette
 ├── zero or more fixed Case Assets
 └── contextual / reusable questions
@@ -53,13 +55,14 @@ Stimulus groups remain progressive enrichment. A reviewed import does not need t
 
 Recommended progression:
 
-1. import/enter the Case normally;
-2. keep current images fixed and questions Case-wide when that is semantically correct;
-3. when several images are genuinely interchangeable, create/use an alternative set;
-4. when a question depends on one exact image, use the author-facing specific-image scope;
-5. when knowledge is intrinsically true of the exact Asset wherever deliberately reused, curate it as a Reusable Image Question.
+1. import/enter the Case normally with one Primary Topic;
+2. curate Case Tags where useful;
+3. keep current images fixed and questions Case-wide when semantically correct;
+4. when several images are genuinely interchangeable, create/use an Alternative Set;
+5. when a question depends on one exact image, use the author-facing specific-image scope;
+6. when knowledge is intrinsically true of the exact Asset wherever deliberately reused, curate it as a Reusable Image Question.
 
-## 3. Assets remain globally reusable, but exact-Asset knowledge now exists
+## 3. Assets remain globally reusable, but exact-Asset knowledge exists
 
 A stimulus group does not turn an Asset into a Case-owned object.
 
@@ -69,9 +72,9 @@ The same Asset may be:
 - an alternative option in another Case;
 - reused in several unrelated Cases.
 
-The Asset itself still does not own the diagnosis, Topic, Tags, Case meaning, or alternative-group meaning.
+The Asset itself does not own the diagnosis, canonical Topic, Case Tags, Case meaning, or Alternative Set meaning.
 
-However current `main` also supports **Reusable Image Questions**: canonical Prompt/answer knowledge that is intrinsically true of one exact Asset. These are stored in `asset_questions` and are separate from Case-specific exact-option questions.
+Reusable Image Questions are canonical Prompt/answer knowledge intrinsically true of one exact Asset and stored in `asset_questions`.
 
 Critically:
 
@@ -84,7 +87,7 @@ Every exact Case/stimulus usage must explicitly opt in through `stimulus_option_
 
 ## 4. Current selection rule
 
-Each active stimulus group selects **exactly one active option** when a Review is created.
+Each active stimulus group selects **exactly one active, non-removed option** when a Review is created.
 
 A Case may contain zero, one, or several independent active groups.
 
@@ -106,7 +109,7 @@ ECG group: select ECG B
 X-ray group: select skull X-ray
 ```
 
-All selected/fixed stimuli are snapshotted in learner order with the relevant group/option provenance.
+All selected/fixed stimuli are snapshotted in learner order with relevant group/option provenance.
 
 ## 6. Question context remains layered
 
@@ -117,7 +120,7 @@ Case-specific exact stimulus-option question
 explicitly reused Asset Question for the selected option
 stimulus-group question
 Case question
-exact Study Topic question
+exact canonical Study Topic question
 Tag-shared Question
 eligible inheritable ancestor Topic question
 ```
@@ -129,7 +132,7 @@ Case-specific exact stimulus option question
 > explicitly reused Asset Question for selected option
 > stimulus group question
 > Case question
-> exact Study Topic question
+> exact canonical Study Topic question
 > Tag-shared Question
 > nearest eligible inheritable ancestor Topic
 > more distant eligible ancestors
@@ -137,11 +140,13 @@ Case-specific exact stimulus option question
 
 The final candidate set is deduplicated by `question_prompt_id`.
 
-`question_prompts` continues to store wording only. Answers live on the contextual/reusable relationship that makes them correct.
+`question_prompts` stores wording only. Answers live on the contextual/reusable relationship that makes them correct.
+
+A contextual Tag route does not change this direct Topic context: the selected Case's canonical Primary Topic remains the Study Topic for question resolution.
 
 ## 7. Group-level questions
 
-Use a group-level Question when the prompt and answer remain valid for every option in that alternative set.
+Use a group-level Question when the Prompt and answer remain valid for every option in that Alternative Set.
 
 ```text
 Group: Hypercalcaemia ECG alternatives
@@ -154,8 +159,6 @@ Shortened QTc.
 ```
 
 If any active option in that group is selected, the group-level Question is eligible.
-
-This avoids duplicating the same relationship across every option.
 
 ## 8. Case-specific exact-image questions
 
@@ -191,25 +194,9 @@ assets
     └── question_prompts
 ```
 
-A Case/stimulus uses that canonical question only through:
+A Case/stimulus uses that canonical question only through explicit `stimulus_option_asset_questions` opt-in.
 
-```text
-stimulus_group_option
-└── stimulus_option_asset_questions
-    └── asset_question
-```
-
-This preserves the distinction:
-
-```text
-Case-specific exact-image teaching
-= stimulus_option_questions
-
-Reusable exact-Asset teaching
-= asset_questions + explicit stimulus opt-in
-```
-
-Do not infer one from the other automatically.
+Do not infer Case-specific exact-image teaching from reusable Asset knowledge or vice versa.
 
 ## 10. Transparent fixed-image conversion
 
@@ -242,15 +229,15 @@ Fixed N
 - **All** includes every deduplicated eligible Question.
 - **Fixed** respects the configured count.
 
-Shared, Topic, and explicitly opted-in Asset Questions join the same final eligible pool. Their presence does not bypass Fixed limits.
+Original/Core versus Expanded Learning decides which source families enter the resolver before these count rules are applied. Shared, Topic, and explicitly opted-in Asset Questions are Expanded reusable sources rather than a way to bypass Fixed limits.
 
 ## 12. Stimulus-specific coverage
 
-Coverage exists to avoid showing a randomized stimulus without meaningfully testing it when the author explicitly requires that behavior.
+Coverage avoids showing a randomized stimulus without meaningfully testing it when the author explicitly requires that behavior.
 
 Both Case-specific exact-option questions and explicitly reused Asset Questions carry selected stimulus-group/option context and therefore count as stimulus-specific candidates under the existing coverage model.
 
-Coverage validation must be preserved by operations that can change available stimulus-specific content, including:
+Coverage validation must be preserved by operations that change available stimulus-specific content, including:
 
 - adding/removing/deactivating options;
 - explicit fixed/alternative conversions;
@@ -276,24 +263,39 @@ stimulus_option_asset_questions -> asset_questions.question_prompt_id
 
 Within one selected group, precedence can resolve a more specific source over a broader source. Across independently selectable groups, duplicate stimulus-specific Prompt meaning would be ambiguous and is rejected.
 
-Application validation is backed by D1 triggers from `0009_reusable_image_questions.sql`; `0010_reusable_image_reactivation_guard.sql` also prevents reactivating a dormant Asset Question into an invalid cross-group configuration.
+Application validation is backed by D1 triggers from `0009_reusable_image_questions.sql`; `0010_reusable_image_reactivation_guard.sql` prevents reactivating a dormant Asset Question into an invalid cross-group configuration.
 
-## 14. Multi-Topic routing interaction
+## 14. Primary Topic and Tag interaction
 
-A Case may have a primary/default Topic plus Additional Study Topics.
+Stimulus selection is independent of learner taxonomy routing.
 
-The actual entry route becomes the Review's Study Topic. Stimulus selection remains independent of which Topic is the administrative default.
+A current Case has one canonical Primary Topic. Cross-cutting concepts belong as Case Tags, not Additional Study Topics.
 
-> An attached Study Topic is valid only if every valid random stimulus configuration remains a legitimate example of that Topic.
+> **A Case-level Tag used for contextual discovery should describe the Case across every valid random stimulus configuration. A finding present only on one option should remain stimulus-specific.**
 
-If only one alternative image demonstrates a finding, keep that finding stimulus-specific rather than attaching it as a Case-level Study Topic.
+For example:
 
-A Reusable Image Question does not change this routing rule: it is selected-stimulus teaching, not a new Study Topic relationship.
+```text
+Alternative ECGs
+A — shortened QTc
+B — shortened QTc + Osborn waves
+C — shortened QTc
+```
+
+`Short QTc` can be a Case Tag if every valid option demonstrates it. `Osborn waves` should remain exact-image teaching if only option B demonstrates it.
+
+If a System exposes the `Short QTc` Tag, that Tag route may discover the Case but still uses the Case's canonical Primary Topic for direct Topic-question resolution.
+
+A Reusable Image Question is selected-stimulus teaching and does not create a Case Tag or learner route automatically.
+
+Historical secondary Topic rows from the retired model may remain in storage but are ignored by current routing and authoring; no cleanup migration is required for stimulus behavior.
 
 ## 15. Review snapshot requirements
 
 Review creation freezes:
 
+- canonical Primary/Study Topic context;
+- effective and selected System/Tag navigation provenance where applicable;
 - fixed Asset selections;
 - selected group option for every active group;
 - storage-key/caption/alt-text snapshots;
@@ -301,13 +303,13 @@ Review creation freezes:
 - resolved Question Prompt/answer/order snapshots;
 - contextual/reusable source provenance, including `source_asset_question_id` where applicable.
 
-Later edits, option movement, Asset replacement, Collection changes, Tag curation, or canonical reusable-answer edits do not rewrite historical Reviews.
+Later edits, option movement, Asset replacement, Collection changes, Tag curation, Primary Topic changes, or canonical reusable-answer edits do not rewrite historical Reviews.
 
-`review_assets.storage_key_snapshot` remains the historical media authority even when an Asset is later superseded.
+`review_assets.storage_key_snapshot` remains historical media authority even when an Asset is later superseded.
 
 ## 16. Admin authoring behavior
 
-Routine author-facing question scope is now:
+Routine author-facing question scope is:
 
 ```text
 This whole Case
@@ -321,9 +323,7 @@ Case-specific Image Questions
 Reusable Image Questions
 ```
 
-The collapsed image card reports reusable counts as total/used/available. `used in this Case` means an explicit opt-in for that exact stimulus usage; reusing the Asset itself does not imply use of its canonical questions.
-
-Image Management V2 also supports identity-preserving **same-Case option Move** between alternative sets. It preserves option ID, Asset, caption, active state, Case-specific exact-option Questions, and reusable-image opt-ins, subject to the same cross-group/coverage invariants. Set-wide Questions remain with their original group.
+Image Management V2 also supports identity-preserving same-Case option Move between Alternative Sets. It preserves option ID, Asset, caption, active state, Case-specific exact-option Questions, and reusable-image opt-ins subject to the same cross-group/coverage invariants. Set-wide Questions remain with their original group.
 
 Cross-Case option moves are not inferred.
 
@@ -331,25 +331,27 @@ Cross-Case option moves are not inferred.
 
 Higher-resolution replacement is only for a better-quality copy of the same underlying image.
 
-For stimulus groups, current production `stimulus_group_options.asset_id` moves from old Asset A to replacement B while preserving the option ID. Therefore Case-specific `stimulus_option_questions` remain attached to the same contextual identity.
+For stimulus groups, current production `stimulus_group_options.asset_id` moves from old Asset A to replacement B while preserving the option ID. Case-specific `stimulus_option_questions` therefore remain attached to the same contextual identity.
 
-Reusable Asset Questions are not retargeted in place. They are cloned from A to B, and current production opt-ins on preserved options are remapped to the corresponding B questions. Historical Review provenance remains attached to A's old Asset Question IDs.
+Reusable Asset Questions are cloned from A to B, and current production opt-ins on preserved options are remapped to corresponding B questions. Historical Review provenance remains attached to A's old Asset Question IDs.
 
-A different clinical image showing the same condition remains a separate Asset/option; do not use replacement to collapse distinct examples.
+A different clinical image showing the same condition remains a separate Asset/option.
 
 ## 18. Image Collections remain separate
 
 Image Collections organize the global Admin Image Library only.
 
-Collection membership does not affect group membership, fixed/alternative semantics, learner selection, Topics/Tags, Questions, Review snapshots, or explicit reusable-image opt-ins.
+Collection membership does not affect group membership, fixed/alternative semantics, learner selection, Primary Topic, Tags, System↔Tag exposure, Questions, Review snapshots, or explicit reusable-image opt-ins.
 
-Do not use Collections as stimulus groups.
+Do not use Collections as stimulus groups or taxonomy.
 
 ## 19. Import relationship
 
 Import Package v1 does not require stimulus-group data as a prerequisite for useful content.
 
-The first ECG corpus was successfully ingested using progressive enrichment. Additional grouping, exact-image scope, Reusable Image Questions, and media-quality replacement are later editorial operations and do not extend the current import manifest.
+The first ECG corpus was successfully ingested using progressive enrichment. Additional grouping, Case Tags, exact-image scope, Reusable Image Questions, and media-quality replacement are later editorial operations.
+
+The legacy `secondaryTopicIds` import field must remain empty under current behavior; imports must not recreate Additional Study Topics.
 
 ## 20. Non-goals
 
@@ -359,9 +361,10 @@ Current stimulus-group behavior deliberately does not add:
 - automatic promotion of Case-specific exact-image questions into Reusable Image Questions;
 - automatic reusable-question opt-in merely because an Asset is reused;
 - stimulus-option → Topic learner routing;
+- Additional Study Topic routing;
 - global media folders encoded as stimulus groups;
 - automatic semantic inference from image content;
-- arbitrary different-image substitution through the higher-resolution replacement workflow.
+- arbitrary different-image substitution through higher-resolution replacement.
 
 Add broader behavior only when real teaching content creates a concrete requirement.
 
@@ -369,13 +372,15 @@ Add broader behavior only when real teaching content creates a concrete requirem
 
 ```text
 ordinary fixed Case Assets continue to work
-+ each active alternative group selects exactly one active option
++ each current Case has one canonical Primary Topic
++ cross-cutting Case discovery uses Tags + explicit System exposure
++ each active Alternative Set selects exactly one active non-removed option
 + selections freeze at Review creation
 + Case-specific exact-option teaching and reusable exact-Asset teaching remain distinct
 + reusable Asset Questions require explicit per-stimulus opt-in
 + exact-option context overrides explicitly reused Asset knowledge for duplicate Prompts
 + the same Prompt cannot be independently stimulus-specific across selectable groups
-+ question-count/coverage rules operate on the resolved deduplicated pool
++ question-pool eligibility precedes question-count/coverage rules
 + transparent fixed-image conversion preserves learner-visible behavior
 + identity-preserving option Move/replacement preserves contextual question identity
 + historical Review snapshots/provenance remain immutable

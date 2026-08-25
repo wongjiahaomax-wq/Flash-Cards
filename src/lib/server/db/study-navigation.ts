@@ -44,7 +44,11 @@ export async function loadStudyNavigationSnapshot(db: import('./index.js').Learn
       })
       .from(cases)
       .innerJoin(caseConcepts, eq(caseConcepts.caseId, cases.id))
-      .where(and(eq(cases.isActive, true), isNull(cases.previewSessionId))),
+      .where(and(
+        eq(cases.isActive, true),
+        isNull(cases.previewSessionId),
+        eq(caseConcepts.role, 'primary')
+      )),
     db
       .select({
         caseId: caseTags.caseId,

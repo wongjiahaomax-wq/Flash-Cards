@@ -191,9 +191,7 @@ export async function updateCaseVignette(db, caseId, vignetteMd) {
 }
 
 /**
- * Update administrator-facing Case fields without changing Topic
- * relationships. Topic routing is managed by the dedicated relationship
- * operations below.
+ * Update administrator-facing Case fields without changing Topic relationships.
  *
  * @param {LearningDb} db
  * @param {{ caseId: string, title: string, vignetteMd?: string | null, questionSelectionMode?: unknown, questionCount?: unknown }} input
@@ -212,8 +210,8 @@ export async function updateCase(db, input) {
 }
 
 /**
- * Return every Topic relationship for an active Case, including inactive
- * Topics so historical authoring state is visible to administrators.
+ * Return the canonical Topic for an active Case. Legacy secondary rows remain
+ * stored compatibility data but are intentionally hidden from current authoring.
  *
  * @param {LearningDb} db
  * @param {string} caseId
@@ -224,8 +222,8 @@ export async function listCaseTopics(db, caseId) {
     db
       .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
       .from(caseConcepts)
-      .where(eq(caseConcepts.caseId, cleanCaseId))
-      .orderBy(asc(caseConcepts.role), asc(caseConcepts.conceptId)),
+      .where(and(eq(caseConcepts.caseId, cleanCaseId), eq(caseConcepts.role, 'primary')))
+      .orderBy(asc(caseConcepts.conceptId)),
     listConceptTaxonomy(db)
   ]);
   const conceptById = new Map(conceptRows.map((concept) => [concept.id, concept]));
@@ -279,66 +277,33 @@ async function requireActiveTopic(db, conceptId) {
   return cleanConceptId;
 }
 
-/** @param {LearningDb} db @param {any[]} writes */
-async function runTopicWrites(db, writes) {
-  if (writes.length === 0) return;
-  if (typeof db.batch === 'function') {
-    // D1 executes a batch transactionally. Primary transitions intentionally
-    // demote before promoting, so a partially applied transition is never
-    // visible in production.
-    await db.batch(/** @type {[any, ...any[]]} */ (writes));
-    return;
-  }
-  for (const write of writes) await write;
+function secondaryTopicsRemovedError() {
+  return new AdminContentInputError('Additional Study Topics are no longer supported. Use Case Tags for alternate or cross-cutting classification.');
 }
 
 /**
- * Add one active secondary Study Topic without changing the canonical Topic.
- *
- * @param {LearningDb} db
- * @param {{ caseId: string, conceptId: string }} input
+ * @deprecated Secondary Study Topic creation was removed in favor of Case Tags.
+ * @param {LearningDb} _db
+ * @param {{ caseId: string, conceptId: string }} _input
  */
-export async function addCaseSecondaryTopic(db, input) {
-  const { caseId, topicRows } = await requireActiveCaseWithOnePrimary(db, input.caseId);
-  const conceptId = await requireActiveTopic(db, input.conceptId);
-  if (topicRows.some((topic) => topic.conceptId === conceptId)) {
-    throw new AdminContentInputError('That Topic is already attached to this Case.');
-  }
-
-  try {
-    await db.insert(caseConcepts).values({ caseId, conceptId, role: 'secondary' });
-  } catch (error) {
-    if (error instanceof Error && /unique|constraint/i.test(error.message)) {
-      throw new AdminContentInputError('That Topic is already attached to this Case.');
-    }
-    throw error;
-  }
+export async function addCaseSecondaryTopic(_db, _input) {
+  throw secondaryTopicsRemovedError();
 }
 
 /**
- * Remove only a secondary Topic relationship. The primary relationship is
- * never removable through this operation.
- *
- * @param {LearningDb} db
- * @param {{ caseId: string, conceptId: string }} input
+ * @deprecated Secondary Study Topic mutation is no longer exposed by current authoring.
+ * @param {LearningDb} _db
+ * @param {{ caseId: string, conceptId: string }} _input
  */
-export async function removeCaseSecondaryTopic(db, input) {
-  const { caseId, topicRows } = await requireActiveCaseWithOnePrimary(db, input.caseId);
-  const conceptId = requiredText(input.conceptId, 'Topic');
-  const topic = topicRows.find((row) => row.conceptId === conceptId);
-  if (!topic) throw new AdminContentInputError('That Topic is not attached to this Case.');
-  if (topic.role !== 'secondary') {
-    throw new AdminContentInputError('The primary Topic cannot be removed. Choose another primary Topic first.');
-  }
-
-  await db
-    .delete(caseConcepts)
-    .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, conceptId)));
+export async function removeCaseSecondaryTopic(_db, _input) {
+  throw secondaryTopicsRemovedError();
 }
 
 /**
- * Make an attached secondary Topic, or a new active Topic, the canonical
- * primary Topic. Existing relationships are preserved as secondary links.
+ * Replace the Case's canonical Topic without creating a new secondary route.
+ * Existing unrelated secondary rows are legacy inert compatibility data. If the
+ * requested canonical Topic already exists as a legacy secondary row, that one
+ * conflicting row is removed as part of the explicit primary change.
  *
  * @param {LearningDb} db
  * @param {{ caseId: string, conceptId: string }} input
@@ -348,27 +313,44 @@ export async function promoteCaseTopic(db, input) {
   const conceptId = await requireActiveTopic(db, input.conceptId);
   if (primaryConceptId === conceptId) return;
 
-  const targetTopic = topicRows.find((topic) => topic.conceptId === conceptId);
-  const writes = [
-    db
-      .update(caseConcepts)
-      .set({ role: 'secondary' })
-      .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, primaryConceptId))),
-    targetTopic
-      ? db
-          .update(caseConcepts)
-          .set({ role: 'primary' })
-          .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, conceptId)))
-      : db.insert(caseConcepts).values({ caseId, conceptId, role: 'primary' })
-  ];
-  await runTopicWrites(db, writes);
+  const primaryWrite = db
+    .update(caseConcepts)
+    .set({ conceptId, role: 'primary' })
+    .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, primaryConceptId)));
+  const targetSecondary = topicRows.find((topic) => topic.conceptId === conceptId && topic.role === 'secondary');
+  if (!targetSecondary) {
+    await primaryWrite;
+    return;
+  }
+
+  const secondaryDelete = db
+    .delete(caseConcepts)
+    .where(and(
+      eq(caseConcepts.caseId, caseId),
+      eq(caseConcepts.conceptId, conceptId),
+      eq(caseConcepts.role, 'secondary')
+    ));
+  if (typeof db.batch === 'function') {
+    await db.batch(/** @type {[any, ...any[]]} */ ([secondaryDelete, primaryWrite]));
+    return;
+  }
+
+  await secondaryDelete;
+  try {
+    await primaryWrite;
+  } catch (error) {
+    try {
+      await db.insert(caseConcepts).values({ caseId, conceptId, role: 'secondary' });
+    } catch (cleanupError) {
+      console.error('Unable to restore a legacy secondary Topic after a failed Primary Topic change.', cleanupError);
+    }
+    throw error;
+  }
 }
 
 /**
- * Create a new active Topic and attach it to an active Case in one domain
- * operation. D1 batches are transactional; the sequential fallback restores
- * the previous primary and removes the new Topic if relationship creation
- * fails.
+ * Create a new global Topic and make it the Case's canonical Topic. Creating a
+ * Topic as an Additional Study Topic is intentionally unsupported.
  *
  * @param {LearningDb} db
  * @param {{ caseId: string, name: string, relationshipIntent: string }} input
@@ -376,27 +358,20 @@ export async function promoteCaseTopic(db, input) {
 export async function createCaseTopic(db, input) {
   const caseId = requiredText(input.caseId, 'Case');
   const relationshipIntent = requiredText(input.relationshipIntent, 'Topic relationship');
-  if (!['primary', 'secondary'].includes(relationshipIntent)) {
-    throw new AdminContentInputError('Choose whether the new Topic should become primary or an Additional Study Topic.');
-  }
+  if (relationshipIntent !== 'primary') throw secondaryTopicsRemovedError();
 
   const { primaryConceptId } = await requireActiveCaseWithOnePrimary(db, caseId);
   const concept = await prepareConcept(db, input.name);
   const conceptWrite = conceptInsert(db, concept);
-  const relationshipWrites = relationshipIntent === 'primary'
-    ? [
-        db
-          .update(caseConcepts)
-          .set({ role: 'secondary' })
-          .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, primaryConceptId))),
-        db.insert(caseConcepts).values({ caseId, conceptId: concept.id, role: 'primary' })
-      ]
-    : [db.insert(caseConcepts).values({ caseId, conceptId: concept.id, role: 'secondary' })];
+  const relationshipWrite = db
+    .update(caseConcepts)
+    .set({ conceptId: concept.id, role: 'primary' })
+    .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, primaryConceptId)));
 
   let useSequentialFallback = typeof db.batch !== 'function';
   if (!useSequentialFallback) {
     try {
-      await db.batch(/** @type {[any, ...any[]]} */ ([conceptWrite, ...relationshipWrites]));
+      await db.batch(/** @type {[any, ...any[]]} */ ([conceptWrite, relationshipWrite]));
     } catch (error) {
       if (error instanceof TypeError && /batch is not a function/i.test(error.message)) {
         useSequentialFallback = true;
@@ -410,27 +385,10 @@ export async function createCaseTopic(db, input) {
   }
 
   if (useSequentialFallback) {
-    let primaryDemoted = false;
     try {
       await conceptWrite;
-      if (relationshipIntent === 'primary') {
-        await relationshipWrites[0];
-        primaryDemoted = true;
-        await relationshipWrites[1];
-      } else {
-        await relationshipWrites[0];
-      }
+      await relationshipWrite;
     } catch (error) {
-      if (primaryDemoted) {
-        try {
-          await db
-            .update(caseConcepts)
-            .set({ role: 'primary' })
-            .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, primaryConceptId)));
-        } catch (restoreError) {
-          console.error('Unable to restore the previous Case primary Topic after Topic creation failed.', restoreError);
-        }
-      }
       try {
         await db.delete(concepts).where(eq(concepts.id, concept.id));
       } catch (cleanupError) {
@@ -443,5 +401,5 @@ export async function createCaseTopic(db, input) {
     }
   }
 
-  return { ...concept, relationshipIntent };
+  return { ...concept, relationshipIntent: 'primary' };
 }
