@@ -22,7 +22,7 @@ test('Case editor exposes one shared Classic/Compact authoring tree', () => {
 test('Compact Case questions use accessible scope disclosure and ordering controls', () => {
   assert.match(questions, /<details class="scope-change" open=\{editorLayout === 'classic'\}>/);
   assert.match(questions, /<summary>Change scope<\/summary>/);
-  assert.match(questions, /class="scope-label">Applies to: <strong>This whole Case<\/strong>/);
+  assert.match(questions, /class="scope-badge">Whole Case<\/span>/);
   assert.match(questions, /aria-label="Move question up"/);
   assert.match(questions, /aria-label="Move question down"/);
 });
@@ -41,5 +41,5 @@ test('layout switching is presentation-only and keeps the existing question form
   assert.match(editor, /function setEditorLayout\(layout\) \{\s*editorLayout = writeCaseEditorLayout/);
   assert.doesNotMatch(editor, /setEditorLayout[\s\S]{0,180}(goto\(|location\.|reload\()/);
   assert.match(questions, /id=\{`question-edit-\$\{question\.questionPromptId\}`\}/);
-  assert.match(questions, /action="\?\/saveQuestion" class="stack question-edit-form"/);
+  assert.match(questions, /action="\?\/saveQuestion" class="question-edit-form"/);
 });
