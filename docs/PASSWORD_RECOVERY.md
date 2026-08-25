@@ -19,7 +19,7 @@ PR A provides:
 → generic anti-enumeration result
 → Better Auth reset token
 → transactional reset email
-→ /reset-password?token=...
+→ /reset-password#token=...
 → Better Auth password reset
 → existing sessions revoked
 ```
@@ -77,12 +77,14 @@ Better Auth remains the reset-token authority. Its `sendResetPassword` callback 
 The application email layer reuses the trusted origin from that Better Auth URL and constructs the learner route:
 
 ```text
-<application-origin>/reset-password?token=<Better-Auth-token>
+<application-origin>/reset-password#token=<Better-Auth-token>
 ```
+
+The token is deliberately placed in the URL **fragment**, not the query string. Browsers do not transmit URL fragments in the HTTP request, so the initial request received by the application/Cloudflare platform is only `/reset-password` and does not contain the reset token in its request URL. This reduces exposure to Worker/platform request-URL logging and access logs.
 
 Therefore `BETTER_AUTH_URL` must continue to identify the correct application origin for each runtime environment.
 
-The reset page reads the token in the browser, keeps it in memory, and removes the query string from the visible address with `history.replaceState` after initial parsing. Server page data does not include the token.
+The reset page reads the token from `window.location.hash`, keeps it in browser memory, and removes the fragment from the visible address with `history.replaceState` immediately after initial parsing. Server page data does not include the token.
 
 Invalid, expired, missing, and already-consumed tokens fail closed and direct the learner back to request a new reset email.
 
@@ -97,21 +99,30 @@ src/lib/server/email/
 Current responsibilities are intentionally small:
 
 ```text
+transactional.ts
+→ provider-neutral email message/sender contract
+→ provider-neutral delivery error type
+
 password-reset.ts
 → reset URL + password-reset template
-→ sendTransactionalEmail(...)
+→ depends only on the transactional sender contract
 
 resend.ts
-→ Resend HTTP transport
+→ Resend HTTP transport implementing that contract
+
+auth.js
+→ selects/injects the Resend transport for the current deployment
 ```
+
+Password-reset composition therefore does not import or depend directly on Resend. Authentication wiring selects the current provider implementation at the application boundary.
 
 Authentication and route code should not scatter direct Resend API calls through the application.
 
-PR B may reuse `sendTransactionalEmail(...)` for the future **Set your Flash-Cards password** invitation without changing Better Auth's reset semantics. PR A does not implement that invitation yet.
+PR B may reuse the provider-neutral transactional-email contract and current Resend transport for the future **Set your Flash-Cards password** invitation without changing Better Auth's reset semantics. PR A does not implement that invitation yet.
 
 ## Required runtime configuration
 
-The email transport expects these server-side Cloudflare environment values:
+The current Resend transport expects these server-side Cloudflare environment values:
 
 ```text
 RESEND_API_KEY
@@ -128,7 +139,7 @@ The repository does not contain a production Resend key, does not configure a pr
 
 Ordinary automated tests do **not** send real Resend email.
 
-Focused tests inject a mocked `fetch` transport, and the local Better Auth/D1 smoke test exercises reset-token/password/session behavior without supplying real Resend credentials.
+Focused tests inject a mocked provider transport/`fetch`, and the local Better Auth/D1 smoke test exercises reset-token/password/session behavior without supplying real Resend credentials.
 
 For deliberate local end-to-end email testing, a developer may provide local-only values through the repository's existing local Cloudflare secret/config mechanism such as `.dev.vars`. Never commit `.dev.vars` or real provider credentials.
 
@@ -160,13 +171,14 @@ Current password-recovery work must preserve all of these:
 4. Better Auth owns reset-token generation, persistence, validation, and consumption.
 5. Reset links expire after approximately one hour.
 6. Reset tokens are single-use.
-7. Passwords, reset tokens, complete reset URLs, and provider credentials are never logged.
-8. Resend credentials remain server-only.
-9. Successful password reset revokes existing sessions.
-10. Invalid/expired reset links fail closed.
-11. Production/Preview authority boundaries are unchanged.
-12. Preview Admin authority is not expanded.
-13. No production data/configuration/deployment operation is implied by repository implementation.
+7. Reset tokens are carried in browser-only URL fragments rather than initial HTTP request URLs.
+8. Passwords, reset tokens, complete reset URLs, and provider credentials are not deliberately written to application logs.
+9. Resend credentials remain server-only.
+10. Successful password reset revokes existing sessions.
+11. Invalid/expired reset links fail closed.
+12. Production/Preview authority boundaries are unchanged.
+13. Preview Admin authority is not expanded.
+14. No production data/configuration/deployment operation is implied by repository implementation.
 
 ## Production rollout still required
 
@@ -188,7 +200,8 @@ PR B may build the production Admin Accounts workflow on top of this foundation:
 ```text
 production Admin creates account
 → server creates Better Auth user
-→ same transactional-email transport
+→ provider-neutral transactional-email contract
+→ current Resend transport
 → Set your Flash-Cards password link
 → recipient chooses password
 ```
