@@ -16,6 +16,7 @@ import {
   sendAccountPasswordEmail
 } from '../src/lib/server/accounts/admin-accounts.ts';
 import { renderSetPasswordEmail } from '../src/lib/server/email/password-reset.ts';
+import { isPreviewOnlyAdmin } from '../src/lib/server/preview-auth.js';
 
 /** @param {any[]} [initialUsers] */
 function fakeAuth(initialUsers = []) {
@@ -128,26 +129,35 @@ test('Production Accounts authority rejects unauthenticated, learner, Preview-on
   );
 });
 
-test('production role transitions preserve unrelated roles and remove ordinary user when promoted', () => {
-  assert.deepEqual(productionRoleTransition('user', 'administrator'), ['admin']);
-  assert.deepEqual(productionRoleTransition('admin', 'learner'), ['user']);
-  assert.deepEqual(productionRoleTransition('admin,preview_admin', 'learner'), ['preview_admin']);
-  assert.deepEqual(productionRoleTransition('user,author', 'administrator'), ['admin', 'author']);
-  assert.deepEqual(productionRoleTransition('admin,author,preview_admin', 'learner'), ['author', 'preview_admin']);
+test('Preview-only detection permits a Learner to retain Preview Admin access', () => {
+  assert.equal(isPreviewOnlyAdmin({ role: 'preview_admin' }), true);
+  assert.equal(isPreviewOnlyAdmin({ role: 'user,preview_admin' }), false);
+  assert.equal(isPreviewOnlyAdmin({ role: 'admin,preview_admin' }), false);
 });
 
-test('account listing is bounded, supports name/email search, maps product state, and hides Preview-only identities', async () => {
+test('production role transitions preserve unrelated/Preview roles and establish the ordinary user role for Learners', () => {
+  assert.deepEqual(productionRoleTransition('user', 'administrator'), ['admin']);
+  assert.deepEqual(productionRoleTransition('admin', 'learner'), ['user']);
+  assert.deepEqual(productionRoleTransition('admin,preview_admin', 'learner'), ['user', 'preview_admin']);
+  assert.deepEqual(productionRoleTransition('user,author', 'administrator'), ['admin', 'author']);
+  assert.deepEqual(productionRoleTransition('admin,author,preview_admin', 'learner'), ['user', 'author', 'preview_admin']);
+});
+
+test('account listing is bounded, supports name/email search, maps product state, and hides pure Preview-only identities', async () => {
   const auth = fakeAuth([
     { id: 'a', name: 'Alice', email: 'alice@example.test', role: 'user', createdAt: new Date('2026-01-01') },
     { id: 'b', name: 'Boss', email: 'boss@example.test', role: 'admin,preview_admin', createdAt: new Date('2026-01-02') },
-    { id: 'p', name: 'Preview', email: 'preview@example.test', role: 'preview_admin', createdAt: new Date('2026-01-03') }
+    { id: 'lp', name: 'Learner Preview', email: 'learner-preview@example.test', role: 'user,preview_admin', createdAt: new Date('2026-01-03') },
+    { id: 'p', name: 'Preview', email: 'preview@example.test', role: 'preview_admin', createdAt: new Date('2026-01-04') }
   ]);
 
   const result = await listAccounts({ auth, headers, search: 'example.test', searchField: 'email', page: 1 });
   assert.equal(result.pageSize, 25);
-  assert.deepEqual(result.accounts.map((account) => account.id).sort(), ['a', 'b']);
+  assert.deepEqual(result.accounts.map((account) => account.id).sort(), ['a', 'b', 'lp']);
   assert.equal(result.accounts.find((account) => account.id === 'b')?.accountType, 'Administrator');
   assert.equal(result.accounts.find((account) => account.id === 'b')?.hasPreviewAccess, true);
+  assert.equal(result.accounts.find((account) => account.id === 'lp')?.accountType, 'Learner');
+  assert.equal(result.accounts.find((account) => account.id === 'lp')?.hasPreviewAccess, true);
 
   const listCall = auth.calls.find((call) => call.operation === 'listUsers');
   assert.equal(listCall.query.limit, 25);
@@ -212,7 +222,7 @@ test('email delivery failure preserves the created account for safe resend inste
   );
 });
 
-test('combined Admin/Preview role demotion preserves Preview role through Better Auth set-role', async () => {
+test('combined Admin/Preview demotion retains Preview access and establishes Learner access', async () => {
   const auth = fakeAuth([
     { id: 'actor', name: 'Actor', email: 'actor@example.test', role: 'admin' },
     { id: 'combined', name: 'Combined', email: 'combined@example.test', role: 'admin,preview_admin' }
@@ -226,10 +236,11 @@ test('combined Admin/Preview role demotion preserves Preview role through Better
     accountType: 'learner'
   });
 
-  assert.equal(updated, null, 'Preview-only identities leave the Production Accounts read model after demotion');
-  assert.equal(auth.users.get('combined').role, 'preview_admin');
+  assert.equal(updated?.accountType, 'Learner');
+  assert.equal(updated?.hasPreviewAccess, true);
+  assert.equal(auth.users.get('combined').role, 'user,preview_admin');
   const roleCall = auth.calls.find((call) => call.operation === 'setRole');
-  assert.deepEqual(roleCall.body.role, ['preview_admin']);
+  assert.deepEqual(roleCall.body.role, ['user', 'preview_admin']);
 });
 
 test('self-disable and self-demote fail closed server-side', async () => {
@@ -255,6 +266,24 @@ test('last-active-production-Admin removal fails closed when no other active Adm
   await assert.rejects(
     () => disableAccount({ auth, headers, actorUserId: 'external-admin-session', userId: 'target' }),
     (error) => error instanceof AccountManagementError && error.code === 'LAST_ADMIN_BLOCKED'
+  );
+});
+
+test('database last-active-Admin guard failures map to the product lockout error', async () => {
+  const auth = fakeAuth([
+    { id: 'actor', name: 'Actor', email: 'actor@example.test', role: 'admin' },
+    { id: 'target', name: 'Target', email: 'target@example.test', role: 'admin' }
+  ]);
+  auth.api.setRole = async () => {
+    throw new Error('D1_ERROR: LAST_ACTIVE_PRODUCTION_ADMIN');
+  };
+
+  await assert.rejects(
+    () => changeProductionRole({ auth, headers, actorUserId: 'actor', userId: 'target', accountType: 'learner' }),
+    (error) =>
+      error instanceof AccountManagementError &&
+      error.code === 'LAST_ADMIN_BLOCKED' &&
+      error.status === 409
   );
 });
 
@@ -318,7 +347,7 @@ test('set-password email is distinct, secure, and contains no temporary credenti
   assert.match(message.text, /#token=one-time/);
 });
 
-test('PR-B source preserves closed enrollment, Preview fail-closed routing, and omits hard-delete operations', async () => {
+test('PR-B source preserves closed enrollment and closes privileged bypass/last-Admin escape hatches', async () => {
   const authSource = await readFile(new URL('../src/lib/server/auth.js', import.meta.url), 'utf8');
   const accountSource = await readFile(
     new URL('../src/lib/server/accounts/admin-accounts.ts', import.meta.url),
@@ -331,6 +360,10 @@ test('PR-B source preserves closed enrollment, Preview fail-closed routing, and 
   const hooksSource = await readFile(new URL('../src/hooks.server.js', import.meta.url), 'utf8');
   const listRouteSource = await readFile(
     new URL('../src/routes/admin/accounts/+page.server.js', import.meta.url),
+    'utf8'
+  );
+  const lastAdminGuardSource = await readFile(
+    new URL('../drizzle/0016_last_active_production_admin_guard.sql', import.meta.url),
     'utf8'
   );
 
@@ -346,5 +379,12 @@ test('PR-B source preserves closed enrollment, Preview fail-closed routing, and 
   assert.match(accountSource, /banUser/);
   assert.match(accountSource, /revokeUserSessions/);
   assert.match(listRouteSource, /requireProductionAccountManager/);
-  assert.match(hooksSource, /isRouteWithin\(pathname, '\/api\/auth\/admin'\)/);
+  assert.match(hooksSource, /if \(isRouteWithin\(pathname, '\/api\/auth\/admin'\)\)/);
+  assert.doesNotMatch(
+    hooksSource,
+    /isPreviewWorker\(env\)\s*&&\s*isRouteWithin\(pathname, '\/api\/auth\/admin'\)/
+  );
+  assert.match(lastAdminGuardSource, /BEFORE UPDATE OF `role`, `banned` ON `user`/);
+  assert.match(lastAdminGuardSource, /BEFORE DELETE ON `user`/);
+  assert.match(lastAdminGuardSource, /LAST_ACTIVE_PRODUCTION_ADMIN/);
 });

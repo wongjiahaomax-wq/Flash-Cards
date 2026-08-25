@@ -103,7 +103,32 @@ function authErrorCode(error: unknown): string {
   return typeof code === 'string' ? code : '';
 }
 
+function authErrorContains(error: unknown, marker: string): boolean {
+  const record = asRecord(error);
+  const body = asRecord(record?.body);
+  const cause = asRecord(record?.cause);
+  const nestedError = asRecord(record?.error);
+  return [
+    record?.code,
+    record?.message,
+    body?.code,
+    body?.message,
+    cause?.code,
+    cause?.message,
+    nestedError?.code,
+    nestedError?.message
+  ].some((value) => typeof value === 'string' && value.includes(marker));
+}
+
 function mapAuthError(error: unknown, fallbackMessage: string): AccountManagementError {
+  if (authErrorContains(error, 'LAST_ACTIVE_PRODUCTION_ADMIN')) {
+    return new AccountManagementError(
+      'LAST_ADMIN_BLOCKED',
+      'At least one active Production Administrator must remain.',
+      409
+    );
+  }
+
   const code = authErrorCode(error);
   if (code.includes('USER_ALREADY_EXISTS')) {
     return new AccountManagementError(
@@ -157,7 +182,7 @@ function createdAtIso(value: unknown): string | null {
 
 function isPreviewOnlyRole(role: unknown): boolean {
   const roles = parseRoles(role);
-  return roles.includes('preview_admin') && !roles.includes('admin');
+  return roles.includes('preview_admin') && !roles.includes('admin') && !roles.includes('user');
 }
 
 function toAccountView(value: unknown): AccountView | null {
@@ -207,7 +232,7 @@ export function productionRoleTransition(role: unknown, target: AccountType): st
   const retained = roles.filter((value) => value !== 'admin' && value !== 'user');
 
   if (target === 'administrator') return ['admin', ...retained];
-  return retained.length > 0 ? retained : ['user'];
+  return ['user', ...retained];
 }
 
 export async function listAccounts(options: {

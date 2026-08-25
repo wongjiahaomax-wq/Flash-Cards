@@ -62,7 +62,7 @@
     </dl>
     {#if data.account.hasPreviewAccess}
       <p class="muted compact-note">
-        Preview Admin is a separate retained role. Production role changes preserve Preview access rather than converting it into a Learner role.
+        Preview Admin is a separate retained role. Production role changes preserve Preview access alongside the selected Production Learner or Administrator role.
       </p>
     {/if}
   </section>
@@ -70,17 +70,15 @@
   <section class="card stack">
     <div>
       <h2>Password email</h2>
-      <p class="muted">Better Auth owns the secure reset token. No password or token is shown to the Administrator.</p>
+      <p class="muted">Use Set password for initial setup or a failed invitation. Use Password reset for an established user who forgot their password. Better Auth owns the secure token; no password or token is shown to the Administrator.</p>
     </div>
     <div class="actions">
+      <form method="POST" action="?/sendSetPassword">
+        <button class="button primary" type="submit">Send set-password email</button>
+      </form>
       <form method="POST" action="?/sendPasswordReset">
         <button class="button" type="submit">Send password-reset email</button>
       </form>
-      {#if data.status === 'created-email-failed'}
-        <form method="POST" action="?/sendSetPassword">
-          <button class="button primary" type="submit">Resend set-password email</button>
-        </form>
-      {/if}
     </div>
   </section>
 
@@ -97,7 +95,7 @@
         <button class="button primary" type="submit">Promote to Administrator</button>
       </form>
     {:else}
-      <form method="POST" action="?/demote" onsubmit={(event) => confirmAction(event, data.account.hasPreviewAccess ? 'Remove Production Administrator access? Preview Admin access will be retained.' : 'Change this Administrator to a Learner?')}>
+      <form method="POST" action="?/demote" onsubmit={(event) => confirmAction(event, data.account.hasPreviewAccess ? 'Change this Administrator to a Learner? Preview Admin access will also be retained.' : 'Change this Administrator to a Learner?')}>
         <button class="button danger-outline" type="submit">Change to Learner</button>
       </form>
     {/if}

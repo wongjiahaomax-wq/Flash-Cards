@@ -36,12 +36,14 @@ export async function handle({ event, resolve }) {
     return forbidden('Learner Study is unavailable on the Preview Worker.');
   }
 
-  // Better Auth's Admin plugin is mounted below /api/auth/admin. The Preview
-  // Worker shares the production auth tables, so those privileged endpoints
-  // must fail closed before Better Auth handles the request. Ordinary auth
-  // endpoints such as sign-in, sign-out and get-session remain available.
-  if (isPreviewWorker(env) && isRouteWithin(pathname, '/api/auth/admin')) {
-    return forbidden('Better Auth user administration is unavailable on the Preview Worker.');
+  // Better Auth's Admin plugin remains available to trusted server-side
+  // auth.api.* calls, but its generic HTTP Admin surface must never be public.
+  // Those endpoints include role, password, ban and hard-delete operations that
+  // would bypass the product-level self-lockout/last-Admin/lifecycle contracts.
+  // Keep every /api/auth/admin/* request fail-closed on both Production and
+  // Preview Workers; privileged account operations go through /admin/accounts.
+  if (isRouteWithin(pathname, '/api/auth/admin')) {
+    return forbidden('Direct Better Auth user administration is unavailable. Use the Production Admin Accounts workflow.');
   }
 
   // Keep the non-authenticated scaffold buildable until D1 and secrets are bound.
@@ -63,10 +65,10 @@ export async function handle({ event, resolve }) {
   event.locals.session = session?.session ?? null;
   event.locals.user = session?.user ?? null;
 
-  // Preview-only identities must never create or mutate ordinary learner
-  // Reviews. A combined production Admin + Preview Admin owner may use the
-  // production learner flow; the Preview Worker boundary above still blocks
-  // Study regardless of role.
+  // A pure preview_admin identity must never create or mutate ordinary learner
+  // Reviews. A user,preview_admin learner may Study on Production, while an
+  // admin,preview_admin owner keeps the existing Admin + Study behavior. The
+  // Preview Worker boundary above still blocks Study regardless of role.
   if (isPreviewOnlyAdmin(event.locals.user) && isRouteWithin(pathname, '/study')) {
     return forbidden('Preview-only Admin accounts cannot use learner Study.');
   }
