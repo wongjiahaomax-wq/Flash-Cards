@@ -1,6 +1,6 @@
 # Production-backed Preview Admin Workspace
 
-_Status: implemented and part of the operational baseline. Current repository work also contains a staged, behavior-preserving backend decomposition through Preview fixed Case-image operations._
+_Status: implemented and part of the operational baseline. Current repository work also contains a staged, behavior-preserving backend decomposition through Preview Alternative Set / Stimulus Group / Stimulus Option operations._
 
 _Last updated: 25 August 2026_
 
@@ -124,6 +124,13 @@ src/lib/server/db/preview-workspace/fixed-images.js
 → Case-specific fixed-image caption update
 → fixed-image detach + display-order normalization
 → fixed-image reorder
+
+src/lib/server/db/preview-workspace/stimulus.ts
+→ Alternative Set / Stimulus Group creation and update
+→ owned active-group target validation and Specific Question coverage preflight
+→ bounded bulk option assignment after façade input preconditions
+→ fixed Case image → Stimulus Option conversion and start-set orchestration
+→ Stimulus Option add/caption/active-state/reorder mutations
 ```
 
 `preview-workspace.js` remains the public façade and delegates to these focused owners.
@@ -146,23 +153,29 @@ The public façade owns that ownership-before-input precondition and passes a pr
 
 Behavior intentionally preserved includes ordering, captions, duplicate/conflict handling, Asset eligibility, batch/fallback behavior, ownership rejection, and public error codes/messages.
 
-## 8. Deliberately still owned by the façade
+## 8. Alternative Set / stimulus operation boundary and remaining façade ownership
+
+`stimulus.ts` owns ongoing Alternative Set / Stimulus Group / Stimulus Option lifecycle behavior after the Case exists.
+
+This includes group creation/update, active-group target validation, bulk option assignment, fixed-image conversion, start-set rollback orchestration, option add/caption/active-state/reorder behavior, and the relevant duplicate/conflict checks. `selection_count = 1`, option ordering, fixed-image caption carry-over, fixed-image display-order normalization, Specific Question coverage preflight, batch/fallback behavior, and public error contracts remain unchanged.
+
+Bulk option assignment preserves the existing precondition ordering: Stimulus Group target ownership/eligibility validation occurs before bounded bulk-input validation. The façade retains the shared bounded Asset-input guard and passes a validated owned group plus bounded IDs to `stimulus.ts`.
+
+Question tables can be read during a group coverage preflight without moving question ownership into this module. Case/group/option Prompt and answer semantics remain a separate responsibility.
 
 The staged refactor is not complete. Current façade ownership still includes:
 
 - `ensurePreviewWorkspace()` because it coordinates Session state with cleanup;
 - workspace-wide cleanup/reset orchestration;
-- Alternative Set / Stimulus Group / Stimulus Option operations;
-- fixed → Alternative Set conversion/orchestration where the dominant semantic responsibility is Alternative Set mutation;
 - Case/group/option question operations;
 - question scope and reusable-question operations;
-- composed editor loading where several child domains are assembled together.
+- composed editor loading where several child domains are assembled together;
+- Preview upload/discard and general image-picker coordination that have not yet justified a separate final owner.
 
 Likely next focused sequence:
 
 ```text
-Alternative Set / stimulus extraction
-→ question / scope / reusable-question extraction
+question / scope / reusable-question extraction
 → final façade / cleanup ownership review
 ```
 
@@ -321,7 +334,11 @@ Preview-related changes should use root `AGENTS.md` + `AGENT_TASK_MAP.md` and pr
 - Primary Topic replacement remaining owner-scoped even if an older disposable Preview Case contains a secondary compatibility row;
 - secondary-Topic mutation helpers failing closed;
 - fixed-image ordering/captions/attach/detach/reorder;
-- ownership-before-input error precedence for bulk attach;
+- ownership-before-input error precedence for bulk fixed-image attach;
+- Alternative Set group creation/update and `selection_count = 1` behavior;
+- fixed-image → option caption/order preservation and failed-start rollback;
+- Stimulus Option add/caption/active-state/reorder semantics, including `removed_from_case` remaining distinct from `is_active`;
+- Stimulus bulk-add ownership-before-input precedence, duplicate/conflict handling, idempotency for existing active target options, and Specific Question coverage preflight;
 - shared editor action/data contracts;
 - route hard blocks;
 - R2 prefix safety;
