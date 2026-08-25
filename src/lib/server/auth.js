@@ -13,7 +13,12 @@ import { sendTransactionalEmail } from '$lib/server/email/resend.ts';
 import { EmailDeliveryError } from '$lib/server/email/transactional.ts';
 
 /** @typedef {'reset' | 'account-setup'} PasswordEmailPurpose */
-/** @typedef {{ passwordEmailPurpose?: PasswordEmailPurpose, awaitPasswordEmailDelivery?: boolean }} CreateAuthOptions */
+/** @typedef {'sent' | 'failed'} PasswordEmailDeliveryResult */
+/** @typedef {{
+ *   passwordEmailPurpose?: PasswordEmailPurpose,
+ *   awaitPasswordEmailDelivery?: boolean,
+ *   onPasswordEmailDeliveryResult?: (result: PasswordEmailDeliveryResult) => void
+ * }} CreateAuthOptions */
 
 // Better Auth 1.6.25 validates Admin plugin role mutations against configured
 // roles. preview_admin is a retained application role, but it must never gain
@@ -91,14 +96,23 @@ export function createAuth(env, config = {}) {
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url, token }) => {
         if (config.awaitPasswordEmailDelivery) {
-          await sendPasswordResetEmail({
-            env,
-            to: user.email,
-            betterAuthResetUrl: url,
-            token,
-            purpose: passwordEmailPurpose,
-            sendEmail: sendTransactionalEmail
-          });
+          try {
+            await sendPasswordResetEmail({
+              env,
+              to: user.email,
+              betterAuthResetUrl: url,
+              token,
+              purpose: passwordEmailPurpose,
+              sendEmail: sendTransactionalEmail
+            });
+            config.onPasswordEmailDeliveryResult?.('sent');
+          } catch (error) {
+            // Better Auth 1.6.25 catches sendResetPassword failures inside
+            // runInBackgroundOrAwait. Preserve its reset-token ownership while
+            // exposing only a non-sensitive result to authenticated Admin flows.
+            config.onPasswordEmailDeliveryResult?.('failed');
+            throw error;
+          }
           return;
         }
 

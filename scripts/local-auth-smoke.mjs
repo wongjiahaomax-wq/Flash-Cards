@@ -98,6 +98,10 @@ async function postNamedAction(path, action, cookies) {
   return fetch(`${baseURL}${path}?/${action}`, {
     method: 'POST',
     headers: {
+      // Node fetch defaults to Accept: */*, which SvelteKit negotiates to its
+      // JSON ActionResult protocol. Use browser-native form semantics here so
+      // redirect assertions observe the real HTTP 303 + Location response.
+      accept: 'text/html',
       cookie: cookies,
       origin: baseURL
     },
@@ -265,6 +269,7 @@ try {
   const createManagedAccount = await fetch(`${baseURL}/admin/accounts?/create`, {
     method: 'POST',
     headers: {
+      accept: 'text/html',
       cookie: cookies,
       origin: baseURL
     },

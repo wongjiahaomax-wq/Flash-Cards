@@ -11,12 +11,23 @@ export async function requestAdminPasswordEmail(
   email: string,
   purpose: PasswordEmailPurpose
 ): Promise<void> {
+  let deliveryResult: 'sent' | 'failed' | null = null;
   const auth = createAuth(env, {
     passwordEmailPurpose: purpose,
-    awaitPasswordEmailDelivery: true
+    awaitPasswordEmailDelivery: true,
+    onPasswordEmailDeliveryResult: (result) => {
+      deliveryResult = result;
+    }
   });
 
   await auth.api.requestPasswordReset({
     body: { email }
   });
+
+  // Better Auth 1.6.25 deliberately catches callback failures inside its
+  // request-password-reset workflow. Fail closed here using only the safe
+  // delivery result captured by createAuth; never surface token/provider data.
+  if (deliveryResult !== 'sent') {
+    throw new Error('Password email delivery failed.');
+  }
 }
