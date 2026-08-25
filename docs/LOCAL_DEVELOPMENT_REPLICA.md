@@ -6,9 +6,9 @@
 >
 > Never commit Cloudflare credentials, Better Auth secrets, passwords, production database exports, production auth/user/session data, mirrored R2 bytes, `.dev.vars`, or `.wrangler/` state.
 
-_Status: implemented local developer workflow._
+_Status: implemented local developer workflow and primary application testing path._
 
-_Last reviewed: 24 August 2026._
+_Last reviewed: 25 August 2026._
 
 ## Purpose
 
@@ -26,7 +26,7 @@ localhost:5173
 
 This lets the developer navigate real Topics, Cases, Questions, Shared Questions, Tags, Assets, Reusable Image Questions, Image Collections and stimulus relationships while UI/content experiments remain disposable local changes.
 
-The production-backed Preview Worker remains the final integration gate before merge. Local replica mode is for fast iteration, not a replacement for Preview/CI/deployment verification.
+As of 25 August 2026, this local workflow is the primary application development/testing path. Use `npm run dev` for rapid iteration, local `npm run preview` for production-style runtime verification, and repository validation/GitHub CI before merge. The production-backed remote `/preview-admin` Worker is retained as a legacy/optional capability and is no longer a required final integration gate.
 
 ## Local runtime command contract
 
