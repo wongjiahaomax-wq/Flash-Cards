@@ -1,4 +1,7 @@
 <script>
+  import { applyAction, enhance } from '$app/forms';
+  import { invalidateAll, replaceState } from '$app/navigation';
+  import { tick } from 'svelte';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
 
   /** @typedef {'classic' | 'compact'} CaseEditorLayout */
@@ -10,6 +13,28 @@
   /** @type {{ selectedCase: QuestionsCase, previewMode: boolean, editorLayout: CaseEditorLayout }} */
   let { selectedCase, previewMode, editorLayout } = $props();
   let newQuestionScope = $state('case');
+
+  /** @type {import('$app/forms').SubmitFunction} */
+  const preserveQuestionPosition = ({ formElement }) => {
+    const card = formElement.closest('.question-card');
+    const cardId = card?.id;
+    const top = card?.getBoundingClientRect().top;
+
+    return async ({ result }) => {
+      if (result.type === 'redirect') {
+        replaceState(result.location, {});
+        await invalidateAll();
+      } else {
+        await applyAction(result);
+      }
+
+      if (result.type !== 'redirect' || !cardId || top == null) return;
+      await tick();
+      const movedCard = document.getElementById(cardId);
+      if (!movedCard) return;
+      window.scrollBy(0, movedCard.getBoundingClientRect().top - top);
+    };
+  };
 </script>
 
 <section id="questions" class="panel stack">
@@ -64,9 +89,23 @@
           </div>
           <div class="header-actions">
             {#if question.reusableForTopic}<span class="badge">Shared with {selectedCase.case.conceptName}</span>{/if}
+            {#if !previewMode && editorLayout === 'compact'}
+              <details class="scope-change scope-change-header">
+                <summary>Change scope</summary>
+                <div class="scope-change-body stack">
+                  <form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack">
+                    <input type="hidden" name="intent" value="move" />
+                    <input type="hidden" name="case_id" value={selectedCase.case.id} />
+                    <input type="hidden" name="prompt_id" value={question.questionPromptId} />
+                    <label>Applies to<select name="target" required><option value="" disabled selected>A specific image / stimulus…</option>{#each selectedCase.attached.filter((asset) => asset.isActive) as asset}<option value={`fixed:${asset.assetId}`}>{asset.originalFilename ?? asset.assetId} — always shown</option>{/each}{#each selectedCase.stimulusGroups.filter((group) => group.isActive) as group}{#each group.options.filter((option) => option.isActive && option.assetIsActive) as targetOption}<option value={`option:${targetOption.id}`}>{targetOption.originalFilename ?? targetOption.assetId} — {group.name}{targetOption.captionMd ? ` — ${targetOption.captionMd}` : ''}</option>{/each}{/each}</select></label>
+                    <div><button class="button small" type="submit">Apply specific stimulus scope</button></div>
+                  </form>
+                </div>
+              </details>
+            {/if}
             <div class="question-order-actions">
-              <form method="POST" action="?/reorderQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="up" /><button class="button small icon-action" type="submit" disabled={index === 0} aria-label="Move question up">↑</button></form>
-              <form method="POST" action="?/reorderQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="down" /><button class="button small icon-action" type="submit" disabled={index === selectedCase.questions.length - 1} aria-label="Move question down">↓</button></form>
+              <form method="POST" action="?/reorderQuestion" use:enhance={preserveQuestionPosition}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="up" /><button class="button small icon-action" type="submit" disabled={index === 0} aria-label="Move question up">↑</button></form>
+              <form method="POST" action="?/reorderQuestion" use:enhance={preserveQuestionPosition}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="down" /><button class="button small icon-action" type="submit" disabled={index === selectedCase.questions.length - 1} aria-label="Move question down">↓</button></form>
             </div>
             <form method="POST" action="?/removeQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><button class="button danger small remove-action" type="submit">Remove</button></form>
           </div>
@@ -83,7 +122,7 @@
           </div>
         </form>
 
-        {#if !previewMode}
+        {#if !previewMode && editorLayout === 'classic'}
           <details class="scope-change" open={editorLayout === 'classic'}>
             <summary>Change scope</summary>
             <div class="scope-change-body stack">
@@ -169,6 +208,8 @@
   .scope-change { width: fit-content; max-width: 100%; border: 1px solid #e4e7ec; border-radius: 8px; background: #f8fafc; }
   summary { padding: 0.5rem 0.65rem; cursor: pointer; color: #344054; font-size: 0.8rem; font-weight: 650; }
   .scope-change-body { min-width: min(560px, calc(100vw - 5rem)); padding: 0.75rem 0.85rem; }
+  .scope-change-header { position: relative; width: fit-content; background: #fff; }
+  .scope-change-header .scope-change-body { position: absolute; z-index: 20; top: calc(100% + 0.35rem); right: 0; width: min(32rem, calc(100vw - 3rem)); min-width: 0; box-sizing: border-box; border: 1px solid #e4e7ec; border-radius: 8px; background: #fff; box-shadow: 0 12px 28px rgba(16, 24, 40, 0.14); }
   button:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
   :global(.case-editor[data-editor-layout="classic"]) .scope-change { width: 100%; }
   :global(.case-editor[data-editor-layout="classic"]) .scope-change > summary { display: none; }
@@ -196,5 +237,8 @@
     .save-question-action { margin-left: 0; }
     .scope-change { width: 100%; }
     .scope-change-body { min-width: 0; }
+    .scope-change-header { width: fit-content; }
+    .scope-change-header[open] { width: 100%; }
+    .scope-change-header .scope-change-body { position: static; width: auto; margin-top: 0.15rem; border-width: 1px 0 0; border-radius: 0 0 8px 8px; box-shadow: none; }
   }
 </style>
