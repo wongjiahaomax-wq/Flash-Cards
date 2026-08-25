@@ -15,6 +15,7 @@
   let newQuestionScope = $state('case');
 
   /** Keep answer fields readable without allowing very long answers to dominate the page. */
+  /** @param {HTMLTextAreaElement} node */
   const autoGrowAnswer = (node) => {
     const maxHeight = 360;
     let expanded = false;
@@ -23,6 +24,7 @@
     expandButton.className = 'button small answer-expand-button';
     expandButton.hidden = true;
 
+    /** @param {boolean} isOverflowing */
     const updateExpandButton = (isOverflowing) => {
       const hidden = !isOverflowing && !expanded;
       expandButton.hidden = hidden;
@@ -239,9 +241,6 @@
   .remove-action { background: transparent; }
 
   .question-edit-form { display: grid; gap: 0.7rem 1rem; }
-  .answer-expand-button { justify-self: start; color: #475467; font-size: 0.78rem; }
-  .answer-expand-button[hidden] { display: none; }
-  .answer-expand-button:hover { border-color: #98a2b3; background: #f8fafc; color: #172033; }
   .question-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; padding-top: 0.1rem; }
   .question-reuse-field { min-width: 0; }
   .save-question-action { margin-left: auto; }

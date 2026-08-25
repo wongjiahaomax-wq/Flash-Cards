@@ -43,7 +43,6 @@ test('Compact Case question Prompt and Answer fields start at the same height', 
   assert.match(questions, /expandButton\.textContent = expanded \? 'Collapse answer' : 'Expand answer'/);
   assert.match(questions, /const hidden = !isOverflowing && !expanded/);
   assert.match(questions, /expandButton\.style\.display = hidden \? 'none' : ''/);
-  assert.match(questions, /\.answer-expand-button\[hidden\] \{ display: none; \}/);
 });
 
 test('Image-specific answer fields use a smaller contextual auto-grow limit', () => {

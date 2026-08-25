@@ -14,6 +14,7 @@
   let currentParticipant = $derived(effectiveGroupActive && asset.isActive !== false && asset.assetIsActive !== false);
 
   /** Keep answers readable within the narrower image-question column. */
+  /** @param {HTMLTextAreaElement} node */
   const autoGrowImageField = (node) => {
     const maxHeight = 220;
     let expanded = false;

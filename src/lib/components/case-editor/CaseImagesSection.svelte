@@ -21,6 +21,7 @@
   let selectedOptionId = $state(null);
 
   /** Keep image-specific answers readable within the narrower image-question editor. */
+  /** @param {HTMLTextAreaElement} node */
   const autoGrowImageField = (node) => {
     const maxHeight = 220;
     let expanded = false;
