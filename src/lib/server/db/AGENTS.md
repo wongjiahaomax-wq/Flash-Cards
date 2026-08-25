@@ -9,7 +9,8 @@ This file supplements the repository-wide `AGENTS.md` for `src/lib/server/db/`.
 - `preview-workspace/ownership.js` and `preview-workspace/session.js` own Preview ownership/security and Session lifecycle foundations.
 - `preview-workspace/case.js` owns production-Case discovery for Preview, complete Case-clone orchestration (including fixed-image copying inside the clone transaction), Preview Case listing, Case metadata/vignette mutations, and Case Topic-role mutations.
 - `preview-workspace/fixed-images.js` owns fixed Case-image editor reads and ongoing fixed-image relationship mutations: single/bulk attach, Case-specific caption updates, detach, and reorder.
-- Alternative Set/stimulus and question/scope/reusable-question mutation APIs remain in `preview-workspace.js` until their later focused extraction PRs.
+- `preview-workspace/stimulus.ts` owns ongoing Alternative Set / Stimulus Group / Stimulus Option lifecycle operations, including fixed-image conversion, group/option mutations, target validation, bulk option assignment, captions, active state, and ordering. Question/Prompt semantics are intentionally excluded from this module.
+- Question/scope/reusable-question mutation APIs remain in `preview-workspace.js` until their focused extraction PR. Workspace-wide cleanup and final façade ownership also remain there until the final Preview decomposition phase.
 - Before schema work, inspect `schema.js`, `migrations/`, and migration contract tests. Real schema changes require a new migration; never rewrite history.
 - Prefer focused SQL/read models that fetch only page-required data. Avoid broad load-all-then-filter behavior.
 - Keep list, detail, and dashboard read models distinct where the current code does.
