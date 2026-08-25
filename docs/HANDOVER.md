@@ -10,7 +10,9 @@ Flash-Cards is a working private case-based medical learning application with:
 - protected private R2 teaching images and historical Review-media snapshots;
 - Better Auth production/Preview role boundaries;
 - Admin CMS for Cases, Questions, Shared Questions, Images, Topics, Tags, and imports;
-- multi-Topic routing;
+- learner-selectable **Original questions** versus **Expanded Learning** Review modes;
+- contextual **System → Topic / Tag / All** learner navigation merged behind rollout control;
+- current Case classification of exactly one behaviorally active **Primary Topic** plus zero or more **Case Tags**;
 - fixed images plus optional Alternative Sets;
 - whole-Case, set-wide, exact-image, tag-shared, Topic, and Reusable Image Questions;
 - Tagging Stage A/B;
@@ -20,7 +22,7 @@ Flash-Cards is a working private case-based medical learning application with:
 - local production-like D1/R2 development replica;
 - local slide-review/deterministic-finalizer tooling;
 - bounded Admin read models;
-- repository-owned coding-agent/validation workflow;
+- repository-owned coding-agent/validation workflow including repository-scoped `npm run local:stop`;
 - a fully imported and production-verified first ECG corpus: **66/66 source notes represented**.
 
 Current `main` is at least through merged PR #90. The Case editor has been decomposed into focused components, and the Preview backend has been decomposed through Session/ownership foundations, Case lifecycle/cloning, and fixed-image operations without intentionally changing product behavior.
@@ -40,7 +42,25 @@ merged on main
 
 The recorded verified production baseline includes learner/Admin/Preview/Image Management V2/Tagging Stage B and the complete ECG import. Current `main` contains later features/migrations/refactors that must not be called deployed/applied without separate evidence.
 
-Current repository migrations extend through the repository's current checked-in migration sequence. A migration file being present is not proof that it has been applied to production.
+Current repository migrations extend through:
+
+```text
+0015_contextual_system_topic_tag_navigation.sql
+```
+
+Important recent migrations are:
+
+```text
+0014_review_question_pool_mode.sql
+→ Review-level Original/Core versus Expanded question-pool provenance
+
+0015_contextual_system_topic_tag_navigation.sql
+→ System/Topic taxonomy, System↔Tag exposure, and System-route Review provenance
+```
+
+PR #90 intentionally adds no `0016` migration. Legacy secondary `case_concepts` rows may remain physically stored, but current authoring/read models/learner routing ignore them and current mutation/import/clone paths do not create new secondary relationships.
+
+A migration file being present is not proof that it has been applied to production. The same distinction applies to Worker deployment, taxonomy curation, learner rollout flags, and live behavior verification.
 
 ## Read first
 
@@ -91,7 +111,10 @@ Important recent `main` history includes:
 - PR #80 — Preview workspace foundation extraction;
 - PR #82 — Preview Case lifecycle/cloning extraction;
 - PR #83 — Preview fixed Case-image operation extraction;
-- PR #90 — current Primary Topic + Case Tags behavior replacing Additional Study Topics in active product behavior.
+- PR #87 — learner-selectable **Original questions** / **Expanded Learning** with persisted Review mode provenance;
+- PR #88 — contextual **System → Topic / Tag / All** navigation, System↔Tag exposure, and selected/effective route provenance;
+- PR #89 — safe repository-scoped `npm run local:stop` plus aligned local-development/agent guidance;
+- PR #90 — current **Primary Topic + Case Tags** behavior replacing Additional Study Topics in active product behavior, with no new migration.
 
 PR #91 was a draft attempt at the next Preview Alternative Set/stimulus extraction. It was intentionally closed unmerged on 25 August 2026 after the project moved to a local-first testing workflow. Do not resume it as unfinished required work.
 
@@ -112,6 +135,8 @@ System
 
 A Case has one behaviorally active Primary Topic plus zero or more Case Tags. Legacy secondary `case_concepts` rows may still exist physically but are not current authoring/learner behavior.
 
+System is the learner-navigation grouping. Topic is the Case's canonical educational classification. Tags are flat cross-cutting classification/contextual discovery. System↔Tag exposure determines where a Tag may appear contextually; it does not change the Case's direct Topic-question context.
+
 Global reusable knowledge is separate:
 
 ```text
@@ -125,6 +150,22 @@ Reusable Image Question
 
 `question_prompts` stores wording only.
 
+## Original questions / Expanded Learning
+
+New Reviews require an explicit question-pool mode:
+
+```text
+Original questions (`core`)
+→ Case-owned sources only: case, stimulus_group, stimulus_option
+
+Expanded Learning (`expanded`)
+→ full eligible resolver including reusable Topic/ancestor/Tag/Image sources
+```
+
+Eligibility is selected before duplicate-Prompt precedence/deduplication. The selected mode is snapshotted on the Review.
+
+Study defaults the selector to Original questions. Ordinary Next Case requires a fresh Original/Expanded choice rather than inheriting the completed Review's mode. A completed Original Review may explicitly continue into a new Expanded Review for the same Case.
+
 ## Current question precedence
 
 Current-main duplicate-Prompt precedence is:
@@ -134,7 +175,7 @@ selected exact stimulus-option question
 > explicitly reused Asset Question for selected option
 > stimulus group
 > Case
-> exact Study Topic
+> exact Primary Topic
 > tag-shared Question
 > nearest inheritable ancestor Topic
 > more distant ancestors
@@ -163,6 +204,15 @@ Reusable Image Questions
 ```
 
 Reusable Image Questions never auto-propagate merely because the same Asset is reused elsewhere.
+
+Case classification controls are:
+
+```text
+Primary Topic
++ Case Tags
+```
+
+Additional Study Topic controls are retired. Global Tag rename/deactivation and System↔Tag exposure remain global taxonomy operations rather than Case-editor side effects.
 
 ## Case editor implementation ownership
 
@@ -405,6 +455,8 @@ npm run preview         # production-style local runtime verification
 repository-defined validation / GitHub CI
 ```
 
+`npm run local:stop` is the safe checkout-scoped cleanup command for the repository's Vite/Wrangler process trees. Prefer it before switching between `dev` and `preview` and instead of broad machine-wide Node termination.
+
 The remote `/preview-admin` Worker is no longer the default integration gate.
 
 ## Future Preview decommissioning
@@ -449,12 +501,13 @@ Initial ingestion is complete. Ongoing work is curation/enrichment.
 
 Preferred sequence:
 
-1. curate real ECG/content Tags and reusable knowledge;
-2. add stimulus variants only when educationally useful;
-3. observe Admin/learner friction;
-4. improve local-development/modularity/performance paths where they reduce concrete risk or cost;
-5. implement learner-account administration;
-6. implement basic learner-progress administration.
+1. curate canonical Primary Topics, clinically useful Case Tags, and System↔Tag exposure before learner rollout;
+2. verify intended Topic/Tag/System learner reachability and Original/Expanded behavior with real content;
+3. promote genuinely reusable Shared/Image Questions where scope is proven and add stimulus variants only when educationally useful;
+4. observe Admin/learner friction;
+5. improve local-development/modularity/performance paths where they reduce concrete risk or cost;
+6. implement learner-account administration;
+7. implement basic learner-progress administration.
 
 Further Preview decomposition is not on this sequence.
 
@@ -463,7 +516,7 @@ Further Preview decomposition is not on this sequence.
 - further Preview backend decomposition after PR #83;
 - remote Preview decommissioning until separately assessed;
 - compound/multiple Shared Question scopes;
-- Tag hierarchy/aliases or Study-by-Tag;
+- Tag hierarchy/aliases or standalone Study-by-Tag outside contextual System exposure;
 - automatic/AI Tag inference;
 - Asset Tags;
 - generic Asset families/version-history UI;
