@@ -15,7 +15,7 @@
   let newQuestionScope = $state('case');
 
   /** @type {NonNullable<Parameters<typeof enhance>[1]>} */
-  const preserveQuestionPosition = () => {
+  const preserveQuestionScroll = () => {
     const scrollX = window.scrollX;
     const scrollY = window.scrollY;
 
@@ -108,8 +108,8 @@
               </details>
             {/if}
             <div class="question-order-actions">
-              <form method="POST" action="?/reorderQuestion" use:enhance={preserveQuestionPosition}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="up" /><button class="button small icon-action" type="submit" disabled={index === 0} aria-label="Move question up">↑</button></form>
-              <form method="POST" action="?/reorderQuestion" use:enhance={preserveQuestionPosition}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="down" /><button class="button small icon-action" type="submit" disabled={index === selectedCase.questions.length - 1} aria-label="Move question down">↓</button></form>
+              <form method="POST" action="?/reorderQuestion" use:enhance={preserveQuestionScroll}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="up" /><button class="button small icon-action" type="submit" disabled={index === 0} aria-label="Move question up">↑</button></form>
+              <form method="POST" action="?/reorderQuestion" use:enhance={preserveQuestionScroll}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="down" /><button class="button small icon-action" type="submit" disabled={index === selectedCase.questions.length - 1} aria-label="Move question down">↓</button></form>
             </div>
             <form method="POST" action="?/removeQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><button class="button danger small remove-action" type="submit">Remove</button></form>
           </div>
