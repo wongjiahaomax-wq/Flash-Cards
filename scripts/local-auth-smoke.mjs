@@ -112,8 +112,8 @@ writeFileSync(
     'PRAGMA foreign_keys = ON;',
     `INSERT INTO \`user\` (\`id\`, \`name\`, \`email\`, \`emailVerified\`, \`createdAt\`, \`updatedAt\`, \`role\`, \`banned\`) VALUES (${sqlString(userId)}, 'Local Smoke Admin', ${sqlString(email)}, 1, ${now}, ${now}, 'admin', 0);`,
     `INSERT INTO \`account\` (\`id\`, \`accountId\`, \`providerId\`, \`userId\`, \`password\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(accountId)}, ${sqlString(userId)}, 'credential', ${sqlString(userId)}, ${sqlString(passwordHash)}, ${now}, ${now});`,
-    `INSERT INTO \`verification\` (\`id\`, \`identifier\`, \`value\`, \`expiresAt\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(validVerificationId)}, ${sqlString(`reset-password:${validResetToken}`)}, ${sqlString(userId)}, ${now + 60 * 60 * 1000}, ${now}, ${now});`,
-    `INSERT INTO \`verification\` (\`id\`, \`identifier\`, \`value\`, \`expiresAt\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(expiredVerificationId)}, ${sqlString(`reset-password:${expiredResetToken}`)}, ${sqlString(userId)}, ${now - 1000}, ${now}, ${now});`
+    `INSERT INTO \`verification\` (\`id\`, \`identifier\`, \`value\`, \`expiresAt\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(validVerificationId)}, ${sqlString(`reset-password:${validResetToken}`)}, ${sqlString(userId)}, ${sqlString(new Date(now + 60 * 60 * 1000).toISOString())}, ${now}, ${now});`,
+    `INSERT INTO \`verification\` (\`id\`, \`identifier\`, \`value\`, \`expiresAt\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(expiredVerificationId)}, ${sqlString(`reset-password:${expiredResetToken}`)}, ${sqlString(userId)}, ${sqlString(new Date(now - 1000).toISOString())}, ${now}, ${now});`
   ].join('\n')
 );
 
