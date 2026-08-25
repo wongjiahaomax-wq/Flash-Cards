@@ -1,16 +1,18 @@
 # Preview deployment playbook
 
-_Status: current permanent Preview deployment workflow._
+_Status: retained optional remote Preview deployment workflow._
 
-_Last updated: 23 August 2026._
+_Last updated: 25 August 2026._
 
-This repository has a permanent GitHub Actions workflow for deploying an open same-repository pull request to the production-backed Preview Worker:
+This repository retains a permanent GitHub Actions workflow for deploying an open same-repository pull request to the production-backed Preview Worker:
 
 ```text
 .github/workflows/deploy-pr-to-preview.yml
 ```
 
-Use that workflow instead of creating temporary deployment workflows, CI jobs, deployment-only source commits, or ad-hoc Wrangler commands.
+Remote Preview deployment is an optional production-backed verification capability. It is **not** part of the normal development/testing path and is **not** a required integration gate. Use it when the user explicitly requests a remote Preview deployment or when production-backed Preview adds concrete value that local development, local production-style `npm run preview`, repository validation, and GitHub CI do not provide.
+
+When remote Preview is used, use the permanent workflow instead of creating temporary deployment workflows, CI jobs, deployment-only source commits, or ad-hoc Wrangler commands.
 
 For the broader capability-based execution policy, including GitHub Actions minute conservation, see:
 
@@ -20,17 +22,18 @@ docs/DEVELOPMENT_EXECUTION_WORKFLOW.md
 
 ## Execution environment policy
 
-The permanent Preview workflow is a **remote integration/deployment gate**, not the normal inner development loop.
+The permanent Preview workflow is a **retained optional remote deployment capability**, not the normal inner development loop and not a mandatory integration/deployment gate.
 
-When a usable local checkout and command-execution environment are available:
+When a usable local checkout and command-execution environment are available, the normal path is:
 
 ```text
 local Vite iteration
 → local production-style `npm run preview`
 → local validation
 → PR / normal CI
-→ Deploy PR to Preview only at a meaningful checkpoint
 ```
+
+Use remote Preview after that path only when it is explicitly requested or when a production-backed manual review would add concrete value for the candidate.
 
 `npm run preview` is local and does not consume GitHub Actions minutes. `Deploy PR to Preview` runs on GitHub Actions and does consume remote workflow runtime.
 
@@ -38,7 +41,7 @@ When local execution is unavailable but useful GitHub access exists:
 
 - use the available GitHub integration for supported repository/PR/CI inspection and mutations;
 - rely on configured GitHub CI for executable validation that cannot run locally, while reporting it as CI evidence rather than local execution;
-- if the active GitHub integration exposes authorized workflow dispatch, it may invoke the existing permanent Preview workflow;
+- if remote Preview is explicitly requested or concretely useful and the active GitHub integration exposes authorized workflow dispatch, it may invoke the existing permanent Preview workflow;
 - if workflow dispatch is not exposed, use the GitHub Actions web/mobile UI or another authorized terminal environment;
 - never add a temporary workflow, empty deployment commit, source-code trigger, or guard bypass solely because the current integration cannot dispatch the workflow.
 
@@ -147,7 +150,9 @@ Use one of these supported paths:
 
 Missing workflow-dispatch capability is not a reason to create a new trigger or deployment-only commit.
 
-## 6. Normal Preview lifecycle
+## 6. Remote Preview lifecycle when used
+
+When remote Preview has been explicitly requested or selected because it adds concrete production-backed review value, use this lifecycle:
 
 ```text
 main on Preview
@@ -206,7 +211,7 @@ Do not summarize this as simply `deployed` without naming the environment.
 
 ## 9. Agent instruction
 
-When the user says **deploy Preview**, **update Preview**, **refresh Preview**, or equivalent for an open PR:
+When the user says **deploy Preview**, **update Preview**, **refresh Preview**, or equivalent for an open PR, or when remote Preview has otherwise been explicitly selected because it adds concrete production-backed review value:
 
 1. resolve the target PR number;
 2. use `.github/workflows/deploy-pr-to-preview.yml` from `main` when the available environment exposes an authorized dispatch path;
