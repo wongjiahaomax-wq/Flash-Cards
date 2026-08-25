@@ -13,9 +13,30 @@
     const params = new URLSearchParams();
     if (data.caseFilters.search) params.set('q', data.caseFilters.search);
     if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
+    if (data.caseFilters.sort && data.caseFilters.sort !== 'case-asc') params.set('sort', data.caseFilters.sort);
     if (page > 1) params.set('page', String(page));
     const search = params.toString();
     return search ? `/admin/cases?${search}` : '/admin/cases';
+  }
+
+  /** @param {'case' | 'topic' | 'tag'} column */
+  function sortHref(column) {
+    const currentColumn = data.caseFilters.sort?.split('-')[0];
+    const currentDirection = data.caseFilters.sort?.split('-')[1];
+    const direction = currentColumn === column && currentDirection === 'asc' ? 'desc' : 'asc';
+    const params = new URLSearchParams();
+    if (data.caseFilters.search) params.set('q', data.caseFilters.search);
+    if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
+    if (!(column === 'case' && direction === 'asc')) params.set('sort', `${column}-${direction}`);
+    const search = params.toString();
+    return search ? `/admin/cases?${search}` : '/admin/cases';
+  }
+
+  /** @param {'case' | 'topic' | 'tag'} column */
+  function sortIndicator(column) {
+    if (data.caseFilters.sort?.startsWith(`${column}-asc`)) return '↑';
+    if (data.caseFilters.sort?.startsWith(`${column}-desc`)) return '↓';
+    return '↕';
   }
 </script>
 
@@ -38,7 +59,7 @@
     <p class="empty-state">No active Cases match these filters.</p>
   {:else}
     <div class="case-table" role="list">
-      <div class="table-header" aria-hidden="true"><span>Case</span><span>Topic</span><span>Tags</span><span>Open</span></div>
+      <div class="table-header"><a class="sort-header" href={sortHref('case')} aria-label={`Sort by Case ${data.caseFilters.sort === 'case-asc' ? 'descending' : 'ascending'}`}>Case <span aria-hidden="true">{sortIndicator('case')}</span></a><a class="sort-header" href={sortHref('topic')} aria-label={`Sort by Topic ${data.caseFilters.sort === 'topic-asc' ? 'descending' : 'ascending'}`}>Topic <span aria-hidden="true">{sortIndicator('topic')}</span></a><a class="sort-header" href={sortHref('tag')} aria-label={`Sort by Tags ${data.caseFilters.sort === 'tag-asc' ? 'descending' : 'ascending'}`}>Tags <span aria-hidden="true">{sortIndicator('tag')}</span></a><span>Open</span></div>
       {#each data.cases as item}
         <a class="table-row" href={`/admin/cases/${item.id}`}>
           <strong>{item.title}</strong>
@@ -65,7 +86,7 @@
   .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; } .button.primary { border-color: #172033; background: #172033; color: #fff; }
   .search-form { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(180px, 0.8fr) auto; gap: 0.75rem; align-items: end; margin: 1.5rem 0 1rem; } label { display: grid; gap: 0.4rem; color: #344054; font-weight: 650; } input, select { width: 100%; min-width: 0; box-sizing: border-box; padding: 0.7rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } .search-actions { display: flex; gap: 0.5rem; }
   .panel { padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; } .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
-  .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(120px, 0.8fr) minmax(160px, 1fr) 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .table-row { border-bottom: 1px solid #eaecf0; color: #172033; text-decoration: none; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; }
+  .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(120px, 0.8fr) minmax(160px, 1fr) 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .sort-header { color: inherit; text-decoration: none; } .sort-header span { margin-left: 0.2rem; font-size: 0.9rem; } .table-row { border-bottom: 1px solid #eaecf0; color: #172033; text-decoration: none; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; }
   .tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; } .tag-chip { display: inline-block; padding: 0.18rem 0.4rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; }
   .empty-state { padding: 1rem; border: 1px dashed #d0d5dd; border-radius: 8px; }
   .pagination { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.75rem; margin-top: 1rem; } .pagination > :last-child { justify-self: end; }

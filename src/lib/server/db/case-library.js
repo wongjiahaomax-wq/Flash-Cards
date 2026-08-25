@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, like, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull, like, sql } from 'drizzle-orm';
 
 import { caseConcepts, cases, concepts } from './schema.js';
 import { caseTags, tags } from './tag-schema.js';
@@ -9,12 +9,14 @@ export const CASE_LIBRARY_PAGE_SIZE = 60;
 
 /**
  * @param {URLSearchParams | { get(name: string): string | null }} params
- * @returns {{ search: string, tagId: string }}
+ * @returns {{ search: string, tagId: string, sort: string }}
  */
 export function parseCaseLibraryFilters(params) {
+  const sort = params.get('sort')?.trim() ?? '';
   return {
     search: params.get('q')?.trim() ?? '',
-    tagId: params.get('tag')?.trim() ?? ''
+    tagId: params.get('tag')?.trim() ?? '',
+    sort: ['case-asc', 'case-desc', 'topic-asc', 'topic-desc', 'tag-asc', 'tag-desc'].includes(sort) ? sort : 'case-asc'
   };
 }
 
@@ -75,7 +77,7 @@ async function listPageCaseTags(db, caseIds) {
  * so malformed duplicate primary relationships cannot consume page slots.
  *
  * @param {LearningDb} db
- * @param {{ search: string, tagId: string }} filters
+ * @param {{ search: string, tagId: string, sort?: string }} filters
  * @param {{ page?: number, pageSize?: number }} [options]
  */
 export async function getCaseLibraryPage(db, filters, options = {}) {
@@ -87,6 +89,12 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const page = Math.min(requestedPage, totalPages);
 
+  const topicSort = sql`coalesce((select min(${concepts.name}) from ${caseConcepts} inner join ${concepts} on ${concepts.id} = ${caseConcepts.conceptId} where ${caseConcepts.caseId} = ${cases.id} and ${caseConcepts.role} = 'primary'), '')`;
+  const tagSort = sql`coalesce((select min(${tags.name}) from ${caseTags} inner join ${tags} on ${tags.id} = ${caseTags.tagId} where ${caseTags.caseId} = ${cases.id} and ${tags.isActive} = true), '')`;
+  const sort = filters.sort ?? 'case-asc';
+  const sortExpression = sort.startsWith('topic') ? topicSort : sort.startsWith('tag') ? tagSort : cases.title;
+  const sortDirection = sort.endsWith('desc') ? desc : asc;
+
   const rawRows = await db
     .select({
       id: cases.id,
@@ -95,7 +103,7 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
     })
     .from(cases)
     .where(where)
-    .orderBy(asc(cases.title), asc(cases.id))
+    .orderBy(sortDirection(sortExpression), asc(cases.title), asc(cases.id))
     .limit(pageSize)
     .offset((page - 1) * pageSize);
 
