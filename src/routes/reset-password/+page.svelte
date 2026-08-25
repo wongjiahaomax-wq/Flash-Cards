@@ -15,13 +15,14 @@
   let completed = $state(false);
 
   onMount(() => {
-    const params = new URLSearchParams(window.location.search);
-    token = params.get('token') ?? '';
-    invalidLink = !token || params.get('error') === 'INVALID_TOKEN';
+    const fragmentParams = new URLSearchParams(window.location.hash.slice(1));
+    token = fragmentParams.get('token') ?? '';
+    invalidLink = !token;
     linkReady = true;
 
-    // Keep the Better Auth token only in browser memory after initial parsing so
-    // it cannot leak through same-origin referrer logs or subsequent navigation.
+    // The token arrives only in the URL fragment, which browsers do not send in
+    // the initial HTTP request. Remove it from the visible address immediately
+    // after capture so it is not retained for later navigation or screenshots.
     window.history.replaceState(window.history.state, '', '/reset-password');
   });
 
