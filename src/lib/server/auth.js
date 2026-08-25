@@ -7,7 +7,8 @@ import {
   PASSWORD_RESET_TOKEN_EXPIRES_IN_SECONDS,
   sendPasswordResetEmail
 } from '$lib/server/email/password-reset.ts';
-import { EmailDeliveryError } from '$lib/server/email/resend.ts';
+import { sendTransactionalEmail } from '$lib/server/email/resend.ts';
+import { EmailDeliveryError } from '$lib/server/email/transactional.ts';
 
 /** @param {Promise<unknown>} task */
 function scheduleAuthBackgroundTask(task) {
@@ -68,7 +69,8 @@ export function createAuth(env) {
             env,
             to: user.email,
             betterAuthResetUrl: url,
-            token
+            token,
+            sendEmail: sendTransactionalEmail
           });
         } catch (error) {
           // Delivery happens outside the learner-facing request lifetime. Keep
