@@ -11,7 +11,7 @@ import {
 } from './ownership.js';
 
 type LearningDb = import('../index.js').LearningDb;
-type OwnedPreviewGroup = Awaited<ReturnType<typeof requireOwnedPreviewGroup>>;
+type OwnedPreviewGroup = { id: string; caseId: string };
 
 function newId() {
   return crypto.randomUUID();
