@@ -115,10 +115,22 @@
         <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-add-form">
           <input type="hidden" name="case_id" value={selectedCase.case.id} />
           <input type="hidden" name="operation" value="add" />
-          <label>Add Case Tag<select name="tag_id" required><option value="" disabled selected>Select an active Tag</option>{#each effectiveTagOptions as tag}{#if !hasTag(selectedCase.caseTags, tag.id)}<option value={tag.id}>{tag.name}</option>{/if}{/each}</select></label>
+          <label>Add existing Case Tag<select name="tag_id" required><option value="" disabled selected>Select an active Tag</option>{#each effectiveTagOptions as tag}{#if !hasTag(selectedCase.caseTags, tag.id)}<option value={tag.id}>{tag.name}</option>{/if}{/each}</select></label>
           <button class="button" type="submit">Add Tag</button>
         </form>
       {/if}
+      <div class="tag-create">
+        <div class="tag-create-copy">
+          <strong>Create a new Case Tag</strong>
+          <small>Creates a new active global Tag and attaches it to this Case. Rename, deactivate, or configure System exposure later from global Tags.</small>
+        </div>
+        <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-create-form">
+          <input type="hidden" name="case_id" value={selectedCase.case.id} />
+          <input type="hidden" name="operation" value="create-and-add" />
+          <label>Tag name<input name="name" maxlength="120" required placeholder="e.g. Prolonged QTc" /></label>
+          <button class="button" type="submit">Create &amp; add Tag</button>
+        </form>
+      </div>
       <a class="manage-tags" href="/admin/tags">Manage global Tags</a>
     {:else}
       <small class="muted">Preview copies preserve Case Tags, but global Tag curation remains read-only in Preview Mode.</small>
@@ -133,7 +145,7 @@
   .panel { margin-top: 1rem; padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; }
   .taxonomy-context,.case-tags-context { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.8rem .9rem; border:1px solid #dfe5ee; border-radius:8px; background:#fff; } .taxonomy-context > div:first-child,.case-tags-heading { display:grid; gap:.2rem; } .taxonomy-context small,.case-tags-context small { color:#667085; } .breadcrumb { color:#344054; font-weight:650; } .taxonomy-links { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.6rem; } .taxonomy-links a,.manage-tags { color:#344054; font-size:.86rem; }
   .case-tags-context { align-items:flex-start; flex-wrap:wrap; } .tag-chips { display:flex; flex:1; flex-wrap:wrap; gap:.45rem; } .tag-chip-wrap { display:flex; align-items:center; gap:.25rem; } .tag-chip { display:inline-block; padding:.18rem .45rem; border-radius:999px; background:#eef4ff; color:#3538cd; font-size:.78rem; font-weight:650; text-decoration:none; } .tag-chip.inactive { background:#f2f4f7; color:#667085; } .tag-remove { padding:.18rem .35rem; border:0; background:transparent; color:#b42318; cursor:pointer; font:inherit; font-size:.75rem; }
-  .tag-add-form { display:flex; flex-wrap:wrap; align-items:end; gap:.55rem; width:100%; } .tag-add-form label { flex:1; min-width:min(100%,260px); }
+  .tag-add-form,.tag-create-form { display:flex; flex-wrap:wrap; align-items:end; gap:.55rem; width:100%; } .tag-add-form label,.tag-create-form label { flex:1; min-width:min(100%,260px); } .tag-create { display:grid; gap:.55rem; width:100%; padding-top:.75rem; border-top:1px solid #eaecf0; } .tag-create-copy { display:grid; gap:.2rem; }
   .topic-primary { display: grid; gap: 0.75rem; padding: 0.9rem; border: 1px solid #eaecf0; border-radius: 8px; background: #f8fafc; }
   .topic-row-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
   .topic-help { display: block; margin-top: 0.2rem; color: #667085; font-size: 0.86rem; font-weight: 400; }
