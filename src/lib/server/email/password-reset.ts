@@ -6,6 +6,8 @@ import {
 
 export const PASSWORD_RESET_TOKEN_EXPIRES_IN_SECONDS = 60 * 60;
 
+type PasswordResetEmailContent = Omit<TransactionalEmailMessage, 'to'>;
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
@@ -26,11 +28,10 @@ export function buildApplicationPasswordResetUrl(betterAuthResetUrl: string, tok
   return resetUrl.toString();
 }
 
-export function renderPasswordResetEmail(resetUrl: string): TransactionalEmailMessage {
+export function renderPasswordResetEmail(resetUrl: string): PasswordResetEmailContent {
   const safeUrl = escapeHtml(resetUrl);
 
   return {
-    to: '',
     subject: 'Reset your Flash-Cards password',
     text: [
       'A password reset was requested for your Flash-Cards account.',
