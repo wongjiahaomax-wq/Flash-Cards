@@ -29,7 +29,14 @@ test('Compact Case questions keep scope and reorder controls together without a 
   assert.match(questions, /use:enhance=\{preserveQuestionPosition\}/);
   assert.match(questions, /replaceState\(result\.location, \{\}\)/);
   assert.match(questions, /await invalidateAll\(\)/);
-  assert.match(questions, /window\.scrollBy\(0, movedCard\.getBoundingClientRect\(\)\.top - top\)/);
+  assert.match(questions, /root\.style\.overflowAnchor = 'none'/);
+  assert.match(questions, /window\.scrollTo\(scrollX, scrollY\)/);
+  assert.doesNotMatch(questions, /window\.scrollBy\(/);
+});
+
+test('Compact Case question Prompt and Answer fields start at the same height', () => {
+  assert.match(questions, /class="question-prompt-field">Prompt<textarea name="prompt_md" rows="3"/);
+  assert.match(questions, /class="question-answer-field">Answer<textarea name="answer_md" rows="3"/);
 });
 
 test('Compact wide layout uses horizontal question fields and sticky section navigation only at the wide breakpoint', () => {
