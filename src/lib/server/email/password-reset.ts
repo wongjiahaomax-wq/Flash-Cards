@@ -5,6 +5,7 @@ import type {
 } from './transactional.ts';
 
 export const PASSWORD_RESET_TOKEN_EXPIRES_IN_SECONDS = 60 * 60;
+export type PasswordEmailPurpose = 'reset' | 'account-setup';
 
 type PasswordResetEmailContent = Omit<TransactionalEmailMessage, 'to'>;
 
@@ -53,16 +54,42 @@ export function renderPasswordResetEmail(resetUrl: string): PasswordResetEmailCo
   };
 }
 
+export function renderSetPasswordEmail(resetUrl: string): PasswordResetEmailContent {
+  const safeUrl = escapeHtml(resetUrl);
+
+  return {
+    subject: 'Set your Flash-Cards password',
+    text: [
+      'A Flash-Cards account was created for this email address.',
+      '',
+      `Set your password: ${resetUrl}`,
+      '',
+      'This secure link expires in 1 hour and can be used only once.',
+      'No temporary password has been created for you to use or share.'
+    ].join('\n'),
+    html: [
+      '<p>A Flash-Cards account was created for this email address.</p>',
+      `<p><a href="${safeUrl}">Set your password</a></p>`,
+      '<p>This secure link expires in 1 hour and can be used only once.</p>',
+      '<p>No temporary password has been created for you to use or share.</p>'
+    ].join('')
+  };
+}
+
 export async function sendPasswordResetEmail(options: {
   env: EmailEnvironment;
   to: string;
   betterAuthResetUrl: string;
   token: string;
+  purpose?: PasswordEmailPurpose;
   sendEmail: TransactionalEmailSender;
   fetchImpl?: typeof fetch;
 }): Promise<void> {
   const resetUrl = buildApplicationPasswordResetUrl(options.betterAuthResetUrl, options.token);
-  const message = renderPasswordResetEmail(resetUrl);
+  const message =
+    options.purpose === 'account-setup'
+      ? renderSetPasswordEmail(resetUrl)
+      : renderPasswordResetEmail(resetUrl);
 
   await options.sendEmail(
     options.env,

@@ -10,6 +10,9 @@ import {
 import { sendTransactionalEmail } from '$lib/server/email/resend.ts';
 import { EmailDeliveryError } from '$lib/server/email/transactional.ts';
 
+/** @typedef {'reset' | 'account-setup'} PasswordEmailPurpose */
+/** @typedef {{ passwordEmailPurpose?: PasswordEmailPurpose, awaitPasswordEmailDelivery?: boolean }} CreateAuthOptions */
+
 /** @param {Promise<unknown>} task */
 function scheduleAuthBackgroundTask(task) {
   const safeTask = task.catch(() => {
@@ -38,14 +41,20 @@ function scheduleAuthBackgroundTask(task) {
  * Better Auth is created from the Cloudflare request environment because D1 is
  * provided as a Worker binding rather than as a process-global connection.
  *
+ * The optional delivery mode is reserved for authenticated server workflows
+ * such as Admin account invitations that must report provider failure. Public
+ * forgot-password requests use the default background mode to resist timing
+ * enumeration.
+ *
  * @param {Cloudflare.Env & {
  *   BETTER_AUTH_SECRET: string,
  *   BETTER_AUTH_URL?: string,
  *   RESEND_API_KEY?: string,
  *   AUTH_EMAIL_FROM?: string
  * }} env
+ * @param {CreateAuthOptions} [config]
  */
-export function createAuth(env) {
+export function createAuth(env, config = {}) {
   if (!env?.DB) {
     throw new Error('The Cloudflare D1 binding DB is required for authentication.');
   }
@@ -53,6 +62,8 @@ export function createAuth(env) {
   if (!env?.BETTER_AUTH_SECRET) {
     throw new Error('BETTER_AUTH_SECRET is required for authentication.');
   }
+
+  const passwordEmailPurpose = config.passwordEmailPurpose ?? 'reset';
 
   /** @type {import('better-auth').BetterAuthOptions} */
   const options = {
@@ -64,12 +75,25 @@ export function createAuth(env) {
       resetPasswordTokenExpiresIn: PASSWORD_RESET_TOKEN_EXPIRES_IN_SECONDS,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url, token }) => {
+        if (config.awaitPasswordEmailDelivery) {
+          await sendPasswordResetEmail({
+            env,
+            to: user.email,
+            betterAuthResetUrl: url,
+            token,
+            purpose: passwordEmailPurpose,
+            sendEmail: sendTransactionalEmail
+          });
+          return;
+        }
+
         try {
           await sendPasswordResetEmail({
             env,
             to: user.email,
             betterAuthResetUrl: url,
             token,
+            purpose: passwordEmailPurpose,
             sendEmail: sendTransactionalEmail
           });
         } catch (error) {
@@ -89,9 +113,13 @@ export function createAuth(env) {
       database: {
         generateId: 'uuid'
       },
-      backgroundTasks: {
-        handler: scheduleAuthBackgroundTask
-      }
+      ...(config.awaitPasswordEmailDelivery
+        ? {}
+        : {
+            backgroundTasks: {
+              handler: scheduleAuthBackgroundTask
+            }
+          })
     },
     plugins: [
       admin(),

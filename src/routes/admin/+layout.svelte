@@ -27,6 +27,7 @@
       <a href="/admin/topics">Systems &amp; Topics</a>
       <a href="/admin/tags">Tags</a>
       <a href="/admin/import">Import package</a>
+      <a href="/admin/accounts">Accounts</a>
     </aside>
 
     <main class="admin-content">{@render children()}</main>
