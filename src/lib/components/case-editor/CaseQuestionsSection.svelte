@@ -15,24 +15,28 @@
   let newQuestionScope = $state('case');
 
   /** @type {NonNullable<Parameters<typeof enhance>[1]>} */
-  const preserveQuestionPosition = ({ formElement }) => {
-    const card = formElement.closest('.question-card');
-    const cardId = card?.id;
-    const top = card?.getBoundingClientRect().top;
+  const preserveQuestionPosition = () => {
+    const scrollX = window.scrollX;
+    const scrollY = window.scrollY;
 
     return async ({ result }) => {
-      if (result.type === 'redirect') {
-        replaceState(result.location, {});
-        await invalidateAll();
-      } else {
+      if (result.type !== 'redirect') {
         await applyAction(result);
+        return;
       }
 
-      if (result.type !== 'redirect' || !cardId || top == null) return;
-      await tick();
-      const movedCard = document.getElementById(cardId);
-      if (!movedCard) return;
-      window.scrollBy(0, movedCard.getBoundingClientRect().top - top);
+      const root = document.documentElement;
+      const previousOverflowAnchor = root.style.overflowAnchor;
+      root.style.overflowAnchor = 'none';
+
+      try {
+        replaceState(result.location, {});
+        await invalidateAll();
+        await tick();
+        window.scrollTo(scrollX, scrollY);
+      } finally {
+        root.style.overflowAnchor = previousOverflowAnchor;
+      }
     };
   };
 </script>
@@ -114,7 +118,7 @@
         <form id={`question-edit-${question.questionPromptId}`} method="POST" action="?/saveQuestion" class="question-edit-form">
           <input type="hidden" name="case_id" value={selectedCase.case.id} />
           <input type="hidden" name="original_prompt_id" value={question.questionPromptId} />
-          <label class="question-prompt-field">Prompt<textarea name="prompt_md" rows="2" maxlength="2000" required>{question.promptMd}</textarea></label>
+          <label class="question-prompt-field">Prompt<textarea name="prompt_md" rows="3" maxlength="2000" required>{question.promptMd}</textarea></label>
           <label class="question-answer-field">Answer<textarea name="answer_md" rows="3" maxlength="5000" required>{question.answerMd}</textarea></label>
           <div class="question-footer">
             <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" checked={question.reusableForTopic} /> Share this question with the Topic</label>
