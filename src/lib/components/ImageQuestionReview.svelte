@@ -12,6 +12,44 @@
   let imageName = $derived(asset.originalFilename ?? asset.assetId);
   let effectiveGroupActive = $derived(groupActive ?? reusable?.groupActive ?? true);
   let currentParticipant = $derived(effectiveGroupActive && asset.isActive !== false && asset.assetIsActive !== false);
+
+  /** Keep answers readable within the narrower image-question column. */
+  const autoGrowImageField = (node) => {
+    const maxHeight = 220;
+    let expanded = false;
+    const expandButton = document.createElement('button');
+    expandButton.type = 'button';
+    expandButton.className = 'button small image-answer-expand-button';
+    expandButton.hidden = true;
+    expandButton.style.display = 'none';
+
+    const resize = () => {
+      node.style.height = 'auto';
+      const isOverflowing = node.scrollHeight > maxHeight;
+      const hidden = !isOverflowing && !expanded;
+      node.style.height = `${expanded ? node.scrollHeight : Math.min(node.scrollHeight, maxHeight)}px`;
+      node.style.overflowY = expanded ? 'hidden' : isOverflowing ? 'auto' : 'hidden';
+      expandButton.hidden = hidden;
+      expandButton.style.display = hidden ? 'none' : '';
+      expandButton.textContent = expanded ? 'Collapse answer' : 'Expand answer';
+      expandButton.setAttribute('aria-expanded', String(expanded));
+    };
+
+    expandButton.addEventListener('click', () => {
+      expanded = !expanded;
+      resize();
+    });
+    node.addEventListener('input', resize);
+    node.insertAdjacentElement('afterend', expandButton);
+    requestAnimationFrame(resize);
+
+    return {
+      destroy() {
+        node.removeEventListener('input', resize);
+        expandButton.remove();
+      }
+    };
+  };
 </script>
 
 <section id={`option-review-${optionId}`} class="image-question-review" class:inactive-review={!currentParticipant} aria-label={`${currentParticipant ? '' : 'Inactive '}questions for ${imageName}`} tabindex="-1">
@@ -51,8 +89,8 @@
               <input type="hidden" name="case_id" value={caseId} />
               <input type="hidden" name="option_id" value={optionId} />
               <input type="hidden" name="original_prompt_id" value={question.questionPromptId} />
-              <label>Prompt<textarea name="prompt_md" rows="2" maxlength="2000" required>{question.promptMd}</textarea></label>
-              <label>Answer<textarea name="answer_md" rows="3" maxlength="10000" required>{question.answerMd}</textarea></label>
+              <label>Prompt<textarea use:autoGrowImageField name="prompt_md" rows="2" maxlength="2000" required>{question.promptMd}</textarea></label>
+              <label>Answer<textarea use:autoGrowImageField name="answer_md" rows="3" maxlength="10000" required>{question.answerMd}</textarea></label>
               <div class="row-actions"><button class="button small" type="submit">Save</button></div>
             </form>
           {/each}
@@ -76,7 +114,7 @@
                 <input type="hidden" name="case_id" value={caseId} />
                 <input type="hidden" name="asset_question_id" value={question.id} />
                 <div class="read-field"><span>Prompt</span><strong>{question.promptMd}</strong><a href={`/admin/images/${asset.assetId}#reusable-questions`}>Edit shared wording in Asset library</a></div>
-                <label>Answer<textarea name="answer_md" rows="3" maxlength="10000" required>{question.answerMd}</textarea></label>
+                <label>Answer<textarea use:autoGrowImageField name="answer_md" rows="3" maxlength="10000" required>{question.answerMd}</textarea></label>
                 <div class="row-actions"><button class="button small" type="submit">Save canonical answer</button></div>
               </form>
             {/if}

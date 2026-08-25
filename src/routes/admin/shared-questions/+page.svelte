@@ -90,12 +90,12 @@
 </div>
 
 <style>
-  .page { max-width: 1180px; display: grid; gap: 2rem; }
+  .page { width: 100%; display: grid; gap: 2rem; }
   h1, h2, h3, p { margin-top: 0; }
   .eyebrow { margin-bottom: .35rem; color: #475467; font-size: .78rem; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
   .lede { max-width: 760px; color: #667085; }
   .panel, article { background: #fff; border: 1px solid #dfe5ee; border-radius: 10px; padding: 1.25rem; }
-  .form-grid { display: grid; gap: 1rem; max-width: 850px; }
+  .form-grid { display: grid; gap: 1rem; }
   label, fieldset { display: grid; gap: .35rem; font-weight: 650; }
   input, textarea, select { width: 100%; box-sizing: border-box; padding: .7rem .8rem; border: 1px solid #cbd5e1; border-radius: 7px; background: #fff; font: inherit; }
   textarea { resize: vertical; }

@@ -6,6 +6,7 @@ const editor = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.sv
 const navigation = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorNavigation.svelte', import.meta.url), 'utf8');
 const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
 const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
+const imageReview = readFileSync(new URL('../src/lib/components/ImageQuestionReview.svelte', import.meta.url), 'utf8');
 
 test('Case editor exposes one shared Classic/Compact authoring tree', () => {
   assert.match(editor, /data-editor-layout=\{editorLayout\}/);
@@ -43,6 +44,18 @@ test('Compact Case question Prompt and Answer fields start at the same height', 
   assert.match(questions, /const hidden = !isOverflowing && !expanded/);
   assert.match(questions, /expandButton\.style\.display = hidden \? 'none' : ''/);
   assert.match(questions, /\.answer-expand-button\[hidden\] \{ display: none; \}/);
+});
+
+test('Image-specific answer fields use a smaller contextual auto-grow limit', () => {
+  assert.match(images, /const autoGrowImageField = \(node\) =>/);
+  assert.match(images, /const maxHeight = 220/);
+  assert.match(images, /use:autoGrowImageField name="prompt_md"/);
+  assert.match(images, /use:autoGrowImageField name="answer_md"/);
+  assert.match(images, /expandButton\.style\.display = hidden \? 'none' : ''/);
+  assert.match(imageReview, /const autoGrowImageField = \(node\) =>/);
+  assert.match(imageReview, /const maxHeight = 220/);
+  assert.match(imageReview, /use:autoGrowImageField name="prompt_md"/);
+  assert.match(imageReview, /use:autoGrowImageField name="answer_md"/);
 });
 
 test('Compact wide layout uses horizontal question fields and sticky section navigation only at the wide breakpoint', () => {
