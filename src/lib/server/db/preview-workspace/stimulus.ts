@@ -10,15 +10,14 @@ import {
   requirePreviewUsableAsset
 } from './ownership.js';
 
-/** @typedef {import('../index.js').LearningDb} LearningDb */
-/** @typedef {Awaited<ReturnType<typeof requireOwnedPreviewGroup>>} OwnedPreviewGroup */
+type LearningDb = import('../index.js').LearningDb;
+type OwnedPreviewGroup = Awaited<ReturnType<typeof requireOwnedPreviewGroup>>;
 
 function newId() {
   return crypto.randomUUID();
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} groupId */
-export async function validatePreviewStimulusGroupTarget(db, previewSessionId, groupId) {
+export async function validatePreviewStimulusGroupTarget(db: LearningDb, previewSessionId: string, groupId: string) {
   const group = await requireOwnedPreviewGroup(db, previewSessionId, groupId);
   const caseRow = (
     await db
@@ -49,13 +48,13 @@ export async function validatePreviewStimulusGroupTarget(db, previewSessionId, g
  * Add already-bounded Asset IDs to an already-validated Preview Stimulus Group.
  * The façade deliberately performs group-target validation before bulk-input
  * validation so the established ownership/error precedence remains unchanged.
- *
- * @param {LearningDb} db
- * @param {string} previewSessionId
- * @param {OwnedPreviewGroup} group
- * @param {string[]} ids
  */
-export async function addPreviewAssetsToStimulusGroup(db, previewSessionId, group, ids) {
+export async function addPreviewAssetsToStimulusGroup(
+  db: LearningDb,
+  previewSessionId: string,
+  group: OwnedPreviewGroup,
+  ids: string[]
+) {
   for (const assetId of ids) await requirePreviewUsableAsset(db, previewSessionId, assetId);
   const [fixedRows, optionRows] = await Promise.all([
     db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(and(eq(caseAssets.caseId, group.caseId), inArray(caseAssets.assetId, ids))),
@@ -93,27 +92,36 @@ export async function addPreviewAssetsToStimulusGroup(db, previewSessionId, grou
       isActive: true
     })
   );
-  if (typeof db.batch === 'function') await db.batch(/** @type {[any, ...any[]]} */ (writes));
+  if (typeof db.batch === 'function') await db.batch(writes as [any, ...any[]]);
   else for (const write of writes) await write;
   return { addedCount: newIds.length, alreadyPresentCount: ids.length - newIds.length, caseId: group.caseId };
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {string} optionId @param {unknown} captionMd */
-export async function updatePreviewStimulusOptionCaption(db, previewSessionId, caseId, optionId, captionMd) {
+export async function updatePreviewStimulusOptionCaption(
+  db: LearningDb,
+  previewSessionId: string,
+  caseId: string,
+  optionId: string,
+  captionMd: unknown
+) {
   await requireOwnedPreviewCase(db, previewSessionId, caseId);
   const option = await requireOwnedPreviewOption(db, previewSessionId, optionId);
   if (option.caseId !== caseId) throw new PreviewWorkspaceError('That alternative image does not belong to this Preview Case.', 'NOT_OWNED');
   await db.update(stimulusGroupOptions).set({ captionMd: optionalText(captionMd) }).where(eq(stimulusGroupOptions.id, optionId));
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {{ name: string, specificQuestionMode?: string, minimumSpecificQuestions?: unknown }} input */
-export async function createPreviewStimulusGroup(db, previewSessionId, caseId, input) {
+export async function createPreviewStimulusGroup(
+  db: LearningDb,
+  previewSessionId: string,
+  caseId: string,
+  input: { name: string; specificQuestionMode?: string; minimumSpecificQuestions?: unknown }
+) {
   await requireOwnedPreviewCase(db, previewSessionId, caseId);
   const mode = String(input.specificQuestionMode || 'none');
   if (!['none', 'minimum', 'all'].includes(mode)) {
     throw new PreviewWorkspaceError('Specific-question coverage is invalid.', 'INVALID_INPUT');
   }
-  let minimum = null;
+  let minimum: number | null = null;
   if (mode === 'minimum') {
     const parsedMinimum = Number(input.minimumSpecificQuestions);
     if (!Number.isInteger(parsedMinimum) || parsedMinimum < 1) {
@@ -143,8 +151,13 @@ export async function createPreviewStimulusGroup(db, previewSessionId, caseId, i
   return id;
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {string} assetId @param {string} name */
-export async function startPreviewAlternativeSet(db, previewSessionId, caseId, assetId, name) {
+export async function startPreviewAlternativeSet(
+  db: LearningDb,
+  previewSessionId: string,
+  caseId: string,
+  assetId: string,
+  name: string
+) {
   await requireOwnedPreviewCase(db, previewSessionId, caseId);
   const fixed = (
     await db
@@ -167,14 +180,18 @@ export async function startPreviewAlternativeSet(db, previewSessionId, caseId, a
   }
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} groupId @param {Record<string, unknown>} input */
-export async function updatePreviewStimulusGroup(db, previewSessionId, groupId, input) {
+export async function updatePreviewStimulusGroup(
+  db: LearningDb,
+  previewSessionId: string,
+  groupId: string,
+  input: Record<string, unknown>
+) {
   await requireOwnedPreviewGroup(db, previewSessionId, groupId);
   const mode = String(input.specificQuestionMode || 'none');
   if (!['none', 'minimum', 'all'].includes(mode)) {
     throw new PreviewWorkspaceError('Specific-question coverage is invalid.', 'INVALID_INPUT');
   }
-  let minimum = null;
+  let minimum: number | null = null;
   if (mode === 'minimum') {
     const parsedMinimum = Number(input.minimumSpecificQuestions);
     if (!Number.isInteger(parsedMinimum) || parsedMinimum < 1) {
@@ -194,8 +211,7 @@ export async function updatePreviewStimulusGroup(db, previewSessionId, groupId, 
     .where(eq(stimulusGroups.id, groupId));
 }
 
-/** @param {LearningDb} db @param {string} groupId */
-async function nextOptionOrder(db, groupId) {
+async function nextOptionOrder(db: LearningDb, groupId: string) {
   const last = (
     await db
       .select({ displayOrder: stimulusGroupOptions.displayOrder })
@@ -207,8 +223,13 @@ async function nextOptionOrder(db, groupId) {
   return (last?.displayOrder ?? -1) + 1;
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} groupId @param {string} assetId @param {string | null} [captionMd] */
-export async function addPreviewStimulusOption(db, previewSessionId, groupId, assetId, captionMd = null) {
+export async function addPreviewStimulusOption(
+  db: LearningDb,
+  previewSessionId: string,
+  groupId: string,
+  assetId: string,
+  captionMd: string | null = null
+) {
   const group = await requireOwnedPreviewGroup(db, previewSessionId, groupId);
   await requirePreviewUsableAsset(db, previewSessionId, assetId);
   const duplicate = (
@@ -235,8 +256,7 @@ export async function addPreviewStimulusOption(db, previewSessionId, groupId, as
   });
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} groupId @param {string} assetId */
-export async function convertPreviewFixedAssetToOption(db, previewSessionId, groupId, assetId) {
+export async function convertPreviewFixedAssetToOption(db: LearningDb, previewSessionId: string, groupId: string, assetId: string) {
   const group = await requireOwnedPreviewGroup(db, previewSessionId, groupId);
   await requirePreviewUsableAsset(db, previewSessionId, assetId);
   const fixed = (
@@ -270,19 +290,28 @@ export async function convertPreviewFixedAssetToOption(db, previewSessionId, gro
       db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, group.caseId), eq(caseAssets.assetId, row.assetId)))
     )
   ];
-  if (typeof db.batch === 'function') await db.batch(/** @type {[any, ...any[]]} */ (writes));
+  if (typeof db.batch === 'function') await db.batch(writes as [any, ...any[]]);
   else for (const write of writes) await write;
   return optionId;
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} optionId @param {boolean} active */
-export async function setPreviewStimulusOptionActive(db, previewSessionId, optionId, active) {
+export async function setPreviewStimulusOptionActive(
+  db: LearningDb,
+  previewSessionId: string,
+  optionId: string,
+  active: boolean
+) {
   await requireOwnedPreviewOption(db, previewSessionId, optionId);
   await db.update(stimulusGroupOptions).set({ isActive: Boolean(active) }).where(eq(stimulusGroupOptions.id, optionId));
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} groupId @param {string} optionId @param {'up'|'down'} direction */
-export async function movePreviewStimulusOption(db, previewSessionId, groupId, optionId, direction) {
+export async function movePreviewStimulusOption(
+  db: LearningDb,
+  previewSessionId: string,
+  groupId: string,
+  optionId: string,
+  direction: 'up' | 'down'
+) {
   const group = await requireOwnedPreviewGroup(db, previewSessionId, groupId);
   const option = await requireOwnedPreviewOption(db, previewSessionId, optionId);
   if (option.groupId !== group.id) throw new PreviewWorkspaceError('That option does not belong to this alternative set.', 'NOT_OWNED');
