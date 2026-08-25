@@ -11,17 +11,36 @@ Repository-wide coding-agent safety rules live in root `AGENTS.md`. Use `AGENT_T
 When documentation appears to disagree, use this order:
 
 1. current code and committed schema/migrations, while keeping production application/deployment status separate;
-2. `CURRENT_PRODUCT_ROADMAP.md` and `HANDOVER.md` for merged/deployed status;
+2. `CURRENT_PRODUCT_ROADMAP.md` and `HANDOVER.md` for merged/deployed status and current priorities;
 3. `V1_DATA_MODEL.md` plus the relevant current subsystem behavior document for exact semantics;
 4. `CURRENT_DESIGN.md`, `V1_SPEC.md`, and `AUTHORING_MODEL.md` for product mental model;
 5. pending designs only for future intent;
 6. historical plans/proposals only for decision context.
 
-An old PR instruction, rollout note, or historical design is never authority over current code.
+An old PR instruction, rollout note, staged-refactor plan, or historical design is never authority over current code/current priorities.
+
+## Current development-workflow decision
+
+As of 25 August 2026, the deployed production-backed `/preview-admin` Worker is no longer part of the normal development/testing path.
+
+The primary application workflow is:
+
+```text
+production content
+→ read-only local replica refresh
+→ local D1/R2
+→ npm run dev
+→ local npm run preview
+→ repository validation / GitHub CI
+```
+
+Preview backend decomposition is intentionally paused after PR #83. Draft PR #91 was closed unmerged. Do not infer from older Preview documents that PR2D/PR2E/PR2F are required next work.
+
+The Preview subsystem remains in the repository for now because ownership/security and production-safety contracts still reference it. Any eventual removal requires a separate decommissioning assessment.
 
 ## Important current taxonomy rule
 
-Current Case classification on this draft branch is:
+Current Case classification on current `main` is:
 
 ```text
 System = top-level learner navigation grouping
@@ -58,11 +77,11 @@ A committed migration is not proof that it has been applied to production. Merge
 
 ### `CURRENT_PRODUCT_ROADMAP.md`
 
-Shortest status map for verified production, current repository work, and next product priorities.
+Shortest status map for verified production, current repository work, and next product priorities. It records the local-first development decision and the paused Preview refactor.
 
 ### `HANDOVER.md`
 
-Implementation handover and operational boundary summary.
+Implementation handover and operational boundary summary. It records PR #91 as closed unmerged and treats the remaining Preview façade as an accepted legacy boundary rather than required next work.
 
 ### `CURRENT_DESIGN.md`
 
@@ -152,26 +171,32 @@ The Case editor is componentized under `src/lib/components/case-editor/`. Curren
 
 For current Case classification, Import Package v1 keeps `secondaryTopicIds` only as an empty compatibility field. Reviewed parsing, resumable staging, and staged-plan reads reject non-empty values before they can recreate secondary relationships.
 
-## Preview Admin
+## Preview Admin — retained legacy subsystem
 
-- `PREVIEW_ADMIN_WORKSPACE.md` — production-backed Preview ownership/isolation model.
-- `PREVIEW_ADMIN_IDENTITY.md` — role/identity bootstrap rules.
-- `PREVIEW_DEPLOYMENT.md` — remote Preview deployment/restore operator playbook.
+- `PREVIEW_ADMIN_WORKSPACE.md` — **current status + retained safety/ownership model**. This is the first Preview document to read.
+- `PREVIEW_ADMIN_IDENTITY.md` — role/identity bootstrap rules for the retained subsystem.
+- `PREVIEW_DEPLOYMENT.md` — remote Preview deployment/restore operator playbook; now an optional/legacy capability, not the default development path.
 
-Current Preview DB ownership remains behind `src/lib/server/db/preview-workspace.js`. Preview cloning copies the canonical Primary Topic and Case Tags, not legacy secondary Topic rows. Preview shares global production Topics/Tags read-only and does not gain global Tag/System mutation authority.
+Current Preview DB ownership remains behind `src/lib/server/db/preview-workspace.js`. PRs #80/#82/#83 extracted Session/ownership, Case lifecycle/cloning, and fixed-image operations. The remaining Alternative Set/question/cleanup responsibilities are accepted legacy façade ownership for now.
+
+Do **not** continue the former staged sequence simply because older documentation or issue history names PR2D/PR2E/PR2F. Issue #81 is the persistent decision record: the Preview refactor is paused after #83 and PR #91 was closed unmerged.
+
+Preview cloning copies the canonical Primary Topic and Case Tags, not legacy secondary Topic rows. Preview shares global production Topics/Tags read-only and does not gain global Tag/System mutation authority.
 
 ## Cloudflare / operations / local development
 
 - `CLOUDFLARE.md` — Worker/D1/R2 migration/deployment runbook.
 - `DEVELOPMENT_EXECUTION_WORKFLOW.md` — Local / Remote GitHub / Hybrid execution policy.
-- `LOCAL_DEVELOPMENT_REPLICA.md` — read-production/write-local developer replica.
+- `LOCAL_DEVELOPMENT_REPLICA.md` — read-production/write-local developer replica and the primary application testing workflow.
 - `LOCAL_REAL_DATA_UX_WORKFLOW.md` — local real-data workflow design record.
 - `R2_COST_GUARDRAILS.md` — storage/write/delete guardrails.
 - `IMAGE_PROVENANCE.md` — image source/licence/runtime-serving rules.
 - `PRODUCTION_CONTENT_SNAPSHOT.md` — read-only production-content snapshot/reporting contract.
 - `OPEN_SOURCE_READINESS.md` — publication-cleanup checklist.
 
-`npm run dev` and `npm run preview` use repository-owned local launchers and repository-local Wrangler/XDG state. `npm run local:stop` is the preferred checkout-scoped cleanup command; do not replace it with broad Node-process termination. Local `npm run preview` is not a production-backed Preview Worker deployment.
+`npm run dev` and `npm run preview` use repository-owned local launchers and repository-local Wrangler/XDG state. `npm run local:stop` is the preferred checkout-scoped cleanup command; do not replace it with broad Node-process termination. Local `npm run preview` is production-style local verification and is not a production-backed Preview Worker deployment.
+
+If older text in `LOCAL_DEVELOPMENT_REPLICA.md` describes the remote Preview Worker as a mandatory/final integration gate, this index plus `CURRENT_PRODUCT_ROADMAP.md`, `HANDOVER.md`, and the updated `PREVIEW_ADMIN_WORKSPACE.md` supersede that statement. The normal path is local-first plus repository validation/CI.
 
 ## Historical / superseded records
 
@@ -182,11 +207,12 @@ Notable examples:
 - `MULTI_TOPIC_STUDY_ROUTES.md` — former Additional Study Topic behavior;
 - `PROPOSED_TAGGING_MODEL.md` — superseded Tag proposal;
 - `PARALLEL_WORK_PLAN.md` — completed parallel Admin phase;
+- older Preview staged-refactor instructions that expect PR2D/PR2E/PR2F to continue;
 - `agent-tasks/` — completed/historical implementation prompts.
 
 ## Current next product sequence
 
-After this PR's code is reviewed:
+After current code is reviewed:
 
 ```text
 curate clinically useful Case Tags and System↔Tag exposure before learner rollout
@@ -194,10 +220,12 @@ curate clinically useful Case Tags and System↔Tag exposure before learner roll
 → promote genuinely reusable Shared/Image Questions where scope is proven
 → add useful stimulus variants
 → observe Admin/learner friction
-→ continue targeted modularity/performance work where evidence justifies it
+→ improve actively used local-development/modularity/performance paths where evidence justifies it
 → learner-account administration
 → learner-progress administration
 ```
+
+Further remote Preview decomposition is not part of this sequence.
 
 Existing secondary rows do not need to be deleted before this sequence. Clean them later only if a concrete maintenance reason justifies a reviewed data operation.
 
@@ -207,9 +235,10 @@ Do not expand schema/taxonomy merely for conceptual completeness.
 
 1. Update the relevant subsystem behavior document in the same PR when behavior changes.
 2. Update `V1_DATA_MODEL.md` in the same PR when schema/relationship semantics change.
-3. Update roadmap/handover only when status or priorities materially change; do not call a draft/merged feature deployed without explicit verification.
+3. Update roadmap/handover when status or priorities materially change; do not call a draft/merged feature deployed without explicit verification.
 4. Keep migration presence, production migration application, Worker deployment, curation, feature enablement, and behavior verification as separate facts.
 5. Preserve historical decision records but label them clearly.
 6. If a future production data change is needed, use explicit reviewed identifiers and verification; never infer clinical mapping from matching labels.
 7. Keep terminology consistent: System, Topic, Case, Tag, Asset, Collection, Question Prompt, Shared Question, Reusable Image Question.
 8. Behavior-preserving refactors should update ownership/routing docs when future agents need a new file/module boundary.
+9. Do not keep a historical staged-refactor sequence alive after its workflow/value assumption has changed; record the stop/defer decision explicitly.

@@ -1,6 +1,6 @@
 # Flash-Cards — Current Product Roadmap
 
-_Last updated: 24 August 2026_
+_Last updated: 25 August 2026_
 
 This is the short status map for what is **explicitly verified in production**, what is **merged on current `main`**, and what remains product/engineering work. Detailed semantics live in `HANDOVER.md`, `V1_DATA_MODEL.md`, and the subsystem contracts.
 
@@ -22,6 +22,8 @@ The recorded deployed baseline includes:
 - first ECG/Anki source deck fully represented and verified in production: **66/66 source notes**.
 
 The repository contains later merged code and migrations beyond this verified production baseline. Do not convert merge status into deployment claims without explicit rollout evidence.
+
+The production-backed Preview Admin still exists, but as of 25 August 2026 it is no longer part of the normal development/testing workflow. Local clone + local production-like D1/R2 is now the primary application verification path.
 
 ## Current `main` — merged baseline
 
@@ -51,7 +53,13 @@ It also includes the later merged sequence:
 - **PR #79** — capability-based Local / Remote GitHub / Hybrid coding-agent workflow;
 - **PR #80** — Preview Session/ownership/error/input foundation extraction;
 - **PR #82** — Preview Case lifecycle/cloning extraction;
-- **PR #83** — Preview fixed Case-image operation extraction.
+- **PR #83** — Preview fixed Case-image operation extraction;
+- **PR #87** — learner-selectable **Original questions** versus **Expanded Learning**, with Review-level `question_pool_mode` provenance and explicit same-Case Original → Expanded continuation;
+- **PR #88** — contextual **System → Topic / Tag / All** navigation model, System↔Tag exposure, selected/effective Review-route provenance, and learner rollout gating;
+- **PR #89** — repository-scoped `npm run local:stop` plus the associated local-development/agent guidance and Svelte warning cleanup;
+- **PR #90** — current Case classification simplified to exactly one behaviorally active **Primary Topic** plus zero or more **Case Tags**, retiring Additional Study Topics from current authoring/learner behavior without a new migration.
+
+Draft PR #91 attempted the next Preview Alternative Set/stimulus extraction and was closed unmerged on 25 August 2026 after the project moved to a local-first testing workflow. It is not part of the merged baseline.
 
 Current repository migrations extend through:
 
@@ -61,9 +69,13 @@ Current repository migrations extend through:
 0011_asset_supersession.sql
 0012_archive_stimulus_options.sql
 0013_review_assets_asset_lookup.sql
+0014_review_question_pool_mode.sql
+0015_contextual_system_topic_tag_navigation.sql
 ```
 
-These files being present on `main` does **not** prove production application. The same rule applies to Worker behavior: a merged PR or rollout-trigger commit is not deployment verification.
+Migration `0014` adds persisted Original/Core versus Expanded Review question-pool mode. Migration `0015` adds System/Topic taxonomy, System↔Tag exposure, and System-route Review provenance. PR #90 intentionally adds **no `0016` migration**: legacy secondary `case_concepts` rows may remain physically stored but are ignored by current authoring/read models/learner routing and are not created by current mutation/import/clone paths.
+
+These files being present on `main` does **not** prove production application. The same rule applies to Worker behavior and learner feature flags: a merged PR, migration file, rollout-trigger commit, or dormant gated surface is not deployment/rollout verification.
 
 ## Real ECG/Anki migration — initial deck complete
 
@@ -77,13 +89,15 @@ Pre-existing mapped calcium Cases:  2
 Source notes represented:          66 / 66
 ```
 
-Initial ingestion is complete. Remaining ECG work is curation/enrichment: improve Tags, promote genuinely repeated knowledge to Shared Questions or Reusable Image Questions, add useful Study Topics/stimulus variants, and medically review content where needed.
+Initial ingestion is complete. Remaining ECG work is curation/enrichment: improve Case Tags, curate clinically useful System↔Tag exposure, promote genuinely repeated knowledge to Shared Questions or Reusable Image Questions, add useful stimulus variants, and medically review content where needed.
 
 ## Current product work
 
-### 1. Curate the real corpus
+### 1. Curate the real corpus and learner taxonomy
 
-Use real Cases to refine Case Tags, Shared Questions, Reusable Image Questions, Study Topics, and stimulus variants. Promote reusable knowledge only when the Prompt/answer remains reliably correct across the intended reuse scope.
+Use real Cases to refine canonical Primary Topics, Case Tags, System↔Tag exposure, Shared Questions, Reusable Image Questions, and stimulus variants. Promote reusable knowledge only when the Prompt/answer remains reliably correct across the intended reuse scope.
+
+Before learner System navigation is enabled, explicitly review clinically useful alternate discovery through Case Tags plus System↔Tag exposure. Do not convert legacy secondary Topic rows to Tags by matching labels.
 
 Current-main duplicate-Prompt precedence is:
 
@@ -92,11 +106,13 @@ selected exact stimulus-option question
 > explicitly reused Asset Question for the selected option
 > stimulus group
 > Case
-> exact Study Topic
+> exact Primary Topic
 > tag-shared Question
 > nearest eligible inheritable ancestor Topic
 > more distant eligible ancestors
 ```
+
+Original questions use only Case-owned sources (`case`, `stimulus_group`, `stimulus_option`). Expanded Learning uses the full eligible resolver. Eligibility is selected before duplicate-Prompt precedence/deduplication so excluded reusable sources cannot erase valid Original questions.
 
 ### 2. Exercise current image lifecycle semantics
 
@@ -112,19 +128,23 @@ Deactivate option
 
 Image Library lifecycle views are organisational/cleanup aids. Permanent deletion is not implemented.
 
-### 3. Continue targeted maintainability work
+### 3. Continue targeted maintainability work only where it pays off
 
-The Case-editor UI is now decomposed into focused components and the Preview backend has been decomposed through Case lifecycle and fixed-image operations. Continue only with focused, behavior-preserving boundaries where they lower future change risk.
+The Case-editor UI is decomposed into focused components. The Preview backend was decomposed through Session/ownership foundations, Case lifecycle/cloning, and fixed Case-image operations in PRs #80/#82/#83.
 
-Next staged Preview candidates are:
+That Preview decomposition programme is now intentionally paused. Do **not** continue the historical sequence merely to finish it:
 
 ```text
-Alternative Set / stimulus operations
-→ question / scope / reusable-question operations
-→ final façade / workspace-cleanup ownership
+PR2D Alternative Set / stimulus extraction
+PR2E question / scope / reusable-question extraction
+PR2F final façade / cleanup ownership
 ```
 
-Do not split compound transactions merely for symmetry.
+Those phases are no longer current roadmap items because the deployed `/preview-admin` workflow is no longer routinely used. The existing Preview implementation stays in place for now because ownership/security and production-safety contracts still depend on Preview concepts.
+
+If the remote Preview Admin is later judged unnecessary, assess decommissioning as a separate project rather than mixing deletion into unrelated refactors.
+
+For ordinary development, prioritize improvements to the local clone + local D1/R2 workflow and other modules that are actively changed.
 
 ### 4. Continue measurement-driven performance work
 
@@ -158,8 +178,21 @@ The repository now provides:
 - repository-owned ordinary CI/local validation definitions;
 - repository-pinned Wrangler/workerd runtime with dedicated runtime smoke;
 - deterministic local `npm run dev` / `npm run preview` launchers using repository-local Wrangler/XDG state;
+- repository-scoped `npm run local:stop` for safe Vite/Wrangler cleanup without machine-wide Node termination;
 - production-like read-production/write-local development replica;
 - local slide-review/finalizer tooling.
+
+The normal application workflow is local-first:
+
+```text
+npm run local:refresh   # when fresh production-derived content is needed
+npm run dev             # fast iteration / hot reload
+npm run local:stop
+npm run preview         # production-style local verification
+repository validation / GitHub CI
+```
+
+Remote Preview deployment is now an optional legacy capability, not a required integration gate.
 
 These are repository/developer capabilities, not learner/Admin production features.
 
@@ -167,10 +200,12 @@ These are repository/developer capabilities, not learner/Admin production featur
 
 Unless real evidence creates a concrete need, keep deferred:
 
+- further Preview backend decomposition after PR #83;
+- remote Preview Admin decommissioning until explicitly assessed;
 - multiple/compound Shared Question Reuse Scope rules;
 - Tag hierarchy and aliases/synonyms;
-- learner Study-by-Tag;
-- Review Tag snapshots;
+- standalone learner Study-by-Tag outside contextual System exposure;
+- Review Tag snapshots beyond current route provenance;
 - automatic/AI Tag inference;
 - Asset Tags;
 - generic Asset families/arbitrary version-history UI;
@@ -186,4 +221,4 @@ Unless real evidence creates a concrete need, keep deferred:
 
 ## Implementation principle
 
-The platform architecture is a working baseline rather than the primary bottleneck. Prefer real-content curation, observed learner/Admin friction, focused maintainability improvements, and measured performance evidence over speculative schema expansion.
+The platform architecture is a working baseline rather than the primary bottleneck. Prefer real-content curation, observed learner/Admin friction, focused maintainability improvements in actively used paths, and measured performance evidence over speculative schema expansion or completion of historical refactor sequences.
