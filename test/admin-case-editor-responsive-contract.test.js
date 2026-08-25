@@ -26,7 +26,7 @@ test('Compact Case questions keep scope and reorder controls together without a 
   assert.match(questions, /<\/details>\s*\{\/if\}\s*<div class="question-order-actions">/);
   assert.match(questions, /aria-label="Move question up"/);
   assert.match(questions, /aria-label="Move question down"/);
-  assert.match(questions, /use:enhance=\{preserveQuestionPosition\}/);
+  assert.match(questions, /use:enhance=\{preserveQuestionScroll\}/);
   assert.match(questions, /replaceState\(result\.location, \{\}\)/);
   assert.match(questions, /await invalidateAll\(\)/);
   assert.match(questions, /root\.style\.overflowAnchor = 'none'/);
