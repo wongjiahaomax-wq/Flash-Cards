@@ -1,6 +1,7 @@
 <script>
   let { data, form } = $props();
 
+  /** @type {Record<string, string>} */
   const statusMessages = {
     created: 'Account created and set-password email requested.',
     'created-email-failed': 'Account created, but the set-password email could not be delivered. The account was preserved; retry below.',
@@ -13,11 +14,13 @@
     'sessions-revoked': 'All sessions for this account were revoked.'
   };
 
+  /** @param {string | null} value */
   function formatDate(value) {
     if (!value) return '—';
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
   }
 
+  /** @param {SubmitEvent} event @param {string} message */
   function confirmAction(event, message) {
     if (!window.confirm(message)) event.preventDefault();
   }

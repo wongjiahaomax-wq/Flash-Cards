@@ -17,13 +17,18 @@ import {
 } from '../src/lib/server/accounts/admin-accounts.ts';
 import { renderSetPasswordEmail } from '../src/lib/server/email/password-reset.ts';
 
+/** @param {any[]} [initialUsers] */
 function fakeAuth(initialUsers = []) {
+  /** @type {Map<string, any>} */
   const users = new Map(initialUsers.map((user) => [user.id, { banned: false, role: 'user', ...user }]));
+  /** @type {any[]} */
   const calls = [];
+  /** @type {Map<string, number>} */
   const sessionCounts = new Map(initialUsers.map((user) => [user.id, user.sessions ?? 1]));
   let nextId = 1;
 
   const api = {
+    /** @param {{ query: any }} input */
     async listUsers({ query }) {
       calls.push({ operation: 'listUsers', query });
       let rows = [...users.values()];
@@ -40,12 +45,14 @@ function fakeAuth(initialUsers = []) {
       const limit = Number(query.limit ?? 100);
       return { users: rows.slice(offset, offset + limit), total, limit, offset };
     },
+    /** @param {{ query: any }} input */
     async getUser({ query }) {
       calls.push({ operation: 'getUser', userId: query.id });
       const user = users.get(query.id);
       if (!user) throw { code: 'USER_NOT_FOUND' };
       return { ...user };
     },
+    /** @param {{ body: any }} input */
     async createUser({ body }) {
       calls.push({ operation: 'createUser', body: { ...body } });
       if ([...users.values()].some((user) => user.email.toLowerCase() === body.email.toLowerCase())) {
@@ -63,6 +70,7 @@ function fakeAuth(initialUsers = []) {
       sessionCounts.set(user.id, 0);
       return { user: { ...user } };
     },
+    /** @param {{ body: any }} input */
     async setRole({ body }) {
       calls.push({ operation: 'setRole', body: { ...body, role: [...body.role] } });
       const user = users.get(body.userId);
@@ -70,6 +78,7 @@ function fakeAuth(initialUsers = []) {
       user.role = Array.isArray(body.role) ? body.role.join(',') : body.role;
       return { user: { ...user } };
     },
+    /** @param {{ body: any }} input */
     async banUser({ body }) {
       calls.push({ operation: 'banUser', body: { ...body } });
       const user = users.get(body.userId);
@@ -78,6 +87,7 @@ function fakeAuth(initialUsers = []) {
       sessionCounts.set(user.id, 0);
       return { user: { ...user } };
     },
+    /** @param {{ body: any }} input */
     async unbanUser({ body }) {
       calls.push({ operation: 'unbanUser', body: { ...body } });
       const user = users.get(body.userId);
@@ -85,6 +95,7 @@ function fakeAuth(initialUsers = []) {
       user.banned = false;
       return { user: { ...user } };
     },
+    /** @param {{ body: any }} input */
     async revokeUserSessions({ body }) {
       calls.push({ operation: 'revokeUserSessions', body: { ...body } });
       sessionCounts.set(body.userId, 0);
@@ -147,6 +158,7 @@ test('account listing is bounded, supports name/email search, maps product state
 
 test('Admin account creation uses Better Auth without any temporary password and requests set-password email', async () => {
   const auth = fakeAuth([]);
+  /** @type {Array<{ email: string; purpose: string }>} */
   const deliveries = [];
   const result = await createAccount({
     auth,
@@ -154,7 +166,9 @@ test('Admin account creation uses Better Auth without any temporary password and
     name: 'New Learner',
     email: 'New.Learner@example.test',
     accountType: 'learner',
-    sendPasswordEmail: async (email, purpose) => deliveries.push({ email, purpose })
+    sendPasswordEmail: async (email, purpose) => {
+      deliveries.push({ email, purpose });
+    }
   });
 
   assert.equal(result.account.email, 'new.learner@example.test');
@@ -322,6 +336,9 @@ test('PR-B source preserves closed enrollment, Preview fail-closed routing, and 
 
   assert.match(authSource, /disableSignUp:\s*true/);
   assert.match(authSource, /revokeSessionsOnPasswordReset:\s*true/);
+  assert.match(authSource, /preview_admin:\s*accountAdminAccessControl\.newRole\(\{\}\)/);
+  assert.match(authSource, /admin\(\{\s*ac:\s*accountAdminAccessControl,\s*roles:\s*accountAdminRoles/s);
+  assert.doesNotMatch(authSource, /adminRoles:\s*\[[^\]]*preview_admin/);
   assert.match(passwordEmailSource, /requestPasswordReset/);
   assert.match(passwordEmailSource, /awaitPasswordEmailDelivery:\s*true/);
   assert.doesNotMatch(passwordEmailSource, /randomUUID|generateId|createVerification|verificationToken/i);

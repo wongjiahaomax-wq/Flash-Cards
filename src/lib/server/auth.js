@@ -1,6 +1,8 @@
 import { getRequestEvent } from '$app/server';
 import { betterAuth } from 'better-auth';
 import { admin } from 'better-auth/plugins';
+import { createAccessControl } from 'better-auth/plugins/access';
+import { adminAc, defaultStatements } from 'better-auth/plugins/admin/access';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 
 import {
@@ -12,6 +14,19 @@ import { EmailDeliveryError } from '$lib/server/email/transactional.ts';
 
 /** @typedef {'reset' | 'account-setup'} PasswordEmailPurpose */
 /** @typedef {{ passwordEmailPurpose?: PasswordEmailPurpose, awaitPasswordEmailDelivery?: boolean }} CreateAuthOptions */
+
+// Better Auth 1.6.25 validates Admin plugin role mutations against configured
+// roles. preview_admin is a retained application role, but it must never gain
+// production user/session administration permissions. Register it explicitly
+// with the same empty permission set as an ordinary user so combined
+// admin,preview_admin identities can preserve Preview access across production
+// role changes without making Preview-only identities production Admins.
+const accountAdminAccessControl = createAccessControl(defaultStatements);
+const accountAdminRoles = {
+  admin: accountAdminAccessControl.newRole(adminAc.statements),
+  user: accountAdminAccessControl.newRole({}),
+  preview_admin: accountAdminAccessControl.newRole({})
+};
 
 /** @param {Promise<unknown>} task */
 function scheduleAuthBackgroundTask(task) {
@@ -122,7 +137,10 @@ export function createAuth(env, config = {}) {
           })
     },
     plugins: [
-      admin(),
+      admin({
+        ac: accountAdminAccessControl,
+        roles: accountAdminRoles
+      }),
       // Must remain last so Better Auth can set cookies from SvelteKit server calls.
       sveltekitCookies(getRequestEvent)
     ]

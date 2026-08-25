@@ -20,16 +20,20 @@ function actionFailure(errorValue) {
   return fail(500, { error: 'Unable to update the account.' });
 }
 
-/** @param {Parameters<import('./$types').PageServerLoad>[0]} event */
+/**
+ * @param {{ locals: App.Locals; platform?: App.Platform; request: Request }} event
+ */
 function requireContext(event) {
   const actorUserId = requireProductionAccountManager(event.locals.user, event.platform?.env);
-  if (!event.locals.auth || !event.platform?.env) {
+  const auth = event.locals.auth;
+  const env = event.platform?.env;
+  if (!auth || !env) {
     throw new AccountManagementError('AUTH_NOT_CONFIGURED', 'Authentication is not configured.', 503);
   }
   return {
     actorUserId,
-    auth: event.locals.auth,
-    env: event.platform.env,
+    auth,
+    env,
     headers: event.request.headers
   };
 }

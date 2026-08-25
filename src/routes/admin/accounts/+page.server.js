@@ -60,13 +60,15 @@ export async function load(event) {
 /** @type {import('./$types').Actions} */
 export const actions = {
   create: async (event) => {
-    let actorUserId;
     try {
-      actorUserId = requireProductionAccountManager(event.locals.user, event.platform?.env);
+      requireProductionAccountManager(event.locals.user, event.platform?.env);
     } catch (errorValue) {
       return accountActionFailure(errorValue);
     }
-    if (!actorUserId || !event.locals.auth || !event.platform?.env) {
+
+    const auth = event.locals.auth;
+    const env = event.platform?.env;
+    if (!auth || !env) {
       return fail(503, { error: 'Authentication is not configured.' });
     }
 
@@ -81,13 +83,13 @@ export const actions = {
     let result;
     try {
       result = await createAccount({
-        auth: event.locals.auth,
+        auth,
         headers: event.request.headers,
         name: values.name,
         email: values.email,
         accountType: values.accountType,
         sendPasswordEmail: (emailAddress, purpose) =>
-          requestAdminPasswordEmail(event.platform.env, emailAddress, purpose)
+          requestAdminPasswordEmail(env, emailAddress, purpose)
       });
     } catch (errorValue) {
       return accountActionFailure(errorValue, { values });

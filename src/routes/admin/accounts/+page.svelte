@@ -1,11 +1,13 @@
 <script>
   let { data, form } = $props();
 
+  /** @type {Record<string, string>} */
   const statusMessages = {
     demoted: 'Account changed to Learner.',
     'demoted-preview-retained': 'Production Administrator access removed. Preview Admin access was retained.'
   };
 
+  /** @param {number} page */
   function pageHref(page) {
     const params = new URLSearchParams();
     if (data.search) params.set('q', data.search);
@@ -15,6 +17,7 @@
     return query ? `/admin/accounts?${query}` : '/admin/accounts';
   }
 
+  /** @param {string | null} value */
   function formatDate(value) {
     if (!value) return '—';
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(value));
@@ -49,15 +52,15 @@
     <form class="create-grid" method="POST" action="?/create">
       <label class="field">
         <span>Name</span>
-        <input name="name" required autocomplete="off" value={form?.values?.name ?? ''} />
+        <input name="name" required autocomplete="off" />
       </label>
       <label class="field">
         <span>Email</span>
-        <input name="email" type="email" required autocomplete="off" value={form?.values?.email ?? ''} />
+        <input name="email" type="email" required autocomplete="off" />
       </label>
       <label class="field">
         <span>Account type</span>
-        <select name="account_type" value={form?.values?.accountType ?? 'learner'}>
+        <select name="account_type" value="learner">
           <option value="learner">Learner</option>
           <option value="administrator">Administrator</option>
         </select>

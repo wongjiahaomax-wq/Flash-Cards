@@ -1,7 +1,5 @@
-import type { createAuth } from '../auth.js';
 import { isPreviewAdmin, isPreviewWorker, isProductionAdmin, parseRoles } from '../preview-auth.js';
 
-type Auth = ReturnType<typeof createAuth>;
 export type PasswordEmailPurpose = 'account-setup' | 'reset';
 export type AccountType = 'learner' | 'administrator';
 
@@ -35,6 +33,28 @@ type AccountUser = {
   createdAt?: unknown;
 };
 
+type AccountAdminApi = {
+  listUsers(input: {
+    query: Record<string, string | number>;
+    headers: Headers;
+  }): Promise<unknown>;
+  getUser(input: { query: { id: string }; headers: Headers }): Promise<unknown>;
+  createUser(input: {
+    body: { name: string; email: string; role: 'user' | 'admin' };
+    headers: Headers;
+  }): Promise<unknown>;
+  setRole(input: {
+    body: { userId: string; role: string[] };
+    headers: Headers;
+  }): Promise<unknown>;
+  banUser(input: {
+    body: { userId: string; banReason: string };
+    headers: Headers;
+  }): Promise<unknown>;
+  unbanUser(input: { body: { userId: string }; headers: Headers }): Promise<unknown>;
+  revokeUserSessions(input: { body: { userId: string }; headers: Headers }): Promise<unknown>;
+};
+
 export class AccountManagementError extends Error {
   code: string;
   status: number;
@@ -49,6 +69,31 @@ export class AccountManagementError extends Error {
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+function accountAdminApi(auth: unknown): AccountAdminApi {
+  const api = asRecord(asRecord(auth)?.api);
+  if (!api) {
+    throw new AccountManagementError('AUTH_NOT_CONFIGURED', 'Authentication is not configured.', 503);
+  }
+
+  // createAuth is JavaScript and intentionally typed against BetterAuthOptions,
+  // which does not preserve plugin-generated endpoint inference through
+  // ReturnType. Keep that loss of inference at this boundary instead of using a
+  // broad cast throughout account-management code.
+  return api as unknown as AccountAdminApi;
+}
+
+function resultUser(value: unknown): unknown {
+  const record = asRecord(value);
+  return record && 'user' in record ? record.user : value;
+}
+
+function listResult(value: unknown): { users: unknown[]; total: number } {
+  const record = asRecord(value);
+  const users = Array.isArray(record?.users) ? record.users : [];
+  const total = typeof record?.total === 'number' ? record.total : 0;
+  return { users, total };
 }
 
 function authErrorCode(error: unknown): string {
@@ -166,7 +211,7 @@ export function productionRoleTransition(role: unknown, target: AccountType): st
 }
 
 export async function listAccounts(options: {
-  auth: Auth;
+  auth: unknown;
   headers: Headers;
   page?: number;
   search?: string;
@@ -177,26 +222,27 @@ export async function listAccounts(options: {
   const offset = (page - 1) * pageSize;
   const search = options.search?.trim() ?? '';
   const searchField = options.searchField === 'email' ? 'email' : 'name';
+  const api = accountAdminApi(options.auth);
 
   try {
-    const result = await options.auth.api.listUsers({
-      query: {
-        limit: pageSize,
-        offset,
-        sortBy: 'createdAt',
-        sortDirection: 'desc',
-        ...(search
-          ? {
-              searchValue: search,
-              searchField,
-              searchOperator: 'contains' as const
-            }
-          : {})
-      },
-      headers: options.headers
-    });
-    const users = Array.isArray(result.users) ? result.users : [];
-    const total = typeof result.total === 'number' ? result.total : 0;
+    const { users, total } = listResult(
+      await api.listUsers({
+        query: {
+          limit: pageSize,
+          offset,
+          sortBy: 'createdAt',
+          sortDirection: 'desc',
+          ...(search
+            ? {
+                searchValue: search,
+                searchField,
+                searchOperator: 'contains'
+              }
+            : {})
+        },
+        headers: options.headers
+      })
+    );
 
     return {
       accounts: users.map(toAccountView).filter((value): value is AccountView => Boolean(value)),
@@ -207,15 +253,17 @@ export async function listAccounts(options: {
       hasNext: offset + pageSize < total
     };
   } catch (error) {
+    if (error instanceof AccountManagementError) throw error;
     throw mapAuthError(error, 'Unable to load accounts.');
   }
 }
 
-export async function getAccount(auth: Auth, headers: Headers, userId: string): Promise<AccountView> {
+export async function getAccount(auth: unknown, headers: Headers, userId: string): Promise<AccountView> {
   let user: unknown;
   try {
-    user = await auth.api.getUser({ query: { id: userId }, headers });
+    user = await accountAdminApi(auth).getUser({ query: { id: userId }, headers });
   } catch (error) {
+    if (error instanceof AccountManagementError) throw error;
     throw mapAuthError(error, 'Unable to load that account.');
   }
 
@@ -230,11 +278,12 @@ export async function getAccount(auth: Auth, headers: Headers, userId: string): 
   return view;
 }
 
-async function loadRawManagedUser(auth: Auth, headers: Headers, userId: string): Promise<AccountUser> {
+async function loadRawManagedUser(auth: unknown, headers: Headers, userId: string): Promise<AccountUser> {
   let user: unknown;
   try {
-    user = await auth.api.getUser({ query: { id: userId }, headers });
+    user = await accountAdminApi(auth).getUser({ query: { id: userId }, headers });
   } catch (error) {
+    if (error instanceof AccountManagementError) throw error;
     throw mapAuthError(error, 'Unable to load that account.');
   }
   const parsed = accountUser(user);
@@ -249,31 +298,35 @@ async function loadRawManagedUser(auth: Auth, headers: Headers, userId: string):
 }
 
 async function hasOtherActiveProductionAdmin(
-  auth: Auth,
+  auth: unknown,
   headers: Headers,
   targetUserId: string
 ): Promise<boolean> {
   const limit = 100;
   let offset = 0;
+  const api = accountAdminApi(auth);
 
   while (true) {
-    let result;
+    let users: unknown[];
+    let total: number;
     try {
-      result = await auth.api.listUsers({
-        query: {
-          filterField: 'role',
-          filterValue: 'admin',
-          filterOperator: 'contains',
-          limit,
-          offset
-        },
-        headers
-      });
+      ({ users, total } = listResult(
+        await api.listUsers({
+          query: {
+            filterField: 'role',
+            filterValue: 'admin',
+            filterOperator: 'contains',
+            limit,
+            offset
+          },
+          headers
+        })
+      ));
     } catch (error) {
+      if (error instanceof AccountManagementError) throw error;
       throw mapAuthError(error, 'Unable to verify Administrator lockout protection.');
     }
 
-    const users = Array.isArray(result.users) ? result.users : [];
     for (const value of users) {
       const user = accountUser(value);
       if (
@@ -285,14 +338,13 @@ async function hasOtherActiveProductionAdmin(
       }
     }
 
-    const total = typeof result.total === 'number' ? result.total : offset + users.length;
     if (users.length === 0 || offset + users.length >= total) return false;
     offset += users.length;
   }
 }
 
 async function assertMayRemoveProductionAdmin(
-  auth: Auth,
+  auth: unknown,
   headers: Headers,
   actorUserId: string,
   target: AccountUser
@@ -319,7 +371,7 @@ async function assertMayRemoveProductionAdmin(
 }
 
 export async function createAccount(options: {
-  auth: Auth;
+  auth: unknown;
   headers: Headers;
   name: unknown;
   email: unknown;
@@ -333,12 +385,12 @@ export async function createAccount(options: {
     throw new AccountManagementError('INVALID_INPUT', 'Choose Learner or Administrator.');
   }
 
-  let created;
+  let created: unknown;
   try {
     // Better Auth 1.6.25 permits Admin create-user without a password. The
-    // password-reset flow will create the credential account when the recipient
+    // password-reset flow creates the credential account when the recipient
     // sets their password, so there is no temporary credential to expose.
-    created = await options.auth.api.createUser({
+    created = await accountAdminApi(options.auth).createUser({
       body: {
         name,
         email,
@@ -347,10 +399,11 @@ export async function createAccount(options: {
       headers: options.headers
     });
   } catch (error) {
+    if (error instanceof AccountManagementError) throw error;
     throw mapAuthError(error, 'Unable to create the account.');
   }
 
-  const account = toAccountView(created.user);
+  const account = toAccountView(resultUser(created));
   if (!account) {
     throw new AccountManagementError('INVALID_ACCOUNT_DATA', 'Unable to read the created account.', 500);
   }
@@ -366,7 +419,7 @@ export async function createAccount(options: {
 }
 
 export async function sendAccountPasswordEmail(options: {
-  auth: Auth;
+  auth: unknown;
   headers: Headers;
   userId: string;
   purpose: PasswordEmailPurpose;
@@ -385,7 +438,7 @@ export async function sendAccountPasswordEmail(options: {
 }
 
 export async function changeProductionRole(options: {
-  auth: Auth;
+  auth: unknown;
   headers: Headers;
   actorUserId: string;
   userId: string;
@@ -403,26 +456,26 @@ export async function changeProductionRole(options: {
   }
 
   const nextRoles = productionRoleTransition(target.role, options.accountType);
-  type SetRoleBody = Parameters<Auth['api']['setRole']>[0]['body']['role'];
 
-  let updated;
+  let updated: unknown;
   try {
-    updated = await options.auth.api.setRole({
+    updated = await accountAdminApi(options.auth).setRole({
       body: {
         userId: target.id,
-        role: nextRoles as unknown as SetRoleBody
+        role: nextRoles
       },
       headers: options.headers
     });
   } catch (error) {
+    if (error instanceof AccountManagementError) throw error;
     throw mapAuthError(error, 'Unable to change the account type.');
   }
 
-  return toAccountView(updated.user);
+  return toAccountView(resultUser(updated));
 }
 
 export async function disableAccount(options: {
-  auth: Auth;
+  auth: unknown;
   headers: Headers;
   actorUserId: string;
   userId: string;
@@ -446,14 +499,14 @@ export async function disableAccount(options: {
   try {
     // Pinned Better Auth 1.6.25 ban-user is indefinite when banExpiresIn is
     // omitted and revokes all existing sessions as part of the same operation.
-    const result = await options.auth.api.banUser({
+    const result = await accountAdminApi(options.auth).banUser({
       body: {
         userId: target.id,
         banReason: 'Disabled by Production Administrator'
       },
       headers: options.headers
     });
-    const view = toAccountView(result.user);
+    const view = toAccountView(resultUser(result));
     if (!view) throw new AccountManagementError('ACCOUNT_NOT_FOUND', 'That account is not managed here.', 404);
     return view;
   } catch (error) {
@@ -463,7 +516,7 @@ export async function disableAccount(options: {
 }
 
 export async function restoreAccount(options: {
-  auth: Auth;
+  auth: unknown;
   headers: Headers;
   userId: string;
 }): Promise<AccountView> {
@@ -475,11 +528,11 @@ export async function restoreAccount(options: {
   }
 
   try {
-    const result = await options.auth.api.unbanUser({
+    const result = await accountAdminApi(options.auth).unbanUser({
       body: { userId: target.id },
       headers: options.headers
     });
-    const view = toAccountView(result.user);
+    const view = toAccountView(resultUser(result));
     if (!view) throw new AccountManagementError('ACCOUNT_NOT_FOUND', 'That account is not managed here.', 404);
     return view;
   } catch (error) {
@@ -489,7 +542,7 @@ export async function restoreAccount(options: {
 }
 
 export async function revokeAccountSessions(options: {
-  auth: Auth;
+  auth: unknown;
   headers: Headers;
   actorUserId: string;
   userId: string;
@@ -504,11 +557,12 @@ export async function revokeAccountSessions(options: {
   await loadRawManagedUser(options.auth, options.headers, options.userId);
 
   try {
-    await options.auth.api.revokeUserSessions({
+    await accountAdminApi(options.auth).revokeUserSessions({
       body: { userId: options.userId },
       headers: options.headers
     });
   } catch (error) {
+    if (error instanceof AccountManagementError) throw error;
     throw mapAuthError(error, 'Unable to revoke the account sessions.');
   }
 }
