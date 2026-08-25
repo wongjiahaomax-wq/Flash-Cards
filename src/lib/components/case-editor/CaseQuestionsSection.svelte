@@ -14,7 +14,7 @@
   let { selectedCase, previewMode, editorLayout } = $props();
   let newQuestionScope = $state('case');
 
-  /** @type {import('$app/forms').SubmitFunction} */
+  /** @type {NonNullable<Parameters<typeof enhance>[1]>} */
   const preserveQuestionPosition = ({ formElement }) => {
     const card = formElement.closest('.question-card');
     const cardId = card?.id;
