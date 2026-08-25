@@ -45,11 +45,15 @@ test('password reset email is security-focused and escapes the HTML URL', () => 
 });
 
 test('Resend transport keeps credentials in the Authorization header and supports mocked delivery', async () => {
-  let requestUrl = '';
-  let requestInit;
+  /** @type {{ url: string; init: RequestInit | undefined }[]} */
+  const requests = [];
+
+  /**
+   * @param {RequestInfo | URL} url
+   * @param {RequestInit} [init]
+   */
   const mockFetch = async (url, init) => {
-    requestUrl = String(url);
-    requestInit = init;
+    requests.push({ url: String(url), init });
     return new Response('{}', { status: 200 });
   };
 
@@ -61,10 +65,13 @@ test('Resend transport keeps credentials in the Authorization header and support
     fetchImpl: mockFetch
   });
 
-  assert.equal(requestUrl, 'https://api.resend.com/emails');
-  assert.equal(requestInit?.headers?.authorization, `Bearer ${testEnv.RESEND_API_KEY}`);
+  assert.equal(requests.length, 1);
+  const request = requests[0];
+  assert.ok(request);
+  assert.equal(request.url, 'https://api.resend.com/emails');
+  assert.equal(new Headers(request.init?.headers).get('authorization'), `Bearer ${testEnv.RESEND_API_KEY}`);
 
-  const payload = JSON.parse(String(requestInit?.body));
+  const payload = JSON.parse(String(request.init?.body));
   assert.equal(payload.from, testEnv.AUTH_EMAIL_FROM);
   assert.deepEqual(payload.to, ['learner@example.test']);
   assert.match(payload.text, /reset-password\?token=single-use-token/);
