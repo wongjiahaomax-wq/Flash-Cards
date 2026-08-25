@@ -79,25 +79,10 @@
           <label class="question-answer-field">Answer<textarea name="answer_md" rows="3" maxlength="5000" required>{question.answerMd}</textarea></label>
           <div class="question-footer">
             <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" checked={question.reusableForTopic} /> Share this question with the Topic</label>
-            <button class="button primary" type="submit">Save question</button>
+            {#if !previewMode}<details class="scope-change"><summary>Change scope</summary><div class="scope-change-body stack"><form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack"><input type="hidden" name="intent" value="move" /><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><label>Applies to<select name="target" required><option value="" disabled selected>A specific image / stimulus…</option>{#each selectedCase.attached.filter((asset) => asset.isActive) as asset}<option value={`fixed:${asset.assetId}`}>{asset.originalFilename ?? asset.assetId} — always shown</option>{/each}{#each selectedCase.stimulusGroups.filter((group) => group.isActive) as group}{#each group.options.filter((option) => option.isActive && option.assetIsActive) as targetOption}<option value={`option:${targetOption.id}`}>{targetOption.originalFilename ?? targetOption.assetId} — {group.name}{targetOption.captionMd ? ` — ${targetOption.captionMd}` : ''}</option>{/each}{/each}</select></label><div><button class="button small" type="submit">Apply specific stimulus scope</button></div></form></div></details>{/if}
+            <button class="button primary save-question-action" type="submit">Save question</button>
           </div>
         </form>
-
-        {#if !previewMode}
-          <details class="scope-change" open={editorLayout === 'classic'}>
-            <summary>Change scope</summary>
-            <div class="scope-change-body stack">
-              <strong class="classic-scope-heading">Change scope</strong>
-              <form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack">
-                <input type="hidden" name="intent" value="move" />
-                <input type="hidden" name="case_id" value={selectedCase.case.id} />
-                <input type="hidden" name="prompt_id" value={question.questionPromptId} />
-                <label>Applies to<select name="target" required><option value="" disabled selected>A specific image / stimulus…</option>{#each selectedCase.attached.filter((asset) => asset.isActive) as asset}<option value={`fixed:${asset.assetId}`}>{asset.originalFilename ?? asset.assetId} — always shown</option>{/each}{#each selectedCase.stimulusGroups.filter((group) => group.isActive) as group}{#each group.options.filter((option) => option.isActive && option.assetIsActive) as targetOption}<option value={`option:${targetOption.id}`}>{targetOption.originalFilename ?? targetOption.assetId} — {group.name}{targetOption.captionMd ? ` — ${targetOption.captionMd}` : ''}</option>{/each}{/each}</select></label>
-                <div><button class="button small" type="submit">Apply specific stimulus scope</button></div>
-              </form>
-            </div>
-          </details>
-        {/if}
       </article>
     {/each}
   </div>
@@ -155,8 +140,9 @@
   .remove-action { background: transparent; }
 
   .question-edit-form { display: grid; gap: 0.7rem 1rem; }
-  .question-footer { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding-top: 0.1rem; }
+  .question-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; padding-top: 0.1rem; }
   .question-reuse-field { min-width: 0; }
+  .save-question-action { margin-left: auto; }
 
   .empty-state { padding: 0.85rem; border: 1px dashed #d0d5dd; border-radius: 8px; color: #667085; }
   .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; }
@@ -166,12 +152,9 @@
   button:disabled { cursor: not-allowed; opacity: 0.45; }
 
   .scope-change { width: fit-content; max-width: 100%; border: 1px solid #e4e7ec; border-radius: 8px; background: #f8fafc; }
-  summary { padding: 0.55rem 0.7rem; cursor: pointer; color: #344054; font-size: 0.82rem; font-weight: 650; }
+  summary { padding: 0.5rem 0.65rem; cursor: pointer; color: #344054; font-size: 0.8rem; font-weight: 650; }
   .scope-change-body { min-width: min(560px, calc(100vw - 5rem)); padding: 0.75rem 0.85rem; }
   button:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
-  :global(.case-editor[data-editor-layout="classic"]) .scope-change { width: 100%; }
-  :global(.case-editor[data-editor-layout="classic"]) .scope-change > summary { display: none; }
-  :global(.case-editor[data-editor-layout="compact"]) .classic-scope-heading { display: none; }
   :global(.case-editor[data-editor-layout="compact"]) .compact-hide-explainer { display: none; }
 
   @media (min-width: 1024px) {
@@ -186,11 +169,13 @@
   }
 
   @media (max-width: 760px) {
-    .subsection-title, .card-heading, .question-footer { align-items: start; flex-direction: column; }
+    .subsection-title, .card-heading { align-items: start; flex-direction: column; }
     .form-grid, .question-edit-form { grid-template-columns: minmax(0, 1fr); }
     .wide, .new-question-reuse, .new-question-actions { grid-column: auto; }
     .new-question-actions { justify-self: start; }
     .header-actions { width: 100%; justify-content: flex-start; }
+    .question-footer { align-items: start; flex-direction: column; }
+    .save-question-action { margin-left: 0; }
     .scope-change { width: 100%; }
     .scope-change-body { min-width: 0; }
   }
