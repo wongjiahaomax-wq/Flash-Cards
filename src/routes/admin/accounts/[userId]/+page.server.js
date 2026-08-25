@@ -3,13 +3,16 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import {
   AccountManagementError,
   changeProductionRole,
-  disableAccount,
   getAccount,
   requireProductionAccountManager,
   restoreAccount,
   revokeAccountSessions,
   sendAccountPasswordEmail
 } from '$lib/server/accounts/admin-accounts.ts';
+import {
+  demoteProductionAdministratorAtomically,
+  disableManagedAccountAtomically
+} from '$lib/server/accounts/admin-account-invariants.ts';
 import { requestAdminPasswordEmail } from '$lib/server/accounts/password-email.ts';
 
 /** @param {unknown} errorValue */
@@ -108,28 +111,27 @@ export const actions = {
   },
 
   demote: async (event) => {
-    let updated;
     try {
       const context = requireContext(event);
-      updated = await changeProductionRole({
+      await demoteProductionAdministratorAtomically({
+        db: context.env.DB,
         auth: context.auth,
         headers: context.headers,
         actorUserId: context.actorUserId,
-        userId: event.params.userId,
-        accountType: 'learner'
+        userId: event.params.userId
       });
     } catch (errorValue) {
       return actionFailure(errorValue);
     }
 
-    if (!updated) redirect(303, '/admin/accounts?status=demoted-preview-retained');
     redirect(303, `/admin/accounts/${encodeURIComponent(event.params.userId)}?status=demoted`);
   },
 
   disable: async (event) => {
     try {
       const context = requireContext(event);
-      await disableAccount({
+      await disableManagedAccountAtomically({
+        db: context.env.DB,
         auth: context.auth,
         headers: context.headers,
         actorUserId: context.actorUserId,
