@@ -1,6 +1,6 @@
 # Flash-Cards agent handover
 
-_Refreshed: 24 August 2026_
+_Refreshed: 25 August 2026_
 
 ## Current outcome
 
@@ -15,7 +15,7 @@ Flash-Cards is a working private case-based medical learning application with:
 - whole-Case, set-wide, exact-image, tag-shared, Topic, and Reusable Image Questions;
 - Tagging Stage A/B;
 - Image Management V2 and lifecycle cleanup views;
-- production-backed Preview Admin;
+- production-backed Preview Admin retained as a legacy/safety-sensitive subsystem;
 - strict reviewed/resumable imports;
 - local production-like D1/R2 development replica;
 - local slide-review/deterministic-finalizer tooling;
@@ -23,7 +23,9 @@ Flash-Cards is a working private case-based medical learning application with:
 - repository-owned coding-agent/validation workflow;
 - a fully imported and production-verified first ECG corpus: **66/66 source notes represented**.
 
-Current `main` is at least through merged PR #83. The latest sequence is primarily maintainability/operational work: the Case editor has been decomposed into focused components, and the Preview backend has been decomposed through Session/ownership foundations, Case lifecycle/cloning, and fixed-image operations without intentionally changing product behavior.
+Current `main` is at least through merged PR #90. The Case editor has been decomposed into focused components, and the Preview backend has been decomposed through Session/ownership foundations, Case lifecycle/cloning, and fixed-image operations without intentionally changing product behavior.
+
+As of 25 August 2026, the deployed `/preview-admin` workflow is no longer part of the normal development/testing path. The primary workflow is the local clone with the production-like local D1/R2 replica, `npm run dev`, local `npm run preview`, repository validation, and GitHub CI. Further Preview backend decomposition is intentionally paused after PR #83; draft PR #91 was closed unmerged.
 
 ## Status boundary: production versus current `main`
 
@@ -38,21 +40,7 @@ merged on main
 
 The recorded verified production baseline includes learner/Admin/Preview/Image Management V2/Tagging Stage B and the complete ECG import. Current `main` contains later features/migrations/refactors that must not be called deployed/applied without separate evidence.
 
-Current repository migrations extend through:
-
-```text
-0013_review_assets_asset_lookup.sql
-```
-
-Relevant later migrations:
-
-```text
-0009 reusable image questions
-0010 reusable image reactivation guard
-0011 Asset supersession
-0012 alternative-option removed_from_case archive state
-0013 review_assets(asset_id, review_id) lookup index
-```
+Current repository migrations extend through the repository's current checked-in migration sequence. A migration file being present is not proof that it has been applied to production.
 
 ## Read first
 
@@ -102,20 +90,27 @@ Important recent `main` history includes:
 - PR #79 — capability-based Local/Remote GitHub/Hybrid agent workflow;
 - PR #80 — Preview workspace foundation extraction;
 - PR #82 — Preview Case lifecycle/cloning extraction;
-- PR #83 — Preview fixed Case-image operation extraction.
+- PR #83 — Preview fixed Case-image operation extraction;
+- PR #90 — current Primary Topic + Case Tags behavior replacing Additional Study Topics in active product behavior.
+
+PR #91 was a draft attempt at the next Preview Alternative Set/stimulus extraction. It was intentionally closed unmerged on 25 August 2026 after the project moved to a local-first testing workflow. Do not resume it as unfinished required work.
 
 ## Product/content model
 
-The authoring hierarchy remains:
+The current authoring hierarchy is:
 
 ```text
-Topic
-└── Case
-    ├── fixed Assets
-    ├── Alternative Sets
-    │   └── Stimulus Options
-    └── contextual questions
+System
+└── Topic
+    └── Case
+        ├── Case Tags
+        ├── fixed Assets
+        ├── Alternative Sets
+        │   └── Stimulus Options
+        └── contextual questions
 ```
+
+A Case has one behaviorally active Primary Topic plus zero or more Case Tags. Legacy secondary `case_concepts` rows may still exist physically but are not current authoring/learner behavior.
 
 Global reusable knowledge is separate:
 
@@ -129,8 +124,6 @@ Reusable Image Question
 ```
 
 `question_prompts` stores wording only.
-
-A Case has one primary/default Topic and may have Additional Study Topics. Tags remain cross-cutting metadata, not learner hierarchy. Image Collections remain library organisation, not educational semantics.
 
 ## Current question precedence
 
@@ -199,7 +192,7 @@ src/lib/components/case-editor/
 
 Future Case-authoring work should normally start with the owning component plus directly relevant server/helpers/tests. Do not re-monolithize the route or duplicate a Preview editor.
 
-Preview Admin continues to render the production editor surface. `test/admin-editor-preview-contract.test.js` protects shared actions/data contracts across the route + components.
+Preview Admin still renders the production editor surface while the legacy subsystem remains present. `test/admin-editor-preview-contract.test.js` protects shared actions/data contracts across the route + components.
 
 ## Classic/Compact and fast-review behavior
 
@@ -244,8 +237,6 @@ Asset Active/Inactive status is independent from derived usage:
 
 Preview relationships do not affect production classification.
 
-`0013_review_assets_asset_lookup.sql` adds the `(asset_id, review_id)` index supporting historical Review existence/count queries.
-
 Lifecycle filters support conservative cleanup decisions; they do not physically delete R2 objects/Asset rows.
 
 ## Higher-resolution Asset replacement
@@ -268,7 +259,7 @@ A different image showing the same diagnosis remains a separate Asset.
 
 Review historical media is served from `review_assets.storage_key_snapshot` through an authenticated Review-owned route. Existing Reviews are never rewritten.
 
-A live Preview workspace referencing A blocks replacement; Preview relationships are never silently migrated.
+A live Preview workspace referencing A blocks replacement; Preview relationships are never silently migrated while Preview ownership remains implemented.
 
 ## Performance/read-model state
 
@@ -322,7 +313,7 @@ preview-workspace/case.js
 → production Case discovery/search
 → complete Case clone transaction
 → Preview Case list + metadata/vignette/question-selection
-→ primary/secondary Topic mutations
+→ Primary Topic mutation and deprecated secondary-Topic compatibility handling
 
 preview-workspace/fixed-images.js
 → ongoing fixed-image editor reads
@@ -343,7 +334,9 @@ Still in the façade:
 - scope/reusable-question operations;
 - composed editor loading.
 
-Likely next staged sequence:
+These remaining façade responsibilities are now an **accepted legacy boundary**, not a required staged-refactor queue.
+
+Do not continue the former sequence:
 
 ```text
 Alternative Set extraction
@@ -351,7 +344,7 @@ Alternative Set extraction
 → final façade/cleanup ownership review
 ```
 
-Preserve exact public API, error codes/messages, ownership precedence, Session semantics, ordering, and write boundaries during refactors.
+unless active Preview maintenance resumes and there is a concrete risk/cost benefit. Existing security and ownership contracts must remain intact while Preview remains in the repository.
 
 ## Preview security invariants
 
@@ -363,6 +356,8 @@ Preserve exact public API, error codes/messages, ownership precedence, Session s
 - Shared Questions and Reusable Image Questions remain production-global;
 - higher-resolution replacement remains production-only;
 - combined `admin,preview_admin` owner may use production Study; Preview-only identity may not.
+
+These invariants still matter even though the remote Preview surface is no longer routinely used.
 
 ## Developer/coding-agent workflow
 
@@ -387,18 +382,48 @@ npm run validate:full
 
 Remote GitHub sessions must report GitHub CI/check evidence separately from commands they did not execute locally.
 
-## Local development and local preview
+## Local development and local preview — primary workflow
 
 `npm run dev` and `npm run preview` use deterministic Node launchers, repository-installed Vite/Wrangler, and child-scoped repository-local XDG/Wrangler state.
 
-`npm run preview` performs production-style **local** verification with local D1 migrations and localhost Better Auth configuration. It does not deploy the Preview Worker or refresh production-derived local content automatically.
+`npm run preview` performs production-style **local** verification with local D1 migrations and localhost Better Auth configuration. It does not deploy the remote Preview Worker or refresh production-derived local content automatically.
 
-The local replica remains:
+The local replica is the normal application development path:
 
 ```text
 Production D1/R2 -- fixed read-only refresh --> local D1/R2
 local app writes ---------------------------> local D1/R2 only
 ```
+
+Typical iteration:
+
+```text
+npm run local:refresh   # when fresh production-derived content is needed
+npm run dev             # hot-reload development
+npm run local:stop
+npm run preview         # production-style local runtime verification
+repository-defined validation / GitHub CI
+```
+
+The remote `/preview-admin` Worker is no longer the default integration gate.
+
+## Future Preview decommissioning
+
+Stopping the refactor does not authorize casual deletion of Preview code.
+
+If remote Preview is permanently retired, first create a dedicated decommissioning assessment covering:
+
+- `/preview-admin` routes and shared editor contracts;
+- Preview auth roles/session boundaries;
+- `preview_sessions` and Preview-owned rows;
+- production filtering of Preview-owned Cases/Prompts/Assets;
+- Preview R2 cleanup/prefixes;
+- production Asset replacement checks involving live Preview references;
+- bootstrap/deploy/restore workflows;
+- Preview-specific tests and documentation;
+- safe handling of any extant Preview-owned production data.
+
+Do not mix that removal into unrelated feature or refactor work.
 
 ## Reviewed slide workflow
 
@@ -425,14 +450,18 @@ Initial ingestion is complete. Ongoing work is curation/enrichment.
 Preferred sequence:
 
 1. curate real ECG/content Tags and reusable knowledge;
-2. add Study Topics/stimulus variants only when educationally useful;
+2. add stimulus variants only when educationally useful;
 3. observe Admin/learner friction;
-4. continue focused Preview/modularity/performance work where it reduces concrete risk/cost;
+4. improve local-development/modularity/performance paths where they reduce concrete risk or cost;
 5. implement learner-account administration;
 6. implement basic learner-progress administration.
 
+Further Preview decomposition is not on this sequence.
+
 ## Deliberately deferred
 
+- further Preview backend decomposition after PR #83;
+- remote Preview decommissioning until separately assessed;
 - compound/multiple Shared Question scopes;
 - Tag hierarchy/aliases or Study-by-Tag;
 - automatic/AI Tag inference;
@@ -456,4 +485,4 @@ current main code
 + explicitly verified production evidence
 ```
 
-Behavior-preserving refactors still require documentation updates when responsibility ownership materially changes where future agents should work.
+Behavior-preserving refactors still require documentation updates when responsibility ownership materially changes where future agents should work. Historical refactor plans must not override the current local-first workflow decision.
