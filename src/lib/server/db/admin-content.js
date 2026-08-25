@@ -85,6 +85,14 @@ export async function listAdminConcepts(db) {
     }));
 }
 
+/** @param {LearningDb} db */
+export async function listActiveSystems(db) {
+  const rows = await listActiveConceptTaxonomy(db);
+  return rows
+    .filter((concept) => concept.kind === 'system')
+    .map((concept) => ({ id: concept.id, name: concept.name }));
+}
+
 /** @param {LearningDb} db @param {string} name */
 async function prepareConcept(db, name) {
   const cleanName = requiredText(name, 'Topic name');

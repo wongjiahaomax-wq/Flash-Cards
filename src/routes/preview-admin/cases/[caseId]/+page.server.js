@@ -20,6 +20,7 @@ import {
   PreviewWorkspaceError,
   promotePreviewTopic,
   removePreviewCaseQuestion,
+  restorePreviewCaseQuestion,
   removePreviewSecondaryTopic,
   removePreviewStimulusQuestion,
   requireOwnedPreviewCase,
@@ -94,6 +95,9 @@ export async function load({ parent, params, platform, url }) {
     return {
       assets: [],
       concepts: [],
+      systems: [],
+      status: null,
+      removedQuestionPromptId: null,
       cases: [],
       questionCount: 0,
       selectedCase: null,
@@ -107,6 +111,9 @@ export async function load({ parent, params, platform, url }) {
       imagePickerSearch: url.searchParams.get('image_q')?.trim() ?? '',
       targetGroupId: url.searchParams.get('target_group')?.trim() || null
     })),
+    systems: [],
+    status: url.searchParams.get('status'),
+    removedQuestionPromptId: url.searchParams.get('removed_question'),
     workspaceBlocked: false
   };
 }
@@ -114,6 +121,7 @@ export async function load({ parent, params, platform, url }) {
 export const actions = {
   createConcept: async () => fail(403, { error: 'Global Topic editing is unavailable in Preview Mode.' }),
   createCaseTopic: async () => fail(403, { error: 'Creating Topics from a Case editor is unavailable in Preview Mode.' }),
+  assignPrimaryTopicToSystem: async () => fail(403, { error: 'System hierarchy editing is unavailable in Preview Mode.' }),
   createCase: async () => fail(403, { error: 'Create a Preview Copy from an existing production Case instead.' }),
   moveCaseQuestionToStimulusOption: async () => fail(403, { error: 'Moving Case questions to exact images is unavailable in Preview Mode.' }),
 
@@ -298,7 +306,21 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'question-removed', '#questions'));
+    redirect(303, `${caseRedirect(caseId, 'question-removed')}&removed_question=${encodeURIComponent(formText(formData, 'prompt_id'))}#questions`);
+  },
+
+  restoreQuestion: async (event) => {
+    const result = await contextOrFailure(event);
+    if (!result.context) return result.failure;
+    const formData = await event.request.formData();
+    const caseId = formText(formData, 'case_id') || event.params.caseId;
+    const promptId = formText(formData, 'prompt_id');
+    try {
+      await restorePreviewCaseQuestion(result.context.db, result.context.session.id, caseId, promptId);
+    } catch (error) {
+      return fail(actionStatus(error), { error: actionError(error), caseId });
+    }
+    redirect(303, caseRedirect(caseId, 'question-restored', `#question-${encodeURIComponent(promptId)}`));
   },
 
   reorderQuestion: async (event) => {

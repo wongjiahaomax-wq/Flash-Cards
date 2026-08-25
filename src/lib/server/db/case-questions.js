@@ -381,15 +381,29 @@ export async function moveCaseQuestionToStimulusOption(db, input) {
 export async function removeCaseQuestion(db, caseId, promptId) {
   await requireCaseContext(db, caseId);
   const existing = await db
-    .select({ questionPromptId: caseQuestions.questionPromptId })
+    .select({ id: caseQuestions.id, questionPromptId: caseQuestions.questionPromptId })
     .from(caseQuestions)
     .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.questionPromptId, promptId)))
     .limit(1);
   if (!existing[0]) throw new CaseQuestionInputError('That Case question no longer exists.');
   const result = await db
-    .delete(caseQuestions)
-    .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.questionPromptId, promptId)));
+    .update(caseQuestions)
+    .set({ isActive: false, updatedAt: new Date() })
+    .where(eq(caseQuestions.id, existing[0].id));
   return result;
+}
+
+/** @param {LearningDb} db @param {string} caseId @param {string} promptId */
+export async function restoreCaseQuestion(db, caseId, promptId) {
+  await requireCaseContext(db, caseId);
+  const existing = await db
+    .select({ id: caseQuestions.id })
+    .from(caseQuestions)
+    .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.questionPromptId, promptId), eq(caseQuestions.isActive, false)))
+    .limit(1);
+  if (!existing[0]) throw new CaseQuestionInputError('That removed Case question is no longer available to restore.');
+  await db.update(caseQuestions).set({ isActive: true, updatedAt: new Date() }).where(eq(caseQuestions.id, existing[0].id));
+  return promptId;
 }
 
 /** @param {LearningDb} db @param {string} caseId @param {string} promptId @param {'up' | 'down'} direction */

@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { and, eq } from 'drizzle-orm';
 
-import { AdminContentInputError, createCaseTopic, listAdminConcepts } from '$lib/server/db/admin-content.js';
+import { AdminContentInputError, createCaseTopic, listActiveSystems, listAdminConcepts } from '$lib/server/db/admin-content.js';
 import { createAssetFromUpload, AssetLibraryInputError } from '$lib/server/db/asset-library.js';
 import { AssetQuestionInputError, createAssetQuestion, optInAssetQuestion, optInFixedAssetQuestion, removeAssetQuestionOptIn, updateAssetQuestionAnswer } from '$lib/server/db/asset-questions.js';
 import { canManageCaseAssets, getAdminCaseData } from '$lib/server/db/case-assets.js';
@@ -13,6 +13,7 @@ import { createDb } from '$lib/server/db/index.js';
 import { caseAssets, stimulusGroups } from '$lib/server/db/schema.js';
 import { convertCaseAssetToStimulusOption, createStimulusGroup, getAdminStimulusData, StimulusGroupInputError } from '$lib/server/db/stimulus-groups.js';
 import { getTeachingImageUrl, MediaStorageLimitError } from '$lib/server/storage/media.js';
+import { assignPrimaryTopicToSystem, TaxonomyInputError } from '$lib/server/db/taxonomy-admin-write.ts';
 import { actions as parentActions } from '../../+page.server.js';
 
 /** @param {FormData} formData @param {string} name */
@@ -27,13 +28,13 @@ function reusableQuestionActionError(errorValue) { const clientError = errorValu
 export async function load({ locals, platform, params, url }) {
   const pickerOpen = url.searchParams.get('picker') === '1';
   const pickerSearch = url.searchParams.get('image_q')?.trim() ?? '';
-  if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { concepts: [], selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
+  if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { concepts: [], systems: [], status: null, removedQuestionPromptId: null, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
 
   const db = createDb(platform.env.DB);
-  const [concepts, manager, questions, stimulusGroupsData] = await Promise.all([
-    listAdminConcepts(db), getAdminCaseData(db, params.caseId, { includeAvailable: false }), listCaseQuestions(db, params.caseId), getAdminStimulusData(db, params.caseId)
+  const [concepts, systems, manager, questions, stimulusGroupsData] = await Promise.all([
+    listAdminConcepts(db), listActiveSystems(db), getAdminCaseData(db, params.caseId, { includeAvailable: false }), listCaseQuestions(db, params.caseId), getAdminStimulusData(db, params.caseId)
   ]);
-  if (!manager) return { concepts, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
+  if (!manager) return { concepts, systems, status: null, removedQuestionPromptId: null, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
 
   const stimulusGroups = stimulusGroupsData.map((group) => ({ ...group, options: group.options.map((option) => ({ ...option, imageUrl: option.assetIsActive ? getTeachingImageUrl(option.assetId) : null })) }));
   const targetRequested = url.searchParams.get('target_group')?.trim() ?? '';
@@ -51,7 +52,7 @@ export async function load({ locals, platform, params, url }) {
   ]);
 
   return {
-    concepts, previewMode: false,
+    concepts, systems, status: url.searchParams.get('status'), removedQuestionPromptId: url.searchParams.get('removed_question'), previewMode: false,
     selectedCase: { ...manager, questions, stimulusGroups, reusableImageQuestions, caseTags, attached: manager.attached.map((asset) => ({ ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.assetId) : null })) },
     imagePicker: { open: pickerOpen, ...pickerResults, targetGroupId: targetGroup?.id ?? null, targetGroupName: targetGroup?.name ?? null }
   };
@@ -59,6 +60,23 @@ export async function load({ locals, platform, params, url }) {
 
 export const actions = {
   ...parentActions,
+  assignPrimaryTopicToSystem: async ({ request, locals, platform, params }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id') || params.caseId;
+    if (caseId !== params.caseId) return fail(400, { error: 'The selected Case does not match this editor.' });
+    try {
+      await assignPrimaryTopicToSystem(createDb(platform.env.DB), {
+        caseId,
+        topicId: formText(formData, 'topic_id'),
+        systemId: formText(formData, 'system_id')
+      });
+    } catch (errorValue) {
+      return fail(errorValue instanceof TaxonomyInputError ? 400 : 500, { error: errorValue instanceof TaxonomyInputError ? errorValue.message : 'Unable to place the Primary Topic under that System.', caseId });
+    }
+    redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=primary-topic-system-assigned#topics`);
+  },
   createCaseTopic: async ({ request, locals, platform, params }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' }); if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData(); const caseId = formText(formData, 'case_id') || params.caseId; if (caseId !== params.caseId) return fail(400, { error: 'The selected Case does not match this editor.' });
