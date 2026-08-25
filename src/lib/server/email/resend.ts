@@ -1,24 +1,9 @@
-export type TransactionalEmailMessage = {
-  to: string;
-  subject: string;
-  text: string;
-  html?: string;
-};
-
-export type EmailEnvironment = {
-  RESEND_API_KEY?: string;
-  AUTH_EMAIL_FROM?: string;
-};
-
-export class EmailDeliveryError extends Error {
-  status: number | null;
-
-  constructor(message: string, status: number | null = null) {
-    super(message);
-    this.name = 'EmailDeliveryError';
-    this.status = status;
-  }
-}
+import {
+  EmailDeliveryError,
+  type EmailEnvironment,
+  type TransactionalEmailMessage,
+  type TransactionalEmailSender
+} from './transactional.ts';
 
 const RESEND_EMAILS_ENDPOINT = 'https://api.resend.com/emails';
 
@@ -29,11 +14,11 @@ const RESEND_EMAILS_ENDPOINT = 'https://api.resend.com/emails';
  * omit provider response bodies, recipient addresses and message contents so
  * authentication tokens cannot accidentally be copied into application logs.
  */
-export async function sendTransactionalEmail(
+export const sendTransactionalEmail: TransactionalEmailSender = async (
   env: EmailEnvironment,
   message: TransactionalEmailMessage,
   fetchImpl: typeof fetch = fetch
-): Promise<void> {
+): Promise<void> => {
   const apiKey = env.RESEND_API_KEY?.trim();
   const from = env.AUTH_EMAIL_FROM?.trim();
 
@@ -59,4 +44,4 @@ export async function sendTransactionalEmail(
   if (!response.ok) {
     throw new EmailDeliveryError('Transactional email provider rejected the request.', response.status);
   }
-}
+};
