@@ -194,6 +194,56 @@ Preview may not mutate production Asset metadata, Collections, R2 object identit
 
 Production higher-resolution Asset replacement remains Preview-aware: a production Asset referenced by a live Preview workspace can block replacement, and Preview relationships are never silently rewritten.
 
+## Retained implementation invariants
+
+The remote Preview workflow is optional, but the implementation remains live and shares production-backed D1/R2. The following contracts therefore remain authoritative while Preview exists.
+
+### Fixed-image bulk attach error precedence
+
+For bounded bulk fixed-image attach, **Case ownership validation occurs before bulk-input validation**. A foreign Preview Case must therefore fail with the established ownership error even when the submitted selection is empty or oversized.
+
+The public `preview-workspace.js` façade owns this ownership-before-input precondition and passes the already validated Case into `preview-workspace/fixed-images.js`; the focused helper must not add a redundant second ownership query on the successful path. Preserve ordering, captions, duplicate/conflict handling, Asset eligibility, batch/fallback behavior, ownership rejection, and public error codes/messages.
+
+### Reusable-question backing-content protection
+
+`shared_questions` and `asset_questions` remain production-global. D1/application protections must reject Preview-owned backing Prompts/Assets and preserve the established cross-group Prompt invariants. Rendering shared/reusable counts or status in Preview does not grant create/edit/archive/reuse/remove authority over those production-global records.
+
+See `TAGGING_STAGE_B_BEHAVIOR.md` and `REUSABLE_IMAGE_QUESTIONS.md` for the reusable-question contracts.
+
+### Alternative-option lifecycle semantics
+
+Preview must preserve the same current-state/archive distinction as production:
+
+```text
+Deactivate option
+≠ Remove from Case
+```
+
+`removed_from_case` relationships are excluded from current learner/current-authoring semantics while the retained row continues to preserve historical/question/provenance relationships. Preview maintenance must not collapse `removed_from_case` into ordinary `is_active` handling.
+
+See `STIMULUS_GROUPS_DESIGN.md` and `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` for the wider option/image authoring semantics.
+
+### Higher-resolution replacement blocking
+
+Production **Replace with higher-resolution version** remains unavailable in Preview. A production Asset referenced by a **live** Preview workspace is temporarily ineligible for replacement, where live means:
+
+```text
+preview_sessions.status = 'active'
+AND expires_at > now
+```
+
+Both Preview fixed `case_assets` references and Preview stimulus-option references block replacement. Production replacement performs a Preview-reference check before R2 upload and repeats the condition in the D1 claim; if a Preview reference becomes live between those stages, the replacement must roll back and clean up only the new uncommitted replacement object. Existing Preview relationships are never silently rewritten.
+
+See `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md` for the full production replacement contract.
+
+### R2 cleanup lifecycle separation
+
+Preview reset/cleanup may delete only objects proven to belong to the relevant Preview session under the `preview/<preview-session-id>/...` ownership boundary.
+
+Do not conflate Preview cleanup with other storage lifecycles. Reviewed-import staging cleanup and failed production higher-resolution replacement cleanup have different ownership/evidence rules. In particular, failed replacement cleanup concerns only the newly uploaded uncommitted replacement object, not Preview-owned media or established production media.
+
+See `R2_COST_GUARDRAILS.md`, `CONTENT_IMPORT_PACKAGES.md`, `RESUMABLE_IMPORT_RUNTIME_SAFETY.md`, and `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md` for the corresponding storage/runtime contracts.
+
 ## Session and cleanup safety
 
 V1 supports one live Preview workspace per Preview Admin with a 24-hour expiry.
@@ -276,13 +326,13 @@ If Preview code is touched, preserve or intentionally revise with explicit revie
 - production Asset read-only reuse;
 - complete Case-clone behavior and ordering;
 - Primary Topic + Case Tag cloning with legacy secondary rows omitted;
-- fixed-image ordering/captions/attach/detach/reorder;
+- fixed-image ordering/captions/attach/detach/reorder, including ownership-before-bulk-input validation/error precedence;
 - shared editor action/data contracts;
 - route hard blocks;
-- R2 prefix safety;
-- reusable-content restrictions;
-- live-Preview replacement blocking;
-- option archive/current-state semantics.
+- R2 prefix safety and separation of Preview cleanup from reviewed-import staging and failed-replacement cleanup;
+- reusable-content restrictions, including rejection of Preview-owned backing Prompts/Assets and cross-group Prompt protection;
+- live-Preview replacement blocking, including the active/unexpired definition and two-stage replacement check/rollback behavior;
+- option archive/current-state semantics, including **Deactivate option ≠ Remove from Case**.
 
 Use repository-defined validation. GitHub-only sessions must distinguish CI/check evidence from commands they did not execute locally.
 
