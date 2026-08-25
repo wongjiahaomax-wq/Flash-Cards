@@ -19,7 +19,7 @@ test('Case editor exposes one shared Classic/Compact authoring tree', () => {
   assert.doesNotMatch(`${editor}\n${navigation}`, /ClassicCaseEditor|CompactCaseEditor/);
 });
 
-test('Compact Case questions keep scope and reorder controls together while preserving exact viewport scroll', () => {
+test('Compact Case questions keep scope and reorder controls together while preserving viewport scroll', () => {
   assert.match(questions, /<details class="scope-change scope-change-header">/);
   assert.match(questions, /<summary>Change scope<\/summary>/);
   assert.match(questions, /class="scope-badge">Whole Case<\/span>/);
