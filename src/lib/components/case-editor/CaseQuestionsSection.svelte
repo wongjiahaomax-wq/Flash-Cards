@@ -79,10 +79,25 @@
           <label class="question-answer-field">Answer<textarea name="answer_md" rows="3" maxlength="5000" required>{question.answerMd}</textarea></label>
           <div class="question-footer">
             <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" checked={question.reusableForTopic} /> Share this question with the Topic</label>
-            {#if !previewMode}<details class="scope-change"><summary>Change scope</summary><div class="scope-change-body stack"><form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack"><input type="hidden" name="intent" value="move" /><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><label>Applies to<select name="target" required><option value="" disabled selected>A specific image / stimulus…</option>{#each selectedCase.attached.filter((asset) => asset.isActive) as asset}<option value={`fixed:${asset.assetId}`}>{asset.originalFilename ?? asset.assetId} — always shown</option>{/each}{#each selectedCase.stimulusGroups.filter((group) => group.isActive) as group}{#each group.options.filter((option) => option.isActive && option.assetIsActive) as targetOption}<option value={`option:${targetOption.id}`}>{targetOption.originalFilename ?? targetOption.assetId} — {group.name}{targetOption.captionMd ? ` — ${targetOption.captionMd}` : ''}</option>{/each}{/each}</select></label><div><button class="button small" type="submit">Apply specific stimulus scope</button></div></form></div></details>{/if}
             <button class="button primary save-question-action" type="submit">Save question</button>
           </div>
         </form>
+
+        {#if !previewMode}
+          <details class="scope-change" open={editorLayout === 'classic'}>
+            <summary>Change scope</summary>
+            <div class="scope-change-body stack">
+              <strong class="classic-scope-heading">Change scope</strong>
+              <form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack">
+                <input type="hidden" name="intent" value="move" />
+                <input type="hidden" name="case_id" value={selectedCase.case.id} />
+                <input type="hidden" name="prompt_id" value={question.questionPromptId} />
+                <label>Applies to<select name="target" required><option value="" disabled selected>A specific image / stimulus…</option>{#each selectedCase.attached.filter((asset) => asset.isActive) as asset}<option value={`fixed:${asset.assetId}`}>{asset.originalFilename ?? asset.assetId} — always shown</option>{/each}{#each selectedCase.stimulusGroups.filter((group) => group.isActive) as group}{#each group.options.filter((option) => option.isActive && option.assetIsActive) as targetOption}<option value={`option:${targetOption.id}`}>{targetOption.originalFilename ?? targetOption.assetId} — {group.name}{targetOption.captionMd ? ` — ${targetOption.captionMd}` : ''}</option>{/each}{/each}</select></label>
+                <div><button class="button small" type="submit">Apply specific stimulus scope</button></div>
+              </form>
+            </div>
+          </details>
+        {/if}
       </article>
     {/each}
   </div>
@@ -155,6 +170,9 @@
   summary { padding: 0.5rem 0.65rem; cursor: pointer; color: #344054; font-size: 0.8rem; font-weight: 650; }
   .scope-change-body { min-width: min(560px, calc(100vw - 5rem)); padding: 0.75rem 0.85rem; }
   button:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
+  :global(.case-editor[data-editor-layout="classic"]) .scope-change { width: 100%; }
+  :global(.case-editor[data-editor-layout="classic"]) .scope-change > summary { display: none; }
+  :global(.case-editor[data-editor-layout="compact"]) .classic-scope-heading { display: none; }
   :global(.case-editor[data-editor-layout="compact"]) .compact-hide-explainer { display: none; }
 
   @media (min-width: 1024px) {
