@@ -1,8 +1,8 @@
-import {
-  sendTransactionalEmail,
-  type EmailEnvironment,
-  type TransactionalEmailMessage
-} from './resend.ts';
+import type {
+  EmailEnvironment,
+  TransactionalEmailMessage,
+  TransactionalEmailSender
+} from './transactional.ts';
 
 export const PASSWORD_RESET_TOKEN_EXPIRES_IN_SECONDS = 60 * 60;
 
@@ -20,11 +20,14 @@ function escapeHtml(value: string): string {
 /**
  * Build the learner-facing reset route from Better Auth's generated reset URL.
  * Only the origin is reused; Better Auth remains the token authority.
+ *
+ * The reset token is stored in the URL fragment so it is never transmitted in
+ * the initial HTTP request URL to the application/Cloudflare platform.
  */
 export function buildApplicationPasswordResetUrl(betterAuthResetUrl: string, token: string): string {
   const authUrl = new URL(betterAuthResetUrl);
   const resetUrl = new URL('/reset-password', authUrl.origin);
-  resetUrl.searchParams.set('token', token);
+  resetUrl.hash = new URLSearchParams({ token }).toString();
   return resetUrl.toString();
 }
 
@@ -55,12 +58,13 @@ export async function sendPasswordResetEmail(options: {
   to: string;
   betterAuthResetUrl: string;
   token: string;
+  sendEmail: TransactionalEmailSender;
   fetchImpl?: typeof fetch;
 }): Promise<void> {
   const resetUrl = buildApplicationPasswordResetUrl(options.betterAuthResetUrl, options.token);
   const message = renderPasswordResetEmail(resetUrl);
 
-  await sendTransactionalEmail(
+  await options.sendEmail(
     options.env,
     {
       ...message,
