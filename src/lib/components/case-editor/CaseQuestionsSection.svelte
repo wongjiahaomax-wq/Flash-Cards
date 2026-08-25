@@ -14,6 +14,47 @@
   let { selectedCase, previewMode, editorLayout } = $props();
   let newQuestionScope = $state('case');
 
+  /** Keep answer fields readable without allowing very long answers to dominate the page. */
+  const autoGrowAnswer = (node) => {
+    const maxHeight = 360;
+    let expanded = false;
+    const expandButton = document.createElement('button');
+    expandButton.type = 'button';
+    expandButton.className = 'button small answer-expand-button';
+    expandButton.hidden = true;
+
+    const updateExpandButton = (isOverflowing) => {
+      const hidden = !isOverflowing && !expanded;
+      expandButton.hidden = hidden;
+      expandButton.style.display = hidden ? 'none' : '';
+      expandButton.textContent = expanded ? 'Collapse answer' : 'Expand answer';
+      expandButton.setAttribute('aria-expanded', String(expanded));
+    };
+
+    const resize = () => {
+      node.style.height = 'auto';
+      const isOverflowing = node.scrollHeight > maxHeight;
+      node.style.height = `${expanded ? node.scrollHeight : Math.min(node.scrollHeight, maxHeight)}px`;
+      node.style.overflowY = expanded ? 'hidden' : isOverflowing ? 'auto' : 'hidden';
+      updateExpandButton(isOverflowing);
+    };
+
+    expandButton.addEventListener('click', () => {
+      expanded = !expanded;
+      resize();
+    });
+    node.addEventListener('input', resize);
+    node.insertAdjacentElement('afterend', expandButton);
+    requestAnimationFrame(resize);
+
+    return {
+      destroy() {
+        node.removeEventListener('input', resize);
+        expandButton.remove();
+      }
+    };
+  };
+
   /** @type {NonNullable<Parameters<typeof enhance>[1]>} */
   const preserveQuestionScroll = () => {
     const scrollX = window.scrollX;
@@ -58,7 +99,7 @@
     <form method="POST" action={previewMode ? '?/saveQuestion' : `/admin/cases/${selectedCase.case.id}/question-scope`} class="form-grid question-authoring">
       <input type="hidden" name="case_id" value={selectedCase.case.id} />
       <label class="new-question-prompt">Question prompt<textarea name="prompt_md" rows="3" maxlength="2000" required placeholder="e.g. What is the likely cause in this patient?"></textarea></label>
-      <label class="new-question-answer">Answer<textarea name="answer_md" rows="3" maxlength="5000" required placeholder="The answer shown after reveal."></textarea></label>
+      <label class="new-question-answer">Answer<textarea use:autoGrowAnswer name="answer_md" rows="3" maxlength="5000" required placeholder="The answer shown after reveal."></textarea></label>
       {#if !previewMode}
         <fieldset class="scope-choice wide"><legend>Applies to:</legend><label><input type="radio" name="scope" value="case" bind:group={newQuestionScope} /> This whole Case</label><label><input type="radio" name="scope" value="stimulus" bind:group={newQuestionScope} /> A specific image / stimulus</label></fieldset>
         {#if newQuestionScope === 'case'}
@@ -119,7 +160,7 @@
           <input type="hidden" name="case_id" value={selectedCase.case.id} />
           <input type="hidden" name="original_prompt_id" value={question.questionPromptId} />
           <label class="question-prompt-field">Prompt<textarea name="prompt_md" rows="3" maxlength="2000" required>{question.promptMd}</textarea></label>
-          <label class="question-answer-field">Answer<textarea name="answer_md" rows="3" maxlength="5000" required>{question.answerMd}</textarea></label>
+          <label class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" rows="3" maxlength="5000" required>{question.answerMd}</textarea></label>
           <div class="question-footer">
             <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" checked={question.reusableForTopic} /> Share this question with the Topic</label>
             <button class="button primary save-question-action" type="submit">Save question</button>
@@ -198,6 +239,9 @@
   .remove-action { background: transparent; }
 
   .question-edit-form { display: grid; gap: 0.7rem 1rem; }
+  .answer-expand-button { justify-self: start; color: #475467; font-size: 0.78rem; }
+  .answer-expand-button[hidden] { display: none; }
+  .answer-expand-button:hover { border-color: #98a2b3; background: #f8fafc; color: #172033; }
   .question-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; padding-top: 0.1rem; }
   .question-reuse-field { min-width: 0; }
   .save-question-action { margin-left: auto; }

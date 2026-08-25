@@ -36,7 +36,13 @@ test('Compact Case questions keep scope and reorder controls together while pres
 
 test('Compact Case question Prompt and Answer fields start at the same height', () => {
   assert.match(questions, /class="question-prompt-field">Prompt<textarea name="prompt_md" rows="3"/);
-  assert.match(questions, /class="question-answer-field">Answer<textarea name="answer_md" rows="3"/);
+  assert.match(questions, /class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" rows="3"/);
+  assert.match(questions, /const autoGrowAnswer = \(node\) =>/);
+  assert.match(questions, /Math\.min\(node\.scrollHeight, maxHeight\)/);
+  assert.match(questions, /expandButton\.textContent = expanded \? 'Collapse answer' : 'Expand answer'/);
+  assert.match(questions, /const hidden = !isOverflowing && !expanded/);
+  assert.match(questions, /expandButton\.style\.display = hidden \? 'none' : ''/);
+  assert.match(questions, /\.answer-expand-button\[hidden\] \{ display: none; \}/);
 });
 
 test('Compact wide layout uses horizontal question fields and sticky section navigation only at the wide breakpoint', () => {
