@@ -71,6 +71,8 @@
         />
       </label>
 
+      <a class="forgot-password" href="/forgot-password">Forgot password?</a>
+
       {#if errorMessage}
         <p class="error" role="alert">{errorMessage}</p>
       {/if}
@@ -101,6 +103,10 @@
 
   input:disabled {
     background: #f2f4f7;
+  }
+
+  .forgot-password {
+    width: fit-content;
   }
 
   .notice {
