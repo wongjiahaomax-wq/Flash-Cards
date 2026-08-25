@@ -19,12 +19,17 @@ test('Case editor exposes one shared Classic/Compact authoring tree', () => {
   assert.doesNotMatch(`${editor}\n${navigation}`, /ClassicCaseEditor|CompactCaseEditor/);
 });
 
-test('Compact Case questions use accessible scope disclosure and ordering controls', () => {
-  assert.match(questions, /<details class="scope-change" open=\{editorLayout === 'classic'\}>/);
+test('Compact Case questions keep scope and reorder controls together without a reorder navigation', () => {
+  assert.match(questions, /<details class="scope-change scope-change-header">/);
   assert.match(questions, /<summary>Change scope<\/summary>/);
   assert.match(questions, /class="scope-badge">Whole Case<\/span>/);
+  assert.match(questions, /<\/details>\s*\{\/if\}\s*<div class="question-order-actions">/);
   assert.match(questions, /aria-label="Move question up"/);
   assert.match(questions, /aria-label="Move question down"/);
+  assert.match(questions, /use:enhance=\{preserveQuestionPosition\}/);
+  assert.match(questions, /replaceState\(result\.location, \{\}\)/);
+  assert.match(questions, /await invalidateAll\(\)/);
+  assert.match(questions, /window\.scrollBy\(0, movedCard\.getBoundingClientRect\(\)\.top - top\)/);
 });
 
 test('Compact wide layout uses horizontal question fields and sticky section navigation only at the wide breakpoint', () => {
