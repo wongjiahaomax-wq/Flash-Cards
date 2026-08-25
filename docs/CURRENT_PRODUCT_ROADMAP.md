@@ -1,6 +1,6 @@
 # Flash-Cards — Current Product Roadmap
 
-_Last updated: 24 August 2026_
+_Last updated: 25 August 2026_
 
 This is the short status map for what is **explicitly verified in production**, what is **merged on current `main`**, and what remains product/engineering work. Detailed semantics live in `HANDOVER.md`, `V1_DATA_MODEL.md`, and the subsystem contracts.
 
@@ -22,6 +22,8 @@ The recorded deployed baseline includes:
 - first ECG/Anki source deck fully represented and verified in production: **66/66 source notes**.
 
 The repository contains later merged code and migrations beyond this verified production baseline. Do not convert merge status into deployment claims without explicit rollout evidence.
+
+The production-backed Preview Admin still exists, but as of 25 August 2026 it is no longer part of the normal development/testing workflow. Local clone + local production-like D1/R2 is now the primary application verification path.
 
 ## Current `main` — merged baseline
 
@@ -52,6 +54,8 @@ It also includes the later merged sequence:
 - **PR #80** — Preview Session/ownership/error/input foundation extraction;
 - **PR #82** — Preview Case lifecycle/cloning extraction;
 - **PR #83** — Preview fixed Case-image operation extraction.
+
+Draft PR #91 attempted the next Preview Alternative Set/stimulus extraction and was closed unmerged on 25 August 2026 after the project moved to a local-first testing workflow. It is not part of the merged baseline.
 
 Current repository migrations extend through:
 
@@ -112,19 +116,23 @@ Deactivate option
 
 Image Library lifecycle views are organisational/cleanup aids. Permanent deletion is not implemented.
 
-### 3. Continue targeted maintainability work
+### 3. Continue targeted maintainability work only where it pays off
 
-The Case-editor UI is now decomposed into focused components and the Preview backend has been decomposed through Case lifecycle and fixed-image operations. Continue only with focused, behavior-preserving boundaries where they lower future change risk.
+The Case-editor UI is decomposed into focused components. The Preview backend was decomposed through Session/ownership foundations, Case lifecycle/cloning, and fixed Case-image operations in PRs #80/#82/#83.
 
-Next staged Preview candidates are:
+That Preview decomposition programme is now intentionally paused. Do **not** continue the historical sequence merely to finish it:
 
 ```text
-Alternative Set / stimulus operations
-→ question / scope / reusable-question operations
-→ final façade / workspace-cleanup ownership
+PR2D Alternative Set / stimulus extraction
+PR2E question / scope / reusable-question extraction
+PR2F final façade / cleanup ownership
 ```
 
-Do not split compound transactions merely for symmetry.
+Those phases are no longer current roadmap items because the deployed `/preview-admin` workflow is no longer routinely used. The existing Preview implementation stays in place for now because ownership/security and production-safety contracts still depend on Preview concepts.
+
+If the remote Preview Admin is later judged unnecessary, assess decommissioning as a separate project rather than mixing deletion into unrelated refactors.
+
+For ordinary development, prioritize improvements to the local clone + local D1/R2 workflow and other modules that are actively changed.
 
 ### 4. Continue measurement-driven performance work
 
@@ -161,12 +169,26 @@ The repository now provides:
 - production-like read-production/write-local development replica;
 - local slide-review/finalizer tooling.
 
+The normal application workflow is local-first:
+
+```text
+npm run local:refresh   # when fresh production-derived content is needed
+npm run dev             # fast iteration / hot reload
+npm run local:stop
+npm run preview         # production-style local verification
+repository validation / GitHub CI
+```
+
+Remote Preview deployment is now an optional legacy capability, not a required integration gate.
+
 These are repository/developer capabilities, not learner/Admin production features.
 
 ## Deliberately deferred
 
 Unless real evidence creates a concrete need, keep deferred:
 
+- further Preview backend decomposition after PR #83;
+- remote Preview Admin decommissioning until explicitly assessed;
 - multiple/compound Shared Question Reuse Scope rules;
 - Tag hierarchy and aliases/synonyms;
 - learner Study-by-Tag;
@@ -186,4 +208,4 @@ Unless real evidence creates a concrete need, keep deferred:
 
 ## Implementation principle
 
-The platform architecture is a working baseline rather than the primary bottleneck. Prefer real-content curation, observed learner/Admin friction, focused maintainability improvements, and measured performance evidence over speculative schema expansion.
+The platform architecture is a working baseline rather than the primary bottleneck. Prefer real-content curation, observed learner/Admin friction, focused maintainability improvements in actively used paths, and measured performance evidence over speculative schema expansion or completion of historical refactor sequences.
