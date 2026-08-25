@@ -6,6 +6,7 @@ const editor = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.sv
 const navigation = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorNavigation.svelte', import.meta.url), 'utf8');
 const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
 const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
+const imageReview = readFileSync(new URL('../src/lib/components/ImageQuestionReview.svelte', import.meta.url), 'utf8');
 
 test('Case editor exposes one shared Classic/Compact authoring tree', () => {
   assert.match(editor, /data-editor-layout=\{editorLayout\}/);
@@ -19,12 +20,41 @@ test('Case editor exposes one shared Classic/Compact authoring tree', () => {
   assert.doesNotMatch(`${editor}\n${navigation}`, /ClassicCaseEditor|CompactCaseEditor/);
 });
 
-test('Compact Case questions use accessible scope disclosure and ordering controls', () => {
-  assert.match(questions, /<details class="scope-change" open=\{editorLayout === 'classic'\}>/);
+test('Compact Case questions keep scope and reorder controls together while preserving viewport scroll', () => {
+  assert.match(questions, /<details class="scope-change scope-change-header">/);
   assert.match(questions, /<summary>Change scope<\/summary>/);
-  assert.match(questions, /class="scope-label">Applies to: <strong>This whole Case<\/strong>/);
+  assert.match(questions, /class="scope-badge">Whole Case<\/span>/);
+  assert.match(questions, /<\/details>\s*\{\/if\}\s*<div class="question-order-actions">/);
   assert.match(questions, /aria-label="Move question up"/);
   assert.match(questions, /aria-label="Move question down"/);
+  assert.match(questions, /use:enhance=\{preserveQuestionScroll\}/);
+  assert.match(questions, /replaceState\(result\.location, \{\}\)/);
+  assert.match(questions, /await invalidateAll\(\)/);
+  assert.match(questions, /root\.style\.overflowAnchor = 'none'/);
+  assert.match(questions, /window\.scrollTo\(scrollX, scrollY\)/);
+  assert.doesNotMatch(questions, /window\.scrollBy\(/);
+});
+
+test('Compact Case question Prompt and Answer fields start at the same height', () => {
+  assert.match(questions, /class="question-prompt-field">Prompt<textarea name="prompt_md" rows="3"/);
+  assert.match(questions, /class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" rows="3"/);
+  assert.match(questions, /const autoGrowAnswer = \(node\) =>/);
+  assert.match(questions, /Math\.min\(node\.scrollHeight, maxHeight\)/);
+  assert.match(questions, /expandButton\.textContent = expanded \? 'Collapse answer' : 'Expand answer'/);
+  assert.match(questions, /const hidden = !isOverflowing && !expanded/);
+  assert.match(questions, /expandButton\.style\.display = hidden \? 'none' : ''/);
+});
+
+test('Image-specific answer fields use a smaller contextual auto-grow limit', () => {
+  assert.match(images, /const autoGrowImageField = \(node\) =>/);
+  assert.match(images, /const maxHeight = 220/);
+  assert.match(images, /use:autoGrowImageField name="prompt_md"/);
+  assert.match(images, /use:autoGrowImageField name="answer_md"/);
+  assert.match(images, /expandButton\.style\.display = hidden \? 'none' : ''/);
+  assert.match(imageReview, /const autoGrowImageField = \(node\) =>/);
+  assert.match(imageReview, /const maxHeight = 220/);
+  assert.match(imageReview, /use:autoGrowImageField name="prompt_md"/);
+  assert.match(imageReview, /use:autoGrowImageField name="answer_md"/);
 });
 
 test('Compact wide layout uses horizontal question fields and sticky section navigation only at the wide breakpoint', () => {
@@ -41,5 +71,5 @@ test('layout switching is presentation-only and keeps the existing question form
   assert.match(editor, /function setEditorLayout\(layout\) \{\s*editorLayout = writeCaseEditorLayout/);
   assert.doesNotMatch(editor, /setEditorLayout[\s\S]{0,180}(goto\(|location\.|reload\()/);
   assert.match(questions, /id=\{`question-edit-\$\{question\.questionPromptId\}`\}/);
-  assert.match(questions, /action="\?\/saveQuestion" class="stack question-edit-form"/);
+  assert.match(questions, /action="\?\/saveQuestion" class="question-edit-form"/);
 });

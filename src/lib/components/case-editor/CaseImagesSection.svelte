@@ -20,6 +20,45 @@
   /** @type {string | null} */
   let selectedOptionId = $state(null);
 
+  /** Keep image-specific answers readable within the narrower image-question editor. */
+  /** @param {HTMLTextAreaElement} node */
+  const autoGrowImageField = (node) => {
+    const maxHeight = 220;
+    let expanded = false;
+    const expandButton = document.createElement('button');
+    expandButton.type = 'button';
+    expandButton.className = 'button small image-answer-expand-button';
+    expandButton.hidden = true;
+    expandButton.style.display = 'none';
+
+    const resize = () => {
+      node.style.height = 'auto';
+      const isOverflowing = node.scrollHeight > maxHeight;
+      const hidden = !isOverflowing && !expanded;
+      node.style.height = `${expanded ? node.scrollHeight : Math.min(node.scrollHeight, maxHeight)}px`;
+      node.style.overflowY = expanded ? 'hidden' : isOverflowing ? 'auto' : 'hidden';
+      expandButton.hidden = hidden;
+      expandButton.style.display = hidden ? 'none' : '';
+      expandButton.textContent = expanded ? 'Collapse answer' : 'Expand answer';
+      expandButton.setAttribute('aria-expanded', String(expanded));
+    };
+
+    expandButton.addEventListener('click', () => {
+      expanded = !expanded;
+      resize();
+    });
+    node.addEventListener('input', resize);
+    node.insertAdjacentElement('afterend', expandButton);
+    requestAnimationFrame(resize);
+
+    return {
+      destroy() {
+        node.removeEventListener('input', resize);
+        expandButton.remove();
+      }
+    };
+  };
+
   /** @param {string} targetId */
   async function focusReviewTarget(targetId) {
     await tick();
@@ -74,7 +113,7 @@
         {#if !previewMode && asset.isActive}
           <details class="specific-questions"><summary>Manage questions</summary><div class="specific-body stack">
             <section class="question-management-section"><div><h4>Case-specific Image Questions <span class="count">0</span></h4><p class="muted">These belong only to this Case + image context. Adding one keeps the same learner-visible image behaviour and performs the existing safe fixed-image conversion automatically.</p></div>
-              <form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack image-question-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="scope" value="stimulus" /><input type="hidden" name="target" value={`fixed:${asset.assetId}`} /><label class="question-prompt-field">Question prompt<textarea name="prompt_md" rows="2" required placeholder="e.g. What are the ECG changes?"></textarea></label><label class="question-answer-field">Answer for this Case and image<textarea name="answer_md" rows="2" required></textarea></label><div class="image-question-actions"><button class="button small" type="submit">Add Case-specific Image Question</button></div></form>
+              <form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack image-question-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="scope" value="stimulus" /><input type="hidden" name="target" value={`fixed:${asset.assetId}`} /><label class="question-prompt-field">Question prompt<textarea use:autoGrowImageField name="prompt_md" rows="2" required placeholder="e.g. What are the ECG changes?"></textarea></label><label class="question-answer-field">Answer for this Case and image<textarea use:autoGrowImageField name="answer_md" rows="2" required></textarea></label><div class="image-question-actions"><button class="button small" type="submit">Add Case-specific Image Question</button></div></form>
               {#if selectedCase.questions.length > 0}<details class="move-existing-question"><summary>Move existing Case question here</summary><form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="specific-body stack"><input type="hidden" name="intent" value="move" /><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="target" value={`fixed:${asset.assetId}`} /><label>Case question<select name="prompt_id" required><option value="" disabled selected>Choose a Case question</option>{#each selectedCase.questions as caseQuestion}<option value={caseQuestion.questionPromptId}>{caseQuestion.promptMd}</option>{/each}</select></label><div><button class="button small" type="submit">Move question here</button></div></form></details>{/if}
             </section>
             <ReusableImageQuestionManager summary={reusable} caseId={selectedCase.case.id} assetId={asset.assetId} previewMode={previewMode} />
@@ -129,7 +168,7 @@
                     {#if option.isActive && group.isActive && selectedCase.stimulusGroups.some((candidate) => candidate.id !== group.id && candidate.isActive)}
                       <details class="option-move"><summary>Move to another set…</summary><form method="POST" action={`${editorBase}/cases/${selectedCase.case.id}/move-option`} class="specific-body stack"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><label>Target alternative set<select name="target_group_id" required><option value="" disabled selected>Choose a set</option>{#each selectedCase.stimulusGroups as candidate}{#if candidate.id !== group.id && candidate.isActive}<option value={candidate.id}>{candidate.name}</option>{/if}{/each}</select></label><p class="muted">The option identity, Case-specific caption and exact-image questions stay attached. Set-wide questions stay with their current sets.</p><div><button class="button small" type="submit">Move image</button></div></form></details>
                     {/if}
-                    <section class="specific-questions option-editor-questions" aria-labelledby={`questions-${option.id}`}><div class="section-heading"><h4 id={`questions-${option.id}`}>Case-specific Image Questions <span class="count">{imageQuestions.length}</span></h4><p class="muted">These belong only to this Case + exact image context.</p></div><form method="POST" action="?/saveStimulusOptionQuestion" class="stack image-question-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><label class="question-prompt-field">Question prompt<textarea name="prompt_md" rows="3" required placeholder="e.g. Describe this ECG."></textarea></label><label class="question-answer-field">Answer for this Case and image<textarea name="answer_md" rows="3" required></textarea></label><div class="image-question-actions"><button class="button small" type="submit">Add Case-specific Image Question</button></div></form>{#if !previewMode && selectedCase.questions.length > 0}<details class="move-existing-question"><summary>Move existing Case question here</summary><div class="specific-body stack"><p class="muted">Move a question from this Case to this exact image. Its prompt and answer will be preserved.</p><form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack"><input type="hidden" name="intent" value="move" /><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="target" value={`option:${option.id}`} /><label>Case question<select name="prompt_id" required><option value="" disabled selected>Choose a Case question</option>{#each selectedCase.questions as caseQuestion}<option value={caseQuestion.questionPromptId}>{caseQuestion.promptMd}</option>{/each}</select></label><div><button class="button small" type="submit">Move question here</button></div></form></div></details>{/if}{#each imageQuestions as question}<div class="question-card compact"><form method="POST" action="?/saveStimulusOptionQuestion" class="stack image-question-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="original_prompt_id" value={question.questionPromptId} /><label class="question-prompt-field">Question prompt<textarea name="prompt_md" rows="2" required>{question.promptMd}</textarea></label><label class="question-answer-field">Answer for this Case and image<textarea name="answer_md" rows="2" required>{question.answerMd}</textarea></label><div class="image-question-actions"><button class="button small" type="submit">Save Case-specific Image Question</button></div></form><form method="POST" action="?/removeStimulusQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="scope" value="option" /><input type="hidden" name="context_id" value={option.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><button class="button danger small" type="submit">Remove</button></form></div>{/each}</section>
+                    <section class="specific-questions option-editor-questions" aria-labelledby={`questions-${option.id}`}><div class="section-heading"><h4 id={`questions-${option.id}`}>Case-specific Image Questions <span class="count">{imageQuestions.length}</span></h4><p class="muted">These belong only to this Case + exact image context.</p></div><form method="POST" action="?/saveStimulusOptionQuestion" class="stack image-question-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><label class="question-prompt-field">Question prompt<textarea use:autoGrowImageField name="prompt_md" rows="3" required placeholder="e.g. Describe this ECG."></textarea></label><label class="question-answer-field">Answer for this Case and image<textarea use:autoGrowImageField name="answer_md" rows="3" required></textarea></label><div class="image-question-actions"><button class="button small" type="submit">Add Case-specific Image Question</button></div></form>{#if !previewMode && selectedCase.questions.length > 0}<details class="move-existing-question"><summary>Move existing Case question here</summary><div class="specific-body stack"><p class="muted">Move a question from this Case to this exact image. Its prompt and answer will be preserved.</p><form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack"><input type="hidden" name="intent" value="move" /><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="target" value={`option:${option.id}`} /><label>Case question<select name="prompt_id" required><option value="" disabled selected>Choose a Case question</option>{#each selectedCase.questions as caseQuestion}<option value={caseQuestion.questionPromptId}>{caseQuestion.promptMd}</option>{/each}</select></label><div><button class="button small" type="submit">Move question here</button></div></form></div></details>{/if}{#each imageQuestions as question}<div class="question-card compact"><form method="POST" action="?/saveStimulusOptionQuestion" class="stack image-question-form"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="option_id" value={option.id} /><input type="hidden" name="original_prompt_id" value={question.questionPromptId} /><label class="question-prompt-field">Question prompt<textarea use:autoGrowImageField name="prompt_md" rows="2" required>{question.promptMd}</textarea></label><label class="question-answer-field">Answer for this Case and image<textarea use:autoGrowImageField name="answer_md" rows="2" required>{question.answerMd}</textarea></label><div class="image-question-actions"><button class="button small" type="submit">Save Case-specific Image Question</button></div></form><form method="POST" action="?/removeStimulusQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="scope" value="option" /><input type="hidden" name="context_id" value={option.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><button class="button danger small" type="submit">Remove</button></form></div>{/each}</section>
                     <ReusableImageQuestionManager summary={reusable} caseId={selectedCase.case.id} assetId={option.assetId} optionId={option.id} previewMode={previewMode} />
                   </div>
                 </div>
