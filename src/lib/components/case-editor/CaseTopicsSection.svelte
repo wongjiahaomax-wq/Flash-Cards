@@ -56,113 +56,190 @@
   </div>
 
   <div class="taxonomy-context">
-    <div>
+    <div class="taxonomy-copy">
       <strong>Canonical hierarchy</strong>
       {#if primaryTopic}
-        <span class="breadcrumb">{topicLabel(primaryTopic)}</span>
+        {#if previewMode}
+          <span class="breadcrumb">{topicLabel(primaryTopic)}</span>
+        {:else}
+          <a class="breadcrumb" href={'/admin/topics/' + primaryTopic.id}>{topicLabel(primaryTopic)}</a>
+        {/if}
       {:else}
         <span class="form-error inline-error">No primary Topic is attached.</span>
       {/if}
-      <small>System/parent placement is global taxonomy. It is not changed from this Case.</small>
+      <small class="compact-hide-explainer">System/parent placement is global taxonomy and is managed outside this Case.</small>
     </div>
-    {#if !previewMode}<div class="taxonomy-links"><a href="/admin/topics">Manage Systems &amp; Topics</a>{#if primaryTopic}<a href={'/admin/topics/' + primaryTopic.id}>Open primary Topic</a>{/if}</div>{/if}
+    {#if !previewMode}<a class="taxonomy-manage" href="/admin/topics">Manage Systems &amp; Topics</a>{/if}
   </div>
 
-  <div class="topic-primary">
-    <div class="topic-row-heading">
-      <div><strong>Primary Topic</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Primary Topic" text="Exactly one Topic is the canonical classification and direct reusable Topic-question context for this Case." />{/if}<span class="topic-help">Exactly one active Topic is canonical for current Case behavior.</span></div>
-      {#if inactivePrimaryTopic(selectedCase.topics)}<span class="status-badge inactive">Inactive relationship</span>{/if}
-    </div>
-    <div class="topic-primary-current">{#if primaryTopic}<a href={previewMode ? undefined : '/admin/topics/' + primaryTopic.id}>{topicLabel(primaryTopic)}</a>{#if !previewMode} · <a href={'/admin/topics/' + primaryTopic.id}>Edit Topic</a>{/if}{#if !primaryTopic.isActive}<span class="status-badge inactive">Topic inactive — select an active replacement</span>{/if}{:else}<span class="form-error inline-error">No primary Topic is attached. Select an active replacement below.</span>{/if}</div>
-    <form method="POST" action="?/promoteTopic" class="topic-primary-form">
-      <input type="hidden" name="case_id" value={selectedCase.case.id} />
-      <label class="topic-select-label">Change Primary Topic<select name="concept_id" required><option value="" disabled selected>Select an active Topic</option>{#each concepts as concept}{#if concept.id !== primaryTopic?.id}<option value={concept.id}>{topicOptionLabel(concept)}</option>{/if}{/each}</select></label>
-      <button class="button primary" type="submit">Save Primary Topic</button>
-    </form>
-    {#if !previewMode}
-      <div class="topic-create">
-        <div class="topic-row-heading"><div><strong>Create a new Topic</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Create Topic" text="Create a new global Topic and make it the canonical Primary Topic for this Case." />{/if}<span class="topic-help">This creates an unassigned global Topic and makes it canonical for this Case. Place it under a System later from Systems &amp; Topics.</span></div><a href="/admin/topics">Manage hierarchy</a></div>
-        <form method="POST" action="?/createCaseTopic" class="topic-create-form">
-          <input type="hidden" name="case_id" value={selectedCase.case.id} />
-          <input type="hidden" name="relationship_intent" value="primary" />
-          <label>Topic name<input name="name" maxlength="200" required placeholder="e.g. Pericarditis" /></label>
-          <button class="button primary" type="submit">Create &amp; make Primary</button>
-        </form>
-      </div>
-    {/if}
-  </div>
-
-  <div class="case-tags-context">
-    <div class="case-tags-heading">
-      <div><strong>Case Tags</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Case Tags" text="Tags capture cross-cutting clinical concepts and can provide alternate contextual learner discovery when a System exposes them." />{/if}</div>
-      <small>System exposure is curated separately and is not changed here.</small>
-    </div>
-    {#if selectedCase.caseTags?.length}
-      <div class="tag-chips">
-        {#each selectedCase.caseTags as tag}
-          <div class="tag-chip-wrap">
-            {#if previewMode}<span class:inactive={!tag.isActive} class="tag-chip">{tag.name}</span>{:else}<a class:inactive={!tag.isActive} class="tag-chip" href={'/admin/tags?tag=' + tag.id}>{tag.name}</a>{/if}
-            {#if !previewMode}
-              <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="operation" value="remove" /><input type="hidden" name="tag_id" value={tag.id} /><button class="tag-remove" type="submit" aria-label={'Remove ' + tag.name + ' from this Case'}>Remove</button></form>
-            {/if}
-          </div>
-        {/each}
-      </div>
-    {:else}<span class="muted">No Case Tags.</span>{/if}
-
-    {#if !previewMode}
-      {#if effectiveTagOptions.some((tag) => !hasTag(selectedCase.caseTags, tag.id))}
-        <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-add-form">
-          <input type="hidden" name="case_id" value={selectedCase.case.id} />
-          <input type="hidden" name="operation" value="add" />
-          <label>Add existing Case Tag<select name="tag_id" required><option value="" disabled selected>Select an active Tag</option>{#each effectiveTagOptions as tag}{#if !hasTag(selectedCase.caseTags, tag.id)}<option value={tag.id}>{tag.name}</option>{/if}{/each}</select></label>
-          <button class="button" type="submit">Add Tag</button>
-        </form>
-      {/if}
-      <div class="tag-create">
-        <div class="tag-create-copy">
-          <strong>Create a new Case Tag</strong>
-          <small>Creates a new active global Tag and attaches it to this Case. Rename, deactivate, or configure System exposure later from global Tags.</small>
+  <div class="classification-grid">
+    <div class="classification-card topic-primary">
+      <div class="card-heading">
+        <div class="card-heading-copy">
+          <div><strong>Primary Topic</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Primary Topic" text="Exactly one Topic is the canonical classification and direct reusable Topic-question context for this Case." />{/if}</div>
+          <small class="topic-help">Exactly one active Topic is canonical for current Case behavior.</small>
         </div>
-        <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-create-form">
-          <input type="hidden" name="case_id" value={selectedCase.case.id} />
-          <input type="hidden" name="operation" value="create-and-add" />
-          <label>Tag name<input name="name" maxlength="120" required placeholder="e.g. Prolonged QTc" /></label>
-          <button class="button" type="submit">Create &amp; add Tag</button>
-        </form>
+        {#if inactivePrimaryTopic(selectedCase.topics)}<span class="status-badge inactive">Inactive relationship</span>{/if}
       </div>
-      <a class="manage-tags" href="/admin/tags">Manage global Tags</a>
-    {:else}
-      <small class="muted">Preview copies preserve Case Tags, but global Tag curation remains read-only in Preview Mode.</small>
-    {/if}
+
+      <div class="current-block">
+        <span class="field-kicker">Current Topic</span>
+        <div class="topic-primary-current">
+          {#if primaryTopic}
+            {#if previewMode}<span>{topicLabel(primaryTopic)}</span>{:else}<a href={'/admin/topics/' + primaryTopic.id}>{topicLabel(primaryTopic)}</a><a class="inline-action" href={'/admin/topics/' + primaryTopic.id}>Edit</a>{/if}
+            {#if !primaryTopic.isActive}<span class="status-badge inactive">Topic inactive — select an active replacement</span>{/if}
+          {:else}
+            <span class="form-error inline-error">No primary Topic is attached. Select an active replacement below.</span>
+          {/if}
+        </div>
+      </div>
+
+      <form method="POST" action="?/promoteTopic" class="topic-primary-form form-row">
+        <input type="hidden" name="case_id" value={selectedCase.case.id} />
+        <label class="topic-select-label">Change Primary Topic<select name="concept_id" required><option value="" disabled selected>Select an active Topic</option>{#each concepts as concept}{#if concept.id !== primaryTopic?.id}<option value={concept.id}>{topicOptionLabel(concept)}</option>{/if}{/each}</select></label>
+        <button class="button primary" type="submit">Save Primary Topic</button>
+      </form>
+
+      {#if !previewMode}
+        <div class="topic-create secondary-section">
+          <div class="secondary-heading">
+            <div><strong>Create a new Topic</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Create Topic" text="Create a new global Topic and make it the canonical Primary Topic for this Case." />{/if}</div>
+            <a href="/admin/topics">Manage hierarchy</a>
+          </div>
+          <small class="topic-help">Creates an unassigned global Topic and makes it canonical for this Case.</small>
+          <form method="POST" action="?/createCaseTopic" class="topic-create-form form-row">
+            <input type="hidden" name="case_id" value={selectedCase.case.id} />
+            <input type="hidden" name="relationship_intent" value="primary" />
+            <label>Topic name<input name="name" maxlength="200" required placeholder="e.g. Pericarditis" /></label>
+            <button class="button" type="submit">Create &amp; make Primary</button>
+          </form>
+        </div>
+      {/if}
+    </div>
+
+    <div class="classification-card case-tags-context">
+      <div class="card-heading">
+        <div class="card-heading-copy">
+          <div><strong>Case Tags</strong>{#if editorLayout === 'compact'}<AccessibleInfo label="Case Tags" text="Tags capture cross-cutting clinical concepts and can provide alternate contextual learner discovery when a System exposes them." />{/if}</div>
+          <small class="topic-help">System exposure is curated separately and is not changed here.</small>
+        </div>
+        {#if !previewMode}<a class="manage-tags" href="/admin/tags">Manage global Tags</a>{/if}
+      </div>
+
+      <div class="current-block tags-current">
+        <span class="field-kicker">Current Tags</span>
+        {#if selectedCase.caseTags?.length}
+          <div class="tag-chips">
+            {#each selectedCase.caseTags as tag}
+              <div class="tag-chip-wrap">
+                {#if previewMode}<span class:inactive={!tag.isActive} class="tag-chip">{tag.name}</span>{:else}<a class:inactive={!tag.isActive} class="tag-chip" href={'/admin/tags?tag=' + tag.id}>{tag.name}</a>{/if}
+                {#if !previewMode}
+                  <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="operation" value="remove" /><input type="hidden" name="tag_id" value={tag.id} /><button class="tag-remove" type="submit" aria-label={'Remove ' + tag.name + ' from this Case'}>Remove</button></form>
+                {/if}
+              </div>
+            {/each}
+          </div>
+        {:else}
+          <span class="muted">No tags attached.</span>
+        {/if}
+      </div>
+
+      {#if !previewMode}
+        {#if effectiveTagOptions.some((tag) => !hasTag(selectedCase.caseTags, tag.id))}
+          <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-add-form form-row">
+            <input type="hidden" name="case_id" value={selectedCase.case.id} />
+            <input type="hidden" name="operation" value="add" />
+            <label>Add existing Case Tag<select name="tag_id" required><option value="" disabled selected>Select an active Tag</option>{#each effectiveTagOptions as tag}{#if !hasTag(selectedCase.caseTags, tag.id)}<option value={tag.id}>{tag.name}</option>{/if}{/each}</select></label>
+            <button class="button primary" type="submit">Add Tag</button>
+          </form>
+        {/if}
+
+        <div class="tag-create secondary-section">
+          <div class="secondary-heading"><strong>Create a new Case Tag</strong></div>
+          <small class="topic-help">Creates a new active global Tag and attaches it to this Case.</small>
+          <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-create-form form-row">
+            <input type="hidden" name="case_id" value={selectedCase.case.id} />
+            <input type="hidden" name="operation" value="create-and-add" />
+            <label>Tag name<input name="name" maxlength="120" required placeholder="e.g. Prolonged QTc" /></label>
+            <button class="button" type="submit">Create &amp; add Tag</button>
+          </form>
+        </div>
+      {:else}
+        <small class="muted">Preview copies preserve Case Tags, but global Tag curation remains read-only in Preview Mode.</small>
+      {/if}
+    </div>
   </div>
 </section>
 
 <style>
-  h2, p { margin-top: 0; } h2 { margin-bottom: 0.2rem; font-size: 1.2rem; }
+  h2, p { margin-top: 0; }
+  h2 { margin-bottom: 0.2rem; font-size: 1.2rem; }
   .eyebrow { margin-bottom: 0.3rem; color: #667085; font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
-  .muted { color: #667085; } .stack { display: grid; gap: 0.85rem; }
+  .muted { color: #667085; }
+  .stack { display: grid; gap: 0.75rem; }
   .panel { margin-top: 1rem; padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; }
-  .taxonomy-context,.case-tags-context { display:flex; justify-content:space-between; align-items:center; gap:1rem; padding:.8rem .9rem; border:1px solid #dfe5ee; border-radius:8px; background:#fff; } .taxonomy-context > div:first-child,.case-tags-heading { display:grid; gap:.2rem; } .taxonomy-context small,.case-tags-context small { color:#667085; } .breadcrumb { color:#344054; font-weight:650; } .taxonomy-links { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.6rem; } .taxonomy-links a,.manage-tags { color:#344054; font-size:.86rem; }
-  .case-tags-context { align-items:flex-start; flex-wrap:wrap; } .tag-chips { display:flex; flex:1; flex-wrap:wrap; gap:.45rem; } .tag-chip-wrap { display:flex; align-items:center; gap:.25rem; } .tag-chip { display:inline-block; padding:.18rem .45rem; border-radius:999px; background:#eef4ff; color:#3538cd; font-size:.78rem; font-weight:650; text-decoration:none; } .tag-chip.inactive { background:#f2f4f7; color:#667085; } .tag-remove { padding:.18rem .35rem; border:0; background:transparent; color:#b42318; cursor:pointer; font:inherit; font-size:.75rem; }
-  .tag-add-form,.tag-create-form { display:flex; flex-wrap:wrap; align-items:end; gap:.55rem; width:100%; } .tag-add-form label,.tag-create-form label { flex:1; min-width:min(100%,260px); } .tag-create { display:grid; gap:.55rem; width:100%; padding-top:.75rem; border-top:1px solid #eaecf0; } .tag-create-copy { display:grid; gap:.2rem; }
-  .topic-primary { display: grid; gap: 0.75rem; padding: 0.9rem; border: 1px solid #eaecf0; border-radius: 8px; background: #f8fafc; }
-  .topic-row-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }
-  .topic-help { display: block; margin-top: 0.2rem; color: #667085; font-size: 0.86rem; font-weight: 400; }
-  .topic-primary-current { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; font-size: 1.05rem; font-weight: 700; }
-  .topic-primary-current a { color: #172033; }
-  .topic-primary-form, .topic-create-form { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: end; }
-  .topic-select-label, .topic-create-form label { flex: 1; min-width: min(100%, 280px); }
-  .topic-create { display: grid; gap: 0.75rem; margin-top: 0.35rem; padding-top: 0.9rem; border-top: 1px solid #e4e7ec; }
+
+  .taxonomy-context { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.72rem 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
+  .taxonomy-copy { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 0.18rem 0.65rem; min-width: 0; }
+  .taxonomy-copy small { grid-column: 1 / -1; color: #667085; }
+  .breadcrumb { min-width: 0; overflow-wrap: anywhere; color: #344054; font-weight: 650; }
+  a.breadcrumb { text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  .taxonomy-manage, .manage-tags, .secondary-heading a, .inline-action { color: #344054; font-size: 0.84rem; font-weight: 500; white-space: nowrap; }
+
+  .classification-grid { display: grid; gap: 0.85rem; }
+  .classification-card { display: grid; align-content: start; gap: 0.72rem; min-width: 0; padding: 0.9rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
+  .topic-primary { background: #f8fafc; }
+  .card-heading, .secondary-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.75rem; }
+  .card-heading-copy { display: grid; gap: 0.12rem; min-width: 0; }
+  .topic-help { display: block; color: #667085; font-size: 0.8rem; font-weight: 400; }
+
+  .current-block { display: grid; gap: 0.28rem; min-height: 2.6rem; }
+  .field-kicker { color: #667085; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+  .topic-primary-current { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; font-size: 1rem; font-weight: 700; }
+  .topic-primary-current > a:first-child { color: #172033; }
+  .inline-action { font-size: 0.78rem; font-weight: 500; }
+
+  .form-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.55rem; width: 100%; }
+  .form-row label { min-width: 0; }
+  .secondary-section { display: grid; gap: 0.5rem; margin-top: 0.1rem; padding-top: 0.72rem; border-top: 1px solid #e4e7ec; }
+
+  .tag-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+  .tag-chip-wrap { display: flex; align-items: center; gap: 0.2rem; }
+  .tag-chip { display: inline-block; padding: 0.18rem 0.45rem; border-radius: 999px; background: #eef4ff; color: #3538cd; font-size: 0.78rem; font-weight: 650; text-decoration: none; }
+  .tag-chip.inactive { background: #f2f4f7; color: #667085; }
+  .tag-remove { padding: 0.18rem 0.3rem; border: 0; background: transparent; color: #b42318; cursor: pointer; font: inherit; font-size: 0.72rem; }
+
   .status-badge { display: inline-block; width: max-content; padding: 0.2rem 0.45rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; white-space: nowrap; }
   .status-badge.inactive, .status-badge[class~="inactive"] { background: #f2f4f7; color: #667085; }
-  .form-error { margin: 1rem 0; padding: 0.75rem; border-radius: 8px; background: #fef3f2; color: #b42318; } .inline-error { margin: 0; }
-  .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor:pointer; font: inherit; }
+  .form-error { margin: 1rem 0; padding: 0.75rem; border-radius: 8px; background: #fef3f2; color: #b42318; }
+  .inline-error { margin: 0; }
+
+  .button { display: inline-block; padding: 0.65rem 0.9rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; white-space: nowrap; }
   .button.primary { border-color: #172033; background: #172033; color: #fff; }
-  label { display: grid; gap: 0.35rem; color: #344054; font-weight: 650; } input, select { width: 100%; box-sizing: border-box; padding: 0.65rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; }
+  label { display: grid; gap: 0.3rem; color: #344054; font-weight: 650; }
+  input, select { width: 100%; box-sizing: border-box; padding: 0.62rem 0.7rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; }
   button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
+
   :global(.case-editor[data-editor-layout="compact"]) .topic-primary { background: #fff; }
-  :global(.case-editor[data-editor-layout="compact"]) .compact-hide-explainer, :global(.case-editor[data-editor-layout="compact"]) .topic-help { display: none; }
-  @media (min-width: 1024px) { :global(.case-editor[data-editor-layout="compact"]) #topics { scroll-margin-top: 4.75rem; } }
-  @media (max-width:720px) { .taxonomy-context,.case-tags-context { align-items:flex-start; flex-direction:column; } .taxonomy-links { justify-content:flex-start; } }
+  :global(.case-editor[data-editor-layout="compact"]) .compact-hide-explainer,
+  :global(.case-editor[data-editor-layout="compact"]) .topic-help { display: none; }
+
+  @media (min-width: 1100px) {
+    .classification-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: stretch; }
+    :global(.case-editor[data-editor-layout="compact"]) #topics { scroll-margin-top: 4.75rem; }
+  }
+
+  @media (max-width: 720px) {
+    .taxonomy-context { align-items: flex-start; flex-direction: column; }
+    .taxonomy-copy { grid-template-columns: 1fr; }
+    .taxonomy-copy small { grid-column: auto; }
+    .taxonomy-manage { white-space: normal; }
+  }
+
+  @media (max-width: 560px) {
+    .form-row { grid-template-columns: 1fr; }
+    .button { width: 100%; }
+    .card-heading, .secondary-heading { align-items: flex-start; flex-direction: column; }
+    .manage-tags, .secondary-heading a { white-space: normal; }
+  }
 </style>
