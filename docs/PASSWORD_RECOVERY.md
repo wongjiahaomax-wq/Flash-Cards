@@ -135,13 +135,50 @@ AUTH_EMAIL_FROM
 
 The repository does not contain a production Resend key, does not configure a production sending domain, and does not claim that either value currently exists in Cloudflare.
 
+### Local Resend configuration
+
+For deliberate local end-to-end testing, create or edit the repository-root `.dev.vars` file and add local-only values:
+
+```text
+RESEND_API_KEY=re_your_actual_key_here
+AUTH_EMAIL_FROM=Flash-Cards <noreply@your-verified-domain.example>
+```
+
+Use a sender identity/domain that is actually permitted by the Resend account being tested. The values above are placeholders only.
+
+Then restart the local development server so Wrangler/Vite reloads the bindings:
+
+```text
+npm run dev
+```
+
+Do **not** commit `.dev.vars` or a real `RESEND_API_KEY`. Do not paste the key into source files, browser-visible environment variables, tests, PR descriptions, issue comments, or logs.
+
+### Production Cloudflare configuration
+
+Production must not rely on `.dev.vars`. Configure the Resend key as a Cloudflare Worker secret named exactly:
+
+```text
+RESEND_API_KEY
+```
+
+Configure the production sender value as:
+
+```text
+AUTH_EMAIL_FROM
+```
+
+using the repository's normal Cloudflare deployment/configuration workflow. The sender must correspond to a Resend-verified sender/domain before live delivery is expected to work.
+
+Do not place the production API key directly in `wrangler.jsonc`, committed configuration, GitHub source, or any browser-visible value. Production secret/configuration changes remain an explicit operator/release step and are not performed merely by merging this PR.
+
 ## Local development and testing
 
 Ordinary automated tests do **not** send real Resend email.
 
 Focused tests inject a mocked provider transport/`fetch`, and the local Better Auth/D1 smoke test exercises reset-token/password/session behavior without supplying real Resend credentials.
 
-For deliberate local end-to-end email testing, a developer may provide local-only values through the repository's existing local Cloudflare secret/config mechanism such as `.dev.vars`. Never commit `.dev.vars` or real provider credentials.
+For deliberate local end-to-end email testing, use the `.dev.vars` configuration described above. Never commit `.dev.vars` or real provider credentials.
 
 When `ExecutionContext.waitUntil()` is unavailable in the local Vite/Node request environment, authentication email work is started without awaiting provider latency. This local fallback is best-effort and is not a guarantee that a process terminated immediately after the request will finish email delivery. Production Cloudflare Worker requests use `waitUntil()`.
 
