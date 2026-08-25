@@ -6,7 +6,7 @@
 
 _Status: current development/operator workflow._
 
-_Last reviewed: 24 August 2026._
+_Last reviewed: 25 August 2026._
 
 ## Purpose
 
@@ -18,7 +18,7 @@ The goals are:
 - avoid spending GitHub Actions minutes on work that can be performed locally;
 - support useful repository/PR work when only GitHub integration is available;
 - combine local execution and GitHub collaboration efficiently when both are available;
-- preserve CI, Preview and production safety gates;
+- preserve CI and production safety gates, plus Preview safety invariants whenever the retained remote Preview capability is used;
 - avoid inventing temporary workflows or unsafe deployment shortcuts merely because a capability is unavailable.
 
 This document complements:
@@ -106,14 +106,15 @@ It:
 .github/workflows/deploy-pr-to-preview.yml
 ```
 
-This is a GitHub Actions workflow that deploys the exact open PR head SHA to the `flash-cards-preview` Cloudflare Worker.
+This is a retained GitHub Actions workflow that deploys the exact open PR head SHA to the `flash-cards-preview` Cloudflare Worker.
 
 It:
 
 - runs remotely on GitHub Actions;
 - consumes GitHub Actions runtime;
 - uses the production-backed Preview environment;
-- is a later integration checkpoint, not the normal inner UX loop;
+- is an **optional** remote verification capability, not a required integration checkpoint;
+- should be used only when explicitly requested or when production-backed Preview adds concrete value beyond local development, local `npm run preview`, repository validation, and normal PR CI;
 - never applies remote D1 migrations.
 
 ## Mode A — local checkout
@@ -218,11 +219,11 @@ You do not need to rerun every command after every small edit. Run focused check
 
 Opening/updating a PR may still trigger repository CI automatically. The local-first policy reduces avoidable extra remote runs; it does not weaken configured PR gates.
 
-### 6. Deploy to the production-backed Preview only when it adds value
+### 6. Use the production-backed Preview only when explicitly requested or concretely useful
 
-For ordinary UX work, do not deploy every small iteration to Preview.
+Remote Preview is not part of the normal local development/testing sequence.
 
-A good sequence is:
+The ordinary path ends at:
 
 ```text
 Vite local UX loop
@@ -231,7 +232,15 @@ Vite local UX loop
 → npm run local:stop when leaving Preview
 → local validation
 → PR / CI
-→ production-backed Preview once the candidate is worth manual integration review
+```
+
+Only when the user explicitly requests remote Preview, or when production-backed manual review would add concrete value, continue with:
+
+```text
+PR / CI
+→ production-backed Preview
+→ exact-SHA verification / manual Preview review
+→ restore main to Preview when finished
 ```
 
 If an authorized workflow-dispatch surface is available, dispatch the permanent workflow as documented in `PREVIEW_DEPLOYMENT.md`.
@@ -341,13 +350,15 @@ For remote work, the current draft PR is an important persistent handover artifa
 
 The original chat should not be required. Keep the PR body concise and useful. Sections such as Goal, Behavioral invariants / constraints, Implementation, Validation, Remaining review points, and Explicitly out of scope are useful when the task is non-trivial; do not require a verbose template for trivial changes.
 
-### Preview deployment from remote GitHub mode
+### Optional Preview deployment from remote GitHub mode
 
-The permanent Preview workflow remains:
+The retained Preview workflow remains:
 
 ```text
 .github/workflows/deploy-pr-to-preview.yml
 ```
+
+Do not dispatch it as a routine checkpoint. Use it when the user explicitly requests remote Preview or when production-backed Preview adds concrete review value.
 
 If the active GitHub integration exposes an authorized workflow-dispatch action, it may invoke that existing permanent workflow.
 
@@ -389,7 +400,7 @@ The local validation contract remains authoritative for work that can actually b
 
 ## GitHub Actions minute policy
 
-GitHub-hosted CI is a shared/limited resource. Prefer spending it on checks that require the repository's remote gate or Cloudflare deployment rather than on every development iteration.
+GitHub-hosted CI is a shared/limited resource. Prefer spending it on checks that require the repository's remote gate or a deliberately selected Cloudflare deployment rather than on every development iteration.
 
 ### Prefer local execution when available for
 
@@ -404,7 +415,7 @@ GitHub-hosted CI is a shared/limited resource. Prefer spending it on checks that
 
 - the configured PR CI gate;
 - executable validation when no usable local execution environment is available;
-- the permanent production-backed Preview deployment;
+- the retained production-backed Preview deployment when explicitly requested or when it adds concrete review value;
 - repository workflows that require GitHub secrets or an explicitly remote environment.
 
 Avoid rerunning already-successful jobs unless the candidate changed or the run was genuinely transient/flaky.
