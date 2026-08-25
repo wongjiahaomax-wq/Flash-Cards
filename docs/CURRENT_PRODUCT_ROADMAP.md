@@ -53,7 +53,11 @@ It also includes the later merged sequence:
 - **PR #79** — capability-based Local / Remote GitHub / Hybrid coding-agent workflow;
 - **PR #80** — Preview Session/ownership/error/input foundation extraction;
 - **PR #82** — Preview Case lifecycle/cloning extraction;
-- **PR #83** — Preview fixed Case-image operation extraction.
+- **PR #83** — Preview fixed Case-image operation extraction;
+- **PR #87** — learner-selectable **Original questions** versus **Expanded Learning**, with Review-level `question_pool_mode` provenance and explicit same-Case Original → Expanded continuation;
+- **PR #88** — contextual **System → Topic / Tag / All** navigation model, System↔Tag exposure, selected/effective Review-route provenance, and learner rollout gating;
+- **PR #89** — repository-scoped `npm run local:stop` plus the associated local-development/agent guidance and Svelte warning cleanup;
+- **PR #90** — current Case classification simplified to exactly one behaviorally active **Primary Topic** plus zero or more **Case Tags**, retiring Additional Study Topics from current authoring/learner behavior without a new migration.
 
 Draft PR #91 attempted the next Preview Alternative Set/stimulus extraction and was closed unmerged on 25 August 2026 after the project moved to a local-first testing workflow. It is not part of the merged baseline.
 
@@ -65,9 +69,13 @@ Current repository migrations extend through:
 0011_asset_supersession.sql
 0012_archive_stimulus_options.sql
 0013_review_assets_asset_lookup.sql
+0014_review_question_pool_mode.sql
+0015_contextual_system_topic_tag_navigation.sql
 ```
 
-These files being present on `main` does **not** prove production application. The same rule applies to Worker behavior: a merged PR or rollout-trigger commit is not deployment verification.
+Migration `0014` adds persisted Original/Core versus Expanded Review question-pool mode. Migration `0015` adds System/Topic taxonomy, System↔Tag exposure, and System-route Review provenance. PR #90 intentionally adds **no `0016` migration**: legacy secondary `case_concepts` rows may remain physically stored but are ignored by current authoring/read models/learner routing and are not created by current mutation/import/clone paths.
+
+These files being present on `main` does **not** prove production application. The same rule applies to Worker behavior and learner feature flags: a merged PR, migration file, rollout-trigger commit, or dormant gated surface is not deployment/rollout verification.
 
 ## Real ECG/Anki migration — initial deck complete
 
@@ -81,13 +89,15 @@ Pre-existing mapped calcium Cases:  2
 Source notes represented:          66 / 66
 ```
 
-Initial ingestion is complete. Remaining ECG work is curation/enrichment: improve Tags, promote genuinely repeated knowledge to Shared Questions or Reusable Image Questions, add useful Study Topics/stimulus variants, and medically review content where needed.
+Initial ingestion is complete. Remaining ECG work is curation/enrichment: improve Case Tags, curate clinically useful System↔Tag exposure, promote genuinely repeated knowledge to Shared Questions or Reusable Image Questions, add useful stimulus variants, and medically review content where needed.
 
 ## Current product work
 
-### 1. Curate the real corpus
+### 1. Curate the real corpus and learner taxonomy
 
-Use real Cases to refine Case Tags, Shared Questions, Reusable Image Questions, Study Topics, and stimulus variants. Promote reusable knowledge only when the Prompt/answer remains reliably correct across the intended reuse scope.
+Use real Cases to refine canonical Primary Topics, Case Tags, System↔Tag exposure, Shared Questions, Reusable Image Questions, and stimulus variants. Promote reusable knowledge only when the Prompt/answer remains reliably correct across the intended reuse scope.
+
+Before learner System navigation is enabled, explicitly review clinically useful alternate discovery through Case Tags plus System↔Tag exposure. Do not convert legacy secondary Topic rows to Tags by matching labels.
 
 Current-main duplicate-Prompt precedence is:
 
@@ -96,11 +106,13 @@ selected exact stimulus-option question
 > explicitly reused Asset Question for the selected option
 > stimulus group
 > Case
-> exact Study Topic
+> exact Primary Topic
 > tag-shared Question
 > nearest eligible inheritable ancestor Topic
 > more distant eligible ancestors
 ```
+
+Original questions use only Case-owned sources (`case`, `stimulus_group`, `stimulus_option`). Expanded Learning uses the full eligible resolver. Eligibility is selected before duplicate-Prompt precedence/deduplication so excluded reusable sources cannot erase valid Original questions.
 
 ### 2. Exercise current image lifecycle semantics
 
@@ -166,6 +178,7 @@ The repository now provides:
 - repository-owned ordinary CI/local validation definitions;
 - repository-pinned Wrangler/workerd runtime with dedicated runtime smoke;
 - deterministic local `npm run dev` / `npm run preview` launchers using repository-local Wrangler/XDG state;
+- repository-scoped `npm run local:stop` for safe Vite/Wrangler cleanup without machine-wide Node termination;
 - production-like read-production/write-local development replica;
 - local slide-review/finalizer tooling.
 
@@ -191,8 +204,8 @@ Unless real evidence creates a concrete need, keep deferred:
 - remote Preview Admin decommissioning until explicitly assessed;
 - multiple/compound Shared Question Reuse Scope rules;
 - Tag hierarchy and aliases/synonyms;
-- learner Study-by-Tag;
-- Review Tag snapshots;
+- standalone learner Study-by-Tag outside contextual System exposure;
+- Review Tag snapshots beyond current route provenance;
 - automatic/AI Tag inference;
 - Asset Tags;
 - generic Asset families/arbitrary version-history UI;
