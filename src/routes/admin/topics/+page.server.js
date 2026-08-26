@@ -1,13 +1,21 @@
 import { fail, redirect } from '@sveltejs/kit';
 
+import { AdminContentInputError } from '$lib/server/db/admin-content.js';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
+import { applyStagedCasePrimaryTopics } from '$lib/server/db/case-primary-topic-staging.ts';
+import { applyStagedCaseTags } from '$lib/server/db/case-tag-staging.ts';
 import { createDb } from '$lib/server/db/index.js';
+import { listActiveTagOptions } from '$lib/server/db/library-options.js';
 import { getTaxonomyCoverageReport, listTaxonomyLibrary } from '$lib/server/db/taxonomy-admin-read.ts';
+import { applyStagedTaxonomyHierarchy } from '$lib/server/db/taxonomy-hierarchy-staging.ts';
 import {
   applyTaxonomyHierarchy,
   createTaxonomyConcept,
-  TaxonomyInputError
+  TaxonomyInputError,
+  updateTaxonomyConcept
 } from '$lib/server/db/taxonomy-admin-write.ts';
+import { applyStagedTaxonomyWorkspace } from '$lib/server/db/taxonomy-workspace-staging.ts';
+import { listCurrentCaseTagAssignments, TagInputError } from '$lib/server/db/tag-library.js';
 
 /** @param {FormData} formData @param {string} name */
 function formText(formData, name) {
@@ -17,21 +25,74 @@ function formText(formData, name) {
 
 /** @param {unknown} cause */
 function actionFailure(cause) {
-  if (cause instanceof TaxonomyInputError) return fail(400, { error: cause.message });
-  console.error('Taxonomy Admin action failed.', cause);
-  return fail(500, { error: 'Unable to update the System/Topic taxonomy.' });
+  if (cause instanceof TaxonomyInputError || cause instanceof AdminContentInputError || cause instanceof TagInputError) {
+    return fail(400, { error: cause.message });
+  }
+  console.error('Systems & Topics Admin action failed.', cause);
+  return fail(500, { error: 'Unable to update the System/Topic workspace.' });
+}
+
+/** @param {FormData} formData @param {string} field @param {string} label */
+function stagedJsonChanges(formData, field, label) {
+  const raw = formText(formData, field);
+  if (!raw) return null;
+  let changes;
+  try {
+    changes = JSON.parse(raw);
+  } catch {
+    throw new TaxonomyInputError(`${label} could not be read. Refresh and try again.`);
+  }
+  if (!Array.isArray(changes)) {
+    throw new TaxonomyInputError(`${label} must be submitted as a list.`);
+  }
+  return changes;
+}
+
+/** @param {FormData} formData */
+function legacyHierarchyChanges(formData) {
+  const changes = [];
+  for (const [name, value] of formData.entries()) {
+    if (!name.startsWith('parent:') || typeof value !== 'string') continue;
+    const id = name.slice('parent:'.length).trim();
+    if (!id) continue;
+    changes.push({ id, parentId: value.trim() || null });
+  }
+  return changes;
 }
 
 export async function load({ platform, url }) {
   const filters = { search: url.searchParams.get('q')?.trim() ?? '' };
-  if (!platform?.env?.DB) return { topics: [], hierarchyOptions: [], coverage: null, filters };
+  const selectedId = url.searchParams.get('selected')?.trim() ?? '';
+  if (!platform?.env?.DB) {
+    return {
+      topics: [],
+      hierarchyOptions: [],
+      coverage: null,
+      filters,
+      selectedId,
+      tagOptions: [],
+      caseTagAssignments: []
+    };
+  }
+
   const db = createDb(platform.env.DB);
-  const [topics, hierarchyOptions, coverage] = await Promise.all([
+  const [topics, hierarchyOptions, coverage, tagOptions, caseTagAssignments] = await Promise.all([
     listTaxonomyLibrary(db, filters),
     filters.search ? listTaxonomyLibrary(db) : Promise.resolve(null),
-    getTaxonomyCoverageReport(db)
+    getTaxonomyCoverageReport(db),
+    listActiveTagOptions(db),
+    listCurrentCaseTagAssignments(db)
   ]);
-  return { topics, hierarchyOptions: hierarchyOptions ?? topics, coverage, filters };
+
+  return {
+    topics,
+    hierarchyOptions: hierarchyOptions ?? topics,
+    coverage,
+    filters,
+    selectedId,
+    tagOptions,
+    caseTagAssignments
+  };
 }
 
 export const actions = {
@@ -50,25 +111,90 @@ export const actions = {
     } catch (cause) {
       return actionFailure(cause);
     }
-    redirect(303, `/admin/topics/${encodeURIComponent(created.id)}?status=created`);
+    redirect(303, `/admin/topics?selected=${encodeURIComponent(created.id)}&status=created`);
+  },
+
+  updateConcept: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const conceptId = formText(formData, 'concept_id');
+    try {
+      await updateTaxonomyConcept(createDb(platform.env.DB), {
+        conceptId,
+        name: formText(formData, 'name'),
+        descriptionMd: formText(formData, 'description_md'),
+        kind: formText(formData, 'kind'),
+        isActive: formData.has('is_active')
+      });
+    } catch (cause) {
+      return actionFailure(cause);
+    }
+    redirect(303, `/admin/topics?selected=${encodeURIComponent(conceptId)}&status=identity-saved`);
+  },
+
+  applyWorkspace: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    try {
+      const hierarchyChanges = stagedJsonChanges(formData, 'hierarchy_changes_json', 'Staged hierarchy changes') ?? [];
+      const casePrimaryTopicChanges = stagedJsonChanges(formData, 'case_changes_json', 'Staged Primary Topic changes') ?? [];
+      const caseTagChanges = stagedJsonChanges(formData, 'tag_changes_json', 'Staged Case Tag changes') ?? [];
+      await applyStagedTaxonomyWorkspace(createDb(platform.env.DB), {
+        hierarchyChanges,
+        casePrimaryTopicChanges,
+        caseTagChanges
+      });
+    } catch (cause) {
+      return actionFailure(cause);
+    }
+    redirect(303, '/admin/topics?status=workspace-saved');
   },
 
   applyHierarchy: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData();
-    const changes = [];
-    for (const [name, value] of formData.entries()) {
-      if (!name.startsWith('parent:') || typeof value !== 'string') continue;
-      const id = name.slice('parent:'.length).trim();
-      if (!id) continue;
-      changes.push({ id, parentId: value.trim() || null });
-    }
     try {
-      await applyTaxonomyHierarchy(createDb(platform.env.DB), changes);
+      const staged = stagedJsonChanges(formData, 'changes_json', 'Staged hierarchy changes');
+      const db = createDb(platform.env.DB);
+      if (staged) {
+        await applyStagedTaxonomyHierarchy(db, staged);
+      } else {
+        await applyTaxonomyHierarchy(db, legacyHierarchyChanges(formData));
+      }
     } catch (cause) {
       return actionFailure(cause);
     }
     redirect(303, '/admin/topics?status=hierarchy-saved');
+  },
+
+  applyCasePrimaryTopics: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    try {
+      const staged = stagedJsonChanges(formData, 'case_changes_json', 'Staged Primary Topic changes');
+      if (!staged) throw new AdminContentInputError('Select at least one staged Case Primary Topic change.');
+      await applyStagedCasePrimaryTopics(createDb(platform.env.DB), staged);
+    } catch (cause) {
+      return actionFailure(cause);
+    }
+    redirect(303, '/admin/topics?status=case-primary-topics-saved');
+  },
+
+  applyCaseTags: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    try {
+      const staged = stagedJsonChanges(formData, 'tag_changes_json', 'Staged Case Tag changes');
+      if (!staged) throw new TagInputError('Select at least one staged Case Tag change.');
+      await applyStagedCaseTags(createDb(platform.env.DB), staged);
+    } catch (cause) {
+      return actionFailure(cause);
+    }
+    redirect(303, '/admin/topics?status=case-tags-saved');
   }
 };

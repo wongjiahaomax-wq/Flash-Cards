@@ -3,17 +3,25 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const topicsPage = readFileSync(new URL('../src/routes/admin/topics/+page.svelte', import.meta.url), 'utf8');
+const organizer = readFileSync(new URL('../src/lib/components/taxonomy-workspace/TaxonomyOrganizer.svelte', import.meta.url), 'utf8');
 const topicsAction = readFileSync(new URL('../src/routes/admin/topics/+page.server.js', import.meta.url), 'utf8');
 const taxonomyWrite = readFileSync(new URL('../src/lib/server/db/taxonomy-admin-write.ts', import.meta.url), 'utf8');
 const caseTopics = readFileSync(new URL('../src/lib/components/case-editor/CaseTopicsSection.svelte', import.meta.url), 'utf8');
 const caseAction = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 
-test('System creation hides the parent control while Topic creation exposes Parent System', () => {
-  assert.match(topicsPage, /bind:value=\{createKind\}/);
-  assert.match(topicsPage, /\{#if createKind === 'topic'\}/);
-  assert.match(topicsPage, /<label>Parent System<select name="parent_id">/);
-  assert.match(topicsPage, /item\.kind === 'system' && item\.isActive/);
-  assert.match(topicsPage, /<option value="">Unassigned<\/option>/);
+test('Topic creation supports searchable active System or Topic parents while System creation remains top-level', () => {
+  assert.match(organizer, /bind:value=\{createKind\}/);
+  assert.match(organizer, /SearchableTaxonomyPicker bind:value=\{createParentId\}/);
+  assert.match(organizer, /emptyLabel="Unassigned"/);
+  assert.match(organizer, /item\.kind === 'system' \? 'System' : 'Topic'/);
+  assert.match(organizer, /\+ Add Topic/);
+  assert.match(organizer, /\+ Add subtopic/);
+});
+
+test('Systems and Topics route delegates the visual taxonomy to one organizer instead of rendering a second hierarchy manager', () => {
+  assert.match(topicsPage, /TaxonomyOrganizer/);
+  assert.doesNotMatch(topicsPage, /Hierarchy manager/);
+  assert.doesNotMatch(topicsPage, /Additional Study Topic/);
 });
 
 test('System creation always submits a null parent to the taxonomy writer', () => {
