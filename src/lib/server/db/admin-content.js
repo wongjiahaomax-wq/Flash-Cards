@@ -357,6 +357,46 @@ export async function promoteCaseTopic(db, input) {
 }
 
 /**
+ * Replace the canonical Topic for several active production Cases after all
+ * Cases and the target Topic have been validated.
+ *
+ * @param {LearningDb} db
+ * @param {{ caseIds: string[], conceptId: string }} input
+ */
+export async function bulkPromoteCaseTopics(db, input) {
+  const caseIds = [...new Set((input.caseIds ?? []).map((caseId) => requiredText(caseId, 'Case')))];
+  if (!caseIds.length) throw new AdminContentInputError('Select at least one Case.');
+  if (caseIds.length > 60) throw new AdminContentInputError('Select no more than 60 Cases at a time.');
+
+  const conceptId = await requireActiveTopic(db, input.conceptId);
+  const validated = await Promise.all(caseIds.map((caseId) => requireActiveCaseWithOnePrimary(db, caseId)));
+  const writes = [];
+
+  for (const current of validated) {
+    if (current.primaryConceptId === conceptId) continue;
+    const targetSecondary = current.topicRows.find((topic) => topic.conceptId === conceptId && topic.role === 'secondary');
+    if (targetSecondary) {
+      writes.push(db.delete(caseConcepts).where(and(
+        eq(caseConcepts.caseId, current.caseId),
+        eq(caseConcepts.conceptId, conceptId),
+        eq(caseConcepts.role, 'secondary')
+      )));
+    }
+    writes.push(db
+      .update(caseConcepts)
+      .set({ conceptId, role: 'primary' })
+      .where(and(eq(caseConcepts.caseId, current.caseId), eq(caseConcepts.conceptId, current.primaryConceptId))));
+  }
+
+  if (!writes.length) return;
+  if (typeof db.batch === 'function') {
+    await db.batch(/** @type {[any, ...any[]]} */ (writes));
+    return;
+  }
+  for (const write of writes) await write;
+}
+
+/**
  * Create a new global Topic and make it the Case's canonical Topic. Creating a
  * Topic as an Additional Study Topic is intentionally unsupported.
  *

@@ -1,22 +1,27 @@
 import { and, asc, desc, eq, inArray, isNull, like, sql } from 'drizzle-orm';
 
+import { systemAncestorId } from '../learning/taxonomy-graph.ts';
+import { listConceptTaxonomy } from './concept-taxonomy-compat.ts';
 import { caseConcepts, cases, concepts } from './schema.js';
 import { caseTags, tags } from './tag-schema.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
+/** @typedef {{ id: string, name: string, kind: string, parentId: string | null }} TaxonomyRow */
 
 export const CASE_LIBRARY_PAGE_SIZE = 60;
 
 /**
  * @param {URLSearchParams | { get(name: string): string | null }} params
- * @returns {{ search: string, tagId: string, sort: string }}
+ * @returns {{ search: string, topicSearch: string, systemSearch: string, tagId: string, sort: string }}
  */
 export function parseCaseLibraryFilters(params) {
   const sort = params.get('sort')?.trim() ?? '';
   return {
     search: params.get('q')?.trim() ?? '',
+    topicSearch: params.get('topic')?.trim() ?? '',
+    systemSearch: params.get('system')?.trim() ?? '',
     tagId: params.get('tag')?.trim() ?? '',
-    sort: ['case-asc', 'case-desc', 'topic-asc', 'topic-desc', 'tag-asc', 'tag-desc'].includes(sort) ? sort : 'case-asc'
+    sort: ['case-asc', 'case-desc', 'topic-asc', 'topic-desc', 'system-asc', 'system-desc', 'tag-asc', 'tag-desc'].includes(sort) ? sort : 'case-asc'
   };
 }
 
@@ -26,10 +31,42 @@ export function parseCaseLibraryPage(params) {
   return Number.isSafeInteger(raw) && raw > 0 ? raw : 1;
 }
 
-/** @param {{ search: string, tagId: string }} filters */
+/** @param {{ search: string, topicSearch?: string, systemSearch?: string, systemIds?: string[], tagId: string }} filters */
 function caseLibraryConditions(filters) {
   const conditions = [eq(cases.isActive, true), isNull(cases.previewSessionId)];
   if (filters.search) conditions.push(like(cases.title, `%${filters.search.toLowerCase()}%`));
+  if (filters.topicSearch) {
+    conditions.push(sql`exists (
+      select 1
+      from case_concepts filter_case_concepts
+      join concepts filter_concepts on filter_concepts.id = filter_case_concepts.concept_id
+      where filter_case_concepts.case_id = ${cases.id}
+        and filter_case_concepts.role = 'primary'
+        and lower(filter_concepts.name) like ${`%${filters.topicSearch.toLowerCase()}%`}
+    )`);
+  }
+  if (filters.systemSearch && filters.systemIds?.length) {
+    conditions.push(sql`exists (
+      with recursive topic_ancestors(id, parent_id, kind, name) as (
+        select primary_concepts.id, primary_concepts.parent_id, null, primary_concepts.name
+        from concepts primary_concepts
+        where primary_concepts.id = (
+          select primary_case_concepts.concept_id
+          from case_concepts primary_case_concepts
+          where primary_case_concepts.case_id = ${cases.id}
+            and primary_case_concepts.role = 'primary'
+          limit 1
+        )
+        union all
+        select parent_concepts.id, parent_concepts.parent_id, null, parent_concepts.name
+        from concepts parent_concepts
+        join topic_ancestors on topic_ancestors.parent_id = parent_concepts.id
+      )
+      select 1 from topic_ancestors
+      where topic_ancestors.id in (${sql.join(filters.systemIds.map((id) => sql`${id}`), sql`, `)})
+        and lower(topic_ancestors.name) like ${`%${filters.systemSearch.toLowerCase()}%`}
+    )`);
+  }
   if (filters.tagId) {
     conditions.push(sql`exists (
       select 1
@@ -44,9 +81,10 @@ function caseLibraryConditions(filters) {
 }
 
 /** @param {LearningDb} db @param {string[]} caseIds */
-async function listPagePrimaryTopics(db, caseIds) {
+/** @param {LearningDb} db @param {string[]} caseIds @param {TaxonomyRow[]} conceptRows */
+async function listPagePrimaryTopics(db, caseIds, conceptRows) {
   if (!caseIds.length) return [];
-  return db
+  const rows = await db
     .select({
       caseId: caseConcepts.caseId,
       conceptId: caseConcepts.conceptId,
@@ -56,6 +94,11 @@ async function listPagePrimaryTopics(db, caseIds) {
     .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
     .where(and(inArray(caseConcepts.caseId, caseIds), eq(caseConcepts.role, 'primary')))
     .orderBy(asc(caseConcepts.caseId), asc(concepts.name), asc(caseConcepts.conceptId));
+  const systemNames = new Map(conceptRows.filter((concept) => concept.kind === 'system').map((concept) => [concept.id, concept.name]));
+  return rows.map((row) => ({
+    ...row,
+    systemName: row.conceptId ? systemNames.get(systemAncestorId(row.conceptId, conceptRows) ?? '') ?? null : null
+  }));
 }
 
 /** @param {LearningDb} db @param {string[]} caseIds */
@@ -77,13 +120,17 @@ async function listPageCaseTags(db, caseIds) {
  * so malformed duplicate primary relationships cannot consume page slots.
  *
  * @param {LearningDb} db
- * @param {{ search: string, tagId: string, sort?: string }} filters
+ * @param {{ search: string, topicSearch?: string, systemSearch?: string, tagId: string, sort?: string }} filters
  * @param {{ page?: number, pageSize?: number }} [options]
  */
 export async function getCaseLibraryPage(db, filters, options = {}) {
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? CASE_LIBRARY_PAGE_SIZE) || CASE_LIBRARY_PAGE_SIZE, CASE_LIBRARY_PAGE_SIZE));
   const requestedPage = Math.max(1, Number(options.page ?? 1) || 1);
-  const where = and(...caseLibraryConditions(filters));
+  const conceptRows = await listConceptTaxonomy(db, { activeOnly: true });
+  const matchingSystemIds = conceptRows
+    .filter((concept) => concept.kind === 'system' && (!filters.systemSearch || concept.name.toLowerCase().includes(filters.systemSearch.toLowerCase())))
+    .map((concept) => concept.id);
+  const where = and(...caseLibraryConditions({ ...filters, systemIds: matchingSystemIds }));
   const countRows = await db.select({ count: sql`count(*)`.mapWith(Number) }).from(cases).where(where);
   const totalCount = Number(countRows[0]?.count ?? 0);
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -92,7 +139,26 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
   const topicSort = sql`coalesce((select min(${concepts.name}) from ${caseConcepts} inner join ${concepts} on ${concepts.id} = ${caseConcepts.conceptId} where ${caseConcepts.caseId} = ${cases.id} and ${caseConcepts.role} = 'primary'), '')`;
   const tagSort = sql`coalesce((select min(${tags.name}) from ${caseTags} inner join ${tags} on ${tags.id} = ${caseTags.tagId} where ${caseTags.caseId} = ${cases.id} and ${tags.isActive} = true), '')`;
   const sort = filters.sort ?? 'case-asc';
-  const sortExpression = sort.startsWith('topic') ? topicSort : sort.startsWith('tag') ? tagSort : cases.title;
+  const systemIds = conceptRows.filter((concept) => concept.kind === 'system').map((concept) => concept.id);
+  const systemSort = systemIds.length ? sql`coalesce((
+    with recursive system_ancestors(id, parent_id, kind, name) as (
+      select topic_concept.id, topic_concept.parent_id, null, topic_concept.name
+      from concepts topic_concept
+      where topic_concept.id = (
+        select primary_case_concepts.concept_id
+        from case_concepts primary_case_concepts
+        where primary_case_concepts.case_id = ${cases.id}
+          and primary_case_concepts.role = 'primary'
+        limit 1
+      )
+      union all
+      select parent_concepts.id, parent_concepts.parent_id, null, parent_concepts.name
+      from concepts parent_concepts
+      join system_ancestors on system_ancestors.parent_id = parent_concepts.id
+    )
+    select name from system_ancestors where id in (${sql.join(systemIds.map((id) => sql`${id}`), sql`, `)}) limit 1
+  ), '')` : sql`''`;
+  const sortExpression = sort.startsWith('topic') ? topicSort : sort.startsWith('system') ? systemSort : sort.startsWith('tag') ? tagSort : cases.title;
   const sortDirection = sort.endsWith('desc') ? desc : asc;
 
   const rawRows = await db
@@ -108,13 +174,13 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
     .offset((page - 1) * pageSize);
 
   const caseIds = rawRows.map((row) => row.id);
-  const [primaryRows, tagRows] = await Promise.all([listPagePrimaryTopics(db, caseIds), listPageCaseTags(db, caseIds)]);
+  const [primaryRows, tagRows] = await Promise.all([listPagePrimaryTopics(db, caseIds, conceptRows), listPageCaseTags(db, caseIds)]);
 
-  /** @type {Map<string, { conceptId: string, conceptName: string | null }>} */
+  /** @type {Map<string, { conceptId: string, conceptName: string | null, systemName: string | null }>} */
   const primaryByCase = new Map();
   for (const primary of primaryRows) {
     if (!primaryByCase.has(primary.caseId)) {
-      primaryByCase.set(primary.caseId, { conceptId: primary.conceptId, conceptName: primary.conceptName });
+      primaryByCase.set(primary.caseId, { conceptId: primary.conceptId, conceptName: primary.conceptName, systemName: primary.systemName ?? null });
     }
   }
 
@@ -131,6 +197,7 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
       ...row,
       conceptId: primaryByCase.get(row.id)?.conceptId ?? null,
       conceptName: primaryByCase.get(row.id)?.conceptName ?? null,
+      systemName: primaryByCase.get(row.id)?.systemName ?? null,
       tags: tagsByCase.get(row.id) ?? []
     })),
     totalCount,
