@@ -1,14 +1,16 @@
 <script>
+  import BulkCaseTagEditor from '$lib/components/case-library/BulkCaseTagEditor.svelte';
   import { invalidateAll } from '$app/navigation';
 
-  /** @type {{ caseId: string, caseTitle: string, tags: { id: string, name: string }[], availableTags: { id: string, name: string }[] }} */
-  let { caseId, caseTitle, tags, availableTags } = $props();
+  /** @type {{ caseId: string, caseTitle: string, tags: { id: string, name: string }[], availableTags: { id: string, name: string }[], selectedCaseIds?: string[], cases?: { id: string, title: string, tags: { id: string, name: string }[] }[] }} */
+  let { caseId, caseTitle, tags, availableTags, selectedCaseIds = [], cases = [] } = $props();
   let selectedTagId = $state('');
   let newTagName = $state('');
   let error = $state('');
   let busy = $state(false);
   let editorOpen = $state(false);
   let addableTags = $derived(availableTags.filter((tag) => !tags.some((current) => current.id === tag.id)));
+  let bulkEditorAvailable = $derived(selectedCaseIds.length > 1 && selectedCaseIds.includes(caseId));
 
   /** @param {PointerEvent} event */
   function closeOnOutsidePointer(event) {
@@ -93,9 +95,12 @@
     {:else}
       <span class="muted">—</span>
     {/if}
-    <details class="case-tag-details" bind:open={editorOpen}>
-      <summary onclick={closeOtherEditors}>Edit tags</summary>
-      <div class="editor-panel">
+    {#if bulkEditorAvailable}
+      <BulkCaseTagEditor triggerLabel="Edit tags" compactTrigger {selectedCaseIds} {cases} {availableTags} />
+    {:else}
+      <details class="case-tag-details" bind:open={editorOpen}>
+        <summary onclick={closeOtherEditors}>Edit tags</summary>
+        <div class="editor-panel">
         <div class="editor-heading">
           <strong>{caseTitle}</strong>
           <span class="muted">Case Tags</span>
@@ -137,8 +142,9 @@
         </section>
 
         {#if error}<p class="error" role="alert">{error}</p>{/if}
-      </div>
-    </details>
+        </div>
+      </details>
+    {/if}
   </div>
 </div>
 

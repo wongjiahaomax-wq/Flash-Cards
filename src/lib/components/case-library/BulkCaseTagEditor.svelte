@@ -1,6 +1,6 @@
 <script>
-  /** @type {{ selectedCaseIds: string[], cases: { id: string, title: string, tags: { id: string, name: string }[] }[], availableTags: { id: string, name: string }[] }} */
-  let { selectedCaseIds, cases, availableTags } = $props();
+  /** @type {{ selectedCaseIds: string[], cases: { id: string, title: string, tags: { id: string, name: string }[] }[], availableTags: { id: string, name: string }[], triggerLabel?: string, compactTrigger?: boolean }} */
+  let { selectedCaseIds, cases, availableTags, triggerLabel = 'Manage Tags', compactTrigger = false } = $props();
 
   let editorOpen = $state(false);
   let tagQuery = $state('');
@@ -63,10 +63,11 @@
   <button
     type="button"
     class="trigger"
+    class:compact-trigger={compactTrigger}
     disabled={!selectedCount}
     aria-expanded={editorOpen}
     onclick={toggleEditor}
-  >Manage Tags</button>
+  >{triggerLabel}</button>
 
   {#if editorOpen}
     <div class="editor-panel" role="dialog" aria-label={`Manage Tags for ${selectedCount} selected Cases`}>
@@ -157,6 +158,7 @@
   .bulk-case-tag-editor { position: relative; flex: 0 0 auto; }
   .trigger, .small-button, .close-button { border: 1px solid #cdd6e3; background: #fff; color: #172033; font: inherit; cursor: pointer; }
   .trigger { padding: 0.7rem 1rem; border-radius: 8px; font-weight: 650; }
+  .trigger.compact-trigger { padding: 0.2rem 0.45rem; border-radius: 999px; font-size: 0.76rem; font-weight: 700; }
   .trigger:disabled, .small-button:disabled { cursor: not-allowed; opacity: 0.55; }
   .editor-panel { position: absolute; z-index: 30; top: calc(100% + 0.55rem); right: 0; width: min(620px, calc(100vw - 2rem)); padding: 1rem; border: 1px solid #d0d5dd; border-radius: 10px; background: #fff; box-shadow: 0 14px 34px rgba(16, 24, 40, 0.16); }
   .editor-heading { display: flex; align-items: start; justify-content: space-between; gap: 1rem; }

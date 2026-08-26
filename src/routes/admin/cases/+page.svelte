@@ -1,6 +1,7 @@
 <script>
   import BulkCaseTagEditor from '$lib/components/case-library/BulkCaseTagEditor.svelte';
   import CaseTagInlineEditor from '$lib/components/case-library/CaseTagInlineEditor.svelte';
+  import { applyCaseSelection } from '$lib/admin-case-selection.js';
 
   let { data, form } = $props();
   let query = $state('');
@@ -11,6 +12,8 @@
   let searchTimer;
   /** @type {string[]} */
   let selectedCaseIds = $state([]);
+  /** @type {string | null} */
+  let selectionAnchorId = $state(null);
   let inactiveView = $derived(data.caseFilters.lifecycle === 'inactive');
   let firstShown = $derived(data.pagination.totalCount === 0 ? 0 : (data.pagination.page - 1) * data.pagination.pageSize + 1);
   let lastShown = $derived(Math.min(data.pagination.page * data.pagination.pageSize, data.pagination.totalCount));
@@ -88,6 +91,20 @@
 
   function toggleAllVisible() {
     selectedCaseIds = allVisibleSelected ? [] : data.cases.map((item) => item.id);
+    selectionAnchorId = null;
+  }
+
+  /** @param {string} caseId @param {MouseEvent} event */
+  function selectCase(caseId, event) {
+    const next = applyCaseSelection({
+      selectedIds: selectedCaseIds,
+      orderedIds: data.cases.map((item) => item.id),
+      anchorId: selectionAnchorId,
+      caseId,
+      shiftKey: event.shiftKey
+    });
+    selectedCaseIds = [...next.selectedIds];
+    selectionAnchorId = next.anchorId;
   }
 
   function currentQuery() {
@@ -170,7 +187,7 @@
     <form method="POST" action={inactiveView ? '?/bulkRestoreCases' : '?/bulkPromoteTopic'}>
       <input type="hidden" name="return_query" value={currentQuery()} />
       <div class="bulk-toolbar">
-        <div><strong>{inactiveView ? 'Bulk restore Cases' : 'Bulk Case actions'}</strong><span class="muted">{selectedCaseIds.length} Case{selectedCaseIds.length === 1 ? '' : 's'} selected</span></div>
+        <div><strong>{inactiveView ? 'Bulk restore Cases' : 'Bulk Case actions'}</strong><span class="muted">{selectedCaseIds.length} Case{selectedCaseIds.length === 1 ? '' : 's'} selected</span><span class="selection-hint">Shift-click a row to select a range</span></div>
         {#if inactiveView}
           <button class="button primary" type="submit" disabled={!selectedCaseIds.length}>Restore selected</button>
         {:else}
@@ -183,15 +200,15 @@
       <div class="case-table" role="list">
         <div class="table-header"><span class="case-heading"><input type="checkbox" checked={allVisibleSelected} onchange={toggleAllVisible} aria-label="Select all visible Cases" /><a class="sort-header" href={sortHref('case')} aria-label={`Sort by Case ${data.caseFilters.sort === 'case-asc' ? 'descending' : 'ascending'}`}>Case <span aria-hidden="true">{sortIndicator('case')}</span></a></span><a class="sort-header" href={sortHref('topic')} aria-label={`Sort by Topic ${data.caseFilters.sort === 'topic-asc' ? 'descending' : 'ascending'}`}>Topic <span aria-hidden="true">{sortIndicator('topic')}</span></a><a class="sort-header" href={sortHref('system')} aria-label={`Sort by System ${data.caseFilters.sort === 'system-asc' ? 'descending' : 'ascending'}`}>System <span aria-hidden="true">{sortIndicator('system')}</span></a><a class="sort-header" href={sortHref('tag')} aria-label={`Sort by Tags ${data.caseFilters.sort === 'tag-asc' ? 'descending' : 'ascending'}`}>Tags <span aria-hidden="true">{sortIndicator('tag')}</span></a><span>Open</span></div>
       {#each data.cases as item}
-        <div class="table-row" class:inactive-row={inactiveView}>
-          <span class="case-cell"><input class="case-select" type="checkbox" name="case_ids" value={item.id} bind:group={selectedCaseIds} aria-label={`Select ${item.title}`} /><a href={caseHref(item)}><strong>{item.title}</strong></a>{#if inactiveView}<span class="status-badge">Inactive</span>{/if}</span>
+        <div class="table-row" class:inactive-row={inactiveView} class:selected-row={selectedCaseIds.includes(item.id)}>
+          <span class="case-cell"><input class="case-select" type="checkbox" name="case_ids" value={item.id} checked={selectedCaseIds.includes(item.id)} onclick={(event) => selectCase(item.id, event)} aria-label={`Select ${item.title}`} /><a href={caseHref(item)}><strong>{item.title}</strong></a>{#if inactiveView}<span class="status-badge">Inactive</span>{/if}</span>
           <span>{item.conceptName ?? 'Unassigned'}</span>
           <span>{item.systemName ?? 'Unassigned'}</span>
           <div class="tag-cell">
             {#if inactiveView}
               <span class="tag-list">{#if item.tags.length}{#each item.tags as tag}<span class="tag-chip">{tag.name}</span>{/each}{:else}<span class="muted">—</span>{/if}</span>
             {:else}
-              <CaseTagInlineEditor caseId={item.id} caseTitle={item.title} tags={item.tags} availableTags={data.tags} />
+              <CaseTagInlineEditor caseId={item.id} caseTitle={item.title} tags={item.tags} availableTags={data.tags} selectedCaseIds={selectedCaseIds} cases={data.cases} />
             {/if}
           </div>
           <a class="open-link" href={caseHref(item)}>{inactiveView ? 'Recover' : 'Open'} →</a>
@@ -217,8 +234,8 @@
   .lifecycle-tabs { display: inline-flex; gap: 0.25rem; margin-top: 1.25rem; padding: 0.25rem; border: 1px solid #dfe5ee; border-radius: 9px; background: #f8fafc; } .lifecycle-tabs a { padding: 0.48rem 0.78rem; border-radius: 7px; color: #475467; font-weight: 700; text-decoration: none; } .lifecycle-tabs a.current { background: #fff; color: #172033; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08); }
   .search-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 0.75rem; align-items: end; margin: 1rem 0; } label { display: grid; gap: 0.4rem; color: #344054; font-weight: 650; } input, select { width: 100%; min-width: 0; box-sizing: border-box; padding: 0.7rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } .search-actions { display: flex; gap: 0.5rem; }
   .panel { padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; } .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
-  .bulk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 1rem; padding: 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #f8fafc; } .bulk-toolbar > div { display: grid; gap: 0.2rem; margin-right: auto; } .bulk-topic { display: flex; align-items: center; gap: 0.55rem; min-width: 360px; } .bulk-topic select { flex: 1; min-width: 0; } button:disabled, select:disabled { cursor: not-allowed; opacity: 0.55; } .form-error, .success-message { margin: 1rem 0 0; padding: 0.75rem; border-radius: 8px; } .form-error { background: #fef3f2; color: #b42318; } .success-message { background: #ecfdf3; color: #027a48; }
-  .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(160px, 1fr) 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .sort-header { color: inherit; text-decoration: none; } .sort-header span { margin-left: 0.2rem; font-size: 0.9rem; } .table-row { border-bottom: 1px solid #eaecf0; color: #172033; } .table-row.inactive-row { background: #fcfcfd; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .case-heading, .case-cell { display: flex; align-items: center; gap: 0.55rem; min-width: 0; } .case-cell a { min-width: 0; color: #172033; text-decoration: none; } .case-cell a strong { overflow-wrap: anywhere; } .case-heading input, .case-select { width: 1rem; height: 1rem; flex: 0 0 auto; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; text-decoration: none; }
+  .bulk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 1rem; padding: 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #f8fafc; } .bulk-toolbar > div { display: grid; gap: 0.2rem; margin-right: auto; } .selection-hint { color: #667085; font-size: 0.82rem; } .bulk-topic { display: flex; align-items: center; gap: 0.55rem; min-width: 360px; } .bulk-topic select { flex: 1; min-width: 0; } button:disabled, select:disabled { cursor: not-allowed; opacity: 0.55; } .form-error, .success-message { margin: 1rem 0 0; padding: 0.75rem; border-radius: 8px; } .form-error { background: #fef3f2; color: #b42318; } .success-message { background: #ecfdf3; color: #027a48; }
+  .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(160px, 1fr) 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .sort-header { color: inherit; text-decoration: none; } .sort-header span { margin-left: 0.2rem; font-size: 0.9rem; } .table-row { border-bottom: 1px solid #eaecf0; color: #172033; } .table-row.inactive-row { background: #fcfcfd; } .table-row.selected-row { background: #f5f8ff; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .case-heading, .case-cell { display: flex; align-items: center; gap: 0.55rem; min-width: 0; } .case-cell a { min-width: 0; color: #172033; text-decoration: none; } .case-cell a strong { overflow-wrap: anywhere; } .case-heading input, .case-select { width: 1rem; height: 1rem; flex: 0 0 auto; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; text-decoration: none; }
   .status-badge { flex: 0 0 auto; padding: 0.16rem 0.42rem; border-radius: 999px; background: #fef3f2; color: #b42318 !important; font-size: 0.72rem; font-weight: 750; } .tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; } .tag-chip { display: inline-block; padding: 0.18rem 0.4rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; }
   .tag-cell { min-width: 0; }
   .empty-state { padding: 1rem; border: 1px dashed #d0d5dd; border-radius: 8px; }
