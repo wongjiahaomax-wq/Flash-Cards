@@ -1,5 +1,5 @@
 <script>
-  import TaxonomyWorkspace from '$lib/components/taxonomy-workspace/TaxonomyWorkspace.svelte';
+  import TaxonomyOrganizer from '$lib/components/taxonomy-workspace/TaxonomyOrganizer.svelte';
 
   let { data, form } = $props();
 </script>
@@ -10,7 +10,7 @@
   <div>
     <p class="eyebrow">Learner taxonomy</p>
     <h1>Systems &amp; Topics</h1>
-    <p class="muted">Browse the System / Topic hierarchy, create Topics in context, and reveal direct Cases only when you need to curate them.</p>
+    <p class="muted">Browse and edit the System / Topic hierarchy, create Topics in context, and reveal direct Cases only when you need to curate them.</p>
   </div>
 </section>
 
@@ -35,7 +35,7 @@
   </section>
 {/if}
 
-<TaxonomyWorkspace
+<TaxonomyOrganizer
   items={data.hierarchyOptions}
   initialSearch={data.filters.search}
   initialSelectedId={data.selectedId}

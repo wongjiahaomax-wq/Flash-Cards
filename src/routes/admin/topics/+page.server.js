@@ -11,8 +11,10 @@ import { applyStagedTaxonomyHierarchy } from '$lib/server/db/taxonomy-hierarchy-
 import {
   applyTaxonomyHierarchy,
   createTaxonomyConcept,
-  TaxonomyInputError
+  TaxonomyInputError,
+  updateTaxonomyConcept
 } from '$lib/server/db/taxonomy-admin-write.ts';
+import { applyStagedTaxonomyWorkspace } from '$lib/server/db/taxonomy-workspace-staging.ts';
 import { listCurrentCaseTagAssignments, TagInputError } from '$lib/server/db/tag-library.js';
 
 /** @param {FormData} formData @param {string} name */
@@ -110,6 +112,44 @@ export const actions = {
       return actionFailure(cause);
     }
     redirect(303, `/admin/topics?selected=${encodeURIComponent(created.id)}&status=created`);
+  },
+
+  updateConcept: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const conceptId = formText(formData, 'concept_id');
+    try {
+      await updateTaxonomyConcept(createDb(platform.env.DB), {
+        conceptId,
+        name: formText(formData, 'name'),
+        descriptionMd: formText(formData, 'description_md'),
+        kind: formText(formData, 'kind'),
+        isActive: formData.has('is_active')
+      });
+    } catch (cause) {
+      return actionFailure(cause);
+    }
+    redirect(303, `/admin/topics?selected=${encodeURIComponent(conceptId)}&status=identity-saved`);
+  },
+
+  applyWorkspace: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    try {
+      const hierarchyChanges = stagedJsonChanges(formData, 'hierarchy_changes_json', 'Staged hierarchy changes') ?? [];
+      const casePrimaryTopicChanges = stagedJsonChanges(formData, 'case_changes_json', 'Staged Primary Topic changes') ?? [];
+      const caseTagChanges = stagedJsonChanges(formData, 'tag_changes_json', 'Staged Case Tag changes') ?? [];
+      await applyStagedTaxonomyWorkspace(createDb(platform.env.DB), {
+        hierarchyChanges,
+        casePrimaryTopicChanges,
+        caseTagChanges
+      });
+    } catch (cause) {
+      return actionFailure(cause);
+    }
+    redirect(303, '/admin/topics?status=workspace-saved');
   },
 
   applyHierarchy: async ({ request, locals, platform }) => {

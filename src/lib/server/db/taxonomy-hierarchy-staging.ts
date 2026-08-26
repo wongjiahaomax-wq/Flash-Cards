@@ -9,7 +9,7 @@ export type StagedTaxonomyHierarchyChange = {
   expectedParentId: unknown;
 };
 
-type NormalizedStagedHierarchyChange = {
+export type NormalizedStagedHierarchyChange = {
   id: string;
   parentId: string | null;
   expectedParentId: string | null;
@@ -52,7 +52,7 @@ function normalizeChanges(changes: StagedTaxonomyHierarchyChange[]): NormalizedS
   return normalized;
 }
 
-export async function applyStagedTaxonomyHierarchy(
+export async function validateStagedTaxonomyHierarchy(
   db: import('./index.js').LearningDb,
   changes: StagedTaxonomyHierarchyChange[]
 ) {
@@ -71,5 +71,20 @@ export async function applyStagedTaxonomyHierarchy(
     }
   }
 
-  await applyTaxonomyHierarchy(db, normalized.map(({ id, parentId }) => ({ id, parentId })));
+  return normalized;
+}
+
+export async function applyValidatedTaxonomyHierarchy(
+  db: import('./index.js').LearningDb,
+  changes: NormalizedStagedHierarchyChange[]
+) {
+  await applyTaxonomyHierarchy(db, changes.map(({ id, parentId }) => ({ id, parentId })));
+}
+
+export async function applyStagedTaxonomyHierarchy(
+  db: import('./index.js').LearningDb,
+  changes: StagedTaxonomyHierarchyChange[]
+) {
+  const normalized = await validateStagedTaxonomyHierarchy(db, changes);
+  await applyValidatedTaxonomyHierarchy(db, normalized);
 }

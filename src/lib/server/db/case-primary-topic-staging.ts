@@ -4,6 +4,7 @@ import {
   AdminContentInputError,
   bulkPromoteCaseTopics
 } from './admin-content.js';
+import { taxonomyConcepts } from './contextual-schema.ts';
 import { caseConcepts, cases } from './schema.js';
 
 export type StagedCasePrimaryTopicChange = {
@@ -12,7 +13,7 @@ export type StagedCasePrimaryTopicChange = {
   expectedConceptId: unknown;
 };
 
-type NormalizedStagedCasePrimaryTopicChange = {
+export type NormalizedStagedCasePrimaryTopicChange = {
   caseId: string;
   conceptId: string;
   expectedConceptId: string;
@@ -48,29 +49,42 @@ function normalizeChanges(changes: StagedCasePrimaryTopicChange[]): NormalizedSt
     throw new AdminContentInputError('Each Case may appear only once in a staged Primary Topic update.');
   }
 
-  if (new Set(normalized.map((change) => change.conceptId)).size !== 1) {
-    throw new AdminContentInputError('Apply or discard the current Primary Topic batch before staging Cases to a different Topic.');
-  }
-
   return normalized;
 }
 
-export async function applyStagedCasePrimaryTopics(
+export async function validateStagedCasePrimaryTopics(
   db: import('./index.js').LearningDb,
   changes: StagedCasePrimaryTopicChange[]
 ) {
   const normalized = normalizeChanges(changes);
   const caseIds = normalized.map((change) => change.caseId);
-  const currentRows = await db
-    .select({ caseId: caseConcepts.caseId, conceptId: caseConcepts.conceptId })
-    .from(caseConcepts)
-    .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
-    .where(and(
-      inArray(caseConcepts.caseId, caseIds),
-      eq(caseConcepts.role, 'primary'),
-      eq(cases.isActive, true),
-      isNull(cases.previewSessionId)
-    ));
+  const targetTopicIds = [...new Set(normalized.map((change) => change.conceptId))];
+
+  const [currentRows, targetRows] = await Promise.all([
+    db
+      .select({ caseId: caseConcepts.caseId, conceptId: caseConcepts.conceptId })
+      .from(caseConcepts)
+      .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
+      .where(and(
+        inArray(caseConcepts.caseId, caseIds),
+        eq(caseConcepts.role, 'primary'),
+        eq(cases.isActive, true),
+        isNull(cases.previewSessionId)
+      )),
+    db
+      .select({ id: taxonomyConcepts.id })
+      .from(taxonomyConcepts)
+      .where(and(
+        inArray(taxonomyConcepts.id, targetTopicIds),
+        eq(taxonomyConcepts.kind, 'topic'),
+        eq(taxonomyConcepts.isActive, true)
+      ))
+  ]);
+
+  const activeTargetIds = new Set(targetRows.map((row) => row.id));
+  if (targetTopicIds.some((topicId) => !activeTargetIds.has(topicId))) {
+    throw new AdminContentInputError('The selected Primary Topic is missing or inactive.');
+  }
 
   const currentByCaseId = new Map<string, string[]>();
   for (const row of currentRows) {
@@ -88,8 +102,29 @@ export async function applyStagedCasePrimaryTopics(
     }
   }
 
-  await bulkPromoteCaseTopics(db, {
-    caseIds,
-    conceptId: normalized[0].conceptId
-  });
+  return normalized;
+}
+
+export async function applyValidatedCasePrimaryTopics(
+  db: import('./index.js').LearningDb,
+  changes: NormalizedStagedCasePrimaryTopicChange[]
+) {
+  const caseIdsByTopic = new Map<string, string[]>();
+  for (const change of changes) {
+    const caseIds = caseIdsByTopic.get(change.conceptId) ?? [];
+    caseIds.push(change.caseId);
+    caseIdsByTopic.set(change.conceptId, caseIds);
+  }
+
+  for (const [conceptId, caseIds] of caseIdsByTopic) {
+    await bulkPromoteCaseTopics(db, { caseIds, conceptId });
+  }
+}
+
+export async function applyStagedCasePrimaryTopics(
+  db: import('./index.js').LearningDb,
+  changes: StagedCasePrimaryTopicChange[]
+) {
+  const normalized = await validateStagedCasePrimaryTopics(db, changes);
+  await applyValidatedCasePrimaryTopics(db, normalized);
 }

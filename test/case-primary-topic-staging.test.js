@@ -128,10 +128,11 @@ test('stale loaded Primary Topic fails before any proposed Case writes', async (
   }
 });
 
-test('staged Case Primary Topic batches require expected state, unique Cases and one target Topic', async () => {
+test('staged Case Primary Topic review supports multiple target Topics while requiring expected state and unique Cases', async () => {
   const fixture = createLearningDb();
   try {
     const first = await createCase(fixture.db, { title: 'Validation Case', conceptId: 'af' });
+    const second = await createCase(fixture.db, { title: 'Second validation Case', conceptId: 'af' });
 
     await assert.rejects(
       applyStagedCasePrimaryTopics(fixture.db, [
@@ -143,28 +144,24 @@ test('staged Case Primary Topic batches require expected state, unique Cases and
     await assert.rejects(
       applyStagedCasePrimaryTopics(fixture.db, [
         { caseId: first.id, expectedConceptId: 'af', conceptId: 'pericarditis' },
-        { caseId: first.id, expectedConceptId: 'af', conceptId: 'pericarditis' }
+        { caseId: first.id, expectedConceptId: 'af', conceptId: 'arrhythmias' }
       ]),
       (error) => error instanceof AdminContentInputError && /only once/i.test(error.message)
     );
 
-    const second = await createCase(fixture.db, { title: 'Second validation Case', conceptId: 'af' });
-    await assert.rejects(
-      applyStagedCasePrimaryTopics(fixture.db, [
-        { caseId: first.id, expectedConceptId: 'af', conceptId: 'pericarditis' },
-        { caseId: second.id, expectedConceptId: 'af', conceptId: 'arrhythmias' }
-      ]),
-      (error) => error instanceof AdminContentInputError && /different Topic/i.test(error.message)
-    );
+    await applyStagedCasePrimaryTopics(fixture.db, [
+      { caseId: first.id, expectedConceptId: 'af', conceptId: 'pericarditis' },
+      { caseId: second.id, expectedConceptId: 'af', conceptId: 'arrhythmias' }
+    ]);
 
-    assert.equal(primaryTopicId(fixture.sqlite, first.id), 'af');
-    assert.equal(primaryTopicId(fixture.sqlite, second.id), 'af');
+    assert.equal(primaryTopicId(fixture.sqlite, first.id), 'pericarditis');
+    assert.equal(primaryTopicId(fixture.sqlite, second.id), 'arrhythmias');
   } finally {
     fixture.sqlite.close();
   }
 });
 
-test('canonical validation still rejects inactive Primary Topic targets after staging preflight', async () => {
+test('validation rejects inactive Primary Topic targets before staged writes', async () => {
   const fixture = createLearningDb();
   try {
     const created = await createCase(fixture.db, { title: 'Inactive target Case', conceptId: 'af' });

@@ -3,23 +3,23 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const topicsPage = readFileSync(new URL('../src/routes/admin/topics/+page.svelte', import.meta.url), 'utf8');
-const workspace = readFileSync(new URL('../src/lib/components/taxonomy-workspace/TaxonomyWorkspace.svelte', import.meta.url), 'utf8');
+const organizer = readFileSync(new URL('../src/lib/components/taxonomy-workspace/TaxonomyOrganizer.svelte', import.meta.url), 'utf8');
 const topicsAction = readFileSync(new URL('../src/routes/admin/topics/+page.server.js', import.meta.url), 'utf8');
 const taxonomyWrite = readFileSync(new URL('../src/lib/server/db/taxonomy-admin-write.ts', import.meta.url), 'utf8');
 const caseTopics = readFileSync(new URL('../src/lib/components/case-editor/CaseTopicsSection.svelte', import.meta.url), 'utf8');
 const caseAction = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 
-test('Topic creation supports active System or Topic parents while System creation remains top-level', () => {
-  assert.match(workspace, /bind:value=\{createKind\}/);
-  assert.match(workspace, /<label>Parent/);
-  assert.match(workspace, /<option value="">Unassigned<\/option>/);
-  assert.match(workspace, /parent\.kind === 'system' \? 'System' : 'Topic'/);
-  assert.match(workspace, /\+ Add Topic/);
-  assert.match(workspace, /\+ Add subtopic/);
+test('Topic creation supports searchable active System or Topic parents while System creation remains top-level', () => {
+  assert.match(organizer, /bind:value=\{createKind\}/);
+  assert.match(organizer, /SearchableTaxonomyPicker bind:value=\{createParentId\}/);
+  assert.match(organizer, /emptyLabel="Unassigned"/);
+  assert.match(organizer, /item\.kind === 'system' \? 'System' : 'Topic'/);
+  assert.match(organizer, /\+ Add Topic/);
+  assert.match(organizer, /\+ Add subtopic/);
 });
 
-test('Systems and Topics route delegates the visual taxonomy to one workspace instead of rendering a second hierarchy manager', () => {
-  assert.match(topicsPage, /TaxonomyWorkspace/);
+test('Systems and Topics route delegates the visual taxonomy to one organizer instead of rendering a second hierarchy manager', () => {
+  assert.match(topicsPage, /TaxonomyOrganizer/);
   assert.doesNotMatch(topicsPage, /Hierarchy manager/);
   assert.doesNotMatch(topicsPage, /Additional Study Topic/);
 });
