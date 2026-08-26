@@ -9,11 +9,17 @@
   /** @typedef {{ id: string, name: string, isActive: boolean }} CaseTag */
   /** @typedef {{ id: string, name: string }} TagOption */
   /** @typedef {{ case: { id: string }, topics: CaseTopic[], caseTags?: CaseTag[] }} TopicsCase */
-  /** @typedef {{ selectedCase: TopicsCase, concepts: ConceptOption[], tagOptions?: TagOption[], primaryTopic?: CaseTopic | null, previewMode: boolean, editorLayout: CaseEditorLayout }} TopicsProps */
-  let { selectedCase, concepts, tagOptions = [], primaryTopic, previewMode, editorLayout } = $props();
+  /** @typedef {{ id: string, name: string }} SystemOption */
+  /** @typedef {{ selectedCase: TopicsCase, concepts: ConceptOption[], systems?: SystemOption[], tagOptions?: TagOption[], primaryTopic?: CaseTopic | null, previewMode: boolean, editorLayout: CaseEditorLayout }} TopicsProps */
+  let { selectedCase, concepts, systems = [], tagOptions = [], primaryTopic, previewMode, editorLayout } = $props();
   /** @type {TagOption[]} */
   let loadedTagOptions = $state([]);
   let effectiveTagOptions = $derived(tagOptions.length ? tagOptions : loadedTagOptions);
+  /** @param {CaseTopic | undefined | null} topic */
+  function systemIdFromTopic(topic) {
+    return topic?.breadcrumb?.find((/** @param {BreadcrumbItem} item */ item) => item.kind === 'system')?.id ?? '';
+  }
+  let currentSystemId = $derived(systemIdFromTopic(primaryTopic));
 
   onMount(async () => {
     if (previewMode || tagOptions.length) return;
@@ -56,7 +62,7 @@
   </div>
 
   <div class="taxonomy-context">
-    <div class="taxonomy-copy">
+    <div class="taxonomy-heading">
       <strong>Canonical hierarchy</strong>
       {#if primaryTopic}
         {#if previewMode}
@@ -67,9 +73,20 @@
       {:else}
         <span class="form-error inline-error">No primary Topic is attached.</span>
       {/if}
-      <small class="compact-hide-explainer">System/parent placement is global taxonomy and is managed outside this Case.</small>
     </div>
     {#if !previewMode}<a class="taxonomy-manage" href="/admin/topics">Manage Systems &amp; Topics</a>{/if}
+    <div class="taxonomy-placement">
+      {#if !previewMode && primaryTopic}
+        <form method="POST" action="?/assignPrimaryTopicToSystem" class="system-placement-form">
+          <input type="hidden" name="case_id" value={selectedCase.case.id} />
+          <input type="hidden" name="topic_id" value={primaryTopic.id} />
+          <label>Parent System<select name="system_id" required><option value="" disabled selected={currentSystemId === ''}>Select a System</option>{#each systems as system}<option value={system.id} selected={system.id === currentSystemId}>{system.name}</option>{/each}</select></label>
+          <button class="button" type="submit">Save</button>
+        </form>
+      {:else}
+        <small class="compact-hide-explainer">System/parent placement is global taxonomy and is managed outside this Case.</small>
+      {/if}
+    </div>
   </div>
 
   <div class="classification-grid">
@@ -179,9 +196,10 @@
   .stack { display: grid; gap: 0.75rem; }
   .panel { margin-top: 1rem; padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; }
 
-  .taxonomy-context { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.72rem 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
-  .taxonomy-copy { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: baseline; gap: 0.18rem 0.65rem; min-width: 0; }
-  .taxonomy-copy small { grid-column: 1 / -1; color: #667085; }
+  .taxonomy-context { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 0.65rem 1rem; padding: 0.72rem 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; }
+  .taxonomy-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.18rem 0.65rem; min-width: 0; }
+  .taxonomy-placement { grid-column: 1 / -1; min-width: 0; }
+  .system-placement-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.55rem; }
   .breadcrumb { min-width: 0; overflow-wrap: anywhere; color: #344054; font-weight: 650; }
   a.breadcrumb { text-decoration-thickness: 1px; text-underline-offset: 2px; }
   .taxonomy-manage, .manage-tags, .secondary-heading a, .inline-action { color: #344054; font-size: 0.84rem; font-weight: 500; white-space: nowrap; }
@@ -230,13 +248,12 @@
   }
 
   @media (max-width: 720px) {
-    .taxonomy-context { align-items: flex-start; flex-direction: column; }
-    .taxonomy-copy { grid-template-columns: 1fr; }
-    .taxonomy-copy small { grid-column: auto; }
+    .taxonomy-context { align-items: flex-start; }
     .taxonomy-manage { white-space: normal; }
   }
 
   @media (max-width: 560px) {
+    .system-placement-form { grid-template-columns: 1fr; }
     .form-row { grid-template-columns: 1fr; }
     .button { width: 100%; }
     .card-heading, .secondary-heading { align-items: flex-start; flex-direction: column; }

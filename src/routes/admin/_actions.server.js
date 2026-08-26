@@ -4,6 +4,7 @@ import { assets } from '$lib/server/db/schema.js';
 import {
   AdminContentInputError,
   addCaseSecondaryTopic,
+  bulkPromoteCaseTopics,
   createCase,
   createConcept,
   promoteCaseTopic,
@@ -30,6 +31,7 @@ import {
   moveCaseQuestion,
   moveCaseQuestionToStimulusOption,
   removeCaseQuestion,
+  restoreCaseQuestion,
   saveCaseQuestion
 } from '$lib/server/db/case-questions.js';
 import {
@@ -208,6 +210,23 @@ export const actions = {
     redirect(303, selectedCaseRedirect(caseId, 'topic-promoted', '#topics'));
   },
 
+  bulkPromoteTopic: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseIds = formData.getAll('case_ids').filter((value) => typeof value === 'string').map((value) => value.trim()).filter(Boolean);
+    const returnQuery = formText(formData, 'return_query');
+    try {
+      await bulkPromoteCaseTopics(createDb(platform.env.DB), {
+        caseIds,
+        conceptId: formText(formData, 'concept_id')
+      });
+    } catch (error) {
+      return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error) });
+    }
+    redirect(303, `/admin/cases?${returnQuery ? `${returnQuery}&` : ''}status=bulk-topic-updated`);
+  },
+
   vignette: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
@@ -247,12 +266,27 @@ export const actions = {
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData();
     const caseId = formText(formData, 'case_id');
+    const promptId = formText(formData, 'prompt_id');
     try {
-      await removeCaseQuestion(createDb(platform.env.DB), caseId, formText(formData, 'prompt_id'));
+      await removeCaseQuestion(createDb(platform.env.DB), caseId, promptId);
     } catch (error) {
       return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'question-removed'));
+    redirect(303, `${selectedCaseRedirect(caseId, 'question-removed')}&removed_question=${encodeURIComponent(promptId)}#questions`);
+  },
+
+  restoreQuestion: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    const caseId = formText(formData, 'case_id');
+    const promptId = formText(formData, 'prompt_id');
+    try {
+      await restoreCaseQuestion(createDb(platform.env.DB), caseId, promptId);
+    } catch (error) {
+      return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
+    }
+    redirect(303, `${selectedCaseRedirect(caseId, 'question-restored')}#question-${encodeURIComponent(promptId)}`);
   },
 
   reorderQuestion: async ({ request, locals, platform }) => {

@@ -386,6 +386,9 @@ export async function loadPreviewCaseEditor(db, previewSessionId, caseId, option
       imageUrl: asset.isActive ? getTeachingImageUrl(asset.assetId) : null
     })),
     concepts: allConcepts,
+    systems: [],
+    status: null,
+    removedQuestionPromptId: null,
     selectedConceptId: primaryTopic?.id ?? null,
     cases: ownCases,
     questionCount: questionRows.length,
@@ -512,8 +515,22 @@ export async function removePreviewCaseQuestion(db, previewSessionId, caseId, pr
       .limit(1)
   )[0];
   if (!row) throw new PreviewWorkspaceError('That Preview Case question no longer exists.', 'INVALID_INPUT');
-  await db.delete(caseQuestionTags).where(eq(caseQuestionTags.caseQuestionId, row.id));
-  await db.delete(caseQuestions).where(eq(caseQuestions.id, row.id));
+  await db.update(caseQuestions).set({ isActive: false, updatedAt: new Date() }).where(eq(caseQuestions.id, row.id));
+}
+
+/** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {string} promptId */
+export async function restorePreviewCaseQuestion(db, previewSessionId, caseId, promptId) {
+  await requireOwnedPreviewCase(db, previewSessionId, caseId);
+  await requireOwnedPreviewPrompt(db, previewSessionId, promptId);
+  const row = (
+    await db
+      .select({ id: caseQuestions.id })
+      .from(caseQuestions)
+      .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.questionPromptId, promptId), eq(caseQuestions.isActive, false)))
+      .limit(1)
+  )[0];
+  if (!row) throw new PreviewWorkspaceError('That removed Preview Case question is no longer available to restore.', 'INVALID_INPUT');
+  await db.update(caseQuestions).set({ isActive: true, updatedAt: new Date() }).where(eq(caseQuestions.id, row.id));
 }
 
 /** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {string} promptId @param {'up'|'down'} direction */

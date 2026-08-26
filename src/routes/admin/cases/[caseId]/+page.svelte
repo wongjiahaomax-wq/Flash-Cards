@@ -52,10 +52,10 @@
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   <div class="case-editor" data-editor-layout={editorLayout}>
     <CaseEditorNavigation {selectedCase} {primaryTopic} {editorLayout} {fastReviewSummary} auditCount={caseQuestionAudit.length} onlayoutchange={setEditorLayout} />
-    <CaseTopicsSection {selectedCase} concepts={data.concepts} {primaryTopic} previewMode={data.previewMode} {editorLayout} />
+    <CaseTopicsSection {selectedCase} concepts={data.concepts} systems={data.systems} {primaryTopic} previewMode={data.previewMode} {editorLayout} />
     <CaseDetailsSection {selectedCase} {primaryTopic} {editorLayout} />
     <CaseImagesSection {selectedCase} previewMode={data.previewMode} {editorLayout} {editorBase} onimageopen={showImage} />
-    <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} {editorLayout} />
+    <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} status={data.status} removedQuestionPromptId={data.removedQuestionPromptId} {editorLayout} />
     {#if editorLayout === 'compact'}<CaseQuestionAudit rows={caseQuestionAudit} onimageopen={showImage} />{/if}
     <CasePreviewSection previewMode={data.previewMode} />
   </div>

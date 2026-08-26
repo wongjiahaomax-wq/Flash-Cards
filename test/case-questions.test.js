@@ -9,6 +9,7 @@ import {
   moveCaseQuestion,
   moveCaseQuestionToStimulusOption,
   removeCaseQuestion,
+  restoreCaseQuestion,
   saveCaseQuestion
 } from '../src/lib/server/db/case-questions.js';
 import {
@@ -124,6 +125,10 @@ test('Case questions can be added, edited, reused for the topic, reordered, and 
       firstPromptId,
       secondPromptId
     ]);
+
+    await restoreCaseQuestion(fixture.db, caseId, thirdPromptId);
+    const restored = await listCaseQuestions(fixture.db, caseId);
+    assert.equal(restored.find((question) => question.questionPromptId === thirdPromptId)?.answerMd, 'Hypomagnesemia; alkalosis; vitamin D deficiency');
   } finally {
     fixture.sqlite.close();
   }
