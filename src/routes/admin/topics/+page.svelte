@@ -39,6 +39,8 @@
   items={data.hierarchyOptions}
   initialSearch={data.filters.search}
   initialSelectedId={data.selectedId}
+  availableTags={data.tagOptions}
+  caseTagAssignments={data.caseTagAssignments}
 />
 
 <style>

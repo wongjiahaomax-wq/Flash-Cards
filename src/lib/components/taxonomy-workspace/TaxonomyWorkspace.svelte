@@ -3,6 +3,12 @@
   import TaxonomyChangeTray from './TaxonomyChangeTray.svelte';
   import TaxonomyInspector from './TaxonomyInspector.svelte';
   import {
+    stageCaseTagChanges,
+    type CaseTagAssignment,
+    type CaseTagOption,
+    type StagedCaseTagChange
+  } from './case-tag-workspace-model.ts';
+  import {
     activeSystemOptions,
     activeTaxonomyParents,
     buildTaxonomyWorkspaceRows,
@@ -22,11 +28,15 @@
   let {
     items,
     initialSearch = '',
-    initialSelectedId = ''
+    initialSelectedId = '',
+    availableTags = [],
+    caseTagAssignments = []
   }: {
     items: TaxonomyWorkspaceItem[];
     initialSearch?: string;
     initialSelectedId?: string;
+    availableTags?: CaseTagOption[];
+    caseTagAssignments?: CaseTagAssignment[];
   } = $props();
 
   let query = $state('');
@@ -43,6 +53,7 @@
   let organizeMode = $state(false);
   let stagedMoves = $state<StagedTopicMove[]>([]);
   let stagedCaseChanges = $state<StagedCasePrimaryTopicChange[]>([]);
+  let stagedCaseTagChanges = $state<StagedCaseTagChange[]>([]);
   let draggedTopicId = $state('');
   let moveTopicId = $state('');
   let moveParentId = $state('');
@@ -73,7 +84,8 @@
     : 0);
   const moveTopic = $derived(projectedItems.find((item) => item.id === moveTopicId && item.kind === 'topic') ?? null);
   const moveTargetOptions = $derived(moveTopicId ? topicMoveTargets(projectedItems, moveTopicId) : []);
-  const stagedChangeCount = $derived(stagedMoves.length + stagedCaseChanges.length);
+  const stagedChangeCount = $derived(stagedMoves.length + stagedCaseChanges.length + stagedCaseTagChanges.length);
+  const hasCaseClassificationBatch = $derived(stagedCaseChanges.length > 0 || stagedCaseTagChanges.length > 0);
 
   const filters: { id: WorkspaceFilter; label: string }[] = [
     { id: 'all', label: 'All' },
@@ -179,6 +191,7 @@
   function discardAllChanges() {
     stagedMoves = [];
     stagedCaseChanges = [];
+    stagedCaseTagChanges = [];
     moveTopicId = '';
     draggedTopicId = '';
     caseStageError = '';
@@ -193,26 +206,35 @@
     caseStageError = '';
   }
 
+  function undoTagChange(caseId: string, tagId: string) {
+    stagedCaseTagChanges = stagedCaseTagChanges.filter((change) => change.caseId !== caseId || change.tagId !== tagId);
+    caseStageError = '';
+  }
+
   function isMoveStaged(topicId: string) {
     return stagedMoves.some((move) => move.id === topicId);
   }
 
-  function isCaseChangeStaged(caseId: string) {
+  function isCasePrimaryChangeStaged(caseId: string) {
     return stagedCaseChanges.some((change) => change.caseId === caseId);
   }
 
+  function isCaseTagChangeStaged(caseId: string) {
+    return stagedCaseTagChanges.some((change) => change.caseId === caseId);
+  }
+
   function canMoveTopic(topicId: string, parentId: string | null) {
-    return stagedCaseChanges.length === 0 && canStageTopicMove(items, stagedMoves, topicId, parentId);
+    return !hasCaseClassificationBatch && canStageTopicMove(items, stagedMoves, topicId, parentId);
   }
 
   function openMove(topic: TaxonomyWorkspaceItem) {
-    if (!organizeMode || topic.kind !== 'topic' || stagedCaseChanges.length) return;
+    if (!organizeMode || topic.kind !== 'topic' || hasCaseClassificationBatch) return;
     moveTopicId = topic.id;
     moveParentId = topic.parentId ?? '';
   }
 
   function stageSelectedMove() {
-    if (!moveTopic || stagedCaseChanges.length) return;
+    if (!moveTopic || hasCaseClassificationBatch) return;
     stagedMoves = stageTopicMove(items, stagedMoves, moveTopic.id, moveParentId || null);
     selectedId = moveTopic.id;
     selectedCaseIds = [];
@@ -220,7 +242,7 @@
   }
 
   function beginDrag(event: DragEvent, topicId: string) {
-    if (!organizeMode || stagedCaseChanges.length) return;
+    if (!organizeMode || hasCaseClassificationBatch) return;
     draggedTopicId = topicId;
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move';
@@ -254,8 +276,10 @@
   }
 
   function stageCasePrimaryTopic(caseIds: string[], topicId: string) {
-    if (stagedMoves.length) {
-      caseStageError = 'Apply or discard the staged hierarchy batch before staging Case Primary Topic changes.';
+    if (stagedMoves.length || stagedCaseTagChanges.length) {
+      caseStageError = stagedMoves.length
+        ? 'Apply or discard the staged hierarchy batch before staging Case Primary Topic changes.'
+        : 'Apply or discard the staged Case Tag batch before staging Case Primary Topic changes.';
       return;
     }
     try {
@@ -267,6 +291,27 @@
       if (focusSystemId && target?.systemId !== focusSystemId) focusSystemId = '';
     } catch (error) {
       caseStageError = error instanceof Error ? error.message : 'Unable to stage the Primary Topic change.';
+    }
+  }
+
+  function stageCaseTags(caseIds: string[], tagId: string, operation: 'add' | 'remove') {
+    if (stagedMoves.length || stagedCaseChanges.length) {
+      caseStageError = stagedMoves.length
+        ? 'Apply or discard the staged hierarchy batch before staging Case Tag changes.'
+        : 'Apply or discard the staged Primary Topic batch before staging Case Tag changes.';
+      return;
+    }
+    const tag = availableTags.find((option) => option.id === tagId);
+    if (!tag) {
+      caseStageError = 'Choose an active Tag.';
+      return;
+    }
+    const selected = workspaceCases.filter((caseItem) => caseIds.includes(caseItem.id));
+    try {
+      stagedCaseTagChanges = stageCaseTagChanges(caseTagAssignments, stagedCaseTagChanges, selected, tag, operation);
+      caseStageError = '';
+    } catch (error) {
+      caseStageError = error instanceof Error ? error.message : 'Unable to stage the Case Tag change.';
     }
   }
 </script>
@@ -320,11 +365,11 @@
       <div>
         <p class="eyebrow">Organize mode</p>
         <strong>Taxonomy and Case changes are staged before persistence.</strong>
-        <p>Move Topics, or reveal and select Cases to change their Primary Topic. This milestone keeps hierarchy and Case batches separate so each apply has clear write semantics.</p>
+        <p>Move Topics, or reveal and select Cases to change their Primary Topic or Case Tags. This milestone keeps each mutation domain separate so every apply has explicit write semantics.</p>
       </div>
       <div
         class:drop-allowed={Boolean(draggedTopicId && canMoveTopic(draggedTopicId, null))}
-        class:drop-disabled={stagedCaseChanges.length > 0}
+        class:drop-disabled={hasCaseClassificationBatch}
         class="unassigned-drop"
         role="group"
         aria-label="Move Topic to Unassigned"
@@ -407,7 +452,7 @@
         <div>
           <p class="eyebrow">Taxonomy workspace</p>
           <h2 id="taxonomy-tree-heading">Systems &amp; nested Topics</h2>
-          <p class="muted">{organizeMode ? 'Reveal Cases to select one or several for a staged Primary Topic reassignment.' : "Browse safely here. Cases stay hidden until you reveal a Topic's direct Cases."}</p>
+          <p class="muted">{organizeMode ? 'Reveal Cases to select one or several for staged Primary Topic or Case Tag changes.' : "Browse safely here. Cases stay hidden until you reveal a Topic's direct Cases."}</p>
         </div>
         <span class="result-count">{rows.length} visible{#if selectedCaseIds.length} · {selectedCaseIds.length} selected Cases{/if}{#if stagedChangeCount} · {stagedChangeCount} staged{/if}</span>
       </div>
@@ -437,10 +482,10 @@
                     <button
                       class="drag-handle"
                       type="button"
-                      draggable={stagedCaseChanges.length === 0}
-                      disabled={stagedCaseChanges.length > 0}
+                      draggable={!hasCaseClassificationBatch}
+                      disabled={hasCaseClassificationBatch}
                       aria-label={`Drag ${row.name} to move Topic`}
-                      title={stagedCaseChanges.length ? 'Apply or discard the Case batch before staging Topic moves.' : 'Drag to stage a Topic move'}
+                      title={hasCaseClassificationBatch ? 'Apply or discard the Case classification batch before staging Topic moves.' : 'Drag to stage a Topic move'}
                       ondragstart={(event) => beginDrag(event, row.id)}
                       ondragend={endDrag}
                     >⋮⋮</button>
@@ -483,8 +528,8 @@
                     <button
                       class="text-action"
                       type="button"
-                      disabled={stagedCaseChanges.length > 0}
-                      title={stagedCaseChanges.length ? 'Apply or discard the Case batch before staging Topic moves.' : undefined}
+                      disabled={hasCaseClassificationBatch}
+                      title={hasCaseClassificationBatch ? 'Apply or discard the Case classification batch before staging Topic moves.' : undefined}
                       onclick={() => openMove(row)}
                     >Move to…</button>
                   {:else if row.isActive}
@@ -514,7 +559,11 @@
                     {/if}
                     {#each row.directCases as caseItem (caseItem.id)}
                       {#if organizeMode}
-                        <div class:selected-case={selectedCaseIds.includes(caseItem.id)} class:staged-case={isCaseChangeStaged(caseItem.id)} class="case-row organize-case-row">
+                        <div
+                          class:selected-case={selectedCaseIds.includes(caseItem.id)}
+                          class:staged-case={isCasePrimaryChangeStaged(caseItem.id) || isCaseTagChangeStaged(caseItem.id)}
+                          class="case-row organize-case-row"
+                        >
                           <input
                             class="case-checkbox"
                             type="checkbox"
@@ -524,7 +573,13 @@
                           />
                           <button class="case-select" type="button" onclick={() => selectOnlyCase(caseItem.id)}>
                             <span class="case-title">{caseItem.title}</span>
-                            <span class="case-meta">{isCaseChangeStaged(caseItem.id) ? 'Primary Topic change staged' : 'Primary Topic: ' + row.breadcrumbLabel}</span>
+                            <span class="case-meta">
+                              {isCasePrimaryChangeStaged(caseItem.id)
+                                ? 'Primary Topic change staged'
+                                : isCaseTagChangeStaged(caseItem.id)
+                                  ? 'Case Tag change staged'
+                                  : 'Primary Topic: ' + row.breadcrumbLabel}
+                            </span>
                           </button>
                           <a class="case-open" href={'/admin/cases/' + caseItem.id}>Open Case</a>
                         </div>
@@ -550,8 +605,21 @@
       <CaseTaxonomyInspector
         {selectedCases}
         items={projectedItems}
-        stagingBlockedReason={stagedMoves.length ? 'Apply or discard the staged hierarchy batch before staging Case Primary Topic changes.' : ''}
+        {availableTags}
+        {caseTagAssignments}
+        stagedTagChanges={stagedCaseTagChanges}
+        primaryStagingBlockedReason={stagedMoves.length
+          ? 'Apply or discard the staged hierarchy batch before staging Case Primary Topic changes.'
+          : stagedCaseTagChanges.length
+            ? 'Apply or discard the staged Case Tag batch before staging Case Primary Topic changes.'
+            : ''}
+        tagStagingBlockedReason={stagedMoves.length
+          ? 'Apply or discard the staged hierarchy batch before staging Case Tag changes.'
+          : stagedCaseChanges.length
+            ? 'Apply or discard the staged Primary Topic batch before staging Case Tag changes.'
+            : ''}
         onStage={stageCasePrimaryTopic}
+        onStageTags={stageCaseTags}
         onClear={clearCaseSelection}
       />
     {:else}
@@ -575,10 +643,12 @@
     <TaxonomyChangeTray
       moves={stagedMoves}
       caseChanges={stagedCaseChanges}
+      tagChanges={stagedCaseTagChanges}
       items={projectedItems}
       onDiscardAll={discardAllChanges}
       onUndoMove={undoMove}
       onUndoCaseChange={undoCaseChange}
+      onUndoTagChange={undoTagChange}
     />
   {/if}
 </section>

@@ -1,5 +1,12 @@
 <script lang="ts">
   import {
+    projectedCaseTagIds,
+    projectedCaseTags,
+    type CaseTagAssignment,
+    type CaseTagOption,
+    type StagedCaseTagChange
+  } from './case-tag-workspace-model.ts';
+  import {
     casePrimaryTopicTargets,
     type TaxonomyWorkspaceItem,
     type WorkspaceCaseAssignment
@@ -8,23 +15,56 @@
   let {
     selectedCases,
     items,
-    stagingBlockedReason = '',
+    availableTags,
+    caseTagAssignments,
+    stagedTagChanges,
+    primaryStagingBlockedReason = '',
+    tagStagingBlockedReason = '',
     onStage,
+    onStageTags,
     onClear
   }: {
     selectedCases: WorkspaceCaseAssignment[];
     items: TaxonomyWorkspaceItem[];
-    stagingBlockedReason?: string;
+    availableTags: CaseTagOption[];
+    caseTagAssignments: CaseTagAssignment[];
+    stagedTagChanges: StagedCaseTagChange[];
+    primaryStagingBlockedReason?: string;
+    tagStagingBlockedReason?: string;
     onStage: (caseIds: string[], topicId: string) => void;
+    onStageTags: (caseIds: string[], tagId: string, operation: 'add' | 'remove') => void;
     onClear: () => void;
   } = $props();
 
   let targetTopicId = $state('');
+  let tagQuery = $state('');
+  let selectedTagId = $state('');
+
   const topicById = $derived(new Map(items.filter((item) => item.kind === 'topic').map((item) => [item.id, item])));
   const targetOptions = $derived(casePrimaryTopicTargets(items));
   const originalTopicIds = $derived([...new Set(selectedCases.map((caseItem) => caseItem.originalTopicId))]);
   const projectedTopicIds = $derived([...new Set(selectedCases.map((caseItem) => caseItem.topicId))]);
-  const stagedCount = $derived(selectedCases.filter((caseItem) => caseItem.staged).length);
+  const primaryStagedCount = $derived(selectedCases.filter((caseItem) => caseItem.staged).length);
+  const selectedCaseIdSet = $derived(new Set(selectedCases.map((caseItem) => caseItem.id)));
+  const tagStagedCount = $derived(stagedTagChanges.filter((change) => selectedCaseIdSet.has(change.caseId)).length);
+  const filteredTags = $derived(availableTags.filter((tag) => tag.name.toLocaleLowerCase().includes(tagQuery.trim().toLocaleLowerCase())));
+  const singleCaseTags = $derived(selectedCases.length === 1
+    ? projectedCaseTags(caseTagAssignments, stagedTagChanges, selectedCases[0].id, availableTags)
+    : []);
+  const projectedTagIdsByCase = $derived(new Map(selectedCases.map((caseItem) => [
+    caseItem.id,
+    projectedCaseTagIds(caseTagAssignments, stagedTagChanges, caseItem.id)
+  ])));
+  const sharedTags = $derived(selectedCases.length > 1
+    ? availableTags.filter((tag) => selectedCases.every((caseItem) => projectedTagIdsByCase.get(caseItem.id)?.has(tag.id)))
+    : []);
+  const anyTags = $derived(selectedCases.length > 1
+    ? availableTags.filter((tag) => selectedCases.some((caseItem) => projectedTagIdsByCase.get(caseItem.id)?.has(tag.id)))
+    : []);
+  const selectedTag = $derived(availableTags.find((tag) => tag.id === selectedTagId) ?? null);
+  const selectedTagAttachedCount = $derived(selectedTag
+    ? selectedCases.filter((caseItem) => projectedTagIdsByCase.get(caseItem.id)?.has(selectedTag.id)).length
+    : 0);
 
   function topicLabel(topicIds: string[]) {
     if (topicIds.length !== 1) return 'Multiple Topics';
@@ -32,8 +72,13 @@
   }
 
   function stageSelection() {
-    if (!targetTopicId || stagingBlockedReason) return;
+    if (!targetTopicId || primaryStagingBlockedReason) return;
     onStage(selectedCases.map((caseItem) => caseItem.id), targetTopicId);
+  }
+
+  function stageTags(operation: 'add' | 'remove', tagId = selectedTagId) {
+    if (!tagId || tagStagingBlockedReason) return;
+    onStageTags(selectedCases.map((caseItem) => caseItem.id), tagId, operation);
   }
 </script>
 
@@ -48,7 +93,8 @@
       {/if}
       <div class="identity-row">
         <span class="kind-badge">Case</span>
-        {#if stagedCount}<span class="staged-badge">{stagedCount} staged</span>{/if}
+        {#if primaryStagedCount}<span class="staged-badge">{primaryStagedCount} Topic staged</span>{/if}
+        {#if tagStagedCount}<span class="staged-badge">{tagStagedCount} Tag staged</span>{/if}
       </div>
     </div>
     <button class="text-action" type="button" onclick={onClear}>Clear selection</button>
@@ -69,7 +115,7 @@
     </div>
   {/if}
 
-  <section class="reassign" aria-labelledby="primary-topic-reassign-heading">
+  <section class="classification-section" aria-labelledby="primary-topic-reassign-heading">
     <div>
       <p class="eyebrow">Stage classification change</p>
       <h3 id="primary-topic-reassign-heading">Primary Topic</h3>
@@ -83,16 +129,85 @@
         {/each}
       </select>
     </label>
-    {#if stagingBlockedReason}
-      <p class="blocked" role="status">{stagingBlockedReason}</p>
+    {#if primaryStagingBlockedReason}
+      <p class="blocked" role="status">{primaryStagingBlockedReason}</p>
     {/if}
     <button
       class="button primary"
       type="button"
-      disabled={!targetTopicId || Boolean(stagingBlockedReason) || selectedCases.length > 60}
+      disabled={!targetTopicId || Boolean(primaryStagingBlockedReason) || selectedCases.length > 60}
       onclick={stageSelection}
     >Stage Primary Topic change</button>
-    <p class="muted small">Case Tags are unchanged by this operation and remain a separate classification dimension.</p>
+  </section>
+
+  <section class="classification-section tags-section" aria-labelledby="case-tags-heading">
+    <div>
+      <p class="eyebrow">Flat classification</p>
+      <h3 id="case-tags-heading">Case Tags</h3>
+      <p>Tags stay separate from the System/Topic tree. Add or remove a Tag for one Case or up to 60 selected Cases.</p>
+    </div>
+
+    {#if selectedCases.length === 1}
+      <div class="tag-summary" aria-label="Projected Case Tags">
+        <strong>Projected Tags</strong>
+        {#if singleCaseTags.length}
+          <div class="tag-chips">
+            {#each singleCaseTags as tag (tag.id)}
+              <span class="tag-chip">
+                {tag.name}
+                <button
+                  type="button"
+                  aria-label={`Stage removal of ${tag.name}`}
+                  disabled={Boolean(tagStagingBlockedReason)}
+                  onclick={() => stageTags('remove', tag.id)}
+                >×</button>
+              </span>
+            {/each}
+          </div>
+        {:else}
+          <span class="muted small">No projected Case Tags.</span>
+        {/if}
+      </div>
+    {:else}
+      <div class="bulk-tag-summary">
+        <div><strong>On every selected Case</strong><span>{sharedTags.length ? sharedTags.map((tag) => tag.name).join(', ') : 'None'}</span></div>
+        <div><strong>On at least one selected Case</strong><span>{anyTags.length ? anyTags.map((tag) => tag.name).join(', ') : 'None'}</span></div>
+      </div>
+    {/if}
+
+    <label>Search existing Tags
+      <input bind:value={tagQuery} placeholder="e.g. Anticoagulation" />
+    </label>
+    <label>Tag
+      <select bind:value={selectedTagId}>
+        <option value="">Choose Tag…</option>
+        {#each filteredTags as tag}
+          <option value={tag.id}>{tag.name}</option>
+        {/each}
+      </select>
+    </label>
+
+    {#if selectedTag}
+      <p class="muted small">{selectedTagAttachedCount} of {selectedCases.length} selected {selectedCases.length === 1 ? 'Case has' : 'Cases have'} this Tag in the staged view.</p>
+    {/if}
+    {#if tagStagingBlockedReason}
+      <p class="blocked" role="status">{tagStagingBlockedReason}</p>
+    {/if}
+    <div class="tag-actions">
+      <button
+        class="button primary"
+        type="button"
+        disabled={!selectedTag || Boolean(tagStagingBlockedReason) || selectedCases.length > 60 || selectedTagAttachedCount === selectedCases.length}
+        onclick={() => stageTags('add')}
+      >Stage add</button>
+      <button
+        class="button"
+        type="button"
+        disabled={!selectedTag || Boolean(tagStagingBlockedReason) || selectedCases.length > 60 || selectedTagAttachedCount === 0}
+        onclick={() => stageTags('remove')}
+      >Stage remove</button>
+    </div>
+    <p class="muted small">Creating new Tags and System↔Tag exposure remain in their existing Admin workflows.</p>
   </section>
 
   {#if selectedCases.length === 1}
@@ -116,15 +231,23 @@
   .metrics dd { margin: 0; color: #172033; font-weight: 700; line-height: 1.4; overflow-wrap: anywhere; }
   .selection-list { display: grid; gap: .28rem; max-height: 12rem; padding: .65rem; border: 1px solid #eaecf0; border-radius: 8px; overflow: auto; font-size: .86rem; }
   .selection-list span { overflow-wrap: anywhere; }
-  .reassign { display: grid; gap: .65rem; padding: .8rem; border: 1px solid #b2ccff; border-radius: 9px; background: #f8faff; }
-  .reassign p { margin-bottom: 0; color: #667085; line-height: 1.45; }
-  .reassign label { display: grid; gap: .3rem; color: #344054; font-weight: 650; }
-  select { box-sizing: border-box; width: 100%; padding: .62rem .68rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; }
+  .classification-section { display: grid; gap: .65rem; padding: .8rem; border: 1px solid #b2ccff; border-radius: 9px; background: #f8faff; }
+  .tags-section { border-color: #d0d5dd; background: #fcfcfd; }
+  .classification-section p { margin-bottom: 0; color: #667085; line-height: 1.45; }
+  .classification-section label { display: grid; gap: .3rem; color: #344054; font-weight: 650; }
+  input,select { box-sizing: border-box; width: 100%; padding: .62rem .68rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; }
   .blocked { padding: .55rem .65rem; border: 1px solid #fedf89; border-radius: 7px; background: #fffaeb; color: #93370d !important; }
   .button { display: inline-block; width: max-content; max-width: 100%; box-sizing: border-box; padding: .62rem .82rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; font-weight: 650; }
   .button.primary { border-color: #172033; background: #172033; color: #fff; }
-  .button:disabled { cursor: not-allowed; opacity: .5; }
+  .button:disabled,.tag-chip button:disabled { cursor: not-allowed; opacity: .5; }
   .text-action { padding: .2rem .3rem; border: 0; background: transparent; color: #475467; cursor: pointer; font: inherit; font-size: .8rem; font-weight: 650; text-decoration: underline; text-underline-offset: 3px; }
+  .tag-summary,.bulk-tag-summary { display: grid; gap: .4rem; }
+  .tag-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+  .tag-chip { display: inline-flex; align-items: center; gap: .28rem; padding: .28rem .42rem; border: 1px solid #d0d5dd; border-radius: 999px; background: #fff; color: #344054; font-size: .8rem; font-weight: 650; }
+  .tag-chip button { display: grid; place-items: center; width: 1.15rem; height: 1.15rem; padding: 0; border: 0; border-radius: 999px; background: #f2f4f7; color: #475467; cursor: pointer; font: inherit; }
+  .bulk-tag-summary > div { display: grid; gap: .15rem; padding-bottom: .35rem; border-bottom: 1px solid #eaecf0; }
+  .bulk-tag-summary span { color: #667085; font-size: .82rem; line-height: 1.4; overflow-wrap: anywhere; }
+  .tag-actions { display: flex; flex-wrap: wrap; gap: .45rem; }
   .muted { color: #667085; }
   .small { font-size: .8rem; }
   @media (max-width: 920px) { .inspector { position: static; } }

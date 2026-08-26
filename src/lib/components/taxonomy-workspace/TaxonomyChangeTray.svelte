@@ -1,5 +1,6 @@
 <script lang="ts">
   import { enhance } from '$app/forms';
+  import type { StagedCaseTagChange } from './case-tag-workspace-model.ts';
   import type {
     StagedCasePrimaryTopicChange,
     StagedTopicMove,
@@ -9,21 +10,25 @@
   let {
     moves,
     caseChanges,
+    tagChanges,
     items,
     onDiscardAll,
     onUndoMove,
-    onUndoCaseChange
+    onUndoCaseChange,
+    onUndoTagChange
   }: {
     moves: StagedTopicMove[];
     caseChanges: StagedCasePrimaryTopicChange[];
+    tagChanges: StagedCaseTagChange[];
     items: TaxonomyWorkspaceItem[];
     onDiscardAll: () => void;
     onUndoMove: (topicId: string) => void;
     onUndoCaseChange: (caseId: string) => void;
+    onUndoTagChange: (caseId: string, tagId: string) => void;
   } = $props();
 
   const byId = $derived(new Map(items.map((item) => [item.id, item])));
-  const totalChanges = $derived(moves.length + caseChanges.length);
+  const totalChanges = $derived(moves.length + caseChanges.length + tagChanges.length);
 
   function parentLabel(parentId: string | null) {
     if (!parentId) return 'Unassigned';
@@ -44,6 +49,13 @@
     caseId: change.caseId,
     conceptId: change.topicId,
     expectedConceptId: change.originalTopicId
+  }))));
+
+  const tagChangesJson = $derived(JSON.stringify(tagChanges.map((change) => ({
+    caseId: change.caseId,
+    tagId: change.tagId,
+    operation: change.operation,
+    expectedAttached: change.expectedAttached
   }))));
 </script>
 
@@ -107,7 +119,32 @@
     </section>
   {/if}
 
-  <p class="boundary-note">Hierarchy and Case classification are intentionally applied as separate validated batches in this milestone. The workspace prevents staging both domains at once; unified hierarchy + Primary Topic + Tag apply is a later milestone.</p>
+  {#if tagChanges.length}
+    <section class="change-section" aria-labelledby="case-tag-changes-heading">
+      <h3 id="case-tag-changes-heading">Case Tags · {tagChanges.length}</h3>
+      <ol class="change-list">
+        {#each tagChanges as change (`${change.caseId}:${change.tagId}`)}
+          <li>
+            <div class="change-copy">
+              <strong>{change.title}</strong>
+              <span>{change.operation === 'add' ? '+' : '−'} {change.tagName}</span>
+            </div>
+            <button class="text-action" type="button" onclick={() => onUndoTagChange(change.caseId, change.tagId)}>Undo</button>
+          </li>
+        {/each}
+      </ol>
+      <form method="POST" action="?/applyCaseTags" use:enhance class="apply-form">
+        <input type="hidden" name="tag_changes_json" value={tagChangesJson} />
+        <div class="apply-copy">
+          <strong>Validate Case Tag batch</strong>
+          <span>Each loaded Case/Tag membership is checked again before canonical Tag add/remove mutations run.</span>
+        </div>
+        <button class="button primary" type="submit">Validate &amp; apply Case Tags</button>
+      </form>
+    </section>
+  {/if}
+
+  <p class="boundary-note">Hierarchy, Primary Topic, and Case Tag changes are intentionally staged as separate mutation domains in this milestone. The workspace prevents mixing those domains in one pending batch. Unified cross-domain apply and stronger transaction semantics remain a later milestone.</p>
 </section>
 
 <style>
