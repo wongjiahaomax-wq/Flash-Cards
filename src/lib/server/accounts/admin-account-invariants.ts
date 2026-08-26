@@ -31,6 +31,14 @@ function lastAdminBlocked(): AccountManagementError {
   );
 }
 
+function previewAuthorityBlocked(): AccountManagementError {
+  return new AccountManagementError(
+    'PREVIEW_AUTHORITY_SEPARATE',
+    'Production Accounts cannot disable an identity that also has Preview Admin access.',
+    409
+  );
+}
+
 function hasLastAdminMarker(error: unknown): boolean {
   if (error instanceof Error && error.message.includes('LAST_ACTIVE_PRODUCTION_ADMIN')) return true;
   return String(error).includes('LAST_ACTIVE_PRODUCTION_ADMIN');
@@ -141,6 +149,11 @@ export async function demoteProductionAdministratorAtomically(options: {
  * active Administrator to exist. The following session DELETE is in the same
  * D1 batch, matching Better Auth's documented ban-user behavior while keeping
  * the last-Admin invariant race-safe.
+ *
+ * Identities carrying Preview Admin authority are deliberately excluded. The
+ * Preview and Production Workers share the same D1 user/session rows, so a
+ * Production-side ban would otherwise revoke Preview sessions and cross the
+ * retained Preview ownership boundary.
  */
 export async function disableManagedAccountAtomically(options: {
   db: D1Database;
@@ -154,6 +167,9 @@ export async function disableManagedAccountAtomically(options: {
   }
 
   const target = await loadSafetyRow(options.db, options.userId);
+  if (parseRoles(target.role).includes('preview_admin')) {
+    throw previewAuthorityBlocked();
+  }
   if (isDisabled(target.banned)) {
     return getAccount(options.auth, options.headers, target.id);
   }
@@ -201,6 +217,9 @@ export async function disableManagedAccountAtomically(options: {
     const [updateResult] = await options.db.batch([updateUser, revokeSessions]);
     if (!returnedExactlyOneRow(updateResult)) {
       const current = await loadSafetyRow(options.db, target.id);
+      if (parseRoles(current.role).includes('preview_admin')) {
+        throw previewAuthorityBlocked();
+      }
       if (isDisabled(current.banned)) {
         return getAccount(options.auth, options.headers, target.id);
       }
