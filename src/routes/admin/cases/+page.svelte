@@ -155,7 +155,7 @@
 </form>
 
 <section class="panel" aria-labelledby="case-list-heading">
-  <div class="panel-heading"><div><h2 id="case-list-heading">{inactiveView ? 'Inactive Cases' : 'Active Cases'} <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">{inactiveView ? 'Inactive Cases are preserved for recovery and are unavailable to learners.' : 'Tags are curation metadata; Topic remains the learner study route.'}</span></div>
+  <div class="panel-heading"><div><h2 id="case-list-heading">{inactiveView ? 'Inactive Cases' : 'Active Cases'} <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">{inactiveView ? 'Inactive Cases are preserved for recovery and are unavailable to learners.' : 'Tags are curation metadata; Topic remains the learner study route.'}</span></div>
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if data.status === 'bulk-topic-updated'}<p class="success-message" role="status">Primary Topic updated for the selected Cases.</p>{/if}
   {#if data.status === 'cases-deactivated'}<p class="success-message" role="status">Selected Cases deactivated. Their content and history were retained.</p>{/if}
