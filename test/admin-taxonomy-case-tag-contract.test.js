@@ -16,7 +16,8 @@ test('taxonomy organizer exposes staged single and bulk Case Tag editing without
   assert.match(organizer, /stageCaseTagChanges/);
   assert.match(organizer, /stagedCaseTagChanges/);
   assert.match(organizer, /Case Tag change staged/);
-  assert.doesNotMatch(organizer, /draggable=.*tag/i);
+  assert.doesNotMatch(organizer, /beginTagDrag|draggedTag|application\/x-flashcards-tag/i);
+  assert.doesNotMatch(inspector, /draggable=/i);
 });
 
 test('Case Tag review submits expected loaded membership through the unified staged apply action', () => {
