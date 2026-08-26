@@ -60,43 +60,14 @@ async function loadSafetyRow(db: D1Database, userId: string): Promise<AccountSaf
 }
 
 /**
- * Start guarded active-Admin loss with a write to the singleton guard row.
- *
- * The guarded user UPDATE below has to evaluate its EXISTS predicate only after
- * the competing request has committed. A trigger on that UPDATE is too late for
- * this purpose because SQLite evaluates the UPDATE predicate before firing its
- * BEFORE UPDATE trigger. Making this the first statement in the same D1 batch
- * establishes the write transaction first. Recomputing the count also repairs
- * any stale guard-state value before the database-level trigger consumes it.
- *
- * RETURNING is intentional here. D1's meta.changes is based on SQLite total
- * changes and can include changes outside the target statement, so it cannot
- * reliably tell us whether this specific guarded UPDATE matched one row.
- */
-function serializeProductionAdminLoss(db: D1Database) {
-  return db.prepare(`
-    UPDATE "production_admin_guard_state"
-    SET "active_admin_count" = (
-      SELECT count(*)
-      FROM "user"
-      WHERE instr(',' || replace(coalesce("role", ''), ' ', '') || ',', ',admin,') > 0
-        AND coalesce("banned", 0) = 0
-    )
-    WHERE "id" = 1
-    RETURNING "id"
-  `);
-}
-
-/**
  * Demote a Production Administrator with the last-active-Admin predicate in the
- * same D1 batch as a preceding write to the shared Admin-loss guard row. This
- * forces competing demotions to establish a write transaction before either
- * request evaluates whether another active Administrator still exists.
+ * same D1 UPDATE that removes the role. A separate Better Auth list/check then
+ * setRole sequence can race across requests; this conditional write cannot.
  *
  * Better Auth still owns the user table/schema. This narrowly scoped direct
  * mutation exists only for the product invariant that Better Auth's Admin API
- * cannot express atomically. Migration 0016/0017 remains defense-in-depth for
- * direct user-table writes outside this application path.
+ * cannot express atomically. Migration 0016 remains database defense-in-depth
+ * for direct user-table writes outside this application path.
  */
 export async function demoteProductionAdministratorAtomically(options: {
   db: D1Database;
@@ -123,8 +94,7 @@ export async function demoteProductionAdministratorAtomically(options: {
   const expectedBanned = isDisabled(target.banned) ? 1 : 0;
 
   try {
-    const serializeAdminLoss = serializeProductionAdminLoss(options.db);
-    const demoteUser = options.db
+    const result = await options.db
       .prepare(`
         UPDATE "user"
         SET "role" = ?, "updatedAt" = ?
@@ -146,16 +116,8 @@ export async function demoteProductionAdministratorAtomically(options: {
           )
         RETURNING "id"
       `)
-      .bind(nextRole, Date.now(), target.id, target.role ?? '', expectedBanned);
-
-    const [guardResult, result] = await options.db.batch([serializeAdminLoss, demoteUser]);
-    if (!returnedExactlyOneRow(guardResult)) {
-      throw new AccountManagementError(
-        'ACCOUNT_SAFETY_GUARD_UNAVAILABLE',
-        'Administrator lockout protection is unavailable.',
-        500
-      );
-    }
+      .bind(nextRole, Date.now(), target.id, target.role ?? '', expectedBanned)
+      .run();
 
     if (!returnedExactlyOneRow(result)) {
       const current = await loadSafetyRow(options.db, target.id);
@@ -175,10 +137,10 @@ export async function demoteProductionAdministratorAtomically(options: {
 
 /**
  * Disable an account atomically with session revocation. For an active
- * Production Administrator, the batch first serializes active-Admin loss, then
- * conditionally disables the account, then revokes sessions. This preserves the
- * same last-Admin invariant as demotion while matching Better Auth's documented
- * ban-user session behavior.
+ * Production Administrator, the same conditional UPDATE requires another
+ * active Administrator to exist. The following session DELETE is in the same
+ * D1 batch, matching Better Auth's documented ban-user behavior while keeping
+ * the last-Admin invariant race-safe.
  */
 export async function disableManagedAccountAtomically(options: {
   db: D1Database;
@@ -199,7 +161,6 @@ export async function disableManagedAccountAtomically(options: {
   const expectedRole = target.role ?? '';
 
   try {
-    const serializeAdminLoss = serializeProductionAdminLoss(options.db);
     const updateUser = options.db
       .prepare(`
         UPDATE "user"
@@ -237,19 +198,7 @@ export async function disableManagedAccountAtomically(options: {
       `)
       .bind(target.id, target.id);
 
-    const [guardResult, updateResult] = await options.db.batch([
-      serializeAdminLoss,
-      updateUser,
-      revokeSessions
-    ]);
-    if (!returnedExactlyOneRow(guardResult)) {
-      throw new AccountManagementError(
-        'ACCOUNT_SAFETY_GUARD_UNAVAILABLE',
-        'Administrator lockout protection is unavailable.',
-        500
-      );
-    }
-
+    const [updateResult] = await options.db.batch([updateUser, revokeSessions]);
     if (!returnedExactlyOneRow(updateResult)) {
       const current = await loadSafetyRow(options.db, target.id);
       if (isDisabled(current.banned)) {

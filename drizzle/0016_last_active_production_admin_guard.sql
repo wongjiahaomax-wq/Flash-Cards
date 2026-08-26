@@ -2,7 +2,7 @@
 -- Administrator remains once an active admin is being removed. Application
 -- preflight checks provide friendly errors, but they are check-then-mutate and
 -- can race. These SQLite/D1 triggers are evaluated in the write transaction,
--- so concurrent demote/disable/delete attempts cannot both remove the final
+-- so direct user-table demote/disable/delete writes cannot remove the final
 -- active admin.
 --
 -- Better Auth stores multiple roles as a comma-separated string. Normalizing
