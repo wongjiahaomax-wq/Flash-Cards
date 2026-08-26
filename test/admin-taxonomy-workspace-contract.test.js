@@ -21,6 +21,19 @@ test('Cases stay hidden by default and revealed rows lead with human-readable Ca
   assert.match(readModel, /isNull\(cases\.previewSessionId\)/);
 });
 
+test('Browse mode selects a Case into a read-only inspector while keeping full Case navigation separate', () => {
+  assert.match(organizer, /class="case-row browse-case-row"/);
+  assert.match(organizer, /onclick=\{\(\) => selectOnlyCase\(caseItem\.id\)\}/);
+  assert.match(organizer, /\{#if selectedCases\.length\}[\s\S]*<CaseClassificationInspector/);
+  assert.match(organizer, /editable=\{organizeMode\}/);
+  assert.match(organizer, />Open Case<\/a>/);
+  assert.match(caseInspector, /editable = false/);
+  assert.match(caseInspector, /<dt>Primary Topic<\/dt>/);
+  assert.match(caseInspector, /Browse mode is read-only/);
+  assert.match(caseInspector, /Open full Case/);
+  assert.match(caseInspector, /\{#if editable\}\s*<section class="classification-section" aria-labelledby="primary-topic-heading">/);
+});
+
 test('Topic inspector supports focused identity editing while hierarchy remains staged separately', () => {
   assert.match(taxonomyInspector, /Edit identity/);
   assert.match(taxonomyInspector, /action="\?\/updateConcept"/);
