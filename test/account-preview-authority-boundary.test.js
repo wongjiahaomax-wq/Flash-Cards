@@ -45,9 +45,9 @@ test('Atomic disable independently rejects Preview Admin authority', () => {
   const disableFunction = invariants.slice(
     invariants.indexOf('export async function disableManagedAccountAtomically')
   );
+  assert.match(invariants, /PREVIEW_AUTHORITY_SEPARATE/);
   assert.match(disableFunction, /parseRoles\(target\.role\)\.includes\('preview_admin'\)/);
   assert.match(disableFunction, /previewAuthorityBlocked\(\)/);
-  assert.match(disableFunction, /PREVIEW_AUTHORITY_SEPARATE/);
 });
 
 test('Account detail UI does not offer shared lifecycle/session controls for Preview-enabled identities', () => {
