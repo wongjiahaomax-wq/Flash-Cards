@@ -1,6 +1,7 @@
 <script>
   import { invalidateAll } from '$app/navigation';
 
+  /** @type {{ caseId: string, caseTitle: string, tags: { id: string, name: string }[], availableTags: { id: string, name: string }[] }} */
   let { caseId, caseTitle, tags, availableTags } = $props();
   let selectedTagId = $state('');
   let newTagName = $state('');
