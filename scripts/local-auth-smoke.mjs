@@ -524,10 +524,12 @@ try {
   assert.equal(expiredToken.status, 400);
   assert.match(await expiredToken.text(), /INVALID_TOKEN/);
 
-  // Race two guarded demotions against one another. Application preflight may
-  // catch one request if it observes the first write; otherwise the D1 trigger
-  // must reject the second write atomically. The final state must retain exactly
-  // one Production Administrator.
+  // Race two guarded demotions against one another. Exactly one target may lose
+  // Production Administrator access. Depending on request ordering, the losing
+  // actor's competing request can either reach the last-Admin guard (409) or be
+  // redirected by the Admin layout after that actor has already lost authority.
+  // A 303 is therefore only a successful demotion when its Location carries the
+  // explicit ?status=demoted product redirect.
   const [demoteCombinedRace, demoteMainRace] = await Promise.all([
     postNamedAction(`/admin/accounts/${encodeURIComponent(combinedUserId)}`, 'demote', newPasswordCookies),
     postNamedAction(`/admin/accounts/${encodeURIComponent(userId)}`, 'demote', combinedAdminCookies)
@@ -537,19 +539,37 @@ try {
   const combinedAfterRace = await getSession(combinedAdminCookies);
   const mainStillAdmin = roles(mainAfterRace?.user?.role).includes('admin');
   const combinedStillAdmin = roles(combinedAfterRace?.user?.role).includes('admin');
+  const raceResponses = [demoteCombinedRace, demoteMainRace];
+  const raceOutcomes = raceResponses.map((response) => ({
+    status: response.status,
+    location: response.headers.get('location') ?? ''
+  }));
+  const successfulDemotions = raceOutcomes.filter(
+    (outcome) => outcome.status === 303 && /\?status=demoted$/.test(outcome.location)
+  );
+  const blockedOutcomes = raceOutcomes.filter(
+    (outcome) => !(outcome.status === 303 && /\?status=demoted$/.test(outcome.location))
+  );
+
   assert.equal(
     Number(mainStillAdmin) + Number(combinedStillAdmin),
     1,
     `Expected exactly one racing account to retain Production Administrator access; main=${String(
       mainAfterRace?.user?.role
-    )}, combined=${String(combinedAfterRace?.user?.role)}, statuses=${demoteCombinedRace.status},${
-      demoteMainRace.status
-    }`
+    )}, combined=${String(combinedAfterRace?.user?.role)}, outcomes=${JSON.stringify(raceOutcomes)}`
   );
-
-  assert.deepEqual(
-    [demoteCombinedRace.status, demoteMainRace.status].sort((a, b) => a - b),
-    [303, 409]
+  assert.equal(
+    successfulDemotions.length,
+    1,
+    `Expected exactly one successful demotion redirect; outcomes=${JSON.stringify(raceOutcomes)}`
+  );
+  assert.equal(blockedOutcomes.length, 1);
+  assert.ok(
+    blockedOutcomes[0].status === 409 ||
+      (blockedOutcomes[0].status === 303 && blockedOutcomes[0].location === '/study'),
+    `Expected the competing request to fail closed with 409 or lose Admin authority and redirect to /study; outcomes=${JSON.stringify(
+      raceOutcomes
+    )}`
   );
 
   const survivorCookies = mainStillAdmin ? newPasswordCookies : combinedAdminCookies;
