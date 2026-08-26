@@ -2,6 +2,7 @@ import { json, redirect } from '@sveltejs/kit';
 
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createAndAddCaseTag } from '$lib/server/db/case-tag-authoring.ts';
+import { ContentGuardError, requireProductionCase } from '$lib/server/db/content-guards.js';
 import { createDb } from '$lib/server/db/index.js';
 import { listActiveTagOptions } from '$lib/server/db/library-options.js';
 import { addCaseTag, removeCaseTag, TagInputError } from '$lib/server/db/tag-library.js';
@@ -27,16 +28,18 @@ export async function POST({ request, locals, platform, params }) {
   if (caseId !== params.caseId) return new Response('The selected Case does not match this editor.', { status: 400 });
   const operation = formText(formData, 'operation');
   const tagId = formText(formData, 'tag_id');
+  const wantsJson = formText(formData, 'response') === 'json';
 
   try {
     const db = createDb(platform.env.DB);
+    await requireProductionCase(db, caseId);
     if (operation === 'add') await addCaseTag(db, { caseId, tagId });
     else if (operation === 'remove') await removeCaseTag(db, { caseId, tagId });
     else if (operation === 'create-and-add') {
       await createAndAddCaseTag(db, { caseId, name: formText(formData, 'name') });
     } else return new Response('Choose a valid Case Tag operation.', { status: 400 });
   } catch (error) {
-    if (error instanceof TagInputError) return new Response(error.message, { status: 400 });
+    if (error instanceof TagInputError || error instanceof ContentGuardError) return new Response(error.message, { status: 400 });
     console.error('Unable to update Case Tags from the Case editor.', error);
     return new Response('Unable to update the Case Tag.', { status: 500 });
   }
@@ -44,5 +47,6 @@ export async function POST({ request, locals, platform, params }) {
   const status = operation === 'create-and-add'
     ? 'case-tag-created'
     : `case-tag-${operation === 'add' ? 'added' : 'removed'}`;
+  if (wantsJson) return json({ ok: true, status });
   redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=${status}#topics`);
 }
