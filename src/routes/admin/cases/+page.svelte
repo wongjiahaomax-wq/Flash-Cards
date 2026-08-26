@@ -1,4 +1,5 @@
 <script>
+  import BulkCaseTagEditor from '$lib/components/case-library/BulkCaseTagEditor.svelte';
   import CaseTagInlineEditor from '$lib/components/case-library/CaseTagInlineEditor.svelte';
 
   let { data, form } = $props();
@@ -158,6 +159,9 @@
   <div class="panel-heading"><div><h2 id="case-list-heading">{inactiveView ? 'Inactive Cases' : 'Active Cases'} <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">{inactiveView ? 'Inactive Cases are preserved for recovery and are unavailable to learners.' : 'Tags are curation metadata; Topic remains the learner study route.'}</span></div>
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if data.status === 'bulk-topic-updated'}<p class="success-message" role="status">Primary Topic updated for the selected Cases.</p>{/if}
+  {#if data.status === 'case-tags-added'}<p class="success-message" role="status">{data.statusTagName} is now attached to {data.statusCaseCount} selected Case{data.statusCaseCount === 1 ? '' : 's'}.</p>{/if}
+  {#if data.status === 'case-tags-removed'}<p class="success-message" role="status">{data.statusTagName} was removed from {data.statusCaseCount} selected Case{data.statusCaseCount === 1 ? '' : 's'} where present.</p>{/if}
+  {#if data.status === 'case-tag-created-bulk'}<p class="success-message" role="status">Created {data.statusTagName} and attached it to {data.statusCaseCount} selected Case{data.statusCaseCount === 1 ? '' : 's'}.</p>{/if}
   {#if data.status === 'cases-deactivated'}<p class="success-message" role="status">Selected Cases deactivated. Their content and history were retained.</p>{/if}
   {#if data.status === 'cases-restored'}<p class="success-message" role="status">Selected Cases restored to active use.</p>{/if}
   {#if data.cases.length === 0}
@@ -172,6 +176,7 @@
         {:else}
           <label class="bulk-topic">Topic<select name="concept_id" required disabled={!selectedCaseIds.length}><option value="">Choose a Topic</option>{#each topicGroups as group}<optgroup label={group.label}>{#each group.topics as topic}{@const systemIndex = topic.breadcrumb.findIndex((item) => item.kind === 'system')}<option value={topic.id}>{topic.breadcrumb.slice(systemIndex >= 0 ? systemIndex + 1 : 0).map((/** @param {{ name: string }} item */ item) => item.name).join(' → ')}</option>{/each}</optgroup>{/each}</select></label>
           <button class="button primary" type="submit" disabled={!selectedCaseIds.length}>Assign Topic</button>
+          <BulkCaseTagEditor selectedCaseIds={selectedCaseIds} cases={data.cases} availableTags={data.tags} />
           <button class="button danger" type="submit" formaction="?/bulkDeactivateCases" formnovalidate disabled={!selectedCaseIds.length} onclick={confirmBulkDeactivate}>Deactivate selected</button>
         {/if}
       </div>
