@@ -24,14 +24,25 @@ function actionFailure(cause) {
 
 export async function load({ platform, url }) {
   const filters = { search: url.searchParams.get('q')?.trim() ?? '' };
-  if (!platform?.env?.DB) return { topics: [], hierarchyOptions: [], coverage: null, filters };
+  const selectedId = url.searchParams.get('selected')?.trim() ?? '';
+  if (!platform?.env?.DB) {
+    return { topics: [], hierarchyOptions: [], coverage: null, filters, selectedId };
+  }
+
   const db = createDb(platform.env.DB);
   const [topics, hierarchyOptions, coverage] = await Promise.all([
     listTaxonomyLibrary(db, filters),
     filters.search ? listTaxonomyLibrary(db) : Promise.resolve(null),
     getTaxonomyCoverageReport(db)
   ]);
-  return { topics, hierarchyOptions: hierarchyOptions ?? topics, coverage, filters };
+
+  return {
+    topics,
+    hierarchyOptions: hierarchyOptions ?? topics,
+    coverage,
+    filters,
+    selectedId
+  };
 }
 
 export const actions = {
@@ -50,7 +61,7 @@ export const actions = {
     } catch (cause) {
       return actionFailure(cause);
     }
-    redirect(303, `/admin/topics/${encodeURIComponent(created.id)}?status=created`);
+    redirect(303, `/admin/topics?selected=${encodeURIComponent(created.id)}&status=created`);
   },
 
   applyHierarchy: async ({ request, locals, platform }) => {

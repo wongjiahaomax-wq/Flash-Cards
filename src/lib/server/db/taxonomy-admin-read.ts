@@ -81,8 +81,17 @@ export async function listTaxonomyLibrary(
 
   const activeNodes = conceptRows.filter((row) => row.isActive) as TaxonomyNode[];
   const directCaseCounts = new Map<string, number>();
+  const directCasesByTopic = new Map<string, { id: string; title: string }[]>();
   const questionCounts = new Map<string, number>();
   for (const row of directCaseRows) directCaseCounts.set(row.conceptId, (directCaseCounts.get(row.conceptId) ?? 0) + 1);
+  for (const row of studyRows) {
+    const current = directCasesByTopic.get(row.conceptId) ?? [];
+    current.push({ id: row.id, title: row.title });
+    directCasesByTopic.set(row.conceptId, current);
+  }
+  for (const caseRows of directCasesByTopic.values()) {
+    caseRows.sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+  }
   for (const row of questionRows) questionCounts.set(row.conceptId, (questionCounts.get(row.conceptId) ?? 0) + 1);
 
   const search = cleanText(filters.search).toLocaleLowerCase();
@@ -104,6 +113,7 @@ export async function listTaxonomyLibrary(
         systemId,
         unassigned: concept.kind === 'topic' && !systemId,
         directCaseCount: concept.isActive ? (directCaseCounts.get(concept.id) ?? 0) : 0,
+        directCases: concept.kind === 'topic' && concept.isActive ? (directCasesByTopic.get(concept.id) ?? []) : [],
         descendantStudyCaseCount,
         activeSharedQuestionCount: concept.isActive ? (questionCounts.get(concept.id) ?? 0) : 0
       };
