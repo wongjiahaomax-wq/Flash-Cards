@@ -34,16 +34,17 @@ function normalizeChanges(changes: StagedCaseTagChange[]): NormalizedStagedCaseT
     if (operation !== 'add' && operation !== 'remove') {
       throw new TagInputError('Every staged Case Tag change must use add or remove.');
     }
+    const normalizedOperation: NormalizedStagedCaseTagChange['operation'] = operation;
     if (typeof change?.expectedAttached !== 'boolean') {
       throw new TagInputError('Every staged Case Tag change must include its loaded membership for stale-state validation.');
     }
-    if ((operation === 'add') === change.expectedAttached) {
+    if ((normalizedOperation === 'add') === change.expectedAttached) {
       throw new TagInputError('A staged Case Tag change must differ from its loaded membership.');
     }
     return {
       caseId: requiredText(change.caseId, 'Case'),
       tagId: requiredText(change.tagId, 'Tag'),
-      operation,
+      operation: normalizedOperation,
       expectedAttached: change.expectedAttached
     };
   });
