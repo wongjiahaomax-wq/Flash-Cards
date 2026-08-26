@@ -1,8 +1,8 @@
 import { and, asc, eq, isNull } from 'drizzle-orm';
 
 import { systemAncestorId } from '../learning/taxonomy-graph.ts';
-import { listConceptTaxonomy } from './concept-taxonomy-compat.ts';
-import { caseConcepts, cases, concepts } from './schema.js';
+import { findConceptTaxonomyById, listConceptTaxonomy } from './concept-taxonomy-compat.ts';
+import { caseConcepts, cases } from './schema.js';
 import { caseTags, tags } from './tag-schema.js';
 
 type LearningDb = import('./index.js').LearningDb;
@@ -70,14 +70,8 @@ async function validateRestorableCase(db: LearningDb, current: LifecycleCaseRow,
   if (current.isActive) return;
 
   const primaryRows = await db
-    .select({
-      conceptId: caseConcepts.conceptId,
-      conceptName: concepts.name,
-      conceptKind: concepts.kind,
-      conceptIsActive: concepts.isActive
-    })
+    .select({ conceptId: caseConcepts.conceptId })
     .from(caseConcepts)
-    .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
     .where(and(eq(caseConcepts.caseId, current.id), eq(caseConcepts.role, 'primary')))
     .orderBy(asc(caseConcepts.conceptId));
 
@@ -85,14 +79,17 @@ async function validateRestorableCase(db: LearningDb, current: LifecycleCaseRow,
     throw new CaseLifecycleError('Cannot restore this Case because it must have exactly one Primary Topic.', 'RESTORE_PRIMARY_TOPIC_COUNT');
   }
 
-  const primary = primaryRows[0];
-  if (!primary.conceptName || !primary.conceptKind) {
+  // Resolve taxonomy through the compatibility layer. Pre-0015 databases do
+  // not have concepts.kind; on those databases every Concept has Topic
+  // semantics, matching migration 0015's default/backfill contract.
+  const primary = await findConceptTaxonomyById(db, primaryRows[0].conceptId);
+  if (!primary) {
     throw new CaseLifecycleError('Cannot restore this Case because its Primary Topic no longer exists.', 'RESTORE_PRIMARY_TOPIC_MISSING');
   }
-  if (primary.conceptKind !== 'topic') {
+  if (primary.kind !== 'topic') {
     throw new CaseLifecycleError('Cannot restore this Case because its Primary Topic is classified as a System.', 'RESTORE_PRIMARY_TOPIC_KIND');
   }
-  if (!primary.conceptIsActive) {
+  if (!primary.isActive) {
     throw new CaseLifecycleError('Cannot restore this Case because its Primary Topic is inactive.', 'RESTORE_PRIMARY_TOPIC_INACTIVE');
   }
 }
@@ -170,14 +167,8 @@ export async function getInactiveProductionCaseRecovery(db: LearningDb, caseIdVa
 
   const [primaryRows, tagRows, taxonomyRows] = await Promise.all([
     db
-      .select({
-        conceptId: caseConcepts.conceptId,
-        name: concepts.name,
-        kind: concepts.kind,
-        isActive: concepts.isActive
-      })
+      .select({ conceptId: caseConcepts.conceptId })
       .from(caseConcepts)
-      .leftJoin(concepts, eq(concepts.id, caseConcepts.conceptId))
       .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.role, 'primary')))
       .orderBy(asc(caseConcepts.conceptId)),
     db
@@ -189,13 +180,23 @@ export async function getInactiveProductionCaseRecovery(db: LearningDb, caseIdVa
     listConceptTaxonomy(db)
   ]);
 
+  const taxonomyById = new Map(taxonomyRows.map((concept) => [concept.id, concept]));
+  const primaryTopics = primaryRows.map(({ conceptId }) => {
+    const concept = taxonomyById.get(conceptId);
+    return {
+      conceptId,
+      name: concept?.name ?? null,
+      kind: concept?.kind ?? null,
+      isActive: concept?.isActive ?? false
+    };
+  });
   const primaryConceptId = primaryRows.length === 1 ? primaryRows[0].conceptId : null;
   const systemId = primaryConceptId ? systemAncestorId(primaryConceptId, taxonomyRows) : null;
-  const systemName = systemId ? taxonomyRows.find((concept) => concept.id === systemId)?.name ?? null : null;
+  const systemName = systemId ? taxonomyById.get(systemId)?.name ?? null : null;
 
   return {
     case: current,
-    primaryTopics: primaryRows,
+    primaryTopics,
     systemName,
     tags: tagRows
   };

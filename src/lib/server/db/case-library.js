@@ -34,7 +34,8 @@ export function parseCaseLibraryPage(params) {
 
 /** @param {{ search: string, topicSearch?: string, systemSearch?: string, systemIds?: string[], tagId: string, lifecycle?: 'active'|'inactive' }} filters */
 function caseLibraryConditions(filters) {
-  const conditions = [eq(cases.isActive, filters.lifecycle === 'inactive' ? false : true), isNull(cases.previewSessionId)];
+  const inactiveView = filters.lifecycle === 'inactive';
+  const conditions = [eq(cases.isActive, inactiveView ? false : true), isNull(cases.previewSessionId)];
   if (filters.search) conditions.push(like(cases.title, `%${filters.search.toLowerCase()}%`));
   if (filters.topicSearch) {
     conditions.push(sql`exists (
@@ -69,14 +70,21 @@ function caseLibraryConditions(filters) {
     )`);
   }
   if (filters.tagId) {
-    conditions.push(sql`exists (
-      select 1
-      from case_tags filter_case_tags
-      join tags filter_tags on filter_tags.id = filter_case_tags.tag_id
-      where filter_case_tags.case_id = ${cases.id}
-        and filter_case_tags.tag_id = ${filters.tagId}
-        and filter_tags.is_active = true
-    )`);
+    conditions.push(inactiveView
+      ? sql`exists (
+          select 1
+          from case_tags filter_case_tags
+          where filter_case_tags.case_id = ${cases.id}
+            and filter_case_tags.tag_id = ${filters.tagId}
+        )`
+      : sql`exists (
+          select 1
+          from case_tags filter_case_tags
+          join tags filter_tags on filter_tags.id = filter_case_tags.tag_id
+          where filter_case_tags.case_id = ${cases.id}
+            and filter_case_tags.tag_id = ${filters.tagId}
+            and filter_tags.is_active = true
+        )`);
   }
   return conditions;
 }

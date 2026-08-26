@@ -4,7 +4,7 @@ import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { getCaseLibraryPage, parseCaseLibraryFilters, parseCaseLibraryPage } from '$lib/server/db/case-library.js';
 import { bulkDeactivateProductionCases, bulkRestoreProductionCases, CaseLifecycleError } from '$lib/server/db/case-lifecycle.ts';
 import { createDb } from '$lib/server/db/index.js';
-import { listActiveTagOptions } from '$lib/server/db/library-options.js';
+import { listCaseLibraryTagOptions } from '$lib/server/db/library-options.js';
 import { listAdminConcepts } from '$lib/server/db/admin-content.js';
 import { serverTimingValue, withServerReadTiming } from '$lib/server/performance-timing.js';
 import { actions as parentActions } from '../+page.server.js';
@@ -81,7 +81,7 @@ export async function load({ locals, platform, url, setHeaders }) {
     async () => {
       const [pageData, tagRows, topicRows] = await Promise.all([
         getCaseLibraryPage(db, filters, { page: requestedPage }),
-        listActiveTagOptions(db),
+        listCaseLibraryTagOptions(db, filters.lifecycle),
         listAdminConcepts(db)
       ]);
       return { pageData, tagRows, topicRows };
