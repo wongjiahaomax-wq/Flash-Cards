@@ -39,14 +39,15 @@ test('tree exposes accessible expanded and selected state instead of relying on 
 
 test('Organize mode stages Topic hierarchy changes and keeps a keyboard/mobile Move to fallback', () => {
   assert.match(workspace, /Organize taxonomy &amp; Cases/);
-  assert.match(workspace, /draggable=\{stagedCaseChanges\.length === 0\}/);
+  assert.match(workspace, /const hasCaseClassificationBatch = \$derived\(stagedCaseChanges\.length > 0 \|\| stagedCaseTagChanges\.length > 0\)/);
+  assert.match(workspace, /draggable=\{!hasCaseClassificationBatch\}/);
   assert.match(workspace, /Move to…/);
   assert.match(workspace, /Drop here → Unassigned Topics/);
   assert.match(workspace, /stageTopicMove/);
   assert.doesNotMatch(workspace, /fetch\([^\n]*applyHierarchy/);
 });
 
-test('Organize mode exposes selectable Cases and a focused Primary Topic inspector for single or bulk staging', () => {
+test('Organize mode exposes selectable Cases and a focused classification inspector for single or bulk staging', () => {
   assert.match(workspace, /type="checkbox"/);
   assert.match(workspace, /Select direct Cases/);
   assert.match(workspace, /<CaseTaxonomyInspector/);
@@ -56,10 +57,13 @@ test('Organize mode exposes selectable Cases and a focused Primary Topic inspect
   assert.match(caseInspector, /Projected Primary Topic/);
   assert.match(caseInspector, /Stage Primary Topic change/);
   assert.match(caseInspector, /up to 60 selected Cases/);
-  assert.match(caseInspector, /Case Tags are unchanged/);
+  assert.match(caseInspector, /Case Tags/);
+  assert.match(caseInspector, /Tags stay separate from the System\/Topic tree/);
+  assert.match(caseInspector, /Stage add/);
+  assert.match(caseInspector, /Stage remove/);
 });
 
-test('staged review tray submits hierarchy and Primary Topic batches through explicit validated actions', () => {
+test('staged review tray submits hierarchy, Primary Topic, and Case Tag batches through explicit validated actions', () => {
   assert.match(changeTray, /Staged changes/);
   assert.match(changeTray, /expectedParentId: move\.originalParentId/);
   assert.match(changeTray, /name="changes_json"/);
@@ -68,16 +72,25 @@ test('staged review tray submits hierarchy and Primary Topic batches through exp
   assert.match(changeTray, /name="case_changes_json"/);
   assert.match(changeTray, /action="\?\/applyCasePrimaryTopics"/);
   assert.match(changeTray, /Validate &amp; apply Primary Topics/);
-  assert.match(changeTray, /separate validated batches/);
+  assert.match(changeTray, /expectedAttached: change\.expectedAttached/);
+  assert.match(changeTray, /name="tag_changes_json"/);
+  assert.match(changeTray, /action="\?\/applyCaseTags"/);
+  assert.match(changeTray, /Validate &amp; apply Case Tags/);
+  assert.match(changeTray, /separate mutation domains/);
   assert.match(topicsAction, /applyStagedTaxonomyHierarchy/);
   assert.match(topicsAction, /applyStagedCasePrimaryTopics/);
+  assert.match(topicsAction, /applyStagedCaseTags/);
 });
 
-test('workspace prevents simultaneous hierarchy and Case staging until unified cross-domain apply exists', () => {
-  assert.match(workspace, /stagedCaseChanges\.length === 0 && canStageTopicMove/);
-  assert.match(workspace, /if \(stagedMoves\.length\)/);
+test('workspace prevents simultaneous hierarchy, Primary Topic, and Case Tag staging until unified cross-domain apply exists', () => {
+  assert.match(workspace, /return !hasCaseClassificationBatch && canStageTopicMove/);
+  assert.match(workspace, /if \(stagedMoves\.length \|\| stagedCaseTagChanges\.length\)/);
+  assert.match(workspace, /if \(stagedMoves\.length \|\| stagedCaseChanges\.length\)/);
   assert.match(workspace, /Apply or discard the staged hierarchy batch before staging Case Primary Topic changes/);
-  assert.match(workspace, /Apply or discard the Case batch before staging Topic moves/);
+  assert.match(workspace, /Apply or discard the staged Case Tag batch before staging Case Primary Topic changes/);
+  assert.match(workspace, /Apply or discard the staged hierarchy batch before staging Case Tag changes/);
+  assert.match(workspace, /Apply or discard the staged Primary Topic batch before staging Case Tag changes/);
+  assert.match(workspace, /Apply or discard the Case classification batch before staging Topic moves/);
 });
 
 test('server hierarchy staging checks loaded parent state before delegating to canonical hierarchy validation and writes', () => {
