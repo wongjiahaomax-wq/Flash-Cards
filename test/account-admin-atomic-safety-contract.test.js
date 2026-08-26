@@ -11,6 +11,17 @@ const accountDetailRoute = await readFile(
   'utf8'
 );
 
+function actionBlock(source, actionName, nextActionName) {
+  const startMarker = `${actionName}: async (event) => {`;
+  const endMarker = `${nextActionName}: async (event) => {`;
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+
+  assert.notEqual(start, -1, `Expected ${actionName} action to exist.`);
+  assert.notEqual(end, -1, `Expected ${nextActionName} action to follow ${actionName}.`);
+  return source.slice(start, end);
+}
+
 test('Production Admin demotion uses one guarded atomic D1 update', () => {
   assert.match(invariants, /export async function demoteProductionAdministratorAtomically/);
   assert.match(
@@ -23,7 +34,7 @@ test('Production Admin demotion uses one guarded atomic D1 update', () => {
   assert.doesNotMatch(invariants, /result\?\.meta\.changes/);
   assert.match(invariants, /LAST_ADMIN_BLOCKED/);
 
-  const demoteAction = accountDetailRoute.match(/demote: async \(event\) => \{([\s\S]*?)\n  \},\n\n  disable:/)?.[1] ?? '';
+  const demoteAction = actionBlock(accountDetailRoute, 'demote', 'disable');
   assert.match(demoteAction, /demoteProductionAdministratorAtomically/);
   assert.match(demoteAction, /db: context\.env\.DB/);
   assert.doesNotMatch(demoteAction, /changeProductionRole/);
@@ -40,7 +51,7 @@ test('Disable guards active Admin loss and revokes sessions in one D1 batch', ()
   assert.match(invariants, /returnedExactlyOneRow\(updateResult\)/);
   assert.doesNotMatch(invariants, /serializeAdminLoss/);
 
-  const disableAction = accountDetailRoute.match(/disable: async \(event\) => \{([\s\S]*?)\n  \},\n\n  restore:/)?.[1] ?? '';
+  const disableAction = actionBlock(accountDetailRoute, 'disable', 'restore');
   assert.match(disableAction, /disableManagedAccountAtomically/);
   assert.match(disableAction, /db: context\.env\.DB/);
 });
