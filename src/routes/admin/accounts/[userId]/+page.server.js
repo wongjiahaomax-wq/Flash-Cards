@@ -41,6 +41,27 @@ function requireContext(event) {
   };
 }
 
+/**
+ * Production and Preview use separate Better Auth secrets but share D1 user and
+ * session rows. Lifecycle/session mutations therefore cannot safely target an
+ * identity that also carries Preview Admin authority from this Production UI.
+ * Production role changes remain allowed because they explicitly preserve the
+ * retained preview_admin role.
+ *
+ * @param {ReturnType<typeof requireContext>} context
+ * @param {string} userId
+ */
+async function assertProductionSecurityMutationScope(context, userId) {
+  const account = await getAccount(context.auth, context.headers, userId);
+  if (account.hasPreviewAccess) {
+    throw new AccountManagementError(
+      'PREVIEW_AUTHORITY_SEPARATE',
+      'Production Accounts cannot change lifecycle or revoke sessions for an identity that also has Preview Admin access.',
+      409
+    );
+  }
+}
+
 /** @type {import('./$types').PageServerLoad} */
 export async function load(event) {
   let context;
@@ -130,6 +151,7 @@ export const actions = {
   disable: async (event) => {
     try {
       const context = requireContext(event);
+      await assertProductionSecurityMutationScope(context, event.params.userId);
       await disableManagedAccountAtomically({
         db: context.env.DB,
         auth: context.auth,
@@ -146,6 +168,7 @@ export const actions = {
   restore: async (event) => {
     try {
       const context = requireContext(event);
+      await assertProductionSecurityMutationScope(context, event.params.userId);
       await restoreAccount({
         auth: context.auth,
         headers: context.headers,
@@ -160,6 +183,7 @@ export const actions = {
   revokeSessions: async (event) => {
     try {
       const context = requireContext(event);
+      await assertProductionSecurityMutationScope(context, event.params.userId);
       await revokeAccountSessions({
         auth: context.auth,
         headers: context.headers,
