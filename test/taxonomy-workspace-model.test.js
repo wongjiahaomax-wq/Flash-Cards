@@ -6,6 +6,7 @@ import {
   buildTaxonomyWorkspaceRows
 } from '../src/lib/components/taxonomy-workspace/taxonomy-workspace-model.ts';
 
+/** @type {import('../src/lib/components/taxonomy-workspace/taxonomy-workspace-model.ts').TaxonomyWorkspaceItem[]} */
 const fixture = [
   {
     id: 'cardio',
