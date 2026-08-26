@@ -37,6 +37,21 @@ export type StagedTopicMove = {
   parentId: string | null;
 };
 
+export type StagedCasePrimaryTopicChange = {
+  caseId: string;
+  title: string;
+  originalTopicId: string;
+  topicId: string;
+};
+
+export type WorkspaceCaseAssignment = {
+  id: string;
+  title: string;
+  originalTopicId: string;
+  topicId: string;
+  staged: boolean;
+};
+
 type BuildWorkspaceRowsInput = {
   search?: string;
   filter?: WorkspaceFilter;
@@ -111,6 +126,104 @@ function isDescendantOf(
     current = byId.get(current.parentId);
   }
   return false;
+}
+
+function originalCases(items: TaxonomyWorkspaceItem[]) {
+  const byCaseId = new Map<string, { id: string; title: string; originalTopicId: string }>();
+  for (const item of items) {
+    if (item.kind !== 'topic') continue;
+    for (const caseItem of item.directCases ?? []) {
+      if (!byCaseId.has(caseItem.id)) {
+        byCaseId.set(caseItem.id, { id: caseItem.id, title: caseItem.title, originalTopicId: item.id });
+      }
+    }
+  }
+  return byCaseId;
+}
+
+export function listWorkspaceCases(
+  items: TaxonomyWorkspaceItem[],
+  changes: StagedCasePrimaryTopicChange[] = []
+): WorkspaceCaseAssignment[] {
+  const originals = originalCases(items);
+  const changeByCaseId = new Map(changes.map((change) => [change.caseId, change]));
+  return [...originals.values()]
+    .map((caseItem) => {
+      const change = changeByCaseId.get(caseItem.id);
+      return {
+        id: caseItem.id,
+        title: caseItem.title,
+        originalTopicId: caseItem.originalTopicId,
+        topicId: change?.topicId ?? caseItem.originalTopicId,
+        staged: Boolean(change)
+      };
+    })
+    .sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+}
+
+export function casePrimaryTopicTargets(items: TaxonomyWorkspaceItem[]) {
+  return items
+    .filter((item) => item.kind === 'topic' && item.isActive)
+    .sort((left, right) => left.breadcrumbLabel.localeCompare(right.breadcrumbLabel) || left.id.localeCompare(right.id));
+}
+
+export function stageCasePrimaryTopicChanges(
+  items: TaxonomyWorkspaceItem[],
+  changes: StagedCasePrimaryTopicChange[],
+  caseIds: string[],
+  topicId: string
+): StagedCasePrimaryTopicChange[] {
+  const targetTopic = items.find((item) => item.id === topicId && item.kind === 'topic' && item.isActive);
+  if (!targetTopic) throw new Error('Choose an active Topic as the new Primary Topic.');
+
+  const uniqueCaseIds = [...new Set(caseIds.map((id) => String(id ?? '').trim()).filter(Boolean))];
+  if (!uniqueCaseIds.length) throw new Error('Select at least one Case.');
+  if (uniqueCaseIds.length > 60) throw new Error('Select no more than 60 Cases at a time.');
+
+  const existingTarget = changes[0]?.topicId ?? null;
+  if (existingTarget && existingTarget !== topicId) {
+    throw new Error('Apply or discard the current Primary Topic batch before staging Cases to a different Topic.');
+  }
+
+  const originals = originalCases(items);
+  const selectedIds = new Set(uniqueCaseIds);
+  const next = changes.filter((change) => !selectedIds.has(change.caseId));
+
+  for (const caseId of uniqueCaseIds) {
+    const caseItem = originals.get(caseId);
+    if (!caseItem) throw new Error('One or more selected Cases are no longer available in this workspace. Refresh and try again.');
+    if (caseItem.originalTopicId === topicId) continue;
+    next.push({
+      caseId,
+      title: caseItem.title,
+      originalTopicId: caseItem.originalTopicId,
+      topicId
+    });
+  }
+
+  return next.sort((left, right) => left.title.localeCompare(right.title) || left.caseId.localeCompare(right.caseId));
+}
+
+export function projectTaxonomyWithCasePrimaryTopics(
+  items: TaxonomyWorkspaceItem[],
+  changes: StagedCasePrimaryTopicChange[]
+): TaxonomyWorkspaceItem[] {
+  if (!changes.length) return items.map((item) => ({ ...item, directCases: item.directCases ? [...item.directCases] : item.directCases }));
+  const assignments = listWorkspaceCases(items, changes);
+  const casesByTopic = new Map<string, TaxonomyCaseSummary[]>();
+  for (const caseItem of assignments) {
+    const current = casesByTopic.get(caseItem.topicId) ?? [];
+    current.push({ id: caseItem.id, title: caseItem.title });
+    casesByTopic.set(caseItem.topicId, current);
+  }
+  for (const caseRows of casesByTopic.values()) {
+    caseRows.sort((left, right) => left.title.localeCompare(right.title) || left.id.localeCompare(right.id));
+  }
+  return items.map((item) => {
+    if (item.kind !== 'topic') return { ...item };
+    const directCases = casesByTopic.get(item.id) ?? [];
+    return { ...item, directCases, directCaseCount: directCases.length };
+  });
 }
 
 export function projectTaxonomyWithMoves(

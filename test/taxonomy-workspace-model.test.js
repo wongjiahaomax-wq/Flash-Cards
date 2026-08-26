@@ -5,7 +5,11 @@ import {
   activeTaxonomyParents,
   buildTaxonomyWorkspaceRows,
   canStageTopicMove,
+  casePrimaryTopicTargets,
+  listWorkspaceCases,
+  projectTaxonomyWithCasePrimaryTopics,
   projectTaxonomyWithMoves,
+  stageCasePrimaryTopicChanges,
   stageTopicMove,
   topicMoveTargets
 } from '../src/lib/components/taxonomy-workspace/taxonomy-workspace-model.ts';
@@ -132,4 +136,47 @@ test('later staged Topic moves validate against the already projected hierarchy'
   const second = stageTopicMove(fixture, first, 'arrhythmias', 'af');
   const projected = projectTaxonomyWithMoves(fixture, second);
   assert.equal(projected.find((item) => item.id === 'arrhythmias')?.breadcrumbLabel, 'Endocrine → Atrial fibrillation → Arrhythmias');
+});
+
+test('Primary Topic staging moves selected Cases in the projected tree and updates direct/subtree counts', () => {
+  const changes = stageCasePrimaryTopicChanges(fixture, [], ['case-af-rvr'], 'pericarditis');
+  assert.deepEqual(changes.map((change) => ({ caseId: change.caseId, originalTopicId: change.originalTopicId, topicId: change.topicId })), [
+    { caseId: 'case-af-rvr', originalTopicId: 'af', topicId: 'pericarditis' }
+  ]);
+
+  const caseProjected = projectTaxonomyWithCasePrimaryTopics(fixture, changes);
+  const projected = projectTaxonomyWithMoves(caseProjected, []);
+  assert.deepEqual(projected.find((item) => item.id === 'af')?.directCases?.map((caseItem) => caseItem.id), ['case-new-af']);
+  assert.deepEqual(projected.find((item) => item.id === 'pericarditis')?.directCases?.map((caseItem) => caseItem.id), ['case-pericarditis', 'case-af-rvr']);
+  assert.equal(projected.find((item) => item.id === 'af')?.directCaseCount, 1);
+  assert.equal(projected.find((item) => item.id === 'pericarditis')?.directCaseCount, 2);
+  assert.equal(projected.find((item) => item.id === 'cardio')?.descendantStudyCaseCount, 3);
+
+  const assignment = listWorkspaceCases(fixture, changes).find((caseItem) => caseItem.id === 'case-af-rvr');
+  assert.equal(assignment?.originalTopicId, 'af');
+  assert.equal(assignment?.topicId, 'pericarditis');
+  assert.equal(assignment?.staged, true);
+});
+
+test('Primary Topic staging supports one reviewed target batch of up to 60 Cases', () => {
+  const targets = casePrimaryTopicTargets(fixture);
+  assert.equal(targets.some((item) => item.id === 'cardio'), false);
+  assert.equal(targets.some((item) => item.id === 'inactive-topic'), false);
+  assert.equal(targets.some((item) => item.id === 'pericarditis'), true);
+
+  const staged = stageCasePrimaryTopicChanges(fixture, [], ['case-af-rvr', 'case-new-af'], 'pericarditis');
+  assert.equal(staged.length, 2);
+  assert.ok(staged.every((change) => change.topicId === 'pericarditis'));
+  assert.throws(
+    () => stageCasePrimaryTopicChanges(fixture, staged, ['case-pericarditis'], 'unassigned'),
+    /apply or discard the current Primary Topic batch/i
+  );
+  assert.throws(
+    () => stageCasePrimaryTopicChanges(fixture, [], ['case-af-rvr'], 'inactive-topic'),
+    /active Topic/i
+  );
+});
+
+test('staging a Case to its loaded Primary Topic produces no pending change', () => {
+  assert.deepEqual(stageCasePrimaryTopicChanges(fixture, [], ['case-af-rvr'], 'af'), []);
 });

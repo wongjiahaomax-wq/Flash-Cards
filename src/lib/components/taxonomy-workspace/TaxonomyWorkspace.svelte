@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CaseTaxonomyInspector from './CaseTaxonomyInspector.svelte';
   import TaxonomyChangeTray from './TaxonomyChangeTray.svelte';
   import TaxonomyInspector from './TaxonomyInspector.svelte';
   import {
@@ -6,9 +7,13 @@
     activeTaxonomyParents,
     buildTaxonomyWorkspaceRows,
     canStageTopicMove,
+    listWorkspaceCases,
+    projectTaxonomyWithCasePrimaryTopics,
     projectTaxonomyWithMoves,
+    stageCasePrimaryTopicChanges,
     stageTopicMove,
     topicMoveTargets,
+    type StagedCasePrimaryTopicChange,
     type StagedTopicMove,
     type TaxonomyWorkspaceItem,
     type WorkspaceFilter
@@ -27,6 +32,7 @@
   let query = $state('');
   let filter = $state<WorkspaceFilter>('all');
   let selectedId = $state('');
+  let selectedCaseIds = $state<string[]>([]);
   let focusSystemId = $state('');
   let collapsedIds = $state<string[]>([]);
   let revealedTopicIds = $state<string[]>([]);
@@ -36,9 +42,11 @@
   let createContextLabel = $state('');
   let organizeMode = $state(false);
   let stagedMoves = $state<StagedTopicMove[]>([]);
+  let stagedCaseChanges = $state<StagedCasePrimaryTopicChange[]>([]);
   let draggedTopicId = $state('');
   let moveTopicId = $state('');
   let moveParentId = $state('');
+  let caseStageError = $state('');
 
   function initializeFromProps() {
     query = initialSearch;
@@ -46,7 +54,8 @@
   }
   initializeFromProps();
 
-  const projectedItems = $derived(projectTaxonomyWithMoves(items, stagedMoves));
+  const caseProjectedItems = $derived(projectTaxonomyWithCasePrimaryTopics(items, stagedCaseChanges));
+  const projectedItems = $derived(projectTaxonomyWithMoves(caseProjectedItems, stagedMoves));
   const parentOptions = $derived(activeTaxonomyParents(projectedItems));
   const systemOptions = $derived(activeSystemOptions(projectedItems));
   const rows = $derived(buildTaxonomyWorkspaceRows(projectedItems, {
@@ -56,12 +65,15 @@
     collapsedIds
   }));
   const selected = $derived(projectedItems.find((item) => item.id === selectedId) ?? null);
+  const workspaceCases = $derived(listWorkspaceCases(items, stagedCaseChanges));
+  const selectedCases = $derived(workspaceCases.filter((caseItem) => selectedCaseIds.includes(caseItem.id)));
   const focusedSystem = $derived(systemOptions.find((item) => item.id === focusSystemId) ?? null);
   const selectedSubtopicCount = $derived(selected
     ? projectedItems.filter((item) => item.parentId === selected.id && item.kind === 'topic').length
     : 0);
   const moveTopic = $derived(projectedItems.find((item) => item.id === moveTopicId && item.kind === 'topic') ?? null);
   const moveTargetOptions = $derived(moveTopicId ? topicMoveTargets(projectedItems, moveTopicId) : []);
+  const stagedChangeCount = $derived(stagedMoves.length + stagedCaseChanges.length);
 
   const filters: { id: WorkspaceFilter; label: string }[] = [
     { id: 'all', label: 'All' },
@@ -83,6 +95,10 @@
     revealedTopicIds = toggleId(revealedTopicIds, id);
   }
 
+  function revealCases(id: string) {
+    if (!revealedTopicIds.includes(id)) revealedTopicIds = [...revealedTopicIds, id];
+  }
+
   function queryMatchesCase(item: TaxonomyWorkspaceItem) {
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return false;
@@ -91,6 +107,35 @@
 
   function casesVisible(item: TaxonomyWorkspaceItem) {
     return revealedTopicIds.includes(item.id) || queryMatchesCase(item);
+  }
+
+  function selectNode(id: string) {
+    selectedId = id;
+    selectedCaseIds = [];
+    caseStageError = '';
+  }
+
+  function toggleCaseSelection(caseId: string) {
+    selectedCaseIds = toggleId(selectedCaseIds, caseId);
+    selectedId = '';
+    caseStageError = '';
+  }
+
+  function selectOnlyCase(caseId: string) {
+    selectedCaseIds = [caseId];
+    selectedId = '';
+    caseStageError = '';
+  }
+
+  function selectDirectCases(topic: TaxonomyWorkspaceItem) {
+    selectedCaseIds = (topic.directCases ?? []).map((caseItem) => caseItem.id).slice(0, 60);
+    selectedId = '';
+    caseStageError = '';
+  }
+
+  function clearCaseSelection() {
+    selectedCaseIds = [];
+    caseStageError = '';
   }
 
   function openCreate(kind: 'system' | 'topic', parentId = '', contextLabel = '') {
@@ -123,41 +168,59 @@
   }
 
   function exitOrganize() {
-    if (stagedMoves.length) return;
+    if (stagedChangeCount) return;
     organizeMode = false;
     moveTopicId = '';
     draggedTopicId = '';
+    selectedCaseIds = [];
+    caseStageError = '';
   }
 
-  function discardAllMoves() {
+  function discardAllChanges() {
     stagedMoves = [];
+    stagedCaseChanges = [];
     moveTopicId = '';
     draggedTopicId = '';
+    caseStageError = '';
   }
 
   function undoMove(topicId: string) {
     stagedMoves = stagedMoves.filter((move) => move.id !== topicId);
   }
 
+  function undoCaseChange(caseId: string) {
+    stagedCaseChanges = stagedCaseChanges.filter((change) => change.caseId !== caseId);
+    caseStageError = '';
+  }
+
   function isMoveStaged(topicId: string) {
     return stagedMoves.some((move) => move.id === topicId);
   }
 
+  function isCaseChangeStaged(caseId: string) {
+    return stagedCaseChanges.some((change) => change.caseId === caseId);
+  }
+
+  function canMoveTopic(topicId: string, parentId: string | null) {
+    return stagedCaseChanges.length === 0 && canStageTopicMove(items, stagedMoves, topicId, parentId);
+  }
+
   function openMove(topic: TaxonomyWorkspaceItem) {
-    if (!organizeMode || topic.kind !== 'topic') return;
+    if (!organizeMode || topic.kind !== 'topic' || stagedCaseChanges.length) return;
     moveTopicId = topic.id;
     moveParentId = topic.parentId ?? '';
   }
 
   function stageSelectedMove() {
-    if (!moveTopic) return;
+    if (!moveTopic || stagedCaseChanges.length) return;
     stagedMoves = stageTopicMove(items, stagedMoves, moveTopic.id, moveParentId || null);
     selectedId = moveTopic.id;
+    selectedCaseIds = [];
     moveTopicId = '';
   }
 
   function beginDrag(event: DragEvent, topicId: string) {
-    if (!organizeMode) return;
+    if (!organizeMode || stagedCaseChanges.length) return;
     draggedTopicId = topicId;
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move';
@@ -171,22 +234,40 @@
 
   function allowDrop(event: DragEvent, parentId: string | null) {
     const topicId = draggedId(event);
-    if (!topicId || !canStageTopicMove(items, stagedMoves, topicId, parentId)) return;
+    if (!topicId || !canMoveTopic(topicId, parentId)) return;
     event.preventDefault();
     if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
   }
 
   function dropTopic(event: DragEvent, parentId: string | null) {
     const topicId = draggedId(event);
-    if (!topicId || !canStageTopicMove(items, stagedMoves, topicId, parentId)) return;
+    if (!topicId || !canMoveTopic(topicId, parentId)) return;
     event.preventDefault();
     stagedMoves = stageTopicMove(items, stagedMoves, topicId, parentId);
     selectedId = topicId;
+    selectedCaseIds = [];
     draggedTopicId = '';
   }
 
   function endDrag() {
     draggedTopicId = '';
+  }
+
+  function stageCasePrimaryTopic(caseIds: string[], topicId: string) {
+    if (stagedMoves.length) {
+      caseStageError = 'Apply or discard the staged hierarchy batch before staging Case Primary Topic changes.';
+      return;
+    }
+    try {
+      stagedCaseChanges = stageCasePrimaryTopicChanges(items, stagedCaseChanges, caseIds, topicId);
+      caseStageError = '';
+      revealCases(topicId);
+      filter = 'all';
+      const target = projectedItems.find((item) => item.id === topicId);
+      if (focusSystemId && target?.systemId !== focusSystemId) focusSystemId = '';
+    } catch (error) {
+      caseStageError = error instanceof Error ? error.message : 'Unable to stage the Primary Topic change.';
+    }
   }
 </script>
 
@@ -203,8 +284,8 @@
         <button
           class="button organize-active"
           type="button"
-          disabled={stagedMoves.length > 0}
-          title={stagedMoves.length ? 'Discard or apply staged changes before leaving Organize mode.' : 'Return to Browse mode'}
+          disabled={stagedChangeCount > 0}
+          title={stagedChangeCount ? 'Discard or apply staged changes before leaving Organize mode.' : 'Return to Browse mode'}
           onclick={exitOrganize}
         >Done organizing</button>
       {:else}
@@ -238,11 +319,12 @@
     <section class="organize-banner" aria-label="Organize mode">
       <div>
         <p class="eyebrow">Organize mode</p>
-        <strong>Topic moves are staged locally.</strong>
-        <p>Drag a Topic onto an active System or Topic, or use <strong>Move to…</strong>. Nothing is saved until Validate &amp; apply.</p>
+        <strong>Taxonomy and Case changes are staged before persistence.</strong>
+        <p>Move Topics, or reveal and select Cases to change their Primary Topic. This milestone keeps hierarchy and Case batches separate so each apply has clear write semantics.</p>
       </div>
       <div
-        class:drop-allowed={Boolean(draggedTopicId && canStageTopicMove(items, stagedMoves, draggedTopicId, null))}
+        class:drop-allowed={Boolean(draggedTopicId && canMoveTopic(draggedTopicId, null))}
+        class:drop-disabled={stagedCaseChanges.length > 0}
         class="unassigned-drop"
         role="group"
         aria-label="Move Topic to Unassigned"
@@ -252,6 +334,10 @@
         Drop here → Unassigned Topics
       </div>
     </section>
+  {/if}
+
+  {#if caseStageError}
+    <div class="inline-error" role="status">{caseStageError}</div>
   {/if}
 
   {#if moveTopic}
@@ -321,9 +407,9 @@
         <div>
           <p class="eyebrow">Taxonomy workspace</p>
           <h2 id="taxonomy-tree-heading">Systems &amp; nested Topics</h2>
-          <p class="muted">{organizeMode ? 'Proposed Topic moves are previewed in the tree before apply.' : "Browse safely here. Cases stay hidden until you reveal a Topic's direct Cases."}</p>
+          <p class="muted">{organizeMode ? 'Reveal Cases to select one or several for a staged Primary Topic reassignment.' : "Browse safely here. Cases stay hidden until you reveal a Topic's direct Cases."}</p>
         </div>
-        <span class="result-count">{rows.length} visible{#if stagedMoves.length} · {stagedMoves.length} staged{/if}</span>
+        <span class="result-count">{rows.length} visible{#if selectedCaseIds.length} · {selectedCaseIds.length} selected Cases{/if}{#if stagedChangeCount} · {stagedChangeCount} staged{/if}</span>
       </div>
 
       {#if rows.length === 0}
@@ -337,7 +423,7 @@
                 class:context-only={row.contextOnly}
                 class:inactive={!row.isActive}
                 class:staged={row.kind === 'topic' && isMoveStaged(row.id)}
-                class:drop-allowed={Boolean(organizeMode && draggedTopicId && row.isActive && canStageTopicMove(items, stagedMoves, draggedTopicId, row.id))}
+                class:drop-allowed={Boolean(organizeMode && draggedTopicId && row.isActive && canMoveTopic(draggedTopicId, row.id))}
                 class="tree-row"
                 role="treeitem"
                 aria-level={row.depth + 1}
@@ -351,9 +437,10 @@
                     <button
                       class="drag-handle"
                       type="button"
-                      draggable="true"
+                      draggable={stagedCaseChanges.length === 0}
+                      disabled={stagedCaseChanges.length > 0}
                       aria-label={`Drag ${row.name} to move Topic`}
-                      title="Drag to stage a Topic move"
+                      title={stagedCaseChanges.length ? 'Apply or discard the Case batch before staging Topic moves.' : 'Drag to stage a Topic move'}
                       ondragstart={(event) => beginDrag(event, row.id)}
                       ondragend={endDrag}
                     >⋮⋮</button>
@@ -369,7 +456,7 @@
                   {:else}
                     <span class="tree-spacer" aria-hidden="true"></span>
                   {/if}
-                  <button class="node-button" type="button" onclick={() => { selectedId = row.id; }}>
+                  <button class="node-button" type="button" onclick={() => selectNode(row.id)}>
                     <span class="node-name">{row.name}</span>
                     <span class="node-meta">
                       {row.kind === 'system' ? 'System' : 'Topic'}
@@ -393,7 +480,13 @@
 
                 <div class="row-actions">
                   {#if organizeMode && row.kind === 'topic'}
-                    <button class="text-action" type="button" onclick={() => openMove(row)}>Move to…</button>
+                    <button
+                      class="text-action"
+                      type="button"
+                      disabled={stagedCaseChanges.length > 0}
+                      title={stagedCaseChanges.length ? 'Apply or discard the Case batch before staging Topic moves.' : undefined}
+                      onclick={() => openMove(row)}
+                    >Move to…</button>
                   {:else if row.isActive}
                     <button class="text-action" type="button" onclick={() => createChild(row)}>
                       {row.kind === 'system' ? '+ Add Topic' : '+ Add subtopic'}
@@ -413,11 +506,34 @@
               {#if row.kind === 'topic' && casesVisible(row)}
                 <div class="case-list" style={`margin-left: ${Math.max(0, row.depth + 1) * 1.05 + 2.15}rem`}>
                   {#if row.directCases?.length}
+                    {#if organizeMode && row.directCases.length > 1}
+                      <div class="case-list-tools">
+                        <span>{row.directCases.length} direct Cases</span>
+                        <button class="text-action" type="button" onclick={() => selectDirectCases(row)}>Select direct Cases</button>
+                      </div>
+                    {/if}
                     {#each row.directCases as caseItem (caseItem.id)}
-                      <a class="case-row" href={'/admin/cases/' + caseItem.id}>
-                        <span class="case-title">{caseItem.title}</span>
-                        <span class="case-open">Open Case</span>
-                      </a>
+                      {#if organizeMode}
+                        <div class:selected-case={selectedCaseIds.includes(caseItem.id)} class:staged-case={isCaseChangeStaged(caseItem.id)} class="case-row organize-case-row">
+                          <input
+                            class="case-checkbox"
+                            type="checkbox"
+                            checked={selectedCaseIds.includes(caseItem.id)}
+                            aria-label={`Select ${caseItem.title}`}
+                            onchange={() => toggleCaseSelection(caseItem.id)}
+                          />
+                          <button class="case-select" type="button" onclick={() => selectOnlyCase(caseItem.id)}>
+                            <span class="case-title">{caseItem.title}</span>
+                            <span class="case-meta">{isCaseChangeStaged(caseItem.id) ? 'Primary Topic change staged' : 'Primary Topic: ' + row.breadcrumbLabel}</span>
+                          </button>
+                          <a class="case-open" href={'/admin/cases/' + caseItem.id}>Open Case</a>
+                        </div>
+                      {:else}
+                        <a class="case-row" href={'/admin/cases/' + caseItem.id}>
+                          <span class="case-title">{caseItem.title}</span>
+                          <span class="case-open">Open Case</span>
+                        </a>
+                      {/if}
                     {/each}
                   {:else}
                     <span class="muted">No active production Cases are directly assigned to this Topic.</span>
@@ -430,27 +546,39 @@
       {/if}
     </section>
 
-    <TaxonomyInspector
-      {selected}
-      subtopicCount={selectedSubtopicCount}
-      casesRevealed={selected ? casesVisible(selected) : false}
-      focused={Boolean(selected && selected.kind === 'system' && selected.id === focusSystemId)}
-      {organizeMode}
-      moveStaged={Boolean(selected && selected.kind === 'topic' && isMoveStaged(selected.id))}
-      onCreateChild={createChild}
-      onToggleCases={toggleCases}
-      onFocus={focusSystem}
-      onClearFocus={clearFocus}
-      onMoveTopic={openMove}
-    />
+    {#if organizeMode && selectedCases.length}
+      <CaseTaxonomyInspector
+        {selectedCases}
+        items={projectedItems}
+        stagingBlockedReason={stagedMoves.length ? 'Apply or discard the staged hierarchy batch before staging Case Primary Topic changes.' : ''}
+        onStage={stageCasePrimaryTopic}
+        onClear={clearCaseSelection}
+      />
+    {:else}
+      <TaxonomyInspector
+        {selected}
+        subtopicCount={selectedSubtopicCount}
+        casesRevealed={selected ? casesVisible(selected) : false}
+        focused={Boolean(selected && selected.kind === 'system' && selected.id === focusSystemId)}
+        {organizeMode}
+        moveStaged={Boolean(selected && selected.kind === 'topic' && isMoveStaged(selected.id))}
+        onCreateChild={createChild}
+        onToggleCases={toggleCases}
+        onFocus={focusSystem}
+        onClearFocus={clearFocus}
+        onMoveTopic={openMove}
+      />
+    {/if}
   </div>
 
-  {#if stagedMoves.length}
+  {#if stagedChangeCount}
     <TaxonomyChangeTray
       moves={stagedMoves}
-      items={items}
-      onDiscardAll={discardAllMoves}
+      caseChanges={stagedCaseChanges}
+      items={projectedItems}
+      onDiscardAll={discardAllChanges}
       onUndoMove={undoMove}
+      onUndoCaseChange={undoCaseChange}
     />
   {/if}
 </section>
@@ -466,7 +594,7 @@
   .button.primary { border-color: #172033; background: #172033; color: #fff; }
   .button.compact { padding: .45rem .65rem; }
   .button.organize-active { border-color: #f79009; background: #fffaeb; color: #93370d; }
-  .button:disabled { cursor: not-allowed; opacity: .55; }
+  .button:disabled,.text-action:disabled,.drag-handle:disabled { cursor: not-allowed; opacity: .5; }
   .filter-row { align-items: center; }
   .filter-chip { padding: .38rem .68rem; border: 1px solid #d0d5dd; border-radius: 999px; background: #fff; color: #475467; cursor: pointer; font: inherit; font-size: .84rem; font-weight: 650; }
   .filter-chip.active { border-color: #344054; background: #f2f4f7; color: #172033; }
@@ -475,6 +603,8 @@
   .organize-banner p { margin-bottom: 0; color: #854a0e; }
   .unassigned-drop { padding: .7rem .85rem; border: 1px dashed #f79009; border-radius: 8px; background: #fff; color: #93370d; font-weight: 700; }
   .unassigned-drop.drop-allowed { outline: 3px solid rgb(247 144 9 / .25); background: #fff4e6; }
+  .unassigned-drop.drop-disabled { opacity: .5; }
+  .inline-error { padding: .65rem .8rem; border: 1px solid #fecdca; border-radius: 8px; background: #fef3f2; color: #b42318; font-weight: 650; }
   .muted { color: #667085; }
   .eyebrow { margin: 0 0 .28rem; color: #667085; font-size: .72rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
   h2,p { margin-top: 0; }
@@ -491,7 +621,7 @@
   .create-form label { display: grid; gap: .3rem; color: #344054; font-weight: 650; }
   .create-form .wide { grid-column: 1 / -1; }
   .create-actions { grid-column: 1 / -1; justify-content: flex-end; }
-  .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.85fr) minmax(270px, .8fr); gap: 1rem; align-items: start; }
+  .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.85fr) minmax(285px, .8fr); gap: 1rem; align-items: start; }
   .tree-panel { min-width: 0; padding: 1rem; border: 1px solid #dfe5ee; border-radius: 12px; background: #fff; }
   .panel-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; padding-bottom: .8rem; border-bottom: 1px solid #eaecf0; }
   .panel-heading p { margin-bottom: 0; }
@@ -519,11 +649,18 @@
   .node-counts strong { color: #344054; }
   .row-actions { justify-content: flex-end; }
   .text-action { padding: .28rem .38rem; border: 0; background: transparent; color: #475467; cursor: pointer; font: inherit; font-size: .78rem; font-weight: 650; text-decoration: underline; text-decoration-color: #d0d5dd; text-underline-offset: 3px; }
-  .text-action:hover { color: #172033; text-decoration-color: currentColor; }
+  .text-action:hover:not(:disabled) { color: #172033; text-decoration-color: currentColor; }
   .case-list { display: grid; gap: .28rem; padding: .15rem .45rem .65rem 0; }
+  .case-list-tools { display: flex; justify-content: space-between; align-items: center; gap: .6rem; color: #667085; font-size: .78rem; }
   .case-row { display: flex; justify-content: space-between; align-items: flex-start; gap: .8rem; padding: .52rem .65rem; border: 1px solid #e4e7ec; border-radius: 7px; background: #fcfcfd; color: #172033; text-decoration: none; }
-  .case-row:hover { border-color: #b8c2d1; background: #fff; }
+  a.case-row:hover { border-color: #b8c2d1; background: #fff; }
+  .organize-case-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; }
+  .organize-case-row.selected-case { border-color: #8098f9; background: #f5f8ff; }
+  .organize-case-row.staged-case { box-shadow: inset 3px 0 0 #f79009; }
+  .case-checkbox { width: 1rem; height: 1rem; margin: .12rem 0 0; accent-color: #344054; }
+  .case-select { display: grid; gap: .12rem; min-width: 0; padding: 0; border: 0; background: transparent; color: #172033; text-align: left; cursor: pointer; font: inherit; }
   .case-title { min-width: 0; font-weight: 650; line-height: 1.35; overflow-wrap: anywhere; }
+  .case-meta { color: #667085; font-size: .74rem; overflow-wrap: anywhere; }
   .case-open { flex: 0 0 auto; color: #667085; font-size: .76rem; font-weight: 650; }
   .empty-state { margin-top: .8rem; padding: 1rem; border: 1px dashed #d0d5dd; border-radius: 8px; color: #667085; }
   @media (max-width: 1120px) {
@@ -543,7 +680,9 @@
     .tree-row { grid-template-columns: 1fr; gap: .35rem; }
     .node-counts,.row-actions { justify-content: flex-start; padding-left: 1.9rem; }
     .case-list { margin-left: 2rem !important; }
-    .focus-banner,.panel-heading { align-items: flex-start; flex-direction: column; }
+    .case-list-tools,.focus-banner,.panel-heading { align-items: flex-start; flex-direction: column; }
+    .organize-case-row { grid-template-columns: auto minmax(0, 1fr); }
+    .organize-case-row .case-open { grid-column: 2; }
     .drag-handle { display: none; }
   }
 </style>

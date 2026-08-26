@@ -1,6 +1,8 @@
 import { fail, redirect } from '@sveltejs/kit';
 
+import { AdminContentInputError } from '$lib/server/db/admin-content.js';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
+import { applyStagedCasePrimaryTopics } from '$lib/server/db/case-primary-topic-staging.ts';
 import { createDb } from '$lib/server/db/index.js';
 import { getTaxonomyCoverageReport, listTaxonomyLibrary } from '$lib/server/db/taxonomy-admin-read.ts';
 import { applyStagedTaxonomyHierarchy } from '$lib/server/db/taxonomy-hierarchy-staging.ts';
@@ -18,23 +20,25 @@ function formText(formData, name) {
 
 /** @param {unknown} cause */
 function actionFailure(cause) {
-  if (cause instanceof TaxonomyInputError) return fail(400, { error: cause.message });
-  console.error('Taxonomy Admin action failed.', cause);
-  return fail(500, { error: 'Unable to update the System/Topic taxonomy.' });
+  if (cause instanceof TaxonomyInputError || cause instanceof AdminContentInputError) {
+    return fail(400, { error: cause.message });
+  }
+  console.error('Systems & Topics Admin action failed.', cause);
+  return fail(500, { error: 'Unable to update the System/Topic workspace.' });
 }
 
-/** @param {FormData} formData */
-function stagedHierarchyChanges(formData) {
-  const raw = formText(formData, 'changes_json');
+/** @param {FormData} formData @param {string} field @param {string} label */
+function stagedJsonChanges(formData, field, label) {
+  const raw = formText(formData, field);
   if (!raw) return null;
   let changes;
   try {
     changes = JSON.parse(raw);
   } catch {
-    throw new TaxonomyInputError('Staged hierarchy changes could not be read. Refresh and try again.');
+    throw new TaxonomyInputError(`${label} could not be read. Refresh and try again.`);
   }
   if (!Array.isArray(changes)) {
-    throw new TaxonomyInputError('Staged hierarchy changes must be submitted as a list.');
+    throw new TaxonomyInputError(`${label} must be submitted as a list.`);
   }
   return changes;
 }
@@ -98,7 +102,7 @@ export const actions = {
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData();
     try {
-      const staged = stagedHierarchyChanges(formData);
+      const staged = stagedJsonChanges(formData, 'changes_json', 'Staged hierarchy changes');
       const db = createDb(platform.env.DB);
       if (staged) {
         await applyStagedTaxonomyHierarchy(db, staged);
@@ -109,5 +113,19 @@ export const actions = {
       return actionFailure(cause);
     }
     redirect(303, '/admin/topics?status=hierarchy-saved');
+  },
+
+  applyCasePrimaryTopics: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    try {
+      const staged = stagedJsonChanges(formData, 'case_changes_json', 'Staged Primary Topic changes');
+      if (!staged) throw new AdminContentInputError('Select at least one staged Case Primary Topic change.');
+      await applyStagedCasePrimaryTopics(createDb(platform.env.DB), staged);
+    } catch (cause) {
+      return actionFailure(cause);
+    }
+    redirect(303, '/admin/topics?status=case-primary-topics-saved');
   }
 };
