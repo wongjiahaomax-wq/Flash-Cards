@@ -53,10 +53,10 @@ test('Atomic disable independently rejects Preview Admin authority', () => {
 test('Account detail UI does not offer shared lifecycle/session controls for Preview-enabled identities', () => {
   assert.match(
     accountDetailUi,
-    /\{#if data\.account\.hasPreviewAccess\}[\s\S]*Session revocation is unavailable here/[s]?
+    /\{#if data\.account\.hasPreviewAccess\}[\s\S]*Session revocation is unavailable here/
   );
   assert.match(
     accountDetailUi,
-    /\{#if data\.account\.hasPreviewAccess\}[\s\S]*Lifecycle changes are unavailable here/[s]?
+    /\{#if data\.account\.hasPreviewAccess\}[\s\S]*Lifecycle changes are unavailable here/
   );
 });
