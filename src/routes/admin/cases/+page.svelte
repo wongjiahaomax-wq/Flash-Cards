@@ -1,21 +1,93 @@
 <script>
-  let { data } = $props();
+  let { data, form } = $props();
   let query = $state('');
+  let topicQuery = $state('');
+  let systemQuery = $state('');
+  let searchForm = $state();
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let searchTimer;
+  /** @type {string[]} */
+  let selectedCaseIds = $state([]);
   let firstShown = $derived(data.pagination.totalCount === 0 ? 0 : (data.pagination.page - 1) * data.pagination.pageSize + 1);
   let lastShown = $derived(Math.min(data.pagination.page * data.pagination.pageSize, data.pagination.totalCount));
+  let allVisibleSelected = $derived(data.cases.length > 0 && data.cases.every((item) => selectedCaseIds.includes(item.id)));
+  let topicGroups = $derived.by(() => {
+    /** @type {Map<string, { label: string, topics: { id: string, name: string, breadcrumb: { id: string, name: string, kind: string }[] }[] }>} */
+    const groups = new Map();
+    for (const topic of data.topics) {
+      const systemIndex = topic.breadcrumb.findIndex((item) => item.kind === 'system');
+      const groupLabel = systemIndex >= 0 ? topic.breadcrumb[systemIndex].name : 'Unassigned Topics';
+      const current = groups.get(groupLabel) ?? { label: groupLabel, topics: [] };
+      current.topics.push(topic);
+      groups.set(groupLabel, current);
+    }
+    return [...groups.values()]
+      .sort((left, right) => left.label.localeCompare(right.label))
+      .map((group) => ({
+        ...group,
+        topics: group.topics.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id))
+      }));
+  });
 
   $effect(() => {
     query = data.caseFilters.search;
+    topicQuery = data.caseFilters.topicSearch;
+    systemQuery = data.caseFilters.systemSearch;
   });
+
+  function autoSearch() {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => searchForm?.requestSubmit(), 300);
+  }
 
   /** @param {number} page */
   function pageHref(page) {
     const params = new URLSearchParams();
     if (data.caseFilters.search) params.set('q', data.caseFilters.search);
+    if (data.caseFilters.topicSearch) params.set('topic', data.caseFilters.topicSearch);
+    if (data.caseFilters.systemSearch) params.set('system', data.caseFilters.systemSearch);
     if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
+    if (data.caseFilters.sort && data.caseFilters.sort !== 'case-asc') params.set('sort', data.caseFilters.sort);
     if (page > 1) params.set('page', String(page));
     const search = params.toString();
     return search ? `/admin/cases?${search}` : '/admin/cases';
+  }
+
+  /** @param {'case' | 'topic' | 'system' | 'tag'} column */
+  function sortHref(column) {
+    const currentColumn = data.caseFilters.sort?.split('-')[0];
+    const currentDirection = data.caseFilters.sort?.split('-')[1];
+    const direction = currentColumn === column && currentDirection === 'asc' ? 'desc' : 'asc';
+    const params = new URLSearchParams();
+    if (data.caseFilters.search) params.set('q', data.caseFilters.search);
+    if (data.caseFilters.topicSearch) params.set('topic', data.caseFilters.topicSearch);
+    if (data.caseFilters.systemSearch) params.set('system', data.caseFilters.systemSearch);
+    if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
+    if (!(column === 'case' && direction === 'asc')) params.set('sort', `${column}-${direction}`);
+    const search = params.toString();
+    return search ? `/admin/cases?${search}` : '/admin/cases';
+  }
+
+  /** @param {'case' | 'topic' | 'system' | 'tag'} column */
+  function sortIndicator(column) {
+    if (data.caseFilters.sort?.startsWith(`${column}-asc`)) return '↑';
+    if (data.caseFilters.sort?.startsWith(`${column}-desc`)) return '↓';
+    return '↕';
+  }
+
+  function toggleAllVisible() {
+    selectedCaseIds = allVisibleSelected ? [] : data.cases.map((item) => item.id);
+  }
+
+  function currentQuery() {
+    const params = new URLSearchParams();
+    if (data.caseFilters.search) params.set('q', data.caseFilters.search);
+    if (data.caseFilters.topicSearch) params.set('topic', data.caseFilters.topicSearch);
+    if (data.caseFilters.systemSearch) params.set('system', data.caseFilters.systemSearch);
+    if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
+    if (data.caseFilters.sort && data.caseFilters.sort !== 'case-asc') params.set('sort', data.caseFilters.sort);
+    if (data.pagination.page > 1) params.set('page', String(data.pagination.page));
+    return params.toString();
   }
 </script>
 
@@ -26,28 +98,42 @@
   <a class="button primary" href="/admin/cases/new">New Case</a>
 </section>
 
-<form class="search-form" method="GET">
-  <label class="search-field" for="case-search">Search by Case title<input id="case-search" name="q" bind:value={query} placeholder="e.g. anterior STEMI" /></label>
-  <label for="case-tag">Tag<select id="case-tag" name="tag"><option value="">All Tags</option>{#each data.tags as tag}<option value={tag.id} selected={tag.id === data.caseFilters.tagId}>{tag.name}</option>{/each}</select></label>
-  <div class="search-actions"><button class="button" type="submit">Search</button>{#if query || data.caseFilters.tagId}<a class="button" href="/admin/cases">Clear</a>{/if}</div>
+<form class="search-form" method="GET" bind:this={searchForm}>
+  <label class="search-field" for="case-search">Case contains<input id="case-search" name="q" bind:value={query} oninput={autoSearch} placeholder="e.g. pericarditis" /></label>
+  <label class="search-field" for="topic-search">Topic contains<input id="topic-search" name="topic" bind:value={topicQuery} oninput={autoSearch} placeholder="e.g. AMI" /></label>
+  <label class="search-field" for="system-search">System contains<input id="system-search" name="system" bind:value={systemQuery} oninput={autoSearch} placeholder="e.g. Cardiology" /></label>
+  <label for="case-tag">Tag<select id="case-tag" name="tag" onchange={autoSearch}><option value="">All Tags</option>{#each data.tags as tag}<option value={tag.id} selected={tag.id === data.caseFilters.tagId}>{tag.name}</option>{/each}</select></label>
+  {#if data.caseFilters.sort && data.caseFilters.sort !== 'case-asc'}<input type="hidden" name="sort" value={data.caseFilters.sort} />{/if}
+  {#if query || topicQuery || systemQuery || data.caseFilters.tagId}<div class="search-actions"><a class="button" href="/admin/cases">Clear</a></div>{/if}
 </form>
 
 <section class="panel" aria-labelledby="case-list-heading">
   <div class="panel-heading"><div><h2 id="case-list-heading">Active Cases <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">Tags are curation metadata; Topic remains the learner study route.</span></div>
+  {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
+  {#if data.status === 'bulk-topic-updated'}<p class="success-message" role="status">Primary Topic updated for the selected Cases.</p>{/if}
   {#if data.cases.length === 0}
     <p class="empty-state">No active Cases match these filters.</p>
   {:else}
-    <div class="case-table" role="list">
-      <div class="table-header" aria-hidden="true"><span>Case</span><span>Topic</span><span>Tags</span><span>Open</span></div>
+    <form method="POST" action="?/bulkPromoteTopic">
+      <input type="hidden" name="return_query" value={currentQuery()} />
+      <div class="bulk-toolbar">
+        <div><strong>Bulk assign Primary Topic</strong><span class="muted">{selectedCaseIds.length} Case{selectedCaseIds.length === 1 ? '' : 's'} selected</span></div>
+        <label class="bulk-topic">Topic<select name="concept_id" required disabled={!selectedCaseIds.length}><option value="">Choose a Topic</option>{#each topicGroups as group}<optgroup label={group.label}>{#each group.topics as topic}{@const systemIndex = topic.breadcrumb.findIndex((item) => item.kind === 'system')}<option value={topic.id}>{topic.breadcrumb.slice(systemIndex >= 0 ? systemIndex + 1 : 0).map((/** @param {{ name: string }} item */ item) => item.name).join(' → ')}</option>{/each}</optgroup>{/each}</select></label>
+        <button class="button primary" type="submit" disabled={!selectedCaseIds.length}>Assign Topic</button>
+      </div>
+      <div class="case-table" role="list">
+        <div class="table-header"><span class="case-heading"><input type="checkbox" checked={allVisibleSelected} onchange={toggleAllVisible} aria-label="Select all visible Cases" /><a class="sort-header" href={sortHref('case')} aria-label={`Sort by Case ${data.caseFilters.sort === 'case-asc' ? 'descending' : 'ascending'}`}>Case <span aria-hidden="true">{sortIndicator('case')}</span></a></span><a class="sort-header" href={sortHref('topic')} aria-label={`Sort by Topic ${data.caseFilters.sort === 'topic-asc' ? 'descending' : 'ascending'}`}>Topic <span aria-hidden="true">{sortIndicator('topic')}</span></a><a class="sort-header" href={sortHref('system')} aria-label={`Sort by System ${data.caseFilters.sort === 'system-asc' ? 'descending' : 'ascending'}`}>System <span aria-hidden="true">{sortIndicator('system')}</span></a><a class="sort-header" href={sortHref('tag')} aria-label={`Sort by Tags ${data.caseFilters.sort === 'tag-asc' ? 'descending' : 'ascending'}`}>Tags <span aria-hidden="true">{sortIndicator('tag')}</span></a><span>Open</span></div>
       {#each data.cases as item}
-        <a class="table-row" href={`/admin/cases/${item.id}`}>
-          <strong>{item.title}</strong>
+        <div class="table-row">
+          <span class="case-cell"><input class="case-select" type="checkbox" name="case_ids" value={item.id} bind:group={selectedCaseIds} aria-label={`Select ${item.title}`} /><a href={`/admin/cases/${item.id}`}><strong>{item.title}</strong></a></span>
           <span>{item.conceptName ?? 'Unassigned'}</span>
+          <span>{item.systemName ?? 'Unassigned'}</span>
           <span class="tag-list">{#if item.tags.length}{#each item.tags as tag}<span class="tag-chip">{tag.name}</span>{/each}{:else}<span class="muted">—</span>{/if}</span>
-          <span class="open-link">Open →</span>
-        </a>
+          <a class="open-link" href={`/admin/cases/${item.id}`}>Open →</a>
+        </div>
       {/each}
-    </div>
+      </div>
+    </form>
   {/if}
 
   <nav class="pagination" aria-label="Case Library pages">
@@ -63,12 +149,13 @@
   h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 4vw, 2.5rem); } h2 { margin-bottom: 0; font-size: 1.15rem; }
   .eyebrow { margin-bottom: 0.3rem; color: #667085; font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; } .muted { color: #667085; }
   .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; } .button.primary { border-color: #172033; background: #172033; color: #fff; }
-  .search-form { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(180px, 0.8fr) auto; gap: 0.75rem; align-items: end; margin: 1.5rem 0 1rem; } label { display: grid; gap: 0.4rem; color: #344054; font-weight: 650; } input, select { width: 100%; min-width: 0; box-sizing: border-box; padding: 0.7rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } .search-actions { display: flex; gap: 0.5rem; }
+  .search-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 0.75rem; align-items: end; margin: 1.5rem 0 1rem; } label { display: grid; gap: 0.4rem; color: #344054; font-weight: 650; } input, select { width: 100%; min-width: 0; box-sizing: border-box; padding: 0.7rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } .search-actions { display: flex; gap: 0.5rem; }
   .panel { padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; } .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
-  .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(120px, 0.8fr) minmax(160px, 1fr) 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .table-row { border-bottom: 1px solid #eaecf0; color: #172033; text-decoration: none; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; }
+  .bulk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 1rem; padding: 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #f8fafc; } .bulk-toolbar > div { display: grid; gap: 0.2rem; margin-right: auto; } .bulk-topic { display: flex; align-items: center; gap: 0.55rem; min-width: 360px; } .bulk-topic select { flex: 1; min-width: 0; } button:disabled, select:disabled { cursor: not-allowed; opacity: 0.55; } .form-error, .success-message { margin: 1rem 0 0; padding: 0.75rem; border-radius: 8px; } .form-error { background: #fef3f2; color: #b42318; } .success-message { background: #ecfdf3; color: #027a48; }
+  .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(160px, 1fr) 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .sort-header { color: inherit; text-decoration: none; } .sort-header span { margin-left: 0.2rem; font-size: 0.9rem; } .table-row { border-bottom: 1px solid #eaecf0; color: #172033; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .case-heading, .case-cell { display: flex; align-items: center; gap: 0.55rem; min-width: 0; } .case-cell a { min-width: 0; color: #172033; text-decoration: none; } .case-cell a strong { overflow-wrap: anywhere; } .case-heading input, .case-select { width: 1rem; height: 1rem; flex: 0 0 auto; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; text-decoration: none; }
   .tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; } .tag-chip { display: inline-block; padding: 0.18rem 0.4rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; }
   .empty-state { padding: 1rem; border: 1px dashed #d0d5dd; border-radius: 8px; }
   .pagination { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.75rem; margin-top: 1rem; } .pagination > :last-child { justify-self: end; }
-  @media (max-width: 800px) { .search-form { grid-template-columns: minmax(0, 1fr) minmax(170px, 0.7fr); } .search-actions { grid-column: 1 / -1; } }
-  @media (max-width: 600px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .search-form { grid-template-columns: minmax(0, 1fr); } .search-actions { grid-column: auto; } .table-header { display: none; } .table-row { grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem 0.75rem; } .table-row strong, .tag-list { grid-column: 1 / -1; } .open-link { text-align: left; } .pagination { grid-template-columns: 1fr 1fr; } .pagination > span { grid-column: 1 / -1; grid-row: 1; text-align: center; } .pagination > a:first-of-type { grid-column: 1; } .pagination > a:last-of-type { grid-column: 2; } }
+  @media (max-width: 1100px) { .search-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .search-actions { grid-column: 1 / -1; } }
+  @media (max-width: 600px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .search-form { grid-template-columns: minmax(0, 1fr); } .search-actions { grid-column: auto; } .bulk-topic { min-width: 100%; } .table-header { display: none; } .table-row { grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem 0.75rem; } .table-row strong, .tag-list { grid-column: 1 / -1; } .open-link { text-align: left; } .pagination { grid-template-columns: 1fr 1fr; } .pagination > span { grid-column: 1 / -1; grid-row: 1; text-align: center; } .pagination > a:first-of-type { grid-column: 1; } .pagination > a:last-of-type { grid-column: 2; } }
 </style>

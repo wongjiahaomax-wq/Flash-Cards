@@ -164,6 +164,7 @@ const expectedPublicExports = [
   'removePreviewSecondaryTopic',
   'removePreviewStimulusQuestion',
   'requireOwnedPreviewCase',
+  'restorePreviewCaseQuestion',
   'savePreviewCaseQuestion',
   'savePreviewStimulusQuestion',
   'setPreviewStimulusOptionActive',

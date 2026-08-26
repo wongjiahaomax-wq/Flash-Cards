@@ -10,9 +10,26 @@
   /** @typedef {{ name: string, isActive: boolean, options: StimulusOption[] }} StimulusGroup */
   /** @typedef {{ questionPromptId: string, promptMd: string, answerMd: string, reusableForTopic?: boolean }} CaseQuestion */
   /** @typedef {{ case: { id: string, conceptName?: string | null }, questions: CaseQuestion[], attached: CaseAsset[], stimulusGroups: StimulusGroup[] }} QuestionsCase */
-  /** @type {{ selectedCase: QuestionsCase, previewMode: boolean, editorLayout: CaseEditorLayout }} */
-  let { selectedCase, previewMode, editorLayout } = $props();
+  /** @typedef {{ selectedCase: QuestionsCase, previewMode: boolean, editorLayout: CaseEditorLayout, status?: string | null, removedQuestionPromptId?: string | null }} QuestionsProps */
+  /** @type {QuestionsProps} */
+  let { selectedCase, previewMode, editorLayout, status = null, removedQuestionPromptId = null } = $props();
   let newQuestionScope = $state('case');
+  /** @type {CaseQuestion | null} */
+  let pendingRemoval = $state(null);
+
+  /** @param {CaseQuestion} question */
+  function requestQuestionRemoval(question) {
+    pendingRemoval = question;
+  }
+
+  function closeRemovalDialog() {
+    pendingRemoval = null;
+  }
+
+  /** @param {KeyboardEvent} event */
+  function handleWindowKeydown(event) {
+    if (pendingRemoval && event.key === 'Escape') closeRemovalDialog();
+  }
 
   /** Keep answer fields readable without allowing very long answers to dominate the page. */
   /** @param {HTMLTextAreaElement} node */
@@ -84,6 +101,8 @@
   };
 </script>
 
+<svelte:window onkeydown={handleWindowKeydown} />
+
 <section id="questions" class="panel stack">
   <div class="section-heading">
     <div>
@@ -92,6 +111,39 @@
       <p class="muted compact-hide-explainer">This section contains only questions that apply to the whole Case, regardless of which stimulus is selected.</p>
     </div>
   </div>
+
+  {#if pendingRemoval}
+    <div class="modal-backdrop" role="presentation" onclick={(event) => { if (event.target === event.currentTarget) closeRemovalDialog(); }}>
+      <div class="removal-dialog" role="dialog" aria-modal="true" aria-labelledby="remove-question-title">
+        <div class="removal-dialog-copy">
+          <p class="eyebrow">Remove Case question</p>
+          <h3 id="remove-question-title">Remove this question from the Case?</h3>
+          <p>The question will disappear from this Case, but you can undo this immediately afterward.</p>
+        </div>
+        <div class="removal-dialog-actions">
+          <button class="button small" type="button" onclick={closeRemovalDialog}>Cancel</button>
+          <form method="POST" action="?/removeQuestion">
+            <input type="hidden" name="case_id" value={selectedCase.case.id} />
+            <input type="hidden" name="prompt_id" value={pendingRemoval.questionPromptId} />
+            <button class="button danger small" type="submit">Remove question</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if status === 'question-removed' && removedQuestionPromptId}
+    <div class="question-status removed" role="status">
+      <span>Question removed from this Case. It can be restored now.</span>
+      <form method="POST" action="?/restoreQuestion">
+        <input type="hidden" name="case_id" value={selectedCase.case.id} />
+        <input type="hidden" name="prompt_id" value={removedQuestionPromptId} />
+        <button class="button small" type="submit">Undo</button>
+      </form>
+    </div>
+  {:else if status === 'question-restored'}
+    <p class="question-status restored" role="status">Question restored to this Case.</p>
+  {/if}
 
   <section class="question-authoring-panel" aria-labelledby="add-case-question-heading">
     <div class="subsection-title">
@@ -154,7 +206,7 @@
               <form method="POST" action="?/reorderQuestion" use:enhance={preserveQuestionScroll}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="up" /><button class="button small icon-action" type="submit" disabled={index === 0} aria-label="Move question up">↑</button></form>
               <form method="POST" action="?/reorderQuestion" use:enhance={preserveQuestionScroll}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="down" /><button class="button small icon-action" type="submit" disabled={index === selectedCase.questions.length - 1} aria-label="Move question down">↓</button></form>
             </div>
-            <form method="POST" action="?/removeQuestion"><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><button class="button danger small remove-action" type="submit">Remove</button></form>
+            <button class="button danger small remove-action" type="button" onclick={() => requestQuestionRemoval(question)}>Remove</button>
           </div>
         </div>
 
@@ -197,6 +249,17 @@
   .stack { display: grid; gap: 0.85rem; }
   .panel { margin-top: 1rem; padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; }
   .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
+  .question-status { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; padding: 0.65rem 0.75rem; border: 1px solid #fedf89; border-radius: 8px; background: #fffaeb; color: #7a2e0b; }
+  .question-status form { margin: 0; }
+  .question-status.restored { border-color: #abefc6; background: #ecfdf3; color: #05603a; }
+  .modal-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(16 24 40 / 42%); }
+  .removal-dialog { width: min(100%, 30rem); max-width: 30rem; padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; box-shadow: 0 20px 48px rgb(16 24 40 / 22%); }
+  .removal-dialog-copy { display: grid; gap: 0.35rem; }
+  .removal-dialog-copy h3, .removal-dialog-copy p { margin: 0; }
+  .removal-dialog-copy h3 { color: #172033; font-size: 1.05rem; }
+  .removal-dialog-copy > p:last-child { color: #667085; font-size: 0.9rem; line-height: 1.45; }
+  .removal-dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 1rem; }
+  .removal-dialog-actions form { margin: 0; }
   .section-heading p:last-child { margin-bottom: 0; }
   .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.75rem 1rem; }
   label { display: grid; gap: 0.35rem; color: #344054; font-weight: 650; }
@@ -236,7 +299,7 @@
   .header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 0.4rem; }
   .badge { color: #475467; font-size: 0.78rem; font-weight: 500; }
   .question-order-actions { display: flex; align-items: center; gap: 0.3rem; }
-  .question-order-actions form, .header-actions > form { display: contents; }
+  .question-order-actions form { display: contents; }
   .icon-action { min-width: 2.15rem; }
   .remove-action { background: transparent; }
 

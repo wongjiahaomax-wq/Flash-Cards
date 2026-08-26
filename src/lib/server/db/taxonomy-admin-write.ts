@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
 
 import { taxonomyConcepts } from './contextual-schema.ts';
 import { caseConcepts, conceptQuestions, concepts } from './schema.js';
@@ -224,6 +224,36 @@ export async function applyTaxonomyHierarchy(
     }
     throw error;
   }
+}
+
+export async function assignPrimaryTopicToSystem(
+  db: import('./index.js').LearningDb,
+  input: { caseId: unknown; topicId: unknown; systemId: unknown }
+) {
+  const caseId = requiredText(input.caseId, 'Case');
+  const topicId = requiredText(input.topicId, 'Primary Topic');
+  const systemId = requiredText(input.systemId, 'System');
+  const [topic, system, relationship] = await Promise.all([
+    db
+      .select({ id: taxonomyConcepts.id })
+      .from(taxonomyConcepts)
+      .where(and(eq(taxonomyConcepts.id, topicId), eq(taxonomyConcepts.kind, 'topic'), eq(taxonomyConcepts.isActive, true)))
+      .limit(1),
+    db
+      .select({ id: taxonomyConcepts.id })
+      .from(taxonomyConcepts)
+      .where(and(eq(taxonomyConcepts.id, systemId), eq(taxonomyConcepts.kind, 'system'), eq(taxonomyConcepts.isActive, true), isNull(taxonomyConcepts.parentId)))
+      .limit(1),
+    db
+      .select({ caseId: caseConcepts.caseId })
+      .from(caseConcepts)
+      .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, topicId), eq(caseConcepts.role, 'primary')))
+      .limit(1)
+  ]);
+  if (!topic[0]) throw new TaxonomyInputError('The selected Primary Topic is missing, inactive, or classified as a System.');
+  if (!system[0]) throw new TaxonomyInputError('The selected System is missing, inactive, or not top-level.');
+  if (!relationship[0]) throw new TaxonomyInputError('The selected Topic is not the current Primary Topic for this Case.');
+  await applyTaxonomyHierarchy(db, [{ id: topicId, parentId: systemId }]);
 }
 
 export async function replaceSystemTags(
