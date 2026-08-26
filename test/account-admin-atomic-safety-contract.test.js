@@ -11,13 +11,22 @@ const accountDetailRoute = await readFile(
   'utf8'
 );
 
-test('Production Admin demotion uses one conditional D1 write for the last-active-Admin invariant', () => {
+test('Production Admin demotion serializes before evaluating the last-active-Admin predicate', () => {
   assert.match(invariants, /export async function demoteProductionAdministratorAtomically/);
+  assert.match(
+    invariants,
+    /function serializeProductionAdminLoss[\s\S]*UPDATE[^\n]+production_admin_guard_state[\s\S]*active_admin_count/
+  );
   assert.match(
     invariants,
     /UPDATE[^\n]+user[\s\S]*SET[\s\S]*role[\s\S]*updatedAt[\s\S]*OR EXISTS \([\s\S]*other_admin[\s\S]*coalesce\(other_admin\.[^\n]*banned[^\n]*, 0\) = 0/
   );
-  assert.match(invariants, /result\.meta\.changes/);
+  assert.match(
+    invariants,
+    /options\.db\.batch\(\[serializeAdminLoss, demoteUser\]\)/
+  );
+  assert.match(invariants, /guardResult\?\.meta\.changes/);
+  assert.match(invariants, /result\?\.meta\.changes/);
   assert.match(invariants, /LAST_ADMIN_BLOCKED/);
 
   const demoteAction = accountDetailRoute.match(/demote: async \(event\) => \{([\s\S]*?)\n  \},\n\n  disable:/)?.[1] ?? '';
@@ -26,11 +35,14 @@ test('Production Admin demotion uses one conditional D1 write for the last-activ
   assert.doesNotMatch(demoteAction, /changeProductionRole/);
 });
 
-test('Disable atomically marks the account disabled and revokes sessions in the same D1 batch', () => {
+test('Disable serializes Admin loss, marks the account disabled, and revokes sessions in one D1 batch', () => {
   assert.match(invariants, /export async function disableManagedAccountAtomically/);
   assert.match(invariants, /SET[\s\S]*banned[^\n]*= 1[\s\S]*OR EXISTS \([\s\S]*other_admin/);
   assert.match(invariants, /DELETE FROM[^\n]+session[\s\S]*WHERE[^\n]+userId[^\n]*= \?/);
-  assert.match(invariants, /options\.db\.batch\(\[updateUser, revokeSessions\]\)/);
+  assert.match(
+    invariants,
+    /options\.db\.batch\(\[[\s\S]*serializeAdminLoss,[\s\S]*updateUser,[\s\S]*revokeSessions[\s\S]*\]\)/
+  );
 
   const disableAction = accountDetailRoute.match(/disable: async \(event\) => \{([\s\S]*?)\n  \},\n\n  restore:/)?.[1] ?? '';
   assert.match(disableAction, /disableManagedAccountAtomically/);

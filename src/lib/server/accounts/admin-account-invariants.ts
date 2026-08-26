@@ -56,13 +56,38 @@ async function loadSafetyRow(db: D1Database, userId: string): Promise<AccountSaf
 }
 
 /**
+ * Start guarded active-Admin loss with a write to the singleton guard row.
+ *
+ * The guarded user UPDATE below has to evaluate its EXISTS predicate only after
+ * the competing request has committed. A trigger on that UPDATE is too late for
+ * this purpose because SQLite evaluates the UPDATE predicate before firing its
+ * BEFORE UPDATE trigger. Making this the first statement in the same D1 batch
+ * establishes the write transaction first. Recomputing the count also repairs
+ * any stale guard-state value before the database-level trigger consumes it.
+ */
+function serializeProductionAdminLoss(db: D1Database) {
+  return db.prepare(`
+    UPDATE `production_admin_guard_state`
+    SET `active_admin_count` = (
+      SELECT count(*)
+      FROM `user`
+      WHERE instr(',' || replace(coalesce(`role`, ''), ' ', '') || ',', ',admin,') > 0
+        AND coalesce(`banned`, 0) = 0
+    )
+    WHERE `id` = 1
+  `);
+}
+
+/**
  * Demote a Production Administrator with the last-active-Admin predicate in the
- * same D1 UPDATE that removes the role. A separate Better Auth list/check then
- * setRole sequence can race across requests; this conditional write cannot.
+ * same D1 batch as a preceding write to the shared Admin-loss guard row. This
+ * forces competing demotions to establish a write transaction before either
+ * request evaluates whether another active Administrator still exists.
  *
  * Better Auth still owns the user table/schema. This narrowly scoped direct
  * mutation exists only for the product invariant that Better Auth's Admin API
- * cannot express atomically. Migration 0016 remains defense-in-depth.
+ * cannot express atomically. Migration 0016/0017 remains defense-in-depth for
+ * direct user-table writes outside this application path.
  */
 export async function demoteProductionAdministratorAtomically(options: {
   db: D1Database;
@@ -89,31 +114,40 @@ export async function demoteProductionAdministratorAtomically(options: {
   const expectedBanned = isDisabled(target.banned) ? 1 : 0;
 
   try {
-    const result = await options.db
+    const serializeAdminLoss = serializeProductionAdminLoss(options.db);
+    const demoteUser = options.db
       .prepare(`
-        UPDATE \`user\`
-        SET \`role\` = ?, \`updatedAt\` = ?
-        WHERE \`id\` = ?
-          AND coalesce(\`role\`, '') = ?
-          AND coalesce(\`banned\`, 0) = ?
+        UPDATE `user`
+        SET `role` = ?, `updatedAt` = ?
+        WHERE `id` = ?
+          AND coalesce(`role`, '') = ?
+          AND coalesce(`banned`, 0) = ?
           AND (
             NOT (
-              instr(',' || replace(coalesce(\`role\`, ''), ' ', '') || ',', ',admin,') > 0
-              AND coalesce(\`banned\`, 0) = 0
+              instr(',' || replace(coalesce(`role`, ''), ' ', '') || ',', ',admin,') > 0
+              AND coalesce(`banned`, 0) = 0
             )
             OR EXISTS (
               SELECT 1
-              FROM \`user\` AS other_admin
-              WHERE other_admin.\`id\` <> \`user\`.\`id\`
-                AND instr(',' || replace(coalesce(other_admin.\`role\`, ''), ' ', '') || ',', ',admin,') > 0
-                AND coalesce(other_admin.\`banned\`, 0) = 0
+              FROM `user` AS other_admin
+              WHERE other_admin.`id` <> `user`.`id`
+                AND instr(',' || replace(coalesce(other_admin.`role`, ''), ' ', '') || ',', ',admin,') > 0
+                AND coalesce(other_admin.`banned`, 0) = 0
             )
           )
       `)
-      .bind(nextRole, Date.now(), target.id, target.role ?? '', expectedBanned)
-      .run();
+      .bind(nextRole, Date.now(), target.id, target.role ?? '', expectedBanned);
 
-    if ((result.meta.changes ?? 0) !== 1) {
+    const [guardResult, result] = await options.db.batch([serializeAdminLoss, demoteUser]);
+    if ((guardResult?.meta.changes ?? 0) !== 1) {
+      throw new AccountManagementError(
+        'ACCOUNT_SAFETY_GUARD_UNAVAILABLE',
+        'Administrator lockout protection is unavailable.',
+        500
+      );
+    }
+
+    if ((result?.meta.changes ?? 0) !== 1) {
       const current = await loadSafetyRow(options.db, target.id);
       if (!parseRoles(current.role).includes('admin')) {
         return getAccount(options.auth, options.headers, target.id);
@@ -131,10 +165,10 @@ export async function demoteProductionAdministratorAtomically(options: {
 
 /**
  * Disable an account atomically with session revocation. For an active
- * Production Administrator, the same conditional UPDATE requires another
- * active Administrator to exist. The following session DELETE is in the same
- * D1 batch, matching Better Auth's documented ban-user behavior while keeping
- * the last-Admin invariant race-safe.
+ * Production Administrator, the batch first serializes active-Admin loss, then
+ * conditionally disables the account, then revokes sessions. This preserves the
+ * same last-Admin invariant as demotion while matching Better Auth's documented
+ * ban-user session behavior.
  */
 export async function disableManagedAccountAtomically(options: {
   db: D1Database;
@@ -155,25 +189,26 @@ export async function disableManagedAccountAtomically(options: {
   const expectedRole = target.role ?? '';
 
   try {
+    const serializeAdminLoss = serializeProductionAdminLoss(options.db);
     const updateUser = options.db
       .prepare(`
-        UPDATE \`user\`
+        UPDATE `user`
         SET
-          \`banned\` = 1,
-          \`banReason\` = ?,
-          \`banExpires\` = NULL,
-          \`updatedAt\` = ?
-        WHERE \`id\` = ?
-          AND coalesce(\`role\`, '') = ?
-          AND coalesce(\`banned\`, 0) = 0
+          `banned` = 1,
+          `banReason` = ?,
+          `banExpires` = NULL,
+          `updatedAt` = ?
+        WHERE `id` = ?
+          AND coalesce(`role`, '') = ?
+          AND coalesce(`banned`, 0) = 0
           AND (
-            instr(',' || replace(coalesce(\`role\`, ''), ' ', '') || ',', ',admin,') = 0
+            instr(',' || replace(coalesce(`role`, ''), ' ', '') || ',', ',admin,') = 0
             OR EXISTS (
               SELECT 1
-              FROM \`user\` AS other_admin
-              WHERE other_admin.\`id\` <> \`user\`.\`id\`
-                AND instr(',' || replace(coalesce(other_admin.\`role\`, ''), ' ', '') || ',', ',admin,') > 0
-                AND coalesce(other_admin.\`banned\`, 0) = 0
+              FROM `user` AS other_admin
+              WHERE other_admin.`id` <> `user`.`id`
+                AND instr(',' || replace(coalesce(other_admin.`role`, ''), ' ', '') || ',', ',admin,') > 0
+                AND coalesce(other_admin.`banned`, 0) = 0
             )
           )
       `)
@@ -181,17 +216,29 @@ export async function disableManagedAccountAtomically(options: {
 
     const revokeSessions = options.db
       .prepare(`
-        DELETE FROM \`session\`
-        WHERE \`userId\` = ?
+        DELETE FROM `session`
+        WHERE `userId` = ?
           AND EXISTS (
             SELECT 1
-            FROM \`user\`
-            WHERE \`id\` = ? AND coalesce(\`banned\`, 0) <> 0
+            FROM `user`
+            WHERE `id` = ? AND coalesce(`banned`, 0) <> 0
           )
       `)
       .bind(target.id, target.id);
 
-    const [updateResult] = await options.db.batch([updateUser, revokeSessions]);
+    const [guardResult, updateResult] = await options.db.batch([
+      serializeAdminLoss,
+      updateUser,
+      revokeSessions
+    ]);
+    if ((guardResult?.meta.changes ?? 0) !== 1) {
+      throw new AccountManagementError(
+        'ACCOUNT_SAFETY_GUARD_UNAVAILABLE',
+        'Administrator lockout protection is unavailable.',
+        500
+      );
+    }
+
     if ((updateResult?.meta.changes ?? 0) !== 1) {
       const current = await loadSafetyRow(options.db, target.id);
       if (isDisabled(current.banned)) {
