@@ -59,22 +59,28 @@
     }
 
     submitting = true;
-    const { error } = await authClient.resetPassword({
-      newPassword: password,
-      token
-    });
-    submitting = false;
 
-    if (error) {
+    try {
+      const { error } = await authClient.resetPassword({
+        newPassword: password,
+        token
+      });
+
+      if (error) {
+        errorMessage = resetErrorMessage(error);
+        if (error.code === 'INVALID_TOKEN') invalidLink = true;
+        return;
+      }
+
+      token = '';
+      password = '';
+      confirmPassword = '';
+      completed = true;
+    } catch (error) {
       errorMessage = resetErrorMessage(error);
-      if (error.code === 'INVALID_TOKEN') invalidLink = true;
-      return;
+    } finally {
+      submitting = false;
     }
-
-    token = '';
-    password = '';
-    confirmPassword = '';
-    completed = true;
   }
 </script>
 
