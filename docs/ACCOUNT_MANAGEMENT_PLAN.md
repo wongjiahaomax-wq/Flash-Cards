@@ -2,7 +2,7 @@
 
 _Status: pending product/implementation design_
 
-_Last reviewed: 25 August 2026_
+_Last reviewed: 26 August 2026_
 
 This document records the agreed direction for production account creation, learner/Admin account management, password recovery, transactional authentication email, and related security controls.
 
@@ -28,9 +28,13 @@ Admin disable/restore/session security controls
 
 The application should remain private. Public self-registration is intentionally out of scope.
 
-## Current repository baseline
+## Planning baseline
 
-Current `main` already uses Better Auth with Cloudflare D1.
+This design was initially grounded in `main` at `f3746ce09f5f77df45c4b559bbfe0a1a46fab539` on 25 August 2026. Treat that SHA as the planning baseline, not as a claim about the latest current `main`.
+
+Before implementation or review, inspect current code and current PR state. Current executable behavior takes precedence if the repository has moved since this planning baseline.
+
+At the planning baseline, the repository already used Better Auth with Cloudflare D1.
 
 Relevant implementation:
 
@@ -53,13 +57,13 @@ Relevant implementation:
 - `scripts/bootstrap-admin.mjs`
   - creates the first production Admin directly in D1 and refuses to bootstrap another Admin when one already exists.
 - `src/routes/sign-in/`
-  - currently supports email/password sign-in but has no forgotten-password flow.
+  - at the planning baseline, supports email/password sign-in but has no forgotten-password flow.
 
-`package.json` currently pins Better Auth `1.6.25`.
+At the planning baseline, `package.json` pins Better Auth `1.6.25`.
 
 Do not replace Better Auth or introduce a second credential/session system for this feature.
 
-Before implementation, confirm the exact Better Auth `1.6.25` server/client APIs used by the Admin and email/password plugins. Do not bundle a Better Auth upgrade into account-management work merely to match newer documentation.
+Before implementation, confirm the exact Better Auth version and server/client APIs present on the targeted current work state. Do not bundle a Better Auth upgrade into account-management work merely to match newer documentation.
 
 ## Product terminology and roles
 
@@ -204,8 +208,10 @@ Expected learner-facing routes:
    ↓
 email reset link
    ↓
-/reset-password?token=...
+/reset-password#token=...
 ```
+
+The current PR-A security design carries the reset token in a browser-only URL fragment rather than a query parameter so the token is not sent in the initial application/Cloudflare HTTP request URL. The reset page should capture the token client-side and remove the fragment from the visible URL immediately after capture (for example with `history.replaceState`). Preserve equivalent no-initial-request token exposure unless a later reviewed security change deliberately replaces this mechanism.
 
 The sign-in page should expose **Forgot password?**.
 
@@ -227,7 +233,7 @@ A successful password reset should:
 - apply the normal password-policy rules;
 - revoke the user's existing sessions;
 - allow normal sign-in with the new password;
-- avoid exposing the token in logs, analytics, error reporting, or audit payloads.
+- avoid exposing the token in logs, analytics, error reporting, audit payloads, or initial HTTP request URLs.
 
 Target reset-token lifetime: approximately **1 hour**, subject to the supported pinned Better Auth configuration.
 
@@ -333,7 +339,7 @@ Do not expand Account Management v1 into a public registration/email-verificatio
 
 Password-reset and sign-in endpoints are abuse-sensitive.
 
-Before rollout, verify the rate-limiting capabilities and configuration available in pinned Better Auth `1.6.25` and the Cloudflare deployment model.
+Before rollout, verify the rate-limiting capabilities and configuration available in the Better Auth version actually targeted by the implementation and the Cloudflare deployment model.
 
 Requirements:
 
@@ -420,7 +426,7 @@ This PR is not a prerequisite for the basic closed-enrollment lifecycle if PRs A
 
 ## Likely files/boundaries for implementation
 
-The continuation agent should inspect current `main` rather than assuming exact file names remain unchanged.
+The continuation agent should inspect the targeted current work state rather than assuming exact file names remain unchanged.
 
 Likely existing boundaries:
 
@@ -469,6 +475,7 @@ Implementation must preserve all of the following:
 13. The last active production Admin cannot be disabled/demoted.
 14. Routine hard deletion is absent until learning-history retention is explicitly designed.
 15. Passwords, generated credentials, and reset tokens are never written to application logs/audit records.
+16. Reset tokens are not exposed through initial application/Cloudflare request URLs under the current fragment-based PR-A design.
 
 ## Validation / test expectations
 
@@ -486,6 +493,7 @@ At minimum, add focused coverage for:
 - valid reset changes credential;
 - invalid/expired reset token is rejected;
 - password reset revokes prior sessions;
+- reset link/token transport does not expose the token in the initial application request URL;
 - disable revokes sessions and prevents sign-in;
 - restore permits future sign-in but does not revive previous sessions;
 - promote/demote behavior matches production Admin authorization;
@@ -542,17 +550,18 @@ Account Management v1 is successful when:
 - self-lockout and last-active-Admin lockout are prevented server-side;
 - disabled accounts retain learner history rather than being hard-deleted;
 - Preview and production authority boundaries remain intact;
-- secrets/tokens/passwords do not leak through browser data, logs, or Git;
+- secrets/tokens/passwords do not leak through browser data, request URLs, logs, or Git;
 - the implementation is covered by focused auth/account security tests and normal repository validation.
 
 ## Continuation guidance
 
 For an implementation agent starting from this plan:
 
-1. start from the latest current `main` unless explicitly continuing an existing implementation PR;
-2. read root `AGENTS.md`, `docs/AGENT_TASK_MAP.md`, this document, and the directly relevant auth/Admin/Cloudflare code;
-3. verify the exact APIs supported by pinned Better Auth `1.6.25` before coding;
-4. preserve `disableSignUp: true` and existing production/Preview boundaries;
-5. implement PR A first unless project priorities explicitly choose PR B after the email/reset foundation already exists;
-6. keep the PR draft until relevant validation and review are complete;
-7. do not merge or deploy unless explicitly authorized.
+1. inspect the current repository and PR state first; if an existing implementation PR is explicitly targeted, continue that PR head against its intended base rather than restarting from `main`;
+2. otherwise start from the latest current `main`;
+3. read root `AGENTS.md`, `docs/DOCUMENTATION_INDEX.md`, `docs/AGENT_TASK_MAP.md`, this document, and the directly relevant auth/Admin/Cloudflare code;
+4. read the active PR-A or PR-B implementation handoff only when that stage remains pending and applicable;
+5. verify the exact Better Auth APIs supported by the version actually present on the targeted work state before coding;
+6. preserve `disableSignUp: true` and existing production/Preview boundaries;
+7. keep implementation PRs draft until relevant validation and review are complete;
+8. do not merge or deploy unless explicitly authorized.
