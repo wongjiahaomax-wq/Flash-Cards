@@ -49,6 +49,13 @@
     const name = newTagName.trim();
     if (name) void mutate('create-and-add', { name });
   }
+
+  /** @param {KeyboardEvent} event */
+  function createTagOnEnter(event) {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    createTag();
+  }
 </script>
 
 <div class="case-tag-editor">
@@ -96,7 +103,7 @@
         <section class="add-section" aria-label={`Create a new Tag for ${caseTitle}`}>
           <label for={`new-tag-${caseId}`}>Create new Tag</label>
           <div class="inline-action">
-            <input id={`new-tag-${caseId}`} bind:value={newTagName} maxlength="120" placeholder="Tag name" disabled={busy} />
+            <input id={`new-tag-${caseId}`} bind:value={newTagName} maxlength="120" placeholder="Tag name" disabled={busy} onkeydown={createTagOnEnter} />
             <button type="button" class="small-button" disabled={busy || !newTagName.trim()} onclick={createTag}>Create & add</button>
           </div>
         </section>
