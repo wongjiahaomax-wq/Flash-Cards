@@ -466,7 +466,13 @@
                           <a class="case-open" href={'/admin/cases/' + caseItem.id}>Open Case</a>
                         </div>
                       {:else}
-                        <a class="case-row" href={'/admin/cases/' + caseItem.id}><span class="case-title">{caseItem.title}</span><span class="case-open">Open Case</span></a>
+                        <div class:selected-case={selectedCaseIds.includes(caseItem.id)} class="case-row browse-case-row">
+                          <button class="case-select" type="button" aria-pressed={selectedCaseIds.includes(caseItem.id)} onclick={() => selectOnlyCase(caseItem.id)}>
+                            <span class="case-title">{caseItem.title}</span>
+                            <span class="case-meta">Primary Topic: {row.breadcrumbLabel}</span>
+                          </button>
+                          <a class="case-open" href={'/admin/cases/' + caseItem.id}>Open Case</a>
+                        </div>
                       {/if}
                     {/each}
                   {:else}<span class="muted">No active production Cases are directly assigned to this Topic.</span>{/if}
@@ -478,8 +484,8 @@
       {/if}
     </section>
 
-    {#if organizeMode && selectedCases.length}
-      <CaseClassificationInspector {selectedCases} items={projectedItems} {availableTags} {caseTagAssignments} stagedTagChanges={stagedCaseTagChanges} onStage={stageCasePrimaryTopic} onStageTags={stageCaseTags} onClear={clearCaseSelection} />
+    {#if selectedCases.length}
+      <CaseClassificationInspector {selectedCases} items={projectedItems} {availableTags} {caseTagAssignments} stagedTagChanges={stagedCaseTagChanges} editable={organizeMode} onStage={stageCasePrimaryTopic} onStageTags={stageCaseTags} onClear={clearCaseSelection} />
     {:else}
       <TaxonomyWorkspaceInspector {selected} subtopicCount={selectedSubtopicCount} casesRevealed={selected ? casesVisible(selected) : false} focused={Boolean(selected && selected.kind === 'system' && selected.id === focusSystemId)} {organizeMode} moveStaged={Boolean(selected && selected.kind === 'topic' && isMoveStaged(selected.id))} onCreateChild={createChild} onToggleCases={toggleCases} onFocus={focusSystem} onClearFocus={clearFocus} onMoveTopic={openMove} />
     {/if}
@@ -556,6 +562,7 @@
   .case-list { display: grid; gap: .28rem; padding: .15rem .45rem .65rem 0; }
   .case-list-tools { display: flex; justify-content: space-between; align-items: center; gap: .6rem; color: #667085; font-size: .78rem; }
   .case-row { display: flex; justify-content: space-between; align-items: flex-start; gap: .8rem; padding: .52rem .65rem; border: 1px solid #e4e7ec; border-radius: 7px; background: #fcfcfd; color: #172033; text-decoration: none; }
+  .browse-case-row.selected-case { border-color: #8098f9; background: #f5f8ff; }
   .organize-case-row { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; }
   .organize-case-row.selected-case { border-color: #8098f9; background: #f5f8ff; }
   .organize-case-row.staged-case { box-shadow: inset 3px 0 0 #f79009; }
