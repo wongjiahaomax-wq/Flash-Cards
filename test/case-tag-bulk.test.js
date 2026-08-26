@@ -57,6 +57,7 @@ function createLearningDb(options = {}) {
     }
   });
   if (options.batch !== false) {
+    /** @param {any[]} queries */
     d1.batch = async (queries) => {
       sqlite.exec('BEGIN');
       try {
