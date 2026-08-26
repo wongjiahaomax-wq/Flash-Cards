@@ -31,6 +31,12 @@ export type TaxonomyWorkspaceRow = TaxonomyWorkspaceItem & {
   contextOnly: boolean;
 };
 
+export type StagedTopicMove = {
+  id: string;
+  originalParentId: string | null;
+  parentId: string | null;
+};
+
 type BuildWorkspaceRowsInput = {
   search?: string;
   filter?: WorkspaceFilter;
@@ -40,6 +46,11 @@ type BuildWorkspaceRowsInput = {
 
 function compareItems(left: TaxonomyWorkspaceItem, right: TaxonomyWorkspaceItem) {
   return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+}
+
+function normalizedParentId(value: string | null | undefined) {
+  const parentId = String(value ?? '').trim();
+  return parentId || null;
 }
 
 function matchesFilter(item: TaxonomyWorkspaceItem, filter: WorkspaceFilter) {
@@ -85,6 +96,136 @@ function includeAncestors(
     seen.add(current.id);
     current = current.parentId ? byId.get(current.parentId) : undefined;
   }
+}
+
+function isDescendantOf(
+  candidateId: string,
+  ancestorId: string,
+  byId: Map<string, TaxonomyWorkspaceItem>
+) {
+  let current = byId.get(candidateId);
+  const seen = new Set<string>();
+  while (current?.parentId && !seen.has(current.id)) {
+    if (current.parentId === ancestorId) return true;
+    seen.add(current.id);
+    current = byId.get(current.parentId);
+  }
+  return false;
+}
+
+export function projectTaxonomyWithMoves(
+  items: TaxonomyWorkspaceItem[],
+  moves: StagedTopicMove[]
+): TaxonomyWorkspaceItem[] {
+  const parentByTopicId = new Map(moves.map((move) => [move.id, normalizedParentId(move.parentId)]));
+  const projected = items.map((item) => item.kind === 'topic' && parentByTopicId.has(item.id)
+    ? { ...item, parentId: parentByTopicId.get(item.id) ?? null }
+    : { ...item });
+  const byId = new Map(projected.map((item) => [item.id, item]));
+  const childrenByParent = new Map<string, TaxonomyWorkspaceItem[]>();
+
+  for (const item of projected) {
+    if (!item.parentId || !byId.has(item.parentId)) continue;
+    const children = childrenByParent.get(item.parentId) ?? [];
+    children.push(item);
+    childrenByParent.set(item.parentId, children);
+  }
+
+  const descendantCaseMemo = new Map<string, number>();
+  const descendantCases = (id: string, path = new Set<string>()): number => {
+    if (descendantCaseMemo.has(id)) return descendantCaseMemo.get(id) ?? 0;
+    if (path.has(id)) return 0;
+    const item = byId.get(id);
+    if (!item) return 0;
+    const nextPath = new Set(path);
+    nextPath.add(id);
+    let count = item.kind === 'topic' ? item.directCaseCount : 0;
+    for (const child of childrenByParent.get(id) ?? []) {
+      if (child.kind === 'topic') count += descendantCases(child.id, nextPath);
+    }
+    descendantCaseMemo.set(id, count);
+    return count;
+  };
+
+  const hierarchyIdentity = (item: TaxonomyWorkspaceItem) => {
+    const names = [item.name];
+    let systemId = item.kind === 'system' ? item.id : null;
+    let current = item;
+    const seen = new Set([item.id]);
+
+    while (current.parentId) {
+      const parent = byId.get(current.parentId);
+      if (!parent || seen.has(parent.id)) break;
+      names.unshift(parent.name);
+      if (parent.kind === 'system') systemId = parent.id;
+      seen.add(parent.id);
+      current = parent;
+    }
+
+    return {
+      breadcrumbLabel: names.join(' → '),
+      systemId,
+      unassigned: item.kind === 'topic' && item.parentId === null
+    };
+  };
+
+  return projected.map((item) => ({
+    ...item,
+    ...hierarchyIdentity(item),
+    descendantStudyCaseCount: descendantCases(item.id)
+  }));
+}
+
+export function topicMoveTargets(items: TaxonomyWorkspaceItem[], topicId: string) {
+  const byId = new Map(items.map((item) => [item.id, item]));
+  const topic = byId.get(topicId);
+  if (!topic || topic.kind !== 'topic') return [];
+
+  return items
+    .filter((item) => (
+      item.isActive
+      && item.id !== topicId
+      && (item.kind === 'system' || item.kind === 'topic')
+      && !isDescendantOf(item.id, topicId, byId)
+    ))
+    .sort((left, right) => left.breadcrumbLabel.localeCompare(right.breadcrumbLabel) || left.id.localeCompare(right.id));
+}
+
+export function canStageTopicMove(
+  items: TaxonomyWorkspaceItem[],
+  moves: StagedTopicMove[],
+  topicId: string,
+  parentId: string | null
+) {
+  const topic = items.find((item) => item.id === topicId);
+  if (!topic || topic.kind !== 'topic') return false;
+  const nextParentId = normalizedParentId(parentId);
+  if (nextParentId === null) return true;
+
+  const withoutCurrentMove = moves.filter((move) => move.id !== topicId);
+  const projected = projectTaxonomyWithMoves(items, withoutCurrentMove);
+  return topicMoveTargets(projected, topicId).some((target) => target.id === nextParentId);
+}
+
+export function stageTopicMove(
+  items: TaxonomyWorkspaceItem[],
+  moves: StagedTopicMove[],
+  topicId: string,
+  parentId: string | null
+): StagedTopicMove[] {
+  const topic = items.find((item) => item.id === topicId);
+  if (!topic || topic.kind !== 'topic') throw new Error('Only Topics can be moved.');
+
+  const nextParentId = normalizedParentId(parentId);
+  if (!canStageTopicMove(items, moves, topicId, nextParentId)) {
+    throw new Error('The selected Topic parent would create an invalid hierarchy.');
+  }
+
+  const originalParentId = normalizedParentId(topic.parentId);
+  const withoutCurrentMove = moves.filter((move) => move.id !== topicId);
+  if (nextParentId === originalParentId) return withoutCurrentMove;
+
+  return [...withoutCurrentMove, { id: topicId, originalParentId, parentId: nextParentId }];
 }
 
 export function buildTaxonomyWorkspaceRows(

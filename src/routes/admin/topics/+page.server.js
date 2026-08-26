@@ -3,6 +3,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createDb } from '$lib/server/db/index.js';
 import { getTaxonomyCoverageReport, listTaxonomyLibrary } from '$lib/server/db/taxonomy-admin-read.ts';
+import { applyStagedTaxonomyHierarchy } from '$lib/server/db/taxonomy-hierarchy-staging.ts';
 import {
   applyTaxonomyHierarchy,
   createTaxonomyConcept,
@@ -20,6 +21,34 @@ function actionFailure(cause) {
   if (cause instanceof TaxonomyInputError) return fail(400, { error: cause.message });
   console.error('Taxonomy Admin action failed.', cause);
   return fail(500, { error: 'Unable to update the System/Topic taxonomy.' });
+}
+
+/** @param {FormData} formData */
+function stagedHierarchyChanges(formData) {
+  const raw = formText(formData, 'changes_json');
+  if (!raw) return null;
+  let changes;
+  try {
+    changes = JSON.parse(raw);
+  } catch {
+    throw new TaxonomyInputError('Staged hierarchy changes could not be read. Refresh and try again.');
+  }
+  if (!Array.isArray(changes)) {
+    throw new TaxonomyInputError('Staged hierarchy changes must be submitted as a list.');
+  }
+  return changes;
+}
+
+/** @param {FormData} formData */
+function legacyHierarchyChanges(formData) {
+  const changes = [];
+  for (const [name, value] of formData.entries()) {
+    if (!name.startsWith('parent:') || typeof value !== 'string') continue;
+    const id = name.slice('parent:'.length).trim();
+    if (!id) continue;
+    changes.push({ id, parentId: value.trim() || null });
+  }
+  return changes;
 }
 
 export async function load({ platform, url }) {
@@ -68,15 +97,14 @@ export const actions = {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData();
-    const changes = [];
-    for (const [name, value] of formData.entries()) {
-      if (!name.startsWith('parent:') || typeof value !== 'string') continue;
-      const id = name.slice('parent:'.length).trim();
-      if (!id) continue;
-      changes.push({ id, parentId: value.trim() || null });
-    }
     try {
-      await applyTaxonomyHierarchy(createDb(platform.env.DB), changes);
+      const staged = stagedHierarchyChanges(formData);
+      const db = createDb(platform.env.DB);
+      if (staged) {
+        await applyStagedTaxonomyHierarchy(db, staged);
+      } else {
+        await applyTaxonomyHierarchy(db, legacyHierarchyChanges(formData));
+      }
     } catch (cause) {
       return actionFailure(cause);
     }

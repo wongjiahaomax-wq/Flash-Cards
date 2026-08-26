@@ -1,9 +1,15 @@
 <script lang="ts">
+  import TaxonomyChangeTray from './TaxonomyChangeTray.svelte';
   import TaxonomyInspector from './TaxonomyInspector.svelte';
   import {
     activeSystemOptions,
     activeTaxonomyParents,
     buildTaxonomyWorkspaceRows,
+    canStageTopicMove,
+    projectTaxonomyWithMoves,
+    stageTopicMove,
+    topicMoveTargets,
+    type StagedTopicMove,
     type TaxonomyWorkspaceItem,
     type WorkspaceFilter
   } from './taxonomy-workspace-model.ts';
@@ -18,9 +24,9 @@
     initialSelectedId?: string;
   } = $props();
 
-  let query = $state(initialSearch);
+  let query = $state('');
   let filter = $state<WorkspaceFilter>('all');
-  let selectedId = $state(initialSelectedId);
+  let selectedId = $state('');
   let focusSystemId = $state('');
   let collapsedIds = $state<string[]>([]);
   let revealedTopicIds = $state<string[]>([]);
@@ -28,20 +34,34 @@
   let createKind = $state<'system' | 'topic'>('topic');
   let createParentId = $state('');
   let createContextLabel = $state('');
+  let organizeMode = $state(false);
+  let stagedMoves = $state<StagedTopicMove[]>([]);
+  let draggedTopicId = $state('');
+  let moveTopicId = $state('');
+  let moveParentId = $state('');
 
-  const parentOptions = $derived(activeTaxonomyParents(items));
-  const systemOptions = $derived(activeSystemOptions(items));
-  const rows = $derived(buildTaxonomyWorkspaceRows(items, {
+  function initializeFromProps() {
+    query = initialSearch;
+    selectedId = initialSelectedId;
+  }
+  initializeFromProps();
+
+  const projectedItems = $derived(projectTaxonomyWithMoves(items, stagedMoves));
+  const parentOptions = $derived(activeTaxonomyParents(projectedItems));
+  const systemOptions = $derived(activeSystemOptions(projectedItems));
+  const rows = $derived(buildTaxonomyWorkspaceRows(projectedItems, {
     search: query,
     filter,
     focusSystemId: focusSystemId || null,
     collapsedIds
   }));
-  const selected = $derived(items.find((item) => item.id === selectedId) ?? null);
+  const selected = $derived(projectedItems.find((item) => item.id === selectedId) ?? null);
   const focusedSystem = $derived(systemOptions.find((item) => item.id === focusSystemId) ?? null);
   const selectedSubtopicCount = $derived(selected
-    ? items.filter((item) => item.parentId === selected.id && item.kind === 'topic').length
+    ? projectedItems.filter((item) => item.parentId === selected.id && item.kind === 'topic').length
     : 0);
+  const moveTopic = $derived(projectedItems.find((item) => item.id === moveTopicId && item.kind === 'topic') ?? null);
+  const moveTargetOptions = $derived(moveTopicId ? topicMoveTargets(projectedItems, moveTopicId) : []);
 
   const filters: { id: WorkspaceFilter; label: string }[] = [
     { id: 'all', label: 'All' },
@@ -81,6 +101,7 @@
   }
 
   function createChild(parent: TaxonomyWorkspaceItem) {
+    if (!parent.isActive) return;
     openCreate('topic', parent.id, parent.kind === 'system'
       ? `New Topic under ${parent.name}`
       : `New subtopic under ${parent.breadcrumbLabel}`);
@@ -95,6 +116,78 @@
   function clearFocus() {
     focusSystemId = '';
   }
+
+  function enterOrganize() {
+    organizeMode = true;
+    createOpen = false;
+  }
+
+  function exitOrganize() {
+    if (stagedMoves.length) return;
+    organizeMode = false;
+    moveTopicId = '';
+    draggedTopicId = '';
+  }
+
+  function discardAllMoves() {
+    stagedMoves = [];
+    moveTopicId = '';
+    draggedTopicId = '';
+  }
+
+  function undoMove(topicId: string) {
+    stagedMoves = stagedMoves.filter((move) => move.id !== topicId);
+  }
+
+  function isMoveStaged(topicId: string) {
+    return stagedMoves.some((move) => move.id === topicId);
+  }
+
+  function openMove(topic: TaxonomyWorkspaceItem) {
+    if (!organizeMode || topic.kind !== 'topic') return;
+    moveTopicId = topic.id;
+    moveParentId = topic.parentId ?? '';
+  }
+
+  function stageSelectedMove() {
+    if (!moveTopic) return;
+    stagedMoves = stageTopicMove(items, stagedMoves, moveTopic.id, moveParentId || null);
+    selectedId = moveTopic.id;
+    moveTopicId = '';
+  }
+
+  function beginDrag(event: DragEvent, topicId: string) {
+    if (!organizeMode) return;
+    draggedTopicId = topicId;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', topicId);
+    }
+  }
+
+  function draggedId(event: DragEvent) {
+    return draggedTopicId || event.dataTransfer?.getData('text/plain')?.trim() || '';
+  }
+
+  function allowDrop(event: DragEvent, parentId: string | null) {
+    const topicId = draggedId(event);
+    if (!topicId || !canStageTopicMove(items, stagedMoves, topicId, parentId)) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  }
+
+  function dropTopic(event: DragEvent, parentId: string | null) {
+    const topicId = draggedId(event);
+    if (!topicId || !canStageTopicMove(items, stagedMoves, topicId, parentId)) return;
+    event.preventDefault();
+    stagedMoves = stageTopicMove(items, stagedMoves, topicId, parentId);
+    selectedId = topicId;
+    draggedTopicId = '';
+  }
+
+  function endDrag() {
+    draggedTopicId = '';
+  }
 </script>
 
 <section class="workspace-shell">
@@ -105,9 +198,20 @@
     </label>
     <div class="toolbar-actions">
       <button class="button" type="button" onclick={() => { collapsedIds = []; }}>Expand all</button>
-      <button class="button" type="button" onclick={() => { collapsedIds = items.map((item) => item.id); }}>Collapse all</button>
-      <button class="button" type="button" onclick={() => openCreate('system')}>+ New System</button>
-      <button class="button primary" type="button" onclick={() => openCreate('topic')}>+ New Topic</button>
+      <button class="button" type="button" onclick={() => { collapsedIds = projectedItems.map((item) => item.id); }}>Collapse all</button>
+      {#if organizeMode}
+        <button
+          class="button organize-active"
+          type="button"
+          disabled={stagedMoves.length > 0}
+          title={stagedMoves.length ? 'Discard or apply staged changes before leaving Organize mode.' : 'Return to Browse mode'}
+          onclick={exitOrganize}
+        >Done organizing</button>
+      {:else}
+        <button class="button" type="button" onclick={enterOrganize}>Organize taxonomy &amp; Cases</button>
+        <button class="button" type="button" onclick={() => openCreate('system')}>+ New System</button>
+        <button class="button primary" type="button" onclick={() => openCreate('topic')}>+ New Topic</button>
+      {/if}
     </div>
   </div>
 
@@ -128,6 +232,48 @@
       <div><span class="muted">Systems &amp; Topics /</span> <strong>{focusedSystem.name}</strong></div>
       <button class="button compact" type="button" onclick={clearFocus}>← All Systems</button>
     </div>
+  {/if}
+
+  {#if organizeMode}
+    <section class="organize-banner" aria-label="Organize mode">
+      <div>
+        <p class="eyebrow">Organize mode</p>
+        <strong>Topic moves are staged locally.</strong>
+        <p>Drag a Topic onto an active System or Topic, or use <strong>Move to…</strong>. Nothing is saved until Validate &amp; apply.</p>
+      </div>
+      <div
+        class:drop-allowed={Boolean(draggedTopicId && canStageTopicMove(items, stagedMoves, draggedTopicId, null))}
+        class="unassigned-drop"
+        role="group"
+        aria-label="Move Topic to Unassigned"
+        ondragover={(event) => allowDrop(event, null)}
+        ondrop={(event) => dropTopic(event, null)}
+      >
+        Drop here → Unassigned Topics
+      </div>
+    </section>
+  {/if}
+
+  {#if moveTopic}
+    <section class="move-panel" aria-labelledby="move-topic-heading">
+      <div>
+        <p class="eyebrow">Stage hierarchy change</p>
+        <h2 id="move-topic-heading">Move {moveTopic.name}</h2>
+        <p class="muted">Choose a new active System/Topic parent, or leave it Unassigned. This does not save immediately.</p>
+      </div>
+      <label>New parent
+        <select bind:value={moveParentId}>
+          <option value="">Unassigned</option>
+          {#each moveTargetOptions as parent}
+            <option value={parent.id}>{parent.breadcrumbLabel} · {parent.kind === 'system' ? 'System' : 'Topic'}</option>
+          {/each}
+        </select>
+      </label>
+      <div class="move-actions">
+        <button class="button" type="button" onclick={() => { moveTopicId = ''; }}>Cancel</button>
+        <button class="button primary" type="button" onclick={stageSelectedMove}>Stage move</button>
+      </div>
+    </section>
   {/if}
 
   {#if createOpen}
@@ -175,9 +321,9 @@
         <div>
           <p class="eyebrow">Taxonomy workspace</p>
           <h2 id="taxonomy-tree-heading">Systems &amp; nested Topics</h2>
-          <p class="muted">Browse safely here. Cases stay hidden until you reveal a Topic's direct Cases.</p>
+          <p class="muted">{organizeMode ? 'Proposed Topic moves are previewed in the tree before apply.' : "Browse safely here. Cases stay hidden until you reveal a Topic's direct Cases."}</p>
         </div>
-        <span class="result-count">{rows.length} visible</span>
+        <span class="result-count">{rows.length} visible{#if stagedMoves.length} · {stagedMoves.length} staged{/if}</span>
       </div>
 
       {#if rows.length === 0}
@@ -190,13 +336,28 @@
                 class:selected={selectedId === row.id}
                 class:context-only={row.contextOnly}
                 class:inactive={!row.isActive}
+                class:staged={row.kind === 'topic' && isMoveStaged(row.id)}
+                class:drop-allowed={Boolean(organizeMode && draggedTopicId && row.isActive && canStageTopicMove(items, stagedMoves, draggedTopicId, row.id))}
                 class="tree-row"
                 role="treeitem"
                 aria-level={row.depth + 1}
                 aria-selected={selectedId === row.id}
                 aria-expanded={row.hasChildren ? !collapsedIds.includes(row.id) : undefined}
+                ondragover={(event) => organizeMode && row.isActive && allowDrop(event, row.id)}
+                ondrop={(event) => organizeMode && row.isActive && dropTopic(event, row.id)}
               >
                 <div class="tree-main" style={`padding-left: ${row.depth * 1.05}rem`}>
+                  {#if organizeMode && row.kind === 'topic'}
+                    <button
+                      class="drag-handle"
+                      type="button"
+                      draggable="true"
+                      aria-label={`Drag ${row.name} to move Topic`}
+                      title="Drag to stage a Topic move"
+                      ondragstart={(event) => beginDrag(event, row.id)}
+                      ondragend={endDrag}
+                    >⋮⋮</button>
+                  {/if}
                   {#if row.hasChildren}
                     <button
                       class="collapse-button"
@@ -214,6 +375,7 @@
                       {row.kind === 'system' ? 'System' : 'Topic'}
                       {#if row.unassigned} · Unassigned{/if}
                       {#if !row.isActive} · Inactive{/if}
+                      {#if row.kind === 'topic' && isMoveStaged(row.id)} · Move staged{/if}
                     </span>
                   </button>
                 </div>
@@ -230,9 +392,13 @@
                 </div>
 
                 <div class="row-actions">
-                  <button class="text-action" type="button" onclick={() => createChild(row)}>
-                    {row.kind === 'system' ? '+ Add Topic' : '+ Add subtopic'}
-                  </button>
+                  {#if organizeMode && row.kind === 'topic'}
+                    <button class="text-action" type="button" onclick={() => openMove(row)}>Move to…</button>
+                  {:else if row.isActive}
+                    <button class="text-action" type="button" onclick={() => createChild(row)}>
+                      {row.kind === 'system' ? '+ Add Topic' : '+ Add subtopic'}
+                    </button>
+                  {/if}
                   {#if row.kind === 'topic' && row.directCaseCount > 0}
                     <button class="text-action" type="button" aria-pressed={casesVisible(row)} onclick={() => toggleCases(row.id)}>
                       {casesVisible(row) ? 'Hide Cases' : 'Show Cases'}
@@ -269,12 +435,24 @@
       subtopicCount={selectedSubtopicCount}
       casesRevealed={selected ? casesVisible(selected) : false}
       focused={Boolean(selected && selected.kind === 'system' && selected.id === focusSystemId)}
+      {organizeMode}
+      moveStaged={Boolean(selected && selected.kind === 'topic' && isMoveStaged(selected.id))}
       onCreateChild={createChild}
       onToggleCases={toggleCases}
       onFocus={focusSystem}
       onClearFocus={clearFocus}
+      onMoveTopic={openMove}
     />
   </div>
+
+  {#if stagedMoves.length}
+    <TaxonomyChangeTray
+      moves={stagedMoves}
+      items={items}
+      onDiscardAll={discardAllMoves}
+      onUndoMove={undoMove}
+    />
+  {/if}
 </section>
 
 <style>
@@ -283,19 +461,29 @@
   .search-control { display: grid; gap: .32rem; color: #344054; font-weight: 650; }
   input,select,textarea { box-sizing: border-box; width: 100%; padding: .66rem .72rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; }
   textarea { resize: vertical; }
-  .toolbar-actions,.create-actions,.row-actions,.filter-row { display: flex; flex-wrap: wrap; gap: .45rem; }
+  .toolbar-actions,.create-actions,.move-actions,.row-actions,.filter-row { display: flex; flex-wrap: wrap; gap: .45rem; }
   .button { display: inline-block; width: max-content; max-width: 100%; box-sizing: border-box; padding: .66rem .88rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; font-weight: 650; }
   .button.primary { border-color: #172033; background: #172033; color: #fff; }
   .button.compact { padding: .45rem .65rem; }
+  .button.organize-active { border-color: #f79009; background: #fffaeb; color: #93370d; }
+  .button:disabled { cursor: not-allowed; opacity: .55; }
   .filter-row { align-items: center; }
   .filter-chip { padding: .38rem .68rem; border: 1px solid #d0d5dd; border-radius: 999px; background: #fff; color: #475467; cursor: pointer; font: inherit; font-size: .84rem; font-weight: 650; }
   .filter-chip.active { border-color: #344054; background: #f2f4f7; color: #172033; }
   .focus-banner { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .7rem .85rem; border: 1px solid #c7d7fe; border-radius: 9px; background: #f5f8ff; }
+  .organize-banner { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .8rem; align-items: center; padding: .85rem 1rem; border: 1px solid #fdb022; border-radius: 10px; background: #fffaeb; }
+  .organize-banner p { margin-bottom: 0; color: #854a0e; }
+  .unassigned-drop { padding: .7rem .85rem; border: 1px dashed #f79009; border-radius: 8px; background: #fff; color: #93370d; font-weight: 700; }
+  .unassigned-drop.drop-allowed { outline: 3px solid rgb(247 144 9 / .25); background: #fff4e6; }
   .muted { color: #667085; }
   .eyebrow { margin: 0 0 .28rem; color: #667085; font-size: .72rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
   h2,p { margin-top: 0; }
   h2 { margin-bottom: .2rem; font-size: 1.16rem; }
-  .create-panel { display: grid; gap: .85rem; padding: 1rem; border: 1px solid #b2ccff; border-radius: 10px; background: #f8faff; }
+  .create-panel,.move-panel { display: grid; gap: .85rem; padding: 1rem; border: 1px solid #b2ccff; border-radius: 10px; background: #f8faff; }
+  .move-panel { grid-template-columns: minmax(0, 1fr) minmax(260px, .8fr) auto; align-items: end; border-color: #fdb022; background: #fffcf5; }
+  .move-panel p { margin-bottom: 0; }
+  .move-panel label { display: grid; gap: .3rem; color: #344054; font-weight: 650; }
+  .move-actions { justify-content: flex-end; }
   .create-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
   .create-heading p { margin-bottom: 0; }
   .icon-button { display: grid; place-items: center; width: 2rem; height: 2rem; padding: 0; border: 1px solid #d0d5dd; border-radius: 999px; background: #fff; color: #475467; cursor: pointer; font-size: 1.2rem; }
@@ -316,7 +504,11 @@
   .tree-row.selected { background: #eef4ff; box-shadow: inset 3px 0 0 #6172f3; }
   .tree-row.context-only { background: #fcfcfd; }
   .tree-row.inactive { opacity: .68; }
+  .tree-row.staged { box-shadow: inset 3px 0 0 #f79009; }
+  .tree-row.drop-allowed { outline: 2px solid #f79009; outline-offset: -2px; background: #fffaeb; }
   .tree-main { display: flex; align-items: center; min-width: 0; }
+  .drag-handle { flex: 0 0 1.75rem; width: 1.75rem; height: 1.75rem; padding: 0; border: 1px solid #d0d5dd; border-radius: 5px; background: #fff; color: #667085; cursor: grab; font: inherit; font-weight: 800; line-height: 1; }
+  .drag-handle:active { cursor: grabbing; }
   .collapse-button,.tree-spacer { flex: 0 0 1.65rem; width: 1.65rem; }
   .collapse-button { height: 1.65rem; padding: 0; border: 0; border-radius: 5px; background: transparent; color: #475467; cursor: pointer; font-size: 1rem; }
   .collapse-button:hover { background: #eaecf0; }
@@ -337,17 +529,21 @@
   @media (max-width: 1120px) {
     .tree-row { grid-template-columns: minmax(0, 1fr) auto; }
     .row-actions { grid-column: 1 / -1; padding-left: 1.9rem; justify-content: flex-start; }
+    .move-panel { grid-template-columns: 1fr; }
+    .move-actions { justify-content: flex-start; }
   }
   @media (max-width: 920px) {
-    .toolbar,.workspace-grid { grid-template-columns: 1fr; }
+    .toolbar,.workspace-grid,.organize-banner { grid-template-columns: 1fr; }
     .toolbar-actions { justify-content: flex-start; }
     .create-form { grid-template-columns: 1fr; }
     .create-form .wide,.create-actions { grid-column: auto; }
+    .unassigned-drop { width: auto; }
   }
   @media (max-width: 620px) {
     .tree-row { grid-template-columns: 1fr; gap: .35rem; }
     .node-counts,.row-actions { justify-content: flex-start; padding-left: 1.9rem; }
     .case-list { margin-left: 2rem !important; }
     .focus-banner,.panel-heading { align-items: flex-start; flex-direction: column; }
+    .drag-handle { display: none; }
   }
 </style>

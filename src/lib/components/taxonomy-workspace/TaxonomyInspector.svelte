@@ -6,19 +6,25 @@
     subtopicCount = 0,
     casesRevealed = false,
     focused = false,
+    organizeMode = false,
+    moveStaged = false,
     onCreateChild,
     onToggleCases,
     onFocus,
-    onClearFocus
+    onClearFocus,
+    onMoveTopic
   }: {
     selected: TaxonomyWorkspaceItem | null;
     subtopicCount?: number;
     casesRevealed?: boolean;
     focused?: boolean;
+    organizeMode?: boolean;
+    moveStaged?: boolean;
     onCreateChild: (parent: TaxonomyWorkspaceItem) => void;
     onToggleCases: (topicId: string) => void;
     onFocus: (systemId: string) => void;
     onClearFocus: () => void;
+    onMoveTopic: (topic: TaxonomyWorkspaceItem) => void;
   } = $props();
 </script>
 
@@ -31,6 +37,7 @@
         <div class="identity-row">
           <span class:system={selected.kind === 'system'} class="kind-badge">{selected.kind === 'system' ? 'System' : 'Topic'}</span>
           <span class:inactive={!selected.isActive} class="status-badge">{selected.isActive ? 'Active' : 'Inactive'}</span>
+          {#if moveStaged}<span class="staged-badge">Move staged</span>{/if}
         </div>
       </div>
     </div>
@@ -54,9 +61,14 @@
     {/if}
 
     <div class="actions">
-      <button class="button primary" type="button" onclick={() => onCreateChild(selected)}>
-        {selected.kind === 'system' ? '+ Add Topic' : '+ Add subtopic'}
-      </button>
+      {#if selected.isActive}
+        <button class="button primary" type="button" onclick={() => onCreateChild(selected)}>
+          {selected.kind === 'system' ? '+ Add Topic' : '+ Add subtopic'}
+        </button>
+      {/if}
+      {#if organizeMode && selected.kind === 'topic'}
+        <button class="button" type="button" onclick={() => onMoveTopic(selected)}>Move to…</button>
+      {/if}
       {#if selected.kind === 'topic' && selected.directCaseCount > 0}
         <button class="button" type="button" aria-pressed={casesRevealed} onclick={() => onToggleCases(selected.id)}>
           {casesRevealed ? 'Hide Cases' : 'Show Cases'}
@@ -86,10 +98,11 @@
   .eyebrow { margin: 0 0 .28rem; color: #667085; font-size: .72rem; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
   h2 { margin: 0; font-size: 1.3rem; overflow-wrap: anywhere; }
   .identity-row { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .55rem; }
-  .kind-badge,.status-badge { display: inline-block; width: max-content; padding: .18rem .45rem; border-radius: 999px; background: #f2f4f7; color: #475467; font-size: .76rem; font-weight: 700; }
+  .kind-badge,.status-badge,.staged-badge { display: inline-block; width: max-content; padding: .18rem .45rem; border-radius: 999px; background: #f2f4f7; color: #475467; font-size: .76rem; font-weight: 700; }
   .kind-badge.system { background: #eef4ff; color: #3538cd; }
   .status-badge { background: #ecfdf3; color: #027a48; }
   .status-badge.inactive { background: #f2f4f7; color: #667085; }
+  .staged-badge { background: #fffaeb; color: #b54708; }
   .breadcrumb { padding: .7rem .8rem; border-radius: 8px; background: #f8fafc; color: #475467; font-size: .88rem; line-height: 1.45; overflow-wrap: anywhere; }
   .metrics { display: grid; gap: .55rem; margin: 0; }
   .metrics > div { display: flex; justify-content: space-between; gap: 1rem; padding-bottom: .5rem; border-bottom: 1px solid #eaecf0; }
