@@ -62,7 +62,8 @@ test('Case inspector supports single and bulk Primary Topic plus Case Tag stagin
   assert.match(caseInspector, /Stage add/);
   assert.match(caseInspector, /Stage remove/);
   assert.match(caseInspector, /up to 60 selected Cases/);
-  assert.doesNotMatch(organizer, /draggable=.*tag/i);
+  assert.doesNotMatch(organizer, /beginTagDrag|draggedTag|application\/x-flashcards-tag/i);
+  assert.doesNotMatch(caseInspector, /draggable=/i);
 });
 
 test('mixed hierarchy, Primary Topic and Case Tag changes share one staged review/apply workflow', () => {
