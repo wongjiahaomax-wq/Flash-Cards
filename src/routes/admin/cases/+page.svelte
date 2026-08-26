@@ -1,4 +1,6 @@
 <script>
+  import CaseTagInlineEditor from '$lib/components/case-library/CaseTagInlineEditor.svelte';
+
   let { data, form } = $props();
   let query = $state('');
   let topicQuery = $state('');
@@ -153,7 +155,7 @@
 </form>
 
 <section class="panel" aria-labelledby="case-list-heading">
-  <div class="panel-heading"><div><h2 id="case-list-heading">{inactiveView ? 'Inactive Cases' : 'Active Cases'} <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">{inactiveView ? 'Inactive Cases are preserved for recovery and are unavailable to learners.' : 'Tags are curation metadata; Topic remains the learner study route.'}</span></div>
+  <div class="panel-heading"><div><h2 id="case-list-heading">{inactiveView ? 'Inactive Cases' : 'Active Cases'} <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">{inactiveView ? 'Inactive Cases are preserved for recovery and are unavailable to learners.' : 'Tags are curation metadata; Topic remains the learner study route.'}</span></div>
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if data.status === 'bulk-topic-updated'}<p class="success-message" role="status">Primary Topic updated for the selected Cases.</p>{/if}
   {#if data.status === 'cases-deactivated'}<p class="success-message" role="status">Selected Cases deactivated. Their content and history were retained.</p>{/if}
@@ -180,7 +182,13 @@
           <span class="case-cell"><input class="case-select" type="checkbox" name="case_ids" value={item.id} bind:group={selectedCaseIds} aria-label={`Select ${item.title}`} /><a href={caseHref(item)}><strong>{item.title}</strong></a>{#if inactiveView}<span class="status-badge">Inactive</span>{/if}</span>
           <span>{item.conceptName ?? 'Unassigned'}</span>
           <span>{item.systemName ?? 'Unassigned'}</span>
-          <span class="tag-list">{#if item.tags.length}{#each item.tags as tag}<span class="tag-chip">{tag.name}</span>{/each}{:else}<span class="muted">—</span>{/if}</span>
+          <div class="tag-cell">
+            {#if inactiveView}
+              <span class="tag-list">{#if item.tags.length}{#each item.tags as tag}<span class="tag-chip">{tag.name}</span>{/each}{:else}<span class="muted">—</span>{/if}</span>
+            {:else}
+              <CaseTagInlineEditor caseId={item.id} caseTitle={item.title} tags={item.tags} availableTags={data.tags} />
+            {/if}
+          </div>
           <a class="open-link" href={caseHref(item)}>{inactiveView ? 'Recover' : 'Open'} →</a>
         </div>
       {/each}
@@ -207,8 +215,9 @@
   .bulk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 1rem; padding: 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #f8fafc; } .bulk-toolbar > div { display: grid; gap: 0.2rem; margin-right: auto; } .bulk-topic { display: flex; align-items: center; gap: 0.55rem; min-width: 360px; } .bulk-topic select { flex: 1; min-width: 0; } button:disabled, select:disabled { cursor: not-allowed; opacity: 0.55; } .form-error, .success-message { margin: 1rem 0 0; padding: 0.75rem; border-radius: 8px; } .form-error { background: #fef3f2; color: #b42318; } .success-message { background: #ecfdf3; color: #027a48; }
   .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(160px, 1fr) 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .sort-header { color: inherit; text-decoration: none; } .sort-header span { margin-left: 0.2rem; font-size: 0.9rem; } .table-row { border-bottom: 1px solid #eaecf0; color: #172033; } .table-row.inactive-row { background: #fcfcfd; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .case-heading, .case-cell { display: flex; align-items: center; gap: 0.55rem; min-width: 0; } .case-cell a { min-width: 0; color: #172033; text-decoration: none; } .case-cell a strong { overflow-wrap: anywhere; } .case-heading input, .case-select { width: 1rem; height: 1rem; flex: 0 0 auto; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; text-decoration: none; }
   .status-badge { flex: 0 0 auto; padding: 0.16rem 0.42rem; border-radius: 999px; background: #fef3f2; color: #b42318 !important; font-size: 0.72rem; font-weight: 750; } .tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; } .tag-chip { display: inline-block; padding: 0.18rem 0.4rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; }
+  .tag-cell { min-width: 0; }
   .empty-state { padding: 1rem; border: 1px dashed #d0d5dd; border-radius: 8px; }
   .pagination { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.75rem; margin-top: 1rem; } .pagination > :last-child { justify-self: end; }
   @media (max-width: 1100px) { .search-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .search-actions { grid-column: 1 / -1; } }
-  @media (max-width: 600px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .search-form { grid-template-columns: minmax(0, 1fr); } .search-actions { grid-column: auto; } .bulk-topic { min-width: 100%; } .table-header { display: none; } .table-row { grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem 0.75rem; } .case-cell, .tag-list { grid-column: 1 / -1; } .open-link { text-align: left; } .pagination { grid-template-columns: 1fr 1fr; } .pagination > span { grid-column: 1 / -1; grid-row: 1; text-align: center; } .pagination > a:first-of-type { grid-column: 1; } .pagination > a:last-of-type { grid-column: 2; } }
+  @media (max-width: 600px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .search-form { grid-template-columns: minmax(0, 1fr); } .search-actions { grid-column: auto; } .bulk-topic { min-width: 100%; } .table-header { display: none; } .table-row { grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem 0.75rem; } .case-cell, .tag-list, .tag-cell { grid-column: 1 / -1; } .open-link { text-align: left; } .pagination { grid-template-columns: 1fr 1fr; } .pagination > span { grid-column: 1 / -1; grid-row: 1; text-align: center; } .pagination > a:first-of-type { grid-column: 1; } .pagination > a:last-of-type { grid-column: 2; } }
 </style>
