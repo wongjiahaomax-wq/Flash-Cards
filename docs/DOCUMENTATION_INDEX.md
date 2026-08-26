@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 25 August 2026_
+_Last reviewed: 26 August 2026_
 
 This index identifies the documents that describe current repository behavior, operational contracts, pending designs, and historical records.
 
@@ -154,6 +154,14 @@ Current Case Tags additionally carry alternate/cross-cutting Case classification
 - `PERFORMANCE_AND_READ_MODEL_PLAN.md` — bounded reads/measurement guidance.
 
 The Case editor is componentized under `src/lib/components/case-editor/`. Current classification actions are Primary Topic plus Case Tags; Additional Study Topic actions are retired/fail closed. Stored legacy secondary rows are not shown.
+
+## Authentication / account management
+
+- `ACCOUNT_MANAGEMENT_PLAN.md` — pending Account Management v1 product/security design for closed enrollment, password recovery, transactional email, production account administration, Disable/Restore semantics, session controls, and Admin lockout guards.
+- `ACCOUNT_MANAGEMENT_PR_A_IMPLEMENTATION_PROMPT.md` — active PR-A implementation handoff for password recovery + transactional email while that implementation remains pending; the plan remains the design authority.
+- `ACCOUNT_MANAGEMENT_PR_B_IMPLEMENTATION_PROMPT.md` — active PR-B implementation handoff for production Admin account management while that implementation remains pending; it depends on the PR-A email/reset foundation and must preserve existing production/Preview role semantics.
+
+For account/auth work, inspect the current implementation and current PR state before relying on an implementation prompt. Once PR A or PR B is completed, its prompt becomes historical handoff context rather than authority over the implemented code. Public signup remains intentionally disabled unless a separately reviewed product decision changes that contract.
 
 ## Stimulus behavior
 
