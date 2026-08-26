@@ -11,6 +11,12 @@ const accountDetailRoute = await readFile(
   'utf8'
 );
 
+/**
+ * @param {string} source
+ * @param {string} actionName
+ * @param {string} nextActionName
+ * @returns {string}
+ */
 function actionBlock(source, actionName, nextActionName) {
   const startMarker = `${actionName}: async (event) => {`;
   const endMarker = `${nextActionName}: async (event) => {`;
