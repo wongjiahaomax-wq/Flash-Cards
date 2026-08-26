@@ -151,5 +151,7 @@ test('forgot-password and reset-password pages preserve anti-enumeration and tok
   assert.match(resetPageSource, /The passwords do not match\./);
   assert.match(resetPageSource, /INVALID_TOKEN/);
   assert.match(resetPageSource, /history\.replaceState/);
+  assert.match(resetPageSource, /catch\s*\(error\)\s*\{/);
+  assert.match(resetPageSource, /finally\s*\{\s*submitting = false;/);
   assert.doesNotMatch(resetServerSource, /token|searchParams|url\./i);
 });
