@@ -45,6 +45,11 @@
   }
 
   /** @param {KeyboardEvent} event */
+  function preventSearchSubmit(event) {
+    if (event.key === 'Enter') event.preventDefault();
+  }
+
+  /** @param {KeyboardEvent} event */
   function createTagOnEnter(event) {
     if (event.key !== 'Enter') return;
     event.preventDefault();
@@ -77,7 +82,7 @@
 
       <label class="search-field" for="bulk-tag-search">
         Search Tags
-        <input id="bulk-tag-search" type="search" bind:value={tagQuery} placeholder="e.g. hypocalcaemia" />
+        <input id="bulk-tag-search" type="search" bind:value={tagQuery} onkeydown={preventSearchSubmit} placeholder="e.g. hypocalcaemia" />
       </label>
 
       <div class="tag-state-legend" aria-label="Tag membership states">
