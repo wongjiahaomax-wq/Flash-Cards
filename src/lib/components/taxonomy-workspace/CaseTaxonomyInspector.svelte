@@ -1,4 +1,6 @@
 <script lang="ts">
+  import SearchableTaxonomyPicker from './SearchableTaxonomyPicker.svelte';
+  import type { SearchableTaxonomyOption } from './taxonomy-picker-model.ts';
   import {
     projectedCaseTagIds,
     projectedCaseTags,
@@ -8,6 +10,7 @@
   } from './case-tag-workspace-model.ts';
   import {
     casePrimaryTopicTargets,
+    taxonomyOptionLabel,
     type TaxonomyWorkspaceItem,
     type WorkspaceCaseAssignment
   } from './taxonomy-workspace-model.ts';
@@ -42,6 +45,13 @@
 
   const topicById = $derived(new Map(items.filter((item) => item.kind === 'topic').map((item) => [item.id, item])));
   const targetOptions = $derived(casePrimaryTopicTargets(items));
+  const searchableTopicOptions = $derived<SearchableTaxonomyOption[]>(targetOptions.map((topic) => ({
+    id: topic.id,
+    label: topic.name,
+    displayLabel: taxonomyOptionLabel(topic),
+    searchLabel: topic.breadcrumbLabel,
+    meta: 'Topic'
+  })));
   const originalTopicIds = $derived([...new Set(selectedCases.map((caseItem) => caseItem.originalTopicId))]);
   const projectedTopicIds = $derived([...new Set(selectedCases.map((caseItem) => caseItem.topicId))]);
   const primaryStagedCount = $derived(selectedCases.filter((caseItem) => caseItem.staged).length);
@@ -121,14 +131,13 @@
       <h3 id="primary-topic-reassign-heading">Primary Topic</h3>
       <p>Choose one active Topic. A single selection or up to 60 selected Cases can be staged as one reviewed batch.</p>
     </div>
-    <label>New Primary Topic
-      <select bind:value={targetTopicId}>
-        <option value="">Choose Topic…</option>
-        {#each targetOptions as topic}
-          <option value={topic.id}>{topic.breadcrumbLabel}</option>
-        {/each}
-      </select>
-    </label>
+    <SearchableTaxonomyPicker
+      bind:value={targetTopicId}
+      options={searchableTopicOptions}
+      label="New Primary Topic"
+      searchPlaceholder="Search Topic or breadcrumb…"
+      emptyLabel="Choose Topic…"
+    />
     {#if primaryStagingBlockedReason}
       <p class="blocked" role="status">{primaryStagingBlockedReason}</p>
     {/if}

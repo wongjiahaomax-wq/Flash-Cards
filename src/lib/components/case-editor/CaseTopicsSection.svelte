@@ -20,6 +20,7 @@
     return topic?.breadcrumb?.find((/** @param {BreadcrumbItem} item */ item) => item.kind === 'system')?.id ?? '';
   }
   let currentSystemId = $derived(systemIdFromTopic(primaryTopic));
+  const topicGroups = $derived(groupTopics(concepts, primaryTopic?.id));
 
   onMount(async () => {
     if (previewMode || tagOptions.length) return;
@@ -50,7 +51,24 @@
 
   /** @param {{ name: string, breadcrumb?: BreadcrumbItem[] }} topic */
   function topicOptionLabel(topic) {
-    return `${topicLabel(topic)}.topic`;
+    const systemIndex = topic.breadcrumb?.findIndex((item) => item.kind === 'system') ?? -1;
+    const path = topic.breadcrumb?.slice(systemIndex + 1).map((item) => item.name) ?? [topic.name];
+    return path.join(' → ');
+  }
+
+  /** @param {ConceptOption[]} topicOptions @param {string | undefined} currentTopicId */
+  function groupTopics(topicOptions, currentTopicId) {
+    /** @type {Map<string, { label: string, topics: ConceptOption[] }>} */
+    const groups = new Map();
+    for (const concept of topicOptions) {
+      if (concept.id === currentTopicId) continue;
+      const system = concept.breadcrumb?.find((item) => item.kind === 'system');
+      const label = system?.name ?? 'Unassigned Topics';
+      const group = groups.get(label) ?? { label, topics: [] };
+      group.topics.push(concept);
+      groups.set(label, group);
+    }
+    return [...groups.values()];
   }
 </script>
 
@@ -113,7 +131,7 @@
 
       <form method="POST" action="?/promoteTopic" class="topic-primary-form form-row">
         <input type="hidden" name="case_id" value={selectedCase.case.id} />
-        <label class="topic-select-label">Change Primary Topic<select name="concept_id" required><option value="" disabled selected>Select an active Topic</option>{#each concepts as concept}{#if concept.id !== primaryTopic?.id}<option value={concept.id}>{topicOptionLabel(concept)}</option>{/if}{/each}</select></label>
+        <label class="topic-select-label">Change Primary Topic<select name="concept_id" required><option value="" disabled selected>Select an active Topic</option>{#each topicGroups as group}<optgroup label={group.label}>{#each group.topics as concept}<option value={concept.id}>{topicOptionLabel(concept)}</option>{/each}</optgroup>{/each}</select></label>
         <button class="button primary" type="submit">Save Primary Topic</button>
       </form>
 

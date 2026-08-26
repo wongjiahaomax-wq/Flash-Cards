@@ -31,6 +31,11 @@ export type TaxonomyWorkspaceRow = TaxonomyWorkspaceItem & {
   contextOnly: boolean;
 };
 
+export function taxonomyOptionLabel(item: TaxonomyWorkspaceItem) {
+  const depth = Math.max(0, item.breadcrumbLabel.split(' → ').length - 1);
+  return `${'\u00a0\u00a0'.repeat(depth)}${depth ? '↳ ' : ''}${item.name}`;
+}
+
 export type StagedTopicMove = {
   id: string;
   originalParentId: string | null;

@@ -21,7 +21,7 @@
   const filtered = $derived(options.filter((option) => {
     const needle = query.trim().toLocaleLowerCase();
     if (!needle) return true;
-    return `${option.label} ${option.meta ?? ''}`.toLocaleLowerCase().includes(needle);
+    return `${option.label} ${option.searchLabel ?? ''} ${option.meta ?? ''}`.toLocaleLowerCase().includes(needle);
   }));
 </script>
 
@@ -33,7 +33,7 @@
   <select bind:value={value} disabled={disabled} aria-label={label}>
     {#if emptyLabel !== null}<option value="">{emptyLabel}</option>{/if}
     {#each filtered as option (option.id)}
-      <option value={option.id}>{option.label}{option.meta ? ` · ${option.meta}` : ''}</option>
+      <option value={option.id}>{option.displayLabel ?? option.label}{option.meta ? ` · ${option.meta}` : ''}</option>
     {/each}
   </select>
   {#if query && filtered.length === 0}

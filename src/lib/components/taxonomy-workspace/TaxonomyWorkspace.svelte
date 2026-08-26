@@ -1,7 +1,9 @@
 <script lang="ts">
   import CaseTaxonomyInspector from './CaseTaxonomyInspector.svelte';
+  import SearchableTaxonomyPicker from './SearchableTaxonomyPicker.svelte';
   import TaxonomyChangeTray from './TaxonomyChangeTray.svelte';
   import TaxonomyInspector from './TaxonomyInspector.svelte';
+  import type { SearchableTaxonomyOption } from './taxonomy-picker-model.ts';
   import {
     stageCaseTagChanges,
     type CaseTagAssignment,
@@ -18,6 +20,7 @@
     projectTaxonomyWithMoves,
     stageCasePrimaryTopicChanges,
     stageTopicMove,
+    taxonomyOptionLabel,
     topicMoveTargets,
     type StagedCasePrimaryTopicChange,
     type StagedTopicMove,
@@ -68,6 +71,13 @@
   const caseProjectedItems = $derived(projectTaxonomyWithCasePrimaryTopics(items, stagedCaseChanges));
   const projectedItems = $derived(projectTaxonomyWithMoves(caseProjectedItems, stagedMoves));
   const parentOptions = $derived(activeTaxonomyParents(projectedItems));
+  const parentSearchOptions = $derived<SearchableTaxonomyOption[]>(parentOptions.map((parent) => ({
+    id: parent.id,
+    label: parent.name,
+    displayLabel: taxonomyOptionLabel(parent),
+    searchLabel: parent.breadcrumbLabel,
+    meta: parent.kind === 'system' ? 'System' : 'Topic'
+  })));
   const systemOptions = $derived(activeSystemOptions(projectedItems));
   const rows = $derived(buildTaxonomyWorkspaceRows(projectedItems, {
     search: query,
@@ -84,6 +94,13 @@
     : 0);
   const moveTopic = $derived(projectedItems.find((item) => item.id === moveTopicId && item.kind === 'topic') ?? null);
   const moveTargetOptions = $derived(moveTopicId ? topicMoveTargets(projectedItems, moveTopicId) : []);
+  const moveSearchOptions = $derived<SearchableTaxonomyOption[]>(moveTargetOptions.map((parent) => ({
+    id: parent.id,
+    label: parent.name,
+    displayLabel: taxonomyOptionLabel(parent),
+    searchLabel: parent.breadcrumbLabel,
+    meta: parent.kind === 'system' ? 'System' : 'Topic'
+  })));
   const stagedChangeCount = $derived(stagedMoves.length + stagedCaseChanges.length + stagedCaseTagChanges.length);
   const hasCaseClassificationBatch = $derived(stagedCaseChanges.length > 0 || stagedCaseTagChanges.length > 0);
 
@@ -392,14 +409,13 @@
         <h2 id="move-topic-heading">Move {moveTopic.name}</h2>
         <p class="muted">Choose a new active System/Topic parent, or leave it Unassigned. This does not save immediately.</p>
       </div>
-      <label>New parent
-        <select bind:value={moveParentId}>
-          <option value="">Unassigned</option>
-          {#each moveTargetOptions as parent}
-            <option value={parent.id}>{parent.breadcrumbLabel} · {parent.kind === 'system' ? 'System' : 'Topic'}</option>
-          {/each}
-        </select>
-      </label>
+      <SearchableTaxonomyPicker
+        bind:value={moveParentId}
+        options={moveSearchOptions}
+        label="New parent"
+        searchPlaceholder="Search parent or breadcrumb…"
+        emptyLabel="Unassigned"
+      />
       <div class="move-actions">
         <button class="button" type="button" onclick={() => { moveTopicId = ''; }}>Cancel</button>
         <button class="button primary" type="button" onclick={stageSelectedMove}>Stage move</button>
@@ -426,14 +442,16 @@
           </select>
         </label>
         {#if createKind === 'topic'}
-          <label>Parent
-            <select name="parent_id" bind:value={createParentId}>
-              <option value="">Unassigned</option>
-              {#each parentOptions as parent}
-                <option value={parent.id}>{parent.breadcrumbLabel} · {parent.kind === 'system' ? 'System' : 'Topic'}</option>
-              {/each}
-            </select>
-          </label>
+          <div>
+            <SearchableTaxonomyPicker
+              bind:value={createParentId}
+              options={parentSearchOptions}
+              label="Parent"
+              searchPlaceholder="Search System or Topic…"
+              emptyLabel="Unassigned"
+            />
+            <input type="hidden" name="parent_id" value={createParentId} />
+          </div>
         {:else}
           <input type="hidden" name="parent_id" value="" />
         {/if}
@@ -682,7 +700,6 @@
   .create-panel,.move-panel { display: grid; gap: .85rem; padding: 1rem; border: 1px solid #b2ccff; border-radius: 10px; background: #f8faff; }
   .move-panel { grid-template-columns: minmax(0, 1fr) minmax(260px, .8fr) auto; align-items: end; border-color: #fdb022; background: #fffcf5; }
   .move-panel p { margin-bottom: 0; }
-  .move-panel label { display: grid; gap: .3rem; color: #344054; font-weight: 650; }
   .move-actions { justify-content: flex-end; }
   .create-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }
   .create-heading p { margin-bottom: 0; }

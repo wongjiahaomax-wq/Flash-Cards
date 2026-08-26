@@ -20,6 +20,7 @@
     projectTaxonomyWithCasePrimaryTopics,
     projectTaxonomyWithMoves,
     stageTopicMove,
+    taxonomyOptionLabel,
     topicMoveTargets,
     type StagedCasePrimaryTopicChange,
     type StagedTopicMove,
@@ -68,7 +69,9 @@
   const parentOptions = $derived(activeTaxonomyParents(projectedItems));
   const parentSearchOptions = $derived<SearchableTaxonomyOption[]>(parentOptions.map((item) => ({
     id: item.id,
-    label: item.breadcrumbLabel,
+    label: item.name,
+    displayLabel: taxonomyOptionLabel(item),
+    searchLabel: item.breadcrumbLabel,
     meta: item.kind === 'system' ? 'System' : 'Topic'
   })));
   const systemOptions = $derived(activeSystemOptions(projectedItems));
@@ -89,7 +92,9 @@
   const moveTargetOptions = $derived(moveTopicId ? topicMoveTargets(projectedItems, moveTopicId) : []);
   const moveSearchOptions = $derived<SearchableTaxonomyOption[]>(moveTargetOptions.map((item) => ({
     id: item.id,
-    label: item.breadcrumbLabel,
+    label: item.name,
+    displayLabel: taxonomyOptionLabel(item),
+    searchLabel: item.breadcrumbLabel,
     meta: item.kind === 'system' ? 'System' : 'Topic'
   })));
   const stagedChangeCount = $derived(stagedMoves.length + stagedCaseChanges.length + stagedCaseTagChanges.length);
@@ -406,14 +411,6 @@
 
   {#if workspaceError}<div class="inline-error" role="status">{workspaceError}</div>{/if}
 
-  {#if moveTopic}
-    <section class="move-panel" aria-labelledby="move-topic-heading">
-      <div><p class="eyebrow">Stage hierarchy change</p><h2 id="move-topic-heading">Move {moveTopic.name}</h2><p class="muted">Search active Systems/Topics or choose Unassigned. Nothing saves until the staged review is applied.</p></div>
-      <SearchableTaxonomyPicker bind:value={moveParentId} options={moveSearchOptions} label="New parent" searchPlaceholder="Search parent or breadcrumb…" emptyLabel="Unassigned" />
-      <div class="move-actions"><button class="button" type="button" onclick={() => { moveTopicId = ''; }}>Cancel</button><button class="button primary" type="button" onclick={stageSelectedMove}>Stage move</button></div>
-    </section>
-  {/if}
-
   {#if createOpen}
     <section class="create-panel" aria-labelledby="create-taxonomy-heading">
       <div class="create-heading"><div><p class="eyebrow">Create in context</p><h2 id="create-taxonomy-heading">{createContextLabel || (createKind === 'system' ? 'New System' : 'New Topic')}</h2><p class="muted">Systems stay top-level. Topics may be unassigned or nested beneath an active System or Topic.</p></div><button class="icon-button" type="button" aria-label="Close creation form" onclick={() => { createOpen = false; }}>×</button></div>
@@ -452,6 +449,14 @@
                   {#if row.kind === 'system'}<button class="text-action" type="button" onclick={() => focusSystem(row.id)}>Focus</button>{/if}
                 </div>
               </div>
+
+              {#if moveTopic?.id === row.id}
+                <section class="move-panel inline-move-panel" aria-labelledby={`move-topic-heading-${row.id}`}>
+                  <div><p class="eyebrow">Stage hierarchy change</p><h2 id={`move-topic-heading-${row.id}`}>Move {moveTopic.name}</h2><p class="muted">Search active Systems/Topics or choose Unassigned. Nothing saves until the staged review is applied.</p></div>
+                  <SearchableTaxonomyPicker bind:value={moveParentId} options={moveSearchOptions} label="New parent" searchPlaceholder="Search parent or breadcrumb…" emptyLabel="Unassigned" />
+                  <div class="move-actions"><button class="button" type="button" onclick={() => { moveTopicId = ''; }}>Cancel</button><button class="button primary" type="button" onclick={stageSelectedMove}>Stage move</button></div>
+                </section>
+              {/if}
 
               {#if row.kind === 'topic' && casesVisible(row)}
                 <div class="case-list" style={`margin-left: ${Math.max(0, row.depth + 1) * 1.05 + 2.15}rem`}>
@@ -523,6 +528,7 @@
   h2 { margin-bottom: .2rem; font-size: 1.16rem; }
   .create-panel,.move-panel { display: grid; gap: .85rem; padding: 1rem; border: 1px solid #b2ccff; border-radius: 10px; background: #f8faff; }
   .move-panel { grid-template-columns: minmax(0, 1fr) minmax(280px, .9fr) auto; align-items: end; border-color: #fdb022; background: #fffcf5; }
+  .inline-move-panel { margin: .55rem 0 .7rem; }
   .move-panel p { margin-bottom: 0; }
   .move-actions { justify-content: flex-end; }
   .create-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; }

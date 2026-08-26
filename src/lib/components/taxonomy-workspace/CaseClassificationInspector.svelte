@@ -10,6 +10,7 @@
   } from './case-tag-workspace-model.ts';
   import {
     casePrimaryTopicTargets,
+    taxonomyOptionLabel,
     type TaxonomyWorkspaceItem,
     type WorkspaceCaseAssignment
   } from './taxonomy-workspace-model.ts';
@@ -45,7 +46,9 @@
   const targetOptions = $derived(casePrimaryTopicTargets(items));
   const searchableTopicOptions = $derived<SearchableTaxonomyOption[]>(targetOptions.map((topic) => ({
     id: topic.id,
-    label: topic.breadcrumbLabel,
+    label: topic.name,
+    displayLabel: taxonomyOptionLabel(topic),
+    searchLabel: topic.breadcrumbLabel,
     meta: 'Topic'
   })));
   const originalTopicIds = $derived([...new Set(selectedCases.map((caseItem) => caseItem.originalTopicId))]);
