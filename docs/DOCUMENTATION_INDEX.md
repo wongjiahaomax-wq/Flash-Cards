@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 25 August 2026_
+_Last reviewed: 26 August 2026_
 
 This index identifies the documents that describe current repository behavior, operational contracts, pending designs, and historical records.
 
@@ -111,12 +111,6 @@ Coding-agent routing guide for scoped context and validation.
 
 Repository-wide modularity, TypeScript, thin-route, ownership, transaction, testing, and scope-control guidance.
 
-## Authentication / account lifecycle
-
-- `PASSWORD_RECOVERY.md` — current repository contract for Better Auth password recovery, Resend transactional-email delivery, anti-enumeration behavior, Cloudflare `waitUntil`, required runtime configuration, testing, and the residual per-isolate rate-limit limitation. Production Resend/domain/secret configuration and live rollout verification remain separate facts.
-
-The production Admin Accounts UI/account-creation lifecycle is not implemented by the password-recovery foundation. Future account-management work should reuse its small server-side email transport rather than duplicating provider calls.
-
 ## Current taxonomy / learner-navigation contracts
 
 ### `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md`
@@ -160,6 +154,17 @@ Current Case Tags additionally carry alternate/cross-cutting Case classification
 - `PERFORMANCE_AND_READ_MODEL_PLAN.md` — bounded reads/measurement guidance.
 
 The Case editor is componentized under `src/lib/components/case-editor/`. Current classification actions are Primary Topic plus Case Tags; Additional Study Topic actions are retired/fail closed. Stored legacy secondary rows are not shown.
+
+## Authentication / account management
+
+- `ACCOUNT_MANAGEMENT_PLAN.md` — pending Account Management v1 product/security design for closed enrollment, password recovery, transactional email, production account administration, Disable/Restore semantics, session controls, and Admin lockout guards.
+- `ACCOUNT_MANAGEMENT_PR_A_IMPLEMENTATION_PROMPT.md` — PR-A implementation handoff for password recovery + transactional email; once PR A is merged, treat this as historical execution context rather than authority over the implemented code.
+- `ACCOUNT_MANAGEMENT_PR_B_IMPLEMENTATION_PROMPT.md` — active PR-B implementation handoff for production Admin account management while that implementation remains pending; it depends on the PR-A email/reset foundation and must preserve existing production/Preview role semantics.
+- `PASSWORD_RECOVERY.md` — current repository contract delivered by PR A for Better Auth password recovery, Resend transactional-email delivery, anti-enumeration behavior, Cloudflare `waitUntil`, required runtime configuration, testing, and the residual per-isolate rate-limit limitation. Production Resend/domain/secret configuration and live rollout verification remain separate facts.
+
+The password-recovery foundation does not itself implement the production Admin Accounts UI/account-creation lifecycle. PR B and later account-management work should reuse its small server-side email transport rather than duplicating provider calls.
+
+For account/auth work, inspect the current implementation and current PR state before relying on an implementation prompt. Once PR A or PR B is completed, its prompt becomes historical handoff context rather than authority over the implemented code. Public signup remains intentionally disabled unless a separately reviewed product decision changes that contract.
 
 ## Stimulus behavior
 
