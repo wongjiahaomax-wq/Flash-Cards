@@ -1,436 +1,338 @@
-# Case Deactivation and Restore UX Plan
+# Case Deactivation and Restore Admin UX
 
-Status: Planning baseline for implementation in this same draft PR.
+Status: **Implemented in draft PR #100.** This document records the current Case lifecycle contract and the implementation decisions made in this PR.
 
 ## Goal
 
-Expose the Case lifecycle already represented by `cases.is_active` through a safe Admin UX.
+Production Admin can remove an incorrect, obsolete, or mistakenly imported Case from current learner use without physically deleting the Case, its teaching content, or its historical Reviews.
 
-The normal lifecycle becomes:
+The normal lifecycle is:
 
 ```text
-Active Case
+Active Production Case
 → Deactivate
-→ Inactive but preserved
-→ Restore
-→ Active Case
+→ Inactive Production Case, fully preserved
+→ Restore after validation
+→ Active Production Case
 ```
 
-This feature is intended especially for post-import or authoring cleanup when an administrator discovers that one or more Cases should no longer be available to learners.
+The existing `cases.is_active` column is the lifecycle state. PR #100 does not add another deletion-state model.
 
-Routine physical deletion is intentionally out of scope.
+## Lifecycle semantics
 
-## Current implementation baseline
-
-Current main already provides the storage primitive but not the Admin workflow:
-
-- `cases.is_active` exists and defaults true;
-- new production Cases are created active;
-- the normal Case library explicitly filters to active production Cases;
-- normal production Case mutations use an active-production guard;
-- the shared Case editor currently renders "Case not found" when its active-only loader cannot resolve a Case;
-- production and Preview ownership are distinct and must remain so;
-- the Case editor Svelte page is shared by Production Admin and Preview Admin, so any new named production action rendered from that page must preserve the Preview action contract.
-
-No schema migration should be required for this feature.
-
-## Product decisions
-
-### 1. Deactivate, do not delete
-
-Deactivation changes only the Case lifecycle state:
-
-```text
-cases.is_active = false
-```
-
-It must not physically delete, detach, rewrite, or deactivate related content solely because the Case is deactivated.
-
-Preserve:
-
-- the Case row;
-- Primary Topic and any inert legacy secondary Topic rows;
-- Case Tags;
-- Case Questions and Question Prompts;
-- fixed Case Assets;
-- Alternative Sets / Stimulus Groups and their options;
-- Case-specific image questions;
-- reusable Image Question opt-ins;
-- shared/global Assets and Prompts;
-- historical Reviews and provenance;
-- R2 media objects.
-
-An inactive Case is unavailable for future learner study but remains recoverable by an Admin.
-
-### 2. Restore is validated
-
-Restore sets:
+### Active
 
 ```text
 cases.is_active = true
+preview_session_id IS NULL
 ```
 
-only after the Case satisfies the invariants required to become learner-presentable again.
+An active Production Case is eligible for normal Admin authoring and, subject to the existing learner routing/question rules, learner study.
 
-At minimum the coding agent must verify current-main requirements for:
-
-- production ownership (`preview_session_id IS NULL`);
-- exactly one behaviorally active Primary Topic relationship;
-- that Primary Topic exists, is active, and is a Topic rather than a System;
-- any additional current learner-presentability invariants discovered in the actual read/resolver paths.
-
-If restore validation fails, leave the Case inactive and return an actionable Admin error.
-
-### 3. Hard delete remains absent
-
-Do not add permanent Case deletion in this PR.
-
-Current Case relationships use restrictive foreign keys in several places, and historical Reviews may refer to the Case. A destructive purge needs a separate retention/dependency design.
-
-## Admin UX
-
-### A. Case library status switch
-
-Keep the normal Case library default as **Active**.
-
-Add a simple lifecycle switch near the library heading or filters:
+### Inactive
 
 ```text
-[ Active ] [ Inactive ]
+cases.is_active = false
+preview_session_id IS NULL
 ```
 
-Recommended query contract:
+An inactive Production Case:
 
-```text
-status=active     # default / omitted
-status=inactive
-```
+- is excluded from normal learner Case selection and direct new-Review source loading;
+- is excluded from the default Active Case library;
+- remains stored with all relationships and historical data intact;
+- is intentionally unavailable to the normal active-only Case editor;
+- can be inspected through the purpose-specific Admin recovery read;
+- can be restored only after restore invariants pass.
 
-An `All` state is not required for v1. Keeping the views separate makes bulk actions and editor affordances less ambiguous.
+## Deactivate means preserve
 
-The existing search, Topic, System, Tag, sorting, pagination, and query-preservation behavior should continue to work within both lifecycle states.
+Deactivation changes only `cases.is_active`.
 
-The read model must remain production-only in both states:
+It does **not** delete, detach, deactivate, rewrite, or clean up:
+
+- Case Questions;
+- Question Prompts;
+- Primary Topic or legacy inert Topic relationships;
+- Case Tags;
+- fixed Case Assets;
+- Stimulus Groups;
+- Stimulus Options;
+- reusable image-question relationships;
+- shared/global Assets or Prompts;
+- teaching Assets;
+- R2 objects;
+- historical Reviews;
+- Review Questions/Assets;
+- Review snapshots or provenance.
+
+Permanent Case deletion remains out of scope.
+
+## Production / Preview boundary
+
+Production lifecycle operations require a Case with:
 
 ```text
 preview_session_id IS NULL
 ```
 
-Active view:
+Preview-owned Cases are rejected by the production lifecycle domain owner.
 
-- existing table behavior remains;
-- rows are normal active Cases;
-- existing bulk Primary Topic assignment remains available;
-- add bulk **Deactivate selected**.
+`requireProductionCase(...)` is unchanged and still means **active Production Case**. Normal active authoring continues to use that guard. Inactive recovery intentionally uses a separate lifecycle read/mutation path rather than weakening the existing guard.
 
-Inactive view:
+The shared Production/Preview Case editor does not expose the lifecycle section in Preview Mode. The production deactivate form posts to an `/admin/...` endpoint guarded by the production Admin role and the lifecycle domain production-ownership check; no Preview lifecycle authority is introduced.
 
-- heading becomes `Inactive Cases`;
-- rows have an obvious `Inactive` status treatment;
-- normal bulk Primary Topic assignment is hidden/disabled;
-- add bulk **Restore selected**;
-- each row can open a recovery/detail state or offer a direct Restore action, but mutation logic must have one canonical server owner.
+## Restore validation
 
-### B. Single-Case deactivate from the editor
+Restore is not a blind `UPDATE cases SET is_active = true` operation.
 
-For a normal active Production Admin Case editor, add a small **Case lifecycle** / danger-zone section near the bottom of the editor.
+Before an inactive Case is activated, the lifecycle domain validates:
 
-Show:
+1. the Case exists;
+2. the Case is Production-owned;
+3. it has exactly one relationship with `role = 'primary'`;
+4. the referenced Primary concept exists;
+5. that concept is classified as a Topic, not a System;
+6. that Topic is active.
 
-- state: `Active`;
-- destructive secondary button: `Deactivate Case`;
-- explanatory copy that deactivation removes the Case from learner study but retains its questions, images, Topics, Tags, and history.
+These checks match the current learner-presentability assumptions inspected in the learner source/resolver paths: new learner Reviews require an active Production Case connected through its active canonical Topic.
 
-Require explicit confirmation before submission.
+If any restore invariant fails:
 
-After successful deactivation, redirect to the inactive Case recovery state or the Inactive Case library with a success message. Do not leave the user on the normal active editor, because its data loaders intentionally require an active Case.
+- the Case stays inactive;
+- no partial restore is performed;
+- Admin receives an actionable error such as `Cannot restore this Case because its Primary Topic is inactive.`
 
-Do not show this control in Preview Mode. Because the editor page is shared with `/preview-admin`, preserve the Preview named-action contract explicitly rather than relying only on conditional rendering.
+Single restore is safely idempotent when the same Case is already active.
 
-### C. Inactive Case recovery/detail state
+## Case library UX
 
-Do not weaken the existing active production Case editor guard merely to display inactive Cases.
+The Case library has two explicit lifecycle views:
 
-Instead add a purpose-specific Admin recovery read for an inactive production Case.
+```text
+Active | Inactive
+```
 
-When an Admin opens `/admin/cases/<id>` for an inactive production Case, render a compact recovery state rather than the full editable Case editor.
+Active remains the default.
 
-Recommended contents:
+The implementation uses:
 
-- `Inactive` status badge;
-- Case internal title;
-- Primary Topic / System summary when available;
-- Tag summary when available;
-- concise explanation that normal editing is unavailable while inactive;
-- `Restore Case` action;
-- link back to `Inactive Cases`.
+```text
+lifecycle=inactive
+```
 
-Do not expose normal edit forms that currently depend on active-Case guards.
+for the inactive view. Active is the default/omitted value.
 
-Preview-owned or missing Cases must still fail closed and must not be surfaced through this recovery path.
+This deliberately does **not** use `status=inactive`, because the existing Case library already uses the `status` query parameter for success/feedback redirects such as bulk Topic updates. Keeping lifecycle state separate preserves the existing feedback contract.
 
-### D. Bulk lifecycle operations
+Both lifecycle views remain:
 
-Bulk lifecycle operations are **in scope** because the motivating use case includes correcting imported batches.
+- Production-only;
+- SQL filtered and bounded;
+- paginated;
+- searchable by Case title;
+- searchable/filterable by Topic and System;
+- filterable by Tag;
+- sortable by Case, Topic, System, and Tag.
 
-Use the existing Case-library checkbox selection model.
+Query state is preserved across relevant filter/sort/pagination navigation. Lifecycle changes reset pagination while retaining useful filters.
 
-Active library:
+### Active view
+
+The Active view preserves the existing bulk Primary Topic assignment flow and adds:
 
 ```text
 Deactivate selected
 ```
 
-Inactive library:
+Bulk deactivation requires explicit client confirmation and server-side lifecycle validation.
+
+### Inactive view
+
+The Inactive view:
+
+- shows an obvious `Inactive` badge;
+- hides active-only bulk Primary Topic assignment;
+- provides `Restore selected`;
+- links each row to the purpose-specific recovery page rather than the active editor.
+
+Inactive library enrichment may show inactive Topic/Tag context so the Admin can identify preserved records even when taxonomy state has changed since deactivation.
+
+## Active Case editor UX
+
+The Production active Case editor has a compact lifecycle section near the bottom.
+
+It shows:
 
 ```text
-Restore selected
+Active
+Deactivate Case
 ```
 
-Requirements:
+The confirmation explains that learner availability is removed while questions, images, Topics, Tags, and history are retained.
 
-- cap selected Cases consistently with the existing bulk Case action limit unless current code gives a stronger reason otherwise;
-- production-only ownership validation;
-- validate the complete selected set before mutation where practical;
-- do not silently skip invalid Cases;
-- provide explicit confirmation for bulk deactivation, including the selected count;
-- after completion, preserve the current lifecycle/search/sort context where sensible;
-- restore failure must leave invalid Cases inactive rather than partially reactivating them without clear reporting.
+After deactivation, Admin is redirected to the inactive recovery page instead of remaining on the active-only editor route.
 
-If all-or-nothing batching is not reliably available in the current D1/Drizzle path, the coding agent must define and test an explicit failure strategy rather than imply atomicity.
+## Inactive Case recovery UX
 
-## Server/domain design
-
-Lifecycle mutation is a Case-domain responsibility, not route SQL.
-
-Prefer a focused new application module if adding this behavior directly to the existing Admin content module would create another independent responsibility. Repository architecture guidance prefers new/extracted modules in TypeScript where the toolchain supports it.
-
-A reasonable shape is a focused Case lifecycle module owning operations such as:
+Inactive Production Cases are loaded through:
 
 ```text
-deactivateProductionCase(...)
-restoreProductionCase(...)
-bulkDeactivateProductionCases(...)
-bulkRestoreProductionCases(...)
-getInactiveProductionCaseRecovery(...)
+/admin/cases/<caseId>/recovery
 ```
 
-Exact names are implementation details.
+The recovery page is read-oriented. It shows:
 
-The route layer should remain responsible for:
+- Case title;
+- prominent `Inactive` status;
+- stable Case ID;
+- Primary Topic state;
+- System context when resolvable;
+- Tags, including inactive state where relevant;
+- vignette when present;
+- `Restore Case`.
 
-- Admin authorization;
-- request/form parsing;
-- invoking the lifecycle owner;
-- translating domain errors to SvelteKit failures;
-- redirecting after success.
+Normal authoring forms are intentionally absent while the Case is inactive.
 
-### Production/Preview safety
+Showing stable identity is intentional because human-readable titles are not unique.
 
-The existing `requireProductionCase(...)` guard deliberately means **active production Case**. Do not weaken or repurpose that semantic contract globally.
+## Bulk lifecycle semantics
 
-Lifecycle operations need a production-ownership check that can intentionally see inactive Cases while still requiring:
+The lifecycle owner reuses the established Case bulk safety limit:
 
 ```text
-preview_session_id IS NULL
+60 Cases per operation
 ```
 
-Implement that check narrowly for lifecycle/recovery behavior. Do not create a vague generic scope helper and do not permit Preview-owned Cases to flow through production lifecycle mutations.
+### Bulk deactivate
 
-Because `src/routes/admin/cases/[caseId]/+page.svelte` is shared with Preview Admin, any new named action referenced by that shared page must either:
+- selected Cases must all be active Production Cases;
+- Preview-owned or already-inactive selections are rejected;
+- the full selected set is validated before lifecycle writes;
+- writes are submitted through the D1/Drizzle batch path.
 
-- have a safe Preview implementation where semantically appropriate; or
-- be explicitly blocked in Preview with the established 403 pattern.
+### Bulk restore
 
-Case deactivation/restoration itself is production-only in this PR.
+- selected Cases must all be inactive Production Cases;
+- every selected Case is restore-validated before any activation writes are built;
+- one invalid Case fails the requested set instead of being silently skipped;
+- writes are submitted through the D1/Drizzle batch path.
 
-## Case library read model
+If database batch support is unavailable, the lifecycle owner fails closed rather than falling back to a sequential partial bulk mutation.
 
-The existing Case library currently hard-codes:
+## Corrected-import invariant
+
+A supported correction workflow is:
 
 ```text
-cases.is_active = true
-preview_session_id IS NULL
+Import v1
+→ discover Case error
+→ deactivate erroneous Case
+→ correct the source/package
+→ import corrected Case as a new content identity
 ```
 
-Extend the purpose-built bounded read model with an explicit lifecycle filter rather than weakening/removing the predicates.
+The old inactive Case and corrected active replacement may legitimately have:
 
-Desired semantics:
+- exactly the same Case title;
+- identical Question Prompt wording;
+- similar images;
+- the same diagnosis/Topic/Tags.
+
+Therefore:
+
+- Case title is **not** a lifecycle identity and is not made unique;
+- `prompt_md` wording is **not** a lifecycle identity and is not globally deduplicated;
+- lifecycle mutation is ID-based;
+- restore/deactivate does not compare display text to infer duplicates;
+- duplicate titles are made distinguishable by lifecycle state and Admin context, with stable Case ID available on the recovery page.
+
+Import Package identity/versioning remains governed by the existing importer. PR #100 does not implement import replacement, rollback, title matching, prompt-text matching, or package-version redesign.
+
+## Learner and historical behavior
+
+The learner paths inspected in `src/lib/server/db/learning.js` already enforce active Production Case filtering in both:
+
+- learner Case eligibility; and
+- direct Case source loading when starting a new Review.
+
+PR #100 preserves those filters.
+
+Historical Review reads continue to use stored Review snapshots/provenance. Deactivating a Case does not rewrite or invalidate historical Reviews.
+
+## Domain ownership
+
+Canonical lifecycle behavior is owned by:
 
 ```text
-status=active
-→ is_active = true AND preview_session_id IS NULL
-
-status=inactive
-→ is_active = false AND preview_session_id IS NULL
+src/lib/server/db/case-lifecycle.ts
 ```
 
-Keep filtering/counting/pagination SQL-bounded as it is today. Do not load all Cases and filter in application memory.
+That module owns:
 
-The returned row shape should expose lifecycle state only if the UI actually needs it.
-
-## Learner behavior audit
-
-Deactivation is useful only if inactive Cases cannot start new learner Reviews.
-
-The coding agent must inspect the current learner-selection/read paths and characterize the existing `is_active` protections before changing them.
-
-Expected behavior:
-
-- inactive Cases are excluded from new study selection;
-- direct learner-facing Case/Review-start paths cannot bypass that exclusion;
-- historical Review data remains readable as historical truth where current product behavior requires it;
-- restoring a valid Case makes it eligible again through the existing learner rules.
-
-Do not rewrite historical Reviews or snapshots as part of Case deactivation/restoration.
-
-## Confirmation UX
-
-### Single Case
-
-Suggested direction:
-
-> Deactivate this Case? It will no longer be available for learner study. Its questions, images, Topics, Tags, and review history will be kept so you can restore it later.
-
-### Bulk
-
-Suggested direction:
-
-> Deactivate 12 Cases? They will be removed from learner study but their content and history will be retained.
-
-Use the repository's existing interaction conventions where possible. The confirmation must be explicit; the exact dialog implementation is left to the coding agent after inspecting current UI patterns.
-
-## Success / error feedback
-
-Add clear route status messages for at least:
-
-- Case deactivated;
-- Case restored;
-- selected Cases deactivated;
-- selected Cases restored;
-- restore blocked by an invalid/inactive Primary Topic or another required invariant.
-
-Errors should explain the recoverable problem without leaking internal SQL details.
-
-## Acceptance criteria
-
-### Single Case
-
-1. An authorized production Admin can deactivate an active production Case.
-2. Deactivation sets only the Case lifecycle state required by this feature and does not destroy Case relationships/content/media.
-3. The Case disappears from the default Active Case library.
-4. The Case is excluded from future learner study selection.
-5. The Case appears in the Inactive Case library.
-6. Opening the inactive Case gives an Admin recovery state rather than the normal active editor.
-7. A valid inactive production Case can be restored.
-8. A restored Case returns to the Active library and normal learner eligibility.
-9. An invalid restore is rejected without reactivating the Case.
-
-### Bulk
-
-10. Admin can select multiple active Cases and deactivate them after explicit confirmation.
-11. Admin can select multiple inactive Cases and restore them.
-12. Existing active-library bulk Primary Topic assignment still works in Active view.
-13. Inactive view does not offer mutations that assume active Case authoring.
-14. Bulk operations obey the selected-count limit and have a tested failure strategy.
-
-### Safety
-
-15. Preview-owned Cases cannot be discovered, deactivated, or restored through production Admin lifecycle paths.
-16. Preview Admin cannot invoke production Case lifecycle actions from the shared editor contract.
-17. Deactivation/restoration does not delete R2 objects.
-18. Deactivation/restoration does not deactivate shared Assets or shared Question Prompts.
-19. Case Tags, Topics, questions, stimulus relationships, and historical Review records remain intact.
-20. Existing active-only production guards keep their current meaning.
-
-### Read-model / UX preservation
-
-21. Active remains the default Case library state.
-22. Search, Topic/System/Tag filters, sorting, pagination, and preserved query context continue to work in lifecycle views.
-23. Case-library reads remain bounded/paginated in SQL.
-24. The Case editor remains shared with Preview Admin without copied editor implementations.
-
-## Likely implementation surfaces
-
-The coding agent must inspect current head rather than treating this as a fixed file list. Likely areas are:
-
-```text
-src/lib/server/db/
-  focused Case lifecycle module (preferred if proportionate)
-  case-library.js
-  relevant lifecycle/read-model tests
-
-src/routes/admin/_actions.server.js
-src/routes/admin/cases/+page.server.js
-src/routes/admin/cases/+page.svelte
-src/routes/admin/cases/[caseId]/+page.server.js
-src/routes/admin/cases/[caseId]/+page.svelte
-src/routes/preview-admin/cases/[caseId]/+page.server.js
-src/lib/components/case-editor/  # if a focused lifecycle component is useful
-
-test/admin-editor-preview-contract.test.js
-relevant learner/read-model tests
-```
-
-If a new focused application module is introduced, prefer TypeScript according to the repository's incremental architecture direction, but do not convert unrelated JavaScript files.
-
-## Validation expectations
-
-Implementation agent should use the repository capability-based workflow.
-
-At minimum, logic changes should receive focused tests for:
-
-- lifecycle mutation semantics;
-- production/Preview ownership;
+- production ownership checks that intentionally see active or inactive Cases;
+- single deactivate/restore;
+- bulk deactivate/restore;
 - restore validation;
-- Case-library active/inactive filters;
-- bulk lifecycle behavior;
-- shared Production/Preview editor action contract;
-- learner exclusion if current coverage does not already characterize it.
+- inactive recovery read data;
+- the 60-Case bulk lifecycle limit/failure semantics.
 
-Then use repository-defined `agent:checks` / checkpoint / pre-handoff validation appropriate to the execution mode. Do not claim unexecuted local commands as passed.
+Routes remain responsible for authorization, form parsing, translating domain errors, and redirect/feedback UX.
+
+The existing active-production guard remains unchanged in `content-guards.js`.
+
+## Tests added by PR #100
+
+Focused lifecycle coverage verifies:
+
+- single deactivation and idempotent retry;
+- preservation of Case Questions, Topic relationships, Tags, Case Assets, Stimulus Groups/Options, Prompts, Assets, and Reviews;
+- learner exclusion while inactive and eligibility after restore;
+- active-only `requireProductionCase(...)` rejection of inactive Cases;
+- Active/Inactive Case-library lifecycle filtering;
+- Topic/System/Tag filtering, sorting, and pagination in inactive view;
+- inactive recovery context;
+- restore success and validation failures;
+- failed restore leaves `is_active = false`;
+- duplicate Case titles do not block lifecycle operations;
+- identical Prompt wording across distinct Prompt IDs does not affect lifecycle operations;
+- bulk validation, restore all-set validation, Preview ownership rejection, and 60-Case limit;
+- shared editor lifecycle UX does not add Preview lifecycle authority;
+- lifecycle domain has no media-storage/delete dependency.
+
+Existing `test/admin-editor-preview-contract.test.js` remains part of repository validation and must stay green.
 
 ## Explicitly out of scope
 
-- permanent/hard Case deletion;
-- cascading deletion of questions, relationships, or history;
-- R2 garbage collection;
-- deleting unused Assets/Prompts after Case deactivation;
-- import-job provenance or one-click import rollback;
-- automatic identification of all Cases created by a particular historical import;
+PR #100 does not implement:
+
+- permanent Case deletion;
+- cascade cleanup;
+- schema migration;
+- production data migration;
+- R2 deletion;
+- shared Asset/Prompt deactivation;
 - taxonomy redesign;
-- Preview workspace lifecycle redesign;
-- changing historical Review semantics.
+- import rollback;
+- import replacement semantics;
+- package identity changes;
+- automatic duplicate matching;
+- title uniqueness;
+- prompt wording uniqueness/deduplication;
+- Preview Case lifecycle mutation.
 
-## Future follow-up
+## Manual UI verification before merge
 
-A later import-management feature could expose:
+In a local development database, verify:
 
-```text
-Import job
-→ Cases created by this import
-→ Deactivate imported Cases
-```
+1. Active Case library opens by default and existing filters/sorts/pagination still work.
+2. Select one or more active Cases and confirm `Deactivate selected` requires confirmation.
+3. Confirm deactivated Cases disappear from Active and appear in Inactive with the badge.
+4. Open an inactive Case and verify the recovery page shows the intended Case context and no normal edit forms.
+5. Restore a valid Case and confirm redirect to the normal active editor with success feedback.
+6. Make a test Case non-restorable by using an inactive/missing invalid Primary Topic state in local data and confirm the recovery page shows the actionable server error without activating the Case.
+7. From the active editor, confirm `Deactivate Case` is visually secondary/destructive and confirmation copy is clear.
+8. Confirm Preview editor does not show Production Case lifecycle controls.
+9. Verify duplicate-title active/inactive Cases remain distinguishable in the library/recovery flow.
 
-That requires durable import-to-created-entity provenance and is deliberately separate from this generic Case lifecycle PR.
-
-## Implementation sequence
-
-1. Inspect the current PR head and intended base before coding.
-2. Read root/scoped agent guidance and current Admin/DB authorities.
-3. Characterize existing production active filters, learner exclusion, and Preview action-contract tests.
-4. Add the focused lifecycle domain owner and tests.
-5. Extend the bounded Case-library read model with Active/Inactive lifecycle filtering.
-6. Add production single/bulk route actions and Preview explicit blocks where required.
-7. Add Active/Inactive Case-library UX and bulk actions.
-8. Add the active-editor Case lifecycle danger zone.
-9. Add inactive Case recovery/detail UX without exposing normal active-only edit forms.
-10. Verify learner behavior and historical preservation.
-11. Review the complete PR diff for scope/safety.
-12. Run the repository-defined validation available in the coding agent's execution mode.
-
-## Decision summary
-
-The correct v1 solution is **Deactivate / Restore**, not hard delete.
-
-The feature should make the existing Case lifecycle state administratively usable while preserving the repository's production/Preview isolation, active-only mutation guards, historical Review integrity, and purpose-built read models.
+No production Case should be deactivated/restored as part of verification for this PR.
