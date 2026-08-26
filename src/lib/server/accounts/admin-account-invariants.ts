@@ -67,14 +67,14 @@ async function loadSafetyRow(db: D1Database, userId: string): Promise<AccountSaf
  */
 function serializeProductionAdminLoss(db: D1Database) {
   return db.prepare(`
-    UPDATE `production_admin_guard_state`
-    SET `active_admin_count` = (
+    UPDATE "production_admin_guard_state"
+    SET "active_admin_count" = (
       SELECT count(*)
-      FROM `user`
-      WHERE instr(',' || replace(coalesce(`role`, ''), ' ', '') || ',', ',admin,') > 0
-        AND coalesce(`banned`, 0) = 0
+      FROM "user"
+      WHERE instr(',' || replace(coalesce("role", ''), ' ', '') || ',', ',admin,') > 0
+        AND coalesce("banned", 0) = 0
     )
-    WHERE `id` = 1
+    WHERE "id" = 1
   `);
 }
 
@@ -117,22 +117,22 @@ export async function demoteProductionAdministratorAtomically(options: {
     const serializeAdminLoss = serializeProductionAdminLoss(options.db);
     const demoteUser = options.db
       .prepare(`
-        UPDATE `user`
-        SET `role` = ?, `updatedAt` = ?
-        WHERE `id` = ?
-          AND coalesce(`role`, '') = ?
-          AND coalesce(`banned`, 0) = ?
+        UPDATE "user"
+        SET "role" = ?, "updatedAt" = ?
+        WHERE "id" = ?
+          AND coalesce("role", '') = ?
+          AND coalesce("banned", 0) = ?
           AND (
             NOT (
-              instr(',' || replace(coalesce(`role`, ''), ' ', '') || ',', ',admin,') > 0
-              AND coalesce(`banned`, 0) = 0
+              instr(',' || replace(coalesce("role", ''), ' ', '') || ',', ',admin,') > 0
+              AND coalesce("banned", 0) = 0
             )
             OR EXISTS (
               SELECT 1
-              FROM `user` AS other_admin
-              WHERE other_admin.`id` <> `user`.`id`
-                AND instr(',' || replace(coalesce(other_admin.`role`, ''), ' ', '') || ',', ',admin,') > 0
-                AND coalesce(other_admin.`banned`, 0) = 0
+              FROM "user" AS other_admin
+              WHERE other_admin."id" <> "user"."id"
+                AND instr(',' || replace(coalesce(other_admin."role", ''), ' ', '') || ',', ',admin,') > 0
+                AND coalesce(other_admin."banned", 0) = 0
             )
           )
       `)
@@ -192,23 +192,23 @@ export async function disableManagedAccountAtomically(options: {
     const serializeAdminLoss = serializeProductionAdminLoss(options.db);
     const updateUser = options.db
       .prepare(`
-        UPDATE `user`
+        UPDATE "user"
         SET
-          `banned` = 1,
-          `banReason` = ?,
-          `banExpires` = NULL,
-          `updatedAt` = ?
-        WHERE `id` = ?
-          AND coalesce(`role`, '') = ?
-          AND coalesce(`banned`, 0) = 0
+          "banned" = 1,
+          "banReason" = ?,
+          "banExpires" = NULL,
+          "updatedAt" = ?
+        WHERE "id" = ?
+          AND coalesce("role", '') = ?
+          AND coalesce("banned", 0) = 0
           AND (
-            instr(',' || replace(coalesce(`role`, ''), ' ', '') || ',', ',admin,') = 0
+            instr(',' || replace(coalesce("role", ''), ' ', '') || ',', ',admin,') = 0
             OR EXISTS (
               SELECT 1
-              FROM `user` AS other_admin
-              WHERE other_admin.`id` <> `user`.`id`
-                AND instr(',' || replace(coalesce(other_admin.`role`, ''), ' ', '') || ',', ',admin,') > 0
-                AND coalesce(other_admin.`banned`, 0) = 0
+              FROM "user" AS other_admin
+              WHERE other_admin."id" <> "user"."id"
+                AND instr(',' || replace(coalesce(other_admin."role", ''), ' ', '') || ',', ',admin,') > 0
+                AND coalesce(other_admin."banned", 0) = 0
             )
           )
       `)
@@ -216,12 +216,12 @@ export async function disableManagedAccountAtomically(options: {
 
     const revokeSessions = options.db
       .prepare(`
-        DELETE FROM `session`
-        WHERE `userId` = ?
+        DELETE FROM "session"
+        WHERE "userId" = ?
           AND EXISTS (
             SELECT 1
-            FROM `user`
-            WHERE `id` = ? AND coalesce(`banned`, 0) <> 0
+            FROM "user"
+            WHERE "id" = ? AND coalesce("banned", 0) <> 0
           )
       `)
       .bind(target.id, target.id);
