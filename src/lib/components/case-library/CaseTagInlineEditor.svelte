@@ -7,7 +7,32 @@
   let newTagName = $state('');
   let error = $state('');
   let busy = $state(false);
+  let editorOpen = $state(false);
   let addableTags = $derived(availableTags.filter((tag) => !tags.some((current) => current.id === tag.id)));
+
+  /** @param {PointerEvent} event */
+  function closeOnOutsidePointer(event) {
+    const target = event.target;
+    if (target instanceof Element && !target.closest('.case-tag-details')) {
+      editorOpen = false;
+    }
+  }
+
+  /** @param {KeyboardEvent} event */
+  function closeOnEscape(event) {
+    if (event.key === 'Escape') editorOpen = false;
+  }
+
+  /** @param {Event} event */
+  function closeOtherEditors(event) {
+    const currentEditor = event.currentTarget;
+    if (!(currentEditor instanceof Element)) return;
+    const details = currentEditor.closest('.case-tag-details');
+    if (!details) return;
+    document.querySelectorAll('.case-tag-details[open]').forEach((editor) => {
+      if (editor !== details) editor.removeAttribute('open');
+    });
+  }
 
   /**
    * @param {'add'|'remove'|'create-and-add'} operation
@@ -59,6 +84,8 @@
   }
 </script>
 
+<svelte:window onpointerdowncapture={closeOnOutsidePointer} onkeydown={closeOnEscape} />
+
 <div class="case-tag-editor">
   <div class="tag-summary">
     {#if tags.length}
@@ -66,8 +93,8 @@
     {:else}
       <span class="muted">—</span>
     {/if}
-    <details>
-      <summary>Edit tags</summary>
+    <details class="case-tag-details" bind:open={editorOpen}>
+      <summary onclick={closeOtherEditors}>Edit tags</summary>
       <div class="editor-panel">
         <div class="editor-heading">
           <strong>{caseTitle}</strong>
