@@ -1,12 +1,12 @@
 import { and, asc, desc, eq, inArray, isNull, like, sql } from 'drizzle-orm';
 
-import { systemAncestorId } from '../learning/taxonomy-graph.ts';
+import { conceptBreadcrumb, systemAncestorId } from '../learning/taxonomy-graph.ts';
 import { listConceptTaxonomy } from './concept-taxonomy-compat.ts';
 import { caseConcepts, cases, concepts } from './schema.js';
 import { caseTags, tags } from './tag-schema.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
-/** @typedef {{ id: string, name: string, kind: string, parentId: string | null }} TaxonomyRow */
+/** @typedef {{ id: string, name: string, slug: string, kind: string, parentId: string | null }} TaxonomyRow */
 
 export const CASE_LIBRARY_PAGE_SIZE = 60;
 
@@ -89,6 +89,22 @@ function caseLibraryConditions(filters) {
   return conditions;
 }
 
+/** @param {TaxonomyRow[]} conceptRows */
+function caseLibraryTopicOptions(conceptRows) {
+  return conceptRows
+    .filter((concept) => concept.kind === 'topic')
+    .map((concept) => ({
+      id: concept.id,
+      name: concept.name,
+      slug: concept.slug,
+      breadcrumb: conceptBreadcrumb(concept.id, conceptRows).map((item) => ({
+        id: item.id,
+        name: item.name ?? item.id,
+        kind: item.kind
+      }))
+    }));
+}
+
 /** @param {LearningDb} db @param {string[]} caseIds @param {TaxonomyRow[]} conceptRows */
 async function listPagePrimaryTopics(db, caseIds, conceptRows) {
   if (!caseIds.length) return [];
@@ -130,6 +146,10 @@ async function listPageCaseTags(db, caseIds, includeInactiveTags) {
  * so malformed duplicate primary relationships cannot consume page slots.
  * Lifecycle filtering is explicit and always remains production-only.
  *
+ * Active Topic assignment options are derived from the same compatible
+ * taxonomy read already required by the Case Library. The inactive recovery
+ * view does not expose Topic assignment and therefore returns no such options.
+ *
  * @param {LearningDb} db
  * @param {{ search: string, topicSearch?: string, systemSearch?: string, tagId: string, sort?: string, lifecycle?: 'active'|'inactive' }} filters
  * @param {{ page?: number, pageSize?: number }} [options]
@@ -139,6 +159,7 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
   const requestedPage = Math.max(1, Number(options.page ?? 1) || 1);
   const inactiveView = filters.lifecycle === 'inactive';
   const conceptRows = await listConceptTaxonomy(db, { activeOnly: !inactiveView });
+  const topicOptions = inactiveView ? [] : caseLibraryTopicOptions(conceptRows);
   const matchingSystemIds = conceptRows
     .filter((concept) => concept.kind === 'system' && (!filters.systemSearch || concept.name.toLowerCase().includes(filters.systemSearch.toLowerCase())))
     .map((concept) => concept.id);
@@ -218,6 +239,7 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
       systemName: primaryByCase.get(row.id)?.systemName ?? null,
       tags: tagsByCase.get(row.id) ?? []
     })),
+    topicOptions,
     totalCount,
     totalPages,
     page,

@@ -1,6 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
 
-import { listAdminConcepts } from '$lib/server/db/admin-content.js';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { getCaseLibraryPage, parseCaseLibraryFilters, parseCaseLibraryPage } from '$lib/server/db/case-library.js';
 import {
@@ -173,15 +172,14 @@ export async function load({ locals, platform, url, setHeaders }) {
   }
 
   const db = createDb(platform.env.DB);
-  const { pageData, tagRows, topicRows } = await withServerReadTiming(
+  const { pageData, tagRows } = await withServerReadTiming(
     'admin-case-library-read',
     async () => {
-      const [pageData, tagRows, topicRows] = await Promise.all([
+      const [pageData, tagRows] = await Promise.all([
         getCaseLibraryPage(db, filters, { page: requestedPage }),
-        listCaseLibraryTagOptions(db, filters.lifecycle),
-        listAdminConcepts(db)
+        listCaseLibraryTagOptions(db, filters.lifecycle)
       ]);
-      return { pageData, tagRows, topicRows };
+      return { pageData, tagRows };
     },
     ({ operation, durationMs }) => {
       setHeaders({ 'server-timing': serverTimingValue(operation, durationMs) });
@@ -190,7 +188,7 @@ export async function load({ locals, platform, url, setHeaders }) {
 
   return {
     tags: tagRows,
-    topics: topicRows,
+    topics: pageData.topicOptions,
     caseFilters: filters,
     cases: pageData.rows,
     pagination: {
