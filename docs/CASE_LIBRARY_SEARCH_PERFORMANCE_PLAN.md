@@ -1,6 +1,6 @@
 # Case Library Search / Filter Performance Plan
 
-Status: planning only. No production behavior is changed by this document.
+Status: active implementation plan for draft PR #102. The implementation should be developed on the existing PR #102 branch rather than in a separate PR.
 
 ## Problem
 
@@ -27,7 +27,7 @@ This means the safest Stage 2 optimization is **not** to introduce a cross-reque
 
 Make Case Library filtering feel immediate while preserving current server-authoritative filtering, lifecycle, pagination, sorting, Production/Preview ownership, taxonomy compatibility, and Case Tag semantics.
 
-The implementation should ship both stages below in one focused implementation PR.
+Both stages below should be implemented in the existing draft PR #102.
 
 ## Stage 1 — stop search-on-every-keystroke
 
@@ -173,14 +173,15 @@ Out of scope:
 
 ## Implementation sequence
 
-1. Inspect current `main` and open PRs touching `/admin/cases`, Case Library read models, taxonomy compatibility, Tag options, or Admin Case UX.
-2. Read repository guidance and current Case Library/performance tests.
-3. Confirm the current 300 ms auto-submit path and capture the current Case Library read composition.
-4. Implement Stage 1 and verify text typing no longer submits automatically.
-5. Implement Stage 2 by deduplicating the Concept-taxonomy supporting read and skipping active Topic options in inactive view, preserving compatibility and freshness.
-6. Add focused tests for interaction contracts and read-path/query-shape behavior.
-7. Run repository-defined validation.
-8. Keep the implementation PR draft until validation and review are complete.
+1. Continue the existing PR #102 branch; do not create a separate implementation branch or PR.
+2. Inspect current PR #102 head against its intended `main` base and check whether `main` has moved in a way that materially affects the implementation.
+3. Read repository guidance and current Case Library/performance tests.
+4. Confirm the current 300 ms auto-submit path and capture the current Case Library read composition.
+5. Implement Stage 1 and verify text typing no longer submits automatically.
+6. Implement Stage 2 by deduplicating the Concept-taxonomy supporting read and skipping active Topic options in inactive view, preserving compatibility and freshness.
+7. Add focused tests for interaction contracts and read-path/query-shape behavior.
+8. Run repository-defined validation.
+9. Keep PR #102 draft until validation and review are complete.
 
 ## Success criteria
 
