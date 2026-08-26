@@ -12,7 +12,7 @@ export const CASE_LIBRARY_PAGE_SIZE = 60;
 
 /**
  * @param {URLSearchParams | { get(name: string): string | null }} params
- * @returns {{ search: string, topicSearch: string, systemSearch: string, tagId: string, sort: string }}
+ * @returns {{ search: string, topicSearch: string, systemSearch: string, tagId: string, sort: string, lifecycle: 'active'|'inactive' }}
  */
 export function parseCaseLibraryFilters(params) {
   const sort = params.get('sort')?.trim() ?? '';
@@ -21,7 +21,8 @@ export function parseCaseLibraryFilters(params) {
     topicSearch: params.get('topic')?.trim() ?? '',
     systemSearch: params.get('system')?.trim() ?? '',
     tagId: params.get('tag')?.trim() ?? '',
-    sort: ['case-asc', 'case-desc', 'topic-asc', 'topic-desc', 'system-asc', 'system-desc', 'tag-asc', 'tag-desc'].includes(sort) ? sort : 'case-asc'
+    sort: ['case-asc', 'case-desc', 'topic-asc', 'topic-desc', 'system-asc', 'system-desc', 'tag-asc', 'tag-desc'].includes(sort) ? sort : 'case-asc',
+    lifecycle: params.get('lifecycle') === 'inactive' ? 'inactive' : 'active'
   };
 }
 
@@ -31,9 +32,9 @@ export function parseCaseLibraryPage(params) {
   return Number.isSafeInteger(raw) && raw > 0 ? raw : 1;
 }
 
-/** @param {{ search: string, topicSearch?: string, systemSearch?: string, systemIds?: string[], tagId: string }} filters */
+/** @param {{ search: string, topicSearch?: string, systemSearch?: string, systemIds?: string[], tagId: string, lifecycle?: 'active'|'inactive' }} filters */
 function caseLibraryConditions(filters) {
-  const conditions = [eq(cases.isActive, true), isNull(cases.previewSessionId)];
+  const conditions = [eq(cases.isActive, filters.lifecycle === 'inactive' ? false : true), isNull(cases.previewSessionId)];
   if (filters.search) conditions.push(like(cases.title, `%${filters.search.toLowerCase()}%`));
   if (filters.topicSearch) {
     conditions.push(sql`exists (
@@ -80,7 +81,6 @@ function caseLibraryConditions(filters) {
   return conditions;
 }
 
-/** @param {LearningDb} db @param {string[]} caseIds */
 /** @param {LearningDb} db @param {string[]} caseIds @param {TaxonomyRow[]} conceptRows */
 async function listPagePrimaryTopics(db, caseIds, conceptRows) {
   if (!caseIds.length) return [];
@@ -101,14 +101,16 @@ async function listPagePrimaryTopics(db, caseIds, conceptRows) {
   }));
 }
 
-/** @param {LearningDb} db @param {string[]} caseIds */
-async function listPageCaseTags(db, caseIds) {
+/** @param {LearningDb} db @param {string[]} caseIds @param {boolean} includeInactiveTags */
+async function listPageCaseTags(db, caseIds, includeInactiveTags) {
   if (!caseIds.length) return [];
+  const conditions = [inArray(caseTags.caseId, caseIds)];
+  if (!includeInactiveTags) conditions.push(eq(tags.isActive, true));
   return db
     .select({ caseId: caseTags.caseId, tagId: caseTags.tagId, tagName: tags.name })
     .from(caseTags)
     .innerJoin(tags, eq(tags.id, caseTags.tagId))
-    .where(and(inArray(caseTags.caseId, caseIds), eq(tags.isActive, true)))
+    .where(and(...conditions))
     .orderBy(asc(caseTags.caseId), asc(tags.name), asc(tags.id));
 }
 
@@ -118,26 +120,30 @@ async function listPageCaseTags(db, caseIds) {
  * Filtering/counting and pagination happen against Cases only. Primary Topic
  * and Tag relationship enrichment are then restricted to the visible Case IDs,
  * so malformed duplicate primary relationships cannot consume page slots.
+ * Lifecycle filtering is explicit and always remains production-only.
  *
  * @param {LearningDb} db
- * @param {{ search: string, topicSearch?: string, systemSearch?: string, tagId: string, sort?: string }} filters
+ * @param {{ search: string, topicSearch?: string, systemSearch?: string, tagId: string, sort?: string, lifecycle?: 'active'|'inactive' }} filters
  * @param {{ page?: number, pageSize?: number }} [options]
  */
 export async function getCaseLibraryPage(db, filters, options = {}) {
   const pageSize = Math.max(1, Math.min(Number(options.pageSize ?? CASE_LIBRARY_PAGE_SIZE) || CASE_LIBRARY_PAGE_SIZE, CASE_LIBRARY_PAGE_SIZE));
   const requestedPage = Math.max(1, Number(options.page ?? 1) || 1);
-  const conceptRows = await listConceptTaxonomy(db, { activeOnly: true });
+  const inactiveView = filters.lifecycle === 'inactive';
+  const conceptRows = await listConceptTaxonomy(db, { activeOnly: !inactiveView });
   const matchingSystemIds = conceptRows
     .filter((concept) => concept.kind === 'system' && (!filters.systemSearch || concept.name.toLowerCase().includes(filters.systemSearch.toLowerCase())))
     .map((concept) => concept.id);
-  const where = and(...caseLibraryConditions({ ...filters, systemIds: matchingSystemIds }));
+  const where = and(...caseLibraryConditions({ ...filters, lifecycle: inactiveView ? 'inactive' : 'active', systemIds: matchingSystemIds }));
   const countRows = await db.select({ count: sql`count(*)`.mapWith(Number) }).from(cases).where(where);
   const totalCount = Number(countRows[0]?.count ?? 0);
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
   const page = Math.min(requestedPage, totalPages);
 
   const topicSort = sql`coalesce((select min(${concepts.name}) from ${caseConcepts} inner join ${concepts} on ${concepts.id} = ${caseConcepts.conceptId} where ${caseConcepts.caseId} = ${cases.id} and ${caseConcepts.role} = 'primary'), '')`;
-  const tagSort = sql`coalesce((select min(${tags.name}) from ${caseTags} inner join ${tags} on ${tags.id} = ${caseTags.tagId} where ${caseTags.caseId} = ${cases.id} and ${tags.isActive} = true), '')`;
+  const tagSort = inactiveView
+    ? sql`coalesce((select min(${tags.name}) from ${caseTags} inner join ${tags} on ${tags.id} = ${caseTags.tagId} where ${caseTags.caseId} = ${cases.id}), '')`
+    : sql`coalesce((select min(${tags.name}) from ${caseTags} inner join ${tags} on ${tags.id} = ${caseTags.tagId} where ${caseTags.caseId} = ${cases.id} and ${tags.isActive} = true), '')`;
   const sort = filters.sort ?? 'case-asc';
   const systemIds = conceptRows.filter((concept) => concept.kind === 'system').map((concept) => concept.id);
   const systemSort = systemIds.length ? sql`coalesce((
@@ -165,7 +171,8 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
     .select({
       id: cases.id,
       title: cases.title,
-      vignetteMd: cases.vignetteMd
+      vignetteMd: cases.vignetteMd,
+      isActive: cases.isActive
     })
     .from(cases)
     .where(where)
@@ -174,7 +181,10 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
     .offset((page - 1) * pageSize);
 
   const caseIds = rawRows.map((row) => row.id);
-  const [primaryRows, tagRows] = await Promise.all([listPagePrimaryTopics(db, caseIds, conceptRows), listPageCaseTags(db, caseIds)]);
+  const [primaryRows, tagRows] = await Promise.all([
+    listPagePrimaryTopics(db, caseIds, conceptRows),
+    listPageCaseTags(db, caseIds, inactiveView)
+  ]);
 
   /** @type {Map<string, { conceptId: string, conceptName: string | null, systemName: string | null }>} */
   const primaryByCase = new Map();

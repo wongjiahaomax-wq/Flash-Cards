@@ -8,6 +8,7 @@
   let searchTimer;
   /** @type {string[]} */
   let selectedCaseIds = $state([]);
+  let inactiveView = $derived(data.caseFilters.lifecycle === 'inactive');
   let firstShown = $derived(data.pagination.totalCount === 0 ? 0 : (data.pagination.page - 1) * data.pagination.pageSize + 1);
   let lastShown = $derived(Math.min(data.pagination.page * data.pagination.pageSize, data.pagination.totalCount));
   let allVisibleSelected = $derived(data.cases.length > 0 && data.cases.every((item) => selectedCaseIds.includes(item.id)));
@@ -40,6 +41,11 @@
     searchTimer = setTimeout(() => searchForm?.requestSubmit(), 300);
   }
 
+  /** @param {URLSearchParams} params */
+  function preserveLifecycle(params) {
+    if (inactiveView) params.set('lifecycle', 'inactive');
+  }
+
   /** @param {number} page */
   function pageHref(page) {
     const params = new URLSearchParams();
@@ -48,6 +54,7 @@
     if (data.caseFilters.systemSearch) params.set('system', data.caseFilters.systemSearch);
     if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
     if (data.caseFilters.sort && data.caseFilters.sort !== 'case-asc') params.set('sort', data.caseFilters.sort);
+    preserveLifecycle(params);
     if (page > 1) params.set('page', String(page));
     const search = params.toString();
     return search ? `/admin/cases?${search}` : '/admin/cases';
@@ -64,6 +71,7 @@
     if (data.caseFilters.systemSearch) params.set('system', data.caseFilters.systemSearch);
     if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
     if (!(column === 'case' && direction === 'asc')) params.set('sort', `${column}-${direction}`);
+    preserveLifecycle(params);
     const search = params.toString();
     return search ? `/admin/cases?${search}` : '/admin/cases';
   }
@@ -86,8 +94,39 @@
     if (data.caseFilters.systemSearch) params.set('system', data.caseFilters.systemSearch);
     if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
     if (data.caseFilters.sort && data.caseFilters.sort !== 'case-asc') params.set('sort', data.caseFilters.sort);
+    preserveLifecycle(params);
     if (data.pagination.page > 1) params.set('page', String(data.pagination.page));
     return params.toString();
+  }
+
+  /** @param {'active'|'inactive'} lifecycle */
+  function lifecycleHref(lifecycle) {
+    const params = new URLSearchParams();
+    if (data.caseFilters.search) params.set('q', data.caseFilters.search);
+    if (data.caseFilters.topicSearch) params.set('topic', data.caseFilters.topicSearch);
+    if (data.caseFilters.systemSearch) params.set('system', data.caseFilters.systemSearch);
+    if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
+    if (data.caseFilters.sort && data.caseFilters.sort !== 'case-asc') params.set('sort', data.caseFilters.sort);
+    if (lifecycle === 'inactive') params.set('lifecycle', 'inactive');
+    const search = params.toString();
+    return search ? `/admin/cases?${search}` : '/admin/cases';
+  }
+
+  function clearHref() {
+    return inactiveView ? '/admin/cases?lifecycle=inactive' : '/admin/cases';
+  }
+
+  /** @param {MouseEvent} event */
+  function confirmBulkDeactivate(event) {
+    const count = selectedCaseIds.length;
+    if (!count || !window.confirm(`Deactivate ${count} Case${count === 1 ? '' : 's'}? They will be removed from learner study, but their content and history will be retained.`)) {
+      event.preventDefault();
+    }
+  }
+
+  /** @param {{ id: string }} item */
+  function caseHref(item) {
+    return inactiveView ? `/admin/cases/${item.id}/recovery` : `/admin/cases/${item.id}`;
   }
 </script>
 
@@ -98,38 +137,51 @@
   <a class="button primary" href="/admin/cases/new">New Case</a>
 </section>
 
+<nav class="lifecycle-tabs" aria-label="Case lifecycle">
+  <a class:current={!inactiveView} href={lifecycleHref('active')} aria-current={!inactiveView ? 'page' : undefined}>Active</a>
+  <a class:current={inactiveView} href={lifecycleHref('inactive')} aria-current={inactiveView ? 'page' : undefined}>Inactive</a>
+</nav>
+
 <form class="search-form" method="GET" bind:this={searchForm}>
   <label class="search-field" for="case-search">Case contains<input id="case-search" name="q" bind:value={query} oninput={autoSearch} placeholder="e.g. pericarditis" /></label>
   <label class="search-field" for="topic-search">Topic contains<input id="topic-search" name="topic" bind:value={topicQuery} oninput={autoSearch} placeholder="e.g. AMI" /></label>
   <label class="search-field" for="system-search">System contains<input id="system-search" name="system" bind:value={systemQuery} oninput={autoSearch} placeholder="e.g. Cardiology" /></label>
   <label for="case-tag">Tag<select id="case-tag" name="tag" onchange={autoSearch}><option value="">All Tags</option>{#each data.tags as tag}<option value={tag.id} selected={tag.id === data.caseFilters.tagId}>{tag.name}</option>{/each}</select></label>
+  {#if inactiveView}<input type="hidden" name="lifecycle" value="inactive" />{/if}
   {#if data.caseFilters.sort && data.caseFilters.sort !== 'case-asc'}<input type="hidden" name="sort" value={data.caseFilters.sort} />{/if}
-  {#if query || topicQuery || systemQuery || data.caseFilters.tagId}<div class="search-actions"><a class="button" href="/admin/cases">Clear</a></div>{/if}
+  {#if query || topicQuery || systemQuery || data.caseFilters.tagId}<div class="search-actions"><a class="button" href={clearHref()}>Clear</a></div>{/if}
 </form>
 
 <section class="panel" aria-labelledby="case-list-heading">
-  <div class="panel-heading"><div><h2 id="case-list-heading">Active Cases <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">Tags are curation metadata; Topic remains the learner study route.</span></div>
+  <div class="panel-heading"><div><h2 id="case-list-heading">{inactiveView ? 'Inactive Cases' : 'Active Cases'} <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">{inactiveView ? 'Inactive Cases are preserved for recovery and are unavailable to learners.' : 'Tags are curation metadata; Topic remains the learner study route.'}</span></div>
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if data.status === 'bulk-topic-updated'}<p class="success-message" role="status">Primary Topic updated for the selected Cases.</p>{/if}
+  {#if data.status === 'cases-deactivated'}<p class="success-message" role="status">Selected Cases deactivated. Their content and history were retained.</p>{/if}
+  {#if data.status === 'cases-restored'}<p class="success-message" role="status">Selected Cases restored to active use.</p>{/if}
   {#if data.cases.length === 0}
-    <p class="empty-state">No active Cases match these filters.</p>
+    <p class="empty-state">No {inactiveView ? 'inactive' : 'active'} Cases match these filters.</p>
   {:else}
-    <form method="POST" action="?/bulkPromoteTopic">
+    <form method="POST" action={inactiveView ? '?/bulkRestoreCases' : '?/bulkPromoteTopic'}>
       <input type="hidden" name="return_query" value={currentQuery()} />
       <div class="bulk-toolbar">
-        <div><strong>Bulk assign Primary Topic</strong><span class="muted">{selectedCaseIds.length} Case{selectedCaseIds.length === 1 ? '' : 's'} selected</span></div>
-        <label class="bulk-topic">Topic<select name="concept_id" required disabled={!selectedCaseIds.length}><option value="">Choose a Topic</option>{#each topicGroups as group}<optgroup label={group.label}>{#each group.topics as topic}{@const systemIndex = topic.breadcrumb.findIndex((item) => item.kind === 'system')}<option value={topic.id}>{topic.breadcrumb.slice(systemIndex >= 0 ? systemIndex + 1 : 0).map((/** @param {{ name: string }} item */ item) => item.name).join(' → ')}</option>{/each}</optgroup>{/each}</select></label>
-        <button class="button primary" type="submit" disabled={!selectedCaseIds.length}>Assign Topic</button>
+        <div><strong>{inactiveView ? 'Bulk restore Cases' : 'Bulk Case actions'}</strong><span class="muted">{selectedCaseIds.length} Case{selectedCaseIds.length === 1 ? '' : 's'} selected</span></div>
+        {#if inactiveView}
+          <button class="button primary" type="submit" disabled={!selectedCaseIds.length}>Restore selected</button>
+        {:else}
+          <label class="bulk-topic">Topic<select name="concept_id" required disabled={!selectedCaseIds.length}><option value="">Choose a Topic</option>{#each topicGroups as group}<optgroup label={group.label}>{#each group.topics as topic}{@const systemIndex = topic.breadcrumb.findIndex((item) => item.kind === 'system')}<option value={topic.id}>{topic.breadcrumb.slice(systemIndex >= 0 ? systemIndex + 1 : 0).map((/** @param {{ name: string }} item */ item) => item.name).join(' → ')}</option>{/each}</optgroup>{/each}</select></label>
+          <button class="button primary" type="submit" disabled={!selectedCaseIds.length}>Assign Topic</button>
+          <button class="button danger" type="submit" formaction="?/bulkDeactivateCases" formnovalidate disabled={!selectedCaseIds.length} onclick={confirmBulkDeactivate}>Deactivate selected</button>
+        {/if}
       </div>
       <div class="case-table" role="list">
         <div class="table-header"><span class="case-heading"><input type="checkbox" checked={allVisibleSelected} onchange={toggleAllVisible} aria-label="Select all visible Cases" /><a class="sort-header" href={sortHref('case')} aria-label={`Sort by Case ${data.caseFilters.sort === 'case-asc' ? 'descending' : 'ascending'}`}>Case <span aria-hidden="true">{sortIndicator('case')}</span></a></span><a class="sort-header" href={sortHref('topic')} aria-label={`Sort by Topic ${data.caseFilters.sort === 'topic-asc' ? 'descending' : 'ascending'}`}>Topic <span aria-hidden="true">{sortIndicator('topic')}</span></a><a class="sort-header" href={sortHref('system')} aria-label={`Sort by System ${data.caseFilters.sort === 'system-asc' ? 'descending' : 'ascending'}`}>System <span aria-hidden="true">{sortIndicator('system')}</span></a><a class="sort-header" href={sortHref('tag')} aria-label={`Sort by Tags ${data.caseFilters.sort === 'tag-asc' ? 'descending' : 'ascending'}`}>Tags <span aria-hidden="true">{sortIndicator('tag')}</span></a><span>Open</span></div>
       {#each data.cases as item}
-        <div class="table-row">
-          <span class="case-cell"><input class="case-select" type="checkbox" name="case_ids" value={item.id} bind:group={selectedCaseIds} aria-label={`Select ${item.title}`} /><a href={`/admin/cases/${item.id}`}><strong>{item.title}</strong></a></span>
+        <div class="table-row" class:inactive-row={inactiveView}>
+          <span class="case-cell"><input class="case-select" type="checkbox" name="case_ids" value={item.id} bind:group={selectedCaseIds} aria-label={`Select ${item.title}`} /><a href={caseHref(item)}><strong>{item.title}</strong></a>{#if inactiveView}<span class="status-badge">Inactive</span>{/if}</span>
           <span>{item.conceptName ?? 'Unassigned'}</span>
           <span>{item.systemName ?? 'Unassigned'}</span>
           <span class="tag-list">{#if item.tags.length}{#each item.tags as tag}<span class="tag-chip">{tag.name}</span>{/each}{:else}<span class="muted">—</span>{/if}</span>
-          <a class="open-link" href={`/admin/cases/${item.id}`}>Open →</a>
+          <a class="open-link" href={caseHref(item)}>{inactiveView ? 'Recover' : 'Open'} →</a>
         </div>
       {/each}
       </div>
@@ -148,14 +200,15 @@
   .panel-heading > div { display: grid; gap: 0.3rem; }
   h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 4vw, 2.5rem); } h2 { margin-bottom: 0; font-size: 1.15rem; }
   .eyebrow { margin-bottom: 0.3rem; color: #667085; font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; } .muted { color: #667085; }
-  .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; } .button.primary { border-color: #172033; background: #172033; color: #fff; }
-  .search-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 0.75rem; align-items: end; margin: 1.5rem 0 1rem; } label { display: grid; gap: 0.4rem; color: #344054; font-weight: 650; } input, select { width: 100%; min-width: 0; box-sizing: border-box; padding: 0.7rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } .search-actions { display: flex; gap: 0.5rem; }
+  .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; } .button.primary { border-color: #172033; background: #172033; color: #fff; } .button.danger { border-color: #d92d20; color: #b42318; background: #fff; }
+  .lifecycle-tabs { display: inline-flex; gap: 0.25rem; margin-top: 1.25rem; padding: 0.25rem; border: 1px solid #dfe5ee; border-radius: 9px; background: #f8fafc; } .lifecycle-tabs a { padding: 0.48rem 0.78rem; border-radius: 7px; color: #475467; font-weight: 700; text-decoration: none; } .lifecycle-tabs a.current { background: #fff; color: #172033; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08); }
+  .search-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 0.75rem; align-items: end; margin: 1rem 0; } label { display: grid; gap: 0.4rem; color: #344054; font-weight: 650; } input, select { width: 100%; min-width: 0; box-sizing: border-box; padding: 0.7rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } .search-actions { display: flex; gap: 0.5rem; }
   .panel { padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; } .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
   .bulk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin-top: 1rem; padding: 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #f8fafc; } .bulk-toolbar > div { display: grid; gap: 0.2rem; margin-right: auto; } .bulk-topic { display: flex; align-items: center; gap: 0.55rem; min-width: 360px; } .bulk-topic select { flex: 1; min-width: 0; } button:disabled, select:disabled { cursor: not-allowed; opacity: 0.55; } .form-error, .success-message { margin: 1rem 0 0; padding: 0.75rem; border-radius: 8px; } .form-error { background: #fef3f2; color: #b42318; } .success-message { background: #ecfdf3; color: #027a48; }
-  .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(160px, 1fr) 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .sort-header { color: inherit; text-decoration: none; } .sort-header span { margin-left: 0.2rem; font-size: 0.9rem; } .table-row { border-bottom: 1px solid #eaecf0; color: #172033; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .case-heading, .case-cell { display: flex; align-items: center; gap: 0.55rem; min-width: 0; } .case-cell a { min-width: 0; color: #172033; text-decoration: none; } .case-cell a strong { overflow-wrap: anywhere; } .case-heading input, .case-select { width: 1rem; height: 1rem; flex: 0 0 auto; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; text-decoration: none; }
-  .tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; } .tag-chip { display: inline-block; padding: 0.18rem 0.4rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; }
+  .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(160px, 1fr) 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .sort-header { color: inherit; text-decoration: none; } .sort-header span { margin-left: 0.2rem; font-size: 0.9rem; } .table-row { border-bottom: 1px solid #eaecf0; color: #172033; } .table-row.inactive-row { background: #fcfcfd; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .case-heading, .case-cell { display: flex; align-items: center; gap: 0.55rem; min-width: 0; } .case-cell a { min-width: 0; color: #172033; text-decoration: none; } .case-cell a strong { overflow-wrap: anywhere; } .case-heading input, .case-select { width: 1rem; height: 1rem; flex: 0 0 auto; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; text-decoration: none; }
+  .status-badge { flex: 0 0 auto; padding: 0.16rem 0.42rem; border-radius: 999px; background: #fef3f2; color: #b42318 !important; font-size: 0.72rem; font-weight: 750; } .tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; } .tag-chip { display: inline-block; padding: 0.18rem 0.4rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; }
   .empty-state { padding: 1rem; border: 1px dashed #d0d5dd; border-radius: 8px; }
   .pagination { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.75rem; margin-top: 1rem; } .pagination > :last-child { justify-self: end; }
   @media (max-width: 1100px) { .search-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .search-actions { grid-column: 1 / -1; } }
-  @media (max-width: 600px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .search-form { grid-template-columns: minmax(0, 1fr); } .search-actions { grid-column: auto; } .bulk-topic { min-width: 100%; } .table-header { display: none; } .table-row { grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem 0.75rem; } .table-row strong, .tag-list { grid-column: 1 / -1; } .open-link { text-align: left; } .pagination { grid-template-columns: 1fr 1fr; } .pagination > span { grid-column: 1 / -1; grid-row: 1; text-align: center; } .pagination > a:first-of-type { grid-column: 1; } .pagination > a:last-of-type { grid-column: 2; } }
+  @media (max-width: 600px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .search-form { grid-template-columns: minmax(0, 1fr); } .search-actions { grid-column: auto; } .bulk-topic { min-width: 100%; } .table-header { display: none; } .table-row { grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem 0.75rem; } .case-cell, .tag-list { grid-column: 1 / -1; } .open-link { text-align: left; } .pagination { grid-template-columns: 1fr 1fr; } .pagination > span { grid-column: 1 / -1; grid-row: 1; text-align: center; } .pagination > a:first-of-type { grid-column: 1; } .pagination > a:last-of-type { grid-column: 2; } }
 </style>
