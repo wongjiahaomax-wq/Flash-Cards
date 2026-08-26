@@ -36,6 +36,10 @@ function hasLastAdminMarker(error: unknown): boolean {
   return String(error).includes('LAST_ACTIVE_PRODUCTION_ADMIN');
 }
 
+function returnedExactlyOneRow(result: D1Result<unknown> | undefined): boolean {
+  return (result?.results?.length ?? 0) === 1;
+}
+
 async function loadSafetyRow(db: D1Database, userId: string): Promise<AccountSafetyRow> {
   const row = await db
     .prepare('SELECT `id`, `role`, `banned` FROM `user` WHERE `id` = ? LIMIT 1')
@@ -64,6 +68,10 @@ async function loadSafetyRow(db: D1Database, userId: string): Promise<AccountSaf
  * BEFORE UPDATE trigger. Making this the first statement in the same D1 batch
  * establishes the write transaction first. Recomputing the count also repairs
  * any stale guard-state value before the database-level trigger consumes it.
+ *
+ * RETURNING is intentional here. D1's meta.changes is based on SQLite total
+ * changes and can include changes outside the target statement, so it cannot
+ * reliably tell us whether this specific guarded UPDATE matched one row.
  */
 function serializeProductionAdminLoss(db: D1Database) {
   return db.prepare(`
@@ -75,6 +83,7 @@ function serializeProductionAdminLoss(db: D1Database) {
         AND coalesce("banned", 0) = 0
     )
     WHERE "id" = 1
+    RETURNING "id"
   `);
 }
 
@@ -135,11 +144,12 @@ export async function demoteProductionAdministratorAtomically(options: {
                 AND coalesce(other_admin."banned", 0) = 0
             )
           )
+        RETURNING "id"
       `)
       .bind(nextRole, Date.now(), target.id, target.role ?? '', expectedBanned);
 
     const [guardResult, result] = await options.db.batch([serializeAdminLoss, demoteUser]);
-    if ((guardResult?.meta.changes ?? 0) !== 1) {
+    if (!returnedExactlyOneRow(guardResult)) {
       throw new AccountManagementError(
         'ACCOUNT_SAFETY_GUARD_UNAVAILABLE',
         'Administrator lockout protection is unavailable.',
@@ -147,7 +157,7 @@ export async function demoteProductionAdministratorAtomically(options: {
       );
     }
 
-    if ((result?.meta.changes ?? 0) !== 1) {
+    if (!returnedExactlyOneRow(result)) {
       const current = await loadSafetyRow(options.db, target.id);
       if (!parseRoles(current.role).includes('admin')) {
         return getAccount(options.auth, options.headers, target.id);
@@ -211,6 +221,7 @@ export async function disableManagedAccountAtomically(options: {
                 AND coalesce(other_admin."banned", 0) = 0
             )
           )
+        RETURNING "id"
       `)
       .bind(DISABLED_REASON, Date.now(), target.id, expectedRole);
 
@@ -231,7 +242,7 @@ export async function disableManagedAccountAtomically(options: {
       updateUser,
       revokeSessions
     ]);
-    if ((guardResult?.meta.changes ?? 0) !== 1) {
+    if (!returnedExactlyOneRow(guardResult)) {
       throw new AccountManagementError(
         'ACCOUNT_SAFETY_GUARD_UNAVAILABLE',
         'Administrator lockout protection is unavailable.',
@@ -239,7 +250,7 @@ export async function disableManagedAccountAtomically(options: {
       );
     }
 
-    if ((updateResult?.meta.changes ?? 0) !== 1) {
+    if (!returnedExactlyOneRow(updateResult)) {
       const current = await loadSafetyRow(options.db, target.id);
       if (isDisabled(current.banned)) {
         return getAccount(options.auth, options.headers, target.id);
