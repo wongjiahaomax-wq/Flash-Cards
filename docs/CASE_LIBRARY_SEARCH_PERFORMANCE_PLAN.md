@@ -1,6 +1,6 @@
 # Case Library Search / Filter Performance Plan
 
-Status: active implementation plan for draft PR #102. The implementation should be developed on the existing PR #102 branch rather than in a separate PR.
+Status: implemented on draft PR #102; automated validation and manual UX verification remain pending.
 
 ## Problem
 
@@ -27,7 +27,18 @@ This means the safest Stage 2 optimization is **not** to introduce a cross-reque
 
 Make Case Library filtering feel immediate while preserving current server-authoritative filtering, lifecycle, pagination, sorting, Production/Preview ownership, taxonomy compatibility, and Case Tag semantics.
 
-Both stages below should be implemented in the existing draft PR #102.
+Both stages below are implemented in the existing draft PR #102.
+
+## Implementation in PR #102
+
+- Case, Topic, and System text inputs no longer submit on `input`; native GET-form submission handles Enter and the explicit `Search` button.
+- Tag selection remains an intentional immediate submit via the same GET form.
+- lifecycle and non-default sort state remain hidden form inputs, while `page` is intentionally absent so a new filter submission starts at page 1.
+- `getCaseLibraryPage()` now derives active Topic assignment options from the same `listConceptTaxonomy()` result already required for Case filtering, sorting, and enrichment.
+- the route no longer calls `listAdminConcepts()` for Case Library loads, removing the duplicate active taxonomy supporting read.
+- inactive Case Library loads return no active Topic assignment options while retaining the compatible taxonomy read required for inactive Topic/System display and filtering.
+- `listCaseLibraryTagOptions()` and the `admin-case-library-read` Server-Timing contract remain unchanged.
+- focused source-contract and SQLite/D1 statement-capture coverage records these interaction and read-path invariants, including the pre-migration-0015 fallback.
 
 ## Stage 1 — stop search-on-every-keystroke
 
