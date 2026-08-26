@@ -106,7 +106,9 @@
       <h2>Sessions</h2>
       <p class="muted">Use this for a lost device, suspected compromise, or forced reauthentication.</p>
     </div>
-    {#if data.isCurrentAccount}
+    {#if data.account.hasPreviewAccess}
+      <p class="muted">Session revocation is unavailable here because this identity also has Preview Admin access and Preview sessions share the same backing account records.</p>
+    {:else if data.isCurrentAccount}
       <p class="muted">Self-session management is not part of this Admin Accounts surface.</p>
     {:else}
       <form method="POST" action="?/revokeSessions" onsubmit={(event) => confirmAction(event, 'Revoke all sessions for this account? The user will need to sign in again.')}>
@@ -118,14 +120,18 @@
   <section class="card stack danger-zone">
     <div>
       <h2>{data.account.status === 'Disabled' ? 'Restore account' : 'Disable account'}</h2>
-      {#if data.account.status === 'Disabled'}
+      {#if data.account.hasPreviewAccess}
+        <p class="muted">Lifecycle changes are unavailable here because disabling or restoring this shared identity would also change Preview Admin access.</p>
+      {:else if data.account.status === 'Disabled'}
         <p class="muted">Restore permits future sign-in but does not restore old sessions.</p>
       {:else}
         <p class="muted">Disable preserves the account and learning history, prevents sign-in, and revokes existing sessions. Accounts are not hard-deleted here.</p>
       {/if}
     </div>
 
-    {#if data.account.status === 'Disabled'}
+    {#if data.account.hasPreviewAccess}
+      <p class="muted">Preview-enabled identities must keep lifecycle management outside the Production Accounts surface.</p>
+    {:else if data.account.status === 'Disabled'}
       <form method="POST" action="?/restore">
         <button class="button primary" type="submit">Restore account</button>
       </form>
