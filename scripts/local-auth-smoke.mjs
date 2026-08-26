@@ -348,6 +348,22 @@ try {
   assert.equal(demoteManaged.status, 303, await demoteManaged.text());
   assert.match(demoteManaged.headers.get('location') ?? '', /\?status=demoted$/);
 
+  const managedAfterDemote = await fetch(
+    `${baseURL}/admin/accounts/${encodeURIComponent(managedUserId)}`,
+    {
+      headers: { cookie: cookies },
+      redirect: 'manual'
+    }
+  );
+  assert.equal(managedAfterDemote.status, 200);
+  const managedAfterDemoteHtml = await managedAfterDemote.text();
+  assert.match(
+    managedAfterDemoteHtml,
+    /Promote to Administrator/,
+    'Expected the temporary managed account to be a Learner before the race.'
+  );
+  assert.doesNotMatch(managedAfterDemoteHtml, /Change to Learner/);
+
   // A combined owner demoted through the guarded product action must become an
   // ordinary Learner while retaining Preview Admin authority.
   const demoteCombined = await postNamedAction(
@@ -516,16 +532,25 @@ try {
     postNamedAction(`/admin/accounts/${encodeURIComponent(combinedUserId)}`, 'demote', newPasswordCookies),
     postNamedAction(`/admin/accounts/${encodeURIComponent(userId)}`, 'demote', combinedAdminCookies)
   ]);
-  assert.deepEqual(
-    [demoteCombinedRace.status, demoteMainRace.status].sort((a, b) => a - b),
-    [303, 409]
-  );
 
   const mainAfterRace = await getSession(newPasswordCookies);
   const combinedAfterRace = await getSession(combinedAdminCookies);
   const mainStillAdmin = roles(mainAfterRace?.user?.role).includes('admin');
   const combinedStillAdmin = roles(combinedAfterRace?.user?.role).includes('admin');
-  assert.equal(Number(mainStillAdmin) + Number(combinedStillAdmin), 1);
+  assert.equal(
+    Number(mainStillAdmin) + Number(combinedStillAdmin),
+    1,
+    `Expected exactly one racing account to retain Production Administrator access; main=${String(
+      mainAfterRace?.user?.role
+    )}, combined=${String(combinedAfterRace?.user?.role)}, statuses=${demoteCombinedRace.status},${
+      demoteMainRace.status
+    }`
+  );
+
+  assert.deepEqual(
+    [demoteCombinedRace.status, demoteMainRace.status].sort((a, b) => a - b),
+    [303, 409]
+  );
 
   const survivorCookies = mainStillAdmin ? newPasswordCookies : combinedAdminCookies;
   const survivorAccountsPage = await fetch(`${baseURL}/admin/accounts`, {
