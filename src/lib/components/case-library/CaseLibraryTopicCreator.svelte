@@ -57,6 +57,7 @@
 <svelte:window onpointerdowncapture={closeOnOutsidePointer} onkeydown={closeOnEscape} />
 
 <div class="case-library-topic-creator">
+  {#each selectedCaseIds as caseId}<input type="hidden" name="topic_case_ids" value={caseId} />{/each}
   <button type="button" class="trigger" aria-expanded={editorOpen} onclick={toggleEditor}>New Topic</button>
 
   {#if editorOpen}
