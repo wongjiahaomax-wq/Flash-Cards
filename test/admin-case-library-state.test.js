@@ -67,6 +67,20 @@ test('stored Case Library state round-trips through the normal URL model', () =>
   assert.equal(caseLibraryStateHref(readCaseLibraryStoredState(storage)), '/admin/cases?q=uveitis&topic=retina&system=Eye&tag=tag-1&sort=topic-desc&lifecycle=inactive&page=4');
 });
 
+test('deliberate default-state navigation stays explicit so persisted state cannot override it', () => {
+  const defaultState = { version: 1, q: '', topic: '', system: '', tag: '', sort: 'case-asc', lifecycle: 'active', page: 1 };
+  const activeHref = caseLibraryStateHref(defaultState, ['lifecycle']);
+  const firstPageHref = caseLibraryStateHref(defaultState, ['page']);
+  const defaultSortHref = caseLibraryStateHref(defaultState, ['sort']);
+
+  assert.equal(activeHref, '/admin/cases?lifecycle=active');
+  assert.equal(firstPageHref, '/admin/cases?page=1');
+  assert.equal(defaultSortHref, '/admin/cases?sort=case-asc');
+  for (const href of [activeHref, firstPageHref, defaultSortHref]) {
+    assert.equal(hasExplicitCaseLibraryQuery(new URL(href, 'https://example.test').searchParams), true, href);
+  }
+});
+
 test('default active state and Clear remove the remembered working state', () => {
   const storage = memoryStorage(JSON.stringify({ version: 1, q: 'old' }));
   writeCaseLibraryStoredState({ version: 1, q: '', topic: '', system: '', tag: '', sort: 'case-asc', lifecycle: 'active', page: 1 }, storage);
