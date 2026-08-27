@@ -11,7 +11,8 @@ This file supplements the repository-wide `AGENTS.md` for `scripts/`.
 - Never print `.dev.vars` contents, tokens, secrets, or production-derived data.
 - Keep diagnostics read-only unless their command is explicitly an operator mutation command.
 - Keep `agent:checks` classification deterministic and repository-specific. Extend the explicit path/capability rules and focused tests instead of adding fuzzy inference or a generic configuration DSL.
-- Keep ordinary validation commands in the shared repository validation contract so `validate:full` and PR CI cannot silently drift. Specialized runtime and slide-review checks remain conditional.
+- Keep ordinary validation commands in the shared repository validation contract so local `validate:*` and PR CI cannot silently drift. `scripts/validate-ci.mjs` is the CI-specific wrapper: preserve its PR diff override, GitHub grouping/annotations, and Node-test diagnostics while allowing GitHub Actions to select the shared `fast` or `full` mode. Omitted CI mode should remain fail-safe/backward-compatible as `full`; invalid explicit modes must fail as configuration errors.
+- Specialized runtime and slide-review checks remain conditional rather than becoming universal ordinary PR CI.
 
 Read `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`, `docs/LOCAL_DEVELOPMENT_REPLICA.md`, and `docs/CLOUDFLARE.md` when relevant.
 
