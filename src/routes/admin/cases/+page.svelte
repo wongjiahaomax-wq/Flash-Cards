@@ -43,8 +43,8 @@
   });
   let topicCreationFailure = $derived(Boolean(form && 'topicCreation' in form && form.topicCreation));
   let topicCreationError = $derived(topicCreationFailure && form && 'error' in form ? form.error : '');
-  let topicCreationName = $derived(form && 'topicName' in form ? form.topicName ?? '' : '');
-  let topicCreationParentId = $derived(form && 'topicParentId' in form ? form.topicParentId ?? '' : '');
+  let topicCreationName = $derived(form && 'topicName' in form ? String(form.topicName ?? '') : '');
+  let topicCreationParentId = $derived(form && 'topicParentId' in form ? String(form.topicParentId ?? '') : '');
 
   function currentStoredState() {
     return {
