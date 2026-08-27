@@ -1,35 +1,27 @@
 # Case Library — Row Classification Editing + Sticky Bulk Actions
 
-_Status: agreed PR #104 UX extension; documented but not yet implemented._
+_Status: implemented in draft PR #104; automated validation and manual UX review remain part of handoff._
 
 _Last updated: 28 August 2026_
 
 ## Context
 
-PR #104 already implements the first Case Library improvements around:
+PR #104 originally added:
 
 - explicit `Unassigned` System filtering;
 - Case Library search/filter persistence through browser `localStorage`;
 - quick global Topic creation and optional create-and-bulk-assign from `/admin/cases`.
 
-During manual UX review of the active Case Library, two additional usability needs were identified:
+During manual review, two follow-up UX needs were agreed for the same PR:
 
-1. row-level classification should be editable directly from the Case Library in the same spirit as the existing row-level `Edit tags` interaction;
-2. the `Bulk Case actions` toolbar should remain visible while the administrator scrolls through a long Case list.
+1. edit one active Case's canonical classification from its Case Library row;
+2. keep the existing bulk action toolbar available while scrolling long Case lists.
 
-This document records the agreed product semantics and implementation constraints for those additions. It is an extension of PR #104, not a taxonomy redesign.
+This remains a Case Library UX extension, not a taxonomy redesign.
 
----
+## Domain decisions retained
 
-# Part A — Row-level Edit classification
-
-## Product goal
-
-From an individual Case row, the administrator should be able to change that Case's canonical classification without opening the full Case editor or the global Systems & Topics workspace.
-
-The interaction should feel similar to the existing row-level `Edit tags` control: a compact, local modal/popover that preserves the Case Library context.
-
-The visible table currently shows separate Topic and System columns. The important domain rule is:
+The governing model remains:
 
 ```text
 Case
@@ -37,402 +29,221 @@ Case
     └── System is derived from that Topic's taxonomy ancestry
 ```
 
-Therefore **System is not an independent Case relationship and must not become a second source of truth.**
+Therefore:
 
-## Do not implement an independent "change this Case's System" write
+- System is not an independent Case relationship;
+- the row editor changes only the canonical Primary Topic;
+- the System selector is only a Topic-navigation/filter control;
+- changing the selector does not mutate the Case or taxonomy;
+- the displayed System is re-derived from the selected Topic ancestry;
+- Case Tags remain unrelated cross-cutting metadata;
+- Additional Study Topics remain retired;
+- no Case→System schema or migration is introduced.
 
-A System displayed for a Case is derived from the Case's Primary Topic ancestry.
+Changing a Topic's parent/System remains a global taxonomy operation and is intentionally unavailable from an individual Case row.
 
-Changing the parent/System of the Topic itself would be a **global taxonomy mutation** and could alter the displayed System for every Case using that Topic. A row-level Case control must not silently perform that operation.
+## Implemented row-classification UX
 
-Accordingly:
+Active Case rows now expose one `Edit classification` interaction in the Topic area. Inactive recovery rows remain read-only for ordinary classification and do not expose this editor.
 
-- the row editor changes the Case's **Primary Topic**;
-- the System control inside the editor is a **navigator/filter for eligible Topics**;
-- after the Primary Topic is changed, the row's System value is re-derived from the selected Topic's ancestry;
-- no independent Case→System relationship is created;
-- no taxonomy parent is changed by this row-level workflow.
-
-## Row trigger
-
-Provide a small classification edit affordance in the Topic/System area of each active Case row.
-
-Preferred presentation is intentionally lightweight, for example:
-
-```text
-TOPIC                                   SYSTEM
-Anterior uveitis  [Edit]                Eye
-```
-
-or equivalent.
-
-If it is visually clearer, both the Topic and System cells may expose an edit affordance, but **both must open the same `Edit classification` interaction**. Do not create two separate mutation models called `Edit Topic` and `Edit System`.
-
-The exact button placement is implementation detail. The stable product concept is one Case-classification editor.
-
-## Modal / popover
-
-Opening the control should show a compact modal/popover such as:
-
-```text
-Edit classification
-Allergic conjunctivitis
-
-System
-[ Eye ▼ ]
-
-Topic
-[ Conjunctivitis ▼ ]
-
-[ + New Topic ]
-
-                         Cancel   Save
-```
-
-The interaction should show enough current context to avoid accidental reassignment:
+The editor shows:
 
 - Case title;
-- current derived System (`Unassigned` when there is no System ancestor);
-- current Primary Topic;
-- hierarchy-aware Topic label/breadcrumb where needed.
+- current canonical Topic;
+- current derived System;
+- a System navigator;
+- a breadcrumb-aware Topic selector;
+- `+ New Topic`;
+- Cancel and Save controls.
 
-## System selector semantics
+Escape closes the interaction, the explicit close/cancel controls restore trigger focus, and server errors are surfaced inside the editor.
 
-The System selector is a **Topic-navigation filter**, not a persisted Case field.
+### Shared taxonomy option model
 
-It should offer:
+No per-row taxonomy read was added.
+
+The editor reuses the active taxonomy data already returned by the bounded `/admin/cases` read model introduced before this extension:
+
+- `pageData.topicOptions` supplies active Topics with breadcrumbs;
+- `pageData.topicParentOptions` supplies active System/Topic parent choices;
+- each visible Case row already includes its canonical `conceptId`, Topic name, and derived System name.
+
+One shared client helper resolves Topic→System context and filters the shared option set for all row editors.
+
+### System selector semantics
+
+The System selector offers:
 
 - `Unassigned`;
-- active Systems.
+- active real Systems.
 
-Selecting a real System should constrain the Topic chooser to active Topics whose ancestry resolves under that System.
+For a real System, the Topic selector includes only active Topics whose breadcrumb resolves beneath that System.
 
-Example:
+For `Unassigned`, the Topic selector includes only active Topics with no System anywhere in their ancestry, including nested Topics whose ancestor chain consists only of other unassigned Topics.
 
-```text
-System = Eye
+Breadcrumb labels remain visible so nested and similarly named Topics are distinguishable.
 
-Topic choices:
-Eye → Conjunctivitis
-Eye → Uveitis
-Eye → Uveitis → Anterior uveitis
-Eye → Uveitis → Posterior uveitis
-```
+When the System context changes and the selected Topic no longer belongs to that context, the Topic selection is cleared instead of retaining an incompatible hidden value.
 
-Display Topic labels with sufficient breadcrumb context to distinguish nested or similarly named Topics.
+No System value is submitted to the mutation endpoint.
 
-Selecting `Unassigned` should show active Topics that do not resolve to a System ancestor, including Topics nested under other unassigned Topics.
+## Primary Topic save path
 
-Changing only the System filter does **not** mutate anything. Save requires a valid Topic selection.
+Saving an existing Topic uses the existing canonical `promoteCaseTopic(...)` domain operation.
 
-If changing the System filter makes the currently selected Topic ineligible, clear or otherwise visibly invalidate the Topic selection rather than silently keeping an incompatible hidden value.
+That authority already:
 
-## Topic selector semantics
+- requires an active Production Case;
+- requires an active Topic through the taxonomy compatibility layer;
+- requires one existing canonical Primary Topic before replacement;
+- performs a no-op when the selected Topic is already canonical;
+- replaces only the canonical Primary Topic;
+- does not create an Additional Study Topic;
+- handles a target Topic that exists as a legacy secondary row without creating a duplicate;
+- leaves unrelated Case Tags untouched;
+- rejects Preview-owned Cases through the Production Case guard.
 
-The Topic selector chooses the Case's new canonical Primary Topic.
+The Case Library route remains thin and performs no direct taxonomy SQL.
 
-On Save:
+## New Topic from the row editor
 
-- validate the Case as an active Production Case;
-- validate the selected Topic as active and eligible under the existing taxonomy authority;
-- replace only the Case's canonical Primary Topic;
-- finish with exactly one behaviorally active Primary Topic;
-- do not create Additional Study Topic / secondary relationships;
-- preserve unrelated Case Tags;
-- leave the global taxonomy hierarchy unchanged.
+`+ New Topic` reuses the PR #104 `createCaseLibraryTopic(...)` authority with exactly the edited Case ID.
 
-If the selected Topic is already the Case's current Primary Topic, the operation may be a no-op.
+This preserves the existing rules for:
 
-## `New Topic` from the classification editor
-
-The row-level classification editor should also provide a secondary `+ New Topic` path so the administrator does not have to close the editor, create a Topic elsewhere, then reopen the Case classification workflow.
-
-Reuse the Topic-creation authority already introduced by PR #104 rather than creating another weaker creator.
-
-Desired workflow:
-
-```text
-Edit classification
-→ choose/navigate to a System context if useful
-→ choose an existing Topic OR create a new Topic
-→ make that Topic the Case's canonical Primary Topic
-→ remain on /admin/cases
-```
-
-The new Topic flow must retain the existing PR #104 rules:
-
-- Topic name/slug validation;
+- Topic name validation;
+- deterministic unique slug generation;
 - `kind = topic`;
 - active parent validation;
-- System or Topic parent placement;
-- explicit Unassigned placement;
+- System / Topic / explicit Unassigned placement;
 - graph/cycle validation;
-- Production-only mutation boundary;
-- pre-migration-0015 compatibility where applicable.
+- Production-only Case assignment;
+- pre-migration-0015 compatibility.
 
-Implementation may either return the newly created Topic to the classification editor as the selected Topic before Save, or use the existing create-and-assign domain operation for the single Case if that produces a cleaner coherent UX. The user-visible result must be unambiguous and must not leave an orphan Topic after an assignment failure.
+The selected System context also constrains the parent choices shown in the nested creator. A real System offers that System and Topics beneath it; `Unassigned` offers explicit Unassigned placement and unassigned Topic parents.
 
-## Active / inactive behavior
+The existing domain operation validates the Case before Topic creation and uses a D1 batch where available. Its non-batch fallback compensates Case relationship writes and removes the Topic on failure, so the row workflow does not introduce an orphan Topic after failed assignment.
 
-Ordinary classification editing belongs to the **active Production Case Library**.
+## Sticky bulk actions implementation
 
-The inactive recovery view should not expose normal row-level Topic/System classification mutation. An inactive Case should be restored before ordinary classification editing unless a separately reviewed recovery-specific design says otherwise.
+The existing active and inactive bulk action surfaces now use normal CSS sticky positioning. No scroll-position JavaScript and no duplicated floating toolbar were introduced.
 
-Preview Cases remain out of scope.
+The active runtime toolbar still contains:
 
-## Reuse existing domain authority
+- selected Case count;
+- shift-click hint on wider layouts;
+- Topic selector;
+- Assign Topic;
+- New Topic;
+- Manage Tags;
+- Deactivate selected.
 
-Do not implement direct SQL taxonomy mutation in the Svelte component or route.
+The inactive runtime toolbar retains only its existing Restore workflow.
 
-Prefer existing canonical operations, such as the current Primary Topic promotion/bulk-promotion path and the PR #104 Topic authoring operation, or extract small reusable domain primitives if necessary.
+The active and inactive markup are mutually exclusive lifecycle branches, so there is one interactive toolbar in document/focus order at runtime.
 
-The route should remain thin and should preserve the repository's existing Production guards and taxonomy compatibility layer.
+### Sticky offset and layering
 
-No database migration is expected.
-
----
-
-# Part B — Sticky Bulk Case actions toolbar
-
-## Product goal
-
-When the Case Library contains many rows, the administrator should not have to scroll back to the top of the result panel to perform a bulk action after selecting Cases farther down the page.
-
-The existing `Bulk Case actions` toolbar should therefore remain visible while scrolling through the Case list.
-
-## Desktop / laptop behavior
-
-The primary desktop/laptop behavior should be:
+The Admin header is normal-flow rather than fixed/sticky, so the toolbar uses a small content-safe viewport gutter instead of `top: 0`:
 
 ```text
-scroll Case Library
-→ Bulk Case actions reaches the top working area
-→ toolbar remains sticky while Case rows continue scrolling underneath
+position: sticky
+top: 0.75rem
+z-index: 12
 ```
 
-Use normal sticky layout behavior rather than custom scroll-position JavaScript unless the existing application shell makes that impossible.
+On narrow screens the gutter reduces to `0.5rem`.
 
-The sticky toolbar must preserve all live controls and state:
+The sticky surface is opaque, bordered, and shadowed so Case rows do not bleed through it. Case rows also receive scroll margin to reduce the chance of keyboard/focus navigation placing them behind the pinned action surface.
 
-- `N Cases selected` count;
-- shift-click selection hint where still useful;
-- existing Topic selector;
-- `Assign Topic`;
-- `New Topic`;
-- `Manage Tags`;
-- `Deactivate selected`.
+The Case table header was not made sticky.
 
-Controls that require selection should remain disabled when zero Cases are selected exactly as they are now.
+### Narrow layouts
 
-## Sticky offset / layering
+The existing flex toolbar remains a single wrapping surface. At narrow widths:
 
-The toolbar must not hide underneath or overlap the application's top navigation/header.
+- the summary occupies its own row;
+- the shift-click hint is hidden to reduce sticky height;
+- the Topic control uses the available width;
+- embedded New Topic / Tag controls retain their existing responsive behavior;
+- no horizontal page-scrolling workaround is introduced.
 
-Use an appropriate sticky `top` offset based on the actual application shell rather than assuming `top: 0` is always correct.
+## Performance and persistence constraints preserved
 
-While sticky, preserve clear visual separation from scrolling Case rows, for example with:
+This extension does not change Case Library filtering, pagination, sorting, or browser persistence semantics.
 
-- opaque background;
-- existing border/radius where suitable;
-- a subtle shadow or separator when pinned;
-- an appropriate `z-index` limited to the Case Library surface.
+In particular it does not:
 
-Do not allow Case text or row controls to bleed visually through the sticky toolbar.
+- perform a taxonomy read per visible Case;
+- cache Case result rows in `localStorage`;
+- reintroduce per-keystroke navigation;
+- move server-authoritative filtering/pagination into the browser;
+- add a Case→System write path.
 
-## Table interaction
+PR #102's bounded read-model approach remains intact.
 
-The sticky toolbar must not cover the first visible Case row or make row checkboxes impossible to access.
+## Automated coverage added
 
-Do not make the table header sticky as part of this requirement unless it is independently useful and does not complicate the toolbar. The requested behavior is specifically that **Bulk Case actions remain available while scrolling**.
+Focused coverage now checks:
 
-Selections must continue to behave exactly as before, including:
+- System-context Topic filtering for real Systems;
+- nested `Unassigned` Topic filtering;
+- breadcrumb labels;
+- System-scoped parent choices for row-level Topic creation;
+- active-only row classification controls;
+- current Case/Topic/System context in the editor;
+- incompatible Topic invalidation on System change;
+- absence of a System field in the mutation contract;
+- reuse of `promoteCaseTopic(...)` for existing Topic assignment;
+- reuse of `createCaseLibraryTopic(...)` for atomic single-Case create-and-assign;
+- structural preservation of Case Tags by the Primary Topic mutation path;
+- sticky positioning, non-zero top offset, opaque layering, and narrow-screen wrapping;
+- mutually exclusive active/inactive toolbar branches and existing disabled-state behavior.
 
-- individual checkbox selection;
-- Select all visible;
-- shift-click range selection;
-- live selected count.
+Existing Admin content tests remain the executable authority for canonical Primary Topic replacement, legacy secondary compatibility, invalid-selection rollback, and the retired Additional Study Topic contract.
 
-## Inactive view
-
-The inactive Case Library's bulk Restore toolbar should receive equivalent sticky behavior so that selecting inactive Cases farther down the list does not require scrolling back to the top to restore them.
-
-The inactive toolbar should expose only its existing recovery action set; do not add Topic/Tag authoring controls to inactive Cases.
-
-## Narrow screens
-
-On narrow/mobile layouts:
-
-- keep controls usable without horizontal page scrolling;
-- allow the toolbar to wrap into multiple lines;
-- preserve accessible labels and sufficiently large touch targets;
-- avoid a sticky block so tall that it obscures most of the Case list.
-
-The implementation may use a more compact wrapped layout at narrow widths, but it should preserve the core requirement that the active bulk action surface remains available while moving through the list where practical.
-
-Do not solve narrow-screen layout by shrinking controls to unreadable sizes.
-
-## Accessibility
-
-Sticky behavior must not change focus order or keyboard operation.
-
-When keyboard focus moves between Case checkboxes and toolbar controls, the focused element must remain visible rather than being hidden behind the pinned toolbar.
-
-Respect normal document order; do not clone the toolbar into a second interactive copy solely for sticky behavior.
-
----
-
-# Combined UX behavior
-
-These additions should complement rather than replace the current Case Library fast paths.
-
-After implementation, the page should support:
-
-```text
-Individual Case
-→ Edit classification
-→ choose System context
-→ choose/create Topic
-→ Save Primary Topic
-
-Individual Case
-→ Edit tags
-→ manage Case Tags
-
-Several Cases
-→ select rows while scrolling
-→ sticky Bulk Case actions remains available
-→ assign existing Topic / create Topic / manage Tags / deactivate
-```
-
-This preserves the conceptual distinction:
-
-```text
-Topic = canonical educational home
-System = derived navigation ancestry
-Tag = cross-cutting Case metadata
-```
-
----
-
-# Performance / read-model constraints
-
-Do not regress PR #102's bounded Case Library read model.
-
-Prefer deriving any row classification option data from already available compatible taxonomy models where practical. If the modal needs additional data, avoid issuing a broad taxonomy read per row or per rendered `Edit` control.
-
-In particular:
-
-- do not perform N taxonomy reads for N visible Cases;
-- do not fetch all Case result data into localStorage;
-- do not reintroduce per-keystroke Case Library navigation;
-- preserve server-authoritative filtering/pagination.
-
-A single shared active taxonomy option model for all visible row editors is preferable to per-row taxonomy fetches if the payload remains bounded and consistent with the current read-model contract.
-
----
-
-# Automated coverage
-
-Add focused coverage without introducing a large new browser-test framework solely for these additions.
-
-## Row classification
-
-Cover at minimum:
-
-- active Case row exposes an `Edit classification` interaction;
-- Topic and System edit affordances, if both are shown, resolve to the same classification editor;
-- editor displays the current Case title, Primary Topic and derived System;
-- System selection filters/navigates Topic choices but is not submitted as an independent Case→System write;
-- selecting `Unassigned` exposes only Topics with no resolved System ancestor;
-- real System selection exposes Topics resolving beneath that System;
-- nested Topic labels preserve useful breadcrumb context;
-- changing System context invalidates an incompatible Topic selection;
-- saving an existing Topic replaces only the canonical Primary Topic;
-- exactly one Primary Topic remains after save;
-- no new secondary Topic rows are created;
-- unrelated Tags are preserved;
-- active Production Case guards remain enforced;
-- inactive Case Library does not expose ordinary classification mutation;
-- Preview Case mutation remains unavailable;
-- `New Topic` reuses existing Topic-authoring validation/atomicity rather than bypassing it.
-
-## Sticky bulk toolbar
-
-Cover stable source/UI contracts for:
-
-- active `Bulk Case actions` toolbar uses sticky positioning with an application-safe top offset;
-- pinned toolbar has an opaque/layered surface so rows do not show through;
-- existing bulk controls remain present;
-- selected count and disabled-state behavior remain intact;
-- inactive bulk Restore toolbar receives equivalent sticky treatment;
-- only one interactive toolbar instance exists;
-- narrow-screen rules wrap controls rather than forcing page-level horizontal scrolling.
-
----
-
-# Manual UX verification
+## Manual UX verification still required
 
 Use local/test data only.
 
-Verify at minimum:
+1. Open Edit classification for an active Case currently under an Unassigned Topic.
+2. Select a real System and verify Topic options are restricted to that System hierarchy.
+3. Select Unassigned and verify only unassigned Topic hierarchies appear.
+4. Reassign a Case from an Unassigned Topic to a Topic under a real System and confirm the displayed System changes after refresh/invalidation.
+5. Reassign between two Topics in the same System.
+6. Create a new Topic from the row editor and make it canonical without leaving `/admin/cases`.
+7. Confirm existing Case Tags remain unchanged.
+8. Confirm inactive Cases expose no ordinary Edit classification control.
+9. Select Cases, scroll far down, and verify Bulk Case actions remains visible.
+10. Add selections farther down and verify the selected count updates.
+11. Use Assign Topic, New Topic, Manage Tags, and Deactivate while the toolbar is pinned.
+12. Verify the inactive Restore toolbar remains available while scrolling.
+13. Verify the sticky surface does not overlap Case row controls or visually bleed into rows.
+14. Verify keyboard focus, Escape, close, and error feedback in the classification editor.
+15. Verify laptop and narrow-screen layouts, especially toolbar wrapping and popover usability.
 
-1. Open row-level Edit classification for a Case whose System is `Unassigned`; confirm current Topic/System context is correct.
-2. Choose a real System and confirm the Topic list is filtered to Topics under that System.
-3. Choose `Unassigned` and confirm only unassigned Topic hierarchies are offered.
-4. Change a Case from an Unassigned Topic to a Topic beneath a real System; confirm the table's System column changes automatically after save.
-5. Change a Case between two Topics in the same System; confirm only the Case's Primary Topic changes.
-6. Create a new Topic from the classification workflow and make it the Case's Primary Topic without leaving the Case Library.
-7. Confirm existing Case Tags remain unchanged after classification edits.
-8. Confirm inactive Cases do not expose ordinary Edit classification controls.
-9. Select a Case near the top, scroll down several rows/pages of viewport content, and confirm the bulk toolbar remains visible with the correct selected count.
-10. Select additional Cases farther down and confirm the sticky toolbar updates immediately.
-11. Use Assign Topic, New Topic, Manage Tags and Deactivate from the sticky toolbar.
-12. Repeat in the inactive view and confirm Restore remains accessible while scrolling.
-13. Verify the sticky toolbar does not overlap the application header or obscure Case row controls.
-14. Verify keyboard tab/focus navigation and Escape/close behavior for the classification modal.
-15. Verify laptop and narrow-screen layouts, especially toolbar wrapping and modal usability.
+## Out of scope retained
 
----
+This PR still does not implement:
 
-# Scope boundaries
-
-## In scope
-
-- active row-level Case classification editing from `/admin/cases`;
-- System-as-navigator/filter semantics inside that editor;
-- Primary Topic reassignment;
-- reuse of quick Topic creation from the row classification workflow;
-- sticky active bulk Case actions;
-- sticky inactive bulk Restore actions;
-- focused tests and documentation.
-
-## Out of scope
-
-- creating a Case→System database relationship;
-- changing a Topic's global parent/System from an individual Case row;
+- a Case→System relationship;
+- Topic-parent/System mutation from a Case row;
 - taxonomy drag/drop or hierarchy administration;
-- redesigning the full `/admin/topics` workspace;
+- a redesign of `/admin/topics`;
 - Additional Study Topics;
 - learner-facing changes;
 - Preview taxonomy mutation;
-- schema migration;
-- making the entire table/header sticky unless separately justified.
+- any schema migration;
+- a sticky table header.
 
----
+## Acceptance state
 
-# Acceptance criteria
+The code implementation is complete when repository validation is green and the manual checklist above has been performed by the user on a real browser/local test dataset.
 
-This extension is complete when:
+The durable semantic distinction remains:
 
-- an administrator can open one compact row-level classification editor from the Case Library;
-- the editor clearly distinguishes System navigation from the canonical Topic assignment;
-- System selection filters Topic choices without creating a second Case classification source of truth;
-- saving changes exactly one Case's canonical Primary Topic and the visible System is re-derived correctly;
-- a new Topic can be created from the same workflow using existing taxonomy authority;
-- no secondary Topic rows or independent Case→System writes are introduced;
-- the active bulk toolbar remains available while scrolling long Case lists;
-- the inactive Restore toolbar behaves equivalently;
-- sticky layout does not obscure rows, break keyboard operation or force unusable narrow-screen layout;
-- existing Case Library filtering, persistence, sorting, pagination, Tags, lifecycle actions and row navigation remain intact;
-- PR #102 read/performance constraints remain intact;
-- no database migration is introduced.
+```text
+Topic  = canonical educational home
+System = derived navigation ancestry
+Tag    = cross-cutting Case metadata
+```
