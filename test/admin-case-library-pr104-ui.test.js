@@ -24,6 +24,12 @@ test('Case Library keeps deliberate search while persisting server-normalized st
   assert.doesNotMatch(pageSource, /history\.(pushState|replaceState)/, 'browser Back/Forward must remain native');
 });
 
+test('deliberate default pagination, sort, and lifecycle links remain explicit', () => {
+  assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), page \}, \['page'\]\)/);
+  assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), sort: `\$\{column\}-\$\{direction\}`, page: 1 \}, \['sort'\]\)/);
+  assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), lifecycle, page: 1 \}, \['lifecycle'\]\)/);
+});
+
 test('active Case Library exposes quick Topic creation without replacing existing bulk actions', () => {
   assert.match(pageSource, /CaseLibraryTopicCreator/);
   assert.match(pageSource, />Assign Topic<\/button>/);
@@ -35,6 +41,15 @@ test('active Case Library exposes quick Topic creation without replacing existin
   assert.match(creatorSource, /optgroup label="Topics"/);
   assert.match(creatorSource, /formaction="\?\/createCaseLibraryTopic"/);
   assert.match(creatorSource, /Create & assign to \$\{selectedCount\}/);
+});
+
+test('failed quick Topic creation preserves the exact submitted Case selection for retry', () => {
+  assert.match(creatorSource, /name="topic_case_ids" value=\{caseId\}/);
+  assert.match(serverSource, /selectedCaseIds\(formData, 'topic_case_ids'\)/);
+  assert.match(serverSource, /topicCreationFailure\(error, input, caseIds\)/);
+  assert.match(serverSource, /topicSelectedCaseIds: caseIds/);
+  assert.match(pageSource, /failedTopicSelection\(form\)/);
+  assert.match(pageSource, /candidate\.topicSelectedCaseIds/);
 });
 
 test('Case Library route reuses the page taxonomy model for Topic parent options and rejects inactive quick creation', () => {
