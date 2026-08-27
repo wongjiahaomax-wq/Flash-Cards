@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { getCaseLibraryPage, parseCaseLibraryFilters, parseCaseLibraryPage } from '$lib/server/db/case-library.js';
+import { createCaseLibraryTopic, CaseLibraryTopicInputError } from '$lib/server/db/case-library-topic-authoring.ts';
 import {
   bulkAddCaseTag,
   bulkCreateAndAddCaseTag,
@@ -12,6 +13,7 @@ import { bulkDeactivateProductionCases, bulkRestoreProductionCases, CaseLifecycl
 import { createDb } from '$lib/server/db/index.js';
 import { listCaseLibraryTagOptions } from '$lib/server/db/library-options.js';
 import { TagInputError } from '$lib/server/db/tag-library.js';
+import { TaxonomyInputError } from '$lib/server/db/taxonomy-admin-write.ts';
 import { serverTimingValue, withServerReadTiming } from '$lib/server/performance-timing.js';
 import { actions as parentActions } from '../+page.server.js';
 
@@ -36,10 +38,10 @@ function libraryRedirect(returnQuery, lifecycle, status, extras = {}) {
   const params = new URLSearchParams(returnQuery);
   params.delete('status');
   params.delete('tag_name');
+  params.delete('topic_name');
   params.delete('case_count');
   params.delete('page');
-  if (lifecycle === 'inactive') params.set('lifecycle', 'inactive');
-  else params.delete('lifecycle');
+  params.set('lifecycle', lifecycle);
   params.set('status', status);
   for (const [name, value] of Object.entries(extras)) {
     if (value !== undefined) params.set(name, String(value));
@@ -51,17 +53,25 @@ function libraryRedirect(returnQuery, lifecycle, status, extras = {}) {
 function lifecycleFailure(error) {
   const clientError = error instanceof CaseLifecycleError;
   if (!clientError) console.error('Case lifecycle action failed.', error);
-  return fail(clientError ? 400 : 500, {
-    error: clientError ? error.message : 'Unable to update the selected Case lifecycle.'
-  });
+  return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to update the selected Case lifecycle.' });
 }
 
 /** @param {unknown} error */
 function caseTagFailure(error) {
   const clientError = error instanceof CaseTagBulkError || error instanceof TagInputError;
   if (!clientError) console.error('Bulk Case Tag action failed.', error);
+  return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to update Tags for the selected Cases.' });
+}
+
+/** @param {unknown} error @param {{ name: string, parentId: string }} input */
+function topicCreationFailure(error, input) {
+  const clientError = error instanceof CaseLibraryTopicInputError || error instanceof TaxonomyInputError;
+  if (!clientError) console.error('Case Library Topic creation failed.', error);
   return fail(clientError ? 400 : 500, {
-    error: clientError ? error.message : 'Unable to update Tags for the selected Cases.'
+    error: clientError ? error.message : 'Unable to create the Topic.',
+    topicCreation: true,
+    topicName: input.name,
+    topicParentId: input.parentId
   });
 }
 
@@ -71,29 +81,47 @@ function statusData(url) {
   return {
     status: url.searchParams.get('status') ?? '',
     statusTagName: url.searchParams.get('tag_name') ?? '',
+    statusTopicName: url.searchParams.get('topic_name') ?? '',
     statusCaseCount: Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 0
   };
 }
 
 export const actions = {
   ...parentActions,
+  createCaseLibraryTopic: async ({ request, locals, platform, url }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    if (parseCaseLibraryFilters(url.searchParams).lifecycle === 'inactive') {
+      return fail(400, { error: 'Create Topics from the active Case Library.', topicCreation: true });
+    }
+    const formData = await request.formData();
+    const input = { name: formText(formData, 'new_topic_name'), parentId: formText(formData, 'parent_id') };
+    let result;
+    try {
+      result = await createCaseLibraryTopic(createDb(platform.env.DB), {
+        caseIds: selectedCaseIds(formData),
+        name: input.name,
+        parentId: input.parentId
+      });
+    } catch (error) {
+      return topicCreationFailure(error, input);
+    }
+    redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', result.selectedCount ? 'topic-created-and-assigned' : 'topic-created', {
+      topic_name: result.name,
+      case_count: result.selectedCount || undefined
+    }));
+  },
   bulkAddCaseTag: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData();
     let result;
     try {
-      result = await bulkAddCaseTag(createDb(platform.env.DB), {
-        caseIds: selectedCaseIds(formData),
-        tagId: formText(formData, 'tag_id')
-      });
+      result = await bulkAddCaseTag(createDb(platform.env.DB), { caseIds: selectedCaseIds(formData), tagId: formText(formData, 'tag_id') });
     } catch (error) {
       return caseTagFailure(error);
     }
-    redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', 'case-tags-added', {
-      tag_name: result.tag.name,
-      case_count: result.selectedCount
-    }));
+    redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', 'case-tags-added', { tag_name: result.tag.name, case_count: result.selectedCount }));
   },
   bulkRemoveCaseTag: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
@@ -101,17 +129,11 @@ export const actions = {
     const formData = await request.formData();
     let result;
     try {
-      result = await bulkRemoveCaseTag(createDb(platform.env.DB), {
-        caseIds: selectedCaseIds(formData),
-        tagId: formText(formData, 'tag_id')
-      });
+      result = await bulkRemoveCaseTag(createDb(platform.env.DB), { caseIds: selectedCaseIds(formData), tagId: formText(formData, 'tag_id') });
     } catch (error) {
       return caseTagFailure(error);
     }
-    redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', 'case-tags-removed', {
-      tag_name: result.tag.name,
-      case_count: result.selectedCount
-    }));
+    redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', 'case-tags-removed', { tag_name: result.tag.name, case_count: result.selectedCount }));
   },
   bulkCreateAndAddCaseTag: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
@@ -119,17 +141,11 @@ export const actions = {
     const formData = await request.formData();
     let result;
     try {
-      result = await bulkCreateAndAddCaseTag(createDb(platform.env.DB), {
-        caseIds: selectedCaseIds(formData),
-        name: formText(formData, 'new_tag_name')
-      });
+      result = await bulkCreateAndAddCaseTag(createDb(platform.env.DB), { caseIds: selectedCaseIds(formData), name: formText(formData, 'new_tag_name') });
     } catch (error) {
       return caseTagFailure(error);
     }
-    redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', 'case-tag-created-bulk', {
-      tag_name: result.tag.name,
-      case_count: result.selectedCount
-    }));
+    redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', 'case-tag-created-bulk', { tag_name: result.tag.name, case_count: result.selectedCount }));
   },
   bulkDeactivateCases: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
@@ -164,6 +180,7 @@ export async function load({ locals, platform, url, setHeaders }) {
     return {
       tags: [],
       topics: [],
+      topicParents: [],
       caseFilters: filters,
       cases: [],
       pagination: emptyPagination,
@@ -189,6 +206,7 @@ export async function load({ locals, platform, url, setHeaders }) {
   return {
     tags: tagRows,
     topics: pageData.topicOptions,
+    topicParents: pageData.topicParentOptions,
     caseFilters: filters,
     cases: pageData.rows,
     pagination: {
