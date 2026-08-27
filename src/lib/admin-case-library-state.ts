@@ -7,6 +7,8 @@ const CASE_LIBRARY_SORTS = new Set([
 ]);
 const CASE_LIBRARY_QUERY_KEYS = ['q', 'topic', 'system', 'tag', 'sort', 'lifecycle', 'page'];
 
+type CaseLibraryExplicitQueryKey = 'sort' | 'lifecycle' | 'page';
+
 export type CaseLibraryStoredState = {
   version: 1;
   q: string;
@@ -102,17 +104,18 @@ export function hasExplicitCaseLibraryQuery(params: URLSearchParams) {
   return CASE_LIBRARY_QUERY_KEYS.some((key) => params.has(key));
 }
 
-export function caseLibraryStateHref(value: unknown) {
+export function caseLibraryStateHref(value: unknown, explicitKeys: CaseLibraryExplicitQueryKey[] = []) {
   const state = normalizeCaseLibraryStoredState(value);
   if (!state) return '/admin/cases';
+  const explicit = new Set(explicitKeys);
   const params = new URLSearchParams();
   if (state.q) params.set('q', state.q);
   if (state.topic) params.set('topic', state.topic);
   if (state.system) params.set('system', state.system);
   if (state.tag) params.set('tag', state.tag);
-  if (state.sort !== 'case-asc') params.set('sort', state.sort);
-  if (state.lifecycle === 'inactive') params.set('lifecycle', 'inactive');
-  if (state.page > 1) params.set('page', String(state.page));
+  if (state.sort !== 'case-asc' || explicit.has('sort')) params.set('sort', state.sort);
+  if (state.lifecycle === 'inactive' || explicit.has('lifecycle')) params.set('lifecycle', state.lifecycle);
+  if (state.page > 1 || explicit.has('page')) params.set('page', String(state.page));
   const search = params.toString();
   return search ? `/admin/cases?${search}` : '/admin/cases';
 }
