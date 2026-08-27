@@ -1,7 +1,7 @@
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { taxonomyConcepts } from './contextual-schema.ts';
-import { buildTopicConceptInsert } from './concept-taxonomy-compat.ts';
+import { buildTopicConceptInsert, listConceptTaxonomy } from './concept-taxonomy-compat.ts';
 import { caseConcepts, conceptQuestions, concepts } from './schema.js';
 import { systemTags, tags } from './tag-schema.js';
 import {
@@ -63,10 +63,7 @@ async function uniqueSlug(db: import('./index.js').LearningDb, name: string) {
 }
 
 async function loadGraph(db: import('./index.js').LearningDb) {
-  return db
-    .select({ id: taxonomyConcepts.id, name: taxonomyConcepts.name, kind: taxonomyConcepts.kind, parentId: taxonomyConcepts.parentId, isActive: taxonomyConcepts.isActive })
-    .from(taxonomyConcepts)
-    .orderBy(asc(taxonomyConcepts.name), asc(taxonomyConcepts.id));
+  return listConceptTaxonomy(db);
 }
 
 function graphError(error: unknown): never {
