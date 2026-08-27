@@ -31,6 +31,7 @@
   let filteredTopics = $derived(filterCaseLibraryTopicsBySystem(topics, systemContext));
   let filteredParentOptions = $derived(filterCaseLibraryParentOptionsBySystem(parentOptions, systemContext));
 
+  /** @param {string} context */
   function defaultParentForSystem(context) {
     return context === CASE_LIBRARY_UNASSIGNED_SYSTEM ? '' : context;
   }
