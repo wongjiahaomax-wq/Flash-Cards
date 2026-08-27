@@ -23,9 +23,9 @@ function formText(formData, name) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-/** @param {FormData} formData */
-function selectedCaseIds(formData) {
-  return formData.getAll('case_ids').filter((value) => typeof value === 'string').map((value) => value.trim()).filter(Boolean);
+/** @param {FormData} formData @param {string} [name] */
+function selectedCaseIds(formData, name = 'case_ids') {
+  return formData.getAll(name).filter((value) => typeof value === 'string').map((value) => value.trim()).filter(Boolean);
 }
 
 /**
@@ -63,15 +63,16 @@ function caseTagFailure(error) {
   return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to update Tags for the selected Cases.' });
 }
 
-/** @param {unknown} error @param {{ name: string, parentId: string }} input */
-function topicCreationFailure(error, input) {
+/** @param {unknown} error @param {{ name: string, parentId: string }} input @param {string[]} caseIds */
+function topicCreationFailure(error, input, caseIds) {
   const clientError = error instanceof CaseLibraryTopicInputError || error instanceof TaxonomyInputError;
   if (!clientError) console.error('Case Library Topic creation failed.', error);
   return fail(clientError ? 400 : 500, {
     error: clientError ? error.message : 'Unable to create the Topic.',
     topicCreation: true,
     topicName: input.name,
-    topicParentId: input.parentId
+    topicParentId: input.parentId,
+    topicSelectedCaseIds: caseIds
   });
 }
 
@@ -96,15 +97,16 @@ export const actions = {
     }
     const formData = await request.formData();
     const input = { name: formText(formData, 'new_topic_name'), parentId: formText(formData, 'parent_id') };
+    const caseIds = selectedCaseIds(formData, 'topic_case_ids');
     let result;
     try {
       result = await createCaseLibraryTopic(createDb(platform.env.DB), {
-        caseIds: selectedCaseIds(formData),
+        caseIds,
         name: input.name,
         parentId: input.parentId
       });
     } catch (error) {
-      return topicCreationFailure(error, input);
+      return topicCreationFailure(error, input, caseIds);
     }
     redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', result.selectedCount ? 'topic-created-and-assigned' : 'topic-created', {
       topic_name: result.name,
