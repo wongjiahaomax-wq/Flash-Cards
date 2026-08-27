@@ -8,8 +8,6 @@
   let topicQuery = $state('');
   let systemQuery = $state('');
   let searchForm = $state();
-  /** @type {ReturnType<typeof setTimeout> | undefined} */
-  let searchTimer;
   /** @type {string[]} */
   let selectedCaseIds = $state([]);
   /** @type {string | null} */
@@ -42,9 +40,8 @@
     systemQuery = data.caseFilters.systemSearch;
   });
 
-  function autoSearch() {
-    clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => searchForm?.requestSubmit(), 300);
+  function applyFilters() {
+    searchForm?.requestSubmit();
   }
 
   /** @param {URLSearchParams} params */
@@ -163,13 +160,13 @@
 </nav>
 
 <form class="search-form" method="GET" bind:this={searchForm}>
-  <label class="search-field" for="case-search">Case contains<input id="case-search" name="q" bind:value={query} oninput={autoSearch} placeholder="e.g. pericarditis" /></label>
-  <label class="search-field" for="topic-search">Topic contains<input id="topic-search" name="topic" bind:value={topicQuery} oninput={autoSearch} placeholder="e.g. AMI" /></label>
-  <label class="search-field" for="system-search">System contains<input id="system-search" name="system" bind:value={systemQuery} oninput={autoSearch} placeholder="e.g. Cardiology" /></label>
-  <label for="case-tag">Tag<select id="case-tag" name="tag" onchange={autoSearch}><option value="">All Tags</option>{#each data.tags as tag}<option value={tag.id} selected={tag.id === data.caseFilters.tagId}>{tag.name}</option>{/each}</select></label>
+  <label class="search-field" for="case-search">Case contains<input id="case-search" name="q" bind:value={query} placeholder="e.g. pericarditis" /></label>
+  <label class="search-field" for="topic-search">Topic contains<input id="topic-search" name="topic" bind:value={topicQuery} placeholder="e.g. AMI" /></label>
+  <label class="search-field" for="system-search">System contains<input id="system-search" name="system" bind:value={systemQuery} placeholder="e.g. Cardiology" /></label>
+  <label for="case-tag">Tag<select id="case-tag" name="tag" onchange={applyFilters}><option value="">All Tags</option>{#each data.tags as tag}<option value={tag.id} selected={tag.id === data.caseFilters.tagId}>{tag.name}</option>{/each}</select></label>
   {#if inactiveView}<input type="hidden" name="lifecycle" value="inactive" />{/if}
   {#if data.caseFilters.sort && data.caseFilters.sort !== 'case-asc'}<input type="hidden" name="sort" value={data.caseFilters.sort} />{/if}
-  {#if query || topicQuery || systemQuery || data.caseFilters.tagId}<div class="search-actions"><a class="button" href={clearHref()}>Clear</a></div>{/if}
+  <div class="search-actions"><button class="button primary" type="submit">Search</button>{#if query || topicQuery || systemQuery || data.caseFilters.tagId}<a class="button" href={clearHref()}>Clear</a>{/if}</div>
 </form>
 
 <section class="panel" aria-labelledby="case-list-heading">
