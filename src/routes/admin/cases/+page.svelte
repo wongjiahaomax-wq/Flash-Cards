@@ -41,6 +41,10 @@
       .sort((left, right) => left.label.localeCompare(right.label))
       .map((group) => ({ ...group, topics: group.topics.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)) }));
   });
+  let topicCreationFailure = $derived(Boolean(form && 'topicCreation' in form && form.topicCreation));
+  let topicCreationError = $derived(topicCreationFailure && form && 'error' in form ? form.error : '');
+  let topicCreationName = $derived(form && 'topicName' in form ? form.topicName ?? '' : '');
+  let topicCreationParentId = $derived(form && 'topicParentId' in form ? form.topicParentId ?? '' : '');
 
   function currentStoredState() {
     return {
@@ -209,7 +213,7 @@
 
 <section class="panel" aria-labelledby="case-list-heading">
   <div class="panel-heading"><div><h2 id="case-list-heading">{inactiveView ? 'Inactive Cases' : 'Active Cases'} <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">{inactiveView ? 'Inactive Cases are preserved for recovery and are unavailable to learners.' : 'Tags are curation metadata; Topic remains the learner study route.'}</span></div>
-  {#if form?.error && !form?.topicCreation}<p class="form-error" role="alert">{form.error}</p>{/if}
+  {#if form?.error && !topicCreationFailure}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if data.status === 'bulk-topic-updated'}<p class="success-message" role="status">Primary Topic updated for the selected Cases.</p>{/if}
   {#if data.status === 'topic-created'}<p class="success-message" role="status">Created Topic {data.statusTopicName}.</p>{/if}
   {#if data.status === 'topic-created-and-assigned'}<p class="success-message" role="status">Created Topic {data.statusTopicName} and assigned it to {data.statusCaseCount} selected Case{data.statusCaseCount === 1 ? '' : 's'}.</p>{/if}
@@ -230,7 +234,7 @@
         <div><strong>Bulk Case actions</strong><span class="muted">{selectedCaseIds.length} Case{selectedCaseIds.length === 1 ? '' : 's'} selected</span><span class="selection-hint">Shift-click a row to select a range</span></div>
         <label class="bulk-topic">Topic<select name="concept_id" required disabled={!selectedCaseIds.length}><option value="">Choose a Topic</option>{#each topicGroups as group}<optgroup label={group.label}>{#each group.topics as topic}{@const systemIndex = topic.breadcrumb.findIndex((item) => item.kind === 'system')}<option value={topic.id}>{topic.breadcrumb.slice(systemIndex >= 0 ? systemIndex + 1 : 0).map((/** @param {{ name: string }} item */ item) => item.name).join(' → ')}</option>{/each}</optgroup>{/each}</select></label>
         <button class="button primary" type="submit" disabled={!selectedCaseIds.length}>Assign Topic</button>
-        <CaseLibraryTopicCreator selectedCaseIds={selectedCaseIds} parentOptions={data.topicParents} error={form?.topicCreation ? form.error : ''} initialName={form?.topicName ?? ''} initialParentId={form?.topicParentId ?? ''} />
+        <CaseLibraryTopicCreator selectedCaseIds={selectedCaseIds} parentOptions={data.topicParents} error={topicCreationError} initialName={topicCreationName} initialParentId={topicCreationParentId} />
         <BulkCaseTagEditor selectedCaseIds={selectedCaseIds} cases={data.cases} availableTags={data.tags} />
         <button class="button danger" type="submit" formaction="?/bulkDeactivateCases" formnovalidate disabled={!selectedCaseIds.length} onclick={confirmBulkDeactivate}>Deactivate selected</button>
       </div>
