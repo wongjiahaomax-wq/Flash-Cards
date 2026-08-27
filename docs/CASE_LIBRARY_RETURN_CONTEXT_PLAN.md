@@ -1,4 +1,4 @@
-# Case Library — Return Context / Search Persistence Plan
+# Case Library — Search Persistence / Browser Back Plan
 
 _Status: planning-only supplement for draft PR #104. No application code is implemented here._
 
@@ -6,259 +6,242 @@ _Last updated: 27 August 2026_
 
 ## Goal
 
-When an administrator filters `/admin/cases`, opens a Case, and then returns to the Case Library, restore the previous Case Library context instead of forcing the administrator to re-enter search terms.
+When an administrator searches or filters `/admin/cases`, opens a Case, and then uses the browser **Back** button, the Case Library should restore the previous working state without requiring the administrator to retype the search.
 
-The minimum requested behavior is persistence of the three text fields:
+The browser Back workflow is the primary interaction. This feature should not require a separate in-app `Back to Cases` button to preserve state.
 
-- Case contains;
-- Topic contains;
-- System contains.
+The minimum requested persistence is:
 
-The preferred behavior is to restore the **complete Case Library view context** because that state is already URL-driven and the additional state is useful during curation:
+- Case contains (`q`);
+- Topic contains (`topic`);
+- System contains (`system`).
 
-- Case search (`q`);
-- Topic search (`topic`);
-- System search (`system`);
+The preferred persisted working state also includes:
+
 - Tag filter (`tag`);
 - sort;
 - lifecycle (`active` / `inactive`);
 - page.
 
-This should be navigation-context persistence, not a new global preference system.
+## Product decision
 
-## Current behavior inspected
+Keep the current URL-driven Case Library as the server-authoritative filter model, and add browser `localStorage` as a small persistence layer for the Admin's last Case Library working state.
 
-The Case Library already serializes its current server-authoritative state in the URL and has a `currentQuery()` helper that includes the active filters, sort, lifecycle and page.
-
-However, Case row links currently navigate only to:
+Use a namespaced browser key such as:
 
 ```text
-/admin/cases/<caseId>
+flash-cards:admin:case-library-state
 ```
 
-or, for inactive Cases:
+Example value:
+
+```json
+{
+  "q": "uveitis",
+  "topic": "",
+  "system": "Unassigned",
+  "tag": "",
+  "sort": "case-asc",
+  "lifecycle": "active",
+  "page": 2
+}
+```
+
+`localStorage` is chosen instead of `sessionStorage` because cross-tab persistence is desired.
+
+This state stays in the browser only. It is not stored in D1, Cloudflare, or the user account.
+
+## Browser Back is primary
+
+Typical workflow:
 
 ```text
-/admin/cases/<caseId>/recovery
+/admin/cases?q=uveitis&system=unassigned&page=2
+→ open a Case
+→ inspect/edit the Case
+→ browser Back
+→ return to the previous Case Library state
 ```
 
-The active Case editor header currently links `All Cases` directly to:
+The implementation should preserve the browser's native history behavior. Do not add history manipulation that makes Back unpredictable.
+
+The Case Library may still perform a normal client/server navigation or refresh when the browser returns. That is acceptable. The important requirement is that the working filters are restored automatically after the page is reloaded/re-rendered.
+
+Persisted state is only search/filter/navigation state. Case rows and counts must always be re-read from the current server/database state.
+
+## URL and localStorage precedence
+
+Use this precedence:
 
 ```text
-/admin/cases
+1. Explicit Case Library query parameters in the URL
+   → authoritative for that navigation
+   → normalize and save to localStorage
+
+2. No explicit Case Library query parameters
+   → restore the last valid localStorage state
+
+3. No valid stored state
+   → use the normal Case Library defaults
 ```
 
-and the inactive recovery page links directly to:
+This means browser Back to a filtered URL naturally restores that exact URL state, while localStorage provides resilience for reloads, direct `/admin/cases` visits, and cross-tab workflows.
+
+## What should update localStorage
+
+Update storage after deliberate Case Library state changes, including:
+
+- Search submission;
+- Tag filter change;
+- sort change;
+- pagination;
+- Active / Inactive lifecycle change;
+- loading an explicit filtered Case Library URL.
+
+Do **not** persist on every keystroke. PR #102 deliberately removed input-driven search/navigation for performance, and this PR should not reintroduce that behavior.
+
+## Clear behavior
+
+`Clear` should clear the remembered working filters as well as the visible filters.
+
+Expected behavior:
 
 ```text
-/admin/cases?lifecycle=inactive
+Active Clear
+→ /admin/cases
+→ stored search/filter state reset
+
+Inactive Clear
+→ /admin/cases?lifecycle=inactive
+→ inactive view remains explicit, other filters reset
 ```
 
-Therefore the Case Library URL state is discarded as soon as the administrator enters a Case and uses the page's own return link.
+The exact storage representation is implementation detail as long as the visible behavior is deterministic.
 
-There is a second implementation consideration: many Case-editor mutations redirect back to `/admin/cases/<caseId>?status=...`. A return-context mechanism must survive those redirects as well, otherwise the context would disappear after editing the Case before returning to the library.
+## Refresh behavior
 
-## Recommended interaction
+Refreshing the Case Library may still reload/re-run the server read. That is acceptable and desirable because results remain fresh.
 
-Example:
+After refresh:
+
+- URL filters should repopulate the fields if present;
+- otherwise the stored localStorage state should repopulate them;
+- the server should execute the Case Library query using the restored normalized state.
+
+The requirement is persistence of the working context, not avoidance of all page reloads.
+
+## Cross-tab behavior
+
+`localStorage` is shared across tabs for the same origin.
+
+Use simple last-write-wins semantics:
 
 ```text
-/admin/cases?q=uveitis&topic=eye&system=unassigned&page=2
+Tab A changes Case Library filters
+→ saved state updates
+
+Tab B later opens /admin/cases without explicit query state
+→ restores the latest saved state
 ```
 
-The administrator opens a Case.
+Do not add cross-tab locking or conflict resolution.
 
-The Case editor should know that its return destination is conceptually:
+If useful and simple, a `storage` event listener may update an already-open Case Library tab, but live synchronization is not required for this PR. Cross-tab persistence on subsequent navigation/load is sufficient.
+
+## Direct Case visits
+
+A Case opened directly from a bookmark does not need a propagated `return_query` merely for this feature.
+
+If the administrator later navigates to `/admin/cases`, the last stored Case Library working state may be restored. This is an intentional consequence of choosing persistent cross-tab browser state.
+
+Do not add complex per-entry return-context plumbing unless implementation reveals a separate navigation requirement that localStorage cannot satisfy.
+
+## Validation / safety
+
+Stored browser data is untrusted input.
+
+When restoring from localStorage:
+
+- parse JSON defensively;
+- accept only known fields;
+- constrain lifecycle to the existing allowed values;
+- constrain sort through the existing Case Library allow-list;
+- constrain page to a positive integer;
+- ignore malformed/unknown values;
+- never treat browser storage as authorization or as a substitute for server parsing.
+
+Server-side Case Library parsing and Admin authorization remain authoritative.
+
+## Implementation shape
+
+Prefer a small helper module, for example conceptually:
 
 ```text
-/admin/cases?q=uveitis&topic=eye&system=unassigned&page=2
+src/lib/admin-case-library-state.js
 ```
 
-The header should then show:
+Responsibilities:
 
-```text
-[Back to Cases]
-```
+- storage key;
+- read/parse/validate stored state;
+- write normalized state;
+- clear state;
+- convert normalized state to URL query parameters if needed.
 
-and that action returns to the same filtered page with the fields repopulated from the URL.
+The Svelte page should use the helper rather than scattering raw `localStorage` access throughout the component.
 
-If the Case was opened without Case Library context, fall back safely to the current ordinary destination:
-
-```text
-/admin/cases
-```
-
-For inactive recovery, the fallback remains:
-
-```text
-/admin/cases?lifecycle=inactive
-```
-
-## State transport
-
-Prefer explicit URL/route state over `localStorage` as the primary mechanism.
-
-A suitable implementation can append a validated return-context value to Case links, for example conceptually:
-
-```text
-/admin/cases/<caseId>?return_query=<encoded Case Library query>
-```
-
-or an equivalent safe representation.
-
-Exact parameter naming is implementation detail.
-
-### Why not make localStorage the primary authority
-
-A browser-stored "last Case search" can become stale and can affect Cases opened from unrelated routes, bookmarks, or direct links.
-
-The URL already represents the Case Library's authoritative state. Passing that context explicitly gives predictable behavior:
-
-```text
-Case opened from filtered library
-→ return to that filtered library
-
-Case opened directly
-→ ordinary All Cases fallback
-```
-
-Browser/session storage may be used only as a narrow enhancement if implementation proves it useful, not as the sole or authoritative state source.
-
-## Security / validation requirement
-
-Do not accept an arbitrary external return URL.
-
-The return context must resolve only to the local Case Library route. Prefer storing/validating query parameters rather than trusting a complete user-supplied URL.
-
-At minimum:
-
-- destination path is fixed to `/admin/cases`;
-- only known Case Library query parameters are retained;
-- unexpected parameters are discarded;
-- no external origin or protocol can be supplied;
-- lifecycle values remain constrained by the existing parser.
-
-This avoids introducing an open-redirect surface.
-
-## Preserve context through Case editor mutations
-
-Opening the Case is not enough. The return context must remain available after normal authoring actions that redirect back to the Case editor.
-
-Examples include:
-
-- Case metadata save;
-- Topic changes;
-- Case Tag changes;
-- vignette save;
-- question create/edit/remove/reorder;
-- image/stimulus mutations;
-- reusable image-question mutations;
-- Primary Topic → System placement.
-
-The implementation should centralize preservation rather than independently rebuilding query strings in every action where possible.
-
-Conceptually:
-
-```text
-Case editor URL
-/admin/cases/<id>?return_query=...
-
-POST mutation
-→ redirect to /admin/cases/<id>?status=...&return_query=...
-
-Back to Cases
-→ /admin/cases?<restored query>
-```
-
-Status/image-picker/editor-local query parameters must remain separate from the Case Library return context.
-
-## Active and inactive behavior
-
-Support both library lifecycle views.
-
-### Active
-
-Opening from an active filtered library should return to the exact active view.
-
-### Inactive
-
-Opening a recovery page from a filtered inactive library should preserve:
-
-- `lifecycle=inactive`;
-- filters;
-- sort;
-- page.
-
-If no explicit return context exists, keep the existing inactive fallback.
-
-## Browser Back
-
-Normal browser Back should continue to work naturally.
-
-This feature is specifically for the in-app `Back to Cases` / return link and for cases where mutations have changed browser history while the Case editor is open.
-
-Do not implement history manipulation that breaks the browser's native Back behavior.
-
-## Relationship to PR #104
-
-This is a third focused Case Library usability improvement alongside:
-
-1. correct `Unassigned` System filtering;
-2. quick Topic creation;
-3. persistent Case Library return context.
-
-It fits the same PR because all three target the current Case Library curation loop and share URL/filter state, but implementation should remain modular and avoid a broad Case Library redesign.
+No schema migration is required.
 
 ## Automated coverage
 
 Add focused coverage for at minimum:
 
-- Case row link carries the current Case Library return context;
-- Case / Topic / System search terms are restored after returning;
-- Tag, sort, lifecycle and page are also retained when present;
-- no-filter Case links still have a sensible fallback;
-- inactive recovery preserves inactive library context;
-- the Case editor return link uses only a validated `/admin/cases` destination;
-- unknown/malformed return parameters fail closed to the ordinary Case Library;
-- Case editor POST/redirect flows preserve return context;
-- status parameters do not overwrite or corrupt return context;
-- existing Case Library Search/Clear semantics are unchanged.
-
-A source-contract test is acceptable for stable link/form wiring, supplemented by focused helper/unit tests for sanitization/query reconstruction.
+- Case / Topic / System values are written after deliberate search submission;
+- Tag, sort, lifecycle and page are persisted when changed;
+- explicit URL state overrides stored state;
+- `/admin/cases` without explicit filters restores valid stored state;
+- malformed stored JSON fails safely;
+- unknown sort/lifecycle/page values are rejected or normalized;
+- `Clear` resets stored filters;
+- no per-keystroke persistence/navigation is introduced;
+- browser Back-compatible URL behavior remains unchanged;
+- inactive lifecycle state is restored correctly.
 
 ## Manual verification
 
 Using local development data only:
 
-1. Search by Case title, open a Case, click Back to Cases, and confirm the Case field is still populated and results are unchanged.
+1. Search by Case title, open a Case, use browser Back, and confirm the Case field is still populated.
 2. Repeat for Topic search.
-3. Repeat for System search, including `Unassigned` once Part A is implemented.
-4. Combine Case + Topic + System + Tag filters and verify all return.
-5. Sort and move to page 2+, open a Case, return, and confirm the same sort/page is restored.
-6. Open a Case, perform at least one edit that redirects back to the Case editor, then click Back to Cases and confirm context still survives.
-7. Repeat from the inactive recovery library.
-8. Open a Case directly from a bookmark/direct URL and confirm Back to Cases falls back safely instead of using unrelated stale search state.
-9. Verify browser Back remains normal.
+3. Repeat for System search, including `Unassigned` once that filter fix is implemented.
+4. Combine Case + Topic + System + Tag filters, open a Case, then use browser Back.
+5. Sort and move to page 2+, open a Case, then use browser Back and confirm sort/page context remains.
+6. Refresh the Case Library and confirm the working filters remain populated.
+7. Open `/admin/cases` in another tab and confirm the last stored working state is available there.
+8. Use `Clear` and confirm the stored state is reset.
+9. Confirm normal Case results are freshly read from the server after returning/reloading.
+10. Confirm browser Back/Forward remains predictable and no custom history manipulation interferes with it.
 
 ## Scope boundaries
 
 In scope:
 
-- Case Library → Case editor → Case Library navigation context;
-- active and inactive Case Library context;
-- preservation through Case-editor redirects;
-- safe query parsing/reconstruction;
-- focused tests.
+- browser Back-friendly Case Library search persistence;
+- cross-tab persistence via localStorage;
+- Case / Topic / System search persistence;
+- Tag/sort/lifecycle/page persistence where useful;
+- focused helper/UI tests.
 
 Out of scope:
 
-- global remembered filters across unrelated future visits;
-- account-level saved searches;
+- account-level/cloud-synced saved searches;
 - named saved-filter presets;
-- browser-local search history UI;
 - learner-facing persistence;
-- replacing URL-driven Case Library state with client-only storage.
+- caching Case results in localStorage;
+- avoiding every page refresh/navigation;
+- replacing server-side Case Library filtering with client-only filtering;
+- complex history rewriting.
 
 ## Acceptance criteria
 
-The feature is complete when an administrator can filter the Case Library, open and edit a Case, then use the in-app return action and land back on the same Case Library view without retyping the Case, Topic or System searches, while preserving the rest of the useful URL-driven list context and safely falling back for direct Case visits.
+The feature is complete when an administrator can filter the Case Library, open a Case, use the browser Back button, and have the Case / Topic / System search state restored automatically even if the Case Library reloads; the same last working state is also available across tabs on the same browser/origin, while Case results themselves remain freshly loaded from the server.
