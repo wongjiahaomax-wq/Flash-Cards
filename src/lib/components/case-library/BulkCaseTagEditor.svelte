@@ -1,6 +1,8 @@
 <script>
-  /** @type {{ selectedCaseIds: string[], cases: { id: string, title: string, tags: { id: string, name: string }[] }[], availableTags: { id: string, name: string }[], triggerLabel?: string, compactTrigger?: boolean }} */
-  let { selectedCaseIds, cases, availableTags, triggerLabel = 'Manage Tags', compactTrigger = false } = $props();
+  import { caseLibraryNamedActionHref } from '$lib/admin-case-library-state.ts';
+
+  /** @type {{ selectedCaseIds: string[], cases: { id: string, title: string, tags: { id: string, name: string }[] }[], availableTags: { id: string, name: string }[], triggerLabel?: string, compactTrigger?: boolean, actionQuery?: string }} */
+  let { selectedCaseIds, cases, availableTags, triggerLabel = 'Manage Tags', compactTrigger = false, actionQuery = '' } = $props();
 
   let editorOpen = $state(false);
   let tagQuery = $state('');
@@ -107,7 +109,7 @@
                     type="submit"
                     name="tag_id"
                     value={tag.id}
-                    formaction="?/bulkAddCaseTag"
+                    formaction={caseLibraryNamedActionHref('bulkAddCaseTag', actionQuery)}
                     formnovalidate
                   >Add to all</button>
                 {/if}
@@ -117,7 +119,7 @@
                     type="submit"
                     name="tag_id"
                     value={tag.id}
-                    formaction="?/bulkRemoveCaseTag"
+                    formaction={caseLibraryNamedActionHref('bulkRemoveCaseTag', actionQuery)}
                     formnovalidate
                   >Remove from all</button>
                 {/if}
@@ -144,7 +146,7 @@
             bind:this={createButton}
             class="small-button primary"
             type="submit"
-            formaction="?/bulkCreateAndAddCaseTag"
+            formaction={caseLibraryNamedActionHref('bulkCreateAndAddCaseTag', actionQuery)}
             formnovalidate
             disabled={!newTagName.trim()}
           >Create & add to all</button>
