@@ -104,6 +104,17 @@ export function hasExplicitCaseLibraryQuery(params: URLSearchParams) {
   return CASE_LIBRARY_QUERY_KEYS.some((key) => params.has(key));
 }
 
+export function shouldRestoreCaseLibraryState(params: URLSearchParams, hasActionFailure = false) {
+  return !hasActionFailure && !hasExplicitCaseLibraryQuery(params);
+}
+
+export function caseLibraryNamedActionHref(actionName: string, returnQuery = '') {
+  const cleanActionName = actionName.trim().replace(/^\/+/, '');
+  if (!cleanActionName) throw new Error('Case Library action name is required.');
+  const cleanQuery = returnQuery.replace(/^\?+/, '').replace(/^&+|&+$/g, '');
+  return `?${cleanQuery ? `${cleanQuery}&` : ''}/${cleanActionName}`;
+}
+
 export function caseLibraryStateHref(value: unknown, explicitKeys: CaseLibraryExplicitQueryKey[] = []) {
   const state = normalizeCaseLibraryStoredState(value);
   if (!state) return '/admin/cases';
