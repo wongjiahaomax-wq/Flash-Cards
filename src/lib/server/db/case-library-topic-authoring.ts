@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
 import { listConceptTaxonomy } from './concept-taxonomy-compat.ts';
 import { ContentGuardError, requireProductionCase } from './content-guards.js';
@@ -20,6 +20,12 @@ function requiredText(value: unknown, label: string) {
   const text = String(value ?? '').trim();
   if (!text) throw new CaseLibraryTopicInputError(`${label} is required.`);
   return text;
+}
+
+function concurrentClassificationError() {
+  return new CaseLibraryTopicInputError(
+    'One or more selected Cases changed Primary Topic while this Topic was being assigned. No partial assignment was kept. Review the current Case classifications and try again.'
+  );
 }
 
 async function requireActiveProductionCase(db: import('./index.js').LearningDb, caseId: string) {
@@ -52,11 +58,71 @@ async function validateSelectedCases(db: import('./index.js').LearningDb, caseId
   return validated;
 }
 
+async function loadSelectedPrimaryRows(db: import('./index.js').LearningDb, caseIds: string[]) {
+  if (!caseIds.length) return [];
+  return db
+    .select({ caseId: caseConcepts.caseId, conceptId: caseConcepts.conceptId })
+    .from(caseConcepts)
+    .where(and(
+      inArray(caseConcepts.caseId, caseIds),
+      eq(caseConcepts.role, 'primary')
+    ));
+}
+
+async function verifyCreatedTopicAssignments(
+  db: import('./index.js').LearningDb,
+  validatedCases: { caseId: string; primaryConceptId: string }[],
+  conceptId: string
+) {
+  if (!validatedCases.length) return;
+  const rows = await loadSelectedPrimaryRows(db, validatedCases.map((current) => current.caseId));
+  const primaryByCase = new Map<string, string[]>();
+  for (const row of rows) {
+    const current = primaryByCase.get(row.caseId) ?? [];
+    current.push(row.conceptId);
+    primaryByCase.set(row.caseId, current);
+  }
+  const allAssigned = validatedCases.every((current) => {
+    const primaryIds = primaryByCase.get(current.caseId) ?? [];
+    return primaryIds.length === 1 && primaryIds[0] === conceptId;
+  });
+  if (!allAssigned) throw concurrentClassificationError();
+}
+
+async function compensateCreatedTopicAssignment(
+  db: import('./index.js').LearningDb,
+  validatedCases: { caseId: string; primaryConceptId: string }[],
+  conceptId: string
+) {
+  const rows = await loadSelectedPrimaryRows(db, validatedCases.map((current) => current.caseId));
+  const assignedCaseIds = new Set(rows.filter((row) => row.conceptId === conceptId).map((row) => row.caseId));
+  const rollbackWrites = validatedCases
+    .filter((current) => assignedCaseIds.has(current.caseId))
+    .map((current) => db
+      .update(caseConcepts)
+      .set({ conceptId: current.primaryConceptId, role: 'primary' })
+      .where(and(
+        eq(caseConcepts.caseId, current.caseId),
+        eq(caseConcepts.conceptId, conceptId),
+        eq(caseConcepts.role, 'primary')
+      )));
+  const conceptDelete = db.delete(concepts).where(eq(concepts.id, conceptId));
+
+  if (typeof db.batch === 'function') {
+    await db.batch(/** @type {[any, ...any[]]} */ ([...rollbackWrites, conceptDelete]));
+    return;
+  }
+  for (const rollbackWrite of rollbackWrites) await rollbackWrite;
+  await conceptDelete;
+}
+
 /**
  * Create one global Topic from the Production Admin Case Library and optionally
  * make it the canonical Primary Topic for the selected active Production Cases.
- * D1 uses one batch after validation. The non-batch abstraction used by tests
- * compensates already-applied relationship writes and then removes the Topic.
+ * D1 uses one batch after validation. After the writes, the selected Primary
+ * relationships are verified so a concurrent classification change cannot be
+ * reported as successful partial assignment. Any detected partial state is
+ * compensated before the error is returned.
  */
 export async function createCaseLibraryTopic(
   db: import('./index.js').LearningDb,
@@ -87,38 +153,33 @@ export async function createCaseLibraryTopic(
     } catch (error) {
       throw taxonomyConceptCreationError(error);
     }
+    try {
+      await verifyCreatedTopicAssignments(db, validatedCases, concept.id);
+    } catch (error) {
+      try {
+        await compensateCreatedTopicAssignment(db, validatedCases, concept.id);
+      } catch (cleanupError) {
+        console.error('Unable to compensate a failed Case Library create-and-assign operation.', cleanupError);
+        throw cleanupError;
+      }
+      throw taxonomyConceptCreationError(error);
+    }
     return { ...concept, selectedCount: validatedCases.length };
   }
 
-  const updatedCases: typeof validatedCases = [];
   let conceptCreated = false;
   try {
     await conceptWrite;
     conceptCreated = true;
-    for (let index = 0; index < relationshipWrites.length; index += 1) {
-      await relationshipWrites[index];
-      updatedCases.push(validatedCases[index]);
-    }
+    for (const relationshipWrite of relationshipWrites) await relationshipWrite;
+    await verifyCreatedTopicAssignments(db, validatedCases, concept.id);
   } catch (error) {
-    for (const current of [...updatedCases].reverse()) {
-      try {
-        await db
-          .update(caseConcepts)
-          .set({ conceptId: current.primaryConceptId, role: 'primary' })
-          .where(and(
-            eq(caseConcepts.caseId, current.caseId),
-            eq(caseConcepts.conceptId, concept.id),
-            eq(caseConcepts.role, 'primary')
-          ));
-      } catch (cleanupError) {
-        console.error('Unable to restore a Primary Topic after failed Case Library Topic creation.', cleanupError);
-      }
-    }
     if (conceptCreated) {
       try {
-        await db.delete(concepts).where(eq(concepts.id, concept.id));
+        await compensateCreatedTopicAssignment(db, validatedCases, concept.id);
       } catch (cleanupError) {
-        console.error('Unable to clean up a Topic after failed Case Library Topic creation.', cleanupError);
+        console.error('Unable to compensate a failed Case Library create-and-assign operation.', cleanupError);
+        throw cleanupError;
       }
     }
     throw taxonomyConceptCreationError(error);
