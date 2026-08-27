@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { branchStatus, nodeMajorStatus, overallDoctorStatus, parseNodeMajor, wranglerVersionStatus } from '../scripts/agent-doctor-lib.mjs';
 import { classifyChangedFiles } from '../scripts/agent-checks-lib.mjs';
 import { parseAgentChecksArgs } from '../scripts/agent-checks.mjs';
-import { CI_TEST_MAX_BUFFER_BYTES, escapeGithubCommandData, extractNodeTestDiagnostic, parseCiArgs } from '../scripts/validate-ci.mjs';
+import { CI_TEST_MAX_BUFFER_BYTES, ciValidationCommands, escapeGithubCommandData, extractNodeTestDiagnostic, parseCiArgs } from '../scripts/validate-ci.mjs';
 import { resolveInvocation, runValidation, VALIDATION_MODES } from '../scripts/validate.mjs';
 import { VALIDATION_MODE_CHECK_IDS, validationCommandsForMode } from '../scripts/validation-contract.mjs';
 import { localDiffCheck, resolveDiffBase } from '../scripts/validation-git.mjs';
@@ -87,24 +87,37 @@ test('validation modes preserve the intended contracts from one shared authority
   assert.deepEqual(VALIDATION_MODES.full.at(-1), ['node', ['scripts/local-auth-smoke.mjs']]);
 });
 
-test('CI validation overrides only diff semantics while sharing the full check sequence', () => {
-  const commands = validationCommandsForMode('full', {
-    diffArgs: ['diff', '--check', 'HEAD^1', 'HEAD'],
-  });
-  assert.deepEqual(commands.map(({ id }) => id), VALIDATION_MODE_CHECK_IDS.full);
-  assert.deepEqual(commands[0], {
-    id: 'diff',
-    label: 'Check diff whitespace',
-    command: 'git',
-    args: ['diff', '--check', 'HEAD^1', 'HEAD'],
-  });
-  assert.deepEqual(commands.at(-1)?.args, ['scripts/local-auth-smoke.mjs']);
+test('CI validation selects fast/full from the shared contract while overriding only diff semantics', () => {
+  for (const mode of ['fast', 'full']) {
+    const commands = ciValidationCommands({
+      mode,
+      diffBase: 'HEAD^1',
+      diffHead: 'HEAD',
+    });
+    assert.deepEqual(commands.map(({ id }) => id), VALIDATION_MODE_CHECK_IDS[mode]);
+    assert.deepEqual(commands[0], {
+      id: 'diff',
+      label: 'Check diff whitespace',
+      command: 'git',
+      args: ['diff', '--check', 'HEAD^1', 'HEAD'],
+    });
+  }
+
+  assert.deepEqual(
+    ciValidationCommands({ diffBase: 'HEAD^1', diffHead: 'HEAD' }).map(({ id }) => id),
+    VALIDATION_MODE_CHECK_IDS.full,
+  );
 });
 
-test('PR CI delegates ordinary checks to the shared CI runner', () => {
+test('PR CI delegates ordinary checks to the shared CI runner with PR-state mode selection and concurrency', () => {
   const workflow = fs.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
+  assert.match(workflow, /^  pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]$/m);
+  assert.equal(workflow.includes('group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}'), true);
+  assert.equal(workflow.includes('cancel-in-progress: true'), true);
+  assert.match(workflow, /^  check:$/m);
+  assert.equal(workflow.includes("VALIDATION_MODE: ${{ github.event.pull_request.draft && 'fast' || 'full' }}"), true);
+  assert.equal(workflow.includes('run: node scripts/validate-ci.mjs --mode "$VALIDATION_MODE" --diff-base HEAD^1 --diff-head HEAD'), true);
   assert.match(workflow, /run: npm ci/);
-  assert.match(workflow, /node scripts\/validate-ci\.mjs --diff-base HEAD\^1 --diff-head HEAD/);
   for (const duplicate of [
     'npm run db:check',
     'npm test',
@@ -154,11 +167,23 @@ test('CI Node-test diagnostics preserve useful GitHub annotations without the de
     '  code: ERR_ASSERTION',
   ].join('\n'));
   assert.equal(escapeGithubCommandData('a%b\nc'), 'a%25b%0Ac');
+  assert.equal(CI_TEST_MAX_BUFFER_BYTES >= 64 * 1024 * 1024, true);
+});
+
+test('CI argument parsing preserves diff overrides, defaults omitted mode to full, and rejects invalid modes', () => {
   assert.deepEqual(parseCiArgs(['--diff-base', 'HEAD^1', '--diff-head', 'HEAD']), {
+    mode: 'full',
     diffBase: 'HEAD^1',
     diffHead: 'HEAD',
   });
-  assert.equal(CI_TEST_MAX_BUFFER_BYTES >= 64 * 1024 * 1024, true);
+  assert.deepEqual(parseCiArgs(['--mode', 'fast', '--diff-base', 'BASE', '--diff-head', 'TIP']), {
+    mode: 'fast',
+    diffBase: 'BASE',
+    diffHead: 'TIP',
+  });
+  assert.throws(() => parseCiArgs(['--mode', 'slow']), /Unknown CI validation mode: slow/);
+  assert.throws(() => parseCiArgs(['--mode', 'everything']), /Unknown CI validation mode: everything/);
+  assert.throws(() => parseCiArgs(['--mode', '']), /CI validation mode must be non-empty/);
 });
 
 test('agent:checks CLI accepts a base override or explicit file fixture list', () => {

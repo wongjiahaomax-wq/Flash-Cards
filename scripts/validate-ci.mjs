@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { resolveInvocation } from './validate.mjs';
-import { validationCommandsForMode } from './validation-contract.mjs';
+import { VALIDATION_MODE_CHECK_IDS, validationCommandsForMode } from './validation-contract.mjs';
 
 const NODE_TEST_DIAGNOSTIC = /^(not ok|  error:|  code:|  failureType:|  location:|  stack:|    at )/;
 export const CI_TEST_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
@@ -24,16 +24,31 @@ export function extractNodeTestDiagnostic(output) {
   return diagnostic || 'npm test failed; see the grouped Node test output.';
 }
 
+/** @param {string} mode */
+function assertCiValidationMode(mode) {
+  if (!mode) {
+    throw new Error(`CI validation mode must be non-empty. Expected one of: ${Object.keys(VALIDATION_MODE_CHECK_IDS).join(', ')}.`);
+  }
+  if (!Object.hasOwn(VALIDATION_MODE_CHECK_IDS, mode)) {
+    throw new Error(`Unknown CI validation mode: ${mode}. Expected one of: ${Object.keys(VALIDATION_MODE_CHECK_IDS).join(', ')}.`);
+  }
+}
+
 /**
  * @param {string[]} argv
- * @returns {{ diffBase: string, diffHead: string }}
+ * @returns {{ mode: string, diffBase: string, diffHead: string }}
  */
 export function parseCiArgs(argv) {
+  let mode = 'full';
   let diffBase = 'HEAD^1';
   let diffHead = 'HEAD';
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === '--diff-base') {
+    if (arg === '--mode') {
+      mode = argv[index + 1] ?? '';
+      assertCiValidationMode(mode);
+      index += 1;
+    } else if (arg === '--diff-base') {
       diffBase = argv[index + 1] ?? '';
       index += 1;
     } else if (arg === '--diff-head') {
@@ -44,21 +59,33 @@ export function parseCiArgs(argv) {
     }
   }
   if (!diffBase || !diffHead) throw new Error('CI diff base/head must be non-empty.');
-  return { diffBase, diffHead };
+  return { mode, diffBase, diffHead };
 }
 
 /**
- * CI uses the same full-mode check IDs as local validate:full, while keeping
- * PR-checkout diff semantics and Node-test annotations CI-specific.
- * @param {{ diffBase?: string, diffHead?: string }} [options]
+ * CI uses the shared repository validation mode definitions while keeping
+ * PR-checkout diff semantics CI-specific.
+ * @param {{ mode?: string, diffBase?: string, diffHead?: string }} [options]
  */
-export function runCiValidation(options = {}) {
+export function ciValidationCommands(options = {}) {
+  const mode = options.mode ?? 'full';
   const diffBase = options.diffBase ?? 'HEAD^1';
   const diffHead = options.diffHead ?? 'HEAD';
-  const checks = validationCommandsForMode('full', {
+  return validationCommandsForMode(mode, {
     diffArgs: ['diff', '--check', diffBase, diffHead],
   });
+}
 
+/**
+ * CI keeps PR-checkout diff semantics, GitHub grouping, and Node-test
+ * annotations CI-specific while reusing the repository validation contract.
+ * @param {{ mode?: string, diffBase?: string, diffHead?: string }} [options]
+ */
+export function runCiValidation(options = {}) {
+  const mode = options.mode ?? 'full';
+  const checks = ciValidationCommands(options);
+
+  console.log(`Repository CI validation mode: ${mode}`);
   for (const { id, label, command, args } of checks) {
     console.log(`::group::${label}`);
     const invocation = resolveInvocation(command, args);
