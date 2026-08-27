@@ -7,10 +7,11 @@
   import { applyCaseSelection } from '$lib/admin-case-selection.js';
   import {
     CASE_LIBRARY_STATE_VERSION,
+    caseLibraryNamedActionHref,
     caseLibraryStateHref,
     clearCaseLibraryStoredState,
-    hasExplicitCaseLibraryQuery,
     readCaseLibraryStoredState,
+    shouldRestoreCaseLibraryState,
     writeCaseLibraryStoredState
   } from '$lib/admin-case-library-state.ts';
 
@@ -75,7 +76,7 @@
 
   onMount(() => {
     const params = new URLSearchParams(window.location.search);
-    if (!hasExplicitCaseLibraryQuery(params)) {
+    if (shouldRestoreCaseLibraryState(params, Boolean(form))) {
       const stored = readCaseLibraryStoredState();
       if (stored) {
         const href = caseLibraryStateHref(stored);
@@ -153,6 +154,11 @@
     return params.toString();
   }
 
+  /** @param {string} actionName */
+  function actionHref(actionName) {
+    return caseLibraryNamedActionHref(actionName, currentQuery());
+  }
+
   /** @param {'active'|'inactive'} lifecycle */
   function lifecycleHref(lifecycle) {
     return caseLibraryStateHref({ ...currentStoredState(), lifecycle, page: 1 }, ['lifecycle']);
@@ -212,7 +218,7 @@
   {#if data.status === 'cases-deactivated'}<p class="success-message" role="status">Selected Cases deactivated. Their content and history were retained.</p>{/if}
   {#if data.status === 'cases-restored'}<p class="success-message" role="status">Selected Cases restored to active use.</p>{/if}
 
-  <form method="POST" action={inactiveView ? '?/bulkRestoreCases' : '?/bulkPromoteTopic'}>
+  <form method="POST" action={actionHref(inactiveView ? 'bulkRestoreCases' : 'bulkPromoteTopic')}>
     <input type="hidden" name="return_query" value={currentQuery()} />
     {#if inactiveView}
       {#if data.cases.length}
@@ -223,9 +229,9 @@
         <div><strong>Bulk Case actions</strong><span class="muted">{selectedCaseIds.length} Case{selectedCaseIds.length === 1 ? '' : 's'} selected</span><span class="selection-hint">Shift-click a row to select a range</span></div>
         <label class="bulk-topic">Topic<select name="concept_id" required disabled={!selectedCaseIds.length}><option value="">Choose a Topic</option>{#each topicGroups as group}<optgroup label={group.label}>{#each group.topics as topic}{@const systemIndex = topic.breadcrumb.findIndex((item) => item.kind === 'system')}<option value={topic.id}>{topic.breadcrumb.slice(systemIndex >= 0 ? systemIndex + 1 : 0).map((/** @param {{ name: string }} item */ item) => item.name).join(' → ')}</option>{/each}</optgroup>{/each}</select></label>
         <button class="button primary" type="submit" disabled={!selectedCaseIds.length}>Assign Topic</button>
-        <CaseLibraryTopicCreator selectedCaseIds={selectedCaseIds} parentOptions={data.topicParents} error={topicCreationError} initialName={topicCreationName} initialParentId={topicCreationParentId} />
-        <BulkCaseTagEditor selectedCaseIds={selectedCaseIds} cases={data.cases} availableTags={data.tags} />
-        <button class="button danger" type="submit" formaction="?/bulkDeactivateCases" formnovalidate disabled={!selectedCaseIds.length} onclick={confirmBulkDeactivate}>Deactivate selected</button>
+        <CaseLibraryTopicCreator selectedCaseIds={selectedCaseIds} parentOptions={data.topicParents} error={topicCreationError} initialName={topicCreationName} initialParentId={topicCreationParentId} actionQuery={currentQuery()} />
+        <BulkCaseTagEditor selectedCaseIds={selectedCaseIds} cases={data.cases} availableTags={data.tags} actionQuery={currentQuery()} />
+        <button class="button danger" type="submit" formaction={actionHref('bulkDeactivateCases')} formnovalidate disabled={!selectedCaseIds.length} onclick={confirmBulkDeactivate}>Deactivate selected</button>
       </div>
     {/if}
 
