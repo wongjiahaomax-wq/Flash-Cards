@@ -19,7 +19,7 @@ function migrationSql(names = migrationNames) {
   return names.map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8')).join('\n').replaceAll('--> statement-breakpoint', '');
 }
 
-function createFixture({ batch = true, legacy = false } = {}) {
+function createFixture({ batch = true, legacy = false, beforeFirstBatch = null } = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(migrationSql(legacy ? migrationNames.slice(0, -1) : migrationNames));
@@ -58,7 +58,10 @@ function createFixture({ batch = true, legacy = false } = {}) {
     }
   };
   if (batch) {
+    let batchCount = 0;
     d1.batch = async (queries) => {
+      if (batchCount === 0 && typeof beforeFirstBatch === 'function') beforeFirstBatch(sqlite);
+      batchCount += 1;
       sqlite.exec('BEGIN');
       try {
         const results = [];
@@ -124,6 +127,25 @@ test('Case Library create-and-assign replaces the one canonical Primary Topic fo
     assert.deepEqual(primaryRows(fixture.sqlite, 'case-1'), [{ concept_id: result.id, role: 'primary' }]);
     assert.deepEqual(primaryRows(fixture.sqlite, 'case-2'), [{ concept_id: result.id, role: 'primary' }]);
     assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM case_concepts WHERE case_id IN ('case-1','case-2') AND role = 'secondary'").get().count, 0);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('batch create-and-assign compensates a zero-row stale Primary update instead of reporting partial success', async () => {
+  const fixture = createFixture({
+    beforeFirstBatch(sqlite) {
+      sqlite.prepare("UPDATE case_concepts SET concept_id = 'topic-free' WHERE case_id = 'case-2' AND concept_id = 'topic-retina' AND role = 'primary'").run();
+    }
+  });
+  try {
+    await assert.rejects(
+      createCaseLibraryTopic(fixture.db, { name: 'Concurrent Topic', caseIds: ['case-1', 'case-2'] }),
+      (error) => error instanceof CaseLibraryTopicInputError && /changed Primary Topic/i.test(error.message)
+    );
+    assert.deepEqual(primaryRows(fixture.sqlite, 'case-1'), [{ concept_id: 'topic-retina', role: 'primary' }]);
+    assert.deepEqual(primaryRows(fixture.sqlite, 'case-2'), [{ concept_id: 'topic-free', role: 'primary' }]);
+    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM concepts WHERE name = 'Concurrent Topic'").get().count, 0);
   } finally {
     fixture.sqlite.close();
   }
