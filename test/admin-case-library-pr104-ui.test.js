@@ -5,6 +5,7 @@ import test from 'node:test';
 const pageSource = readFileSync(new URL('../src/routes/admin/cases/+page.svelte', import.meta.url), 'utf8');
 const serverSource = readFileSync(new URL('../src/routes/admin/cases/+page.server.js', import.meta.url), 'utf8');
 const creatorSource = readFileSync(new URL('../src/lib/components/case-library/CaseLibraryTopicCreator.svelte', import.meta.url), 'utf8');
+const bulkTagSource = readFileSync(new URL('../src/lib/components/case-library/BulkCaseTagEditor.svelte', import.meta.url), 'utf8');
 const classificationSource = readFileSync(new URL('../src/lib/components/case-library/CaseClassificationEditor.svelte', import.meta.url), 'utf8');
 const classificationEndpointSource = readFileSync(new URL('../src/routes/admin/cases/[caseId]/classification/+server.js', import.meta.url), 'utf8');
 const adminContentSource = readFileSync(new URL('../src/lib/server/db/admin-content.js', import.meta.url), 'utf8');
@@ -15,7 +16,7 @@ test('Case Library keeps deliberate search while persisting server-normalized st
     assert.ok(input, `expected ${id}`);
     assert.doesNotMatch(input, /oninput=|onkeyup=|onkeydown=/, `${id} must not persist/navigate on each keystroke`);
   }
-  assert.match(pageSource, /hasExplicitCaseLibraryQuery\(params\)/);
+  assert.match(pageSource, /shouldRestoreCaseLibraryState\(params, Boolean\(form\)\)/);
   assert.match(pageSource, /readCaseLibraryStoredState\(\)/);
   assert.match(pageSource, /window\.location\.replace\(href\)/);
   assert.match(pageSource, /writeCaseLibraryStoredState\(currentStoredState\(\)\)/);
@@ -30,6 +31,17 @@ test('deliberate default pagination, sort, and lifecycle links remain explicit',
   assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), lifecycle, page: 1 \}, \['lifecycle'\]\)/);
 });
 
+test('named mutation targets retain the current Case Library query and failed form data blocks restoration', () => {
+  assert.match(pageSource, /caseLibraryNamedActionHref\(actionName, currentQuery\(\)\)/);
+  assert.match(pageSource, /action=\{actionHref\(inactiveView \? 'bulkRestoreCases' : 'bulkPromoteTopic'\)\}/);
+  assert.match(pageSource, /formaction=\{actionHref\('bulkDeactivateCases'\)\}/);
+  assert.match(pageSource, /actionQuery=\{currentQuery\(\)\}/);
+  assert.match(creatorSource, /caseLibraryNamedActionHref\('createCaseLibraryTopic', actionQuery\)/);
+  assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkAddCaseTag', actionQuery\)/);
+  assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkRemoveCaseTag', actionQuery\)/);
+  assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkCreateAndAddCaseTag', actionQuery\)/);
+});
+
 test('active Case Library exposes quick Topic creation without replacing existing bulk actions', () => {
   assert.match(pageSource, /CaseLibraryTopicCreator/);
   assert.match(pageSource, />Assign Topic<\/button>/);
@@ -39,7 +51,7 @@ test('active Case Library exposes quick Topic creation without replacing existin
   assert.match(creatorSource, /<option value="">Unassigned<\/option>/);
   assert.match(creatorSource, /optgroup label="Systems"/);
   assert.match(creatorSource, /optgroup label="Topics"/);
-  assert.match(creatorSource, /formaction="\?\/createCaseLibraryTopic"/);
+  assert.match(creatorSource, /caseLibraryNamedActionHref\('createCaseLibraryTopic', actionQuery\)/);
   assert.match(creatorSource, /Create & assign to \$\{selectedCount\}/);
 });
 
