@@ -5,11 +5,13 @@ import test from 'node:test';
 import {
   CASE_LIBRARY_STATE_KEY,
   CASE_LIBRARY_STATE_VERSION,
+  caseLibraryNamedActionHref,
   caseLibraryStateHref,
   clearCaseLibraryStoredState,
   hasExplicitCaseLibraryQuery,
   parseCaseLibraryStoredState,
   readCaseLibraryStoredState,
+  shouldRestoreCaseLibraryState,
   writeCaseLibraryStoredState
 } from '../src/lib/admin-case-library-state.ts';
 
@@ -96,4 +98,18 @@ test('recognized URL query state is detectable so explicit URLs can win', () => 
   for (const query of ['q=', 'topic=x', 'system=Unassigned', 'tag=x', 'sort=case-desc', 'lifecycle=inactive', 'page=2']) {
     assert.equal(hasExplicitCaseLibraryQuery(new URLSearchParams(query)), true, query);
   }
+});
+
+test('named action targets preserve Case Library query context and failed actions suppress restoration', () => {
+  const actionHref = caseLibraryNamedActionHref('createCaseLibraryTopic', 'q=uveitis&system=Eye&page=2');
+  assert.equal(actionHref, '?q=uveitis&system=Eye&page=2&/createCaseLibraryTopic');
+  const actionParams = new URLSearchParams(actionHref.slice(1));
+  assert.equal(actionParams.get('q'), 'uveitis');
+  assert.equal(actionParams.get('system'), 'Eye');
+  assert.equal(actionParams.get('page'), '2');
+  assert.equal(actionParams.has('/createCaseLibraryTopic'), true);
+  assert.equal(shouldRestoreCaseLibraryState(actionParams, false), false);
+  assert.equal(shouldRestoreCaseLibraryState(new URLSearchParams('/createCaseLibraryTopic'), true), false);
+  assert.equal(shouldRestoreCaseLibraryState(new URLSearchParams(), false), true);
+  assert.equal(caseLibraryNamedActionHref('bulkPromoteTopic'), '?/bulkPromoteTopic');
 });
