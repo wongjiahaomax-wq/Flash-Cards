@@ -109,7 +109,7 @@ async function compensateCreatedTopicAssignment(
   const conceptDelete = db.delete(concepts).where(eq(concepts.id, conceptId));
 
   if (typeof db.batch === 'function') {
-    const compensationWrites = [...rollbackWrites, conceptDelete] as [any, ...any[]];
+    const compensationWrites = [...rollbackWrites, conceptDelete] as unknown as [any, ...any[]];
     await db.batch(compensationWrites);
     return;
   }
