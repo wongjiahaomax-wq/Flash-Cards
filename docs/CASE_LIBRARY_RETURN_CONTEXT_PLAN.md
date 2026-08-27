@@ -1,6 +1,8 @@
 # Case Library — Search Persistence / Browser Back Plan
 
-_Status: planning-only supplement for draft PR #104. No application code is implemented here._
+_Status: implemented in draft PR #104. Automated CI is green; manual browser UX verification remains._
+
+_Implementation note: this document retains the original planning and acceptance language. Current executable repository behavior is authoritative._
 
 _Last updated: 27 August 2026_
 
