@@ -1,8 +1,9 @@
 <script>
   import { tick } from 'svelte';
+  import { caseLibraryNamedActionHref } from '$lib/admin-case-library-state.ts';
 
-  /** @type {{ selectedCaseIds: string[], parentOptions: { id: string, name: string, kind: string, breadcrumb: { id: string, name: string, kind: string }[] }[], error?: string, initialName?: string, initialParentId?: string }} */
-  let { selectedCaseIds, parentOptions, error = '', initialName = '', initialParentId = '' } = $props();
+  /** @type {{ selectedCaseIds: string[], parentOptions: { id: string, name: string, kind: string, breadcrumb: { id: string, name: string, kind: string }[] }[], error?: string, initialName?: string, initialParentId?: string, actionQuery?: string }} */
+  let { selectedCaseIds, parentOptions, error = '', initialName = '', initialParentId = '', actionQuery = '' } = $props();
 
   let editorOpen = $state(false);
   let topicName = $state('');
@@ -92,7 +93,7 @@
 
       <div class="editor-actions">
         <button type="button" class="button" onclick={() => editorOpen = false}>Cancel</button>
-        <button bind:this={createButton} class="button primary" type="submit" formaction="?/createCaseLibraryTopic" formnovalidate disabled={!topicName.trim()}>{selectedCount ? `Create & assign to ${selectedCount}` : 'Create Topic'}</button>
+        <button bind:this={createButton} class="button primary" type="submit" formaction={caseLibraryNamedActionHref('createCaseLibraryTopic', actionQuery)} formnovalidate disabled={!topicName.trim()}>{selectedCount ? `Create & assign to ${selectedCount}` : 'Create Topic'}</button>
       </div>
     </div>
   {/if}
