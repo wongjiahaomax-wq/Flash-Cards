@@ -15,13 +15,26 @@
   } from '$lib/admin-case-library-state.ts';
 
   let { data, form } = $props();
+
+  /** @param {unknown} value @returns {string[]} */
+  function failedTopicSelection(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+    const candidate = /** @type {Record<string, unknown>} */ (value);
+    if (!Array.isArray(candidate.topicSelectedCaseIds)) return [];
+    const caseIds = [];
+    for (const caseId of candidate.topicSelectedCaseIds) {
+      if (typeof caseId === 'string' && caseId.trim()) caseIds.push(caseId.trim());
+    }
+    return caseIds;
+  }
+
   let query = $state('');
   let topicQuery = $state('');
   let systemQuery = $state('');
   let searchForm = $state();
   let persistenceReady = $state(false);
   /** @type {string[]} */
-  let selectedCaseIds = $state([]);
+  let selectedCaseIds = $state(failedTopicSelection(form));
   /** @type {string | null} */
   let selectionAnchorId = $state(null);
   let inactiveView = $derived(data.caseFilters.lifecycle === 'inactive');
@@ -98,16 +111,7 @@
 
   /** @param {number} page */
   function pageHref(page) {
-    const params = new URLSearchParams();
-    if (data.caseFilters.search) params.set('q', data.caseFilters.search);
-    if (data.caseFilters.topicSearch) params.set('topic', data.caseFilters.topicSearch);
-    if (data.caseFilters.systemSearch) params.set('system', data.caseFilters.systemSearch);
-    if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
-    if (data.caseFilters.sort && data.caseFilters.sort !== 'case-asc') params.set('sort', data.caseFilters.sort);
-    preserveLifecycle(params);
-    if (page > 1) params.set('page', String(page));
-    const search = params.toString();
-    return search ? `/admin/cases?${search}` : '/admin/cases';
+    return caseLibraryStateHref({ ...currentStoredState(), page }, ['page']);
   }
 
   /** @param {'case' | 'topic' | 'system' | 'tag'} column */
@@ -115,15 +119,7 @@
     const currentColumn = data.caseFilters.sort?.split('-')[0];
     const currentDirection = data.caseFilters.sort?.split('-')[1];
     const direction = currentColumn === column && currentDirection === 'asc' ? 'desc' : 'asc';
-    const params = new URLSearchParams();
-    if (data.caseFilters.search) params.set('q', data.caseFilters.search);
-    if (data.caseFilters.topicSearch) params.set('topic', data.caseFilters.topicSearch);
-    if (data.caseFilters.systemSearch) params.set('system', data.caseFilters.systemSearch);
-    if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
-    if (!(column === 'case' && direction === 'asc')) params.set('sort', `${column}-${direction}`);
-    preserveLifecycle(params);
-    const search = params.toString();
-    return search ? `/admin/cases?${search}` : '/admin/cases';
+    return caseLibraryStateHref({ ...currentStoredState(), sort: `${column}-${direction}`, page: 1 }, ['sort']);
   }
 
   /** @param {'case' | 'topic' | 'system' | 'tag'} column */
@@ -159,15 +155,7 @@
 
   /** @param {'active'|'inactive'} lifecycle */
   function lifecycleHref(lifecycle) {
-    const params = new URLSearchParams();
-    if (data.caseFilters.search) params.set('q', data.caseFilters.search);
-    if (data.caseFilters.topicSearch) params.set('topic', data.caseFilters.topicSearch);
-    if (data.caseFilters.systemSearch) params.set('system', data.caseFilters.systemSearch);
-    if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
-    if (data.caseFilters.sort && data.caseFilters.sort !== 'case-asc') params.set('sort', data.caseFilters.sort);
-    if (lifecycle === 'inactive') params.set('lifecycle', 'inactive');
-    const search = params.toString();
-    return search ? `/admin/cases?${search}` : '/admin/cases';
+    return caseLibraryStateHref({ ...currentStoredState(), lifecycle, page: 1 }, ['lifecycle']);
   }
 
   function clearHref() {
