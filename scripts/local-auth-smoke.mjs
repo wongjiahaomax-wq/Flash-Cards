@@ -13,8 +13,13 @@ const stateDir = '.wrangler/auth-smoke';
 const seedFile = `${stateDir}/seed-auth-smoke.sql`;
 const email = 'local-smoke-admin@example.test';
 const password = 'LocalSmokePassword123!';
+const newPassword = 'LocalSmokePassword456!';
 const userId = '00000000-0000-4000-8000-000000000001';
 const accountId = '00000000-0000-4000-8000-000000000002';
+const validResetToken = 'local-smoke-valid-reset-token';
+const expiredResetToken = 'local-smoke-expired-reset-token';
+const validVerificationId = '00000000-0000-4000-8000-000000000003';
+const expiredVerificationId = '00000000-0000-4000-8000-000000000004';
 const secret = 'local-auth-smoke-secret-32-characters-minimum';
 
 function runWrangler(args) {
@@ -68,6 +73,22 @@ function stopWorker(processHandle) {
   }
 }
 
+async function requestPasswordReset(emailAddress) {
+  const response = await fetch(`${baseURL}/api/auth/request-password-reset`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({ email: emailAddress })
+  });
+
+  return {
+    status: response.status,
+    body: await response.json()
+  };
+}
+
 rmSync(stateDir, { recursive: true, force: true });
 mkdirSync(stateDir, { recursive: true });
 
@@ -90,7 +111,9 @@ writeFileSync(
   [
     'PRAGMA foreign_keys = ON;',
     `INSERT INTO \`user\` (\`id\`, \`name\`, \`email\`, \`emailVerified\`, \`createdAt\`, \`updatedAt\`, \`role\`, \`banned\`) VALUES (${sqlString(userId)}, 'Local Smoke Admin', ${sqlString(email)}, 1, ${now}, ${now}, 'admin', 0);`,
-    `INSERT INTO \`account\` (\`id\`, \`accountId\`, \`providerId\`, \`userId\`, \`password\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(accountId)}, ${sqlString(userId)}, 'credential', ${sqlString(userId)}, ${sqlString(passwordHash)}, ${now}, ${now});`
+    `INSERT INTO \`account\` (\`id\`, \`accountId\`, \`providerId\`, \`userId\`, \`password\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(accountId)}, ${sqlString(userId)}, 'credential', ${sqlString(userId)}, ${sqlString(passwordHash)}, ${now}, ${now});`,
+    `INSERT INTO \`verification\` (\`id\`, \`identifier\`, \`value\`, \`expiresAt\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(validVerificationId)}, ${sqlString(`reset-password:${validResetToken}`)}, ${sqlString(userId)}, ${sqlString(new Date(now + 60 * 60 * 1000).toISOString())}, ${now}, ${now});`,
+    `INSERT INTO \`verification\` (\`id\`, \`identifier\`, \`value\`, \`expiresAt\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(expiredVerificationId)}, ${sqlString(`reset-password:${expiredResetToken}`)}, ${sqlString(userId)}, ${sqlString(new Date(now - 1000).toISOString())}, ${now}, ${now});`
   ].join('\n')
 );
 
@@ -140,6 +163,13 @@ try {
   const signInPage = await fetch(`${baseURL}/sign-in`, { redirect: 'manual' });
   assert.equal(signInPage.status, 200);
 
+  const forgotPasswordPage = await fetch(`${baseURL}/forgot-password`, { redirect: 'manual' });
+  assert.equal(forgotPasswordPage.status, 200);
+
+  const resetPasswordPage = await fetch(`${baseURL}/reset-password`, { redirect: 'manual' });
+  assert.equal(resetPasswordPage.status, 200);
+  assert.doesNotMatch(await resetPasswordPage.text(), /local-smoke-(?:valid|expired)-reset-token/);
+
   const anonymousStudy = await fetch(`${baseURL}/study`, { redirect: 'manual' });
   assert.equal(anonymousStudy.status, 303);
   assert.match(anonymousStudy.headers.get('location') ?? '', /^\/sign-in\?redirect=/);
@@ -162,6 +192,12 @@ try {
   });
   assert.equal(disabledSignUp.status, 400);
   assert.match(await disabledSignUp.text(), /EMAIL_PASSWORD_SIGN_UP_DISABLED/);
+
+  const existingResetRequest = await requestPasswordReset(email);
+  const unknownResetRequest = await requestPasswordReset('unknown-user@example.test');
+  assert.equal(existingResetRequest.status, 200);
+  assert.equal(unknownResetRequest.status, 200);
+  assert.deepEqual(existingResetRequest.body, unknownResetRequest.body);
 
   const signIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
     method: 'POST',
@@ -195,6 +231,73 @@ try {
     redirect: 'manual'
   });
   assert.equal(admin.status, 200);
+
+  const reset = await fetch(`${baseURL}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({
+      newPassword,
+      token: validResetToken
+    })
+  });
+  assert.equal(reset.status, 200, await reset.text());
+
+  const revokedSession = await fetch(`${baseURL}/api/auth/get-session`, {
+    headers: { cookie: cookies }
+  });
+  assert.equal(revokedSession.status, 200);
+  assert.equal(await revokedSession.json(), null);
+
+  const oldPasswordSignIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({ email, password, rememberMe: false })
+  });
+  assert.equal(oldPasswordSignIn.status, 401);
+
+  const newPasswordSignIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({ email, password: newPassword, rememberMe: false })
+  });
+  assert.equal(newPasswordSignIn.status, 200, await newPasswordSignIn.text());
+
+  const reusedToken = await fetch(`${baseURL}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({
+      newPassword: password,
+      token: validResetToken
+    })
+  });
+  assert.equal(reusedToken.status, 400);
+  assert.match(await reusedToken.text(), /INVALID_TOKEN/);
+
+  const expiredToken = await fetch(`${baseURL}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({
+      newPassword: password,
+      token: expiredResetToken
+    })
+  });
+  assert.equal(expiredToken.status, 400);
+  assert.match(await expiredToken.text(), /INVALID_TOKEN/);
 
   console.log('Local D1 + Better Auth smoke test passed.');
 } catch (error) {
