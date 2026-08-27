@@ -1,6 +1,8 @@
 # Case Library — Unassigned System Filtering + Quick Topic Creation Plan
 
-_Status: planning-only draft. No application code is implemented in this PR._
+_Status: implemented in draft PR #104. Automated CI is green; manual UX verification remains._
+
+_Implementation note: this document retains the original planning and acceptance language. Current executable repository behavior is authoritative._
 
 _Last updated: 27 August 2026_
 
