@@ -109,7 +109,8 @@ async function compensateCreatedTopicAssignment(
   const conceptDelete = db.delete(concepts).where(eq(concepts.id, conceptId));
 
   if (typeof db.batch === 'function') {
-    await db.batch(/** @type {[any, ...any[]]} */ ([...rollbackWrites, conceptDelete]));
+    const compensationWrites = [...rollbackWrites, conceptDelete] as [any, ...any[]];
+    await db.batch(compensationWrites);
     return;
   }
   for (const rollbackWrite of rollbackWrites) await rollbackWrite;

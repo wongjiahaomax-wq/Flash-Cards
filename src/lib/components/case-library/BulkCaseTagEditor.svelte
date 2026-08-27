@@ -1,5 +1,6 @@
 <script>
-  import { caseLibraryNamedActionHref } from '$lib/admin-case-library-state.ts';
+  import { page } from '$app/state';
+  import { caseLibraryNamedActionHref, caseLibraryReturnQuery } from '$lib/admin-case-library-state.ts';
 
   /** @type {{ selectedCaseIds: string[], cases: { id: string, title: string, tags: { id: string, name: string }[] }[], availableTags: { id: string, name: string }[], triggerLabel?: string, compactTrigger?: boolean, actionQuery?: string }} */
   let { selectedCaseIds, cases, availableTags, triggerLabel = 'Manage Tags', compactTrigger = false, actionQuery = '' } = $props();
@@ -8,6 +9,7 @@
   let tagQuery = $state('');
   let newTagName = $state('');
   let createButton = $state();
+  let effectiveActionQuery = $derived(actionQuery || caseLibraryReturnQuery(page.url.searchParams));
   let selectedCases = $derived(cases.filter((item) => selectedCaseIds.includes(item.id)));
   let selectedCount = $derived(selectedCases.length);
   let tagStates = $derived.by(() => {
@@ -109,7 +111,7 @@
                     type="submit"
                     name="tag_id"
                     value={tag.id}
-                    formaction={caseLibraryNamedActionHref('bulkAddCaseTag', actionQuery)}
+                    formaction={caseLibraryNamedActionHref('bulkAddCaseTag', effectiveActionQuery)}
                     formnovalidate
                   >Add to all</button>
                 {/if}
@@ -119,7 +121,7 @@
                     type="submit"
                     name="tag_id"
                     value={tag.id}
-                    formaction={caseLibraryNamedActionHref('bulkRemoveCaseTag', actionQuery)}
+                    formaction={caseLibraryNamedActionHref('bulkRemoveCaseTag', effectiveActionQuery)}
                     formnovalidate
                   >Remove from all</button>
                 {/if}
@@ -146,7 +148,7 @@
             bind:this={createButton}
             class="small-button primary"
             type="submit"
-            formaction={caseLibraryNamedActionHref('bulkCreateAndAddCaseTag', actionQuery)}
+            formaction={caseLibraryNamedActionHref('bulkCreateAndAddCaseTag', effectiveActionQuery)}
             formnovalidate
             disabled={!newTagName.trim()}
           >Create & add to all</button>

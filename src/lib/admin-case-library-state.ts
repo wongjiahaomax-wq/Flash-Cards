@@ -108,6 +108,14 @@ export function shouldRestoreCaseLibraryState(params: URLSearchParams, hasAction
   return !hasActionFailure && !hasExplicitCaseLibraryQuery(params);
 }
 
+export function caseLibraryReturnQuery(params: URLSearchParams) {
+  const returnParams = new URLSearchParams();
+  for (const key of CASE_LIBRARY_QUERY_KEYS) {
+    for (const value of params.getAll(key)) returnParams.append(key, value);
+  }
+  return returnParams.toString();
+}
+
 export function caseLibraryNamedActionHref(actionName: string, returnQuery = '') {
   const cleanActionName = actionName.trim().replace(/^\/+/, '');
   if (!cleanActionName) throw new Error('Case Library action name is required.');

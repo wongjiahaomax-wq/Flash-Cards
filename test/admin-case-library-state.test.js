@@ -6,6 +6,7 @@ import {
   CASE_LIBRARY_STATE_KEY,
   CASE_LIBRARY_STATE_VERSION,
   caseLibraryNamedActionHref,
+  caseLibraryReturnQuery,
   caseLibraryStateHref,
   clearCaseLibraryStoredState,
   hasExplicitCaseLibraryQuery,
@@ -112,4 +113,9 @@ test('named action targets preserve Case Library query context and failed action
   assert.equal(shouldRestoreCaseLibraryState(new URLSearchParams('/createCaseLibraryTopic'), true), false);
   assert.equal(shouldRestoreCaseLibraryState(new URLSearchParams(), false), true);
   assert.equal(caseLibraryNamedActionHref('bulkPromoteTopic'), '?/bulkPromoteTopic');
+
+  const retryQuery = caseLibraryReturnQuery(new URLSearchParams('q=uveitis&system=Eye&page=2&/bulkAddCaseTag&unknown=drop-me'));
+  assert.equal(retryQuery, 'q=uveitis&system=Eye&page=2');
+  assert.equal(caseLibraryNamedActionHref('bulkRemoveCaseTag', retryQuery), '?q=uveitis&system=Eye&page=2&/bulkRemoveCaseTag');
+  assert.equal(caseLibraryReturnQuery(new URLSearchParams('lifecycle=active&page=1&/bulkRestoreCases')), 'lifecycle=active&page=1');
 });

@@ -37,9 +37,10 @@ test('named mutation targets retain the current Case Library query and failed fo
   assert.match(pageSource, /formaction=\{actionHref\('bulkDeactivateCases'\)\}/);
   assert.match(pageSource, /actionQuery=\{currentQuery\(\)\}/);
   assert.match(creatorSource, /caseLibraryNamedActionHref\('createCaseLibraryTopic', actionQuery\)/);
-  assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkAddCaseTag', actionQuery\)/);
-  assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkRemoveCaseTag', actionQuery\)/);
-  assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkCreateAndAddCaseTag', actionQuery\)/);
+  assert.match(bulkTagSource, /actionQuery \|\| caseLibraryReturnQuery\(page\.url\.searchParams\)/);
+  assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkAddCaseTag', effectiveActionQuery\)/);
+  assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkRemoveCaseTag', effectiveActionQuery\)/);
+  assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkCreateAndAddCaseTag', effectiveActionQuery\)/);
 });
 
 test('active Case Library exposes quick Topic creation without replacing existing bulk actions', () => {
