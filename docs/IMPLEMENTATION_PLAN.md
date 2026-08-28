@@ -212,10 +212,12 @@ Current workspace supports:
 - Systems as top-level roots and arbitrarily nested Topics;
 - contextual System/Topic creation;
 - staged Topic hierarchy moves with drag/drop and `Move to…` fallback;
-- staged Case Primary Topic changes, including bounded bulk operations;
+- staged Case Primary Topic changes, including bounded bulk operations and different target Topics for different Cases in one review;
 - staged Case Tag additions/removals;
-- stale-state preflight before canonical mutation functions;
-- separate mutation domains rather than falsely claiming one cross-domain atomic transaction.
+- mixed hierarchy, Primary Topic, and Case Tag changes coexisting in one staged review;
+- one unified `Validate & apply all changes` workspace action;
+- all requested stale-state/validity preflights completing before the first canonical write;
+- sequential established domain writers after preflight, without claiming one cross-domain serializable/rollback transaction.
 
 System↔Tag exposure remains a separate global System-level concern.
 
