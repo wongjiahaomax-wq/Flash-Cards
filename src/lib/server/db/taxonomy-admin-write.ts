@@ -1,6 +1,7 @@
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { taxonomyConcepts } from './contextual-schema.ts';
+import { buildTopicConceptInsert, listConceptTaxonomy } from './concept-taxonomy-compat.ts';
 import { caseConcepts, conceptQuestions, concepts } from './schema.js';
 import { systemTags, tags } from './tag-schema.js';
 import {
@@ -36,9 +37,7 @@ function booleanValue(value: unknown) {
 
 function conceptKind(value: unknown): ConceptKind {
   const kind = String(value ?? '').trim();
-  if (kind !== 'system' && kind !== 'topic') {
-    throw new TaxonomyInputError('Concept kind must be System or Topic.');
-  }
+  if (kind !== 'system' && kind !== 'topic') throw new TaxonomyInputError('Concept kind must be System or Topic.');
   return kind;
 }
 
@@ -64,16 +63,7 @@ async function uniqueSlug(db: import('./index.js').LearningDb, name: string) {
 }
 
 async function loadGraph(db: import('./index.js').LearningDb) {
-  return db
-    .select({
-      id: taxonomyConcepts.id,
-      name: taxonomyConcepts.name,
-      kind: taxonomyConcepts.kind,
-      parentId: taxonomyConcepts.parentId,
-      isActive: taxonomyConcepts.isActive
-    })
-    .from(taxonomyConcepts)
-    .orderBy(asc(taxonomyConcepts.name), asc(taxonomyConcepts.id));
+  return listConceptTaxonomy(db);
 }
 
 function graphError(error: unknown): never {
@@ -81,10 +71,19 @@ function graphError(error: unknown): never {
   throw error;
 }
 
-export async function createTaxonomyConcept(
+export type PreparedTaxonomyConceptCreation = {
+  id: string;
+  name: string;
+  slug: string;
+  descriptionMd: string | null;
+  kind: ConceptKind;
+  parentId: string | null;
+};
+
+export async function prepareTaxonomyConceptCreation(
   db: import('./index.js').LearningDb,
   input: { name: unknown; kind: unknown; parentId?: unknown; descriptionMd?: unknown }
-) {
+): Promise<PreparedTaxonomyConceptCreation> {
   const name = requiredText(input.name, 'Concept name');
   if (name.length > 200) throw new TaxonomyInputError('Concept name must be 200 characters or fewer.');
   const kind = conceptKind(input.kind);
@@ -98,23 +97,52 @@ export async function createTaxonomyConcept(
     graphError(error);
   }
   const slug = await uniqueSlug(db, name);
-  try {
-    await db.insert(taxonomyConcepts).values({
-      id,
-      name,
-      slug,
-      descriptionMd: optionalText(input.descriptionMd),
-      kind,
-      parentId,
+  return { id, name, slug, descriptionMd: optionalText(input.descriptionMd), kind, parentId };
+}
+
+export function buildTaxonomyConceptCreationWrite(
+  db: import('./index.js').LearningDb,
+  concept: PreparedTaxonomyConceptCreation
+) {
+  if (concept.kind === 'topic') {
+    return buildTopicConceptInsert(db, {
+      id: concept.id,
+      name: concept.name,
+      slug: concept.slug,
+      descriptionMd: concept.descriptionMd,
+      parentId: concept.parentId,
       isActive: true
     });
-  } catch (error) {
-    if (error instanceof Error && /unique|constraint/i.test(error.message)) {
-      throw new TaxonomyInputError('That concept could not be created because its taxonomy state conflicts with current data.');
-    }
-    throw error;
   }
-  return { id, name, slug, kind, parentId };
+  return db.insert(taxonomyConcepts).values({
+    id: concept.id,
+    name: concept.name,
+    slug: concept.slug,
+    descriptionMd: concept.descriptionMd,
+    kind: concept.kind,
+    parentId: null,
+    isActive: true
+  });
+}
+
+export function taxonomyConceptCreationError(error: unknown): unknown {
+  if (error instanceof Error && /unique|constraint/i.test(error.message)) {
+    return new TaxonomyInputError('That concept could not be created because its taxonomy state conflicts with current data.');
+  }
+  return error;
+}
+
+export async function createTaxonomyConcept(
+  db: import('./index.js').LearningDb,
+  input: { name: unknown; kind: unknown; parentId?: unknown; descriptionMd?: unknown }
+) {
+  const concept = await prepareTaxonomyConceptCreation(db, input);
+  try {
+    await buildTaxonomyConceptCreationWrite(db, concept);
+  } catch (error) {
+    throw taxonomyConceptCreationError(error);
+  }
+  return { id: concept.id, name: concept.name, slug: concept.slug, kind: concept.kind, parentId: concept.parentId };
 }
 
 export async function updateTaxonomyConcept(
@@ -135,30 +163,16 @@ export async function updateTaxonomyConcept(
       db.select({ id: caseConcepts.caseId }).from(caseConcepts).where(eq(caseConcepts.conceptId, conceptId)).limit(1),
       db.select({ id: conceptQuestions.id }).from(conceptQuestions).where(eq(conceptQuestions.conceptId, conceptId)).limit(1)
     ]);
-    if (caseUsage[0] || questionUsage[0]) {
-      throw new TaxonomyInputError('A Topic with Case or reusable-question usages cannot be reclassified as a System. Move those Topic usages first.');
-    }
+    if (caseUsage[0] || questionUsage[0]) throw new TaxonomyInputError('A Topic with Case or reusable-question usages cannot be reclassified as a System. Move those Topic usages first.');
   }
 
   if (target.kind === 'system' && kind !== 'system') {
-    const relationships = await db
-      .select({ tagId: systemTags.tagId })
-      .from(systemTags)
-      .where(eq(systemTags.systemConceptId, conceptId))
-      .limit(1);
-    if (relationships[0]) {
-      throw new TaxonomyInputError('Remove this System’s exposed Tags before changing it to a Topic.');
-    }
+    const relationships = await db.select({ tagId: systemTags.tagId }).from(systemTags).where(eq(systemTags.systemConceptId, conceptId)).limit(1);
+    if (relationships[0]) throw new TaxonomyInputError('Remove this System’s exposed Tags before changing it to a Topic.');
   }
   if (target.kind === 'system' && !isActive) {
-    const relationships = await db
-      .select({ tagId: systemTags.tagId })
-      .from(systemTags)
-      .where(eq(systemTags.systemConceptId, conceptId))
-      .limit(1);
-    if (relationships[0]) {
-      throw new TaxonomyInputError('Remove this System’s exposed Tags before deactivating it.');
-    }
+    const relationships = await db.select({ tagId: systemTags.tagId }).from(systemTags).where(eq(systemTags.systemConceptId, conceptId)).limit(1);
+    if (relationships[0]) throw new TaxonomyInputError('Remove this System’s exposed Tags before deactivating it.');
   }
 
   const proposed = graph.map((node) => node.id === conceptId ? { ...node, name, kind, isActive } : node);
@@ -169,32 +183,19 @@ export async function updateTaxonomyConcept(
   }
 
   try {
-    await db
-      .update(taxonomyConcepts)
-      .set({ name, descriptionMd: optionalText(input.descriptionMd), kind, isActive, updatedAt: new Date() })
-      .where(eq(taxonomyConcepts.id, conceptId));
+    await db.update(taxonomyConcepts).set({ name, descriptionMd: optionalText(input.descriptionMd), kind, isActive, updatedAt: new Date() }).where(eq(taxonomyConcepts.id, conceptId));
   } catch (error) {
-    if (error instanceof Error && /constraint|abort/i.test(error.message)) {
-      throw new TaxonomyInputError(error.message);
-    }
+    if (error instanceof Error && /constraint|abort/i.test(error.message)) throw new TaxonomyInputError(error.message);
     throw error;
   }
 }
 
-export async function applyTaxonomyHierarchy(
-  db: import('./index.js').LearningDb,
-  changes: ParentChange[]
-) {
-  if (!Array.isArray(changes) || changes.length > 500) {
-    throw new TaxonomyInputError('Hierarchy updates must contain at most 500 staged moves.');
-  }
+export async function applyTaxonomyHierarchy(db: import('./index.js').LearningDb, changes: ParentChange[]) {
+  if (!Array.isArray(changes) || changes.length > 500) throw new TaxonomyInputError('Hierarchy updates must contain at most 500 staged moves.');
   const graph = await loadGraph(db);
   let proposed: TaxonomyNode[];
   try {
-    proposed = applyParentChanges(graph, changes.map((change) => ({
-      id: requiredText(change.id, 'Concept'),
-      parentId: optionalText(change.parentId)
-    })));
+    proposed = applyParentChanges(graph, changes.map((change) => ({ id: requiredText(change.id, 'Concept'), parentId: optionalText(change.parentId) })));
   } catch (error) {
     graphError(error);
   }
@@ -203,13 +204,9 @@ export async function applyTaxonomyHierarchy(
   const proposedById = new Map(proposed.map((node) => [node.id, node]));
   const changedIds = [...proposedById.keys()].filter((id) => currentById.get(id)?.parentId !== proposedById.get(id)?.parentId);
   if (!changedIds.length) return;
-  if (typeof db.batch !== 'function') {
-    throw new TaxonomyInputError('Atomic hierarchy updates require D1 batch support.');
-  }
+  if (typeof db.batch !== 'function') throw new TaxonomyInputError('Atomic hierarchy updates require D1 batch support.');
 
-  const detachWrites = changedIds.map((id) =>
-    db.update(concepts).set({ parentId: null, updatedAt: new Date() }).where(eq(concepts.id, id))
-  );
+  const detachWrites = changedIds.map((id) => db.update(concepts).set({ parentId: null, updatedAt: new Date() }).where(eq(concepts.id, id)));
   const attachWrites = changedIds.flatMap((id) => {
     const parentId = proposedById.get(id)?.parentId ?? null;
     if (!parentId) return [];
@@ -219,9 +216,7 @@ export async function applyTaxonomyHierarchy(
   try {
     await db.batch([...detachWrites, ...attachWrites] as [any, ...any[]]);
   } catch (error) {
-    if (error instanceof Error && /constraint|abort|cycle|parent/i.test(error.message)) {
-      throw new TaxonomyInputError(error.message);
-    }
+    if (error instanceof Error && /constraint|abort|cycle|parent/i.test(error.message)) throw new TaxonomyInputError(error.message);
     throw error;
   }
 }
@@ -234,21 +229,9 @@ export async function assignPrimaryTopicToSystem(
   const topicId = requiredText(input.topicId, 'Primary Topic');
   const systemId = requiredText(input.systemId, 'System');
   const [topic, system, relationship] = await Promise.all([
-    db
-      .select({ id: taxonomyConcepts.id })
-      .from(taxonomyConcepts)
-      .where(and(eq(taxonomyConcepts.id, topicId), eq(taxonomyConcepts.kind, 'topic'), eq(taxonomyConcepts.isActive, true)))
-      .limit(1),
-    db
-      .select({ id: taxonomyConcepts.id })
-      .from(taxonomyConcepts)
-      .where(and(eq(taxonomyConcepts.id, systemId), eq(taxonomyConcepts.kind, 'system'), eq(taxonomyConcepts.isActive, true), isNull(taxonomyConcepts.parentId)))
-      .limit(1),
-    db
-      .select({ caseId: caseConcepts.caseId })
-      .from(caseConcepts)
-      .where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, topicId), eq(caseConcepts.role, 'primary')))
-      .limit(1)
+    db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(and(eq(taxonomyConcepts.id, topicId), eq(taxonomyConcepts.kind, 'topic'), eq(taxonomyConcepts.isActive, true))).limit(1),
+    db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(and(eq(taxonomyConcepts.id, systemId), eq(taxonomyConcepts.kind, 'system'), eq(taxonomyConcepts.isActive, true), isNull(taxonomyConcepts.parentId))).limit(1),
+    db.select({ caseId: caseConcepts.caseId }).from(caseConcepts).where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, topicId), eq(caseConcepts.role, 'primary'))).limit(1)
   ]);
   if (!topic[0]) throw new TaxonomyInputError('The selected Primary Topic is missing, inactive, or classified as a System.');
   if (!system[0]) throw new TaxonomyInputError('The selected System is missing, inactive, or not top-level.');
@@ -264,36 +247,23 @@ export async function replaceSystemTags(
   const tagIds = input.tagIds.map((tagId) => requiredText(tagId, 'Tag'));
   if (tagIds.length > 200) throw new TaxonomyInputError('A System may expose at most 200 Tags.');
   if (new Set(tagIds).size !== tagIds.length) throw new TaxonomyInputError('A Tag can appear only once within a System.');
-  if (typeof db.batch !== 'function') {
-    throw new TaxonomyInputError('Atomic System Tag updates require D1 batch support.');
-  }
+  if (typeof db.batch !== 'function') throw new TaxonomyInputError('Atomic System Tag updates require D1 batch support.');
 
-  const system = await db
-    .select({ id: taxonomyConcepts.id })
-    .from(taxonomyConcepts)
-    .where(and(eq(taxonomyConcepts.id, systemId), eq(taxonomyConcepts.kind, 'system'), eq(taxonomyConcepts.isActive, true)))
-    .limit(1);
+  const system = await db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(and(eq(taxonomyConcepts.id, systemId), eq(taxonomyConcepts.kind, 'system'), eq(taxonomyConcepts.isActive, true))).limit(1);
   if (!system[0]) throw new TaxonomyInputError('The selected System is missing, inactive, or not classified as a System.');
 
   if (tagIds.length) {
-    const activeTags = await db
-      .select({ id: tags.id })
-      .from(tags)
-      .where(and(inArray(tags.id, tagIds), eq(tags.isActive, true)));
+    const activeTags = await db.select({ id: tags.id }).from(tags).where(and(inArray(tags.id, tagIds), eq(tags.isActive, true)));
     if (activeTags.length !== tagIds.length) throw new TaxonomyInputError('Only active Tags can be exposed in a System.');
   }
 
   const removeExisting = db.delete(systemTags).where(eq(systemTags.systemConceptId, systemId));
   const writes: any[] = [removeExisting];
-  if (tagIds.length) {
-    writes.push(db.insert(systemTags).values(tagIds.map((tagId, displayOrder) => ({ systemConceptId: systemId, tagId, displayOrder }))));
-  }
+  if (tagIds.length) writes.push(db.insert(systemTags).values(tagIds.map((tagId, displayOrder) => ({ systemConceptId: systemId, tagId, displayOrder }))));
   try {
     await db.batch(writes as [any, ...any[]]);
   } catch (error) {
-    if (error instanceof Error && /constraint|abort/i.test(error.message)) {
-      throw new TaxonomyInputError(error.message);
-    }
+    if (error instanceof Error && /constraint|abort/i.test(error.message)) throw new TaxonomyInputError(error.message);
     throw error;
   }
 }

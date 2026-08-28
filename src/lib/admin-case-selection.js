@@ -1,4 +1,5 @@
 /** @typedef {{ selectedIds?: Iterable<string>, orderedIds?: string[], anchorId?: string | null, caseId?: string, shiftKey?: boolean }} CaseSelectionInput */
+/** @typedef {{ selectedIds?: unknown[], visibleIds?: string[] }} VisibleCaseSelectionInput */
 
 /**
  * Apply Case checkbox selection against the exact currently displayed order.
@@ -26,4 +27,29 @@ export function applyCaseSelection(input) {
   if (selectedIds.has(caseId)) selectedIds.delete(caseId);
   else selectedIds.add(caseId);
   return { selectedIds, anchorId: caseId };
+}
+
+/**
+ * Reconcile a retry selection against the Cases that are freshly visible in
+ * the current Case Library result. Invisible/stale IDs are deliberately
+ * dropped so a failed action cannot retain hidden mutation targets.
+ * @param {VisibleCaseSelectionInput} input
+ */
+export function reconcileVisibleCaseSelection(input) {
+  const visibleIds = new Set(input.visibleIds ?? []);
+  const submittedIds = [];
+  const seen = new Set();
+  for (const value of input.selectedIds ?? []) {
+    if (typeof value !== 'string') continue;
+    const caseId = value.trim();
+    if (!caseId || seen.has(caseId)) continue;
+    seen.add(caseId);
+    submittedIds.push(caseId);
+  }
+  const selectedIds = submittedIds.filter((caseId) => visibleIds.has(caseId));
+  return {
+    selectedIds,
+    submittedCount: submittedIds.length,
+    removedCount: submittedIds.length - selectedIds.length
+  };
 }

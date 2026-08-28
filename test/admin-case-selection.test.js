@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyCaseSelection } from '../src/lib/admin-case-selection.js';
+import { applyCaseSelection, reconcileVisibleCaseSelection } from '../src/lib/admin-case-selection.js';
 
 const displayed = ['case-c', 'case-a', 'case-d', 'case-b'];
 
@@ -28,4 +28,24 @@ test('Shift-click does not select Cases from an unloaded page', () => {
     shiftKey: true
   });
   assert.deepEqual([...state.selectedIds], ['case-off-page', 'case-b']);
+});
+
+test('failed retry selection keeps only freshly visible Cases and reports stale removals', () => {
+  assert.deepEqual(
+    reconcileVisibleCaseSelection({
+      selectedIds: ['case-a', 'case-b', 'case-a', '', null],
+      visibleIds: ['case-a', 'case-c']
+    }),
+    { selectedIds: ['case-a'], submittedCount: 2, removedCount: 1 }
+  );
+});
+
+test('failed assignment retry can detect when every prior Case disappeared from the current result', () => {
+  assert.deepEqual(
+    reconcileVisibleCaseSelection({
+      selectedIds: ['case-a', 'case-b'],
+      visibleIds: ['case-c']
+    }),
+    { selectedIds: [], submittedCount: 2, removedCount: 2 }
+  );
 });
