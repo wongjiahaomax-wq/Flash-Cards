@@ -1,8 +1,10 @@
 # Flash-Cards — V1 Implementation Plan
 
-_Last updated: 24 August 2026_
+_Last updated: 28 August 2026_
 
-This document tracks implementation state on current `main`. For the shortest verified-production-versus-current-main view read `CURRENT_PRODUCT_ROADMAP.md`; for exact semantics use `V1_DATA_MODEL.md` and subsystem contracts.
+This document tracks the implemented V1 state on current `main`. For the shortest verified-production-versus-current-main view read `CURRENT_PRODUCT_ROADMAP.md`; for exact relationship/schema semantics use `V1_DATA_MODEL.md`, `AUTHORING_MODEL.md`, and the relevant subsystem contracts.
+
+Do not use this document to infer production deployment. Merge state, production migration application, Worker deployment, content/taxonomy curation, learner rollout, and explicit production verification are separate facts.
 
 ## Current implementation baseline
 
@@ -12,44 +14,52 @@ Current `main` includes:
 - D1/Drizzle learning-domain model and Better Auth;
 - learner Study/Review flow with immutable Prompt/answer/media snapshots;
 - private R2 teaching-image pipeline;
-- Admin CMS for Cases, Questions, Shared Questions, Images, Topics, Tags, and reviewed imports;
-- multi-Topic Case routing/authoring;
-- optional Alternative Sets with set-wide/exact-option questions and coverage;
-- Tagging Stage A/B;
-- production-backed Preview Admin;
+- Production Admin CMS for Cases, Questions, Shared Questions, Images, Systems/Topics, Tags, and reviewed imports;
+- exactly one behaviorally active canonical **Primary Topic** per current Case plus zero or more **Case Tags**;
+- contextual System → Topic / exposed Tag / All learner navigation behind rollout control;
+- Original/Core versus Expanded Learning question-pool modes;
+- fixed images plus optional Alternative Sets/options;
+- Case, stimulus, Topic/ancestor, tag-shared, and exact-Asset reusable Question sources;
 - Image Management V2 and Collections;
 - Reusable Image Questions with explicit exact-stimulus opt-in;
 - same-image higher-resolution Asset replacement/supersession;
 - alternative-option **Remove from Case** archival state;
 - Image Library Current/Historical only/Unused lifecycle classification;
+- visual Systems & Topics taxonomy/Case-classification workspace;
+- Production Case Active/Inactive lifecycle with validated restore;
+- inline and bulk Case Tag curation plus bulk Primary Topic assignment;
 - bounded Admin dashboard/Case-detail/Case-library/Question-library read models;
-- Classic/Compact Case-editor UX and Compact fast-review audit;
-- behavior-preserving Case-editor component decomposition;
-- staged Preview backend decomposition through fixed-image operations;
+- targeted Case Library text-search/read-path performance improvement;
+- Classic/Compact Case-editor UX and focused component ownership;
+- production-backed Preview Admin retained as a safety-sensitive legacy subsystem;
 - local production-like D1/R2 replica;
 - local slide-review/deterministic-finalizer tooling;
 - repository-owned coding-agent and validation workflow;
-- first ECG corpus fully represented and verified in production: **66/66**.
+- Draft PR fast CI and Ready PR full CI through one shared validation contract;
+- first ECG corpus fully represented and verified in production: **66/66 source notes**.
 
-Merge status, production migration application, Worker deployment, and explicit behavior verification remain separate facts.
-
-## Milestone 0 — content contract
+## Milestone 0 — current content contract
 
 Status: **complete baseline; additive enrichment continues**.
 
 ```text
-Topic
-└── Case
-    ├── fixed Assets
-    ├── optional Alternative Sets/options
-    └── contextual questions
+System
+└── Topic hierarchy
+    └── Case
+        ├── exactly one Primary Topic relationship
+        ├── zero or more Case Tags
+        ├── fixed Assets
+        ├── optional Alternative Sets/options
+        └── contextual questions
 
 Global reusable knowledge
 ├── Shared Question
-│   └── eligibility by one Reuse Scope Tag
+│   └── eligibility by one matching Case Reuse Scope Tag
 └── Reusable Image Question
     └── one exact Asset + explicit per-stimulus opt-in
 ```
+
+Additional Study Topics are not a current authoring/learner feature. The physical `case_concepts.role = primary | secondary` compatibility shape remains, but current code treats stored secondary rows as legacy data rather than active Case classification.
 
 Question Prompts store wording only; answers live at the context where they are correct.
 
@@ -80,48 +90,57 @@ Current repository migrations:
 0011_asset_supersession.sql
 0012_archive_stimulus_options.sql
 0013_review_assets_asset_lookup.sql
+0014_review_question_pool_mode.sql
+0015_contextual_system_topic_tag_navigation.sql
 ```
 
-Explicitly recorded production application exists for earlier migrations such as Preview foundation and Tagging Stage B foundation. Do not mark later migrations applied merely because they are on `main`.
-
-`0012` adds relationship archival for removed alternative options. `0013` adds the Asset-leading Review-Asset index used by lifecycle/historical queries; it does not create new domain semantics.
+Migration `0003` remains historical schema/provenance context; it does not mean Additional Study Topics are still active product behavior. PR #90 intentionally retired that behavior without adding another migration.
 
 ## Milestone 3 — authentication/permissions
 
-Status: **production/Preview baseline complete**.
+Status: **production/Preview baseline complete; Account Management v1 implementation remains separate**.
 
-Current role behavior includes:
+Current role concepts include:
 
 ```text
-Preview Worker /admin/**          blocked
-Preview Worker /study/**          blocked
-Preview Worker Auth Admin API     blocked
-preview-only preview_admin on production Study blocked
-combined admin,preview_admin on production Study allowed
+admin
+user
+preview_admin
 ```
 
-Production and Preview Workers use separate Better Auth secrets/sessions.
+Production and Preview Workers use separate Better Auth secrets/sessions. Public self-registration remains disabled.
+
+`ACCOUNT_MANAGEMENT_PLAN.md` is the merged design record for password recovery, transactional email, and routine production account administration. Its implementation prompts are not proof that those implementation PRs have merged.
 
 ## Milestone 4 — learner Study flow
 
-Status: **complete current-main behavior; deployment of later merged extensions verified separately**.
+Status: **complete current-main behavior; rollout/deployment verified separately**.
 
-Learner routing supports multi-Topic Cases, fixed/alternative stimuli, active/non-removed option selection, contextual/reusable question precedence, Automatic/All/Fixed selection, stimulus-specific coverage, and immutable Review snapshots.
+Current learner behavior supports:
 
-Current-main precedence:
+- canonical Primary Topic routing;
+- contextual System → Topic / exposed Tag / All reachability where enabled;
+- fixed/alternative stimuli with active/non-removed selection;
+- Original/Core and Expanded Learning source modes;
+- contextual/reusable question precedence;
+- Automatic/All/Fixed Case question-count selection;
+- stimulus-specific coverage;
+- immutable Review snapshots/provenance.
+
+Current duplicate-Prompt precedence is:
 
 ```text
 selected exact stimulus-option question
-> explicitly reused Asset Question
+> explicitly reused Asset Question for the selected option
 > stimulus group
 > Case
-> exact Study Topic
+> exact Primary Topic
 > tag-shared Question
-> nearest inheritable ancestor Topic
-> more distant ancestors
+> nearest eligible inheritable ancestor Topic
+> more distant eligible ancestors
 ```
 
-Removed options are excluded from current selection. Existing Reviews remain historical truth.
+Removed options are excluded from current selection. Historical Reviews remain historical truth.
 
 ## Milestone 5 — protected R2 teaching images
 
@@ -129,9 +148,9 @@ Status: **complete baseline; lifecycle/replacement semantics merged**.
 
 Teaching images are private JPEG/PNG objects under central type/size/storage guardrails. Production object keys are immutable.
 
-Same-image higher-resolution replacement creates a new object/new Asset and retains the old object for historical Review media. Physical deletion remains a separate future workflow.
+Same-image higher-resolution replacement creates a new Asset/R2 object and retains the superseded object for historical provenance. Permanent Asset/R2 deletion remains deliberately separate.
 
-## Milestone 6 — Admin CMS baseline
+## Milestone 6 — Admin CMS and authoring
 
 Status: **complete current-main content-management baseline**.
 
@@ -148,41 +167,83 @@ Routes include:
 /admin/import
 ```
 
-Routine Case editor order remains:
+Routine Case authoring is conceptually:
 
 ```text
-Topics → Case → Images → Case questions → Preview
+Primary Topic + Case Tags
+→ Case details
+→ Images / Alternative Sets
+→ contextual questions
+→ Preview
 ```
 
 Current authoring includes:
 
-- inline primary/additional Study Topic management;
+- Primary Topic selection/replacement and inline Topic creation;
+- Case Tag add/remove;
 - whole-Case vs exact-image/stimulus question scope;
 - transparent fixed-image conversion when exact-option semantics require it;
 - Case-specific vs Reusable Image Question distinction;
 - explicit reusable-image opt-in;
 - option Move, Deactivate, and distinct Remove from Case;
-- Compact/Classic presentation and Compact fast-review audit.
+- Compact/Classic presentation and fast-review audit.
 
-PR #78 changed implementation ownership, not product semantics: the route is now a coordinator over focused `src/lib/components/case-editor/` components. Preview still reuses the production editor.
+The shared editor is decomposed under `src/lib/components/case-editor/`; Preview reuses the production editor surface rather than maintaining a copy.
 
-## Milestone 7 — content/model validation
+### Case Library
+
+Current Case Library capabilities include:
+
+- bounded server-side filtering/sorting/pagination;
+- explicit text-filter submission rather than auto-navigation while typing;
+- Active / Inactive lifecycle views;
+- validated single/bulk deactivate and restore;
+- bulk Primary Topic assignment;
+- inline Case Tag editing;
+- bulk Case Tag add/remove/create-and-add;
+- lifecycle-correct Tag filter context.
+
+### Systems & Topics workspace
+
+PR #99 replaced the duplicated pre-existing flat taxonomy/hierarchy presentation with one visual tree + inspector workspace.
+
+Current workspace supports:
+
+- Systems as top-level roots and arbitrarily nested Topics;
+- contextual System/Topic creation;
+- staged Topic hierarchy moves with drag/drop and `Move to…` fallback;
+- staged Case Primary Topic changes, including bounded bulk operations and different target Topics for different Cases in one review;
+- staged Case Tag additions/removals;
+- mixed hierarchy, Primary Topic, and Case Tag changes coexisting in one staged review;
+- one unified `Validate & apply all changes` workspace action;
+- all requested stale-state/validity preflights completing before the first canonical write;
+- sequential established domain writers after preflight, without claiming one cross-domain serializable/rollback transaction.
+
+System↔Tag exposure remains a separate global System-level concern.
+
+## Milestone 7 — content/model validation and curation
 
 Status: **ongoing curation**.
 
-Representative content should exercise multi-image Cases, multiple Alternative Sets, Reusable Image Questions, Shared Questions, Tags, multiple Study Topics, option removal/restoration, replacement/history, and overlapping Prompt precedence.
+Representative content should exercise multi-image Cases, Alternative Sets, Reusable Image Questions, Shared Questions, Case Tags, option removal/restoration, Asset replacement/history, contextual System/Tag reachability, and overlapping Prompt precedence.
 
-## Milestone 7A — multi-Topic Case routing
+Do not create new secondary Case↔Topic relationships for testing. If historical secondary rows are needed for compatibility coverage, treat them explicitly as legacy fixtures.
 
-Status: **merged baseline**.
+## Milestone 7A — historical multi-Topic schema/provenance
 
-One Case may have one primary/default Topic and Additional Study Topics. Review provenance preserves canonical primary plus actual route.
+Status: **historical/superseded product behavior; compatibility retained**.
 
-## Milestone 7B — Tagging Stage A/B
+Migration `0003_multi_topic_study_routing.sql` and older Reviews explain why `secondary` relationships and `study_concept_id != primary_concept_id` may exist historically.
 
-Status: **implemented; Stage B explicitly recorded deployed in the verified production baseline**.
+Current product behavior is one Primary Topic + Case Tags. `MULTI_TOPIC_STUDY_ROUTES.md` is a historical decision record, not a current authoring contract.
 
-Flat Tags, Case/contextual Question Tags, tag-scoped Shared Questions, resolver integration, and Review provenance are established.
+## Milestone 7B — Tags / Shared Questions
+
+Status: **implemented; Stage B explicitly recorded in the verified production baseline**.
+
+Flat Tags, Case/contextual Question Tags, tag-scoped Shared Questions, resolver integration, Review provenance, and contextual System↔Tag exposure are established.
+
+Case Tags are also the current cross-cutting Case-classification mechanism after PR #90.
 
 ## Milestone 7C/7D — reviewed/resumable imports
 
@@ -190,31 +251,23 @@ Status: **merged baseline**.
 
 Strict Import Package v1 validation, exact package confirmation, deterministic create/use/skip semantics, R2 safeguards, resumable browser-orchestrated bounded processing, D1 checkpoints, and lease safety are implemented.
 
+Package v1 retains `secondaryTopicIds` only as an empty compatibility array; non-empty values are rejected by current reviewed/staged runtime boundaries.
+
 ## Milestone 7E — production-backed Preview Admin
 
-Status: **merged/deployed baseline; internal implementation refactor ongoing on current `main`**.
+Status: **retained legacy capability; normal development path is local-first**.
 
 Architecture remains one shared production D1/R2 with explicit Preview ownership and hard route/data boundaries.
 
-The public backend API remains `src/lib/server/db/preview-workspace.js`. Current internal owners are:
-
-```text
-session.js      → Session lookup/create/TTL
-ownership.js    → ownership/security guards
-errors.js/input.js → shared primitives
-case.js         → Case discovery, complete clone transaction, Case lifecycle/Topics
-fixed-images.js → ongoing fixed-image editor reads/mutations
-```
-
-Alternative Set operations, question-domain operations, `ensurePreviewWorkspace()`, and workspace-wide cleanup remain in the façade for later focused extraction.
+The Preview backend was decomposed through Session/ownership foundations, Case lifecycle/cloning, and fixed-image operations in PRs #80/#82/#83. Further staged decomposition was intentionally paused after PR #92 documented the local-first workflow decision. Do not resume the old PR2D/PR2E/PR2F sequence merely for completeness.
 
 ## Milestone 7F/7G — Image authoring and Image Management V2
 
-Status: **merged baseline; lifecycle extensions merged on current `main`**.
+Status: **merged baseline**.
 
-Image Library supports bounded server pages, exact counts, Collections, cross-page selection, bounded mutations, same-Case option Move, and derived lifecycle classification.
+Image Library supports bounded server pages, exact counts, Collections, cross-page selection, bounded mutations, same-Case option Move, derived lifecycle classification, and narrow same-image quality replacement.
 
-Current relationship/lifecycle distinctions:
+Keep these distinct:
 
 ```text
 option Deactivate
@@ -224,25 +277,11 @@ Asset Current/Historical only/Unused
 same-image higher-resolution replacement
 ```
 
-These are deliberately not aliases for one another.
-
 ## Milestone 7H — Reusable Image Questions
 
-Status: **merged on current `main`**.
+Status: **merged**.
 
 Canonical `asset_questions` belong to one exact Asset. Each exact stimulus usage explicitly opts in. Existing Case-specific exact-image questions remain contextual and are not automatically promoted.
-
-## Milestone 7I — Asset quality replacement
-
-Status: **merged on current `main`**.
-
-Narrow same-underlying-image replacement preserves historical Review media, stable Stimulus Option IDs, current Case captions/order, and reusable-question semantics while creating immutable new Asset/R2 identity.
-
-## Milestone 7J — alternative-option archive/removal
-
-Status: **merged on current `main`**.
-
-`removed_from_case` excludes an option from current authoring/learner usage while retaining relational history. Re-add may restore the original option where invariants permit.
 
 ## Milestone 8 — real ECG migration / curation
 
@@ -254,7 +293,7 @@ Next work is Tags/reuse/Topic/stimulus/content curation rather than re-ingestion
 
 ## Milestone 9 — performance/read models
 
-Status: **Passes 1–2 merged**.
+Status: **bounded read-model work plus targeted Case Library improvement merged**.
 
 Implemented:
 
@@ -262,18 +301,12 @@ Implemented:
 - exact Case-detail read;
 - 60-row SQL-filtered Case Library;
 - 60-row bounded Question Library with Unicode-aware search preservation;
-- lightweight server timing.
+- lightweight server timing;
+- Case Library text filters no longer navigate on every typing pause;
+- active Case Library no longer performs the previous duplicate Concept-taxonomy supporting read;
+- inactive Case Library does not construct active Topic assignment options it cannot use.
 
-Remaining:
-
-```text
-Pass 3 — Better Auth short-lived session cookie-cache investigation
-Pass 4 — learner Study/startReview read-model optimisation
-Pass 5 — Case-editor server read/lazy-loading boundaries
-Later  — thumbnails and measured EXPLAIN/index tuning
-```
-
-PR #78's component split improves code ownership but does not itself implement Pass 5.
+Remaining performance work should be measurement-driven rather than cache/index-first.
 
 ## Milestone 10 — coding-agent/local developer workflow
 
@@ -286,7 +319,11 @@ Current repository workflow includes:
 - Node 22 contract;
 - `agent:doctor` environment check;
 - `agent:checks` changed-file validation advisor;
-- shared `validate:fast` / `validate:full` ordinary validation authority with PR CI;
+- shared `validate:fast` / `validate:full` validation authority;
+- Draft PR → fast ordinary CI;
+- Ready-for-Review PR → full ordinary CI;
+- Draft → Ready full validation without requiring a new commit;
+- same-PR superseded-run cancellation with cross-PR independence;
 - repository-pinned Wrangler + runtime smoke;
 - deterministic local dev/preview launchers and repository-local Wrangler/XDG state;
 - production-like local replica and slide-review specialized checks.
@@ -294,19 +331,20 @@ Current repository workflow includes:
 ## Next product/admin work
 
 ```text
-curate real content
-→ observe friction
-→ targeted maintainability/performance follow-up
-→ learner-account administration
+curate real content and taxonomy
+→ user-test merged Admin workflows
+→ finish Account Management v1 implementation
 → basic learner-progress administration
+→ targeted maintainability/performance work where evidence justifies it
 ```
 
 ## Deferred
 
 Do not add for conceptual completeness:
 
+- Additional Study Topic revival;
 - compound Shared Question reuse scopes;
-- Tag hierarchy/aliases or Study-by-Tag;
+- Tag hierarchy/aliases or standalone Study-by-Tag outside contextual exposure;
 - Asset Tags;
 - generic Asset-family/version system;
 - permanent Asset/R2 deletion without a conservative safety design;
@@ -317,4 +355,4 @@ Do not add for conceptual completeness:
 
 ## Validation guidance
 
-Do not maintain a second static validation command list here. Coding agents should use root `AGENTS.md` + `AGENT_TASK_MAP.md`: `agent:checks` classifies changed subsystems, `validate:full` is the ordinary local pre-handoff contract, and specialized runtime/slide-review checks are added when relevant.
+Do not maintain a second static validation command list here. Coding agents should use root `AGENTS.md` + `AGENT_TASK_MAP.md`; the repository-owned validation contract is authoritative. Draft/Ready CI mode selection belongs to `.github/workflows/ci.yml` + `scripts/validate-ci.mjs`, while fast/full check composition belongs to `scripts/validation-contract.mjs`.
