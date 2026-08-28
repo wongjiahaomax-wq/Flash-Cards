@@ -49,6 +49,36 @@ BEGIN
   SELECT RAISE(ABORT, 'Original stimulus must be an active eligible option in this family.');
 END;
 
+-- An active production family with an explicit Original must remain valid not
+-- only when the pointer changes, but also when an inactive family is
+-- reactivated (or moved into production ownership). Legacy ambiguous families
+-- may still keep original_option_id NULL until an Admin curates them.
+CREATE TRIGGER stimulus_groups_active_production_original_guard
+BEFORE UPDATE OF original_option_id, is_active, case_id ON stimulus_groups
+WHEN NEW.is_active = 1
+  AND NEW.original_option_id IS NOT NULL
+  AND EXISTS (
+    SELECT 1
+    FROM cases
+    WHERE cases.id = NEW.case_id
+      AND cases.preview_session_id IS NULL
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM stimulus_group_options
+    INNER JOIN assets ON assets.id = stimulus_group_options.asset_id
+    WHERE stimulus_group_options.id = NEW.original_option_id
+      AND stimulus_group_options.stimulus_group_id = NEW.id
+      AND stimulus_group_options.is_active = 1
+      AND stimulus_group_options.removed_from_case = 0
+      AND assets.is_active = 1
+      AND assets.type = 'image'
+      AND assets.preview_session_id IS NULL
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'Active production stimulus families require an eligible Original stimulus.');
+END;
+
 CREATE TRIGGER stimulus_group_options_original_update_guard
 BEFORE UPDATE OF stimulus_group_id, is_active, removed_from_case ON stimulus_group_options
 WHEN OLD.id = (
@@ -63,6 +93,34 @@ WHEN OLD.id = (
   )
 BEGIN
   SELECT RAISE(ABORT, 'Choose another Original stimulus before removing, deactivating, or moving this option.');
+END;
+
+-- Repointing the Asset behind an active production Original is legitimate only
+-- when the destination Asset is already an eligible production image. This is
+-- what allows atomic higher-resolution replacement to repoint the stable option
+-- row first and deactivate the superseded Asset afterwards.
+CREATE TRIGGER stimulus_group_options_original_asset_update_guard
+BEFORE UPDATE OF asset_id ON stimulus_group_options
+WHEN NEW.asset_id <> OLD.asset_id
+  AND EXISTS (
+    SELECT 1
+    FROM stimulus_groups
+    INNER JOIN cases ON cases.id = stimulus_groups.case_id
+    WHERE stimulus_groups.id = OLD.stimulus_group_id
+      AND stimulus_groups.original_option_id = OLD.id
+      AND stimulus_groups.is_active = 1
+      AND cases.preview_session_id IS NULL
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM assets
+    WHERE assets.id = NEW.asset_id
+      AND assets.is_active = 1
+      AND assets.type = 'image'
+      AND assets.preview_session_id IS NULL
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'The Original stimulus must point to an active eligible production image.');
 END;
 
 CREATE TRIGGER stimulus_group_options_original_delete_guard
