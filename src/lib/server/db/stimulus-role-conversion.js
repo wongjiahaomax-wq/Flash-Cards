@@ -37,26 +37,47 @@ export async function convertStimulusOptionToSupporting(db, optionId, expectedCa
       isActive: stimulusGroupOptions.isActive,
       removedFromCase: stimulusGroupOptions.removedFromCase,
       originalOptionId: stimulusGroups.originalOptionId,
-      groupIsActive: stimulusGroups.isActive,
-      assetIsActive: assets.isActive
+      groupIsActive: stimulusGroups.isActive
     })
     .from(stimulusGroupOptions)
     .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-    .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
-    .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
-    .where(and(
-      eq(stimulusGroupOptions.id, cleanOptionId),
-      eq(cases.isActive, true),
-      isNull(cases.previewSessionId)
-    ))
+    .where(eq(stimulusGroupOptions.id, cleanOptionId))
     .limit(1))[0];
 
-  if (!option || !option.groupIsActive || !option.isActive || option.removedFromCase || !option.assetIsActive) {
+  if (!option || !option.groupIsActive || !option.isActive || option.removedFromCase) {
     throw new StimulusGroupInputError('The selected stimulus option is missing or inactive.');
   }
   if (cleanExpectedCaseId && option.caseId !== cleanExpectedCaseId) {
     throw new StimulusGroupInputError('The selected stimulus option does not belong to this Case.');
   }
+
+  const productionCase = (await db
+    .select({ id: cases.id })
+    .from(cases)
+    .where(and(
+      eq(cases.id, option.caseId),
+      eq(cases.isActive, true),
+      isNull(cases.previewSessionId)
+    ))
+    .limit(1))[0];
+  if (!productionCase) {
+    throw new StimulusGroupInputError('The selected stimulus option is missing or inactive.');
+  }
+
+  const productionAsset = (await db
+    .select({ id: assets.id })
+    .from(assets)
+    .where(and(
+      eq(assets.id, option.assetId),
+      eq(assets.type, 'image'),
+      eq(assets.isActive, true),
+      isNull(assets.previewSessionId)
+    ))
+    .limit(1))[0];
+  if (!productionAsset) {
+    throw new StimulusGroupInputError('The selected stimulus option is missing or inactive.');
+  }
+
   if (option.originalOptionId === option.id) {
     throw new StimulusGroupInputError('Choose another Original stimulus before moving this image to Always shown / supporting.');
   }
