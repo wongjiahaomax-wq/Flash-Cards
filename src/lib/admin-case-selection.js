@@ -1,5 +1,5 @@
 /** @typedef {{ selectedIds?: Iterable<string>, orderedIds?: string[], anchorId?: string | null, caseId?: string, shiftKey?: boolean }} CaseSelectionInput */
-/** @typedef {{ selectedIds?: Iterable<unknown>, visibleIds?: Iterable<string> }} VisibleCaseSelectionInput */
+/** @typedef {{ selectedIds?: unknown[], visibleIds?: string[] }} VisibleCaseSelectionInput */
 
 /**
  * Apply Case checkbox selection against the exact currently displayed order.
