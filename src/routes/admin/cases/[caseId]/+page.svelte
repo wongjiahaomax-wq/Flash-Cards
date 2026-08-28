@@ -64,7 +64,7 @@
     <CaseTopicsSection {selectedCase} concepts={data.concepts} systems={data.systems} {primaryTopic} previewMode={data.previewMode} {editorLayout} />
     <CaseDetailsSection {selectedCase} {primaryTopic} {editorLayout} />
     <CaseImagesSection {selectedCase} previewMode={data.previewMode} {editorLayout} {editorBase} onimageopen={showImage} />
-    <StimulusOriginalsPanel {selectedCase} previewMode={data.previewMode} />
+    {#if !data.previewMode}<StimulusOriginalsPanel {selectedCase} />{/if}
     <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} status={data.status} removedQuestionPromptId={data.removedQuestionPromptId} {editorLayout} />
     {#if editorLayout === 'compact'}<CaseQuestionAudit rows={caseQuestionAudit} onimageopen={showImage} />{/if}
     <CasePreviewSection previewMode={data.previewMode} />
