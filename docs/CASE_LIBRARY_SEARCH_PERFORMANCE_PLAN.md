@@ -1,205 +1,122 @@
-# Case Library Search / Filter Performance Plan
+# Case Library Search / Filter Performance
 
-Status: implemented on draft PR #102; automated validation and manual UX verification remain pending.
+_Status: **implemented and merged in PR #102** (`96d416704b532efd60e3a55c076bf465f317557a`). This document records the focused interaction/read-path performance change._
 
-## Problem
+_Last reconciled: 28 August 2026_
 
-The Admin Case Library currently auto-submits its GET filter form after a 300 ms debounce while typing into the Case, Topic, and System text filters. That creates repeated SvelteKit navigations and repeated server/database reads during normal typing, which is perceptibly laggy.
+## Problem that was addressed
 
-The current server read path also performs avoidable supporting-data work on each Case Library navigation.
+The Admin Case Library previously auto-submitted its GET filter form after a 300 ms debounce while typing into the Case, Topic, and System text filters. Normal typing could therefore trigger repeated SvelteKit navigations and repeated server/database reads.
 
-## Current baseline inspected
+The active server path also loaded compatible Concept taxonomy twice: once inside the Case Library read model and once again for Topic assignment options.
 
-At the current `main` baseline used for this plan:
-
-- `src/routes/admin/cases/+page.svelte` binds Case, Topic, and System fields to local state and calls `autoSearch()` on every `input`; `autoSearch()` calls `requestSubmit()` after 300 ms.
-- the Tag selector also uses the same automatic submit helper on change;
-- `src/routes/admin/cases/+page.server.js` loads the Case page, Case-library Tag options, and Admin Topic options in parallel;
-- `getCaseLibraryPage()` already loads Concept taxonomy internally so it can resolve System filtering/sorting and visible Case Topic/System enrichment;
-- `listAdminConcepts()` separately loads active Concept taxonomy again to build the Topic selector/bulk-assignment options;
-- the inactive Case Library does not render the active-only bulk Topic assignment control, but the route currently still loads `listAdminConcepts()`;
-- `listCaseLibraryTagOptions()` is already a deliberately lightweight, lifecycle-sensitive option read: active view lists active Tags, while inactive recovery view lists Tags retained by inactive Production Cases, including inactive Tags;
-- existing `admin-case-library-read` server timing wraps the principal Case Library load.
-
-This means the safest Stage 2 optimization is **not** to introduce a cross-request cache first. The repository's existing performance rule is query less / deduplicate work first, and only consider caching or indexing after measurement.
-
-## Goal
-
-Make Case Library filtering feel immediate while preserving current server-authoritative filtering, lifecycle, pagination, sorting, Production/Preview ownership, taxonomy compatibility, and Case Tag semantics.
-
-Both stages below are implemented in the existing draft PR #102.
-
-## Implementation in PR #102
-
-- Case, Topic, and System text inputs no longer submit on `input`; native GET-form submission handles Enter and the explicit `Search` button.
-- Tag selection remains an intentional immediate submit via the same GET form.
-- lifecycle and non-default sort state remain hidden form inputs, while `page` is intentionally absent so a new filter submission starts at page 1.
-- `getCaseLibraryPage()` now derives active Topic assignment options from the same `listConceptTaxonomy()` result already required for Case filtering, sorting, and enrichment.
-- the route no longer calls `listAdminConcepts()` for Case Library loads, removing the duplicate active taxonomy supporting read.
-- inactive Case Library loads return no active Topic assignment options while retaining the compatible taxonomy read required for inactive Topic/System display and filtering.
-- `listCaseLibraryTagOptions()` and the `admin-case-library-read` Server-Timing contract remain unchanged.
-- focused source-contract and SQLite/D1 statement-capture coverage records these interaction and read-path invariants, including the pre-migration-0015 fallback.
-
-## Stage 1 — stop search-on-every-keystroke
+## Implemented interaction behavior
 
 For the text filters:
 
-- Case contains
-- Topic contains
-- System contains
+- Case contains;
+- Topic contains;
+- System contains;
 
-remove automatic form submission from each `input` event.
+typing now remains local and causes no navigation.
 
-Required UX:
+Submission behavior is:
 
-- typing stays local and does not navigate;
-- pressing Enter in any text filter submits the current combined filter form;
-- provide one explicit `Search` / `Apply filters` submit action;
-- retain `Clear` behavior;
-- Tag selection may continue to submit immediately on `change`; this is a single deliberate selection rather than a stream of keystrokes;
-- preserve the current lifecycle and sort query parameters when submitting;
-- a new search/filter submission must return to page 1 rather than carrying a stale `page` value;
-- maintain normal form, keyboard, label, focus, and accessibility semantics;
-- do not add client-side whole-library filtering or make the client authoritative for results.
+```text
+Enter in a text filter
+or
+explicit Search action
+→ submit the current combined GET filter form
+```
 
-Do not replace the current 300 ms debounce with a longer debounce. The purpose is to eliminate navigation while a user is composing text.
+Tag selection may continue to submit intentionally on `change`; it is a single deliberate selection rather than a stream of keystrokes.
 
-## Stage 2 — reduce redundant supporting-data reads safely
+The implementation preserves:
 
-Optimize the current request path before considering any cache.
+- normal GET/URL-driven server authority;
+- lifecycle and non-default sort state;
+- page-1 reset for a newly submitted filter set;
+- Clear behavior;
+- keyboard/label/form semantics;
+- normal browser Back/Forward behavior.
 
-### Required Stage 2 behavior
+A longer debounce was deliberately **not** used. The goal was to remove navigation while the Admin is composing text.
 
-1. **Eliminate the duplicate Concept-taxonomy load on the active Case Library path.**
-   - `getCaseLibraryPage()` and Topic-option construction currently obtain overlapping taxonomy data separately.
-   - Refactor narrowly so the relevant request obtains the required taxonomy once and reuses/derives the Case-page taxonomy information and Topic option model from that authoritative result, or use another equally narrow read-model composition that demonstrably avoids the duplicate taxonomy read.
-   - Preserve `concept-taxonomy-compat.ts` compatibility behavior; do not bypass it by directly assuming migration `0015` columns exist.
+## Implemented read-path reduction
 
-2. **Do not load active Topic assignment options in the inactive Case Library when the UI cannot use them.**
-   - Inactive recovery still needs whatever taxonomy information `getCaseLibraryPage()` requires for displayed Topic/System context and filtering/sorting.
-   - It does not need the separate active Topic selector model used only by active bulk assignment.
+The active Case Library path now avoids the previous duplicate Concept-taxonomy supporting read.
 
-3. **Keep the Tag-option read purpose-specific and lifecycle-correct.**
-   - Active Case Library must continue to expose active canonical Tags for filtering and active inline/bulk Tag editing.
-   - Inactive Case Library must continue to expose retained inactive-Case Tag context, including inactive Tags where currently supported.
-   - Do not replace this with a broad Tag/usage read.
+`getCaseLibraryPage()` already requires the compatible taxonomy result for Case filtering/sorting/enrichment. Topic assignment options are now derived/reused from that same authoritative result rather than loading active taxonomy again through a separate supporting read.
 
-4. **Do not introduce a server-wide or Worker-isolate cache merely for this PR.**
-   - Cross-request caching creates mutation-freshness/invalidation questions for Topic and Tag administration and conflicts with the repository's current measurement-first performance direction.
-   - If inspection during implementation discovers an existing repository-supported load/reuse boundary that avoids repeated option reads without broadening scope or risking stale mutation state, it may be used, but it must be justified and tested.
-   - Otherwise, the accepted Stage 2 target is the safe per-request reduction above: remove duplicate/unused supporting reads while keeping results fresh and server-authoritative.
+The inactive recovery view does not construct active Topic assignment options because the UI cannot use them.
 
-5. **Do not add schema/index migrations unless measurement identifies a separate concrete query bottleneck.**
-   - This PR is primarily eliminating excessive navigations and redundant read work, not redesigning Case search.
+The implementation intentionally preserves:
 
-### Architectural preference
+- `concept-taxonomy-compat.ts` pre-migration-0015 behavior;
+- the taxonomy read still required for Case Topic/System display/filtering/sorting;
+- lifecycle-correct lightweight Tag option reads;
+- `admin-case-library-read` server timing.
 
-Prefer a cohesive Case Library read-model/orchestration boundary over route-level duplication. Keep the route thin and preserve purpose-specific DB reads. New extracted application modules should follow the repository's TypeScript direction where proportionate, but do not convert unrelated JavaScript simply because it is touched.
+## What was deliberately not added
 
-## Important current behavior to preserve
+This change did **not** introduce:
 
-- Active / Inactive lifecycle tabs and Production-only Case Library boundaries.
-- Current Case/Topic/System/Tag filter semantics.
-- Current sorting and pagination semantics.
-- Inactive Tag-context behavior.
-- Inline Case Tag editing and bulk Tag management on active Cases.
-- Bulk Topic assignment on active Cases.
-- Case deactivate/restore actions.
-- Existing URL-query-driven navigation so filtered views remain linkable/bookmarkable.
-- Current server-side authorization checks.
-- Pre-migration-0015 taxonomy compatibility through the existing compatibility layer.
+- a Worker/global cache;
+- cache invalidation infrastructure;
+- a speculative database index;
+- a schema migration;
+- client-authoritative whole-library filtering;
+- client caching of Case result rows.
 
-## Performance evidence / instrumentation
+The repository's performance rule remains: **query less / deduplicate work first; cache or index only after measurement shows a need.**
 
-Retain the existing `admin-case-library-read` timing contract.
+## Behavioral invariants preserved
 
-For Stage 2, prefer focused automated evidence that the redundant read path is gone, for example by instrumenting the existing SQLite/D1 test fixture statement capture or adding a similarly narrow characterization test. The implementation should be able to show structurally that:
+The implementation preserves:
 
-- active Case Library loading no longer fetches Concept taxonomy twice for the Case page + Topic options;
-- inactive Case Library loading does not perform the active Topic-option read;
-- the Case result remains bounded and page-enriched as before.
+- server-authoritative URL-query filtering;
+- Active / Inactive lifecycle semantics;
+- Production/Preview ownership boundaries;
+- Case / Topic / System / Tag matching semantics;
+- sorting and pagination;
+- inactive Tag context;
+- inline + bulk Case Tag curation;
+- active bulk Primary Topic assignment;
+- Case deactivate/restore behavior;
+- Admin authorization;
+- pre-migration-0015 taxonomy compatibility.
 
-Do not add noisy production logging or a generic query-count middleware solely for this change.
+## Validation contract
 
-## Testing
+Focused coverage records at least these invariants:
 
-Add focused tests covering at minimum:
+- text input does not auto-submit;
+- Enter and explicit Search submit combined filters;
+- Tag change remains intentional;
+- lifecycle/sort state is preserved and a new filter submission starts at page 1;
+- Active/Inactive filter behavior remains correct;
+- active Case Library no longer performs the duplicate taxonomy supporting read;
+- inactive view does not perform the unused active Topic-option construction;
+- Tag options remain correct in both lifecycle views;
+- Production/Preview and taxonomy-compatibility boundaries remain intact.
 
-### Stage 1 interaction
+## Relationship to later work
 
-- the three text inputs no longer have automatic `input`-driven submission;
-- pressing Enter submits the current combined text filters through normal form semantics;
-- explicit Search/Apply submits all current filters;
-- Tag change behavior remains intentional and tested;
-- lifecycle and sort parameters are preserved correctly;
-- a new filter submission resets pagination to page 1;
-- Clear keeps the intended lifecycle behavior.
+PR #102 is the merged baseline for the focused search/read-path optimization.
 
-### Stage 2 read path
+Later Case Library UX work may add persistence, additional filters, classification actions, or other conveniences, but should preserve this baseline unless a measured replacement is deliberately designed:
 
-- no regression in `parseCaseLibraryFilters()` or page parsing;
-- no regression in Case/Topic/System/Tag filtering;
-- no regression in Active/Inactive Case Library behavior;
-- active loading avoids the previously duplicated Concept-taxonomy supporting read;
-- inactive loading avoids the unnecessary active Topic-option read;
-- Tag option semantics remain correct in both lifecycle views;
-- Production/Preview filtering remains intact;
-- taxonomy compatibility behavior remains intact where touched.
+```text
+no navigation while composing Case/Topic/System text
+server remains authoritative for results
+avoid duplicate supporting reads before considering caches
+```
 
-Use existing repository test styles rather than introducing a new browser-test framework solely for this change. If the repository's current UI contract tests are source-level rather than DOM/browser-level, a focused source contract is acceptable for the no-auto-submit invariant, supplemented by manual UX verification.
+## Authority
 
-## Manual verification
+For current behavior, use:
 
-Use local development data only.
-
-Verify:
-
-- rapidly typing into Case, Topic, and System fields is smooth and does not cause Network navigations until Enter/Search is used;
-- Enter and Search produce the same result URL/rows;
-- changing Tag applies predictably;
-- Active/Inactive filters, sorting, pagination, Clear, bulk actions, inline Tag editing, and row links still behave normally;
-- browser Network/Server-Timing evidence no longer shows a request per typing pause.
-
-Do not mutate Production data for verification.
-
-## Scope boundaries
-
-In scope:
-
-- `/admin/cases` text-filter interaction;
-- Case Library read-path efficiency directly related to filter/navigation requests;
-- focused tests and necessary documentation updates.
-
-Out of scope:
-
-- changing Case Library matching semantics;
-- changing taxonomy or Tag models;
-- full-text search infrastructure;
-- fuzzy search;
-- client-side loading/filtering of the entire Case corpus;
-- global application caching infrastructure;
-- speculative indexes/schema migrations;
-- unrelated Case Library redesign;
-- learner search behavior.
-
-## Implementation sequence
-
-1. Continue the existing PR #102 branch; do not create a separate implementation branch or PR.
-2. Inspect current PR #102 head against its intended `main` base and check whether `main` has moved in a way that materially affects the implementation.
-3. Read repository guidance and current Case Library/performance tests.
-4. Confirm the current 300 ms auto-submit path and capture the current Case Library read composition.
-5. Implement Stage 1 and verify text typing no longer submits automatically.
-6. Implement Stage 2 by deduplicating the Concept-taxonomy supporting read and skipping active Topic options in inactive view, preserving compatibility and freshness.
-7. Add focused tests for interaction contracts and read-path/query-shape behavior.
-8. Run repository-defined validation.
-9. Keep PR #102 draft until validation and review are complete.
-
-## Success criteria
-
-- text entry in Case/Topic/System filters causes zero server navigation until the user deliberately submits;
-- URL-based filter state remains intact;
-- filtering results remain server-authoritative and semantically unchanged;
-- active Case Library loading performs less redundant taxonomy work than the current baseline;
-- inactive Case Library loading does not fetch unused active Topic assignment options;
-- no broad cache or speculative schema/index work is introduced;
-- no Production/Preview, lifecycle, Tag, taxonomy-compatibility, sorting, pagination, or bulk-action invariant regresses.
+1. current `src/routes/admin/cases/**` and `src/lib/server/db/case-library.js` implementation/tests;
+2. `PERFORMANCE_AND_READ_MODEL_PLAN.md` for broader performance principles;
+3. this document for PR #102's focused design rationale;
+4. PR #102 history for implementation/review context.
