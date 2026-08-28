@@ -75,13 +75,20 @@
                   {#if option.id === group.originalOptionId}
                     <span class="badge original">Original</span>
                   {:else}
-                    <span class="badge">Alternative</span>
-                    <form method="POST" action="/admin/stimulus-original">
-                      <input type="hidden" name="case_id" value={selectedCase.case.id} />
-                      <input type="hidden" name="group_id" value={group.id} />
-                      <input type="hidden" name="option_id" value={option.id} />
-                      <button class="button small" type="submit">Make Original</button>
-                    </form>
+                    <div class="option-actions">
+                      <span class="badge">Alternative</span>
+                      <form method="POST" action="/admin/stimulus-original">
+                        <input type="hidden" name="case_id" value={selectedCase.case.id} />
+                        <input type="hidden" name="group_id" value={group.id} />
+                        <input type="hidden" name="option_id" value={option.id} />
+                        <button class="button small" type="submit">Make Original</button>
+                      </form>
+                      <form method="POST" action="/admin/stimulus-supporting">
+                        <input type="hidden" name="case_id" value={selectedCase.case.id} />
+                        <input type="hidden" name="option_id" value={option.id} />
+                        <button class="button small secondary" type="submit">Move to Always shown</button>
+                      </form>
+                    </div>
                   {/if}
                 </div>
               {/each}
@@ -115,6 +122,7 @@
   .option-label { display: grid; min-width: 0; flex: 1; }
   .option-label strong, .option-label span { overflow-wrap: anywhere; }
   .option-label span { font-size: 0.82rem; }
+  .option-actions { display: flex; flex: 0 0 auto; gap: 0.45rem; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
   .badge { display: inline-flex; flex: 0 0 auto; padding: 0.22rem 0.48rem; border-radius: 999px; background: #f2f4f7; color: #344054; font-size: 0.72rem; font-weight: 700; }
   .badge.original { background: #ecfdf3; color: #027a48; }
   .badge.warning { background: #fef0c7; color: #93370d; }
@@ -126,6 +134,7 @@
   @media (max-width: 760px) {
     .heading-row, .family-heading, .option-row { align-items: stretch; flex-direction: column; }
     .button.secondary { width: fit-content; }
-    .option-row form, .option-row button { width: 100%; }
+    .option-actions { align-items: stretch; flex-direction: column; }
+    .option-actions form, .option-actions button { width: 100%; }
   }
 </style>
