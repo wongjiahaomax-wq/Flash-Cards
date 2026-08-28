@@ -162,11 +162,47 @@ test('generic sequential option insertion does not infer an Original from insert
   }
 });
 
+test('Original reassignment rejects a mismatched Case before mutating another Case', async () => {
+  const fixture = createFixture();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, {
+      caseId: 'seed-anterior-b',
+      name: 'Case B ECG family',
+      specificQuestionMode: 'none'
+    });
+    const originalId = await convertCaseAssetToStimulusOption(
+      fixture.db,
+      groupId,
+      'seed-asset-anterior-b'
+    );
+    const alternativeId = await addStimulusOption(
+      fixture.db,
+      groupId,
+      'seed-asset-anterior-c',
+      'Case B alternative'
+    );
+    await setStimulusGroupOriginal(fixture.db, 'seed-anterior-b', groupId, originalId);
+
+    await assert.rejects(
+      setStimulusGroupOriginal(fixture.db, 'seed-anterior-a', groupId, alternativeId),
+      /does not belong to this Case/
+    );
+
+    const group = await fixture.db
+      .select({ originalOptionId: stimulusGroups.originalOptionId })
+      .from(stimulusGroups)
+      .where(eq(stimulusGroups.id, groupId));
+    assert.equal(group[0]?.originalOptionId, originalId);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('Core uses the curated Original and Expanded substitutes an eligible Alternative', async () => {
   const fixture = createFixture();
   try {
     const { groupId, originalId, alternativeId } = await buildCuratedFamily(fixture);
-    await setStimulusGroupOriginal(fixture.db, groupId, originalId);
+    await setStimulusGroupOriginal(fixture.db, 'seed-anterior-a', groupId, originalId);
 
     const coreReviewId = await startReview({
       db: fixture.db,
@@ -207,7 +243,7 @@ test('Expanded falls back to Original when the family has no eligible Alternativ
       groupId,
       'seed-asset-anterior-a'
     );
-    await setStimulusGroupOriginal(fixture.db, groupId, originalId);
+    await setStimulusGroupOriginal(fixture.db, 'seed-anterior-a', groupId, originalId);
 
     const reviewId = await startReview({
       db: fixture.db,
@@ -227,7 +263,7 @@ test('changing Original affects future Reviews without rewriting historical Revi
   const fixture = createFixture();
   try {
     const { groupId, originalId, alternativeId } = await buildCuratedFamily(fixture);
-    await setStimulusGroupOriginal(fixture.db, groupId, originalId);
+    await setStimulusGroupOriginal(fixture.db, 'seed-anterior-a', groupId, originalId);
 
     const historicalId = await startReview({
       db: fixture.db,
@@ -239,7 +275,7 @@ test('changing Original affects future Reviews without rewriting historical Revi
     const before = await getReview(fixture.db, historicalId, 'historical-user');
     assert.equal(before?.assets[0]?.stimulusOptionId, originalId);
 
-    await setStimulusGroupOriginal(fixture.db, groupId, alternativeId);
+    await setStimulusGroupOriginal(fixture.db, 'seed-anterior-a', groupId, alternativeId);
 
     const after = await getReview(fixture.db, historicalId, 'historical-user');
     assert.equal(after?.assets[0]?.stimulusOptionId, originalId);
@@ -264,7 +300,7 @@ test('an Alternative can move to Always shown while preserving Asset and archive
   const fixture = createFixture();
   try {
     const { groupId, originalId, alternativeId } = await buildCuratedFamily(fixture);
-    await setStimulusGroupOriginal(fixture.db, groupId, originalId);
+    await setStimulusGroupOriginal(fixture.db, 'seed-anterior-a', groupId, originalId);
 
     const result = await convertStimulusOptionToSupporting(fixture.db, alternativeId, 'seed-anterior-a');
     assert.equal(result.assetId, 'seed-asset-anterior-b');
@@ -294,7 +330,7 @@ test('role conversion rejects a mismatched Case before writing either relationsh
   const fixture = createFixture();
   try {
     const { groupId, originalId, alternativeId } = await buildCuratedFamily(fixture);
-    await setStimulusGroupOriginal(fixture.db, groupId, originalId);
+    await setStimulusGroupOriginal(fixture.db, 'seed-anterior-a', groupId, originalId);
 
     await assert.rejects(
       convertStimulusOptionToSupporting(fixture.db, alternativeId, 'different-case'),
@@ -325,7 +361,7 @@ test('the current Original must be replaced before it can move to Always shown',
   const fixture = createFixture();
   try {
     const { groupId, originalId } = await buildCuratedFamily(fixture);
-    await setStimulusGroupOriginal(fixture.db, groupId, originalId);
+    await setStimulusGroupOriginal(fixture.db, 'seed-anterior-a', groupId, originalId);
 
     await assert.rejects(
       convertStimulusOptionToSupporting(fixture.db, originalId, 'seed-anterior-a'),
