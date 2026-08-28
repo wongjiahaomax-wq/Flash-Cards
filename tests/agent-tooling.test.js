@@ -9,7 +9,7 @@ import { classifyChangedFiles } from '../scripts/agent-checks-lib.mjs';
 import { parseAgentChecksArgs } from '../scripts/agent-checks.mjs';
 import { CI_TEST_MAX_BUFFER_BYTES, ciValidationCommands, escapeGithubCommandData, extractNodeTestDiagnostic, parseCiArgs } from '../scripts/validate-ci.mjs';
 import { resolveInvocation, runValidation, VALIDATION_MODES } from '../scripts/validate.mjs';
-import { VALIDATION_MODE_CHECK_IDS, validationCommandsForMode } from '../scripts/validation-contract.mjs';
+import { VALIDATION_MODE_CHECK_IDS } from '../scripts/validation-contract.mjs';
 import { localDiffCheck, resolveDiffBase } from '../scripts/validation-git.mjs';
 
 /** @param {string} cwd @param {string[]} args @param {{ allowFailure?: boolean }} [options] */
