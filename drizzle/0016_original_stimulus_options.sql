@@ -3,10 +3,12 @@ ALTER TABLE stimulus_groups ADD COLUMN original_option_id text;
 CREATE INDEX IF NOT EXISTS stimulus_groups_original_option_idx
   ON stimulus_groups(original_option_id);
 
--- A one-option active stimulus family is unambiguous at migration time: that
--- option is the canonical Original. Multi-option legacy families are
--- intentionally left unassigned so an Admin can curate them without guessing
--- from order/name.
+-- A one-option active PRODUCTION stimulus family is unambiguous at migration
+-- time: that option is the canonical Original. Preview Admin is a retained
+-- legacy subsystem outside the Original/Alternative feature, so migration 0016
+-- deliberately leaves Preview family pointers NULL. Multi-option legacy
+-- production families are also intentionally left unassigned so an Admin can
+-- curate them without guessing from order/name.
 UPDATE stimulus_groups
 SET original_option_id = (
   SELECT stimulus_group_options.id
@@ -16,10 +18,18 @@ SET original_option_id = (
     AND stimulus_group_options.is_active = 1
     AND stimulus_group_options.removed_from_case = 0
     AND assets.is_active = 1
+    AND assets.type = 'image'
+    AND assets.preview_session_id IS NULL
   LIMIT 1
 )
 WHERE stimulus_groups.original_option_id IS NULL
   AND stimulus_groups.is_active = 1
+  AND EXISTS (
+    SELECT 1
+    FROM cases
+    WHERE cases.id = stimulus_groups.case_id
+      AND cases.preview_session_id IS NULL
+  )
   AND (
     SELECT COUNT(*)
     FROM stimulus_group_options
@@ -28,7 +38,20 @@ WHERE stimulus_groups.original_option_id IS NULL
       AND stimulus_group_options.is_active = 1
       AND stimulus_group_options.removed_from_case = 0
       AND assets.is_active = 1
+      AND assets.type = 'image'
+      AND assets.preview_session_id IS NULL
   ) = 1;
+
+-- New groups must be created without a pointer. This avoids accepting an
+-- arbitrary non-null Original before the referenced option row exists. A
+-- source-aware authoring operation creates the option first, then uses the
+-- validated UPDATE path below to assign the Original in the same transaction.
+CREATE TRIGGER stimulus_groups_original_option_insert_guard
+BEFORE INSERT ON stimulus_groups
+WHEN NEW.original_option_id IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'New stimulus families must start without an Original stimulus.');
+END;
 
 -- Keep the group pointer valid. The application provides the friendly
 -- validation message; these triggers are the final atomic integrity guard.
