@@ -8,7 +8,7 @@
   <div>
     <p class="eyebrow">Content audit</p>
     <h1>Stimulus cleanup</h1>
-    <p class="muted">Curate legacy image families without guessing. Single fixed-image Cases are intentionally omitted because their Original meaning is unambiguous.</p>
+    <p class="muted">Curate legacy image families without guessing. Cases with exactly one ordinary learner image are intentionally omitted because their Original meaning is unambiguous.</p>
   </div>
   <a class="button" href="/admin/cases">Back to Cases</a>
 </section>
@@ -21,7 +21,7 @@
 {#if data.issues.length === 0}
   <section class="panel empty">
     <h2>No stimulus cleanup is currently flagged</h2>
-    <p class="muted">Legacy multi-option families have an Original, and there are no ambiguous multi-fixed-image Cases requiring review.</p>
+    <p class="muted">Legacy multi-option families have an Original, and there are no ambiguous multi-image Cases requiring review.</p>
   </section>
 {:else}
   <div class="issues">
