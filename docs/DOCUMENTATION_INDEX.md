@@ -29,7 +29,7 @@ Important post-PR-#90 merged changes include:
 - PR #93 — Case-editor desktop UX refinement;
 - PR #95 — Account Management v1 **design documentation**;
 - PR #98 — bulk Case Primary Topic assignment;
-- PR #99 — visual Systems & Topics taxonomy/Case-classification workspace;
+- PR #99 — visual Systems & Topics taxonomy/Case-classification workspace with mixed staged review, unified workspace apply, and all-domain preflight before canonical writes;
 - PR #100 — Production Case lifecycle + inline/bulk Case Tag curation;
 - PR #102 — Case Library text-filter/read-path performance improvement;
 - PR #106 — Draft-fast / Ready-full PR CI and same-PR run cancellation.
@@ -133,7 +133,7 @@ PR #90 product/domain decision record. Use it to understand why secondary relati
 
 **Implemented design/implementation record — PR #99 merged.** The file was originally written as the design plan; current code/PR #99 are authoritative for the implemented workspace. Do not treat an older `implementation pending` banner inside a historical revision as current status.
 
-Current implemented boundary includes staged Topic hierarchy changes, staged Case Primary Topic changes, staged Case Tag changes, direct Case visibility by Primary Topic, and separate per-domain apply semantics rather than a falsely unified transaction.
+Current implemented boundary includes Topic hierarchy changes, Case Primary Topic changes, and Case Tag changes coexisting in one staged review and one unified workspace apply action. The server completes all requested stale-state/validity preflights before the first canonical write, then invokes the established domain writers sequentially. This is the strongest current fail-before-write boundary; it is **not** one cross-domain serializable/rollback transaction. Direct Case visibility remains by Primary Topic.
 
 ## Case Library / Case lifecycle
 
