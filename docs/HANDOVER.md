@@ -187,11 +187,11 @@ Important semantics:
 - Systems remain top-level roots and Cases never attach directly to Systems;
 - Topics may nest beneath Systems or other Topics;
 - Cases are hidden by default and revealed by direct canonical Primary Topic ownership;
-- Topic hierarchy moves are staged before apply;
-- Case Primary Topic changes are staged before apply;
-- Case Tag additions/removals are staged before apply;
-- the three mutation domains are deliberately applied separately rather than represented as one cross-domain atomic transaction;
-- stale loaded state is checked before canonical mutation functions run;
+- Topic hierarchy moves, Case Primary Topic changes, and Case Tag additions/removals may coexist in one staged review;
+- different Cases may stage different Primary Topic targets within the same review;
+- all pending domains are reviewed together and submitted through one `Validate & apply all changes` workspace action;
+- the unified helper completes all requested hierarchy/Primary-Topic/Tag preflight checks before the first canonical write;
+- the established domain writers then execute sequentially, so this is **not** one cross-domain serializable/rollback transaction;
 - System↔Tag exposure stays outside this workspace.
 
 ## Case Library lifecycle and curation
