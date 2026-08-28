@@ -16,16 +16,17 @@ export async function POST({ request, locals, platform }) {
   if (!platform?.env?.DB) throw error(503, 'The study database is not configured.');
   const formData = await request.formData();
   const caseId = formText(formData, 'case_id');
+  let result;
   try {
-    const result = await setStimulusGroupOriginal(
+    result = await setStimulusGroupOriginal(
       createDb(platform.env.DB),
       caseId,
       formText(formData, 'group_id'),
       formText(formData, 'option_id')
     );
-    redirect(303, `/admin/cases/${encodeURIComponent(result.caseId)}?status=stimulus-original-saved#stimuli`);
   } catch (cause) {
     if (cause instanceof StimulusGroupInputError) throw error(400, cause.message);
     throw cause;
   }
+  redirect(303, `/admin/cases/${encodeURIComponent(result.caseId)}?status=stimulus-original-saved#stimulus-curation`);
 }
