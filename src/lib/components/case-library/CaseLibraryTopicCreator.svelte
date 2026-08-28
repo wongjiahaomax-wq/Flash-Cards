@@ -2,8 +2,8 @@
   import { tick } from 'svelte';
   import { caseLibraryNamedActionHref } from '$lib/admin-case-library-state.ts';
 
-  /** @type {{ selectedCaseIds: string[], parentOptions: { id: string, name: string, kind: string, breadcrumb: { id: string, name: string, kind: string }[] }[], error?: string, initialName?: string, initialParentId?: string, actionQuery?: string }} */
-  let { selectedCaseIds, parentOptions, error = '', initialName = '', initialParentId = '', actionQuery = '' } = $props();
+  /** @type {{ selectedCaseIds: string[], parentOptions: { id: string, name: string, kind: string, breadcrumb: { id: string, name: string, kind: string }[] }[], error?: string, initialName?: string, initialParentId?: string, actionQuery?: string, retryRequiresSelection?: boolean }} */
+  let { selectedCaseIds, parentOptions, error = '', initialName = '', initialParentId = '', actionQuery = '', retryRequiresSelection = false } = $props();
 
   let editorOpen = $state(false);
   let topicName = $state('');
@@ -66,7 +66,7 @@
       <div class="editor-heading">
         <div>
           <strong>Create Topic</strong>
-          <span>{selectedCount ? `Assign to ${selectedCount} selected Case${selectedCount === 1 ? '' : 's'} after creation` : 'Create a global Topic without assigning a Case'}</span>
+          <span>{selectedCount ? `Assign to ${selectedCount} selected Case${selectedCount === 1 ? '' : 's'} after creation` : retryRequiresSelection ? 'Select an eligible Case to retry the failed assignment' : 'Create a global Topic without assigning a Case'}</span>
         </div>
         <button type="button" class="close-button" aria-label="Close Topic creator" onclick={() => editorOpen = false}>×</button>
       </div>
@@ -93,7 +93,7 @@
 
       <div class="editor-actions">
         <button type="button" class="button" onclick={() => editorOpen = false}>Cancel</button>
-        <button bind:this={createButton} class="button primary" type="submit" formaction={caseLibraryNamedActionHref('createCaseLibraryTopic', actionQuery)} formnovalidate disabled={!topicName.trim()}>{selectedCount ? `Create & assign to ${selectedCount}` : 'Create Topic'}</button>
+        <button bind:this={createButton} class="button primary" type="submit" formaction={caseLibraryNamedActionHref('createCaseLibraryTopic', actionQuery)} formnovalidate disabled={!topicName.trim() || (retryRequiresSelection && !selectedCount)}>{selectedCount ? `Create & assign to ${selectedCount}` : retryRequiresSelection ? 'Select a Case to retry' : 'Create Topic'}</button>
       </div>
     </div>
   {/if}
