@@ -1,4 +1,35 @@
 <script>
+  /**
+   * @typedef {{
+   *   id: string,
+   *   assetId: string,
+   *   captionMd?: string | null,
+   *   originalFilename?: string | null,
+   *   altText?: string | null,
+   *   isActive: boolean,
+   *   removedFromCase: boolean,
+   *   assetIsActive: boolean
+   * }} StimulusOption
+   */
+  /**
+   * @typedef {{
+   *   id: string,
+   *   name: string,
+   *   isActive: boolean,
+   *   originalOptionId?: string | null,
+   *   options: StimulusOption[]
+   * }} StimulusGroup
+   */
+  /** @typedef {{ isActive?: boolean }} SupportingAsset */
+  /**
+   * @typedef {{
+   *   case: { id: string },
+   *   stimulusGroups?: StimulusGroup[],
+   *   attached?: SupportingAsset[]
+   * }} SelectedCase
+   */
+
+  /** @type {{ selectedCase: SelectedCase }} */
   let { selectedCase } = $props();
 
   let groups = $derived(selectedCase?.stimulusGroups ?? []);
