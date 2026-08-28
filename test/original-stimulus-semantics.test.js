@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
 import { getReview, startReview } from '../src/lib/server/db/learning.js';
@@ -134,6 +134,34 @@ test('migration assigns only unambiguous one-option families and leaves legacy m
   }
 });
 
+test('generic sequential option insertion does not infer an Original from insert order', async () => {
+  const fixture = createFixture();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, {
+      caseId: 'seed-anterior-a',
+      name: 'Sequential family',
+      specificQuestionMode: 'none'
+    });
+    await convertCaseAssetToStimulusOption(fixture.db, groupId, 'seed-asset-anterior-a');
+
+    let group = await fixture.db
+      .select({ originalOptionId: stimulusGroups.originalOptionId })
+      .from(stimulusGroups)
+      .where(eq(stimulusGroups.id, groupId));
+    assert.equal(group[0]?.originalOptionId, null);
+
+    await addStimulusOption(fixture.db, groupId, 'seed-asset-anterior-b', 'Second sequential option');
+
+    group = await fixture.db
+      .select({ originalOptionId: stimulusGroups.originalOptionId })
+      .from(stimulusGroups)
+      .where(eq(stimulusGroups.id, groupId));
+    assert.equal(group[0]?.originalOptionId, null);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('Core uses the curated Original and Expanded substitutes an eligible Alternative', async () => {
   const fixture = createFixture();
   try {
@@ -179,6 +207,7 @@ test('Expanded falls back to Original when the family has no eligible Alternativ
       groupId,
       'seed-asset-anterior-a'
     );
+    await setStimulusGroupOriginal(fixture.db, groupId, originalId);
 
     const reviewId = await startReview({
       db: fixture.db,
@@ -237,7 +266,7 @@ test('an Alternative can move to Always shown while preserving Asset and archive
     const { groupId, originalId, alternativeId } = await buildCuratedFamily(fixture);
     await setStimulusGroupOriginal(fixture.db, groupId, originalId);
 
-    const result = await convertStimulusOptionToSupporting(fixture.db, alternativeId);
+    const result = await convertStimulusOptionToSupporting(fixture.db, alternativeId, 'seed-anterior-a');
     assert.equal(result.assetId, 'seed-asset-anterior-b');
 
     const supporting = await fixture.db
@@ -261,6 +290,37 @@ test('an Alternative can move to Always shown while preserving Asset and archive
   }
 });
 
+test('role conversion rejects a mismatched Case before writing either relationship', async () => {
+  const fixture = createFixture();
+  try {
+    const { groupId, originalId, alternativeId } = await buildCuratedFamily(fixture);
+    await setStimulusGroupOriginal(fixture.db, groupId, originalId);
+
+    await assert.rejects(
+      convertStimulusOptionToSupporting(fixture.db, alternativeId, 'different-case'),
+      /does not belong to this Case/
+    );
+
+    const supporting = await fixture.db
+      .select({ assetId: caseAssets.assetId })
+      .from(caseAssets)
+      .where(and(
+        eq(caseAssets.caseId, 'seed-anterior-a'),
+        eq(caseAssets.assetId, 'seed-asset-anterior-b')
+      ));
+    assert.equal(supporting.length, 0);
+
+    const option = await fixture.db
+      .select({ isActive: stimulusGroupOptions.isActive, removedFromCase: stimulusGroupOptions.removedFromCase })
+      .from(stimulusGroupOptions)
+      .where(eq(stimulusGroupOptions.id, alternativeId));
+    assert.equal(option[0]?.isActive, true);
+    assert.equal(option[0]?.removedFromCase, false);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('the current Original must be replaced before it can move to Always shown', async () => {
   const fixture = createFixture();
   try {
@@ -268,7 +328,7 @@ test('the current Original must be replaced before it can move to Always shown',
     await setStimulusGroupOriginal(fixture.db, groupId, originalId);
 
     await assert.rejects(
-      convertStimulusOptionToSupporting(fixture.db, originalId),
+      convertStimulusOptionToSupporting(fixture.db, originalId, 'seed-anterior-a'),
       /Choose another Original stimulus before moving this image to Always shown \/ supporting\./
     );
 
