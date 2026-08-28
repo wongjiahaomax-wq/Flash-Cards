@@ -44,11 +44,11 @@ The current workspace supports:
 
 Parent Topics remain real Topics. No Folder/Category entity was introduced.
 
-## Organize mode
+## Organize mode and unified staged review
 
 Structural/classification mutations are deliberate and staged rather than written immediately.
 
-A pending staging batch belongs to one of three domains:
+The current workspace can stage changes from all three domains at the same time:
 
 ```text
 Topic hierarchy
@@ -56,9 +56,9 @@ Case Primary Topic
 Case Tags
 ```
 
-The implementation intentionally does **not** allow simultaneous staging across those three domains. A batch must be applied or discarded before another domain is staged.
+Hierarchy moves, Case Primary Topic changes, and Case Tag changes may therefore coexist in one pending review. The UI shows them together in one staged-review surface and submits them through one `Validate & apply all changes` workspace action.
 
-This avoids implying cross-domain atomicity that the current D1/Drizzle execution model does not provide.
+This is a **unified review/apply workflow**, not a claim that the three underlying mutation domains form one database transaction.
 
 ### Topic hierarchy staging
 
@@ -74,11 +74,11 @@ Systems remain roots and cannot be moved beneath another classification.
 
 Desktop drag/drop is supported, and every move also has a keyboard/mobile-friendly `Move to…` fallback.
 
-Self, descendant, and inactive invalid targets are rejected before staging where possible. Apply submits the loaded/expected parent and then delegates to canonical taxonomy validation/writes.
+Self, descendant, and inactive invalid targets are rejected before staging where possible. Apply carries the loaded/expected parent so stale hierarchy changes fail closed before canonical writes begin.
 
 ### Case Primary Topic staging
 
-Admins can stage single or bounded bulk Case Primary Topic changes.
+Admins can stage single or bounded bulk Case Primary Topic changes, including different selected Cases targeting different Topics within the same staged review.
 
 Important rules:
 
@@ -86,28 +86,39 @@ Important rules:
 - Cases never attach directly to Systems;
 - the existing 60-Case bulk boundary is retained;
 - loaded and projected Primary Topic are distinct in the inspector;
-- apply submits each Case's expected loaded Primary Topic and fails closed on stale classification;
-- canonical `bulkPromoteCaseTopics(...)` behavior remains the mutation authority.
+- apply carries each Case's expected loaded Primary Topic so stale classification fails closed;
+- the established canonical Primary Topic mutation functions remain authoritative.
 
 No Additional Study Topic is created.
 
 ### Case Tag staging
 
-Admins can stage Case Tag additions/removals for selected Cases, including supported bulk operations.
+Admins can stage Case Tag additions/removals for selected Cases, including supported bulk operations, in the same staged review as hierarchy and Primary Topic changes.
 
 Tags remain flat metadata and are not hierarchy nodes or drag targets.
 
-Staged Tag changes retain the loaded membership expectation. Server preflight rejects stale membership before delegating to established `addCaseTag(...)` / `removeCaseTag(...)` domain functions.
+Staged Tag changes retain the loaded membership expectation. Server preflight rejects stale membership before delegating to the established canonical Case Tag mutation functions.
 
 System↔Tag exposure remains outside this workspace.
 
-## Stale-state / concurrency boundary
+## Apply, stale-state, and concurrency boundary
 
-The staged paths perform expected-state preflight before canonical mutation, which catches changes already visible at preflight time.
+The unified workspace helper completes **all requested current-state preflight checks before the first canonical write**:
 
-The preflight read and later canonical write are not claimed to form one serializable transaction/read lock. A narrow TOCTOU window therefore remains.
+```text
+validate staged hierarchy
+→ validate staged Case Primary Topics
+→ validate staged Case Tags
+→ first canonical write
+```
 
-This document must not claim stronger concurrency or cross-domain atomicity than the implementation provides.
+This catches stale hierarchy, stale Primary Topic state, stale Case/Tag membership, inactive Primary Topic targets, and invalid/inactive Tag-add targets that are visible at preflight time before any domain writer begins.
+
+After successful preflight, the established domain writers are invoked sequentially for the non-empty domains. D1/Drizzle does **not** provide one serializable transaction across those canonical writers, so this workflow must not be described as one cross-domain rollback/atomic transaction. A narrow concurrent-change or later operational-failure window remains after preflight.
+
+The accurate guarantee is therefore:
+
+> one mixed staged review + one workspace apply action + all-domain fail-before-first-write preflight, followed by the existing canonical domain writers without a claimed cross-domain serializable transaction.
 
 ## Accessibility / interaction boundary
 
@@ -125,13 +136,14 @@ Hierarchy is communicated with labels/breadcrumb context rather than indentation
 - replacing the full Case editor;
 - arbitrary freeform canvas coordinates;
 - production taxonomy/Case-data migration or curation merely as part of this UX implementation;
-- claiming one atomic transaction across hierarchy + Primary Topic + Case Tags.
+- claiming one serializable/rollback transaction across hierarchy + Primary Topic + Case Tags.
 
 ## Authority
 
 For current behavior, use this order:
 
-1. current `/admin/topics` code and taxonomy/Case domain functions;
-2. `V1_DATA_MODEL.md` / `AUTHORING_MODEL.md` for semantics;
-3. this document for UX/design rationale;
-4. PR #99 history for implementation/review context.
+1. current `/admin/topics` route/component and taxonomy/Case domain functions;
+2. current executable contract/model tests;
+3. `V1_DATA_MODEL.md` / `AUTHORING_MODEL.md` for semantics;
+4. this document for UX/design rationale;
+5. PR #99 history for implementation/review context.
