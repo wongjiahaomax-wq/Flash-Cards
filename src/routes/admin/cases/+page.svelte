@@ -4,7 +4,7 @@
   import CaseClassificationEditor from '$lib/components/case-library/CaseClassificationEditor.svelte';
   import CaseLibraryTopicCreator from '$lib/components/case-library/CaseLibraryTopicCreator.svelte';
   import CaseTagInlineEditor from '$lib/components/case-library/CaseTagInlineEditor.svelte';
-  import { applyCaseSelection } from '$lib/admin-case-selection.js';
+  import { applyCaseSelection, reconcileVisibleCaseSelection } from '$lib/admin-case-selection.js';
   import {
     CASE_LIBRARY_STATE_VERSION,
     caseLibraryNamedActionHref,
@@ -17,16 +17,17 @@
 
   let { data, form } = $props();
 
-  /** @param {unknown} value @returns {string[]} */
+  /** @param {unknown} value */
   function failedTopicSelection(value) {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
-    const candidate = /** @type {Record<string, unknown>} */ (value);
-    if (!Array.isArray(candidate.topicSelectedCaseIds)) return [];
-    const caseIds = [];
-    for (const caseId of candidate.topicSelectedCaseIds) {
-      if (typeof caseId === 'string' && caseId.trim()) caseIds.push(caseId.trim());
+    const visibleIds = data.cases.map((item) => item.id);
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return reconcileVisibleCaseSelection({ selectedIds: [], visibleIds });
     }
-    return caseIds;
+    const candidate = /** @type {Record<string, unknown>} */ (value);
+    return reconcileVisibleCaseSelection({
+      selectedIds: Array.isArray(candidate.topicSelectedCaseIds) ? candidate.topicSelectedCaseIds : [],
+      visibleIds
+    });
   }
 
   let query = $state('');
@@ -34,8 +35,10 @@
   let systemQuery = $state('');
   let searchForm = $state();
   let persistenceReady = $state(false);
+  const failedSelection = failedTopicSelection(form);
   /** @type {string[]} */
-  let selectedCaseIds = $state(failedTopicSelection(form));
+  let selectedCaseIds = $state(failedSelection.selectedIds);
+  const removedFailedTopicSelectionCount = failedSelection.removedCount;
   /** @type {string | null} */
   let selectionAnchorId = $state(null);
   let inactiveView = $derived(data.caseFilters.lifecycle === 'inactive');
@@ -57,7 +60,8 @@
       .map((group) => ({ ...group, topics: group.topics.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)) }));
   });
   let topicCreationFailure = $derived(Boolean(form && 'topicCreation' in form && form.topicCreation));
-  let topicCreationError = $derived(topicCreationFailure && form && 'error' in form ? form.error : '');
+  let failedTopicAssignmentRetryBlocked = $derived(topicCreationFailure && failedSelection.submittedCount > 0 && selectedCaseIds.length === 0);
+  let topicCreationError = $derived(topicCreationFailure && !failedTopicAssignmentRetryBlocked && form && 'error' in form ? form.error : '');
   let topicCreationName = $derived(form && 'topicName' in form ? String(form.topicName ?? '') : '');
   let topicCreationParentId = $derived(form && 'topicParentId' in form ? String(form.topicParentId ?? '') : '');
 
@@ -208,7 +212,8 @@
 
 <section class="panel" aria-labelledby="case-list-heading">
   <div class="panel-heading"><div><h2 id="case-list-heading">{inactiveView ? 'Inactive Cases' : 'Active Cases'} <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">{inactiveView ? 'Inactive Cases are preserved for recovery and are unavailable to learners.' : 'Tags are curation metadata; Topic remains the learner study route.'}</span></div>
-  {#if form?.error && !topicCreationFailure}<p class="form-error" role="alert">{form.error}</p>{/if}
+  {#if form?.error && (!topicCreationFailure || failedTopicAssignmentRetryBlocked)}<p class="form-error" role="alert">{form.error}</p>{/if}
+  {#if removedFailedTopicSelectionCount}<p class="selection-warning" role="status">{removedFailedTopicSelectionCount} previously selected Case{removedFailedTopicSelectionCount === 1 ? '' : 's'} {removedFailedTopicSelectionCount === 1 ? 'is' : 'are'} no longer visible in this Case Library view and {removedFailedTopicSelectionCount === 1 ? 'was' : 'were'} removed from the retry selection. Select {removedFailedTopicSelectionCount === 1 ? 'it' : 'them'} again from {removedFailedTopicSelectionCount === 1 ? 'its' : 'their'} current location if you still intend to change {removedFailedTopicSelectionCount === 1 ? 'it' : 'them'}.</p>{/if}
   {#if data.status === 'bulk-topic-updated'}<p class="success-message" role="status">Primary Topic updated for the selected Cases.</p>{/if}
   {#if data.status === 'topic-created'}<p class="success-message" role="status">Created Topic {data.statusTopicName}.</p>{/if}
   {#if data.status === 'topic-created-and-assigned'}<p class="success-message" role="status">Created Topic {data.statusTopicName} and assigned it to {data.statusCaseCount} selected Case{data.statusCaseCount === 1 ? '' : 's'}.</p>{/if}
@@ -269,7 +274,7 @@
   .lifecycle-tabs { display: inline-flex; gap: 0.25rem; margin-top: 1.25rem; padding: 0.25rem; border: 1px solid #dfe5ee; border-radius: 9px; background: #f8fafc; } .lifecycle-tabs a { padding: 0.48rem 0.78rem; border-radius: 7px; color: #475467; font-weight: 700; text-decoration: none; } .lifecycle-tabs a.current { background: #fff; color: #172033; box-shadow: 0 1px 2px rgba(16, 24, 40, 0.08); }
   .search-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 0.75rem; align-items: end; margin: 1rem 0; } label { display: grid; gap: 0.4rem; color: #344054; font-weight: 650; } input, select { width: 100%; min-width: 0; box-sizing: border-box; padding: 0.7rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } .search-actions { display: flex; gap: 0.5rem; }
   .panel { padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; } .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
-  .bulk-toolbar { position: sticky; top: 0.75rem; z-index: 12; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; max-width: 100%; min-width: 0; box-sizing: border-box; margin-top: 1rem; padding: 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; box-shadow: 0 6px 18px rgb(16 24 40 / 10%); } .bulk-toolbar > div { display: grid; gap: 0.2rem; margin-right: auto; } .selection-hint { color: #667085; font-size: 0.82rem; } .bulk-topic { display: flex; align-items: center; gap: 0.55rem; min-width: 360px; } .bulk-topic select { flex: 1; min-width: 0; } button:disabled, select:disabled { cursor: not-allowed; opacity: 0.55; } .form-error, .success-message { margin: 1rem 0 0; padding: 0.75rem; border-radius: 8px; } .form-error { background: #fef3f2; color: #b42318; } .success-message { background: #ecfdf3; color: #027a48; }
+  .bulk-toolbar { position: sticky; top: 0.75rem; z-index: 12; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; max-width: 100%; min-width: 0; box-sizing: border-box; margin-top: 1rem; padding: 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; box-shadow: 0 6px 18px rgb(16 24 40 / 10%); } .bulk-toolbar > div { display: grid; gap: 0.2rem; margin-right: auto; } .selection-hint { color: #667085; font-size: 0.82rem; } .bulk-topic { display: flex; align-items: center; gap: 0.55rem; min-width: 360px; } .bulk-topic select { flex: 1; min-width: 0; } button:disabled, select:disabled { cursor: not-allowed; opacity: 0.55; } .form-error, .success-message, .selection-warning { margin: 1rem 0 0; padding: 0.75rem; border-radius: 8px; } .form-error { background: #fef3f2; color: #b42318; } .success-message { background: #ecfdf3; color: #027a48; } .selection-warning { background: #fffaeb; color: #93370d; }
   .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(160px, 1fr) 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .sort-header { color: inherit; text-decoration: none; } .sort-header span { margin-left: 0.2rem; font-size: 0.9rem; } .table-row { scroll-margin-top: 9rem; border-bottom: 1px solid #eaecf0; color: #172033; } .table-row.inactive-row { background: #fcfcfd; } .table-row.selected-row { background: #f5f8ff; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .case-heading, .case-cell { display: flex; align-items: center; gap: 0.55rem; min-width: 0; } .case-cell a { min-width: 0; color: #172033; text-decoration: none; } .case-cell a strong { overflow-wrap: anywhere; } .case-heading input, .case-select { width: 1rem; height: 1rem; flex: 0 0 auto; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; text-decoration: none; }
   .classification-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; min-width: 0; color: #667085; }
   .status-badge { flex: 0 0 auto; padding: 0.16rem 0.42rem; border-radius: 999px; background: #fef3f2; color: #b42318 !important; font-size: 0.72rem; font-weight: 750; } .tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; } .tag-chip { display: inline-block; padding: 0.18rem 0.4rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; }
