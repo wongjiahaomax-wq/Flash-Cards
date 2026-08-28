@@ -49,7 +49,11 @@ function createD1(sqlite) {
         bind(...params) {
           return {
             async all() { return { results: sqlite.prepare(sql).all(...params) }; },
-            async raw() { return sqlite.prepare(sql).all(...params).map((row) => Object.values(row)); },
+            async raw() {
+              const statement = sqlite.prepare(sql);
+              statement.setReturnArrays(true);
+              return statement.all(...params);
+            },
             async run() {
               const result = sqlite.prepare(sql).run(...params);
               return {
@@ -63,7 +67,16 @@ function createD1(sqlite) {
       };
     },
     async batch(statements) {
-      return Promise.all(statements.map((statement) => statement.run()));
+      sqlite.exec('BEGIN');
+      try {
+        const results = [];
+        for (const statement of statements) results.push(await statement.run());
+        sqlite.exec('COMMIT');
+        return results;
+      } catch (error) {
+        sqlite.exec('ROLLBACK');
+        throw error;
+      }
     }
   };
 }
@@ -372,6 +385,45 @@ test('an Alternative can move to Always shown while preserving Asset and archive
 
     const asset = await fixture.db.select({ isActive: assets.isActive }).from(assets).where(eq(assets.id, 'seed-asset-anterior-b'));
     assert.equal(asset[0]?.isActive, true);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('role conversion batch failure rolls back both supporting and archived relationships', async () => {
+  const fixture = createFixture();
+  try {
+    const { groupId, originalId, alternativeId } = await buildCuratedFamily(fixture);
+    await setStimulusGroupOriginal(fixture.db, 'seed-anterior-a', groupId, originalId);
+    fixture.sqlite.exec(`
+      CREATE TRIGGER fail_supporting_role_archive
+      BEFORE UPDATE OF is_active, removed_from_case ON stimulus_group_options
+      WHEN OLD.id = '${alternativeId}' AND NEW.removed_from_case = 1
+      BEGIN
+        SELECT RAISE(ABORT, 'simulated option archive failure');
+      END;
+    `);
+
+    await assert.rejects(
+      convertStimulusOptionToSupporting(fixture.db, alternativeId, 'seed-anterior-a'),
+      /simulated option archive failure/
+    );
+
+    const supporting = await fixture.db
+      .select({ assetId: caseAssets.assetId })
+      .from(caseAssets)
+      .where(and(
+        eq(caseAssets.caseId, 'seed-anterior-a'),
+        eq(caseAssets.assetId, 'seed-asset-anterior-b')
+      ));
+    assert.equal(supporting.length, 0);
+
+    const option = await fixture.db
+      .select({ isActive: stimulusGroupOptions.isActive, removedFromCase: stimulusGroupOptions.removedFromCase })
+      .from(stimulusGroupOptions)
+      .where(eq(stimulusGroupOptions.id, alternativeId));
+    assert.equal(option[0]?.isActive, true);
+    assert.equal(option[0]?.removedFromCase, false);
   } finally {
     fixture.sqlite.close();
   }
