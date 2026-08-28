@@ -19,10 +19,10 @@ export async function POST({ request, locals, platform }) {
   try {
     const result = await setStimulusGroupOriginal(
       createDb(platform.env.DB),
+      caseId,
       formText(formData, 'group_id'),
       formText(formData, 'option_id')
     );
-    if (caseId && result.caseId !== caseId) throw new StimulusGroupInputError('The selected stimulus family does not belong to this Case.');
     redirect(303, `/admin/cases/${encodeURIComponent(result.caseId)}?status=stimulus-original-saved#stimuli`);
   } catch (cause) {
     if (cause instanceof StimulusGroupInputError) throw error(400, cause.message);
