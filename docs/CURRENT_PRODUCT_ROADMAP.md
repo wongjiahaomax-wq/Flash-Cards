@@ -62,7 +62,7 @@ Core current behavior includes:
 - **PR #93** — improves desktop Case-editor layout/density for Topic/Tag authoring.
 - **PR #95** — records the Account Management v1 product/security plan. This is documentation/design only; the corresponding PR-A/PR-B implementations are not part of current `main` merely because the plan is merged.
 - **PR #98** — adds bulk Case Primary Topic assignment while preserving the one-Primary-Topic model.
-- **PR #99** — implements the visual Systems & Topics taxonomy/Case-classification workspace, including staged Topic hierarchy changes, staged Case Primary Topic changes, staged Case Tag changes, and deliberate per-domain apply boundaries.
+- **PR #99** — implements the visual Systems & Topics taxonomy/Case-classification workspace, where hierarchy, Case Primary Topic, and Case Tag changes may coexist in one staged review and are submitted through one unified workspace apply action. All requested preflight checks complete before the first canonical write; the underlying canonical writers remain separate and are not one cross-domain serializable transaction.
 - **PR #100** — adds Production Case lifecycle UX (**Active → Deactivate → preserved Inactive → validated Restore**) plus inline and bulk Case Tag curation in the Case Library.
 - **PR #102** — removes search-on-every-keystroke from Case/Topic/System Case Library text filters and removes the duplicate taxonomy supporting read on the active library path.
 - **PR #106** — makes ordinary PR CI state-aware: Draft PRs run repository fast validation; Ready-for-Review PRs run full validation; Draft → Ready triggers full validation on the same head; superseded runs for the same PR are cancelled.
@@ -119,7 +119,7 @@ Import package
 
 The Case Library now supports Active/Inactive lifecycle views, validated deactivate/restore, inline/bulk Case Tag curation, bulk Primary Topic assignment, bounded filtering/pagination, and explicit text-search submission rather than navigation during typing.
 
-The Systems & Topics page is now the visual taxonomy/classification workspace implemented by PR #99 rather than the pre-#99 duplicated flat taxonomy + separate hierarchy-manager experience.
+The Systems & Topics page is now the visual taxonomy/classification workspace implemented by PR #99 rather than the pre-#99 duplicated flat taxonomy + separate hierarchy-manager experience. Its three staged mutation domains share one review/apply surface and a fail-before-first-write preflight boundary, without claiming one rollback/serializable transaction across the canonical writers.
 
 ## Real ECG/Anki migration
 
