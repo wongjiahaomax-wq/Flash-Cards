@@ -222,12 +222,11 @@ Current design boundaries:
 - Topics may nest beneath Systems or other Topics;
 - Cases attach to Topics, never Systems;
 - direct Cases are revealed by canonical Primary Topic and display their human-readable Case title;
-- Topic hierarchy moves are staged before apply;
-- Case Primary Topic changes are staged before apply;
-- Case Tag additions/removals are staged before apply;
-- only one mutation domain may have a pending staging batch at a time;
-- expected-state preflight catches stale loaded state before canonical mutation functions;
-- the implementation does not claim serializable concurrency or one cross-domain atomic transaction;
+- Topic hierarchy moves, Case Primary Topic changes, and Case Tag additions/removals may coexist in one staged review;
+- different Cases may have different staged Primary Topic targets within that same review;
+- the mixed review is submitted through one unified workspace apply action;
+- all requested hierarchy/Primary-Topic/Tag stale-state and validity preflights complete before the first canonical write;
+- the underlying canonical domain writers then run sequentially, so the implementation does **not** claim one cross-domain serializable/rollback transaction;
 - System↔Tag exposure remains a separate System-level workflow.
 
 The full Case editor remains responsible for vignette/images/questions; the workspace is classification/taxonomy administration, not a replacement Case authoring surface.
