@@ -78,7 +78,7 @@ Backfill policy is deliberately conservative:
 - active family with multiple eligible options → leave Original unassigned;
 - do not infer Original from display order, name, filename, caption, or prior review history.
 
-Newly authored one-option families auto-designate their sole eligible option when no Original exists. Adding later Alternatives does not change that Original automatically.
+Generic option insertion does not auto-designate an Original. A production authoring or import workflow may designate one only when an Admin explicitly chooses it or when that workflow can prove source ambiguity is absent. This prevents sequential insert order from becoming source semantics.
 
 ## Ordinary learner images
 
