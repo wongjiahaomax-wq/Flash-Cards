@@ -19,11 +19,9 @@ export async function POST({ request, locals, platform }) {
   try {
     const result = await convertStimulusOptionToSupporting(
       createDb(platform.env.DB),
-      formText(formData, 'option_id')
+      formText(formData, 'option_id'),
+      caseId
     );
-    if (caseId && result.caseId !== caseId) {
-      throw new StimulusGroupInputError('The selected stimulus option does not belong to this Case.');
-    }
     redirect(303, `/admin/cases/${encodeURIComponent(result.caseId)}?status=stimulus-moved-to-supporting#stimuli`);
   } catch (cause) {
     if (cause instanceof StimulusGroupInputError) throw error(400, cause.message);
