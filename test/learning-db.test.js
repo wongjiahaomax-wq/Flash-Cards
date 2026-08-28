@@ -34,7 +34,12 @@ const questionPoolModeMigrationSql = readFileSync(
   'utf8'
 ).replaceAll('--> statement-breakpoint', '');
 
-const migrationSql = `${migrationBeforeQuestionPoolModeSql}\n${questionPoolModeMigrationSql}`;
+const originalStimulusMigrationSql = readFileSync(
+  new URL('../drizzle/0016_original_stimulus_options.sql', import.meta.url),
+  'utf8'
+).replaceAll('--> statement-breakpoint', '');
+
+const migrationSql = `${migrationBeforeQuestionPoolModeSql}\n${questionPoolModeMigrationSql}\n${originalStimulusMigrationSql}`;
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
