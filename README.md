@@ -170,7 +170,7 @@ choose/confirm Primary Topic
 
 The Case Library also provides Active/Inactive lifecycle views, validated deactivate/restore, inline/bulk Case Tag curation, bulk Primary Topic assignment, and bounded filtering/pagination.
 
-The Systems & Topics page is a visual tree/inspector workspace for taxonomy and Case classification. Topic hierarchy, Case Primary Topic, and Case Tag changes are staged and applied within their separate mutation domains; System↔Tag exposure remains a separate global System workflow.
+The Systems & Topics page is a visual tree/inspector workspace for taxonomy and Case classification. Topic hierarchy, Case Primary Topic, and Case Tag changes can coexist in one staged review and are submitted through one unified workspace apply action. All requested stale-state/preflight checks complete before the first canonical write; the underlying domain writers still run separately, so this is not one cross-domain serializable/rollback transaction. System↔Tag exposure remains a separate global System workflow.
 
 The shared Case editor is implemented as focused components under `src/lib/components/case-editor/`; Preview Admin reuses that editor rather than maintaining a copy.
 
