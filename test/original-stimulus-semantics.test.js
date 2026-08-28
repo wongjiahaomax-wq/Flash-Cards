@@ -608,14 +608,11 @@ test('wrong-Original correction promotes B before A can be deactivated or remove
       fixture.sqlite.prepare("SELECT original_option_id FROM stimulus_groups WHERE id = ?").get(groupId).original_option_id,
       alternativeId
     );
-    assert.equal(
-      fixture.sqlite.prepare("SELECT asset_id FROM assets WHERE id='seed-asset-anterior-a'").get().asset_id,
-      undefined
-    );
-    assert.equal(
-      fixture.sqlite.prepare("SELECT is_active FROM assets WHERE id='seed-asset-anterior-a'").get().is_active,
-      1
-    );
+    const preservedAsset = fixture.sqlite.prepare(
+      "SELECT id, is_active FROM assets WHERE id='seed-asset-anterior-a'"
+    ).get();
+    assert.equal(preservedAsset.id, 'seed-asset-anterior-a');
+    assert.equal(preservedAsset.is_active, 1);
     assert.equal(
       fixture.sqlite.prepare("SELECT stimulus_group_option_id FROM stimulus_option_questions WHERE id='wrong-original-exact-question'").get().stimulus_group_option_id,
       originalId
