@@ -74,6 +74,14 @@ test('failed quick Topic creation retries only freshly visible submitted Cases a
   assert.match(creatorSource, /Select a Case to retry/);
 });
 
+test('normal Case Library navigation drops selections and shift anchors that are no longer visible', () => {
+  assert.match(pageSource, /const visibleIds = data\.cases\.map\(\(item\) => item\.id\);\s*const reconciled = reconcileVisibleCaseSelection\(\{ selectedIds: selectedCaseIds, visibleIds \}\);/);
+  assert.match(pageSource, /if \(reconciled\.removedCount\) selectedCaseIds = reconciled\.selectedIds;/);
+  assert.match(pageSource, /if \(selectionAnchorId && !visibleIds\.includes\(selectionAnchorId\)\) selectionAnchorId = null;/);
+  assert.match(pageSource, /<CaseLibraryTopicCreator selectedCaseIds=\{selectedCaseIds\}/);
+  assert.match(creatorSource, /\{#each selectedCaseIds as caseId\}<input type="hidden" name="topic_case_ids" value=\{caseId\}/);
+});
+
 test('Case Library route reuses the page taxonomy model for Topic parent options and rejects inactive quick creation', () => {
   assert.match(serverSource, /topicParents:\s*pageData\.topicParentOptions/);
   assert.match(serverSource, /createCaseLibraryTopic:/);
