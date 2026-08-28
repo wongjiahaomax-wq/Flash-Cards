@@ -276,25 +276,7 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
         isActive: true,
         createdAt: now,
         updatedAt: now
-      }),
-      db.update(assets)
-        .set({ isActive: false, supersededByAssetId: newAssetId, updatedAt: now })
-        .where(and(
-          eq(assets.id, normalizedAssetId),
-          eq(assets.isActive, true),
-          isNull(assets.previewSessionId),
-          isNull(assets.supersededByAssetId),
-          notExists(livePreviewFixedReferenceQuery(db, normalizedAssetId, now)),
-          notExists(livePreviewOptionReferenceQuery(db, normalizedAssetId, now))
-        )),
-      // D1 batch updates do not fail merely because a conditional UPDATE changed
-      // zero rows. Make the claim observable through an existing NOT NULL
-      // constraint so a lost double-submit/Preview race aborts the whole batch.
-      db.update(assets)
-        .set({
-          type: sql`(SELECT ${assets.type} FROM ${assets} WHERE ${assets.id} = ${normalizedAssetId} AND ${assets.isActive} = 0 AND ${assets.supersededByAssetId} = ${newAssetId})`
-        })
-        .where(eq(assets.id, newAssetId))
+      })
     ];
 
     if (reusableRows.length) {
@@ -331,6 +313,32 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
           eq(stimulusOptionAssetQuestions.assetQuestionId, usage.oldAssetQuestionId)
         )));
     }
+
+    // Keep the source Asset active until every current production relationship
+    // has been repointed. This preserves the Original-stimulus invariant while
+    // still making supersession the atomic claim that wins a double-submit or
+    // Preview race. Any lost claim is detected by the sentinel below and rolls
+    // back all earlier statements in this D1 batch.
+    statements.push(
+      db.update(assets)
+        .set({ isActive: false, supersededByAssetId: newAssetId, updatedAt: now })
+        .where(and(
+          eq(assets.id, normalizedAssetId),
+          eq(assets.isActive, true),
+          isNull(assets.previewSessionId),
+          isNull(assets.supersededByAssetId),
+          notExists(livePreviewFixedReferenceQuery(db, normalizedAssetId, now)),
+          notExists(livePreviewOptionReferenceQuery(db, normalizedAssetId, now))
+        )),
+      // D1 batch updates do not fail merely because a conditional UPDATE changed
+      // zero rows. Make the claim observable through an existing NOT NULL
+      // constraint so a lost double-submit/Preview race aborts the whole batch.
+      db.update(assets)
+        .set({
+          type: sql`(SELECT ${assets.type} FROM ${assets} WHERE ${assets.id} = ${normalizedAssetId} AND ${assets.isActive} = 0 AND ${assets.supersededByAssetId} = ${newAssetId})`
+        })
+        .where(eq(assets.id, newAssetId))
+    );
 
     await db.batch(/** @type {[any, ...any[]]} */ (statements));
   } catch (error) {
