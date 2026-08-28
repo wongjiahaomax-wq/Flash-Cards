@@ -402,6 +402,88 @@ export async function createStimulusGroup(db, input) {
   return id;
 }
 
+/**
+ * Start a new production stimulus family from one explicitly chosen ordinary
+ * Case image. Unlike generic option insertion, the source relationship is
+ * unambiguous: the Admin is promoting the Case's principal image into a new
+ * family, so that same stable Asset becomes the explicit Original.
+ *
+ * The group must be inserted with a NULL Original first, then the option is
+ * inserted and the pointer is assigned through the validated UPDATE path. All
+ * relationship changes execute in one D1 batch so failure leaves the ordinary
+ * Case image untouched and no partial family behind.
+ *
+ * @param {LearningDb} db
+ * @param {{ caseId: string, assetId: string, name: string }} input
+ */
+export async function startStimulusGroupFromCaseAsset(db, input) {
+  const caseId = requiredText(input.caseId, 'Case');
+  const assetId = requiredText(input.assetId, 'Asset');
+  const name = requiredText(input.name, 'Stimulus Group name');
+  await requireCase(db, caseId);
+  await requireAsset(db, assetId);
+
+  const fixed = (await db
+    .select({ captionMd: caseAssets.captionMd })
+    .from(caseAssets)
+    .where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, assetId)))
+    .limit(1))[0];
+  if (!fixed) throw new StimulusGroupInputError('Choose an ordinary image from this Case to start an alternative set.');
+
+  const duplicate = (await db
+    .select({ id: stimulusGroupOptions.id, removedFromCase: stimulusGroupOptions.removedFromCase })
+    .from(stimulusGroupOptions)
+    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+    .where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupOptions.assetId, assetId)))
+    .limit(1))[0];
+  if (duplicate) {
+    throw new StimulusGroupInputError(duplicate.removedFromCase
+      ? 'That image has an archived Stimulus Option in this Case. Restore it to its original family instead of creating a different identity.'
+      : 'That image is already a Stimulus Option in this Case.');
+  }
+
+  if (typeof db.batch !== 'function') {
+    throw new Error('Atomic database batch support is required to start a stimulus family.');
+  }
+
+  const selected = { mode: 'none', minimum: null };
+  await validateCoverageFitsCase(db, caseId, null, selected, true);
+  const [lastGroup, currentFixed] = await Promise.all([
+    db.select({ displayOrder: stimulusGroups.displayOrder }).from(stimulusGroups).where(eq(stimulusGroups.caseId, caseId)).orderBy(desc(stimulusGroups.displayOrder)).limit(1),
+    db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(eq(caseAssets.caseId, caseId)).orderBy(asc(caseAssets.displayOrder))
+  ]);
+  const remaining = currentFixed.filter((row) => row.assetId !== assetId);
+  const groupId = crypto.randomUUID();
+  const optionId = crypto.randomUUID();
+  const groupInsert = db.insert(stimulusGroups).values({
+    id: groupId,
+    caseId,
+    name,
+    displayOrder: (lastGroup[0]?.displayOrder ?? -1) + 1,
+    selectionCount: 1,
+    specificQuestionMode: 'none',
+    minimumSpecificQuestions: null,
+    isActive: true
+  });
+  const optionInsert = db.insert(stimulusGroupOptions).values({
+    id: optionId,
+    stimulusGroupId: groupId,
+    assetId,
+    displayOrder: 0,
+    captionMd: optionalText(fixed.captionMd)
+  });
+  const originalUpdate = db.update(stimulusGroups)
+    .set({ originalOptionId: optionId, updatedAt: new Date() })
+    .where(eq(stimulusGroups.id, groupId));
+  const fixedDelete = db.delete(caseAssets).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, assetId)));
+  const reorderStatements = remaining.map((row, index) => db.update(caseAssets)
+    .set({ displayOrder: index })
+    .where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, row.assetId))));
+
+  await db.batch([groupInsert, optionInsert, originalUpdate, fixedDelete, ...reorderStatements]);
+  return { caseId, groupId, optionId, assetId };
+}
+
 /** @param {LearningDb} db @param {{ groupId: string, name: string, specificQuestionMode?: string, minimumSpecificQuestions?: unknown, isActive?: unknown }} input */
 export async function updateStimulusGroup(db, input) {
   const group = await requireGroup(db, requiredText(input.groupId, 'Stimulus Group'));
@@ -477,9 +559,18 @@ export async function convertCaseAssetToStimulusOption(db, groupId, assetId) {
 
 /** @param {LearningDb} db @param {string} optionId @param {boolean} isActive */
 export async function setStimulusOptionActive(db, optionId, isActive) {
-  const row = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, assetId: stimulusGroupOptions.assetId, removedFromCase: stimulusGroupOptions.removedFromCase }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
+  const row = (await db.select({
+    id: stimulusGroupOptions.id,
+    groupId: stimulusGroupOptions.stimulusGroupId,
+    assetId: stimulusGroupOptions.assetId,
+    removedFromCase: stimulusGroupOptions.removedFromCase,
+    originalOptionId: stimulusGroups.originalOptionId
+  }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
   if (!row) throw new StimulusGroupInputError('The selected Stimulus Option is missing.');
   if (row.removedFromCase) throw new StimulusGroupInputError('The selected Stimulus Option has been removed from this Case. Add the Asset again to restore it.');
+  if (!isActive && row.originalOptionId === row.id) {
+    throw new StimulusGroupInputError('Choose another Original stimulus before deactivating this image.');
+  }
   if (isActive) {
     await requireAsset(db, row.assetId);
     const group = await requireGroup(db, row.groupId);
@@ -498,7 +589,11 @@ export async function setStimulusOptionActive(db, optionId, isActive) {
 
 /** @param {LearningDb} db @param {string} optionId */
 export async function removeStimulusOptionFromCase(db, optionId) {
-  const row = (await db.select({ id: stimulusGroupOptions.id, removedFromCase: stimulusGroupOptions.removedFromCase })
+  const row = (await db.select({
+    id: stimulusGroupOptions.id,
+    removedFromCase: stimulusGroupOptions.removedFromCase,
+    originalOptionId: stimulusGroups.originalOptionId
+  })
     .from(stimulusGroupOptions)
     .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
     .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
@@ -506,6 +601,9 @@ export async function removeStimulusOptionFromCase(db, optionId) {
     .limit(1))[0];
   if (!row) throw new StimulusGroupInputError('The selected Stimulus Option is missing.');
   if (row.removedFromCase) return;
+  if (row.originalOptionId === row.id) {
+    throw new StimulusGroupInputError('Choose another Original stimulus before removing this image from the Case.');
+  }
   await db.update(stimulusGroupOptions).set({ isActive: false, removedFromCase: true }).where(eq(stimulusGroupOptions.id, optionId));
 }
 
