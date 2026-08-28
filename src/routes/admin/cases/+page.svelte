@@ -101,6 +101,13 @@
   });
 
   $effect(() => {
+    const visibleIds = data.cases.map((item) => item.id);
+    const reconciled = reconcileVisibleCaseSelection({ selectedIds: selectedCaseIds, visibleIds });
+    if (reconciled.removedCount) selectedCaseIds = reconciled.selectedIds;
+    if (selectionAnchorId && !visibleIds.includes(selectionAnchorId)) selectionAnchorId = null;
+  });
+
+  $effect(() => {
     if (!persistenceReady) return;
     writeCaseLibraryStoredState(currentStoredState());
   });
