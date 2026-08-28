@@ -35,10 +35,6 @@
   let groups = $derived(selectedCase?.stimulusGroups ?? []);
   let supportingAssets = $derived((selectedCase?.attached ?? []).filter((asset) => asset.isActive !== false));
   let activeGroups = $derived(groups.filter((group) => group.isActive));
-  let curatedGroups = $derived(activeGroups.filter((group) => {
-    const eligible = group.options.filter((option) => option.isActive && !option.removedFromCase && option.assetIsActive);
-    return Boolean(group.originalOptionId && eligible.some((option) => option.id === group.originalOptionId));
-  }));
 </script>
 
 <section class="panel" id="stimulus-curation" aria-labelledby="stimulus-curation-heading">
@@ -51,20 +47,20 @@
     <a class="button secondary" href="/admin/stimulus-cleanup">Stimulus cleanup</a>
   </div>
 
-  {#if supportingAssets.length === 1 && curatedGroups.length === 0}
+  {#if supportingAssets.length === 1 && activeGroups.length === 0}
     <div class="notice info">
       <strong>Original stimulus</strong>
       <span>This Case has one ordinary learner image. It is treated as the source-faithful Original representation in both study modes until you create an Alternative family.</span>
     </div>
-  {:else if supportingAssets.length > 1 && curatedGroups.length === 0}
+  {:else if supportingAssets.length > 1 && activeGroups.length === 0}
     <div class="notice warning">
       <strong>Review suggested</strong>
-      <span>This Case has {supportingAssets.length} ordinary learner images and no curated Original family. Decide whether one is the principal stimulus or whether they are all always-shown supporting images.</span>
+      <span>This Case has {supportingAssets.length} ordinary learner images and no stimulus family. Decide whether one is the principal stimulus or whether they are all always-shown supporting images.</span>
     </div>
-  {:else if supportingAssets.length > 0 && curatedGroups.length > 0}
+  {:else if supportingAssets.length > 0 && activeGroups.length > 0}
     <div class="notice info">
       <strong>Always shown / supporting</strong>
-      <span>{supportingAssets.length} supporting {supportingAssets.length === 1 ? 'image is' : 'images are'} shown alongside the selected Original or Alternative.</span>
+      <span>{supportingAssets.length} supporting {supportingAssets.length === 1 ? 'image is' : 'images are'} shown alongside whichever eligible family stimulus is selected.</span>
     </div>
   {/if}
 
