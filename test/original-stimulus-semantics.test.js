@@ -198,6 +198,57 @@ test('Original reassignment rejects a mismatched Case before mutating another Ca
   }
 });
 
+test('database rejects repointing an active production Original to an inactive Asset', async () => {
+  const fixture = createFixture();
+  try {
+    const { groupId, originalId } = await buildCuratedFamily(fixture);
+    await setStimulusGroupOriginal(fixture.db, 'seed-anterior-a', groupId, originalId);
+
+    fixture.sqlite.prepare('UPDATE assets SET is_active = 0 WHERE id = ?').run('seed-asset-anterior-c');
+
+    assert.throws(
+      () => fixture.sqlite.prepare('UPDATE stimulus_group_options SET asset_id = ? WHERE id = ?')
+        .run('seed-asset-anterior-c', originalId),
+      /Original stimulus must point to an active eligible production image/
+    );
+
+    assert.equal(
+      fixture.sqlite.prepare('SELECT asset_id FROM stimulus_group_options WHERE id = ?').get(originalId).asset_id,
+      'seed-asset-anterior-a'
+    );
+    assert.equal(
+      fixture.sqlite.prepare('SELECT original_option_id FROM stimulus_groups WHERE id = ?').get(groupId).original_option_id,
+      originalId
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('database rejects reactivating a family whose explicit Original is no longer eligible', async () => {
+  const fixture = createFixture();
+  try {
+    const { groupId, originalId } = await buildCuratedFamily(fixture);
+    await setStimulusGroupOriginal(fixture.db, 'seed-anterior-a', groupId, originalId);
+
+    fixture.sqlite.prepare('UPDATE stimulus_groups SET is_active = 0 WHERE id = ?').run(groupId);
+    fixture.sqlite.prepare('UPDATE assets SET is_active = 0 WHERE id = ?').run('seed-asset-anterior-a');
+
+    assert.throws(
+      () => fixture.sqlite.prepare('UPDATE stimulus_groups SET is_active = 1 WHERE id = ?').run(groupId),
+      /Active production stimulus families require an eligible Original stimulus/
+    );
+
+    const group = fixture.sqlite.prepare(
+      'SELECT is_active, original_option_id FROM stimulus_groups WHERE id = ?'
+    ).get(groupId);
+    assert.equal(group.is_active, 0);
+    assert.equal(group.original_option_id, originalId);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('Core uses the curated Original and Expanded substitutes an eligible Alternative', async () => {
   const fixture = createFixture();
   try {
