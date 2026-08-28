@@ -56,13 +56,20 @@ test('active Case Library exposes quick Topic creation without replacing existin
   assert.match(creatorSource, /Create & assign to \$\{selectedCount\}/);
 });
 
-test('failed quick Topic creation preserves the exact submitted Case selection for retry', () => {
+test('failed quick Topic creation retries only freshly visible submitted Cases and warns when stale selections are dropped', () => {
   assert.match(creatorSource, /name="topic_case_ids" value=\{caseId\}/);
   assert.match(serverSource, /selectedCaseIds\(formData, 'topic_case_ids'\)/);
   assert.match(serverSource, /topicCreationFailure\(error, input, caseIds\)/);
   assert.match(serverSource, /topicSelectedCaseIds: caseIds/);
   assert.match(pageSource, /failedTopicSelection\(form\)/);
   assert.match(pageSource, /candidate\.topicSelectedCaseIds/);
+  assert.match(pageSource, /reconcileVisibleCaseSelection\(\{/);
+  assert.match(pageSource, /visibleIds: data\.cases\.map\(\(item\) => item\.id\)/);
+  assert.match(pageSource, /selectedCaseIds = \$state\(failedSelection\.selectedIds\)/);
+  assert.match(pageSource, /removedFailedTopicSelectionCount/);
+  assert.match(pageSource, /no longer visible in this Case Library view/);
+  assert.match(pageSource, /failedSelection\.submittedCount > 0 && selectedCaseIds\.length === 0/);
+  assert.match(pageSource, /topicCreationFailure && !failedTopicAssignmentRetryBlocked/);
 });
 
 test('Case Library route reuses the page taxonomy model for Topic parent options and rejects inactive quick creation', () => {
