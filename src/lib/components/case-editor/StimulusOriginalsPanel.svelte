@@ -1,14 +1,13 @@
 <script>
-  let { selectedCase, previewMode = false } = $props();
+  let { selectedCase } = $props();
 
   let groups = $derived(selectedCase?.stimulusGroups ?? []);
-  let fixedAssets = $derived((selectedCase?.attached ?? []).filter((asset) => asset.isActive !== false));
+  let supportingAssets = $derived((selectedCase?.attached ?? []).filter((asset) => asset.isActive !== false));
   let activeGroups = $derived(groups.filter((group) => group.isActive));
   let curatedGroups = $derived(activeGroups.filter((group) => {
     const eligible = group.options.filter((option) => option.isActive && !option.removedFromCase && option.assetIsActive);
     return Boolean(group.originalOptionId && eligible.some((option) => option.id === group.originalOptionId));
   }));
-  let endpoint = $derived(previewMode ? '/preview-admin/stimulus-original' : '/admin/stimulus-original');
 </script>
 
 <section class="panel" id="stimulus-curation" aria-labelledby="stimulus-curation-heading">
@@ -16,32 +15,30 @@
     <div>
       <p class="eyebrow">Study stimulus semantics</p>
       <h2 id="stimulus-curation-heading">Original and Alternatives</h2>
-      <p class="muted">Core study uses each family’s Original. Expanded study substitutes an eligible Alternative when one exists. Ordinary fixed images remain always shown.</p>
+      <p class="muted">Core study uses each family’s Original. Expanded study substitutes an eligible Alternative when one exists. Always-shown supporting images remain visible in both modes.</p>
     </div>
-    {#if !previewMode}
-      <a class="button secondary" href="/admin/stimulus-cleanup">Stimulus cleanup</a>
-    {/if}
+    <a class="button secondary" href="/admin/stimulus-cleanup">Stimulus cleanup</a>
   </div>
 
-  {#if fixedAssets.length === 1 && curatedGroups.length === 0}
+  {#if supportingAssets.length === 1 && curatedGroups.length === 0}
     <div class="notice info">
       <strong>Original stimulus</strong>
-      <span>This Case has one ordinary fixed image. It is treated as the source-faithful Original representation in both study modes until you choose to create an Alternative family.</span>
+      <span>This Case has one ordinary learner image. It is treated as the source-faithful Original representation in both study modes until you create an Alternative family.</span>
     </div>
-  {:else if fixedAssets.length > 1 && curatedGroups.length === 0}
+  {:else if supportingAssets.length > 1 && curatedGroups.length === 0}
     <div class="notice warning">
       <strong>Review suggested</strong>
-      <span>This Case has {fixedAssets.length} ordinary fixed images and no curated Original family. Decide whether one is the principal stimulus or whether these are all always-shown supporting images.</span>
+      <span>This Case has {supportingAssets.length} ordinary learner images and no curated Original family. Decide whether one is the principal stimulus or whether they are all always-shown supporting images.</span>
     </div>
-  {:else if fixedAssets.length > 0 && curatedGroups.length > 0}
+  {:else if supportingAssets.length > 0 && curatedGroups.length > 0}
     <div class="notice info">
       <strong>Always shown / supporting</strong>
-      <span>{fixedAssets.length} fixed {fixedAssets.length === 1 ? 'image is' : 'images are'} shown alongside the selected Original or Alternative.</span>
+      <span>{supportingAssets.length} supporting {supportingAssets.length === 1 ? 'image is' : 'images are'} shown alongside the selected Original or Alternative.</span>
     </div>
   {/if}
 
   {#if activeGroups.length === 0}
-    <p class="muted compact">No stimulus family exists yet. Use the image controls below to turn a principal fixed image into an Alternative set when you need substitutions.</p>
+    <p class="muted compact">No stimulus family exists yet. Use the image controls below to turn a principal learner image into an Alternative set when you need substitutions.</p>
   {:else}
     <div class="family-list">
       {#each activeGroups as group (group.id)}
@@ -79,7 +76,7 @@
                     <span class="badge original">Original</span>
                   {:else}
                     <span class="badge">Alternative</span>
-                    <form method="POST" action={endpoint}>
+                    <form method="POST" action="/admin/stimulus-original">
                       <input type="hidden" name="case_id" value={selectedCase.case.id} />
                       <input type="hidden" name="group_id" value={group.id} />
                       <input type="hidden" name="option_id" value={option.id} />
