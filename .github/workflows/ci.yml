@@ -2,6 +2,11 @@ name: CI
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   check:
@@ -21,4 +26,6 @@ jobs:
         run: npm ci
 
       - name: Run repository validation
-        run: node scripts/validate-ci.mjs --diff-base HEAD^1 --diff-head HEAD
+        env:
+          VALIDATION_MODE: ${{ github.event.pull_request.draft && 'fast' || 'full' }}
+        run: node scripts/validate-ci.mjs --mode "$VALIDATION_MODE" --diff-base HEAD^1 --diff-head HEAD

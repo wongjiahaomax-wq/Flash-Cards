@@ -6,7 +6,7 @@
 
 _Status: current development/operator workflow._
 
-_Last reviewed: 25 August 2026._
+_Last reviewed: 28 August 2026._
 
 ## Purpose
 
@@ -213,11 +213,11 @@ npm run validate:full
 
 Use `validate:fast` for an ordinary iteration checkpoint when the focused contract is sufficient. Use `validate:full` before handoff when `agent:checks` calls for the ordinary full contract, and run any additional specialized commands that `agent:checks` reports, such as runtime or slide-review validation.
 
-Local `validate:*` resolves the same feature-branch base used by `agent:checks`. Its whitespace check compares that merge-base with the current tracked working tree, so committed feature changes, staged changes and unstaged tracked changes are all included. CI consumes the same ordinary full validation check IDs but keeps PR-checkout-specific diff semantics and GitHub annotations explicit.
+Local `validate:*` resolves the same feature-branch base used by `agent:checks`. Its whitespace check compares that merge-base with the current tracked working tree, so committed feature changes, staged changes and unstaged tracked changes are all included. Ordinary PR CI consumes the same repository-owned `fast`/`full` mode definitions while keeping PR-checkout-specific diff semantics and GitHub annotations explicit. GitHub selects `fast` when the pull-request event reports `draft: true` and `full` otherwise; the `ready_for_review` event therefore runs full validation of the current PR revision without requiring another source commit.
 
 You do not need to rerun every command after every small edit. Run focused checks during iteration and the repository-selected full/specialized set before handing the branch back for final PR review.
 
-Opening/updating a PR may still trigger repository CI automatically. The local-first policy reduces avoidable extra remote runs; it does not weaken configured PR gates.
+Opening or updating a Draft PR triggers fast ordinary CI. Opening or updating a Ready-for-Review PR triggers full ordinary CI, and marking a Draft PR Ready for Review starts a full run even without a new source commit. Newer runs cancel obsolete runs for the same PR; different PR numbers remain independent. The ordinary required status context remains the single `check` job.
 
 ### 6. Use the production-backed Preview only when explicitly requested or concretely useful
 
