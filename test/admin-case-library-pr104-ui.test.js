@@ -56,7 +56,7 @@ test('active Case Library exposes quick Topic creation without replacing existin
   assert.match(creatorSource, /Create & assign to \$\{selectedCount\}/);
 });
 
-test('failed quick Topic creation retries only freshly visible submitted Cases and warns when stale selections are dropped', () => {
+test('failed quick Topic creation retries only freshly visible submitted Cases and retains assignment intent', () => {
   assert.match(creatorSource, /name="topic_case_ids" value=\{caseId\}/);
   assert.match(serverSource, /selectedCaseIds\(formData, 'topic_case_ids'\)/);
   assert.match(serverSource, /topicCreationFailure\(error, input, caseIds\)/);
@@ -68,8 +68,10 @@ test('failed quick Topic creation retries only freshly visible submitted Cases a
   assert.match(pageSource, /selectedCaseIds = \$state\(failedSelection\.selectedIds\)/);
   assert.match(pageSource, /removedFailedTopicSelectionCount/);
   assert.match(pageSource, /no longer visible in this Case Library view/);
-  assert.match(pageSource, /failedSelection\.submittedCount > 0 && selectedCaseIds\.length === 0/);
-  assert.match(pageSource, /topicCreationFailure && !failedTopicAssignmentRetryBlocked/);
+  assert.match(pageSource, /topicCreationRetryRequiresSelection = \$derived\(topicCreationFailure && failedSelection\.submittedCount > 0\)/);
+  assert.match(pageSource, /retryRequiresSelection=\{topicCreationRetryRequiresSelection\}/);
+  assert.match(creatorSource, /retryRequiresSelection && !selectedCount/);
+  assert.match(creatorSource, /Select a Case to retry/);
 });
 
 test('Case Library route reuses the page taxonomy model for Topic parent options and rejects inactive quick creation', () => {
