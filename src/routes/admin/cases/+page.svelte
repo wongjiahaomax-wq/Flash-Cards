@@ -60,8 +60,8 @@
       .map((group) => ({ ...group, topics: group.topics.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)) }));
   });
   let topicCreationFailure = $derived(Boolean(form && 'topicCreation' in form && form.topicCreation));
-  let failedTopicAssignmentRetryBlocked = $derived(topicCreationFailure && failedSelection.submittedCount > 0 && selectedCaseIds.length === 0);
-  let topicCreationError = $derived(topicCreationFailure && !failedTopicAssignmentRetryBlocked && form && 'error' in form ? form.error : '');
+  let topicCreationRetryRequiresSelection = $derived(topicCreationFailure && failedSelection.submittedCount > 0);
+  let topicCreationError = $derived(topicCreationFailure && form && 'error' in form ? form.error : '');
   let topicCreationName = $derived(form && 'topicName' in form ? String(form.topicName ?? '') : '');
   let topicCreationParentId = $derived(form && 'topicParentId' in form ? String(form.topicParentId ?? '') : '');
 
@@ -212,7 +212,7 @@
 
 <section class="panel" aria-labelledby="case-list-heading">
   <div class="panel-heading"><div><h2 id="case-list-heading">{inactiveView ? 'Inactive Cases' : 'Active Cases'} <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} Cases · Page {data.pagination.page} of {data.pagination.totalPages}.</span></div><span class="muted">{inactiveView ? 'Inactive Cases are preserved for recovery and are unavailable to learners.' : 'Tags are curation metadata; Topic remains the learner study route.'}</span></div>
-  {#if form?.error && (!topicCreationFailure || failedTopicAssignmentRetryBlocked)}<p class="form-error" role="alert">{form.error}</p>{/if}
+  {#if form?.error && !topicCreationFailure}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if removedFailedTopicSelectionCount}<p class="selection-warning" role="status">{removedFailedTopicSelectionCount} previously selected Case{removedFailedTopicSelectionCount === 1 ? '' : 's'} {removedFailedTopicSelectionCount === 1 ? 'is' : 'are'} no longer visible in this Case Library view and {removedFailedTopicSelectionCount === 1 ? 'was' : 'were'} removed from the retry selection. Select {removedFailedTopicSelectionCount === 1 ? 'it' : 'them'} again from {removedFailedTopicSelectionCount === 1 ? 'its' : 'their'} current location if you still intend to change {removedFailedTopicSelectionCount === 1 ? 'it' : 'them'}.</p>{/if}
   {#if data.status === 'bulk-topic-updated'}<p class="success-message" role="status">Primary Topic updated for the selected Cases.</p>{/if}
   {#if data.status === 'topic-created'}<p class="success-message" role="status">Created Topic {data.statusTopicName}.</p>{/if}
@@ -234,7 +234,7 @@
         <div><strong>Bulk Case actions</strong><span class="muted">{selectedCaseIds.length} Case{selectedCaseIds.length === 1 ? '' : 's'} selected</span><span class="selection-hint">Shift-click a row to select a range</span></div>
         <label class="bulk-topic">Topic<select name="concept_id" required disabled={!selectedCaseIds.length}><option value="">Choose a Topic</option>{#each topicGroups as group}<optgroup label={group.label}>{#each group.topics as topic}{@const systemIndex = topic.breadcrumb.findIndex((item) => item.kind === 'system')}<option value={topic.id}>{topic.breadcrumb.slice(systemIndex >= 0 ? systemIndex + 1 : 0).map((/** @param {{ name: string }} item */ item) => item.name).join(' → ')}</option>{/each}</optgroup>{/each}</select></label>
         <button class="button primary" type="submit" disabled={!selectedCaseIds.length}>Assign Topic</button>
-        <CaseLibraryTopicCreator selectedCaseIds={selectedCaseIds} parentOptions={data.topicParents} error={topicCreationError} initialName={topicCreationName} initialParentId={topicCreationParentId} actionQuery={currentQuery()} />
+        <CaseLibraryTopicCreator selectedCaseIds={selectedCaseIds} parentOptions={data.topicParents} error={topicCreationError} initialName={topicCreationName} initialParentId={topicCreationParentId} actionQuery={currentQuery()} retryRequiresSelection={topicCreationRetryRequiresSelection} />
         <BulkCaseTagEditor selectedCaseIds={selectedCaseIds} cases={data.cases} availableTags={data.tags} actionQuery={currentQuery()} />
         <button class="button danger" type="submit" formaction={actionHref('bulkDeactivateCases')} formnovalidate disabled={!selectedCaseIds.length} onclick={confirmBulkDeactivate}>Deactivate selected</button>
       </div>
