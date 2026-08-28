@@ -58,6 +58,8 @@ Case Tags
 
 Hierarchy moves, Case Primary Topic changes, and Case Tag changes may therefore coexist in one pending review. The UI shows them together in one staged-review surface and submits them through one `Validate & apply all changes` workspace action.
 
+Mixed staging has one ordering constraint: stage any Topic hierarchy moves before staging Case Primary Topic or Case Tag changes. Once Case-classification changes are pending, further Topic moves are disabled until the pending batch is applied or discarded.
+
 This is a **unified review/apply workflow**, not a claim that the three underlying mutation domains form one database transaction.
 
 ### Topic hierarchy staging
