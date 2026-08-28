@@ -181,6 +181,7 @@ export const stimulusGroups = sqliteTable(
     name: text('name').notNull(),
     displayOrder: integer('display_order').notNull(),
     selectionCount: integer('selection_count').notNull().default(1),
+    originalOptionId: text('original_option_id'),
     specificQuestionMode: text('specific_question_mode').notNull().default('none'),
     minimumSpecificQuestions: integer('minimum_specific_questions'),
     isActive: activeFlag(),
@@ -190,6 +191,7 @@ export const stimulusGroups = sqliteTable(
   (table) => [
     index('stimulus_groups_case_idx').on(table.caseId, table.displayOrder),
     index('stimulus_groups_active_idx').on(table.caseId, table.isActive),
+    index('stimulus_groups_original_option_idx').on(table.originalOptionId),
     check('stimulus_groups_display_order_nonnegative', sql`${table.displayOrder} >= 0`),
     check('stimulus_groups_selection_count_positive', sql`${table.selectionCount} > 0`),
     check('stimulus_groups_specific_mode_check', sql`${table.specificQuestionMode} in ('none', 'minimum', 'all')`),
