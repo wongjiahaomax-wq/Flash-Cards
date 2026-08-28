@@ -38,7 +38,7 @@ Production Admin currently supports:
 - bulk Case Primary Topic assignment from the Case Library;
 - inline and bulk Case Tag curation from the Case Library;
 - global System/Topic hierarchy management and separate System↔Tag exposure;
-- the visual Systems & Topics tree/inspector workspace, including staged Topic hierarchy, Case Primary Topic, and Case Tag changes with separate per-domain apply boundaries;
+- the visual Systems & Topics tree/inspector workspace, where staged Topic hierarchy, Case Primary Topic, and Case Tag changes may coexist in one mixed review and are submitted through one unified workspace apply action after all requested preflight checks complete;
 - Active/Inactive Case lifecycle views, safe deactivation, recovery inspection, and validated restore;
 - whole-Case, Topic, set-wide, Case-specific exact-image, tag-scoped Shared, and exact-Asset Reusable Image Questions;
 - reusable Prompt wording with usage/blast-radius protection;
@@ -291,12 +291,13 @@ Current behavior includes:
 - contextual System/Topic/subtopic creation;
 - direct Case visibility by canonical Primary Topic;
 - staged Topic hierarchy moves;
-- staged Case Primary Topic changes, including bounded bulk changes;
+- staged Case Primary Topic changes, including bounded bulk changes and different target Topics for different Cases within one review;
 - staged Case Tag additions/removals;
-- expected-state preflight before canonical mutation functions;
-- separate mutation-domain apply semantics.
+- hierarchy, Primary Topic, and Tag changes coexisting in one staged review;
+- one unified workspace apply action for all pending domains;
+- all requested hierarchy/Primary-Topic/Tag stale-state and validity preflights completing before the first canonical write.
 
-The implementation does **not** claim one atomic transaction across hierarchy + Primary Topic + Case Tags. A pending batch must be applied/discarded before another mutation domain is staged.
+After successful preflight, the established canonical domain writers execute sequentially. The implementation therefore does **not** claim one serializable/rollback transaction across hierarchy + Primary Topic + Case Tags; it provides a unified review/apply surface and a fail-before-first-write boundary.
 
 System↔Tag exposure remains a separate System-level workflow.
 
@@ -446,7 +447,7 @@ A current regression/acceptance exercise should include:
 - Production Admin vs learner vs Preview authorization;
 - Preview isolation for Preview-tested workflows;
 - reviewed/resumable import rejection of non-empty `secondaryTopicIds`;
-- Systems & Topics staged mutation-domain behavior;
+- Systems & Topics mixed staged review, unified apply, and all-domain preflight behavior;
 - Case deactivate/recovery/restore preservation and validation;
 - inline/bulk Case Tag and bulk Primary Topic behavior;
 - Case Library no-navigation-while-typing baseline;
