@@ -3,9 +3,10 @@ ALTER TABLE stimulus_groups ADD COLUMN original_option_id text;
 CREATE INDEX IF NOT EXISTS stimulus_groups_original_option_idx
   ON stimulus_groups(original_option_id);
 
--- A one-option active stimulus family is unambiguous: that option is the
--- canonical Original. Multi-option legacy families are intentionally left
--- unassigned so an Admin can curate them without guessing from order/name.
+-- A one-option active stimulus family is unambiguous at migration time: that
+-- option is the canonical Original. Multi-option legacy families are
+-- intentionally left unassigned so an Admin can curate them without guessing
+-- from order/name.
 UPDATE stimulus_groups
 SET original_option_id = (
   SELECT stimulus_group_options.id
@@ -91,52 +92,8 @@ BEGIN
   SELECT RAISE(ABORT, 'Choose another Original stimulus before deactivating this image.');
 END;
 
--- Newly authored one-option families are also unambiguous. Once a second
--- option exists, the existing Original remains stable rather than changing by
--- order. Bulk-created multi-option families stay unassigned for explicit
--- curation.
-CREATE TRIGGER stimulus_group_options_assign_single_original_after_insert
-AFTER INSERT ON stimulus_group_options
-WHEN NEW.is_active = 1
-  AND NEW.removed_from_case = 0
-  AND EXISTS (SELECT 1 FROM assets WHERE id = NEW.asset_id AND is_active = 1)
-  AND (SELECT original_option_id FROM stimulus_groups WHERE id = NEW.stimulus_group_id) IS NULL
-  AND (
-    SELECT COUNT(*)
-    FROM stimulus_group_options
-    INNER JOIN assets ON assets.id = stimulus_group_options.asset_id
-    WHERE stimulus_group_options.stimulus_group_id = NEW.stimulus_group_id
-      AND stimulus_group_options.is_active = 1
-      AND stimulus_group_options.removed_from_case = 0
-      AND assets.is_active = 1
-  ) = 1
-BEGIN
-  UPDATE stimulus_groups
-  SET original_option_id = NEW.id,
-      updated_at = unixepoch() * 1000
-  WHERE id = NEW.stimulus_group_id
-    AND original_option_id IS NULL;
-END;
-
-CREATE TRIGGER stimulus_group_options_assign_single_original_after_update
-AFTER UPDATE OF stimulus_group_id, is_active, removed_from_case ON stimulus_group_options
-WHEN NEW.is_active = 1
-  AND NEW.removed_from_case = 0
-  AND EXISTS (SELECT 1 FROM assets WHERE id = NEW.asset_id AND is_active = 1)
-  AND (SELECT original_option_id FROM stimulus_groups WHERE id = NEW.stimulus_group_id) IS NULL
-  AND (
-    SELECT COUNT(*)
-    FROM stimulus_group_options
-    INNER JOIN assets ON assets.id = stimulus_group_options.asset_id
-    WHERE stimulus_group_options.stimulus_group_id = NEW.stimulus_group_id
-      AND stimulus_group_options.is_active = 1
-      AND stimulus_group_options.removed_from_case = 0
-      AND assets.is_active = 1
-  ) = 1
-BEGIN
-  UPDATE stimulus_groups
-  SET original_option_id = NEW.id,
-      updated_at = unixepoch() * 1000
-  WHERE id = NEW.stimulus_group_id
-    AND original_option_id IS NULL;
-END;
+-- Do not auto-designate an Original on generic option insert/update. Insert
+-- order is not source semantics: a multi-option family may be created
+-- sequentially, and choosing the first inserted option would silently guess.
+-- New authoring/import workflows must designate an Original explicitly, or
+-- only after they can prove source ambiguity is absent.
