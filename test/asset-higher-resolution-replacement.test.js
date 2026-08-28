@@ -217,6 +217,9 @@ function fixture(options = {}) {
   sqlite.prepare(
     'INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, created_at) VALUES (?, ?, ?, ?, ?, 1, 1)'
   ).run('option-1', 'group-1', 'asset-a', 3, 'Alternative caption');
+  sqlite.prepare(
+    'UPDATE stimulus_groups SET original_option_id = ? WHERE id = ?'
+  ).run('option-1', 'group-1');
 
   for (const [id, prompt] of [
     ['prompt-reusable', 'What finding is intrinsic to this image?'],
@@ -283,6 +286,10 @@ test('replacement creates B, migrates production relationships, clones reusable 
     assert.equal(oldReview.assets[0].assetId, 'asset-a');
     assert.equal(oldReview.assets[0].storageKey, 'teaching-images/asset-a.png');
     assert.equal(oldReusable?.sourceAssetQuestionId, 'aq-old-active');
+    assert.equal(
+      fx.sqlite.prepare('SELECT original_option_id FROM stimulus_groups WHERE id = ?').get('group-1').original_option_id,
+      'option-1'
+    );
 
     const beforeOption = fx.sqlite.prepare(
       'SELECT * FROM stimulus_group_options WHERE id = ?'
@@ -347,6 +354,10 @@ test('replacement creates B, migrates production relationships, clones reusable 
     assert.equal(option.display_order, beforeOption.display_order);
     assert.equal(option.caption_md, beforeOption.caption_md);
     assert.equal(option.is_active, beforeOption.is_active);
+    assert.equal(
+      fx.sqlite.prepare('SELECT original_option_id FROM stimulus_groups WHERE id = ?').get('group-1').original_option_id,
+      'option-1'
+    );
 
     const exactQuestion = fx.sqlite.prepare(
       'SELECT * FROM stimulus_option_questions WHERE id = ?'
@@ -454,6 +465,10 @@ test('simulated D1 replacement failure rolls back semantics and removes only the
     assert.equal(
       fx.sqlite.prepare('SELECT asset_id FROM stimulus_group_options WHERE id = ?').get('option-1').asset_id,
       'asset-a'
+    );
+    assert.equal(
+      fx.sqlite.prepare('SELECT original_option_id FROM stimulus_groups WHERE id = ?').get('group-1').original_option_id,
+      'option-1'
     );
     assert.equal(
       fx.sqlite.prepare('SELECT asset_question_id FROM stimulus_option_asset_questions WHERE stimulus_group_option_id = ?').get('option-1').asset_question_id,
