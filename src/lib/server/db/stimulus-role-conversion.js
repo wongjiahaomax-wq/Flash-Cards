@@ -13,12 +13,19 @@ import { StimulusGroupInputError } from './stimulus-groups.js';
  * option identity and historical provenance remain available. The same Asset ID
  * is attached through `case_assets` with the option caption carried across.
  *
+ * When `expectedCaseId` is supplied, ownership is validated before either
+ * relationship is mutated. This keeps route-supplied Case context at the
+ * mutation boundary instead of validating it after the write.
+ *
  * @param {LearningDb} db
  * @param {string} optionId
+ * @param {string | null} [expectedCaseId]
  */
-export async function convertStimulusOptionToSupporting(db, optionId) {
+export async function convertStimulusOptionToSupporting(db, optionId, expectedCaseId = null) {
   const cleanOptionId = String(optionId ?? '').trim();
+  const cleanExpectedCaseId = expectedCaseId == null ? null : String(expectedCaseId).trim();
   if (!cleanOptionId) throw new StimulusGroupInputError('Stimulus option is required.');
+  if (expectedCaseId != null && !cleanExpectedCaseId) throw new StimulusGroupInputError('Case is required.');
 
   const option = (await db
     .select({
@@ -46,6 +53,9 @@ export async function convertStimulusOptionToSupporting(db, optionId) {
 
   if (!option || !option.groupIsActive || !option.isActive || option.removedFromCase || !option.assetIsActive) {
     throw new StimulusGroupInputError('The selected stimulus option is missing or inactive.');
+  }
+  if (cleanExpectedCaseId && option.caseId !== cleanExpectedCaseId) {
+    throw new StimulusGroupInputError('The selected stimulus option does not belong to this Case.');
   }
   if (option.originalOptionId === option.id) {
     throw new StimulusGroupInputError('Choose another Original stimulus before moving this image to Always shown / supporting.');
