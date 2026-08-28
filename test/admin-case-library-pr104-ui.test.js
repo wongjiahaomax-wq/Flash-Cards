@@ -63,8 +63,8 @@ test('failed quick Topic creation retries only freshly visible submitted Cases a
   assert.match(serverSource, /topicSelectedCaseIds: caseIds/);
   assert.match(pageSource, /failedTopicSelection\(form\)/);
   assert.match(pageSource, /candidate\.topicSelectedCaseIds/);
-  assert.match(pageSource, /reconcileVisibleCaseSelection\(\{/);
-  assert.match(pageSource, /visibleIds: data\.cases\.map\(\(item\) => item\.id\)/);
+  assert.match(pageSource, /const visibleIds = data\.cases\.map\(\(item\) => item\.id\)/);
+  assert.match(pageSource, /reconcileVisibleCaseSelection\(\{[\s\S]*visibleIds/);
   assert.match(pageSource, /selectedCaseIds = \$state\(failedSelection\.selectedIds\)/);
   assert.match(pageSource, /removedFailedTopicSelectionCount/);
   assert.match(pageSource, /no longer visible in this Case Library view/);
