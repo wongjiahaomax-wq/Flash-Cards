@@ -1,83 +1,127 @@
 # Flash-Cards — Current Product Roadmap
 
-_Last updated: 25 August 2026_
+_Last updated: 28 August 2026_
 
-This is the short status map for what is **explicitly verified in production**, what is **merged on current `main`**, and what remains product/engineering work. Detailed semantics live in `HANDOVER.md`, `V1_DATA_MODEL.md`, and the subsystem contracts.
+This is the short status map for what is **explicitly verified in production**, what is **merged on current `main`**, and what remains product/engineering work. Detailed semantics live in `HANDOVER.md`, `V1_DATA_MODEL.md`, `AUTHORING_MODEL.md`, and the relevant subsystem contracts.
+
+## Status boundary
+
+Keep these facts separate:
+
+```text
+merged on main
+≠ migration applied to production D1
+≠ Worker deployed
+≠ taxonomy/content curation completed
+≠ learner feature enabled
+≠ behavior explicitly verified in production
+```
+
+A repository change may be correct and merged without being deployed or enabled. Do not infer production state from merge state.
 
 ## Explicitly verified production baseline
 
-The recorded deployed baseline includes:
+The recorded verified production baseline includes:
 
 - D1-backed learner Study/Review flow;
 - protected private R2 teaching images;
 - Better Auth production Admin and Preview Admin boundaries;
 - Admin CMS for Cases, Questions, Shared Questions, Images, Topics, Tags, and reviewed imports;
 - optional stimulus groups/options with exact-option and set-wide contextual questions;
-- multi-Topic Case routing/Admin authoring;
-- reviewed Import Package v1 plus resumable/chunked imports;
-- Tagging Stage A and deployed Tagging Stage B;
+- Tagging Stage A/B;
 - production-backed Preview Admin workspace;
 - Image Management V2 with Collections and bounded operations;
 - wide responsive Admin workspace;
 - first ECG/Anki source deck fully represented and verified in production: **66/66 source notes**.
 
-The repository contains later merged code and migrations beyond this verified production baseline. Do not convert merge status into deployment claims without explicit rollout evidence.
+The repository contains later merged code and migrations beyond this verified production baseline. Treat those as current-main behavior unless separate deployment evidence exists.
 
-The production-backed Preview Admin still exists, but as of 25 August 2026 it is no longer part of the normal development/testing workflow. Local clone + local production-like D1/R2 is now the primary application verification path.
+The production-backed Preview Admin still exists, but since 25 August 2026 it is no longer part of the normal development/testing workflow. Local clone + local production-like D1/R2 is the primary application verification path.
 
 ## Current `main` — merged baseline
 
-Current `main` includes the earlier PR #53–#59 sequence:
+Current `main` is at merge commit `31eac90c0a6dd472d747a7ec0be94cd9ad3eae9d` (PR #106) at the time of this refresh.
 
+Core current behavior includes:
+
+- one canonical behaviorally active **Primary Topic** per current Case;
+- zero or more flat **Case Tags** for cross-cutting classification/contextual discovery;
+- contextual **System → Topic / exposed Tag / All** learner navigation behind rollout control;
+- learner-selectable **Original questions** versus **Expanded Learning** Review modes;
+- fixed images plus Alternative Sets/options;
+- Case, Topic, stimulus, tag-shared, and exact-Asset reusable Question sources with deterministic precedence/deduplication;
+- strict reviewed Import Package v1 plus resumable/chunked execution;
 - local/offline slide review and deterministic finalization;
-- Case-editor Topic management/inline Topic creation;
-- production-like local D1/R2 replica;
-- whole-Case → exact-stimulus question moves;
-- author-facing whole-Case vs exact-image/stimulus scope with transparent fixed-image conversion;
-- Reusable Image Questions with explicit exact-stimulus opt-in;
-- narrow same-image higher-resolution Asset replacement and supersession lineage.
+- private R2 image lifecycle, Collections, same-image higher-resolution replacement, and historical media preservation;
+- bounded Admin read models and repository-owned performance timing;
+- local-first development with repository-owned validation and pinned Wrangler runtime.
 
-It also includes the later merged sequence:
+### Important post-PR-#90 merged changes
 
-- **PR #61** — Admin dashboard-specific aggregates/bounded queue, exact Case-detail read, and lightweight timing;
-- **PR #62** — alternative-option **Remove from Case** archive state, distinct from deactivation;
-- **PR #63** — Image Library **Current / Historical only / Unused** lifecycle views and cleanup-oriented filtering;
-- **PR #64** — bounded 60-row `/admin/cases` and `/admin/questions` read models with SQL filtering/counting and visible-ID enrichment;
-- **PR #66** — combined `admin,preview_admin` owner accounts may use production Study while Preview-only identities remain blocked;
-- **PR #68** — stable exact-question save anchors/scroll return;
-- **PR #69** — Classic/Compact responsive Case-editor preference;
-- **PR #72** — Compact fast-review UX, image strips, source previews, and **All questions in this Case** audit;
-- **PR #73** — hardened production/Preview mutation boundaries plus one repository-pinned Wrangler authority and runtime smoke;
-- **PR #75–#77** — local coding-agent DX, reliable local dev/preview launchers, changed-file validation intelligence, and shared validation authority;
-- **PR #78** — behavior-preserving decomposition of the large Admin Case editor into focused Svelte components;
-- **PR #79** — capability-based Local / Remote GitHub / Hybrid coding-agent workflow;
-- **PR #80** — Preview Session/ownership/error/input foundation extraction;
-- **PR #82** — Preview Case lifecycle/cloning extraction;
-- **PR #83** — Preview fixed Case-image operation extraction;
-- **PR #87** — learner-selectable **Original questions** versus **Expanded Learning**, with Review-level `question_pool_mode` provenance and explicit same-Case Original → Expanded continuation;
-- **PR #88** — contextual **System → Topic / Tag / All** navigation model, System↔Tag exposure, selected/effective Review-route provenance, and learner rollout gating;
-- **PR #89** — repository-scoped `npm run local:stop` plus the associated local-development/agent guidance and Svelte warning cleanup;
-- **PR #90** — current Case classification simplified to exactly one behaviorally active **Primary Topic** plus zero or more **Case Tags**, retiring Additional Study Topics from current authoring/learner behavior without a new migration.
+- **PR #92** — documents local-first development and pauses the unfinished Preview backend decomposition sequence; remote Preview remains retained/optional rather than the normal integration gate.
+- **PR #93** — improves desktop Case-editor layout/density for Topic/Tag authoring.
+- **PR #95** — records the Account Management v1 product/security plan. This is documentation/design only; the corresponding PR-A/PR-B implementations are not part of current `main` merely because the plan is merged.
+- **PR #98** — adds bulk Case Primary Topic assignment while preserving the one-Primary-Topic model.
+- **PR #99** — implements the visual Systems & Topics taxonomy/Case-classification workspace, including staged Topic hierarchy changes, staged Case Primary Topic changes, staged Case Tag changes, and deliberate per-domain apply boundaries.
+- **PR #100** — adds Production Case lifecycle UX (**Active → Deactivate → preserved Inactive → validated Restore**) plus inline and bulk Case Tag curation in the Case Library.
+- **PR #102** — removes search-on-every-keystroke from Case/Topic/System Case Library text filters and removes the duplicate taxonomy supporting read on the active library path.
+- **PR #106** — makes ordinary PR CI state-aware: Draft PRs run repository fast validation; Ready-for-Review PRs run full validation; Draft → Ready triggers full validation on the same head; superseded runs for the same PR are cancelled.
 
-Draft PR #91 attempted the next Preview Alternative Set/stimulus extraction and was closed unmerged on 25 August 2026 after the project moved to a local-first testing workflow. It is not part of the merged baseline.
+Additional Study Topics remain retired from current product behavior. Historical `case_concepts.role = 'secondary'` rows may still exist as compatibility data, but current authoring/read/import/Preview/learner paths do not create or use them as active Case classification.
+
+## Repository migration boundary
 
 Current repository migrations extend through:
 
 ```text
-0009_reusable_image_questions.sql
-0010_reusable_image_reactivation_guard.sql
-0011_asset_supersession.sql
-0012_archive_stimulus_options.sql
-0013_review_assets_asset_lookup.sql
-0014_review_question_pool_mode.sql
 0015_contextual_system_topic_tag_navigation.sql
 ```
 
-Migration `0014` adds persisted Original/Core versus Expanded Review question-pool mode. Migration `0015` adds System/Topic taxonomy, System↔Tag exposure, and System-route Review provenance. PR #90 intentionally adds **no `0016` migration**: legacy secondary `case_concepts` rows may remain physically stored but are ignored by current authoring/read models/learner routing and are not created by current mutation/import/clone paths.
+Important recent migrations:
 
-These files being present on `main` does **not** prove production application. The same rule applies to Worker behavior and learner feature flags: a merged PR, migration file, rollout-trigger commit, or dormant gated surface is not deployment/rollout verification.
+```text
+0014_review_question_pool_mode.sql
+→ persisted Original/Core versus Expanded Review question-pool provenance
 
-## Real ECG/Anki migration — initial deck complete
+0015_contextual_system_topic_tag_navigation.sql
+→ System/Topic taxonomy, System↔Tag exposure, and System-route Review provenance
+```
+
+There is intentionally no migration solely to retire Additional Study Topics. PR #90 changed current behavior/read/write paths while retaining the physical compatibility shape.
+
+## Current Admin/content model
+
+```text
+System
+└── Topic hierarchy
+    └── Case
+        ├── exactly one Primary Topic relationship
+        ├── zero or more Case Tags
+        ├── fixed Assets
+        ├── zero or more Alternative Sets
+        └── contextual questions
+```
+
+Systems are top-level learner-navigation groupings. Cases attach to Topics, never Systems. Tags remain flat cross-cutting metadata; System↔Tag exposure is a separate global learner-navigation curation operation.
+
+Current Admin surfaces include:
+
+```text
+Dashboard
+Cases
+Questions
+Shared Questions
+Images
+Systems & Topics
+Tags
+Import package
+```
+
+The Case Library now supports Active/Inactive lifecycle views, validated deactivate/restore, inline/bulk Case Tag curation, bulk Primary Topic assignment, bounded filtering/pagination, and explicit text-search submission rather than navigation during typing.
+
+The Systems & Topics page is now the visual taxonomy/classification workspace implemented by PR #99 rather than the pre-#99 duplicated flat taxonomy + separate hierarchy-manager experience.
+
+## Real ECG/Anki migration
 
 Production verification on 18 August 2026 recorded:
 
@@ -89,100 +133,63 @@ Pre-existing mapped calcium Cases:  2
 Source notes represented:          66 / 66
 ```
 
-Initial ingestion is complete. Remaining ECG work is curation/enrichment: improve Case Tags, curate clinically useful System↔Tag exposure, promote genuinely repeated knowledge to Shared Questions or Reusable Image Questions, add useful stimulus variants, and medically review content where needed.
+Initial ingestion is complete. Remaining ECG work is curation/enrichment, not re-ingestion.
 
 ## Current product work
 
 ### 1. Curate the real corpus and learner taxonomy
 
-Use real Cases to refine canonical Primary Topics, Case Tags, System↔Tag exposure, Shared Questions, Reusable Image Questions, and stimulus variants. Promote reusable knowledge only when the Prompt/answer remains reliably correct across the intended reuse scope.
+Use real Cases to refine canonical Primary Topics, Case Tags, System↔Tag exposure, Shared Questions, Reusable Image Questions, and stimulus variants. Promote reusable knowledge only when Prompt/answer semantics remain reliably correct across the intended scope.
 
-Before learner System navigation is enabled, explicitly review clinically useful alternate discovery through Case Tags plus System↔Tag exposure. Do not convert legacy secondary Topic rows to Tags by matching labels.
+Before learner System navigation is enabled, explicitly review clinically useful alternate discovery through Case Tags + System↔Tag exposure. Do not infer Topic→Tag conversion merely from matching labels or from historical secondary Topic rows.
 
-Current-main duplicate-Prompt precedence is:
+### 2. Validate the newer Admin workflows with real use
 
-```text
-selected exact stimulus-option question
-> explicitly reused Asset Question for the selected option
-> stimulus group
-> Case
-> exact Primary Topic
-> tag-shared Question
-> nearest eligible inheritable ancestor Topic
-> more distant eligible ancestors
-```
+The taxonomy workspace, Case lifecycle/recovery surfaces, bulk Topic assignment, inline/bulk Tag editing, and Case Library search changes are merged. Use normal local/manual UX testing to identify concrete friction before adding another classification model or broad redesign.
 
-Original questions use only Case-owned sources (`case`, `stimulus_group`, `stimulus_option`). Expanded Learning uses the full eligible resolver. Eligibility is selected before duplicate-Prompt precedence/deduplication so excluded reusable sources cannot erase valid Original questions.
+### 3. Account Management v1 implementation
 
-### 2. Exercise current image lifecycle semantics
+`ACCOUNT_MANAGEMENT_PLAN.md` is merged design context. Password-recovery/email foundation and routine production account administration are still separate implementation work until their implementation PRs actually merge.
 
-Use real authoring work to validate the distinction between:
+Public self-registration remains disabled unless a separately reviewed product decision changes that contract.
 
-```text
-Deactivate option
-≠ Remove from Case
-≠ deactivate global Asset
-≠ replace same underlying image with a higher-resolution Asset
-≠ permanently delete Asset/R2 object
-```
+### 4. Basic learner-progress administration
 
-Image Library lifecycle views are organisational/cleanup aids. Permanent deletion is not implemented.
+After the smallest useful account-administration baseline exists, add learner list/recent Review views and simple Again/Good/repeated-Again signals. Defer sophisticated analytics until real usage establishes requirements.
 
-### 3. Continue targeted maintainability work only where it pays off
+### 5. Continue measurement-driven performance work
 
-The Case-editor UI is decomposed into focused components. The Preview backend was decomposed through Session/ownership foundations, Case lifecycle/cloning, and fixed Case-image operations in PRs #80/#82/#83.
+Completed work includes bounded Admin read models and the targeted Case Library search/read-path improvement in PR #102.
 
-That Preview decomposition programme is now intentionally paused. Do **not** continue the historical sequence merely to finish it:
+Remaining planned work should stay evidence-driven:
 
 ```text
-PR2D Alternative Set / stimulus extraction
-PR2E question / scope / reusable-question extraction
-PR2F final façade / cleanup ownership
+Better Auth short-lived session cookie-cache investigation
+learner Study/startReview read-model optimisation
+Case-editor server read/lazy-loading boundaries
+image thumbnails and measured EXPLAIN/index tuning
 ```
 
-Those phases are no longer current roadmap items because the deployed `/preview-admin` workflow is no longer routinely used. The existing Preview implementation stays in place for now because ownership/security and production-safety contracts still depend on Preview concepts.
-
-If the remote Preview Admin is later judged unnecessary, assess decommissioning as a separate project rather than mixing deletion into unrelated refactors.
-
-For ordinary development, prioritize improvements to the local clone + local D1/R2 workflow and other modules that are actively changed.
-
-### 4. Continue measurement-driven performance work
-
-Passes 1–2 are merged. Remaining planned passes are:
-
-```text
-Pass 3 — Better Auth short-lived session cookie-cache investigation
-Pass 4 — learner Study/startReview read-model optimisation
-Pass 5 — Case-editor server read/lazy-loading boundaries
-Later  — image thumbnails and measured EXPLAIN/index tuning
-```
-
-PR #78 solved UI ownership/modularity; it did not implement Pass 5 server-read lazy loading.
-
-### 5. Learner-account administration
-
-Implement the smallest useful administrator learner-account workflow while preserving production/Preview role boundaries.
-
-### 6. Basic learner-progress administration
-
-Add learner list, recent Reviews, filtering, Again/Good summaries, and repeated-Again signals. Defer sophisticated analytics until real usage establishes requirements.
+Do not add caches or indexes merely because they are common performance techniques; measure the active bottleneck first.
 
 ## Developer/tooling baseline
 
-The repository now provides:
+The repository provides:
 
 - capability-based Local / Remote GitHub / Hybrid agent execution guidance;
 - scoped `AGENTS.md` files plus `AGENT_TASK_MAP.md`;
 - Node 22 contract;
 - `agent:doctor`, `agent:checks`, `validate:fast`, `validate:full`;
 - repository-owned ordinary CI/local validation definitions;
+- Draft PR fast validation and Ready PR full validation through the same shared contract;
+- same-PR CI concurrency cancellation without cross-PR cancellation;
 - repository-pinned Wrangler/workerd runtime with dedicated runtime smoke;
 - deterministic local `npm run dev` / `npm run preview` launchers using repository-local Wrangler/XDG state;
-- repository-scoped `npm run local:stop` for safe Vite/Wrangler cleanup without machine-wide Node termination;
+- repository-scoped `npm run local:stop`;
 - production-like read-production/write-local development replica;
 - local slide-review/finalizer tooling.
 
-The normal application workflow is local-first:
+Normal development remains local-first:
 
 ```text
 npm run local:refresh   # when fresh production-derived content is needed
@@ -192,33 +199,24 @@ npm run preview         # production-style local verification
 repository validation / GitHub CI
 ```
 
-Remote Preview deployment is now an optional legacy capability, not a required integration gate.
+Remote Preview deployment is retained as an optional capability, not a required integration gate.
 
-These are repository/developer capabilities, not learner/Admin production features.
+## Deliberately deferred / separated
 
-## Deliberately deferred
+Unless concrete evidence creates a need, keep separate or deferred:
 
-Unless real evidence creates a concrete need, keep deferred:
-
-- further Preview backend decomposition after PR #83;
-- remote Preview Admin decommissioning until explicitly assessed;
-- multiple/compound Shared Question Reuse Scope rules;
-- Tag hierarchy and aliases/synonyms;
-- standalone learner Study-by-Tag outside contextual System exposure;
-- Review Tag snapshots beyond current route provenance;
-- automatic/AI Tag inference;
-- Asset Tags;
-- generic Asset families/arbitrary version-history UI;
-- automatic visual same-image detection;
-- different-image substitution through higher-resolution replacement;
-- bulk Asset replacement;
-- permanent Asset/R2 deletion;
-- FSRS/scheduling controls;
-- advanced analytics;
-- rich WYSIWYG authoring;
-- broad non-image upload types;
-- a more complex global media taxonomy beyond current Image Collections.
+- revival of Additional Study Topics;
+- further Preview backend decomposition merely to finish the old sequence;
+- remote Preview Admin decommissioning without a dedicated assessment;
+- compound Shared Question reuse scopes;
+- Tag hierarchy/aliases;
+- automatic/AI clinical classification without reviewed workflow;
+- generic Asset-family/version systems;
+- permanent Asset/R2 deletion without conservative safety design;
+- FSRS/advanced analytics;
+- broad non-image media types;
+- rich WYSIWYG authoring.
 
 ## Implementation principle
 
-The platform architecture is a working baseline rather than the primary bottleneck. Prefer real-content curation, observed learner/Admin friction, focused maintainability improvements in actively used paths, and measured performance evidence over speculative schema expansion or completion of historical refactor sequences.
+The platform architecture is a working baseline. Prefer real-content curation, observed learner/Admin friction, focused maintainability work in actively changed paths, and measured performance evidence over speculative schema expansion or completion of obsolete implementation sequences.
