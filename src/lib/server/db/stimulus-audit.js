@@ -6,9 +6,9 @@ import { assets, caseAssets, cases, stimulusGroupOptions, stimulusGroups } from 
 
 /**
  * Find production Cases whose stimulus semantics need explicit human curation.
- * A lone ordinary fixed image is intentionally omitted: it is the unambiguous
- * legacy Original representation. Multiple fixed images are only a suggestion
- * because they may all be legitimate always-shown supporting images.
+ * A lone ordinary Case image is intentionally omitted: it is the unambiguous
+ * legacy Original representation. Multiple ordinary images are only a
+ * suggestion because they may all be legitimate always-shown supporting images.
  *
  * @param {LearningDb} db
  */
@@ -21,7 +21,7 @@ export async function listStimulusCleanupIssues(db) {
   if (activeCases.length === 0) return [];
   const caseIds = activeCases.map((row) => row.caseId);
 
-  const [fixedRows, groupRows] = await Promise.all([
+  const [ordinaryRows, groupRows] = await Promise.all([
     db
       .select({ caseId: caseAssets.caseId, assetId: caseAssets.assetId })
       .from(caseAssets)
@@ -84,15 +84,15 @@ export async function listStimulusCleanupIssues(db) {
   }
 
   for (const currentCase of activeCases) {
-    const fixedCount = fixedRows.filter((row) => row.caseId === currentCase.caseId).length;
-    if (fixedCount <= 1 || casesWithCuratedOriginal.has(currentCase.caseId)) continue;
+    const ordinaryImageCount = ordinaryRows.filter((row) => row.caseId === currentCase.caseId).length;
+    if (ordinaryImageCount <= 1 || casesWithCuratedOriginal.has(currentCase.caseId)) continue;
     issues.push({
       caseId: currentCase.caseId,
       caseTitle: currentCase.caseTitle,
       severity: 'review_suggested',
       groupId: null,
       groupName: null,
-      reason: `This Case has ${fixedCount} ordinary fixed images and no curated Original family. Review whether one is principal or whether all are always-shown supporting images.`
+      reason: `This Case has ${ordinaryImageCount} ordinary learner images and no curated Original family. Review whether one is principal or whether all are always-shown supporting images.`
     });
   }
 
