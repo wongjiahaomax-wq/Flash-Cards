@@ -1,5 +1,4 @@
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
@@ -93,8 +92,7 @@ test('CI reporter emits compact event-driven progress and collects failures at t
 });
 
 test('real nested node:test failure emits one real failure instead of a duplicate suite failure', () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flash-cards-ci-reporter-'));
-  const fixture = path.join(root, 'nested-failure.test.mjs');
+  const fixture = path.join(process.cwd(), 'tests', `.ci-reporter-nested-${process.pid}-${Date.now()}.test.mjs`);
   try {
     fs.writeFileSync(fixture, [
       "import { describe, it } from 'node:test';",
@@ -114,7 +112,7 @@ test('real nested node:test failure emits one real failure instead of a duplicat
       encoding: 'utf8',
     });
 
-    assert.equal(result.status, 1);
+    assert.equal(result.status, 1, result.stderr || result.stdout);
     const output = String(result.stdout ?? '');
     assert.match(output, /Tests: 1 total, 0 passed, 1 failed/);
     assert.equal((output.match(/^CI_ERROR\|/gm) ?? []).length, 1);
@@ -122,7 +120,7 @@ test('real nested node:test failure emits one real failure instead of a duplicat
     assert.equal(output.includes('name=outer suite'), false);
     assert.match(output, /CI_STATUS\|check=test\|status=failed\|failed=1/);
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(fixture, { force: true });
   }
 });
 
