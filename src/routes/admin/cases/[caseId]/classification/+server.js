@@ -43,7 +43,11 @@ export async function POST({ request, locals, platform, params }) {
       return json({ ok: true, status: 'topic-created-and-assigned', topic: { id: created.id, name: created.name } });
     }
     if (operation === 'move-topic-to-system') {
-      await moveTopicToSystem(db, { topicId: formText(formData, 'topic_id'), systemId: formText(formData, 'system_id') });
+      await moveTopicToSystem(db, {
+        caseId,
+        topicId: formText(formData, 'topic_id'),
+        systemId: formText(formData, 'system_id')
+      });
       return json({ ok: true, status: 'topic-system-moved' });
     }
     return new Response('Choose a valid Case classification operation.', { status: 400 });
