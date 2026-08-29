@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { redirect } from '@sveltejs/kit';
 
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createDb } from '$lib/server/db/index.js';
@@ -13,8 +13,8 @@ function formText(formData, name) {
 }
 
 export async function POST({ request, locals, platform }) {
-  if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
-  if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+  if (!canManageCaseAssets(locals.user)) return new Response('Administrator access is required.', { status: 403 });
+  if (!platform?.env?.DB) return new Response('The study database is not configured.', { status: 503 });
 
   const formData = await request.formData();
   const caseId = formText(formData, 'case_id');
@@ -47,10 +47,10 @@ export async function POST({ request, locals, platform }) {
   } catch (errorValue) {
     const clientError = errorValue instanceof SimpleStimulusCurationInputError || errorValue instanceof StimulusGroupInputError;
     if (!clientError) console.error('Stimulus role assignment failed.', errorValue);
-    return fail(clientError ? 400 : 500, {
-      error: clientError ? errorValue.message : 'Unable to save the stimulus roles.',
-      caseId
-    });
+    return new Response(
+      clientError ? errorValue.message : 'Unable to save the stimulus roles.',
+      { status: clientError ? 400 : 500 }
+    );
   }
 
   redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=stimulus-roles-saved#stimulus-curation`);
