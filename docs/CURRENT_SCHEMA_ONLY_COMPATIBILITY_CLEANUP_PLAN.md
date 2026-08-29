@@ -175,17 +175,7 @@ Do not broadly refresh unrelated historical documents merely because they mentio
 
 No migration file should be created for this cleanup unless the audit unexpectedly proves that the desired behavior requires an actual schema change. If that happens, stop and reassess scope rather than silently adding one.
 
-The existing migration chain remains intact:
-
-```text
-0000...
-0001...
-...
-0015_contextual_system_topic_tag_navigation.sql
-0016_original_stimulus_options.sql
-0017_<next genuine schema change>.sql
-...
-```
+Historical migrations remain unchanged. Future genuine schema changes append a new migration after whatever migration is current at that time; this plan intentionally does not predict or reserve the next migration number.
 
 Production D1 remains the same database with the same data and migration ledger.
 
