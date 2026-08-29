@@ -296,7 +296,6 @@ async function validateNewOptionCoverage(db, group) {
     throw new StimulusGroupInputError(`A new active option would have only ${available} specific questions, below this group's minimum of ${minimum}. Temporarily use No guarantee or add enough group-level questions first.`);
   }
 }
-
 /** @param {unknown} error */
 function missingReusableQuestionSchema(error) {
   let current = error;
@@ -322,6 +321,7 @@ async function loadRetainedOptionPromptIds(db, optionId, assetId) {
       eq(questionPrompts.isActive, true),
       isNull(questionPrompts.previewSessionId)
     ));
+  /** @type {{ promptId: string }[]} */
   let reusableRows = [];
   try {
     reusableRows = await db
