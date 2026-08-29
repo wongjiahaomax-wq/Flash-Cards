@@ -1,8 +1,20 @@
+import fs from 'node:fs';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import ciTestReporter, { formatTestFailure, githubFailureAnnotation } from '../scripts/ci-test-reporter.mjs';
-import { CI_TEST_REPORTER, ciCommandArgs } from '../scripts/validate-ci.mjs';
+import ciTestReporter, {
+  agentFailureRecord,
+  agentReproRecord,
+  formatTestFailure,
+  githubFailureAnnotation,
+} from '../scripts/ci-test-reporter.mjs';
+import {
+  CI_TEST_REPORTER,
+  ciCommandArgs,
+  ciReproCommand,
+  formatCiAgentFailureSummary,
+} from '../scripts/validate-ci.mjs';
 
 /** @param {any[]} events */
 async function collect(events) {
@@ -71,7 +83,48 @@ test('CI reporter emits compact event-driven progress and collects failures at t
   assert.match(output, /actual:[\s\S]*enabled: false/);
   assert.match(output, /stack:[\s\S]*example\.test\.js:42:7/);
   assert.match(output, /::error title=Node test failure,file=tests\/example\.test\.js,line=42,col=1::/);
+  assert.match(output, /=== CI AGENT SUMMARY ===/);
+  assert.match(output, /CI_ERROR\|check=test\|file=tests\/example\.test\.js\|line=42\|name=classifier rejects invalid input\|code=ERR_ASSERTION\|message=expected values to match/);
+  assert.match(output, /CI_REPRO\|check=test\|command=npm test -- tests\/example\.test\.js/);
+  assert.match(output, /CI_STATUS\|check=test\|status=failed\|failed=1/);
   assert.ok(output.indexOf('=== Node test failures') > output.indexOf('Tests: 4 total'));
+  assert.ok(output.indexOf('=== CI AGENT SUMMARY ===') > output.indexOf('=== Node test failures'));
+});
+
+test('real nested node:test failure emits one real failure instead of a duplicate suite failure', () => {
+  const fixture = path.join(process.cwd(), 'tests', `.ci-reporter-nested-${process.pid}-${Date.now()}.test.mjs`);
+  try {
+    fs.writeFileSync(fixture, [
+      "import { describe, it } from 'node:test';",
+      "import assert from 'node:assert/strict';",
+      "describe('outer suite', () => {",
+      "  it('nested failure', () => assert.equal(1, 2));",
+      '});',
+      '',
+    ].join('\n'));
+
+    const childEnv = { ...process.env };
+    delete childEnv.NODE_TEST_CONTEXT;
+    const result = spawnSync(process.execPath, [
+      '--test',
+      `--test-reporter=${CI_TEST_REPORTER}`,
+      fixture,
+    ], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: childEnv,
+    });
+
+    assert.equal(result.status, 1, result.stderr || result.stdout);
+    const output = String(result.stdout ?? '');
+    assert.match(output, /Tests: 1 total, 0 passed, 1 failed/);
+    assert.equal((output.match(/^CI_ERROR\|/gm) ?? []).length, 1);
+    assert.match(output, /CI_ERROR\|check=test\|.*name=nested failure/);
+    assert.equal(output.includes('name=outer suite'), false);
+    assert.match(output, /CI_STATUS\|check=test\|status=failed\|failed=1/);
+  } finally {
+    fs.rmSync(fixture, { force: true });
+  }
 });
 
 test('failure formatting unwraps Node test errors and keeps assertion details', () => {
@@ -83,4 +136,67 @@ test('failure formatting unwraps Node test errors and keeps assertion details', 
   const annotation = githubFailureAnnotation(failure);
   assert.match(annotation, /^::error title=Node test failure,file=tests\/example\.test\.js,line=42,col=1::/);
   assert.equal(annotation.includes('\n'), false);
+});
+
+test('agent records keep failure lookup and reproduction deterministic', () => {
+  const failure = failureData();
+  assert.equal(
+    agentFailureRecord(failure),
+    'CI_ERROR|check=test|file=tests/example.test.js|line=42|name=classifier rejects invalid input|code=ERR_ASSERTION|message=expected values to match',
+  );
+  assert.equal(
+    agentReproRecord(failure),
+    'CI_REPRO|check=test|command=npm test -- tests/example.test.js',
+  );
+
+  failure.name = 'classifier | invalid input';
+  assert.match(agentFailureRecord(failure), /name=classifier %7C invalid input/);
+});
+
+test('CI wrapper failure footer is stable and avoids replacing structured test errors with a generic one', () => {
+  assert.equal(
+    formatCiAgentFailureSummary({
+      id: 'svelte',
+      command: 'npm',
+      args: ['run', 'check'],
+      status: 2,
+      message: 'npm run check exited with 2.',
+    }),
+    [
+      '=== CI AGENT SUMMARY ===',
+      'CI_ERROR|check=svelte|message=npm run check exited with 2.',
+      'CI_REPRO|check=svelte|command=npm run check',
+      'CI_STATUS|check=svelte|status=failed|exit=2',
+    ].join('\n'),
+  );
+
+  const testFooter = formatCiAgentFailureSummary({
+    id: 'test',
+    command: 'npm',
+    args: ['test'],
+    status: 1,
+    message: 'npm test failed; see structured failures above.',
+    detailedErrorsAlreadyReported: true,
+  });
+  assert.equal(testFooter.includes('CI_ERROR|'), false);
+  assert.match(testFooter, /CI_REPRO\|check=test\|command=npm test/);
+  assert.match(testFooter, /CI_STATUS\|check=test\|status=failed\|exit=1/);
+});
+
+test('diff CI repro uses actual PR SHAs and never advertises synthetic merge parents locally', () => {
+  assert.equal(
+    ciReproCommand('diff', 'git', ['diff', '--check', 'HEAD^1', 'HEAD'], {
+      diffBaseSha: 'base123',
+      diffHeadSha: 'head456',
+    }),
+    'git diff --check base123 head456',
+  );
+  assert.equal(
+    ciReproCommand('diff', 'git', ['diff', '--check', 'HEAD^1', 'HEAD']),
+    'npm run agent:checks',
+  );
+  assert.equal(
+    ciReproCommand('svelte', 'npm', ['run', 'check']),
+    'npm run check',
+  );
 });
