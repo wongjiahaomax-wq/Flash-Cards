@@ -25,10 +25,13 @@ const migrationSql = [
   .join('\n')
   .replaceAll('--> statement-breakpoint', '');
 
+/** @param {DatabaseSync} sqlite */
 function createD1(sqlite) {
   return {
+    /** @param {string} sql */
     prepare(sql) {
       return {
+        /** @param {...any} params */
         bind(...params) {
           return {
             async all() { return { results: sqlite.prepare(sql).all(...params) }; },
@@ -45,6 +48,7 @@ function createD1(sqlite) {
         }
       };
     },
+    /** @param {any[]} statements */
     async batch(statements) {
       sqlite.exec('BEGIN');
       try {
@@ -78,7 +82,7 @@ function createFixture() {
       ('case-eye', 'asset-b', 1, 'B caption'),
       ('case-eye', 'asset-c', 2, 'C caption');
   `);
-  return { sqlite, db: createDb(createD1(sqlite)) };
+  return { sqlite, db: createDb(/** @type {any} */ (createD1(sqlite))) };
 }
 
 test('simple stimulus role assignment atomically turns two ordinary images into Original and Alternative', async () => {
@@ -93,6 +97,7 @@ test('simple stimulus role assignment atomically turns two ordinary images into 
     const group = fixture.sqlite.prepare(`
       SELECT id, name, original_option_id FROM stimulus_groups WHERE id = ?
     `).get(result.groupId);
+    assert.ok(group);
     assert.equal(group.name, 'Primary stimulus');
 
     const options = fixture.sqlite.prepare(`
@@ -100,7 +105,9 @@ test('simple stimulus role assignment atomically turns two ordinary images into 
       WHERE stimulus_group_id = ? ORDER BY display_order
     `).all(result.groupId);
     assert.deepEqual(options.map((row) => row.asset_id), ['asset-b', 'asset-a']);
-    assert.equal(group.original_option_id, options[0].id);
+    const originalOption = options[0];
+    assert.ok(originalOption);
+    assert.equal(group.original_option_id, originalOption.id);
 
     const remaining = fixture.sqlite.prepare(`
       SELECT asset_id, display_order FROM case_assets WHERE case_id = 'case-eye' ORDER BY display_order
@@ -125,8 +132,12 @@ test('simple stimulus role assignment rejects choosing the same image for both r
       }),
       /Choose two different images/
     );
-    assert.equal(fixture.sqlite.prepare('SELECT COUNT(*) AS count FROM stimulus_groups').get().count, 0);
-    assert.equal(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM case_assets WHERE case_id='case-eye'").get().count, 3);
+    const groupCount = fixture.sqlite.prepare('SELECT COUNT(*) AS count FROM stimulus_groups').get();
+    const caseAssetCount = fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM case_assets WHERE case_id='case-eye'").get();
+    assert.ok(groupCount);
+    assert.ok(caseAssetCount);
+    assert.equal(groupCount.count, 0);
+    assert.equal(caseAssetCount.count, 3);
   } finally {
     fixture.sqlite.close();
   }
