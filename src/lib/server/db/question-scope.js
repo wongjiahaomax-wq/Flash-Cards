@@ -163,11 +163,21 @@ async function prepareFixedTarget(db, caseId, assetId) {
   };
 }
 
-/** @param {LearningDb} db @param {string} caseId @param {Awaited<ReturnType<typeof prepareFixedTarget>>} prepared */
+/**
+ * Source-aware fixed-image conversion: schema-valid family insertion first,
+ * then the preserved source Option becomes the explicit Original before the
+ * fixed relationship is removed. Generic option insertion intentionally does
+ * not share this inference.
+ *
+ * @param {LearningDb} db
+ * @param {string} caseId
+ * @param {Awaited<ReturnType<typeof prepareFixedTarget>>} prepared
+ */
 function fixedConversionWrites(db, caseId, prepared) {
   return [
     db.insert(stimulusGroups).values({ id: prepared.groupId, caseId, name: prepared.groupName, displayOrder: prepared.groupDisplayOrder, selectionCount: 1, specificQuestionMode: 'none', minimumSpecificQuestions: null, isActive: true }),
     db.insert(stimulusGroupOptions).values({ id: prepared.optionId, stimulusGroupId: prepared.groupId, assetId: prepared.assetId, displayOrder: 0, captionMd: prepared.captionMd, isActive: true }),
+    db.update(stimulusGroups).set({ originalOptionId: prepared.optionId, updatedAt: new Date() }).where(eq(stimulusGroups.id, prepared.groupId)),
     db.delete(caseAssets).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, prepared.assetId))),
     ...prepared.remaining.map((row, index) => db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, row.assetId))))
   ];

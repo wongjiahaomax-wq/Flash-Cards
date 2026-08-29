@@ -1,30 +1,31 @@
 # Stimulus Family refactor architecture
 
-_Status: architecture and characterisation baseline for incremental refactoring_
+_Status: implemented architecture after accepted Checkpoint A correctness and Checkpoint B mechanical decomposition_
 
-_Audited against `main` at `c4284c4c9ed0bf2367b990b0cbe43632309d0be5` on 29 August 2026._
+_PR #110 established the reviewed architecture/correctness contract. Long-lived PR #112 implements that contract. Checkpoint A was accepted at `fc7b0e3d1fdc6f8561ecc5d4ccc2d35f950f5dda`; Checkpoint B was accepted after its dependency-direction correction at `4ca09338d333603df38f2017b221a9a35c247960`._
 
-_Correctness decisions for the five audit findings were settled on 29 August 2026. PR #110 documents those target semantics but does not implement them._
+_The final merge gate is operational rather than architectural: the exact head intended for review/merge must pass repository-owned full validation. A later commit invalidates that exact-head validation._
 
-This document defines the safe architectural boundary for refactoring Production Stimulus Families without redesigning learner or Admin behaviour. It is deliberately descriptive first: current executable code, migrations and tests remain authoritative for current behaviour if this document becomes stale. Sections explicitly labelled **target semantics** describe reviewed follow-up behaviour that is not yet implemented by PR #110.
+This document describes the implemented Production Stimulus Family architecture and preserves the important pre-refactor findings that explain why the work was staged. Current executable code, committed migrations, tests and workflow definitions remain authoritative if this document ever becomes stale.
 
-The term **Stimulus Family** is used here as the domain name for the existing `stimulus_groups` / Alternative Set model. This document does not rename the persisted model or product terminology.
+The term **Stimulus Family** is the domain name for the persisted `stimulus_groups` / Alternative Set model. This document does not rename the persisted model or product terminology.
 
 ## Scope and non-goals
 
-The refactor programme should preserve:
+The completed refactor preserves:
 
 - fixed Case images (`case_assets`) as a valid, separate concept;
-- active/inactive and `removed_from_case` as distinct states;
+- active/inactive and `removed_from_case` as distinct lifecycle states;
 - explicit Production Original semantics and the legacy `original_option_id = NULL` compatibility path;
 - Core versus Expanded Learning selection;
 - Group, Option and reusable Asset Question semantics and precedence;
 - Case fixed-question-count constraints and Stimulus coverage guarantees;
 - Production/Preview ownership separation;
+- stable Asset/Stimulus Option identity where existing workflows depend on it;
 - Review snapshot/provenance history;
 - D1 triggers and schema constraints as complementary integrity enforcement where those safeguards actually exist.
 
-The programme is not a schema redesign, Preview rebuild, generic repository/service-layer introduction, JS-to-TS migration, or route reorganisation.
+The programme did **not** become a schema redesign, Preview rebuild, generic repository/service-layer introduction, JS-to-TS migration, route reorganisation, Import Package v1 redesign, or product/UX redesign.
 
 ## Current domain model
 
@@ -47,7 +48,7 @@ Case
 
 Family-wide knowledge is stored in `stimulus_group_questions`.
 
-The current learner supports only `selection_count = 1`. Database constraints require a positive count, while the learner loader rejects unsupported values rather than silently inventing multi-option behaviour.
+The learner supports only `selection_count = 1`. Database constraints require a positive count, while the learner adapter rejects unsupported values rather than inventing multi-option selection behavior.
 
 ### State terms are intentionally not interchangeable
 
@@ -61,56 +62,179 @@ The current learner supports only `selection_count = 1`. Database constraints re
 
 Deleting or recreating rows to simulate these transitions would break current identity/provenance semantics.
 
-## Current module map
+## Implemented module ownership
 
-### Production mutation/read modules
+### Compatibility façade
 
-| Module | Current ownership | Important coupling |
-| --- | --- | --- |
-| `src/lib/server/db/stimulus-groups.js` | Main compatibility surface; family CRUD/read model, option add/convert/reactivate/archive/reorder, coverage calculation, restoration validation, Group/Option Question writes, cross-group Prompt validation, shared error class | Large hotspot. Imported by routes and by already-extracted focused modules. |
-| `stimulus-originals.js` | Explicit Original reassignment | Imports `StimulusGroupInputError` from `stimulus-groups.js`; D1 triggers provide final atomic guard. |
-| `stimulus-role-conversion.js` | Alternative → always-shown/supporting conversion while archiving the option identity | Imports the shared error class; preserves Asset and option history. |
-| `simple-stimulus-curation.js` | Atomic two-fixed-image Original/Alternative authoring convenience | Creates family/options and assigns Original in one batch. |
-| `image-option-move.js` | Same-Case option movement between families, Production and Preview scoped by caller input | Preserves option identity, exact Option Questions, reusable opt-ins and caption; owns local coverage simulation. |
-| `stimulus-audit.js` | Production cleanup/read model for ambiguous/unassigned Original state | Intentionally reports rather than mutates. |
-| `asset-questions.js` | Canonical reusable exact-Asset Questions and explicit option opt-ins; fixed-image conversion for reuse | Shares the reusable-Asset branch of the cross-group Prompt invariant with `stimulus-groups.js`; `0009`/`0010` provide reusable-path database guards. |
-| `question-scope.js` | Case Question ↔ exact-stimulus authoring and fixed-image conversion | Calls `saveStimulusOptionQuestion` and shared Prompt guard from `stimulus-groups.js`. |
-| `case-assets.js` | Always-shown fixed image relationships | Rejects current grouped-option conflicts; remains a separate domain boundary. |
-| `admin-image-workflow.js` | Bounded image picker/bulk attachment workflows | Imports restoration validation and shared Stimulus error; performs its own target preflight. |
-| `asset-replacement.js` | Higher-resolution replacement of the same underlying image | Repoints stable option rows before deactivating the old Asset; preserves Original pointer and historical Review rows. |
-| `admin-content.js` | Case authoring, including fixed question-count validation | Calls `getCaseStimulusCoverageRequirement`. |
-| `case-questions.js` | Case Question authoring | Uses the shared cross-group Prompt guard to prevent incompatible scope reuse. |
+`src/lib/server/db/stimulus-groups.js` is now a thin compatibility export surface. It does not own the decomposed implementation.
 
-### Learner modules
+It re-exports the established compatibility operations from focused modules, including the **exact same** canonical `StimulusGroupInputError` constructor object exported by `stimulus-family-error.js`.
 
-`src/lib/server/db/learning.js` reads Stimulus tables directly. It does not call Production mutation helpers.
+Existing callers do not need to be mechanically migrated merely because the internals were decomposed. Compatibility callers are allowed where they do not invert the new lower-level ownership direction.
 
-Its Stimulus responsibilities are:
+### Shared primitives and canonical policy
 
-1. load active families for an active Production Case;
-2. load active, non-removed options backed by active Production Assets;
-3. select one option per family;
-4. load Group Questions, selected Option Questions and explicit reusable Asset Questions whose Asset still exactly matches the selected option;
-5. resolve the question pool;
-6. apply family coverage to Case question selection;
-7. snapshot selected Asset/Family/Option and Question provenance into Review rows.
+| Module | Implemented ownership |
+| --- | --- |
+| `stimulus-family-error.js` | Sole canonical `StimulusGroupInputError` constructor. |
+| `stimulus-family-input.js` | Shared Stimulus Family input parsing/normalization primitives. |
+| `stimulus-family-eligibility.js` | Production Case/Family/image-Asset eligibility and lower-level content-guard adaptation. |
+| `stimulus-family-coverage.js` | Canonical Production specific-question coverage, Prompt deduplication, `none`/`minimum`/`all`, additive active-Family coverage, Case Fixed-N compatibility and prospective option/group overrides. |
+| `stimulus-family-specificity.js` | Canonical application-level live cross-Family Prompt ownership, retained exact/reusable Prompt loading and prospective activation/restoration/movement ownership overrides. |
+| `stimulus-family-live-state.js` | Composition of eligibility, Original integrity, specificity and coverage for transitions that make Family/Option content live; canonical Production movement/restoration preflight. |
 
-`src/lib/server/learning/question-pool-mode.ts` defines the Core/Expanded input boundary:
+These modules depend downward on schema/content guards and each other as appropriate. They do not depend upward on `stimulus-groups.js`.
 
-- Core: Case + Stimulus Group + selected Option Questions;
-- Expanded: the full resolver input, including reusable Asset, Topic, Tag-shared and ancestor inputs.
+### Focused Production lifecycle, mutation and read ownership
 
-`src/lib/server/learning/questions.js` owns question precedence, cross-selected-group compatibility at resolution time, and final coverage-aware question picking.
+| Module | Implemented ownership |
+| --- | --- |
+| `stimulus-family-lifecycle.js` | Family create, source-aware fixed-image start, update and Family reactivation orchestration. |
+| `stimulus-option-lifecycle.js` | Option add, generic fixed→option conversion, activation/deactivation, archive/remove, restoration reuse and intra-Family display ordering. |
+| `stimulus-question-mutations.js` | Ordinary Group/Option Question save/remove behavior using canonical lower-level specificity policy. |
+| `stimulus-family-admin-read.js` | Production Admin Stimulus Family authoring read model. |
+| `asset-questions.js` | Canonical reusable exact-Asset Question lifecycle and explicit option opt-ins, including its source-aware fixed-image conversion. It consumes `StimulusGroupInputError` from `stimulus-family-error.js` and Prompt specificity directly from `stimulus-family-specificity.js`, not through the façade. |
 
-### Preview
+Purpose-specific modules remain separate where that reflects real domain ownership rather than being forced behind the façade:
 
-`src/lib/server/db/preview-workspace.js` is a parallel retained-legacy façade over the same physical Stimulus tables with Preview ownership guards. It does **not** import the Production `stimulus-groups.js` mutation surface.
+- `stimulus-originals.js` — explicit Original reassignment;
+- `stimulus-role-conversion.js` — Alternative → always-shown/supporting conversion while preserving archived option identity;
+- `simple-stimulus-curation.js` — atomic simple Original/Alternative authoring convenience;
+- `image-option-move.js` — same-Case cross-Family option movement coordinator, with Production and Preview branches;
+- `stimulus-audit.js` — Production Original cleanup/audit read model;
+- `asset-replacement.js` — same-image higher-resolution replacement while preserving option identity and historical provenance;
+- `question-scope.js` / `case-questions.js` — their established authoring workflows and compatibility calls.
 
-That separation is intentional. Production refactoring must not force Preview through Production ownership guards, and migration `0016` deliberately leaves Preview `original_option_id` values uncurated.
+Some of those purpose-specific or route-facing modules still import `stimulus-groups.js` as an intentional compatibility surface. That is not a violation by itself. The prohibited direction is a lower-level implementation owner depending upward on the façade that re-exports it.
 
-### Imports
+### Learner boundary
 
-`src/lib/server/import/content-package.js` Import Package v1 has no Stimulus Family collections. It imports Cases, fixed Assets/CaseAssets and Questions only. A Stimulus refactor must not silently extend or change the import-package schema.
+Stimulus Family learner selection/read behavior is no longer embedded directly inside `learning.js`.
+
+`src/lib/server/db/learner-stimulus-families.js` owns learner-purpose current Family reads and selection:
+
+1. load active Families for the active Production Case;
+2. require `selection_count = 1`;
+3. load active, non-removed options backed by active Production Assets;
+4. apply Original/Alternative selection for Core/Expanded, while preserving legacy random selection for `original_option_id = NULL` Families;
+5. load active Group Questions;
+6. load active exact selected-Option Questions;
+7. load active reusable Asset Questions only through explicit opt-in and only when the reusable Asset still exactly matches the selected Option Asset;
+8. return selected Asset/Family/Option provenance and Family coverage metadata.
+
+`src/lib/server/db/learner-case-source.js` composes the learner Case/Topic/Tag/fixed-Asset/question sources with `learner-stimulus-families.js`, then invokes the existing question-pool-mode resolver.
+
+`src/lib/server/db/learning.js` retains Review orchestration and writes:
+
+- Review creation/continuation;
+- final question picking;
+- Review Question snapshots and source provenance;
+- Review Asset snapshots and Family/Option provenance;
+- reveal/completion/read orchestration.
+
+`src/lib/server/learning/question-pool-mode.ts` still defines the Core/Expanded input boundary, and `src/lib/server/learning/questions.js` still owns precedence, selected-group compatibility at resolution time and final coverage-aware question picking.
+
+The learner Stimulus adapter/read modules do **not** import the Production mutation services or the `stimulus-groups.js` compatibility façade.
+
+### Preview remains purpose-specific
+
+`src/lib/server/db/preview-workspace.js` remains the retained Preview façade over the same physical tables with Preview ownership guards. Production refactoring did not give Production mutation modules authority over Preview.
+
+`image-option-move.js` intentionally keeps two paths:
+
+- Production (`previewSessionId == null`) delegates prospective movement validation to the canonical Production `validateStimulusOptionMoveState` policy;
+- Preview retains its existing Preview-local movement/coverage simulation and ownership predicates.
+
+This asymmetry is intentional. Do not rewrite the architecture as though Preview movement now shares Production-only mutation guards.
+
+Migration `0016` deliberately leaves Preview `original_option_id` values uncurated.
+
+### Import Package v1 remains unchanged
+
+`src/lib/server/import/content-package.js` Import Package v1 has no Stimulus Family collections. It imports Cases, fixed Assets/CaseAssets and Questions only.
+
+PR #112 does not extend or redesign that schema.
+
+## Implemented dependency direction
+
+The post-Checkpoint-B Production direction is effectively:
+
+```text
+schema + content guards
+        ↓
+Stimulus Family error / input / eligibility primitives
+        ↓
+canonical coverage + specificity policy
+        ↓
+prospective live-state composition
+        ↓
+focused family / option / ordinary-question mutations
+        ↓
+stimulus-groups.js compatibility façade
+        ↓
+Production Admin routes and other existing compatibility callers
+```
+
+Reusable Asset Questions are a sibling mutation owner that consumes the lower policy directly:
+
+```text
+canonical error + specificity policy
+        ↓
+asset-questions.js reusable lifecycle
+```
+
+Learner reads are parallel, not downstream of Production mutations:
+
+```text
+schema + pure learner question/selection policy
+        ↓
+learner-stimulus-families.js
+        ↓
+learner-case-source.js
+        ↓
+learning.js Review orchestration / snapshots
+```
+
+Preview remains parallel:
+
+```text
+schema + Preview ownership primitives
+        ↓
+preview-workspace.js retained façade
+```
+
+The façade may re-export lower implementation modules. A lower implementation module that is re-exported by the façade must not import the façade, because that would invert ownership and risk a cycle.
+
+## Current compatibility surface
+
+The following exports remain part of the `stimulus-groups.js` compatibility surface:
+
+- `StimulusGroupInputError`;
+- `getCaseStimulusCoverageRequirement`;
+- `ensurePromptIsNotUsedByAnotherGroup`;
+- `validateStimulusOptionMoveState`;
+- `validateStimulusOptionRestoration`;
+- `getAdminStimulusData`;
+- `createStimulusGroup`;
+- `startStimulusGroupFromCaseAsset`;
+- `updateStimulusGroup`;
+- `addStimulusOption`;
+- `convertCaseAssetToStimulusOption`;
+- `setStimulusOptionActive`;
+- `removeStimulusOptionFromCase`;
+- `moveStimulusOption` (display-order movement inside one Family);
+- `saveStimulusGroupQuestion`;
+- `saveStimulusOptionQuestion`;
+- `removeStimulusGroupQuestion`;
+- `removeStimulusOptionQuestion`.
+
+This is a compatibility façade, not a requirement to aggregate every Stimulus-related function into one service object.
+
+### Shared error identity is part of compatibility
+
+Admin routes and focused compatibility callers use `instanceof StimulusGroupInputError` to classify expected authoring failures. `stimulus-family-error.js` therefore owns the single constructor, and `stimulus-groups.js` re-exports that exact object.
+
+Do not create look-alike Stimulus error classes for extracted ownership paths.
 
 ## Database protection
 
@@ -127,419 +251,285 @@ The implemented schema uses:
 - `case_assets`;
 - Review provenance columns on `review_assets` / `review_questions`.
 
-Important schema constraints include positive `selection_count`, supported coverage modes, non-negative display orders, unique family+Asset and family+display-order option relationships, unique Question relationships, restrictive foreign keys, and exact option/Asset-question opt-in identity.
+Important schema constraints include positive `selection_count`, supported coverage modes, non-negative display orders, unique Family+Asset and Family+display-order option relationships, unique Question relationships, restrictive foreign keys, and exact Option/Asset-question opt-in identity.
 
 ### Migration ownership
 
-`0002_optional_stimulus_groups.sql` establishes the original family/option/question model, Case question-count mode, and Review Stimulus provenance.
+`0002_optional_stimulus_groups.sql` establishes the original Family/Option/Question model, Case question-count mode and Review Stimulus provenance.
 
-`0009_reusable_image_questions.sql` adds canonical `asset_questions`, explicit option opt-ins, exact-Asset matching triggers, Production/Preview protection for reusable content, reusable-question Review provenance, and cross-group Prompt guards specifically for conflicts in which reusable Asset Question usage participates.
+`0009_reusable_image_questions.sql` adds canonical `asset_questions`, explicit Option opt-ins, exact-Asset matching triggers, Production/Preview protection for reusable content, reusable-question Review provenance, and cross-group Prompt guards specifically for conflicts in which reusable Asset Question usage participates.
 
 `0010_reusable_image_reactivation_guard.sql` revalidates cross-group Prompt compatibility specifically when a dormant reusable Asset Question is reactivated.
 
 `0012_archive_stimulus_options.sql` adds `removed_from_case`; this is relationship history, not Asset deletion.
 
-`0016_original_stimulus_options.sql` adds `original_option_id`, conservative Production backfill, and the final Original-integrity guards.
+`0016_original_stimulus_options.sql` adds `original_option_id`, conservative Production backfill and Original-integrity guards.
 
-`0009` and `0010` do **not** provide a general D1 constraint preventing an ordinary `stimulus_group_question` or `stimulus_option_question` from conflicting with another ordinary Group/Option Question in another independently selectable Family. The general ordinary exact-question rule is currently enforced by application validation and by the learner resolver. Future extraction work must not weaken application enforcement on the assumption that D1 supplies a general fallback that does not exist.
+`0017_align_reusable_prompt_live_state_guards.sql` is the accepted Checkpoint A forward migration. It replaces the reusable cross-Family Prompt trigger definitions from `0009`/`0010` so deployed databases use the same dormant-parent definition as the canonical application policy. Historical migrations remain immutable.
 
-The five settled correctness decisions below do not currently justify a new schema or D1 migration. If a future change proposes general database enforcement of the cross-Family Prompt invariant, it should be designed comprehensively rather than as a movement-specific trigger.
+`0017` remains deliberately narrow:
 
-### Original-integrity triggers are part of the domain contract
+- it aligns existing reusable-path defense-in-depth with inactive-Family/inactive-Option/removed-Option dormant semantics;
+- it is **not** a general ordinary exact-vs-exact D1 guard;
+- it is **not** a movement-specific trigger;
+- it does not make D1 the sole owner of the general cross-Family Prompt invariant.
 
-Migration `0016` currently protects:
+There is still no general D1 constraint preventing an ordinary `stimulus_group_question` or `stimulus_option_question` from conflicting with another ordinary Group/Option Question in another independently selectable Family. The general rule is application-enforced and checked again by the learner resolver.
 
-- new family insertion from supplying an arbitrary non-null Original before the option exists;
-- assignment of an Original that is not an active, non-removed option in the family backed by an active Asset;
-- reactivation/movement of an active Production family with an invalid explicit Original;
-- moving, deactivating or removing the current Original option;
+### Original-integrity triggers remain part of the domain contract
+
+Migration `0016` protects, among other cases:
+
+- assignment of an Original that is not an eligible option in its Family;
+- reactivation/movement of an active Production Family with an invalid explicit Original;
+- moving, deactivating, removing or deleting the current Original option;
 - repointing an active Production Original to an ineligible Asset;
-- deleting the current Original option;
-- deactivating an Asset that still backs an Original in an active family.
+- deactivating an Asset that still backs an Original in an active Family.
 
-Application preflight provides contextual/friendly validation. The D1 triggers provide the atomic last line of defence for the Original invariants they cover. Future refactors must preserve both layers.
+Application preflight supplies contextual validation; D1 remains the atomic final guard for the Original invariants it covers.
 
-## Current compatibility surface
+## Accepted correctness semantics — implemented in Checkpoint A
 
-`src/lib/server/db/stimulus-groups.js` should remain the compatibility façade while its internals are decomposed.
+The five reviewed decisions are no longer future targets. They are the implemented semantic baseline that Checkpoint B mechanically decomposed.
 
-The following current exports are part of that migration surface and should remain import-compatible until a deliberate caller-migration change says otherwise:
+### 1. Same-Case Production movement uses canonical post-move coverage
 
-- `StimulusGroupInputError`;
-- `getCaseStimulusCoverageRequirement`;
-- `validateStimulusOptionRestoration`;
-- `getAdminStimulusData`;
-- `createStimulusGroup`;
-- `startStimulusGroupFromCaseAsset`;
-- `updateStimulusGroup`;
-- `addStimulusOption`;
-- `convertCaseAssetToStimulusOption`;
-- `setStimulusOptionActive`;
-- `removeStimulusOptionFromCase`;
-- `ensurePromptIsNotUsedByAnotherGroup`;
-- `moveStimulusOption` (display-order movement inside one family);
-- `saveStimulusGroupQuestion`;
-- `saveStimulusOptionQuestion`;
-- `removeStimulusGroupQuestion`;
-- `removeStimulusOptionQuestion`.
+Production movement evaluates the prospective post-move graph through the canonical coverage model:
 
-This is a **compatibility façade for the existing module**, not a requirement to aggregate every Stimulus-related function into one service object. Existing focused public modules such as `stimulus-originals.js`, `stimulus-role-conversion.js`, `simple-stimulus-curation.js`, `image-option-move.js`, `stimulus-audit.js` and `asset-questions.js` can remain separately imported.
+- active Group Questions;
+- active exact Option Questions;
+- valid active reusable exact-Asset Question usages;
+- Prompt deduplication;
+- `none` / `minimum` / `all`;
+- additive active-Family requirements;
+- Case Fixed-N compatibility.
 
-### Why the shared error identity is part of compatibility
+Movement preserves the same Stimulus Option row and Asset relationship, so attached exact Questions, reusable opt-ins, caption and historical provenance remain attached.
 
-Several focused modules import `StimulusGroupInputError` from `stimulus-groups.js`, while Admin routes use `instanceof StimulusGroupInputError` to classify expected authoring errors as HTTP 400 rather than 500. An internal extraction must therefore preserve the same constructor identity, normally by moving the canonical class into a lower-level domain module and re-exporting that exact class from the façade.
+Preview does not use this Production validator.
 
-Do not replace it with multiple look-alike error classes during decomposition.
+### 2. The transition that makes content live performs complete revalidation
 
-## Caller map
+When an inactive Option becomes active inside an already active Family, or an inactive Family becomes active, prospective live-state validation establishes:
 
-The current important caller groups are:
+- Production image eligibility;
+- explicit Original integrity where an Original pointer exists;
+- cross-Family Prompt specificity;
+- canonical coverage;
+- Case Fixed-N compatibility.
 
-### Production Admin
+An Option may become active while its parent Family remains inactive without becoming learner-selectable. Family activation is then the decisive full validation boundary.
 
-- `src/routes/admin/cases/[caseId]/+page.server.js` loads `getAdminStimulusData`, starts source-aware families, and orchestrates reusable-image actions through focused modules;
-- `src/routes/admin/stimulus-roles/+server.js` uses fixed→Alternative conversion and focused Original/simple-role operations;
-- `src/routes/admin/stimulus-original/+server.js` calls `setStimulusGroupOriginal` and relies on shared error identity;
-- `src/routes/admin/stimulus-supporting/+server.js` calls Alternative→supporting conversion and relies on shared error identity;
-- Admin image/question modules call restoration, coverage and cross-group Prompt checks behind their route actions.
+Archived `removed_from_case` restoration remains a distinct, stronger lifecycle transition while sharing lower-level validators.
 
-### Learner Review creation
+### 3. Retained Prompt ownership is revalidated on Production movement
 
-`src/lib/server/db/learning.js` is the runtime consumer of family/option state. It snapshots selected identities and question provenance so later authoring changes do not rewrite completed/in-progress Review content.
+Same-Case movement intentionally preserves exact Option Questions and reusable Asset Question opt-ins. Before the Family ownership update, active retained Prompt IDs are evaluated in the prospective target-Family graph.
 
-### Preview Admin
+- same-Prompt sources within the target Family are legal because precedence resolves them;
+- conflicts with another simultaneously selectable active Family are rejected;
+- inactive Families, inactive Options and removed Options do not reserve live ownership.
 
-Preview uses `preview-workspace.js` and its scoped submodules. Same physical tables do not imply shared mutation authority.
+No movement-specific D1 trigger was added.
 
-### Asset replacement
+### 4. Source-aware fixed-image conversion assigns Original explicitly
 
-`asset-replacement.js` mutates option `asset_id` while intentionally keeping option ID stable. Its ordering is coupled to Original triggers: eligible new Asset and option repoint must exist before old Asset deactivation.
+When a known fixed Production image is transparently converted into the established one-option Family shape for exact/reusable image-specific authoring, the preserved source Option is assigned as the explicit Original in the same coherent atomic mutation before the fixed relationship is removed.
 
-### Question-scope conversion and reusable Asset Questions
+The explicit **Start Alternative Set** source-aware flow follows the same source-known principle.
 
-`question-scope.js`, `case-questions.js`, and `asset-questions.js` share the policy that one Prompt should not become stimulus-specific in independently selectable groups of the same Case. The general ordinary Group/Option branch is enforced in application helpers and checked again by the learner resolver. Database defence in `0009`/`0010` is narrower: it covers reusable Asset Question opt-in/write/reactivation paths and ordinary writes only when they conflict with reusable usage.
+Generic option insertion/conversion into an existing Family remains different: it does **not** infer Original from insertion order, display order, name, caption or sequence.
 
-## Invariant ownership matrix
+The Production read-only audit after fixing future writes found zero active Production Families matching the conservative one-option uncurated predicate. No cleanup/backfill migration was required. Preview was excluded.
 
-| Invariant | Application owner(s) | Database / schema owner | Learner/read enforcement | Characterisation coverage |
-| --- | --- | --- | --- | --- |
-| Production operations cannot mutate Preview-owned Case/Asset content | Production content guards and production-scoped joins; focused modules | reusable Asset Question Preview rejection triggers; FKs | learner loads Production only | Production/Preview and reusable-image tests |
-| Current Original must be an eligible option in its own active Production family | `stimulus-originals.js`; lifecycle/move preflights | `0016` Original triggers | learner only treats explicit pointer as curated when eligible options were loaded | `original-stimulus-semantics.test.js` |
-| Current Original cannot be silently removed/deactivated/moved/deleted | option lifecycle, move and role-conversion preflights | `0016` option update/delete triggers | n/a | `original-stimulus-semantics.test.js` |
-| Asset lifecycle cannot invalidate a protected Original | `asset-replacement.js`; Asset lifecycle operations | `assets_original_stimulus_deactivate_guard` and Original Asset repoint guard | n/a | Original + higher-resolution replacement tests |
-| `removed_from_case` / inactive options are not learner-selectable | option lifecycle writers | persisted state + FKs | `learning.js` filters active + non-removed + active Asset | Stimulus Group / Original tests |
-| Archived restoration revalidates current eligibility and coverage before reuse of stable identity | `validateStimulusOptionRestoration`; Admin bulk workflow | Original trigger still blocks invalid protected transition | learner sees restored row only after valid state | `stimulus-reusable-coverage-restoration.test.js` |
-| Reusable Asset Question applies only to the exact Asset and explicit option usage | `asset-questions.js` | `0009` Asset-match triggers | loader requires opt-in and exact current option Asset match | reusable image question suites + replacement tests |
-| Same Prompt should not be stimulus-specific in independently selectable selected groups | General ordinary Group/Option conflicts: `ensurePromptIsNotUsedByAnotherGroup` plus route/scope preflights. Reusable conflicts: additional checks in `asset-questions.js` | **No general ordinary exact-vs-exact D1 guard.** `0009` guards conflicts where reusable Asset Question usage participates; `0010` guards reusable Question reactivation | resolver rejects incompatible selected-group context | question-scope + reusable-image suites + `stimulus-prompt-specificity-characterisation.test.js` |
-| Coverage `none` / `minimum` / `all` must be satisfiable by eligible option-specific knowledge | `stimulus-groups.js` canonical coverage/restoration; some specialised local preflights | coverage mode/check constraints only; D1 does not calculate semantic coverage | `pickReviewQuestions` enforces selected Review coverage | Stimulus Group + reusable restoration tests |
-| Fixed Case question count cannot be smaller than active family guarantees | `admin-content.js`; family update/restoration validation | Case mode/count constraints, but no cross-table semantic trigger | `pickReviewQuestions` rejects impossible selected coverage | Stimulus Group tests |
-| Core/Expanded family choice preserves Original/Alternative semantics | n/a mutation side | pointer + lifecycle state | `learning.js` selection + `question-pool-mode.ts` | Original semantics tests |
-| Review snapshots preserve historical Asset/option/question identity after later edits | mutation paths preserve stable IDs where required | Review FK/provenance schema | Review creation snapshots prompt/answer/assets/provenance | Stimulus Group, Original and replacement tests |
-| Family/option read models used by Admin do not confer mutation ownership | purpose-specific DB reads | n/a | n/a | route/module tests |
+### 5. Inactive parents are dormant for live cross-Family Prompt ownership
 
-The matrix above describes the current implementation baseline. The resolved target semantics below deliberately change the application meaning of inactive parents and require movement/reactivation to converge on canonical policies before mechanical decomposition.
+Inactive Families, inactive Options and removed Options retain authored Question/opt-in relationships but do not reserve a live Prompt because they are not learner-selectable.
 
-## Meaningful transitions and target correctness boundaries
+Any transition that would make retained content selectable revalidates the resulting live Prompt graph before the transition is committed.
 
-Future implementation should reason about transitions rather than create a Cartesian-product test matrix. Current behaviour remains executable authority until the correctness tranche lands; the bullets below identify the intended transition boundaries.
+This replaced the parent-activity asymmetry characterized by the PR #110 baseline.
 
-### Family lifecycle
+## Current question and coverage semantics
 
-- create active/inactive family for an active Production Case;
-- update coverage/name/activity without making Case fixed-count state impossible;
-- before an inactive Family becomes learner-selectable, validate the complete live state: Original eligibility/integrity, cross-Family Prompt specificity, canonical coverage and Fixed-N compatibility;
-- retain legacy `original_option_id = NULL` compatibility for existing ambiguous historical families until explicitly curated or conservatively cleaned up under the settled rule below.
-
-### Option membership/lifecycle
-
-- add a new eligible Production image;
-- convert a fixed image into an option without duplicating current Case use;
-- deactivate/reactivate an option;
-- if an option activation inside an already active Family makes it learner-selectable, validate its complete live-state invariants before activation;
-- activating an option while its parent Family remains inactive does not by itself make the content live; Family activation remains the decisive validation boundary;
-- archive/remove the option relationship while preserving Asset and historical identity;
-- restore the archived option in its original family after revalidation;
-- move a non-Original option within the same Case while preserving option identity, caption, exact Questions and reusable opt-ins, but validate the post-move live graph before the ownership change;
-- move an Alternative to always-shown/supporting while archiving the old option identity;
-- reorder options without changing semantics.
-
-### Original semantics
-
-- explicitly designate an eligible Original;
-- change Original before any destructive transition of the old Original;
-- explicit **Start Alternative Set** source-aware creation assigns the known source image as Original atomically;
-- transparent Production fixed-image conversion performed to create an exact/reusable image-specific relationship is also source-aware and must assign the preserved source option as Original in the same coherent atomic mutation;
-- generic sequential option insertion must not infer Original from insert/display order;
-- higher-resolution same-image replacement preserves the stable option identity referenced by Original.
-
-### Question and coverage semantics
-
-- Group Question applies across every eligible option in the family;
-- exact Option Question applies only when that option is selected;
+- Group Question applies across every eligible option in the Family;
+- exact Option Question applies only when that Option is selected;
 - reusable Asset Question applies only through explicit opt-in for the exact current Asset;
 - precedence remains exact Option > reusable Asset > Group > Case > exact Topic > Tag-shared > ancestor;
 - same-Prompt sources within one selectable Family may coexist because precedence resolves them;
-- the same active Prompt must not independently become stimulus-specific in more than one simultaneously selectable active Family in the same Case;
-- inactive Families, inactive Options and `removed_from_case` Options are dormant for live cross-Family Prompt ownership; their relationships remain stored but do not reserve a Prompt until a transition would make them selectable again;
-- any transition that makes dormant content live must validate the resulting cross-Family Prompt graph before learner selection can observe it;
-- family coverage composes additively across independently selected active Families;
-- canonical coverage includes active Group Questions, active exact Option Questions and valid active reusable Asset Question usages with Prompt deduplication;
-- fixed Case count rejects impossible guarantees;
-- Core excludes reusable Asset/Topic/Tag/ancestor inputs while retaining Case/Group/Option knowledge; Expanded uses the full pool.
+- one active Prompt must not independently become stimulus-specific in more than one simultaneously selectable active Family in the same Case;
+- inactive Families, inactive Options and `removed_from_case` Options are dormant for live Prompt ownership;
+- Family coverage composes additively across independently selected active Families;
+- canonical coverage includes Group, exact Option and valid reusable Asset Question Prompt sets with Prompt deduplication;
+- Fixed Case question count rejects impossible guarantees;
+- Core excludes reusable Asset/Topic/Tag/ancestor inputs while retaining Case/Group/exact Option knowledge;
+- Expanded uses the full resolver input.
 
-### Historical provenance
+## Current learner semantics and provenance
 
-- changing Original affects future Reviews, not stored Review snapshots;
-- later Asset replacement keeps old Review Asset/provenance rows readable;
-- moving/archiving current authoring relationships must not rewrite old Review rows.
+For a curated Family with a valid explicit Original:
 
-## Distributed ownership and refactor hazards
+- **Core** chooses the Original;
+- **Expanded** chooses an eligible non-Original Alternative when one exists, otherwise the Original.
 
-### 1. `stimulus-groups.js` is both façade and dependency
+For a legacy `original_option_id = NULL` Family, selection remains random among eligible options in both modes.
 
-Already-extracted modules import its shared error and validation helpers. If the façade simply begins importing every focused module for re-export, circular dependencies are easy to create.
+Eligible learner options remain active, non-removed and backed by active Production Assets. `selection_count` must be exactly `1` for the current learner implementation.
 
-The first implementation extraction should establish downward dependency direction: low-level Stimulus Family errors/eligibility/policy modules must not import the façade; the façade may import and re-export them.
+Question-source loading remains:
 
-### 2. Coverage has one canonical calculation but specialised local simulations
+- active Family-wide Group Questions;
+- active exact Questions for the selected Option;
+- active reusable Asset Questions only through explicit opt-in and exact selected-Asset match.
 
-Canonical coverage in `stimulus-groups.js` accounts for active Group Questions, exact Option Questions, and valid reusable Asset Questions. Restoration explicitly uses that model.
+Review creation still snapshots:
 
-Current option activation and same-Case option-move code use narrower local calculations. This is now a **confirmed correctness defect**, not an open architecture question. The implementation correctness tranche must establish one canonical coverage/eligibility policy and route transitions that make content live, including post-move validation, through it before mechanical extraction relies on that policy.
+- Prompt/answer content and Question source provenance;
+- Asset storage/caption/alt-text state;
+- source Stimulus Family and Option IDs.
 
-### 3. Cross-group Prompt protection is layered but asymmetric
+Later authoring changes do not rewrite historical Review rows.
 
-General ordinary Group/Option Prompt conflicts are application-enforced by `ensurePromptIsNotUsedByAnotherGroup` and rejected by the learner resolver if incompatible groups are selected together. There is no general D1 exact-vs-exact guard for ordinary Questions.
+## Invariant ownership matrix — implemented state
 
-`0009` and `0010` add database defence only for reusable Asset Question paths: opt-in/write conflicts involving reusable usage and reusable-question reactivation. Do not describe those triggers as a database owner of the whole invariant.
+| Invariant | Application owner(s) | Database / schema owner | Learner/read enforcement | Representative coverage |
+| --- | --- | --- | --- | --- |
+| Production operations cannot mutate Preview-owned Case/Asset content | Production eligibility/content guards and production-scoped joins | reusable-question Preview guards; FKs | learner reads Production only | Production/Preview and reusable-image suites |
+| Current Original must be an eligible Option in its own active Production Family | `stimulus-originals.js`; `stimulus-family-live-state.js`; lifecycle/move preflights | `0016` Original triggers | learner uses explicit pointer only against loaded eligible options | Original semantics suites |
+| Current Original cannot be silently removed/deactivated/moved/deleted | option lifecycle, movement and role-conversion preflights | `0016` option update/delete triggers | n/a | Original semantics suites |
+| Asset lifecycle cannot invalidate a protected Original | `asset-replacement.js`; Asset lifecycle operations | `0016` Original Asset guards | n/a | Original + replacement suites |
+| Inactive / `removed_from_case` Options are not learner-selectable | `stimulus-option-lifecycle.js` | persisted state + FKs | `learner-stimulus-families.js` active/non-removed filter | Stimulus/Original suites |
+| Archived restoration revalidates live eligibility/coverage while preserving identity | `stimulus-family-live-state.js`; `stimulus-option-lifecycle.js`; Admin workflow | Original triggers remain final guard | learner sees the row only after valid restoration | reusable restoration + Checkpoint A tests |
+| Reusable Asset Question applies only to exact Asset + explicit Option usage | `asset-questions.js` | `0009` exact-Asset triggers | `learner-stimulus-families.js` exact current Asset match | reusable image suites |
+| Cross-Family live Prompt specificity | `stimulus-family-specificity.js` consumed by ordinary/reusable writers and live-state transitions | no general ordinary exact-vs-exact D1 guard; `0009`/`0010` reusable guards aligned by `0017` | learner resolver rejects incompatible selected-group context | question-scope/reusable + Checkpoint A specificity tests |
+| Canonical coverage is satisfiable for every eligible live option | `stimulus-family-coverage.js` + `stimulus-family-live-state.js` | coverage-mode/check constraints only | `pickReviewQuestions` enforces selected Review coverage | Stimulus/reusable restoration + Checkpoint A tests |
+| Fixed Case count can satisfy active Family guarantees | `stimulus-family-coverage.js`; Case authoring callers | Case mode/count constraints only | `pickReviewQuestions` rejects impossible selected coverage | Stimulus + Checkpoint A tests |
+| Core/Expanded preserves Original/Alternative semantics | n/a mutation side | pointer + lifecycle state | `learner-stimulus-families.js` + `question-pool-mode.ts` | Original semantics suites |
+| Review snapshots preserve historical identity/provenance | stable-identity mutation paths | Review FK/provenance schema | `learning.js` snapshots | Stimulus/Original/replacement suites |
+| Admin, audit and learner reads do not confer shared mutation ownership | purpose-specific read modules | n/a | purpose-specific | façade/boundary + route/module tests |
 
-The application paths are currently not uniform about parent activity. `ensurePromptIsNotUsedByAnotherGroup` requires the ordinary Question row itself to be active and excludes `removed_from_case` options, but it does not filter ordinary Group Questions by `stimulus_groups.is_active` and does not filter ordinary Option Questions by `stimulus_group_options.is_active` or parent Family activity. The reusable application/database paths do apply active Family/Option filtering. `test/stimulus-prompt-specificity-characterisation.test.js` deliberately locks this **current** asymmetry so PR #110 cannot silently change runtime behaviour.
+## Historical pre-refactor baseline and hazards
 
-The reviewed target policy is different: inactive Families/options are dormant for live Prompt ownership, and the transition that makes them selectable must revalidate specificity first. The later correctness tranche must intentionally replace the characterization expectation with target-behaviour regression coverage; mechanical extraction must not make that semantic change implicitly.
+This section is retained because it explains the staged design and the defects Checkpoint A intentionally corrected. It is **historical context**, not the current module map.
 
-Option movement changes `stimulus_group_options.stimulus_group_id` while retaining exact/reusable Question relationships. Current protection does not comprehensively revalidate the ownership change itself. This is a **confirmed invariant bypass**. Production movement must evaluate retained active exact/reusable Prompt IDs in the post-move graph and reject conflicts with the old source Family or any third simultaneously selectable Family while allowing same-Family duplicates in the target.
+### Historical hotspot
 
-### 4. Some fixed-image conversions create a one-option family without curating Original
+Before Checkpoint B, `stimulus-groups.js` combined Family CRUD/read behavior, Option lifecycle, coverage, restoration, ordinary Group/Option Question mutations, specificity validation and the shared error constructor. Several already-focused callers/modules depended on it.
 
-`startStimulusGroupFromCaseAsset` and simple two-image role assignment explicitly curate Original. Fixed-image conversions inside Question-scope/reusable-question workflows currently create the established one-option family shape without an explicit Original update.
+That made a direct “split the large file” refactor unsafe: if the façade imported extracted modules while those modules still imported façade primitives, circular dependencies were likely.
 
-This is a **confirmed Production semantic inconsistency**. These transparent fixed-image conversions have unambiguous source semantics: the fixed image being preserved into the new one-option Family is the source-faithful principal stimulus. The target behaviour is therefore to assign that preserved option as Original atomically. Generic option insertion remains unchanged and must never infer Original from sequence.
+Checkpoint B solved this by moving canonical primitives/policy downward first and leaving `stimulus-groups.js` as a compatibility-only re-export surface.
 
-Do not add a speculative broad cleanup migration. Fix future creation paths first, audit actual Production data, and only then perform a narrowly justified Production-only cleanup if affected rows exist.
+### Historical coverage duplication
 
-### 5. `is_active` and `removed_from_case` must not collapse
+Before Checkpoint A, canonical restoration coverage and narrower local activation/movement simulations did not agree. In particular, the movement simulation omitted valid reusable Asset Questions.
 
-An inactive option remains a current relationship that can be reactivated. A removed option is archived from current Case use and restored through stricter validation. Treating both as a single `active` boolean would break restoration and history.
+Checkpoint A established one Production semantic owner; Checkpoint B moved that owner to `stimulus-family-coverage.js`. The retained local simulation in `image-option-move.js` is Preview-only and must not be mistaken for competing Production coverage policy.
 
-The settled dormant-parent policy does not erase this distinction. Both inactive and removed relationships are excluded from live Prompt ownership, but restoration remains a stronger lifecycle transition than ordinary activation and retains its identity/history semantics.
+### Historical cross-Family Prompt asymmetry
 
-### 6. Stable option identity is observable domain state
+PR #110 characterized an application/database parent-activity asymmetry and an option-movement bypass. The accepted dormant-parent policy plus prospective movement validation intentionally replaced that baseline behavior.
 
-Option ID anchors:
+Database protection remains layered but asymmetric in scope: reusable-path triggers provide defense-in-depth, while general ordinary exact-vs-exact protection remains application-owned.
+
+### Historical fixed-image Original gap
+
+PR #110 identified transparent exact/reusable fixed-image conversions that created a one-option Family without curating the known source as Original. Checkpoint A fixed those source-aware flows and audited Production, finding no rows requiring cleanup.
+
+### Lifecycle and stable identity hazards that remain relevant
+
+`is_active` and `removed_from_case` are still different states. Restoration remains stronger than ordinary activation.
+
+Stimulus Option ID remains observable domain state because it anchors:
 
 - `original_option_id`;
 - exact Option Questions;
 - reusable Asset Question opt-ins;
 - Review source provenance.
 
-Moving, correcting roles and same-image quality replacement must update relationships in place where current behaviour does so.
+Role correction, movement and same-image quality replacement must preserve stable identity where their established contracts require it.
 
-### 7. Read models should remain purpose-specific
+## Test safety net after Checkpoints A and B
 
-Admin authoring, cleanup/audit and learner selection have different eligibility and history needs. Do not replace them with one giant `getStimulusFamily()` aggregate merely to reduce query duplication.
+The existing large behavioral suites remain part of the regression fence, including:
 
-## Resolved correctness decisions for follow-up implementation
+- `test/stimulus-groups.test.js`;
+- `test/original-stimulus-semantics.test.js`;
+- `test/simple-stimulus-curation.test.js`;
+- `test/stimulus-audit.test.js`;
+- `test/stimulus-reusable-coverage-restoration.test.js`;
+- `test/reusable-image-questions.test.js`;
+- `test/reusable-image-question-safety-regression.test.js`;
+- `test/question-scope.test.js`;
+- `test/image-management-v2.test.js`;
+- `test/asset-higher-resolution-replacement.test.js`.
 
-Two independent reviews converged on the following semantic contract. These are **target semantics**, not runtime changes made by PR #110.
+PR #112 adds/updates focused safety coverage including:
 
-1. **Same-Case option move uses canonical post-move coverage.** `image-option-move.js` currently omits valid reusable Asset Questions from its local simulation. Production movement must instead validate the post-move state with the canonical coverage model: active Group Questions, active exact Option Questions, valid active reusable Asset Question usages, Prompt deduplication, `minimum` / `all`, every active Family and Case Fixed-N compatibility. Preserve stable Option/Asset identity, exact Questions, reusable opt-ins, caption and history. Do not route retained Preview behaviour through Production-only guards.
+- `test/stimulus-family-correctness-checkpoint-a.test.js` — target behavior for the settled correctness decisions;
+- `test/stimulus-family-correctness-checkpoint-a-boundaries.test.js` — lifecycle/source-aware/Preview boundary cases;
+- `test/stimulus-family-live-prompt-trigger-alignment.test.js` — `0017` reusable-trigger/live-state alignment;
+- `test/stimulus-prompt-specificity-characterisation.test.js` — intentionally updated from the PR #110 old-state characterization to the implemented dormant-parent policy;
+- `test/stimulus-family-facade-contract.test.js` — compatibility operations, exact error constructor identity, downward façade dependency direction including `asset-questions.js`, and learner independence from Production mutation services.
 
-2. **Reactivation validates the transition that actually makes content live.** `setStimulusOptionActive(..., true)` currently performs a narrower local `minimum` check and omits reusable/fixed-count policy. Any transition that makes content learner-selectable must establish Asset eligibility, cross-Family Prompt specificity, canonical coverage, Fixed-N compatibility and Original integrity where relevant. An option can become active while its Family remains inactive without yet becoming live; in that case Family activation is the decisive full-validation boundary. Archived `removed_from_case` restoration remains the stronger lifecycle operation but should share lower-level live-state validators.
+The boundary test deliberately protects architectural contracts that would otherwise be easy to regress during later maintenance. It does not attempt to ban every remaining compatibility import of `stimulus-groups.js`.
 
-3. **Same-Case movement must revalidate retained Prompt ownership.** Movement intentionally preserves exact Option Questions and reusable Asset Question opt-ins. Before changing Family ownership, evaluate their active Prompt IDs as if the option already belonged to the target Family. Same-Prompt sources inside the target Family are legal under precedence. Conflicts with the old source Family or any third simultaneously selectable active Family are rejected. Use a canonical application-level specificity policy; do not add a movement-specific D1 trigger.
+## Staged implementation record
 
-4. **Source-aware fixed-image conversion assigns Original.** Production conversion from a known fixed `case_assets` source into a one-option Family for exact/reusable image-specific authoring must create the Family with NULL Original as required, create the preserved option, explicitly assign that option as Original, remove the fixed relationship and perform the requested Question/opt-in mutation as one coherent atomic operation where required. Generic insertion continues not to infer Original. After fixing future writes, audit Production; only if affected rows actually exist should cleanup use the conservative Production-only rule: active Family, `original_option_id IS NULL`, exactly one eligible active/non-removed option backed by an active Production Asset, with no inference from order/name/caption/history and Preview excluded.
+### PR #110 — architecture and characterization baseline
 
-5. **Inactive parents are dormant, not live Prompt owners.** Inactive Families, inactive Options and removed Options retain their Question/opt-in relationships but do not participate in the live cross-Family Prompt invariant because they cannot be selected by the learner. Reactivation must validate all content that would become simultaneously selectable before it becomes live. This intentionally replaces the current ordinary/reusable parent-activity asymmetry characterized by PR #110.
+PR #110 established:
 
-Shared constraints for all five changes:
+- the domain/caller/invariant map;
+- the five reviewed correctness decisions;
+- the stable façade/error-identity requirement;
+- the planned dependency direction;
+- characterization coverage needed before sensitive changes.
 
-- preserve Asset and Stimulus Option identity;
-- do not rewrite historical Review snapshots or provenance;
-- do not redesign Preview or Import Package v1;
-- do not add schema/D1 changes unless separately justified as a comprehensive invariant;
-- make correctness changes regression-first and distinguish them from mechanical refactoring.
+It did not implement the five correctness changes itself.
 
-## Recommended semantic boundaries
+### PR #112 Checkpoint A — correctness tranche — accepted
 
-The current coupling and settled target semantics support the following boundaries. These are ownership boundaries, not a mandated one-file-per-box layout.
+Accepted head: `fc7b0e3d1fdc6f8561ecc5d4ccc2d35f950f5dda`.
 
-### Compatibility façade
+Checkpoint A implemented the five reviewed semantics, added `0017` for the narrow reusable-trigger alignment, completed the Production read-only audit and stopped for independent semantic review before decomposition.
 
-`stimulus-groups.js` remains the stable import surface for its existing exports until a deliberate caller migration says otherwise.
+### PR #112 Checkpoint B — mechanical decomposition — accepted
 
-### Production family eligibility / invariant primitives
+Accepted reviewed head after correction: `4ca09338d333603df38f2017b221a9a35c247960`.
 
-Own Production Case/family/option/Asset eligibility and the canonical Stimulus error type. This layer may depend on schema/content guards, but not on routes, the façade, learner orchestration or Preview.
+Checkpoint B:
 
-### Coverage policy
+1. established the canonical error/input/eligibility primitives;
+2. extracted canonical coverage and specificity policy;
+3. extracted prospective live-state composition;
+4. extracted Family and Option lifecycle ownership;
+5. extracted ordinary Stimulus Question mutation ownership and the Admin read model;
+6. isolated learner-purpose Stimulus reads/selection from Review orchestration;
+7. reduced `stimulus-groups.js` to the compatibility façade;
+8. corrected `asset-questions.js` to consume canonical error/specificity downward and added it to the boundary test.
 
-Own the canonical calculation of eligible family-specific Prompt sets and `none` / `minimum` / `all` requirements, plus validation against Case Fixed-N. Specialised mutations must consume this policy rather than grow independent simulations.
+Checkpoint B was structural: it preserved the accepted Checkpoint A semantics.
 
-### Option membership and lifecycle
+## Final Definition-of-Done / merge gate
 
-Own add, fixed→option conversion, deactivate/reactivate, archive/remove, restore and display-order changes. Same-Case cross-family movement remains a related transition that preserves attached questions/opt-ins and therefore must invoke both canonical specificity and coverage policy against the post-move graph.
+The implemented architecture is ready for final review only when all of the following remain true on the exact proposed head:
 
-### Original / role semantics
+- the five accepted correctness semantics above remain implemented and tested;
+- canonical specificity, coverage and prospective live-state validation remain the Production owners rather than new local simulations;
+- Production movement preserves Option/Asset identity, exact Questions, reusable opt-ins, captions and history while validating the post-move graph;
+- live Family/Option transitions establish eligibility, Original integrity, specificity, coverage and Fixed-N compatibility at the transition that makes content selectable;
+- source-aware fixed-image conversions assign explicit Original, while generic insertion does not infer Original;
+- the Production audit result remains recorded as no cleanup required unless later evidence justifies a separately reviewed data operation;
+- dependency direction remains one-way and lower implementation owners do not import the façade;
+- reusable Asset Question ownership continues to consume lower shared policy directly;
+- learner Stimulus reads stay independent of Production mutation services and the façade;
+- the compatibility surface and exact shared `StimulusGroupInputError` identity remain intact;
+- Core/Expanded selection, question precedence, supporting/fixed-image behavior, stable identity and historical Review snapshots/provenance remain unchanged outside the five approved corrections;
+- Production/Preview ownership separation remains intact and Preview is not silently routed through Production mutation guards;
+- Import Package v1 remains unchanged;
+- historical migrations remain immutable and no additional schema/D1 work is added without separate justification;
+- repository-owned full validation passes on the exact final head intended for review/merge;
+- any independent final review has no unresolved correctness, architecture or scope findings.
 
-Own explicit designation and transitions that need an Original precondition. `stimulus-originals.js`, `stimulus-role-conversion.js`, `simple-stimulus-curation.js`, D1 triggers and Asset replacement are already evidence for this boundary. Source-aware fixed-image conversion belongs to the explicit-Original rule; generic insertion does not.
-
-### Stimulus-specific question semantics
-
-Own Group/Option Question writes and the cross-group Prompt policy. Reusable Asset Question canonical ownership remains in `asset-questions.js`, but shared specificity checks should have one lower-level policy direction rather than mutual façade imports. The consolidated target policy is now explicit: only simultaneously selectable active parent relationships reserve live Prompt ownership, and reactivation validates dormant content before it becomes live.
-
-### Read models
-
-Keep separate:
-
-- Production Admin authoring read model;
-- audit/cleanup read model;
-- learner selection/read model.
-
-Learner selection and Review snapshot orchestration should not move into DB mutation modules.
-
-## Target dependency direction
-
-A safe staged direction is:
-
-```text
-schema + content guards
-        ↓
-Stimulus Family error / eligibility / invariant primitives
-        ↓
-coverage policy + specificity policy
-        ↓
-focused family / option / question mutations
-        ↓
-stimulus-groups.js compatibility façade
-        ↓
-Production Admin routes and other existing callers
-```
-
-Parallel consumers:
-
-```text
-schema + pure learner selection/question policy
-        ↓
-learner read model / Review snapshot orchestration
-```
-
-and:
-
-```text
-schema + Preview ownership primitives
-        ↓
-preview-workspace.js façade
-```
-
-A focused internal module must not import `stimulus-groups.js` once `stimulus-groups.js` imports that module. Preserve one-way ownership to avoid circular domain dependencies.
-
-## Test safety net at this baseline
-
-Important existing executable coverage includes:
-
-- `test/stimulus-groups.test.js`: option selection/provenance, inactive exclusion, question precedence, coverage/count interaction, conversion and authoring behaviour;
-- `test/original-stimulus-semantics.test.js`: migration/backfill, source-aware Original creation, Core/Expanded selection, Original correction, D1 guards, move/deactivate/remove protection, supporting-role conversion and historical Review snapshots;
-- `test/simple-stimulus-curation.test.js`: atomic simple role assignment;
-- `test/stimulus-audit.test.js`: Production cleanup read model and D1 bind safety;
-- `test/stimulus-reusable-coverage-restoration.test.js`: reusable Questions in minimum/all restoration coverage and fixed-count rejection;
-- `test/reusable-image-questions.test.js`: exact-Asset semantics, precedence, coverage, provenance, Preview separation and import-package decoupling;
-- `test/reusable-image-question-safety-regression.test.js`: reactivation and scoped removal safety;
-- `test/question-scope.test.js`: exact stimulus scope, atomic fixed-image conversion and cross-group Prompt protection;
-- `test/image-management-v2.test.js`: identity-preserving same-Case option movement, coverage preflight and Production/Preview ownership;
-- `test/asset-higher-resolution-replacement.test.js`: relationship migration, stable option identity, Original preservation, reusable Question cloning/remapping and historical provenance.
-
-The architecture PR adds:
-
-- `test/stimulus-family-facade-contract.test.js` to lock the façade's named compatibility surface and, more importantly, the shared `StimulusGroupInputError` constructor identity used across focused mutations and route error classification;
-- `test/stimulus-prompt-specificity-characterisation.test.js` to lock the **current** inactive-parent asymmetry between ordinary exact-question application checks and reusable Asset-question paths so this documentation-only PR does not silently alter runtime semantics.
-
-The inactive-parent characterization test is not the desired final policy. In the later correctness tranche, add target-behaviour regression coverage first and intentionally update/replace that characterization expectation when the dormant-parent policy is implemented.
-
-The existing large behavioural suites should remain intact during decomposition. Add focused transition tests next to a semantic correction or extraction; do not rewrite unrelated suites to fit a new internal design.
-
-## Single Draft implementation PR programme
-
-After PR #110 merges, the agreed implementation strategy is one long-lived **Draft** PR with explicit correctness and refactor checkpoints. Correctness commits must remain distinguishable from structural commits; do not squash these boundaries early.
-
-### Checkpoint A — correctness tranche
-
-Do not begin mechanical decomposition until this checkpoint is green and independently reviewed as a coherent semantic change set.
-
-1. **Target-behaviour regression scenarios.** Add focused tests for all five settled issues, including current-failure demonstrations where useful. Preserve PR #110's façade contract and use its inactive-parent test as characterization of the old state until the intentional policy change lands.
-2. **Canonical specificity + dormant-parent policy.** Establish one downward application-level policy for live cross-Family Prompt ownership. Only simultaneously selectable active parent relationships reserve a Prompt. Add complete Family/Option live-reactivation validation.
-3. **Canonical coverage/eligibility policy.** Give Group + exact Option + valid reusable Asset Question coverage, Prompt deduplication, `none` / `minimum` / `all`, and Case Fixed-N compatibility one semantic owner.
-4. **Movement correctness.** Route Production same-Case option movement through post-move specificity and canonical post-move coverage while preserving stable identities and retained relationships. Preserve Preview ownership boundaries.
-5. **Option reactivation correctness.** Route any option activation that makes content live through the shared validators; keep Family activation responsible when the option remains dormant inside an inactive Family.
-6. **Source-aware fixed-image Original correction.** Make transparent Production fixed-image conversions assign the preserved option as explicit Original atomically; generic insertion remains unchanged.
-7. **Production data audit.** Inspect actual Production rows after future-write fixes. Add narrowly justified cleanup only if affected one-option uncurated Production Families actually exist; do not add speculative broad migration work.
-
-### Checkpoint B — mechanical decomposition
-
-Only after Checkpoint A is green and reviewed should implementation move responsibilities out of `stimulus-groups.js` against the corrected canonical semantics.
-
-1. establish downward error/eligibility/invariant primitives while preserving façade imports and exact `StimulusGroupInputError` constructor identity;
-2. extract canonical coverage and specificity policy ownership without changing the newly settled behaviour;
-3. extract option membership/lifecycle while preserving stable identity and Original protections;
-4. extract Stimulus-specific Group/Option Question mutation ownership while keeping reusable canonical Question lifecycle in `asset-questions.js`;
-5. extract family lifecycle and the Production Admin read model without inventing a generic repository layer;
-6. isolate a learner-purpose Stimulus Family read/selection adapter without importing mutation services or changing Core/Expanded behavior;
-7. shrink `stimulus-groups.js` to the compatibility façade only after caller/import and dependency-cycle review proves it is safe.
-
-At natural boundaries—especially after specificity/reactivation, coverage/movement, and learner extraction—perform an incremental review rather than waiting for the final PR diff.
-
-### Final PR gate
-
-Keep the implementation PR Draft during intermediate work so repository fast validation can run on staged heads. Once all correctness and decomposition checkpoints are complete, mark it Ready for Review and require repository-owned full validation on the exact final head before merge.
-
-### Final Definition of Done
-
-The implementation PR is acceptable for merge only when **all** of the following are true:
-
-- all five settled correctness decisions are implemented deliberately and covered by focused target-behaviour regression tests;
-- the old inactive-parent characterization has been intentionally updated or replaced only after dormant-parent semantics are implemented, with no accidental weakening or deletion of unrelated regression coverage;
-- cross-Family Prompt specificity has one canonical application-level live-state policy: same-Family precedence remains legal, dormant parents do not reserve live ownership, and every transition that makes content selectable revalidates the resulting graph;
-- coverage/eligibility has one canonical semantic owner including Group Questions, exact Option Questions, valid reusable Asset Questions, Prompt deduplication, `none` / `minimum` / `all`, and Case Fixed-N compatibility; narrower movement/reactivation simulations no longer define competing Production semantics;
-- same-Case Production movement validates the complete post-move specificity and coverage state while preserving Stimulus Option ID, Asset ID, exact Questions, reusable opt-ins, caption and history; retained Preview behavior has not been routed through Production-only mutation guards;
-- live Option/Family reactivation establishes Asset eligibility, specificity, canonical coverage, Fixed-N compatibility and Original integrity at the transition that actually makes the content learner-selectable; archived restoration remains a distinct stronger lifecycle path with shared lower-level validators where appropriate;
-- source-aware Production fixed-image conversions assign the preserved source option as explicit Original atomically, while generic option insertion still never infers Original from order or sequence;
-- the Production data audit has been completed after future-write fixes; any cleanup is evidence-based, Production-only and conservative, or the PR explicitly records that no cleanup was required; Preview is excluded;
-- Checkpoint A was reviewed and green before mechanical decomposition began, and correctness commits remain distinguishable from structural refactor commits in review history;
-- Checkpoint B is complete: dependency direction is one-way, focused internal modules do not create façade cycles, `stimulus-groups.js` has been reduced only as far as caller/import analysis proves safe, and purpose-specific Admin/audit/learner read models remain appropriately separated;
-- the existing compatibility surface remains intact for callers that were not deliberately migrated, including exact shared `StimulusGroupInputError` constructor identity and expected route error classification;
-- learner Core/Expanded selection, question precedence, fixed/supporting image behavior, stable identity rules, and historical Review Asset/Question snapshots and provenance remain unchanged except for the five explicitly approved correctness semantics;
-- Production/Preview ownership separation and Import Package v1 behavior remain unchanged; no unrelated UX, schema, route, import-package or Preview redesign has entered the PR;
-- no new schema/D1 enforcement has been added unless it received separate explicit review as a comprehensive invariant rather than a one-off correctness patch;
-- durable documentation has been updated to describe the implemented final state rather than leaving the five decisions labelled only as future target semantics;
-- all repository-owned tests and validation required by the final implementation are green, with no skipped/disabled tests used to manufacture a pass;
-- the complete final diff has received an independent end-to-end review with no unresolved correctness, architecture or scope findings;
-- the PR is Ready for Review and repository-owned **full validation has passed on the exact head SHA that will be merged**. Any later commit invalidates that acceptance and requires final review/validation again.
-
-If any item above is false, the implementation PR is not done and must not be merged.
-
-## Definition of ready for the next agent
-
-The next implementation agent may begin only if it follows these constraints:
-
-1. treat the five resolved correctness decisions in this document as the target semantic contract, while recognising that PR #110 itself does not implement them;
-2. add/adjust regression coverage deliberately before changing the characterized current behavior;
-3. complete and review the correctness tranche before mechanical decomposition;
-4. preserve the façade's existing exports and exact `StimulusGroupInputError` identity throughout staged extraction;
-5. keep Production and Preview mutation ownership separate;
-6. preserve D1 triggers and schema constraints without assuming they cover invariants they do not actually enforce;
-7. preserve stable Option/Asset IDs and all historical Review snapshots/provenance;
-8. keep generic option insertion distinct from source-aware Original assignment;
-9. do not redesign Preview or Import Package v1;
-10. do not add one-off schema/D1 enforcement unless a separately reviewed comprehensive invariant requires it.
-
-With these constraints, the domain is characterised, the five correctness semantics are settled, and the implementation can proceed in one staged Draft PR without using mechanical refactoring to conceal behaviour changes.
+Do not merge a later, unvalidated head on the strength of validation from an earlier SHA.

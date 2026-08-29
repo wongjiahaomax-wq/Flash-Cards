@@ -16,6 +16,7 @@ import {
   addStimulusOption,
   convertCaseAssetToStimulusOption,
   createStimulusGroup,
+  ensurePromptIsNotUsedByAnotherGroup,
   saveStimulusOptionQuestion,
   setStimulusOptionActive
 } from '../src/lib/server/db/stimulus-groups.js';
@@ -51,7 +52,11 @@ function createLearningDb() {
         bind(...params) {
           return {
             async all() { return { results: sqlite.prepare(sql).all(...params) }; },
-            async raw() { return sqlite.prepare(sql).all(...params).map((row) => Object.values(row)); },
+            async raw() {
+              const statement = sqlite.prepare(sql);
+              statement.setReturnArrays(true);
+              return statement.all(...params);
+            },
             async run() {
               const result = sqlite.prepare(sql).run(...params);
               return { success: true, results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
@@ -299,6 +304,24 @@ test('moving a Case question respects the cross-Alternative-Set prompt invariant
       promptMd: 'What abnormality is present?',
       answerMd: 'Case answer.'
     });
+
+    assert.deepEqual(
+      { ...fixture.sqlite.prepare(`
+        SELECT sg.is_active AS groupActive,
+               sgo.is_active AS optionActive,
+               sgo.removed_from_case AS removedFromCase,
+               soq.is_active AS questionActive
+        FROM stimulus_option_questions soq
+        JOIN stimulus_group_options sgo ON sgo.id = soq.stimulus_group_option_id
+        JOIN stimulus_groups sg ON sg.id = sgo.stimulus_group_id
+        WHERE sgo.id = ? AND soq.question_prompt_id = ?
+      `).get(sourceOptionId, promptId) },
+      { groupActive: 1, optionActive: 1, removedFromCase: 0, questionActive: 1 }
+    );
+    await assert.rejects(
+      ensurePromptIsNotUsedByAnotherGroup(fixture.db, 'seed-anterior-a', promptId, targetGroupId),
+      /same Question Prompt cannot be independently attached to multiple active Stimulus Groups/
+    );
 
     await assert.rejects(
       moveCaseQuestionToStimulusOption(fixture.db, {

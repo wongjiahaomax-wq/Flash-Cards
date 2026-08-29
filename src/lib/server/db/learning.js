@@ -1,36 +1,26 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 
 import {
-  assetQuestions,
   assets,
-  caseAssets,
   caseConcepts,
-  caseQuestions,
   cases,
-  conceptQuestions,
   concepts,
-  questionPrompts,
   reviewAssets,
   reviewQuestions,
-  reviews,
-  stimulusGroupOptions,
-  stimulusGroupQuestions,
-  stimulusGroups,
-  stimulusOptionAssetQuestions,
-  stimulusOptionQuestions
+  reviews
 } from './schema.js';
-import { caseTags, sharedQuestions, tags } from './tag-schema.js';
+import { tags } from './tag-schema.js';
 import { listActiveConceptTaxonomy } from './concept-taxonomy-compat.ts';
 import {
   buildReviewInsertWithOptionalRouteProvenance,
   readReviewWithOptionalRouteProvenance
 } from './review-provenance-compat.ts';
 import { listSystemEligibleCases } from './study-navigation.ts';
+import { loadCaseSource } from './learner-case-source.js';
 import { pickCase } from '../learning/cases.js';
 import {
   QuestionPoolUnavailableError,
-  assertQuestionPoolMode,
-  resolveQuestionPoolForMode
+  assertQuestionPoolMode
 } from '../learning/question-pool-mode.ts';
 import { pickReviewQuestions } from '../learning/questions.js';
 import { resolveCaseStudyCandidates } from '../learning/study-routes.js';
@@ -162,33 +152,6 @@ function pickQuestionsForReview(source, questionPoolMode, rng) {
 }
 
 /**
- * Select the learner stimulus for one family. Curated families use the Original
- * for Core and a non-Original Alternative for Expanded when available. Legacy
- * unassigned families deliberately retain the old random behavior until an
- * Admin curates them.
- * @template T
- * @param {{ originalOptionId: string | null }} group
- * @param {T[]} options
- * @param {QuestionPoolMode} questionPoolMode
- * @param {() => number} rng
- * @returns {T | null}
- */
-function selectStimulusOption(group, options, questionPoolMode, rng) {
-  if (options.length === 0) return null;
-  const original = group.originalOptionId
-    ? options.find((option) => /** @type {{ id?: string }} */ (option).id === group.originalOptionId) ?? null
-    : null;
-  let pool = options;
-  if (original && questionPoolMode === 'core') return original;
-  if (original && questionPoolMode === 'expanded') {
-    const alternatives = options.filter((option) => /** @type {{ id?: string }} */ (option).id !== group.originalOptionId);
-    pool = alternatives.length > 0 ? alternatives : [original];
-  }
-  const boundedRandom = Math.min(Math.max(rng(), 0), 0.9999999999999999);
-  return pool[Math.floor(boundedRandom * pool.length)] ?? null;
-}
-
-/**
  * @param {object} options
  * @param {LearningDb} options.db
  * @param {string} options.userId
@@ -257,12 +220,12 @@ async function createReviewForCase({
       id: newId(),
       reviewId,
       assetId: asset.assetId,
-      displayOrder: asset.displayOrder,
       storageKeySnapshot: asset.storageKey,
       captionSnapshotMd: asset.captionMd,
       altTextSnapshot: asset.altText,
       sourceStimulusGroupId: asset.stimulusGroupId,
-      sourceStimulusOptionId: asset.stimulusOptionId
+      sourceStimulusOptionId: asset.stimulusOptionId,
+      displayOrder: asset.displayOrder
     }))));
   }
   if (typeof db.batch === 'function') await db.batch(writes);
@@ -276,19 +239,9 @@ export async function startReview({ db, userId, conceptId, questionPoolMode, rng
   requiredId(conceptId);
   assertQuestionPoolMode(questionPoolMode);
   const eligibleCases = await listEligibleCases(db, conceptId);
-  const selectedCase = pickCase(eligibleCases, {
-    lastCompletedCaseId: await lastCompletedCaseId(db, userId),
-    rng
-  });
+  const selectedCase = pickCase(eligibleCases, { lastCompletedCaseId: await lastCompletedCaseId(db, userId), rng });
   if (!selectedCase) return null;
-  return createReviewForCase({
-    db,
-    userId,
-    caseId: selectedCase.id,
-    studyConceptId: selectedCase.studyConceptId,
-    questionPoolMode,
-    rng
-  });
+  return createReviewForCase({ db, userId, caseId: selectedCase.id, studyConceptId: selectedCase.studyConceptId, questionPoolMode, rng });
 }
 
 /**
@@ -301,23 +254,12 @@ export async function startReview({ db, userId, conceptId, questionPoolMode, rng
  * @param {QuestionPoolMode} options.questionPoolMode
  * @param {() => number} [options.rng]
  */
-export async function startSystemReview({
-  db,
-  userId,
-  systemId,
-  routeType,
-  routeId = null,
-  questionPoolMode,
-  rng = Math.random
-}) {
+export async function startSystemReview({ db, userId, systemId, routeType, routeId = null, questionPoolMode, rng = Math.random }) {
   requiredId(userId);
   requiredId(systemId);
   assertQuestionPoolMode(questionPoolMode);
   const eligibleCases = await listSystemEligibleCases(db, { systemId, routeType, routeId });
-  const selectedCase = pickCase(eligibleCases, {
-    lastCompletedCaseId: await lastCompletedCaseId(db, userId),
-    rng
-  });
+  const selectedCase = pickCase(eligibleCases, { lastCompletedCaseId: await lastCompletedCaseId(db, userId), rng });
   if (!selectedCase) return null;
   return createReviewForCase({
     db,
@@ -357,311 +299,6 @@ export async function continueReviewWithExpandedLearning({ db, userId, reviewId,
     questionPoolMode: 'expanded',
     rng
   });
-}
-
-/** @param {LearningDb} db @param {string} caseId @param {string} studyConceptId @param {QuestionPoolMode} questionPoolMode @param {() => number} rng */
-async function loadCaseSource(db, caseId, studyConceptId, questionPoolMode, rng) {
-  const caseRows = await db
-    .select({
-      id: cases.id,
-      title: cases.title,
-      vignetteMd: cases.vignetteMd,
-      questionSelectionMode: cases.questionSelectionMode,
-      questionCount: cases.questionCount
-    })
-    .from(cases)
-    .where(and(eq(cases.id, caseId), eq(cases.isActive, true), isNull(cases.previewSessionId)))
-    .limit(1);
-  const caseRow = caseRows[0];
-  if (!caseRow) return null;
-
-  const caseTopicRows = await db
-    .select({ conceptId: caseConcepts.conceptId, role: caseConcepts.role })
-    .from(caseConcepts)
-    .where(eq(caseConcepts.caseId, caseId));
-  const primaryConceptId = caseTopicRows.find((topic) => topic.role === 'primary')?.conceptId;
-  const studyLink = caseTopicRows.find(
-    (topic) => topic.conceptId === studyConceptId && topic.role === 'primary'
-  );
-  if (!primaryConceptId || !studyLink) return null;
-
-  const conceptRows = (await listActiveConceptTaxonomy(db)).map((concept) => ({
-    id: concept.id,
-    name: concept.name,
-    kind: concept.kind,
-    parentId: concept.parentId
-  }));
-  const primaryConcept = conceptRows.find(
-    (concept) => concept.id === primaryConceptId && concept.kind === 'topic'
-  );
-  const studyConcept = conceptRows.find(
-    (concept) => concept.id === studyConceptId && concept.kind === 'topic'
-  );
-  if (!primaryConcept || !studyConcept) return null;
-
-  /** @type {{ id: string, name: string, kind: string, parentId: string | null, distance: number }[]} */
-  const ancestors = [];
-  let parentId = studyConcept.parentId;
-  let distance = 1;
-  while (parentId) {
-    const ancestor = conceptRows.find((concept) => concept.id === parentId);
-    if (!ancestor) break;
-    if (ancestor.kind === 'topic') ancestors.push({ ...ancestor, distance });
-    parentId = ancestor.parentId;
-    distance += 1;
-  }
-
-  const promptRows = await db
-    .select({ id: questionPrompts.id, promptMd: questionPrompts.promptMd })
-    .from(questionPrompts)
-    .where(and(eq(questionPrompts.isActive, true), isNull(questionPrompts.previewSessionId)));
-  const prompts = new Map(promptRows.map((prompt) => [prompt.id, prompt.promptMd]));
-
-  const caseQuestionRows = await db
-    .select({
-      questionPromptId: caseQuestions.questionPromptId,
-      answerMd: caseQuestions.answerMd,
-      isActive: caseQuestions.isActive
-    })
-    .from(caseQuestions)
-    .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.isActive, true)))
-    .orderBy(asc(caseQuestions.createdAt), asc(caseQuestions.questionPromptId));
-  const caseQuestionInputs = caseQuestionRows
-    .filter((question) => prompts.has(question.questionPromptId))
-    .map((question) => ({ ...question, promptMd: prompts.get(question.questionPromptId) ?? '' }));
-
-  const conceptIds = [studyConcept.id, ...ancestors.map((ancestor) => ancestor.id)];
-  const conceptQuestionRows = await db
-    .select({
-      conceptId: conceptQuestions.conceptId,
-      questionPromptId: conceptQuestions.questionPromptId,
-      answerMd: conceptQuestions.answerMd,
-      inheritToDescendants: conceptQuestions.inheritToDescendants,
-      isActive: conceptQuestions.isActive
-    })
-    .from(conceptQuestions)
-    .where(and(eq(conceptQuestions.isActive, true), inArray(conceptQuestions.conceptId, conceptIds)));
-  const studyQuestions = conceptQuestionRows
-    .filter((question) => question.conceptId === studyConcept.id && prompts.has(question.questionPromptId))
-    .map((question) => ({
-      ...question,
-      sourceConceptId: question.conceptId,
-      promptMd: prompts.get(question.questionPromptId) ?? ''
-    }));
-  const ancestorQuestions = conceptQuestionRows
-    .filter((question) => question.conceptId !== studyConcept.id && prompts.has(question.questionPromptId))
-    .map((question) => ({
-      ...question,
-      sourceConceptId: question.conceptId,
-      promptMd: prompts.get(question.questionPromptId) ?? '',
-      distance: ancestors.find((ancestor) => ancestor.id === question.conceptId)?.distance ?? 1
-    }));
-
-  const caseTagRows = await db
-    .select({ tagId: caseTags.tagId })
-    .from(caseTags)
-    .innerJoin(tags, eq(tags.id, caseTags.tagId))
-    .where(and(eq(caseTags.caseId, caseId), eq(tags.isActive, true)));
-  const activeCaseTagIds = caseTagRows.map((row) => row.tagId);
-  const sharedQuestionRows = activeCaseTagIds.length
-    ? await db
-        .select({
-          id: sharedQuestions.id,
-          questionPromptId: sharedQuestions.questionPromptId,
-          answerMd: sharedQuestions.answerMd,
-          reuseScopeTagId: sharedQuestions.reuseScopeTagId,
-          isActive: sharedQuestions.isActive
-        })
-        .from(sharedQuestions)
-        .where(and(eq(sharedQuestions.isActive, true), inArray(sharedQuestions.reuseScopeTagId, activeCaseTagIds)))
-        .orderBy(asc(sharedQuestions.createdAt), asc(sharedQuestions.id))
-    : [];
-  const tagSharedQuestions = sharedQuestionRows
-    .filter((question) => prompts.has(question.questionPromptId))
-    .map((question) => ({
-      ...question,
-      promptMd: prompts.get(question.questionPromptId) ?? '',
-      sourceSharedQuestionId: question.id
-    }));
-
-  const assetRows = await db
-    .select({
-      assetId: assets.id,
-      storageKey: assets.storageKey,
-      altText: assets.altText,
-      sourceLabel: assets.sourceLabel,
-      sourceUrl: assets.sourceUrl,
-      captionMd: caseAssets.captionMd,
-      displayOrder: caseAssets.displayOrder
-    })
-    .from(caseAssets)
-    .innerJoin(assets, eq(assets.id, caseAssets.assetId))
-    .where(and(eq(caseAssets.caseId, caseId), eq(assets.isActive, true), isNull(assets.previewSessionId)))
-    .orderBy(asc(caseAssets.displayOrder));
-
-  const groupRows = await db
-    .select({
-      id: stimulusGroups.id,
-      name: stimulusGroups.name,
-      displayOrder: stimulusGroups.displayOrder,
-      selectionCount: stimulusGroups.selectionCount,
-      originalOptionId: stimulusGroups.originalOptionId,
-      specificQuestionMode: stimulusGroups.specificQuestionMode,
-      minimumSpecificQuestions: stimulusGroups.minimumSpecificQuestions
-    })
-    .from(stimulusGroups)
-    .where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroups.isActive, true)))
-    .orderBy(asc(stimulusGroups.displayOrder), asc(stimulusGroups.id));
-  const groupIds = groupRows.map((group) => group.id);
-  const optionRows = groupIds.length
-    ? await db
-        .select({
-          id: stimulusGroupOptions.id,
-          stimulusGroupId: stimulusGroupOptions.stimulusGroupId,
-          assetId: stimulusGroupOptions.assetId,
-          displayOrder: stimulusGroupOptions.displayOrder,
-          captionMd: stimulusGroupOptions.captionMd,
-          storageKey: assets.storageKey,
-          altText: assets.altText,
-          sourceLabel: assets.sourceLabel,
-          sourceUrl: assets.sourceUrl
-        })
-        .from(stimulusGroupOptions)
-        .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
-        .where(and(
-          inArray(stimulusGroupOptions.stimulusGroupId, groupIds),
-          eq(stimulusGroupOptions.isActive, true),
-          eq(stimulusGroupOptions.removedFromCase, false),
-          eq(assets.isActive, true),
-          isNull(assets.previewSessionId)
-        ))
-        .orderBy(asc(stimulusGroupOptions.displayOrder), asc(stimulusGroupOptions.id))
-    : [];
-
-  /** @type {{ group: typeof groupRows[number], option: typeof optionRows[number] }[]} */
-  const selectedOptions = [];
-  for (const group of groupRows) {
-    if (group.selectionCount !== 1) throw new Error('Only one option per Stimulus Group is supported.');
-    const options = optionRows.filter((option) => option.stimulusGroupId === group.id);
-    const option = selectStimulusOption(group, options, questionPoolMode, rng);
-    if (option) selectedOptions.push({ group, option });
-  }
-
-  const selectedOptionIds = selectedOptions.map(({ option }) => option.id);
-  const groupQuestionRows = groupIds.length
-    ? await db
-        .select({
-          stimulusGroupId: stimulusGroupQuestions.stimulusGroupId,
-          questionPromptId: stimulusGroupQuestions.questionPromptId,
-          answerMd: stimulusGroupQuestions.answerMd,
-          isActive: stimulusGroupQuestions.isActive
-        })
-        .from(stimulusGroupQuestions)
-        .where(and(
-          inArray(stimulusGroupQuestions.stimulusGroupId, groupIds),
-          eq(stimulusGroupQuestions.isActive, true)
-        ))
-    : [];
-  const optionQuestionRows = selectedOptionIds.length
-    ? await db
-        .select({
-          stimulusGroupOptionId: stimulusOptionQuestions.stimulusGroupOptionId,
-          questionPromptId: stimulusOptionQuestions.questionPromptId,
-          answerMd: stimulusOptionQuestions.answerMd,
-          isActive: stimulusOptionQuestions.isActive
-        })
-        .from(stimulusOptionQuestions)
-        .where(and(
-          inArray(stimulusOptionQuestions.stimulusGroupOptionId, selectedOptionIds),
-          eq(stimulusOptionQuestions.isActive, true)
-        ))
-    : [];
-  const reusableRows = selectedOptionIds.length
-    ? await db
-        .select({
-          stimulusGroupOptionId: stimulusOptionAssetQuestions.stimulusGroupOptionId,
-          assetQuestionId: assetQuestions.id,
-          assetId: assetQuestions.assetId,
-          questionPromptId: assetQuestions.questionPromptId,
-          answerMd: assetQuestions.answerMd,
-          isActive: assetQuestions.isActive
-        })
-        .from(stimulusOptionAssetQuestions)
-        .innerJoin(assetQuestions, eq(assetQuestions.id, stimulusOptionAssetQuestions.assetQuestionId))
-        .where(and(
-          inArray(stimulusOptionAssetQuestions.stimulusGroupOptionId, selectedOptionIds),
-          eq(assetQuestions.isActive, true)
-        ))
-    : [];
-
-  const groupQuestions = groupQuestionRows
-    .filter((question) =>
-      prompts.has(question.questionPromptId)
-      && selectedOptions.some(({ group }) => group.id === question.stimulusGroupId)
-    )
-    .map((question) => ({
-      ...question,
-      promptMd: prompts.get(question.questionPromptId) ?? '',
-      stimulusGroupId: question.stimulusGroupId
-    }));
-  const reusableAssetQuestions = reusableRows.flatMap((question) => {
-    const selected = selectedOptions.find(({ option }) => option.id === question.stimulusGroupOptionId);
-    if (!selected || selected.option.assetId !== question.assetId || !prompts.has(question.questionPromptId)) return [];
-    return [{
-      ...question,
-      promptMd: prompts.get(question.questionPromptId) ?? '',
-      sourceAssetQuestionId: question.assetQuestionId,
-      stimulusGroupId: selected.group.id,
-      stimulusOptionId: selected.option.id
-    }];
-  });
-  const optionQuestions = optionQuestionRows.flatMap((question) => {
-    const selected = selectedOptions.find(({ option }) => option.id === question.stimulusGroupOptionId);
-    if (!selected || !prompts.has(question.questionPromptId)) return [];
-    return [{
-      ...question,
-      promptMd: prompts.get(question.questionPromptId) ?? '',
-      stimulusGroupId: selected.group.id,
-      stimulusOptionId: selected.option.id
-    }];
-  });
-  const questionPool = resolveQuestionPoolForMode(questionPoolMode, {
-    caseQuestions: caseQuestionInputs,
-    studyConceptQuestions: studyQuestions,
-    tagSharedQuestions,
-    ancestorConceptQuestions: ancestorQuestions,
-    stimulusGroupQuestions: groupQuestions,
-    assetQuestions: reusableAssetQuestions,
-    stimulusOptionQuestions: optionQuestions
-  });
-
-  const selectedAssets = selectedOptions.map(({ group, option }) => ({
-    assetId: option.assetId,
-    storageKey: option.storageKey,
-    altText: option.altText,
-    sourceLabel: option.sourceLabel,
-    sourceUrl: option.sourceUrl,
-    captionMd: option.captionMd,
-    displayOrder: assetRows.length + group.displayOrder,
-    stimulusGroupId: group.id,
-    stimulusOptionId: option.id
-  }));
-  const groupCoverage = selectedOptions.map(({ group }) => ({
-    groupId: group.id,
-    mode: /** @type {'none'|'minimum'|'all'} */ (group.specificQuestionMode),
-    minimum: group.minimumSpecificQuestions ?? 0
-  }));
-  return {
-    case: caseRow,
-    primaryConcept,
-    studyConcept,
-    questionPool,
-    assets: [
-      ...assetRows.map((asset) => ({ ...asset, stimulusGroupId: null, stimulusOptionId: null })),
-      ...selectedAssets
-    ],
-    groupCoverage
-  };
 }
 
 /** @param {LearningDb} db @param {string} reviewId @param {string} userId */
