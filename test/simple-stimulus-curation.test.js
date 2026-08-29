@@ -105,7 +105,10 @@ test('simple stimulus role assignment atomically turns two ordinary images into 
     const remaining = fixture.sqlite.prepare(`
       SELECT asset_id, display_order FROM case_assets WHERE case_id = 'case-eye' ORDER BY display_order
     `).all();
-    assert.deepEqual(remaining, [{ asset_id: 'asset-c', display_order: 0 }]);
+    assert.deepEqual(
+      remaining.map((row) => ({ asset_id: row.asset_id, display_order: row.display_order })),
+      [{ asset_id: 'asset-c', display_order: 0 }]
+    );
   } finally {
     fixture.sqlite.close();
   }
