@@ -120,7 +120,7 @@
     <div class="assigned-section">
       <div class="assignment-heading">
         <h3>Assigned roles</h3>
-        <p class="muted compact">To reverse the roles, choose a different Original and save. Every other image in that set is an Alternative automatically.</p>
+        <p class="muted compact">Choose a different Original and save to change the principal image. Every other eligible image in that set is an Alternative. To move the current Original to Always shown, make another Alternative the Original first.</p>
       </div>
 
       {#each activeGroups as group, groupIndex (group.id)}
@@ -133,7 +133,7 @@
 
           <div class="existing-options">
             {#each eligible as option (option.id)}
-              <label class="existing-option">
+              <div class="existing-option">
                 <div class="image-identity">
                   {#if option.imageUrl}
                     <img class="thumbnail" src={option.imageUrl} alt={option.altText ?? ''} loading="lazy" />
@@ -148,11 +148,16 @@
                     </span>
                   </div>
                 </div>
-                <span class="choose-original">
-                  <input type="radio" name="option_id" value={option.id} checked={option.id === group.originalOptionId} required />
-                  Use as Original
-                </span>
-              </label>
+                <div class="option-role-actions">
+                  <label class="choose-original">
+                    <input type="radio" name="option_id" value={option.id} checked={option.id === group.originalOptionId} required />
+                    Use as Original
+                  </label>
+                  {#if option.id !== group.originalOptionId}
+                    <button class="button small secondary" type="submit" form={`move-supporting-${option.id}`}>Move to Always shown</button>
+                  {/if}
+                </div>
+              </div>
             {/each}
           </div>
 
@@ -161,27 +166,35 @@
             <button class="button primary" type="submit">Save roles</button>
           </div>
         </form>
+        {#each eligible.filter((option) => option.id !== group.originalOptionId) as option (option.id)}
+          <form id={`move-supporting-${option.id}`} method="POST" action="/admin/stimulus-supporting" class="hidden-role-form">
+            <input type="hidden" name="case_id" value={selectedCase.case.id} />
+            <input type="hidden" name="option_id" value={option.id} />
+          </form>
+        {/each}
       {/each}
     </div>
 
-    {#if supportingAssets.length > 0 && activeGroups.length === 1}
+    {#if supportingAssets.length > 0}
       <div class="unassigned-section">
-        <h3>Always-shown images</h3>
-        <p class="muted compact">These images are not Alternatives yet. Add one to the current set if it should substitute for the Original.</p>
+        <h3>Always-shown images <span class="optional-label">Optional</span></h3>
+        <p class="muted compact">These optional supporting images appear consistently with the Case. They are independent of the Original/Alternative image set.</p>
         <div class="unassigned-list">
           {#each supportingAssets as asset (asset.assetId)}
             <div class="unassigned-row">
               <div class="image-identity">
                 {#if asset.imageUrl}<img class="thumbnail small-thumb" src={asset.imageUrl} alt={asset.altText ?? ''} loading="lazy" />{/if}
-                <div class="image-label"><strong>{asset.originalFilename || asset.captionMd || asset.assetId}</strong></div>
+                <div class="image-label"><strong>{asset.originalFilename || asset.captionMd || asset.assetId}</strong><span class="badge always-shown">Always shown</span></div>
               </div>
-              <form method="POST" action="/admin/stimulus-roles">
-                <input type="hidden" name="intent" value="add-alternative" />
-                <input type="hidden" name="case_id" value={selectedCase.case.id} />
-                <input type="hidden" name="group_id" value={activeGroups[0].id} />
-                <input type="hidden" name="asset_id" value={asset.assetId} />
-                <button class="button small secondary" type="submit">Make Alternative</button>
-              </form>
+              {#if activeGroups.length === 1}
+                <form method="POST" action="/admin/stimulus-roles">
+                  <input type="hidden" name="intent" value="add-alternative" />
+                  <input type="hidden" name="case_id" value={selectedCase.case.id} />
+                  <input type="hidden" name="group_id" value={activeGroups[0].id} />
+                  <input type="hidden" name="asset_id" value={asset.assetId} />
+                  <button class="button small secondary" type="submit">Make Alternative</button>
+                </form>
+              {/if}
             </div>
           {/each}
         </div>
@@ -223,13 +236,17 @@
   .existing-role-form { margin-top: 0.8rem; padding: 0.8rem; border: 1px solid #e4e7ec; border-radius: 9px; }
   .set-label { margin-bottom: 0.55rem; color: #475467; font-size: 0.76rem; font-weight: 750; }
   .existing-options { display: grid; gap: 0.55rem; }
-  .existing-option { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.55rem; border-radius: 8px; cursor: pointer; }
+  .existing-option { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.55rem; border-radius: 8px; }
   .existing-option:has(input:checked) { background: #f5f8ff; }
-  .choose-original { display: flex; gap: 0.45rem; align-items: center; flex: 0 0 auto; font-size: 0.84rem; font-weight: 650; }
+  .option-role-actions { display: flex; flex: 0 0 auto; gap: 0.5rem; align-items: center; }
+  .choose-original { display: flex; gap: 0.45rem; align-items: center; flex: 0 0 auto; font-size: 0.84rem; font-weight: 650; cursor: pointer; }
   .badge { display: inline-flex; width: fit-content; padding: 0.22rem 0.48rem; border-radius: 999px; background: #f2f4f7; color: #344054; font-size: 0.72rem; font-weight: 700; }
   .badge.original { background: #ecfdf3; color: #027a48; }
+  .badge.always-shown { margin-top: 0.2rem; background: #f2f4f7; color: #475467; }
   .role-badge { margin-top: 0.25rem; }
+  .optional-label { margin-left: 0.25rem; color: #667085; font-size: 0.76rem; font-weight: 500; }
   .compact-save { margin-top: 0.65rem; }
+  .hidden-role-form { display: none; }
   .unassigned-section { padding-top: 0.9rem; border-top: 1px solid #e4e7ec; }
   .unassigned-list { display: grid; gap: 0.5rem; margin-top: 0.7rem; }
   .unassigned-row { padding: 0.55rem 0; border-top: 1px solid #f0f2f5; }
@@ -244,7 +261,8 @@
     .role-row { grid-template-columns: 1fr 1fr; gap: 0.65rem; }
     .role-row .image-identity { grid-column: 1 / -1; }
     .role-choice { justify-content: flex-start; min-height: 44px; padding: 0.35rem; border: 1px solid #e4e7ec; border-radius: 7px; }
-    .save-row .button, .choose-original, .unassigned-row form, .unassigned-row .button { width: 100%; }
+    .save-row .button, .choose-original, .option-role-actions, .unassigned-row form, .unassigned-row .button { width: 100%; }
+    .option-role-actions { align-items: stretch; flex-direction: column; }
     .choose-original { min-height: 44px; }
     .thumbnail { width: 70px; height: 60px; }
   }
