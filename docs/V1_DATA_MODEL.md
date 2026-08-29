@@ -1,10 +1,10 @@
 # Flash-Cards — V1 Data Model
 
-_Last updated: 25 August 2026_
+_Last updated: 28 August 2026_
 
-This document records the implemented V1 application data model represented by the repository after the contextual System/Topic/Tag navigation and Primary-Topic-only Case behavior changes. It should agree with the current Drizzle schema, committed D1 migrations, and subsystem invariant documents.
+This document records the implemented V1 application data model represented by the repository after the contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, and Original/Alternative stimulus changes. It should agree with the current Drizzle schema, committed D1 migrations, and subsystem invariant documents.
 
-A migration file being committed is not proof that it has been applied to production D1. Merge status, production migration application, Worker deployment, taxonomy curation, learner feature enablement, and behavior verification remain separate operational facts.
+A migration file being committed is not proof that it has been applied to production D1. Merge status, production migration application, Worker deployment, taxonomy/stimulus curation, learner feature enablement, and behavior verification remain separate operational facts.
 
 ## 1. Migration ledger and deployment boundary
 
@@ -27,6 +27,7 @@ The repository migration sequence contains:
 0013_review_assets_asset_lookup.sql
 0014_review_question_pool_mode.sql
 0015_contextual_system_topic_tag_navigation.sql
+0016_original_stimulus_options.sql
 ```
 
 Relevant later migrations:
@@ -37,11 +38,14 @@ Relevant later migrations:
 - `0012` — `stimulus_group_options.removed_from_case`, separating archived removal from ordinary `is_active` deactivation;
 - `0013` — `review_assets(asset_id, review_id)` index for Asset-leading historical Review existence/count lookups used by Image Library lifecycle classification;
 - `0014` — non-null `reviews.question_pool_mode`, defaulting historical Reviews to `expanded`, matching the pre-feature full resolver behavior without rebuilding snapshots;
-- `0015` — `concepts.kind`, contextual `system_tags`, taxonomy/relationship guards, effective Review System/Tag provenance, and learner-selected System navigation provenance.
+- `0015` — `concepts.kind`, contextual `system_tags`, taxonomy/relationship guards, effective Review System/Tag provenance, and learner-selected System navigation provenance;
+- `0016` — nullable `stimulus_groups.original_option_id`, conservative production-only Original backfill, and defensive Original-integrity guards.
 
 `0015` defaults all existing Concepts to `kind = 'topic'` and all historical Reviews to `route_type = 'topic'` with null System/Tag and selected-navigation provenance. It does not rewrite `review_questions` or `review_assets` snapshots.
 
-No new migration is required to retire Additional Study Topics from current product behavior. `src/lib/server/db/schema.js` remains the authoritative post-0015 Drizzle model loaded by `drizzle.config.js`, and the historical physical `case_concepts.role = primary | secondary` shape remains unchanged. Current application read/write paths treat only `role = 'primary'` as behaviorally active.
+`0016` does not claim that every existing family has a known Original. It assigns an Original only to an unambiguous eligible one-option **production** family, leaves ambiguous legacy multi-option production families uncurated with `original_option_id = NULL`, and leaves retained Preview-owned families uncurated. It does not rewrite historical Review snapshots. The migration also prevents creating a group with an arbitrary non-null Original pointer; a family is inserted with `original_option_id = NULL`, then an eligible option is inserted/restored and an explicit validated update assigns the Original.
+
+No new migration is required to retire Additional Study Topics from current product behavior. `src/lib/server/db/schema.js` remains the authoritative post-0016 Drizzle model loaded by `drizzle.config.js`, and the historical physical `case_concepts.role = primary | secondary` shape remains unchanged. Current application read/write paths treat only `role = 'primary'` as behaviorally active.
 
 ## 2. General design rules
 
@@ -62,6 +66,7 @@ No new migration is required to retire Additional Study Topics from current prod
 15. System/Tag learner navigation chooses Case entry context; it does not replace canonical Topic-question resolution.
 16. A Review distinguishes the learner-selected System route from the effective Topic/Tag provenance that actually selected its Case.
 17. A current learner-presentable Case has exactly one behaviorally active canonical Primary Topic; alternate/cross-cutting classification uses Case Tags rather than Additional Study Topics.
+18. A curated stimulus family has an explicit Original pointer; insertion/display order, filename, caption, naming, or Review history must never be treated as implicit Original semantics.
 
 ## 3. Authentication and Preview ownership
 
@@ -70,6 +75,8 @@ Better Auth owns authentication/session/account tables. Application role concept
 `preview_sessions` provides durable ownership/lifecycle state for disposable Preview content. Production Cases/Assets/Prompts have `preview_session_id = NULL`; Preview-owned equivalents carry a session ID where supported.
 
 Global Systems, Topics, Tags, Shared Questions, and Reusable Image Questions are production-curated. Preview may read global taxonomy/Tags, but Preview does not own or mutate those global structures.
+
+The retained legacy Preview Admin subsystem is outside issue #105's Original/Alternative authoring feature. Migration `0016` therefore does not backfill Preview stimulus families with an Original merely because a family has one option. Preview families may continue with `original_option_id = NULL`, preserving their existing editing behavior and ownership boundaries.
 
 Higher-resolution replacement is production-only. Preview-owned Assets cannot be source Assets, and a production Asset referenced by a live Preview workspace temporarily blocks replacement rather than causing Preview relationships to be rewritten.
 
@@ -237,7 +244,7 @@ The relationship carries Case-specific order/caption; global Asset metadata rema
 
 Higher-resolution replacement updates current production `asset_id` A → B in place while preserving Case/order/caption.
 
-## 7. Alternative Sets and option archive state
+## 7. Alternative Sets, Original selection, and option archive state
 
 ### `stimulus_groups`
 
@@ -249,10 +256,40 @@ display_order
 selection_count
 specific_question_mode none | minimum | all
 minimum_specific_questions
+original_option_id nullable -> stimulus_group_options.id (same family, eligible when curated)
 is_active
 created_at
 updated_at
 ```
+
+`original_option_id` is the explicit canonical principal stimulus for a curated family. It is nullable because legacy ambiguous production families and retained Preview families may remain uncurated.
+
+For an active curated production family:
+
+```text
+Core / question_pool_mode = core
+→ select original_option_id
+
+Expanded / question_pool_mode = expanded
+→ select an eligible active, non-removed, non-Original Alternative when one exists
+→ otherwise fall back to original_option_id
+```
+
+For a legacy family with `original_option_id = NULL`, selection preserves the pre-0016 random eligible-option behavior. The application must not infer an Original from option insertion order, display order, filename, caption, name, or historical Review selection.
+
+A new group is created with `original_option_id = NULL`. The option must exist and be eligible before an explicit validated update may assign it as Original. Source-aware authoring may perform these steps atomically when the semantics are unambiguous. In particular, **Start Alternative Set** from an ordinary Case image A means A is the explicit source/principal image, so the domain operation creates the family, preserves A's Asset/caption relationship as the new option, assigns that exact option as Original, and only then removes the ordinary `case_assets` relationship. Generic sequential option insertion remains order-agnostic and never promotes “first inserted” by convention.
+
+Changing a mistaken Original is pointer reassignment, not identity replacement:
+
+```text
+Original A
+→ add B to the same family
+→ Make Original on B
+→ B becomes Original; A becomes an ordinary Alternative
+→ A may then remain, be deactivated, be removed from the Case, or move to Always shown/supporting
+```
+
+Destructive/moving operations against the current Original must fail at the application/domain layer with an actionable validation error before the write. Database triggers remain defense in depth. This includes deactivation, Remove from Case, moving to another family, and Alternative → Always shown/supporting conversion.
 
 ### `stimulus_group_options`
 
@@ -267,7 +304,7 @@ removed_from_case
 created_at
 ```
 
-Current learner selection considers active, non-removed options in active groups. Stimulus Option ID is stable exact Case/stimulus-context identity.
+Current learner selection considers active, non-removed options backed by active Assets in active groups. Stimulus Option ID is stable exact Case/stimulus-context identity.
 
 `is_active` and `removed_from_case` are deliberately different:
 
@@ -278,7 +315,7 @@ Re-adding the same Asset to its original group can restore that archived relatio
 
 Removing an option does not delete the Asset, R2 object, exact-option questions, Reusable Image Questions, or Review rows.
 
-Higher-resolution replacement changes a current production option's `asset_id` A → B without changing the option ID.
+Higher-resolution replacement changes a current production option's `asset_id` A → B without changing the option ID or the family's `original_option_id` pointer when that option is Original.
 
 ## 8. Question Prompt
 
@@ -366,7 +403,7 @@ PRIMARY KEY (stimulus_group_option_id, asset_question_id)
 
 The option Asset and Asset Question Asset must match. Removing one opt-in changes only that exact usage.
 
-When a currently fixed image needs an exact-image question or reusable-image opt-in, authoring may atomically convert it to a one-option active Stimulus Group while preserving Asset/caption/effective learner visibility.
+When a currently fixed image needs an exact-image question or reusable-image opt-in, authoring may atomically convert it to a one-option active Stimulus Group while preserving Asset/caption/effective learner visibility. Where the conversion workflow is explicitly source-aware and unambiguous, it may assign that preserved option as Original; generic option insertion itself still never infers Original from sequence.
 
 `source_type = asset` is a reusable source and is eligible only for Expanded Learning. Case-specific exact-image questions remain `stimulus_option` and therefore belong to Original/Core.
 
@@ -466,6 +503,8 @@ expanded / Expanded Learning
 
 The mode is applied to resolver inputs, not already-resolved output. Expanded remains the regression baseline for pre-feature learner question-pool behavior.
 
+Stimulus-family selection is also mode-aware as described in section 7: a curated family uses its explicit Original for Core and substitutes an eligible non-Original Alternative for Expanded when possible. This selection is frozen before question resolution and follows the option actually snapshotted into the Review.
+
 System/Tag routing happens before this question pipeline. Current Topic routes and Tag routes both pass the selected Case's canonical Primary Topic as `study_concept_id`. A Tag may make Tag-scoped Shared Questions eligible, but it does not substitute an alternate direct Topic bank.
 
 Historical or development Review rows may retain a different `study_concept_id` from the retired multi-Topic model; stored history is not rewritten by this behavior change.
@@ -478,7 +517,7 @@ Import Package v1 retains the `secondaryTopicIds` field for package-shape compat
 
 Reviewed source-derived questions continue to become Case Questions, which is exactly the ownership used for Original/Core eligibility.
 
-Tags, Reusable Image Questions, option archival, Asset supersession, learner question-pool mode, and System navigation remain later authoring/learner layers unless explicitly included by their own reviewed import contract.
+Tags, Reusable Image Questions, option archival, Asset supersession, learner question-pool mode, System navigation, and Original/Alternative curation remain later authoring/learner layers unless explicitly included by their own reviewed import contract. Reviewed imports must not guess an Original from filenames, order, captions, or image similarity.
 
 ## 15. Reviews
 
@@ -521,7 +560,7 @@ Stored Reviews created under older development/multi-Topic behavior may legitima
 study_concept_id != primary_concept_id
 ```
 
-That stored provenance remains readable. This PR does not rewrite Review rows or immutable Review Question/Asset snapshots. The application has not yet been rolled out to learners, so no learner-facing data migration is required for this behavior change.
+That stored provenance remains readable. Original reassignment, option role conversion, migration `0016`, and current authoring do not rewrite Review rows or immutable Review Question/Asset snapshots. Changing Original affects future Review creation only.
 
 `question_pool_mode` records which source family was eligible when the immutable Review snapshot was created. It is per Review start and is not a persistent learner preference.
 
@@ -653,7 +692,7 @@ source_stimulus_group_id
 source_stimulus_option_id
 ```
 
-`storage_key_snapshot` is authoritative historical media identity.
+`storage_key_snapshot` is authoritative historical media identity. `source_stimulus_option_id` records the exact option selected when the Review was created; later Original reassignment cannot change that historical choice.
 
 The authenticated Review-owned media route verifies learner ownership and serves only the snapshotted R2 key, even when the referenced Asset is now inactive/superseded. It uses owner-specific revalidation semantics rather than the ordinary active-Asset route's long-lived current-media cache behavior.
 
@@ -665,7 +704,7 @@ review_assets_asset_review_idx (asset_id, review_id)
 
 This supports Asset-leading historical usage existence/count queries used by Image Library lifecycle views. It does not change Review ownership or snapshot semantics.
 
-A same-Case Original → Expanded continuation creates a new immutable Review using normal current stimulus selection; fixed/one-option stimuli naturally remain stable while a multi-option group may choose a different active option.
+A same-Case Original → Expanded continuation creates a new immutable Review using normal current stimulus selection; fixed/one-option stimuli naturally remain stable while a curated multi-option group may choose an eligible Alternative in Expanded mode.
 
 ## 18. Higher-resolution replacement invariant
 
@@ -686,6 +725,8 @@ new Asset B
 + old Asset A inactive/superseded
 ```
 
+A group whose Original is that preserved option continues to point to the same Stimulus Option ID. Higher-resolution replacement therefore changes Asset identity for the better-quality copy but does not change the family Original pointer or contextual option/question identity. A genuinely different image is not a quality replacement; add it as a separate Alternative and use Make Original if it should become canonical.
+
 Old Asset Questions and old R2 bytes remain for historical provenance. Existing Review rows are never rewritten.
 
 R2 and D1 are not a shared transaction: the new object is uploaded first; if the D1 semantic batch fails, the new object alone is cleaned up. A conditional claim makes concurrent/double source replacement fail closed.
@@ -702,7 +743,7 @@ Focused internal modules own Session lifecycle, ownership/security, Case lifecyc
 
 The complete Case clone transaction remains cohesive in `preview-workspace/case.js`, including clone-time child graph copying. It copies only the canonical Primary Topic plus Case Tags; legacy secondary Topic rows are intentionally not recreated. Alternative Set/question/cleanup extraction remains staged future refactoring.
 
-Preview may replace its canonical Topic. Deprecated secondary-Topic Preview helpers fail closed. Existing secondary rows in an older disposable Preview workspace remain compatibility data rather than active authoring relationships. Preview does not gain System, hierarchy, Tag, or System↔Tag global mutation authority. Production/Preview ownership rules otherwise remain unchanged.
+Preview may replace its canonical Topic. Deprecated secondary-Topic Preview helpers fail closed. Existing secondary rows in an older disposable Preview workspace remain compatibility data rather than active authoring relationships. Preview does not gain System, hierarchy, Tag, System↔Tag, or Original/Alternative global mutation authority. Migration `0016` deliberately leaves retained Preview stimulus families uncurated so existing Preview editing is not blocked by production Original integrity semantics. Production/Preview ownership rules otherwise remain unchanged.
 
 ## 20. Relationship overview
 
@@ -721,6 +762,7 @@ concepts
 cases
   ├── case_assets ── assets
   ├── stimulus_groups
+  │   ├── original_option_id ── stimulus_group_options [nullable; same family]
   │   ├── stimulus_group_questions ── question_prompts
   │   └── stimulus_group_options ── assets
   │       ├── stimulus_option_questions ── question_prompts
@@ -783,6 +825,8 @@ The current schema intentionally does **not** imply:
 - automatic Case Tag → Question Tag inheritance;
 - automatic System Tag exposure from Case Tags;
 - automatic reusable-image opt-in;
+- automatic Original inference from option insertion/display order, filename, caption, name, or Review history;
+- mandatory Original assignment for retained Preview families;
 - generic Asset families/version tables;
 - automatic visual similarity/deduplication;
 - physical deletion merely because an Asset is classified Unused;

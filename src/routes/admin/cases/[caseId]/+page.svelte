@@ -12,6 +12,7 @@
   import CasePreviewSection from '$lib/components/case-editor/CasePreviewSection.svelte';
   import CaseQuestionsSection from '$lib/components/case-editor/CaseQuestionsSection.svelte';
   import CaseTopicsSection from '$lib/components/case-editor/CaseTopicsSection.svelte';
+  import StimulusOriginalsPanel from '$lib/components/case-editor/StimulusOriginalsPanel.svelte';
 
   /** @typedef {{ imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, assetId?: string }} ViewableAsset */
   /** @typedef {'classic' | 'compact'} CaseEditorLayout */
@@ -63,6 +64,7 @@
     <CaseTopicsSection {selectedCase} concepts={data.concepts} systems={data.systems} {primaryTopic} previewMode={data.previewMode} {editorLayout} />
     <CaseDetailsSection {selectedCase} {primaryTopic} {editorLayout} />
     <CaseImagesSection {selectedCase} previewMode={data.previewMode} {editorLayout} {editorBase} onimageopen={showImage} />
+    {#if !data.previewMode}<StimulusOriginalsPanel {selectedCase} />{/if}
     <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} status={data.status} removedQuestionPromptId={data.removedQuestionPromptId} {editorLayout} />
     {#if editorLayout === 'compact'}<CaseQuestionAudit rows={caseQuestionAudit} onimageopen={showImage} />{/if}
     <CasePreviewSection previewMode={data.previewMode} />

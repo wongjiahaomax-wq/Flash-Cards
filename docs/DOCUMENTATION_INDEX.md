@@ -21,7 +21,7 @@ An old PR instruction, stale status banner, rollout note, staged-refactor plan, 
 
 ## Current repository baseline
 
-At this refresh, current `main` is through merged PR #106.
+At this refresh, current `main` is through merged PR #106. Draft PR #108 adds the Original/Alternative stimulus model described below; its presence on this branch is not evidence that it has merged, been migrated in production, or been deployed.
 
 Important post-PR-#90 merged changes include:
 
@@ -56,20 +56,23 @@ Do not infer Topic→Tag conversion from matching names/labels. Clinically usefu
 
 ## Repository migration boundary
 
-The repository migration sequence currently extends through:
+On this PR branch, the repository migration sequence extends through:
 
 ```text
-0015_contextual_system_topic_tag_navigation.sql
+0016_original_stimulus_options.sql
 ```
 
 Important recent migrations:
 
 - `0014_review_question_pool_mode.sql` — Original/Core versus Expanded Review source-mode provenance;
-- `0015_contextual_system_topic_tag_navigation.sql` — System/Topic taxonomy, System↔Tag exposure, and System-route Review provenance.
+- `0015_contextual_system_topic_tag_navigation.sql` — System/Topic taxonomy, System↔Tag exposure, and System-route Review provenance;
+- `0016_original_stimulus_options.sql` — nullable `stimulus_groups.original_option_id`, conservative production-only Original backfill, and defensive Original-integrity guards.
+
+Migration `0016` leaves ambiguous legacy multi-option production families and retained Preview-owned families with `original_option_id = NULL`; it does not infer Original from ordering or labels. See `ORIGINAL_AND_ALTERNATIVE_STIMULI.md` and `V1_DATA_MODEL.md` for the current branch contract.
 
 There is intentionally no new migration solely for retiring Additional Study Topics.
 
-A committed migration is not proof that it has been applied to production. Merge, migration application, Worker deployment, taxonomy/data curation, learner feature enablement, and behavior verification are separate facts.
+A committed migration is not proof that it has been applied to production. Merge, migration application, Worker deployment, taxonomy/data/stimulus curation, learner feature enablement, and behavior verification are separate facts.
 
 ## Start here — living authorities
 
@@ -91,7 +94,7 @@ Current V1 product behavior specification. Exact implementation status of later 
 
 ### `V1_DATA_MODEL.md`
 
-Authoritative implemented domain model, including the physical compatibility shape of `case_concepts`, current Primary-Topic behavior, Tags/System exposure, question-pool modes, Review provenance, Preview ownership, and migration ledger.
+Authoritative implemented domain model for the current branch, including the physical compatibility shape of `case_concepts`, current Primary-Topic behavior, Tags/System exposure, Original/Alternative stimulus relationships, question-pool modes, Review provenance, Preview ownership, and migration ledger.
 
 ### `AUTHORING_MODEL.md`
 
@@ -160,7 +163,8 @@ Case Tags additionally carry alternate/cross-cutting Case classification and may
 ## Admin/content management
 
 - `ADMIN_CONTENT_MANAGEMENT_PLAN.md` — Admin CMS contract/history.
-- `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` — Case/Image authoring and lifecycle interaction contract.
+- `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` — Case/Image authoring and lifecycle interaction contract; PR #108 extends it with source-aware Original curation and safe correction/removal ordering.
+- `ORIGINAL_AND_ALTERNATIVE_STIMULI.md` — PR #108's authoritative Original/Alternative family semantics, learner selection, migration/backfill, correction workflow, and Preview boundary.
 - `CASE_EDITOR_FAST_REVIEW_DESIGN.md` — Compact editor fast-review record.
 - `IMAGE_MANAGEMENT_V2_PLAN.md` — Image Library/Collections behavior record.
 - `REUSABLE_IMAGE_QUESTIONS.md` — exact-Asset reusable-question semantics.
@@ -181,8 +185,13 @@ Public signup remains intentionally disabled unless a separately reviewed produc
 
 ## Stimulus behavior
 
-- `STIMULUS_GROUPS_DESIGN.md` — Alternative Sets, contextual questions, coverage, and resolver/count-mode interaction.
-- `V1_DATA_MODEL.md` / `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` — current `removed_from_case` semantics. **Deactivate** and **Remove from Case** remain distinct.
+- `ORIGINAL_AND_ALTERNATIVE_STIMULI.md` — explicit Original pointer and Core/Expanded family-selection semantics. Curated Core uses Original; Expanded substitutes an eligible non-Original Alternative when available, otherwise Original; legacy `NULL` families retain random eligible-option selection.
+- `STIMULUS_GROUPS_DESIGN.md` — Alternative Sets, contextual questions, coverage, resolver/count-mode interaction, and identity-preserving movement/replacement.
+- `V1_DATA_MODEL.md` / `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` — current `original_option_id` plus `removed_from_case` semantics. **Make Original**, **Deactivate**, **Move**, **Move to Always shown**, and **Remove from Case** must preserve the ordering/integrity rules around the current Original.
+
+Generic option insertion must not infer Original from insertion/display order. The source-aware **Start Alternative Set** operation is different: when the Admin explicitly starts a family from ordinary image A, A is the unambiguous principal source and is assigned as the family's Original atomically.
+
+Higher-resolution replacement is only a better-quality copy of the same underlying image. It preserves the stable Stimulus Option ID and therefore preserves an Original pointer to that option. Correcting a genuinely wrong Original uses normal Alternative authoring: add B, Make Original B, then optionally deactivate/remove/move A.
 
 ## Reviewed imports / Anki / slide review
 
@@ -208,6 +217,8 @@ For review bundles, do not copy arbitrary review-map fields from an old extracti
 Preview backend decomposition is intentionally paused after PRs #80/#82/#83 and the PR #92 workflow decision. Do not continue the former PR2D/PR2E/PR2F sequence merely because historical planning material names it.
 
 Preview cloning copies the canonical Primary Topic and Case Tags, not legacy secondary Topic rows. Preview shares global production Topics/Tags read-only and does not gain global Tag/System mutation authority.
+
+Issue #105's Original/Alternative authoring UX is production Admin + learner Review only. Migration `0016` deliberately does not auto-curate retained Preview stimulus groups, so an existing one-option Preview family does not unexpectedly acquire a protected Original that Preview has no UI to manage.
 
 ## Cloudflare / operations / local development
 
@@ -292,7 +303,7 @@ Do not expand schema/taxonomy merely for conceptual completeness.
 4. Keep migration presence, production migration application, Worker deployment, curation, feature enablement, and behavior verification as separate facts.
 5. Preserve historical decision records, but label their current status clearly in the index when their original banner is phase-specific.
 6. If a future production data change is needed, use explicit reviewed identifiers and verification; never infer clinical mapping from matching labels.
-7. Keep terminology consistent: System, Topic, Case, Tag, Asset, Collection, Question Prompt, Shared Question, Reusable Image Question.
+7. Keep terminology consistent: System, Topic, Case, Tag, Asset, Collection, Question Prompt, Shared Question, Reusable Image Question, Stimulus Group, Stimulus Option, Original, Alternative.
 8. Behavior-preserving refactors should update ownership/routing docs when future agents need a new file/module boundary.
 9. Do not keep a historical staged-refactor sequence alive after its workflow/value assumption has changed.
 10. For machine-consumed artifacts, executable validators/schemas outrank copied examples in prose prompts.

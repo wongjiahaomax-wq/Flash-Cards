@@ -29,7 +29,8 @@ const migrationNames = [
   '0012_archive_stimulus_options.sql',
   '0013_review_assets_asset_lookup.sql',
   '0014_review_question_pool_mode.sql',
-  '0015_contextual_system_topic_tag_navigation.sql'
+  '0015_contextual_system_topic_tag_navigation.sql',
+  '0016_original_stimulus_options.sql'
 ];
 
 const migrationSql = migrationNames
@@ -71,7 +72,9 @@ function createContextualDb() {
               return { results: sqlite.prepare(sql).all(...params) };
             },
             async raw() {
-              return sqlite.prepare(sql).all(...params).map((row) => Object.values(row));
+              const statement = sqlite.prepare(sql);
+              statement.setReturnArrays(true);
+              return statement.all(...params);
             },
             async run() {
               const result = sqlite.prepare(sql).run(...params);

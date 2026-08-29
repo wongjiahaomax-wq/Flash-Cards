@@ -1,5 +1,4 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import { and, eq } from 'drizzle-orm';
 
 import { AdminContentInputError, createCaseTopic, listActiveSystems, listAdminConcepts } from '$lib/server/db/admin-content.js';
 import { createAssetFromUpload, AssetLibraryInputError } from '$lib/server/db/asset-library.js';
@@ -10,8 +9,7 @@ import { listCaseQuestions } from '$lib/server/db/case-questions.js';
 import { listProductionCaseTags } from '$lib/server/db/case-tag-read.ts';
 import { AdminImageWorkflowInputError, attachAssetsToCase, bulkAddAssetsToStimulusGroup, listCaseImagePicker, updateStimulusOptionCaption, validateStimulusGroupTargetForNewAssets } from '$lib/server/db/admin-image-workflow.js';
 import { createDb } from '$lib/server/db/index.js';
-import { caseAssets, stimulusGroups } from '$lib/server/db/schema.js';
-import { convertCaseAssetToStimulusOption, createStimulusGroup, getAdminStimulusData, StimulusGroupInputError } from '$lib/server/db/stimulus-groups.js';
+import { getAdminStimulusData, startStimulusGroupFromCaseAsset, StimulusGroupInputError } from '$lib/server/db/stimulus-groups.js';
 import { getTeachingImageUrl, MediaStorageLimitError } from '$lib/server/storage/media.js';
 import { assignPrimaryTopicToSystem, TaxonomyInputError } from '$lib/server/db/taxonomy-admin-write.ts';
 import { actions as parentActions } from '../../+page.server.js';
@@ -143,9 +141,8 @@ export const actions = {
   startAlternativeSet: async ({ request, locals, platform, params }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' }); if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData(); const caseId = formText(formData, 'case_id') || params.caseId; const assetId = formText(formData, 'asset_id'); const name = formText(formData, 'set_name'); if (caseId !== params.caseId) return fail(400, { error: 'The selected Case does not match this editor.', caseId });
-    const db = createDb(platform.env.DB); let createdGroupId = null;
-    try { const fixed = await db.select({ assetId: caseAssets.assetId }).from(caseAssets).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, assetId))).limit(1); if (!fixed[0]) throw new StimulusGroupInputError('Choose a fixed image from this Case to start an alternative set.'); createdGroupId = await createStimulusGroup(db, { caseId, name, specificQuestionMode: 'none' }); await convertCaseAssetToStimulusOption(db, createdGroupId, assetId); }
-    catch (errorValue) { if (createdGroupId) { try { await db.delete(stimulusGroups).where(eq(stimulusGroups.id, createdGroupId)); } catch {} } return fail(errorValue instanceof StimulusGroupInputError ? 400 : 500, { error: errorValue instanceof StimulusGroupInputError ? errorValue.message : 'Unable to start an alternative image set.', caseId }); }
+    try { await startStimulusGroupFromCaseAsset(createDb(platform.env.DB), { caseId, assetId, name }); }
+    catch (errorValue) { return fail(errorValue instanceof StimulusGroupInputError ? 400 : 500, { error: errorValue instanceof StimulusGroupInputError ? errorValue.message : 'Unable to start an alternative image set.', caseId }); }
     redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=alternative-set-created#images`);
   }
 };

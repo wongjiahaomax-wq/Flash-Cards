@@ -162,6 +162,33 @@ function pickQuestionsForReview(source, questionPoolMode, rng) {
 }
 
 /**
+ * Select the learner stimulus for one family. Curated families use the Original
+ * for Core and a non-Original Alternative for Expanded when available. Legacy
+ * unassigned families deliberately retain the old random behavior until an
+ * Admin curates them.
+ * @template T
+ * @param {{ originalOptionId: string | null }} group
+ * @param {T[]} options
+ * @param {QuestionPoolMode} questionPoolMode
+ * @param {() => number} rng
+ * @returns {T | null}
+ */
+function selectStimulusOption(group, options, questionPoolMode, rng) {
+  if (options.length === 0) return null;
+  const original = group.originalOptionId
+    ? options.find((option) => /** @type {{ id?: string }} */ (option).id === group.originalOptionId) ?? null
+    : null;
+  let pool = options;
+  if (original && questionPoolMode === 'core') return original;
+  if (original && questionPoolMode === 'expanded') {
+    const alternatives = options.filter((option) => /** @type {{ id?: string }} */ (option).id !== group.originalOptionId);
+    pool = alternatives.length > 0 ? alternatives : [original];
+  }
+  const boundedRandom = Math.min(Math.max(rng(), 0), 0.9999999999999999);
+  return pool[Math.floor(boundedRandom * pool.length)] ?? null;
+}
+
+/**
  * @param {object} options
  * @param {LearningDb} options.db
  * @param {string} options.userId
@@ -478,6 +505,7 @@ async function loadCaseSource(db, caseId, studyConceptId, questionPoolMode, rng)
       name: stimulusGroups.name,
       displayOrder: stimulusGroups.displayOrder,
       selectionCount: stimulusGroups.selectionCount,
+      originalOptionId: stimulusGroups.originalOptionId,
       specificQuestionMode: stimulusGroups.specificQuestionMode,
       minimumSpecificQuestions: stimulusGroups.minimumSpecificQuestions
     })
@@ -515,9 +543,8 @@ async function loadCaseSource(db, caseId, studyConceptId, questionPoolMode, rng)
   for (const group of groupRows) {
     if (group.selectionCount !== 1) throw new Error('Only one option per Stimulus Group is supported.');
     const options = optionRows.filter((option) => option.stimulusGroupId === group.id);
-    if (!options.length) continue;
-    const boundedRandom = Math.min(Math.max(rng(), 0), 0.9999999999999999);
-    selectedOptions.push({ group, option: options[Math.floor(boundedRandom * options.length)] });
+    const option = selectStimulusOption(group, options, questionPoolMode, rng);
+    if (option) selectedOptions.push({ group, option });
   }
 
   const selectedOptionIds = selectedOptions.map(({ option }) => option.id);

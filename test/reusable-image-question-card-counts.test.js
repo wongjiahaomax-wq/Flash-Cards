@@ -78,7 +78,7 @@ test('fixed-image reuse still uses established transparent one-option conversion
 });
 
 test('option cards show Case-specific Q/A pairs while keeping reusable counts independent', () => {
-  const images = fs.readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
+  const images = fs.readFileSync(new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url), 'utf8');
   const counts = fs.readFileSync(new URL('../src/lib/components/ImageQuestionCounts.svelte', import.meta.url), 'utf8');
   assert.ok(images.includes('<ImageQuestionCounts caseSpecificCount={0} {reusable} />'));
   assert.ok(images.includes('<ImageQuestionCounts caseSpecificCount={imageQuestions.length} caseSpecificQuestions={imageQuestions} {reusable} />'));
@@ -108,7 +108,7 @@ test('Compact review distinguishes inactive Alternative Sets, options, and Asset
 });
 
 test('Manage questions waits for the editor DOM, then reveals and focuses it', () => {
-  const images = fs.readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
+  const images = fs.readFileSync(new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url), 'utf8');
   assert.match(images, /import \{[^}]*\btick\b[^}]*\} from 'svelte'/);
   assert.ok(images.includes('await tick()'));
   assert.ok(images.includes("scrollIntoView({ behavior: 'smooth', block: 'start' })"));

@@ -108,11 +108,18 @@ export async function moveStimulusOptionWithinCase(db, input) {
   if (!option) throw new StimulusOptionMoveError('The selected alternative image is missing.', 'NOT_OWNED');
   if (option.isActive !== true || option.removedFromCase) throw new StimulusOptionMoveError('Only an active option in an active source set can be moved.');
 
-  const source = (await db.select({ id: stimulusGroups.id, caseId: stimulusGroups.caseId, isActive: stimulusGroups.isActive })
-    .from(stimulusGroups).where(eq(stimulusGroups.id, option.sourceGroupId)).limit(1))[0];
+  const source = (await db.select({
+    id: stimulusGroups.id,
+    caseId: stimulusGroups.caseId,
+    isActive: stimulusGroups.isActive,
+    originalOptionId: stimulusGroups.originalOptionId
+  }).from(stimulusGroups).where(eq(stimulusGroups.id, option.sourceGroupId)).limit(1))[0];
   if (!source || source.caseId !== caseId) throw new StimulusOptionMoveError('The selected alternative image does not belong to this Case.', 'NOT_OWNED');
   if (source.isActive !== true) throw new StimulusOptionMoveError('Only an active option in an active source set can be moved.');
   if (source.id === targetGroupId) throw new StimulusOptionMoveError('Choose a different alternative set.');
+  if (previewSessionId == null && source.originalOptionId === option.id) {
+    throw new StimulusOptionMoveError('Choose another Original stimulus before moving this image to another alternative set.');
+  }
 
   const target = (await db.select({ id: stimulusGroups.id, caseId: stimulusGroups.caseId, isActive: stimulusGroups.isActive })
     .from(stimulusGroups).where(eq(stimulusGroups.id, targetGroupId)).limit(1))[0];

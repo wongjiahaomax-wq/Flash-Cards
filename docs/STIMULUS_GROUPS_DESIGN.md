@@ -1,8 +1,10 @@
 # Flash-Cards — Optional Stimulus Groups Design
 
-_Status: implemented additive Case/stimulus behavior. The core schema landed in `0002_optional_stimulus_groups.sql`; later authoring work added exact-image scope, Reusable Image Questions, option archival, and identity-preserving media replacement without changing the one-selected-option-per-group learner model._
+_Status: implemented additive Case/stimulus behavior. The core schema landed in `0002_optional_stimulus_groups.sql`; later authoring work added exact-image scope, Reusable Image Questions, option archival, identity-preserving media replacement, and PR #108's explicit Original/Alternative semantics without changing the one-selected-option-per-group learner model._
 
-_Last updated: 25 August 2026_
+_Last updated: 28 August 2026_
+
+For the detailed Original/Alternative authoring and migration contract, read `ORIGINAL_AND_ALTERNATIVE_STIMULI.md` together with this document.
 
 ## Core principle
 
@@ -58,7 +60,7 @@ Recommended progression:
 1. import/enter the Case normally with one Primary Topic;
 2. curate Case Tags where useful;
 3. keep current images fixed and questions Case-wide when semantically correct;
-4. when several images are genuinely interchangeable, create/use an Alternative Set;
+4. when several images are genuinely interchangeable, identify the principal image and start/use an Alternative Set;
 5. when a question depends on one exact image, use the author-facing specific-image scope;
 6. when knowledge is intrinsically true of the exact Asset wherever deliberately reused, curate it as a Reusable Image Question.
 
@@ -87,11 +89,28 @@ Every exact Case/stimulus usage must explicitly opt in through `stimulus_option_
 
 ## 4. Current selection rule
 
-Each active stimulus group selects **exactly one active, non-removed option** when a Review is created.
+Each active stimulus group selects **exactly one active, non-removed option backed by an active Asset** when a Review is created.
 
-A Case may contain zero, one, or several independent active groups.
+Migration `0016_original_stimulus_options.sql` adds nullable `stimulus_groups.original_option_id`.
 
-Selection is frozen into `review_assets`; refreshing or revisiting an existing Review must not rerandomize alternatives.
+For a curated production family with a valid Original:
+
+```text
+Core (`question_pool_mode = core`)
+→ select original_option_id
+
+Expanded (`question_pool_mode = expanded`)
+→ select an eligible non-Original Alternative when one exists
+→ otherwise fall back to original_option_id
+```
+
+For a legacy uncurated family with `original_option_id = NULL`, preserve the pre-0016 random eligible-option behavior. Do **not** infer an Original from insertion order, display order, filename, caption, group/option name, or Review history.
+
+Migration backfill is conservative: it curates only unambiguous eligible one-option production families. Ambiguous production multi-option families and retained Preview-owned families remain `NULL`.
+
+A Case may contain zero, one, or several independent active groups. Each group resolves independently.
+
+Selection is frozen into `review_assets`; refreshing or revisiting an existing Review must not rerandomize alternatives. Changing the Original later affects only future Reviews.
 
 Values greater than one selected option per group remain deferred unless real content demonstrates a need.
 
@@ -176,6 +195,8 @@ Sinus rhythm with shortened QTc and right bundle branch block.
 
 These questions belong to the Case's stable `stimulus_group_option` identity. Reusing the same global Asset in another Case does not carry the Case-specific question with it.
 
+Changing which option is Original does not recreate or move these questions; they continue to follow their stable option identity into future Reviews only when that option is selected.
+
 ## 9. Reusable Image Questions are a distinct exact-Asset layer
 
 Use a Reusable Image Question only when the Prompt and canonical answer are intrinsically true of the exact Asset itself.
@@ -198,7 +219,7 @@ A Case/stimulus uses that canonical question only through explicit `stimulus_opt
 
 Do not infer Case-specific exact-image teaching from reusable Asset knowledge or vice versa.
 
-## 10. Transparent fixed-image conversion
+## 10. Fixed-image conversion and source-aware family creation
 
 There is no parallel fixed-image-question schema.
 
@@ -213,7 +234,19 @@ fixed case_assets relationship
 
 Preflight validation must occur before destructive relationship changes. If assignment fails, the image must not remain partially converted.
 
-With one active option and `selection_count = 1`, learner-visible behavior remains equivalent to the prior fixed image.
+With one active option and `selection_count = 1`, learner-visible behavior remains equivalent to the prior fixed image. Where a conversion workflow has explicit source semantics, it may assign that preserved option as Original; the generic option-insertion primitive itself must never infer Original from sequence.
+
+The explicit production **Start Alternative Set** operation is source-aware by definition:
+
+```text
+ordinary Case image A
+→ create group with Original NULL
+→ preserve A as option
+→ explicitly assign that option as Original
+→ remove ordinary case_assets relationship
+```
+
+Those writes are one coherent atomic domain operation. Later generic insertion of B does not alter A's Original pointer.
 
 ## 11. Current question-count modes
 
@@ -229,11 +262,11 @@ Fixed N
 - **All** includes every deduplicated eligible Question.
 - **Fixed** respects the configured count.
 
-Original/Core versus Expanded Learning decides which source families enter the resolver before these count rules are applied. Shared, Topic, and explicitly opted-in Asset Questions are Expanded reusable sources rather than a way to bypass Fixed limits.
+Original/Core versus Expanded Learning decides both the curated family option and which question source families enter the resolver before these count rules are applied. Shared, Topic, and explicitly opted-in Asset Questions are Expanded reusable sources rather than a way to bypass Fixed limits.
 
 ## 12. Stimulus-specific coverage
 
-Coverage avoids showing a randomized stimulus without meaningfully testing it when the author explicitly requires that behavior.
+Coverage avoids showing a randomized/substituted stimulus without meaningfully testing it when the author explicitly requires that behavior.
 
 Both Case-specific exact-option questions and explicitly reused Asset Questions carry selected stimulus-group/option context and therefore count as stimulus-specific candidates under the existing coverage model.
 
@@ -271,7 +304,7 @@ Stimulus selection is independent of learner taxonomy routing.
 
 A current Case has one canonical Primary Topic. Cross-cutting concepts belong as Case Tags, not Additional Study Topics.
 
-> **A Case-level Tag used for contextual discovery should describe the Case across every valid random stimulus configuration. A finding present only on one option should remain stimulus-specific.**
+> **A Case-level Tag used for contextual discovery should describe the Case across every valid stimulus configuration. A finding present only on one option should remain stimulus-specific.**
 
 For example:
 
@@ -303,11 +336,11 @@ Review creation freezes:
 - resolved Question Prompt/answer/order snapshots;
 - contextual/reusable source provenance, including `source_asset_question_id` where applicable.
 
-Later edits, option movement, Asset replacement, Collection changes, Tag curation, Primary Topic changes, or canonical reusable-answer edits do not rewrite historical Reviews.
+Later Original reassignment, option deactivation/removal/movement, role conversion, Asset replacement, Collection changes, Tag curation, Primary Topic changes, or canonical reusable-answer edits do not rewrite historical Reviews.
 
 `review_assets.storage_key_snapshot` remains historical media authority even when an Asset is later superseded.
 
-## 16. Admin authoring behavior
+## 16. Admin authoring behavior and Original correction
 
 Routine author-facing question scope is:
 
@@ -323,7 +356,23 @@ Case-specific Image Questions
 Reusable Image Questions
 ```
 
-Image Management V2 also supports identity-preserving same-Case option Move between Alternative Sets. It preserves option ID, Asset, caption, active state, Case-specific exact-option Questions, and reusable-image opt-ins subject to the same cross-group/coverage invariants. Set-wide Questions remain with their original group.
+PR #108 adds a production **Original and Alternatives** curation surface. For a curated family, the current Original is explicit and eligible Alternatives can be promoted with **Make Original** without changing option identity.
+
+Correcting a wrong Original follows this order:
+
+```text
+Original A
+→ add B to same family
+→ Make Original B
+→ A becomes ordinary Alternative
+→ only then keep/deactivate/remove/move A as desired
+```
+
+Application/domain preflight rejects deactivation, Remove from Case, moving to another family, or moving to Always shown/supporting while A is still the current Original. Database triggers remain defense in depth rather than the normal UX error surface.
+
+Moving a non-Original Alternative to Always shown/supporting preserves its Asset and creates the ordinary `case_assets` relationship while archiving—not deleting—the old option relationship. Moving that same Asset back to its original group can restore the archived option identity where valid.
+
+Image Management V2 also supports identity-preserving same-Case option Move between Alternative Sets. It preserves option ID, Asset, caption/order, active state, Case-specific exact-option Questions, and reusable-image opt-ins subject to the same cross-group/coverage invariants. Set-wide Questions remain with their original group. The current Original cannot be moved until another option is promoted first.
 
 Cross-Case option moves are not inferred.
 
@@ -333,6 +382,8 @@ Higher-resolution replacement is only for a better-quality copy of the same unde
 
 For stimulus groups, current production `stimulus_group_options.asset_id` moves from old Asset A to replacement B while preserving the option ID. Case-specific `stimulus_option_questions` therefore remain attached to the same contextual identity.
 
+If the preserved option is the family's Original, `stimulus_groups.original_option_id` still points to that same option ID after the Asset replacement. A genuinely different image that should become Original is not a quality replacement: add it as a separate option and use **Make Original**.
+
 Reusable Asset Questions are cloned from A to B, and current production opt-ins on preserved options are remapped to corresponding B questions. Historical Review provenance remains attached to A's old Asset Question IDs.
 
 A different clinical image showing the same condition remains a separate Asset/option.
@@ -341,7 +392,7 @@ A different clinical image showing the same condition remains a separate Asset/o
 
 Image Collections organize the global Admin Image Library only.
 
-Collection membership does not affect group membership, fixed/alternative semantics, learner selection, Primary Topic, Tags, System↔Tag exposure, Questions, Review snapshots, or explicit reusable-image opt-ins.
+Collection membership does not affect group membership, Original/Alternative/fixed semantics, learner selection, Primary Topic, Tags, System↔Tag exposure, Questions, Review snapshots, or explicit reusable-image opt-ins.
 
 Do not use Collections as stimulus groups or taxonomy.
 
@@ -349,15 +400,25 @@ Do not use Collections as stimulus groups or taxonomy.
 
 Import Package v1 does not require stimulus-group data as a prerequisite for useful content.
 
-The first ECG corpus was successfully ingested using progressive enrichment. Additional grouping, Case Tags, exact-image scope, Reusable Image Questions, and media-quality replacement are later editorial operations.
+The first ECG corpus was successfully ingested using progressive enrichment. Additional grouping, Original/Alternative curation, Case Tags, exact-image scope, Reusable Image Questions, and media-quality replacement are later editorial operations.
 
 The legacy `secondaryTopicIds` import field must remain empty under current behavior; imports must not recreate Additional Study Topics.
 
-## 20. Non-goals
+Reviewed import/extraction must not guess an Original from filename, order, caption, apparent visual prominence, or historical Review behavior. Source-aware production authoring may assign one only when the source semantics are explicit.
+
+## 20. Preview boundary
+
+Issue #105's Original/Alternative Admin UX applies to production Admin and learner Review only. The retained legacy Preview Admin subsystem is not upgraded to Original-management parity.
+
+Migration `0016` therefore leaves Preview-owned families with `original_option_id = NULL`, including pre-existing one-option Preview families. This prevents production Original protection from unexpectedly making ordinary Preview option editing unusable while preserving all existing Production-vs-Preview ownership predicates.
+
+## 21. Non-goals
 
 Current stimulus-group behavior deliberately does not add:
 
 - selection of multiple options from one group in one Review;
+- automatic Original inference from option insertion/display order, filename, caption, name, or Review history;
+- Original/Alternative authoring parity in retained Preview Admin;
 - automatic promotion of Case-specific exact-image questions into Reusable Image Questions;
 - automatic reusable-question opt-in merely because an Asset is reused;
 - stimulus-option → Topic learner routing;
@@ -368,20 +429,26 @@ Current stimulus-group behavior deliberately does not add:
 
 Add broader behavior only when real teaching content creates a concrete requirement.
 
-## 21. Core invariant summary
+## 22. Core invariant summary
 
 ```text
 ordinary fixed Case Assets continue to work
 + each current Case has one canonical Primary Topic
 + cross-cutting Case discovery uses Tags + explicit System exposure
 + each active Alternative Set selects exactly one active non-removed option
++ curated Core selects explicit Original
++ curated Expanded selects an eligible non-Original Alternative when possible, otherwise Original
++ legacy NULL families retain prior random eligible-option selection
++ generic option insertion never infers Original from order
++ source-aware Start Alternative Set preserves chosen ordinary image as Original atomically
++ current Original must be replaced before destructive/role-changing mutation
 + selections freeze at Review creation
 + Case-specific exact-option teaching and reusable exact-Asset teaching remain distinct
 + reusable Asset Questions require explicit per-stimulus opt-in
 + exact-option context overrides explicitly reused Asset knowledge for duplicate Prompts
 + the same Prompt cannot be independently stimulus-specific across selectable groups
 + question-pool eligibility precedes question-count/coverage rules
-+ transparent fixed-image conversion preserves learner-visible behavior
-+ identity-preserving option Move/replacement preserves contextual question identity
++ identity-preserving option Move/replacement preserves contextual question identity and Original pointer where applicable
++ retained Preview behavior remains outside production Original curation
 + historical Review snapshots/provenance remain immutable
 ```

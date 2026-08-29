@@ -38,7 +38,8 @@ const migrationSql = [
   readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0010_reusable_image_reactivation_guard.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0016_original_stimulus_options.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -449,7 +450,7 @@ test('Case editor keeps Images before Case questions and no longer embeds the un
   const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
   const picker = readFileSync(new URL('../src/lib/components/case-editor/CaseImagePickerDialog.svelte', import.meta.url), 'utf8');
   assert.ok(route.indexOf('<CaseImagesSection') < route.indexOf('<CaseQuestionsSection'));
-  assert.match(images, /<section id="images"/);
+  assert.match(images, /<section id=\{advancedOpen \? undefined : 'images'\}/);
   assert.match(questions, /<section id="questions"/);
   assert.match(images, />Images/);
   assert.match(images, /Add images from library/);

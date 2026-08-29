@@ -19,7 +19,8 @@ const migrationSql = [
   readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
+  readFileSync(new URL('../drizzle/0016_original_stimulus_options.sql', import.meta.url), 'utf8')
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -35,7 +36,11 @@ function createLearningDb() {
         bind(...params) {
           return {
             async all() { return { results: sqlite.prepare(sql).all(...params) }; },
-            async raw() { return sqlite.prepare(sql).all(...params).map((row) => Object.values(row)); },
+            async raw() {
+              const statement = sqlite.prepare(sql);
+              statement.setReturnArrays(true);
+              return statement.all(...params);
+            },
             async run() {
               const result = sqlite.prepare(sql).run(...params);
               return { success: true, results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
