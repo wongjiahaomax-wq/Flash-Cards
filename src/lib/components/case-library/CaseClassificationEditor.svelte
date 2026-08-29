@@ -85,11 +85,10 @@
     body.set('operation', operation);
     if (operation === 'select-topic') {
       body.set('concept_id', selectedTopicId);
-    } else {
+    } else if (operation === 'create-topic') {
       body.set('name', newTopicName.trim());
       body.set('parent_id', newTopicParentId);
-    }
-    if (operation === 'move-topic-to-system') {
+    } else {
       body.set('topic_id', currentTopicId);
       body.set('system_id', systemContext);
     }
@@ -112,7 +111,7 @@
   function confirmMoveTopic() {
     if (!currentTopicId || !systemContext || systemContext === currentSystemId) return;
     const target = systemOptions.find((system) => system.id === systemContext);
-    if (!target || !window.confirm(`Move the Topic “${currentTopicLabel}” under ${target.name}? This changes the global Topic hierarchy for every Case using it.`)) return;
+    if (!target || !window.confirm(`Move the Topic “${currentTopicLabel}” under ${target.name}? This is a global hierarchy change: it affects every Case using this Topic, and moves its descendant Topic subtree and Cases with it.`)) return;
     void mutate('move-topic-to-system');
   }
 
