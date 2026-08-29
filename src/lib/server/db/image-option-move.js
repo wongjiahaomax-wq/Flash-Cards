@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 
 import { assets, cases, stimulusGroupOptions, stimulusGroupQuestions, stimulusGroups, stimulusOptionQuestions } from './schema.js';
+import { StimulusGroupInputError, validateStimulusOptionMoveState } from './stimulus-groups.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -21,8 +22,9 @@ function required(value, label) {
 }
 
 /**
- * Compute the active specific-question requirement for every active group in a
- * Case, optionally simulating one option as belonging to a different group.
+ * Retained Preview coverage behavior. Production movement uses the canonical
+ * Stimulus Family coverage policy instead of this legacy local simulation.
+ *
  * @param {LearningDb} db
  * @param {string} caseId
  * @param {string} movingOptionId
@@ -73,13 +75,28 @@ async function simulatedCoverageRequirement(db, caseId, movingOptionId, targetGr
   return total;
 }
 
+/** @param {StimulusGroupInputError} error */
+function movePolicyError(error) {
+  const minimumMatch = error.message.match(/requires at least (\d+) specific questions for every active option, but one option has only (\d+)/);
+  if (minimumMatch) {
+    return new StimulusOptionMoveError(`Moving this image would leave an active option with ${minimumMatch[2]} specific questions, below the set minimum of ${minimumMatch[1]}.`);
+  }
+  const fixedMatch = error.message.match(/coverage can require at least (\d+) questions, but the Case is configured for (\d+)/);
+  if (fixedMatch) {
+    return new StimulusOptionMoveError(`Moving this image would require at least ${fixedMatch[1]} stimulus-specific questions, but the Case is configured for ${fixedMatch[2]}.`);
+  }
+  return new StimulusOptionMoveError(error.message);
+}
+
 /**
  * Move an existing alternative option to another active set in the SAME Case.
- * The row is updated in-place so its stable option ID, caption, active state,
- * exact-option questions and other option-owned metadata remain attached.
+ * The row is updated in-place so its stable option ID, Asset ID, caption, active
+ * state, exact-option questions, reusable opt-ins and Review provenance remain
+ * attached.
  *
  * previewSessionId=null means normal production Admin. A non-null value means
  * every Case/group/option relationship must belong to that Preview Session.
+ * Preview intentionally retains its existing local coverage path.
  *
  * @param {LearningDb} db
  * @param {{ caseId: string, optionId: string, targetGroupId: string, previewSessionId?: string | null }} input
@@ -130,9 +147,23 @@ export async function moveStimulusOptionWithinCase(db, input) {
     .where(and(eq(stimulusGroupOptions.stimulusGroupId, targetGroupId), eq(stimulusGroupOptions.assetId, option.assetId))).limit(1))[0];
   if (duplicate) throw new StimulusOptionMoveError('This Asset already has an option relationship in the target set.');
 
-  const requiredQuestions = await simulatedCoverageRequirement(db, caseId, optionId, targetGroupId);
-  if (caseRow.mode === 'fixed' && caseRow.count && requiredQuestions > caseRow.count) {
-    throw new StimulusOptionMoveError(`Moving this image would require at least ${requiredQuestions} stimulus-specific questions, but the Case is configured for ${caseRow.count}.`);
+  if (previewSessionId == null) {
+    try {
+      await validateStimulusOptionMoveState(db, {
+        caseId,
+        optionId,
+        sourceGroupId: source.id,
+        targetGroupId
+      });
+    } catch (error) {
+      if (error instanceof StimulusGroupInputError) throw movePolicyError(error);
+      throw error;
+    }
+  } else {
+    const requiredQuestions = await simulatedCoverageRequirement(db, caseId, optionId, targetGroupId);
+    if (caseRow.mode === 'fixed' && caseRow.count && requiredQuestions > caseRow.count) {
+      throw new StimulusOptionMoveError(`Moving this image would require at least ${requiredQuestions} stimulus-specific questions, but the Case is configured for ${caseRow.count}.`);
+    }
   }
 
   const last = (await db.select({ displayOrder: stimulusGroupOptions.displayOrder }).from(stimulusGroupOptions)
