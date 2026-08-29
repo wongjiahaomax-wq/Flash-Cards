@@ -214,8 +214,8 @@
   .empty-state { margin: 1rem 0 0; padding: 0.9rem; border: 1px dashed #d0d5dd; border-radius: 8px; color: #667085; }
   .image-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 0.8rem; margin-top: 1rem; }
   .image-card { display: grid; align-content: start; gap: 0.65rem; min-width: 0; padding: 0.7rem; border: 1px solid #e4e7ec; border-radius: 9px; background: #fff; }
-  .image-preview { display: grid; place-items: center; width: 100%; height: 170px; padding: 0; overflow: hidden; border: 1px solid #e4e7ec; border-radius: 7px; background: #f8fafc; cursor: zoom-in; }
-  .image-preview img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .image-preview { display: grid; place-items: center; width: 100%; min-height: 170px; height: auto; padding: 0; overflow: hidden; border: 1px solid #e4e7ec; border-radius: 7px; background: #f8fafc; cursor: zoom-in; }
+  .image-preview img { display: block; max-width: 100%; max-height: 480px; width: auto; height: auto; object-fit: contain; }
   .no-preview { color: #667085; font-size: 0.82rem; }
   .image-card-copy { display: grid; gap: 0.35rem; min-width: 0; }
   .image-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.5rem; min-width: 0; }
@@ -244,10 +244,10 @@
     .panel-heading, .management-row { align-items: stretch; flex-direction: column; }
     .panel-heading .button, .management-row .button { width: 100%; box-sizing: border-box; text-align: center; }
     .image-grid { grid-template-columns: 1fr 1fr; }
-    .image-preview { height: 145px; }
+    .image-preview { min-height: 145px; }
   }
   @media (max-width: 430px) {
     .image-grid { grid-template-columns: 1fr; }
-    .image-preview { height: 180px; }
+    .image-preview { min-height: 180px; }
   }
 </style>
