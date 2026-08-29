@@ -450,7 +450,7 @@ test('Case editor keeps Images before Case questions and no longer embeds the un
   const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
   const picker = readFileSync(new URL('../src/lib/components/case-editor/CaseImagePickerDialog.svelte', import.meta.url), 'utf8');
   assert.ok(route.indexOf('<CaseImagesSection') < route.indexOf('<CaseQuestionsSection'));
-  assert.match(images, /<section id="images"/);
+  assert.match(images, /<section id=\{advancedOpen \? undefined : 'images'\}/);
   assert.match(questions, /<section id="questions"/);
   assert.match(images, />Images/);
   assert.match(images, /Add images from library/);
