@@ -189,7 +189,7 @@
     if (!count || !window.confirm(`Deactivate ${count} Case${count === 1 ? '' : 's'}? They will be removed from learner study, but their content and history will be retained.`)) event.preventDefault();
   }
 
-  /** @param {MouseEvent} event */
+  /** @param {SubmitEvent} event */
   function confirmBulkTopicSystemMove(event) {
     const count = selectedCaseIds.length;
     if (!count || !window.confirm(`Move the Primary Topics for ${count} selected Case${count === 1 ? '' : 's'} globally? This affects every Case using those shared Topics and moves any descendant Topic subtrees and their Cases too.`)) event.preventDefault();
