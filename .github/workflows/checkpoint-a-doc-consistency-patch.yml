@@ -1,0 +1,83 @@
+name: Normalize Checkpoint A architecture wording
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/checkpoint-a-doc-consistency-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: ${{ github.event.pull_request.number == 112 }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Normalize architecture wording
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('docs/STIMULUS_FAMILY_REFACTOR_ARCHITECTURE.md')
+          text = path.read_text()
+
+          replacements = [
+              (
+                  'Database defence in `0009`/`0010` is narrower: it covers reusable Asset Question opt-in/write/reactivation paths and ordinary writes only when they conflict with reusable usage.',
+                  'Historical database defence from `0009`/`0010` is narrower: it covers reusable Asset Question opt-in/write/reactivation paths and ordinary writes only when they conflict with reusable usage. Checkpoint A migration `0017` aligns those existing reusable guards with the reviewed dormant-parent live-state definition.'
+              ),
+              (
+                  '**No general ordinary exact-vs-exact D1 guard.** `0009` guards conflicts where reusable Asset Question usage participates; `0010` guards reusable Question reactivation',
+                  '**No general ordinary exact-vs-exact D1 guard.** `0009`/`0010` establish the reusable-path guards; `0017` aligns their live-state predicates with dormant-parent semantics'
+              ),
+              (
+                  '`0009` and `0010` add database defence only for reusable Asset Question paths: opt-in/write conflicts involving reusable usage and reusable-question reactivation. Do not describe those triggers as a database owner of the whole invariant.',
+                  '`0009` and `0010` establish database defence only for reusable Asset Question paths: opt-in/write conflicts involving reusable usage and reusable-question reactivation. Checkpoint A migration `0017` preserves that narrow ownership while aligning target/other Family and Option lifecycle predicates with the reviewed live-state policy. Do not describe these triggers as a database owner of the whole invariant.'
+              ),
+              (
+                  'The application paths are currently not uniform about parent activity. `ensurePromptIsNotUsedByAnotherGroup` requires the ordinary Question row itself to be active and excludes `removed_from_case` options, but it does not filter ordinary Group Questions by `stimulus_groups.is_active` and does not filter ordinary Option Questions by `stimulus_group_options.is_active` or parent Family activity. The reusable application/database paths do apply active Family/Option filtering. `test/stimulus-prompt-specificity-characterisation.test.js` deliberately locks this **current** asymmetry so PR #110 cannot silently change runtime behaviour.\n\nThe reviewed target policy is different: inactive Families/options are dormant for live Prompt ownership, and the transition that makes them selectable must revalidate specificity first. The later correctness tranche must intentionally replace the characterization expectation with target-behaviour regression coverage; mechanical extraction must not make that semantic change implicitly.',
+                  'PR #110 characterized an application/database asymmetry around parent activity: ordinary Prompt checks could count inactive parents while reusable paths applied active Family/Option filtering. Checkpoint A in Draft PR #112 intentionally replaces that characterization with the reviewed live-state policy and adds SQL-trigger regression coverage for both ordinary-vs-reusable directions.\n\nThe implemented Checkpoint A policy treats inactive Families/options and removed Options as dormant for live Prompt ownership. The transition that makes dormant content selectable revalidates specificity first. Mechanical extraction must preserve this settled behavior rather than reintroducing the PR #110 baseline asymmetry.'
+              ),
+              (
+                  'Option movement changes `stimulus_group_options.stimulus_group_id` while retaining exact/reusable Question relationships. Current protection does not comprehensively revalidate the ownership change itself. This is a **confirmed invariant bypass**. Production movement must evaluate retained active exact/reusable Prompt IDs in the post-move graph and reject conflicts with the old source Family or any third simultaneously selectable Family while allowing same-Family duplicates in the target.',
+                  'PR #110 identified an invariant bypass because option movement changes `stimulus_group_options.stimulus_group_id` while retaining exact/reusable Question relationships. Checkpoint A now evaluates retained active exact/reusable Prompt IDs in the post-move Production graph, rejects conflicts with the old source Family or any third simultaneously selectable Family, and allows same-Family duplicates in the target. Preview retains its separate ownership-local path.'
+              ),
+              (
+                  '`startStimulusGroupFromCaseAsset` and simple two-image role assignment explicitly curate Original. Fixed-image conversions inside Question-scope/reusable-question workflows currently create the established one-option family shape without an explicit Original update.\n\nThis is a **confirmed Production semantic inconsistency**. These transparent fixed-image conversions have unambiguous source semantics: the fixed image being preserved into the new one-option Family is the source-faithful principal stimulus. The target behaviour is therefore to assign that preserved option as Original atomically. Generic option insertion remains unchanged and must never infer Original from sequence.',
+                  '`startStimulusGroupFromCaseAsset` and simple two-image role assignment explicitly curate Original. PR #110 identified that fixed-image conversions inside Question-scope/reusable-question workflows created the established one-option family shape without an explicit Original update.\n\nCheckpoint A fixes that Production semantic inconsistency: transparent fixed-image conversions have unambiguous source semantics, so the fixed image preserved into the new one-option Family is assigned as Original atomically. Generic option insertion remains unchanged and must never infer Original from sequence.'
+              ),
+              (
+                  'Two independent reviews converged on the following semantic contract. These are **target semantics**, not runtime changes made by PR #110.',
+                  'Two independent reviews converged on the following semantic contract. PR #110 documented these as **target semantics** without runtime changes; Checkpoint A in Draft PR #112 implements them and retains this section as the behavioral contract for later decomposition.'
+              )
+          ]
+
+          for old, new in replacements:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'expected exactly one match, found {count}: {old[:100]!r}')
+              text = text.replace(old, new, 1)
+
+          path.write_text(text)
+          PY
+
+      - name: Commit architecture normalization
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- docs/STIMULUS_FAMILY_REFACTOR_ARCHITECTURE.md
+          git diff --cached --check
+          git commit -m "docs: normalize Checkpoint A architecture status"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
