@@ -5,7 +5,7 @@ import test from 'node:test';
 const editor = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
 const navigation = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorNavigation.svelte', import.meta.url), 'utf8');
 const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
-const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
+const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url), 'utf8');
 const imageReview = readFileSync(new URL('../src/lib/components/ImageQuestionReview.svelte', import.meta.url), 'utf8');
 
 test('Case editor exposes one shared Classic/Compact authoring tree', () => {
