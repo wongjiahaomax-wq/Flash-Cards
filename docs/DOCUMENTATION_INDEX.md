@@ -187,6 +187,7 @@ Public signup remains intentionally disabled unless a separately reviewed produc
 
 - `ORIGINAL_AND_ALTERNATIVE_STIMULI.md` — explicit Original pointer and Core/Expanded family-selection semantics. Curated Core uses Original; Expanded substitutes an eligible non-Original Alternative when available, otherwise Original; legacy `NULL` families retain random eligible-option selection.
 - `STIMULUS_GROUPS_DESIGN.md` — Alternative Sets, contextual questions, coverage, resolver/count-mode interaction, and identity-preserving movement/replacement.
+- `STIMULUS_FAMILY_REFACTOR_ARCHITECTURE.md` — architecture/characterisation authority for staged, behavior-preserving internal decomposition of the Production Stimulus Family domain. Read it before moving implementation out of `stimulus-groups.js`; current executable code, migrations and tests remain higher authority for actual behavior.
 - `V1_DATA_MODEL.md` / `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` — current `original_option_id` plus `removed_from_case` semantics. **Make Original**, **Deactivate**, **Move**, **Move to Always shown**, and **Remove from Case** must preserve the ordering/integrity rules around the current Original.
 
 Generic option insertion must not infer Original from insertion/display order. The source-aware **Start Alternative Set** operation is different: when the Admin explicitly starts a family from ordinary image A, A is the unambiguous principal source and is assigned as the family's Original atomically.
