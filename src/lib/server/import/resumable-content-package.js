@@ -6,7 +6,6 @@
 
 import { and, eq } from 'drizzle-orm';
 
-import { findConceptTaxonomyById } from '../db/concept-taxonomy-compat.ts';
 import { createDb } from '../db/index.js';
 import {
   assets,
@@ -15,9 +14,9 @@ import {
   caseQuestions,
   cases,
   conceptQuestions,
+  concepts,
   questionPrompts
 } from '../db/schema.js';
-import { pre0015Concepts } from '../db/pre-0015-compat-schema.ts';
 import { deleteTeachingImage, putTeachingImage } from '../storage/media.js';
 import {
   ContentPackageError,
@@ -74,7 +73,6 @@ function fieldsMatch(row, expected) {
 
 /** @param {any} db @param {any} table @param {string} id */
 async function rowById(db, table, id) {
-  if (table === pre0015Concepts) return findConceptTaxonomyById(db, id);
   return (await db.select().from(table).where(eq(table.id, id)).limit(1))[0] ?? null;
 }
 
@@ -82,7 +80,7 @@ async function rowById(db, table, id) {
 async function requireExisting(db, table, id, label, issues) {
   const row = await rowById(db, table, id);
   if (!row) issues.push(`${label} references missing application ID ${id}.`);
-  else if (table === pre0015Concepts && row.kind !== 'topic') issues.push(`${label} application ID ${id} is a System, not a Topic.`);
+  else if (table === concepts && row.kind !== 'topic') issues.push(`${label} application ID ${id} is a System, not a Topic.`);
   return row;
 }
 
@@ -265,11 +263,11 @@ export function importPlanTotalCount(plan) {
 async function validateTopic(db, plan, item) {
   const issues = [];
   const appId = plan.resolved.topics.get(item.id);
-  const row = item.operation === 'create' ? await rowById(db, pre0015Concepts, appId) : await requireExisting(db, pre0015Concepts, appId, `Topic ${item.id}`, issues);
+  const row = item.operation === 'create' ? await rowById(db, concepts, appId) : await requireExisting(db, concepts, appId, `Topic ${item.id}`, issues);
   const expectedParentId = item.parentTopicId ? plan.resolved.topics.get(item.parentTopicId) : null;
-  if (item.operation === 'create' && row && !fieldsMatch(row, { id: appId, name: item.name, slug: item.slug, descriptionMd: item.descriptionMd, parentId: expectedParentId, isActive: item.isActive })) issues.push(`Topic ${item.id} conflicts with an existing application row.`);
+  if (item.operation === 'create' && row && !fieldsMatch(row, { id: appId, name: item.name, slug: item.slug, descriptionMd: item.descriptionMd, parentId: expectedParentId, kind: 'topic', isActive: item.isActive })) issues.push(`Topic ${item.id} conflicts with an existing application row.`);
   if (item.operation === 'create') {
-    const slugRow = (await db.select({ id: pre0015Concepts.id }).from(pre0015Concepts).where(eq(pre0015Concepts.slug, item.slug)).limit(1))[0] ?? null;
+    const slugRow = (await db.select({ id: concepts.id }).from(concepts).where(eq(concepts.slug, item.slug)).limit(1))[0] ?? null;
     if (slugRow && slugRow.id !== appId) issues.push(`Topic ${item.id} slug ${item.slug} is already used by application Topic ${slugRow.id}.`);
   }
   return issues;
@@ -397,10 +395,10 @@ async function applyTopic(db, plan, item) {
   if (issues.length) throw new ContentPackageError('Topic changed since validation.', issues);
   if (item.operation !== 'create') return;
   const appId = plan.resolved.topics.get(item.id);
-  if (await rowById(db, pre0015Concepts, appId)) return;
+  if (await rowById(db, concepts, appId)) return;
   const parentId = item.parentTopicId ? plan.resolved.topics.get(item.parentTopicId) : null;
-  if (parentId && !(await rowById(db, pre0015Concepts, parentId))) throw new ContentPackageError(`Topic ${item.id} cannot be written before its parent Topic.`);
-  await db.insert(pre0015Concepts).values({ id: appId, name: item.name, slug: item.slug, descriptionMd: item.descriptionMd, parentId, isActive: item.isActive });
+  if (parentId && !(await rowById(db, concepts, parentId))) throw new ContentPackageError(`Topic ${item.id} cannot be written before its parent Topic.`);
+  await db.insert(concepts).values({ id: appId, name: item.name, slug: item.slug, descriptionMd: item.descriptionMd, parentId, kind: 'topic', isActive: item.isActive });
 }
 
 /** @param {any} db @param {any} plan @param {any} item */
