@@ -25,7 +25,7 @@ test('Case editor keeps the main Case image surface visual and exposes linked Q&
   assert.match(section, /Shared across this image set/);
   assert.match(section, /<strong>Q<\/strong>/);
   assert.match(section, /<strong>A<\/strong>/);
-  assert.doesNotMatch(section, />Fixed images</);
+  assert.doesNotMatch(section, />Fixed images/);
   assert.doesNotMatch(section, /status: 'FIXED'/);
 });
 
@@ -38,4 +38,11 @@ test('Advanced image management uses the same role-based vocabulary', () => {
   assert.doesNotMatch(advanced, />Fixed images/);
   assert.doesNotMatch(advanced, /Alternative-set actions/);
   assert.doesNotMatch(advanced, />Alternative image sets /);
+});
+
+test('production Advanced image management renders exactly one canonical images anchor', () => {
+  assert.match(section, /<section id=\{advancedOpen \? undefined : 'images'\}/);
+  assert.match(section, /\{#if advancedOpen\}[\s\S]*?<CaseImagesAdvanced/);
+  assert.match(advanced, /<section id="images" class="panel stack image-authoring">/);
+  assert.doesNotMatch(section, /<section id="images" class="panel image-overview"/);
 });
