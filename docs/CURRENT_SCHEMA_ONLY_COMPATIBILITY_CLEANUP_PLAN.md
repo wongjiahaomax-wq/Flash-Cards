@@ -1,6 +1,6 @@
 # Current-Schema-Only Compatibility Cleanup Plan
 
-_Status: implementation plan; no runtime/schema changes in the initial planning commit._
+_Status: runtime cleanup implemented on the Draft PR branch; final validation remains blocked on separate current-schema test-fixture cleanup._
 
 ## Goal
 
@@ -207,17 +207,17 @@ No Production data mutation is part of validation.
 
 Before this PR is ready for review, confirm:
 
-- [ ] root and DB-specific agent guidance clearly define current-schema-only runtime support;
-- [ ] all repository findings were classified before deletion;
-- [ ] confirmed pre-current-schema runtime fallbacks are removed or simplified;
-- [ ] current-domain compatibility states remain intact;
-- [ ] migration correctness/upgrade tests remain intact;
-- [ ] obsolete partial-migration application tests are removed or converted appropriately;
-- [ ] local/CI/Preview/Production setup paths still have a coherent migration-before-runtime contract;
-- [ ] no historical migration was rewritten, renumbered, squashed, or deleted;
-- [ ] no D1/R2 production data or migration ledger was changed;
-- [ ] no unrelated refactor was bundled into the cleanup;
-- [ ] full current-schema validation is green.
+- [x] root and DB-specific agent guidance clearly define current-schema-only runtime support;
+- [x] all repository findings were classified before deletion;
+- [x] confirmed pre-current-schema runtime fallbacks are removed or simplified;
+- [x] current-domain compatibility states remain intact;
+- [x] migration correctness/upgrade tests remain intact;
+- [x] obsolete partial-migration application tests are removed or converted appropriately within this PR's compatibility scope;
+- [x] local/CI/Preview/Production setup paths still have a coherent migration-before-runtime contract;
+- [x] no historical migration was rewritten, renumbered, squashed, or deleted;
+- [x] no D1/R2 production data or migration ledger was changed;
+- [x] no unrelated refactor was bundled into the cleanup;
+- [ ] full current-schema validation is green after the separate ordinary test-fixture cleanup.
 
 ## Definition of done
 
