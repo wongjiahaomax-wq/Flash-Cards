@@ -28,4 +28,6 @@ jobs:
       - name: Run repository validation
         env:
           VALIDATION_MODE: ${{ github.event.pull_request.draft && 'fast' || 'full' }}
+          CI_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node scripts/validate-ci.mjs --mode "$VALIDATION_MODE" --diff-base HEAD^1 --diff-head HEAD
