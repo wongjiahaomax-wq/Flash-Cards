@@ -256,6 +256,23 @@ test('bulk Topic move deduplicates selected Cases and shared Topics and returns 
   }
 });
 
+test('bulk Topic move preserves a selected descendant under its selected ancestor', async () => {
+  const fixture = createFixture();
+  try {
+    fixture.sqlite.prepare("UPDATE case_concepts SET concept_id = 'topic-retina-child' WHERE case_id = 'case-2' AND role = 'primary'").run();
+
+    const result = await bulkMoveCaseTopicsToSystem(fixture.db, { caseIds: ['case-1', 'case-2'], systemId: 'system-endocrine' });
+
+    assert.deepEqual(result, { selectedCount: 2, topicCount: 1, system: { id: 'system-endocrine', name: 'Endocrine' } });
+    assert.equal(topicParent(fixture.sqlite, 'topic-retina'), 'system-endocrine');
+    assert.equal(topicParent(fixture.sqlite, 'topic-retina-child'), 'topic-retina');
+    assert.deepEqual(primaryRows(fixture.sqlite, 'case-1'), [{ concept_id: 'topic-retina', role: 'primary' }]);
+    assert.deepEqual(primaryRows(fixture.sqlite, 'case-2'), [{ concept_id: 'topic-retina-child', role: 'primary' }]);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('bulk Topic move requires a valid System and validates every selected active Production Case before writes', async () => {
   const fixture = createFixture();
   try {
