@@ -1,207 +1,179 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan complete / implementation not started
+Status: implementation plan revised after independent review / implementation not started
 
-This document is the implementation plan that follows the repository-wide audit in `docs/TEST_SUITE_AUDIT.md`.
+This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 remains a planning/audit PR. This document defines the work, ordering, safety boundaries, checkpoints, measurements, and acceptance criteria for later implementation. It does not authorize weakening domain coverage merely to make Draft CI faster.
+PR #115 remains audit/planning only. It does not implement this work.
 
 ## 1. Goals
 
-The cleanup has four distinct goals that must not be conflated:
+The cleanup has four distinct goals:
 
 1. **Make Node-test failures easy to find and diagnose in GitHub Actions.**
-2. **Make ordinary test fixtures represent a supported runtime configuration.** Current application tests should run against the current schema; historical schemas belong in migration/upgrade tests.
-3. **Reduce Draft validation latency without weakening high-value regression coverage.**
-4. **Reduce brittle and duplicated tests that block legitimate refactors without protecting meaningful behavior.**
+2. **Make ordinary fixtures represent a supported runtime configuration.** Current application tests use the current schema; historical schemas are reserved for migration/upgrade/sequencing tests.
+3. **Reduce Draft validation latency without creating coverage holes.**
+4. **Reduce brittle and duplicated contracts without discarding intentional behavior.**
 
-The current audited baseline is:
+Audited baseline:
 
 - 109 Node-discovered test files;
-- 635 individual tests in the audited green run;
-- approximately 19.6 seconds for the Node test stage in GitHub Actions;
+- 635 tests in the audited green run;
+- approximately 19.6 seconds for Node tests in GitHub Actions;
 - approximately 18.5 seconds for `npm run check`;
-- `npm test` is currently `node --test` and is the canonical complete suite;
+- `npm test` is currently `node --test` and remains the canonical complete suite;
 - Draft `validate:fast` currently still runs the complete Node suite.
 
-## 2. Non-goals and hard constraints
+## 2. Hard constraints
 
-The cleanup must not:
+The implementation must not:
 
-- make `npm test` cease to mean the complete maintained Node suite;
-- remove safety-critical coverage simply because a test is DB-heavy, integration-heavy, or source-reading;
-- reduce broad `npm run check` / `svelte-check` coverage without separate evidence;
-- restore permanent runtime compatibility fallbacks for obsolete schemas in order to make stale tests pass;
-- collapse or rewrite historical migration SQL as part of test cleanup;
-- mutate Production D1 or R2 for test purposes;
-- duplicate validation command ownership into `.github/workflows/ci.yml`;
-- infer fast/full ownership from broad filename globs such as `*db*`, `*migration*`, `*contract*`, or `*runtime*`;
-- introduce a heavyweight browser/E2E stack solely to preserve incidental presentation assertions;
+- redefine `npm test` to mean a subset;
+- statically exclude a specialized test from Draft CI when related changes can pass without running an equivalent specialized check;
+- treat `agent:checks` advisory output as if ordinary CI had executed those checks;
+- remove a regression test merely because its assertion is source-based without identifying the protected product/architecture invariant;
+- remove safety-critical coverage simply because it sounds integration-heavy or DB-heavy;
+- narrow broad `npm run check` without separate evidence;
+- restore permanent historical-schema probing/fallbacks in runtime code merely to satisfy stale fixtures;
+- collapse/rewrite historical migration SQL as part of test cleanup;
+- mutate Production D1/R2 for tests;
+- duplicate validation ownership into workflow YAML;
+- infer fast/full ownership from broad filename fragments;
+- introduce a heavyweight browser/E2E stack solely to preserve incidental visual assertions;
 - change application domain semantics as part of this work.
 
-## 3. Repository-wide test invariants
-
-The implementation should make these durable rules explicit.
+## 3. Durable repository invariants
 
 ### 3.1 Complete-suite invariant
 
-`npm test` remains the canonical complete Node suite.
+```text
+npm test
+```
 
-Ready-for-review/full validation must continue to run the complete suite.
+means the complete maintained Node suite.
 
-A future `test:fast` command is a Draft optimization only. It must not redefine what “all tests” means.
+Ready/full validation must continue to execute it.
 
 ### 3.2 New-test default invariant
 
-New ordinary tests must default into the Draft fast suite automatically.
+New ordinary tests should enter Draft fast validation automatically.
 
-Fast selection therefore needs to be **exclusion-based**, with a short explicit list of specialized/full-only files. Do not maintain a large allow-list of every fast test.
+Fast selection must therefore be exclusion-based, not a giant allow-list.
 
-A new test should require an explicit reviewed decision to be excluded from fast validation.
+However, an exclusion is permitted only when conditional ownership is safe: related code changes must cause ordinary CI to run the specialized check that owns the excluded test.
 
-### 3.3 Schema-fixture invariant
+### 3.3 Conditional-specialization invariant
 
-Tests must distinguish three cases:
+A test may be omitted from **unrelated** Drafts only if all of these are true:
 
-1. **Current application behavior tests**
-   - run current application code;
-   - initialize the current supported schema;
-   - may create historical/edge-case data inside that current schema.
+1. the test has a clear specialized owner;
+2. that owner is represented as a repository-owned named validation check;
+3. changed paths that can invalidate the protected behavior map to that check;
+4. ordinary CI executes the central change-aware requirements for the actual PR diff;
+5. contract tests prove a related Draft cannot go green without the specialized check;
+6. full `npm test` still contains the test.
 
-2. **Migration/upgrade tests**
-   - may deliberately initialize a historical schema;
-   - apply one or more migrations;
-   - assert upgrade, preservation, constraint, or sequencing behavior.
+If any condition is missing, the test stays in generic Draft fast coverage.
 
-3. **Historical data-state tests**
-   - use the current schema;
-   - represent data created under earlier product behavior where that data remains valid;
-   - do not require the current runtime to probe for missing tables/columns.
+### 3.4 Schema-fixture invariant
 
-Ordinary runtime tests must not silently become “current application + obsolete partial schema” compatibility tests.
+Tests distinguish:
 
-### 3.4 Validation-authority invariant
+**Current application behavior**
+- current app code;
+- current supported schema;
+- historical/edge data states allowed inside that schema.
 
-`scripts/validation-contract.mjs` remains the single repository-owned authority for named validation checks and fast/full composition.
+**Migration/upgrade behavior**
+- historical schema allowed deliberately;
+- migrations applied explicitly;
+- upgrade/preservation/constraint/sequencing asserted.
 
-`.github/workflows/ci.yml` remains orchestration only.
+**Historical data-state behavior**
+- current schema;
+- older valid data shapes/states;
+- no missing-table/column runtime probing required.
 
-`scripts/validate.mjs`, `scripts/validate-ci.mjs`, and agent tooling continue to consume the shared contract rather than maintaining parallel command lists.
+### 3.5 Contract-strength invariant
 
-### 3.5 Source-contract invariant
+Prefer the strongest cheap owner of an invariant:
 
-Source inspection is allowed where source/configuration **is itself the contract**, for example dependency direction, deployment wiring, command authority, or runtime-safety structure.
+1. domain/helper behavior;
+2. server/action/query behavior;
+3. rendered/component behavior;
+4. architecture/configuration source contract where structure itself is the invariant;
+5. raw implementation text only when no stronger practical owner exists and the regression intent is still important.
 
-Source inspection is not justified merely because it is easy. Tests should not freeze exact CSS declarations, local helper names, equivalent expression forms, incidental markup order, or ordinary copy when a stronger behavioral owner exists.
+Source-reading is not automatically bad; exact implementation text is not automatically disposable.
 
 ## 4. Implementation sequence
 
-The work should be performed in independently reviewable checkpoints. Do not combine all cleanup into one unreviewable change.
+The work is ordered so diagnostics and test validity are stable before performance/coverage decisions are made.
 
 ---
 
-## Checkpoint 0 — CI Node-test diagnostics
+## Checkpoint 0 — Compact CI Node-test diagnostics
 
 ### Objective
 
-Make the actual failures immediately visible in GitHub Actions before changing test selection or coverage.
+Make failures obvious without changing what tests execute.
 
-The current CI wrapper captures `npm test` output but then prints the entire TAP stream. With hundreds of passing tests, failures are buried inside a very large log. The existing post-failure regex annotation helps, but it is not sufficient because the human-readable log remains noisy and the regex depends on TAP text shape.
+### Current problem
 
-### Design
+`scripts/validate-ci.mjs` captures Node-test output and then writes the entire captured stdout/stderr back into the Actions log. With hundreds of tests, failures are buried among successful TAP records.
 
-Keep local/canonical semantics unchanged:
+### Required design
 
-```text
-npm test -> node --test
-```
-
-For GitHub Actions only, invoke the same test execution with a dedicated compact reporter.
-
-Node 22 supports `--test-reporter`, built-in compact reporters, custom reporters based on the `node:test` event stream, and multiple reporters. Node's documentation also warns that human reporter text is not a stable programmatic API. Therefore:
-
-- do not parse the textual `dot` or `spec` reporter as structured data;
-- use the test event stream/custom reporter for any structured failure extraction;
-- keep reporter behavior CI-specific rather than changing application tests.
-
-Recommended implementation:
-
-- add a small repository-owned CI reporter, e.g. `scripts/node-test-ci-reporter.mjs`;
-- invoke it from the CI validation path only, either by augmenting the `npm test` invocation or through a thin CI-specific wrapper;
-- leave `npm test` itself unchanged;
-- update `scripts/validate-ci.mjs` so it no longer re-dumps hundreds of successful TAP records;
-- preserve the child process exit status exactly.
-
-### Desired successful output
-
-A successful run should consume very little vertical space, for example a few lines of progress plus a summary:
+Keep:
 
 ```text
-Run Node tests
-................................................................
-........................................................
-635 passed | 0 failed | 635 total | 19.6s
+npm test = node --test
 ```
 
-Exact punctuation/layout is not an API contract; readability is the contract.
+unchanged.
 
-### Desired failure output
+Add CI-specific compact reporting.
 
-Failures should be grouped conspicuously near the end of the Node-test section:
+Recommended approach:
 
-```text
-NODE TEST FAILURES
+- repository-owned CI reporter, e.g. `scripts/node-test-ci-reporter.mjs`;
+- consume Node test events/custom reporter API for structured diagnostics;
+- do not parse human `dot`/`spec` text as a stable API;
+- compact passing progress;
+- print failures conspicuously near the end;
+- preserve child-process exit status exactly;
+- preserve/improve GitHub `::error` annotations.
 
-1. role conversion rejects a mismatched Case before writing either relationship
-   test/original-stimulus-semantics.test.js:380
-   AssertionError: ...
-   expected: ...
-   actual: ...
-   useful stack frames...
+### Failure information to retain
 
-2. the current Original must be replaced before it can move to Always shown
-   test/original-stimulus-semantics.test.js:411
-   AssertionError: ...
+Where supplied by Node:
 
-2 failed | 633 passed | 635 total
-```
+- test name;
+- source file/line;
+- error type/message;
+- expected/actual;
+- useful stack frames;
+- final pass/fail/total summary.
 
-The reporter should retain useful diagnostics supplied by Node, including error message, location, stack, and expected/actual data when available.
+### Contract tests
 
-### GitHub annotations
+Prove:
 
-Preserve or improve GitHub `::error` annotations.
-
-Preferred behavior:
-
-- one concise annotation per failing test when a reliable source location exists;
-- otherwise one concise Node-test failure annotation with the complete failure detail still visible in the grouped log;
-- do not place hundreds of passing records into annotations;
-- do not make the annotation parser depend on unstable human reporter formatting.
-
-### Tests for the reporter
-
-Add focused contract/unit tests proving that the CI reporter:
-
-- renders passing events compactly;
-- renders one failure with its name and error detail;
-- renders multiple failures separately;
-- preserves source location when supplied;
-- renders a final pass/fail/total summary;
-- handles missing optional diagnostic fields;
-- does not treat ordinary passing output as a failure;
-- does not alter the test process exit result.
-
-Do not run the whole application suite merely to test reporter formatting.
+- passes are compact;
+- one failure is clearly rendered;
+- multiple failures are separated;
+- location is retained when present;
+- missing optional fields do not break reporting;
+- final counts are correct;
+- reporter output does not alter process status.
 
 ### Acceptance criteria
 
-- the same tests execute before and after this checkpoint;
-- `npm test` remains unchanged;
-- successful CI output is dramatically shorter;
-- a deliberately failing reporter fixture makes the failure obvious near the end of the test group;
-- failure details remain sufficient for debugging without downloading/searching the entire raw log;
-- validation ownership remains centralized.
+- same test set before/after;
+- `npm test` unchanged;
+- successful CI output dramatically shorter;
+- deliberately failing reporter fixture makes the failure immediately visible;
+- no unstable human reporter parsing.
 
 ---
 
@@ -209,74 +181,57 @@ Do not run the whole application suite merely to test reporter formatting.
 
 ### Objective
 
-Remove the architectural inconsistency where ordinary current-runtime tests construct obsolete partial schemas and rely on runtime compatibility fallbacks.
+Stop ordinary current-runtime tests from silently depending on unsupported partial historical schemas.
 
-This is a test-suite cleanup concern independent of whether runtime fallback removal is implemented in another PR.
+### Required work
 
-### Required classification
+Classify manually migrated/inline-schema fixtures before changing them:
 
-Before modifying a manually migrated fixture, classify the test as one of:
+- current application behavior;
+- migration/upgrade;
+- historical data-state;
+- explicit deployment/sequencing compatibility.
 
-- ordinary current application behavior;
-- migration/upgrade behavior;
-- historical data-state behavior;
-- explicit deployment/sequencing compatibility behavior.
-
-Only the first category should be automatically normalized to current schema.
+Normalize only ordinary current application tests automatically.
 
 ### Shared current-schema bootstrap
 
-Introduce or standardize one repository-owned helper for ordinary tests that need a D1 schema.
+Introduce or standardize one repository-owned helper that:
 
-The helper should:
+- applies the complete current migration set in deterministic order;
+- uses the actual migration authority rather than a stale hand-maintained subset;
+- fails loudly on migration failure;
+- avoids missing-table/column probing as control flow;
+- lets ordinary D1-backed tests avoid copying migration lists.
 
-- apply the repository's complete current migration set in deterministic migration order;
-- derive the migration set from the actual repository migration files / current migration authority, not a stale hand-maintained subset;
-- fail loudly if a migration cannot be applied;
-- avoid `no such column` / `no such table` probing as control flow;
-- be usable by ordinary D1-backed tests without each file copying a migration list.
+### Preserve historical tests
 
-If repository migration metadata is not a complete source of truth, do not silently rely on it. The bootstrap source must actually cover the current schema.
+Do not normalize genuine migration tests merely because they use old SQL.
 
-### Audit targets
+Valid examples:
 
-Search for tests that:
-
-- read a manually selected list of migration files;
-- inline `CREATE TABLE` definitions that mimic application tables;
-- deliberately omit newer columns/tables and then call current application modules;
-- catch `no such table` / `no such column` inside test setup to support multiple schema generations.
-
-Do **not** mass-rewrite every test that reads SQL. Migration tests legitimately read historical SQL.
-
-### Preserve migration tests
-
-Examples of valid historical-schema testing include:
-
-- applying migration N to the schema produced by N-1;
-- verifying data preservation during an upgrade;
-- asserting a migration trigger/constraint is created correctly;
-- validating deployment sequencing contracts.
-
-Those tests should remain historical by design.
+- N-1 schema -> migration N;
+- data preservation during upgrade;
+- migration trigger/constraint checks;
+- deployment sequencing contracts.
 
 ### Acceptance criteria
 
-- ordinary current-runtime D1 tests use the current schema bootstrap or an equally current purpose-built fixture;
-- explicit migration tests remain historical;
-- historical data states are represented inside the current schema rather than through missing columns/tables;
-- no application compatibility fallback is added merely to make a test fixture pass;
-- fixture intent is obvious from test setup.
+- ordinary current-runtime tests use current schema or an equally current purpose-built fixture;
+- migration tests remain deliberately historical;
+- historical data states are represented within supported schema;
+- no runtime fallback is added only for tests;
+- fixture intent is obvious.
 
 ---
 
-## Checkpoint 2 — Introduce `test:fast`
+## Checkpoint 2A — Introduce `test:fast` infrastructure with no coverage reduction
 
 ### Objective
 
-Make Draft validation meaningfully faster without weakening the canonical complete suite.
+Create the selection mechanism safely before excluding anything.
 
-### Package/command contract
+### Package contract
 
 Add:
 
@@ -284,37 +239,237 @@ Add:
 npm run test:fast
 ```
 
-Do not add `test:full` initially. `npm test` already means complete.
-
-### Selection architecture
-
-Use a repository-owned selector rather than workflow globs.
-
-Recommended shape:
+Keep:
 
 ```text
-complete test discovery
-        |
-        +--> npm test      -> all maintained Node tests
-        |
-        +--> fast selector -> all discovered ordinary tests
-                              minus explicit specialized/full exclusions
+npm test
 ```
+
+complete.
+
+Do not add `test:full` initially.
+
+### Selector architecture
+
+Use a central repository-owned selector, e.g. `scripts/test-selection.mjs` / `scripts/test-fast.mjs`.
 
 The selector should:
 
-- discover the repository's maintained Node test files deterministically;
-- maintain a short explicit exclusion manifest;
-- fail when an exclusion names a missing file;
-- make newly discovered ordinary tests fast by default;
-- emit the selected/excluded files in a deterministic order when diagnostics are requested;
-- avoid subsystem inference from filename fragments.
+- discover maintained Node test files deterministically;
+- default new ordinary tests into fast;
+- support a small explicit exclusion manifest;
+- fail if an exclusion names a missing file;
+- expose selected/excluded paths for diagnostics/tests;
+- avoid filename-category inference.
 
-A small script such as `scripts/test-selection.mjs` / `scripts/test-fast.mjs` is preferable to duplicating long argument lists in `package.json` or Actions YAML.
+### Important rollout rule
 
-### Initial fast exclusions
+At the end of **2A**, the exclusion manifest may be empty.
 
-Start conservatively with only:
+`test:fast` is allowed to execute the same tests as `npm test` initially.
+
+That is intentional: the goal of 2A is to prove selection/default semantics without reducing coverage.
+
+### Validation integration
+
+Add a distinct fast Node check to `scripts/validation-contract.mjs`.
+
+Base composition becomes conceptually:
+
+```text
+fast:
+  diff
+  testFast
+  svelte
+
+full:
+  diff
+  db
+  test
+  svelte
+  build
+  authSmoke
+```
+
+Workflow YAML remains orchestration only.
+
+`validate-ci.mjs` must use compact reporting for both `test` and `testFast`.
+
+### Contract tests
+
+Prove:
+
+- every fast-selected test belongs to complete discovery;
+- every exclusion exists;
+- every discovered maintained test is fast or explicitly excluded;
+- a new ordinary test defaults to fast;
+- `npm test` remains complete;
+- full uses `npm test`;
+- workflow YAML contains no duplicated file list.
+
+### Acceptance criteria
+
+- zero coverage reduction is acceptable and preferred at this stage;
+- complete semantics unchanged;
+- default-to-fast behavior proven;
+- repository remains green.
+
+---
+
+## Checkpoint 2B — Make ordinary CI change-aware for specialized checks
+
+### Objective
+
+Create the safety mechanism required before specialized tests can leave unrelated Drafts.
+
+### Current architectural gap
+
+The repository already has changed-path classification in `scripts/agent-checks-lib.mjs`.
+
+For slide-review it can report:
+
+```text
+tools/slide-import-review/**
+  -> slideReviewTest
+  -> slideReviewBuild
+```
+
+But ordinary CI currently selects only fast/full and does not execute those classifier requirements.
+
+Therefore advisory classification is insufficient for generic-fast exclusions.
+
+### Required architecture
+
+Extract/retain one central changed-path-to-check resolver that is reusable by:
+
+- `agent:checks` for reporting;
+- `validate-ci.mjs` for actual execution.
+
+Do not create a second independent classifier in CI.
+
+### CI changed-file source
+
+Use the actual PR diff base/head already available to CI validation.
+
+CI should resolve:
+
+```text
+base mode checks
++ specialized checks required by changed paths
+```
+
+and execute the deduplicated result.
+
+### Fail-safe behavior
+
+Important unclassified code/tooling paths should continue to fall back safely rather than silently receiving fewer checks.
+
+### Deduplication
+
+The resolver should understand when a broader check already satisfies a narrower one.
+
+Examples:
+
+- full `npm test` already executes the slide-review test files and operator tests;
+- a slide-review **build** check may still be additionally required for a slide-review change;
+- Draft `test:fast`, after exclusions are activated, may need the specialized test check added back.
+
+Do not run the same test unnecessarily twice merely because two rules mention it.
+
+### Required tests
+
+Prove at minimum:
+
+- unrelated application Draft -> base fast only;
+- slide-review Draft -> base fast + slide-review test/build;
+- slide-review Ready/full -> full complete tests + required non-duplicated slide-review build;
+- validation-tooling changes fail safe;
+- agent reporting and CI execution derive from the same classification authority;
+- workflow YAML still does not own path rules.
+
+### Acceptance criteria
+
+- related specialized changes cannot go green without their specialized check;
+- `agent:checks` and CI cannot drift onto separate rule sets;
+- conditional behavior is test-covered before exclusions are activated.
+
+---
+
+## Checkpoint 2C — Add named production-operator checks
+
+### Objective
+
+Give the two production-operator tests safe conditional ownership before they can leave unrelated Drafts.
+
+### Current tests
+
+#### ECG Batch 01 Asset rename
+
+```text
+test/ecg-batch-01-asset-rename.test.js
+```
+
+protects:
+
+```text
+scripts/rename-ecg-batch-01-assets.mjs
+```
+
+including deterministic targets, fail-closed preconditions/postconditions, storage identity, and guarded mutation behavior.
+
+#### Agreed taxonomy operator
+
+```text
+test/production-taxonomy-operator.test.js
+```
+
+protects:
+
+```text
+scripts/apply-agreed-taxonomy.mjs
+```
+
+including fail-closed preconditions/postconditions, idempotency, and preservation of unrelated routes.
+
+### Required named checks
+
+Add repository-owned checks for these operator test owners. They may be two checks or one coherent `productionOperatorTests` check, provided path ownership stays explicit and testable.
+
+Example conceptual checks:
+
+```text
+node --test test/ecg-batch-01-asset-rename.test.js
+node --test test/production-taxonomy-operator.test.js
+```
+
+### Required path rules
+
+A change to either:
+
+- the production operator script;
+- its dedicated test;
+- any explicitly identified operator-owned configuration/data file;
+
+must require the matching operator test in ordinary CI.
+
+### Acceptance criteria
+
+- both operators have named validation ownership;
+- both have central changed-path rules;
+- Draft CI actually executes those checks for related changes;
+- full `npm test` still includes both tests.
+
+---
+
+## Checkpoint 2D — Activate safe exclusions for unrelated Drafts
+
+### Objective
+
+Only now reduce generic Draft test coverage for specialized families.
+
+### Candidate exclusions
+
+After 2B/2C acceptance criteria are met, the following may be excluded from generic `test:fast`:
 
 ```text
 tools/slide-import-review/tests/build.test.js
@@ -325,108 +480,104 @@ test/ecg-batch-01-asset-rename.test.js
 test/production-taxonomy-operator.test.js
 ```
 
-Rationale:
+### Semantics after activation
 
-- slide-review has clear specialized ownership and dedicated `slide-review:test` / `slide-review:build` checks;
-- the two production-operator files are important while their operators remain runnable but are not ordinary application behavior needed in every unrelated Draft.
+**Unrelated Draft:** these specialized tests may be omitted.
 
-Everything else stays fast initially, including:
+**Related Draft:** central changed-path ownership adds the specialized check back automatically.
 
-- D1 and migration tests;
-- auth and Preview/Production isolation contracts;
-- asset/R2 safety tests;
-- import and resumable-import safety;
-- learner/review behavior;
-- Stimulus Family semantics;
-- reusable-question behavior;
-- Case lifecycle;
-- taxonomy/tag behavior;
-- validation/agent tooling;
-- local-runtime helper tests;
-- Wrangler authority contracts.
+**Ready/full:** `npm test` contains all six regardless; add only any non-duplicated specialized check still required (for example slide-review build).
 
-### Validation-contract integration
+### Tests
 
-Add a distinct repository-owned named check for the fast Node suite.
+Prove all three cases for each specialized family:
 
-Expected composition:
-
-```text
-fast:
-  diff whitespace
-  npm run test:fast
-  npm run check
-
-full:
-  diff whitespace
-  npm run db:check
-  npm test
-  npm run check
-  npm run build
-  npm run auth:smoke:local
-```
-
-Do not silently add `runtime:smoke` or slide-review tooling to universal full validation; they remain specialized checks unless separately decided.
-
-`validate-ci.mjs` must recognize both complete and fast Node-test checks for compact CI reporting.
-
-### Selector contract tests
-
-Add tests proving:
-
-- every selected fast test is part of the maintained complete discovery set;
-- every explicit fast exclusion exists;
-- every maintained discovered test is either fast or explicitly excluded;
-- a newly added ordinary test would default to fast;
-- the six initial exclusions are not selected for unrelated Draft fast validation;
-- `npm test` remains the complete command;
-- full validation uses `npm test`, not `test:fast`;
-- workflow YAML does not grow a duplicate test list.
+- unrelated Draft omission;
+- related Draft mandatory execution;
+- full complete inclusion.
 
 ### Acceptance criteria
 
-- complete-suite semantics are unchanged;
-- Draft uses `test:fast` through the shared validation contract;
-- Ready/full uses `npm test`;
-- new ordinary tests cannot silently disappear from Draft validation;
-- initial exclusions are limited to the explicitly approved specialized/operator set.
+No related Draft can receive green ordinary CI while its specialized owner did not execute.
+
+If that property cannot be proven, leave the relevant test in generic fast.
 
 ---
 
-## Checkpoint 3 — Remove clearly incidental source contracts
+## Checkpoint 3 — Review the two intentional UX regression contracts
 
 ### Objective
 
-Remove tests whose unique contract is an implementation detail rather than application behavior.
+Replace brittle implementation assertions only after the underlying product invariant is confirmed.
 
-### Initial removals
+There are **no unconditional deletions in this checkpoint**.
 
-The audit identified two strong removal candidates:
+### 3.1 Shared Questions width
 
-#### `test/admin-shared-questions-width-contract.test.js`
+Current test:
 
-It freezes an exact width declaration such as `width: min(100%, 120rem)`.
+```text
+test/admin-shared-questions-width-contract.test.js
+```
 
-Unique coverage is the CSS technique itself. That is not a durable domain, safety, accessibility, or functional invariant.
+Current source owner:
 
-Disposition: **REMOVE**.
+```text
+src/routes/admin/shared-questions/+page.svelte
+```
 
-#### `test/admin-horizontal-overflow-contract.test.js`
+It protects the deliberate regression outcome that the Shared Questions page uses the available admin content width and does not regress to an unnecessary page/form-grid max-width constraint.
 
-It freezes an exact global `overflow-x` CSS technique rather than testing observable horizontal-overflow behavior.
+It was introduced with the UX change in commit:
 
-Disposition: **REMOVE**.
+```text
+d5fba9b — Refine admin editor widths and expandable fields
+```
 
-### Guardrail
+The exact CSS/source regex is brittle; the product intent is real.
 
-Do not generalize these removals into “delete source-reading tests.” Valuable architecture/safety source contracts remain.
+Disposition options, in priority order:
+
+1. replace with a lightweight rendered/layout behavior test that checks the intended usable width without freezing exact CSS;
+2. consolidate into an existing suitable rendered component owner if one exists;
+3. retain the source regression contract temporarily if no stronger cheap owner exists;
+4. delete only after an explicit product decision that this width behavior is no longer a protected invariant.
+
+### 3.2 Application horizontal overflow
+
+Current test:
+
+```text
+test/admin-horizontal-overflow-contract.test.js
+```
+
+protects the intentional regression outcome that child layouts do not cause unwanted application-level horizontal scrolling.
+
+It was introduced in the same `d5fba9b` UX-fix commit alongside `body { overflow-x: hidden; }`.
+
+The exact CSS declaration is an implementation technique, not a direct measurement of overflow, and can mask the true offending child. But the user-visible regression matters.
+
+Disposition options:
+
+1. prefer a lightweight rendered check of actual horizontal overflow at representative viewports;
+2. otherwise retain the current source contract until a stronger owner exists;
+3. delete only if the product invariant is consciously retired.
+
+### Browser-infrastructure guardrail
+
+Do not add a heavyweight E2E stack solely for these two checks.
+
+If the repository lacks a lightweight rendered testing layer, keeping an imperfect regression contract can be safer than deleting an intentional regression guarantee with no replacement.
 
 ### Acceptance criteria
 
-- each removed test has an explicit statement of what unique coverage is lost;
-- no domain/safety invariant disappears;
-- `npm test`, `test:fast`, and `npm run check` remain green;
-- removal is justified by refactor resilience, not claimed as a meaningful runtime optimization.
+For each test, record one of:
+
+- stronger replacement exists and old source assertion is removed;
+- old assertion retained intentionally pending infrastructure;
+- product invariant explicitly retired and test removed.
+
+No silent deletion.
 
 ---
 
@@ -434,32 +585,33 @@ Do not generalize these removals into “delete source-reading tests.” Valuabl
 
 ### Objective
 
-Reduce multiple tests asserting the same behavior through increasingly brittle source expressions.
+Reduce repeated source assertions while keeping unique behavior.
 
-### Primary consolidation targets
+### Case Library PR104 family
 
-#### Case Library PR104 contract family
+Review `admin-case-library-pr104-ui.test.js` against functional owners for:
 
-`admin-case-library-pr104-ui.test.js` overlaps functional owners for filtering, state, topic authoring, and classification.
+- filtering;
+- state persistence;
+- topic authoring;
+- classification.
 
-Keep only genuinely unique UI/data-flow guarantees. Remove duplicate assertions about exact expressions, CSS, or ordinary copy when functional tests already own the invariant.
+Keep unique interaction/data-flow guarantees. Remove exact expression/CSS/copy assertions only where a stronger owner exists.
 
-#### Taxonomy Admin contract family
+### Taxonomy Admin family
 
 Review together:
 
 - `admin-taxonomy-workspace-contract.test.js`;
 - `admin-taxonomy-case-tag-contract.test.js`;
 - `admin-topics-form-contract.test.js`;
-- `taxonomy-workspace-model.test.js`;
-- `taxonomy-workspace-staging.test.js`;
-- `taxonomy-hierarchy-staging.test.js`;
-- `case-primary-topic-*`;
-- `case-tag-*`.
+- taxonomy workspace/model/staging tests;
+- case primary-topic tests;
+- case-tag tests.
 
-Prefer domain/model/staging tests as owners of mutation/preflight/hierarchy semantics. Retain raw source assertions only for a real architectural boundary that cannot be owned more directly.
+Mutation/preflight/hierarchy semantics should primarily live under domain/model/staging owners.
 
-#### Case Images / Stimulus curation overlap
+### Case Images / Stimulus curation overlap
 
 Review together:
 
@@ -468,363 +620,273 @@ Review together:
 - `original-stimulus-semantics.test.js`;
 - `admin-image-workflow.test.js`.
 
-Domain role semantics belong in domain tests. UI tests should own only unique authoring affordances and intentional vocabulary.
-
-### Method
-
-For every assertion considered for deletion:
-
-1. state the invariant it claims to protect;
-2. identify the strongest existing owner;
-3. if no strong owner exists and the invariant matters, add/strengthen that owner first;
-4. only then delete the duplicated/brittle assertion.
+Domain role semantics belong to domain tests; UI tests should keep only genuinely user-observable authoring/navigation behavior.
 
 ### Acceptance criteria
 
-- no important invariant is removed without an identified replacement owner;
-- exact implementation expressions are reduced;
-- a refactor that preserves behavior should not require routine regex-test rewrites;
-- test files have clearer subsystem ownership.
+For every removed assertion:
+
+- identify the invariant;
+- identify stronger owner or explicit retirement;
+- preserve safety/domain meaning;
+- avoid deleting solely because regex/source inspection is aesthetically undesirable.
 
 ---
 
-## Checkpoint 5 — Rewrite valuable-but-brittle contracts behaviorally
+## Checkpoint 5 — Behavioral rewrites by subsystem
 
-### Objective
+### Candidate families
 
-Preserve important regressions while moving them away from incidental source shape.
+#### Case editor responsive contract
 
-Do this one family at a time so review can compare old and new protection.
+Protect:
 
-### 5A. Case editor responsive/single-tree behavior
+- classic/compact switch is presentation-only;
+- one logical editor tree remains mounted;
+- usable layout at intended viewport classes.
 
-Target:
+Rewrite away from exact breakpoint/helper/CSS tokens where practical.
 
-- `admin-case-editor-responsive-contract.test.js`.
+#### Case Images editor
 
-Preserve:
+Protect:
 
-- Compact/Classic is presentation-only;
-- one editor tree remains mounted;
-- required controls remain usable across intended layout states.
+- intentional information architecture;
+- image role vocabulary where it maps to domain semantics;
+- canonical Image Library navigation;
+- authoring controls needed to manage image roles/questions.
 
-Avoid freezing:
+Avoid freezing incidental markup order/CSS sizing.
 
-- exact breakpoint values unless product requirements truly specify them;
-- helper variable names;
-- CSS declaration spelling/order;
-- incidental source tokens.
+#### Stimulus curation controls
 
-Prefer a lightweight rendered/component contract if practical. Do not add a heavyweight browser stack solely for this.
+Protect the Admin's ability to set/correct Original/Alternative/Always-shown semantics and reverse curation decisions.
 
-### 5B. Case Images editor behavior
+Prefer rendered/control behavior over raw Svelte text where practical.
 
-Target relevant portions of:
+#### Performance/read-model contract
 
-- `case-images-editor-layout.test.js`.
+Protect the bounded read behavior, not a specific helper name.
 
-Preserve:
+Prefer query/read-bound instrumentation where feasible.
 
-- canonical information architecture that affects authoring;
-- meaningful image-role vocabulary;
-- canonical navigation to Image Library;
-- role-changing affordances required by domain behavior.
+#### Reusable-image safety
 
-Move Original/Alternative/Always-shown semantics to domain tests where possible.
+Preserve production scope, option/Asset identity, and mutation safety. Rewrite route/source assertions only after equivalent domain/route behavior is proven.
 
-### 5C. Stimulus curation controls
+### Acceptance criteria
 
-Target:
-
-- `stimulus-curation-editor-controls.test.js`.
-
-Preserve the Admin's ability to establish/correct the domain roles and reverse curation decisions.
-
-Prefer server/action/domain or rendered-control behavior over literal raw Svelte source where possible.
-
-### 5D. Performance/read-model contract
-
-Target the brittle source portion of:
-
-- `performance-read-model.test.js`.
-
-Preserve the real invariant: opening the Case editor must not reintroduce an unbounded Case Library read.
-
-Prefer:
-
-- bounded query/read instrumentation;
-- call-count/query-shape assertions;
-- a narrow dependency boundary only when that is genuinely the architecture contract.
-
-Avoid protecting a specific helper function name if an equivalent implementation remains safe.
-
-### 5E. Reusable-image route/source safety
-
-Keep production-scope, Asset identity, option identity, and mutation safety behavior.
-
-Only remove route/source-form assertions after equivalent route/domain behavior is demonstrably covered.
-
-### Acceptance criteria for each family
-
-- old protected behavior is written down before rewrite;
-- new test fails on the intended regression;
-- new test survives an equivalent implementation refactor;
-- no heavy test framework is introduced without a clear cost/benefit case.
+- no behavior gap during rewrite;
+- old brittle owner removed only when replacement is green;
+- exact product vocabulary retained when it carries semantic meaning;
+- no unnecessary browser-stack expansion.
 
 ---
 
-## Checkpoint 6 — Runtime profiling and optimization
+## Checkpoint 6 — Measure and profile runtime
 
-### Objective
+### Required measurements
 
-After diagnostics, fixture normalization, and the conservative fast split are stable, measure whether Draft latency actually improved enough.
+Use at least three comparable CI runs and compare medians for:
 
-### Baseline
+- complete Node stage;
+- fast Node stage;
+- `npm run check`;
+- total Draft validation;
+- selected/excluded file counts;
+- executed test counts.
 
-Use the audited Node-stage baseline of approximately 19.6 seconds as historical evidence, but establish a fresh comparable implementation baseline after the branch is rebased/current.
+### Materiality gate
 
-### Measurement protocol
+Target at least:
 
-For each important stage, use at least three comparable GitHub Actions runs and compare medians rather than one-off timings.
+```text
+20% median reduction in Node-stage runtime
+```
 
-Record:
+before describing the fast-tier infrastructure as materially worthwhile.
 
-- complete `npm test` wall time;
-- `test:fast` wall time;
-- `npm run check` wall time;
-- total Draft validation wall time;
-- number of discovered/selected/excluded files;
-- pass/fail counts.
+### If the safe exclusions are insufficient
 
-Recommended success gate:
+Profile before excluding more high-value tests:
 
-- **at least 20% median reduction in the Node-test stage** before declaring the fast-tier infrastructure materially worthwhile.
+- Node worker/process/file startup;
+- repeated migration application;
+- repeated DB fixture setup;
+- subprocess-heavy tests;
+- file fragmentation;
+- concurrency/scheduling;
+- expensive module initialization.
 
-Because `npm run check` remains about 18.5 seconds, a 20% Node improvement translates to a smaller total Draft improvement; report both numbers rather than overstating the benefit.
+Do not assume DB/migration tests are the bottleneck from names alone.
 
-### If the initial split is insufficient
+### Further exclusions
 
-Do not reflexively exclude more high-value tests.
+Any new exclusion requires:
 
-Profile first:
-
-1. per-file/process startup cost;
-2. repeated module bootstrap;
-3. repeated current-schema migration setup;
-4. repeated fixture construction;
-5. real-Git/subprocess tests;
-6. unusually slow route/import/image tests;
-7. test-file fragmentation that creates worker/process overhead;
-8. concurrency behavior in the GitHub runner.
-
-### Permitted optimization directions
-
-Depending on evidence:
-
-- consolidate tightly related micro-files when process startup dominates;
-- reduce duplicate fixture/migration setup within a file;
-- cache immutable fixture text/metadata safely within a process;
-- simplify redundant integration setup;
-- split genuinely specialized subprocess/operator tooling out of Draft;
-- tune test concurrency only with measured evidence.
-
-### Prohibited shortcut
-
-Do not move auth, D1, migration, import, learner, Stimulus Family, reusable-question, Preview/Production isolation, Asset/R2, or Case lifecycle tests out of fast merely because they are integration tests.
-
-Risk and ownership must justify any later exclusion.
+- measured cost evidence;
+- clear specialized/full ownership;
+- conditional related-change coverage if omitted from generic Draft;
+- explicit risk analysis.
 
 ---
 
-## Checkpoint 7 — Documentation and durable authoring rules
+## Checkpoint 7 — Durable authoring and validation guidance
 
-### Objective
+Update repository guidance so future tests follow the new architecture.
 
-Prevent the suite from drifting back into the same problems.
+Document:
 
-Update repository guidance after implementation to document:
+### Test placement
 
-### Test selection
+- `npm test` is complete;
+- new ordinary tests default to fast;
+- specialized exclusion requires explicit ownership and CI path coverage.
 
-- `npm test` = complete maintained Node suite;
-- `npm run test:fast` = Draft subset;
-- ordinary new tests default to fast;
-- full-only/specialized exclusions require explicit rationale.
+### Schema fixtures
 
-### Fixture rules
+- current app tests -> current schema;
+- migration tests -> historical schema allowed;
+- historical data state != historical runtime schema.
 
-- current application tests use current schema;
-- migration tests may use historical schema deliberately;
-- historical data state is not the same as historical schema support;
-- no permanent missing-column/table probing in ordinary tests.
+### Contract hierarchy
 
-### Contract-testing rules
+- behavior first;
+- architecture/config source test when structure itself matters;
+- raw implementation source lock only when justified and reviewed.
 
-Prefer, in order:
+### CI diagnostics
 
-1. domain/server behavior;
-2. observable rendered behavior where worthwhile;
-3. stable query/interaction boundaries;
-4. source/configuration assertions only when source/configuration is itself the intended architecture/safety contract.
+- passing output compact;
+- failures visible near end;
+- structured reporter events, not parsing unstable human text.
 
-Do not freeze exact CSS/source expression/copy without a documented reason.
+### Change-aware specialization
 
-### CI-output rules
-
-- passing Node tests stay compact;
-- failures remain detailed and prominent;
-- structured diagnostic logic consumes Node test events, not unstable human reporter text.
-
-Update the appropriate `AGENTS.md` / testing documentation and documentation index/task map where required by repository guidance.
+- path rules live in one central authority;
+- `agent:checks` reports them;
+- ordinary CI executes them;
+- workflow YAML does not duplicate them.
 
 ---
 
-## 5. Safety-critical contracts that must remain protected
+## 5. Safety-critical families that remain protected
 
-The cleanup must preserve effective coverage for the following families.
+The cleanup must preserve effective regression coverage for:
 
-### Production / Preview ownership and isolation
+- Production/Preview isolation and deployment ownership;
+- auth/authz;
+- destructive/race-sensitive D1/R2 behavior;
+- migration/schema constraints;
+- learner/review selection, persistence and provenance;
+- Stimulus Family semantics;
+- reusable-question behavior;
+- import and resumable-runtime safety;
+- Case lifecycle;
+- taxonomy/tags/classification;
+- repository runtime/deployment authority.
 
-Including Preview deployment ownership, Preview auth/workspace behavior, Asset Preview isolation, and Production-scoped operator constraints.
+Broad `npm run check` remains in fast/full.
 
-### Authentication / authorization
+## 6. Implementation PR strategy
 
-Including auth migration/bootstrap behavior, Preview auth, and content access guards.
+PR #115 remains planning-only.
 
-### D1 / R2 destructive and race-sensitive behavior
+Recommended follow-up PRs:
 
-Including Asset replacement/identity, image collection rename races, upload/serving/storage behavior, conditional immutability, resumable import lease/runtime safety, and content-import safety.
-
-### Database / migrations
-
-Including migration upgrade behavior, schema constraints/triggers, multi-topic migration behavior, tag/shared schema, Case lifecycle compatibility where explicitly an upgrade test, and Stimulus integrity triggers.
-
-### Learner behavior
-
-Including learning persistence, review provenance/selection, media cache, system review navigation, question pool/scope, and multi-topic study routes.
-
-### Stimulus Family
-
-Including Original/Alternative semantics, group/curation behavior, correctness checkpoints, façade dependency direction, live prompt alignment, prompt specificity, and reusable coverage restoration.
-
-### Reusable questions
-
-Including reusable-image question safety, card counts, identity, question pool mode, and scope invariants.
-
-### Imports
-
-Including content import/hardening/safety, primary-topic guards, resumable import behavior, seed validity, and slide-review tooling through its specialized/full ownership.
-
-### Case lifecycle / taxonomy
-
-Including lifecycle, primary-topic behavior, taxonomy hierarchy/model/staging, tags, and Admin classification/state behavior.
-
-## 6. Source-contract disposition summary
-
-### Keep as deliberate source/config contracts
-
-- `preview-deployment-contract.test.js`;
-- `stimulus-family-facade-contract.test.js`;
-- `wrangler-authority-contract.test.js`;
-- resumable-import runtime/source safety constraints;
-- selected Windows CLI process/source contracts.
-
-### Remove
-
-- `admin-shared-questions-width-contract.test.js`;
-- `admin-horizontal-overflow-contract.test.js`.
-
-### Consolidate / rewrite behaviorally
-
-- `admin-case-library-pr104-ui.test.js`;
-- `admin-taxonomy-workspace-contract.test.js`;
-- `admin-taxonomy-case-tag-contract.test.js`;
-- `admin-topics-form-contract.test.js`;
-- `admin-case-editor-responsive-contract.test.js`;
-- `case-images-editor-layout.test.js`;
-- `stimulus-curation-editor-controls.test.js`;
-- source portion of `performance-read-model.test.js`;
-- reusable-image route/source assertions where equivalent behavior coverage is established first.
-
-## 7. Implementation PR strategy
-
-PR #115 should remain the durable audit/plan and should not itself implement the cleanup.
-
-Recommended implementation strategy:
-
-### Implementation PR 1 — Test infrastructure foundation
+### Implementation PR 1 — diagnostics and fixture foundation
 
 Checkpoints:
 
-- Checkpoint 0: compact structured CI diagnostics;
-- Checkpoint 1: current-schema fixture normalization infrastructure and clearly ordinary stale fixtures;
-- Checkpoint 2: `test:fast` selector and validation-contract wiring.
+- 0 — compact CI diagnostics;
+- 1 — current-schema fixture normalization.
 
-Keep this PR Draft through all three checkpoints and make each checkpoint independently reviewable by commit/diff. Do not begin brittle-test deletion until the infrastructure foundation has been reviewed.
+Keep independently reviewable commits inside the PR.
 
-### Implementation PR 2 — Low-risk cleanup
+### Implementation PR 2 — safe fast-tier infrastructure
 
-Checkpoint 3 plus clearly duplicated incidental assertions from Checkpoint 4.
+Checkpoints:
 
-No application behavior changes.
+- 2A — selector, no coverage reduction;
+- 2B — CI change-aware specialized execution;
+- 2C — named production-operator checks;
+- 2D — activate only proven-safe exclusions.
 
-### Implementation PR 3+ — Behavioral rewrites by family
+Do not activate exclusions before the conditional safety tests are green.
 
-Perform Checkpoint 5 as one or more small PRs by subsystem. Do not mix unrelated Admin, taxonomy, Stimulus, and performance rewrites into one large patch.
+### Implementation PR 3 — UX/source-contract cleanup
 
-### Profiling follow-up
+Checkpoint 3 plus low-risk portions of Checkpoint 4.
 
-Checkpoint 6 may be part of the infrastructure PR if it is instrumentation-only, but any broader test-tier exclusion should be separately justified by measured evidence.
+No unconditional deletion of the two UX regression tests.
 
-## 8. Validation requirements by checkpoint
+### Implementation PR 4+ — behavioral rewrites
 
-Every implementation checkpoint should, as applicable, run:
+Split Checkpoint 5 by subsystem so regressions are independently reviewable.
 
-- focused tests for the changed test infrastructure;
-- `npm run test:fast` once introduced;
-- `npm test` to prove complete coverage remains healthy;
-- `npm run check`;
-- repository-selected additional checks from `npm run agent:checks`;
-- full validation before marking an implementation PR Ready for Review.
+### Profiling
 
-For changes to validation infrastructure itself, explicitly inspect the generated command composition and GitHub Actions behavior; green application tests alone are insufficient.
+Run Checkpoint 6 after the safe fast-tier behavior is in place. Additional exclusions require separate measured justification.
 
-## 9. Final acceptance criteria
+## 7. Review gates
 
-The Node-test cleanup is complete only when all of the following are true:
+Before each implementation checkpoint is considered complete:
 
-1. `npm test` remains the canonical complete suite.
-2. GitHub Actions no longer buries failures under hundreds of successful TAP records.
-3. CI failure output presents test name, useful source location, diagnostic message/stack, and a concise final summary when available.
-4. Structured failure handling does not parse unstable human reporter text.
-5. Ordinary current-runtime tests use the current schema.
-6. Historical schemas are confined to explicit migration/upgrade/sequencing tests.
-7. Historical data-state tests remain possible within the current schema.
-8. Draft validation uses a centrally owned exclusion-based `test:fast` subset.
-9. New ordinary tests default to fast.
-10. Full validation continues to execute the complete suite.
-11. The initial fast exclusions remain limited to the approved slide-review/operator set unless later profiling justifies a reviewed change.
-12. Broad `npm run check` remains in fast and full validation.
-13. The two pure CSS implementation-lock tests are removed.
-14. Valuable UI/source contracts are behaviorally rewritten or consolidated before their old protection is removed.
-15. Deliberate architecture/safety source contracts remain.
-16. No Production D1/R2 mutation is introduced.
-17. No runtime historical-schema fallback is restored to accommodate stale tests.
-18. Validation command ownership remains in `scripts/validation-contract.mjs`.
-19. The fast tier demonstrates a measured material benefit; target at least 20% median Node-stage improvement across comparable runs.
-20. Any further performance optimization is evidence-driven rather than based on test-category assumptions.
+- inspect the actual changed files and full diff;
+- preserve Draft status until the checkpoint receives independent review;
+- use repository-owned validation;
+- do not claim local execution unless it actually occurred;
+- ensure current CI is green on the exact reviewed head.
 
-## 10. Stop conditions for implementation agents
+Specific gates:
 
-An implementation agent should stop and request review at the end of each declared checkpoint if it discovers any of the following:
+**Checkpoint 0:** deliberately failing reporter fixture is easy to diagnose.
 
-- a proposed removal is the only owner of a safety/domain invariant;
-- a test classified as an ordinary runtime test is actually a migration/upgrade contract;
-- `npm test` discovery changes unexpectedly;
-- new tests can bypass the fast selector silently;
-- the CI reporter loses diagnostic detail or changes test exit semantics;
-- the fast split requires broad removal of high-risk domain coverage to show a benefit;
-- schema-fixture normalization requires application semantic changes;
-- validation logic begins diverging between local, CI, and agent tooling.
+**Checkpoint 1:** no unsupported ordinary partial-schema fixture remains in the audited target set.
 
-The correct response to these conditions is to preserve coverage and narrow the change, not to make the suite green by weakening the contract.
+**Checkpoint 2A:** new tests default fast; no coverage reduction yet.
+
+**Checkpoint 2B:** related specialized changes demonstrably trigger specialized checks in ordinary CI.
+
+**Checkpoint 2C:** both production operators have named, path-owned checks.
+
+**Checkpoint 2D:** only then can the six specialized files leave unrelated Draft generic fast coverage.
+
+**Checkpoint 3:** each UX regression contract is replaced, retained, or explicitly retired—never silently deleted.
+
+**Checkpoint 6:** runtime claim backed by comparable CI medians.
+
+## 8. Final target state
+
+The desired repository state is:
+
+```text
+npm test
+  = complete maintained Node suite
+
+npm run test:fast
+  = ordinary Draft suite
+  = new tests included by default
+  = specialized omissions only where CI conditional ownership is proven
+
+Draft CI
+  = base fast checks
+  + specialized checks required by changed paths
+
+Ready/full CI
+  = complete full checks
+  + any specialized non-duplicated checks required by changed paths
+
+agent:checks
+  = reports the same centrally owned changed-path requirements CI executes
+```
+
+At the same time:
+
+- CI logs make failures obvious;
+- ordinary runtime fixtures use supported current schema;
+- brittle contracts are consolidated without losing intentional regressions;
+- safety-critical domain coverage remains strong;
+- performance decisions are evidence-driven rather than filename-driven.
+
+This is the implementation contract for follow-up work. PR #115 itself remains Draft, documentation-only, and unmerged.
