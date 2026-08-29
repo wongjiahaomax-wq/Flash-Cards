@@ -502,6 +502,31 @@ At natural boundaries—especially after specificity/reactivation, coverage/move
 
 Keep the implementation PR Draft during intermediate work so repository fast validation can run on staged heads. Once all correctness and decomposition checkpoints are complete, mark it Ready for Review and require repository-owned full validation on the exact final head before merge.
 
+### Final Definition of Done
+
+The implementation PR is acceptable for merge only when **all** of the following are true:
+
+- all five settled correctness decisions are implemented deliberately and covered by focused target-behaviour regression tests;
+- the old inactive-parent characterization has been intentionally updated or replaced only after dormant-parent semantics are implemented, with no accidental weakening or deletion of unrelated regression coverage;
+- cross-Family Prompt specificity has one canonical application-level live-state policy: same-Family precedence remains legal, dormant parents do not reserve live ownership, and every transition that makes content selectable revalidates the resulting graph;
+- coverage/eligibility has one canonical semantic owner including Group Questions, exact Option Questions, valid reusable Asset Questions, Prompt deduplication, `none` / `minimum` / `all`, and Case Fixed-N compatibility; narrower movement/reactivation simulations no longer define competing Production semantics;
+- same-Case Production movement validates the complete post-move specificity and coverage state while preserving Stimulus Option ID, Asset ID, exact Questions, reusable opt-ins, caption and history; retained Preview behavior has not been routed through Production-only mutation guards;
+- live Option/Family reactivation establishes Asset eligibility, specificity, canonical coverage, Fixed-N compatibility and Original integrity at the transition that actually makes the content learner-selectable; archived restoration remains a distinct stronger lifecycle path with shared lower-level validators where appropriate;
+- source-aware Production fixed-image conversions assign the preserved source option as explicit Original atomically, while generic option insertion still never infers Original from order or sequence;
+- the Production data audit has been completed after future-write fixes; any cleanup is evidence-based, Production-only and conservative, or the PR explicitly records that no cleanup was required; Preview is excluded;
+- Checkpoint A was reviewed and green before mechanical decomposition began, and correctness commits remain distinguishable from structural refactor commits in review history;
+- Checkpoint B is complete: dependency direction is one-way, focused internal modules do not create façade cycles, `stimulus-groups.js` has been reduced only as far as caller/import analysis proves safe, and purpose-specific Admin/audit/learner read models remain appropriately separated;
+- the existing compatibility surface remains intact for callers that were not deliberately migrated, including exact shared `StimulusGroupInputError` constructor identity and expected route error classification;
+- learner Core/Expanded selection, question precedence, fixed/supporting image behavior, stable identity rules, and historical Review Asset/Question snapshots and provenance remain unchanged except for the five explicitly approved correctness semantics;
+- Production/Preview ownership separation and Import Package v1 behavior remain unchanged; no unrelated UX, schema, route, import-package or Preview redesign has entered the PR;
+- no new schema/D1 enforcement has been added unless it received separate explicit review as a comprehensive invariant rather than a one-off correctness patch;
+- durable documentation has been updated to describe the implemented final state rather than leaving the five decisions labelled only as future target semantics;
+- all repository-owned tests and validation required by the final implementation are green, with no skipped/disabled tests used to manufacture a pass;
+- the complete final diff has received an independent end-to-end review with no unresolved correctness, architecture or scope findings;
+- the PR is Ready for Review and repository-owned **full validation has passed on the exact head SHA that will be merged**. Any later commit invalidates that acceptance and requires final review/validation again.
+
+If any item above is false, the implementation PR is not done and must not be merged.
+
 ## Definition of ready for the next agent
 
 The next implementation agent may begin only if it follows these constraints:
