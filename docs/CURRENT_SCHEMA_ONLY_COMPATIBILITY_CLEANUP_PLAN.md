@@ -208,16 +208,17 @@ No Production data mutation is part of validation.
 Before this PR is ready for review, confirm:
 
 - [x] root and DB-specific agent guidance clearly define current-schema-only runtime support;
-- [x] all repository findings were classified before deletion;
+- [x] repository runtime-compatibility findings were classified before deletion;
 - [x] confirmed pre-current-schema runtime fallbacks are removed or simplified;
 - [x] current-domain compatibility states remain intact;
 - [x] migration correctness/upgrade tests remain intact;
-- [x] obsolete partial-migration application tests are removed or converted appropriately within this PR's compatibility scope;
+- [x] obsolete historical-schema runtime tests in this PR's direct compatibility scope are removed or converted appropriately;
 - [x] local/CI/Preview/Production setup paths still have a coherent migration-before-runtime contract;
 - [x] no historical migration was rewritten, renumbered, squashed, or deleted;
 - [x] no D1/R2 production data or migration ledger was changed;
 - [x] no unrelated refactor was bundled into the cleanup;
-- [ ] full current-schema validation is green after the separate ordinary test-fixture cleanup.
+- [ ] ordinary current-runtime tests that still construct partial historical schemas are repaired by the separate test-fixture cleanup;
+- [ ] full current-schema validation is green after that follow-up.
 
 ## Definition of done
 
