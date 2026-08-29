@@ -168,7 +168,7 @@ export async function updateTaxonomyConcept(
 
   if (target.kind === 'system' && kind !== 'system') {
     const relationships = await db.select({ tagId: systemTags.tagId }).from(systemTags).where(eq(systemTags.systemConceptId, conceptId)).limit(1);
-    if (relationships[0]) throw new TaxonomyInputError('Remove this System’s exposed Tags before changing it to a Topic. Move those Topic usages first.');
+    if (relationships[0]) throw new TaxonomyInputError('Remove this System’s exposed Tags before changing it to a Topic.');
   }
   if (target.kind === 'system' && !isActive) {
     const relationships = await db.select({ tagId: systemTags.tagId }).from(systemTags).where(eq(systemTags.systemConceptId, conceptId)).limit(1);
