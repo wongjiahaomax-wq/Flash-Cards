@@ -16,6 +16,7 @@ import {
   addStimulusOption,
   convertCaseAssetToStimulusOption,
   createStimulusGroup,
+  ensurePromptIsNotUsedByAnotherGroup,
   saveStimulusOptionQuestion,
   setStimulusOptionActive
 } from '../src/lib/server/db/stimulus-groups.js';
@@ -299,6 +300,24 @@ test('moving a Case question respects the cross-Alternative-Set prompt invariant
       promptMd: 'What abnormality is present?',
       answerMd: 'Case answer.'
     });
+
+    assert.deepEqual(
+      { ...fixture.sqlite.prepare(`
+        SELECT sg.is_active AS groupActive,
+               sgo.is_active AS optionActive,
+               sgo.removed_from_case AS removedFromCase,
+               soq.is_active AS questionActive
+        FROM stimulus_option_questions soq
+        JOIN stimulus_group_options sgo ON sgo.id = soq.stimulus_group_option_id
+        JOIN stimulus_groups sg ON sg.id = sgo.stimulus_group_id
+        WHERE sgo.id = ? AND soq.question_prompt_id = ?
+      `).get(sourceOptionId, promptId) },
+      { groupActive: 1, optionActive: 1, removedFromCase: 0, questionActive: 1 }
+    );
+    await assert.rejects(
+      ensurePromptIsNotUsedByAnotherGroup(fixture.db, 'seed-anterior-a', promptId, targetGroupId),
+      /same Question Prompt cannot be independently attached to multiple active Stimulus Groups/
+    );
 
     await assert.rejects(
       moveCaseQuestionToStimulusOption(fixture.db, {
