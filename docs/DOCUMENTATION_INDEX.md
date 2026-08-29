@@ -179,7 +179,7 @@ The Case editor is componentized under `src/lib/components/case-editor/`. Curren
 - `ACCOUNT_MANAGEMENT_PR_A_IMPLEMENTATION_PROMPT.md` — implementation handoff for password recovery + transactional email; treat as a task prompt, not proof of merge.
 - `ACCOUNT_MANAGEMENT_PR_B_IMPLEMENTATION_PROMPT.md` — implementation handoff for production Admin account management; treat as a task prompt, not proof of merge.
 
-For account/auth work, inspect current implementation and current PR state before relying on an implementation prompt. Once PR A or PR B is completed, its implementation prompt becomes historical context and current code/current subsystem documentation take precedence.
+For account/auth work, inspect current implementation and current PR state before relying on an implementation prompt. Once an implementation PR merges, the prompt becomes historical handoff context.
 
 Public signup remains intentionally disabled unless a separately reviewed product decision changes that contract.
 
