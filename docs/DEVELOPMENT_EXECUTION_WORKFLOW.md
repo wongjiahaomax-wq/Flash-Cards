@@ -6,7 +6,7 @@
 
 _Status: current development/operator workflow._
 
-_Last reviewed: 28 August 2026._
+_Last reviewed: 29 August 2026._
 
 ## Purpose
 
@@ -215,6 +215,8 @@ Use `validate:fast` for an ordinary iteration checkpoint when the focused contra
 
 Local `validate:*` resolves the same feature-branch base used by `agent:checks`. Its whitespace check compares that merge-base with the current tracked working tree, so committed feature changes, staged changes and unstaged tracked changes are all included. Ordinary PR CI consumes the same repository-owned `fast`/`full` mode definitions while keeping PR-checkout-specific diff semantics and GitHub annotations explicit. GitHub selects `fast` when the pull-request event reports `draft: true` and `full` otherwise; the `ready_for_review` event therefore runs full validation of the current PR revision without requiring another source commit.
 
+The Node-test stage has a separate presentation contract but not a separate test-selection contract. `npm test` remains exactly the canonical complete `node --test` suite. Ordinary CI passes `--test-reporter=./scripts/ci-test-reporter.mjs` through `scripts/validate-ci.mjs`; the reporter consumes structured `node:test` events, emits compact progress for successful tests and one final summary, then prints real failures together at the end with test name, file/line, failure type, error/code, operator, expected/actual values, useful stack frames, and GitHub file/line annotations. Future CI work must preserve this structured reporter path. Do not restore buffered TAP/spec/dot parsing or hundreds of successful per-test records in ordinary CI logs.
+
 You do not need to rerun every command after every small edit. Run focused checks during iteration and the repository-selected full/specialized set before handing the branch back for final PR review.
 
 Opening or updating a Draft PR triggers fast ordinary CI. Opening or updating a Ready-for-Review PR triggers full ordinary CI, and marking a Draft PR Ready for Review starts a full run even without a new source commit. Newer runs cancel obsolete runs for the same PR; different PR numbers remain independent. The ordinary required status context remains the single `check` job.
@@ -336,6 +338,8 @@ Keep three kinds of evidence distinct:
 
 When local commands cannot run, say so and report the GitHub CI/check evidence actually available. If the affected subsystem requires specialized validation such as `npm run runtime:smoke`, `npm run slide-review:test`, or `npm run slide-review:build`, inspect the equivalent configured GitHub check/workflow evidence where it exists and explicitly report anything that could not be verified. Do not make specialized checks universal CI merely to support remote agents.
 
+For ordinary PR Node tests, the expected CI evidence is intentionally compact: successful tests appear only as progress symbols plus the aggregate summary, while structured failures are collected at the end with actionable diagnostic detail and GitHub annotations. A future change that restores large successful TAP/spec output is a regression in the CI observability contract even if the tests still pass.
+
 ### Draft PR as durable handoff
 
 For remote work, the current draft PR is an important persistent handover artifact. A later coding-agent session should normally be able to reconstruct current work from:
@@ -419,6 +423,8 @@ GitHub-hosted CI is a shared/limited resource. Prefer spending it on checks that
 - repository workflows that require GitHub secrets or an explicitly remote environment.
 
 Avoid rerunning already-successful jobs unless the candidate changed or the run was genuinely transient/flaky.
+
+The configured PR gate should also remain log-efficient: compact successful Node-test progress is the normal contract, while verbose diagnostic material is reserved for failures. Do not trade away that signal-to-noise improvement by restoring per-test success records.
 
 The dedicated Wrangler runtime smoke workflow is intentionally path-filtered to runtime/toolchain files instead of charging every unrelated UX/content PR. If its scope changes later, preserve that principle unless a broader gate is required for reliability.
 
