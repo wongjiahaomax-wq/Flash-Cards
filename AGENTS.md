@@ -83,9 +83,12 @@ Never commit:
 ## Database and migration safety
 
 - Inspect `src/lib/server/db/schema.js`, current migrations, and migration checks before changing schema behavior.
+- Current application runtime code supports the canonical schema for the current repository revision. A database running that revision is expected to have every migration required by that revision applied before the application runs.
+- Do not add permanent historical-column/table probing, missing-column/table fallbacks, alternate runtime Drizzle schemas for obsolete migration states, or tests whose sole purpose is keeping current application code working before already-required migrations. Preserve migration/upgrade validation and valid historical data states represented by the current schema.
 - Never edit a historical migration merely to make local state work.
 - Genuine schema changes require a new migration.
 - Run the repository migration/schema checks after schema-related changes.
+- Keep migration-before-runtime sequencing safe for future schema changes; current-schema-only runtime support does not permit deploying code that requires an unapplied migration.
 - Avoid schema changes entirely in a refactor-only PR unless they are strictly necessary and explicitly in scope.
 - Do not use production data mutation as migration validation.
 
