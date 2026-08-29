@@ -179,7 +179,7 @@ The Case editor is componentized under `src/lib/components/case-editor/`. Curren
 - `ACCOUNT_MANAGEMENT_PR_A_IMPLEMENTATION_PROMPT.md` — implementation handoff for password recovery + transactional email; treat as a task prompt, not proof of merge.
 - `ACCOUNT_MANAGEMENT_PR_B_IMPLEMENTATION_PROMPT.md` — implementation handoff for production Admin account management; treat as a task prompt, not proof of merge.
 
-For account/auth work, inspect current implementation and current PR state before relying on an implementation prompt. Once an implementation PR merges, the prompt becomes historical handoff context.
+For account/auth work, inspect current implementation and current PR state before relying on an implementation prompt. Once PR A or PR B is completed, its implementation prompt becomes historical context and current code/current subsystem documentation take precedence.
 
 Public signup remains intentionally disabled unless a separately reviewed product decision changes that contract.
 
@@ -187,6 +187,7 @@ Public signup remains intentionally disabled unless a separately reviewed produc
 
 - `ORIGINAL_AND_ALTERNATIVE_STIMULI.md` — explicit Original pointer and Core/Expanded family-selection semantics. Curated Core uses Original; Expanded substitutes an eligible non-Original Alternative when available, otherwise Original; legacy `NULL` families retain random eligible-option selection.
 - `STIMULUS_GROUPS_DESIGN.md` — Alternative Sets, contextual questions, coverage, resolver/count-mode interaction, and identity-preserving movement/replacement.
+- `STIMULUS_FAMILY_REFACTOR_ARCHITECTURE.md` — architecture/characterisation authority for staged, behavior-preserving internal decomposition of the Production Stimulus Family domain. Read it before moving implementation out of `stimulus-groups.js`; current executable code, migrations and tests remain higher authority for actual behavior.
 - `V1_DATA_MODEL.md` / `ADMIN_IMAGE_AUTHORING_WORKFLOW.md` — current `original_option_id` plus `removed_from_case` semantics. **Make Original**, **Deactivate**, **Move**, **Move to Always shown**, and **Remove from Case** must preserve the ordering/integrity rules around the current Original.
 
 Generic option insertion must not infer Original from insertion/display order. The source-aware **Start Alternative Set** operation is different: when the Admin explicitly starts a family from ordinary image A, A is the unambiguous principal source and is assigned as the family's Original atomically.
