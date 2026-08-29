@@ -57,6 +57,7 @@ const downwardModules = [
   'stimulus-family-lifecycle.js',
   'stimulus-option-lifecycle.js',
   'stimulus-question-mutations.js',
+  'asset-questions.js',
   'learner-stimulus-families.js',
   'learner-case-source.js'
 ];

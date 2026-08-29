@@ -10,7 +10,8 @@ import {
   stimulusGroups,
   stimulusOptionAssetQuestions
 } from './schema.js';
-import { ensurePromptIsNotUsedByAnotherGroup, StimulusGroupInputError } from './stimulus-groups.js';
+import { StimulusGroupInputError } from './stimulus-family-error.js';
+import { ensurePromptIsNotUsedByAnotherGroup } from './stimulus-family-specificity.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
