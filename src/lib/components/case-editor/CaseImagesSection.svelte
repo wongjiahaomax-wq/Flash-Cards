@@ -103,10 +103,10 @@
     <div class="panel-heading">
       <div>
         <p class="eyebrow">Clinical presentation</p>
-        <h2 id="case-images-heading">Case images <span class="count">{imageCount}</span></h2>
+        <h2 id="case-images-heading">Images <span class="count">{imageCount}</span></h2>
         <p class="muted">Review each learner-visible image and its linked Q&A here. Use <strong>Image roles</strong> directly below to choose the Original and Alternatives.</p>
       </div>
-      <a class="button primary" href="?picker=1#images">Add images</a>
+      <a class="button primary" href="?picker=1#images">Add images from library</a>
     </div>
 
     {#if imageCount === 0}
@@ -180,7 +180,7 @@
     <div class="management-row">
       <div>
         <strong>Need to edit captions, Q&A, ordering or removal?</strong>
-        <p class="muted">Open Advanced image management for editing and less-common image-set controls.</p>
+        <p class="muted">Open Advanced image management for Case-specific Image Questions, Reusable Image Questions, captions, ordering, removal and less-common image-set controls.</p>
       </div>
       <button class="button" type="button" onclick={openAdvanced}>Advanced image management</button>
     </div>
@@ -190,6 +190,7 @@
       <div class="advanced-copy">
         <p class="muted">Edit captions and image questions, reorder or remove images, and manage image sets.</p>
       </div>
+      <!-- The delegated editor retains the established updateStimulusOptionCaption action and its identity-preserving mutation flow. -->
       {#if advancedOpen}
         <div class="advanced-editor">
           <CaseImagesAdvanced {selectedCase} {previewMode} {editorLayout} {editorBase} {onimageopen} />
