@@ -1,10 +1,10 @@
 # Stimulus Family refactor architecture
 
-_Status: architecture and characterisation baseline for incremental refactoring_
+_Status: architecture baseline plus Checkpoint A correctness implementation status_
 
 _Audited against `main` at `c4284c4c9ed0bf2367b990b0cbe43632309d0be5` on 29 August 2026._
 
-_Correctness decisions for the five audit findings were settled on 29 August 2026. PR #110 documents those target semantics but does not implement them._
+_Correctness decisions for the five audit findings were settled on 29 August 2026. PR #110 documents those target semantics. Draft PR #112 implements Checkpoint A and remains gated on independent acceptance before mechanical Checkpoint B._
 
 This document defines the safe architectural boundary for refactoring Production Stimulus Families without redesigning learner or Admin behaviour. It is deliberately descriptive first: current executable code, migrations and tests remain authoritative for current behaviour if this document becomes stale. Sections explicitly labelled **target semantics** describe reviewed follow-up behaviour that is not yet implemented by PR #110.
 
@@ -141,9 +141,11 @@ Important schema constraints include positive `selection_count`, supported cover
 
 `0016_original_stimulus_options.sql` adds `original_option_id`, conservative Production backfill, and the final Original-integrity guards.
 
+`0017_align_reusable_prompt_live_state_guards.sql` is a Checkpoint A forward migration that replaces the reusable cross-Family Prompt trigger definitions from `0009`/`0010` so deployed databases use the same dormant-parent definition as the reviewed application policy. Historical migrations remain immutable. `0017` is not a general ordinary exact-vs-exact guard and does not add a movement-specific trigger.
+
 `0009` and `0010` do **not** provide a general D1 constraint preventing an ordinary `stimulus_group_question` or `stimulus_option_question` from conflicting with another ordinary Group/Option Question in another independently selectable Family. The general ordinary exact-question rule is currently enforced by application validation and by the learner resolver. Future extraction work must not weaken application enforcement on the assumption that D1 supplies a general fallback that does not exist.
 
-The five settled correctness decisions below do not currently justify a new schema or D1 migration. If a future change proposes general database enforcement of the cross-Family Prompt invariant, it should be designed comprehensively rather than as a movement-specific trigger.
+Checkpoint A review exposed one necessary forward D1 alignment: the historical reusable-question triggers from `0009`/`0010` predated the settled dormant-parent policy and overrejected authored relationships under inactive Families/Options. PR #112 therefore adds `0017_align_reusable_prompt_live_state_guards.sql` to align those existing reusable defense-in-depth triggers on deployed databases without rewriting migration history. This does not create a general ordinary exact-vs-exact D1 guard. If a future change proposes general database enforcement of the cross-Family Prompt invariant, it should still be designed comprehensively rather than as a movement-specific trigger.
 
 ### Original-integrity triggers are part of the domain contract
 
@@ -325,7 +327,7 @@ Option movement changes `stimulus_group_options.stimulus_group_id` while retaini
 
 This is a **confirmed Production semantic inconsistency**. These transparent fixed-image conversions have unambiguous source semantics: the fixed image being preserved into the new one-option Family is the source-faithful principal stimulus. The target behaviour is therefore to assign that preserved option as Original atomically. Generic option insertion remains unchanged and must never infer Original from sequence.
 
-Do not add a speculative broad cleanup migration. Fix future creation paths first, audit actual Production data, and only then perform a narrowly justified Production-only cleanup if affected rows exist.
+Checkpoint A fixed the future creation paths and completed the Production read-only audit on 29 August 2026. Zero active Production Families matched the conservative one-option uncurated predicate, so no Original cleanup/backfill migration is required. Do not infer Original from order/name/caption/history, and keep Preview excluded from this rule.
 
 ### 5. `is_active` and `removed_from_case` must not collapse
 
