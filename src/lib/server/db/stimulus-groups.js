@@ -15,6 +15,8 @@ import {
 } from './schema.js';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
+/** @typedef {{ activateGroupId?: string|null, activateOptionId?: string|null, restoreOptionId?: string|null, movingOptionId?: string|null, targetGroupId?: string|null }} LiveStateOverride */
+/** @typedef {{ optionId: string, targetGroupId: string } | null} OptionGroupOverride */
 
 export class StimulusGroupInputError extends Error {
   /** @param {string} message */
@@ -56,15 +58,30 @@ function coverage(value, minimum) {
   return { mode, minimum: count };
 }
 
-/** @param {LearningDb} db @param {string} groupId @param {string|null} [restoredOptionId] */
-async function loadSpecificQuestionSets(db, groupId, restoredOptionId = null) {
+/**
+ * Canonical Production coverage input for one family. `restoredOptionId` is a
+ * prospective-live override used by both ordinary activation and archived
+ * restoration. `optionGroupOverride` simulates identity-preserving movement.
+ *
+ * @param {LearningDb} db
+ * @param {string} groupId
+ * @param {string|null} [restoredOptionId]
+ * @param {OptionGroupOverride} [optionGroupOverride]
+ */
+async function loadSpecificQuestionSets(db, groupId, restoredOptionId = null, optionGroupOverride = null) {
   const optionLifecycle = restoredOptionId
     ? or(
         and(eq(stimulusGroupOptions.isActive, true), eq(stimulusGroupOptions.removedFromCase, false)),
         eq(stimulusGroupOptions.id, restoredOptionId)
       )
     : and(eq(stimulusGroupOptions.isActive, true), eq(stimulusGroupOptions.removedFromCase, false));
-  const [groupQuestionRows, optionRows] = await Promise.all([
+  const optionScope = optionGroupOverride
+    ? or(
+        eq(stimulusGroupOptions.stimulusGroupId, groupId),
+        eq(stimulusGroupOptions.id, optionGroupOverride.optionId)
+      )
+    : eq(stimulusGroupOptions.stimulusGroupId, groupId);
+  const [groupQuestionRows, candidateOptionRows] = await Promise.all([
     db
       .select({ questionPromptId: stimulusGroupQuestions.questionPromptId })
       .from(stimulusGroupQuestions)
@@ -76,11 +93,27 @@ async function loadSpecificQuestionSets(db, groupId, restoredOptionId = null) {
         isNull(questionPrompts.previewSessionId)
       )),
     db
-      .select({ id: stimulusGroupOptions.id, assetId: stimulusGroupOptions.assetId })
+      .select({
+        id: stimulusGroupOptions.id,
+        groupId: stimulusGroupOptions.stimulusGroupId,
+        assetId: stimulusGroupOptions.assetId
+      })
       .from(stimulusGroupOptions)
       .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
-      .where(and(eq(stimulusGroupOptions.stimulusGroupId, groupId), optionLifecycle, eq(assets.isActive, true)))
+      .where(and(
+        optionScope,
+        optionLifecycle,
+        eq(assets.isActive, true),
+        eq(assets.type, 'image'),
+        isNull(assets.previewSessionId)
+      ))
   ]);
+  const optionRows = candidateOptionRows.filter((option) => {
+    const effectiveGroupId = optionGroupOverride?.optionId === option.id
+      ? optionGroupOverride.targetGroupId
+      : option.groupId;
+    return effectiveGroupId === groupId;
+  });
   if (!optionRows.length) return [];
   const optionIds = optionRows.map((option) => option.id);
   const [optionQuestionRows, reusableQuestionRows] = await Promise.all([
@@ -123,10 +156,10 @@ async function loadSpecificQuestionSets(db, groupId, restoredOptionId = null) {
   }));
 }
 
-/** @param {LearningDb} db @param {string} groupId @param {{ mode: string, minimum: number | null }} selected @param {string|null} [restoredOptionId] */
-async function coverageRequirement(db, groupId, selected, restoredOptionId = null) {
+/** @param {LearningDb} db @param {string} groupId @param {{ mode: string, minimum: number | null }} selected @param {string|null} [restoredOptionId] @param {OptionGroupOverride} [optionGroupOverride] */
+async function coverageRequirement(db, groupId, selected, restoredOptionId = null, optionGroupOverride = null) {
   if (selected.mode === 'none') return 0;
-  const specificSets = await loadSpecificQuestionSets(db, groupId, restoredOptionId);
+  const specificSets = await loadSpecificQuestionSets(db, groupId, restoredOptionId, optionGroupOverride);
   if (!specificSets.length) return 0;
   if (selected.mode === 'minimum') {
     const minimum = selected.minimum ?? 0;
@@ -140,18 +173,20 @@ async function coverageRequirement(db, groupId, selected, restoredOptionId = nul
 }
 
 /**
- * Return the maximum number of questions that active Stimulus Group guarantees can require
- * in one Review. Independent groups are additive because a Review selects one option per group.
+ * Return the maximum number of questions that active Stimulus Families can
+ * require in one Review. Independent families are additive because a Review
+ * selects one option per active family.
  *
  * @param {LearningDb} db
  * @param {string} caseId
- * @param {{ replacingGroupId?: string | null, replacementCoverage?: { mode: string, minimum: number | null } | null, replacementActive?: boolean, restoredOptionId?: string | null }} [override]
+ * @param {{ replacingGroupId?: string | null, replacementCoverage?: { mode: string, minimum: number | null } | null, replacementActive?: boolean, restoredOptionId?: string | null, optionGroupOverride?: OptionGroupOverride }} [override]
  */
 export async function getCaseStimulusCoverageRequirement(db, caseId, override = {}) {
   const replacingGroupId = override.replacingGroupId ?? null;
   const replacementCoverage = override.replacementCoverage ?? null;
   const replacementActive = override.replacementActive ?? true;
   const restoredOptionId = override.restoredOptionId ?? null;
+  const optionGroupOverride = override.optionGroupOverride ?? null;
   const groups = await db
     .select({ id: stimulusGroups.id, mode: stimulusGroups.specificQuestionMode, minimum: stimulusGroups.minimumSpecificQuestions })
     .from(stimulusGroups)
@@ -167,28 +202,37 @@ export async function getCaseStimulusCoverageRequirement(db, caseId, override = 
     const selected = group.id === replacingGroupId && replacementCoverage
       ? replacementCoverage
       : { mode: group.mode, minimum: group.minimum };
-    total += await coverageRequirement(db, group.id, selected, group.id === replacingGroupId ? restoredOptionId : null);
+    total += await coverageRequirement(
+      db,
+      group.id,
+      selected,
+      group.id === replacingGroupId ? restoredOptionId : null,
+      optionGroupOverride
+    );
   }
   if (replacingGroupId && replacementActive && !replacementSeen && replacementCoverage) {
-    total += await coverageRequirement(db, replacingGroupId, replacementCoverage, restoredOptionId);
+    total += await coverageRequirement(db, replacingGroupId, replacementCoverage, restoredOptionId, optionGroupOverride);
   }
   return total;
 }
 
-/** @param {LearningDb} db @param {string} caseId @param {string | null} replacingGroupId @param {{ mode: string, minimum: number | null }} selected @param {boolean} [replacementActive] @param {string|null} [restoredOptionId] */
-async function validateCoverageFitsCase(db, caseId, replacingGroupId, selected, replacementActive = true, restoredOptionId = null) {
-  if (replacingGroupId && replacementActive) await coverageRequirement(db, replacingGroupId, selected, restoredOptionId);
+/** @param {LearningDb} db @param {string} caseId @param {string | null} replacingGroupId @param {{ mode: string, minimum: number | null }} selected @param {boolean} [replacementActive] @param {string|null} [restoredOptionId] @param {OptionGroupOverride} [optionGroupOverride] */
+async function validateCoverageFitsCase(db, caseId, replacingGroupId, selected, replacementActive = true, restoredOptionId = null, optionGroupOverride = null) {
+  if (replacingGroupId && replacementActive) {
+    await coverageRequirement(db, replacingGroupId, selected, restoredOptionId, optionGroupOverride);
+  }
   const caseRow = (await db.select({ mode: cases.questionSelectionMode, count: cases.questionCount }).from(cases).where(and(eq(cases.id, caseId), isNull(cases.previewSessionId))).limit(1))[0];
-  if (caseRow?.mode !== 'fixed' || !caseRow.count) return;
   const requiredTotal = await getCaseStimulusCoverageRequirement(db, caseId, {
     replacingGroupId,
     replacementCoverage: replacingGroupId ? selected : null,
     replacementActive,
-    restoredOptionId
+    restoredOptionId,
+    optionGroupOverride
   });
-  if (requiredTotal > caseRow.count) {
+  if (caseRow?.mode === 'fixed' && caseRow.count && requiredTotal > caseRow.count) {
     throw new StimulusGroupInputError(`This Stimulus Group coverage can require at least ${requiredTotal} questions, but the Case is configured for ${caseRow.count}.`);
   }
+  return requiredTotal;
 }
 
 /** @param {LearningDb} db @param {string} caseId */
@@ -211,6 +255,7 @@ async function requireGroup(db, groupId) {
         id: stimulusGroups.id,
         caseId: stimulusGroups.caseId,
         isActive: stimulusGroups.isActive,
+        originalOptionId: stimulusGroups.originalOptionId,
         specificQuestionMode: stimulusGroups.specificQuestionMode,
         minimumSpecificQuestions: stimulusGroups.minimumSpecificQuestions
       })
@@ -253,26 +298,93 @@ async function validateNewOptionCoverage(db, group) {
   }
 }
 
-/** @param {LearningDb} db @param {string} caseId @param {string} promptId @param {string} groupId */
-async function ensureReusablePromptIsNotUsedByAnotherGroup(db, caseId, promptId, groupId) {
-  const conflict = (await db
-    .select({ groupId: stimulusGroups.id })
-    .from(stimulusOptionAssetQuestions)
-    .innerJoin(assetQuestions, eq(assetQuestions.id, stimulusOptionAssetQuestions.assetQuestionId))
-    .innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionAssetQuestions.stimulusGroupOptionId))
-    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-    .where(and(
-      eq(stimulusGroups.caseId, caseId),
-      eq(assetQuestions.questionPromptId, promptId),
-      eq(assetQuestions.isActive, true),
-      eq(stimulusGroups.isActive, true),
-      eq(stimulusGroupOptions.isActive, true),
-      eq(stimulusGroupOptions.removedFromCase, false)
-    ))
-    .limit(1))[0];
-  if (conflict && conflict.groupId !== groupId) {
-    throw new StimulusGroupInputError('That retained Question Prompt is already stimulus-specific in another independently selectable image set for this Case.');
+/** @param {LearningDb} db @param {string} optionId @param {string} assetId */
+async function loadRetainedOptionPromptIds(db, optionId, assetId) {
+  const [specificRows, reusableRows] = await Promise.all([
+    db
+      .select({ promptId: stimulusOptionQuestions.questionPromptId })
+      .from(stimulusOptionQuestions)
+      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusOptionQuestions.questionPromptId))
+      .where(and(
+        eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId),
+        eq(stimulusOptionQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
+      )),
+    db
+      .select({ promptId: assetQuestions.questionPromptId })
+      .from(stimulusOptionAssetQuestions)
+      .innerJoin(assetQuestions, eq(assetQuestions.id, stimulusOptionAssetQuestions.assetQuestionId))
+      .innerJoin(questionPrompts, eq(questionPrompts.id, assetQuestions.questionPromptId))
+      .where(and(
+        eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, optionId),
+        eq(assetQuestions.assetId, assetId),
+        eq(assetQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
+      ))
+  ]);
+  return new Set([...specificRows, ...reusableRows].map((row) => row.promptId));
+}
+
+/**
+ * Validate all state that becomes learner-visible when a Production family or
+ * one of its options becomes live. Ordinary inactive and archived restoration
+ * remain distinct operations; the override only models the prospective state.
+ *
+ * @param {LearningDb} db
+ * @param {ReturnType<typeof requireGroup> extends Promise<infer T> ? T : never} group
+ * @param {{ selected: { mode: string, minimum: number | null }, state?: LiveStateOverride }} input
+ */
+async function validateFamilyLiveState(db, group, input) {
+  const state = input.state ?? {};
+  const optionRows = await db
+    .select({
+      id: stimulusGroupOptions.id,
+      assetId: stimulusGroupOptions.assetId,
+      isActive: stimulusGroupOptions.isActive,
+      removedFromCase: stimulusGroupOptions.removedFromCase
+    })
+    .from(stimulusGroupOptions)
+    .where(eq(stimulusGroupOptions.stimulusGroupId, group.id));
+  const liveOptions = optionRows.filter((option) => {
+    if (state.restoreOptionId === option.id) return true;
+    if (option.removedFromCase) return false;
+    return option.isActive || state.activateOptionId === option.id;
+  });
+  for (const option of liveOptions) await requireAsset(db, option.assetId);
+
+  if (group.originalOptionId && !liveOptions.some((option) => option.id === group.originalOptionId)) {
+    throw new StimulusGroupInputError('The Original must be an active eligible image in this Stimulus Group before it can become learner-selectable.');
   }
+
+  const groupPromptRows = await db
+    .select({ promptId: stimulusGroupQuestions.questionPromptId })
+    .from(stimulusGroupQuestions)
+    .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusGroupQuestions.questionPromptId))
+    .where(and(
+      eq(stimulusGroupQuestions.stimulusGroupId, group.id),
+      eq(stimulusGroupQuestions.isActive, true),
+      eq(questionPrompts.isActive, true),
+      isNull(questionPrompts.previewSessionId)
+    ));
+  for (const row of groupPromptRows) {
+    await ensurePromptIsNotUsedByAnotherGroup(db, group.caseId, row.promptId, group.id, state);
+  }
+  for (const option of liveOptions) {
+    for (const promptId of await loadRetainedOptionPromptIds(db, option.id, option.assetId)) {
+      await ensurePromptIsNotUsedByAnotherGroup(db, group.caseId, promptId, group.id, state);
+    }
+  }
+
+  await validateCoverageFitsCase(
+    db,
+    group.caseId,
+    group.id,
+    input.selected,
+    true,
+    state.restoreOptionId ?? state.activateOptionId ?? null
+  );
 }
 
 /** @param {LearningDb} db @param {string} optionId */
@@ -297,47 +409,45 @@ export async function validateStimulusOptionRestoration(db, optionId) {
     .limit(1))[0];
   if (!option || !option.removedFromCase) throw new StimulusGroupInputError('The selected archived Stimulus Option is missing.');
   await requireAsset(db, option.assetId);
-
-  const [specificRows, reusableRows] = await Promise.all([
-    db
-      .select({ promptId: stimulusOptionQuestions.questionPromptId })
-      .from(stimulusOptionQuestions)
-      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusOptionQuestions.questionPromptId))
-      .where(and(
-        eq(stimulusOptionQuestions.stimulusGroupOptionId, option.id),
-        eq(stimulusOptionQuestions.isActive, true),
-        eq(questionPrompts.isActive, true),
-        isNull(questionPrompts.previewSessionId)
-      )),
-    db
-      .select({ promptId: assetQuestions.questionPromptId })
-      .from(stimulusOptionAssetQuestions)
-      .innerJoin(assetQuestions, eq(assetQuestions.id, stimulusOptionAssetQuestions.assetQuestionId))
-      .innerJoin(questionPrompts, eq(questionPrompts.id, assetQuestions.questionPromptId))
-      .where(and(
-        eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, option.id),
-        eq(assetQuestions.assetId, option.assetId),
-        eq(assetQuestions.isActive, true),
-        eq(questionPrompts.isActive, true),
-        isNull(questionPrompts.previewSessionId)
-      ))
-  ]);
-  const retainedPromptIds = new Set([...specificRows, ...reusableRows].map((row) => row.promptId));
-  for (const promptId of retainedPromptIds) {
-    await ensurePromptIsNotUsedByAnotherGroup(db, option.caseId, promptId, option.groupId);
-    await ensureReusablePromptIsNotUsedByAnotherGroup(db, option.caseId, promptId, option.groupId);
-  }
-
   const group = await requireGroup(db, option.groupId);
+  await validateFamilyLiveState(db, group, {
+    selected: { mode: group.specificQuestionMode, minimum: group.minimumSpecificQuestions },
+    state: { restoreOptionId: option.id }
+  });
+  return option;
+}
+
+/**
+ * Canonical Production preflight for identity-preserving same-Case movement.
+ * The moving option is evaluated as if it already belonged to the target
+ * family, while all retained exact/reusable relationships stay attached.
+ *
+ * @param {LearningDb} db
+ * @param {{ caseId: string, optionId: string, sourceGroupId: string, targetGroupId: string }} input
+ */
+export async function validateStimulusOptionMoveState(db, input) {
+  const option = (await db
+    .select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, assetId: stimulusGroupOptions.assetId })
+    .from(stimulusGroupOptions)
+    .where(eq(stimulusGroupOptions.id, input.optionId))
+    .limit(1))[0];
+  if (!option || option.groupId !== input.sourceGroupId) {
+    throw new StimulusGroupInputError('The selected Stimulus Option is missing from its source Stimulus Group.');
+  }
+  await requireAsset(db, option.assetId);
+  const state = { movingOptionId: option.id, targetGroupId: input.targetGroupId };
+  for (const promptId of await loadRetainedOptionPromptIds(db, option.id, option.assetId)) {
+    await ensurePromptIsNotUsedByAnotherGroup(db, input.caseId, promptId, input.targetGroupId, state);
+  }
   await validateCoverageFitsCase(
     db,
-    option.caseId,
-    option.groupId,
-    { mode: group.specificQuestionMode, minimum: group.minimumSpecificQuestions },
+    input.caseId,
+    null,
+    { mode: 'none', minimum: null },
     true,
-    option.id
+    null,
+    { optionId: option.id, targetGroupId: input.targetGroupId }
   );
-  return option;
 }
 
 /** @param {LearningDb} db @param {string} caseId */
@@ -489,7 +599,14 @@ export async function updateStimulusGroup(db, input) {
   const group = await requireGroup(db, requiredText(input.groupId, 'Stimulus Group'));
   const selected = coverage(input.specificQuestionMode, input.minimumSpecificQuestions);
   const nextIsActive = input.isActive == null ? group.isActive : activeValue(input.isActive);
-  await validateCoverageFitsCase(db, group.caseId, group.id, selected, nextIsActive);
+  if (!group.isActive && nextIsActive) {
+    await validateFamilyLiveState(db, group, {
+      selected,
+      state: { activateGroupId: group.id }
+    });
+  } else {
+    await validateCoverageFitsCase(db, group.caseId, group.id, selected, nextIsActive);
+  }
   await db.update(stimulusGroups).set({ name: requiredText(input.name, 'Stimulus Group name'), specificQuestionMode: selected.mode, minimumSpecificQuestions: selected.minimum, isActive: nextIsActive, updatedAt: new Date() }).where(eq(stimulusGroups.id, group.id));
 }
 
@@ -564,6 +681,7 @@ export async function setStimulusOptionActive(db, optionId, isActive) {
     groupId: stimulusGroupOptions.stimulusGroupId,
     assetId: stimulusGroupOptions.assetId,
     removedFromCase: stimulusGroupOptions.removedFromCase,
+    groupIsActive: stimulusGroups.isActive,
     originalOptionId: stimulusGroups.originalOptionId
   }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
   if (!row) throw new StimulusGroupInputError('The selected Stimulus Option is missing.');
@@ -571,18 +689,12 @@ export async function setStimulusOptionActive(db, optionId, isActive) {
   if (!isActive && row.originalOptionId === row.id) {
     throw new StimulusGroupInputError('Choose another Original stimulus before deactivating this image.');
   }
-  if (isActive) {
-    await requireAsset(db, row.assetId);
+  if (isActive && row.groupIsActive) {
     const group = await requireGroup(db, row.groupId);
-    if (group.specificQuestionMode === 'minimum') {
-      const [groupRows, optionRows] = await Promise.all([
-        db.select({ questionPromptId: stimulusGroupQuestions.questionPromptId }).from(stimulusGroupQuestions).where(and(eq(stimulusGroupQuestions.stimulusGroupId, group.id), eq(stimulusGroupQuestions.isActive, true))),
-        db.select({ questionPromptId: stimulusOptionQuestions.questionPromptId }).from(stimulusOptionQuestions).where(and(eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId), eq(stimulusOptionQuestions.isActive, true)))
-      ]);
-      const available = new Set([...groupRows, ...optionRows].map((question) => question.questionPromptId)).size;
-      const minimum = group.minimumSpecificQuestions ?? 0;
-      if (available < minimum) throw new StimulusGroupInputError(`This option has only ${available} specific questions, below the group's minimum of ${minimum}.`);
-    }
+    await validateFamilyLiveState(db, group, {
+      selected: { mode: group.specificQuestionMode, minimum: group.minimumSpecificQuestions },
+      state: { activateOptionId: row.id }
+    });
   }
   await db.update(stimulusGroupOptions).set({ isActive }).where(eq(stimulusGroupOptions.id, optionId));
 }
@@ -607,13 +719,110 @@ export async function removeStimulusOptionFromCase(db, optionId) {
   await db.update(stimulusGroupOptions).set({ isActive: false, removedFromCase: true }).where(eq(stimulusGroupOptions.id, optionId));
 }
 
-/** @param {LearningDb} db @param {string} caseId @param {string} promptId @param {string} groupId */
-export async function ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, groupId) {
-  const [groupRows, optionRows] = await Promise.all([
-    db.select({ groupId: stimulusGroupQuestions.stimulusGroupId }).from(stimulusGroupQuestions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupQuestions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupQuestions.questionPromptId, promptId), eq(stimulusGroupQuestions.isActive, true))),
-    db.select({ groupId: stimulusGroups.id }).from(stimulusOptionQuestions).innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionQuestions.stimulusGroupOptionId)).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusOptionQuestions.questionPromptId, promptId), eq(stimulusOptionQuestions.isActive, true), eq(stimulusGroupOptions.removedFromCase, false)))
+/**
+ * Canonical application-level live Prompt ownership rule. Dormant Family,
+ * inactive Option and removed Option relationships remain authored/history
+ * state but do not reserve a live Prompt. Reusable exact-Asset usages share the
+ * same policy as ordinary Group/Option Questions.
+ *
+ * @param {LearningDb} db
+ * @param {string} caseId
+ * @param {string} promptId
+ * @param {string} groupId
+ * @param {LiveStateOverride} [state]
+ */
+export async function ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, groupId, state = {}) {
+  const [groupRows, optionRows, reusableRows] = await Promise.all([
+    db
+      .select({ groupId: stimulusGroups.id, groupIsActive: stimulusGroups.isActive })
+      .from(stimulusGroupQuestions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupQuestions.stimulusGroupId))
+      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusGroupQuestions.questionPromptId))
+      .where(and(
+        eq(stimulusGroups.caseId, caseId),
+        eq(stimulusGroupQuestions.questionPromptId, promptId),
+        eq(stimulusGroupQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
+      )),
+    db
+      .select({
+        groupId: stimulusGroups.id,
+        groupIsActive: stimulusGroups.isActive,
+        optionId: stimulusGroupOptions.id,
+        optionIsActive: stimulusGroupOptions.isActive,
+        removedFromCase: stimulusGroupOptions.removedFromCase,
+        assetIsActive: assets.isActive,
+        assetType: assets.type,
+        assetPreviewSessionId: assets.previewSessionId
+      })
+      .from(stimulusOptionQuestions)
+      .innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionQuestions.stimulusGroupOptionId))
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
+      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusOptionQuestions.questionPromptId))
+      .where(and(
+        eq(stimulusGroups.caseId, caseId),
+        eq(stimulusOptionQuestions.questionPromptId, promptId),
+        eq(stimulusOptionQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
+      )),
+    db
+      .select({
+        groupId: stimulusGroups.id,
+        groupIsActive: stimulusGroups.isActive,
+        optionId: stimulusGroupOptions.id,
+        optionIsActive: stimulusGroupOptions.isActive,
+        removedFromCase: stimulusGroupOptions.removedFromCase,
+        optionAssetId: stimulusGroupOptions.assetId,
+        reusableAssetId: assetQuestions.assetId,
+        assetIsActive: assets.isActive,
+        assetType: assets.type,
+        assetPreviewSessionId: assets.previewSessionId
+      })
+      .from(stimulusOptionAssetQuestions)
+      .innerJoin(assetQuestions, eq(assetQuestions.id, stimulusOptionAssetQuestions.assetQuestionId))
+      .innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionAssetQuestions.stimulusGroupOptionId))
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
+      .innerJoin(questionPrompts, eq(questionPrompts.id, assetQuestions.questionPromptId))
+      .where(and(
+        eq(stimulusGroups.caseId, caseId),
+        eq(assetQuestions.questionPromptId, promptId),
+        eq(assetQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
+      ))
   ]);
-  if ([...groupRows.map((row) => row.groupId), ...optionRows.map((row) => row.groupId)].some((id) => id !== groupId)) {
+
+  /** @param {string} rowGroupId @param {boolean} groupIsActive */
+  const groupIsLive = (rowGroupId, groupIsActive) => groupIsActive || state.activateGroupId === rowGroupId;
+  /** @param {{ groupId: string, groupIsActive: boolean, optionId: string, optionIsActive: boolean, removedFromCase: boolean, assetIsActive: boolean, assetType: string, assetPreviewSessionId: string|null }} row */
+  const optionOwner = (row) => {
+    if (!groupIsLive(row.groupId, row.groupIsActive)) return null;
+    const lifecycleLive = state.restoreOptionId === row.optionId
+      || (!row.removedFromCase && (row.optionIsActive || state.activateOptionId === row.optionId));
+    if (!lifecycleLive || !row.assetIsActive || row.assetType !== 'image' || row.assetPreviewSessionId) return null;
+    return state.movingOptionId === row.optionId && state.targetGroupId
+      ? state.targetGroupId
+      : row.groupId;
+  };
+
+  const owners = new Set();
+  for (const row of groupRows) {
+    if (groupIsLive(row.groupId, row.groupIsActive)) owners.add(row.groupId);
+  }
+  for (const row of optionRows) {
+    const owner = optionOwner(row);
+    if (owner) owners.add(owner);
+  }
+  for (const row of reusableRows) {
+    if (row.optionAssetId !== row.reusableAssetId) continue;
+    const owner = optionOwner(row);
+    if (owner) owners.add(owner);
+  }
+  if ([...owners].some((id) => id !== groupId)) {
     throw new StimulusGroupInputError('The same Question Prompt cannot be independently attached to multiple active Stimulus Groups in one Case.');
   }
 }
@@ -650,7 +859,7 @@ export async function saveStimulusGroupQuestion(db, groupId, input) {
   const promptMd = requiredText(input.promptMd, 'Question prompt');
   const answerMd = requiredText(input.answerMd, 'Question answer');
   const promptId = await findOrCreatePrompt(db, promptMd);
-  await ensurePromptIsNotUsedByAnotherGroup(db, group.caseId, promptId, group.id);
+  if (group.isActive) await ensurePromptIsNotUsedByAnotherGroup(db, group.caseId, promptId, group.id);
   const original = optionalText(input.originalPromptId);
   const duplicate = (await db.select({ id: stimulusGroupQuestions.id, questionPromptId: stimulusGroupQuestions.questionPromptId }).from(stimulusGroupQuestions).where(and(eq(stimulusGroupQuestions.stimulusGroupId, groupId), eq(stimulusGroupQuestions.questionPromptId, promptId))).limit(1))[0];
   if (duplicate && promptId !== original) throw new StimulusGroupInputError('That prompt is already used by this Stimulus Group.');
@@ -666,13 +875,20 @@ export async function saveStimulusGroupQuestion(db, groupId, input) {
 
 /** @param {LearningDb} db @param {string} optionId @param {{ originalPromptId?: string|null, promptMd: unknown, answerMd: unknown }} input */
 export async function saveStimulusOptionQuestion(db, optionId, input) {
-  const option = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(stimulusGroupOptions.removedFromCase, false), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
+  const option = (await db.select({
+    id: stimulusGroupOptions.id,
+    groupId: stimulusGroupOptions.stimulusGroupId,
+    isActive: stimulusGroupOptions.isActive,
+    groupIsActive: stimulusGroups.isActive
+  }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(stimulusGroupOptions.removedFromCase, false), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
   if (!option) throw new StimulusGroupInputError('The selected Stimulus Option is missing or inactive.');
   const group = await requireGroup(db, option.groupId);
   const promptMd = requiredText(input.promptMd, 'Question prompt');
   const answerMd = requiredText(input.answerMd, 'Question answer');
   const promptId = await findOrCreatePrompt(db, promptMd);
-  await ensurePromptIsNotUsedByAnotherGroup(db, group.caseId, promptId, group.id);
+  if (option.groupIsActive && option.isActive) {
+    await ensurePromptIsNotUsedByAnotherGroup(db, group.caseId, promptId, group.id);
+  }
   const original = optionalText(input.originalPromptId);
   const duplicate = (await db.select({ id: stimulusOptionQuestions.id, questionPromptId: stimulusOptionQuestions.questionPromptId }).from(stimulusOptionQuestions).where(and(eq(stimulusOptionQuestions.stimulusGroupOptionId, option.id), eq(stimulusOptionQuestions.questionPromptId, promptId))).limit(1))[0];
   if (duplicate && promptId !== original) throw new StimulusGroupInputError('That prompt is already used by this Stimulus Option.');
