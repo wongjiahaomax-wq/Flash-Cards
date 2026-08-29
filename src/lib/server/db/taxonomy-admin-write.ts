@@ -168,7 +168,7 @@ export async function updateTaxonomyConcept(
 
   if (target.kind === 'system' && kind !== 'system') {
     const relationships = await db.select({ tagId: systemTags.tagId }).from(systemTags).where(eq(systemTags.systemConceptId, conceptId)).limit(1);
-    if (relationships[0]) throw new TaxonomyInputError('Remove this System’s exposed Tags before changing it to a Topic.');
+    if (relationships[0]) throw new TaxonomyInputError('Remove this System’s exposed Tags before changing it to a Topic. Move those Topic usages first.');
   }
   if (target.kind === 'system' && !isActive) {
     const relationships = await db.select({ tagId: systemTags.tagId }).from(systemTags).where(eq(systemTags.systemConceptId, conceptId)).limit(1);
@@ -262,7 +262,7 @@ export async function moveTopicToSystem(
   return assignPrimaryTopicToSystem(db, input);
 }
 
-/** Move the unique Primary Topics used by selected active Production Cases. */
+/** Move the minimal Primary Topic roots used by selected active Production Cases. */
 export async function bulkMoveCaseTopicsToSystem(
   db: import('./index.js').LearningDb,
   input: { caseIds: unknown[]; systemId: unknown }
@@ -295,8 +295,24 @@ export async function bulkMoveCaseTopicsToSystem(
     eq(taxonomyConcepts.isActive, true)
   ));
   if (activeTopics.length !== topicIds.length) throw new TaxonomyInputError('Every selected Case Primary Topic must be active.');
-  await applyTaxonomyHierarchy(db, topicIds.map((topicId) => ({ id: topicId, parentId: systemId })));
-  return { selectedCount: caseIds.length, topicCount: topicIds.length, system };
+
+  const graph = await loadGraph(db);
+  const parentById = new Map(graph.map((node) => [node.id, node.parentId]));
+  const selectedTopicIds = new Set(topicIds);
+  const moveRootIds = topicIds.filter((topicId) => {
+    const visited = new Set<string>();
+    let parentId = parentById.get(topicId) ?? null;
+    while (parentId) {
+      if (selectedTopicIds.has(parentId)) return false;
+      if (visited.has(parentId)) throw new TaxonomyInputError('The current taxonomy hierarchy contains a cycle.');
+      visited.add(parentId);
+      parentId = parentById.get(parentId) ?? null;
+    }
+    return true;
+  });
+
+  await applyTaxonomyHierarchy(db, moveRootIds.map((topicId) => ({ id: topicId, parentId: systemId })));
+  return { selectedCount: caseIds.length, topicCount: moveRootIds.length, system };
 }
 
 export async function replaceSystemTags(
