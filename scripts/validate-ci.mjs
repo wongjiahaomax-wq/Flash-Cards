@@ -15,6 +15,43 @@ export function escapeGithubCommandData(value) {
     .replaceAll('\n', '%0A');
 }
 
+/** @param {unknown} value */
+function escapeAgentField(value) {
+  return String(value ?? '')
+    .replaceAll('%', '%25')
+    .replaceAll('|', '%7C')
+    .replaceAll('\r', '%0D')
+    .replaceAll('\n', '%0A');
+}
+
+/** @param {string} value */
+function commandArgument(value) {
+  return /^[A-Za-z0-9_./:@+^=-]+$/.test(value) ? value : JSON.stringify(value);
+}
+
+/** @param {string} command @param {string[]} args */
+function commandText(command, args) {
+  return [command, ...args].map(commandArgument).join(' ');
+}
+
+/**
+ * Plain-text records are deliberately kept alongside GitHub annotations so
+ * connector-based agents can find the actionable failure without parsing the
+ * whole Actions log or relying on GitHub's annotation UI.
+ * @param {{ id: string, command: string, args: string[], status?: number | null, message: string, detailedErrorsAlreadyReported?: boolean }} input
+ */
+export function formatCiAgentFailureSummary(input) {
+  const check = escapeAgentField(input.id);
+  const lines = ['=== CI AGENT SUMMARY ==='];
+  if (!input.detailedErrorsAlreadyReported) {
+    lines.push(`CI_ERROR|check=${check}|message=${escapeAgentField(input.message)}`);
+  }
+  lines.push(`CI_REPRO|check=${check}|command=${escapeAgentField(commandText(input.command, input.args))}`);
+  const exit = Number.isInteger(input.status) ? `|exit=${input.status}` : '';
+  lines.push(`CI_STATUS|check=${check}|status=failed${exit}`);
+  return lines.join('\n');
+}
+
 /**
  * Legacy compatibility helper retained for tooling tests from the previous
  * TAP-based implementation. The active CI path no longer parses test text.
@@ -108,7 +145,14 @@ export function runCiValidation(options = {}) {
     console.log('::endgroup::');
 
     if (result.error) {
-      console.error(`::error title=${label} failed::${escapeGithubCommandData(result.error.message)}`);
+      const detail = result.error.message;
+      console.error(`::error title=${label} failed::${escapeGithubCommandData(detail)}`);
+      console.error(formatCiAgentFailureSummary({
+        id,
+        command,
+        args,
+        message: detail,
+      }));
       return 1;
     }
     if (result.status !== 0) {
@@ -117,6 +161,14 @@ export function runCiValidation(options = {}) {
         : `${command} ${args.join(' ')} exited with ${result.status}.`;
       const title = id === 'test' ? 'Node test failure' : `${label} failed`;
       console.error(`::error title=${title}::${escapeGithubCommandData(detail)}`);
+      console.error(formatCiAgentFailureSummary({
+        id,
+        command,
+        args,
+        status: result.status,
+        message: detail,
+        detailedErrorsAlreadyReported: id === 'test',
+      }));
       return result.status ?? 1;
     }
   }
@@ -131,7 +183,15 @@ if (invokedDirectly) {
     const options = parseCiArgs(process.argv.slice(2));
     process.exitCode = runCiValidation(options);
   } catch (error) {
-    console.error(`::error title=CI validation configuration error::${escapeGithubCommandData(error instanceof Error ? error.message : error)}`);
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`::error title=CI validation configuration error::${escapeGithubCommandData(detail)}`);
+    console.error(formatCiAgentFailureSummary({
+      id: 'configuration',
+      command: 'node',
+      args: ['scripts/validate-ci.mjs', ...process.argv.slice(2)],
+      status: 2,
+      message: detail,
+    }));
     process.exitCode = 2;
   }
 }
