@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import ciTestReporter, { formatTestFailure, githubFailureAnnotation } from '../scripts/ci-test-reporter.mjs';
 import { CI_TEST_REPORTER, ciCommandArgs } from '../scripts/validate-ci.mjs';
 
+/** @param {any[]} events */
 async function collect(events) {
   async function* source() {
     for (const event of events) yield event;
@@ -14,14 +15,18 @@ async function collect(events) {
 }
 
 function failureData() {
-  const cause = new Error('expected values to match');
+  const cause = /** @type {Error & { code: string, expected: unknown, actual: unknown, operator: string }} */ (
+    new Error('expected values to match')
+  );
   cause.name = 'AssertionError';
   cause.code = 'ERR_ASSERTION';
   cause.expected = { enabled: true };
   cause.actual = { enabled: false };
   cause.operator = 'deepStrictEqual';
   cause.stack = 'AssertionError: expected values to match\n    at TestContext.<anonymous> (/workspace/tests/example.test.js:42:7)\n    at Test.run (node:internal/test_runner/test:1000:1)';
-  const wrapper = new Error('expected values to match');
+  const wrapper = /** @type {Error & { code: string, failureType: string, cause: Error }} */ (
+    new Error('expected values to match')
+  );
   wrapper.code = 'ERR_TEST_FAILURE';
   wrapper.failureType = 'testCodeFailure';
   wrapper.cause = cause;

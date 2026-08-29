@@ -4,6 +4,9 @@ import { inspect } from 'node:util';
 const PROGRESS_WIDTH = 80;
 const STACK_LINES = 12;
 
+/** @typedef {Error & { code?: unknown, failureType?: unknown, cause?: unknown, operator?: unknown, expected?: unknown, actual?: unknown }} TestError */
+
+/** @param {unknown} value */
 function escapeGithubCommandProperty(value) {
   return String(value ?? '')
     .replaceAll('%', '%25')
@@ -13,6 +16,7 @@ function escapeGithubCommandProperty(value) {
     .replaceAll(',', '%2C');
 }
 
+/** @param {unknown} value */
 function escapeGithubCommandData(value) {
   return String(value ?? '')
     .replaceAll('%', '%25')
@@ -20,20 +24,26 @@ function escapeGithubCommandData(value) {
     .replaceAll('\n', '%0A');
 }
 
+/** @param {unknown} file */
 function repositoryPath(file) {
   if (!file) return null;
-  const relative = path.relative(process.cwd(), file);
+  const filename = String(file);
+  const relative = path.relative(process.cwd(), filename);
   if (relative && relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
     return relative.split(path.sep).join('/');
   }
-  return String(file).split(path.sep).join('/');
+  return filename.split(path.sep).join('/');
 }
 
+/** @param {unknown} wrapper @returns {TestError | null} */
 function actualTestError(wrapper) {
-  if (wrapper?.cause instanceof Error) return wrapper.cause;
-  return wrapper instanceof Error ? wrapper : null;
+  if (!(wrapper instanceof Error)) return null;
+  const error = /** @type {TestError} */ (wrapper);
+  if (error.cause instanceof Error) return /** @type {TestError} */ (error.cause);
+  return error;
 }
 
+/** @param {unknown} value */
 function formatValue(value) {
   return inspect(value, {
     depth: 6,
@@ -44,14 +54,17 @@ function formatValue(value) {
   });
 }
 
+/** @param {unknown} value @param {string} [prefix] */
 function indentBlock(value, prefix = '      ') {
   return String(value).split(/\r?\n/).map((line) => `${prefix}${line}`).join('\n');
 }
 
+/** @param {unknown} value */
 function firstLine(value) {
   return String(value ?? '').split(/\r?\n/, 1)[0];
 }
 
+/** @param {TestError | null} error */
 function usefulStack(error) {
   const stack = String(error?.stack ?? '').split(/\r?\n/);
   const firstFrame = stack.findIndex((line) => /^\s+at\s/.test(line));
@@ -63,20 +76,22 @@ function usefulStack(error) {
 /** @param {any} data */
 export function formatTestFailure(data) {
   const wrapper = data?.details?.error;
-  const error = actualTestError(wrapper) ?? wrapper;
+  const error = actualTestError(wrapper);
   const file = repositoryPath(data?.file);
   const location = file
     ? `${file}${data?.line ? `:${data.line}${data?.column ? `:${data.column}` : ''}` : ''}`
     : null;
   const lines = [`${data?.name ?? '<unnamed test>'}`];
   if (location) lines.push(`   location: ${location}`);
-  if (wrapper?.failureType) lines.push(`   failureType: ${wrapper.failureType}`);
+  if (wrapper instanceof Error && /** @type {TestError} */ (wrapper).failureType) {
+    lines.push(`   failureType: ${String(/** @type {TestError} */ (wrapper).failureType)}`);
+  }
 
   if (error) {
     const errorName = error.name || 'Error';
-    const code = error.code ? ` [${error.code}]` : '';
-    lines.push(`   error: ${errorName}${code}: ${firstLine(error.message ?? String(error))}`);
-    if (error.operator) lines.push(`   operator: ${error.operator}`);
+    const code = error.code ? ` [${String(error.code)}]` : '';
+    lines.push(`   error: ${errorName}${code}: ${firstLine(error.message)}`);
+    if (error.operator) lines.push(`   operator: ${String(error.operator)}`);
     if (Object.hasOwn(error, 'expected')) {
       lines.push('   expected:');
       lines.push(indentBlock(formatValue(error.expected)));
@@ -101,15 +116,15 @@ export function formatTestFailure(data) {
 /** @param {any} data */
 export function githubFailureAnnotation(data) {
   const wrapper = data?.details?.error;
-  const error = actualTestError(wrapper) ?? wrapper;
+  const error = actualTestError(wrapper);
   const file = repositoryPath(data?.file);
   const properties = ['title=Node test failure'];
   if (file) properties.push(`file=${escapeGithubCommandProperty(file)}`);
   if (data?.line) properties.push(`line=${data.line}`);
   if (data?.column) properties.push(`col=${data.column}`);
   const detail = error
-    ? `${data?.name ?? '<unnamed test>'}: ${error.name || 'Error'}${error.code ? ` [${error.code}]` : ''}: ${firstLine(error.message ?? String(error))}`
-    : `${data?.name ?? '<unnamed test>'}: test failed without an Error payload`;
+    ? `${data?.name ?? '<unnamed test>'}: ${error.name || 'Error'}${error.code ? ` [${String(error.code)}]` : ''}: ${firstLine(error.message)}`
+    : `${data?.name ?? '<unnamed test>'}: ${wrapper ? String(wrapper) : 'test failed without an Error payload'}`;
   return `::error ${properties.join(',')}::${escapeGithubCommandData(detail)}`;
 }
 
