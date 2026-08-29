@@ -458,6 +458,15 @@ Verify:
 
 Do not mutate Production data for verification.
 
+## Additional global Topic hierarchy actions
+
+The Case Library also exposes two explicit global hierarchy operations for active Production Cases:
+
+- the row classification editor can move the current Primary Topic under a selected active System;
+- the bulk Case toolbar can move the unique Primary Topics used by the selected Cases under one selected active System.
+
+These operations change `concepts.parent_id` for the shared Topic and therefore affect every Case directly using that Topic. Moving a parent Topic also carries its descendant Topic subtree into the destination System context, which can therefore affect Cases classified under those descendant Topics. The bulk operation deduplicates Topics, validates all selected Cases before writing, and applies the hierarchy changes atomically. Both flows require explicit confirmation in the browser and do not create Case-to-System relationships.
+
 ---
 
 # Scope boundaries

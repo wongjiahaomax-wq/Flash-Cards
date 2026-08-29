@@ -4,7 +4,7 @@ import { AdminContentInputError, promoteCaseTopic } from '$lib/server/db/admin-c
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createCaseLibraryTopic, CaseLibraryTopicInputError } from '$lib/server/db/case-library-topic-authoring.ts';
 import { createDb } from '$lib/server/db/index.js';
-import { TaxonomyInputError } from '$lib/server/db/taxonomy-admin-write.ts';
+import { moveTopicToSystem, TaxonomyInputError } from '$lib/server/db/taxonomy-admin-write.ts';
 
 /** @param {FormData} formData @param {string} name */
 function formText(formData, name) {
@@ -41,6 +41,14 @@ export async function POST({ request, locals, platform, params }) {
         parentId: formText(formData, 'parent_id')
       });
       return json({ ok: true, status: 'topic-created-and-assigned', topic: { id: created.id, name: created.name } });
+    }
+    if (operation === 'move-topic-to-system') {
+      await moveTopicToSystem(db, {
+        caseId,
+        topicId: formText(formData, 'topic_id'),
+        systemId: formText(formData, 'system_id')
+      });
+      return json({ ok: true, status: 'topic-system-moved' });
     }
     return new Response('Choose a valid Case classification operation.', { status: 400 });
   } catch (error) {

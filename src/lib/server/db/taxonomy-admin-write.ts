@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { taxonomyConcepts } from './contextual-schema.ts';
 import { buildTopicConceptInsert, listConceptTaxonomy } from './concept-taxonomy-compat.ts';
-import { caseConcepts, conceptQuestions, concepts } from './schema.js';
+import { caseConcepts, cases, conceptQuestions, concepts } from './schema.js';
 import { systemTags, tags } from './tag-schema.js';
 import {
   applyParentChanges,
@@ -221,6 +221,17 @@ export async function applyTaxonomyHierarchy(db: import('./index.js').LearningDb
   }
 }
 
+async function requireActiveTopLevelSystem(db: import('./index.js').LearningDb, systemId: string) {
+  const system = await db.select({ id: taxonomyConcepts.id, name: taxonomyConcepts.name }).from(taxonomyConcepts).where(and(
+    eq(taxonomyConcepts.id, systemId),
+    eq(taxonomyConcepts.kind, 'system'),
+    eq(taxonomyConcepts.isActive, true),
+    isNull(taxonomyConcepts.parentId)
+  )).limit(1);
+  if (!system[0]) throw new TaxonomyInputError('The selected System is missing, inactive, or not top-level.');
+  return system[0];
+}
+
 export async function assignPrimaryTopicToSystem(
   db: import('./index.js').LearningDb,
   input: { caseId: unknown; topicId: unknown; systemId: unknown }
@@ -228,15 +239,80 @@ export async function assignPrimaryTopicToSystem(
   const caseId = requiredText(input.caseId, 'Case');
   const topicId = requiredText(input.topicId, 'Primary Topic');
   const systemId = requiredText(input.systemId, 'System');
-  const [topic, system, relationship] = await Promise.all([
+  const [productionCase, topic, system, primaryTopics] = await Promise.all([
+    db.select({ id: cases.id }).from(cases).where(and(eq(cases.id, caseId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1),
     db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(and(eq(taxonomyConcepts.id, topicId), eq(taxonomyConcepts.kind, 'topic'), eq(taxonomyConcepts.isActive, true))).limit(1),
-    db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(and(eq(taxonomyConcepts.id, systemId), eq(taxonomyConcepts.kind, 'system'), eq(taxonomyConcepts.isActive, true), isNull(taxonomyConcepts.parentId))).limit(1),
-    db.select({ caseId: caseConcepts.caseId }).from(caseConcepts).where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.conceptId, topicId), eq(caseConcepts.role, 'primary'))).limit(1)
+    requireActiveTopLevelSystem(db, systemId),
+    db.select({ topicId: caseConcepts.conceptId }).from(caseConcepts).where(and(eq(caseConcepts.caseId, caseId), eq(caseConcepts.role, 'primary')))
   ]);
+  if (!productionCase[0]) throw new TaxonomyInputError('The selected Case is not an active Production Case.');
   if (!topic[0]) throw new TaxonomyInputError('The selected Primary Topic is missing, inactive, or classified as a System.');
-  if (!system[0]) throw new TaxonomyInputError('The selected System is missing, inactive, or not top-level.');
-  if (!relationship[0]) throw new TaxonomyInputError('The selected Topic is not the current Primary Topic for this Case.');
+  if (primaryTopics.length !== 1 || primaryTopics[0].topicId !== topicId) {
+    throw new TaxonomyInputError('The selected Topic is not the current Primary Topic for this Case.');
+  }
   await applyTaxonomyHierarchy(db, [{ id: topicId, parentId: systemId }]);
+  return { topicId, system };
+}
+
+/** Move one globally shared Topic, using its active Production Case editor as authority. */
+export async function moveTopicToSystem(
+  db: import('./index.js').LearningDb,
+  input: { caseId: unknown; topicId: unknown; systemId: unknown }
+) {
+  return assignPrimaryTopicToSystem(db, input);
+}
+
+/** Move the minimal Primary Topic roots used by selected active Production Cases. */
+export async function bulkMoveCaseTopicsToSystem(
+  db: import('./index.js').LearningDb,
+  input: { caseIds: unknown[]; systemId: unknown }
+) {
+  const caseIds = [...new Set((input.caseIds ?? []).map((caseId) => requiredText(caseId, 'Case')))];
+  if (!caseIds.length) throw new TaxonomyInputError('Select at least one Case.');
+  if (caseIds.length > 60) throw new TaxonomyInputError('Select no more than 60 Cases at a time.');
+  const systemId = requiredText(input.systemId, 'System');
+  const system = await requireActiveTopLevelSystem(db, systemId);
+
+  const rows = await db.select({ caseId: caseConcepts.caseId, topicId: caseConcepts.conceptId })
+    .from(caseConcepts)
+    .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
+    .where(and(
+      inArray(caseConcepts.caseId, caseIds),
+      eq(caseConcepts.role, 'primary'),
+      eq(cases.isActive, true),
+      isNull(cases.previewSessionId)
+    ));
+  const topicsByCase = new Map<string, string[]>();
+  for (const row of rows) topicsByCase.set(row.caseId, [...(topicsByCase.get(row.caseId) ?? []), row.topicId]);
+  if (caseIds.some((caseId) => (topicsByCase.get(caseId) ?? []).length !== 1)) {
+    throw new TaxonomyInputError('Every selected active Production Case must have exactly one Primary Topic.');
+  }
+
+  const topicIds = [...new Set(rows.map((row) => row.topicId))];
+  const activeTopics = await db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(and(
+    inArray(taxonomyConcepts.id, topicIds),
+    eq(taxonomyConcepts.kind, 'topic'),
+    eq(taxonomyConcepts.isActive, true)
+  ));
+  if (activeTopics.length !== topicIds.length) throw new TaxonomyInputError('Every selected Case Primary Topic must be active.');
+
+  const graph = await loadGraph(db);
+  const parentById = new Map(graph.map((node) => [node.id, node.parentId]));
+  const selectedTopicIds = new Set(topicIds);
+  const moveRootIds = topicIds.filter((topicId) => {
+    const visited = new Set<string>();
+    let parentId = parentById.get(topicId) ?? null;
+    while (parentId) {
+      if (selectedTopicIds.has(parentId)) return false;
+      if (visited.has(parentId)) throw new TaxonomyInputError('The current taxonomy hierarchy contains a cycle.');
+      visited.add(parentId);
+      parentId = parentById.get(parentId) ?? null;
+    }
+    return true;
+  });
+
+  await applyTaxonomyHierarchy(db, moveRootIds.map((topicId) => ({ id: topicId, parentId: systemId })));
+  return { selectedCount: caseIds.length, topicCount: moveRootIds.length, system };
 }
 
 export async function replaceSystemTags(

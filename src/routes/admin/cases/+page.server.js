@@ -13,7 +13,7 @@ import { bulkDeactivateProductionCases, bulkRestoreProductionCases, CaseLifecycl
 import { createDb } from '$lib/server/db/index.js';
 import { listCaseLibraryTagOptions } from '$lib/server/db/library-options.js';
 import { TagInputError } from '$lib/server/db/tag-library.js';
-import { TaxonomyInputError } from '$lib/server/db/taxonomy-admin-write.ts';
+import { bulkMoveCaseTopicsToSystem, TaxonomyInputError } from '$lib/server/db/taxonomy-admin-write.ts';
 import { serverTimingValue, withServerReadTiming } from '$lib/server/performance-timing.js';
 import { actions as parentActions } from '../+page.server.js';
 
@@ -39,7 +39,9 @@ function libraryRedirect(returnQuery, lifecycle, status, extras = {}) {
   params.delete('status');
   params.delete('tag_name');
   params.delete('topic_name');
+  params.delete('system_name');
   params.delete('case_count');
+  params.delete('topic_count');
   params.delete('page');
   params.set('lifecycle', lifecycle);
   params.set('status', status);
@@ -76,6 +78,13 @@ function topicCreationFailure(error, input, caseIds) {
   });
 }
 
+/** @param {unknown} error */
+function topicMoveFailure(error) {
+  const clientError = error instanceof TaxonomyInputError;
+  if (!clientError) console.error('Case Library Topic System move failed.', error);
+  return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to move the selected Topics under that System.' });
+}
+
 /** @param {URL} url */
 function statusData(url) {
   const parsedCount = Number.parseInt(url.searchParams.get('case_count') ?? '', 10);
@@ -83,7 +92,9 @@ function statusData(url) {
     status: url.searchParams.get('status') ?? '',
     statusTagName: url.searchParams.get('tag_name') ?? '',
     statusTopicName: url.searchParams.get('topic_name') ?? '',
-    statusCaseCount: Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 0
+    statusSystemName: url.searchParams.get('system_name') ?? '',
+    statusCaseCount: Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 0,
+    statusTopicCount: Number.parseInt(url.searchParams.get('topic_count') ?? '', 10) || 0
   };
 }
 
@@ -111,6 +122,25 @@ export const actions = {
     redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', result.selectedCount ? 'topic-created-and-assigned' : 'topic-created', {
       topic_name: result.name,
       case_count: result.selectedCount || undefined
+    }));
+  },
+  bulkMoveCaseTopicsToSystem: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const formData = await request.formData();
+    let result;
+    try {
+      result = await bulkMoveCaseTopicsToSystem(createDb(platform.env.DB), {
+        caseIds: selectedCaseIds(formData),
+        systemId: formText(formData, 'system_id')
+      });
+    } catch (error) {
+      return topicMoveFailure(error);
+    }
+    redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', 'topic-systems-moved', {
+      case_count: result.selectedCount,
+      topic_count: result.topicCount,
+      system_name: result.system.name
     }));
   },
   bulkAddCaseTag: async ({ request, locals, platform }) => {
