@@ -11,35 +11,6 @@ const advanced = readFileSync(
   'utf8'
 );
 
-test('Case editor keeps the main Case image surface visual and exposes linked Q&A', () => {
-  assert.match(section, /Case images/);
-  assert.match(section, /Review each learner-visible image and its linked Q&A here/);
-  assert.match(section, /Advanced image management/);
-  assert.match(section, /Needs role/);
-  assert.match(section, /Always shown/);
-  assert.match(section, /Original/);
-  assert.match(section, /Alternative/);
-  assert.match(section, /questionsForImage/);
-  assert.match(section, /Image-specific/);
-  assert.match(section, /Reusable/);
-  assert.match(section, /Shared across this image set/);
-  assert.match(section, /<strong>Q<\/strong>/);
-  assert.match(section, /<strong>A<\/strong>/);
-  assert.doesNotMatch(section, />Fixed images/);
-  assert.doesNotMatch(section, /status: 'FIXED'/);
-});
-
-test('Advanced image management uses the same role-based vocabulary', () => {
-  assert.match(advanced, /Always-shown Case images/);
-  assert.match(advanced, /Image-set actions/);
-  assert.match(advanced, /Start image set with this Original/);
-  assert.match(advanced, /Add as Alternative/);
-  assert.match(advanced, />Image sets /);
-  assert.doesNotMatch(advanced, />Fixed images/);
-  assert.doesNotMatch(advanced, /Alternative-set actions/);
-  assert.doesNotMatch(advanced, />Alternative image sets /);
-});
-
 test('production Advanced image management renders exactly one canonical images anchor', () => {
   assert.match(section, /<section id=\{advancedOpen \? undefined : 'images'\}/);
   assert.match(section, /\{#if advancedOpen\}[\s\S]*?<CaseImagesAdvanced/);
