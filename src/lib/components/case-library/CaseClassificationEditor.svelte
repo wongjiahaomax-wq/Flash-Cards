@@ -27,6 +27,7 @@
 
   let currentTopic = $derived(topics.find((topic) => topic.id === currentTopicId) ?? null);
   let currentTopicLabel = $derived(currentTopic ? caseLibraryTopicLabel(currentTopic) : currentTopicName || 'Unassigned');
+  let currentSystemId = $derived(currentTopic?.breadcrumb.find((item) => item.kind === 'system')?.id ?? '');
   let systemOptions = $derived(parentOptions.filter((option) => option.kind === 'system').sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id)));
   let filteredTopics = $derived(filterCaseLibraryTopicsBySystem(topics, systemContext));
   let filteredParentOptions = $derived(filterCaseLibraryParentOptionsBySystem(parentOptions, systemContext));
@@ -75,7 +76,7 @@
     newTopicInput?.focus();
   }
 
-  /** @param {'select-topic' | 'create-topic'} operation */
+  /** @param {'select-topic' | 'create-topic' | 'move-topic-to-system'} operation */
   async function mutate(operation) {
     error = '';
     busy = true;
@@ -87,6 +88,10 @@
     } else {
       body.set('name', newTopicName.trim());
       body.set('parent_id', newTopicParentId);
+    }
+    if (operation === 'move-topic-to-system') {
+      body.set('topic_id', currentTopicId);
+      body.set('system_id', systemContext);
     }
 
     try {
@@ -102,6 +107,13 @@
     } finally {
       busy = false;
     }
+  }
+
+  function confirmMoveTopic() {
+    if (!currentTopicId || !systemContext || systemContext === currentSystemId) return;
+    const target = systemOptions.find((system) => system.id === systemContext);
+    if (!target || !window.confirm(`Move the Topic “${currentTopicLabel}” under ${target.name}? This changes the global Topic hierarchy for every Case using it.`)) return;
+    void mutate('move-topic-to-system');
   }
 
   /** @param {PointerEvent} event */
@@ -188,6 +200,7 @@
       {#if error}<p class="error" role="alert">{error}</p>{/if}
 
       <div class="editor-actions">
+        {#if currentTopicId && systemContext !== CASE_LIBRARY_UNASSIGNED_SYSTEM && systemContext !== currentSystemId}<button type="button" class="button warning" disabled={busy} onclick={confirmMoveTopic}>Move Topic to System</button>{/if}
         <button type="button" class="button" disabled={busy} onclick={() => void closeEditor(true)}>Cancel</button>
         <button type="button" class="button primary" disabled={busy || !selectedTopicId} onclick={() => void mutate('select-topic')}>Save</button>
       </div>
@@ -216,6 +229,7 @@
   .new-topic-actions, .editor-actions { display: flex; justify-content: end; gap: 0.5rem; margin-top: 0.8rem; }
   .button { padding: 0.58rem 0.75rem; border-radius: 7px; font-size: 0.82rem; font-weight: 700; }
   .button.primary { border-color: #172033; background: #172033; color: #fff; }
+  .button.warning { border-color: #f79009; color: #b54708; }
   button:disabled, input:disabled, select:disabled { cursor: not-allowed; opacity: 0.55; }
   .error { margin: 0.75rem 0 0; padding: 0.62rem; border-radius: 7px; background: #fef3f2; color: #b42318; font-size: 0.8rem; }
 

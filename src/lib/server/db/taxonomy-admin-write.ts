@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { taxonomyConcepts } from './contextual-schema.ts';
 import { buildTopicConceptInsert, listConceptTaxonomy } from './concept-taxonomy-compat.ts';
-import { caseConcepts, conceptQuestions, concepts } from './schema.js';
+import { caseConcepts, cases, conceptQuestions, concepts } from './schema.js';
 import { systemTags, tags } from './tag-schema.js';
 import {
   applyParentChanges,
@@ -237,6 +237,70 @@ export async function assignPrimaryTopicToSystem(
   if (!system[0]) throw new TaxonomyInputError('The selected System is missing, inactive, or not top-level.');
   if (!relationship[0]) throw new TaxonomyInputError('The selected Topic is not the current Primary Topic for this Case.');
   await applyTaxonomyHierarchy(db, [{ id: topicId, parentId: systemId }]);
+}
+
+async function requireActiveTopLevelSystem(db: import('./index.js').LearningDb, systemId: string) {
+  const system = await db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(and(
+    eq(taxonomyConcepts.id, systemId),
+    eq(taxonomyConcepts.kind, 'system'),
+    eq(taxonomyConcepts.isActive, true),
+    isNull(taxonomyConcepts.parentId)
+  )).limit(1);
+  if (!system[0]) throw new TaxonomyInputError('The selected System is missing, inactive, or not top-level.');
+}
+
+/** Move one globally shared Topic under an active top-level System. */
+export async function moveTopicToSystem(
+  db: import('./index.js').LearningDb,
+  input: { topicId: unknown; systemId: unknown }
+) {
+  const topicId = requiredText(input.topicId, 'Topic');
+  const systemId = requiredText(input.systemId, 'System');
+  const topic = await db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(and(
+    eq(taxonomyConcepts.id, topicId),
+    eq(taxonomyConcepts.kind, 'topic'),
+    eq(taxonomyConcepts.isActive, true)
+  )).limit(1);
+  if (!topic[0]) throw new TaxonomyInputError('The selected Topic is missing, inactive, or classified as a System.');
+  await requireActiveTopLevelSystem(db, systemId);
+  await applyTaxonomyHierarchy(db, [{ id: topicId, parentId: systemId }]);
+}
+
+/** Move the unique Primary Topics used by selected active Production Cases. */
+export async function bulkMoveCaseTopicsToSystem(
+  db: import('./index.js').LearningDb,
+  input: { caseIds: unknown[]; systemId: unknown }
+) {
+  const caseIds = [...new Set((input.caseIds ?? []).map((caseId) => requiredText(caseId, 'Case')))];
+  if (!caseIds.length) throw new TaxonomyInputError('Select at least one Case.');
+  if (caseIds.length > 60) throw new TaxonomyInputError('Select no more than 60 Cases at a time.');
+  const systemId = requiredText(input.systemId, 'System');
+  await requireActiveTopLevelSystem(db, systemId);
+
+  const rows = await db.select({ caseId: caseConcepts.caseId, topicId: caseConcepts.conceptId })
+    .from(caseConcepts)
+    .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
+    .where(and(
+      inArray(caseConcepts.caseId, caseIds),
+      eq(caseConcepts.role, 'primary'),
+      eq(cases.isActive, true),
+      isNull(cases.previewSessionId)
+    ));
+  const topicsByCase = new Map<string, string[]>();
+  for (const row of rows) topicsByCase.set(row.caseId, [...(topicsByCase.get(row.caseId) ?? []), row.topicId]);
+  if (caseIds.some((caseId) => (topicsByCase.get(caseId) ?? []).length !== 1)) {
+    throw new TaxonomyInputError('Every selected active Production Case must have exactly one Primary Topic.');
+  }
+
+  const topicIds = [...new Set(rows.map((row) => row.topicId))];
+  const activeTopics = await db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(and(
+    inArray(taxonomyConcepts.id, topicIds),
+    eq(taxonomyConcepts.kind, 'topic'),
+    eq(taxonomyConcepts.isActive, true)
+  ));
+  if (activeTopics.length !== topicIds.length) throw new TaxonomyInputError('Every selected Case Primary Topic must be active.');
+  await applyTaxonomyHierarchy(db, topicIds.map((topicId) => ({ id: topicId, parentId: systemId })));
+  return { selectedCount: caseIds.length, topicCount: topicIds.length };
 }
 
 export async function replaceSystemTags(

@@ -99,13 +99,23 @@ test('active rows expose one classification editor and inactive rows keep classi
   assert.match(classificationSource, /closeOnEscape/);
 });
 
-test('classification System selection is navigation only and incompatible hidden Topic state is cleared', () => {
+test('classification System selection clears incompatible Topic state and exposes explicit global move', () => {
   assert.match(classificationSource, /filterCaseLibraryTopicsBySystem\(topics, nextContext\)/);
   assert.match(classificationSource, /selectedTopicId = ''/);
   assert.match(classificationSource, /Filters Topic choices only; it does not change taxonomy hierarchy/);
-  assert.doesNotMatch(classificationSource, /name="system/);
-  assert.doesNotMatch(classificationEndpointSource, /system_id|systemId/);
+  assert.match(classificationSource, /Move Topic to System/);
+  assert.match(classificationSource, /move-topic-to-system/);
+  assert.match(classificationEndpointSource, /system_id|systemId/);
   assert.match(classificationSource, /caseLibraryTopicLabel\(topic\)/);
+});
+
+test('Case Library exposes a confirmed bulk global Topic-to-System move', () => {
+  assert.match(pageSource, /name="system_id"/);
+  assert.match(pageSource, /bulkMoveCaseTopicsToSystem/);
+  assert.match(pageSource, /Move Topics globally/);
+  assert.match(pageSource, /global Topic hierarchy/);
+  assert.match(serverSource, /bulkMoveCaseTopicsToSystem/);
+  assert.match(classificationEndpointSource, /moveTopicToSystem/);
 });
 
 test('classification writes reuse canonical Primary Topic and PR 104 Topic-authoring authorities', () => {
@@ -131,7 +141,7 @@ test('active and inactive bulk action surfaces are one mutually-exclusive sticky
   assert.match(pageSource, /\.bulk-toolbar \{[^}]*position: sticky;[^}]*top: 0\.75rem;[^}]*z-index: 12;/);
   assert.match(pageSource, /\.bulk-toolbar \{[^}]*background: #fff;[^}]*box-shadow:/);
   assert.match(pageSource, /\.bulk-toolbar \{[^}]*flex-wrap: wrap;/);
-  assert.match(pageSource, /@media \(max-width: 600px\)[\s\S]*\.bulk-topic \{ min-width: 100%; \}/);
+  assert.match(pageSource, /@media \(max-width: 600px\)[\s\S]*\.bulk-topic, \.bulk-system \{ min-width: 100%; \}/);
   assert.match(pageSource, /\.selection-hint \{ display: none; \}/);
   assert.match(pageSource, />Restore selected<\/button>/);
   assert.match(pageSource, /disabled=\{!selectedCaseIds\.length\}/);
