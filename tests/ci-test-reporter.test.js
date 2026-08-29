@@ -103,6 +103,8 @@ test('real nested node:test failure emits one real failure instead of a duplicat
       '',
     ].join('\n'));
 
+    const childEnv = { ...process.env };
+    delete childEnv.NODE_TEST_CONTEXT;
     const result = spawnSync(process.execPath, [
       '--test',
       `--test-reporter=${CI_TEST_REPORTER}`,
@@ -110,6 +112,7 @@ test('real nested node:test failure emits one real failure instead of a duplicat
     ], {
       cwd: process.cwd(),
       encoding: 'utf8',
+      env: childEnv,
     });
 
     assert.equal(result.status, 1, result.stderr || result.stdout);
