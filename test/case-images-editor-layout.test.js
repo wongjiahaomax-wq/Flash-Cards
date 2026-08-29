@@ -2,19 +2,40 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const source = readFileSync(
+const section = readFileSync(
   new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url),
   'utf8'
 );
+const advanced = readFileSync(
+  new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url),
+  'utf8'
+);
 
-test('Case editor uses simple Case image terminology and keeps technical controls advanced', () => {
-  assert.match(source, /Case images/);
-  assert.match(source, /Use <strong>Image roles<\/strong> directly below/);
-  assert.match(source, /Advanced image management/);
-  assert.match(source, /Needs role/);
-  assert.match(source, /Always shown/);
-  assert.match(source, /Original/);
-  assert.match(source, /Alternative/);
-  assert.doesNotMatch(source, />Fixed images</);
-  assert.doesNotMatch(source, /status: 'FIXED'/);
+test('Case editor keeps the main Case image surface visual and exposes linked Q&A', () => {
+  assert.match(section, /Case images/);
+  assert.match(section, /Review each learner-visible image and its linked Q&A here/);
+  assert.match(section, /Advanced image management/);
+  assert.match(section, /Needs role/);
+  assert.match(section, /Always shown/);
+  assert.match(section, /Original/);
+  assert.match(section, /Alternative/);
+  assert.match(section, /questionsForImage/);
+  assert.match(section, /Image-specific/);
+  assert.match(section, /Reusable/);
+  assert.match(section, /Shared across this image set/);
+  assert.match(section, /<strong>Q<\/strong>/);
+  assert.match(section, /<strong>A<\/strong>/);
+  assert.doesNotMatch(section, />Fixed images</);
+  assert.doesNotMatch(section, /status: 'FIXED'/);
+});
+
+test('Advanced image management uses the same role-based vocabulary', () => {
+  assert.match(advanced, /Always-shown Case images/);
+  assert.match(advanced, /Image-set actions/);
+  assert.match(advanced, /Start image set with this Original/);
+  assert.match(advanced, /Add as Alternative/);
+  assert.match(advanced, />Image sets /);
+  assert.doesNotMatch(advanced, />Fixed images/);
+  assert.doesNotMatch(advanced, /Alternative-set actions/);
+  assert.doesNotMatch(advanced, />Alternative image sets /);
 });
