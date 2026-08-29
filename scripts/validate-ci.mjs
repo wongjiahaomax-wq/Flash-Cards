@@ -35,10 +35,27 @@ function commandText(command, args) {
 }
 
 /**
+ * Produce a command that is meaningful in a normal local feature checkout.
+ * The CI diff itself runs against the synthetic merge checkout, but the repro
+ * uses the actual PR base/head SHAs supplied by the workflow when available.
+ * @param {string} id
+ * @param {string} command
+ * @param {string[]} args
+ * @param {{ diffBaseSha?: string | null, diffHeadSha?: string | null }} [options]
+ */
+export function ciReproCommand(id, command, args, options = {}) {
+  if (id !== 'diff') return commandText(command, args);
+  if (options.diffBaseSha && options.diffHeadSha) {
+    return commandText('git', ['diff', '--check', options.diffBaseSha, options.diffHeadSha]);
+  }
+  return 'npm run agent:checks';
+}
+
+/**
  * Plain-text records are deliberately kept alongside GitHub annotations so
  * connector-based agents can find the actionable failure without parsing the
  * whole Actions log or relying on GitHub's annotation UI.
- * @param {{ id: string, command: string, args: string[], status?: number | null, message: string, detailedErrorsAlreadyReported?: boolean }} input
+ * @param {{ id: string, command: string, args: string[], status?: number | null, message: string, detailedErrorsAlreadyReported?: boolean, reproCommand?: string }} input
  */
 export function formatCiAgentFailureSummary(input) {
   const check = escapeAgentField(input.id);
@@ -46,7 +63,8 @@ export function formatCiAgentFailureSummary(input) {
   if (!input.detailedErrorsAlreadyReported) {
     lines.push(`CI_ERROR|check=${check}|message=${escapeAgentField(input.message)}`);
   }
-  lines.push(`CI_REPRO|check=${check}|command=${escapeAgentField(commandText(input.command, input.args))}`);
+  const reproCommand = input.reproCommand ?? commandText(input.command, input.args);
+  lines.push(`CI_REPRO|check=${check}|command=${escapeAgentField(reproCommand)}`);
   const exit = Number.isInteger(input.status) ? `|exit=${input.status}` : '';
   lines.push(`CI_STATUS|check=${check}|status=failed${exit}`);
   return lines.join('\n');
@@ -128,11 +146,13 @@ export function ciCommandArgs(id, args) {
  * CI keeps PR-checkout diff semantics and GitHub grouping CI-specific while
  * reusing the repository validation contract. Node-test diagnostics are
  * produced by a custom reporter that consumes structured node:test events.
- * @param {{ mode?: string, diffBase?: string, diffHead?: string }} [options]
+ * @param {{ mode?: string, diffBase?: string, diffHead?: string, diffReproBaseSha?: string | null, diffReproHeadSha?: string | null }} [options]
  */
 export function runCiValidation(options = {}) {
   const mode = options.mode ?? 'full';
   const checks = ciValidationCommands(options);
+  const diffReproBaseSha = options.diffReproBaseSha ?? process.env.CI_PR_BASE_SHA ?? null;
+  const diffReproHeadSha = options.diffReproHeadSha ?? process.env.CI_PR_HEAD_SHA ?? null;
 
   console.log(`Repository CI validation mode: ${mode}`);
   for (const { id, label, command, args } of checks) {
@@ -143,6 +163,10 @@ export function runCiValidation(options = {}) {
       shell: false,
     });
     console.log('::endgroup::');
+    const reproCommand = ciReproCommand(id, command, args, {
+      diffBaseSha: diffReproBaseSha,
+      diffHeadSha: diffReproHeadSha,
+    });
 
     if (result.error) {
       const detail = result.error.message;
@@ -152,6 +176,7 @@ export function runCiValidation(options = {}) {
         command,
         args,
         message: detail,
+        reproCommand,
       }));
       return 1;
     }
@@ -168,6 +193,7 @@ export function runCiValidation(options = {}) {
         status: result.status,
         message: detail,
         detailedErrorsAlreadyReported: id === 'test',
+        reproCommand,
       }));
       return result.status ?? 1;
     }
