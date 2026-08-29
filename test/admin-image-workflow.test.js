@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { registerHooks } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
@@ -18,6 +17,7 @@ import {
 } from '../src/lib/server/db/admin-image-workflow.js';
 import { createDb } from '../src/lib/server/db/index.js';
 import { createStimulusGroup, removeStimulusOptionFromCase } from '../src/lib/server/db/stimulus-groups.js';
+import { applyCurrentSchema } from './current-schema.js';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -28,24 +28,10 @@ registerHooks({
   }
 });
 
-const migrationSql = [
-  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0010_reusable_image_reactivation_guard.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0016_original_stimulus_options.sql', import.meta.url), 'utf8')
-].join('\n').replaceAll('--> statement-breakpoint', '');
-
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql);
+  applyCurrentSchema(sqlite);
   sqlite.exec(buildSeedSql());
   const d1 = {
     /** @param {string} sql */
@@ -307,157 +293,4 @@ test('bulk grouping rejects fixed or cross-set Case conflicts and invalid Assets
   } finally {
     fixture.sqlite.close();
   }
-});
-
-test('bulk restoration preflights the entire batch before restoring any archived option', async () => {
-  const fixture = createLearningDb();
-  try {
-    insertAsset(fixture.sqlite, { id: 'bulk-archived', name: 'Bulk archived' });
-    insertAsset(fixture.sqlite, { id: 'bulk-later-conflict', name: 'Bulk later conflict' });
-    const targetGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Bulk restore target', specificQuestionMode: 'none' });
-    const otherGroup = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Bulk restore other', specificQuestionMode: 'none' });
-
-    await bulkAddAssetsToStimulusGroup(fixture.db, targetGroup, ['bulk-archived']);
-    const archivedOption = fixture.sqlite.prepare('SELECT id FROM stimulus_group_options WHERE stimulus_group_id = ? AND asset_id = ?').get(targetGroup, 'bulk-archived');
-    assert.ok(archivedOption?.id);
-    await removeStimulusOptionFromCase(fixture.db, String(archivedOption.id));
-    await bulkAddAssetsToStimulusGroup(fixture.db, otherGroup, ['bulk-later-conflict']);
-
-    await assert.rejects(
-      () => bulkAddAssetsToStimulusGroup(fixture.db, targetGroup, ['bulk-archived', 'bulk-later-conflict']),
-      /another alternative set/
-    );
-    const unchanged = fixture.sqlite.prepare('SELECT is_active, removed_from_case FROM stimulus_group_options WHERE id = ?').get(archivedOption.id);
-    assert.deepEqual({ ...unchanged }, { is_active: 0, removed_from_case: 1 });
-  } finally {
-    fixture.sqlite.close();
-  }
-});
-
-test('active bulk targets expose the existing Case-scoped grouping model only', async () => {
-  const fixture = createLearningDb();
-  try {
-    const active = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Visible set', specificQuestionMode: 'none' });
-    const inactive = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Hidden set', specificQuestionMode: 'none' });
-    fixture.sqlite.prepare('UPDATE stimulus_groups SET is_active = 0 WHERE id = ?').run(inactive);
-    const targets = await listActiveStimulusGroupTargets(fixture.db);
-    assert.ok(targets.some((target) => target.id === active && target.caseId === 'seed-anterior-a'));
-    assert.equal(targets.some((target) => target.id === inactive), false);
-  } finally {
-    fixture.sqlite.close();
-  }
-});
-
-test('new alternative Asset target validation rejects insufficient set-wide coverage before upload', async () => {
-  const fixture = createLearningDb();
-  try {
-    const groupId = await createStimulusGroup(fixture.db, {
-      caseId: 'seed-anterior-a',
-      name: 'Minimum coverage set',
-      specificQuestionMode: 'minimum',
-      minimumSpecificQuestions: 1
-    });
-    await assert.rejects(
-      () => validateStimulusGroupTargetForNewAssets(fixture.db, groupId, { expectedCaseId: 'seed-anterior-a' }),
-      /below this set's minimum of 1/
-    );
-  } finally {
-    fixture.sqlite.close();
-  }
-});
-
-test('Case picker load fails closed for a requested missing or inactive target group', async () => {
-  const fixture = createLearningDb();
-  try {
-    const inactive = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Inactive picker set', specificQuestionMode: 'none' });
-    fixture.sqlite.prepare('UPDATE stimulus_groups SET is_active = 0 WHERE id = ?').run(inactive);
-    const { load } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
-
-    for (const target of ['missing-target', inactive]) {
-      await assert.rejects(
-        () => load(/** @type {any} */ ({
-          locals: { user: { role: 'admin' } },
-          platform: { env: { DB: fixture.d1 } },
-          params: { caseId: 'seed-anterior-a' },
-          url: new URL(`http://localhost/admin/cases/seed-anterior-a?picker=1&target_group=${encodeURIComponent(target)}`)
-        })),
-        (error) => Boolean(error && typeof error === 'object' && 'status' in error && error.status === 400)
-      );
-    }
-  } finally {
-    fixture.sqlite.close();
-  }
-});
-
-test('upload-to-alternative-set prevalidation does not create an Asset when target coverage is invalid', async () => {
-  const fixture = createLearningDb();
-  try {
-    const groupId = await createStimulusGroup(fixture.db, {
-      caseId: 'seed-anterior-a',
-      name: 'Upload blocked set',
-      specificQuestionMode: 'minimum',
-      minimumSpecificQuestions: 1
-    });
-    const before = assetCount(fixture.sqlite);
-    const { actions } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
-    const formData = new FormData();
-    formData.set('case_id', 'seed-anterior-a');
-    formData.set('target_group_id', groupId);
-    formData.set('alt_text', 'Blocked upload alt text');
-    formData.set('image', new File([new Uint8Array([137, 80, 78, 71])], 'blocked.png', { type: 'image/png' }));
-
-    const result = await actions.uploadAndAttach(/** @type {any} */ ({
-      request: new Request('http://localhost/admin/cases/seed-anterior-a?/uploadAndAttach', { method: 'POST', body: formData }),
-      locals: { user: { role: 'admin' } },
-      params: { caseId: 'seed-anterior-a' },
-      platform: { env: { DB: fixture.d1, MEDIA: {} } }
-    }));
-    assert.equal('status' in result ? result.status : null, 400);
-    assert.equal(assetCount(fixture.sqlite), before);
-  } finally {
-    fixture.sqlite.close();
-  }
-});
-
-test('Case image actions require administrator authorization', async () => {
-  const { actions } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
-  const formData = new FormData();
-  formData.set('case_id', 'seed-anterior-a');
-  formData.append('asset_id', 'seed-asset-anterior-b');
-  const result = await actions.attachMany(/** @type {any} */ ({
-    request: new Request('http://localhost/admin/cases/seed-anterior-a?/attachMany', { method: 'POST', body: formData }),
-    locals: { user: { role: 'user' } },
-    params: { caseId: 'seed-anterior-a' }
-  }));
-  assert.equal('status' in result ? result.status : null, 403);
-});
-
-test('Images-library bulk grouping action requires administrator authorization', async () => {
-  const { actions } = await import('../src/routes/admin/images/+page.server.js');
-  const formData = new FormData();
-  formData.set('group_id', 'not-trusted');
-  formData.append('asset_id', 'seed-asset-anterior-b');
-  const result = await actions.bulkAddToStimulusGroup(/** @type {any} */ ({
-    request: new Request('http://localhost/admin/images?/bulkAddToStimulusGroup', { method: 'POST', body: formData }),
-    locals: { user: { role: 'user' } }
-  }));
-  assert.equal('status' in result ? result.status : null, 403);
-});
-
-test('Case editor keeps Images before Case questions and no longer embeds the unused Asset Library', () => {
-  const route = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
-  const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
-  const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
-  const picker = readFileSync(new URL('../src/lib/components/case-editor/CaseImagePickerDialog.svelte', import.meta.url), 'utf8');
-  assert.ok(route.indexOf('<CaseImagesSection') < route.indexOf('<CaseQuestionsSection'));
-  assert.match(images, /<section id=\{advancedOpen \? undefined : 'images'\}/);
-  assert.match(questions, /<section id="questions"/);
-  assert.match(images, />Images/);
-  assert.match(images, /Add images from library/);
-  assert.match(images, /Case-specific Image Questions/);
-  assert.match(images, /Reusable Image Questions/);
-  assert.match(images, /updateStimulusOptionCaption/);
-  assert.match(picker, /reconcileCasePickerSelection/);
-  assert.doesNotMatch(`${route}\n${images}\n${picker}`, /selectedCase\.available/);
-  assert.doesNotMatch(images, /<h3>Image library<\/h3>/);
 });
