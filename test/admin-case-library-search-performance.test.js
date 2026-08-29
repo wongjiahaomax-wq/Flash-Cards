@@ -9,7 +9,7 @@ import { createDb } from '../src/lib/server/db/index.js';
 const pageSource = readFileSync(new URL('../src/routes/admin/cases/+page.svelte', import.meta.url), 'utf8');
 const serverSource = readFileSync(new URL('../src/routes/admin/cases/+page.server.js', import.meta.url), 'utf8');
 
-const legacyMigrationNames = [
+const currentMigrationNames = [
   '0000_dashing_centennial.sql',
   '0002_optional_stimulus_groups.sql',
   '0003_multi_topic_study_routing.sql',
@@ -22,12 +22,11 @@ const legacyMigrationNames = [
   '0010_reusable_image_reactivation_guard.sql',
   '0011_asset_supersession.sql',
   '0012_archive_stimulus_options.sql',
-  '0013_review_assets_asset_lookup.sql'
-];
-const currentMigrationNames = [
-  ...legacyMigrationNames,
+  '0013_review_assets_asset_lookup.sql',
   '0014_review_question_pool_mode.sql',
-  '0015_contextual_system_topic_tag_navigation.sql'
+  '0015_contextual_system_topic_tag_navigation.sql',
+  '0016_original_stimulus_options.sql',
+  '0017_align_reusable_prompt_live_state_guards.sql'
 ];
 
 /** @param {string[]} names */
@@ -115,7 +114,7 @@ test('Case Library route reuses page taxonomy options and keeps lifecycle-correc
   assert.match(serverSource, /'admin-case-library-read'/);
 });
 
-test('active Case Library derives Topic options from one compatible taxonomy supporting read', async () => {
+test('active Case Library derives Topic options from one canonical taxonomy supporting read', async () => {
   const fixture = createLearningDb(currentMigrationNames);
   try {
     fixture.sqlite.exec(`
@@ -144,7 +143,7 @@ test('active Case Library derives Topic options from one compatible taxonomy sup
       { pageSize: 10 }
     );
 
-    assert.equal(taxonomyReadCount(fixture.statements), 1, 'active page should load compatible Concept taxonomy once');
+    assert.equal(taxonomyReadCount(fixture.statements), 1, 'active page should load canonical Concept taxonomy once');
     assert.deepEqual(active.rows.map((row) => row.id), ['case-active']);
     assert.deepEqual(active.topicOptions, [
       {
@@ -177,37 +176,6 @@ test('active Case Library derives Topic options from one compatible taxonomy sup
     assert.deepEqual(inactive.rows.map((row) => row.id), ['case-inactive']);
     assert.equal(inactive.rows[0]?.systemName, 'Eye');
     assert.deepEqual(inactive.topicOptions, [], 'inactive recovery must not construct active Topic assignment options');
-  } finally {
-    fixture.sqlite.close();
-  }
-});
-
-test('pre-0015 Case Library taxonomy compatibility still supplies active Topic options', async () => {
-  const fixture = createLearningDb(legacyMigrationNames);
-  try {
-    fixture.sqlite.exec(`
-      INSERT INTO concepts (id, name, slug, is_active)
-      VALUES ('topic-legacy', 'Legacy Topic', 'legacy-topic', 1);
-      INSERT INTO cases (id, title, is_active)
-      VALUES ('case-legacy', 'Legacy Case', 1);
-      INSERT INTO case_concepts (case_id, concept_id, role)
-      VALUES ('case-legacy', 'topic-legacy', 'primary');
-    `);
-
-    const result = await getCaseLibraryPage(
-      fixture.db,
-      { search: '', topicSearch: 'legacy', systemSearch: '', tagId: '', sort: 'case-asc', lifecycle: 'active' },
-      { pageSize: 10 }
-    );
-    assert.deepEqual(result.rows.map((row) => row.id), ['case-legacy']);
-    assert.deepEqual(result.topicOptions, [
-      {
-        id: 'topic-legacy',
-        name: 'Legacy Topic',
-        slug: 'legacy-topic',
-        breadcrumb: [{ id: 'topic-legacy', name: 'Legacy Topic', kind: 'topic' }]
-      }
-    ]);
   } finally {
     fixture.sqlite.close();
   }
