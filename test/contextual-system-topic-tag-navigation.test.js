@@ -421,10 +421,9 @@ test('migration 0015 enforces System/Topic relationship and Review provenance in
   }
 });
 
-test('canonical Drizzle schema models migration 0015 while pre-0015 shapes stay compatibility-only', () => {
+test('canonical Drizzle schema models migration 0015 without a historical runtime schema', () => {
   const schemaSource = readFileSync(new URL('../src/lib/server/db/schema.js', import.meta.url), 'utf8');
   const contextualSource = readFileSync(new URL('../src/lib/server/db/contextual-schema.ts', import.meta.url), 'utf8');
-  const compatSource = readFileSync(new URL('../src/lib/server/db/pre-0015-compat-schema.ts', import.meta.url), 'utf8');
   const drizzleConfig = readFileSync(new URL('../drizzle.config.js', import.meta.url), 'utf8');
 
   assert.match(schemaSource, /kind:\s*text\('kind'/);
@@ -435,5 +434,8 @@ test('canonical Drizzle schema models migration 0015 while pre-0015 shapes stay 
   assert.match(contextualSource, /reviews as reviewsWithRouteProvenance/);
   assert.match(drizzleConfig, /\.\/src\/lib\/server\/db\/schema\.js/);
   assert.doesNotMatch(drizzleConfig, /pre-0015-compat-schema/);
-  assert.match(compatSource, /Compatibility-only table shapes/);
+  assert.throws(
+    () => readFileSync(new URL('../src/lib/server/db/pre-0015-compat-schema.ts', import.meta.url), 'utf8'),
+    /ENOENT/
+  );
 });
