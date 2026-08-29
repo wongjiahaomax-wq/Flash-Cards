@@ -20,7 +20,7 @@ The refactor programme should preserve:
 - Case fixed-question-count constraints and Stimulus coverage guarantees;
 - Production/Preview ownership separation;
 - Review snapshot/provenance history;
-- D1 triggers and schema constraints as complementary integrity enforcement.
+- D1 triggers and schema constraints as complementary integrity enforcement where those safeguards actually exist.
 
 The programme is not a schema redesign, Preview rebuild, generic repository/service-layer introduction, JS-to-TS migration, or route reorganisation.
 
@@ -71,7 +71,7 @@ Deleting or recreating rows to simulate these transitions would break current id
 | `simple-stimulus-curation.js` | Atomic two-fixed-image Original/Alternative authoring convenience | Creates family/options and assigns Original in one batch. |
 | `image-option-move.js` | Same-Case option movement between families, Production and Preview scoped by caller input | Preserves option identity, exact Option Questions, reusable opt-ins and caption; owns local coverage simulation. |
 | `stimulus-audit.js` | Production cleanup/read model for ambiguous/unassigned Original state | Intentionally reports rather than mutates. |
-| `asset-questions.js` | Canonical reusable exact-Asset Questions and explicit option opt-ins; fixed-image conversion for reuse | Shares cross-group Prompt invariant with `stimulus-groups.js` and D1 triggers. |
+| `asset-questions.js` | Canonical reusable exact-Asset Questions and explicit option opt-ins; fixed-image conversion for reuse | Shares the reusable-Asset branch of the cross-group Prompt invariant with `stimulus-groups.js`; `0009`/`0010` provide reusable-path database guards. |
 | `question-scope.js` | Case Question ↔ exact-stimulus authoring and fixed-image conversion | Calls `saveStimulusOptionQuestion` and shared Prompt guard from `stimulus-groups.js`. |
 | `case-assets.js` | Always-shown fixed image relationships | Rejects current grouped-option conflicts; remains a separate domain boundary. |
 | `admin-image-workflow.js` | Bounded image picker/bulk attachment workflows | Imports restoration validation and shared Stimulus error; performs its own target preflight. |
@@ -131,13 +131,15 @@ Important schema constraints include positive `selection_count`, supported cover
 
 `0002_optional_stimulus_groups.sql` establishes the original family/option/question model, Case question-count mode, and Review Stimulus provenance.
 
-`0009_reusable_image_questions.sql` adds canonical `asset_questions`, explicit option opt-ins, exact-Asset matching triggers, Production/Preview protection for reusable content, cross-group Prompt ambiguity guards, and reusable Question Review provenance.
+`0009_reusable_image_questions.sql` adds canonical `asset_questions`, explicit option opt-ins, exact-Asset matching triggers, Production/Preview protection for reusable content, reusable-question Review provenance, and cross-group Prompt guards specifically for conflicts in which reusable Asset Question usage participates.
 
-`0010_reusable_image_reactivation_guard.sql` revalidates cross-group Prompt compatibility when a dormant reusable Asset Question is reactivated.
+`0010_reusable_image_reactivation_guard.sql` revalidates cross-group Prompt compatibility specifically when a dormant reusable Asset Question is reactivated.
 
 `0012_archive_stimulus_options.sql` adds `removed_from_case`; this is relationship history, not Asset deletion.
 
 `0016_original_stimulus_options.sql` adds `original_option_id`, conservative Production backfill, and the final Original-integrity guards.
+
+`0009` and `0010` do **not** provide a general D1 constraint preventing an ordinary `stimulus_group_question` or `stimulus_option_question` from conflicting with another ordinary Group/Option Question in another independently selectable Family. The general ordinary exact-question rule is currently enforced by application validation and by the learner resolver. Future extraction work must not weaken application enforcement on the assumption that D1 supplies a general fallback that does not exist.
 
 ### Original-integrity triggers are part of the domain contract
 
@@ -151,7 +153,7 @@ Migration `0016` currently protects:
 - deleting the current Original option;
 - deactivating an Asset that still backs an Original in an active family.
 
-Application preflight provides contextual/friendly validation. The D1 triggers provide the atomic last line of defence. Future refactors must preserve both layers.
+Application preflight provides contextual/friendly validation. The D1 triggers provide the atomic last line of defence for the Original invariants they cover. Future refactors must preserve both layers.
 
 ## Current compatibility surface
 
@@ -211,7 +213,7 @@ Preview uses `preview-workspace.js` and its scoped submodules. Same physical tab
 
 ### Question-scope conversion and reusable Asset Questions
 
-`question-scope.js`, `case-questions.js`, and `asset-questions.js` share the invariant that one Prompt cannot become stimulus-specific in independently selectable groups of the same Case. This invariant is currently distributed across application helpers, resolver checks and D1 triggers.
+`question-scope.js`, `case-questions.js`, and `asset-questions.js` share the policy that one Prompt should not become stimulus-specific in independently selectable groups of the same Case. The general ordinary Group/Option branch is enforced in application helpers and checked again by the learner resolver. Database defence in `0009`/`0010` is narrower: it covers reusable Asset Question opt-in/write/reactivation paths and ordinary writes only when they conflict with reusable usage.
 
 ## Invariant ownership matrix
 
@@ -224,14 +226,14 @@ Preview uses `preview-workspace.js` and its scoped submodules. Same physical tab
 | `removed_from_case` / inactive options are not learner-selectable | option lifecycle writers | persisted state + FKs | `learning.js` filters active + non-removed + active Asset | Stimulus Group / Original tests |
 | Archived restoration revalidates current eligibility and coverage before reuse of stable identity | `validateStimulusOptionRestoration`; Admin bulk workflow | Original trigger still blocks invalid protected transition | learner sees restored row only after valid state | `stimulus-reusable-coverage-restoration.test.js` |
 | Reusable Asset Question applies only to the exact Asset and explicit option usage | `asset-questions.js` | `0009` Asset-match triggers | loader requires opt-in and exact current option Asset match | reusable image question suites + replacement tests |
-| Same Prompt cannot be stimulus-specific in independently selectable selected groups | `ensurePromptIsNotUsedByAnotherGroup`; reusable-specific checks in `asset-questions.js`; route/scope preflights | `0009` insertion/update guards for Question/opt-in relationships; `0010` reactivation guard | resolver rejects incompatible selected-group context | question-scope + reusable-image suites |
+| Same Prompt should not be stimulus-specific in independently selectable selected groups | General ordinary Group/Option conflicts: `ensurePromptIsNotUsedByAnotherGroup` plus route/scope preflights. Reusable conflicts: additional checks in `asset-questions.js` | **No general ordinary exact-vs-exact D1 guard.** `0009` guards conflicts where reusable Asset Question usage participates; `0010` guards reusable Question reactivation | resolver rejects incompatible selected-group context | question-scope + reusable-image suites + `stimulus-prompt-specificity-characterisation.test.js` |
 | Coverage `none` / `minimum` / `all` must be satisfiable by eligible option-specific knowledge | `stimulus-groups.js` canonical coverage/restoration; some specialised local preflights | coverage mode/check constraints only; D1 does not calculate semantic coverage | `pickReviewQuestions` enforces selected Review coverage | Stimulus Group + reusable restoration tests |
 | Fixed Case question count cannot be smaller than active family guarantees | `admin-content.js`; family update/restoration validation | Case mode/count constraints, but no cross-table semantic trigger | `pickReviewQuestions` rejects impossible selected coverage | Stimulus Group tests |
 | Core/Expanded family choice preserves Original/Alternative semantics | n/a mutation side | pointer + lifecycle state | `learning.js` selection + `question-pool-mode.ts` | Original semantics tests |
 | Review snapshots preserve historical Asset/option/question identity after later edits | mutation paths preserve stable IDs where required | Review FK/provenance schema | Review creation snapshots prompt/answer/assets/provenance | Stimulus Group, Original and replacement tests |
 | Family/option read models used by Admin do not confer mutation ownership | purpose-specific DB reads | n/a | n/a | route/module tests |
 
-The matrix deliberately shows duplicated enforcement where it is defence in depth. Refactoring should remove accidental duplication only after proving that one layer is not an independent safeguard.
+The matrix deliberately distinguishes genuine defence in depth from application-only enforcement. Refactoring should remove accidental duplication only after proving that one layer is not an independent safeguard, and it must not assume a database safeguard exists where the matrix explicitly says it does not.
 
 ## Meaningful transitions to preserve
 
@@ -269,7 +271,8 @@ A future decomposition should reason about transitions rather than create a Cart
 - exact Option Question applies only when that option is selected;
 - reusable Asset Question applies only through explicit opt-in for the exact current Asset;
 - precedence remains exact Option > reusable Asset > Group > Case > exact Topic > Tag-shared > ancestor;
-- specific Prompt ambiguity across independently selectable families is rejected;
+- specific Prompt ambiguity across independently selectable families is rejected for learner-selected contexts;
+- current authoring preflight for ordinary exact Questions has an inactive-parent asymmetry documented below and must not be silently normalised during extraction;
 - family coverage composes additively across independently selected families;
 - fixed Case count rejects impossible guarantees;
 - Core excludes reusable Asset/Topic/Tag/ancestor inputs while retaining Case/Group/Option knowledge; Expanded uses the full pool.
@@ -294,11 +297,15 @@ Canonical coverage in `stimulus-groups.js` accounts for active Group Questions, 
 
 Some specialised transitions perform narrower local checks. In particular, current option activation and same-Case option-move code do not obviously use the same reusable-Asset-question accounting as the canonical coverage path. Treat this as an existing correctness question, not permission for a refactor to change outcomes opportunistically.
 
-### 3. Cross-group Prompt protection is intentionally multi-layered but incompletely centralised
+### 3. Cross-group Prompt protection is layered but asymmetric
 
-Application validation is split between `stimulus-groups.js` and `asset-questions.js`; D1 triggers guard Question/opt-in relationship writes; the learner resolver rejects incompatible selected contexts.
+General ordinary Group/Option Prompt conflicts are application-enforced by `ensurePromptIsNotUsedByAnotherGroup` and rejected by the learner resolver if incompatible groups are selected together. There is no general D1 exact-vs-exact guard for ordinary Questions.
 
-Option movement changes `stimulus_group_options.stimulus_group_id` while retaining exact/reusable Question relationships. The current reusable-question cross-group triggers are primarily attached to Question/opt-in writes and reactivation, not obviously to the option's group move itself. This is a suspected existing blind spot to verify separately before consolidating the invariant.
+`0009` and `0010` add database defence only for reusable Asset Question paths: opt-in/write conflicts involving reusable usage and reusable-question reactivation. Do not describe those triggers as a database owner of the whole invariant.
+
+The application paths are also not currently uniform about parent activity. `ensurePromptIsNotUsedByAnotherGroup` requires the ordinary Question row itself to be active and excludes `removed_from_case` options, but it does not filter ordinary Group Questions by `stimulus_groups.is_active` and does not filter ordinary Option Questions by `stimulus_group_options.is_active` or parent Family activity. The reusable application/database paths do apply active Family/Option filtering. This is current characterised behaviour, not a recommended final policy.
+
+Option movement changes `stimulus_group_options.stimulus_group_id` while retaining exact/reusable Question relationships. The reusable-question cross-group triggers are primarily attached to Question/opt-in writes and reactivation, not obviously to the option's group move itself. This remains a suspected existing blind spot to verify separately before consolidating the invariant.
 
 ### 4. Some fixed-image conversions create a one-option family without curating Original
 
@@ -331,10 +338,11 @@ These are recorded so decomposition does not accidentally fix, hide or cement th
 
 1. **Same-Case option move and reusable coverage.** `image-option-move.js` simulates coverage from Group + exact Option Questions, while canonical coverage also includes valid reusable Asset Questions. `minimum` / `all` / fixed-count decisions can therefore diverge from the canonical model.
 2. **Option reactivation and reusable/fixed-count coverage.** `setStimulusOptionActive` performs a local minimum check using Group + exact Option Questions and does not use the full canonical reusable-question/fixed-count validation path. Reactivation can therefore be judged differently from restoration or later Review selection.
-3. **Cross-group Prompt invariant after moving an already-questioned option.** Same-Case movement preserves exact Questions and reusable opt-ins while changing the owning group. Application and D1 protection should be verified for conflicts created by that move itself.
+3. **Cross-group Prompt invariant after moving an already-questioned option.** Same-Case movement preserves exact Questions and reusable opt-ins while changing the owning group. Application and reusable-path D1 protection should be verified for conflicts created by that move itself.
 4. **One-option fixed-image conversion leaves Original uncurated in some authoring paths.** `question-scope.js` and `asset-questions.js` fixed-image conversions create active one-option Production families without the explicit Original assignment used by source-aware Alternative Set creation.
+5. **Inactive-parent semantics differ between ordinary and reusable Prompt specificity checks.** `ensurePromptIsNotUsedByAnotherGroup` currently counts active ordinary Group Questions under inactive Families and active ordinary Option Questions under inactive options/Families (provided the option is not `removed_from_case`). Reusable application/database checks filter active parent Families/options. The architecture PR characterises this asymmetry; a later policy consolidation must make an explicit product/domain decision before changing it.
 
-Before fixing any item, add a focused regression demonstrating the current failure and confirm the intended behaviour against `ORIGINAL_AND_ALTERNATIVE_STIMULI.md`, `REUSABLE_IMAGE_QUESTIONS.md`, `STIMULUS_GROUPS_DESIGN.md` and current product intent. Keep correctness fixes separate from mechanical extraction when practical.
+Before fixing any item, add or retain a focused regression demonstrating the current behaviour/failure and confirm the intended behaviour against `ORIGINAL_AND_ALTERNATIVE_STIMULI.md`, `REUSABLE_IMAGE_QUESTIONS.md`, `STIMULUS_GROUPS_DESIGN.md` and current product intent. Keep correctness fixes separate from mechanical extraction when practical.
 
 ## Recommended semantic boundaries
 
@@ -362,7 +370,7 @@ Own explicit designation and transitions that need an Original precondition. `st
 
 ### Stimulus-specific question semantics
 
-Own Group/Option Question writes and the cross-group Prompt invariant. Reusable Asset Question canonical ownership remains in `asset-questions.js`, but shared specificity checks should have one lower-level policy direction rather than mutual façade imports.
+Own Group/Option Question writes and the cross-group Prompt policy. Reusable Asset Question canonical ownership remains in `asset-questions.js`, but shared specificity checks should have one lower-level policy direction rather than mutual façade imports. The consolidated policy must explicitly decide parent-activity semantics rather than inheriting one branch by accident.
 
 ### Read models
 
@@ -425,7 +433,10 @@ Important existing executable coverage includes:
 - `test/image-management-v2.test.js`: identity-preserving same-Case option movement, coverage preflight and Production/Preview ownership;
 - `test/asset-higher-resolution-replacement.test.js`: relationship migration, stable option identity, Original preservation, reusable Question cloning/remapping and historical provenance.
 
-The architecture PR adds `test/stimulus-family-facade-contract.test.js` to lock the façade's named compatibility surface and, more importantly, the shared `StimulusGroupInputError` constructor identity used across focused mutations and route error classification.
+The architecture PR adds:
+
+- `test/stimulus-family-facade-contract.test.js` to lock the façade's named compatibility surface and, more importantly, the shared `StimulusGroupInputError` constructor identity used across focused mutations and route error classification;
+- `test/stimulus-prompt-specificity-characterisation.test.js` to lock the current inactive-parent asymmetry between ordinary exact-question application checks and reusable Asset-question paths before later policy consolidation.
 
 The existing large behavioural suites should remain intact during decomposition. Add focused transition tests next to a semantic extraction; do not rewrite the existing suites to fit a new internal design.
 
@@ -474,7 +485,9 @@ Keep same-Case cross-family move separate if its suspected Prompt/coverage corre
 - preserve exact Option > reusable Asset > Group precedence in the learner resolver;
 - keep reusable canonical Question lifecycle in `asset-questions.js`;
 - make shared specificity validation a downward dependency used by both modules;
-- retain all `0009` / `0010` triggers as defence in depth;
+- retain `0009` / `0010` as reusable-path database defence in depth, without treating them as a general ordinary exact-question D1 constraint;
+- preserve the new inactive-parent characterisation tests until an explicit domain decision intentionally changes that policy;
+- add focused ordinary exact-vs-exact tests if consolidation changes the shape of the application guard;
 - preserve Case Question scope conversion behaviour and stable Prompt IDs.
 
 ### PR 6 — extract family lifecycle and Production Admin read model
@@ -514,7 +527,7 @@ The next refactor agent may begin moving implementation out of `stimulus-groups.
 
 1. preserve this façade's existing exports and `StimulusGroupInputError` identity;
 2. keep Production and Preview mutation ownership separate;
-3. preserve D1 triggers and schema constraints;
+3. preserve D1 triggers and schema constraints without assuming they cover invariants they do not actually enforce;
 4. treat coverage, Original integrity, cross-group Prompt specificity and Review provenance as domain invariants rather than incidental query details;
 5. preserve stable option/Asset IDs across the transitions that currently do so;
 6. use existing characterisation suites as contracts, adding focused tests before changing a risky transition;
