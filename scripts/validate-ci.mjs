@@ -5,6 +5,7 @@ import { VALIDATION_MODE_CHECK_IDS, validationCommandsForMode } from './validati
 
 const NODE_TEST_DIAGNOSTIC = /^(not ok|  error:|  code:|  failureType:|  location:|  stack:|    at )/;
 export const CI_TEST_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
+export const CI_TEST_REPORTER = './scripts/ci-test-reporter.mjs';
 
 /** @param {unknown} value */
 export function escapeGithubCommandData(value) {
@@ -14,7 +15,11 @@ export function escapeGithubCommandData(value) {
     .replaceAll('\n', '%0A');
 }
 
-/** @param {string} output */
+/**
+ * Legacy compatibility helper retained for tooling tests from the previous
+ * TAP-based implementation. The active CI path no longer parses test text.
+ * @param {string} output
+ */
 export function extractNodeTestDiagnostic(output) {
   const diagnostic = String(output ?? '')
     .split(/\r?\n/)
@@ -76,9 +81,16 @@ export function ciValidationCommands(options = {}) {
   });
 }
 
+/** @param {string} id @param {string[]} args */
+export function ciCommandArgs(id, args) {
+  if (id !== 'test') return [...args];
+  return [...args, '--', `--test-reporter=${CI_TEST_REPORTER}`];
+}
+
 /**
- * CI keeps PR-checkout diff semantics, GitHub grouping, and Node-test
- * annotations CI-specific while reusing the repository validation contract.
+ * CI keeps PR-checkout diff semantics and GitHub grouping CI-specific while
+ * reusing the repository validation contract. Node-test diagnostics are
+ * produced by a custom reporter that consumes structured node:test events.
  * @param {{ mode?: string, diffBase?: string, diffHead?: string }} [options]
  */
 export function runCiValidation(options = {}) {
@@ -88,25 +100,11 @@ export function runCiValidation(options = {}) {
   console.log(`Repository CI validation mode: ${mode}`);
   for (const { id, label, command, args } of checks) {
     console.log(`::group::${label}`);
-    const invocation = resolveInvocation(command, args);
-    const captureOutput = id === 'test';
-    const result = spawnSync(invocation.executable, invocation.args, captureOutput ? {
-      encoding: 'utf8',
-      maxBuffer: CI_TEST_MAX_BUFFER_BYTES,
-      shell: false,
-    } : {
+    const invocation = resolveInvocation(command, ciCommandArgs(id, args));
+    const result = spawnSync(invocation.executable, invocation.args, {
       stdio: 'inherit',
       shell: false,
     });
-
-    let captured = '';
-    if (captureOutput) {
-      const stdout = result.stdout ?? '';
-      const stderr = result.stderr ?? '';
-      process.stdout.write(stdout);
-      process.stderr.write(stderr);
-      captured = `${stdout}\n${stderr}`;
-    }
     console.log('::endgroup::');
 
     if (result.error) {
@@ -115,7 +113,7 @@ export function runCiValidation(options = {}) {
     }
     if (result.status !== 0) {
       const detail = id === 'test'
-        ? extractNodeTestDiagnostic(captured)
+        ? 'npm test failed; see the structured Node test failure summary above.'
         : `${command} ${args.join(' ')} exited with ${result.status}.`;
       const title = id === 'test' ? 'Node test failure' : `${label} failed`;
       console.error(`::error title=${title}::${escapeGithubCommandData(detail)}`);
