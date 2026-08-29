@@ -146,27 +146,6 @@ async function requireProductionOptionIdentity(db, optionId) {
 }
 
 /** @param {LearningDb} db @param {string} caseId @param {string} promptId @param {string} groupId */
-async function ensureNoReusablePromptInOtherGroup(db, caseId, promptId, groupId) {
-  const conflict = (await db.select({ groupId: stimulusGroups.id })
-    .from(stimulusOptionAssetQuestions)
-    .innerJoin(assetQuestions, eq(assetQuestions.id, stimulusOptionAssetQuestions.assetQuestionId))
-    .innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionAssetQuestions.stimulusGroupOptionId))
-    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-    .where(and(
-      eq(stimulusGroups.caseId, caseId),
-      eq(assetQuestions.questionPromptId, promptId),
-      eq(assetQuestions.isActive, true),
-      eq(stimulusGroups.isActive, true),
-      eq(stimulusGroupOptions.isActive, true),
-      eq(stimulusGroupOptions.removedFromCase, false)
-    ))
-    .limit(1))[0];
-  if (conflict && conflict.groupId !== groupId) {
-    throw new AssetQuestionInputError('That Question Prompt is already stimulus-specific in another independently selectable image set for this Case.');
-  }
-}
-
-/** @param {LearningDb} db @param {string} caseId @param {string} promptId @param {string} groupId */
 async function ensurePromptMayBeSpecificInGroup(db, caseId, promptId, groupId) {
   try {
     await ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, groupId);
@@ -174,7 +153,6 @@ async function ensurePromptMayBeSpecificInGroup(db, caseId, promptId, groupId) {
     if (error instanceof StimulusGroupInputError) throw new AssetQuestionInputError(error.message);
     throw error;
   }
-  await ensureNoReusablePromptInOtherGroup(db, caseId, promptId, groupId);
 }
 
 /** @param {LearningDb} db @param {{ caseId: unknown, optionId: unknown, assetQuestionId: unknown }} input */
@@ -267,7 +245,8 @@ export async function setAssetQuestionActive(db, input) {
         eq(cases.isActive, true),
         isNull(cases.previewSessionId),
         eq(stimulusGroups.isActive, true),
-        eq(stimulusGroupOptions.isActive, true)
+        eq(stimulusGroupOptions.isActive, true),
+        eq(stimulusGroupOptions.removedFromCase, false)
       ));
     const checked = new Set();
     for (const context of contexts) {
@@ -289,8 +268,9 @@ function automaticGroupName(filename, assetId) {
 
 /**
  * Convert one fixed production Case Asset to the established one-option group,
- * then explicitly opt that option into an existing reusable Asset Question.
- * Preflight is complete before any destructive relationship write.
+ * assign the source Option explicitly as Original, then opt that Option into an
+ * existing reusable Asset Question. Preflight is complete before any
+ * destructive relationship write.
  *
  * @param {LearningDb} db
  * @param {{ caseId: unknown, assetId: unknown, assetQuestionId: unknown }} input
@@ -337,6 +317,7 @@ export async function optInFixedAssetQuestion(db, input) {
   const writes = [
     db.insert(stimulusGroups).values({ id: groupId, caseId, name: automaticGroupName(fixed.originalFilename, assetId), displayOrder: (lastGroup?.displayOrder ?? -1) + 1, selectionCount: 1, specificQuestionMode: 'none', minimumSpecificQuestions: null, isActive: true }),
     db.insert(stimulusGroupOptions).values({ id: optionId, stimulusGroupId: groupId, assetId, displayOrder: 0, captionMd: fixed.captionMd, isActive: true }),
+    db.update(stimulusGroups).set({ originalOptionId: optionId, updatedAt: new Date() }).where(eq(stimulusGroups.id, groupId)),
     db.insert(stimulusOptionAssetQuestions).values({ stimulusGroupOptionId: optionId, assetQuestionId }),
     db.delete(caseAssets).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, assetId))),
     ...remaining.map((row, index) => db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, row.assetId))))
