@@ -180,6 +180,8 @@ export default async function* ciTestReporter(source) {
   for await (const event of source) {
     if (event.type === 'test:pass' || event.type === 'test:fail') {
       const data = event.data ?? {};
+      if (data.details?.type === 'suite') continue;
+
       if (data.todo) {
         progress += 'T';
       } else if (event.type === 'test:pass' && data.skip) {
@@ -187,7 +189,7 @@ export default async function* ciTestReporter(source) {
       } else if (event.type === 'test:fail') {
         progress += 'F';
         failures.push(data);
-      } else if (data.details?.type !== 'suite') {
+      } else {
         progress += '.';
       }
       if (progress.length >= PROGRESS_WIDTH) {
@@ -225,6 +227,7 @@ export default async function* ciTestReporter(source) {
         yield `${reproRecord}\n`;
       }
     }
-    yield `CI_STATUS|check=test|status=failed|failed=${failures.length}\n`;
+    const failedCount = Number.isInteger(summary?.counts?.failed) ? summary.counts.failed : failures.length;
+    yield `CI_STATUS|check=test|status=failed|failed=${failedCount}\n`;
   }
 }
