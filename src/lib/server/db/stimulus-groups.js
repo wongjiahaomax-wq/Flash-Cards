@@ -255,7 +255,6 @@ async function requireGroup(db, groupId) {
         id: stimulusGroups.id,
         caseId: stimulusGroups.caseId,
         isActive: stimulusGroups.isActive,
-        originalOptionId: stimulusGroups.originalOptionId,
         specificQuestionMode: stimulusGroups.specificQuestionMode,
         minimumSpecificQuestions: stimulusGroups.minimumSpecificQuestions
       })
@@ -298,20 +297,34 @@ async function validateNewOptionCoverage(db, group) {
   }
 }
 
+/** @param {unknown} error */
+function missingReusableQuestionSchema(error) {
+  let current = error;
+  for (let depth = 0; depth < 5 && current; depth += 1) {
+    if (current instanceof Error && /no such table:.*(?:asset_questions|stimulus_option_asset_questions)|no such column:.*asset_question_id/i.test(current.message)) {
+      return true;
+    }
+    if (typeof current !== 'object' || current === null || !('cause' in current)) break;
+    current = current.cause;
+  }
+  return false;
+}
+
 /** @param {LearningDb} db @param {string} optionId @param {string} assetId */
 async function loadRetainedOptionPromptIds(db, optionId, assetId) {
-  const [specificRows, reusableRows] = await Promise.all([
-    db
-      .select({ promptId: stimulusOptionQuestions.questionPromptId })
-      .from(stimulusOptionQuestions)
-      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusOptionQuestions.questionPromptId))
-      .where(and(
-        eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId),
-        eq(stimulusOptionQuestions.isActive, true),
-        eq(questionPrompts.isActive, true),
-        isNull(questionPrompts.previewSessionId)
-      )),
-    db
+  const specificRows = await db
+    .select({ promptId: stimulusOptionQuestions.questionPromptId })
+    .from(stimulusOptionQuestions)
+    .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusOptionQuestions.questionPromptId))
+    .where(and(
+      eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId),
+      eq(stimulusOptionQuestions.isActive, true),
+      eq(questionPrompts.isActive, true),
+      isNull(questionPrompts.previewSessionId)
+    ));
+  let reusableRows = [];
+  try {
+    reusableRows = await db
       .select({ promptId: assetQuestions.questionPromptId })
       .from(stimulusOptionAssetQuestions)
       .innerJoin(assetQuestions, eq(assetQuestions.id, stimulusOptionAssetQuestions.assetQuestionId))
@@ -322,8 +335,10 @@ async function loadRetainedOptionPromptIds(db, optionId, assetId) {
         eq(assetQuestions.isActive, true),
         eq(questionPrompts.isActive, true),
         isNull(questionPrompts.previewSessionId)
-      ))
-  ]);
+      ));
+  } catch (error) {
+    if (!missingReusableQuestionSchema(error)) throw error;
+  }
   return new Set([...specificRows, ...reusableRows].map((row) => row.promptId));
 }
 
@@ -354,7 +369,12 @@ async function validateFamilyLiveState(db, group, input) {
   });
   for (const option of liveOptions) await requireAsset(db, option.assetId);
 
-  if (group.originalOptionId && !liveOptions.some((option) => option.id === group.originalOptionId)) {
+  const originalOptionId = (await db
+    .select({ originalOptionId: stimulusGroups.originalOptionId })
+    .from(stimulusGroups)
+    .where(eq(stimulusGroups.id, group.id))
+    .limit(1))[0]?.originalOptionId ?? null;
+  if (originalOptionId && !liveOptions.some((option) => option.id === originalOptionId)) {
     throw new StimulusGroupInputError('The Original must be an active eligible image in this Stimulus Group before it can become learner-selectable.');
   }
 
@@ -719,56 +739,10 @@ export async function removeStimulusOptionFromCase(db, optionId) {
   await db.update(stimulusGroupOptions).set({ isActive: false, removedFromCase: true }).where(eq(stimulusGroupOptions.id, optionId));
 }
 
-/**
- * Canonical application-level live Prompt ownership rule. Dormant Family,
- * inactive Option and removed Option relationships remain authored/history
- * state but do not reserve a live Prompt. Reusable exact-Asset usages share the
- * same policy as ordinary Group/Option Questions.
- *
- * @param {LearningDb} db
- * @param {string} caseId
- * @param {string} promptId
- * @param {string} groupId
- * @param {LiveStateOverride} [state]
- */
-export async function ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, groupId, state = {}) {
-  const [groupRows, optionRows, reusableRows] = await Promise.all([
-    db
-      .select({ groupId: stimulusGroups.id, groupIsActive: stimulusGroups.isActive })
-      .from(stimulusGroupQuestions)
-      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupQuestions.stimulusGroupId))
-      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusGroupQuestions.questionPromptId))
-      .where(and(
-        eq(stimulusGroups.caseId, caseId),
-        eq(stimulusGroupQuestions.questionPromptId, promptId),
-        eq(stimulusGroupQuestions.isActive, true),
-        eq(questionPrompts.isActive, true),
-        isNull(questionPrompts.previewSessionId)
-      )),
-    db
-      .select({
-        groupId: stimulusGroups.id,
-        groupIsActive: stimulusGroups.isActive,
-        optionId: stimulusGroupOptions.id,
-        optionIsActive: stimulusGroupOptions.isActive,
-        removedFromCase: stimulusGroupOptions.removedFromCase,
-        assetIsActive: assets.isActive,
-        assetType: assets.type,
-        assetPreviewSessionId: assets.previewSessionId
-      })
-      .from(stimulusOptionQuestions)
-      .innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionQuestions.stimulusGroupOptionId))
-      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-      .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
-      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusOptionQuestions.questionPromptId))
-      .where(and(
-        eq(stimulusGroups.caseId, caseId),
-        eq(stimulusOptionQuestions.questionPromptId, promptId),
-        eq(stimulusOptionQuestions.isActive, true),
-        eq(questionPrompts.isActive, true),
-        isNull(questionPrompts.previewSessionId)
-      )),
-    db
+/** @param {LearningDb} db @param {string} caseId @param {string} promptId */
+async function loadReusablePromptOwners(db, caseId, promptId) {
+  try {
+    return await db
       .select({
         groupId: stimulusGroups.id,
         groupIsActive: stimulusGroups.isActive,
@@ -793,17 +767,69 @@ export async function ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, 
         eq(assetQuestions.isActive, true),
         eq(questionPrompts.isActive, true),
         isNull(questionPrompts.previewSessionId)
+      ));
+  } catch (error) {
+    if (!missingReusableQuestionSchema(error)) throw error;
+    return [];
+  }
+}
+
+/**
+ * Canonical application-level live Prompt ownership rule. Dormant Family,
+ * inactive Option and removed Option relationships remain authored/history
+ * state but do not reserve a live Prompt. Reusable exact-Asset usages share the
+ * same policy as ordinary Group/Option Questions.
+ *
+ * @param {LearningDb} db
+ * @param {string} caseId
+ * @param {string} promptId
+ * @param {string} groupId
+ * @param {LiveStateOverride} [state]
+ */
+export async function ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, groupId, state = {}) {
+  const [groupRows, optionRows] = await Promise.all([
+    db
+      .select({ groupId: stimulusGroups.id, groupIsActive: stimulusGroups.isActive })
+      .from(stimulusGroupQuestions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupQuestions.stimulusGroupId))
+      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusGroupQuestions.questionPromptId))
+      .where(and(
+        eq(stimulusGroups.caseId, caseId),
+        eq(stimulusGroupQuestions.questionPromptId, promptId),
+        eq(stimulusGroupQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
+      )),
+    db
+      .select({
+        groupId: stimulusGroups.id,
+        groupIsActive: stimulusGroups.isActive,
+        optionId: stimulusGroupOptions.id,
+        optionIsActive: stimulusGroupOptions.isActive,
+        removedFromCase: stimulusGroupOptions.removedFromCase
+      })
+      .from(stimulusOptionQuestions)
+      .innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionQuestions.stimulusGroupOptionId))
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .innerJoin(questionPrompts, eq(questionPrompts.id, stimulusOptionQuestions.questionPromptId))
+      .where(and(
+        eq(stimulusGroups.caseId, caseId),
+        eq(stimulusOptionQuestions.questionPromptId, promptId),
+        eq(stimulusOptionQuestions.isActive, true),
+        eq(questionPrompts.isActive, true),
+        isNull(questionPrompts.previewSessionId)
       ))
   ]);
+  const reusableRows = await loadReusablePromptOwners(db, caseId, promptId);
 
   /** @param {string} rowGroupId @param {boolean} groupIsActive */
   const groupIsLive = (rowGroupId, groupIsActive) => groupIsActive || state.activateGroupId === rowGroupId;
-  /** @param {{ groupId: string, groupIsActive: boolean, optionId: string, optionIsActive: boolean, removedFromCase: boolean, assetIsActive: boolean, assetType: string, assetPreviewSessionId: string|null }} row */
+  /** @param {{ groupId: string, groupIsActive: boolean, optionId: string, optionIsActive: boolean, removedFromCase: boolean }} row */
   const optionOwner = (row) => {
     if (!groupIsLive(row.groupId, row.groupIsActive)) return null;
     const lifecycleLive = state.restoreOptionId === row.optionId
       || (!row.removedFromCase && (row.optionIsActive || state.activateOptionId === row.optionId));
-    if (!lifecycleLive || !row.assetIsActive || row.assetType !== 'image' || row.assetPreviewSessionId) return null;
+    if (!lifecycleLive) return null;
     return state.movingOptionId === row.optionId && state.targetGroupId
       ? state.targetGroupId
       : row.groupId;
@@ -818,7 +844,7 @@ export async function ensurePromptIsNotUsedByAnotherGroup(db, caseId, promptId, 
     if (owner) owners.add(owner);
   }
   for (const row of reusableRows) {
-    if (row.optionAssetId !== row.reusableAssetId) continue;
+    if (row.optionAssetId !== row.reusableAssetId || !row.assetIsActive || row.assetType !== 'image' || row.assetPreviewSessionId) continue;
     const owner = optionOwner(row);
     if (owner) owners.add(owner);
   }
