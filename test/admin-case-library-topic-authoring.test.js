@@ -32,7 +32,9 @@ function createFixture({ batch = true, legacy = false, beforeFirstBatch = null }
       INSERT INTO concepts (id, name, slug, kind, parent_id, is_active) VALUES
         ('system-eye', 'Eye', 'eye', 'system', NULL, 1),
         ('system-endocrine', 'Endocrine', 'endocrine', 'system', NULL, 1),
+        ('system-inactive', 'Inactive System', 'inactive-system', 'system', NULL, 0),
         ('topic-retina', 'Retina', 'retina', 'topic', 'system-eye', 1),
+        ('topic-retina-child', 'Retina Child', 'retina-child', 'topic', 'topic-retina', 1),
         ('topic-free', 'Free Parent', 'free-parent', 'topic', NULL, 1),
         ('topic-inactive-parent', 'Inactive Parent', 'inactive-parent', 'topic', NULL, 0);
       INSERT INTO cases (id, title, is_active) VALUES ('case-1', 'Case One', 1), ('case-2', 'Case Two', 1), ('case-inactive', 'Inactive Case', 0);
@@ -81,6 +83,10 @@ function createFixture({ batch = true, legacy = false, beforeFirstBatch = null }
 
 function primaryRows(sqlite, caseId) {
   return sqlite.prepare("SELECT concept_id, role FROM case_concepts WHERE case_id = ? AND role = 'primary' ORDER BY concept_id").all(caseId).map((row) => ({ ...row }));
+}
+
+function topicParent(sqlite, topicId = 'topic-retina') {
+  return sqlite.prepare('SELECT parent_id FROM concepts WHERE id = ?').get(topicId).parent_id;
 }
 
 test('Case Library can create unassigned, System-parented, and Topic-parented global Topics with unique slugs', async () => {
@@ -192,19 +198,79 @@ test('non-batch fallback restores prior Primary Topics and removes the new Topic
   }
 });
 
-test('Case Library moves shared Primary Topics globally and deduplicates selected Cases', async () => {
+test('row Topic move uses the active Production Case current Primary Topic as authority', async () => {
   const fixture = createFixture();
   try {
-    await moveTopicToSystem(fixture.db, { topicId: 'topic-retina', systemId: 'system-endocrine' });
-    assert.equal(fixture.sqlite.prepare('SELECT parent_id FROM concepts WHERE id = ?').get('topic-retina').parent_id, 'system-endocrine');
-    const result = await bulkMoveCaseTopicsToSystem(fixture.db, { caseIds: ['case-1', 'case-2', 'case-1'], systemId: 'system-eye' });
-    assert.deepEqual(result, { selectedCount: 2, topicCount: 1 });
-    assert.equal(fixture.sqlite.prepare('SELECT parent_id FROM concepts WHERE id = ?').get('topic-retina').parent_id, 'system-eye');
-    await assert.rejects(
-      bulkMoveCaseTopicsToSystem(fixture.db, { caseIds: ['case-inactive'], systemId: 'system-eye' }),
-      (error) => error instanceof TaxonomyInputError && /active Production Case/i.test(error.message)
-    );
-    assert.equal(fixture.sqlite.prepare('SELECT parent_id FROM concepts WHERE id = ?').get('topic-retina').parent_id, 'system-eye');
+    const result = await moveTopicToSystem(fixture.db, { caseId: 'case-1', topicId: 'topic-retina', systemId: 'system-endocrine' });
+    assert.equal(topicParent(fixture.sqlite), 'system-endocrine');
+    assert.deepEqual(result, { topicId: 'topic-retina', system: { id: 'system-endocrine', name: 'Endocrine' } });
+    assert.deepEqual(primaryRows(fixture.sqlite, 'case-1'), [{ concept_id: 'topic-retina', role: 'primary' }]);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('row Topic move rejects stale Topic, inactive Case, and Preview Case without hierarchy writes', async () => {
+  const fixture = createFixture();
+  try {
+    for (const input of [
+      { caseId: 'case-1', topicId: 'topic-free', systemId: 'system-endocrine', message: /current Primary Topic/i },
+      { caseId: 'case-inactive', topicId: 'topic-retina', systemId: 'system-endocrine', message: /active Production Case/i },
+      { caseId: 'case-preview', topicId: 'topic-retina', systemId: 'system-endocrine', message: /active Production Case/i }
+    ]) {
+      await assert.rejects(
+        moveTopicToSystem(fixture.db, input),
+        (error) => error instanceof TaxonomyInputError && input.message.test(error.message)
+      );
+      assert.equal(topicParent(fixture.sqlite), 'system-eye');
+    }
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('row Topic move rejects invalid or inactive Systems without hierarchy writes', async () => {
+  const fixture = createFixture();
+  try {
+    for (const systemId of ['', 'missing-system', 'system-inactive', 'topic-free']) {
+      await assert.rejects(
+        moveTopicToSystem(fixture.db, { caseId: 'case-1', topicId: 'topic-retina', systemId }),
+        (error) => error instanceof TaxonomyInputError
+      );
+      assert.equal(topicParent(fixture.sqlite), 'system-eye');
+    }
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('bulk Topic move deduplicates selected Cases and shared Topics and returns validated System metadata', async () => {
+  const fixture = createFixture();
+  try {
+    const result = await bulkMoveCaseTopicsToSystem(fixture.db, { caseIds: ['case-1', 'case-2', 'case-1'], systemId: 'system-endocrine' });
+    assert.deepEqual(result, { selectedCount: 2, topicCount: 1, system: { id: 'system-endocrine', name: 'Endocrine' } });
+    assert.equal(topicParent(fixture.sqlite), 'system-endocrine');
+    assert.equal(fixture.sqlite.prepare('SELECT parent_id FROM concepts WHERE id = ?').get('topic-retina-child').parent_id, 'topic-retina');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('bulk Topic move requires a valid System and validates every selected active Production Case before writes', async () => {
+  const fixture = createFixture();
+  try {
+    for (const input of [
+      { caseIds: ['case-1'], systemId: '' },
+      { caseIds: ['case-1'], systemId: 'system-inactive' },
+      { caseIds: ['case-inactive'], systemId: 'system-endocrine' },
+      { caseIds: ['case-preview'], systemId: 'system-endocrine' }
+    ]) {
+      await assert.rejects(
+        bulkMoveCaseTopicsToSystem(fixture.db, input),
+        (error) => error instanceof TaxonomyInputError
+      );
+      assert.equal(topicParent(fixture.sqlite), 'system-eye');
+    }
   } finally {
     fixture.sqlite.close();
   }
