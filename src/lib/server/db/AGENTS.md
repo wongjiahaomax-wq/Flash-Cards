@@ -16,11 +16,13 @@ This file supplements the repository-wide `AGENTS.md` for `src/lib/server/db/`.
 - Keep list, detail, and dashboard read models distinct where the current code does.
 - Preserve Asset identity/history and question/stimulus ownership semantics.
 - Avoid speculative generic data-access abstractions.
+- For Production Stimulus Family decomposition or changes that move responsibilities out of `stimulus-groups.js`, read `docs/STIMULUS_FAMILY_REFACTOR_ARCHITECTURE.md` before editing. It is the staged refactor/characterisation map; current code, migrations and executable tests remain higher authority for actual behavior.
 
 Read for exact semantics:
 - `docs/V1_DATA_MODEL.md`
 - the relevant subsystem document from `docs/DOCUMENTATION_INDEX.md`
 - `docs/PERFORMANCE_AND_READ_MODEL_PLAN.md` for read-path work
 - `docs/PREVIEW_ADMIN_WORKSPACE.md` for retained Preview ownership/safety work
+- `docs/STIMULUS_FAMILY_REFACTOR_ARCHITECTURE.md` for Production Stimulus Family decomposition/refactor work
 
 Relevant validation commonly includes `npm run db:check`, `npm test`, `npm run check`, and `npm run build`.
