@@ -1,4 +1,7 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import ciTestReporter, {
@@ -10,6 +13,7 @@ import ciTestReporter, {
 import {
   CI_TEST_REPORTER,
   ciCommandArgs,
+  ciReproCommand,
   formatCiAgentFailureSummary,
 } from '../scripts/validate-ci.mjs';
 
@@ -88,6 +92,40 @@ test('CI reporter emits compact event-driven progress and collects failures at t
   assert.ok(output.indexOf('=== CI AGENT SUMMARY ===') > output.indexOf('=== Node test failures'));
 });
 
+test('real nested node:test failure emits one real failure instead of a duplicate suite failure', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flash-cards-ci-reporter-'));
+  const fixture = path.join(root, 'nested-failure.test.mjs');
+  try {
+    fs.writeFileSync(fixture, [
+      "import { describe, it } from 'node:test';",
+      "import assert from 'node:assert/strict';",
+      "describe('outer suite', () => {",
+      "  it('nested failure', () => assert.equal(1, 2));",
+      '});',
+      '',
+    ].join('\n'));
+
+    const result = spawnSync(process.execPath, [
+      '--test',
+      `--test-reporter=${CI_TEST_REPORTER}`,
+      fixture,
+    ], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+    });
+
+    assert.equal(result.status, 1);
+    const output = String(result.stdout ?? '');
+    assert.match(output, /Tests: 1 total, 0 passed, 1 failed/);
+    assert.equal((output.match(/^CI_ERROR\|/gm) ?? []).length, 1);
+    assert.match(output, /CI_ERROR\|check=test\|.*name=nested failure/);
+    assert.equal(output.includes('name=outer suite'), false);
+    assert.match(output, /CI_STATUS\|check=test\|status=failed\|failed=1/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('failure formatting unwraps Node test errors and keeps assertion details', () => {
   const failure = failureData();
   const formatted = formatTestFailure(failure);
@@ -142,4 +180,22 @@ test('CI wrapper failure footer is stable and avoids replacing structured test e
   assert.equal(testFooter.includes('CI_ERROR|'), false);
   assert.match(testFooter, /CI_REPRO\|check=test\|command=npm test/);
   assert.match(testFooter, /CI_STATUS\|check=test\|status=failed\|exit=1/);
+});
+
+test('diff CI repro uses actual PR SHAs and never advertises synthetic merge parents locally', () => {
+  assert.equal(
+    ciReproCommand('diff', 'git', ['diff', '--check', 'HEAD^1', 'HEAD'], {
+      diffBaseSha: 'base123',
+      diffHeadSha: 'head456',
+    }),
+    'git diff --check base123 head456',
+  );
+  assert.equal(
+    ciReproCommand('diff', 'git', ['diff', '--check', 'HEAD^1', 'HEAD']),
+    'npm run agent:checks',
+  );
+  assert.equal(
+    ciReproCommand('svelte', 'npm', ['run', 'check']),
+    'npm run check',
+  );
 });
