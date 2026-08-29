@@ -13,7 +13,7 @@ import { bulkDeactivateProductionCases, bulkRestoreProductionCases, CaseLifecycl
 import { createDb } from '$lib/server/db/index.js';
 import { listCaseLibraryTagOptions } from '$lib/server/db/library-options.js';
 import { TagInputError } from '$lib/server/db/tag-library.js';
-import { bulkMoveCaseTopicsToSystem, createTaxonomyConcept, TaxonomyInputError } from '$lib/server/db/taxonomy-admin-write.ts';
+import { bulkMoveCaseTopicsToSystem, TaxonomyInputError } from '$lib/server/db/taxonomy-admin-write.ts';
 import { serverTimingValue, withServerReadTiming } from '$lib/server/performance-timing.js';
 import { actions as parentActions } from '../+page.server.js';
 
@@ -39,7 +39,9 @@ function libraryRedirect(returnQuery, lifecycle, status, extras = {}) {
   params.delete('status');
   params.delete('tag_name');
   params.delete('topic_name');
+  params.delete('system_name');
   params.delete('case_count');
+  params.delete('topic_count');
   params.delete('page');
   params.set('lifecycle', lifecycle);
   params.set('status', status);
@@ -83,13 +85,6 @@ function topicMoveFailure(error) {
   return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to move the selected Topics under that System.' });
 }
 
-/** @param {unknown} error */
-function systemCreationFailure(error) {
-  const clientError = error instanceof TaxonomyInputError;
-  if (!clientError) console.error('Case Library System creation failed.', error);
-  return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to create the System.' });
-}
-
 /** @param {URL} url */
 function statusData(url) {
   const parsedCount = Number.parseInt(url.searchParams.get('case_count') ?? '', 10);
@@ -129,19 +124,6 @@ export const actions = {
       case_count: result.selectedCount || undefined
     }));
   },
-  createCaseLibrarySystem: async ({ request, locals, platform, url }) => {
-    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
-    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
-    if (parseCaseLibraryFilters(url.searchParams).lifecycle === 'inactive') return fail(400, { error: 'Create Systems from the active Case Library.' });
-    const formData = await request.formData();
-    let result;
-    try {
-      result = await createTaxonomyConcept(createDb(platform.env.DB), { name: formText(formData, 'new_system_name'), kind: 'system', parentId: null });
-    } catch (error) {
-      return systemCreationFailure(error);
-    }
-    redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', 'system-created', { system_name: result.name }));
-  },
   bulkMoveCaseTopicsToSystem: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
@@ -155,7 +137,11 @@ export const actions = {
     } catch (error) {
       return topicMoveFailure(error);
     }
-    redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', 'topic-systems-moved', { case_count: result.selectedCount, topic_count: result.topicCount }));
+    redirect(303, libraryRedirect(formText(formData, 'return_query'), 'active', 'topic-systems-moved', {
+      case_count: result.selectedCount,
+      topic_count: result.topicCount,
+      system_name: result.system.name
+    }));
   },
   bulkAddCaseTag: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
