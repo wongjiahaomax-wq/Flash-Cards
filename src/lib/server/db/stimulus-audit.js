@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, eq, isNull } from 'drizzle-orm';
 
 import { assets, caseAssets, cases, stimulusGroupOptions, stimulusGroups } from './schema.js';
 
@@ -19,14 +19,21 @@ export async function listStimulusCleanupIssues(db) {
     .where(and(eq(cases.isActive, true), isNull(cases.previewSessionId)))
     .orderBy(asc(cases.title), asc(cases.id));
   if (activeCases.length === 0) return [];
-  const caseIds = activeCases.map((row) => row.caseId);
 
-  const [ordinaryRows, groupRows] = await Promise.all([
+  // Keep these reads join-based rather than materializing every Case/group ID
+  // into IN (...) bind lists. Cloudflare D1 caps bound parameters per query,
+  // while this audit must remain safe for arbitrarily large production libraries.
+  const [ordinaryRows, groupRows, optionRows] = await Promise.all([
     db
       .select({ caseId: caseAssets.caseId, assetId: caseAssets.assetId })
       .from(caseAssets)
+      .innerJoin(cases, eq(cases.id, caseAssets.caseId))
       .innerJoin(assets, eq(assets.id, caseAssets.assetId))
-      .where(and(inArray(caseAssets.caseId, caseIds), eq(assets.isActive, true))),
+      .where(and(
+        eq(cases.isActive, true),
+        isNull(cases.previewSessionId),
+        eq(assets.isActive, true)
+      )),
     db
       .select({
         groupId: stimulusGroups.id,
@@ -35,26 +42,31 @@ export async function listStimulusCleanupIssues(db) {
         originalOptionId: stimulusGroups.originalOptionId
       })
       .from(stimulusGroups)
-      .where(and(inArray(stimulusGroups.caseId, caseIds), eq(stimulusGroups.isActive, true)))
-      .orderBy(asc(stimulusGroups.displayOrder), asc(stimulusGroups.id))
+      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+      .where(and(
+        eq(cases.isActive, true),
+        isNull(cases.previewSessionId),
+        eq(stimulusGroups.isActive, true)
+      ))
+      .orderBy(asc(stimulusGroups.displayOrder), asc(stimulusGroups.id)),
+    db
+      .select({
+        optionId: stimulusGroupOptions.id,
+        groupId: stimulusGroupOptions.stimulusGroupId
+      })
+      .from(stimulusGroupOptions)
+      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+      .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
+      .where(and(
+        eq(cases.isActive, true),
+        isNull(cases.previewSessionId),
+        eq(stimulusGroups.isActive, true),
+        eq(stimulusGroupOptions.isActive, true),
+        eq(stimulusGroupOptions.removedFromCase, false),
+        eq(assets.isActive, true)
+      ))
   ]);
-
-  const groupIds = groupRows.map((row) => row.groupId);
-  const optionRows = groupIds.length
-    ? await db
-        .select({
-          optionId: stimulusGroupOptions.id,
-          groupId: stimulusGroupOptions.stimulusGroupId
-        })
-        .from(stimulusGroupOptions)
-        .innerJoin(assets, eq(assets.id, stimulusGroupOptions.assetId))
-        .where(and(
-          inArray(stimulusGroupOptions.stimulusGroupId, groupIds),
-          eq(stimulusGroupOptions.isActive, true),
-          eq(stimulusGroupOptions.removedFromCase, false),
-          eq(assets.isActive, true)
-        ))
-    : [];
 
   /** @type {{ caseId: string, caseTitle: string, severity: 'needs_cleanup'|'review_suggested', groupId: string | null, groupName: string | null, reason: string }[]} */
   const issues = [];
