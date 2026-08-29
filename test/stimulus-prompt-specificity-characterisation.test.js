@@ -87,7 +87,7 @@ function insertPrompt(sqlite, id, promptMd) {
   `).run(id, promptMd);
 }
 
-test('current ordinary Prompt guard still counts a Question owned by an inactive Family', async () => {
+test('inactive Family relationships are dormant for live ordinary Prompt ownership', async () => {
   const fixture = createFixture();
   try {
     insertPrompt(fixture.sqlite, 'prompt-inactive-family', 'Inactive family ordinary prompt');
@@ -97,21 +97,18 @@ test('current ordinary Prompt guard still counts a Question owned by an inactive
       VALUES ('question-inactive-family', 'group-inactive', 'prompt-inactive-family', 'Answer', 1)
     `).run();
 
-    await assert.rejects(
-      ensurePromptIsNotUsedByAnotherGroup(
-        fixture.db,
-        'case-a',
-        'prompt-inactive-family',
-        'group-target'
-      ),
-      /cannot be independently attached to multiple active Stimulus Groups/
+    await ensurePromptIsNotUsedByAnotherGroup(
+      fixture.db,
+      'case-a',
+      'prompt-inactive-family',
+      'group-target'
     );
   } finally {
     fixture.sqlite.close();
   }
 });
 
-test('current ordinary Prompt guard still counts a Question owned by an inactive Option', async () => {
+test('inactive Option relationships are dormant for live ordinary Prompt ownership', async () => {
   const fixture = createFixture();
   try {
     insertPrompt(fixture.sqlite, 'prompt-inactive-option', 'Inactive option ordinary prompt');
@@ -121,14 +118,11 @@ test('current ordinary Prompt guard still counts a Question owned by an inactive
       VALUES ('question-inactive-option', 'option-inactive', 'prompt-inactive-option', 'Answer', 1)
     `).run();
 
-    await assert.rejects(
-      ensurePromptIsNotUsedByAnotherGroup(
-        fixture.db,
-        'case-a',
-        'prompt-inactive-option',
-        'group-target'
-      ),
-      /cannot be independently attached to multiple active Stimulus Groups/
+    await ensurePromptIsNotUsedByAnotherGroup(
+      fixture.db,
+      'case-a',
+      'prompt-inactive-option',
+      'group-target'
     );
   } finally {
     fixture.sqlite.close();
