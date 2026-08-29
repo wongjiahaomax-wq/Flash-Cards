@@ -99,7 +99,7 @@
 {#if previewMode}
   <CaseImagesAdvanced {selectedCase} {previewMode} {editorLayout} {editorBase} {onimageopen} />
 {:else}
-  <section id="images" class="panel image-overview" aria-labelledby="case-images-heading">
+  <section id={advancedOpen ? undefined : 'images'} class="panel image-overview" aria-labelledby="case-images-heading">
     <div class="panel-heading">
       <div>
         <p class="eyebrow">Clinical presentation</p>
