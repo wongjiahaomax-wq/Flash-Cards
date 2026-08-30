@@ -1,10 +1,10 @@
 # Test Suite Audit
 
-Status: audit complete / first source-contract consolidation tranche implemented in Draft PR #115
+Status: audit complete / first source-contract consolidation tranche and Checkpoint 1 current-schema fixture normalization implemented in Draft PR #115
 
-This document is the durable evidence record for PR #115. It audits the repository-wide Node test suite, `npm run check`, and the repository-owned validation architecture. The audit/planning work is complete, and this document now also records the first implemented source-contract consolidation tranche in the same Draft PR.
+This document is the durable evidence record for PR #115. It audits the repository-wide Node test suite, `npm run check`, and the repository-owned validation architecture. The audit/planning work is complete, and this document now also records the first implemented source-contract consolidation tranche and Checkpoint 1 current-schema fixture normalization in the same Draft PR.
 
-That implementation is intentionally narrow. It does not mean the later fixture-normalization, fast-tier, change-aware CI specialization, broader behavioral rewrite, or profiling checkpoints have been implemented by PR #115.
+Those implementations remain intentionally bounded. They do not mean the later fast-tier, change-aware CI specialization, broader behavioral rewrite, profiling, or production-operator specialization checkpoints have been implemented by PR #115.
 
 The implementation contract is `docs/NODE_TEST_SUITE_CLEANUP_PLAN.md`.
 
@@ -27,12 +27,14 @@ Two corrections from independent review materially change the recommended plan:
 1. **Static `test:fast` exclusions are unsafe with the current CI architecture.** The repository's path classifier knows about specialized slide-review checks, but `agent:checks` reports requirements; ordinary CI does not currently execute those change-aware requirements. The two production-operator tests do not even have named specialized checks today. Therefore the six proposed exclusions must remain in Draft coverage until CI itself can conditionally require their checks for related changes.
 2. **The two proposed unconditional UI-test removals were over-classified.** Both were introduced alongside deliberate UX fixes and protect intentional regression outcomes, albeit through brittle source assertions. They must be rewritten, retained, or consciously retired after confirming the product invariant; they are not automatic deletions.
 
-PR #115 has now implemented only the first source-contract consolidation tranche. Independent review of that tranche confirmed the core consolidation principle but also showed that domain/model coverage is not automatically a replacement for UI reachability. The corrected tranche therefore keeps thin UI/data-flow owners for Case Images information architecture, post-curation Original reassignment, the unified taxonomy staged-review/apply flow, and Case Library workflow wiring while leaving deep semantics under stronger helper/model/server/DB tests.
+PR #115 has now implemented the first source-contract consolidation tranche and Checkpoint 1 current-schema fixture normalization. Independent review of the consolidation tranche confirmed the core consolidation principle but also showed that domain/model coverage is not automatically a replacement for UI reachability. The corrected tranche therefore keeps thin UI/data-flow owners for Case Images information architecture, post-curation Original reassignment, the unified taxonomy staged-review/apply flow, and Case Library workflow wiring while leaving deep semantics under stronger helper/model/server/DB tests.
+
+Checkpoint 1 then aligned ordinary D1-backed current-runtime fixtures with the current supported schema without converting genuine migration tests into current-schema tests. The canonical bootstrap is `test/current-schema.js`, which discovers the complete numbered migration set in deterministic order. Historical application states remain representable as data inside the current schema; historical schemas remain only where migration/upgrade behavior is itself the subject under test.
 
 The overall direction remains:
 
 - improve CI failure readability;
-- normalize unsupported partial-schema fixtures;
+- keep ordinary fixtures aligned with the supported current schema;
 - keep `npm test` complete;
 - introduce a conservative fast tier without coverage holes;
 - preserve broad `svelte-check`;
@@ -159,11 +161,11 @@ The durable diagnostics requirements remain:
 
 ## 5. Schema-fixture finding
 
-The suite contains ordinary application tests that manually apply selected historical migration subsets or inline partial application schemas, then execute current application code.
+The suite contained ordinary application tests that manually applied selected historical migration subsets or inline partial application schemas, then executed current application code.
 
 That is architecturally different from a real migration test.
 
-The durable distinction should be:
+The durable distinction is:
 
 ### Current application behavior tests
 
@@ -184,6 +186,33 @@ The durable distinction should be:
 - do not require current runtime code to probe for missing tables/columns.
 
 Permanent runtime `no such table` / `no such column` fallback behavior should not be restored merely to keep stale ordinary fixtures passing.
+
+### Checkpoint 1 implementation record
+
+Checkpoint 1 was implemented in Draft PR #115 after integrating current `main` (including PR #113's current-schema helper/runtime compatibility cleanup).
+
+The systematic primary inventory searched `test/` for fixtures directly reading `0000_dashing_centennial.sql` and found 25 files. Their final classification is:
+
+- **24 files normalized or partially normalized** so their ordinary current-runtime fixtures use `applyCurrentSchema(...)` from `test/current-schema.js`;
+- **1 file intentionally left historical:** `test/contextual-system-topic-tag-navigation.test.js`, because it directly exercises migration `0015_contextual_system_topic_tag_navigation.sql`;
+- three of the 24 changed files remain deliberately mixed because a migration-specific test is embedded alongside ordinary runtime tests:
+  - `test/resumable-content-import.test.js` retains its explicit migration 0004 fresh/upgrade coverage;
+  - `test/learning-db.test.js` retains its explicit migration 0014 `question_pool_mode` backfill coverage;
+  - `test/original-stimulus-semantics.test.js` retains its explicit pre-0016 -> 0016 migration coverage while its ordinary Stimulus runtime fixture now uses the current schema.
+
+A broader direct-reader sweep also found five ordinary tests that already discover and apply the complete numbered migration directory dynamically:
+
+- `test/stimulus-prompt-specificity-characterisation.test.js`;
+- `test/stimulus-family-live-prompt-trigger-alignment.test.js`;
+- `test/asset-higher-resolution-replacement.test.js`;
+- `test/stimulus-family-correctness-checkpoint-a.test.js`;
+- `test/stimulus-family-correctness-checkpoint-a-boundaries.test.js`.
+
+Those five already satisfy the current-schema invariant. They were deliberately left unchanged in this checkpoint rather than broadening the work into cosmetic bootstrap consolidation. `test/current-schema.js` itself is the sixth direct migration-directory reader and remains the canonical shared authority.
+
+Historical data-state scenarios—including inactive Cases, archived Stimulus options, legacy relationship shapes that remain valid, and historical Review snapshots—continue to be constructed as data under the current schema. No production runtime missing-table/missing-column fallback was restored.
+
+Exact-head Draft CI on implementation head `e02ff7c7f0b331d6ca10a8a90d8d61fdf29ad550` passed in run #1254. Its repository-owned `fast` validation executed the diff whitespace check, the complete current `npm test` suite (625/625 passed), and `npm run check` (0 errors; 5 existing warnings). The local execution environment in this work session did not have a usable GitHub checkout, so no local command execution is claimed.
 
 ## 6. Source-contract audit
 
@@ -460,4 +489,4 @@ The defensible cleanup strategy is:
 7. consolidate duplicated source contracts;
 8. profile remaining runtime before trading away high-value coverage.
 
-PR #115 remains Draft and currently implements only the first source-contract consolidation tranche described above. Later cleanup/selection/fixture/performance checkpoints remain pending.
+PR #115 remains Draft. It now contains the corrected first source-contract consolidation tranche and Checkpoint 1 current-schema fixture normalization. Checkpoints 2A and later remain pending; no fast-tier exclusions, change-aware CI specialization, production-operator specialization, broader behavioral rewrite, or profiling work has started.
