@@ -190,6 +190,38 @@ export async function updateTaxonomyConcept(
   }
 }
 
+export async function deleteUnusedTopic(
+  db: import('./index.js').LearningDb,
+  input: { conceptId: unknown }
+) {
+  const conceptId = requiredText(input.conceptId, 'Topic');
+  const graph = await loadGraph(db);
+  const target = graph.find((node) => node.id === conceptId);
+  if (!target) throw new TaxonomyInputError('The selected Topic does not exist.');
+  if (target.kind !== 'topic') throw new TaxonomyInputError('Only Topics can be deleted. Systems cannot be deleted here.');
+
+  const [caseUsage, questionUsage] = await Promise.all([
+    db.select({ id: caseConcepts.caseId }).from(caseConcepts).where(eq(caseConcepts.conceptId, conceptId)).limit(1),
+    db.select({ id: conceptQuestions.id }).from(conceptQuestions).where(eq(conceptQuestions.conceptId, conceptId)).limit(1)
+  ]);
+  const hasChildren = graph.some((node) => node.parentId === conceptId);
+  if (caseUsage[0] || questionUsage[0] || hasChildren) {
+    throw new TaxonomyInputError('This Topic cannot be deleted while it has Case attachments, reusable Topic questions, or child Topics. Remove those relationships first.');
+  }
+
+  try {
+    await db.delete(taxonomyConcepts).where(and(eq(taxonomyConcepts.id, conceptId), eq(taxonomyConcepts.kind, 'topic')));
+  } catch (error) {
+    if (error instanceof Error && /constraint|foreign key|abort/i.test(error.message)) {
+      throw new TaxonomyInputError('This Topic is still referenced by content or learning history and cannot be deleted.');
+    }
+    throw error;
+  }
+
+  const remaining = await db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(eq(taxonomyConcepts.id, conceptId)).limit(1);
+  if (remaining[0]) throw new TaxonomyInputError('The selected Topic changed before it could be deleted. Reload and try again.');
+}
+
 export async function applyTaxonomyHierarchy(db: import('./index.js').LearningDb, changes: ParentChange[]) {
   if (!Array.isArray(changes) || changes.length > 500) throw new TaxonomyInputError('Hierarchy updates must contain at most 500 staged moves.');
   const graph = await loadGraph(db);
@@ -327,7 +359,6 @@ export async function replaceSystemTags(
 
   const system = await db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(and(eq(taxonomyConcepts.id, systemId), eq(taxonomyConcepts.kind, 'system'), eq(taxonomyConcepts.isActive, true))).limit(1);
   if (!system[0]) throw new TaxonomyInputError('The selected System is missing, inactive, or not classified as a System.');
-
   if (tagIds.length) {
     const activeTags = await db.select({ id: tags.id }).from(tags).where(and(inArray(tags.id, tagIds), eq(tags.isActive, true)));
     if (activeTags.length !== tagIds.length) throw new TaxonomyInputError('Only active Tags can be exposed in a System.');

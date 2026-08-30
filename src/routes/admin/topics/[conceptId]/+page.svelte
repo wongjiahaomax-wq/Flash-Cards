@@ -1,9 +1,21 @@
 <script>
   let { data, form } = $props();
 
+  let canDeleteTopic = $derived(Boolean(
+    data.topic?.kind === 'topic' &&
+    data.topic.cases.length === 0 &&
+    data.topic.questions.length === 0 &&
+    data.topic.children.length === 0
+  ));
+
   /** @param {string} tagId */
   function curatedTag(tagId) {
     return data.topic?.systemCoverage?.curatedTags.find((tag) => tag.tagId === tagId) ?? null;
+  }
+
+  /** @param {SubmitEvent} event */
+  function confirmTopicDeletion(event) {
+    if (!window.confirm(`Permanently delete “${data.topic?.name ?? 'this Topic'}”? This cannot be undone.`)) event.preventDefault();
   }
 </script>
 
@@ -42,6 +54,18 @@
       <button class="button primary" type="submit">Save identity</button>
     </form>
   </section>
+
+  {#if data.topic.kind === 'topic'}
+    <section class="panel danger-zone">
+      <div class="panel-heading">
+        <div><h2>Delete Topic</h2><p class="muted section-copy">Permanently remove an accidentally created Topic. Only an unused Topic can be deleted.</p></div>
+        <form method="POST" action="?/deleteTopic" onsubmit={confirmTopicDeletion}>
+          <button class="button danger" type="submit" disabled={!canDeleteTopic}>Delete Topic</button>
+        </form>
+      </div>
+      {#if !canDeleteTopic}<p class="blocker-copy">Any Case attachments, reusable Topic questions, and child Topics must be removed first.</p>{/if}
+    </section>
+  {/if}
 
   <section class="panel metrics">
     <div><span>Direct Case attachments</span><strong>{data.topic.kind === 'topic' ? data.topic.directCaseCount : '—'}</strong></div>
@@ -105,6 +129,7 @@
   h1,h2,p { margin-top:0; } h1 { margin-bottom:.3rem; font-size:clamp(1.8rem,4vw,2.5rem); } h2 { margin-bottom:0; font-size:1.15rem; } .eyebrow { margin-bottom:.3rem; color:#667085; font-size:.74rem; font-weight:750; letter-spacing:.08em; text-transform:uppercase; } .muted,.meta { color:#667085; } .section-copy { margin:.35rem 0 0; max-width:52rem; }
   .breadcrumb { display:flex; gap:.4rem; flex-wrap:wrap; color:#667085; font-size:.9rem; } .breadcrumb a { color:#475467; } .kind-badge,.status-badge,.warning-badge { display:inline-block; width:max-content; padding:.2rem .45rem; border-radius:999px; background:#f2f4f7; color:#475467; font-size:.78rem; font-weight:650; white-space:nowrap; } .kind-badge.system { background:#eef4ff; color:#3538cd; } .status-badge { background:#ecfdf3; color:#027a48; } .status-badge.inactive { background:#f2f4f7; color:#667085; } .warning-badge { background:#fffaeb; color:#b54708; }
   .panel { margin-bottom:1rem; padding:1.1rem; border:1px solid #dfe5ee; border-radius:10px; background:#fff; } .identity-form { display:grid; gap:1rem; } .fields { display:grid; grid-template-columns:minmax(0,1.4fr) minmax(140px,.6fr) auto; gap:.75rem; align-items:end; } .fields .wide { grid-column:1/-1; } label { display:grid; gap:.35rem; color:#344054; font-weight:650; } input,select,textarea { box-sizing:border-box; width:100%; padding:.65rem .75rem; border:1px solid #cdd6e3; border-radius:8px; background:#fff; font:inherit; } .check { display:flex; align-items:center; gap:.5rem; min-height:42px; } .check input { width:auto; } .identity-meta { display:flex; gap:1.2rem; flex-wrap:wrap; color:#667085; font-size:.88rem; }
+  .danger-zone { border-color:#fecdca; } .button.danger { border-color:#d92d20; color:#b42318; } .button.danger:disabled { opacity:.45; cursor:not-allowed; } .blocker-copy { margin:.75rem 0 0; color:#b42318; font-size:.88rem; }
   .metrics { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.75rem; } .metrics div { display:grid; gap:.25rem; padding:.8rem; border:1px solid #eaecf0; border-radius:8px; } .metrics span { color:#667085; font-size:.82rem; } .metrics strong { font-size:1.35rem; }
   .count { color:#667085; font-size:.85rem; font-weight:500; } .stack,.question-list { display:grid; gap:.65rem; margin-top:1rem; } .row { padding:.75rem; border:1px solid #eaecf0; border-radius:8px; color:#172033; text-decoration:none; } .row > span:first-child { display:grid; gap:.15rem; } .row small,.row-meta { color:#667085; } .route-chips { display:flex; flex-wrap:wrap; justify-content:flex-end; align-items:center; gap:.35rem; } .route-chips em { padding:.15rem .4rem; border-radius:999px; background:#f2f4f7; color:#475467; font-size:.76rem; font-style:normal; }
   .question-card { padding:.9rem; border:1px solid #eaecf0; border-radius:8px; } .question-card p { margin:.65rem 0 0; white-space:pre-wrap; } .question-heading a { color:#172033; }

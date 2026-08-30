@@ -5,6 +5,7 @@ import { createDb } from '$lib/server/db/index.js';
 import { listActiveTags } from '$lib/server/db/tag-library.js';
 import { getTaxonomyDetail } from '$lib/server/db/taxonomy-admin-read.ts';
 import {
+  deleteUnusedTopic,
   replaceSystemTags,
   TaxonomyInputError,
   updateTaxonomyConcept
@@ -50,6 +51,17 @@ export const actions = {
       return actionFailure(cause);
     }
     redirect(303, `/admin/topics/${encodeURIComponent(params.conceptId)}?status=saved`);
+  },
+
+  deleteTopic: async ({ locals, platform, params }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    try {
+      await deleteUnusedTopic(createDb(platform.env.DB), { conceptId: params.conceptId });
+    } catch (cause) {
+      return actionFailure(cause);
+    }
+    redirect(303, '/admin/topics');
   },
 
   saveSystemTags: async ({ request, locals, platform, params }) => {
