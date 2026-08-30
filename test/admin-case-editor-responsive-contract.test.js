@@ -149,7 +149,7 @@ function svelteComponentImports(source, importerUrl) {
   return imports;
 }
 
-/** @param {URL} componentUrl @param {Set<string>} [seen] */
+/** @param {URL} componentUrl @param {Set<string>} [seen] @returns {boolean} */
 function componentTreeContainsForm(componentUrl, seen = new Set()) {
   if (seen.has(componentUrl.href)) return false;
   seen.add(componentUrl.href);
@@ -158,7 +158,7 @@ function componentTreeContainsForm(componentUrl, seen = new Set()) {
   return svelteComponentImports(source, componentUrl).some((child) => componentTreeContainsForm(child.url, seen));
 }
 
-/** @param {string} source @param {string} moduleSpecifier */
+/** @param {string} source @param {string} moduleSpecifier @returns {string[]} */
 function namedImportsFrom(source, moduleSpecifier) {
   const match = new RegExp(`import\\s*\\{([^}]*)\\}\\s*from\\s*['"]${escapeRegExp(moduleSpecifier)}['"]`).exec(source);
   assert.ok(match, `Missing imports from ${moduleSpecifier}.`);
@@ -166,7 +166,10 @@ function namedImportsFrom(source, moduleSpecifier) {
     .split(',')
     .map((part) => part.trim())
     .filter(Boolean)
-    .map((part) => part.split(/\s+as\s+/).at(-1));
+    .map((part) => {
+      const aliases = part.split(/\s+as\s+/);
+      return requiredText(aliases[aliases.length - 1], `Missing local import name for ${part}.`);
+    });
 }
 
 /** @param {string} body @param {string[]} names */
