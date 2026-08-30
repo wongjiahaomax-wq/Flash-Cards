@@ -25,6 +25,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Measure Checkpoint 6 Node stages
+        run: node scripts/checkpoint6-ci-profile.mjs
+
       - name: Run repository validation
         env:
           VALIDATION_MODE: ${{ github.event.pull_request.draft && 'fast' || 'full' }}
