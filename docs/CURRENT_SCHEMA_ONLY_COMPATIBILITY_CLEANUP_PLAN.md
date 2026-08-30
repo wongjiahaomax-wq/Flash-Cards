@@ -1,6 +1,6 @@
 # Current-Schema-Only Compatibility Cleanup Plan
 
-_Status: runtime cleanup implemented; minimum current-runtime fixture reconciliation complete; full repository CI validation is green on the PR branch._
+_Status: implementation complete; current `main` at `8e918b4a107c540bf974d57abea006da2b33f560` incorporated; full repository CI is green on the refreshed code head; PR is Ready for final review._
 
 ## Goal
 
@@ -196,16 +196,18 @@ For a new migration, the implementation must still use the repository's safe mig
 
 The policy removes indefinite application support for historical migration states; it does not remove deployment safety requirements.
 
-## Validation
+## Main refresh and validation
 
-Full repository validation passed in GitHub Actions on PR head `33895af3ab49feaaf127f8102998ea26cec674b5` in workflow run `33282323084`.
+Current `main` at `8e918b4a107c540bf974d57abea006da2b33f560` was incorporated into the PR branch before final review. The merge-base of the refreshed branch and `main` is exactly that commit, with the PR branch zero commits behind.
 
-Evidence from that run:
+Full repository validation then passed in GitHub Actions on refreshed PR code head `d97eb357b5b7fbb5933d2719b0d2bd0e0d639591` in workflow run `33283422680`. The workflow explicitly reported `VALIDATION_MODE=full`, `CI_PR_BASE_SHA=8e918b4a107c540bf974d57abea006da2b33f560`, and `CI_PR_HEAD_SHA=d97eb357b5b7fbb5933d2719b0d2bd0e0d639591`.
+
+Evidence from that exact-head run:
 
 - diff whitespace check passed;
 - `npm run db:check` passed;
-- Node tests passed: **639 / 639**, with 0 failed;
-- `npm run check` completed with **0 errors and 5 warnings**;
+- Node tests passed: **639 / 639**, with 0 failed, 0 skipped, 0 todo, and 0 cancelled;
+- `npm run check` completed with **0 errors and 5 warnings in 4 files**;
 - `npm run build` passed;
 - the local D1 + Better Auth smoke test passed;
 - the smoke setup applied the complete migration chain through `0017_align_reusable_prompt_live_state_guards.sql` successfully;
@@ -219,7 +221,7 @@ No Production data mutation was part of validation.
 
 ## Review checklist
 
-Before this PR is ready for review, confirm:
+Before merge, confirm:
 
 - [x] root and DB-specific agent guidance clearly define current-schema-only runtime support;
 - [x] repository runtime-compatibility findings were classified before deletion;
@@ -232,7 +234,9 @@ Before this PR is ready for review, confirm:
 - [x] no D1/R2 production data or migration ledger was changed;
 - [x] no unrelated refactor was bundled into the cleanup;
 - [x] minimum ordinary current-runtime fixtures exposed by this cleanup are reconciled to the current schema; broader fixture standardization remains separate;
-- [x] full current-schema repository validation is green.
+- [x] current `main` at `8e918b4a107c540bf974d57abea006da2b33f560` is incorporated;
+- [x] full current-schema repository validation is green on refreshed code head `d97eb357b5b7fbb5933d2719b0d2bd0e0d639591`;
+- [ ] final merge review complete.
 
 ## Definition of done
 
