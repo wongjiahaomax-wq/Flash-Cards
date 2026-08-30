@@ -2,7 +2,6 @@
 // @ts-nocheck
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
@@ -16,22 +15,12 @@ import {
   validateImportPackage
 } from '../src/lib/server/import/content-package.js';
 import { createAssetFromUpload } from '../src/lib/server/db/asset-library.js';
-
-const migrationSql = [
-  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0005_tag_foundation.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0015_contextual_system_topic_tag_navigation.sql', import.meta.url), 'utf8')
-].join('\n').replaceAll('--> statement-breakpoint', '');
+import { applyCurrentSchema } from './current-schema.js';
 
 function createLearningDb(options = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql);
+  applyCurrentSchema(sqlite);
   sqlite.exec(buildSeedSql());
   const d1 = {
     prepare(sql) {

@@ -1,40 +1,16 @@
 // @ts-nocheck
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { getCaseLibraryPage } from '../src/lib/server/db/case-library.js';
 import { createDb } from '../src/lib/server/db/index.js';
+import { applyCurrentSchema } from './current-schema.js';
 
-const currentMigrationNames = [
-  '0000_dashing_centennial.sql',
-  '0002_optional_stimulus_groups.sql',
-  '0003_multi_topic_study_routing.sql',
-  '0004_resumable_import_jobs.sql',
-  '0005_tag_foundation.sql',
-  '0006_preview_admin_workspace.sql',
-  '0007_image_collections.sql',
-  '0008_tag_shared_questions.sql',
-  '0009_reusable_image_questions.sql',
-  '0010_reusable_image_reactivation_guard.sql',
-  '0011_asset_supersession.sql',
-  '0012_archive_stimulus_options.sql',
-  '0013_review_assets_asset_lookup.sql',
-  '0014_review_question_pool_mode.sql',
-  '0015_contextual_system_topic_tag_navigation.sql',
-  '0016_original_stimulus_options.sql',
-  '0017_align_reusable_prompt_live_state_guards.sql'
-];
-
-function migrationSql(names) {
-  return names.map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8')).join('\n').replaceAll('--> statement-breakpoint', '');
-}
-
-function createLearningDb(migrations) {
+function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql(migrations));
+  applyCurrentSchema(sqlite);
   const statements = [];
   const d1 = {
     prepare(sql) {
@@ -66,7 +42,7 @@ function taxonomyReadCount(statements) {
 }
 
 test('System filtering distinguishes real matches, Unassigned, and zero-match text', async () => {
-  const fixture = createLearningDb(currentMigrationNames);
+  const fixture = createLearningDb();
   try {
     fixture.sqlite.exec(`
       INSERT INTO preview_sessions (id, user_id, status, expires_at) VALUES ('preview-1', 'user-1', 'active', 4102444800000);
