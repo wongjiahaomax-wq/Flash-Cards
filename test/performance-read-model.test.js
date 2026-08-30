@@ -103,7 +103,7 @@ test('dashboard read model preserves production/inactive semantics and bounds Ca
     fixture.preparedSql.length = 0;
     const bounded = await getAdminDashboardSummary(fixture.db, { caseLimit: 2 });
     assert.equal(bounded.dashboardCases.length, 2);
-    const boundedCaseQueries = queriesFrom(fixture.preparedSql, 'cases');
+    const boundedCaseQueries = queriesFrom(fixture.preparedSql, 'cases')
       .filter((statement) => !/^\s*select\s+count\s*\(/i.test(statement));
     assert.equal(boundedCaseQueries.length, 1, JSON.stringify(boundedCaseQueries));
     assert.match(boundedCaseQueries[0], /\blimit\b/i);
