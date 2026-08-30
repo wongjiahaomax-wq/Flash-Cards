@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, and four bounded Checkpoint 4 source-contract consolidation tranches implemented in Draft PR #115
+Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, and Checkpoint 4 source-contract consolidation/review complete in Draft PR #115
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, and four bounded corrected source-contract consolidation tranches described under Checkpoint 4. It does **not** implement the whole cleanup plan or complete Checkpoint 4. Broader behavioral rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, and Checkpoint 4's five bounded corrected source-contract consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review. Checkpoint 4 is complete for the audited primary source/UI inventory. Behavioral rewrites reserved for Checkpoint 5, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -871,7 +871,7 @@ Satisfied after the review correction:
 
 ## Checkpoint 4 — Consolidate duplicated source/UI contracts
 
-**Status: four bounded corrected tranches implemented in Draft PR #115; broader Checkpoint 4 remains pending.**
+**Status: complete for the audited primary source/UI contract inventory in Draft PR #115.**
 
 ### Objective
 
@@ -1046,53 +1046,83 @@ Independent review corrected three precision/ownership issues before tranche com
 
 No Preview/production runtime route, shared editor component, DB/domain code, schema/migration, validation architecture, fast exclusion, deployment configuration, or production resource changed in this tranche.
 
+### Fifth bounded tranche — Preview deployment ownership contract
+
+The fifth independently reviewable Checkpoint 4 tranche is limited to:
+
+```text
+test/preview-deployment-contract.test.js
+```
+
+The contract originally mixed two different ownership layers: deliberate Preview deployment/auth/route architecture and raw source assertions over production data-library ownership filters. This tranche removes only the latter where executable DB tests are stronger owners.
+
+Removed/consolidated assertions:
+
+- **Question Library ownership filter source assertion:** the Admin Questions route assertion for `isNull(questionPrompts.previewSessionId)` is removed. The route is intentionally a thin adapter and its current source occurrence is only documentation of ownership delegated to the Question Library helper; executable Question Library pagination/usage tests seed Preview-owned Prompt/Case data and verify it does not enter production results.
+- **Image Library ownership filter source assertions:** raw `asset-library.js` matches for production Asset/Case ownership are removed. `test/asset-preview-isolation.test.js`, `test/image-management-v2.test.js`, and Admin image workflow tests directly seed Preview-owned Assets/Cases and prove production listing/detail/mutation flows exclude or reject them.
+- **Topic Library ownership filter source assertions:** raw `topic-library.js` matches are removed. `test/topic-library.test.js` directly inserts a Preview-owned Case and proves normal Topic counts and details remain production-only.
+- **Tag Library ownership/filter/guard source assertions:** raw `tag-library.js` ownership and guard-symbol matches are removed. `test/tag-library.test.js` directly inserts Preview-owned Cases/Prompts and proves counts, assignment/detail lists, mutation targets, and writes exclude or reject them. `test/content-guards.test.js` separately executes the production ownership guards.
+- **Admin dashboard ownership SQL-shape assertions:** the dashboard source-read test is removed after independent review found the demonstrably stronger `test/performance-read-model.test.js`, which executes `getAdminDashboardSummary()` with Preview Case, Asset, and Prompt fixtures and verifies production counts/summaries remain isolated.
+
+Retained thin architecture/operational ownership:
+
+- **Preview Worker resource/config authority:** the Preview Worker remains a distinct Worker name/auth URL/Preview Mode while reusing the intended D1/R2 resources.
+- **Immutable same-repository deployment authority:** manual Preview deployment resolves an open same-repository PR on `main`, checks out the exact head SHA, uses the repository-installed Wrangler Preview target, and never runs remote D1 migrations or a production deploy.
+- **Schema/config safety gates:** schema-changing and `wrangler.jsonc`-changing PRs are refused before deployment; validation remains complete for this operator path and dependency installation remains lockfile-owned.
+- **Credential boundary:** Cloudflare deploy credentials appear only after local repository validation and only on the final Preview deploy step; no production D1 write token is admitted.
+- **Preview bootstrap role isolation:** bootstrap creates only `preview_admin`, not production `admin`.
+- **Worker/route/auth isolation:** Preview Worker blocks production Admin, learner Study, and Better Auth Admin API before those handlers can mutate production state, while allowed Better Auth sign-in/sign-out/session paths remain reachable.
+- **Preview-only Study isolation:** Preview-only admins remain barred from Study while combined production/Preview admins can use production Study through the existing learner access guards.
+- **Preview Case authoring boundary:** Preview Case actions continue to require Preview ownership and reject global authoring/production Admin mutation helpers.
+- **Logout ordering:** Preview workspace reset must succeed before Better Auth sign-out.
+
+Independent review strengthened the consolidation decision rather than broadening source deletion: the last surviving dashboard source assertions were initially kept conservatively, then removed only after `performance-read-model.test.js` was found to execute the same production/Preview count boundary directly. No deployment/auth/route architecture assertion was removed merely because it reads source/configuration.
+
+No workflow, Worker config, Preview route, auth hook, Study route, production DB/helper implementation, schema/migration, validation architecture, fast exclusion, dependency, deployment target, or production resource changed in this tranche.
+
+### Explicit retained architecture review — Stimulus Family façade
+
+`test/stimulus-family-facade-contract.test.js` received a separate stronger-owner review while this branch was active. Final disposition: **RETAIN unchanged**.
+
+Its protected invariants are architecture/public-identity contracts rather than duplicated domain semantics: the compatibility façade must retain its established operations and exact `StimulusGroupInputError` constructor identity; extracted lower-level Stimulus Family implementation modules must not depend upward on the façade; and learner Stimulus adapters must remain independent of production mutation services/the compatibility façade. Behavioral Stimulus correctness tests do not prove absence of forbidden dependencies or continued public constructor identity, so replacing these assertions would weaken coverage.
+
+No code or test edit was required for this retain decision.
+
 ### Inventory corrections and explicit retain decisions from prior review
 
 The filename `contract` is not itself evidence that a test belongs in source-contract cleanup.
 
-- `test/content-import-safety-contract.test.js` directly executes reviewed-package parsing and validation behavior. It is therefore a behavioral safety test, not a primary source/UI contract candidate, and is removed from the pending source-contract inventory without deleting or weakening the test.
-- `test/resumable-import-contract.test.js` is a mixed architecture/migration contract and has now received a stronger-owner review. Its exact-ZIP digest-before-job-creation boundary and prohibition on falling back to the legacy monolithic import path were deliberate operational requirements of the resumable-import architecture, while its migration assertion is genuine upgrade coverage. `test/resumable-content-import.test.js` strongly owns chunking, persistence, leases, idempotency, and related behavior but does not replace those route/order architecture boundaries. Final disposition: **RETAIN**.
+- `test/content-import-safety-contract.test.js` directly executes reviewed-package parsing and validation behavior. It is therefore a behavioral safety test, not a primary source/UI contract candidate, and is removed from the source-contract inventory without deleting or weakening the test.
+- `test/resumable-import-contract.test.js` is a mixed architecture/migration contract and received a stronger-owner review. Its exact-ZIP digest-before-job-creation boundary and prohibition on falling back to the legacy monolithic import path are deliberate operational requirements of the resumable-import architecture, while its migration assertion is genuine upgrade coverage. `test/resumable-content-import.test.js` strongly owns chunking, persistence, leases, idempotency, and related behavior but does not replace those route/order architecture boundaries. Final disposition: **RETAIN**.
 
-### Remaining primary source/UI contract inventory after this tranche
+### Checkpoint 4 inventory closure
 
-Already reviewed under the first four Checkpoint 4 tranches or Checkpoint 3, explicitly retained during prior review, or identified as behavioral rather than source-contract candidates are excluded from this pending list.
+The audited primary Checkpoint 4 source/UI inventory is now exhausted: each candidate was consolidated, reclassified as behavioral coverage, or explicitly retained after stronger-owner review.
 
-**Architecture / safety / workflow structure — default disposition remains keep unless a later stronger-owner review proves otherwise:**
-
-```text
-test/preview-deployment-contract.test.js
-test/stimulus-family-facade-contract.test.js
-```
-
-These protect Preview deployment ownership and Stimulus Family façade direction/public identity. Their source/configuration structure can itself be the invariant; this inventory is **not** authorization to remove them.
-
-**UI behavior expressed through source — pending separate review/rewrite decision:**
+The remaining source-oriented test:
 
 ```text
 test/admin-case-editor-responsive-contract.test.js
 ```
 
-The responsive Case-editor contract is already named as a Checkpoint 5 behavioral-rewrite candidate. This Checkpoint 4 tranche deliberately does not start that rewrite or weaken its single-tree/presentation invariants.
-
-No further source/UI test is treated as reviewed merely because this inventory names it. Additional Checkpoint 4 work requires another bounded stronger-owner review.
+is intentionally **not** unfinished Checkpoint 4 work. It is already reserved for the separate Checkpoint 5 behavioral-rewrite decision, where the invariant is one logical editor tree with presentation-only layout switching. Checkpoint 4 does not weaken or rewrite it.
 
 ### Acceptance criteria
 
-For every removed assertion:
+Satisfied for the audited Checkpoint 4 inventory:
 
-- identify the invariant;
-- identify stronger owner or explicit retirement;
-- preserve safety/domain meaning;
-- preserve distinct UI reachability/integration where no stronger owner exists;
-- avoid deleting solely because regex/source inspection is aesthetically undesirable.
-
-The fourth bounded tranche satisfies those criteria for the Admin/Preview Case-editor parity assertions above; it does not imply broader Checkpoint 4 completion.
+- every removed assertion has a named stronger owner or explicit retirement rationale;
+- safety/domain meaning remains protected;
+- distinct UI reachability/integration remains where no stronger owner exists;
+- architecture/configuration source tests are retained when structure itself is the invariant;
+- tests are not deleted solely because regex/source inspection is aesthetically undesirable;
+- candidates without a safe stronger owner are explicitly retained rather than forced into a deletion quota.
 
 ---
 
 ## Checkpoint 5 — Behavioral rewrites by subsystem
 
-**Status: pending. Not in the current PR #115 tranche.**
+**Status: pending. Not in the current PR #115 Checkpoint 4 work.**
 
 ### Candidate families
 
@@ -1144,7 +1174,7 @@ Preserve production scope, option/Asset identity, and mutation safety. Rewrite r
 
 ## Checkpoint 6 — Measure and profile runtime
 
-**Status: pending. Not in the current PR #115 tranche.**
+**Status: pending. Not in the current PR #115 Checkpoint 4 work.**
 
 ### Required measurements
 
@@ -1254,7 +1284,7 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, and four bounded corrected source-contract consolidation tranches under Checkpoint 4. Do not infer that the rest of Checkpoint 4 or any later checkpoint has started merely because its design remains documented here.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, and completed Checkpoint 4 source-contract consolidation/review. Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review.
 
 ### Completed fixture, selection, and UX-contract foundation
 
@@ -1264,7 +1294,7 @@ PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoi
 - Checkpoint 2C — named ECG/taxonomy production-operator checks and exact central path ownership — is implemented.
 - Checkpoint 2D — exactly six specialized fast-test exclusions — is implemented with complete-suite inclusion, related-Draft ownership, and the explicit slide-review production compatibility dependencies contract-tested.
 - Checkpoint 3 — both intentional UX regressions were investigated and retained because no stronger cheap/reliable layout-capable owner exists; independent review then tightened the retained horizontal-overflow source owner so it cannot falsely pass on a later selector's declaration. Neither product invariant was retired.
-- Checkpoint 4 — the corrected first tranche, the bounded Admin Topic/System form tranche, the bounded Wrangler/local-preview authority tranche, and the bounded Admin/Preview Case-editor parity tranche are implemented; all other source/UI families remain pending unless explicitly listed as reviewed/retained above.
+- Checkpoint 4 — complete for the audited primary source/UI inventory. The corrected first tranche, Admin Topic/System form tranche, Wrangler/local-preview authority tranche, Admin/Preview Case-editor parity tranche, and Preview deployment ownership tranche are implemented; the Stimulus Family façade was separately reviewed and explicitly retained unchanged.
 
 ### Fast-tier boundary after Checkpoint 2D
 
@@ -1272,9 +1302,7 @@ Do not add a seventh exclusion as part of Checkpoint 2D or infer further safe ca
 
 ### Remaining UX/source-contract work
 
-Checkpoint 3 is complete. Checkpoint 4 is **not** complete: the pending inventory above remains for separate stronger-owner review, and the Case-editor responsive contract remains reserved for the Checkpoint 5 behavioral-rewrite decision rather than being folded into this tranche.
-
-The two intentional width/overflow UX regression tests remain explicit surviving owners.
+Checkpoint 3 and Checkpoint 4 are complete. The Case-editor responsive contract remains reserved for the Checkpoint 5 behavioral-rewrite decision rather than being folded back into source-contract cleanup. The two intentional width/overflow UX regression tests remain explicit surviving owners.
 
 ### Profiling
 
@@ -1304,9 +1332,9 @@ Specific gates:
 
 **Checkpoint 2D:** the initial exclusion mechanics were established on head `bd93043bd112a0e96cc233ff99228a91fe863831` / CI #1297. Independent review then found the slide-review production-dependency ownership gap. Corrective head `4aa59b30b4197fba22240a61d76daa480b6902cf` / Draft CI #1303 passed with 110 maintained / 104 selected / 6 excluded, 629/629 selected fast tests, 0 Svelte errors/5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #134 also passed. Focused contracts now prove each of the three production compatibility dependencies requires `slideReviewTest` in Draft mode and deduplicates through complete `test` in full mode. The final handoff additionally requires green exact-head CI after these documentation changes.
 
-**Checkpoint 3:** satisfied after independent-review correction: both protected product invariants remain intentional and both dispositions remain `RETAIN`; no stronger cheap/reliable layout owner exists; the Shared Questions contract remains unchanged; the horizontal-overflow contract was tightened to extract the `body` rule before asserting `overflow-x: hidden`, eliminating the reviewed cross-rule false-green case. No production/UI code, schema, CI architecture, exclusion, or application/domain behavior changed. Exact-head Draft CI is the final execution gate after the corrected test and documentation changes.
+**Checkpoint 3:** satisfied after independent-review correction: both protected product invariants remain intentional and both dispositions remain `RETAIN`; no stronger cheap/reliable layout owner exists; the Shared Questions contract remains unchanged; the horizontal-overflow contract was tightened to extract the `body` rule before asserting `overflow-x: hidden`, eliminating the reviewed cross-rule false-green case. No production/UI code, schema, CI architecture, exclusion, or application/domain behavior changed.
 
-**Checkpoint 4:** the four bounded implemented tranches satisfy the ownership rule for their removed assertions. The Admin/Preview Case-editor tranche removes only image-question UI/workflow assertions with a demonstrably stronger surviving owner and one incidental copy/implementation lock; it retains and hardens production-editor composition, action/data/form parity, question-scope reachability, actual route delegation, and Preview Study isolation. The Wrangler/local-preview tranche continues to keep local-auth invocation and local-preview delegation as thin fast owners while direct executable-plan tests own command semantics. `content-import-safety-contract.test.js` remains explicitly behavioral rather than a source-cleanup candidate; `resumable-import-contract.test.js` remains explicitly retained after stronger-owner review. Broader Checkpoint 4 remains pending; every future removal still requires an explicit stronger owner or retirement, and distinct UI reachability/architecture/product vocabulary must remain protected where applicable.
+**Checkpoint 4:** satisfied for the audited primary inventory after the fifth Preview-deployment tranche and the separately completed Stimulus façade retain review. The Preview deployment contract now owns only deployment/config/auth/route architecture; production Question/Image/Topic/Tag/dashboard isolation is owned by direct DB behavior tests. The Admin/Preview parity and Wrangler/local-preview tranches retain their distinct composition/delegation boundaries, while `content-import-safety-contract.test.js` is classified as behavioral and `resumable-import-contract.test.js` is explicitly retained. The Case-editor responsive contract remains outside Checkpoint 4 under Checkpoint 5. Exact-head Draft CI is the final execution gate after the final test/documentation changes.
 
 **Checkpoint 6:** runtime claim backed by comparable CI medians.
 
