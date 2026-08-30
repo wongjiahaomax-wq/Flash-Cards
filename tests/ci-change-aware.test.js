@@ -165,10 +165,8 @@ test('actual CI feature-diff helper excludes unrelated base-branch advancement',
 
 test('specialized Node checks keep structured reporter identity without altering base Node-check environments', () => {
   assert.deepEqual(ciCommandArgs('slideReviewTest', ['run', 'slide-review:test']), ['run', 'slide-review:test']);
-  const env = ciCommandEnvironment(
-    'slideReviewTest',
-    /** @type {NodeJS.ProcessEnv} */ ({ NODE_OPTIONS: '--trace-warnings' }),
-  );
+  const slideEnv = { ...process.env, NODE_OPTIONS: '--trace-warnings' };
+  const env = ciCommandEnvironment('slideReviewTest', slideEnv);
   assert.equal(env.CI_NODE_TEST_CHECK_ID, 'slideReviewTest');
   assert.equal(env.CI_NODE_TEST_REPRO_COMMAND, 'npm run slide-review:test');
   assert.match(env.NODE_OPTIONS ?? '', /--trace-warnings/);
@@ -178,8 +176,9 @@ test('specialized Node checks keep structured reporter identity without altering
     ciCommandArgs('test', ['test']),
     ['test', '--', '--test-reporter=./scripts/ci-test-reporter.mjs'],
   );
-  assert.deepEqual(ciCommandEnvironment('test', /** @type {NodeJS.ProcessEnv} */ ({})), {});
-  assert.deepEqual(ciCommandEnvironment('testFast', /** @type {NodeJS.ProcessEnv} */ ({})), {});
+  const baseEnv = { ...process.env };
+  assert.deepEqual(ciCommandEnvironment('test', baseEnv), baseEnv);
+  assert.deepEqual(ciCommandEnvironment('testFast', baseEnv), baseEnv);
 });
 
 test('workflow remains orchestration-only while fetching enough history for a true PR feature diff', () => {
