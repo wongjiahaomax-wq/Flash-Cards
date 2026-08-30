@@ -1,10 +1,10 @@
 # Test Suite Audit
 
-Status: audit complete / two bounded source-contract consolidation tranches, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe exclusion activation, and Checkpoint 3 intentional UX regression review implemented in Draft PR #115
+Status: audit complete / three bounded source-contract consolidation tranches, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe exclusion activation, and Checkpoint 3 intentional UX regression review implemented in Draft PR #115
 
-This document is the durable evidence record for PR #115. It audits the repository-wide Node test suite, `npm run check`, and the repository-owned validation architecture. The audit/planning work is complete, and this document now also records two bounded source-contract consolidation tranches, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator checks, Checkpoint 2D activation of the six approved specialized exclusions plus the independent-review correction to slide-review production dependency ownership, and Checkpoint 3 review of the two intentional UX regression contracts in the same Draft PR.
+This document is the durable evidence record for PR #115. It audits the repository-wide Node test suite, `npm run check`, and the repository-owned validation architecture. The audit/planning work is complete, and this document now also records three bounded source-contract consolidation tranches, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator checks, Checkpoint 2D activation of the six approved specialized exclusions plus the independent-review correction to slide-review production dependency ownership, and Checkpoint 3 review of the two intentional UX regression contracts in the same Draft PR.
 
-Those implementations remain intentionally bounded. Checkpoint 2D reduces generic unrelated-Draft fast selection by exactly six maintained specialized files while retaining complete `npm test` coverage and central related-Draft specialized ownership. Checkpoint 3 retains both intentional UX regression contracts because the repository has no cheap layout-capable rendered test layer that would provide a stronger owner; independent review then required a narrow hardening of the horizontal-overflow source assertion so the retained owner cannot false-green on a declaration in another CSS rule. The second Checkpoint 4 tranche is limited to the Admin Topic/System form source contract and does **not** complete Checkpoint 4. Broader behavioral rewrite, additional source-contract consolidation, additional exclusions, and profiling remain pending.
+Those implementations remain intentionally bounded. Checkpoint 2D reduces generic unrelated-Draft fast selection by exactly six maintained specialized files while retaining complete `npm test` coverage and central related-Draft specialized ownership. Checkpoint 3 retains both intentional UX regression contracts because the repository has no cheap layout-capable rendered test layer that would provide a stronger owner; independent review then required a narrow hardening of the horizontal-overflow source assertion so the retained owner cannot false-green on a declaration in another CSS rule. The third Checkpoint 4 tranche is limited to the Wrangler/local-preview authority contract and does **not** complete Checkpoint 4. Broader behavioral rewrite, additional source-contract consolidation, additional exclusions, and profiling remain pending.
 
 The implementation contract is `docs/NODE_TEST_SUITE_CLEANUP_PLAN.md`.
 
@@ -23,18 +23,20 @@ The audited baseline is broad but mostly valuable:
 - Checkpoint 2D activates exactly six approved specialized exclusions from generic unrelated-Draft `test:fast`; corrective implementation CI discovered 110 maintained files, selected 104 and excluded six;
 - Checkpoint 3 reviewed the Shared Questions width and application horizontal-overflow regressions and retained both source contracts because no practical stronger cheap/reliable layout owner exists in the repository; independent review then hardened the horizontal-overflow assertion to ensure the required declaration is actually inside the `body` rule;
 - the second bounded Checkpoint 4 tranche removes two assertions from `admin-topics-form-contract.test.js`: one incidental literal-copy guard and one duplicated writer-error source assertion, while two independent-review passes harden the surviving UI/action reachability owner against six false-green or cross-file wiring paths;
+- the third bounded Checkpoint 4 tranche removes duplicated raw `local-runtime-lib.mjs` source assertions from `wrangler-authority-contract.test.js` because `local-runtime.test.js` directly owns the constructed preview-plan semantics, while retaining the fast local-auth invocation owner and a hardened local-preview plan-delegation boundary;
 - Ready/non-Draft `validate:full` continues to run complete `npm test` plus the repository's additional full checks, with structural deduplication for specialized Node coverage already satisfied by complete `test`.
 
 The original audit hypothesis was only partly correct. There is a meaningful cluster of brittle source-level UI contracts, but source-reading itself is not the problem. Several source/configuration contracts protect real architectural or operational boundaries and should remain.
 
-Four corrections from independent review materially changed the recommended plan:
+Five corrections from independent review materially changed the recommended plan:
 
 1. **Static `test:fast` exclusions were unsafe before change-aware CI ownership existed.** Checkpoint 2B closed the ordinary-CI execution gap for existing slide-review specialization. Checkpoint 2C closed the corresponding ownership gap for the two production-operator tests. Checkpoint 2D activates only those six independently approved files after the ownership prerequisites were accepted.
 2. **Slide-review's specialized ownership crosses the tooling-directory boundary.** Independent review of the first 2D implementation found that excluded `tools/slide-import-review/tests/core.test.js` directly imports `src/lib/server/import/content-package.js`, `src/lib/server/import/reviewed-content-package.js`, and `src/lib/server/storage/media.js` to synchronize production limits and verify finalizer compatibility with production parsers. Those exact production files therefore require `slideReviewTest` even though they are outside `tools/slide-import-review/**`; they do not require `slideReviewBuild`.
 3. **The two proposed unconditional UI-test removals were over-classified.** Both were introduced alongside deliberate UX fixes and protect intentional regression outcomes, albeit through brittle source assertions. Checkpoint 3 investigated whether stronger practical owners now exist and found none: the repository has no browser/layout-capable test infrastructure, and nearby responsive/UI contracts remain source-level. Both tests are therefore retained rather than replaced by weaker pseudo-rendered assertions or retired without a product decision. Independent review then identified one precision defect in the retained horizontal-overflow owner; that source contract was tightened in-place rather than replacing it with weaker infrastructure.
 4. **A thinner source contract still has to prove the actual UI/action boundary.** Two review passes over the Admin Topic/System consolidation found six false-green paths: the Topic parent picker was not tied to the Topic-only branch; the organizer match could be satisfied by an import; the Case action match could be satisfied by an imported writer symbol; the creation form was not tied to `?/createConcept`; the retired `Additional Study Topic` guard did not scan the delegated organizer; and the named Case action was not tied to the writer call and submitted `topic_id`/`system_id`. The corrected source owner now protects those exact reachability/wiring boundaries while direct DB tests continue to own mutation semantics.
+5. **Executable plan ownership can replace source-text duplication without retiring the wrapper boundary.** The Wrangler review found that `test/local-runtime.test.js` already imports `createLocalPreviewPlan()` and directly asserts the repository Wrangler path, `process.execPath`, exact local migration/serve arguments, and absence of `npx`/inline version drift. Those semantics are stronger than regexes over `local-runtime-lib.mjs`. The wrapper still needs a thin architecture owner, however: `local-preview.mjs` must delegate its build/migrate/serve execution to that plan and contain no Wrangler authority of its own. Independent review strengthened that wrapper guard and removed one redundant local-auth negative assertion.
 
-PR #115 has implemented two bounded source-contract consolidation tranches, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A's selection architecture, Checkpoint 2B's central change-aware specialized-CI mechanism, Checkpoint 2C's named production-operator ownership, Checkpoint 2D's six safe specialized omissions with the corrected slide-review production dependency boundary, and Checkpoint 3's explicit retention review for the two intentional UX regressions plus the focused hardening of the horizontal-overflow owner required by independent review. Independent review of the first consolidation tranche confirmed the core consolidation principle but also showed that domain/model coverage is not automatically a replacement for UI reachability. The corrected first tranche therefore keeps thin UI/data-flow owners for Case Images information architecture, post-curation Original reassignment, the unified taxonomy staged-review/apply flow, and Case Library workflow wiring while leaving deep semantics under stronger helper/model/server/DB tests. The second tranche applies the same rule to the separate Admin Topic/System form contract: direct DB-backed taxonomy authoring tests own stale-Primary-Topic rejection semantics, while source/data-flow checks retain the creation, composition, product-vocabulary, and Case-editor action reachability that those semantic tests do not prove.
+PR #115 has implemented three bounded source-contract consolidation tranches, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A's selection architecture, Checkpoint 2B's central change-aware specialized-CI mechanism, Checkpoint 2C's named production-operator ownership, Checkpoint 2D's six safe specialized omissions with the corrected slide-review production dependency boundary, and Checkpoint 3's explicit retention review for the two intentional UX regressions plus the focused hardening of the horizontal-overflow owner required by independent review. Independent review of the first consolidation tranche confirmed the core consolidation principle but also showed that domain/model coverage is not automatically a replacement for UI reachability. The corrected first tranche therefore keeps thin UI/data-flow owners for Case Images information architecture, post-curation Original reassignment, the unified taxonomy staged-review/apply flow, and Case Library workflow wiring while leaving deep semantics under stronger helper/model/server/DB tests. The second tranche applies the same rule to the separate Admin Topic/System form contract. The third tranche applies it to local Wrangler authority: executable preview-plan semantics move to `local-runtime.test.js`, while the local-auth script and local-preview wrapper retain only the source/architecture boundaries not proven by that behavioral owner.
 
 Checkpoint 1 aligned ordinary D1-backed current-runtime fixtures with the current supported schema without converting genuine migration tests into current-schema tests. The canonical bootstrap is `test/current-schema.js`, which discovers the complete numbered migration set in deterministic order. Historical application states remain representable as data inside the current schema; historical schemas remain only where migration/upgrade behavior is itself the subject under test.
 
@@ -603,7 +605,7 @@ Examples include:
 
 - Preview deployment ownership/configuration boundaries;
 - Stimulus Family façade dependency direction and public identity;
-- Wrangler authority / repository-pinned invocation rules;
+- repository-installed Wrangler authority / wrapper delegation rules;
 - resumable-import runtime structure and side-effect ordering;
 - selected Windows/process invocation contracts.
 
@@ -648,7 +650,7 @@ This tranche therefore removes implementation-detail duplication while retaining
 
 ### Second bounded consolidation tranche — Admin Topic/System form
 
-The next Checkpoint 4 tranche is deliberately limited to `test/admin-topics-form-contract.test.js`; it does not reopen the already-corrected Taxonomy workspace tranche and does not begin Checkpoint 5.
+The second Checkpoint 4 tranche is deliberately limited to `test/admin-topics-form-contract.test.js`; it does not reopen the already-corrected Taxonomy workspace tranche and does not begin Checkpoint 5.
 
 The assertion-level disposition is:
 
@@ -675,22 +677,45 @@ The final review pass found three additional cross-file gaps:
 
 No removed assertion was restored by either review pass. The source contract is thinner in semantic duplication but stronger and more explicit about its actual UI/action integration ownership.
 
+### Third bounded consolidation tranche — Wrangler/local-preview authority
+
+The third Checkpoint 4 tranche is deliberately limited to `test/wrangler-authority-contract.test.js`.
+
+The assertion-level disposition is:
+
+- **Removed — duplicate:** raw source matching over `scripts/local-runtime-lib.mjs` for the repository Wrangler path, `process.execPath`, local D1 migration arguments, and absence of `npx`/inline Wrangler version drift. `test/local-runtime.test.js` is the stronger owner because it imports `wranglerCli` and `createLocalPreviewPlan()` and asserts the exact constructed path, exact migration and serve commands/arguments, local-only flags, and absence of drift in the resulting plan.
+- **Removed — duplicate within the same owner:** the specific `npx ... wrangler@<version>` negative assertion in the local-auth half was strictly subsumed by the surviving `wrangler@<version>` prohibition.
+- **Retained — architecture/operational authority:** the local auth smoke must resolve the CLI from repository `node_modules`, invoke it through `process.execPath` for both synchronous Wrangler commands and the spawned dev worker, verify it with `--version`, and contain no inline Wrangler version pin. The actual `authSmoke` command remains a full-validation runtime check, so this fast source owner is still the strongest cheap Draft guard of its invocation structure.
+- **Retained/hardened — wrapper integration:** `local-preview.mjs` must construct one `createLocalPreviewPlan()`, run the plan's build and migration steps, and launch the plan's serve command/args. It must contain no `npx` or Wrangler authority token of its own. The exact plan semantics are no longer duplicated in this source test.
+- **Retained — repository dependency authority:** the package must declare a concrete semver Wrangler dependency so the repository-local CLI path has an installed owner.
+
+Independent review found and corrected two issues:
+
+1. the initial wrapper guard rejected `npx`, `wranglerCli`, and a quoted bare `wrangler`, but could miss a differently constructed direct Wrangler path. The final guard expresses the stronger intended wrapper invariant: `local-preview.mjs` contains no `npx` or Wrangler authority token at all and delegates execution solely through the tested plan;
+2. the local-auth half still contained a narrow negative assertion already subsumed by the broader inline-version prohibition. That assertion was removed rather than retaining duplicate source checks.
+
+No runtime script, package dependency, validation rule, fast exclusion, schema, migration, application/domain behavior, or production resource changed in this tranche.
+
+### Inventory corrections and explicit retain decisions
+
+This review also corrected the candidate inventory rather than treating filenames as evidence:
+
+- `test/content-import-safety-contract.test.js` directly executes reviewed-package parsing/validation behavior. It is a behavioral safety test, not a primary source/UI contract candidate. It remains unchanged and in fast coverage.
+- `test/resumable-import-contract.test.js` is mixed. Its source portions protect deliberate operational architecture: the exact submitted ZIP digest must be rejected before job creation when it differs from the successful preview digest, and the bounded resumable engine must not fall back to the legacy monolithic validation/import path. Its third assertion is a genuine migration upgrade contract. `test/resumable-content-import.test.js` strongly owns chunking, persistence, leases, idempotency and related runtime semantics but does not replace those route/order boundaries. Final disposition: **RETAIN**.
+
 ### Remaining primary source/UI contract inventory
 
-The remaining inventory distinguishes primary source/UI/configuration contracts from mixed behavioral tests that merely read source or migrations as setup. Naming a file here is not authorization to remove it.
+Already reviewed under the first three Checkpoint 4 tranches or Checkpoint 3, explicitly retained above, or identified as behavioral rather than source-contract candidates are excluded from this pending list.
 
 **Architecture/safety/workflow structure — pending separate stronger-owner review, default `KEEP`:**
 
 ```text
 test/admin-editor-preview-contract.test.js
-test/content-import-safety-contract.test.js
 test/preview-deployment-contract.test.js
-test/resumable-import-contract.test.js
 test/stimulus-family-facade-contract.test.js
-test/wrangler-authority-contract.test.js
 ```
 
-These map to the deliberate architecture/safety class above: Production/Preview named-action ownership, import safety structure, Preview deployment ownership, resumable runtime ordering, Stimulus Family façade direction/public identity, and repository-pinned Wrangler authority. Source/configuration structure can itself be the protected invariant.
+These map to Production/Preview named-action ownership, Preview deployment ownership, and Stimulus Family façade direction/public identity. Source/configuration structure can itself be the protected invariant.
 
 **UI behavior expressed through source — pending Checkpoint 5-style rewrite decision:**
 
@@ -700,7 +725,7 @@ test/admin-case-editor-responsive-contract.test.js
 
 The responsive Case-editor contract is already a Checkpoint 5 candidate for preserving one logical editor tree and presentation-only layout switching while reducing exact implementation-token coupling. This Checkpoint 4 tranche does not start that rewrite or weaken those invariants.
 
-The already-reviewed first Checkpoint 4 families and the two Checkpoint 3 width/overflow contracts are intentionally excluded from this pending inventory. Additional Checkpoint 4 consolidation requires another bounded stronger-owner review.
+Additional Checkpoint 4 consolidation requires another bounded stronger-owner review.
 
 ### D. Checkpoint 3: intentional UX regressions retained after stronger-owner review
 
@@ -882,7 +907,8 @@ For either operator family and for the three slide-review production compatibili
 | --- | --- |
 | learner/question/reusable behavior | KEEP IN FAST |
 | Stimulus Family semantics | KEEP IN FAST |
-| imports/resumable safety | KEEP IN FAST |
+| imports/resumable safety | KEEP IN FAST; `resumable-import-contract.test.js` explicitly retained after stronger-owner review |
+| reviewed content-import safety | KEEP IN FAST; `content-import-safety-contract.test.js` is behavioral validation coverage, not a source-cleanup candidate |
 | Preview/auth/ownership | KEEP IN FAST |
 | Asset/R2 safety | KEEP IN FAST |
 | schema/migration/taxonomy behavior | KEEP IN FAST unless measured evidence and safe conditional ownership justify otherwise |
@@ -890,6 +916,7 @@ For either operator family and for the three slide-review production compatibili
 | deliberate architecture/source contracts | KEEP |
 | PR104/taxonomy/Case Images duplicated source contracts | CONSOLIDATE; first corrected tranche implemented in PR #115 |
 | Admin Topic/System form source contract | SECOND BOUNDED CHECKPOINT 4 TRANCHE: remove incidental copy + duplicated writer-error assertion; retain/harden creation form/action wiring, composition, retired/current vocabulary, top-level-System normalization, and Case-editor writer delegation/payload reachability |
+| Wrangler/local-preview authority contract | THIRD BOUNDED CHECKPOINT 4 TRANCHE: move local-preview plan semantics to direct `local-runtime.test.js`; retain local-auth repository-Wrangler invocation and hardened local-preview plan-delegation architecture |
 | responsive/editor/control source contracts with real behavior | REWRITE/CONSOLIDATE, preserve invariant; Case-editor responsive contract remains pending Checkpoint 5 decision |
 | Shared Questions width regression | RETAINED IN CHECKPOINT 3; current source contract remains strongest cheap practical owner |
 | application horizontal-overflow regression | RETAINED IN CHECKPOINT 3; source owner hardened after review to constrain the declaration to the `body` rule |
@@ -937,9 +964,9 @@ The defensible cleanup strategy is:
 5. give production operators named conditional ownership;
 6. activate only the six reviewed specialized exclusions after their complete changed-path ownership is proven, including cross-boundary dependencies of excluded contracts;
 7. preserve intentional UX regressions while replacing brittle assertion forms only when a demonstrably stronger practical owner exists, and harden retained source owners when independent review finds false-green paths;
-8. consolidate duplicated source contracts in bounded stronger-owner tranches without confusing server/domain semantics with UI reachability;
+8. consolidate duplicated source contracts in bounded stronger-owner tranches without confusing executable semantics with wrapper/UI/architecture reachability;
 9. profile remaining runtime before trading away high-value coverage or adding exclusions.
 
-PR #115 remains Draft. It now contains two bounded corrected source-contract consolidation tranches, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions with the independent-review slide-review dependency correction, and Checkpoint 3's completed review of the two intentional UX regressions. The second Checkpoint 4 tranche is limited to `admin-topics-form-contract.test.js`: it removes one incidental copy assertion and one duplicated writer-error source assertion, retains semantic vocabulary and UI/action reachability, and hardens the surviving source owner across two independent-review passes covering six false-green or cross-file wiring gaps. Broader Checkpoint 4 work remains pending. Checkpoint 5, Checkpoint 6, application behavior changes, schema/migration changes, production mutation, a seventh exclusion, and fast-tier latency claims remain outside this tranche.
+PR #115 remains Draft. It now contains three bounded corrected source-contract consolidation tranches, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions with the independent-review slide-review dependency correction, and Checkpoint 3's completed review of the two intentional UX regressions. The third Checkpoint 4 tranche is limited to `wrangler-authority-contract.test.js`: it removes four duplicated `local-runtime-lib.mjs` source assertions plus one redundant local-auth negative assertion, retains the local-auth repository-installed Wrangler authority, and hardens the local-preview wrapper so it delegates build/migrate/serve execution to `createLocalPreviewPlan()` without owning any Wrangler invocation of its own. The inventory review also reclassifies `content-import-safety-contract.test.js` as behavioral coverage and explicitly retains `resumable-import-contract.test.js`. Broader Checkpoint 4 work remains pending. Checkpoint 5, Checkpoint 6, application behavior changes, schema/migration changes, production mutation, a seventh exclusion, and fast-tier latency claims remain outside this tranche.
 
-Corrective Checkpoint 2D implementation run #1303 on head `4aa59b30b4197fba22240a61d76daa480b6902cf` remains the executable post-review 2D evidence: 110 complete / 104 selected / 6 excluded; 629/629 fast-selected tests; 0 Svelte errors / 5 existing warnings; ECG 6/6; taxonomy 3/3; slide-review 23/23; slide-review build passed; repository CI validation passed. Runtime-smoke run #134 also passed. The second bounded Checkpoint 4 tranche requires green exact-head Draft CI after its corrected test and documentation changes; its final exact-head result belongs in the implementation handoff rather than being pre-stated here.
+Corrective Checkpoint 2D implementation run #1303 on head `4aa59b30b4197fba22240a61d76daa480b6902cf` remains the executable post-review 2D evidence: 110 complete / 104 selected / 6 excluded; 629/629 fast-selected tests; 0 Svelte errors / 5 existing warnings; ECG 6/6; taxonomy 3/3; slide-review 23/23; slide-review build passed; repository CI validation passed. Runtime-smoke run #134 also passed. The third bounded Checkpoint 4 tranche requires green exact-head Draft CI after its corrected test and documentation changes; its final exact-head result belongs in the implementation handoff rather than being pre-stated here.
