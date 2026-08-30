@@ -12,8 +12,10 @@ This file supplements the repository-wide `AGENTS.md` for `scripts/`.
 - Keep diagnostics read-only unless their command is explicitly an operator mutation command.
 - Keep `agent:checks` classification deterministic and repository-specific. Extend the explicit path/capability rules and focused tests instead of adding fuzzy inference or a generic configuration DSL.
 - Keep ordinary validation commands in the shared repository validation contract so local `validate:*` and PR CI cannot silently drift. `scripts/validate-ci.mjs` is the CI-specific wrapper: preserve its PR diff override, GitHub grouping/annotations, and Node-test diagnostics while allowing GitHub Actions to select the shared `fast` or `full` mode. Omitted CI mode should remain fail-safe/backward-compatible as `full`; invalid explicit modes must fail as configuration errors.
+- Preserve `scripts/ci-test-reporter.mjs` as the ordinary-CI Node-test presentation layer. `npm test` must remain the canonical `node --test` command; the CI wrapper alone adds the reporter. Keep the reporter event-driven from structured `node:test` events, compact successful progress, one final summary, end-of-run failure collection with name/location/failureType/error/code/operator/expected/actual/useful stack, and GitHub file/line annotations. Do not reintroduce buffered TAP/spec/dot parsing or per-success TAP records in ordinary CI logs.
+- Preserve the connector-readable `CI_ERROR|`, `CI_REPRO|`, and `CI_STATUS|` plain-text records documented in `docs/CI_AGENT_DIAGNOSTICS.md`. They supplement GitHub annotations and are the stable lookup surface for remote coding agents; do not replace real structured Node failures with a generic wrapper error.
 - Specialized runtime and slide-review checks remain conditional rather than becoming universal ordinary PR CI.
 
-Read `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`, `docs/LOCAL_DEVELOPMENT_REPLICA.md`, and `docs/CLOUDFLARE.md` when relevant.
+Read `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`, `docs/CI_AGENT_DIAGNOSTICS.md`, `docs/LOCAL_DEVELOPMENT_REPLICA.md`, and `docs/CLOUDFLARE.md` when relevant.
 
 Tool/runtime changes require focused tests and `npm run runtime:smoke` in addition to normal validation when the changed-file contract identifies them as runtime-sensitive.
