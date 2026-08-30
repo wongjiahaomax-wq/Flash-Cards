@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, and three bounded Checkpoint 4 source-contract consolidation tranches implemented in Draft PR #115
+Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, and four bounded Checkpoint 4 source-contract consolidation tranches implemented in Draft PR #115
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, and three bounded corrected source-contract consolidation tranches described under Checkpoint 4. It does **not** implement the whole cleanup plan or complete Checkpoint 4. Broader behavioral rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, and four bounded corrected source-contract consolidation tranches described under Checkpoint 4. It does **not** implement the whole cleanup plan or complete Checkpoint 4. Broader behavioral rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -871,7 +871,7 @@ Satisfied after the review correction:
 
 ## Checkpoint 4 — Consolidate duplicated source/UI contracts
 
-**Status: three bounded corrected tranches implemented in Draft PR #115; broader Checkpoint 4 remains pending.**
+**Status: four bounded corrected tranches implemented in Draft PR #115; broader Checkpoint 4 remains pending.**
 
 ### Objective
 
@@ -1012,7 +1012,41 @@ Independent review corrected two issues before tranche completion:
 
 No runtime script, package dependency, validation architecture, fast exclusion, schema, migration, application/domain behavior, or production resource changed in this tranche.
 
-### Inventory corrections and explicit retain decisions from this review
+### Fourth bounded tranche — Admin/Preview Case-editor parity contract
+
+The fourth independently reviewable Checkpoint 4 tranche is limited to:
+
+```text
+test/admin-editor-preview-contract.test.js
+```
+
+It keeps the source/architecture boundaries that make the real production Admin Case editor safely reusable in Preview, while removing duplicated image-question UI assertions already owned elsewhere.
+
+Removed/consolidated assertions:
+
+- **Duplicate UI vocabulary/workflow:** the `ImageQuestionCounts` source assertions for `Case-specific Image Questions`, `Reusable Image Questions`, and `Manage questions`. `test/reusable-image-question-card-counts.test.js` is the stronger surviving owner: it directly owns the reusable count semantics, the Case-specific/Reusable component vocabulary, the Manage-questions reveal/focus behavior, and Preview isolation from production reusable-question mutation controls.
+- **Incidental implementation detail:** the exact `let reusableTotal = $derived(reusable?.total ?? 0)` implementation assertion. User-visible reusable count semantics remain under the dedicated reusable-image-question suite; the particular Svelte derived-variable spelling is not a product invariant.
+- **Incidental copy:** the literal `Applies to:` label. The meaningful scope choices and their target wiring remain protected independently.
+
+Retained/hardened thin ownership:
+
+- **Production-editor composition:** Preview must import the production Admin Case editor, bind its Preview alias to that imported component, and render exactly one `<PreviewCaseEditor>` rather than silently drifting to a copied UI. The alias assertion deliberately does not freeze the current JSDoc cast comment.
+- **Named-action parity:** every named form action reachable from the shared Admin Case editor/component family must have a Preview adapter action, so component extraction cannot create an unhandled Preview form submission.
+- **Loader-data parity:** every top-level `data.*` key read by the shared Admin Case editor wrapper must be supplied by `loadPreviewCaseEditor()`.
+- **Serialization reachability:** critical form field names remain present after component extraction because the Preview adapter and production actions rely on the same submitted contract.
+- **Question-scope reachability:** the UI still exposes `This whole Case` versus `A specific image / stimulus`, including `fixed:<assetId>` and `option:<optionId>` targets. Production uses the dedicated `/admin/cases/<id>/question-scope` route while Preview uses its named `?/saveQuestion` adapter instead of gaining a production question-scope route.
+- **Route delegation:** the production question-scope route must actually `await moveCaseQuestionToStimulusTarget(...)` and `await saveQuestionAtScope(...)`; imports alone cannot satisfy the contract. Deep move/save semantics remain owned by `test/question-scope.test.js` and related DB-backed tests.
+- **Preview Study isolation:** the shared editor continues to suppress learner Study navigation in Preview and communicates that Study is production-only.
+
+Independent review corrected three precision/ownership issues before tranche completion:
+
+1. the original composition assertion could false-green when `AdminCaseEditor` was imported but never rendered. The final owner ties the Preview alias to the imported component and requires exactly one rendered `<PreviewCaseEditor>`;
+2. generic question-scope writer-symbol assertions could pass on imports alone. They now require actual awaited writer calls from the production route;
+3. an intermediate alias assertion froze the current `/** @type {any} */` cast syntax. It was relaxed to protect the alias-to-production-component relationship without converting the cast comment into a new implementation lock. The same review removed the non-semantic `Applies to:` copy assertion while retaining both scope choices and their target values.
+
+No Preview/production runtime route, shared editor component, DB/domain code, schema/migration, validation architecture, fast exclusion, deployment configuration, or production resource changed in this tranche.
+
+### Inventory corrections and explicit retain decisions from prior review
 
 The filename `contract` is not itself evidence that a test belongs in source-contract cleanup.
 
@@ -1021,17 +1055,16 @@ The filename `contract` is not itself evidence that a test belongs in source-con
 
 ### Remaining primary source/UI contract inventory after this tranche
 
-Already reviewed under the first three Checkpoint 4 tranches or Checkpoint 3, explicitly retained during this review, or identified as behavioral rather than source-contract candidates are excluded from this pending list.
+Already reviewed under the first four Checkpoint 4 tranches or Checkpoint 3, explicitly retained during prior review, or identified as behavioral rather than source-contract candidates are excluded from this pending list.
 
 **Architecture / safety / workflow structure — default disposition remains keep unless a later stronger-owner review proves otherwise:**
 
 ```text
-test/admin-editor-preview-contract.test.js
 test/preview-deployment-contract.test.js
 test/stimulus-family-facade-contract.test.js
 ```
 
-These protect Production/Preview action ownership, Preview deployment ownership, and Stimulus Family façade direction/public identity. Their source/configuration structure can itself be the invariant; this inventory is **not** authorization to remove them.
+These protect Preview deployment ownership and Stimulus Family façade direction/public identity. Their source/configuration structure can itself be the invariant; this inventory is **not** authorization to remove them.
 
 **UI behavior expressed through source — pending separate review/rewrite decision:**
 
@@ -1053,7 +1086,7 @@ For every removed assertion:
 - preserve distinct UI reachability/integration where no stronger owner exists;
 - avoid deleting solely because regex/source inspection is aesthetically undesirable.
 
-The third bounded tranche satisfies those criteria for the Wrangler/local-preview assertions above; it does not imply broader Checkpoint 4 completion.
+The fourth bounded tranche satisfies those criteria for the Admin/Preview Case-editor parity assertions above; it does not imply broader Checkpoint 4 completion.
 
 ---
 
@@ -1221,7 +1254,7 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, and three bounded corrected source-contract consolidation tranches under Checkpoint 4. Do not infer that the rest of Checkpoint 4 or any later checkpoint has started merely because its design remains documented here.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, and four bounded corrected source-contract consolidation tranches under Checkpoint 4. Do not infer that the rest of Checkpoint 4 or any later checkpoint has started merely because its design remains documented here.
 
 ### Completed fixture, selection, and UX-contract foundation
 
@@ -1231,7 +1264,7 @@ PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoi
 - Checkpoint 2C — named ECG/taxonomy production-operator checks and exact central path ownership — is implemented.
 - Checkpoint 2D — exactly six specialized fast-test exclusions — is implemented with complete-suite inclusion, related-Draft ownership, and the explicit slide-review production compatibility dependencies contract-tested.
 - Checkpoint 3 — both intentional UX regressions were investigated and retained because no stronger cheap/reliable layout-capable owner exists; independent review then tightened the retained horizontal-overflow source owner so it cannot falsely pass on a later selector's declaration. Neither product invariant was retired.
-- Checkpoint 4 — the corrected first tranche, the bounded Admin Topic/System form tranche, and the bounded Wrangler/local-preview authority tranche are implemented; all other source/UI families remain pending unless explicitly listed as reviewed/retained above.
+- Checkpoint 4 — the corrected first tranche, the bounded Admin Topic/System form tranche, the bounded Wrangler/local-preview authority tranche, and the bounded Admin/Preview Case-editor parity tranche are implemented; all other source/UI families remain pending unless explicitly listed as reviewed/retained above.
 
 ### Fast-tier boundary after Checkpoint 2D
 
@@ -1273,7 +1306,7 @@ Specific gates:
 
 **Checkpoint 3:** satisfied after independent-review correction: both protected product invariants remain intentional and both dispositions remain `RETAIN`; no stronger cheap/reliable layout owner exists; the Shared Questions contract remains unchanged; the horizontal-overflow contract was tightened to extract the `body` rule before asserting `overflow-x: hidden`, eliminating the reviewed cross-rule false-green case. No production/UI code, schema, CI architecture, exclusion, or application/domain behavior changed. Exact-head Draft CI is the final execution gate after the corrected test and documentation changes.
 
-**Checkpoint 4:** the three bounded implemented tranches satisfy the ownership rule for their removed assertions. The Wrangler/local-preview tranche removes duplicated raw `local-runtime-lib.mjs` assertions only because `test/local-runtime.test.js` directly owns the same constructed-plan semantics, keeps the local-auth invocation structure and local-preview delegation boundary as thin fast source owners, and incorporates the two independent-review corrections above. The final local-auth owner independently forbids both `npx` and inline Wrangler version pins. `content-import-safety-contract.test.js` is explicitly behavioral rather than a source-cleanup candidate; `resumable-import-contract.test.js` is explicitly retained after stronger-owner review. Broader Checkpoint 4 remains pending; every future removal still requires an explicit stronger owner or retirement, and distinct UI reachability/architecture/product vocabulary must remain protected where applicable.
+**Checkpoint 4:** the four bounded implemented tranches satisfy the ownership rule for their removed assertions. The Admin/Preview Case-editor tranche removes only image-question UI/workflow assertions with a demonstrably stronger surviving owner and one incidental copy/implementation lock; it retains and hardens production-editor composition, action/data/form parity, question-scope reachability, actual route delegation, and Preview Study isolation. The Wrangler/local-preview tranche continues to keep local-auth invocation and local-preview delegation as thin fast owners while direct executable-plan tests own command semantics. `content-import-safety-contract.test.js` remains explicitly behavioral rather than a source-cleanup candidate; `resumable-import-contract.test.js` remains explicitly retained after stronger-owner review. Broader Checkpoint 4 remains pending; every future removal still requires an explicit stronger owner or retirement, and distinct UI reachability/architecture/product vocabulary must remain protected where applicable.
 
 **Checkpoint 6:** runtime claim backed by comparable CI medians.
 
