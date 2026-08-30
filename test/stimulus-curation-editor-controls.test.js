@@ -98,7 +98,7 @@ function attribute(tag, name) {
   return null;
 }
 
-/** @param {string} value @param {string} message */
+/** @param {string | null} value @param {string} message @returns {string} */
 function required(value, message) {
   assert.ok(value, message);
   return value;
