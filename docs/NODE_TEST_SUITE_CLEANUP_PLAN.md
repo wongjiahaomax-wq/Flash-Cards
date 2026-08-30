@@ -1,10 +1,12 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan revised after independent review / implementation not started
+Status: implementation plan active / first source-contract consolidation tranche implemented in Draft PR #115
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 remains audit/planning only. It does not implement this work.
+PR #115 now contains the first corrected source-contract consolidation tranche described under Checkpoint 4. It does **not** implement the whole cleanup plan. Current-schema fixture normalization, fast-tier selection, change-aware CI specialization, production-operator specialization, broader behavioral rewrites, profiling, and the remaining durable-guidance work are still pending.
+
+Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
 ## 1. Goals
 
@@ -32,6 +34,7 @@ The implementation must not:
 - statically exclude a specialized test from Draft CI when related changes can pass without running an equivalent specialized check;
 - treat `agent:checks` advisory output as if ordinary CI had executed those checks;
 - remove a regression test merely because its assertion is source-based without identifying the protected product/architecture invariant;
+- treat domain coverage as an automatic substitute for a distinct UI-reachability or integration invariant;
 - remove safety-critical coverage simply because it sounds integration-heavy or DB-heavy;
 - narrow broad `npm run check` without separate evidence;
 - restore permanent historical-schema probing/fallbacks in runtime code merely to satisfy stale fixtures;
@@ -98,13 +101,13 @@ Tests distinguish:
 
 Prefer the strongest cheap owner of an invariant:
 
-1. domain/helper behavior;
-2. server/action/query behavior;
-3. rendered/component behavior;
-4. architecture/configuration source contract where structure itself is the invariant;
+1. domain/helper behavior for pure semantics;
+2. server/action/query behavior for server-owned semantics;
+3. rendered/component behavior for user-observable reachability where practical;
+4. a thin source/data-flow contract when UI wiring or architecture structure itself is the invariant and no stronger cheap rendered owner exists;
 5. raw implementation text only when no stronger practical owner exists and the regression intent is still important.
 
-Source-reading is not automatically bad; exact implementation text is not automatically disposable.
+A stronger semantic owner only replaces the semantic part of a source test. It does not automatically replace user-facing composition, control reachability, form/action wiring, or semantic product vocabulary.
 
 ## 4. Implementation sequence
 
@@ -114,15 +117,13 @@ The work is ordered so diagnostics and test validity are stable before performan
 
 ## Checkpoint 0 — Compact CI Node-test diagnostics
 
+**Status: implemented separately on current `main` by PR #117; no additional Checkpoint 0 implementation is part of PR #115.**
+
 ### Objective
 
 Make failures obvious without changing what tests execute.
 
-### Current problem
-
-`scripts/validate-ci.mjs` captures Node-test output and then writes the entire captured stdout/stderr back into the Actions log. With hundreds of tests, failures are buried among successful TAP records.
-
-### Required design
+### Durable design
 
 Keep:
 
@@ -132,52 +133,22 @@ npm test = node --test
 
 unchanged.
 
-Add CI-specific compact reporting.
+CI-specific presentation should:
 
-Recommended approach:
-
-- repository-owned CI reporter, e.g. `scripts/node-test-ci-reporter.mjs`;
-- consume Node test events/custom reporter API for structured diagnostics;
-- do not parse human `dot`/`spec` text as a stable API;
-- compact passing progress;
+- consume structured Node test events rather than parse human TAP/spec/dot text;
+- keep passing output compact;
 - print failures conspicuously near the end;
 - preserve child-process exit status exactly;
-- preserve/improve GitHub `::error` annotations.
+- retain test name, source location, error/message, expected/actual and useful stack details where available;
+- preserve GitHub annotations and connector-readable failure/reproduction records.
 
-### Failure information to retain
-
-Where supplied by Node:
-
-- test name;
-- source file/line;
-- error type/message;
-- expected/actual;
-- useful stack frames;
-- final pass/fail/total summary.
-
-### Contract tests
-
-Prove:
-
-- passes are compact;
-- one failure is clearly rendered;
-- multiple failures are separated;
-- location is retained when present;
-- missing optional fields do not break reporting;
-- final counts are correct;
-- reporter output does not alter process status.
-
-### Acceptance criteria
-
-- same test set before/after;
-- `npm test` unchanged;
-- successful CI output dramatically shorter;
-- deliberately failing reporter fixture makes the failure immediately visible;
-- no unstable human reporter parsing.
+The current repository implementation lives in the PR #117 CI reporter/wrapper changes and is now baseline context for later checkpoints.
 
 ---
 
 ## Checkpoint 1 — Current-schema fixture normalization
+
+**Status: pending. Not in the current PR #115 tranche.**
 
 ### Objective
 
@@ -226,6 +197,8 @@ Valid examples:
 ---
 
 ## Checkpoint 2A — Introduce `test:fast` infrastructure with no coverage reduction
+
+**Status: pending. Not in the current PR #115 tranche.**
 
 ### Objective
 
@@ -293,7 +266,7 @@ full:
 
 Workflow YAML remains orchestration only.
 
-`validate-ci.mjs` must use compact reporting for both `test` and `testFast`.
+`validate-ci.mjs` must preserve the current compact reporter behavior for both `test` and `testFast`.
 
 ### Contract tests
 
@@ -317,6 +290,8 @@ Prove:
 ---
 
 ## Checkpoint 2B — Make ordinary CI change-aware for specialized checks
+
+**Status: pending. Not in the current PR #115 tranche.**
 
 ### Objective
 
@@ -397,6 +372,8 @@ Prove at minimum:
 
 ## Checkpoint 2C — Add named production-operator checks
 
+**Status: pending. Not in the current PR #115 tranche.**
+
 ### Objective
 
 Give the two production-operator tests safe conditional ownership before they can leave unrelated Drafts.
@@ -463,6 +440,8 @@ must require the matching operator test in ordinary CI.
 
 ## Checkpoint 2D — Activate safe exclusions for unrelated Drafts
 
+**Status: pending. Not in the current PR #115 tranche.**
+
 ### Objective
 
 Only now reduce generic Draft test coverage for specialized families.
@@ -505,6 +484,8 @@ If that property cannot be proven, leave the relevant test in generic fast.
 ---
 
 ## Checkpoint 3 — Review the two intentional UX regression contracts
+
+**Status: pending. The first PR #115 consolidation tranche intentionally leaves both existing tests unchanged.**
 
 ### Objective
 
@@ -583,44 +564,79 @@ No silent deletion.
 
 ## Checkpoint 4 — Consolidate duplicated source/UI contracts
 
+**Status: first corrected tranche implemented in Draft PR #115; additional consolidation is not implied.**
+
 ### Objective
 
-Reduce repeated source assertions while keeping unique behavior.
+Reduce repeated source assertions while keeping unique behavior and UI reachability.
 
-### Case Library PR104 family
+### Ownership rule for this checkpoint
 
-Review `admin-case-library-pr104-ui.test.js` against functional owners for:
+For every removed assertion, classify it as:
 
-- filtering;
-- state persistence;
-- topic authoring;
-- classification.
+1. duplicate — stronger owner exists;
+2. UI reachability/integration — keep a thin owner;
+3. semantic product vocabulary — keep if intentional;
+4. incidental implementation detail — safe to remove;
+5. explicitly retired product invariant — remove only with an explicit decision.
 
-Keep unique interaction/data-flow guarantees. Remove exact expression/CSS/copy assertions only where a stronger owner exists.
+A model/DB test that proves a mutation works does not prove that an Admin can reach that mutation through the intended UI.
 
-### Taxonomy Admin family
+### Corrected PR #115 tranche
 
-Review together:
+#### Case Library PR104 family
 
-- `admin-taxonomy-workspace-contract.test.js`;
-- `admin-taxonomy-case-tag-contract.test.js`;
-- `admin-topics-form-contract.test.js`;
-- taxonomy workspace/model/staging tests;
-- case primary-topic tests;
-- case-tag tests.
+`admin-case-library-pr104-ui.test.js` is consolidated against direct owners for filtering, state helpers, selection helpers and classification helpers.
 
-Mutation/preflight/hierarchy semantics should primarily live under domain/model/staging owners.
+The remaining thin source contract intentionally protects:
 
-### Case Images / Stimulus curation overlap
+- deliberate search/native Back-Forward restoration wiring;
+- page/sort/lifecycle links using the shared Case Library state model;
+- named mutation/query-context wiring into quick Topic and bulk Tag controls;
+- separate required bulk Primary Topic assignment versus global Topic hierarchy move forms, including selected Case payloads;
+- failed Topic-creation/normal-navigation integration with the shared selection reconciliation helper;
+- active-only classification editing, explicit global hierarchy-change reachability and canonical classification route delegation;
+- one mutually exclusive responsive bulk toolbar.
 
-Review together:
+Removed details include placeholder wording, incidental toolbar visual styling, status-display plumbing that is not a durable contract, and deep mutation implementation assertions already owned by direct server/domain tests.
 
-- `case-images-editor-layout.test.js`;
-- `stimulus-curation-editor-controls.test.js`;
-- `original-stimulus-semantics.test.js`;
-- `admin-image-workflow.test.js`.
+#### Taxonomy Admin family
 
-Domain role semantics belong to domain tests; UI tests should keep only genuinely user-observable authoring/navigation behavior.
+`admin-taxonomy-workspace-contract.test.js` remains the thin UI/integration owner for:
+
+- browse versus organize reachability;
+- hierarchy controls;
+- Case Primary Topic and Case Tag staging controls;
+- the shared staged review surface showing Topic hierarchy, Case Primary Topic and Case Tag changes;
+- the unified `?/applyWorkspace` form and route delegation to `applyStagedTaxonomyWorkspace`.
+
+`taxonomy-workspace-model.test.js`, `taxonomy-workspace-staging.test.js`, hierarchy/Primary-Topic staging tests and Case Tag model/staging tests remain the stronger owners for projection, stale-state validation, mutation semantics, batch limits and fail-before-write behavior.
+
+`test/admin-taxonomy-case-tag-contract.test.js` remains deleted: after the corrected workspace contract, its meaningful UI guarantees are explicitly owned there, while its semantics are directly owned by Case Tag model/staging tests.
+
+#### Case Images family
+
+`case-images-editor-layout.test.js` keeps focused user-observable information-architecture coverage rather than only a structural anchor. It intentionally protects:
+
+- the learner-visible image overview and linked Q&A;
+- role vocabulary: Original, Alternative, Always shown, Needs role where applicable;
+- question-scope vocabulary: Image-specific, Reusable, Shared across this image set;
+- access to Advanced image management;
+- role-based image-set vocabulary in the advanced surface;
+- the single canonical `#images` anchor.
+
+Deep role-selection/history/identity semantics remain under image/Stimulus domain tests. Incidental CSS/markup and negative vocabulary assertions are not restored solely to preserve the old regex shape.
+
+#### Stimulus curation family
+
+`stimulus-curation-editor-controls.test.js` remains a thin UI/workflow owner for:
+
+- initial Original/Alternative assignment;
+- post-curation selection of another eligible option as Original through `/admin/stimulus-roles` and the `set-original` path;
+- the current Original being excluded from the Move-to-Always-shown control until another Original is chosen;
+- Alternative-to-Always-shown reachability through `/admin/stimulus-supporting`.
+
+`original-stimulus-semantics.test.js`, `simple-stimulus-curation.test.js` and related Stimulus Family tests remain the stronger owners for mutation semantics, history, identity preservation, rollback and validation.
 
 ### Acceptance criteria
 
@@ -629,11 +645,14 @@ For every removed assertion:
 - identify the invariant;
 - identify stronger owner or explicit retirement;
 - preserve safety/domain meaning;
+- preserve distinct UI reachability/integration where no stronger owner exists;
 - avoid deleting solely because regex/source inspection is aesthetically undesirable.
 
 ---
 
 ## Checkpoint 5 — Behavioral rewrites by subsystem
+
+**Status: pending. Not in the current PR #115 tranche.**
 
 ### Candidate families
 
@@ -685,6 +704,8 @@ Preserve production scope, option/Asset identity, and mutation safety. Rewrite r
 
 ## Checkpoint 6 — Measure and profile runtime
 
+**Status: pending. Not in the current PR #115 tranche.**
+
 ### Required measurements
 
 Use at least three comparable CI runs and compare medians for:
@@ -733,6 +754,8 @@ Any new exclusion requires:
 
 ## Checkpoint 7 — Durable authoring and validation guidance
 
+**Status: pending apart from this plan/audit status reconciliation.**
+
 Update repository guidance so future tests follow the new architecture.
 
 Document:
@@ -740,7 +763,7 @@ Document:
 ### Test placement
 
 - `npm test` is complete;
-- new ordinary tests default to fast;
+- new ordinary tests default to fast once that infrastructure exists;
 - specialized exclusion requires explicit ownership and CI path coverage.
 
 ### Schema fixtures
@@ -752,6 +775,7 @@ Document:
 ### Contract hierarchy
 
 - behavior first;
+- UI reachability/integration remains a separate invariant where applicable;
 - architecture/config source test when structure itself matters;
 - raw implementation source lock only when justified and reviewed.
 
@@ -788,22 +812,17 @@ The cleanup must preserve effective regression coverage for:
 
 Broad `npm run check` remains in fast/full.
 
-## 6. Implementation PR strategy
+## 6. Implementation strategy after the current PR #115 tranche
 
-PR #115 remains planning-only.
+PR #115 contains only the corrected first source-contract consolidation tranche under Checkpoint 4, plus the audit/plan that justify later work. Do not infer that the following checkpoints have started merely because their design remains documented here.
 
-Recommended follow-up PRs:
+Recommended later implementation sequence:
 
-### Implementation PR 1 — diagnostics and fixture foundation
+### Fixture foundation
 
-Checkpoints:
+Checkpoint 1 — current-schema fixture normalization.
 
-- 0 — compact CI diagnostics;
-- 1 — current-schema fixture normalization.
-
-Keep independently reviewable commits inside the PR.
-
-### Implementation PR 2 — safe fast-tier infrastructure
+### Safe fast-tier infrastructure
 
 Checkpoints:
 
@@ -814,19 +833,15 @@ Checkpoints:
 
 Do not activate exclusions before the conditional safety tests are green.
 
-### Implementation PR 3 — UX/source-contract cleanup
+### Remaining UX/source-contract work
 
-Checkpoint 3 plus low-risk portions of Checkpoint 4.
+Checkpoint 3 and any further independently justified portions of Checkpoints 4/5.
 
-No unconditional deletion of the two UX regression tests.
-
-### Implementation PR 4+ — behavioral rewrites
-
-Split Checkpoint 5 by subsystem so regressions are independently reviewable.
+No unconditional deletion of the two intentional width/overflow UX regression tests.
 
 ### Profiling
 
-Run Checkpoint 6 after the safe fast-tier behavior is in place. Additional exclusions require separate measured justification.
+Run Checkpoint 6 only after safe fast-tier behavior exists. Additional exclusions require separate measured justification.
 
 ## 7. Review gates
 
@@ -840,7 +855,7 @@ Before each implementation checkpoint is considered complete:
 
 Specific gates:
 
-**Checkpoint 0:** deliberately failing reporter fixture is easy to diagnose.
+**Checkpoint 0:** already satisfied on current main by the separately merged PR #117 diagnostics work; preserve that contract.
 
 **Checkpoint 1:** no unsupported ordinary partial-schema fixture remains in the audited target set.
 
@@ -854,11 +869,13 @@ Specific gates:
 
 **Checkpoint 3:** each UX regression contract is replaced, retained, or explicitly retired—never silently deleted.
 
+**Checkpoint 4:** every removal has an explicit stronger owner or retirement, and distinct UI reachability/semantic vocabulary remains protected where applicable.
+
 **Checkpoint 6:** runtime claim backed by comparable CI medians.
 
 ## 8. Final target state
 
-The desired repository state is:
+The desired repository state remains:
 
 ```text
 npm test
@@ -885,8 +902,8 @@ At the same time:
 
 - CI logs make failures obvious;
 - ordinary runtime fixtures use supported current schema;
-- brittle contracts are consolidated without losing intentional regressions;
+- brittle contracts are consolidated without losing intentional regressions or UI workflow reachability;
 - safety-critical domain coverage remains strong;
 - performance decisions are evidence-driven rather than filename-driven.
 
-This is the implementation contract for follow-up work. PR #115 itself remains Draft, documentation-only, and unmerged.
+PR #115 remains Draft and currently implements only the first corrected source-contract consolidation tranche under Checkpoint 4. The later fixture, fast-tier, specialized-CI, broader rewrite and profiling checkpoints remain pending.

@@ -1,8 +1,10 @@
 # Test Suite Audit
 
-Status: audit revised after independent review / implementation not started
+Status: audit complete / first source-contract consolidation tranche implemented in Draft PR #115
 
-This document is the durable evidence record for PR #115. It audits the repository-wide Node test suite, `npm run check`, and the repository-owned validation architecture. It is planning evidence only; it does not implement cleanup.
+This document is the durable evidence record for PR #115. It audits the repository-wide Node test suite, `npm run check`, and the repository-owned validation architecture. The audit/planning work is complete, and this document now also records the first implemented source-contract consolidation tranche in the same Draft PR.
+
+That implementation is intentionally narrow. It does not mean the later fixture-normalization, fast-tier, change-aware CI specialization, broader behavioral rewrite, or profiling checkpoints have been implemented by PR #115.
 
 The implementation contract is `docs/NODE_TEST_SUITE_CLEANUP_PLAN.md`.
 
@@ -24,6 +26,8 @@ Two corrections from independent review materially change the recommended plan:
 
 1. **Static `test:fast` exclusions are unsafe with the current CI architecture.** The repository's path classifier knows about specialized slide-review checks, but `agent:checks` reports requirements; ordinary CI does not currently execute those change-aware requirements. The two production-operator tests do not even have named specialized checks today. Therefore the six proposed exclusions must remain in Draft coverage until CI itself can conditionally require their checks for related changes.
 2. **The two proposed unconditional UI-test removals were over-classified.** Both were introduced alongside deliberate UX fixes and protect intentional regression outcomes, albeit through brittle source assertions. They must be rewritten, retained, or consciously retired after confirming the product invariant; they are not automatic deletions.
+
+PR #115 has now implemented only the first source-contract consolidation tranche. Independent review of that tranche confirmed the core consolidation principle but also showed that domain/model coverage is not automatically a replacement for UI reachability. The corrected tranche therefore keeps thin UI/data-flow owners for Case Images information architecture, post-curation Original reassignment, the unified taxonomy staged-review/apply flow, and Case Library workflow wiring while leaving deep semantics under stronger helper/model/server/DB tests.
 
 The overall direction remains:
 
@@ -141,21 +145,17 @@ Important conclusion: deleting a few millisecond-scale source assertions cannot 
 
 ## 4. CI diagnostics problem
 
-`scripts/validate-ci.mjs` captures Node-test output so it can create GitHub annotations, but it then writes the captured stdout/stderr back into the CI log before emitting the compact error annotation.
+The original audit found that Node-test failures were difficult to locate in CI output. Current `main` now includes the separate PR #117 connector-readable/structured Node-test diagnostics work. That upstream change did not alter the complete-suite contract and is not part of PR #115's source-contract consolidation.
 
-With 635 tests, this makes failures difficult to locate among successful TAP records.
-
-Recommendation:
+The durable diagnostics requirements remain:
 
 - preserve the same executed tests;
 - keep `npm test` unchanged;
-- make CI presentation compact;
+- keep CI presentation compact;
 - use Node test events/custom reporter machinery for structured failure extraction;
 - do not parse `dot`/`spec` human reporter text as a programmatic API;
 - show failures prominently near the end with name, location, message, expected/actual when available, and useful stack;
-- preserve/improve GitHub `::error` annotations.
-
-This should be the first implementation checkpoint because it improves every subsequent debugging and benchmarking step.
+- preserve/improve GitHub `::error` annotations and connector-readable failure records.
 
 ## 5. Schema-fixture finding
 
@@ -226,6 +226,17 @@ Primary overlap clusters:
 - Case Images source/layout contracts versus stimulus/image domain semantics.
 
 Disposition: **CONSOLIDATE AROUND THE STRONGEST OWNER**.
+
+### First consolidation tranche implemented in Draft PR #115
+
+The first tranche applies the classification above without treating all source tests as disposable.
+
+- **Case Library:** direct state, selection and classification helpers own their pure semantics; DB/server tests own filtering/domain behavior. The thin source contract intentionally remains responsible for UI composition and reachability: deliberate navigation/restoration wiring, named-action/query-context wiring, selected-Case form payloads, retry reconciliation integration, classification/global-move reachability, and the single responsive bulk-action surface. Placeholder copy and incidental toolbar styling are not protected.
+- **Taxonomy workspace:** model/staging tests own hierarchy projection, Primary Topic/Case Tag semantics, stale-state validation and fail-before-write behavior. One thin source contract owns browse/organize reachability plus the unified staged review surface and its `applyWorkspace` delegation. The former standalone `admin-taxonomy-case-tag-contract.test.js` remains deleted because its Case Tag UI guarantees are explicitly present in the revised workspace contract and its mutation semantics remain covered by Case Tag model/staging tests.
+- **Case Images:** domain tests own image/Stimulus semantics. The UI contract still protects the learner-visible image overview, linked Q&A, role vocabulary (`Original`, `Alternative`, `Always shown`, `Needs role`), question-scope vocabulary (`Image-specific`, `Reusable`, `Shared across this image set`), Advanced image-management access, advanced image-set role vocabulary, and the canonical `#images` anchor. Negative assertions for retired incidental markup are not restored merely to preserve the old test shape.
+- **Stimulus curation:** `original-stimulus-semantics.test.js` and related domain tests own role mutation, identity/history and rollback behavior. The UI contract owns initial role assignment, post-curation `Use as Original` reachability through the canonical role route, and Alternative-to-Always-shown reachability only for non-Original options through the canonical conversion route.
+
+This tranche therefore removes implementation-detail duplication while retaining semantic product vocabulary and workflow reachability where no stronger rendered/UI owner exists.
 
 ### D. Corrected classification: intentional UX regressions expressed brittly
 
@@ -399,7 +410,7 @@ For example, `npm test` already covers the slide-review test files and operator 
 | schema/migration/taxonomy behavior | KEEP IN FAST unless measured evidence and safe conditional ownership justify otherwise |
 | Case Library functional/state tests | KEEP IN FAST |
 | deliberate architecture/source contracts | KEEP |
-| PR104/taxonomy/Case Images duplicated source contracts | CONSOLIDATE |
+| PR104/taxonomy/Case Images duplicated source contracts | CONSOLIDATE; first tranche partially implemented in PR #115 |
 | responsive/editor/control source contracts with real behavior | REWRITE/CONSOLIDATE, preserve invariant |
 | Shared Questions width regression | KEEP UNTIL REPLACED OR EXPLICITLY RETIRED |
 | application horizontal-overflow regression | KEEP UNTIL REPLACED OR EXPLICITLY RETIRED |
@@ -449,4 +460,4 @@ The defensible cleanup strategy is:
 7. consolidate duplicated source contracts;
 8. profile remaining runtime before trading away high-value coverage.
 
-PR #115 remains audit/planning only.
+PR #115 remains Draft and currently implements only the first source-contract consolidation tranche described above. Later cleanup/selection/fixture/performance checkpoints remain pending.
