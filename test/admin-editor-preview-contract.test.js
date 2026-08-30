@@ -45,6 +45,8 @@ function escapeRegExp(value) {
 
 test('Preview renders the real production Case editor rather than a copied UI', () => {
   assert.match(previewEditor, /import\s+AdminCaseEditor\s+from\s+["']\.\.\/\.\.\/\.\.\/admin\/cases\/\[caseId\]\/\+page\.svelte["']/);
+  assert.match(previewEditor, /const PreviewCaseEditor = \/\*\* @type \{any\} \*\/ \(AdminCaseEditor\);/);
+  assert.equal([...previewEditor.matchAll(/<PreviewCaseEditor\b/g)].length, 1);
 });
 
 test('every named action used by the shared Admin Case editor has a Preview adapter action', () => {
