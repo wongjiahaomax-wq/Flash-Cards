@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const MAINTAINED_TEST_FILE = /\.test\.(?:cjs|mjs|js)$/;
+const MAINTAINED_TEST_FILE = /(?:^|\/)(?:test|test-[^/]+|[^/]+(?:\.test|-test|_test))\.(?:cjs|mjs|js)$/;
 const IGNORED_DIRECTORIES = new Set([
   '.git',
   '.svelte-kit',
