@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url';
 
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MAINTAINED_TEST_FILE = /(?:^|\/)(?:test|test-[^/]+|[^/]+(?:\.test|-test|_test))\.(?:cjs|mjs|js)$/;
+const NON_TEST_TOOLING_FILES = new Set([
+  'scripts/test-fast.mjs',
+  'scripts/test-selection.mjs',
+]);
 const IGNORED_DIRECTORIES = new Set([
   '.git',
   '.svelte-kit',
@@ -30,6 +34,7 @@ function normalizeRepositoryPath(value) {
 export function isMaintainedNodeTestPath(file) {
   const normalized = normalizeRepositoryPath(file);
   if (!normalized || normalized.startsWith('../') || path.posix.isAbsolute(normalized)) return false;
+  if (NON_TEST_TOOLING_FILES.has(normalized)) return false;
   const segments = normalized.split('/');
   if (segments.some((segment) => IGNORED_DIRECTORIES.has(segment))) return false;
   return MAINTAINED_TEST_FILE.test(normalized);
