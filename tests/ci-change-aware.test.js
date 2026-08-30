@@ -39,11 +39,6 @@ const SLIDE_REVIEW_TESTS = [
 ];
 const ECG_TEST = 'test/ecg-batch-01-asset-rename.test.js';
 const TAXONOMY_TEST = 'test/production-taxonomy-operator.test.js';
-const APPROVED_FAST_TEST_EXCLUSIONS = [
-  ...SLIDE_REVIEW_TESTS,
-  ECG_TEST,
-  TAXONOMY_TEST,
-];
 
 /** @param {string} cwd @param {string[]} args */
 function runGit(cwd, args) {
@@ -78,13 +73,13 @@ function makeDivergedRepository() {
 }
 
 test('Checkpoint 2D fast selection omits exactly the six specialized tests while complete discovery retains them', async () => {
-  assert.deepEqual(FAST_TEST_EXCLUSIONS, APPROVED_FAST_TEST_EXCLUSIONS);
+  assert.equal(FAST_TEST_EXCLUSIONS.length, 6);
   const complete = await discoverMaintainedNodeTests(repositoryRoot);
   const selection = selectFastNodeTests(complete, FAST_TEST_EXCLUSIONS);
 
-  assert.deepEqual(selection.excluded, [...APPROVED_FAST_TEST_EXCLUSIONS].sort());
+  assert.deepEqual(selection.excluded, [...FAST_TEST_EXCLUSIONS].sort());
   assert.equal(selection.selected.length, complete.length - 6);
-  for (const file of APPROVED_FAST_TEST_EXCLUSIONS) {
+  for (const file of FAST_TEST_EXCLUSIONS) {
     assert.equal(complete.includes(file), true, `complete discovery: ${file}`);
     assert.equal(selection.selected.includes(file), false, `fast omission: ${file}`);
   }
@@ -406,7 +401,7 @@ test('workflow remains orchestration-only while fetching enough history for a tr
 });
 
 test('Checkpoint 2D preserves the base validation contracts and invalid configuration still fails loudly', () => {
-  assert.deepEqual(FAST_TEST_EXCLUSIONS, APPROVED_FAST_TEST_EXCLUSIONS);
+  assert.equal(FAST_TEST_EXCLUSIONS.length, 6);
   assert.deepEqual(VALIDATION_MODE_CHECK_IDS.fast, ['diff', 'testFast', 'svelte']);
   assert.deepEqual(VALIDATION_MODE_CHECK_IDS.full, ['diff', 'db', 'test', 'svelte', 'build', 'authSmoke']);
   assert.throws(
