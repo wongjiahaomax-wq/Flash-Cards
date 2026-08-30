@@ -4,6 +4,7 @@ import { resolveInvocation } from './validate.mjs';
 import { VALIDATION_MODE_CHECK_IDS, validationCommandsForMode } from './validation-contract.mjs';
 
 const NODE_TEST_DIAGNOSTIC = /^(not ok|  error:|  code:|  failureType:|  location:|  stack:|    at )/;
+const NODE_TEST_CHECK_IDS = new Set(['test', 'testFast']);
 export const CI_TEST_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 export const CI_TEST_REPORTER = './scripts/ci-test-reporter.mjs';
 
@@ -136,9 +137,14 @@ export function ciValidationCommands(options = {}) {
   });
 }
 
+/** @param {string} id */
+export function isCiNodeTestCheck(id) {
+  return NODE_TEST_CHECK_IDS.has(id);
+}
+
 /** @param {string} id @param {string[]} args */
 export function ciCommandArgs(id, args) {
-  if (id !== 'test') return [...args];
+  if (!isCiNodeTestCheck(id)) return [...args];
   return [...args, '--', `--test-reporter=${CI_TEST_REPORTER}`];
 }
 
@@ -181,10 +187,11 @@ export function runCiValidation(options = {}) {
       return 1;
     }
     if (result.status !== 0) {
-      const detail = id === 'test'
-        ? 'npm test failed; see the structured Node test failure summary above.'
+      const nodeTestCheck = isCiNodeTestCheck(id);
+      const detail = nodeTestCheck
+        ? `${reproCommand} failed; see the structured Node test failure summary above.`
         : `${command} ${args.join(' ')} exited with ${result.status}.`;
-      const title = id === 'test' ? 'Node test failure' : `${label} failed`;
+      const title = nodeTestCheck ? 'Node test failure' : `${label} failed`;
       console.error(`::error title=${title}::${escapeGithubCommandData(detail)}`);
       console.error(formatCiAgentFailureSummary({
         id,
@@ -192,7 +199,7 @@ export function runCiValidation(options = {}) {
         args,
         status: result.status,
         message: detail,
-        detailedErrorsAlreadyReported: id === 'test',
+        detailedErrorsAlreadyReported: nodeTestCheck,
         reproCommand,
       }));
       return result.status ?? 1;
