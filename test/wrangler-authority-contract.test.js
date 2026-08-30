@@ -13,7 +13,6 @@ test('local auth smoke uses the repository-installed Wrangler authority', () => 
   assert.match(localAuthSmoke, /execFileSync\(process\.execPath, \[wranglerCli, \.\.\.args\]/);
   assert.match(localAuthSmoke, /spawn\(\s*process\.execPath,\s*\[\s*wranglerCli,/);
   assert.match(localAuthSmoke, /runWrangler\(\['--version'\]\)/);
-  assert.doesNotMatch(localAuthSmoke, /\bnpx\b[\s\S]*wrangler@\d+\.\d+\.\d+/);
   assert.doesNotMatch(localAuthSmoke, /wrangler@\d+\.\d+\.\d+/);
 });
 
