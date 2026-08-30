@@ -22,7 +22,12 @@ export const VALIDATION_CHECKS = Object.freeze({
     label: 'Run Node tests',
     command: 'npm',
     args: Object.freeze(['test']),
-    satisfies: Object.freeze(['testFast', 'slideReviewTest']),
+    satisfies: Object.freeze([
+      'testFast',
+      'ecgAssetRenameOperatorTest',
+      'productionTaxonomyOperatorTest',
+      'slideReviewTest',
+    ]),
   }),
   testFast: Object.freeze({
     label: 'Run fast Node tests',
@@ -49,6 +54,16 @@ export const VALIDATION_CHECKS = Object.freeze({
     command: 'npm',
     args: Object.freeze(['run', 'runtime:smoke']),
   }),
+  ecgAssetRenameOperatorTest: Object.freeze({
+    label: 'Run ECG Batch 01 Asset rename operator tests',
+    command: 'node',
+    args: Object.freeze(['--test', 'test/ecg-batch-01-asset-rename.test.js']),
+  }),
+  productionTaxonomyOperatorTest: Object.freeze({
+    label: 'Run production taxonomy operator tests',
+    command: 'node',
+    args: Object.freeze(['--test', 'test/production-taxonomy-operator.test.js']),
+  }),
   slideReviewTest: Object.freeze({
     label: 'Run slide-review tooling tests',
     command: 'npm',
@@ -70,19 +85,25 @@ export const VALIDATION_CHECK_ORDER = Object.freeze([
   'build',
   'authSmoke',
   'runtimeSmoke',
+  'ecgAssetRenameOperatorTest',
+  'productionTaxonomyOperatorTest',
   'slideReviewTest',
   'slideReviewBuild',
 ]);
 
 export const SPECIALIZED_CHECK_IDS = Object.freeze([
   'runtimeSmoke',
+  'ecgAssetRenameOperatorTest',
+  'productionTaxonomyOperatorTest',
   'slideReviewTest',
   'slideReviewBuild',
 ]);
 
-// Ordinary CI currently takes ownership of slide-review specialization. Runtime
+// Ordinary CI owns specialized Node/operator and slide-review validation. Runtime
 // smoke remains enforced by its existing path-filtered workflow and agent advice.
 export const CI_SPECIALIZED_CHECK_IDS = Object.freeze([
+  'ecgAssetRenameOperatorTest',
+  'productionTaxonomyOperatorTest',
   'slideReviewTest',
   'slideReviewBuild',
 ]);

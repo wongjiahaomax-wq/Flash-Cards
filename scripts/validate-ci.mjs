@@ -10,7 +10,24 @@ import {
 import { changedFilesFromFeatureDiff } from './validation-git.mjs';
 
 const NODE_TEST_DIAGNOSTIC = /^(not ok|  error:|  code:|  failureType:|  location:|  stack:|    at )/;
-const NODE_TEST_CHECK_IDS = new Set(['test', 'testFast', 'slideReviewTest']);
+const NODE_TEST_CHECK_IDS = new Set([
+  'test',
+  'testFast',
+  'ecgAssetRenameOperatorTest',
+  'productionTaxonomyOperatorTest',
+  'slideReviewTest',
+]);
+const NODE_TEST_ENV_METADATA = Object.freeze({
+  ecgAssetRenameOperatorTest: Object.freeze({
+    reproCommand: 'node --test test/ecg-batch-01-asset-rename.test.js',
+  }),
+  productionTaxonomyOperatorTest: Object.freeze({
+    reproCommand: 'node --test test/production-taxonomy-operator.test.js',
+  }),
+  slideReviewTest: Object.freeze({
+    reproCommand: 'npm run slide-review:test',
+  }),
+});
 export const CI_TEST_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 export const CI_TEST_REPORTER = './scripts/ci-test-reporter.mjs';
 
@@ -188,21 +205,21 @@ export function ciCommandArgs(id, args) {
 }
 
 /**
- * The slide-review npm script already places explicit test files after `node --test`,
- * so appending a reporter CLI argument would be too late. NODE_OPTIONS applies the
- * reporter before those file arguments while preserving the existing named command.
- * Existing test/testFast reporter behavior is left unchanged: complete test uses
- * reporter defaults and testFast supplies its own identity from test-fast.mjs.
+ * Named specialized Node checks put explicit test files after `node --test`
+ * directly or through an npm script. NODE_OPTIONS applies the CI-only reporter
+ * before those positional arguments while preserving the named command.
+ * Base test/testFast reporter behavior remains unchanged.
  * @param {string} id
  * @param {NodeJS.ProcessEnv} [env]
  */
 export function ciCommandEnvironment(id, env = process.env) {
-  if (id !== 'slideReviewTest') return { ...env };
+  const metadata = NODE_TEST_ENV_METADATA[id];
+  if (!metadata) return { ...env };
   const existing = String(env.NODE_OPTIONS ?? '').trim();
   return {
     ...env,
-    CI_NODE_TEST_CHECK_ID: 'slideReviewTest',
-    CI_NODE_TEST_REPRO_COMMAND: 'npm run slide-review:test',
+    CI_NODE_TEST_CHECK_ID: id,
+    CI_NODE_TEST_REPRO_COMMAND: metadata.reproCommand,
     NODE_OPTIONS: [existing, `--test-reporter=${CI_TEST_REPORTER}`].filter(Boolean).join(' '),
   };
 }

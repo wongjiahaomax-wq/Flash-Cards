@@ -9,7 +9,7 @@ import { classifyChangedFiles } from '../scripts/agent-checks-lib.mjs';
 import { parseAgentChecksArgs } from '../scripts/agent-checks.mjs';
 import { CI_TEST_MAX_BUFFER_BYTES, ciValidationCommands, escapeGithubCommandData, extractNodeTestDiagnostic, parseCiArgs } from '../scripts/validate-ci.mjs';
 import { resolveInvocation, runValidation, VALIDATION_MODES } from '../scripts/validate.mjs';
-import { VALIDATION_MODE_CHECK_IDS } from '../scripts/validation-contract.mjs';
+import { CI_SPECIALIZED_CHECK_IDS, VALIDATION_MODE_CHECK_IDS } from '../scripts/validation-contract.mjs';
 import { localDiffCheck, resolveDiffBase } from '../scripts/validation-git.mjs';
 
 /** @param {string} cwd @param {string[]} args @param {{ allowFailure?: boolean }} [options] */
@@ -291,6 +291,35 @@ test('local replica helper stays automated-light and marks credential-dependent 
   assert.match(recommendation, /do not access production automatically/i);
 });
 
+test('ECG production-operator paths require only the named ECG specialized owner', () => {
+  for (const file of [
+    'scripts/rename-ecg-batch-01-assets.mjs',
+    'scripts/ecg-batch-01-asset-rename-targets.mjs',
+    'test/ecg-batch-01-asset-rename.test.js',
+  ]) {
+    const report = classifyChangedFiles([file]);
+    assert.deepEqual(report.specializedRequiredChecks, ['ecgAssetRenameOperatorTest'], file);
+    assert.deepEqual(report.requiredCommands, [
+      'git diff --check',
+      'node --test test/ecg-batch-01-asset-rename.test.js',
+    ], file);
+  }
+});
+
+test('production taxonomy operator paths require only the named taxonomy specialized owner', () => {
+  for (const file of [
+    'scripts/apply-agreed-taxonomy.mjs',
+    'test/production-taxonomy-operator.test.js',
+  ]) {
+    const report = classifyChangedFiles([file]);
+    assert.deepEqual(report.specializedRequiredChecks, ['productionTaxonomyOperatorTest'], file);
+    assert.deepEqual(report.requiredCommands, [
+      'git diff --check',
+      'node --test test/production-taxonomy-operator.test.js',
+    ], file);
+  }
+});
+
 test('slide-review changes require both specialized test and build contracts', () => {
   const report = classifyChangedFiles(['tools/slide-import-review/scripts/finalize.mjs']);
   assert.deepEqual(report.requiredCommands, [
@@ -307,12 +336,14 @@ test('documentation-only changes stay lightweight', () => {
   assert.deepEqual(report.requiredCommands, ['git diff --check']);
 });
 
-test('GitHub CI workflow changes fail safe for specialized validation without moving path ownership into YAML', () => {
+test('GitHub CI workflow changes fail safe for all ordinary-CI specialized validation without moving path ownership into YAML', () => {
   const report = classifyChangedFiles(['.github/workflows/ci.yml']);
   assert.equal(report.areas.includes('GitHub workflows / automation'), true);
-  assert.deepEqual(report.specializedRequiredChecks, ['slideReviewTest', 'slideReviewBuild']);
+  assert.deepEqual(report.specializedRequiredChecks, CI_SPECIALIZED_CHECK_IDS);
   assert.deepEqual(report.requiredCommands, [
     'git diff --check',
+    'node --test test/ecg-batch-01-asset-rename.test.js',
+    'node --test test/production-taxonomy-operator.test.js',
     'npm run slide-review:test',
     'npm run slide-review:build',
   ]);
@@ -336,6 +367,6 @@ test('unknown important source/tooling changes fail safe to full ordinary valida
   for (const checkId of VALIDATION_MODE_CHECK_IDS.full) {
     assert.equal(report.requiredChecks.includes(checkId), true);
   }
-  assert.deepEqual(report.specializedRequiredChecks, ['slideReviewTest', 'slideReviewBuild']);
+  assert.deepEqual(report.specializedRequiredChecks, CI_SPECIALIZED_CHECK_IDS);
   assert.deepEqual(report.unclassifiedImportant, ['scripts/new-agent-helper.mjs']);
 });

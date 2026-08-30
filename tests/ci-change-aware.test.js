@@ -9,17 +9,24 @@ import { classifyChangedFiles } from '../scripts/agent-checks-lib.mjs';
 import {
   ciCommandArgs,
   ciCommandEnvironment,
+  ciReproCommand,
   ciValidationPlan,
+  isCiNodeTestCheck,
 } from '../scripts/validate-ci.mjs';
 import {
   CI_SPECIALIZED_CHECK_IDS,
   resolveValidationCheckIds,
+  validationCheckSatisfies,
+  validationCommand,
   VALIDATION_MODE_CHECK_IDS,
 } from '../scripts/validation-contract.mjs';
 import { changedFilesFromFeatureDiff } from '../scripts/validation-git.mjs';
 import { FAST_TEST_EXCLUSIONS } from '../scripts/test-selection.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
+const ECG_CHECK = 'ecgAssetRenameOperatorTest';
+const TAXONOMY_CHECK = 'productionTaxonomyOperatorTest';
+const OPERATOR_CHECKS = [ECG_CHECK, TAXONOMY_CHECK];
 
 /** @param {string} cwd @param {string[]} args */
 function runGit(cwd, args) {
@@ -60,6 +67,98 @@ test('unrelated Draft resolves to base fast validation only', () => {
   });
   assert.deepEqual(plan.checkIds, ['diff', 'testFast', 'svelte']);
   assert.deepEqual(plan.classification.specializedRequiredChecks, []);
+  for (const checkId of OPERATOR_CHECKS) assert.equal(plan.checkIds.includes(checkId), false);
+});
+
+test('ECG operator paths have exact central ownership including the imported target manifest', () => {
+  for (const file of [
+    'scripts/rename-ecg-batch-01-assets.mjs',
+    'scripts/ecg-batch-01-asset-rename-targets.mjs',
+    'test/ecg-batch-01-asset-rename.test.js',
+  ]) {
+    const report = classifyChangedFiles([file]);
+    assert.deepEqual(report.specializedRequiredChecks, [ECG_CHECK], file);
+    assert.equal(report.specializedRequiredChecks.includes(TAXONOMY_CHECK), false, file);
+  }
+});
+
+test('taxonomy operator script and dedicated test have exact central ownership', () => {
+  for (const file of [
+    'scripts/apply-agreed-taxonomy.mjs',
+    'test/production-taxonomy-operator.test.js',
+  ]) {
+    const report = classifyChangedFiles([file]);
+    assert.deepEqual(report.specializedRequiredChecks, [TAXONOMY_CHECK], file);
+    assert.equal(report.specializedRequiredChecks.includes(ECG_CHECK), false, file);
+  }
+});
+
+test('ECG-related Draft adds the named ECG operator check once', () => {
+  const plan = ciValidationPlan({
+    mode: 'fast',
+    changedFiles: ['scripts/rename-ecg-batch-01-assets.mjs'],
+  });
+  assert.deepEqual(plan.classification.specializedRequiredChecks, [ECG_CHECK]);
+  assert.deepEqual(plan.checkIds, ['diff', 'testFast', 'svelte', ECG_CHECK]);
+  assert.equal(plan.checkIds.filter((id) => id === ECG_CHECK).length, 1);
+});
+
+test('taxonomy-related Draft adds the named taxonomy operator check once', () => {
+  const plan = ciValidationPlan({
+    mode: 'fast',
+    changedFiles: ['scripts/apply-agreed-taxonomy.mjs'],
+  });
+  assert.deepEqual(plan.classification.specializedRequiredChecks, [TAXONOMY_CHECK]);
+  assert.deepEqual(plan.checkIds, ['diff', 'testFast', 'svelte', TAXONOMY_CHECK]);
+  assert.equal(plan.checkIds.filter((id) => id === TAXONOMY_CHECK).length, 1);
+});
+
+test('Draft changing both operator families adds both named checks without duplicates', () => {
+  const plan = ciValidationPlan({
+    mode: 'fast',
+    changedFiles: [
+      'scripts/rename-ecg-batch-01-assets.mjs',
+      'test/production-taxonomy-operator.test.js',
+    ],
+  });
+  assert.deepEqual(plan.classification.specializedRequiredChecks, OPERATOR_CHECKS);
+  assert.deepEqual(plan.checkIds, ['diff', 'testFast', 'svelte', ...OPERATOR_CHECKS]);
+  assert.equal(plan.checkIds.length, new Set(plan.checkIds).size);
+});
+
+test('full test explicitly satisfies both operator checks while testFast does not', () => {
+  for (const checkId of OPERATOR_CHECKS) {
+    assert.equal(validationCheckSatisfies('test', checkId), true, checkId);
+    assert.equal(validationCheckSatisfies('testFast', checkId), false, checkId);
+    assert.deepEqual(resolveValidationCheckIds(['test'], [checkId]), ['test'], checkId);
+  }
+});
+
+test('operator-related full validation uses complete full base without redundant narrow checks', () => {
+  for (const changedFiles of [
+    ['scripts/rename-ecg-batch-01-assets.mjs'],
+    ['scripts/apply-agreed-taxonomy.mjs'],
+    ['scripts/rename-ecg-batch-01-assets.mjs', 'scripts/apply-agreed-taxonomy.mjs'],
+  ]) {
+    const plan = ciValidationPlan({ mode: 'full', changedFiles });
+    assert.deepEqual(plan.checkIds, VALIDATION_MODE_CHECK_IDS.full, changedFiles.join(', '));
+    for (const checkId of OPERATOR_CHECKS) assert.equal(plan.checkIds.includes(checkId), false);
+  }
+});
+
+test('named operator checks own the dedicated direct Node test commands', () => {
+  assert.deepEqual(validationCommand(ECG_CHECK), {
+    id: ECG_CHECK,
+    label: 'Run ECG Batch 01 Asset rename operator tests',
+    command: 'node',
+    args: ['--test', 'test/ecg-batch-01-asset-rename.test.js'],
+  });
+  assert.deepEqual(validationCommand(TAXONOMY_CHECK), {
+    id: TAXONOMY_CHECK,
+    label: 'Run production taxonomy operator tests',
+    command: 'node',
+    args: ['--test', 'test/production-taxonomy-operator.test.js'],
+  });
 });
 
 test('slide-review Draft adds both specialized slide-review owners', () => {
@@ -99,11 +198,15 @@ test('slide-review full validation keeps build but complete test satisfies speci
 });
 
 test('agent reporting and CI planning consume one specialized requirement authority', () => {
-  const changedFiles = ['tools/slide-import-review/scripts/finalize.mjs'];
+  const changedFiles = [
+    'scripts/rename-ecg-batch-01-assets.mjs',
+    'scripts/apply-agreed-taxonomy.mjs',
+    'tools/slide-import-review/scripts/finalize.mjs',
+  ];
   const agentClassification = classifyChangedFiles(changedFiles);
   const ciPlan = ciValidationPlan({ mode: 'fast', changedFiles });
   assert.deepEqual(ciPlan.classification, agentClassification);
-  assert.deepEqual(agentClassification.specializedRequiredChecks, ['slideReviewTest', 'slideReviewBuild']);
+  assert.deepEqual(agentClassification.specializedRequiredChecks, CI_SPECIALIZED_CHECK_IDS);
   for (const checkId of agentClassification.specializedRequiredChecks) {
     assert.equal(agentClassification.requiredChecks.includes(checkId), true);
   }
@@ -113,8 +216,16 @@ test('agent reporting and CI planning consume one specialized requirement author
   const ciRunnerSource = fs.readFileSync(path.join(repositoryRoot, 'scripts', 'validate-ci.mjs'), 'utf8');
   assert.equal(agentRunnerSource.includes("from './agent-checks-lib.mjs'"), true);
   assert.equal(ciRunnerSource.includes("from './agent-checks-lib.mjs'"), true);
-  assert.equal(classifierSource.includes('tools\\/slide-import-review'), true);
-  assert.equal(ciRunnerSource.includes('tools\\/slide-import-review'), false);
+  for (const ownedPath of [
+    'rename-ecg-batch-01-assets',
+    'ecg-batch-01-asset-rename-targets',
+    'apply-agreed-taxonomy',
+    'production-taxonomy-operator',
+    'tools\\/slide-import-review',
+  ]) {
+    assert.equal(classifierSource.includes(ownedPath), true, ownedPath);
+    assert.equal(ciRunnerSource.includes(ownedPath), false, ownedPath);
+  }
 });
 
 test('validation infrastructure changes preserve base fast and add conservative specialized checks', () => {
@@ -138,9 +249,23 @@ test('validation infrastructure changes preserve base fast and add conservative 
       'diff',
       'testFast',
       'svelte',
-      'slideReviewTest',
-      'slideReviewBuild',
+      ...CI_SPECIALIZED_CHECK_IDS,
     ], file);
+  }
+});
+
+test('validation infrastructure fail-safe preserves full base while deduplicating complete Node-owned checks', () => {
+  const plan = ciValidationPlan({
+    mode: 'full',
+    changedFiles: ['scripts/validation-contract.mjs'],
+  });
+  assert.deepEqual(plan.classification.specializedRequiredChecks, CI_SPECIALIZED_CHECK_IDS);
+  assert.deepEqual(plan.checkIds, [
+    ...VALIDATION_MODE_CHECK_IDS.full,
+    'slideReviewBuild',
+  ]);
+  for (const checkId of [...OPERATOR_CHECKS, 'slideReviewTest']) {
+    assert.equal(plan.checkIds.includes(checkId), false, checkId);
   }
 });
 
@@ -150,7 +275,7 @@ test('unclassified important paths preserve base fast while conservatively addin
   assert.deepEqual(classification.specializedRequiredChecks, CI_SPECIALIZED_CHECK_IDS);
   assert.deepEqual(
     ciValidationPlan({ mode: 'fast', changedFiles: ['tools/new-validation-helper.mjs'] }).checkIds,
-    ['diff', 'testFast', 'svelte', 'slideReviewTest', 'slideReviewBuild'],
+    ['diff', 'testFast', 'svelte', ...CI_SPECIALIZED_CHECK_IDS],
   );
 });
 
@@ -163,14 +288,23 @@ test('actual CI feature-diff helper excludes unrelated base-branch advancement',
   }
 });
 
-test('specialized Node checks keep structured reporter identity without altering base Node-check environments', () => {
-  assert.deepEqual(ciCommandArgs('slideReviewTest', ['run', 'slide-review:test']), ['run', 'slide-review:test']);
-  const slideEnv = { ...process.env, NODE_OPTIONS: '--trace-warnings' };
-  const env = ciCommandEnvironment('slideReviewTest', slideEnv);
-  assert.equal(env.CI_NODE_TEST_CHECK_ID, 'slideReviewTest');
-  assert.equal(env.CI_NODE_TEST_REPRO_COMMAND, 'npm run slide-review:test');
-  assert.match(env.NODE_OPTIONS ?? '', /--trace-warnings/);
-  assert.match(env.NODE_OPTIONS ?? '', /--test-reporter=\.\/scripts\/ci-test-reporter\.mjs/);
+test('all specialized Node checks keep structured reporter identity without altering base Node-check environments', () => {
+  const specialized = [
+    [ECG_CHECK, ['--test', 'test/ecg-batch-01-asset-rename.test.js'], 'node --test test/ecg-batch-01-asset-rename.test.js'],
+    [TAXONOMY_CHECK, ['--test', 'test/production-taxonomy-operator.test.js'], 'node --test test/production-taxonomy-operator.test.js'],
+    ['slideReviewTest', ['run', 'slide-review:test'], 'npm run slide-review:test'],
+  ];
+  for (const [checkId, args, repro] of specialized) {
+    assert.equal(isCiNodeTestCheck(checkId), true, checkId);
+    assert.deepEqual(ciCommandArgs(checkId, args), args, checkId);
+    const env = ciCommandEnvironment(checkId, { ...process.env, NODE_OPTIONS: '--trace-warnings' });
+    assert.equal(env.CI_NODE_TEST_CHECK_ID, checkId);
+    assert.equal(env.CI_NODE_TEST_REPRO_COMMAND, repro);
+    assert.match(env.NODE_OPTIONS ?? '', /--trace-warnings/);
+    assert.match(env.NODE_OPTIONS ?? '', /--test-reporter=\.\/scripts\/ci-test-reporter\.mjs/);
+    const command = checkId === 'slideReviewTest' ? 'npm' : 'node';
+    assert.equal(ciReproCommand(checkId, command, args), repro);
+  }
 
   assert.deepEqual(
     ciCommandArgs('test', ['test']),
@@ -179,22 +313,34 @@ test('specialized Node checks keep structured reporter identity without altering
   const baseEnv = { ...process.env };
   assert.deepEqual(ciCommandEnvironment('test', baseEnv), baseEnv);
   assert.deepEqual(ciCommandEnvironment('testFast', baseEnv), baseEnv);
+  assert.equal(isCiNodeTestCheck('test'), true);
+  assert.equal(isCiNodeTestCheck('testFast'), true);
 });
 
 test('workflow remains orchestration-only while fetching enough history for a true PR feature diff', () => {
   const workflow = fs.readFileSync(path.join(repositoryRoot, '.github', 'workflows', 'ci.yml'), 'utf8');
   assert.equal(workflow.includes('fetch-depth: 0'), true);
-  assert.equal(workflow.includes('tools/slide-import-review'), false);
-  assert.equal(workflow.includes('slideReviewTest'), false);
-  assert.equal(workflow.includes('slideReviewBuild'), false);
-  assert.equal(workflow.includes('FAST_TEST_EXCLUSIONS'), false);
-  assert.equal(workflow.includes('classifyChangedFiles'), false);
+  for (const forbidden of [
+    'tools/slide-import-review',
+    'slideReviewTest',
+    'slideReviewBuild',
+    'rename-ecg-batch-01-assets',
+    'ecg-batch-01-asset-rename',
+    'apply-agreed-taxonomy',
+    'production-taxonomy-operator',
+    ECG_CHECK,
+    TAXONOMY_CHECK,
+    'FAST_TEST_EXCLUSIONS',
+    'classifyChangedFiles',
+  ]) {
+    assert.equal(workflow.includes(forbidden), false, forbidden);
+  }
   assert.equal(/\.test\.(?:cjs|mjs|js)/.test(workflow), false);
   assert.equal(workflow.includes('CI_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}'), true);
   assert.equal(workflow.includes('CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}'), true);
 });
 
-test('Checkpoint 2B activates no fast-test exclusions and invalid validation configuration fails loudly', () => {
+test('Checkpoint 2C keeps zero fast-test exclusions and preserves base validation contracts', () => {
   assert.deepEqual(FAST_TEST_EXCLUSIONS, []);
   assert.deepEqual(VALIDATION_MODE_CHECK_IDS.fast, ['diff', 'testFast', 'svelte']);
   assert.deepEqual(VALIDATION_MODE_CHECK_IDS.full, ['diff', 'db', 'test', 'svelte', 'build', 'authSmoke']);

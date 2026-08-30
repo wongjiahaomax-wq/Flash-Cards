@@ -75,6 +75,27 @@ export const VALIDATION_RULES = Object.freeze([
     ]),
   }),
   Object.freeze({
+    id: 'ecg-asset-rename-operator',
+    area: 'ECG Batch 01 production operator',
+    patterns: Object.freeze([
+      /^scripts\/rename-ecg-batch-01-assets\.mjs$/,
+      /^scripts\/ecg-batch-01-asset-rename-targets\.mjs$/,
+      /^test\/ecg-batch-01-asset-rename\.test\.js$/,
+    ]),
+    required: Object.freeze(['diff']),
+    specializedRequired: Object.freeze(['ecgAssetRenameOperatorTest']),
+  }),
+  Object.freeze({
+    id: 'production-taxonomy-operator',
+    area: 'Production taxonomy operator',
+    patterns: Object.freeze([
+      /^scripts\/apply-agreed-taxonomy\.mjs$/,
+      /^test\/production-taxonomy-operator\.test\.js$/,
+    ]),
+    required: Object.freeze(['diff']),
+    specializedRequired: Object.freeze(['productionTaxonomyOperatorTest']),
+  }),
+  Object.freeze({
     id: 'slide-review',
     area: 'Slide-review tooling',
     patterns: Object.freeze([/^tools\/slide-import-review\//]),
