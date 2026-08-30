@@ -11,32 +11,18 @@ console.log(
 );
 
 const checks = {
-  complete: {
-    args: ['test', '--', `--test-reporter=${REPORTER}`],
-    checkId: 'test',
-    repro: 'npm test',
-  },
-  fast: {
-    args: ['run', 'test:fast', '--', `--test-reporter=${REPORTER}`],
-    checkId: 'testFast',
-    repro: 'npm run test:fast',
-  },
+  complete: ['test', '--', `--test-reporter=${REPORTER}`],
+  fast: ['run', 'test:fast', '--', `--test-reporter=${REPORTER}`],
 };
 
 const order = attempt % 2 === 0 ? ['fast', 'complete'] : ['complete', 'fast'];
 console.log(`CP6_PROFILE|attempt=${attempt}|order=${order.join(',')}`);
 
 for (const suite of order) {
-  const check = checks[suite];
   const started = performance.now();
-  const result = spawnSync('npm', check.args, {
+  const result = spawnSync('npm', checks[suite], {
     stdio: 'inherit',
     shell: false,
-    env: {
-      ...process.env,
-      CI_NODE_TEST_CHECK_ID: check.checkId,
-      CI_NODE_TEST_REPRO_COMMAND: check.repro,
-    },
   });
   const wallMs = performance.now() - started;
   const status = Number.isInteger(result.status) ? result.status : -1;
