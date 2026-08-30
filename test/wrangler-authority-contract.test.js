@@ -21,5 +21,5 @@ test('local preview delegates Wrangler execution to the tested local runtime pla
   assert.match(localPreview, /runStep\(plan\.build, plan\.env\)/);
   assert.match(localPreview, /runStep\(plan\.migrate, plan\.env\)/);
   assert.match(localPreview, /runForeground\(plan\.serve\.command, plan\.serve\.args,/);
-  assert.doesNotMatch(localPreview, /\bwranglerCli\b|\bnpx\b|['"]wrangler(?:@\d+\.\d+\.\d+)?['"]/);
+  assert.doesNotMatch(localPreview, /\bnpx\b|\bwrangler(?:Cli|@\d+\.\d+\.\d+)?\b/i);
 });
