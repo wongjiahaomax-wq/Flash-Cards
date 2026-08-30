@@ -149,3 +149,37 @@ test('Preview-owned Cases never inflate Topic counts or appear in normal Admin T
     assert.equal(detail.cases.length, 3);
   } finally { fixture.sqlite.close(); }
 });
+
+test('Preview-owned Prompts never inflate Topic shared-question counts or appear in normal Admin Topic detail', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.prepare(`
+      INSERT INTO preview_sessions (id, user_id, status, expires_at)
+      VALUES (?, ?, 'active', ?)
+    `).run('preview-topic-prompt-session', 'preview-topic-prompt-user', 4102444800000);
+    fixture.sqlite.prepare(`
+      INSERT INTO question_prompts (id, prompt_md, preview_session_id, is_active)
+      VALUES (?, ?, ?, 1)
+    `).run('preview-topic-prompt', 'Disposable Preview Topic prompt?', 'preview-topic-prompt-session');
+    fixture.sqlite.prepare(`
+      INSERT INTO concept_questions (
+        id, concept_id, question_prompt_id, answer_md, inherit_to_descendants, is_active
+      ) VALUES (?, ?, ?, ?, 0, 1)
+    `).run(
+      'preview-topic-concept-question',
+      'seed-anterior-stemi',
+      'preview-topic-prompt',
+      'Disposable Preview answer'
+    );
+
+    const row = (await listTopicLibrary(fixture.db)).find((item) => item.id === 'seed-anterior-stemi');
+    assert.ok(row);
+    assert.equal(row.activeSharedQuestionCount, 2);
+
+    const detail = await getTopicDetail(fixture.db, 'seed-anterior-stemi');
+    assert.ok(detail);
+    assert.equal(detail.activeSharedQuestionCount, 2);
+    assert.equal(detail.questions.some((item) => item.promptId === 'preview-topic-prompt'), false);
+    assert.equal(detail.questions.length, 2);
+  } finally { fixture.sqlite.close(); }
+});
