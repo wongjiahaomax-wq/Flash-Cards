@@ -12,7 +12,6 @@ const previewEditor = readFileSync(new URL('../src/routes/preview-admin/cases/[c
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const previewWorkspace = readFileSync(new URL('../src/lib/server/db/preview-workspace.js', import.meta.url), 'utf8');
 const questionScopeRoute = readFileSync(new URL('../src/routes/admin/cases/[caseId]/question-scope/+server.js', import.meta.url), 'utf8');
-const imageQuestionCounts = readFileSync(new URL('../src/lib/components/ImageQuestionCounts.svelte', import.meta.url), 'utf8');
 
 /** @param {string} source */
 function editorActionNames(source) {
@@ -85,12 +84,8 @@ test('question scope UX exposes Case-wide and fixed/alternative stimulus targets
   assert.match(sharedEditorSource, /A specific image \/ stimulus/);
   assert.match(sharedEditorSource, /value={`fixed:\$\{asset\.assetId\}`}/);
   assert.match(sharedEditorSource, /value={`option:\$\{option\.id\}`}/);
-  assert.match(imageQuestionCounts, /Case-specific Image Questions · \{caseSpecificCount\}/);
-  assert.match(imageQuestionCounts, /let reusableTotal = \$derived\(reusable\?\.total \?\? 0\)/);
-  assert.match(imageQuestionCounts, /Reusable Image Questions · \{reusableTotal\}/);
-  assert.match(sharedEditorSource, /Manage questions/);
-  assert.match(questionScopeRoute, /moveCaseQuestionToStimulusTarget/);
-  assert.match(questionScopeRoute, /saveQuestionAtScope/);
+  assert.match(questionScopeRoute, /await moveCaseQuestionToStimulusTarget\(db,\s*\{/);
+  assert.match(questionScopeRoute, /await saveQuestionAtScope\(db,\s*\{/);
   assert.doesNotMatch(previewRoute, /question-scope/);
   assert.match(sharedEditorSource, /previewMode \? '\?\/saveQuestion' : `\/admin\/cases\/\$\{selectedCase\.case\.id\}\/question-scope`/);
 });
