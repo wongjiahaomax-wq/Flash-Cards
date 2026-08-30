@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +15,7 @@ import {
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
 
-test('maintained Node-test discovery accepts the repository convention and Node-standard JavaScript test basenames', () => {
+test('maintained Node-test discovery accepts ordinary Node-standard basenames without treating fast-test tooling as tests', () => {
   assert.equal(isMaintainedNodeTestPath('test/example.test.js'), true);
   assert.equal(isMaintainedNodeTestPath('tests/example.test.mjs'), true);
   assert.equal(isMaintainedNodeTestPath('tools/example.test.cjs'), true);
@@ -23,6 +24,8 @@ test('maintained Node-test discovery accepts the repository convention and Node-
   assert.equal(isMaintainedNodeTestPath('tests/test-example.cjs'), true);
   assert.equal(isMaintainedNodeTestPath('checks/test.js'), true);
   assert.equal(isMaintainedNodeTestPath('test/current-schema.js'), false);
+  assert.equal(isMaintainedNodeTestPath('scripts/test-fast.mjs'), false);
+  assert.equal(isMaintainedNodeTestPath('scripts/test-selection.mjs'), false);
   assert.equal(isMaintainedNodeTestPath('node_modules/pkg/example.test.js'), false);
   assert.equal(isMaintainedNodeTestPath('.svelte-kit/output/example.test.js'), false);
 });
@@ -63,13 +66,16 @@ test('fast runner uses explicit deterministic selection, fast reporter identity,
     fs.writeFileSync(path.join(root, 'a-test.mjs'), '');
     /** @type {{ command: string, args: string[], options: any }[]} */
     const calls = [];
+    /** @param {string} command @param {string[]} args @param {any} options */
+    function mockSpawn(command, args, options) {
+      calls.push({ command, args, options });
+      return { status: 7 };
+    }
+
     const status = await runFastNodeTests({
       root,
       argv: ['--test-reporter=spec'],
-      spawn: /** @type {any} */ ((command, args, options) => {
-        calls.push({ command, args, options });
-        return { status: 7 };
-      }),
+      spawn: /** @type {any} */ (mockSpawn),
     });
 
     assert.equal(status, 7);
@@ -81,6 +87,7 @@ test('fast runner uses explicit deterministic selection, fast reporter identity,
       'a-test.mjs',
       'z.test.js',
     ]);
+    assert.equal(calls[0].options.cwd, root);
     assert.equal(calls[0].options.shell, false);
     assert.equal(calls[0].options.stdio, 'inherit');
     assert.equal(calls[0].options.env.CI_NODE_TEST_CHECK_ID, 'testFast');
@@ -105,6 +112,17 @@ test('fast runner refuses an empty selection instead of falling back to implicit
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('test-fast tooling stays inert when Node executes it as a test child', () => {
+  const result = spawnSync(process.execPath, [path.join(repositoryRoot, 'scripts', 'test-fast.mjs')], {
+    cwd: repositoryRoot,
+    encoding: 'utf8',
+    env: { ...process.env, NODE_TEST_CONTEXT: 'child-v8' },
+  });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, '');
 });
 
 test('fast selection fails loudly when an exclusion is missing', () => {
