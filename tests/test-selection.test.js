@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { runFastNodeTests } from '../scripts/test-fast.mjs';
 import {
   FAST_TEST_EXCLUSIONS,
   discoverMaintainedNodeTests,
@@ -50,6 +51,57 @@ test('new ordinary Node-standard tests enter fast selection without an allow-lis
     ].sort();
     assert.deepEqual(discovered, expected);
     assert.deepEqual(selectFastNodeTests(discovered).selected, expected);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('fast runner uses explicit deterministic selection, fast reporter identity, and preserves child exit status', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flash-cards-test-fast-runner-'));
+  try {
+    fs.writeFileSync(path.join(root, 'z.test.js'), '');
+    fs.writeFileSync(path.join(root, 'a-test.mjs'), '');
+    /** @type {{ command: string, args: string[], options: any }[]} */
+    const calls = [];
+    const status = await runFastNodeTests({
+      root,
+      argv: ['--test-reporter=spec'],
+      spawn: /** @type {any} */ ((command, args, options) => {
+        calls.push({ command, args, options });
+        return { status: 7 };
+      }),
+    });
+
+    assert.equal(status, 7);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].command, process.execPath);
+    assert.deepEqual(calls[0].args, [
+      '--test',
+      '--test-reporter=spec',
+      'a-test.mjs',
+      'z.test.js',
+    ]);
+    assert.equal(calls[0].options.shell, false);
+    assert.equal(calls[0].options.stdio, 'inherit');
+    assert.equal(calls[0].options.env.CI_NODE_TEST_CHECK_ID, 'testFast');
+    assert.equal(calls[0].options.env.CI_NODE_TEST_REPRO_COMMAND, 'npm run test:fast');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('fast runner refuses an empty selection instead of falling back to implicit Node discovery', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flash-cards-test-fast-empty-'));
+  try {
+    await assert.rejects(
+      () => runFastNodeTests({
+        root,
+        spawn: /** @type {any} */ (() => {
+          throw new Error('spawn must not run');
+        }),
+      }),
+      /selection resolved to zero maintained tests/,
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
