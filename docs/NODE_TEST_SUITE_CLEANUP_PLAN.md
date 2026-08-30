@@ -98,7 +98,7 @@ Tests distinguish:
 **Historical data-state behavior**
 - current schema;
 - older valid data shapes/states;
-- no missing-table/column runtime probing required.
+- no missing-table/column probing required.
 
 ### 3.5 Contract-strength invariant
 
@@ -994,21 +994,21 @@ test/wrangler-authority-contract.test.js
 
 It preserves repository-installed Wrangler authority while moving local-preview command semantics to the stronger executable-plan owner that already exists.
 
-Removed assertions:
+Removed/consolidated assertions:
 
 - **Duplicate:** four raw-source assertions over `scripts/local-runtime-lib.mjs` that matched the repository Wrangler path, `process.execPath`, local D1 migration arguments, and absence of `npx`/an inline Wrangler version. The stronger owner is `test/local-runtime.test.js`: it directly imports `wranglerCli` and `createLocalPreviewPlan()`, asserts the exact repository-local Wrangler path, exact migration and serve commands/arguments, local-only flags, and absence of `npx`/inline Wrangler versions from the constructed plan.
-- **Duplicate within the surviving local-auth contract:** the specific negative `npx ... wrangler@<version>` assertion was strictly subsumed by the broader surviving assertion that rejects any `wrangler@<version>` token in `local-auth-smoke.mjs`.
+- **Consolidated within the surviving local-auth contract:** the old conjunctive negative assertion for `npx ... wrangler@<version>` is replaced by two stronger independent guards: no `npx` token at all, and no inline `wrangler@<version>` token at all. This preserves both repository-installed execution authority and version-pin ownership without the narrower overlapping regex.
 
 Retained/hardened thin ownership:
 
-- **Architecture / operational wiring:** `local-auth-smoke.mjs` must still resolve Wrangler from this repository's `node_modules`, execute it through `process.execPath` for both synchronous commands and the spawned dev worker, verify it with `--version`, and contain no inline `wrangler@<version>` pin. The actual full auth smoke is intentionally a full-validation runtime check; this fast source owner cheaply protects its invocation authority on Drafts.
+- **Architecture / operational wiring:** `local-auth-smoke.mjs` must still resolve Wrangler from this repository's `node_modules`, execute it through `process.execPath` for both synchronous commands and the spawned dev worker, verify it with `--version`, contain no `npx`, and contain no inline `wrangler@<version>` pin. The actual full auth smoke is intentionally a full-validation runtime check; this fast source owner cheaply protects its invocation authority on Drafts.
 - **Wrapper integration:** `local-preview.mjs` must delegate to `createLocalPreviewPlan()`, run the plan's build and migration steps, and launch the plan's serve command/arguments. It must contain no `npx` or Wrangler authority token of its own. Exact Wrangler path/command semantics are no longer duplicated here; they belong to `test/local-runtime.test.js`.
 - **Repository dependency ownership:** the package still declares a concrete semver Wrangler dependency so the scripts' repository-local CLI path has an installed authority.
 
 Independent review corrected two issues before tranche completion:
 
 1. the first wrapper guard only rejected `npx`, `wranglerCli`, and a quoted bare `wrangler`, so a differently constructed direct Wrangler path could evade it. The final guard encodes the stronger intended architecture: the wrapper may not contain any `npx` or Wrangler authority token and must obtain execution solely through the tested plan;
-2. the local-auth half still contained a redundant narrow `npx ... wrangler@<version>` negative assertion despite the immediately following broader `wrangler@<version>` guard. The narrow assertion was removed rather than preserving duplicate source checks.
+2. the local-auth half used one narrow conjunctive `npx ... wrangler@<version>` assertion. Review showed that its two protected concerns should be explicit and independent: an unversioned `npx wrangler` must also be forbidden, while any inline Wrangler version must be forbidden regardless of launcher. The final owner therefore uses separate no-`npx` and no-inline-version assertions.
 
 No runtime script, package dependency, validation architecture, fast exclusion, schema, migration, application/domain behavior, or production resource changed in this tranche.
 
@@ -1273,7 +1273,7 @@ Specific gates:
 
 **Checkpoint 3:** satisfied after independent-review correction: both protected product invariants remain intentional and both dispositions remain `RETAIN`; no stronger cheap/reliable layout owner exists; the Shared Questions contract remains unchanged; the horizontal-overflow contract was tightened to extract the `body` rule before asserting `overflow-x: hidden`, eliminating the reviewed cross-rule false-green case. No production/UI code, schema, CI architecture, exclusion, or application/domain behavior changed. Exact-head Draft CI is the final execution gate after the corrected test and documentation changes.
 
-**Checkpoint 4:** the three bounded implemented tranches satisfy the ownership rule for their removed assertions. The Wrangler/local-preview tranche removes duplicated raw `local-runtime-lib.mjs` assertions only because `test/local-runtime.test.js` directly owns the same constructed-plan semantics, keeps the local-auth invocation structure and local-preview delegation boundary as thin fast source owners, and incorporates the two independent-review corrections above. `content-import-safety-contract.test.js` is explicitly behavioral rather than a source-cleanup candidate; `resumable-import-contract.test.js` is explicitly retained after stronger-owner review. Broader Checkpoint 4 remains pending; every future removal still requires an explicit stronger owner or retirement, and distinct UI reachability/architecture/product vocabulary must remain protected where applicable.
+**Checkpoint 4:** the three bounded implemented tranches satisfy the ownership rule for their removed assertions. The Wrangler/local-preview tranche removes duplicated raw `local-runtime-lib.mjs` assertions only because `test/local-runtime.test.js` directly owns the same constructed-plan semantics, keeps the local-auth invocation structure and local-preview delegation boundary as thin fast source owners, and incorporates the two independent-review corrections above. The final local-auth owner independently forbids both `npx` and inline Wrangler version pins. `content-import-safety-contract.test.js` is explicitly behavioral rather than a source-cleanup candidate; `resumable-import-contract.test.js` is explicitly retained after stronger-owner review. Broader Checkpoint 4 remains pending; every future removal still requires an explicit stronger owner or retirement, and distinct UI reachability/architecture/product vocabulary must remain protected where applicable.
 
 **Checkpoint 6:** runtime claim backed by comparable CI medians.
 
