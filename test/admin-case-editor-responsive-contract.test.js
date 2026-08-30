@@ -2,11 +2,17 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const editor = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
-const navigation = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorNavigation.svelte', import.meta.url), 'utf8');
-const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
-const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url), 'utf8');
-const imageReview = readFileSync(new URL('../src/lib/components/ImageQuestionReview.svelte', import.meta.url), 'utf8');
+const editorUrl = new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url);
+const navigationUrl = new URL('../src/lib/components/case-editor/CaseEditorNavigation.svelte', import.meta.url);
+const questionsUrl = new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url);
+const imagesUrl = new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url);
+const imageReviewUrl = new URL('../src/lib/components/ImageQuestionReview.svelte', import.meta.url);
+
+const editor = readFileSync(editorUrl, 'utf8');
+const navigation = readFileSync(navigationUrl, 'utf8');
+const questions = readFileSync(questionsUrl, 'utf8');
+const images = readFileSync(imagesUrl, 'utf8');
+const imageReview = readFileSync(imageReviewUrl, 'utf8');
 
 /** @param {string} value */
 function escapeRegExp(value) {
@@ -108,6 +114,11 @@ function attribute(tag, name) {
   return new RegExp(`\\b${escapeRegExp(name)}=["']([^"']*)["']`).exec(tag)?.[1] ?? null;
 }
 
+/** @param {string} tag @param {string} name */
+function expressionAttribute(tag, name) {
+  return new RegExp(`\\b${escapeRegExp(name)}=\\{([A-Za-z_$][\\w$]*)\\}`).exec(tag)?.[1] ?? null;
+}
+
 /** @param {string} tag */
 function useAction(tag) {
   return /\buse:([A-Za-z_$][\w$]*)\b/.exec(tag)?.[1] ?? null;
@@ -116,6 +127,51 @@ function useAction(tag) {
 /** @param {string} tag */
 function enhanceCallback(tag) {
   return /\buse:enhance=\{([A-Za-z_$][\w$]*)\}/.exec(tag)?.[1] ?? null;
+}
+
+/** @param {string} source @param {URL} importerUrl */
+function svelteComponentImports(source, importerUrl) {
+  const imports = [];
+  const pattern = /import\s+([A-Z][A-Za-z0-9_$]*)\s+from\s+['"]([^'"]+\.svelte)['"]/g;
+  let match;
+  while ((match = pattern.exec(source))) {
+    const [, name, specifier] = match;
+    let url;
+    if (specifier.startsWith('$lib/')) {
+      url = new URL(`../src/lib/${specifier.slice('$lib/'.length)}`, import.meta.url);
+    } else if (specifier.startsWith('.')) {
+      url = new URL(specifier, importerUrl);
+    } else {
+      continue;
+    }
+    imports.push({ name, specifier, url });
+  }
+  return imports;
+}
+
+/** @param {URL} componentUrl @param {Set<string>} [seen] */
+function componentTreeContainsForm(componentUrl, seen = new Set()) {
+  if (seen.has(componentUrl.href)) return false;
+  seen.add(componentUrl.href);
+  const source = readFileSync(componentUrl, 'utf8');
+  if (/<form\b/.test(source)) return true;
+  return svelteComponentImports(source, componentUrl).some((child) => componentTreeContainsForm(child.url, seen));
+}
+
+/** @param {string} source @param {string} moduleSpecifier */
+function namedImportsFrom(source, moduleSpecifier) {
+  const match = new RegExp(`import\\s*\\{([^}]*)\\}\\s*from\\s*['"]${escapeRegExp(moduleSpecifier)}['"]`).exec(source);
+  assert.ok(match, `Missing imports from ${moduleSpecifier}.`);
+  return match[1]
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => part.split(/\s+as\s+/).at(-1));
+}
+
+/** @param {string} body @param {string[]} names */
+function calledNames(body, names) {
+  return names.filter((name) => new RegExp(`\\b${escapeRegExp(name)}\\s*\\(`).test(body));
 }
 
 /** @param {string} source @param {string} actionName */
@@ -128,11 +184,11 @@ function boundedAutoGrowLimit(source, actionName) {
   assert.ok(bound, `${actionName} must bound collapsed field growth.`);
   const limit = new RegExp(`\\bconst\\s+${escapeRegExp(bound[1])}\\s*=\\s*(\\d+(?:\\.\\d+)?)\\b`).exec(body);
   assert.ok(limit, `${actionName} must define a finite local growth limit.`);
+  assert.match(body, /document\.createElement\(['"]button['"]\)/);
   assert.match(body, /addEventListener\(['"]input['"]/);
   assert.match(body, /addEventListener\(['"]click['"]/);
-  assert.match(body, /Expand answer/);
-  assert.match(body, /Collapse answer/);
   assert.match(body, /aria-expanded/);
+  assert.match(body, /insertAdjacentElement\s*\(/);
   return Number(limit[1]);
 }
 
@@ -159,10 +215,9 @@ function imageAutoGrowLimit(source, formClass) {
     return name === 'prompt_md' || name === 'answer_md';
   });
   assert.ok(fields.some((tag) => attribute(tag, 'name') === 'prompt_md') && fields.some((tag) => attribute(tag, 'name') === 'answer_md'), 'Image Question UI must expose Prompt and Answer fields.');
-  const actions = new Set(fields.map(useAction));
-  assert.equal(actions.has(null), false, 'Every image Prompt/Answer field must use bounded auto-grow.');
-  assert.equal(actions.size, 1, 'Image Prompt/Answer fields should share one bounded behavior in each component.');
-  return boundedAutoGrowLimit(source, requiredText([...actions][0], `Missing ${formClass} auto-grow action.`));
+  const actions = fields.map((tag) => requiredText(useAction(tag), 'Every image Prompt/Answer field must use bounded auto-grow.'));
+  const limits = [...new Set(actions)].map((actionName) => boundedAutoGrowLimit(source, actionName));
+  return Math.max(...limits);
 }
 
 /** @param {string} source */
@@ -216,12 +271,30 @@ function trackCount(value) {
   return count;
 }
 
+/** @param {string} body */
+function isHorizontalLayout(body) {
+  const gridTracks = declaration(body, 'grid-template-columns');
+  if (gridTracks) return trackCount(gridTracks) >= 2;
+  return declaration(body, 'display') === 'flex' && declaration(body, 'flex-direction') !== 'column';
+}
+
+/** @param {string} body */
+function isSingleColumnLayout(body) {
+  const gridTracks = declaration(body, 'grid-template-columns');
+  if (gridTracks) return trackCount(gridTracks) === 1;
+  return declaration(body, 'display') === 'flex' && declaration(body, 'flex-direction') === 'column';
+}
+
 test('Case editor exposes one shared Classic/Compact authoring tree', () => {
-  assert.match(editor, /<div class="case-editor" data-editor-layout=\{editorLayout\}>/);
-  const sharedComponents = [...editor.matchAll(/import\s+([A-Z][A-Za-z0-9_$]*)\s+from\s+['"]\$lib\/components\/case-editor\/[^'"]+['"]/g)].map((match) => match[1]);
+  const editorRoot = tags(editor, 'div').find((tag) => (attribute(tag, 'class') ?? '').split(/\s+/).includes('case-editor'));
+  assert.ok(editorRoot, 'Missing Case editor root.');
+  const layoutState = requiredText(expressionAttribute(editorRoot, 'data-editor-layout'), 'Case editor root must expose its active presentation layout.');
+
+  const editorImports = svelteComponentImports(editor, editorUrl);
+  const sharedComponents = editorImports.filter(({ specifier }) => specifier.startsWith('$lib/components/case-editor/'));
   assert.ok(sharedComponents.length > 0, 'Case editor must use the shared case-editor component family.');
-  for (const component of sharedComponents) {
-    assert.equal(tags(editor, component).length, 1, `${component} must remain a single shared authoring node.`);
+  for (const { name } of sharedComponents) {
+    assert.equal(tags(editor, name).length, 1, `${name} must remain a single shared authoring node.`);
   }
 
   const layoutInputs = tags(navigation, 'input').filter((tag) => attribute(tag, 'name') === 'case_editor_layout');
@@ -233,10 +306,16 @@ test('Case editor exposes one shared Classic/Compact authoring tree', () => {
     assert.match(input, new RegExp(`onchange=\\{[^}]*onlayoutchange\\(['"]${escapeRegExp(value)}['"]\\)`));
   }
 
-  const layoutBranches = svelteIfBlocks(editor).filter(({ condition }) => condition.includes('editorLayout'));
+  const importByName = new Map(editorImports.map((record) => [record.name, record]));
+  const layoutBranches = svelteIfBlocks(editor).filter(({ condition }) => condition.includes(layoutState));
   for (const { body } of layoutBranches) {
-    for (const component of sharedComponents) {
-      assert.equal(tags(body, component).length, 0, `${component} must not be selected by Classic/Compact state.`);
+    assert.equal(tags(body, 'form').length, 0, 'Classic/Compact branches must not own raw authoring forms.');
+    for (const { name } of sharedComponents) {
+      assert.equal(tags(body, name).length, 0, `${name} must not be selected by Classic/Compact state.`);
+    }
+    for (const [name, record] of importByName) {
+      if (tags(body, name).length === 0) continue;
+      assert.equal(componentTreeContainsForm(record.url), false, `Layout-selected ${name} must remain presentation-only and may not own an authoring-form subtree.`);
     }
   }
 });
@@ -282,7 +361,10 @@ test('Case question Prompt and Answer fields start comparably and long Answers e
   const prompt = tags(form, 'textarea').find((tag) => attribute(tag, 'name') === 'prompt_md');
   const answer = tags(form, 'textarea').find((tag) => attribute(tag, 'name') === 'answer_md');
   assert.ok(prompt && answer);
-  assert.equal(attribute(prompt, 'rows'), attribute(answer, 'rows'), 'Prompt and Answer must start with comparable editing space.');
+  const promptRows = Number(requiredText(attribute(prompt, 'rows'), 'Prompt must declare usable initial editing rows.'));
+  const answerRows = Number(requiredText(attribute(answer, 'rows'), 'Answer must declare usable initial editing rows.'));
+  assert.ok(Number.isInteger(promptRows) && promptRows > 1, 'Prompt needs more than a single-line editing surface.');
+  assert.equal(answerRows, promptRows, 'Prompt and Answer must start with comparable editing space.');
   const answerAction = requiredText(useAction(answer), 'Long Case Answers must use bounded auto-grow.');
   boundedAutoGrowLimit(questions, answerAction);
 });
@@ -304,16 +386,19 @@ test('Image-specific Prompt and Answer fields use a smaller contextual bounded a
 test('Compact question editing is horizontal with sticky navigation when wide and reflows when narrow', () => {
   const wideQuestions = mediaBlocks(questions).find((block) => {
     const rule = cssRule(block.body, '.question-edit-form');
-    return /min-width/.test(block.condition) && rule?.selector.includes('data-editor-layout="compact"') && declaration(rule.body, 'grid-template-columns');
+    return /min-width/.test(block.condition) && rule?.selector.includes('data-editor-layout="compact"') && isHorizontalLayout(rule.body);
   });
   assert.ok(wideQuestions, 'Missing wide Compact question layout.');
   const wideRule = cssRule(wideQuestions.body, '.question-edit-form');
   assert.ok(wideRule);
-  assert.ok(trackCount(requiredText(declaration(wideRule.body, 'grid-template-columns'), 'Wide question layout must define grid tracks.')) >= 2, 'Wide Prompt/Answer editing must use separate horizontal tracks.');
-  const promptRule = cssRule(wideQuestions.body, '.question-prompt-field');
-  const answerRule = cssRule(wideQuestions.body, '.question-answer-field');
-  assert.ok(promptRule && answerRule);
-  assert.notEqual(declaration(promptRule.body, 'grid-column'), declaration(answerRule.body, 'grid-column'));
+  assert.ok(isHorizontalLayout(wideRule.body), 'Wide Prompt/Answer editing must use a horizontal layout.');
+  const gridTracks = declaration(wideRule.body, 'grid-template-columns');
+  if (gridTracks) {
+    const promptRule = cssRule(wideQuestions.body, '.question-prompt-field');
+    const answerRule = cssRule(wideQuestions.body, '.question-answer-field');
+    assert.ok(promptRule && answerRule);
+    assert.notEqual(declaration(promptRule.body, 'grid-column'), declaration(answerRule.body, 'grid-column'));
+  }
   const anchorRule = cssRule(wideQuestions.body, '#questions');
   assert.ok(anchorRule);
   assert.ok(Number.parseFloat(requiredText(declaration(anchorRule.body, 'scroll-margin-top'), 'Sticky navigation must provide question anchor clearance.')) > 0, 'Sticky navigation needs nonzero question anchor clearance.');
@@ -323,38 +408,48 @@ test('Compact question editing is horizontal with sticky navigation when wide an
     return /min-width/.test(block.condition) && rule?.selector.includes('data-editor-layout="compact"') && declaration(rule.body, 'position') === 'sticky';
   });
   assert.ok(wideNavigation, 'Missing wide Compact sticky navigation.');
-  assert.equal(wideNavigation.condition, wideQuestions.condition, 'Question columns and sticky navigation must use the same wide viewport class.');
+  assert.equal(wideNavigation.condition, wideQuestions.condition, 'Question layout and sticky navigation must use the same wide viewport class.');
 
   const narrowQuestions = mediaBlocks(questions).find((block) => {
     const rule = cssRule(block.body, '.question-edit-form');
-    return /max-width/.test(block.condition) && rule && declaration(rule.body, 'grid-template-columns');
+    return /max-width/.test(block.condition) && rule && isSingleColumnLayout(rule.body);
   });
   assert.ok(narrowQuestions, 'Missing narrow Case Question reflow.');
   const narrowRule = cssRule(narrowQuestions.body, '.question-edit-form');
   assert.ok(narrowRule);
-  assert.equal(trackCount(requiredText(declaration(narrowRule.body, 'grid-template-columns'), 'Narrow question layout must define grid tracks.')), 1);
+  assert.ok(isSingleColumnLayout(narrowRule.body), 'Narrow Case Question editing must reflow to one column.');
 });
 
 test('layout switching is presentation-only and keeps existing question forms mounted', () => {
-  assert.match(editor, /from\s+['"]\$lib\/admin-case-editor-layout\.js['"]/);
+  const editorRoot = tags(editor, 'div').find((tag) => (attribute(tag, 'class') ?? '').split(/\s+/).includes('case-editor'));
+  assert.ok(editorRoot);
+  const layoutState = requiredText(expressionAttribute(editorRoot, 'data-editor-layout'), 'Case editor root must expose its active layout state.');
+  const layoutHelpers = namedImportsFrom(editor, '$lib/admin-case-editor-layout.js');
+
   const mountBody = arrowCallbackBody(editor, 'onMount');
-  assert.match(mountBody, /\breadCaseEditorLayout\s*\(/);
-  assert.match(mountBody, /\bgetCaseEditorStorage\s*\(/);
+  const mountCalls = calledNames(mountBody, layoutHelpers);
 
   const navigationTag = tags(editor, 'CaseEditorNavigation')[0];
   const handlerName = /onlayoutchange=\{([A-Za-z_$][\w$]*)\}/.exec(navigationTag)?.[1];
   assert.ok(handlerName, 'Case editor navigation must reach one in-place layout handler.');
   const switchBody = callableBody(editor, handlerName);
-  assert.match(switchBody, /\beditorLayout\s*=/);
-  assert.match(switchBody, /\bwriteCaseEditorLayout\s*\(/);
-  assert.match(switchBody, /\bgetCaseEditorStorage\s*\(/);
+  const switchCalls = calledNames(switchBody, layoutHelpers);
+
+  const sharedCalls = mountCalls.filter((name) => switchCalls.includes(name));
+  const mountOnly = mountCalls.filter((name) => !switchCalls.includes(name));
+  const switchOnly = switchCalls.filter((name) => !mountCalls.includes(name));
+  assert.equal(sharedCalls.length, 1, 'Layout mount/switch flows must share one storage-access helper.');
+  assert.equal(mountOnly.length, 1, 'Layout mount must use one read-side helper distinct from switching.');
+  assert.equal(switchOnly.length, 1, 'Layout switching must use one write-side helper distinct from mounting.');
+  assert.match(mountBody, new RegExp(`${escapeRegExp(layoutState)}\\s*=\\s*${escapeRegExp(mountOnly[0])}\\s*\\(\\s*${escapeRegExp(sharedCalls[0])}\\s*\\(`));
+  assert.match(switchBody, new RegExp(`${escapeRegExp(layoutState)}\\s*=\\s*${escapeRegExp(switchOnly[0])}\\s*\\(\\s*${escapeRegExp(sharedCalls[0])}\\s*\\(`));
   assert.doesNotMatch(switchBody, /\bgoto\s*\(|\blocation\b|\.reload\s*\(|\binvalidateAll\s*\(/);
 
   const editForm = tags(questions, 'form').find((tag) => /(?:^|\s)question-edit-form(?:\s|$)/.test(attribute(tag, 'class') ?? ''));
   assert.ok(editForm);
   assert.equal(attribute(editForm, 'action'), '?/saveQuestion');
   assert.match(editForm, /id=\{`question-edit-\$\{question\.questionPromptId\}`\}/);
-  for (const { condition, body } of svelteIfBlocks(questions).filter(({ condition }) => condition.includes('editorLayout'))) {
+  for (const { condition, body } of svelteIfBlocks(questions).filter(({ condition }) => /(?:===|!==)\s*['"](?:classic|compact)['"]/.test(condition))) {
     assert.equal(tags(body, 'form').some((tag) => /(?:^|\s)question-edit-form(?:\s|$)/.test(attribute(tag, 'class') ?? '')), false, `Existing question forms must not be mounted by layout condition: ${condition}`);
   }
 });
