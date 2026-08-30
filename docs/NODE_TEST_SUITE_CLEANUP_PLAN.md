@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / first source-contract consolidation tranche implemented in Draft PR #115
+Status: implementation plan active / Checkpoint 1 current-schema fixture normalization and the first source-contract consolidation tranche implemented in Draft PR #115
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains the first corrected source-contract consolidation tranche described under Checkpoint 4. It does **not** implement the whole cleanup plan. Current-schema fixture normalization, fast-tier selection, change-aware CI specialization, production-operator specialization, broader behavioral rewrites, profiling, and the remaining durable-guidance work are still pending.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization and the first corrected source-contract consolidation tranche described under Checkpoint 4. It does **not** implement the whole cleanup plan. Fast-tier selection, change-aware CI specialization, production-operator specialization, broader behavioral rewrites, profiling, and the remaining durable-guidance work are still pending.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -148,7 +148,7 @@ The current repository implementation lives in the PR #117 CI reporter/wrapper c
 
 ## Checkpoint 1 — Current-schema fixture normalization
 
-**Status: pending. Not in the current PR #115 tranche.**
+**Status: implemented in Draft PR #115.**
 
 ### Objective
 
@@ -167,24 +167,49 @@ Normalize only ordinary current application tests automatically.
 
 ### Shared current-schema bootstrap
 
-Introduce or standardize one repository-owned helper that:
+Use the repository-owned `test/current-schema.js` helper, introduced on current `main`, which:
 
-- applies the complete current migration set in deterministic order;
-- uses the actual migration authority rather than a stale hand-maintained subset;
+- discovers the complete numbered migration set from `drizzle/` in deterministic order;
+- validates contiguous migration numbering;
+- applies the actual migration authority rather than a stale hand-maintained subset;
 - fails loudly on migration failure;
 - avoids missing-table/column probing as control flow;
 - lets ordinary D1-backed tests avoid copying migration lists.
+
+### Implemented inventory
+
+A systematic search for `0000_dashing_centennial.sql` in `test/` found 25 primary fixture files.
+
+- 24 were normalized or partially normalized so their ordinary current-runtime fixtures use `applyCurrentSchema(...)`.
+- `test/contextual-system-topic-tag-navigation.test.js` remains intentionally historical because it directly tests migration 0015.
+- `test/resumable-content-import.test.js` is intentionally mixed: ordinary importer fixtures use current schema, while explicit migration 0004 coverage remains historical.
+- `test/learning-db.test.js` is intentionally mixed: ordinary learner/review fixtures use current schema, while explicit migration 0014 backfill coverage remains historical.
+- `test/original-stimulus-semantics.test.js` is intentionally mixed: ordinary Stimulus runtime fixtures use current schema, while explicit pre-0016 -> 0016 migration coverage remains historical.
+
+A broader direct-reader sweep found five additional ordinary tests that already enumerate and apply the complete numbered migration directory dynamically:
+
+```text
+test/stimulus-prompt-specificity-characterisation.test.js
+test/stimulus-family-live-prompt-trigger-alignment.test.js
+test/asset-higher-resolution-replacement.test.js
+test/stimulus-family-correctness-checkpoint-a.test.js
+test/stimulus-family-correctness-checkpoint-a-boundaries.test.js
+```
+
+They already satisfy the current-schema invariant and were intentionally left unchanged instead of expanding Checkpoint 1 into cosmetic helper consolidation.
 
 ### Preserve historical tests
 
 Do not normalize genuine migration tests merely because they use old SQL.
 
-Valid examples:
+Retained examples in this checkpoint include:
 
-- N-1 schema -> migration N;
-- data preservation during upgrade;
-- migration trigger/constraint checks;
-- deployment sequencing contracts.
+- migration 0004 fresh/upgrade behavior for resumable imports;
+- migration 0014 review `question_pool_mode` backfill;
+- migration 0015 contextual System/Topic/Tag navigation behavior;
+- migration 0016 Original stimulus migration behavior.
+
+Historical data-state tests continue to use current schema and construct older valid states as data. No production runtime `no such table` / `no such column` fallback was restored.
 
 ### Acceptance criteria
 
@@ -193,6 +218,8 @@ Valid examples:
 - historical data states are represented within supported schema;
 - no runtime fallback is added only for tests;
 - fixture intent is obvious.
+
+These criteria are satisfied for the audited Checkpoint 1 target set. Implementation head `e02ff7c7f0b331d6ca10a8a90d8d61fdf29ad550` passed Draft CI run #1254: diff whitespace, complete `npm test` (625/625 passed), and `npm run check` (0 errors, 5 existing warnings). No local command execution is claimed for this work session because no usable local checkout was available.
 
 ---
 
@@ -812,17 +839,15 @@ The cleanup must preserve effective regression coverage for:
 
 Broad `npm run check` remains in fast/full.
 
-## 6. Implementation strategy after the current PR #115 tranche
+## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 contains only the corrected first source-contract consolidation tranche under Checkpoint 4, plus the audit/plan that justify later work. Do not infer that the following checkpoints have started merely because their design remains documented here.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization plus the corrected first source-contract consolidation tranche under Checkpoint 4. Do not infer that later checkpoints have started merely because their design remains documented here.
 
-Recommended later implementation sequence:
+### Completed fixture foundation
 
-### Fixture foundation
+Checkpoint 1 — current-schema fixture normalization — is complete for the audited target set.
 
-Checkpoint 1 — current-schema fixture normalization.
-
-### Safe fast-tier infrastructure
+### Next safe fast-tier infrastructure
 
 Checkpoints:
 
@@ -857,7 +882,7 @@ Specific gates:
 
 **Checkpoint 0:** already satisfied on current main by the separately merged PR #117 diagnostics work; preserve that contract.
 
-**Checkpoint 1:** no unsupported ordinary partial-schema fixture remains in the audited target set.
+**Checkpoint 1:** satisfied for the audited target set: unsupported ordinary partial-schema fixtures were normalized, genuine migration fixtures were retained deliberately, and the implementation head passed repository-owned Draft validation.
 
 **Checkpoint 2A:** new tests default fast; no coverage reduction yet.
 
@@ -897,13 +922,3 @@ Ready/full CI
 agent:checks
   = reports the same centrally owned changed-path requirements CI executes
 ```
-
-At the same time:
-
-- CI logs make failures obvious;
-- ordinary runtime fixtures use supported current schema;
-- brittle contracts are consolidated without losing intentional regressions or UI workflow reachability;
-- safety-critical domain coverage remains strong;
-- performance decisions are evidence-driven rather than filename-driven.
-
-PR #115 remains Draft and currently implements only the first corrected source-contract consolidation tranche under Checkpoint 4. The later fixture, fast-tier, specialized-CI, broader rewrite and profiling checkpoints remain pending.
