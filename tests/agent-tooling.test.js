@@ -79,10 +79,10 @@ test('branch state distinguishes feature, main, detached, and unreadable Git sta
 });
 
 test('validation modes preserve the intended contracts from one shared authority', () => {
-  assert.deepEqual(VALIDATION_MODE_CHECK_IDS.fast, ['diff', 'test', 'svelte']);
+  assert.deepEqual(VALIDATION_MODE_CHECK_IDS.fast, ['diff', 'testFast', 'svelte']);
   assert.deepEqual(VALIDATION_MODE_CHECK_IDS.full, ['diff', 'db', 'test', 'svelte', 'build', 'authSmoke']);
   assert.deepEqual(VALIDATION_MODES.fast, [
-    ['git', ['diff', '--check']], ['npm', ['test']], ['npm', ['run', 'check']],
+    ['git', ['diff', '--check']], ['npm', ['run', 'test:fast']], ['npm', ['run', 'check']],
   ]);
   assert.deepEqual(VALIDATION_MODES.full.at(-1), ['node', ['scripts/local-auth-smoke.mjs']]);
 });
