@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, and the first source-contract consolidation tranche implemented in Draft PR #115
+Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, and two bounded Checkpoint 4 source-contract consolidation tranches implemented in Draft PR #115
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, and the first corrected source-contract consolidation tranche described under Checkpoint 4. It does **not** implement the whole cleanup plan. Broader behavioral rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, and two bounded corrected source-contract consolidation tranches described under Checkpoint 4. It does **not** implement the whole cleanup plan or complete Checkpoint 4. Broader behavioral rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -871,7 +871,7 @@ Satisfied after the review correction:
 
 ## Checkpoint 4 — Consolidate duplicated source/UI contracts
 
-**Status: first corrected tranche implemented in Draft PR #115; additional consolidation is not implied.**
+**Status: two bounded corrected tranches implemented in Draft PR #115; broader Checkpoint 4 remains pending.**
 
 ### Objective
 
@@ -889,7 +889,7 @@ For every removed assertion, classify it as:
 
 A model/DB test that proves a mutation works does not prove that an Admin can reach that mutation through the intended UI.
 
-### Corrected PR #115 tranche
+### Corrected first PR #115 tranche
 
 #### Case Library PR104 family
 
@@ -945,6 +945,68 @@ Deep role-selection/history/identity semantics remain under image/Stimulus domai
 
 `original-stimulus-semantics.test.js`, `simple-stimulus-curation.test.js` and related Stimulus Family tests remain the stronger owners for mutation semantics, history, identity preservation, rollback and validation.
 
+### Second bounded tranche — Admin Topic/System form contract
+
+The next independently reviewable Checkpoint 4 tranche is limited to:
+
+```text
+test/admin-topics-form-contract.test.js
+```
+
+It is intentionally not a general Taxonomy-workspace rewrite. The existing workspace disposition above remains unchanged.
+
+Removed assertions:
+
+- **Incidental implementation detail:** the negative assertion for the literal copy `Hierarchy manager`. The durable composition invariant is that the route renders the canonical `TaxonomyOrganizer`; a particular obsolete heading phrase is not product meaning.
+- **Duplicate semantic assertion:** the raw-source match for `The selected Topic is not the current Primary Topic for this Case.` The stronger owner is `test/admin-case-library-topic-authoring.test.js`, which directly executes `moveTopicToSystem(...)` against a current-schema DB fixture and proves a stale/non-current Topic is rejected with no hierarchy write.
+
+Retained thin ownership:
+
+- **UI reachability/integration:** explicit `+ New System` and `+ New Topic` entry points into the shared creation flow;
+- **UI reachability/integration + hierarchy safety:** the parent picker exists only for Topic creation, submits the chosen Topic parent, and System creation submits a blank hidden `parent_id`;
+- **Semantic product vocabulary:** parent choices remain visibly distinguished as `System` versus `Topic`, with `Unassigned`, `+ Add Topic`, and `+ Add subtopic` authoring vocabulary;
+- **Composition:** the Systems & Topics route renders exactly one `TaxonomyOrganizer` component;
+- **Explicitly retired product invariant:** the route remains free of `Additional Study Topic` authoring vocabulary. This negative guard is retained because Additional Study Topics are intentionally retired from current authoring behavior, not because negative text assertions are preferred generally;
+- **Server/action wiring:** `createConcept` passes the submitted `parent_id` into the taxonomy writer and the writer normalizes all System creation to `parentId = null`. History shows this contract was introduced with the deliberate `Hide topic parents for Systems` change; no stronger direct behavioral owner currently proves the successful normalization path, so the cheap source/data-flow owner remains;
+- **Case-editor workflow reachability:** the Case Topics UI exposes `?/assignPrimaryTopicToSystem`, submits the current Primary Topic and selected parent System, and the Case route defines the named action. Mutation validation remains owned by the DB-backed authoring tests rather than duplicated as writer source text here.
+
+Independent review of the first consolidation edit found three precision gaps in the surviving source owner and corrected them before tranche completion:
+
+1. the existing `System creation remains top-level` test could false-green if the Topic parent picker became visible for System creation, because it only asserted that the picker existed somewhere. The corrected owner now requires the Topic-only branch and the blank System `parent_id` branch explicitly;
+2. `/TaxonomyOrganizer/` could pass on an import after the component stopped rendering. The corrected owner counts rendered `<TaxonomyOrganizer` tags and requires exactly one;
+3. the Case action assertion could pass on the imported writer symbol alone. It now requires the named `assignPrimaryTopicToSystem: async` action, and the Topic creation route assertion scopes its parent mapping to the `createConcept` action block.
+
+These corrections harden the surviving thin owner without restoring the removed duplicate/incidental assertions or moving deep semantics back into source inspection.
+
+### Remaining primary source/UI contract inventory after this tranche
+
+This inventory is intentionally limited to tests whose primary contract is source/UI/configuration structure. Mixed behavioral tests that merely read migrations or source incidentally are not classified as deletion candidates from that fact alone.
+
+Already reviewed under the first Checkpoint 4 tranche or Checkpoint 3 are excluded from this pending list. After the Admin Topic/System tranche, the primary remaining families are:
+
+**Architecture / safety / workflow structure — default disposition remains keep unless a later stronger-owner review proves otherwise:**
+
+```text
+test/admin-editor-preview-contract.test.js
+test/content-import-safety-contract.test.js
+test/preview-deployment-contract.test.js
+test/resumable-import-contract.test.js
+test/stimulus-family-facade-contract.test.js
+test/wrangler-authority-contract.test.js
+```
+
+These correspond to the audit's deliberate architecture/safety class: Production/Preview action ownership, import safety, Preview deployment ownership, resumable runtime ordering, Stimulus Family façade direction/public identity, and repository-pinned Wrangler authority. Their source/configuration structure can itself be the invariant; this inventory is **not** authorization to remove them.
+
+**UI behavior expressed through source — pending separate review/rewrite decision:**
+
+```text
+test/admin-case-editor-responsive-contract.test.js
+```
+
+The responsive Case-editor contract is already named as a Checkpoint 5 behavioral-rewrite candidate. This Checkpoint 4 tranche deliberately does not start that rewrite or weaken its single-tree/presentation invariants.
+
+No further source/UI test is treated as reviewed merely because this inventory names it. Additional Checkpoint 4 work requires another bounded stronger-owner review.
+
 ### Acceptance criteria
 
 For every removed assertion:
@@ -954,6 +1016,8 @@ For every removed assertion:
 - preserve safety/domain meaning;
 - preserve distinct UI reachability/integration where no stronger owner exists;
 - avoid deleting solely because regex/source inspection is aesthetically undesirable.
+
+The second bounded tranche satisfies those criteria for the two removed assertions above; it does not imply broader Checkpoint 4 completion.
 
 ---
 
@@ -1121,7 +1185,7 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, and the corrected first source-contract consolidation tranche under Checkpoint 4. Do not infer that later checkpoints have started merely because their design remains documented here.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, and two bounded corrected source-contract consolidation tranches under Checkpoint 4. Do not infer that the rest of Checkpoint 4 or any later checkpoint has started merely because its design remains documented here.
 
 ### Completed fixture, selection, and UX-contract foundation
 
@@ -1131,6 +1195,7 @@ PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoi
 - Checkpoint 2C — named ECG/taxonomy production-operator checks and exact central path ownership — is implemented.
 - Checkpoint 2D — exactly six specialized fast-test exclusions — is implemented with complete-suite inclusion, related-Draft ownership, and the explicit slide-review production compatibility dependencies contract-tested.
 - Checkpoint 3 — both intentional UX regressions were investigated and retained because no stronger cheap/reliable layout-capable owner exists; independent review then tightened the retained horizontal-overflow source owner so it cannot falsely pass on a later selector's declaration. Neither product invariant was retired.
+- Checkpoint 4 — the corrected first tranche plus the bounded Admin Topic/System form tranche are implemented; all other source/UI families remain pending unless explicitly listed as previously reviewed.
 
 ### Fast-tier boundary after Checkpoint 2D
 
@@ -1138,7 +1203,7 @@ Do not add a seventh exclusion as part of Checkpoint 2D or infer further safe ca
 
 ### Remaining UX/source-contract work
 
-Checkpoint 3 is complete after the focused review correction. Any further independently justified portions of Checkpoints 4/5 remain pending and are not authorized by the Checkpoint 3 implementation.
+Checkpoint 3 is complete. Checkpoint 4 is **not** complete: the pending inventory above remains for separate stronger-owner review, and the Case-editor responsive contract remains reserved for the Checkpoint 5 behavioral-rewrite decision rather than being folded into this tranche.
 
 The two intentional width/overflow UX regression tests remain explicit surviving owners.
 
@@ -1172,7 +1237,7 @@ Specific gates:
 
 **Checkpoint 3:** satisfied after independent-review correction: both protected product invariants remain intentional and both dispositions remain `RETAIN`; no stronger cheap/reliable layout owner exists; the Shared Questions contract remains unchanged; the horizontal-overflow contract was tightened to extract the `body` rule before asserting `overflow-x: hidden`, eliminating the reviewed cross-rule false-green case. No production/UI code, schema, CI architecture, exclusion, or application/domain behavior changed. Exact-head Draft CI is the final execution gate after the corrected test and documentation changes.
 
-**Checkpoint 4:** every removal has an explicit stronger owner or retirement, and distinct UI reachability/semantic vocabulary remains protected where applicable.
+**Checkpoint 4:** the two bounded implemented tranches satisfy the ownership rule for their removed assertions. For the Admin Topic/System tranche specifically, independent review corrected three false-green/reachability gaps in the surviving thin owner while keeping the duplicate semantic and incidental-copy assertions removed. Broader Checkpoint 4 remains pending; every future removal still requires an explicit stronger owner or retirement, and distinct UI reachability/semantic vocabulary must remain protected where applicable.
 
 **Checkpoint 6:** runtime claim backed by comparable CI medians.
 
