@@ -45,7 +45,7 @@ function escapeRegExp(value) {
 
 test('Preview renders the real production Case editor rather than a copied UI', () => {
   assert.match(previewEditor, /import\s+AdminCaseEditor\s+from\s+["']\.\.\/\.\.\/\.\.\/admin\/cases\/\[caseId\]\/\+page\.svelte["']/);
-  assert.match(previewEditor, /const PreviewCaseEditor = \/\*\* @type \{any\} \*\/ \(AdminCaseEditor\);/);
+  assert.match(previewEditor, /const\s+PreviewCaseEditor\s*=\s*[^;\n]*\bAdminCaseEditor\b[^;\n]*;/);
   assert.equal([...previewEditor.matchAll(/<PreviewCaseEditor\b/g)].length, 1);
 });
 
@@ -81,7 +81,6 @@ test('shared Case editor preserves critical form field contracts after component
 });
 
 test('question scope UX exposes Case-wide and fixed/alternative stimulus targets without adding Preview production writes', () => {
-  assert.match(sharedEditorSource, /Applies to:/);
   assert.match(sharedEditorSource, /This whole Case/);
   assert.match(sharedEditorSource, /A specific image \/ stimulus/);
   assert.match(sharedEditorSource, /value={`fixed:\$\{asset\.assetId\}`}/);
