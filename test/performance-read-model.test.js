@@ -96,6 +96,26 @@ test('dashboard read model preserves production/inactive semantics and bounds Ca
   }
 });
 
+test('dashboard Question count remains a database-side aggregate instead of loading Question rows', async () => {
+  const fixture = createLearningDb();
+  try {
+    seed(fixture);
+    fixture.preparedSql.length = 0;
+
+    const summary = await getAdminDashboardSummary(fixture.db);
+    assert.equal(summary.questionCount, 4);
+
+    const questionQueries = fixture.preparedSql.filter((statement) => statement.includes('from "case_questions"'));
+    assert.equal(questionQueries.length, 1, JSON.stringify(questionQueries));
+    assert.match(
+      questionQueries[0],
+      /^\s*select\s+count\(\*\)(?:\s+as\s+"count")?\s+from\s+"case_questions"/i
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('targeted production Case lookup returns one active Case with primary Topic and settings', async () => {
   const fixture = createLearningDb();
   try {
