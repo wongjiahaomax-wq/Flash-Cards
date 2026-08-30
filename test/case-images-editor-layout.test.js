@@ -87,6 +87,39 @@ function elementBody(source, opening, name) {
   return source.slice(start + opening.length, end);
 }
 
+/** @param {string} source @param {string} opening */
+function eachBlock(source, opening) {
+  const start = source.indexOf(opening);
+  assert.ok(start >= 0, `Missing ${opening}.`);
+  const openingEnd = source.indexOf('}', start);
+  assert.ok(openingEnd >= 0, `Unclosed ${opening}.`);
+  const token = /\{#each\b[^}]*\}|\{\/each\}/g;
+  token.lastIndex = start;
+  let depth = 0;
+  let match;
+  while ((match = token.exec(source))) {
+    if (match[0].startsWith('{#each')) depth += 1;
+    else depth -= 1;
+    if (depth === 0) return source.slice(openingEnd + 1, match.index);
+  }
+  throw new Error(`Unclosed ${opening}.`);
+}
+
+/** @param {string} branch @param {RegExp} construction @param {string} label */
+function assertLinkedQaBranch(branch, construction, label) {
+  assert.match(branch, construction, `${label} must construct its imageQuestions from the correct image context.`);
+  const linked = tags(branch, 'div').filter((tag) => classes(tag).includes('image-questions'));
+  assert.equal(linked.length, 1, `${label} must render exactly one linked Q&A container.`);
+  assert.equal(attribute(linked[0], 'aria-label'), 'Questions linked to this image');
+  assert.match(branch, /\{#if\s+imageQuestions\.length\s*>\s*0\}/, `${label} must gate its linked Q&A on its own imageQuestions.`);
+  assert.match(branch, /\{#each\s+imageQuestions\s+as\s+question\b/, `${label} must render its own imageQuestions collection.`);
+  assert.match(branch, /\{question\.scope\}/);
+  assert.match(branch, /\{question\.promptMd\s*\|\|\s*['"]—['"]\}/);
+  assert.match(branch, /\{question\.answerMd\s*\|\|\s*['"]—['"]\}/);
+  assert.match(branch, />\s*Q\s*</);
+  assert.match(branch, />\s*A\s*</);
+}
+
 /** @param {string} source @param {string} action */
 function formByAction(source, action) {
   const opening = tags(source, 'form').find((tag) => attribute(tag, 'action') === action);
@@ -172,20 +205,22 @@ test('Case image overview keeps learner-visible images and linked Q&A together',
   assert.match(headingBody, /\{imageCount\}/);
   assert.match(section, /learner-visible image[\s\S]{0,120}linked Q&A/i);
 
-  const linkedQuestions = tagWithClass(section, 'div', 'image-questions');
-  assert.ok(linkedQuestions, 'Learner-visible image cards must expose linked Question/Answer content.');
-  assert.equal(attribute(linkedQuestions, 'aria-label'), 'Questions linked to this image');
-  assert.match(section, /\{@const\s+imageQuestions\s*=\s*questionsForImage\(asset\)\}/);
-  assert.match(section, /\{@const\s+imageQuestions\s*=\s*questionsForImage\(option\s*,\s*option\.group\)\}/);
+  const ordinaryBranch = eachBlock(section, '{#each ordinaryImages as asset (asset.assetId)}');
+  assertLinkedQaBranch(
+    ordinaryBranch,
+    /\{@const\s+imageQuestions\s*=\s*questionsForImage\(asset\)\}/,
+    'Ordinary-image card branch'
+  );
+  const assignedBranch = eachBlock(section, '{#each assignedImages as option (option.id)}');
+  assertLinkedQaBranch(
+    assignedBranch,
+    /\{@const\s+imageQuestions\s*=\s*questionsForImage\(option\s*,\s*option\.group\)\}/,
+    'Assigned image-set option card branch'
+  );
 
   for (const scope of ['Image-specific', 'Reusable', 'Shared across this image set']) {
     assert.match(section, new RegExp(`scope:\\s*['"]${escapeRegExp(scope)}['"]`), `Missing ${scope} preview scope.`);
   }
-  assert.match(section, /\{question\.scope\}/);
-  assert.match(section, /\{question\.promptMd\s*\|\|\s*['"]—['"]\}/);
-  assert.match(section, /\{question\.answerMd\s*\|\|\s*['"]—['"]\}/);
-  assert.match(section, />\s*Q\s*</);
-  assert.match(section, />\s*A\s*</);
 });
 
 test('Advanced image management remains reachable from the production overview', () => {
