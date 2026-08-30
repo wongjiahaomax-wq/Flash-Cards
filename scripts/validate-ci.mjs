@@ -3,6 +3,7 @@ import { pathToFileURL } from 'node:url';
 import { classifyChangedFiles } from './agent-checks-lib.mjs';
 import { resolveInvocation } from './validate.mjs';
 import {
+  formatValidationCommand,
   resolveValidationCheckIds,
   VALIDATION_MODE_CHECK_IDS,
   validationCommandsForCheckIds,
@@ -17,17 +18,11 @@ const NODE_TEST_CHECK_IDS = new Set([
   'productionTaxonomyOperatorTest',
   'slideReviewTest',
 ]);
-const NODE_TEST_ENV_METADATA = Object.freeze({
-  ecgAssetRenameOperatorTest: Object.freeze({
-    reproCommand: 'node --test test/ecg-batch-01-asset-rename.test.js',
-  }),
-  productionTaxonomyOperatorTest: Object.freeze({
-    reproCommand: 'node --test test/production-taxonomy-operator.test.js',
-  }),
-  slideReviewTest: Object.freeze({
-    reproCommand: 'npm run slide-review:test',
-  }),
-});
+const ENV_REPORTED_NODE_TEST_CHECK_IDS = new Set([
+  'ecgAssetRenameOperatorTest',
+  'productionTaxonomyOperatorTest',
+  'slideReviewTest',
+]);
 export const CI_TEST_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 export const CI_TEST_REPORTER = './scripts/ci-test-reporter.mjs';
 
@@ -207,19 +202,19 @@ export function ciCommandArgs(id, args) {
 /**
  * Named specialized Node checks put explicit test files after `node --test`
  * directly or through an npm script. NODE_OPTIONS applies the CI-only reporter
- * before those positional arguments while preserving the named command.
+ * before those positional arguments while preserving the named command. The
+ * reporter identity and repro command are derived from validation-contract.mjs.
  * Base test/testFast reporter behavior remains unchanged.
  * @param {string} id
  * @param {NodeJS.ProcessEnv} [env]
  */
 export function ciCommandEnvironment(id, env = process.env) {
-  const metadata = NODE_TEST_ENV_METADATA[id];
-  if (!metadata) return { ...env };
+  if (!ENV_REPORTED_NODE_TEST_CHECK_IDS.has(id)) return { ...env };
   const existing = String(env.NODE_OPTIONS ?? '').trim();
   return {
     ...env,
     CI_NODE_TEST_CHECK_ID: id,
-    CI_NODE_TEST_REPRO_COMMAND: metadata.reproCommand,
+    CI_NODE_TEST_REPRO_COMMAND: formatValidationCommand(id),
     NODE_OPTIONS: [existing, `--test-reporter=${CI_TEST_REPORTER}`].filter(Boolean).join(' '),
   };
 }
