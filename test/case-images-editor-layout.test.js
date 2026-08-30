@@ -156,6 +156,12 @@ test('Case image overview maps learner-visible images to the intended role seman
   assert.equal(evaluateExpression(ordinaryRole, { activeGroups: [{}], attachedImages: [{}] }), 'Always shown');
   assert.equal(evaluateExpression(ordinaryRole, { activeGroups: [], attachedImages: [{}] }), 'Original');
   assert.equal(evaluateExpression(ordinaryRole, { activeGroups: [], attachedImages: [{}, {}] }), 'Needs role');
+
+  const roleBodies = tags(section, 'span')
+    .filter((tag) => classes(tag).includes('role-badge'))
+    .map((tag) => elementBody(section, tag, 'span').trim());
+  assert.ok(roleBodies.includes('{asset.role}'), 'Ordinary learner-visible images must render their derived role.');
+  assert.ok(roleBodies.includes('{option.role}'), 'Image-set options must render their derived Original/Alternative role.');
 });
 
 test('Case image overview keeps learner-visible images and linked Q&A together', () => {
@@ -169,6 +175,8 @@ test('Case image overview keeps learner-visible images and linked Q&A together',
   const linkedQuestions = tagWithClass(section, 'div', 'image-questions');
   assert.ok(linkedQuestions, 'Learner-visible image cards must expose linked Question/Answer content.');
   assert.equal(attribute(linkedQuestions, 'aria-label'), 'Questions linked to this image');
+  assert.match(section, /\{@const\s+imageQuestions\s*=\s*questionsForImage\(asset\)\}/);
+  assert.match(section, /\{@const\s+imageQuestions\s*=\s*questionsForImage\(option\s*,\s*option\.group\)\}/);
 
   for (const scope of ['Image-specific', 'Reusable', 'Shared across this image set']) {
     assert.match(section, new RegExp(`scope:\\s*['"]${escapeRegExp(scope)}['"]`), `Missing ${scope} preview scope.`);
@@ -176,6 +184,8 @@ test('Case image overview keeps learner-visible images and linked Q&A together',
   assert.match(section, /\{question\.scope\}/);
   assert.match(section, /\{question\.promptMd\s*\|\|\s*['"]—['"]\}/);
   assert.match(section, /\{question\.answerMd\s*\|\|\s*['"]—['"]\}/);
+  assert.match(section, />\s*Q\s*</);
+  assert.match(section, />\s*A\s*</);
 });
 
 test('Advanced image management remains reachable from the production overview', () => {
