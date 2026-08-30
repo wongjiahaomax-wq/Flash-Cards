@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, and the first source-contract consolidation tranche implemented in Draft PR #115
+Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, and the first source-contract consolidation tranche implemented in Draft PR #115
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A zero-exclusion fast-test selection infrastructure, and the first corrected source-contract consolidation tranche described under Checkpoint 4. It does **not** implement the whole cleanup plan. Change-aware CI specialization, production-operator specialization, activating fast exclusions, broader behavioral rewrites, profiling, and the remaining durable-guidance work are still pending.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A zero-exclusion fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, and the first corrected source-contract consolidation tranche described under Checkpoint 4. It does **not** implement the whole cleanup plan. Production-operator specialization, activating fast exclusions, broader behavioral rewrites, profiling, and the remaining durable-guidance work are still pending.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -24,7 +24,8 @@ Audited baseline:
 - approximately 19.6 seconds for Node tests in GitHub Actions;
 - approximately 18.5 seconds for `npm run check`;
 - `npm test` is currently `node --test` and remains the canonical complete suite;
-- Draft `validate:fast` originally ran the complete Node suite through `npm test`; Checkpoint 2A now routes it through `npm run test:fast` with an empty exclusion set, so maintained-test coverage remains complete.
+- Draft `validate:fast` originally ran the complete Node suite through `npm test`; Checkpoint 2A now routes it through `npm run test:fast` with an empty exclusion set, so maintained-test coverage remains complete;
+- Checkpoint 2B adds specialized checks from the actual PR diff without changing those base fast/full contracts.
 
 ## 2. Hard constraints
 
@@ -225,7 +226,7 @@ These criteria are satisfied for the audited Checkpoint 1 target set. Implementa
 
 ## Checkpoint 2A — Introduce `test:fast` infrastructure with no coverage reduction
 
-**Status: implemented in Draft PR #115. Checkpoints 2B/2C/2D remain pending.**
+**Status: implemented in Draft PR #115. Checkpoint 2B is also implemented; Checkpoints 2C/2D remain pending.**
 
 ### Objective
 
@@ -278,11 +279,11 @@ Checkpoint 2A intentionally keeps:
 FAST_TEST_EXCLUSIONS = []
 ```
 
-Therefore `npm run test:fast` currently selects every maintained Node test discovered by the selector. This checkpoint claims **zero coverage reduction** and no performance improvement.
+Therefore `npm run test:fast` currently selects every maintained Node test discovered by the selector. This remains true after Checkpoint 2B. No performance improvement is claimed.
 
 ### Validation integration
 
-`scripts/validation-contract.mjs` now owns a distinct `testFast` check:
+`scripts/validation-contract.mjs` owns a distinct `testFast` check:
 
 ```text
 fast:
@@ -300,8 +301,6 @@ full:
 ```
 
 Fast/Draft validation executes `npm run test:fast`. Full/Ready validation continues to execute complete `npm test`.
-
-`.github/workflows/ci.yml` remains unchanged and orchestration-only.
 
 `scripts/validate-ci.mjs` attaches the structured Node reporter to both `test` and `testFast`. `scripts/test-fast.mjs` passes fast-check identity/reproduction metadata through to the existing reporter so connector-readable failure records remain attributable to `testFast` and reproduce with `npm run test:fast`.
 
@@ -328,24 +327,25 @@ Checkpoint 2A adds/updates contracts proving:
 - complete semantics remain unchanged;
 - default-to-fast behavior is contract-tested;
 - no specialized test has been removed from generic Draft coverage;
-- no change-aware CI or production-operator specialization has been implemented;
 - repository validation and exact-head Draft CI are required before handoff.
+
+These remain satisfied after Checkpoint 2B: exact-head run #1283 reported 110 maintained files, 110 selected, zero excluded, with 645/645 fast Node tests passing.
 
 ---
 
 ## Checkpoint 2B — Make ordinary CI change-aware for specialized checks
 
-**Status: pending. Not in the current PR #115 tranche.**
+**Status: implemented in Draft PR #115. Checkpoints 2C/2D remain pending.**
 
 ### Objective
 
 Create the safety mechanism required before specialized tests can leave unrelated Drafts.
 
-### Current architectural gap
+### Implemented architecture
 
-The repository already has changed-path classification in `scripts/agent-checks-lib.mjs`.
+`scripts/agent-checks-lib.mjs` remains the one central changed-path rule authority. Each rule can contribute ordinary advisory requirements and a `specializedRequired` subset. The final classifier exposes `specializedRequiredChecks`; those checks are included in the agent's `requiredChecks`, and ordinary CI consumes that same specialized subset rather than defining a second classifier.
 
-For slide-review it can report:
+For slide-review:
 
 ```text
 tools/slide-import-review/**
@@ -353,70 +353,141 @@ tools/slide-import-review/**
   -> slideReviewBuild
 ```
 
-But ordinary CI currently selects only fast/full and does not execute those classifier requirements.
-
-Therefore advisory classification is insufficient for generic-fast exclusions.
-
-### Required architecture
-
-Extract/retain one central changed-path-to-check resolver that is reusable by:
-
-- `agent:checks` for reporting;
-- `validate-ci.mjs` for actual execution.
-
-Do not create a second independent classifier in CI.
+The workflow contains no slide-review path pattern.
 
 ### CI changed-file source
 
-Use the actual PR diff base/head already available to CI validation.
-
-CI should resolve:
+CI uses the actual pull-request base/head SHAs already supplied by `.github/workflows/ci.yml` and resolves the full feature diff with repository-owned Git code:
 
 ```text
-base mode checks
-+ specialized checks required by changed paths
+git diff --name-only --diff-filter=ACDMRTUXB <base>...<head>
 ```
 
-and execute the deduplicated result.
+The workflow's only orchestration change is `fetch-depth: 0` so the merge-base needed by the three-dot diff is reliably present. It does not own classification logic, test-file paths, exclusion manifests or satisfaction rules.
+
+### Base + specialized resolution
+
+CI resolves:
+
+```text
+base validation checks for current mode
++ specializedRequiredChecks from changed paths
+= deterministic deduplicated checks
+```
+
+The base definitions remain exactly:
+
+```text
+fast = diff, testFast, svelte
+full = diff, db, test, svelte, build, authSmoke
+```
+
+### Deduplication / satisfaction
+
+`scripts/validation-contract.mjs` owns explicit satisfaction metadata and deterministic check ordering. Complete `test` currently satisfies:
+
+```text
+testFast
+slideReviewTest
+```
+
+This means:
+
+**Unrelated Draft**
+
+```text
+diff
+testFast
+svelte
+```
+
+**Slide-review Draft**
+
+```text
+diff
+testFast
+svelte
+slideReviewTest
+slideReviewBuild
+```
+
+**Slide-review Ready/full**
+
+```text
+diff
+db
+test
+svelte
+build
+authSmoke
+slideReviewBuild
+```
+
+`test` does not satisfy `slideReviewBuild`, so the non-duplicated specialized build remains mandatory.
 
 ### Fail-safe behavior
 
-Important unclassified code/tooling paths should continue to fall back safely rather than silently receiving fewer checks.
+Validation/classification infrastructure changes preserve the selected base mode and additionally require the current specialized slide-review pair. This applies to the validation contract/runner/classifier, fast-selector infrastructure, CI reporter, CI workflow/package ownership, and focused validation tests.
 
-### Deduplication
+Important otherwise-unclassified code/tooling paths preserve the existing conservative full advisory requirements for `agent:checks` and also acquire the current specialized pair for ordinary CI. Configuration references to unknown validation check IDs fail loudly.
 
-The resolver should understand when a broader check already satisfies a narrower one.
+### Specialized Node diagnostics
 
-Examples:
+`slideReviewTest` runs the existing repository-owned `npm run slide-review:test` command. CI applies the structured Node reporter without duplicating or replacing that command and supplies `slideReviewTest` identity plus the reproduction command `npm run slide-review:test`. The established `test` and `testFast` reporter identities remain unchanged.
 
-- full `npm test` already executes the slide-review test files and operator tests;
-- a slide-review **build** check may still be additionally required for a slide-review change;
-- Draft `test:fast`, after exclusions are activated, may need the specialized test check added back.
+### Focused contract tests
 
-Do not run the same test unnecessarily twice merely because two rules mention it.
+`tests/ci-change-aware.test.js` and updates to `tests/agent-tooling.test.js` prove:
 
-### Required tests
+- unrelated Draft -> base fast only;
+- slide-review Draft -> base fast + specialized test/build;
+- slide-review full/Ready -> full base + build, without duplicate specialized Node execution;
+- `agent:checks` and CI consume one central specialized requirement authority;
+- validation infrastructure changes fail safe while preserving base fast/full semantics;
+- otherwise-unclassified important tooling paths fail safe;
+- the actual three-dot feature diff excludes unrelated base-branch advancement;
+- specialized Node reporting has the correct identity/reproduction path;
+- workflow YAML remains orchestration-only;
+- invalid validation configuration fails loudly;
+- `FAST_TEST_EXCLUSIONS` remains empty.
 
-Prove at minimum:
+### Exact-head validation evidence
 
-- unrelated application Draft -> base fast only;
-- slide-review Draft -> base fast + slide-review test/build;
-- slide-review Ready/full -> full complete tests + required non-duplicated slide-review build;
-- validation-tooling changes fail safe;
-- agent reporting and CI execution derive from the same classification authority;
-- workflow YAML still does not own path rules.
+Implementation head `0277911099b661699c202283559a5a9da53cf0e2` passed Draft CI run #1283. Its logs prove:
+
+```text
+Repository CI validation mode: fast
+Repository CI changed paths: 44
+Repository CI specialized requirements: slideReviewTest, slideReviewBuild
+Repository CI checks: diff, testFast, svelte, slideReviewTest, slideReviewBuild
+```
+
+Results:
+
+- feature-diff whitespace check passed;
+- `npm run test:fast`: **110 complete / 110 selected / 0 excluded; 645/645 passed**;
+- `npm run check`: **0 errors, 5 existing warnings**;
+- `npm run slide-review:test`: **23/23 passed**;
+- `npm run slide-review:build`: passed;
+- repository CI validation passed;
+- exact-head Wrangler runtime smoke run #114 passed.
+
+The available work session used Remote GitHub mode, so no local repository command execution is claimed. The literal `npm test` command remains `node --test`; Draft CI was intentionally left in Draft/fast mode rather than marking the PR Ready merely to force full validation. Because `FAST_TEST_EXCLUSIONS` is empty, the exact-head fast selector still executes every maintained test file.
 
 ### Acceptance criteria
 
-- related specialized changes cannot go green without their specialized check;
-- `agent:checks` and CI cannot drift onto separate rule sets;
-- conditional behavior is test-covered before exclusions are activated.
+- related slide-review changes demonstrably require their specialized checks in ordinary CI;
+- `agent:checks` and CI cannot drift onto separate slide-review path rule sets;
+- conditional behavior is contract-tested before exclusions are activated;
+- no generic Draft coverage has been reduced.
+
+These criteria are satisfied for Checkpoint 2B.
 
 ---
 
 ## Checkpoint 2C — Add named production-operator checks
 
-**Status: pending. Not in the current PR #115 tranche.**
+**Status: pending. Not implemented by Checkpoint 2B.**
 
 ### Objective
 
@@ -484,7 +555,7 @@ must require the matching operator test in ordinary CI.
 
 ## Checkpoint 2D — Activate safe exclusions for unrelated Drafts
 
-**Status: pending. Not in the current PR #115 tranche.**
+**Status: pending. No exclusions are activated by Checkpoint 2B.**
 
 ### Objective
 
@@ -502,6 +573,8 @@ tools/slide-import-review/tests/source-coverage.test.js
 test/ecg-batch-01-asset-rename.test.js
 test/production-taxonomy-operator.test.js
 ```
+
+Checkpoint 2B satisfies the conditional ownership prerequisite for the slide-review family, but 2C remains required before this six-file exclusion tranche is activated.
 
 ### Semantics after activation
 
@@ -858,22 +931,22 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A zero-exclusion fast-test selection infrastructure, and the corrected first source-contract consolidation tranche under Checkpoint 4. Do not infer that later checkpoints have started merely because their design remains documented here.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A zero-exclusion fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, and the corrected first source-contract consolidation tranche under Checkpoint 4. Do not infer that later checkpoints have started merely because their design remains documented here.
 
 ### Completed fixture and selection foundation
 
 - Checkpoint 1 — current-schema fixture normalization — is complete for the audited target set.
 - Checkpoint 2A — selector/runner/validation wiring with zero exclusions — is implemented and leaves maintained Draft coverage complete.
+- Checkpoint 2B — central change-aware specialized CI — is implemented for existing slide-review ownership, with actual PR feature-diff classification and structural full-mode deduplication.
 
 ### Next safe fast-tier work
 
 Checkpoints:
 
-- 2B — CI change-aware specialized execution;
 - 2C — named production-operator checks;
 - 2D — activate only proven-safe exclusions.
 
-Do not activate exclusions before the conditional safety tests are green.
+Do not activate exclusions before the production-operator conditional safety tests are green. `FAST_TEST_EXCLUSIONS` remains empty after 2B.
 
 ### Remaining UX/source-contract work
 
@@ -883,7 +956,7 @@ No unconditional deletion of the two intentional width/overflow UX regression te
 
 ### Profiling
 
-Run Checkpoint 6 only after safe fast-tier behavior exists. Additional exclusions require separate measured justification.
+Run Checkpoint 6 only after safe fast-tier exclusions exist. Additional exclusions require separate measured justification.
 
 ## 7. Review gates
 
@@ -901,11 +974,11 @@ Specific gates:
 
 **Checkpoint 1:** satisfied for the audited target set: unsupported ordinary partial-schema fixtures were normalized, genuine migration fixtures were retained deliberately, and the implementation head passed repository-owned Draft validation.
 
-**Checkpoint 2A:** implementation now defaults new ordinary tests into fast, keeps the explicit exclusion set empty, preserves full `npm test`, and keeps Draft maintained-test coverage complete. Exact-head Draft CI remains the handoff gate.
+**Checkpoint 2A:** implementation defaults new ordinary tests into fast, keeps the explicit exclusion set empty, preserves full `npm test`, and keeps Draft maintained-test coverage complete.
 
-**Checkpoint 2B:** related specialized changes demonstrably trigger specialized checks in ordinary CI.
+**Checkpoint 2B:** satisfied on implementation head `0277911099b661699c202283559a5a9da53cf0e2`: actual Draft CI run #1283 resolved the full PR feature diff through the central classifier, preserved base fast, added `slideReviewTest` and `slideReviewBuild`, passed 645/645 fast tests with zero exclusions, passed `npm run check`, passed 23/23 specialized slide-review tests, and passed the slide-review build. Final documentation-only commits must receive their own exact-head CI before handoff.
 
-**Checkpoint 2C:** both production operators have named, path-owned checks.
+**Checkpoint 2C:** both production operators must gain named, path-owned checks.
 
 **Checkpoint 2D:** only then can the six specialized files leave unrelated Draft generic fast coverage.
 
