@@ -369,6 +369,7 @@ export async function replaceSystemTags(
 
   const system = await db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(and(eq(taxonomyConcepts.id, systemId), eq(taxonomyConcepts.kind, 'system'), eq(taxonomyConcepts.isActive, true))).limit(1);
   if (!system[0]) throw new TaxonomyInputError('The selected System is missing, inactive, or not classified as a System.');
+
   if (tagIds.length) {
     const activeTags = await db.select({ id: tags.id }).from(tags).where(and(inArray(tags.id, tagIds), eq(tags.isActive, true)));
     if (activeTags.length !== tagIds.length) throw new TaxonomyInputError('Only active Tags can be exposed in a System.');
