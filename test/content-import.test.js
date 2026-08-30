@@ -208,8 +208,8 @@ test('post-0015 Topic resolution rejects System IDs and deterministic Topic coll
     assert.match(systemUse.errors.join('\n'), /System, not a Topic/);
 
     const deterministicId = deterministicApplicationId('test-package', 'topic', 'topic-new');
-    fixture.sqlite.prepare("INSERT INTO concepts (id, name, slug, description_md, parent_id, kind, is_active) VALUES (?, ?, ?, ?, ?, 'system', 1)")
-      .run(deterministicId, 'Imported Topic', 'imported-topic', null, 'seed-stemi');
+    fixture.sqlite.prepare("INSERT INTO concepts (id, name, slug, description_md, kind, is_active) VALUES (?, ?, ?, ?, 'system', 1)")
+      .run(deterministicId, 'Imported Topic', 'imported-topic', null);
     const collision = await validateImportPackage(fixture.db, await parsedValidPackage());
     assert.equal(collision.valid, false);
     assert.match(collision.errors.join('\n'), /Topic topic-new conflicts with an existing application row/);
