@@ -6,9 +6,10 @@ import { resolveFastNodeTestSelection } from './test-selection.mjs';
  * @param {{ argv?: string[], root?: string, spawn?: typeof spawnSync }} [options]
  */
 export async function runFastNodeTests(options = {}) {
+  const root = options.root ?? process.cwd();
   const argv = options.argv ?? process.argv.slice(2);
   const spawn = options.spawn ?? spawnSync;
-  const selection = await resolveFastNodeTestSelection(options.root);
+  const selection = await resolveFastNodeTestSelection(root);
 
   console.log(
     `Fast Node test selection: complete=${selection.complete.length}, selected=${selection.selected.length}, excluded=${selection.excluded.length}`,
@@ -21,6 +22,7 @@ export async function runFastNodeTests(options = {}) {
   }
 
   const result = spawn(process.execPath, ['--test', ...argv, ...selection.selected], {
+    cwd: root,
     stdio: 'inherit',
     shell: false,
     env: {
@@ -33,7 +35,9 @@ export async function runFastNodeTests(options = {}) {
   return Number.isInteger(result.status) ? result.status : 1;
 }
 
-const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+const invokedDirectly = !process.env.NODE_TEST_CONTEXT
+  && process.argv[1]
+  && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly) {
   try {
     process.exitCode = await runFastNodeTests();
