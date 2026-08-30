@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, Checkpoint 4 source-contract consolidation/review complete, and the first bounded Checkpoint 5 Case-editor responsive behavioral rewrite implemented in Draft PR #115
+Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, Checkpoint 4 source-contract consolidation/review complete, and the first two bounded Checkpoint 5 behavioral rewrites implemented in Draft PR #115: Case-editor responsive and Case Images
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, Checkpoint 4's five bounded corrected source-contract consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review, and the first bounded Checkpoint 5 Case-editor responsive behavioral-contract rewrite. Checkpoint 4 is complete for the audited primary source/UI inventory. The remaining Checkpoint 5 subsystem rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, Checkpoint 4's five bounded corrected source-contract consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review, and the first two bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive and Case Images. Checkpoint 4 is complete for the audited primary source/UI inventory. The remaining Checkpoint 5 subsystem rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -1122,7 +1122,7 @@ Satisfied for the audited Checkpoint 4 inventory:
 
 ## Checkpoint 5 — Behavioral rewrites by subsystem
 
-**Status: first bounded Case-editor responsive tranche implemented in Draft PR #115; remaining Checkpoint 5 subsystem families are pending.**
+**Status: first two bounded tranches implemented in Draft PR #115: Case-editor responsive and Case Images; remaining Checkpoint 5 subsystem families are pending.**
 
 ### First bounded tranche — Case editor responsive contract
 
@@ -1179,18 +1179,59 @@ No production source, schema/migration, validation architecture, fast exclusion,
 
 Validation during self-review was deliberately allowed to expose test defects rather than being hidden. CI #1340 and #1341 failed on new source-parser/callback assertions; CI #1342 then reached 629/629 fast Node tests but exposed nullable-helper type diagnostics; those were corrected and implementation head `7a47f6dceb841c2764d632a9f76a307e51756754` passed Draft CI #1343. The later independent-style hardening produced test head `4175da4c1c68acf634a5e4173749b945d8c144ed`; CI #1346 again passed all 629 fast Node tests but found four JSDoc/inference errors in the new recursive helper code. The type-only correction at `65bf73d01ee8cec49aa906dc3945d0119f541b78` then passed Draft CI #1347: 110 maintained / 104 selected / 6 excluded, 629/629 fast Node tests, 0 Svelte errors / 5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build. Wrangler runtime-smoke #178 also passed. Exact-head CI after this final documentation reconciliation remains the final tranche gate.
 
+### Second bounded tranche — Case Images editor contract
+
+Target:
+
+```text
+test/case-images-editor-layout.test.js
+```
+
+Protected product/behavior invariants:
+
+- the production Case editor keeps a learner-visible image overview rather than making Advanced authoring the only image surface;
+- each overview image exposes its role and linked Question/Answer context;
+- image-set options are labelled Original or Alternative according to the current Original pointer;
+- an ordinary attached image is Always shown when an active image family exists, a single ordinary image with no active family may be represented as Original, and multiple ordinary images with no active family remain Needs role rather than being arbitrarily curated;
+- linked Q&A distinguishes Image-specific, Reusable, and Shared across this image set scopes and renders the associated Prompt/Answer content;
+- Advanced image management remains reachable from the production overview;
+- the advanced surface keeps the role-based authoring workflows that start an image set from a chosen ordinary image as Original and add another ordinary image as an Alternative;
+- the canonical `#images` anchor remains unique and hands off from the production overview to the Advanced editor when Advanced management opens.
+
+Stronger owners reused:
+
+- `test/original-stimulus-semantics.test.js` is the stronger DB-backed owner for Original/Alternative mutation, learner Core/Expanded selection, conversion atomicity, option/Asset identity, rollback, historical provenance, and validation semantics. The Case Images contract does not duplicate those database/domain guarantees;
+- `test/reusable-image-question-card-counts.test.js` is the stronger executable owner for reusable Image Question availability/used semantics and reusable-question lifecycle behavior;
+- DB-backed question-scope tests remain the stronger owners for question move/save mutation semantics. None of those tests replace the separate overview composition, visible vocabulary, authoring reachability, or anchor-handoff invariants retained here.
+
+Rewritten/retired implementation locks:
+
+- the exact `Images <span class="count">{imageCount}</span>` markup is replaced by structural ownership of the labelled Images heading and its count expression;
+- the exact full explanatory sentence is no longer frozen; the contract preserves the semantic learner-visible-image / linked-Q&A relationship;
+- exact role ternary source strings are replaced by extracting and executing the actual role expressions with controlled inputs, proving the intended Original/Alternative/Always-shown/Original-single/Needs-role outcomes;
+- exact `<strong>Q</strong>` / `<strong>A</strong>` markup is retired. Q/A labels and rendered scope/Prompt/Answer consumption remain required without locking the emphasis element;
+- Advanced workflow assertions are scoped to the actual `?/startAlternativeSet` and `?/addStimulusOption` forms plus their required `asset_id`, `set_name`, `group_id`, and `convert_fixed=on` payloads, instead of permitting matching copy elsewhere in the component;
+- the exact overview anchor ternary string and exact advanced-root class ordering are replaced by executing the overview's actual `id` expression for closed/open states and structurally proving Advanced owns exactly one static `#images` anchor while the production overview owns no second static anchor;
+- the exact `Image-set actions` disclosure wording is retired because workflow reachability is the durable invariant, not that disclosure label.
+
+Retained source/composition ownership because no stronger cheap rendered/component layer exists:
+
+- the derived role outputs must actually feed the learner-visible ordinary-image and image-set-option role badges, so a correct but dead role expression cannot satisfy the contract;
+- ordinary and image-set cards must actually consume `questionsForImage(...)`, and the rendered linked-Q&A region must expose scope, Prompt, Answer, and Q/A labels, so dead scope-construction code cannot satisfy the contract;
+- the Advanced entry button must be interactive and reach the handler that opens Advanced management;
+- the semantic Advanced headings and role-conversion forms remain direct UI reachability owners;
+- the canonical anchor handoff remains a source/composition invariant because there is no existing browser navigation/layout harness that can own fragment targeting more strongly without disproportionate infrastructure.
+
+Independent self-review corrections before handoff:
+
+1. the first rewrite executed the role expressions correctly but did not prove those results were still consumed by the overview. The final owner requires ordinary-image and image-set-option role badges to render `asset.role` and `option.role` respectively;
+2. the first rewrite proved the three scope values existed and the overview contained a linked-Q&A region, but dead `questionsForImage(...)` construction could theoretically survive after card integration drifted. The final owner ties both ordinary and image-set card paths to `questionsForImage(...)` and retains rendered scope/Prompt/Answer/Q/A consumption.
+
+No production component, route, domain/DB implementation, schema/migration, workflow, validation architecture, fast exclusion, browser/component dependency, or production resource changed in this tranche.
+
+The first rewrite head `82f9d4e14f36a1fb3800e82baa5f185e1bce4ca5` passed Draft CI #1350 and runtime-smoke #181. The independent-self-review hardening head `d1a81de800077bb28f3d9c523bf0b4b51babd44d` passed Draft CI #1351: 110 maintained / 104 selected / 6 excluded, 631/631 fast Node tests, 0 Svelte errors / 5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #182 also passed. Exact-head CI after the documentation reconciliation remains the final tranche gate.
+
 ### Remaining candidate families
-
-#### Case Images editor
-
-Protect:
-
-- intentional information architecture;
-- image role vocabulary where it maps to domain semantics;
-- canonical Image Library navigation;
-- authoring controls needed to manage image roles/questions.
-
-Avoid freezing incidental markup order/CSS sizing.
 
 #### Stimulus curation controls
 
@@ -1219,7 +1260,7 @@ Preserve production scope, option/Asset identity, and mutation safety. Rewrite r
 
 ## Checkpoint 6 — Measure and profile runtime
 
-**Status: pending. Not started by the first Checkpoint 5 tranche.**
+**Status: pending. Not started by the first two Checkpoint 5 tranches.**
 
 ### Required measurements
 
@@ -1329,7 +1370,7 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, completed Checkpoint 4 source-contract consolidation/review, and the first bounded Checkpoint 5 Case-editor responsive behavioral-contract rewrite. Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, completed Checkpoint 4 source-contract consolidation/review, and the first two bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive and Case Images. Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review.
 
 ### Completed fixture, selection, and UX-contract foundation
 
@@ -1341,6 +1382,7 @@ PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoi
 - Checkpoint 3 — both intentional UX regressions were investigated and retained because no stronger cheap/reliable layout-capable owner exists; independent review then tightened the retained horizontal-overflow source owner so it cannot falsely pass on a later selector's declaration. Neither product invariant was retired.
 - Checkpoint 4 — complete for the audited primary source/UI inventory. The corrected first tranche, Admin Topic/System form tranche, Wrangler/local-preview authority tranche, Admin/Preview Case-editor parity tranche, and Preview deployment ownership tranche are implemented; the Stimulus Family façade was separately reviewed and explicitly retained unchanged.
 - Checkpoint 5 — the Case-editor responsive family is implemented as the first bounded tranche. Helper/storage semantics were consolidated into the direct executable layout owner while single-tree composition, enhanced scroll restoration, form reachability and minimum responsive CSS structure remain thin source/data-flow owners because no stronger cheap layout-capable layer exists. Final self-review additionally makes the single-tree owner independent of current component names/import directories by rejecting layout-selected Svelte subtrees that own authoring forms.
+- Checkpoint 5 — the Case Images editor family is implemented as the second bounded tranche. Deep Original/Alternative and reusable-question semantics remain under DB/helper owners, while the overview retains a focused composition owner for visible role outcomes, linked Q&A, scoped Advanced role workflows, and the single canonical `#images` handoff. Final self-review ties the executed role/scope logic back to the actual rendered card data flow so dead source cannot false-green.
 
 ### Fast-tier boundary after Checkpoint 2D
 
@@ -1348,7 +1390,7 @@ Do not add a seventh exclusion as part of Checkpoint 2D or infer further safe ca
 
 ### Remaining UX/source-contract work
 
-Checkpoint 3 and Checkpoint 4 are complete. Within Checkpoint 5, the Case-editor responsive tranche is complete subject to exact-head post-documentation validation and independent review. The broader Case Images, Stimulus curation, performance/read-model and reusable-image safety candidate families remain separate later Checkpoint 5 tranches. The two intentional width/overflow UX regression tests remain explicit surviving owners.
+Checkpoint 3 and Checkpoint 4 are complete. Within Checkpoint 5, the Case-editor responsive and Case Images tranches are implemented subject to exact-head post-documentation validation and independent review. Stimulus curation, performance/read-model and reusable-image safety remain separate later Checkpoint 5 tranches. The two intentional width/overflow UX regression tests remain explicit surviving owners.
 
 ### Profiling
 
@@ -1383,6 +1425,8 @@ Specific gates:
 **Checkpoint 4:** satisfied for the audited primary inventory after the fifth Preview-deployment tranche and the separately completed Stimulus façade retain review. The Preview deployment contract now owns only deployment/config/auth/route architecture; production Question/Image/Topic/Tag/dashboard isolation is owned by direct DB behavior tests. The Admin/Preview parity and Wrangler/local-preview tranches retain their distinct composition/delegation boundaries, while `content-import-safety-contract.test.js` is classified as behavioral and `resumable-import-contract.test.js` is explicitly retained. The Case-editor responsive contract remains outside Checkpoint 4 under Checkpoint 5.
 
 **Checkpoint 5, first bounded Case-editor responsive tranche:** after intermediate CI exposed and drove correction of source-parser, callback-selection and type defects, final test-only head `65bf73d01ee8cec49aa906dc3945d0119f541b78` passed Draft CI #1347 with 110 maintained / 104 selected / 6 excluded, 629/629 fast tests, 0 Svelte errors/5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #178 passed. Final completion requires the same repository-owned validation on the exact documentation-reconciled head and an independent review before another Checkpoint 5 subsystem begins.
+
+**Checkpoint 5, second bounded Case Images tranche:** first rewrite head `82f9d4e14f36a1fb3800e82baa5f185e1bce4ca5` passed Draft CI #1350 and runtime-smoke #181. Independent self-review then closed dead-role-expression and dead-Q&A-construction false-green paths. Hardened test-only head `d1a81de800077bb28f3d9c523bf0b4b51babd44d` passed Draft CI #1351 with 110 maintained / 104 selected / 6 excluded, 631/631 fast tests, 0 Svelte errors/5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #182 passed. Final completion requires the same repository-owned validation on the exact documentation-reconciled head before beginning Stimulus curation.
 
 **Checkpoint 6:** runtime claim backed by comparable CI medians.
 
