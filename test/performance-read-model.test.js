@@ -9,20 +9,24 @@ import { serverTimingValue, withServerReadTiming } from '../src/lib/server/perfo
 import { applyCurrentSchema } from './current-schema.js';
 
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
+/** @typedef {{ sql: string, params: any[] }} RecordedQuery */
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   applyCurrentSchema(sqlite);
-  /** @type {string[]} */
-  const preparedSql = [];
+  /** @type {RecordedQuery[]} */
+  const preparedQueries = [];
   const d1 = {
     /** @param {string} sql */
     prepare(sql) {
-      preparedSql.push(sql);
+      /** @type {RecordedQuery} */
+      const recorded = { sql, params: [] };
+      preparedQueries.push(recorded);
       return {
         /** @param {...any} params */
         bind(...params) {
+          recorded.params = params;
           return {
             async all() { return { results: sqlite.prepare(sql).all(...params) }; },
             async raw() { return sqlite.prepare(sql).all(...params).map((row) => Object.values(row)); },
@@ -42,7 +46,7 @@ function createLearningDb() {
   return {
     db: /** @type {LearningDb} */ (createDb(/** @type {D1Database} */ (/** @type {unknown} */ (d1)))),
     sqlite,
-    preparedSql
+    preparedQueries
   };
 }
 
@@ -75,16 +79,22 @@ function seed(fixture) {
   sqlite.exec("INSERT INTO case_questions (id, case_id, question_prompt_id, answer_md, is_active) VALUES ('cq-preview', 'case-preview', 'prompt-preview', 'E', 1)");
 }
 
-/** @param {string[]} preparedSql @param {string} table */
-function queriesFrom(preparedSql, table) {
-  return preparedSql.filter((statement) => statement.includes(`from "${table}"`));
+/** @param {RecordedQuery[]} preparedQueries @param {string} table */
+function queriesFrom(preparedQueries, table) {
+  return preparedQueries.filter((query) => query.sql.includes(`from "${table}"`));
+}
+
+/** @param {RecordedQuery} query @param {number} expected */
+function assertSqlLimit(query, expected) {
+  assert.match(query.sql, /\blimit\s+\?/i, `expected a bound SQL LIMIT: ${query.sql}`);
+  assert.equal(query.params.at(-1), expected, `expected SQL LIMIT ${expected}: ${JSON.stringify(query)}`);
 }
 
 test('dashboard read model preserves production/inactive semantics and bounds Case summaries in SQL', async () => {
   const fixture = createLearningDb();
   try {
     seed(fixture);
-    fixture.preparedSql.length = 0;
+    fixture.preparedQueries.length = 0;
 
     const summary = await getAdminDashboardSummary(fixture.db);
     assert.equal(summary.caseCount, 8);
@@ -95,18 +105,18 @@ test('dashboard read model preserves production/inactive semantics and bounds Ca
     assert.deepEqual(summary.dashboardCases.map((item) => item.id), ['case-1', 'case-2', 'case-3', 'case-4', 'case-5', 'case-6']);
     assert.deepEqual(summary.dashboardCases[0], { id: 'case-1', title: 'Case 01', conceptName: 'Topic A' });
 
-    const caseQueries = queriesFrom(fixture.preparedSql, 'cases');
-    const caseSummaryQueries = caseQueries.filter((statement) => !/^\s*select\s+count\s*\(/i.test(statement));
+    const caseQueries = queriesFrom(fixture.preparedQueries, 'cases');
+    const caseSummaryQueries = caseQueries.filter((query) => !/^\s*select\s+count\s*\(/i.test(query.sql));
     assert.equal(caseSummaryQueries.length, 1, JSON.stringify(caseQueries));
-    assert.match(caseSummaryQueries[0], /\blimit\b/i, 'dashboard Case summaries must remain bounded by the database');
+    assertSqlLimit(caseSummaryQueries[0], 6);
 
-    fixture.preparedSql.length = 0;
+    fixture.preparedQueries.length = 0;
     const bounded = await getAdminDashboardSummary(fixture.db, { caseLimit: 2 });
     assert.equal(bounded.dashboardCases.length, 2);
-    const boundedCaseQueries = queriesFrom(fixture.preparedSql, 'cases')
-      .filter((statement) => !/^\s*select\s+count\s*\(/i.test(statement));
+    const boundedCaseQueries = queriesFrom(fixture.preparedQueries, 'cases')
+      .filter((query) => !/^\s*select\s+count\s*\(/i.test(query.sql));
     assert.equal(boundedCaseQueries.length, 1, JSON.stringify(boundedCaseQueries));
-    assert.match(boundedCaseQueries[0], /\blimit\b/i);
+    assertSqlLimit(boundedCaseQueries[0], 2);
   } finally {
     fixture.sqlite.close();
   }
@@ -116,14 +126,14 @@ test('dashboard Question count remains a database-side aggregate instead of load
   const fixture = createLearningDb();
   try {
     seed(fixture);
-    fixture.preparedSql.length = 0;
+    fixture.preparedQueries.length = 0;
 
     const summary = await getAdminDashboardSummary(fixture.db);
     assert.equal(summary.questionCount, 4);
 
-    const questionQueries = queriesFrom(fixture.preparedSql, 'case_questions');
+    const questionQueries = queriesFrom(fixture.preparedQueries, 'case_questions');
     assert.equal(questionQueries.length, 1, JSON.stringify(questionQueries));
-    assert.match(questionQueries[0], /^\s*select\s+count\s*\(/i);
+    assert.match(questionQueries[0].sql, /^\s*select\s+count\s*\(/i);
   } finally {
     fixture.sqlite.close();
   }
@@ -157,7 +167,7 @@ test('Case editor read keeps its external model while executing one bounded exac
     seed(fixture);
     fixture.sqlite.exec("INSERT INTO assets (id, type, storage_key, mime_type, original_filename, is_active) VALUES ('asset-case', 'image', 'case.png', 'image/png', 'Case image', 1)");
     fixture.sqlite.exec("INSERT INTO case_assets (case_id, asset_id, display_order, caption_md) VALUES ('case-1', 'asset-case', 0, 'Caption')");
-    fixture.preparedSql.length = 0;
+    fixture.preparedQueries.length = 0;
 
     const data = await getAdminCaseData(fixture.db, 'case-1', { includeAvailable: false });
     assert.ok(data);
@@ -167,10 +177,10 @@ test('Case editor read keeps its external model while executing one bounded exac
     assert.equal(data.attached.length, 1);
     assert.deepEqual(data.available, []);
 
-    const caseQueries = queriesFrom(fixture.preparedSql, 'cases');
+    const caseQueries = queriesFrom(fixture.preparedQueries, 'cases');
     assert.equal(caseQueries.length, 1, `Case detail read executed unexpected Case-table queries: ${JSON.stringify(caseQueries)}`);
-    assert.match(caseQueries[0], /"cases"\."id"\s*=\s*\?/);
-    assert.match(caseQueries[0], /\blimit\b/i);
+    assert.match(caseQueries[0].sql, /"cases"\."id"\s*=\s*\?/);
+    assertSqlLimit(caseQueries[0], 1);
 
     assert.equal(await getAdminCaseData(fixture.db, 'case-off', { includeAvailable: false }), null);
     assert.equal(await getAdminCaseData(fixture.db, 'case-preview', { includeAvailable: false }), null);
