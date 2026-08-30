@@ -23,6 +23,11 @@ export const VALIDATION_CHECKS = Object.freeze({
     command: 'npm',
     args: Object.freeze(['test']),
   }),
+  testFast: Object.freeze({
+    label: 'Run fast Node tests',
+    command: 'npm',
+    args: Object.freeze(['run', 'test:fast']),
+  }),
   svelte: Object.freeze({
     label: 'Run Svelte checks',
     command: 'npm',
@@ -57,7 +62,7 @@ export const VALIDATION_CHECKS = Object.freeze({
 
 /** @type {Readonly<Record<string, readonly string[]>>} */
 export const VALIDATION_MODE_CHECK_IDS = Object.freeze({
-  fast: Object.freeze(['diff', 'test', 'svelte']),
+  fast: Object.freeze(['diff', 'testFast', 'svelte']),
   full: Object.freeze(['diff', 'db', 'test', 'svelte', 'build', 'authSmoke']),
 });
 
