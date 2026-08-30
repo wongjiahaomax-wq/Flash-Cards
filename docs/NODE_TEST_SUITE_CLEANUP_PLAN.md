@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, Checkpoint 4 source-contract consolidation/review complete, and the first two bounded Checkpoint 5 behavioral rewrites implemented in Draft PR #115: Case-editor responsive and Case Images
+Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, Checkpoint 4 source-contract consolidation/review complete, and the first three bounded Checkpoint 5 behavioral rewrites implemented in Draft PR #115: Case-editor responsive, Case Images, and Stimulus curation
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, Checkpoint 4's five bounded corrected source-contract consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review, and the first two bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive and Case Images. Checkpoint 4 is complete for the audited primary source/UI inventory. The remaining Checkpoint 5 subsystem rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, Checkpoint 4's five bounded corrected source-contract consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review, and the first three bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive, Case Images, and Stimulus curation. Checkpoint 4 is complete for the audited primary source/UI inventory. The remaining Checkpoint 5 subsystem rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -1122,7 +1122,7 @@ Satisfied for the audited Checkpoint 4 inventory:
 
 ## Checkpoint 5 — Behavioral rewrites by subsystem
 
-**Status: first two bounded tranches implemented in Draft PR #115: Case-editor responsive and Case Images; remaining Checkpoint 5 subsystem families are pending.**
+**Status: first three bounded tranches implemented in Draft PR #115: Case-editor responsive, Case Images, and Stimulus curation; remaining Checkpoint 5 subsystem families are pending.**
 
 ### First bounded tranche — Case editor responsive contract
 
@@ -1231,13 +1231,60 @@ No production component, route, domain/DB implementation, schema/migration, work
 
 The first rewrite head `82f9d4e14f36a1fb3800e82baa5f185e1bce4ca5` passed Draft CI #1350 and runtime-smoke #181. The independent-self-review hardening head `d1a81de800077bb28f3d9c523bf0b4b51babd44d` passed Draft CI #1351: 110 maintained / 104 selected / 6 excluded, 631/631 fast Node tests, 0 Svelte errors / 5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #182 also passed. Exact-head CI after the documentation reconciliation remains the final tranche gate.
 
+### Third bounded tranche — Stimulus curation controls
+
+Target:
+
+```text
+test/stimulus-curation-editor-controls.test.js
+```
+
+Protected product/behavior invariants:
+
+- Stimulus role curation remains a production-Admin workflow rather than leaking into Preview Admin;
+- when a Case has more than one eligible ordinary learner image and no active stimulus family, the Admin can assign one Original and one Alternative directly without being forced to author a technical family name;
+- the same ordinary image cannot be selected for both initial roles, and the initial role assignment cannot be submitted until both role choices are present;
+- once a family is curated, any eligible option can be selected as the new Original through the canonical role route without replacing the family/option identity;
+- an Always-shown image can be moved back into the single active image family as an Alternative, preserving the reverse-curation workflow while avoiding an ambiguous automatic family target when more than one active family exists;
+- only non-Original options expose the Move to Always shown correction path; the current Original must first be replaced;
+- every retained role-changing control submits the Case/group/option/Asset identifiers expected by its route, and the routes delegate to the intended domain writers and return to the `#stimulus-curation` panel.
+
+Stronger owners reused:
+
+- `test/simple-stimulus-curation.test.js` directly executes the initial two-image role operation against a current-schema fixture, proving atomic conversion and rejection of the same Asset for both Original and Alternative. The UI contract therefore does not duplicate the database write/result shape;
+- `test/original-stimulus-semantics.test.js` directly owns Original reassignment, Core/Expanded learner selection, historical Review preservation, wrong-Original correction, the requirement to replace the current Original before destructive/role-changing actions, Alternative-to-Always-shown identity preservation, rollback and mismatched-Case validation;
+- `test/stimulus-groups.test.js` and related Stimulus Family tests remain stronger owners for lower-level option conversion/relationship semantics. Those behavior tests do not replace production control reachability or form/route payload wiring.
+
+Rewritten/retired implementation locks:
+
+- the exact `{#if !data.previewMode}<StimulusOriginalsPanel ... />{/if}` source string is replaced by locating the rendered panel and executing the actual active Preview condition with controlled production/Preview inputs;
+- generic copy matches such as `Choose the roles`, `Assigned roles`, instructional sentences, and the negative `New family name` / `Start family with this Original` wording guards are not used as substitutes for workflow behavior. The initial form is scoped structurally, and the no-family-name requirement is expressed as absence of a `set_name` field from that form;
+- the old exact source checks for `intent`, `group_id`, `option_id`, `case_id`, and writer symbols are replaced with form-scoped payload evaluation plus intent-branch-scoped awaited writer calls. Imports or same-name text elsewhere cannot satisfy the contract;
+- the old exact `option.id !== group.originalOptionId` regex is replaced by executing the actual active condition for an Alternative and the current Original;
+- the supporting conversion path now also executes the actual `eligible.filter(...)` expression and requires the visible submit button to target the matching hidden conversion form, instead of merely proving the form/action text exists somewhere;
+- class ordering and explanatory copy are not part of the durable contract. Class membership is used only to identify the logical form owner where needed.
+
+Retained/hardened source/control ownership because no stronger cheap rendered component harness exists:
+
+- the production-only curation panel composition and its semantic `Original and Alternatives` heading;
+- initial Original/Alternative radio fields, their actual Svelte group bindings, same-Asset exclusion expressions, the submit-disable expression, and an explicit submit control;
+- post-curation Original radio selection/checked behavior plus an explicit submit control;
+- Always-shown-to-Alternative reachability only under the unambiguous one-active-family condition, including Case/group/Asset payloads and an explicit submit control;
+- Alternative-to-Always-shown reachability only for non-Original options, including Case/option payloads, the button-to-hidden-form target identity, non-Original form generation, and an explicit submit control;
+- route delegation and return-anchor wiring for the three `/admin/stimulus-roles` intents and `/admin/stimulus-supporting` conversion path.
+
+This rewrite also closes one pre-existing coverage gap in the old source contract: **Always shown → Alternative** is now an explicit surviving UI/reversibility owner. The domain implementation already supported that path; the previous target test only covered initial assignment, Original reassignment and Alternative → Always shown.
+
+Independent self-review corrections before handoff:
+
+1. CI #1358 showed that the first rewrite's `required(...)` helper was typed as accepting only `string`, even though source-extraction helpers intentionally return `string | null` before the assertion narrows them. The 632 fast Node tests themselves passed, but `svelte-check` correctly reported 24 type errors. The helper contract was fixed explicitly rather than suppressing diagnostics or weakening the assertions;
+2. after the typing-corrected head passed CI #1359, a final reachability review found that forms/payloads could survive while their visible controls stopped actually submitting, and the Always-shown → Alternative form had not yet asserted Case context. The hardened owner now requires `type="submit"` on all four visible role-change controls and requires `case_id` on that reverse-conversion form.
+
+No production component, route, domain/DB implementation, schema/migration, workflow, validation architecture, fast exclusion, browser/component dependency, or production resource changed in this tranche.
+
+The initial rewrite head `bbf1e9c2283e600f0be54a974112ab7bbd16428d` ran 632/632 fast Node tests successfully, while CI #1358 failed only at `svelte-check` on the new nullable-helper JSDoc contract; runtime-smoke #185 passed. Typing-corrected head `8fff00a6f35db70315a15c6e6f6fbc4499602753` passed CI #1359 and runtime-smoke #186. Final hardened implementation head `481554dd9915655dec56832ab1aae0b4a1bbf078` passed Draft CI #1360 with 110 maintained / 104 selected / 6 excluded, 632/632 fast Node tests, 0 Svelte errors / 5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #187 passed. Exact-head CI after the documentation reconciliation remains the final tranche gate.
+
 ### Remaining candidate families
-
-#### Stimulus curation controls
-
-Protect the Admin's ability to set/correct Original/Alternative/Always-shown semantics and reverse curation decisions.
-
-Prefer rendered/control behavior over raw Svelte text where practical.
 
 #### Performance/read-model contract
 
@@ -1260,7 +1307,7 @@ Preserve production scope, option/Asset identity, and mutation safety. Rewrite r
 
 ## Checkpoint 6 — Measure and profile runtime
 
-**Status: pending. Not started by the first two Checkpoint 5 tranches.**
+**Status: pending. Not started by the first three Checkpoint 5 tranches.**
 
 ### Required measurements
 
@@ -1370,7 +1417,7 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, completed Checkpoint 4 source-contract consolidation/review, and the first two bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive and Case Images. Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, completed Checkpoint 4 source-contract consolidation/review, and the first three bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive, Case Images, and Stimulus curation. Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review.
 
 ### Completed fixture, selection, and UX-contract foundation
 
@@ -1383,6 +1430,7 @@ PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoi
 - Checkpoint 4 — complete for the audited primary source/UI inventory. The corrected first tranche, Admin Topic/System form tranche, Wrangler/local-preview authority tranche, Admin/Preview Case-editor parity tranche, and Preview deployment ownership tranche are implemented; the Stimulus Family façade was separately reviewed and explicitly retained unchanged.
 - Checkpoint 5 — the Case-editor responsive family is implemented as the first bounded tranche. Helper/storage semantics were consolidated into the direct executable layout owner while single-tree composition, enhanced scroll restoration, form reachability and minimum responsive CSS structure remain thin source/data-flow owners because no stronger cheap layout-capable layer exists. Final self-review additionally makes the single-tree owner independent of current component names/import directories by rejecting layout-selected Svelte subtrees that own authoring forms.
 - Checkpoint 5 — the Case Images editor family is implemented as the second bounded tranche. Deep Original/Alternative and reusable-question semantics remain under DB/helper owners, while the overview retains a focused composition owner for visible role outcomes, linked Q&A, scoped Advanced role workflows, and the single canonical `#images` handoff. Final self-review ties the executed role/scope logic back to the actual rendered card data flow so dead source cannot false-green.
+- Checkpoint 5 — the Stimulus curation controls family is implemented as the third bounded tranche. Initial pair mutation and deep Original/Alternative/Always-shown semantics remain under DB-backed owners; the rewritten UI contract executes the real visibility/selection conditions, scopes payload assertions to their forms and intent branches, requires actual submit controls, and now explicitly protects both reverse directions: Always shown → Alternative and Alternative → Always shown.
 
 ### Fast-tier boundary after Checkpoint 2D
 
@@ -1390,7 +1438,7 @@ Do not add a seventh exclusion as part of Checkpoint 2D or infer further safe ca
 
 ### Remaining UX/source-contract work
 
-Checkpoint 3 and Checkpoint 4 are complete. Within Checkpoint 5, the Case-editor responsive and Case Images tranches are implemented subject to exact-head post-documentation validation and independent review. Stimulus curation, performance/read-model and reusable-image safety remain separate later Checkpoint 5 tranches. The two intentional width/overflow UX regression tests remain explicit surviving owners.
+Checkpoint 3 and Checkpoint 4 are complete. Within Checkpoint 5, the Case-editor responsive, Case Images and Stimulus curation tranches are implemented subject to exact-head post-documentation validation and independent review. Performance/read-model and reusable-image safety remain separate later Checkpoint 5 tranches. The two intentional width/overflow UX regression tests remain explicit surviving owners.
 
 ### Profiling
 
@@ -1426,7 +1474,9 @@ Specific gates:
 
 **Checkpoint 5, first bounded Case-editor responsive tranche:** after intermediate CI exposed and drove correction of source-parser, callback-selection and type defects, final test-only head `65bf73d01ee8cec49aa906dc3945d0119f541b78` passed Draft CI #1347 with 110 maintained / 104 selected / 6 excluded, 629/629 fast tests, 0 Svelte errors/5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #178 passed. Final completion requires the same repository-owned validation on the exact documentation-reconciled head and an independent review before another Checkpoint 5 subsystem begins.
 
-**Checkpoint 5, second bounded Case Images tranche:** first rewrite head `82f9d4e14f36a1fb3800e82baa5f185e1bce4ca5` passed Draft CI #1350 and runtime-smoke #181. Independent self-review then closed dead-role-expression and dead-Q&A-construction false-green paths. Hardened test-only head `d1a81de800077bb28f3d9c523bf0b4b51babd44d` passed Draft CI #1351 with 110 maintained / 104 selected / 6 excluded, 631/631 fast tests, 0 Svelte errors/5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #182 passed. Final completion requires the same repository-owned validation on the exact documentation-reconciled head before beginning Stimulus curation.
+**Checkpoint 5, second bounded Case Images tranche:** first rewrite head `82f9d4e14f36a1fb3800e82baa5f185e1bce4ca5` passed Draft CI #1350 and runtime-smoke #181. Independent self-review then closed dead-role-expression and dead-Q&A-construction false-green paths. Hardened test-only head `d1a81de800077bb28f3d9c523bf0b4b51babd44d` passed Draft CI #1351 with 110 maintained / 104 selected / 6 excluded, 631/631 fast tests, 0 Svelte errors/5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #182 passed. The documentation-reconciled head later passed CI #1357 and runtime-smoke #184 before this third tranche began.
+
+**Checkpoint 5, third bounded Stimulus curation tranche:** the initial rewrite head `bbf1e9c2283e600f0be54a974112ab7bbd16428d` passed all 632 fast Node tests, while CI #1358 intentionally exposed 24 `svelte-check` errors in the new nullable-helper JSDoc typing; runtime-smoke #185 passed. The typing correction at `8fff00a6f35db70315a15c6e6f6fbc4499602753` passed CI #1359 and runtime-smoke #186. Final self-review then hardened submit-control reachability and the reverse-conversion Case payload. Test-only head `481554dd9915655dec56832ab1aae0b4a1bbf078` passed Draft CI #1360 with 110 maintained / 104 selected / 6 excluded, 632/632 fast tests, 0 Svelte errors/5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #187 passed. Final completion requires the same repository-owned validation on the exact documentation-reconciled head before beginning performance/read-model.
 
 **Checkpoint 6:** runtime claim backed by comparable CI medians.
 
