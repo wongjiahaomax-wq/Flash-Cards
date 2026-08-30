@@ -37,6 +37,11 @@ const SLIDE_REVIEW_TESTS = [
   'tools/slide-import-review/tests/review-fixes.test.js',
   'tools/slide-import-review/tests/source-coverage.test.js',
 ];
+const SLIDE_REVIEW_PRODUCTION_CONTRACT_PATHS = [
+  'src/lib/server/import/content-package.js',
+  'src/lib/server/import/reviewed-content-package.js',
+  'src/lib/server/storage/media.js',
+];
 const ECG_TEST = 'test/ecg-batch-01-asset-rename.test.js';
 const TAXONOMY_TEST = 'test/production-taxonomy-operator.test.js';
 
@@ -202,6 +207,26 @@ test('slide-review Draft adds both specialized slide-review owners while generic
     'slideReviewTest',
     'slideReviewBuild',
   ]);
+});
+
+test('slide-review production dependencies require the excluded test owner without an unnecessary build', () => {
+  assert.equal(validationCheckSatisfies('test', 'slideReviewTest'), true);
+  assert.equal(validationCheckSatisfies('testFast', 'slideReviewTest'), false);
+
+  for (const file of SLIDE_REVIEW_PRODUCTION_CONTRACT_PATHS) {
+    const classification = classifyChangedFiles([file]);
+    assert.deepEqual(classification.specializedRequiredChecks, ['slideReviewTest'], file);
+    assert.equal(classification.specializedRequiredChecks.includes('slideReviewBuild'), false, file);
+
+    const fastPlan = ciValidationPlan({ mode: 'fast', changedFiles: [file] });
+    assert.deepEqual(fastPlan.checkIds, ['diff', 'testFast', 'svelte', 'slideReviewTest'], file);
+    assert.equal(fastPlan.checkIds.filter((id) => id === 'slideReviewTest').length, 1, file);
+
+    const fullPlan = ciValidationPlan({ mode: 'full', changedFiles: [file] });
+    assert.deepEqual(fullPlan.checkIds, VALIDATION_MODE_CHECK_IDS.full, file);
+    assert.equal(fullPlan.checkIds.includes('slideReviewTest'), false, file);
+    assert.equal(fullPlan.checkIds.includes('slideReviewBuild'), false, file);
+  }
 });
 
 test('slide-review full validation keeps build but complete test satisfies specialized Node coverage', () => {
