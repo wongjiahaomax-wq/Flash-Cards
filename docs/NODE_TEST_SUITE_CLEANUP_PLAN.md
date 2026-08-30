@@ -329,7 +329,7 @@ Checkpoint 2A adds/updates contracts proving:
 - no specialized test has been removed from generic Draft coverage;
 - repository validation and exact-head Draft CI are required before handoff.
 
-These remain satisfied after Checkpoint 2B: exact-head run #1283 reported 110 maintained files, 110 selected, zero excluded, with 645/645 fast Node tests passing.
+These remain satisfied after Checkpoint 2B: implementation run #1283 reported 110 maintained files, 110 selected, zero excluded, with 645/645 fast Node tests passing.
 
 ---
 
@@ -451,7 +451,7 @@ Important otherwise-unclassified code/tooling paths preserve the existing conser
 - invalid validation configuration fails loudly;
 - `FAST_TEST_EXCLUSIONS` remains empty.
 
-### Exact-head validation evidence
+### Implementation validation evidence
 
 Implementation head `0277911099b661699c202283559a5a9da53cf0e2` passed Draft CI run #1283. Its logs prove:
 
@@ -470,9 +470,9 @@ Results:
 - `npm run slide-review:test`: **23/23 passed**;
 - `npm run slide-review:build`: passed;
 - repository CI validation passed;
-- exact-head Wrangler runtime smoke run #114 passed.
+- Wrangler runtime smoke run #114 passed on that implementation head.
 
-The available work session used Remote GitHub mode, so no local repository command execution is claimed. The literal `npm test` command remains `node --test`; Draft CI was intentionally left in Draft/fast mode rather than marking the PR Ready merely to force full validation. Because `FAST_TEST_EXCLUSIONS` is empty, the exact-head fast selector still executes every maintained test file.
+The available work session used Remote GitHub mode, so no local repository command execution is claimed. The literal `npm test` command remains `node --test`; Draft CI was intentionally left in Draft/fast mode rather than marking the PR Ready merely to force full validation. Because `FAST_TEST_EXCLUSIONS` is empty, the fast selector still executes every maintained test file.
 
 ### Acceptance criteria
 
@@ -481,7 +481,7 @@ The available work session used Remote GitHub mode, so no local repository comma
 - conditional behavior is contract-tested before exclusions are activated;
 - no generic Draft coverage has been reduced.
 
-These criteria are satisfied for Checkpoint 2B.
+These criteria are satisfied for Checkpoint 2B. The final handoff still requires green exact-head CI after this durable documentation update.
 
 ---
 
@@ -976,7 +976,7 @@ Specific gates:
 
 **Checkpoint 2A:** implementation defaults new ordinary tests into fast, keeps the explicit exclusion set empty, preserves full `npm test`, and keeps Draft maintained-test coverage complete.
 
-**Checkpoint 2B:** satisfied on implementation head `0277911099b661699c202283559a5a9da53cf0e2`: actual Draft CI run #1283 resolved the full PR feature diff through the central classifier, preserved base fast, added `slideReviewTest` and `slideReviewBuild`, passed 645/645 fast tests with zero exclusions, passed `npm run check`, passed 23/23 specialized slide-review tests, and passed the slide-review build. Final documentation-only commits must receive their own exact-head CI before handoff.
+**Checkpoint 2B:** implementation evidence is established on head `0277911099b661699c202283559a5a9da53cf0e2`: Draft CI run #1283 resolved the full PR feature diff through the central classifier, preserved base fast, added `slideReviewTest` and `slideReviewBuild`, passed 645/645 fast tests with zero exclusions, passed `npm run check`, passed 23/23 specialized slide-review tests, and passed the slide-review build. The principal handoff additionally requires green exact-head CI after these documentation changes.
 
 **Checkpoint 2C:** both production operators must gain named, path-owned checks.
 
