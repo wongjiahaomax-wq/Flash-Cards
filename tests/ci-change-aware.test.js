@@ -59,7 +59,7 @@ test('unrelated Draft resolves to base fast validation only', () => {
     changedFiles: ['src/lib/components/example.js'],
   });
   assert.deepEqual(plan.checkIds, ['diff', 'testFast', 'svelte']);
-  assert.deepEqual(plan.classification.ciRequiredChecks, []);
+  assert.deepEqual(plan.classification.specializedRequiredChecks, []);
 });
 
 test('slide-review Draft adds both specialized slide-review owners', () => {
@@ -67,7 +67,7 @@ test('slide-review Draft adds both specialized slide-review owners', () => {
     mode: 'fast',
     changedFiles: ['tools/slide-import-review/scripts/finalize.mjs'],
   });
-  assert.deepEqual(plan.classification.ciRequiredChecks, ['slideReviewTest', 'slideReviewBuild']);
+  assert.deepEqual(plan.classification.specializedRequiredChecks, ['slideReviewTest', 'slideReviewBuild']);
   assert.deepEqual(plan.checkIds, [
     'diff',
     'testFast',
@@ -98,15 +98,15 @@ test('slide-review full validation keeps build but complete test satisfies speci
   );
 });
 
-test('agent reporting and CI planning consume the same changed-path classification result', () => {
+test('agent reporting and CI planning consume one specialized requirement authority', () => {
   const changedFiles = ['tools/slide-import-review/scripts/finalize.mjs'];
   const agentClassification = classifyChangedFiles(changedFiles);
   const ciPlan = ciValidationPlan({ mode: 'fast', changedFiles });
   assert.deepEqual(ciPlan.classification, agentClassification);
-  assert.deepEqual(
-    ciPlan.classification.ciRequiredChecks,
-    agentClassification.requiredChecks.filter((checkId) => CI_SPECIALIZED_CHECK_IDS.includes(checkId)),
-  );
+  assert.deepEqual(agentClassification.specializedRequiredChecks, ['slideReviewTest', 'slideReviewBuild']);
+  for (const checkId of agentClassification.specializedRequiredChecks) {
+    assert.equal(agentClassification.requiredChecks.includes(checkId), true);
+  }
 
   const classifierSource = fs.readFileSync(path.join(repositoryRoot, 'scripts', 'agent-checks-lib.mjs'), 'utf8');
   const agentRunnerSource = fs.readFileSync(path.join(repositoryRoot, 'scripts', 'agent-checks.mjs'), 'utf8');
@@ -117,16 +117,22 @@ test('agent reporting and CI planning consume the same changed-path classificati
   assert.equal(ciRunnerSource.includes('tools\\/slide-import-review'), false);
 });
 
-test('validation infrastructure changes receive conservative specialized CI requirements', () => {
+test('validation infrastructure changes preserve base fast and add conservative specialized checks', () => {
   for (const file of [
     'scripts/validation-contract.mjs',
     'scripts/validate-ci.mjs',
+    'scripts/validate.mjs',
+    'scripts/agent-checks-lib.mjs',
     'scripts/test-selection.mjs',
+    'scripts/test-fast.mjs',
     '.github/workflows/ci.yml',
     'package.json',
   ]) {
     const classification = classifyChangedFiles([file]);
-    assert.deepEqual(classification.ciRequiredChecks, CI_SPECIALIZED_CHECK_IDS, file);
+    assert.deepEqual(classification.specializedRequiredChecks, CI_SPECIALIZED_CHECK_IDS, file);
+    for (const checkId of CI_SPECIALIZED_CHECK_IDS) {
+      assert.equal(classification.requiredChecks.includes(checkId), true, `${file}: ${checkId}`);
+    }
     const plan = ciValidationPlan({ mode: 'fast', changedFiles: [file] });
     assert.deepEqual(plan.checkIds, [
       'diff',
@@ -138,6 +144,16 @@ test('validation infrastructure changes receive conservative specialized CI requ
   }
 });
 
+test('unclassified important paths preserve base fast while conservatively adding specialized checks', () => {
+  const classification = classifyChangedFiles(['tools/new-validation-helper.mjs']);
+  assert.deepEqual(classification.unclassifiedImportant, ['tools/new-validation-helper.mjs']);
+  assert.deepEqual(classification.specializedRequiredChecks, CI_SPECIALIZED_CHECK_IDS);
+  assert.deepEqual(
+    ciValidationPlan({ mode: 'fast', changedFiles: ['tools/new-validation-helper.mjs'] }).checkIds,
+    ['diff', 'testFast', 'svelte', 'slideReviewTest', 'slideReviewBuild'],
+  );
+});
+
 test('actual CI feature-diff helper excludes unrelated base-branch advancement', () => {
   const { root, baseHead, featureHead } = makeDivergedRepository();
   try {
@@ -147,7 +163,7 @@ test('actual CI feature-diff helper excludes unrelated base-branch advancement',
   }
 });
 
-test('specialized Node checks keep structured reporter identity and reproduction metadata', () => {
+test('specialized Node checks keep structured reporter identity without altering base Node-check environments', () => {
   assert.deepEqual(ciCommandArgs('slideReviewTest', ['run', 'slide-review:test']), ['run', 'slide-review:test']);
   const env = ciCommandEnvironment('slideReviewTest', { NODE_OPTIONS: '--trace-warnings' });
   assert.equal(env.CI_NODE_TEST_CHECK_ID, 'slideReviewTest');
@@ -159,6 +175,8 @@ test('specialized Node checks keep structured reporter identity and reproduction
     ciCommandArgs('test', ['test']),
     ['test', '--', '--test-reporter=./scripts/ci-test-reporter.mjs'],
   );
+  assert.deepEqual(ciCommandEnvironment('test', {}), {});
+  assert.deepEqual(ciCommandEnvironment('testFast', {}), {});
 });
 
 test('workflow remains orchestration-only while fetching enough history for a true PR feature diff', () => {

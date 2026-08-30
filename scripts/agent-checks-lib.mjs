@@ -8,7 +8,7 @@ import {
 
 const ORDINARY_FULL_CHECKS = VALIDATION_MODE_CHECK_IDS.full;
 
-/** @typedef {{ id: string, area: string, patterns: readonly RegExp[], excludePatterns?: readonly RegExp[], required: readonly string[], ciRequired?: readonly string[], recommendations?: readonly string[] }} ValidationRule */
+/** @typedef {{ id: string, area: string, patterns: readonly RegExp[], excludePatterns?: readonly RegExp[], required: readonly string[], specializedRequired?: readonly string[], recommendations?: readonly string[] }} ValidationRule */
 
 /** @type {ReadonlyArray<ValidationRule>} */
 export const VALIDATION_RULES = Object.freeze([
@@ -78,7 +78,8 @@ export const VALIDATION_RULES = Object.freeze([
     id: 'slide-review',
     area: 'Slide-review tooling',
     patterns: Object.freeze([/^tools\/slide-import-review\//]),
-    required: Object.freeze(['diff', 'slideReviewTest', 'slideReviewBuild']),
+    required: Object.freeze(['diff']),
+    specializedRequired: Object.freeze(['slideReviewTest', 'slideReviewBuild']),
   }),
   Object.freeze({
     id: 'github-automation',
@@ -102,7 +103,7 @@ export const VALIDATION_RULES = Object.freeze([
       /^tests\/agent-tooling\.test\.js$/,
     ]),
     required: Object.freeze([...ORDINARY_FULL_CHECKS]),
-    ciRequired: Object.freeze([...CI_SPECIALIZED_CHECK_IDS]),
+    specializedRequired: Object.freeze([...CI_SPECIALIZED_CHECK_IDS]),
   }),
   Object.freeze({
     id: 'ci-validation-infrastructure',
@@ -114,7 +115,7 @@ export const VALIDATION_RULES = Object.freeze([
       /^tests\/(?:ci-change-aware|ci-test-reporter|test-selection)\.test\.js$/,
     ]),
     required: Object.freeze([]),
-    ciRequired: Object.freeze([...CI_SPECIALIZED_CHECK_IDS]),
+    specializedRequired: Object.freeze([...CI_SPECIALIZED_CHECK_IDS]),
   }),
   Object.freeze({
     id: 'tests',
@@ -177,7 +178,8 @@ function uniqueInCheckOrder(values) {
 
 /**
  * Deterministically classify repository paths into validation requirements.
- * The same rule set owns agent advisory requirements and ordinary-CI additions.
+ * One rule set owns both agent advisory requirements and the specialized subset
+ * ordinary CI adds to its repository-owned fast/full base mode.
  * @param {string[]} changedFiles
  */
 export function classifyChangedFiles(changedFiles) {
@@ -186,7 +188,7 @@ export function classifyChangedFiles(changedFiles) {
   /** @type {string[]} */
   const required = [];
   /** @type {string[]} */
-  const ciRequired = [];
+  const specializedRequired = [];
   /** @type {string[]} */
   const recommendations = [];
   /** @type {string[]} */
@@ -199,13 +201,13 @@ export function classifyChangedFiles(changedFiles) {
       fileMatched = true;
       matchedRules.add(rule.id);
       required.push(...rule.required);
-      ciRequired.push(...(rule.ciRequired ?? []));
+      specializedRequired.push(...(rule.specializedRequired ?? []));
       recommendations.push(...(rule.recommendations ?? []));
     }
     if (!fileMatched && isImportantUnknown(file)) {
       unclassifiedImportant.push(file);
       required.push(...ORDINARY_FULL_CHECKS);
-      ciRequired.push(...ORDINARY_FULL_CHECKS, ...CI_SPECIALIZED_CHECK_IDS);
+      specializedRequired.push(...CI_SPECIALIZED_CHECK_IDS);
     }
   }
 
@@ -223,9 +225,8 @@ export function classifyChangedFiles(changedFiles) {
     'Authentication / Better Auth',
   ].includes(area));
   const filteredAreas = specificApplicationArea ? areas.filter((area) => area !== 'Application code') : areas;
-  const requiredChecks = uniqueInCheckOrder(required);
-  const specializedAgentRequirements = requiredChecks.filter((checkId) => CI_SPECIALIZED_CHECK_IDS.includes(checkId));
-  const ciRequiredChecks = uniqueInCheckOrder([...ciRequired, ...specializedAgentRequirements]);
+  const specializedRequiredChecks = uniqueInCheckOrder(specializedRequired);
+  const requiredChecks = uniqueInCheckOrder([...required, ...specializedRequiredChecks]);
   const notRequired = SPECIALIZED_CHECK_IDS.filter((checkId) => !requiredChecks.includes(checkId));
 
   return {
@@ -233,8 +234,8 @@ export function classifyChangedFiles(changedFiles) {
     areas: [...new Set(filteredAreas)],
     requiredChecks,
     requiredCommands: requiredChecks.map(formatValidationCommand),
-    ciRequiredChecks,
-    ciRequiredCommands: ciRequiredChecks.map(formatValidationCommand),
+    specializedRequiredChecks,
+    specializedRequiredCommands: specializedRequiredChecks.map(formatValidationCommand),
     recommendations: [...new Set(recommendations)],
     notRequiredChecks: notRequired,
     notRequiredCommands: notRequired.map(formatValidationCommand),

@@ -11,11 +11,6 @@ import { changedFilesFromFeatureDiff } from './validation-git.mjs';
 
 const NODE_TEST_DIAGNOSTIC = /^(not ok|  error:|  code:|  failureType:|  location:|  stack:|    at )/;
 const NODE_TEST_CHECK_IDS = new Set(['test', 'testFast', 'slideReviewTest']);
-const NODE_TEST_REPRO_COMMANDS = Object.freeze({
-  test: 'npm test',
-  testFast: 'npm run test:fast',
-  slideReviewTest: 'npm run slide-review:test',
-});
 export const CI_TEST_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 export const CI_TEST_REPORTER = './scripts/ci-test-reporter.mjs';
 
@@ -135,7 +130,7 @@ export function parseCiArgs(argv) {
 }
 
 /**
- * Resolve the repository-owned base mode plus ordinary-CI requirements from the
+ * Resolve the repository-owned base mode plus specialized requirements from the
  * same changed-path classifier used by agent:checks.
  * @param {{ mode?: string, changedFiles?: string[] }} [options]
  */
@@ -145,7 +140,7 @@ export function ciValidationPlan(options = {}) {
   const classification = classifyChangedFiles(options.changedFiles ?? []);
   const checkIds = resolveValidationCheckIds(
     VALIDATION_MODE_CHECK_IDS[mode],
-    classification.ciRequiredChecks,
+    classification.specializedRequiredChecks,
   );
   return {
     mode,
@@ -196,23 +191,20 @@ export function ciCommandArgs(id, args) {
  * The slide-review npm script already places explicit test files after `node --test`,
  * so appending a reporter CLI argument would be too late. NODE_OPTIONS applies the
  * reporter before those file arguments while preserving the existing named command.
+ * Existing test/testFast reporter behavior is left unchanged: complete test uses
+ * reporter defaults and testFast supplies its own identity from test-fast.mjs.
  * @param {string} id
  * @param {NodeJS.ProcessEnv} [env]
  */
 export function ciCommandEnvironment(id, env = process.env) {
-  if (!isCiNodeTestCheck(id)) return { ...env };
-  const reproCommand = NODE_TEST_REPRO_COMMANDS[id];
-  if (!reproCommand) throw new Error(`Missing CI Node-test reproduction command for check: ${id}`);
-  const next = {
+  if (id !== 'slideReviewTest') return { ...env };
+  const existing = String(env.NODE_OPTIONS ?? '').trim();
+  return {
     ...env,
-    CI_NODE_TEST_CHECK_ID: id,
-    CI_NODE_TEST_REPRO_COMMAND: reproCommand,
+    CI_NODE_TEST_CHECK_ID: 'slideReviewTest',
+    CI_NODE_TEST_REPRO_COMMAND: 'npm run slide-review:test',
+    NODE_OPTIONS: [existing, `--test-reporter=${CI_TEST_REPORTER}`].filter(Boolean).join(' '),
   };
-  if (id === 'slideReviewTest') {
-    const existing = String(env.NODE_OPTIONS ?? '').trim();
-    next.NODE_OPTIONS = [existing, `--test-reporter=${CI_TEST_REPORTER}`].filter(Boolean).join(' ');
-  }
-  return next;
 }
 
 /**
@@ -231,7 +223,7 @@ export function runCiValidation(options = {}) {
 
   console.log(`Repository CI validation mode: ${mode}`);
   console.log(`Repository CI changed paths: ${plan.changedFiles.length}`);
-  console.log(`Repository CI changed-path requirements: ${plan.classification.ciRequiredChecks.join(', ') || '(none)'}`);
+  console.log(`Repository CI specialized requirements: ${plan.classification.specializedRequiredChecks.join(', ') || '(none)'}`);
   console.log(`Repository CI checks: ${plan.checkIds.join(', ')}`);
   for (const { id, label, command, args } of checks) {
     console.log(`::group::${label}`);

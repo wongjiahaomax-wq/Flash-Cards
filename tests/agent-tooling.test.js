@@ -298,6 +298,7 @@ test('slide-review changes require both specialized test and build contracts', (
     'npm run slide-review:test',
     'npm run slide-review:build',
   ]);
+  assert.deepEqual(report.specializedRequiredChecks, ['slideReviewTest', 'slideReviewBuild']);
   assert.equal(report.requiredCommands.includes('npm run runtime:smoke'), false);
 });
 
@@ -306,10 +307,15 @@ test('documentation-only changes stay lightweight', () => {
   assert.deepEqual(report.requiredCommands, ['git diff --check']);
 });
 
-test('GitHub workflow changes are explicit without pretending Actions can be run locally', () => {
+test('GitHub CI workflow changes fail safe for specialized validation without moving path ownership into YAML', () => {
   const report = classifyChangedFiles(['.github/workflows/ci.yml']);
   assert.equal(report.areas.includes('GitHub workflows / automation'), true);
-  assert.deepEqual(report.requiredCommands, ['git diff --check']);
+  assert.deepEqual(report.specializedRequiredChecks, ['slideReviewTest', 'slideReviewBuild']);
+  assert.deepEqual(report.requiredCommands, [
+    'git diff --check',
+    'npm run slide-review:test',
+    'npm run slide-review:build',
+  ]);
   assert.match(report.recommendations.join('\n'), /GitHub Actions/);
 });
 
@@ -330,5 +336,6 @@ test('unknown important source/tooling changes fail safe to full ordinary valida
   for (const checkId of VALIDATION_MODE_CHECK_IDS.full) {
     assert.equal(report.requiredChecks.includes(checkId), true);
   }
+  assert.deepEqual(report.specializedRequiredChecks, ['slideReviewTest', 'slideReviewBuild']);
   assert.deepEqual(report.unclassifiedImportant, ['scripts/new-agent-helper.mjs']);
 });
