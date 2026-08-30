@@ -28,10 +28,12 @@ test('pagination, sort, lifecycle and named mutations stay wired through the Cas
   assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), sort: `\$\{column\}-\$\{direction\}`, page: 1 \}, \['sort'\]\)/);
   assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), lifecycle, page: 1 \}, \['lifecycle'\]\)/);
   assert.match(pageSource, /caseLibraryNamedActionHref\(actionName, currentQuery\(\)\)/);
+  assert.match(pageSource, /action=\{actionHref\(inactiveView \? 'bulkRestoreCases' : 'bulkDeactivateCases'\)\}/);
   assert.match(pageSource, /actionQuery=\{currentQuery\(\)\}/);
   assert.match(creatorSource, /caseLibraryNamedActionHref\('createCaseLibraryTopic', actionQuery\)/);
   assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkAddCaseTag', effectiveActionQuery\)/);
   assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkRemoveCaseTag', effectiveActionQuery\)/);
+  assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkCreateAndAddCaseTag', effectiveActionQuery\)/);
 });
 
 test('active Case Library keeps the intended quick-authoring and bulk-action surfaces', () => {

@@ -38,6 +38,10 @@ test('organize mode keeps Case Primary Topic drag-and-drop plus non-drag Case Ta
   assert.match(organizer, /class="case-drag"/);
   assert.match(organizer, /beginCaseDrag/);
   assert.match(organizer, /stageCasePrimaryTopic\(draggedCaseIds, row\.id\)/);
+  assert.match(organizer, /\{#if selectedCases\.length\}[\s\S]*<CaseClassificationInspector/);
+  assert.match(organizer, /<CaseClassificationInspector \{selectedCases\}[\s\S]*stagedTagChanges=\{stagedCaseTagChanges\}[\s\S]*onStageTags=\{stageCaseTags\}/);
+  assert.match(organizer, /const selectedCaseRows = workspaceCases\.filter\(\(caseItem\) => caseIds\.includes\(caseItem\.id\)\)/);
+  assert.match(organizer, /stagedCaseTagChanges = stageCaseTagChanges\(caseTagAssignments, stagedCaseTagChanges, selectedCaseRows, tag, operation\)/);
   assert.match(caseInspector, /Search Topic or breadcrumb/);
   assert.match(caseInspector, /Stage Primary Topic change/);
   assert.match(caseInspector, /Case Tags/);
@@ -53,6 +57,9 @@ test('staged hierarchy, Primary Topic and Case Tag changes share one review and 
   assert.match(review, /Topic hierarchy/);
   assert.match(review, /Case Primary Topic/);
   assert.match(review, /Case Tags/);
+  assert.match(review, /expectedParentId: move\.originalParentId/);
+  assert.match(review, /expectedConceptId: change\.originalTopicId/);
+  assert.match(review, /expectedAttached: change\.expectedAttached/);
   assert.match(review, /action="\?\/applyWorkspace"/);
   assert.match(review, /name="hierarchy_changes_json"/);
   assert.match(review, /name="case_changes_json"/);
