@@ -151,7 +151,7 @@ export function githubFailureAnnotation(data) {
 }
 
 /** @param {any} data @param {string} [checkId] */
-export function agentFailureRecord(data, checkId = reporterCheckId()) {
+export function agentFailureRecord(data, checkId = 'test') {
   const wrapper = data?.details?.error;
   const error = actualTestError(wrapper);
   const file = repositoryPath(data?.file);
@@ -172,7 +172,7 @@ export function agentFailureRecord(data, checkId = reporterCheckId()) {
 }
 
 /** @param {any} data @param {string} [checkId] @param {string} [reproCommand] */
-export function agentReproRecord(data, checkId = reporterCheckId(), reproCommand = reporterReproCommand()) {
+export function agentReproRecord(data, checkId = 'test', reproCommand = 'npm test') {
   const file = repositoryPath(data?.file);
   if (!file) return null;
   const command = checkId === 'test'
@@ -181,8 +181,11 @@ export function agentReproRecord(data, checkId = reporterCheckId(), reproCommand
   return `CI_REPRO|check=${escapeAgentField(checkId)}|command=${escapeAgentField(command)}`;
 }
 
-/** @param {AsyncIterable<any>} source */
-export default async function* ciTestReporter(source) {
+/**
+ * @param {AsyncIterable<any>} source
+ * @param {{ checkId?: string, reproCommand?: string }} [options]
+ */
+export default async function* ciTestReporter(source, options = {}) {
   let progress = '';
   const failures = [];
   let summary = null;
@@ -227,8 +230,8 @@ export default async function* ciTestReporter(source) {
       yield `${githubFailureAnnotation(failure)}\n`;
     }
 
-    const checkId = reporterCheckId();
-    const reproCommand = reporterReproCommand();
+    const checkId = options.checkId ?? reporterCheckId();
+    const reproCommand = options.reproCommand ?? reporterReproCommand();
     yield '\n=== CI AGENT SUMMARY ===\n';
     const reproRecords = new Set();
     for (const failure of failures) {
