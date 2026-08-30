@@ -962,19 +962,25 @@ Removed assertions:
 
 Retained thin ownership:
 
-- **UI reachability/integration:** explicit `+ New System` and `+ New Topic` entry points into the shared creation flow;
+- **UI reachability/integration:** explicit `+ New System` and `+ New Topic` entry points into the shared creation flow, including the `?/createConcept` form action that connects those controls to the named server action;
 - **UI reachability/integration + hierarchy safety:** the parent picker exists only for Topic creation, submits the chosen Topic parent, and System creation submits a blank hidden `parent_id`;
 - **Semantic product vocabulary:** parent choices remain visibly distinguished as `System` versus `Topic`, with `Unassigned`, `+ Add Topic`, and `+ Add subtopic` authoring vocabulary;
 - **Composition:** the Systems & Topics route renders exactly one `TaxonomyOrganizer` component;
-- **Explicitly retired product invariant:** the route remains free of `Additional Study Topic` authoring vocabulary. This negative guard is retained because Additional Study Topics are intentionally retired from current authoring behavior, not because negative text assertions are preferred generally;
+- **Explicitly retired product invariant:** the route and delegated organizer remain free of `Additional Study Topic` authoring vocabulary. This negative guard is retained because Additional Study Topics are intentionally retired from current authoring behavior, not because negative text assertions are preferred generally;
 - **Server/action wiring:** `createConcept` passes the submitted `parent_id` into the taxonomy writer and the writer normalizes all System creation to `parentId = null`. History shows this contract was introduced with the deliberate `Hide topic parents for Systems` change; no stronger direct behavioral owner currently proves the successful normalization path, so the cheap source/data-flow owner remains;
-- **Case-editor workflow reachability:** the Case Topics UI exposes `?/assignPrimaryTopicToSystem`, submits the current Primary Topic and selected parent System, and the Case route defines the named action. Mutation validation remains owned by the DB-backed authoring tests rather than duplicated as writer source text here.
+- **Case-editor workflow reachability:** the Case Topics UI exposes `?/assignPrimaryTopicToSystem`, submits the current Primary Topic and selected parent System, the Case route defines that named action, and the action delegates to `assignPrimaryTopicToSystem(...)` with those submitted IDs. Mutation validation remains owned by the DB-backed authoring tests rather than duplicated as writer source text here.
 
 Independent review of the first consolidation edit found three precision gaps in the surviving source owner and corrected them before tranche completion:
 
 1. the existing `System creation remains top-level` test could false-green if the Topic parent picker became visible for System creation, because it only asserted that the picker existed somewhere. The corrected owner now requires the Topic-only branch and the blank System `parent_id` branch explicitly;
 2. `/TaxonomyOrganizer/` could pass on an import after the component stopped rendering. The corrected owner counts rendered `<TaxonomyOrganizer` tags and requires exactly one;
 3. the Case action assertion could pass on the imported writer symbol alone. It now requires the named `assignPrimaryTopicToSystem: async` action, and the Topic creation route assertion scopes its parent mapping to the `createConcept` action block.
+
+A subsequent final independent-review pass found three additional cross-file reachability/vocabulary gaps and corrected those as well:
+
+4. creation controls and a server action could both exist while the organizer form posted somewhere else; the retained owner now requires `action="?/createConcept"` on the creation form;
+5. the retired `Additional Study Topic` guard only scanned the route wrapper even though authoring lives in the delegated organizer; it now scans both the route and organizer source;
+6. the Case route could define the named action without delegating to the taxonomy writer or could forward the wrong fields; the retained owner now scopes the action block and requires the `assignPrimaryTopicToSystem(...)` call plus `topic_id` and `system_id` payload mapping.
 
 These corrections harden the surviving thin owner without restoring the removed duplicate/incidental assertions or moving deep semantics back into source inspection.
 
@@ -1237,7 +1243,7 @@ Specific gates:
 
 **Checkpoint 3:** satisfied after independent-review correction: both protected product invariants remain intentional and both dispositions remain `RETAIN`; no stronger cheap/reliable layout owner exists; the Shared Questions contract remains unchanged; the horizontal-overflow contract was tightened to extract the `body` rule before asserting `overflow-x: hidden`, eliminating the reviewed cross-rule false-green case. No production/UI code, schema, CI architecture, exclusion, or application/domain behavior changed. Exact-head Draft CI is the final execution gate after the corrected test and documentation changes.
 
-**Checkpoint 4:** the two bounded implemented tranches satisfy the ownership rule for their removed assertions. For the Admin Topic/System tranche specifically, independent review corrected three false-green/reachability gaps in the surviving thin owner while keeping the duplicate semantic and incidental-copy assertions removed. Broader Checkpoint 4 remains pending; every future removal still requires an explicit stronger owner or retirement, and distinct UI reachability/semantic vocabulary must remain protected where applicable.
+**Checkpoint 4:** the two bounded implemented tranches satisfy the ownership rule for their removed assertions. For the Admin Topic/System tranche specifically, two independent-review passes corrected six false-green/reachability gaps in the surviving thin owner while keeping the duplicate semantic and incidental-copy assertions removed. Broader Checkpoint 4 remains pending; every future removal still requires an explicit stronger owner or retirement, and distinct UI reachability/semantic vocabulary must remain protected where applicable.
 
 **Checkpoint 6:** runtime claim backed by comparable CI medians.
 
