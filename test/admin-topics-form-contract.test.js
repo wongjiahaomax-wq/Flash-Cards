@@ -26,7 +26,7 @@ test('Topic creation supports searchable active System or Topic parents while Sy
 
 test('Systems and Topics route delegates the visual taxonomy to one organizer without retired Additional Study Topic authoring', () => {
   assert.equal([...topicsPage.matchAll(/<TaxonomyOrganizer\b/g)].length, 1);
-  assert.doesNotMatch(topicsPage, /Additional Study Topic/);
+  assert.doesNotMatch(`${topicsPage}\n${organizer}`, /Additional Study Topic/);
 });
 
 test('System creation always submits a null parent to the taxonomy writer', () => {
@@ -40,5 +40,10 @@ test('Case editor can place its current Primary Topic under an active System', (
   assert.match(caseTopics, /action="\?\/assignPrimaryTopicToSystem"/);
   assert.match(caseTopics, /name="topic_id" value=\{primaryTopic\.id\}/);
   assert.match(caseTopics, /<label>Parent System<select name="system_id"/);
-  assert.match(caseAction, /assignPrimaryTopicToSystem:\s*async/);
+
+  const assignPrimaryTopicAction = caseAction.match(/assignPrimaryTopicToSystem:\s*async[\s\S]*?\n  },\n  createCaseTopic:/);
+  assert.ok(assignPrimaryTopicAction, 'Expected the Case route to define assignPrimaryTopicToSystem before createCaseTopic.');
+  assert.match(assignPrimaryTopicAction[0], /await assignPrimaryTopicToSystem\(createDb\(platform\.env\.DB\),\s*\{/);
+  assert.match(assignPrimaryTopicAction[0], /topicId:\s*formText\(formData, 'topic_id'\)/);
+  assert.match(assignPrimaryTopicAction[0], /systemId:\s*formText\(formData, 'system_id'\)/);
 });
