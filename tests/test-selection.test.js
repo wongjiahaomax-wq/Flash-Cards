@@ -14,14 +14,6 @@ import {
 } from '../scripts/test-selection.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
-const APPROVED_FAST_TEST_EXCLUSIONS = [
-  'tools/slide-import-review/tests/build.test.js',
-  'tools/slide-import-review/tests/core.test.js',
-  'tools/slide-import-review/tests/review-fixes.test.js',
-  'tools/slide-import-review/tests/source-coverage.test.js',
-  'test/ecg-batch-01-asset-rename.test.js',
-  'test/production-taxonomy-operator.test.js',
-];
 
 /** @param {string} root @param {readonly string[]} files */
 function writeEmptyTests(root, files) {
@@ -170,19 +162,25 @@ test('fast selection deterministically accounts for every discovered maintained 
 });
 
 test('Checkpoint 2D excludes exactly the six approved specialized tests while complete discovery retains all of them', async () => {
-  assert.deepEqual(FAST_TEST_EXCLUSIONS, APPROVED_FAST_TEST_EXCLUSIONS);
+  assert.deepEqual(FAST_TEST_EXCLUSIONS, [
+    'tools/slide-import-review/tests/build.test.js',
+    'tools/slide-import-review/tests/core.test.js',
+    'tools/slide-import-review/tests/review-fixes.test.js',
+    'tools/slide-import-review/tests/source-coverage.test.js',
+    'test/ecg-batch-01-asset-rename.test.js',
+    'test/production-taxonomy-operator.test.js',
+  ]);
   assert.equal(new Set(FAST_TEST_EXCLUSIONS).size, 6);
 
   const complete = await discoverMaintainedNodeTests(repositoryRoot);
   const selection = selectFastNodeTests(complete, FAST_TEST_EXCLUSIONS);
-  const expectedExcluded = [...APPROVED_FAST_TEST_EXCLUSIONS].sort();
 
   assert.ok(complete.length > 6);
   assert.deepEqual(selection.complete, complete);
-  assert.deepEqual(selection.excluded, expectedExcluded);
+  assert.deepEqual(selection.excluded, [...FAST_TEST_EXCLUSIONS].sort());
   assert.equal(selection.selected.length, complete.length - 6);
   assert.deepEqual([...selection.selected, ...selection.excluded].sort(), complete);
-  for (const file of APPROVED_FAST_TEST_EXCLUSIONS) {
+  for (const file of FAST_TEST_EXCLUSIONS) {
     assert.equal(complete.includes(file), true, `complete npm test discovery must retain ${file}`);
     assert.equal(selection.selected.includes(file), false, `fast selection must omit ${file}`);
   }
