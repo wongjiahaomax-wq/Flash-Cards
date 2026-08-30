@@ -62,7 +62,15 @@ At the audited baseline, Node discovery reached:
 
 Total audited baseline: 109 files.
 
-Subsequent baseline/PR changes include the structured reporter contract and the Checkpoint 2A selector contract. Checkpoint 2A therefore expects the exact branch selector to report 110 maintained files, 110 fast-selected files and 0 exclusions; exact-head CI is the authoritative execution check for that handoff count.
+The Checkpoint 2A selector reports the current branch's maintained population directly. Draft CI run #1269 observed:
+
+```text
+complete=109
+selected=109
+excluded=0
+```
+
+That run's fast Node stage passed all 632 tests; the run later failed only because `npm run check` identified a JSDoc typing issue on the empty exclusion constant, which was corrected immediately afterward.
 
 `npm test` continues to mean the complete maintained Node suite and is not redirected through the fast selector.
 
@@ -239,7 +247,7 @@ The systematic primary inventory searched `test/` for fixtures directly reading 
 - three of the 24 changed files remain deliberately mixed because a migration-specific test is embedded alongside ordinary runtime tests:
   - `test/resumable-content-import.test.js` retains its explicit migration 0004 fresh/upgrade coverage;
   - `test/learning-db.test.js` retains its explicit migration 0014 `question_pool_mode` backfill coverage;
-  - `test/original-stimulus-semantics.test.js` retains its explicit pre-0016 -> 0016 migration coverage while its ordinary Stimulus runtime fixture now uses the current schema.
+  - `test/original-stimulus-semantics.test.js` retains its explicit pre-0016 -> 0016 migration coverage while its ordinary runtime fixture now uses the current schema.
 
 A broader direct-reader sweep also found five ordinary tests that already discover and apply the complete numbered migration directory dynamically:
 
