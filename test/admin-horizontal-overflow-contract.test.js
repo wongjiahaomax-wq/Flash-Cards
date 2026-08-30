@@ -5,5 +5,7 @@ import test from 'node:test';
 const appCss = readFileSync(new URL('../src/app.css', import.meta.url), 'utf8');
 
 test('the application viewport does not horizontally scroll from child layout overflow', () => {
-  assert.match(appCss, /body\s*\{[\s\S]*overflow-x:\s*hidden;/);
+  const bodyRule = appCss.match(/body\s*\{([^}]*)\}/);
+  assert.ok(bodyRule, 'Expected src/app.css to define a body rule.');
+  assert.match(bodyRule[1], /overflow-x:\s*hidden\s*;/);
 });
