@@ -43,6 +43,7 @@ const migrationSql = [
   '0011_asset_supersession.sql',
   '0012_archive_stimulus_options.sql',
   '0014_review_question_pool_mode.sql',
+  '0015_contextual_system_topic_tag_navigation.sql',
   '0016_original_stimulus_options.sql'
 ]
   .map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8'))

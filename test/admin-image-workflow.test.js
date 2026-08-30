@@ -18,6 +18,7 @@ import {
 } from '../src/lib/server/db/admin-image-workflow.js';
 import { createDb } from '../src/lib/server/db/index.js';
 import { createStimulusGroup, removeStimulusOptionFromCase } from '../src/lib/server/db/stimulus-groups.js';
+import { applyCurrentSchema } from './current-schema.js';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -28,24 +29,10 @@ registerHooks({
   }
 });
 
-const migrationSql = [
-  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0010_reusable_image_reactivation_guard.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0016_original_stimulus_options.sql', import.meta.url), 'utf8')
-].join('\n').replaceAll('--> statement-breakpoint', '');
-
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql);
+  applyCurrentSchema(sqlite);
   sqlite.exec(buildSeedSql());
   const d1 = {
     /** @param {string} sql */

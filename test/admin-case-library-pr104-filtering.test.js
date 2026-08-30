@@ -7,7 +7,7 @@ import test from 'node:test';
 import { getCaseLibraryPage } from '../src/lib/server/db/case-library.js';
 import { createDb } from '../src/lib/server/db/index.js';
 
-const legacyMigrationNames = [
+const currentMigrationNames = [
   '0000_dashing_centennial.sql',
   '0002_optional_stimulus_groups.sql',
   '0003_multi_topic_study_routing.sql',
@@ -20,9 +20,12 @@ const legacyMigrationNames = [
   '0010_reusable_image_reactivation_guard.sql',
   '0011_asset_supersession.sql',
   '0012_archive_stimulus_options.sql',
-  '0013_review_assets_asset_lookup.sql'
+  '0013_review_assets_asset_lookup.sql',
+  '0014_review_question_pool_mode.sql',
+  '0015_contextual_system_topic_tag_navigation.sql',
+  '0016_original_stimulus_options.sql',
+  '0017_align_reusable_prompt_live_state_guards.sql'
 ];
-const currentMigrationNames = [...legacyMigrationNames, '0014_review_question_pool_mode.sql', '0015_contextual_system_topic_tag_navigation.sql'];
 
 function migrationSql(names) {
   return names.map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8')).join('\n').replaceAll('--> statement-breakpoint', '');
@@ -92,7 +95,7 @@ test('System filtering distinguishes real matches, Unassigned, and zero-match te
     fixture.statements.length = 0;
     const unrestricted = await getCaseLibraryPage(fixture.db, filters(), { pageSize: 20 });
     assert.deepEqual(unrestricted.rows.map((row) => row.id), ['case-free-direct', 'case-eye', 'case-free-nested']);
-    assert.equal(taxonomyReadCount(fixture.statements), 1, 'active Case Library must keep one compatible taxonomy read');
+    assert.equal(taxonomyReadCount(fixture.statements), 1, 'active Case Library must keep one canonical taxonomy read');
 
     const realSystem = await getCaseLibraryPage(fixture.db, filters({ systemSearch: 'yE' }), { pageSize: 20 });
     assert.deepEqual(realSystem.rows.map((row) => row.id), ['case-eye']);
@@ -117,25 +120,6 @@ test('System filtering distinguishes real matches, Unassigned, and zero-match te
     assert.deepEqual(inactive.rows.map((row) => row.id), ['case-inactive-free']);
     assert.deepEqual(inactive.topicOptions, []);
     assert.deepEqual(inactive.topicParentOptions, []);
-  } finally {
-    fixture.sqlite.close();
-  }
-});
-
-test('pre-0015 Case Library treats legacy Topics as visibly Unassigned and still zero-matches unknown Systems', async () => {
-  const fixture = createLearningDb(legacyMigrationNames);
-  try {
-    fixture.sqlite.exec(`
-      INSERT INTO concepts (id, name, slug, is_active) VALUES ('topic-legacy', 'Legacy Topic', 'legacy-topic', 1);
-      INSERT INTO cases (id, title, is_active) VALUES ('case-legacy', 'Legacy Case', 1);
-      INSERT INTO case_concepts (case_id, concept_id, role) VALUES ('case-legacy', 'topic-legacy', 'primary');
-    `);
-    const unassigned = await getCaseLibraryPage(fixture.db, filters({ systemSearch: 'Unassigned' }), { pageSize: 20 });
-    assert.deepEqual(unassigned.rows.map((row) => row.id), ['case-legacy']);
-    assert.equal(unassigned.rows[0].systemName, null);
-
-    const noMatch = await getCaseLibraryPage(fixture.db, filters({ systemSearch: 'Cardiology' }), { pageSize: 20 });
-    assert.deepEqual(noMatch.rows, []);
   } finally {
     fixture.sqlite.close();
   }
