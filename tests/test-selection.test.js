@@ -14,6 +14,23 @@ import {
 } from '../scripts/test-selection.mjs';
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
+const APPROVED_FAST_TEST_EXCLUSIONS = [
+  'tools/slide-import-review/tests/build.test.js',
+  'tools/slide-import-review/tests/core.test.js',
+  'tools/slide-import-review/tests/review-fixes.test.js',
+  'tools/slide-import-review/tests/source-coverage.test.js',
+  'test/ecg-batch-01-asset-rename.test.js',
+  'test/production-taxonomy-operator.test.js',
+];
+
+/** @param {string} root @param {readonly string[]} files */
+function writeEmptyTests(root, files) {
+  for (const file of files) {
+    const absolute = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(absolute), { recursive: true });
+    fs.writeFileSync(absolute, '');
+  }
+}
 
 test('maintained Node-test discovery accepts ordinary Node-standard basenames without treating fast-test tooling as tests', () => {
   assert.equal(isMaintainedNodeTestPath('test/example.test.js'), true);
@@ -53,7 +70,7 @@ test('new ordinary Node-standard tests enter fast selection without an allow-lis
       'tests/new-contract-test.mjs',
     ].sort();
     assert.deepEqual(discovered, expected);
-    assert.deepEqual(selectFastNodeTests(discovered).selected, expected);
+    assert.deepEqual(selectFastNodeTests(discovered, []).selected, expected);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -64,6 +81,7 @@ test('fast runner uses explicit deterministic selection, fast reporter identity,
   try {
     fs.writeFileSync(path.join(root, 'z.test.js'), '');
     fs.writeFileSync(path.join(root, 'a-test.mjs'), '');
+    writeEmptyTests(root, FAST_TEST_EXCLUSIONS);
     /** @type {{ command: string, args: string[], options: any }[]} */
     const calls = [];
     /** @param {string} command @param {string[]} args @param {any} options */
@@ -100,6 +118,7 @@ test('fast runner uses explicit deterministic selection, fast reporter identity,
 test('fast runner refuses an empty selection instead of falling back to implicit Node discovery', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flash-cards-test-fast-empty-'));
   try {
+    writeEmptyTests(root, FAST_TEST_EXCLUSIONS);
     await assert.rejects(
       () => runFastNodeTests({
         root,
@@ -132,6 +151,13 @@ test('fast selection fails loudly when an exclusion is missing', () => {
   );
 });
 
+test('fast selection fails loudly when exclusions contain duplicates', () => {
+  assert.throws(
+    () => selectFastNodeTests(['test/existing.test.js'], ['test/existing.test.js', 'test/existing.test.js']),
+    /exclusions must not contain duplicate paths/,
+  );
+});
+
 test('fast selection deterministically accounts for every discovered maintained test', () => {
   const selection = selectFastNodeTests(
     ['test/z.test.js', 'test/a.test.js', 'test/z.test.js'],
@@ -143,20 +169,30 @@ test('fast selection deterministically accounts for every discovered maintained 
   assert.deepEqual([...selection.selected, ...selection.excluded].sort(), selection.complete);
 });
 
-test('Checkpoint 2A real configuration has zero exclusions and zero maintained-file coverage reduction', async () => {
-  assert.deepEqual(FAST_TEST_EXCLUSIONS, []);
+test('Checkpoint 2D excludes exactly the six approved specialized tests while complete discovery retains all of them', async () => {
+  assert.deepEqual(FAST_TEST_EXCLUSIONS, APPROVED_FAST_TEST_EXCLUSIONS);
+  assert.equal(new Set(FAST_TEST_EXCLUSIONS).size, 6);
+
   const complete = await discoverMaintainedNodeTests(repositoryRoot);
   const selection = selectFastNodeTests(complete, FAST_TEST_EXCLUSIONS);
-  assert.ok(complete.length > 0);
-  assert.deepEqual(selection.selected, complete);
-  assert.deepEqual(selection.excluded, []);
-  assert.deepEqual(selection.selected.filter((file) => !complete.includes(file)), []);
+  const expectedExcluded = [...APPROVED_FAST_TEST_EXCLUSIONS].sort();
+
+  assert.ok(complete.length > 6);
+  assert.deepEqual(selection.complete, complete);
+  assert.deepEqual(selection.excluded, expectedExcluded);
+  assert.equal(selection.selected.length, complete.length - 6);
+  assert.deepEqual([...selection.selected, ...selection.excluded].sort(), complete);
+  for (const file of APPROVED_FAST_TEST_EXCLUSIONS) {
+    assert.equal(complete.includes(file), true, `complete npm test discovery must retain ${file}`);
+    assert.equal(selection.selected.includes(file), false, `fast selection must omit ${file}`);
+  }
 });
 
-test('package scripts keep npm test complete and add the selector-owned fast command', () => {
+test('package scripts keep npm test complete, keep selector-owned fast execution, and keep slide-review ownership of all four tooling tests', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'));
   assert.equal(packageJson.scripts.test, 'node --test');
   assert.equal(packageJson.scripts['test:fast'], 'node scripts/test-fast.mjs');
+  assert.equal(packageJson.scripts['slide-review:test'], 'node --test tools/slide-import-review/tests/*.test.js');
 });
 
 test('workflow remains orchestration-only and does not own Node test paths or fast selection', () => {

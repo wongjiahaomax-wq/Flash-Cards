@@ -19,11 +19,18 @@ const IGNORED_DIRECTORIES = new Set([
 ]);
 
 /**
- * Explicit fast-suite exclusions. Checkpoint 2A intentionally keeps this empty.
- * Future entries must be exact repository-relative maintained test paths.
+ * Explicit fast-suite exclusions. Entries must be exact repository-relative
+ * maintained test paths with a separately enforced specialized owner.
  * @type {readonly string[]}
  */
-export const FAST_TEST_EXCLUSIONS = Object.freeze([]);
+export const FAST_TEST_EXCLUSIONS = Object.freeze([
+  'tools/slide-import-review/tests/build.test.js',
+  'tools/slide-import-review/tests/core.test.js',
+  'tools/slide-import-review/tests/review-fixes.test.js',
+  'tools/slide-import-review/tests/source-coverage.test.js',
+  'test/ecg-batch-01-asset-rename.test.js',
+  'test/production-taxonomy-operator.test.js',
+]);
 
 /** @param {string} value */
 function normalizeRepositoryPath(value) {
