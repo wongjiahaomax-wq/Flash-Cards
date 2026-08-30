@@ -96,6 +96,17 @@ export const VALIDATION_RULES = Object.freeze([
     specializedRequired: Object.freeze(['productionTaxonomyOperatorTest']),
   }),
   Object.freeze({
+    id: 'slide-review-production-contract',
+    area: 'Slide-review production compatibility',
+    patterns: Object.freeze([
+      /^src\/lib\/server\/import\/content-package\.js$/,
+      /^src\/lib\/server\/import\/reviewed-content-package\.js$/,
+      /^src\/lib\/server\/storage\/media\.js$/,
+    ]),
+    required: Object.freeze(['diff']),
+    specializedRequired: Object.freeze(['slideReviewTest']),
+  }),
+  Object.freeze({
     id: 'slide-review',
     area: 'Slide-review tooling',
     patterns: Object.freeze([/^tools\/slide-import-review\//]),
