@@ -113,44 +113,142 @@ function functionBlock(text, marker) {
 }
 
 /** @param {string} text @param {string} action */
-function formForAction(text, action) {
+function formsForAction(text, action) {
   const marker = `action="${action}"`;
-  const markerIndex = text.indexOf(marker);
-  assert.notEqual(markerIndex, -1, `Missing form action ${action}`);
-  const start = text.lastIndexOf('<form', markerIndex);
-  const end = text.indexOf('</form>', markerIndex);
-  assert.ok(start >= 0 && end > markerIndex, `Could not isolate form ${action}`);
-  return { text: text.slice(start, end + '</form>'.length), index: markerIndex };
+  const forms = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    const markerIndex = text.indexOf(marker, cursor);
+    if (markerIndex === -1) break;
+    const start = text.lastIndexOf('<form', markerIndex);
+    const end = text.indexOf('</form>', markerIndex);
+    assert.ok(start >= 0 && end > markerIndex, `Could not isolate form ${action}`);
+    forms.push({ text: text.slice(start, end + '</form>'.length), index: markerIndex });
+    cursor = end + '</form>'.length;
+  }
+  assert.ok(forms.length > 0, `Missing form action ${action}`);
+  return forms;
 }
 
 /** @param {string} text @param {number} index */
 function activeIfConditionsAt(text, index) {
-  /** @type {string[]} */
+  /** @type {(string | null)[]} */
   const stack = [];
-  const token = /\{#if\s+([^}]+)\}|\{\/if\}/g;
-  for (const match of text.matchAll(token)) {
-    if ((match.index ?? 0) >= index) break;
-    if (match[1] !== undefined) stack.push(match[1].trim());
-    else stack.pop();
+  const token = /\{#if\s+([^}]+)\}|\{:else if\s+([^}]+)\}|\{:else\}|\{\/if\}/g;
+  let match;
+  while ((match = token.exec(text)) && match.index < index) {
+    if (match[1]) stack.push(match[1].trim());
+    else if (match[2]) {
+      assert.ok(stack.length > 0, 'Encountered {:else if} without an active {#if}.');
+      stack[stack.length - 1] = match[2].trim();
+    } else if (match[0] === '{:else}') {
+      assert.ok(stack.length > 0, 'Encountered {:else} without an active {#if}.');
+      stack[stack.length - 1] = null;
+    } else {
+      stack.pop();
+    }
   }
-  return stack;
+  return stack.filter((condition) => condition !== null);
 }
 
 /** @param {string} text @param {string} action @param {string[]} fields */
 function assertProductionOnlyForm(text, action, fields) {
-  const form = formForAction(text, action);
-  for (const field of fields) assert.match(form.text, new RegExp(`name=["']${field}["']`));
-  assert.match(form.text, /<button\b[^>]*\btype="submit"/);
-  assert.ok(
-    activeIfConditionsAt(text, form.index).some((condition) => condition.includes('!previewMode')),
-    `${action} must remain production-only`
-  );
-  return form.text;
+  const forms = formsForAction(text, action);
+  for (const form of forms) {
+    for (const field of fields) assert.match(form.text, new RegExp(`name=["']${field}["']`));
+    assert.match(form.text, /<button\b[^>]*\btype="submit"/);
+    assert.ok(
+      activeIfConditionsAt(text, form.index).some((condition) => condition.includes('!previewMode')),
+      `${action} must remain production-only`
+    );
+  }
+}
+
+/** @param {string} text @param {string} name */
+function tags(text, name) {
+  const found = [];
+  const needle = `<${name}`;
+  let cursor = 0;
+  while (cursor < text.length) {
+    const start = text.indexOf(needle, cursor);
+    if (start < 0) break;
+    const boundary = text[start + needle.length];
+    if (boundary && !/[\s/>]/.test(boundary)) {
+      cursor = start + needle.length;
+      continue;
+    }
+
+    let quote = null;
+    let braceDepth = 0;
+    let end = start + needle.length;
+    for (; end < text.length; end += 1) {
+      const char = text[end];
+      if (quote) {
+        if (char === quote && text[end - 1] !== '\\') quote = null;
+        continue;
+      }
+      if (char === '"' || char === "'" || char === '`') {
+        quote = char;
+        continue;
+      }
+      if (char === '{') {
+        braceDepth += 1;
+        continue;
+      }
+      if (char === '}') {
+        braceDepth = Math.max(0, braceDepth - 1);
+        continue;
+      }
+      if (char === '>' && braceDepth === 0) break;
+    }
+    assert.ok(end < text.length, `Unclosed <${name}> tag.`);
+    found.push(text.slice(start, end + 1));
+    cursor = end + 1;
+  }
+  return found;
+}
+
+/** @param {string} tag @param {string} name */
+function attribute(tag, name) {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const quoted = new RegExp(`\\b${escapedName}\\s*=\\s*(['"])(.*?)\\1`, 's').exec(tag);
+  if (quoted) return quoted[2];
+  const startMatch = new RegExp(`\\b${escapedName}\\s*=\\s*\\{`).exec(tag);
+  if (!startMatch) return null;
+  const openBrace = startMatch.index + startMatch[0].lastIndexOf('{');
+  let quote = null;
+  let depth = 1;
+  for (let cursor = openBrace + 1; cursor < tag.length; cursor += 1) {
+    const char = tag[cursor];
+    if (quote) {
+      if (char === quote && tag[cursor - 1] !== '\\') quote = null;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      continue;
+    }
+    if (char === '{') depth += 1;
+    else if (char === '}') {
+      depth -= 1;
+      if (depth === 0) return tag.slice(openBrace + 1, cursor).trim();
+    }
+  }
+  return null;
+}
+
+/** @param {string} text @param {string} opening @param {string} name */
+function elementBody(text, opening, name) {
+  const start = text.indexOf(opening);
+  assert.ok(start >= 0, `Missing <${name}> opening tag.`);
+  const end = text.indexOf(`</${name}>`, start + opening.length);
+  assert.ok(end >= 0, `Missing </${name}> closing tag.`);
+  return text.slice(start + opening.length, end);
 }
 
 /** @param {string} text @param {string} component */
 function componentTags(text, component) {
-  return [...text.matchAll(new RegExp(`<${component}\\b[^>]*>`, 'g'))].map((match) => match[0]);
+  return tags(text, component);
 }
 
 /** @param {string} text @param {string} variable */
@@ -438,8 +536,17 @@ test('Case image cards keep Case-specific and reusable ownership distinct while 
   assert.match(fixedManager, /previewMode=\{previewMode\}/);
   assert.match(optionManager, /previewMode=\{previewMode\}/);
 
-  assert.match(images, /aria-controls=\{`option-editor-\$\{option\.id\}`\}/);
-  assert.match(images, /onclick=\{\(\) => selectOption\(option\.id\)\}/);
+  const manageButtons = tags(images, 'button').filter((opening) => {
+    const body = elementBody(images, opening, 'button');
+    return body.includes("'Manage questions'") && body.includes("'Close questions'");
+  });
+  assert.equal(manageButtons.length, 1, 'Expected one visible option-card Manage questions control.');
+  const manageButton = manageButtons[0];
+  assert.equal(attribute(manageButton, 'type'), 'button');
+  assert.equal(attribute(manageButton, 'aria-controls'), '`option-editor-${option.id}`');
+  assert.equal(attribute(manageButton, 'onclick'), '() => selectOption(option.id)');
+  assert.equal(attribute(manageButton, 'aria-expanded'), 'selectedOptionId === option.id');
+
   assert.match(images, /<section id=\{`option-editor-\$\{option\.id\}`\}[^>]*tabindex="-1"/);
   const select = functionBlock(images, 'async function selectOption(optionId)');
   assert.match(select, /await tick\(\)/);
