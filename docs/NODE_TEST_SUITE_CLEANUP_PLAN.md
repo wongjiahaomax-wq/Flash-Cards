@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, and Checkpoint 4 source-contract consolidation/review complete in Draft PR #115
+Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, Checkpoint 4 source-contract consolidation/review complete, and the first bounded Checkpoint 5 Case-editor responsive behavioral rewrite implemented in Draft PR #115
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, and Checkpoint 4's five bounded corrected source-contract consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review. Checkpoint 4 is complete for the audited primary source/UI inventory. Behavioral rewrites reserved for Checkpoint 5, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, Checkpoint 4's five bounded corrected source-contract consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review, and the first bounded Checkpoint 5 Case-editor responsive behavioral-contract rewrite. Checkpoint 4 is complete for the audited primary source/UI inventory. The remaining Checkpoint 5 subsystem rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -1122,19 +1122,62 @@ Satisfied for the audited Checkpoint 4 inventory:
 
 ## Checkpoint 5 — Behavioral rewrites by subsystem
 
-**Status: pending. Not in the current PR #115 Checkpoint 4 work.**
+**Status: first bounded Case-editor responsive tranche implemented in Draft PR #115; remaining Checkpoint 5 subsystem families are pending.**
 
-### Candidate families
+### First bounded tranche — Case editor responsive contract
 
-#### Case editor responsive contract
+Target:
 
-Protect:
+```text
+test/admin-case-editor-responsive-contract.test.js
+```
 
-- classic/compact switch is presentation-only;
-- one logical editor tree remains mounted;
-- usable layout at intended viewport classes.
+Protected product/behavior invariants:
 
-Rewrite away from exact breakpoint/helper/CSS tokens where practical.
+- Classic/Compact switching remains presentation-only;
+- the Case editor retains one logical authoring tree rather than separate Classic/Compact editor implementations;
+- changing layout does not navigate, reload, invalidate/remount the authoring workflow, or replace existing Case Question form identity;
+- existing Case Question scope/reorder controls remain reachable from the same question authoring tree;
+- enhanced reorder keeps the user's viewport position rather than using the previously regressed relative-scroll workaround;
+- Prompt and Answer fields start with comparable editing space; long Answers can expand while remaining bounded;
+- image-question Prompt/Answer editors retain their more compact contextual bounded-growth behavior;
+- Compact editing remains horizontally composed at the shared wide viewport class, reflows on a narrow class, and the wide Compact section navigation remains sticky with nonzero anchor clearance.
+
+Stronger owners reused:
+
+- `test/admin-case-editor-layout.test.js` directly executes Case-editor layout normalization, read/write preference semantics and storage-failure fallback. The responsive contract therefore no longer freezes the default `$state('compact')` literal, exact storage helper invocation spelling, direct `window.localStorage` negative tokens, or the exact setter implementation text merely to prove persistence behavior.
+- DB-backed Case Question/question-scope tests remain the stronger owners for mutation semantics. They do not replace the distinct UI reachability, enhanced-scroll, single-tree, or responsive-composition invariants retained here.
+
+Rewritten/retired implementation locks:
+
+- exact helper/component-name bans such as `ClassicCaseEditor|CompactCaseEditor` were replaced by structural ownership: every imported shared `case-editor` component must render exactly once in the root editor and none may be selected inside an `editorLayout` conditional;
+- exact `rows="3"` is no longer durable; the contract compares Prompt/Answer initial row sizing instead;
+- exact auto-grow helper names and exact numeric height caps are no longer durable; the contract follows the action actually wired to the field, proves finite bounded growth/toggle behavior, and compares image-editor limits relative to the main Answer editor;
+- exact `@media (min-width: 1024px)`, exact `2fr / 3fr`, exact sticky-navigation CSS text, and exact `scroll-margin-top: 4.75rem` are retired as incidental technique. The source/CSS owner now finds the wide/narrow viewport classes structurally, requires multiple horizontal tracks when wide, one track when narrow, the same wide class for sticky navigation, and positive anchor clearance;
+- exact class ordering such as `class="stack image-question-form"` is retired; the contract checks class membership instead;
+- layout-persistence helper behavior is consolidated into the executable layout-helper test while the route keeps a thin integration/data-flow owner proving mount reads the preference and the navigation's layout-change handler updates state/persistence without navigation/reload/invalidation.
+
+Retained source/data-flow ownership because no stronger cheap rendered/layout layer exists:
+
+- Classic and Compact controls are present and dispatch their two distinct layout values;
+- one logical shared Case-editor component tree remains mounted independent of layout;
+- existing `?/saveQuestion` edit-form identity remains outside layout conditionals;
+- Compact scope-change and reorder controls remain reachable together in the existing-question header;
+- both reorder directions use the same enhanced callback, and that callback captures/restores the exact X/Y viewport position around history replacement/invalidation while rejecting the prior `scrollBy` path;
+- the actual CSS rule bodies, not cross-selector regexes, own the minimum responsive structure needed to protect wide horizontal Prompt/Answer editing, narrow reflow, sticky navigation, and anchor clearance.
+
+Independent self-review corrections made before handoff:
+
+1. the first opening-tag reader stopped at the `=>` token inside a Svelte event expression and could misread a control; it was replaced by a brace/quote-aware Svelte-tag reader;
+2. the first scope/reorder slice expected the `Whole Case` identity badge inside the narrower action container, although the badge correctly lives in the question-card identity area; the final owner scopes identity to the card heading and scope/reorder controls to the action header;
+3. the first enhancement check followed Svelte's `enhance` action symbol rather than the callback supplied to `use:enhance={...}`; the final owner extracts and follows the actual callback identifier;
+4. `svelte-check` then exposed nullable helper-return paths in the new test utilities; those paths were made explicit rather than suppressing type diagnostics or weakening assertions.
+
+No production source, schema/migration, validation architecture, fast exclusion, workflow, browser/component test dependency, application/domain behavior, or production resource changed in this tranche.
+
+Pre-documentation implementation head `7a47f6dceb841c2764d632a9f76a307e51756754` passed Draft CI #1343: 110 maintained / 104 selected / 6 excluded, 629/629 fast Node tests, 0 Svelte errors / 5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build. Wrangler runtime-smoke #174 also passed. Exact-head CI after the documentation reconciliation remains the final tranche gate.
+
+### Remaining candidate families
 
 #### Case Images editor
 
@@ -1174,7 +1217,7 @@ Preserve production scope, option/Asset identity, and mutation safety. Rewrite r
 
 ## Checkpoint 6 — Measure and profile runtime
 
-**Status: pending. Not in the current PR #115 Checkpoint 4 work.**
+**Status: pending. Not started by the first Checkpoint 5 tranche.**
 
 ### Required measurements
 
@@ -1284,7 +1327,7 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, and completed Checkpoint 4 source-contract consolidation/review. Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, completed Checkpoint 4 source-contract consolidation/review, and the first bounded Checkpoint 5 Case-editor responsive behavioral-contract rewrite. Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review.
 
 ### Completed fixture, selection, and UX-contract foundation
 
@@ -1295,6 +1338,7 @@ PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoi
 - Checkpoint 2D — exactly six specialized fast-test exclusions — is implemented with complete-suite inclusion, related-Draft ownership, and the explicit slide-review production compatibility dependencies contract-tested.
 - Checkpoint 3 — both intentional UX regressions were investigated and retained because no stronger cheap/reliable layout-capable owner exists; independent review then tightened the retained horizontal-overflow source owner so it cannot falsely pass on a later selector's declaration. Neither product invariant was retired.
 - Checkpoint 4 — complete for the audited primary source/UI inventory. The corrected first tranche, Admin Topic/System form tranche, Wrangler/local-preview authority tranche, Admin/Preview Case-editor parity tranche, and Preview deployment ownership tranche are implemented; the Stimulus Family façade was separately reviewed and explicitly retained unchanged.
+- Checkpoint 5 — the Case-editor responsive family is implemented as the first bounded tranche. Helper/storage semantics were consolidated into the direct executable layout owner while single-tree composition, enhanced scroll restoration, form reachability and minimum responsive CSS structure remain thin source/data-flow owners because no stronger cheap layout-capable layer exists.
 
 ### Fast-tier boundary after Checkpoint 2D
 
@@ -1302,11 +1346,11 @@ Do not add a seventh exclusion as part of Checkpoint 2D or infer further safe ca
 
 ### Remaining UX/source-contract work
 
-Checkpoint 3 and Checkpoint 4 are complete. The Case-editor responsive contract remains reserved for the Checkpoint 5 behavioral-rewrite decision rather than being folded back into source-contract cleanup. The two intentional width/overflow UX regression tests remain explicit surviving owners.
+Checkpoint 3 and Checkpoint 4 are complete. Within Checkpoint 5, the Case-editor responsive tranche is complete subject to exact-head post-documentation validation and independent review. The broader Case Images, Stimulus curation, performance/read-model and reusable-image safety candidate families remain separate later Checkpoint 5 tranches. The two intentional width/overflow UX regression tests remain explicit surviving owners.
 
 ### Profiling
 
-Checkpoint 6 has not started. The observed 2D implementation runs establish selection/test outcomes but are not sufficient for a performance claim. Additional exclusions require separate measured justification.
+Checkpoint 6 has not started. The observed 2D implementation runs and the Checkpoint 5 validation runs are not sufficient for a performance claim. Additional exclusions require separate measured justification.
 
 ## 7. Review gates
 
@@ -1334,7 +1378,9 @@ Specific gates:
 
 **Checkpoint 3:** satisfied after independent-review correction: both protected product invariants remain intentional and both dispositions remain `RETAIN`; no stronger cheap/reliable layout owner exists; the Shared Questions contract remains unchanged; the horizontal-overflow contract was tightened to extract the `body` rule before asserting `overflow-x: hidden`, eliminating the reviewed cross-rule false-green case. No production/UI code, schema, CI architecture, exclusion, or application/domain behavior changed.
 
-**Checkpoint 4:** satisfied for the audited primary inventory after the fifth Preview-deployment tranche and the separately completed Stimulus façade retain review. The Preview deployment contract now owns only deployment/config/auth/route architecture; production Question/Image/Topic/Tag/dashboard isolation is owned by direct DB behavior tests. The Admin/Preview parity and Wrangler/local-preview tranches retain their distinct composition/delegation boundaries, while `content-import-safety-contract.test.js` is classified as behavioral and `resumable-import-contract.test.js` is explicitly retained. The Case-editor responsive contract remains outside Checkpoint 4 under Checkpoint 5. Exact-head Draft CI is the final execution gate after the final test/documentation changes.
+**Checkpoint 4:** satisfied for the audited primary inventory after the fifth Preview-deployment tranche and the separately completed Stimulus façade retain review. The Preview deployment contract now owns only deployment/config/auth/route architecture; production Question/Image/Topic/Tag/dashboard isolation is owned by direct DB behavior tests. The Admin/Preview parity and Wrangler/local-preview tranches retain their distinct composition/delegation boundaries, while `content-import-safety-contract.test.js` is classified as behavioral and `resumable-import-contract.test.js` is explicitly retained. The Case-editor responsive contract remains outside Checkpoint 4 under Checkpoint 5.
+
+**Checkpoint 5, first bounded Case-editor responsive tranche:** implementation-only head `7a47f6dceb841c2764d632a9f76a307e51756754` passed Draft CI #1343 with 110 maintained / 104 selected / 6 excluded, 629/629 fast tests, 0 Svelte errors/5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #174 passed. Final completion requires the same repository-owned validation on the exact documentation-reconciled head and an independent review before another Checkpoint 5 subsystem begins.
 
 **Checkpoint 6:** runtime claim backed by comparable CI medians.
 
