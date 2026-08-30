@@ -107,6 +107,11 @@ function useAction(tag) {
   return /\buse:([A-Za-z_$][\w$]*)\b/.exec(tag)?.[1] ?? null;
 }
 
+/** @param {string} tag */
+function enhanceCallback(tag) {
+  return /\buse:enhance=\{([A-Za-z_$][\w$]*)\}/.exec(tag)?.[1] ?? null;
+}
+
 /** @param {string} source @param {string} actionName */
 function boundedAutoGrowLimit(source, actionName) {
   const declaration = new RegExp(`const\\s+${escapeRegExp(actionName)}\\s*=\\s*\\(\\s*([A-Za-z_$][\\w$]*)\\s*\\)\\s*=>\\s*\\{`).exec(source);
@@ -250,11 +255,11 @@ test('Compact Case questions keep scope and reorder controls together while pres
 
   const reorderForms = tags(header, 'form').filter((tag) => attribute(tag, 'action') === '?/reorderQuestion');
   assert.equal(reorderForms.length, 2);
-  const actions = new Set(reorderForms.map(useAction));
-  assert.equal(actions.has(null), false, 'Reorder controls must remain progressively enhanced.');
-  assert.equal(actions.size, 1, 'Both reorder directions must share viewport-preserving behavior.');
+  const callbacks = new Set(reorderForms.map(enhanceCallback));
+  assert.equal(callbacks.has(null), false, 'Reorder controls must remain progressively enhanced.');
+  assert.equal(callbacks.size, 1, 'Both reorder directions must share viewport-preserving behavior.');
 
-  const behavior = callableBody(questions, [...actions][0]);
+  const behavior = callableBody(questions, [...callbacks][0]);
   assert.match(behavior, /const\s+scrollX\s*=\s*window\.scrollX/);
   assert.match(behavior, /const\s+scrollY\s*=\s*window\.scrollY/);
   assert.match(behavior, /replaceState\s*\(/);
