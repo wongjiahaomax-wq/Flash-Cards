@@ -13,6 +13,12 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** @param {string | null | undefined} value @param {string} message @returns {string} */
+function requiredText(value, message) {
+  if (value === null || value === undefined) throw new Error(message);
+  return value;
+}
+
 /** @param {string} source @param {number} openingBrace */
 function bracedBody(source, openingBrace) {
   let depth = 0;
@@ -156,7 +162,7 @@ function imageAutoGrowLimit(source, formClass) {
   const actions = new Set(fields.map(useAction));
   assert.equal(actions.has(null), false, 'Every image Prompt/Answer field must use bounded auto-grow.');
   assert.equal(actions.size, 1, 'Image Prompt/Answer fields should share one bounded behavior in each component.');
-  return boundedAutoGrowLimit(source, [...actions][0]);
+  return boundedAutoGrowLimit(source, requiredText([...actions][0], `Missing ${formClass} auto-grow action.`));
 }
 
 /** @param {string} source */
@@ -223,7 +229,7 @@ test('Case editor exposes one shared Classic/Compact authoring tree', () => {
   assert.match(navigation, />\s*Classic\s*<\/label>/);
   assert.match(navigation, />\s*Compact\s*<\/label>/);
   for (const input of layoutInputs) {
-    const value = attribute(input, 'value');
+    const value = requiredText(attribute(input, 'value'), 'Layout control must have a value.');
     assert.match(input, new RegExp(`onchange=\\{[^}]*onlayoutchange\\(['"]${escapeRegExp(value)}['"]\\)`));
   }
 
@@ -259,7 +265,7 @@ test('Compact Case questions keep scope and reorder controls together while pres
   assert.equal(callbacks.has(null), false, 'Reorder controls must remain progressively enhanced.');
   assert.equal(callbacks.size, 1, 'Both reorder directions must share viewport-preserving behavior.');
 
-  const behavior = callableBody(questions, [...callbacks][0]);
+  const behavior = callableBody(questions, requiredText([...callbacks][0], 'Reorder controls must reach a viewport-preserving callback.'));
   assert.match(behavior, /const\s+scrollX\s*=\s*window\.scrollX/);
   assert.match(behavior, /const\s+scrollY\s*=\s*window\.scrollY/);
   assert.match(behavior, /replaceState\s*\(/);
@@ -277,15 +283,14 @@ test('Case question Prompt and Answer fields start comparably and long Answers e
   const answer = tags(form, 'textarea').find((tag) => attribute(tag, 'name') === 'answer_md');
   assert.ok(prompt && answer);
   assert.equal(attribute(prompt, 'rows'), attribute(answer, 'rows'), 'Prompt and Answer must start with comparable editing space.');
-  const answerAction = useAction(answer);
-  assert.ok(answerAction, 'Long Case Answers must use bounded auto-grow.');
+  const answerAction = requiredText(useAction(answer), 'Long Case Answers must use bounded auto-grow.');
   boundedAutoGrowLimit(questions, answerAction);
 });
 
 test('Image-specific Prompt and Answer fields use a smaller contextual bounded auto-grow behavior', () => {
   const mainAnswer = tags(questions, 'textarea').find((tag) => attribute(tag, 'name') === 'answer_md' && useAction(tag));
   assert.ok(mainAnswer);
-  const mainLimit = boundedAutoGrowLimit(questions, useAction(mainAnswer));
+  const mainLimit = boundedAutoGrowLimit(questions, requiredText(useAction(mainAnswer), 'Case Answer auto-grow action must remain reachable.'));
   assert.ok(imageAutoGrowLimit(images, 'image-question-form') < mainLimit);
   assert.ok(imageAutoGrowLimit(imageReview, 'qa-row') < mainLimit);
 
@@ -303,13 +308,15 @@ test('Compact question editing is horizontal with sticky navigation when wide an
   });
   assert.ok(wideQuestions, 'Missing wide Compact question layout.');
   const wideRule = cssRule(wideQuestions.body, '.question-edit-form');
-  assert.ok(wideRule && trackCount(declaration(wideRule.body, 'grid-template-columns')) >= 2, 'Wide Prompt/Answer editing must use separate horizontal tracks.');
+  assert.ok(wideRule);
+  assert.ok(trackCount(requiredText(declaration(wideRule.body, 'grid-template-columns'), 'Wide question layout must define grid tracks.')) >= 2, 'Wide Prompt/Answer editing must use separate horizontal tracks.');
   const promptRule = cssRule(wideQuestions.body, '.question-prompt-field');
   const answerRule = cssRule(wideQuestions.body, '.question-answer-field');
   assert.ok(promptRule && answerRule);
   assert.notEqual(declaration(promptRule.body, 'grid-column'), declaration(answerRule.body, 'grid-column'));
   const anchorRule = cssRule(wideQuestions.body, '#questions');
-  assert.ok(anchorRule && Number.parseFloat(declaration(anchorRule.body, 'scroll-margin-top')) > 0, 'Sticky navigation needs nonzero question anchor clearance.');
+  assert.ok(anchorRule);
+  assert.ok(Number.parseFloat(requiredText(declaration(anchorRule.body, 'scroll-margin-top'), 'Sticky navigation must provide question anchor clearance.')) > 0, 'Sticky navigation needs nonzero question anchor clearance.');
 
   const wideNavigation = mediaBlocks(navigation).find((block) => {
     const rule = cssRule(block.body, '.section-nav');
@@ -323,7 +330,9 @@ test('Compact question editing is horizontal with sticky navigation when wide an
     return /max-width/.test(block.condition) && rule && declaration(rule.body, 'grid-template-columns');
   });
   assert.ok(narrowQuestions, 'Missing narrow Case Question reflow.');
-  assert.equal(trackCount(declaration(cssRule(narrowQuestions.body, '.question-edit-form').body, 'grid-template-columns')), 1);
+  const narrowRule = cssRule(narrowQuestions.body, '.question-edit-form');
+  assert.ok(narrowRule);
+  assert.equal(trackCount(requiredText(declaration(narrowRule.body, 'grid-template-columns'), 'Narrow question layout must define grid tracks.')), 1);
 });
 
 test('layout switching is presentation-only and keeps existing question forms mounted', () => {
