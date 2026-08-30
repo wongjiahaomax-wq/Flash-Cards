@@ -13,28 +13,43 @@ import {
 
 const repositoryRoot = fileURLToPath(new URL('..', import.meta.url));
 
-test('maintained Node-test discovery follows the repository .test JavaScript convention', () => {
+test('maintained Node-test discovery accepts the repository convention and Node-standard JavaScript test basenames', () => {
   assert.equal(isMaintainedNodeTestPath('test/example.test.js'), true);
   assert.equal(isMaintainedNodeTestPath('tests/example.test.mjs'), true);
   assert.equal(isMaintainedNodeTestPath('tools/example.test.cjs'), true);
+  assert.equal(isMaintainedNodeTestPath('test/example-test.js'), true);
+  assert.equal(isMaintainedNodeTestPath('test/example_test.mjs'), true);
+  assert.equal(isMaintainedNodeTestPath('tests/test-example.cjs'), true);
+  assert.equal(isMaintainedNodeTestPath('checks/test.js'), true);
   assert.equal(isMaintainedNodeTestPath('test/current-schema.js'), false);
   assert.equal(isMaintainedNodeTestPath('node_modules/pkg/example.test.js'), false);
   assert.equal(isMaintainedNodeTestPath('.svelte-kit/output/example.test.js'), false);
 });
 
-test('new ordinary tests enter fast selection without an allow-list change', async () => {
+test('new ordinary Node-standard tests enter fast selection without an allow-list change', async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flash-cards-test-selection-'));
   try {
-    fs.mkdirSync(path.join(root, 'src'), { recursive: true });
-    fs.mkdirSync(path.join(root, 'test'), { recursive: true });
-    fs.mkdirSync(path.join(root, 'node_modules', 'pkg'), { recursive: true });
+    for (const directory of ['checks', 'src', 'test', 'tests', 'node_modules/pkg']) {
+      fs.mkdirSync(path.join(root, directory), { recursive: true });
+    }
     fs.writeFileSync(path.join(root, 'src', 'new-contract.test.js'), '');
+    fs.writeFileSync(path.join(root, 'tests', 'new-contract-test.mjs'), '');
+    fs.writeFileSync(path.join(root, 'checks', 'new_contract_test.cjs'), '');
+    fs.writeFileSync(path.join(root, 'checks', 'test-new-contract.js'), '');
+    fs.writeFileSync(path.join(root, 'checks', 'test.js'), '');
     fs.writeFileSync(path.join(root, 'test', 'helper.js'), '');
     fs.writeFileSync(path.join(root, 'node_modules', 'pkg', 'ignored.test.js'), '');
 
     const discovered = await discoverMaintainedNodeTests(root);
-    assert.deepEqual(discovered, ['src/new-contract.test.js']);
-    assert.deepEqual(selectFastNodeTests(discovered).selected, ['src/new-contract.test.js']);
+    const expected = [
+      'checks/new_contract_test.cjs',
+      'checks/test-new-contract.js',
+      'checks/test.js',
+      'src/new-contract.test.js',
+      'tests/new-contract-test.mjs',
+    ].sort();
+    assert.deepEqual(discovered, expected);
+    assert.deepEqual(selectFastNodeTests(discovered).selected, expected);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
