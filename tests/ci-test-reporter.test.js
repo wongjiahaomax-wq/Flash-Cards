@@ -51,9 +51,15 @@ function failureData() {
   };
 }
 
-test('CI invokes npm test with the structured reporter without changing the shared test command', () => {
+test('CI invokes both Node checks with the structured reporter without changing shared commands', () => {
   assert.deepEqual(ciCommandArgs('test', ['test']), [
     'test',
+    '--',
+    `--test-reporter=${CI_TEST_REPORTER}`,
+  ]);
+  assert.deepEqual(ciCommandArgs('testFast', ['run', 'test:fast']), [
+    'run',
+    'test:fast',
     '--',
     `--test-reporter=${CI_TEST_REPORTER}`,
   ]);
@@ -89,6 +95,15 @@ test('CI reporter emits compact event-driven progress and collects failures at t
   assert.match(output, /CI_STATUS\|check=test\|status=failed\|failed=1/);
   assert.ok(output.indexOf('=== Node test failures') > output.indexOf('Tests: 4 total'));
   assert.ok(output.indexOf('=== CI AGENT SUMMARY ===') > output.indexOf('=== Node test failures'));
+});
+
+test('fast Node diagnostics preserve their validation-check identity and repro command', () => {
+  const failure = failureData();
+  assert.match(agentFailureRecord(failure, 'testFast'), /^CI_ERROR\|check=testFast\|/);
+  assert.equal(
+    agentReproRecord(failure, 'testFast', 'npm run test:fast'),
+    'CI_REPRO|check=testFast|command=npm run test:fast',
+  );
 });
 
 test('real nested node:test failure emits one real failure instead of a duplicate suite failure', () => {
