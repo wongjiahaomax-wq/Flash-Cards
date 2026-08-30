@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, and two bounded Checkpoint 4 source-contract consolidation tranches implemented in Draft PR #115
+Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, and three bounded Checkpoint 4 source-contract consolidation tranches implemented in Draft PR #115
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, and two bounded corrected source-contract consolidation tranches described under Checkpoint 4. It does **not** implement the whole cleanup plan or complete Checkpoint 4. Broader behavioral rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, and three bounded corrected source-contract consolidation tranches described under Checkpoint 4. It does **not** implement the whole cleanup plan or complete Checkpoint 4. Broader behavioral rewrites, profiling, additional exclusions, and the remaining durable-guidance work are still pending.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -871,7 +871,7 @@ Satisfied after the review correction:
 
 ## Checkpoint 4 — Consolidate duplicated source/UI contracts
 
-**Status: two bounded corrected tranches implemented in Draft PR #115; broader Checkpoint 4 remains pending.**
+**Status: three bounded corrected tranches implemented in Draft PR #115; broader Checkpoint 4 remains pending.**
 
 ### Objective
 
@@ -947,7 +947,7 @@ Deep role-selection/history/identity semantics remain under image/Stimulus domai
 
 ### Second bounded tranche — Admin Topic/System form contract
 
-The next independently reviewable Checkpoint 4 tranche is limited to:
+The second independently reviewable Checkpoint 4 tranche is limited to:
 
 ```text
 test/admin-topics-form-contract.test.js
@@ -984,24 +984,54 @@ A subsequent final independent-review pass found three additional cross-file rea
 
 These corrections harden the surviving thin owner without restoring the removed duplicate/incidental assertions or moving deep semantics back into source inspection.
 
+### Third bounded tranche — Wrangler/local-preview authority contract
+
+The third independently reviewable Checkpoint 4 tranche is limited to:
+
+```text
+test/wrangler-authority-contract.test.js
+```
+
+It preserves repository-installed Wrangler authority while moving local-preview command semantics to the stronger executable-plan owner that already exists.
+
+Removed assertions:
+
+- **Duplicate:** four raw-source assertions over `scripts/local-runtime-lib.mjs` that matched the repository Wrangler path, `process.execPath`, local D1 migration arguments, and absence of `npx`/an inline Wrangler version. The stronger owner is `test/local-runtime.test.js`: it directly imports `wranglerCli` and `createLocalPreviewPlan()`, asserts the exact repository-local Wrangler path, exact migration and serve commands/arguments, local-only flags, and absence of `npx`/inline Wrangler versions from the constructed plan.
+- **Duplicate within the surviving local-auth contract:** the specific negative `npx ... wrangler@<version>` assertion was strictly subsumed by the broader surviving assertion that rejects any `wrangler@<version>` token in `local-auth-smoke.mjs`.
+
+Retained/hardened thin ownership:
+
+- **Architecture / operational wiring:** `local-auth-smoke.mjs` must still resolve Wrangler from this repository's `node_modules`, execute it through `process.execPath` for both synchronous commands and the spawned dev worker, verify it with `--version`, and contain no inline `wrangler@<version>` pin. The actual full auth smoke is intentionally a full-validation runtime check; this fast source owner cheaply protects its invocation authority on Drafts.
+- **Wrapper integration:** `local-preview.mjs` must delegate to `createLocalPreviewPlan()`, run the plan's build and migration steps, and launch the plan's serve command/arguments. It must contain no `npx` or Wrangler authority token of its own. Exact Wrangler path/command semantics are no longer duplicated here; they belong to `test/local-runtime.test.js`.
+- **Repository dependency ownership:** the package still declares a concrete semver Wrangler dependency so the scripts' repository-local CLI path has an installed authority.
+
+Independent review corrected two issues before tranche completion:
+
+1. the first wrapper guard only rejected `npx`, `wranglerCli`, and a quoted bare `wrangler`, so a differently constructed direct Wrangler path could evade it. The final guard encodes the stronger intended architecture: the wrapper may not contain any `npx` or Wrangler authority token and must obtain execution solely through the tested plan;
+2. the local-auth half still contained a redundant narrow `npx ... wrangler@<version>` negative assertion despite the immediately following broader `wrangler@<version>` guard. The narrow assertion was removed rather than preserving duplicate source checks.
+
+No runtime script, package dependency, validation architecture, fast exclusion, schema, migration, application/domain behavior, or production resource changed in this tranche.
+
+### Inventory corrections and explicit retain decisions from this review
+
+The filename `contract` is not itself evidence that a test belongs in source-contract cleanup.
+
+- `test/content-import-safety-contract.test.js` directly executes reviewed-package parsing and validation behavior. It is therefore a behavioral safety test, not a primary source/UI contract candidate, and is removed from the pending source-contract inventory without deleting or weakening the test.
+- `test/resumable-import-contract.test.js` is a mixed architecture/migration contract and has now received a stronger-owner review. Its exact-ZIP digest-before-job-creation boundary and prohibition on falling back to the legacy monolithic import path were deliberate operational requirements of the resumable-import architecture, while its migration assertion is genuine upgrade coverage. `test/resumable-content-import.test.js` strongly owns chunking, persistence, leases, idempotency, and related behavior but does not replace those route/order architecture boundaries. Final disposition: **RETAIN**.
+
 ### Remaining primary source/UI contract inventory after this tranche
 
-This inventory is intentionally limited to tests whose primary contract is source/UI/configuration structure. Mixed behavioral tests that merely read migrations or source incidentally are not classified as deletion candidates from that fact alone.
-
-Already reviewed under the first Checkpoint 4 tranche or Checkpoint 3 are excluded from this pending list. After the Admin Topic/System tranche, the primary remaining families are:
+Already reviewed under the first three Checkpoint 4 tranches or Checkpoint 3, explicitly retained during this review, or identified as behavioral rather than source-contract candidates are excluded from this pending list.
 
 **Architecture / safety / workflow structure — default disposition remains keep unless a later stronger-owner review proves otherwise:**
 
 ```text
 test/admin-editor-preview-contract.test.js
-test/content-import-safety-contract.test.js
 test/preview-deployment-contract.test.js
-test/resumable-import-contract.test.js
 test/stimulus-family-facade-contract.test.js
-test/wrangler-authority-contract.test.js
 ```
 
-These correspond to the audit's deliberate architecture/safety class: Production/Preview action ownership, import safety, Preview deployment ownership, resumable runtime ordering, Stimulus Family façade direction/public identity, and repository-pinned Wrangler authority. Their source/configuration structure can itself be the invariant; this inventory is **not** authorization to remove them.
+These protect Production/Preview action ownership, Preview deployment ownership, and Stimulus Family façade direction/public identity. Their source/configuration structure can itself be the invariant; this inventory is **not** authorization to remove them.
 
 **UI behavior expressed through source — pending separate review/rewrite decision:**
 
@@ -1023,7 +1053,7 @@ For every removed assertion:
 - preserve distinct UI reachability/integration where no stronger owner exists;
 - avoid deleting solely because regex/source inspection is aesthetically undesirable.
 
-The second bounded tranche satisfies those criteria for the two removed assertions above; it does not imply broader Checkpoint 4 completion.
+The third bounded tranche satisfies those criteria for the Wrangler/local-preview assertions above; it does not imply broader Checkpoint 4 completion.
 
 ---
 
@@ -1191,7 +1221,7 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, and two bounded corrected source-contract consolidation tranches under Checkpoint 4. Do not infer that the rest of Checkpoint 4 or any later checkpoint has started merely because its design remains documented here.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, and three bounded corrected source-contract consolidation tranches under Checkpoint 4. Do not infer that the rest of Checkpoint 4 or any later checkpoint has started merely because its design remains documented here.
 
 ### Completed fixture, selection, and UX-contract foundation
 
@@ -1201,7 +1231,7 @@ PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoi
 - Checkpoint 2C — named ECG/taxonomy production-operator checks and exact central path ownership — is implemented.
 - Checkpoint 2D — exactly six specialized fast-test exclusions — is implemented with complete-suite inclusion, related-Draft ownership, and the explicit slide-review production compatibility dependencies contract-tested.
 - Checkpoint 3 — both intentional UX regressions were investigated and retained because no stronger cheap/reliable layout-capable owner exists; independent review then tightened the retained horizontal-overflow source owner so it cannot falsely pass on a later selector's declaration. Neither product invariant was retired.
-- Checkpoint 4 — the corrected first tranche plus the bounded Admin Topic/System form tranche are implemented; all other source/UI families remain pending unless explicitly listed as previously reviewed.
+- Checkpoint 4 — the corrected first tranche, the bounded Admin Topic/System form tranche, and the bounded Wrangler/local-preview authority tranche are implemented; all other source/UI families remain pending unless explicitly listed as reviewed/retained above.
 
 ### Fast-tier boundary after Checkpoint 2D
 
@@ -1243,7 +1273,7 @@ Specific gates:
 
 **Checkpoint 3:** satisfied after independent-review correction: both protected product invariants remain intentional and both dispositions remain `RETAIN`; no stronger cheap/reliable layout owner exists; the Shared Questions contract remains unchanged; the horizontal-overflow contract was tightened to extract the `body` rule before asserting `overflow-x: hidden`, eliminating the reviewed cross-rule false-green case. No production/UI code, schema, CI architecture, exclusion, or application/domain behavior changed. Exact-head Draft CI is the final execution gate after the corrected test and documentation changes.
 
-**Checkpoint 4:** the two bounded implemented tranches satisfy the ownership rule for their removed assertions. For the Admin Topic/System tranche specifically, two independent-review passes corrected six false-green/reachability gaps in the surviving thin owner while keeping the duplicate semantic and incidental-copy assertions removed. Broader Checkpoint 4 remains pending; every future removal still requires an explicit stronger owner or retirement, and distinct UI reachability/semantic vocabulary must remain protected where applicable.
+**Checkpoint 4:** the three bounded implemented tranches satisfy the ownership rule for their removed assertions. The Wrangler/local-preview tranche removes duplicated raw `local-runtime-lib.mjs` assertions only because `test/local-runtime.test.js` directly owns the same constructed-plan semantics, keeps the local-auth invocation structure and local-preview delegation boundary as thin fast source owners, and incorporates the two independent-review corrections above. `content-import-safety-contract.test.js` is explicitly behavioral rather than a source-cleanup candidate; `resumable-import-contract.test.js` is explicitly retained after stronger-owner review. Broader Checkpoint 4 remains pending; every future removal still requires an explicit stronger owner or retirement, and distinct UI reachability/architecture/product vocabulary must remain protected where applicable.
 
 **Checkpoint 6:** runtime claim backed by comparable CI medians.
 
