@@ -21,8 +21,12 @@ const migrationSql = [
   '0007_image_collections.sql',
   '0008_tag_shared_questions.sql',
   '0009_reusable_image_questions.sql',
+  '0010_reusable_image_reactivation_guard.sql',
+  '0011_asset_supersession.sql',
   '0012_archive_stimulus_options.sql',
+  '0013_review_assets_asset_lookup.sql',
   '0014_review_question_pool_mode.sql',
+  '0015_contextual_system_topic_tag_navigation.sql',
   '0016_original_stimulus_options.sql'
 ].map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8'))
   .join('\n').replaceAll('--> statement-breakpoint', '');

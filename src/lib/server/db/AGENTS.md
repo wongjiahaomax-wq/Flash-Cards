@@ -12,6 +12,9 @@ This file supplements the repository-wide `AGENTS.md` for `src/lib/server/db/`.
 - Alternative Set/stimulus, question/scope/reusable-question, composed editor loading, and cleanup coordination remain in `preview-workspace.js` as an accepted legacy boundary. Further PR2D/PR2E/PR2F extraction is not planned merely to finish the former staged refactor; draft PR #91 was closed unmerged after the project moved to a local-first testing workflow.
 - If Preview removal is proposed, scope a separate decommissioning assessment first. Production filtering, ownership/security guards, Asset replacement safety, auth/deployment tooling, tests, and stored Preview-owned data may depend on the subsystem.
 - Before schema work, inspect `schema.js`, `migrations/`, and migration contract tests. Real schema changes require a new migration; never rewrite history.
+- Current application runtime code supports the canonical schema for the current repository revision. A database running that revision is expected to have every migration required by that revision applied before the application runs.
+- Do not add permanent historical-column/table probing, missing-column/table fallbacks, alternate runtime Drizzle models for obsolete migration states, or tests whose sole purpose is keeping current application code working before already-required migrations. Preserve migration/upgrade tests and valid historical data states represented by the current schema.
+- Keep migration-before-runtime deployment sequencing safe for future schema changes; current-schema-only runtime support does not permit deploying code that requires an unapplied migration.
 - Prefer focused SQL/read models that fetch only page-required data. Avoid broad load-all-then-filter behavior.
 - Keep list, detail, and dashboard read models distinct where the current code does.
 - Preserve Asset identity/history and question/stimulus ownership semantics.

@@ -1,19 +1,6 @@
 import { asc, eq } from 'drizzle-orm';
 
 import { taxonomyConcepts } from './contextual-schema.ts';
-import { pre0015Concepts } from './pre-0015-compat-schema.ts';
-
-function missingKindColumn(error: unknown) {
-  let current: unknown = error;
-  for (let depth = 0; depth < 5 && current; depth += 1) {
-    if (current instanceof Error && /no such column:.*kind|has no column named kind/i.test(current.message)) {
-      return true;
-    }
-    if (typeof current !== 'object' || current === null || !('cause' in current)) break;
-    current = (current as { cause?: unknown }).cause;
-  }
-  return false;
-}
 
 async function selectConceptTaxonomy(
   db: import('./index.js').LearningDb,
@@ -33,26 +20,6 @@ async function selectConceptTaxonomy(
   return activeOnly
     ? query.where(eq(taxonomyConcepts.isActive, true)).orderBy(asc(taxonomyConcepts.name), asc(taxonomyConcepts.id))
     : query.orderBy(asc(taxonomyConcepts.name), asc(taxonomyConcepts.id));
-}
-
-async function selectLegacyConceptTaxonomy(
-  db: import('./index.js').LearningDb,
-  activeOnly: boolean
-) {
-  const query = db
-    .select({
-      id: pre0015Concepts.id,
-      name: pre0015Concepts.name,
-      slug: pre0015Concepts.slug,
-      descriptionMd: pre0015Concepts.descriptionMd,
-      parentId: pre0015Concepts.parentId,
-      isActive: pre0015Concepts.isActive
-    })
-    .from(pre0015Concepts);
-  const rows = activeOnly
-    ? await query.where(eq(pre0015Concepts.isActive, true)).orderBy(asc(pre0015Concepts.name), asc(pre0015Concepts.id))
-    : await query.orderBy(asc(pre0015Concepts.name), asc(pre0015Concepts.id));
-  return rows.map((row) => ({ ...row, kind: 'topic' as const }));
 }
 
 async function selectConceptTaxonomyById(
@@ -76,69 +43,22 @@ async function selectConceptTaxonomyById(
   )[0] ?? null;
 }
 
-async function selectLegacyConceptTaxonomyById(
-  db: import('./index.js').LearningDb,
-  conceptId: string
-) {
-  const row = (
-    await db
-      .select({
-        id: pre0015Concepts.id,
-        name: pre0015Concepts.name,
-        slug: pre0015Concepts.slug,
-        descriptionMd: pre0015Concepts.descriptionMd,
-        parentId: pre0015Concepts.parentId,
-        isActive: pre0015Concepts.isActive
-      })
-      .from(pre0015Concepts)
-      .where(eq(pre0015Concepts.id, conceptId))
-      .limit(1)
-  )[0] ?? null;
-  return row ? { ...row, kind: 'topic' as const } : null;
-}
-
-/**
- * Read Concept taxonomy while remaining compatible with a database that has
- * not received additive migration 0015 yet. Before 0015 every Concept has
- * Topic semantics, which is exactly the migration's kind default/backfill.
- */
 export async function listConceptTaxonomy(
   db: import('./index.js').LearningDb,
   options: { activeOnly?: boolean } = {}
 ) {
-  const activeOnly = Boolean(options.activeOnly);
-  try {
-    return await selectConceptTaxonomy(db, activeOnly);
-  } catch (error) {
-    if (!missingKindColumn(error)) throw error;
-    return selectLegacyConceptTaxonomy(db, activeOnly);
-  }
+  return selectConceptTaxonomy(db, Boolean(options.activeOnly));
 }
 
 export async function listActiveConceptTaxonomy(db: import('./index.js').LearningDb) {
   return listConceptTaxonomy(db, { activeOnly: true });
 }
 
-/**
- * Resolve one Concept with post-0015 kind information when available. Probe
- * through the legacy-compatible shape first so a missing ID costs only one D1
- * read on either schema version. Existing post-0015 rows are then re-read with
- * kind information so Systems can never masquerade as Topics. On a genuinely
- * pre-0015 database every existing Concept has Topic semantics, matching
- * migration 0015's default/backfill behavior.
- */
 export async function findConceptTaxonomyById(
   db: import('./index.js').LearningDb,
   conceptId: string
 ) {
-  const legacyRow = await selectLegacyConceptTaxonomyById(db, conceptId);
-  if (!legacyRow) return null;
-  try {
-    return (await selectConceptTaxonomyById(db, conceptId)) ?? legacyRow;
-  } catch (error) {
-    if (!missingKindColumn(error)) throw error;
-    return legacyRow;
-  }
+  return selectConceptTaxonomyById(db, conceptId);
 }
 
 export async function requireActiveTopicConcept(db: import('./index.js').LearningDb, conceptId: string) {
@@ -146,11 +66,6 @@ export async function requireActiveTopicConcept(db: import('./index.js').Learnin
   return row?.kind === 'topic' && row.isActive ? row : null;
 }
 
-/**
- * Build (without executing) a Topic insert through the pre-0015 table shape.
- * Migration 0015 gives `kind` a `topic` database default, so the same query is
- * valid before and after the migration and remains safe to place in D1 batch.
- */
 export function buildTopicConceptInsert(
   db: import('./index.js').LearningDb,
   value: {
@@ -162,5 +77,5 @@ export function buildTopicConceptInsert(
     isActive?: boolean;
   }
 ) {
-  return db.insert(pre0015Concepts).values(value);
+  return db.insert(taxonomyConcepts).values({ ...value, kind: 'topic' });
 }
