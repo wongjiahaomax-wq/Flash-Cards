@@ -12,6 +12,7 @@ const caseAction = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+pag
 test('Topic creation supports searchable active System or Topic parents while System creation remains top-level', () => {
   assert.match(organizer, /onclick=\{\(\) => openCreate\('system'\)\}>\+ New System/);
   assert.match(organizer, /onclick=\{\(\) => openCreate\('topic'\)\}>\+ New Topic/);
+  assert.match(organizer, /<form method="POST" action="\?\/createConcept" class="create-form">/);
   assert.match(organizer, /bind:value=\{createKind\}/);
   assert.match(organizer, /\{#if createKind === 'topic'\}/);
   assert.match(organizer, /SearchableTaxonomyPicker bind:value=\{createParentId\}/);
