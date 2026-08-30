@@ -1,6 +1,6 @@
 # Current-Schema-Only Compatibility Cleanup Plan
 
-_Status: runtime cleanup implemented on the Draft PR branch; final validation remains blocked on separate current-schema test-fixture cleanup._
+_Status: runtime cleanup implemented; minimum current-runtime fixture reconciliation complete; full repository CI validation is green on the PR branch._
 
 ## Goal
 
@@ -62,21 +62,17 @@ Do not delete code merely because a name or comment contains `legacy`, `compat`,
 
 ### Pre-0015 Concept taxonomy fallback
 
-Current code contains `src/lib/server/db/pre-0015-compat-schema.ts`, whose purpose is to model the `concepts` / `reviews` shape before migration `0015`.
+At the start of this cleanup, `src/lib/server/db/pre-0015-compat-schema.ts` modeled the `concepts` / `reviews` shape before migration `0015`.
 
-`src/lib/server/db/concept-taxonomy-compat.ts` contains version-fallback behavior that detects a missing `concepts.kind` column and re-runs reads against the pre-0015 table shape.
+`src/lib/server/db/concept-taxonomy-compat.ts` also contained version-fallback behavior that detected a missing `concepts.kind` column and re-ran reads against the pre-0015 table shape.
 
-Under the current-schema-only policy, a database without migration `0015` applied is not a supported runtime database for current application code. Therefore this fallback mechanism is a primary cleanup candidate.
-
-Useful taxonomy/domain helpers should be preserved where callers benefit from them; the goal is to remove schema-version switching, not to delete useful abstractions.
+Under the current-schema-only policy, a database without migration `0015` applied is not a supported runtime database for current application code. The alternate schema model and missing-column fallback were therefore removed, while useful taxonomy helper APIs were retained against the canonical current schema.
 
 ### Pre-0015 Case lifecycle test
 
-`test/case-lifecycle-pre0015.test.js` deliberately constructs a database whose migration chain stops before `0015` and asserts that current Case recovery/restore behavior still functions.
+`test/case-lifecycle-pre0015.test.js` deliberately constructed a database whose migration chain stopped before `0015` and asserted that current Case recovery/restore behavior still functioned.
 
-That specific compatibility requirement becomes obsolete under the new policy.
-
-Before deleting the test, confirm whether it contains any behavioral assertion not covered by current-schema Case lifecycle tests. Transfer any unique current-domain assertion into an appropriate current-schema test rather than losing coverage.
+That specific compatibility requirement became obsolete under the new policy. Its current-domain lifecycle assertions were checked against current-schema coverage before the historical-schema-only test was removed.
 
 ## Implementation plan
 
@@ -135,7 +131,7 @@ For each confirmed historical-schema fallback:
 - remove error-catching/probing branches whose only purpose is handling unapplied historical migrations;
 - preserve stable public helper APIs where doing so keeps the change focused and avoids unrelated caller churn.
 
-For the known Concept taxonomy path, the likely target is one canonical taxonomy query path against the current schema rather than a try-current/catch-missing-column/fallback-old flow.
+For the Concept taxonomy path, the result is one canonical taxonomy query path against the current schema rather than a try-current/catch-missing-column/fallback-old flow.
 
 ### 4. Remove historical-schema-only tests without losing current behavior coverage
 
@@ -171,9 +167,22 @@ If the removed compatibility code/tests are named by current living documentatio
 
 Do not broadly refresh unrelated historical documents merely because they mention an older migration.
 
+## Implementation findings
+
+Repository validation exposed two additional runtime consumers of the deleted pre-0015 schema model that were not obvious from the initial taxonomy-helper audit:
+
+- `src/lib/server/import/content-package.js`;
+- `src/lib/server/import/resumable-content-package.js`.
+
+Both import paths were converted to the canonical `concepts` model. Their Topic validation now explicitly rejects `kind = 'system'` where a Topic is required, deterministic Topic collision checks include the current taxonomy shape, and newly imported Topics are written with `kind = 'topic'`.
+
+Removing the runtime fallbacks also exposed ordinary current-runtime tests whose hand-maintained migration subsets stopped before schema required by the application code they exercised. This PR made only the minimum fixture corrections necessary for the compatibility cleanup: affected runtime fixtures now include the migrations needed for the current schema, while explicit migration-boundary tests remain historical where schema evolution itself is under test.
+
+No shared test-fixture framework or migration-runner redesign was introduced here. Broader standardization of duplicated test migration lists remains separate test-suite work.
+
 ## Migration and database handling
 
-No migration file should be created for this cleanup unless the audit unexpectedly proves that the desired behavior requires an actual schema change. If that happens, stop and reassess scope rather than silently adding one.
+No migration file should be created for this cleanup unless the audit unexpectedly proves that the desired behavior requires an actual schema change. No such schema change was required.
 
 Historical migrations remain unchanged. Future genuine schema changes append a new migration after whatever migration is current at that time; this plan intentionally does not predict or reserve the next migration number.
 
@@ -189,19 +198,24 @@ The policy removes indefinite application support for historical migration state
 
 ## Validation
 
-Implementation should use repository-owned validation guidance and, at minimum where applicable:
+Full repository validation passed in GitHub Actions on PR head `33895af3ab49feaaf127f8102998ea26cec674b5` in workflow run `33282323084`.
 
-- focused tests for changed DB/domain helpers;
-- `npm run db:check`;
-- `npm test`;
-- `npm run check`;
-- `npm run build`;
-- `npm run agent:checks` and the validation it identifies;
-- `npm run validate:full` before final handoff when local execution is available.
+Evidence from that run:
 
-For remote-only work, use GitHub CI/check evidence without claiming local execution.
+- diff whitespace check passed;
+- `npm run db:check` passed;
+- Node tests passed: **639 / 639**, with 0 failed;
+- `npm run check` completed with **0 errors and 5 warnings**;
+- `npm run build` passed;
+- the local D1 + Better Auth smoke test passed;
+- the smoke setup applied the complete migration chain through `0017_align_reusable_prompt_live_state_guards.sql` successfully;
+- repository CI reported `Repository CI validation passed.`
 
-No Production data mutation is part of validation.
+The five Svelte warnings are outside this compatibility cleanup and do not fail repository validation.
+
+For remote-only work, this GitHub Actions evidence is the validation record; no local execution is claimed.
+
+No Production data mutation was part of validation.
 
 ## Review checklist
 
@@ -217,8 +231,8 @@ Before this PR is ready for review, confirm:
 - [x] no historical migration was rewritten, renumbered, squashed, or deleted;
 - [x] no D1/R2 production data or migration ledger was changed;
 - [x] no unrelated refactor was bundled into the cleanup;
-- [ ] ordinary current-runtime tests that still construct partial historical schemas are repaired by the separate test-fixture cleanup;
-- [ ] full current-schema validation is green after that follow-up.
+- [x] minimum ordinary current-runtime fixtures exposed by this cleanup are reconciled to the current schema; broader fixture standardization remains separate;
+- [x] full current-schema repository validation is green.
 
 ## Definition of done
 
@@ -226,4 +240,4 @@ A future coding agent should be able to reason from this contract:
 
 > `src/lib/server/db/schema.js` plus the complete migration set on current `main` define the supported runtime schema. Historical migrations remain authoritative for evolving databases to that schema, but current application code is not required to run against an intermediate historical schema that is missing migrations already required by `main`.
 
-The resulting application should have fewer version-conditional DB paths and fewer tests/fixtures for unsupported partially migrated states, without changing the production database, current content, current schema, or current product behavior.
+The resulting application has fewer version-conditional DB paths and fewer tests/fixtures for unsupported partially migrated states, without changing the production database, current content, current schema, or current product behavior.
