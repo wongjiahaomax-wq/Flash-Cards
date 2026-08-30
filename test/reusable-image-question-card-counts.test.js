@@ -1,9 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 
+import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { reusableSummaryForContext } from '../src/lib/admin-case-question-audit.js';
-import { buildCaseImageQuestionSummaries } from '../src/lib/server/db/case-image-question-summaries.js';
+import {
+  createAssetQuestion,
+  optInAssetQuestion,
+  optInFixedAssetQuestion,
+  removeAssetQuestionOptIn,
+  setAssetQuestionActive
+} from '../src/lib/server/db/asset-questions.js';
+import {
+  buildCaseImageQuestionSummaries,
+  listCaseImageQuestionSummaries
+} from '../src/lib/server/db/case-image-question-summaries.js';
+import { createDb } from '../src/lib/server/db/index.js';
+import { addStimulusOption, createStimulusGroup } from '../src/lib/server/db/stimulus-groups.js';
+import { applyCurrentSchema } from './current-schema.js';
+
+/** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
 
 const questions = [
   { id: 'aq-1', assetId: 'asset-a', promptMd: 'Q1', answerMd: 'A1' },
@@ -18,6 +35,129 @@ const questions = [
  */
 function summary(context, activeQuestions = questions, optIns = []) {
   return buildCaseImageQuestionSummaries([context], activeQuestions, optIns)[0];
+}
+
+function createLearningDb() {
+  const sqlite = new DatabaseSync(':memory:');
+  sqlite.exec('PRAGMA foreign_keys = ON');
+  applyCurrentSchema(sqlite);
+  sqlite.exec(buildSeedSql());
+  const d1 = {
+    /** @param {string} sql */
+    prepare(sql) {
+      return {
+        /** @param {...any} params */
+        bind(...params) {
+          return {
+            async all() { return { results: sqlite.prepare(sql).all(...params) }; },
+            async raw() {
+              const statement = sqlite.prepare(sql);
+              statement.setReturnArrays(true);
+              return statement.all(...params);
+            },
+            async run() {
+              const result = sqlite.prepare(sql).run(...params);
+              return { success: true, results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
+            }
+          };
+        }
+      };
+    },
+    /** @param {any[]} statements */
+    async batch(statements) {
+      sqlite.exec('BEGIN');
+      try {
+        const results = [];
+        for (const statement of statements) results.push(await statement.run());
+        sqlite.exec('COMMIT');
+        return results;
+      } catch (error) {
+        sqlite.exec('ROLLBACK');
+        throw error;
+      }
+    }
+  };
+  return {
+    db: /** @type {LearningDb} */ (createDb(/** @type {D1Database} */ (/** @type {unknown} */ (d1)))),
+    sqlite
+  };
+}
+
+/** @param {DatabaseSync} sqlite @param {string} id */
+function insertProductionImage(sqlite, id) {
+  sqlite.prepare('INSERT INTO assets (id, type, storage_key, mime_type, is_active) VALUES (?, ?, ?, ?, 1)')
+    .run(id, 'image', `${id}.png`, 'image/png');
+}
+
+/** @param {string} relativePath */
+function source(relativePath) {
+  return fs.readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+}
+
+/** @param {string} text @param {string} name */
+function actionBlock(text, name) {
+  const marker = `${name}: async`;
+  const start = text.indexOf(marker);
+  assert.notEqual(start, -1, `Missing action ${name}`);
+  const tail = text.slice(start + marker.length);
+  const next = tail.match(/\n\s{2}[A-Za-z_$][\w$]*:\s*async\b/);
+  return text.slice(start, next?.index === undefined ? text.length : start + marker.length + next.index);
+}
+
+/** @param {string} text @param {string} marker */
+function functionBlock(text, marker) {
+  const start = text.indexOf(marker);
+  assert.notEqual(start, -1, `Missing ${marker}`);
+  const end = text.indexOf('\n\n  /**', start + marker.length);
+  return text.slice(start, end === -1 ? text.length : end);
+}
+
+/** @param {string} text @param {string} action */
+function formForAction(text, action) {
+  const marker = `action="${action}"`;
+  const markerIndex = text.indexOf(marker);
+  assert.notEqual(markerIndex, -1, `Missing form action ${action}`);
+  const start = text.lastIndexOf('<form', markerIndex);
+  const end = text.indexOf('</form>', markerIndex);
+  assert.ok(start >= 0 && end > markerIndex, `Could not isolate form ${action}`);
+  return { text: text.slice(start, end + '</form>'.length), index: markerIndex };
+}
+
+/** @param {string} text @param {number} index */
+function activeIfConditionsAt(text, index) {
+  /** @type {string[]} */
+  const stack = [];
+  const token = /\{#if\s+([^}]+)\}|\{\/if\}/g;
+  for (const match of text.matchAll(token)) {
+    if ((match.index ?? 0) >= index) break;
+    if (match[1] !== undefined) stack.push(match[1].trim());
+    else stack.pop();
+  }
+  return stack;
+}
+
+/** @param {string} text @param {string} action @param {string[]} fields */
+function assertProductionOnlyForm(text, action, fields) {
+  const form = formForAction(text, action);
+  for (const field of fields) assert.match(form.text, new RegExp(`name=["']${field}["']`));
+  assert.match(form.text, /<button\b[^>]*\btype="submit"/);
+  assert.ok(
+    activeIfConditionsAt(text, form.index).some((condition) => condition.includes('!previewMode')),
+    `${action} must remain production-only`
+  );
+  return form.text;
+}
+
+/** @param {string} text @param {string} component */
+function componentTags(text, component) {
+  return [...text.matchAll(new RegExp(`<${component}\\b[^>]*>`, 'g'))].map((match) => match[0]);
+}
+
+/** @param {string} text @param {string} variable */
+function derivedExpression(text, variable) {
+  const match = text.match(new RegExp(`let\\s+${variable}\\s*=\\s*\\$derived\\(([^;]+)\\);`));
+  assert.ok(match, `Missing derived expression ${variable}`);
+  return match[1];
 }
 
 test('fixed image shows active reusable questions as available with no used opt-ins', () => {
@@ -58,39 +198,234 @@ test('archive and reactivation preserve dormant opt-in semantics', () => {
   assert.deepEqual({ total: reactivated.total, used: reactivated.used, available: reactivated.available }, { total: 3, used: 1, available: 2 });
 });
 
-test('DB loader excludes inactive Asset Questions and inactive Prompts from visible counts', () => {
-  const source = fs.readFileSync(new URL('../src/lib/server/db/case-image-question-summaries.js', import.meta.url), 'utf8');
-  assert.ok(source.includes('eq(assetQuestions.isActive, true)'));
-  assert.ok(source.includes('eq(questionPrompts.isActive, true)'));
-  assert.ok(source.includes('isNull(questionPrompts.previewSessionId)'));
-  assert.ok(source.includes('isNull(assets.previewSessionId)'));
+test('production reusable-question loader filters inactive content and preserves stable creation ordering', async () => {
+  const fixture = createLearningDb();
+  try {
+    const assetId = 'reusable-loader-asset';
+    insertProductionImage(fixture.sqlite, assetId);
+    const later = await createAssetQuestion(fixture.db, { assetId, promptMd: 'Later visible?', answerMd: 'Later.' });
+    const tiedA = await createAssetQuestion(fixture.db, { assetId, promptMd: 'Tied visible A?', answerMd: 'A.' });
+    const tiedB = await createAssetQuestion(fixture.db, { assetId, promptMd: 'Tied visible B?', answerMd: 'B.' });
+    const inactiveQuestion = await createAssetQuestion(fixture.db, { assetId, promptMd: 'Inactive reusable?', answerMd: 'Hidden.' });
+    const inactivePromptQuestion = await createAssetQuestion(fixture.db, { assetId, promptMd: 'Inactive prompt?', answerMd: 'Hidden too.' });
+
+    const setCreatedAt = fixture.sqlite.prepare('UPDATE asset_questions SET created_at = ? WHERE id = ?');
+    setCreatedAt.run(2000, later);
+    setCreatedAt.run(1000, tiedA);
+    setCreatedAt.run(1000, tiedB);
+    setCreatedAt.run(500, inactiveQuestion);
+    setCreatedAt.run(750, inactivePromptQuestion);
+    await setAssetQuestionActive(fixture.db, { assetQuestionId: inactiveQuestion, isActive: false });
+    const inactivePrompt = fixture.sqlite.prepare('SELECT question_prompt_id FROM asset_questions WHERE id = ?').get(inactivePromptQuestion);
+    assert.ok(inactivePrompt);
+    fixture.sqlite.prepare('UPDATE question_prompts SET is_active = 0 WHERE id = ?').run(inactivePrompt.question_prompt_id);
+
+    const rows = await listCaseImageQuestionSummaries(fixture.db, [{ assetId, stimulusOptionId: null }]);
+    assert.equal(rows.length, 1);
+    const tied = [tiedA, tiedB].sort();
+    assert.deepEqual(rows[0].questions.map((question) => question.id), [...tied, later]);
+    assert.deepEqual({ total: rows[0].total, used: rows[0].used, available: rows[0].available }, { total: 3, used: 0, available: 3 });
+  } finally {
+    fixture.sqlite.close();
+  }
 });
 
-test('DB loader orders reusable Asset Questions by creation time then ID', () => {
-  const source = fs.readFileSync(new URL('../src/lib/server/db/case-image-question-summaries.js', import.meta.url), 'utf8');
-  assert.ok(source.includes('.orderBy(asc(assetQuestions.createdAt), asc(assetQuestions.id))'));
+test('reusable Asset Questions remain production-owned even when Preview content has matching wording', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.exec("INSERT INTO preview_sessions (id, user_id, status, expires_at) VALUES ('preview-reusable', 'preview-user', 'active', 4102444800000)");
+    fixture.sqlite.exec("INSERT INTO assets (id, type, storage_key, mime_type, preview_session_id, is_active) VALUES ('preview-reusable-asset', 'image', 'preview-reusable.png', 'image/png', 'preview-reusable', 1)");
+    await assert.rejects(
+      () => createAssetQuestion(fixture.db, { assetId: 'preview-reusable-asset', promptMd: 'Preview question?', answerMd: 'Preview.' }),
+      /production image Asset/
+    );
+
+    insertProductionImage(fixture.sqlite, 'production-reusable-asset');
+    fixture.sqlite.exec("INSERT INTO question_prompts (id, prompt_md, preview_session_id, is_active) VALUES ('preview-matching-prompt', 'Same visible wording?', 'preview-reusable', 1)");
+    const questionId = await createAssetQuestion(fixture.db, {
+      assetId: 'production-reusable-asset',
+      promptMd: 'Same visible wording?',
+      answerMd: 'Production canonical answer.'
+    });
+    const prompt = fixture.sqlite.prepare(`
+      SELECT qp.preview_session_id
+      FROM asset_questions aq
+      JOIN question_prompts qp ON qp.id = aq.question_prompt_id
+      WHERE aq.id = ?
+    `).get(questionId);
+    assert.ok(prompt);
+    assert.equal(prompt.preview_session_id, null);
+    const matchingPrompts = fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM question_prompts WHERE prompt_md = 'Same visible wording?'").get();
+    assert.equal(Number(matchingPrompts?.count ?? 0), 2);
+  } finally {
+    fixture.sqlite.close();
+  }
 });
 
-test('fixed-image reuse still uses established transparent one-option conversion path', () => {
-  const source = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
-  assert.ok(source.includes('await optInAssetQuestion(db, { caseId, optionId, assetQuestionId:'));
-  assert.ok(source.includes('await optInFixedAssetQuestion(db, { caseId, assetId:'));
+test('option reuse enforces Case and exact-Asset identity, and removal deletes only the validated opt-in', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.exec("INSERT INTO cases (id, title, is_active) VALUES ('other-production-case', 'Other production Case', 1)");
+    const groupId = await createStimulusGroup(fixture.db, {
+      caseId: 'seed-anterior-a',
+      name: 'Reusable exact Asset',
+      specificQuestionMode: 'none'
+    });
+    const optionId = await addStimulusOption(fixture.db, groupId, 'seed-asset-anterior-b');
+    const matchingQuestionId = await createAssetQuestion(fixture.db, {
+      assetId: 'seed-asset-anterior-b',
+      promptMd: 'Exact reusable prompt?',
+      answerMd: 'Exact reusable answer.'
+    });
+    const wrongAssetQuestionId = await createAssetQuestion(fixture.db, {
+      assetId: 'seed-asset-anterior-c',
+      promptMd: 'Wrong reusable Asset?',
+      answerMd: 'Wrong Asset.'
+    });
+
+    await assert.rejects(
+      () => optInAssetQuestion(fixture.db, { caseId: 'other-production-case', optionId, assetQuestionId: matchingQuestionId }),
+      /active production image from this Case/
+    );
+    await assert.rejects(
+      () => optInAssetQuestion(fixture.db, { caseId: 'seed-anterior-a', optionId, assetQuestionId: wrongAssetQuestionId }),
+      /different Asset/
+    );
+    await optInAssetQuestion(fixture.db, { caseId: 'seed-anterior-a', optionId, assetQuestionId: matchingQuestionId });
+
+    const usageCount = () => Number(fixture.sqlite.prepare(`
+      SELECT COUNT(*) AS count FROM stimulus_option_asset_questions
+      WHERE stimulus_group_option_id = ? AND asset_question_id = ?
+    `).get(optionId, matchingQuestionId)?.count ?? 0);
+    assert.equal(usageCount(), 1);
+
+    await assert.rejects(
+      () => removeAssetQuestionOptIn(fixture.db, { caseId: 'other-production-case', optionId, assetQuestionId: matchingQuestionId }),
+      /does not belong to this Case/
+    );
+    await assert.rejects(
+      () => removeAssetQuestionOptIn(fixture.db, { caseId: 'seed-anterior-a', optionId, assetQuestionId: wrongAssetQuestionId }),
+      /does not belong to this stimulus Asset/
+    );
+    assert.equal(usageCount(), 1);
+
+    await removeAssetQuestionOptIn(fixture.db, { caseId: 'seed-anterior-a', optionId, assetQuestionId: matchingQuestionId });
+    assert.equal(usageCount(), 0);
+  } finally {
+    fixture.sqlite.close();
+  }
 });
 
-test('option cards show Case-specific Q/A pairs while keeping reusable counts independent', () => {
-  const images = fs.readFileSync(new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url), 'utf8');
-  const counts = fs.readFileSync(new URL('../src/lib/components/ImageQuestionCounts.svelte', import.meta.url), 'utf8');
-  assert.ok(images.includes('<ImageQuestionCounts caseSpecificCount={0} {reusable} />'));
-  assert.ok(images.includes('<ImageQuestionCounts caseSpecificCount={imageQuestions.length} caseSpecificQuestions={imageQuestions} {reusable} />'));
-  assert.ok(counts.includes('Case-specific Image Questions'));
-  assert.ok(counts.includes('Reusable Image Questions'));
-  assert.ok(counts.includes('question.promptMd'));
-  assert.ok(counts.includes('question.answerMd'));
-  assert.ok(counts.includes('qa-label answer'));
+test('fixed-image reuse preflights exact Asset identity and converts atomically to an explicit Original', async () => {
+  const fixture = createLearningDb();
+  try {
+    const fixedBefore = fixture.sqlite.prepare("SELECT caption_md FROM case_assets WHERE case_id = 'seed-anterior-a' AND asset_id = 'seed-asset-anterior-a'").get();
+    assert.ok(fixedBefore);
+    const groupsBefore = Number(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM stimulus_groups WHERE case_id = 'seed-anterior-a'").get()?.count ?? 0);
+    const wrongQuestionId = await createAssetQuestion(fixture.db, {
+      assetId: 'seed-asset-anterior-b',
+      promptMd: 'Wrong fixed Asset reusable?',
+      answerMd: 'Wrong fixed Asset.'
+    });
+    await assert.rejects(
+      () => optInFixedAssetQuestion(fixture.db, { caseId: 'seed-anterior-a', assetId: 'seed-asset-anterior-a', assetQuestionId: wrongQuestionId }),
+      /does not belong to this fixed Asset/
+    );
+    assert.ok(fixture.sqlite.prepare("SELECT 1 FROM case_assets WHERE case_id = 'seed-anterior-a' AND asset_id = 'seed-asset-anterior-a'").get());
+    assert.equal(Number(fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM stimulus_groups WHERE case_id = 'seed-anterior-a'").get()?.count ?? 0), groupsBefore);
+
+    const matchingQuestionId = await createAssetQuestion(fixture.db, {
+      assetId: 'seed-asset-anterior-a',
+      promptMd: 'Fixed exact reusable?',
+      answerMd: 'Fixed exact answer.'
+    });
+    await optInFixedAssetQuestion(fixture.db, {
+      caseId: 'seed-anterior-a',
+      assetId: 'seed-asset-anterior-a',
+      assetQuestionId: matchingQuestionId
+    });
+
+    assert.equal(fixture.sqlite.prepare("SELECT 1 FROM case_assets WHERE case_id = 'seed-anterior-a' AND asset_id = 'seed-asset-anterior-a'").get(), undefined);
+    const converted = fixture.sqlite.prepare(`
+      SELECT sg.id AS group_id, sg.original_option_id, sgo.id AS option_id, sgo.caption_md
+      FROM stimulus_groups sg
+      JOIN stimulus_group_options sgo ON sgo.stimulus_group_id = sg.id
+      WHERE sg.case_id = ? AND sgo.asset_id = ? AND sgo.is_active = 1 AND sgo.removed_from_case = 0
+    `).all('seed-anterior-a', 'seed-asset-anterior-a');
+    assert.equal(converted.length, 1);
+    assert.equal(converted[0].original_option_id, converted[0].option_id);
+    assert.equal(converted[0].caption_md, fixedBefore.caption_md);
+    const optIn = fixture.sqlite.prepare(`
+      SELECT 1 FROM stimulus_option_asset_questions
+      WHERE stimulus_group_option_id = ? AND asset_question_id = ?
+    `).get(converted[0].option_id, matchingQuestionId);
+    assert.ok(optIn);
+  } finally {
+    fixture.sqlite.close();
+  }
 });
 
-test('Compact review distinguishes inactive Alternative Sets, options, and Assets', () => {
-  const review = fs.readFileSync(new URL('../src/lib/components/ImageQuestionReview.svelte', import.meta.url), 'utf8');
+test('production reusable controls serialize exact context and Preview exposes no matching mutation actions', () => {
+  const manager = source('../src/lib/components/ReusableImageQuestionManager.svelte');
+  const productionRoute = source('../src/routes/admin/cases/[caseId]/+page.server.js');
+  const previewRoute = source('../src/routes/preview-admin/cases/[caseId]/+page.server.js');
+
+  assertProductionOnlyForm(manager, '?/reuseAssetQuestion', ['case_id', 'asset_id', 'option_id', 'asset_question_id']);
+  assertProductionOnlyForm(manager, '?/removeAssetQuestionReuse', ['case_id', 'option_id', 'asset_question_id']);
+  assertProductionOnlyForm(manager, '?/createReusableImageQuestion', ['case_id', 'asset_id', 'prompt_md', 'answer_md']);
+  assertProductionOnlyForm(manager, '?/saveReusableImageAnswer', ['case_id', 'asset_question_id', 'answer_md']);
+  assert.match(manager, /Used in this Case\s*·\s*\{usedQuestions\.length\}/);
+  assert.match(manager, /Available to reuse\s*·\s*\{availableQuestions\.length\}/);
+
+  const reuse = actionBlock(productionRoute, 'reuseAssetQuestion');
+  assert.match(reuse, /caseId !== params\.caseId/);
+  assert.match(reuse, /const optionId = formText\(formData, 'option_id'\)/);
+  assert.match(reuse, /if \(optionId\) await optInAssetQuestion\(db, \{ caseId, optionId, assetQuestionId: formText\(formData, 'asset_question_id'\) \}\)/);
+  assert.match(reuse, /else await optInFixedAssetQuestion\(db, \{ caseId, assetId: formText\(formData, 'asset_id'\), assetQuestionId: formText\(formData, 'asset_question_id'\) \}\)/);
+  assert.match(reuse, /#images/);
+
+  const remove = actionBlock(productionRoute, 'removeAssetQuestionReuse');
+  assert.match(remove, /caseId !== params\.caseId/);
+  assert.match(remove, /await removeAssetQuestionOptIn\([^;]*caseId[^;]*optionId: formText\(formData, 'option_id'\)[^;]*assetQuestionId: formText\(formData, 'asset_question_id'\)/);
+  assert.match(remove, /#images/);
+
+  for (const action of ['createReusableImageQuestion', 'saveReusableImageAnswer', 'reuseAssetQuestion', 'removeAssetQuestionReuse']) {
+    assert.doesNotMatch(previewRoute, new RegExp(`\\b${action}\\s*:\\s*async\\b`));
+  }
+});
+
+test('Case image cards keep Case-specific and reusable ownership distinct while Manage questions reaches the exact option editor', () => {
+  const images = source('../src/lib/components/case-editor/CaseImagesAdvanced.svelte');
+  const counts = source('../src/lib/components/ImageQuestionCounts.svelte');
+  const managerTags = componentTags(images, 'ReusableImageQuestionManager');
+  assert.equal(managerTags.length, 2, managerTags.join('\n'));
+  const fixedManager = managerTags.find((tag) => tag.includes('assetId={asset.assetId}'));
+  const optionManager = managerTags.find((tag) => tag.includes('assetId={option.assetId}'));
+  assert.ok(fixedManager);
+  assert.ok(optionManager);
+  assert.equal(fixedManager.includes('optionId='), false);
+  assert.match(optionManager, /optionId=\{option\.id\}/);
+  assert.match(fixedManager, /previewMode=\{previewMode\}/);
+  assert.match(optionManager, /previewMode=\{previewMode\}/);
+
+  assert.match(images, /aria-controls=\{`option-editor-\$\{option\.id\}`\}/);
+  assert.match(images, /onclick=\{\(\) => selectOption\(option\.id\)\}/);
+  assert.match(images, /<section id=\{`option-editor-\$\{option\.id\}`\}[^>]*tabindex="-1"/);
+  const select = functionBlock(images, 'async function selectOption(optionId)');
+  assert.match(select, /await tick\(\)/);
+  assert.match(select, /document\.getElementById\(`option-editor-\$\{optionId\}`\)/);
+  assert.match(select, /scrollIntoView\(/);
+  assert.match(select, /\.focus\(/);
+
+  assert.match(counts, /Case-specific Image Questions\s*·\s*\{caseSpecificCount\}/);
+  assert.match(counts, /Reusable Image Questions\s*·\s*\{reusableTotal\}/);
+  const caseSpecificLoop = counts.slice(counts.indexOf('{#each caseSpecificQuestions'), counts.indexOf('{/each}', counts.indexOf('{#each caseSpecificQuestions')));
+  assert.match(caseSpecificLoop, /question\.promptMd/);
+  assert.match(caseSpecificLoop, /question\.answerMd/);
+});
+
+test('Compact review derives current participation from Family, option, and Asset live state', () => {
+  const review = source('../src/lib/components/ImageQuestionReview.svelte');
   const inactiveSetSummary = reusableSummaryForContext(
     {
       stimulusGroups: [{ id: 'group-a', isActive: false, options: [{ id: 'option-a' }] }],
@@ -100,36 +435,21 @@ test('Compact review distinguishes inactive Alternative Sets, options, and Asset
     'option-a'
   );
   assert.equal(inactiveSetSummary.groupActive, false);
-  assert.ok(review.includes("'INACTIVE · '"));
-  assert.ok(review.includes('groupActive ?? reusable?.groupActive ?? true'));
-  assert.ok(review.includes('effectiveGroupActive && asset.isActive !== false && asset.assetIsActive !== false'));
-  assert.ok(review.includes('class:inactive-review={!currentParticipant}'));
-  assert.ok(review.includes('excluded from the current learner-participating Case audit'));
-});
 
-test('Manage questions waits for the editor DOM, then reveals and focuses it', () => {
-  const images = fs.readFileSync(new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url), 'utf8');
-  assert.match(images, /import \{[^}]*\btick\b[^}]*\} from 'svelte'/);
-  assert.ok(images.includes('await tick()'));
-  assert.ok(images.includes("scrollIntoView({ behavior: 'smooth', block: 'start' })"));
-  assert.ok(images.includes('tabindex="-1"'));
-});
+  const effectiveExpression = derivedExpression(review, 'effectiveGroupActive');
+  const evaluateEffective = Function('groupActive', 'reusable', `return (${effectiveExpression});`);
+  assert.equal(evaluateEffective(false, { groupActive: true }), false);
+  assert.equal(evaluateEffective(undefined, { groupActive: false }), false);
+  assert.equal(evaluateEffective(undefined, undefined), true);
 
-test('Manage questions exposes reusable used/available actions while collapsed cards remain compact', () => {
-  const manager = fs.readFileSync(new URL('../src/lib/components/ReusableImageQuestionManager.svelte', import.meta.url), 'utf8');
-  assert.ok(manager.includes('Used in this Case'));
-  assert.ok(manager.includes('Available to reuse'));
-  assert.ok(manager.includes('Remove from this Case'));
-  assert.ok(manager.includes('Reuse in this Case'));
-  assert.ok(manager.includes('Create a Reusable Image Question'));
-});
+  const participantExpression = derivedExpression(review, 'currentParticipant');
+  const evaluateParticipant = Function('effectiveGroupActive', 'asset', `return (${participantExpression});`);
+  assert.equal(evaluateParticipant(true, { isActive: true, assetIsActive: true }), true);
+  assert.equal(evaluateParticipant(false, { isActive: true, assetIsActive: true }), false);
+  assert.equal(evaluateParticipant(true, { isActive: false, assetIsActive: true }), false);
+  assert.equal(evaluateParticipant(true, { isActive: true, assetIsActive: false }), false);
 
-test('Preview rendering cannot expose production reusable-question mutation controls', () => {
-  const manager = fs.readFileSync(new URL('../src/lib/components/ReusableImageQuestionManager.svelte', import.meta.url), 'utf8');
-  assert.ok(manager.includes('{#if !previewMode}'));
-  assert.ok(manager.includes('action="?/createReusableImageQuestion"'));
-  assert.ok(manager.includes('{#if !previewMode && optionId}'));
-  assert.ok(manager.includes('action="?/removeAssetQuestionReuse"'));
-  const previewServer = fs.readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
-  assert.equal(/createAssetQuestion|optInAssetQuestion|optInFixedAssetQuestion|removeAssetQuestionOptIn|updateAssetQuestionAnswer/.test(previewServer), false);
+  assert.match(review, /class:inactive-review=\{!currentParticipant\}/);
+  assert.match(review, /\{currentParticipant \? '' : 'INACTIVE · '\}/);
+  assert.match(review, /excluded from the current learner-participating Case audit/);
 });
