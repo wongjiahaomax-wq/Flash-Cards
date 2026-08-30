@@ -764,7 +764,7 @@ Satisfied for the six approved paths after the independent-review correction. No
 
 ## Checkpoint 3 — Review the two intentional UX regression contracts
 
-**Status: implemented in Draft PR #115. Both contracts are retained after explicit stronger-owner investigation.**
+**Status: implemented in Draft PR #115. Both contracts are retained after explicit stronger-owner investigation, with the horizontal-overflow owner hardened after independent review.**
 
 ### Objective
 
@@ -842,18 +842,27 @@ test/admin-horizontal-overflow-contract.test.js
 
 Why retention is necessary: the repository has no browser/layout-capable mechanism that can reliably measure document `scrollWidth` versus `clientWidth` at representative viewports. A DOM mock that does not calculate CSS layout would not strengthen the guarantee. Until a real lightweight rendered layout owner exists, or the product invariant is explicitly retired, the current source contract remains the strongest cheap practical regression owner.
 
+Independent review found a narrower correctness problem in that retained source owner: its original `/body\s*\{[\s\S]*overflow-x:\s*hidden;/` expression could cross the closing brace of `body` and falsely pass when `overflow-x: hidden` appeared only in a later selector. The retained contract was therefore hardened without changing the production CSS. It now extracts the `body { ... }` rule first and asserts `overflow-x: hidden;` inside that block, so a same-property declaration elsewhere in the stylesheet cannot satisfy the contract.
+
 ### Checkpoint 3 scope result
 
-No target test file, production Svelte/CSS file, `FAST_TEST_EXCLUSIONS`, change-aware CI implementation, production-operator command, schema/migration, or application/domain behavior required modification. The implementation change is documentation-only and records the explicit disposition rather than manufacturing a deletion.
+One target test file required a narrow correctness modification after independent review:
+
+```text
+test/admin-horizontal-overflow-contract.test.js
+```
+
+No production Svelte/CSS file, `FAST_TEST_EXCLUSIONS`, change-aware CI implementation, production-operator command, schema/migration, application/domain behavior, or browser-testing dependency was changed. The Shared Questions test remained unchanged. Durable documentation was updated to record the correction rather than continuing to claim that Checkpoint 3 was documentation-only.
 
 ### Acceptance criteria
 
-Satisfied:
+Satisfied after the review correction:
 
 - both intentional regressions were investigated independently;
 - each protected invariant is explicit;
-- both dispositions are explicit `RETAIN` decisions;
+- both dispositions remain explicit `RETAIN` decisions;
 - neither test was deleted merely because it is source-based;
+- the retained horizontal-overflow owner now fails if the required declaration is removed from `body` even when the same declaration appears in a later selector;
 - no weaker pseudo-rendered replacement was introduced;
 - no browser/E2E infrastructure was added;
 - both product invariants continue to have explicit surviving owners.
@@ -1112,7 +1121,7 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review, and the corrected first source-contract consolidation tranche under Checkpoint 4. Do not infer that later checkpoints have started merely because their design remains documented here.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, and the corrected first source-contract consolidation tranche under Checkpoint 4. Do not infer that later checkpoints have started merely because their design remains documented here.
 
 ### Completed fixture, selection, and UX-contract foundation
 
@@ -1121,7 +1130,7 @@ PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoi
 - Checkpoint 2B — central change-aware specialized CI — is implemented with actual PR feature-diff classification and structural full-mode deduplication.
 - Checkpoint 2C — named ECG/taxonomy production-operator checks and exact central path ownership — is implemented.
 - Checkpoint 2D — exactly six specialized fast-test exclusions — is implemented with complete-suite inclusion, related-Draft ownership, and the explicit slide-review production compatibility dependencies contract-tested.
-- Checkpoint 3 — both intentional UX regressions were investigated and retained because no stronger cheap/reliable layout-capable owner exists; neither product invariant was retired.
+- Checkpoint 3 — both intentional UX regressions were investigated and retained because no stronger cheap/reliable layout-capable owner exists; independent review then tightened the retained horizontal-overflow source owner so it cannot falsely pass on a later selector's declaration. Neither product invariant was retired.
 
 ### Fast-tier boundary after Checkpoint 2D
 
@@ -1129,7 +1138,7 @@ Do not add a seventh exclusion as part of Checkpoint 2D or infer further safe ca
 
 ### Remaining UX/source-contract work
 
-Checkpoint 3 is complete. Any further independently justified portions of Checkpoints 4/5 remain pending and are not authorized by the Checkpoint 3 implementation.
+Checkpoint 3 is complete after the focused review correction. Any further independently justified portions of Checkpoints 4/5 remain pending and are not authorized by the Checkpoint 3 implementation.
 
 The two intentional width/overflow UX regression tests remain explicit surviving owners.
 
@@ -1161,7 +1170,7 @@ Specific gates:
 
 **Checkpoint 2D:** the initial exclusion mechanics were established on head `bd93043bd112a0e96cc233ff99228a91fe863831` / CI #1297. Independent review then found the slide-review production-dependency ownership gap. Corrective head `4aa59b30b4197fba22240a61d76daa480b6902cf` / Draft CI #1303 passed with 110 maintained / 104 selected / 6 excluded, 629/629 selected fast tests, 0 Svelte errors/5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #134 also passed. Focused contracts now prove each of the three production compatibility dependencies requires `slideReviewTest` in Draft mode and deduplicates through complete `test` in full mode. The final handoff additionally requires green exact-head CI after these documentation changes.
 
-**Checkpoint 3:** satisfied at the contract-ownership level: both target tests, direct source owners, nearby tests, available test infrastructure, and introducing history were inspected; both protected product invariants remain intentional; no stronger cheap/reliable layout owner exists; both existing source contracts are therefore explicitly retained. No production/UI code or target test file changed. Exact-head Draft CI remains the final execution gate for this documentation-only checkpoint.
+**Checkpoint 3:** satisfied after independent-review correction: both protected product invariants remain intentional and both dispositions remain `RETAIN`; no stronger cheap/reliable layout owner exists; the Shared Questions contract remains unchanged; the horizontal-overflow contract was tightened to extract the `body` rule before asserting `overflow-x: hidden`, eliminating the reviewed cross-rule false-green case. No production/UI code, schema, CI architecture, exclusion, or application/domain behavior changed. Exact-head Draft CI is the final execution gate after the corrected test and documentation changes.
 
 **Checkpoint 4:** every removal has an explicit stronger owner or retirement, and distinct UI reachability/semantic vocabulary remains protected where applicable.
 
