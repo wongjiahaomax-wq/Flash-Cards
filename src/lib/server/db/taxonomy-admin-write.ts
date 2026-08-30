@@ -1,8 +1,8 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 
 import { taxonomyConcepts } from './contextual-schema.ts';
 import { buildTopicConceptInsert, listConceptTaxonomy } from './concept-taxonomy-compat.ts';
-import { caseConcepts, cases, conceptQuestions, concepts } from './schema.js';
+import { caseConcepts, cases, conceptQuestions, concepts, reviewQuestions, reviews } from './schema.js';
 import { systemTags, tags } from './tag-schema.js';
 import {
   applyParentChanges,
@@ -200,13 +200,23 @@ export async function deleteUnusedTopic(
   if (!target) throw new TaxonomyInputError('The selected Topic does not exist.');
   if (target.kind !== 'topic') throw new TaxonomyInputError('Only Topics can be deleted. Systems cannot be deleted here.');
 
-  const [caseUsage, questionUsage] = await Promise.all([
+  const [caseUsage, questionUsage, reviewUsage, reviewQuestionUsage] = await Promise.all([
     db.select({ id: caseConcepts.caseId }).from(caseConcepts).where(eq(caseConcepts.conceptId, conceptId)).limit(1),
-    db.select({ id: conceptQuestions.id }).from(conceptQuestions).where(eq(conceptQuestions.conceptId, conceptId)).limit(1)
+    db.select({ id: conceptQuestions.id }).from(conceptQuestions).where(eq(conceptQuestions.conceptId, conceptId)).limit(1),
+    db.select({ id: reviews.id }).from(reviews).where(or(
+      eq(reviews.primaryConceptId, conceptId),
+      eq(reviews.studyConceptId, conceptId),
+      eq(reviews.studySystemConceptId, conceptId),
+      and(eq(reviews.navigationRouteType, 'topic'), eq(reviews.navigationRouteId, conceptId))
+    )).limit(1),
+    db.select({ id: reviewQuestions.id }).from(reviewQuestions).where(eq(reviewQuestions.sourceConceptId, conceptId)).limit(1)
   ]);
   const hasChildren = graph.some((node) => node.parentId === conceptId);
   if (caseUsage[0] || questionUsage[0] || hasChildren) {
     throw new TaxonomyInputError('This Topic cannot be deleted while it has Case attachments, reusable Topic questions, or child Topics. Remove those relationships first.');
+  }
+  if (reviewUsage[0] || reviewQuestionUsage[0]) {
+    throw new TaxonomyInputError('This Topic is referenced by learner Review history and cannot be deleted.');
   }
 
   try {
