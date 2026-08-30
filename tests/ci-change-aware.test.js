@@ -289,6 +289,7 @@ test('actual CI feature-diff helper excludes unrelated base-branch advancement',
 });
 
 test('all specialized Node checks keep structured reporter identity without altering base Node-check environments', () => {
+  /** @type {Array<[string, string[], string]>} */
   const specialized = [
     [ECG_CHECK, ['--test', 'test/ecg-batch-01-asset-rename.test.js'], 'node --test test/ecg-batch-01-asset-rename.test.js'],
     [TAXONOMY_CHECK, ['--test', 'test/production-taxonomy-operator.test.js'], 'node --test test/production-taxonomy-operator.test.js'],
