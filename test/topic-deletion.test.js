@@ -31,12 +31,30 @@ function createFixture() {
       ('topic-case', 'Case Topic', 'case-topic', 'topic', 'system-eye', 1),
       ('topic-question', 'Question Topic', 'question-topic', 'topic', 'system-eye', 1),
       ('topic-parent', 'Parent Topic', 'parent-topic', 'topic', 'system-eye', 1),
-      ('topic-child', 'Child Topic', 'child-topic', 'topic', 'topic-parent', 1);
-    INSERT INTO cases (id, title, is_active) VALUES ('case-1', 'Case One', 1);
-    INSERT INTO case_concepts (case_id, concept_id, role) VALUES ('case-1', 'topic-case', 'primary');
+      ('topic-child', 'Child Topic', 'child-topic', 'topic', 'topic-parent', 1),
+      ('topic-history', 'Historical Topic', 'historical-topic', 'topic', 'system-eye', 1),
+      ('topic-question-history', 'Historical Question Topic', 'historical-question-topic', 'topic', 'system-eye', 1);
+    INSERT INTO cases (id, title, is_active) VALUES
+      ('case-1', 'Case One', 1),
+      ('case-history', 'Historical Case', 1);
+    INSERT INTO case_concepts (case_id, concept_id, role) VALUES
+      ('case-1', 'topic-case', 'primary'),
+      ('case-history', 'topic-history', 'primary');
     INSERT INTO question_prompts (id, prompt_md, is_active) VALUES ('prompt-1', 'What is the diagnosis?', 1);
     INSERT INTO concept_questions (id, concept_id, question_prompt_id, answer_md, inherit_to_descendants, is_active)
     VALUES ('concept-question-1', 'topic-question', 'prompt-1', 'Example answer', 0, 1);
+    INSERT INTO reviews (
+      id, user_id, case_id, primary_concept_id, study_concept_id, route_type, case_title_snapshot, status
+    ) VALUES
+      ('review-history', 'user-1', 'case-history', 'topic-history', 'topic-history', 'topic', 'Historical Case', 'completed'),
+      ('review-source', 'user-1', 'case-1', 'topic-case', 'topic-case', 'topic', 'Case One', 'completed');
+    INSERT INTO review_questions (
+      id, review_id, question_prompt_id, source_type, source_concept_id, display_order, prompt_snapshot_md, answer_snapshot_md
+    ) VALUES (
+      'review-question-source', 'review-source', 'prompt-1', 'concept', 'topic-question-history', 0,
+      'What is the diagnosis?', 'Historical answer'
+    );
+    DELETE FROM case_concepts WHERE case_id = 'case-history' AND concept_id = 'topic-history';
   `);
 
   const d1 = {
@@ -84,6 +102,21 @@ test('unused Topic deletion rejects Systems and Topics with current taxonomy/con
       await assert.rejects(
         deleteUnusedTopic(fixture.db, { conceptId }),
         (error) => error instanceof TaxonomyInputError && /cannot be deleted/i.test(error.message)
+      );
+      assert.equal(conceptExists(fixture.sqlite, conceptId), true);
+    }
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('unused Topic deletion preserves Topics referenced only by learner Review history', async () => {
+  const fixture = createFixture();
+  try {
+    for (const conceptId of ['topic-history', 'topic-question-history']) {
+      await assert.rejects(
+        deleteUnusedTopic(fixture.db, { conceptId }),
+        (error) => error instanceof TaxonomyInputError && /learner Review history/i.test(error.message)
       );
       assert.equal(conceptExists(fixture.sqlite, conceptId), true);
     }
