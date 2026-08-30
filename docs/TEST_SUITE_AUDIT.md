@@ -2,7 +2,7 @@
 
 Status: audit complete / first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, and Checkpoint 2D safe exclusion activation implemented in Draft PR #115
 
-This document is the durable evidence record for PR #115. It audits the repository-wide Node test suite, `npm run check`, and the repository-owned validation architecture. The audit/planning work is complete, and this document now also records the first implemented source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator checks, and Checkpoint 2D activation of the six approved specialized exclusions in the same Draft PR.
+This document is the durable evidence record for PR #115. It audits the repository-wide Node test suite, `npm run check`, and the repository-owned validation architecture. The audit/planning work is complete, and this document now also records the first implemented source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator checks, and Checkpoint 2D activation of the six approved specialized exclusions plus the independent-review correction to slide-review production dependency ownership in the same Draft PR.
 
 Those implementations remain intentionally bounded. Checkpoint 2D reduces generic unrelated-Draft fast selection by exactly six maintained specialized files while retaining complete `npm test` coverage and central related-Draft specialized ownership. Broader behavioral rewrite, additional exclusions, and profiling remain pending.
 
@@ -20,17 +20,18 @@ The audited baseline is broad but mostly valuable:
 - Checkpoint 2A changed Draft `validate:fast` to invoke `npm run test:fast`, initially with an empty exclusion set so maintained-test coverage remained complete during rollout;
 - Checkpoint 2B makes ordinary CI consume centrally classified specialized requirements from the actual PR feature diff;
 - Checkpoint 2C gives the ECG Batch 01 Asset rename and agreed taxonomy production-operator tests explicit repository-owned named checks and exact changed-path ownership;
-- Checkpoint 2D activates exactly six approved specialized exclusions from generic unrelated-Draft `test:fast`; implementation CI discovered 110 maintained files, selected 104 and excluded six;
+- Checkpoint 2D activates exactly six approved specialized exclusions from generic unrelated-Draft `test:fast`; corrective implementation CI discovered 110 maintained files, selected 104 and excluded six;
 - Ready/non-Draft `validate:full` continues to run complete `npm test` plus the repository's additional full checks, with structural deduplication for specialized Node coverage already satisfied by complete `test`.
 
 The original audit hypothesis was only partly correct. There is a meaningful cluster of brittle source-level UI contracts, but source-reading itself is not the problem. Several source/configuration contracts protect real architectural or operational boundaries and should remain.
 
-Two corrections from independent review materially changed the recommended plan:
+Three corrections from independent review materially changed the recommended plan:
 
 1. **Static `test:fast` exclusions were unsafe before change-aware CI ownership existed.** Checkpoint 2B closed the ordinary-CI execution gap for existing slide-review specialization. Checkpoint 2C closed the corresponding ownership gap for the two production-operator tests. Checkpoint 2D activates only those six independently approved files after the ownership prerequisites were accepted.
-2. **The two proposed unconditional UI-test removals were over-classified.** Both were introduced alongside deliberate UX fixes and protect intentional regression outcomes, albeit through brittle source assertions. They must be rewritten, retained, or consciously retired after confirming the product invariant; they are not automatic deletions.
+2. **Slide-review's specialized ownership crosses the tooling-directory boundary.** Independent review of the first 2D implementation found that excluded `tools/slide-import-review/tests/core.test.js` directly imports `src/lib/server/import/content-package.js`, `src/lib/server/import/reviewed-content-package.js`, and `src/lib/server/storage/media.js` to synchronize production limits and verify finalizer compatibility with production parsers. Those exact production files therefore require `slideReviewTest` even though they are outside `tools/slide-import-review/**`; they do not require `slideReviewBuild`.
+3. **The two proposed unconditional UI-test removals were over-classified.** Both were introduced alongside deliberate UX fixes and protect intentional regression outcomes, albeit through brittle source assertions. They must be rewritten, retained, or consciously retired after confirming the product invariant; they are not automatic deletions.
 
-PR #115 has implemented the first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A's selection architecture, Checkpoint 2B's central change-aware specialized-CI mechanism, Checkpoint 2C's named production-operator ownership, and Checkpoint 2D's six safe specialized omissions. Independent review of the consolidation tranche confirmed the core consolidation principle but also showed that domain/model coverage is not automatically a replacement for UI reachability. The corrected tranche therefore keeps thin UI/data-flow owners for Case Images information architecture, post-curation Original reassignment, the unified taxonomy staged-review/apply flow, and Case Library workflow wiring while leaving deep semantics under stronger helper/model/server/DB tests.
+PR #115 has implemented the first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A's selection architecture, Checkpoint 2B's central change-aware specialized-CI mechanism, Checkpoint 2C's named production-operator ownership, and Checkpoint 2D's six safe specialized omissions with the corrected slide-review production dependency boundary. Independent review of the consolidation tranche confirmed the core consolidation principle but also showed that domain/model coverage is not automatically a replacement for UI reachability. The corrected tranche therefore keeps thin UI/data-flow owners for Case Images information architecture, post-curation Original reassignment, the unified taxonomy staged-review/apply flow, and Case Library workflow wiring while leaving deep semantics under stronger helper/model/server/DB tests.
 
 Checkpoint 1 aligned ordinary D1-backed current-runtime fixtures with the current supported schema without converting genuine migration tests into current-schema tests. The canonical bootstrap is `test/current-schema.js`, which discovers the complete numbered migration set in deterministic order. Historical application states remain representable as data inside the current schema; historical schemas remain only where migration/upgrade behavior is itself the subject under test.
 
@@ -51,7 +52,16 @@ test/ecg-batch-01-asset-rename.test.js
 test/production-taxonomy-operator.test.js
 ```
 
-Complete maintained discovery still contains all six. Related Drafts regain mandatory coverage through the central specialized owners established in 2B/2C; full/Ready retains complete `npm test` and structural deduplication.
+Complete maintained discovery still contains all six. Related Drafts regain mandatory coverage through the central specialized owners established in 2B/2C and the 2D review correction. In particular, the excluded slide-review `core.test.js` contract also owns these explicit production-side dependencies:
+
+```text
+src/lib/server/import/content-package.js
+src/lib/server/import/reviewed-content-package.js
+src/lib/server/storage/media.js
+  -> slideReviewTest
+```
+
+Full/Ready retains complete `npm test` and structural deduplication.
 
 The overall direction remains:
 
@@ -82,7 +92,7 @@ At the audited baseline, Node discovery reached:
 
 Total audited baseline: 109 files.
 
-Checkpoint 2B added `tests/ci-change-aware.test.js`, so the current PR head discovers 110 maintained files. Checkpoints 2C/2D strengthen assertions within existing maintained test files rather than adding another maintained test file. Checkpoint 2D implementation CI run #1297 reported:
+Checkpoint 2B added `tests/ci-change-aware.test.js`, so the current PR head discovers 110 maintained files. Checkpoints 2C/2D strengthen assertions within existing maintained test files rather than adding another maintained test file. Corrective Checkpoint 2D CI run #1303 reported:
 
 ```text
 complete=110
@@ -90,7 +100,7 @@ selected=104
 excluded=6
 ```
 
-That run passed all 628 fast-selected Node tests. `npm test` continues to mean the complete maintained Node suite and is not redirected through the fast selector. Focused selection contracts independently prove that complete discovery includes all six exclusions and that selected + excluded exactly reconstructs complete discovery.
+That run passed all 629 fast-selected Node tests. `npm test` continues to mean the complete maintained Node suite and is not redirected through the fast selector. Focused selection contracts independently prove that complete discovery includes all six exclusions and that selected + excluded exactly reconstructs complete discovery.
 
 ### Fast selection authority
 
@@ -206,7 +216,7 @@ svelte
 productionTaxonomyOperatorTest
 ```
 
-A slide-review-related Draft runs:
+A slide-review tooling Draft runs:
 
 ```text
 diff
@@ -216,7 +226,16 @@ slideReviewTest
 slideReviewBuild
 ```
 
-while operator-related full/Ready runs resolve to the unchanged full base because complete `test` satisfies the narrow Node requirements. For slide-review full/Ready changes, `slideReviewBuild` remains additional because complete `test` does not satisfy the build check.
+A Draft changing one of the three production compatibility dependencies imported by excluded `core.test.js` runs:
+
+```text
+diff
+testFast
+svelte
+slideReviewTest
+```
+
+while operator-related full/Ready runs and slide-review-production-contract full/Ready runs resolve to the unchanged full base because complete `test` satisfies the narrow Node requirements. For slide-review tooling full/Ready changes, `slideReviewBuild` remains additional because complete `test` does not satisfy the build check.
 
 ### CI Node diagnostics
 
@@ -240,7 +259,7 @@ productionTaxonomyOperatorTest
   -> node --test test/production-taxonomy-operator.test.js
 ```
 
-`slideReviewTest` retains `npm run slide-review:test`. Non-Node checks do not receive the reporter. Checkpoint 2D changes selection only; it does not alter these diagnostic identities.
+`slideReviewTest` retains `npm run slide-review:test`. Non-Node checks do not receive the reporter. Checkpoint 2D changes selection and changed-path ownership only; it does not alter these diagnostic identities.
 
 ### Agent classifier behavior
 
@@ -253,6 +272,11 @@ tools/slide-import-review/**
   -> slideReviewTest
   -> slideReviewBuild
 
+src/lib/server/import/content-package.js
+src/lib/server/import/reviewed-content-package.js
+src/lib/server/storage/media.js
+  -> slideReviewTest
+
 scripts/rename-ecg-batch-01-assets.mjs
 scripts/ecg-batch-01-asset-rename-targets.mjs
 test/ecg-batch-01-asset-rename.test.js
@@ -262,6 +286,8 @@ scripts/apply-agreed-taxonomy.mjs
 test/production-taxonomy-operator.test.js
   -> productionTaxonomyOperatorTest
 ```
+
+The three production-side slide-review paths are included because excluded `core.test.js` directly imports them for synchronized production limits and finalizer/parser compatibility. They require only `slideReviewTest`, not `slideReviewBuild`.
 
 The ECG target manifest is included because the operator imports/re-exports the deterministic target data and the dedicated test directly protects those IDs, storage keys, and names. The taxonomy operator has no analogous repository-owned helper/data dependency, so no broader pattern was added.
 
@@ -292,7 +318,7 @@ The audit did not establish a per-file wall-clock profile. Individual TAP durati
 
 Important conclusion: deleting a few millisecond-scale source assertions cannot materially solve a ~19.6-second Node stage. Maintenance cleanup and latency optimization are different problems.
 
-Checkpoint 2D implementation CI #1297 observed 104 selected files instead of 110 and 628 fast-selected tests passing. That is sufficient to establish the direct selection effect but not a material performance claim. No median or profiling claim is made from a single run; Checkpoint 6 remains pending.
+Corrective Checkpoint 2D implementation CI #1303 observed 104 selected files instead of 110 and 629 fast-selected tests passing. That is sufficient to establish the direct selection effect but not a material performance claim. No median or profiling claim is made from a single run; Checkpoint 6 remains pending.
 
 ## 4. CI diagnostics problem
 
@@ -308,7 +334,7 @@ The durable diagnostics requirements remain:
 - show failures prominently near the end with name, location, message, expected/actual when available, and useful stack;
 - preserve/improve GitHub `::error` annotations and connector-readable failure records.
 
-Checkpoint 2B extended this baseline to specialized slide-review Node checks without changing the existing `test` / `testFast` identities. Checkpoint 2C extended the same reporter architecture to the two direct production-operator checks. Checkpoint 2D leaves that reporting architecture unchanged while moving six files out of generic fast selection.
+Checkpoint 2B extended this baseline to specialized slide-review Node checks without changing the existing `test` / `testFast` identities. Checkpoint 2C extended the same reporter architecture to the two direct production-operator checks. Checkpoint 2D leaves that reporting architecture unchanged while moving six files out of generic fast selection and correcting the changed-path ownership of the excluded slide-review compatibility contract.
 
 ## 5. Schema-fixture finding
 
@@ -419,7 +445,7 @@ CI execution
 
 The same classifier result is used by `agent:checks` reporting and CI planning. `.github/workflows/ci.yml` contains no slide-review path rules; its only 2B change is full-history checkout so repository code can compute the feature diff reliably.
 
-Focused contracts prove unrelated Draft, slide-review Draft, slide-review full/Ready deduplication, shared classifier authority, validation-tooling fail-safe behavior, actual three-dot feature-diff semantics, specialized reporter identity, workflow orchestration-only ownership, and invalid configuration failure.
+Focused contracts prove unrelated Draft, slide-review tooling Draft, slide-review full/Ready deduplication, shared classifier authority, validation-tooling fail-safe behavior, actual three-dot feature-diff semantics, specialized reporter identity, workflow orchestration-only ownership, and invalid configuration failure. The later 2D review correction extends these contracts to the three explicit production compatibility paths imported by excluded `core.test.js`.
 
 Implementation head `0277911099b661699c202283559a5a9da53cf0e2` passed Draft CI run #1283. The log proved:
 
@@ -503,7 +529,7 @@ No production/application/schema/domain code was changed for Checkpoint 2C. `npm
 
 ### Checkpoint 2D implementation record
 
-Checkpoint 2D activates only the six specialized paths already accepted for conditional omission. It does not alter the classifier, validation satisfaction graph, workflow path ownership, application/domain behavior, schema/migrations, or either production operator.
+Checkpoint 2D activates only the six specialized paths already accepted for conditional omission. It does not change the six-file exclusion set after activation, application/domain behavior, schema/migrations, workflow path ownership, validation satisfaction graph, or either production operator.
 
 The active exclusions are exactly:
 
@@ -518,20 +544,39 @@ test/production-taxonomy-operator.test.js
 
 Focused selection contracts prove all six remain in complete maintained discovery, all six are absent from generic fast selection, and no seventh maintained test is removed: selected + excluded equals complete discovery. The manifest is exact-path based, has no duplicate, rejects nonexistent exclusions, and preserves default-to-fast behavior for newly discovered ordinary tests.
 
-Focused CI contracts prove all three required states for every specialized family:
+The first 2D implementation correctly proved the basic three-state mechanics for tooling-directory slide-review changes and both production-operator families, but independent review found one High-severity boundary omission: `tools/slide-import-review/tests/core.test.js` directly imports three production-side modules that could invalidate the excluded compatibility contract without matching `tools/slide-import-review/**`.
+
+The correction adds one exact central classifier rule:
+
+```text
+src/lib/server/import/content-package.js
+src/lib/server/import/reviewed-content-package.js
+src/lib/server/storage/media.js
+  -> slideReviewTest
+```
+
+No build requirement is attached to those production paths. `core.test.js` uses them for production-limit synchronization and finalizer acceptance by current production parsers; they do not themselves alter the browser build contract.
+
+Focused CI contracts now prove all required states and boundaries:
 
 - **unrelated omission:** an unrelated Draft receives only `diff, testFast, svelte`; the six files are absent from generic fast selection;
-- **related mandatory owner:** slide-review paths require `slideReviewTest` + `slideReviewBuild`, ECG-owned paths require `ecgAssetRenameOperatorTest`, and taxonomy-owned paths require `productionTaxonomyOperatorTest`; isolation and all-three-family accumulation are tested;
-- **full inclusion/deduplication:** complete `test` satisfies each specialized Node owner, so full mode does not redundantly run the narrow Node check; `slideReviewBuild` remains separately required.
+- **slide-review tooling related owner:** `tools/slide-import-review/**` requires `slideReviewTest` + `slideReviewBuild`;
+- **slide-review production-contract related owner:** each of the three exact production dependencies requires `slideReviewTest` without `slideReviewBuild`;
+- **ECG related owner:** ECG-owned paths require `ecgAssetRenameOperatorTest`;
+- **taxonomy related owner:** taxonomy-owned paths require `productionTaxonomyOperatorTest`;
+- **full inclusion/deduplication:** complete `test` satisfies each specialized Node owner, including the production-contract `slideReviewTest`, so full mode does not redundantly run the narrow Node check; `slideReviewBuild` remains separately required only for slide-review tooling changes;
+- **isolation/accumulation:** ECG and taxonomy do not spuriously trigger one another and multi-family changes accumulate applicable owners exactly once.
 
-Implementation head `bd93043bd112a0e96cc233ff99228a91fe863831` passed Draft CI run #1297. The log proved:
+The initial exclusion mechanics passed on head `bd93043bd112a0e96cc233ff99228a91fe863831` in Draft CI run #1297 and runtime-smoke #128.
+
+The independent-review correction passed on head `4aa59b30b4197fba22240a61d76daa480b6902cf` in Draft CI run #1303. The log proved:
 
 - CI mode `fast`;
 - 44 PR-changed paths classified from the actual base/head feature diff;
 - specialized requirements `ecgAssetRenameOperatorTest, productionTaxonomyOperatorTest, slideReviewTest, slideReviewBuild`;
 - executed checks `diff, testFast, svelte, ecgAssetRenameOperatorTest, productionTaxonomyOperatorTest, slideReviewTest, slideReviewBuild`;
-- `test:fast`: **110 complete / 104 selected / 6 excluded; 628/628 tests passed**;
-- the six exclusions printed by the runner were exactly the six paths above;
+- `test:fast`: **110 complete / 104 selected / 6 excluded; 629/629 tests passed**;
+- the six exclusions printed by the runner remained exactly the approved six paths;
 - `npm run check`: **0 errors, 5 existing warnings**;
 - ECG operator check: **6/6 passed**;
 - taxonomy operator check: **3/3 passed**;
@@ -539,9 +584,9 @@ Implementation head `bd93043bd112a0e96cc233ff99228a91fe863831` passed Draft CI r
 - `slide-review:build`: passed;
 - repository CI validation passed.
 
-Wrangler runtime smoke run #128 also passed. The work session used Remote GitHub mode; no local repository validation command execution is claimed. No Production D1/R2 credentials were retrieved or used, neither production operator was executed against production, and no production resource was mutated.
+Wrangler runtime smoke run #134 also passed on the corrective head. The work session used Remote GitHub mode; no local repository validation command execution is claimed. No Production D1/R2 credentials were retrieved or used, neither production operator was executed against production, and no production resource was mutated.
 
-The direct file-selection effect is established: on the same 110-file maintained discovery, generic fast selection changed from 110 selected / 0 excluded to 104 selected / 6 excluded. No performance claim is made from this single run; profiling and median comparison remain pending.
+The direct file-selection effect remains: on the same 110-file maintained discovery, generic fast selection changed from 110 selected / 0 excluded to 104 selected / 6 excluded. No performance claim is made from these runs; profiling and median comparison remain pending.
 
 ## 6. Source-contract audit
 
@@ -668,7 +713,9 @@ excluded maintained tests
 
 ### Checkpoint 2B conditional ownership mechanism
 
-Checkpoint 2B established the missing ordinary-CI change-aware mechanism. Slide-review-owned paths require `slideReviewTest` and `slideReviewBuild` in ordinary CI, and full `test` structurally satisfies the specialized Node-test requirement without satisfying the specialized build.
+Checkpoint 2B established the missing ordinary-CI change-aware mechanism. Slide-review tooling paths require `slideReviewTest` and `slideReviewBuild` in ordinary CI, and full `test` structurally satisfies the specialized Node-test requirement without satisfying the specialized build.
+
+The 2D independent review subsequently identified and corrected the cross-boundary production dependencies of excluded slide-review `core.test.js`: `content-package.js`, `reviewed-content-package.js`, and `storage/media.js` now require `slideReviewTest` only.
 
 ### Checkpoint 2C production-operator ownership mechanism
 
@@ -690,17 +737,18 @@ test/production-taxonomy-operator.test.js
 The rationale is now executable rather than aspirational:
 
 - unrelated Draft generic fast omits all six;
-- slide-review changes centrally require `slideReviewTest` and `slideReviewBuild`;
+- slide-review tooling changes centrally require `slideReviewTest` and `slideReviewBuild`;
+- changes to `src/lib/server/import/content-package.js`, `src/lib/server/import/reviewed-content-package.js`, or `src/lib/server/storage/media.js` centrally require `slideReviewTest` because excluded `core.test.js` imports them for production compatibility;
 - ECG operator changes centrally require `ecgAssetRenameOperatorTest`;
 - taxonomy operator changes centrally require `productionTaxonomyOperatorTest`;
 - ordinary CI executes those requirements from the actual PR diff;
 - complete maintained discovery still contains all six;
 - full `npm test` structurally satisfies all three specialized Node-test owners;
 - `testFast` does not satisfy those excluded specialized owners;
-- slide-review build remains an additional non-Node requirement;
+- slide-review build remains an additional non-Node requirement only for slide-review tooling paths;
 - multiple specialized families accumulate all applicable owners exactly once.
 
-Implementation CI #1297 observed:
+Corrective implementation CI #1303 observed:
 
 ```text
 complete=110
@@ -708,13 +756,13 @@ selected=104
 excluded=6
 ```
 
-with 628/628 fast-selected tests passing, followed by the specialized ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build checks.
+with 629/629 fast-selected tests passing, followed by the specialized ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build checks.
 
 ### Corrected rule
 
-**A test may leave generic Draft fast coverage only after ordinary CI has a centrally owned, tested mechanism that makes its relevant specialized check mandatory when related code changes.**
+**A test may leave generic Draft fast coverage only after ordinary CI has a centrally owned, tested mechanism that makes its relevant specialized check mandatory when every known repository path capable of invalidating that excluded contract changes.**
 
-Checkpoints 2B/2C established that rule for the six approved files; Checkpoint 2D activates only those exclusions. Any seventh exclusion requires a separate evidence/review cycle.
+Checkpoints 2B/2C established the initial ownership rule, and the 2D independent review corrected the slide-review cross-boundary dependency set. Checkpoint 2D activates only the six approved exclusions. Any seventh exclusion requires a separate evidence/review cycle.
 
 ## 9. Current validation architecture after Checkpoint 2D
 
@@ -735,7 +783,7 @@ npm run test:fast   # all maintained fast-eligible tests except the six exact ex
 npm run check
 ```
 
-At the Checkpoint 2D implementation head, maintained discovery was 110 files and generic fast selected 104.
+At the corrective Checkpoint 2D head, maintained discovery was 110 files and generic fast selected 104.
 
 ### Change-aware Draft validation
 
@@ -744,7 +792,7 @@ base fast checks
   + specialized checks required by changed paths
 ```
 
-An unrelated ordinary application Draft resolves to base fast only. A slide-review Draft resolves to base fast plus `slideReviewTest` and `slideReviewBuild`. An ECG-related Draft adds `ecgAssetRenameOperatorTest`; a taxonomy-related Draft adds `productionTaxonomyOperatorTest`. Changes spanning multiple specialized families receive every applicable owner exactly once. Validation infrastructure changes conservatively retain base fast and add the complete ordinary-CI specialized set.
+An unrelated ordinary application Draft resolves to base fast only. A slide-review tooling Draft resolves to base fast plus `slideReviewTest` and `slideReviewBuild`. A Draft touching one of the three slide-review production compatibility dependencies resolves to base fast plus `slideReviewTest` only. An ECG-related Draft adds `ecgAssetRenameOperatorTest`; a taxonomy-related Draft adds `productionTaxonomyOperatorTest`. Changes spanning multiple specialized families receive every applicable owner exactly once. Validation infrastructure changes conservatively retain base fast and add the complete ordinary-CI specialized set.
 
 ### Ready/full validation
 
@@ -759,7 +807,7 @@ npm run build
 npm run auth:smoke:local
 ```
 
-For either operator family, full `npm test` satisfies the matching narrow test, so no redundant direct operator test is added. For slide-review changes, full `npm test` satisfies `slideReviewTest`, so only `slideReviewBuild` is additional. This satisfaction is explicit repository data, not workflow-specific string matching.
+For either operator family and for the three slide-review production compatibility dependencies, full `npm test` satisfies the matching narrow Node test, so no redundant specialized Node check is added. For slide-review tooling changes, full `npm test` satisfies `slideReviewTest`, so only `slideReviewBuild` is additional. This satisfaction is explicit repository data, not workflow-specific string matching.
 
 ## 10. Test disposition summary
 
@@ -777,7 +825,7 @@ For either operator family, full `npm test` satisfies the matching narrow test, 
 | responsive/editor/control source contracts with real behavior | REWRITE/CONSOLIDATE, preserve invariant |
 | Shared Questions width regression | KEEP UNTIL REPLACED OR EXPLICITLY RETIRED |
 | application horizontal-overflow regression | KEEP UNTIL REPLACED OR EXPLICITLY RETIRED |
-| slide-review tests | EXCLUDE FROM GENERIC FAST only via exact 2D manifest; related Drafts require `slideReviewTest` + `slideReviewBuild`; complete `npm test` retains them |
+| slide-review tests | EXCLUDE FROM GENERIC FAST only via exact 2D manifest; tooling paths require `slideReviewTest` + `slideReviewBuild`; three explicit production compatibility dependencies require `slideReviewTest`; complete `npm test` retains all four tests |
 | ECG production-operator test | EXCLUDE FROM GENERIC FAST only via exact 2D manifest; related Drafts require `ecgAssetRenameOperatorTest`; complete `npm test` retains it |
 | taxonomy production-operator test | EXCLUDE FROM GENERIC FAST only via exact 2D manifest; related Drafts require `productionTaxonomyOperatorTest`; complete `npm test` retains it |
 
@@ -819,11 +867,11 @@ The defensible cleanup strategy is:
 3. introduce fast-tier infrastructure without reducing coverage initially;
 4. make CI change-aware for specialized checks;
 5. give production operators named conditional ownership;
-6. activate only the six reviewed specialized exclusions after those ownership prerequisites are proven;
+6. activate only the six reviewed specialized exclusions after their complete changed-path ownership is proven, including cross-boundary dependencies of excluded contracts;
 7. preserve intentional UX regressions while replacing brittle assertion forms where practical;
 8. consolidate duplicated source contracts;
 9. profile remaining runtime before trading away high-value coverage or adding exclusions.
 
-PR #115 remains Draft. It now contains the corrected first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, and Checkpoint 2D activation of exactly six safe specialized exclusions. Checkpoint 3 has not started. No broader behavioral rewrite, profiling work, application behavior change, schema/migration change, production mutation, seventh exclusion, or fast-tier latency claim was added by Checkpoint 2D.
+PR #115 remains Draft. It now contains the corrected first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, and Checkpoint 2D activation of exactly six safe specialized exclusions with the independent-review slide-review dependency correction. Checkpoint 3 has not started. No broader behavioral rewrite, profiling work, application behavior change, schema/migration change, production mutation, seventh exclusion, or fast-tier latency claim was added by Checkpoint 2D.
 
-Implementation run #1297 on head `bd93043bd112a0e96cc233ff99228a91fe863831` is the executable Checkpoint 2D evidence: 110 complete / 104 selected / 6 excluded; 628/628 fast-selected tests; 0 Svelte errors / 5 existing warnings; ECG 6/6; taxonomy 3/3; slide-review 23/23; slide-review build passed; repository CI validation passed. Runtime-smoke run #128 also passed. The final handoff additionally requires green exact-head Draft CI after these durable documentation updates.
+Corrective implementation run #1303 on head `4aa59b30b4197fba22240a61d76daa480b6902cf` is the executable post-review Checkpoint 2D evidence: 110 complete / 104 selected / 6 excluded; 629/629 fast-selected tests; 0 Svelte errors / 5 existing warnings; ECG 6/6; taxonomy 3/3; slide-review 23/23; slide-review build passed; repository CI validation passed. Runtime-smoke run #134 also passed. The final handoff additionally requires green exact-head Draft CI after these durable documentation updates.
