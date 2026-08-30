@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
@@ -76,10 +75,17 @@ function seed(fixture) {
   sqlite.exec("INSERT INTO case_questions (id, case_id, question_prompt_id, answer_md, is_active) VALUES ('cq-preview', 'case-preview', 'prompt-preview', 'E', 1)");
 }
 
-test('dashboard read model preserves production/inactive semantics and bounds Case summaries', async () => {
+/** @param {string[]} preparedSql @param {string} table */
+function queriesFrom(preparedSql, table) {
+  return preparedSql.filter((statement) => statement.includes(`from "${table}"`));
+}
+
+test('dashboard read model preserves production/inactive semantics and bounds Case summaries in SQL', async () => {
   const fixture = createLearningDb();
   try {
     seed(fixture);
+    fixture.preparedSql.length = 0;
+
     const summary = await getAdminDashboardSummary(fixture.db);
     assert.equal(summary.caseCount, 8);
     assert.equal(summary.questionCount, 4);
@@ -89,8 +95,18 @@ test('dashboard read model preserves production/inactive semantics and bounds Ca
     assert.deepEqual(summary.dashboardCases.map((item) => item.id), ['case-1', 'case-2', 'case-3', 'case-4', 'case-5', 'case-6']);
     assert.deepEqual(summary.dashboardCases[0], { id: 'case-1', title: 'Case 01', conceptName: 'Topic A' });
 
+    const caseQueries = queriesFrom(fixture.preparedSql, 'cases');
+    const caseSummaryQueries = caseQueries.filter((statement) => !/^\s*select\s+count\s*\(/i.test(statement));
+    assert.equal(caseSummaryQueries.length, 1, JSON.stringify(caseQueries));
+    assert.match(caseSummaryQueries[0], /\blimit\b/i, 'dashboard Case summaries must remain bounded by the database');
+
+    fixture.preparedSql.length = 0;
     const bounded = await getAdminDashboardSummary(fixture.db, { caseLimit: 2 });
     assert.equal(bounded.dashboardCases.length, 2);
+    const boundedCaseQueries = queriesFrom(fixture.preparedSql, 'cases');
+      .filter((statement) => !/^\s*select\s+count\s*\(/i.test(statement));
+    assert.equal(boundedCaseQueries.length, 1, JSON.stringify(boundedCaseQueries));
+    assert.match(boundedCaseQueries[0], /\blimit\b/i);
   } finally {
     fixture.sqlite.close();
   }
@@ -105,12 +121,9 @@ test('dashboard Question count remains a database-side aggregate instead of load
     const summary = await getAdminDashboardSummary(fixture.db);
     assert.equal(summary.questionCount, 4);
 
-    const questionQueries = fixture.preparedSql.filter((statement) => statement.includes('from "case_questions"'));
+    const questionQueries = queriesFrom(fixture.preparedSql, 'case_questions');
     assert.equal(questionQueries.length, 1, JSON.stringify(questionQueries));
-    assert.match(
-      questionQueries[0],
-      /^\s*select\s+count\(\*\)(?:\s+as\s+"count")?\s+from\s+"case_questions"/i
-    );
+    assert.match(questionQueries[0], /^\s*select\s+count\s*\(/i);
   } finally {
     fixture.sqlite.close();
   }
@@ -138,7 +151,7 @@ test('targeted production Case lookup returns one active Case with primary Topic
   }
 });
 
-test('Case editor read keeps its external model while using a bounded Case lookup', async () => {
+test('Case editor read keeps its external model while executing one bounded exact Case lookup', async () => {
   const fixture = createLearningDb();
   try {
     seed(fixture);
@@ -153,23 +166,18 @@ test('Case editor read keeps its external model while using a bounded Case looku
     assert.equal(data.case.questionSelectionMode, 'fixed');
     assert.equal(data.attached.length, 1);
     assert.deepEqual(data.available, []);
+
+    const caseQueries = queriesFrom(fixture.preparedSql, 'cases');
+    assert.equal(caseQueries.length, 1, `Case detail read executed unexpected Case-table queries: ${JSON.stringify(caseQueries)}`);
+    assert.match(caseQueries[0], /"cases"\."id"\s*=\s*\?/);
+    assert.match(caseQueries[0], /\blimit\b/i);
+
     assert.equal(await getAdminCaseData(fixture.db, 'case-off', { includeAvailable: false }), null);
     assert.equal(await getAdminCaseData(fixture.db, 'case-preview', { includeAvailable: false }), null);
     assert.equal(await getAdminCaseData(fixture.db, 'missing', { includeAvailable: false }), null);
-
-    const caseLookupSql = fixture.preparedSql.find((statement) => statement.includes('from "cases"') && statement.includes('limit'));
-    assert.ok(caseLookupSql, 'expected a bounded Case lookup');
-    assert.match(caseLookupSql, /"cases"\."id" = \?/);
   } finally {
     fixture.sqlite.close();
   }
-});
-
-test('getAdminCaseData does not reintroduce listAdminCases for a detail read', () => {
-  const source = readFileSync(new URL('../src/lib/server/db/case-assets.js', import.meta.url), 'utf8');
-  const detail = source.slice(source.indexOf('export async function getAdminCaseData'), source.indexOf('export async function attachAssetToCase'));
-  assert.doesNotMatch(detail, /listAdminCases\s*\(/);
-  assert.match(source, /export async function getAdminCaseById[\s\S]*?\.limit\(1\)/);
 });
 
 test('timing instrumentation preserves return values and failure semantics', async () => {
