@@ -65,7 +65,7 @@ At the audited baseline, Node discovery reached:
 
 Total audited baseline: 109 files.
 
-Checkpoint 2B adds `tests/ci-change-aware.test.js`, so the current PR head discovers 110 maintained files. Exact-head Draft CI run #1283 reported:
+Checkpoint 2B adds `tests/ci-change-aware.test.js`, so the current PR head discovers 110 maintained files. Implementation CI run #1283 reported:
 
 ```text
 complete=110
@@ -359,7 +359,7 @@ The same classifier result is used by `agent:checks` reporting and CI planning. 
 
 Focused contracts prove unrelated Draft, slide-review Draft, slide-review full/Ready deduplication, shared classifier authority, validation-tooling fail-safe behavior, actual three-dot feature-diff semantics, specialized reporter identity, workflow orchestration-only ownership, invalid configuration failure, and the continued empty exclusion set.
 
-Exact-head Draft CI on implementation head `0277911099b661699c202283559a5a9da53cf0e2` passed in run #1283. The log proved:
+Implementation head `0277911099b661699c202283559a5a9da53cf0e2` passed Draft CI run #1283. The log proved:
 
 - CI mode `fast`;
 - 44 PR-changed paths classified from the actual base/head feature diff;
@@ -371,7 +371,7 @@ Exact-head Draft CI on implementation head `0277911099b661699c202283559a5a9da53c
 - `slide-review:build`: passed and built `tools/slide-import-review/dist/index.html`;
 - repository CI validation passed.
 
-Exact-head Wrangler runtime smoke run #114 also passed. This work session used Remote GitHub mode; no local repository command execution is claimed.
+Wrangler runtime smoke run #114 on that implementation head also passed. This work session used Remote GitHub mode; no local repository command execution is claimed.
 
 No production/application/schema/domain code was changed for Checkpoint 2B. No production-operator specialized check was added and `FAST_TEST_EXCLUSIONS` remains empty.
 
@@ -502,7 +502,7 @@ excluded maintained tests
 
 Checkpoint 2B establishes the missing ordinary-CI change-aware mechanism. Slide-review-owned paths now require `slideReviewTest` and `slideReviewBuild` in ordinary CI, and full `test` structurally satisfies the specialized Node-test requirement without satisfying the specialized build.
 
-This still does **not** reduce generic Draft coverage. The exact-head implementation has 110 maintained files, 110 fast-selected files and zero exclusions.
+This still does **not** reduce generic Draft coverage. The implementation head has 110 maintained files, 110 fast-selected files and zero exclusions.
 
 ### Original static-exclusion proposal
 
@@ -668,3 +668,5 @@ The defensible cleanup strategy is:
 9. profile remaining runtime before trading away high-value coverage.
 
 PR #115 remains Draft. It now contains the corrected first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A zero-exclusion fast-test infrastructure, and Checkpoint 2B change-aware specialized CI. Checkpoints 2C/2D remain pending. `FAST_TEST_EXCLUSIONS` remains empty; no production-operator specialization, broader behavioral rewrite, profiling work, application behavior change, or schema/migration change was added by Checkpoint 2B.
+
+Final handoff must use the exact-head CI produced after these documentation updates; implementation run #1283 is the executable 2B evidence, not the final branch-head CI claim.
