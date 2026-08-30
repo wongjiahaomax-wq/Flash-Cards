@@ -280,6 +280,7 @@ test('production Case editor exposes simple pair curation without requiring fami
   assert.equal(evaluateExpression(alternativeDisabled, alternativeClear), false);
 
   const save = buttonByText(assignment.body, 'Save roles');
+  assert.equal(attribute(save, 'type'), 'submit');
   const saveDisabled = required(attribute(save, 'disabled'), 'Pair assignment must require both role choices.');
   /** @type {Record<string, unknown>} */
   const incompleteSelection = {};
@@ -319,6 +320,7 @@ test('curated image sets keep Original reassignment reachable through the canoni
   assert.equal(evaluateExpression(checked, { option: { id: 'option-a' }, group: { originalOptionId: 'option-a' } }), true);
   assert.equal(evaluateExpression(checked, { option: { id: 'option-b' }, group: { originalOptionId: 'option-a' } }), false);
   assert.match(curated.body, /Use as Original/);
+  assert.equal(attribute(buttonByText(curated.body, 'Save roles'), 'type'), 'submit');
 
   const branch = intentBlock(roleRouteSource, 'set-original');
   assert.match(
@@ -344,6 +346,10 @@ test('Always shown images can return to the single active image set as Alternati
   assert.equal(evaluateExpression(condition, { activeGroups: [{}, {}] }), false);
 
   assert.equal(
+    evaluateExpression(required(attribute(requiredInput(addAlternative.body, 'case_id'), 'value'), 'Missing Alternative Case ID.'), { selectedCase: { case: { id: 'case-a' } } }),
+    'case-a'
+  );
+  assert.equal(
     evaluateExpression(required(attribute(requiredInput(addAlternative.body, 'group_id'), 'value'), 'Missing Alternative target group.'), { activeGroups: [{ id: 'group-a' }] }),
     'group-a'
   );
@@ -351,7 +357,7 @@ test('Always shown images can return to the single active image set as Alternati
     evaluateExpression(required(attribute(requiredInput(addAlternative.body, 'asset_id'), 'value'), 'Missing Alternative Asset ID.'), { asset: { assetId: 'asset-a' } }),
     'asset-a'
   );
-  assert.match(addAlternative.body, />Make Alternative<\/button>/);
+  assert.equal(attribute(buttonByText(addAlternative.body, 'Make Alternative'), 'type'), 'submit');
 
   const branch = intentBlock(roleRouteSource, 'add-alternative');
   assert.match(
@@ -362,6 +368,7 @@ test('Always shown images can return to the single active image set as Alternati
 
 test('only non-Original options can move to Always shown through the canonical conversion route', () => {
   const moveButton = buttonByText(panelSource, 'Move to Always shown');
+  assert.equal(attribute(moveButton, 'type'), 'submit');
   const moveCondition = required(
     activeIfConditionsAt(panelSource, panelSource.indexOf(moveButton))
       .find((condition) => condition.includes('originalOptionId')) ?? null,
