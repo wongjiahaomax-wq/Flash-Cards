@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / Checkpoint 1 current-schema fixture normalization and the first source-contract consolidation tranche implemented in Draft PR #115
+Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, and the first source-contract consolidation tranche implemented in Draft PR #115
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization and the first corrected source-contract consolidation tranche described under Checkpoint 4. It does **not** implement the whole cleanup plan. Fast-tier selection, change-aware CI specialization, production-operator specialization, broader behavioral rewrites, profiling, and the remaining durable-guidance work are still pending.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A zero-exclusion fast-test selection infrastructure, and the first corrected source-contract consolidation tranche described under Checkpoint 4. It does **not** implement the whole cleanup plan. Change-aware CI specialization, production-operator specialization, activating fast exclusions, broader behavioral rewrites, profiling, and the remaining durable-guidance work are still pending.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -24,7 +24,7 @@ Audited baseline:
 - approximately 19.6 seconds for Node tests in GitHub Actions;
 - approximately 18.5 seconds for `npm run check`;
 - `npm test` is currently `node --test` and remains the canonical complete suite;
-- Draft `validate:fast` currently still runs the complete Node suite.
+- Draft `validate:fast` originally ran the complete Node suite through `npm test`; Checkpoint 2A now routes it through `npm run test:fast` with an empty exclusion set, so maintained-test coverage remains complete.
 
 ## 2. Hard constraints
 
@@ -225,7 +225,7 @@ These criteria are satisfied for the audited Checkpoint 1 target set. Implementa
 
 ## Checkpoint 2A — Introduce `test:fast` infrastructure with no coverage reduction
 
-**Status: pending. Not in the current PR #115 tranche.**
+**Status: implemented in Draft PR #115. Checkpoints 2B/2C/2D remain pending.**
 
 ### Objective
 
@@ -233,48 +233,56 @@ Create the selection mechanism safely before excluding anything.
 
 ### Package contract
 
-Add:
+Added:
 
 ```text
 npm run test:fast
 ```
 
-Keep:
+Kept:
 
 ```text
 npm test
 ```
 
-complete.
+complete and unchanged as `node --test`.
 
-Do not add `test:full` initially.
+No `test:full` alias was added.
 
 ### Selector architecture
 
-Use a central repository-owned selector, e.g. `scripts/test-selection.mjs` / `scripts/test-fast.mjs`.
+The central repository-owned implementation is:
 
-The selector should:
+```text
+scripts/test-selection.mjs
+scripts/test-fast.mjs
+```
 
-- discover maintained Node test files deterministically;
-- default new ordinary tests into fast;
-- support a small explicit exclusion manifest;
-- fail if an exclusion names a missing file;
-- expose selected/excluded paths for diagnostics/tests;
-- avoid filename-category inference.
+Maintained Node tests are discovered repository-wide by the repository's current `.test.js` JavaScript convention, with `.test.mjs`/`.test.cjs` supported consistently. Generated/dependency directories are ignored and helper modules such as `test/current-schema.js` are not treated as maintained test files. Discovery is deterministic and does not hard-code today's test-file list or directory allow-list.
+
+The selector:
+
+- discovers maintained Node test files deterministically;
+- defaults new ordinary `.test` JavaScript files into fast;
+- owns one explicit exact-path exclusion manifest, `FAST_TEST_EXCLUSIONS`;
+- fails if an exclusion names a missing maintained test;
+- rejects duplicate exclusions;
+- exposes complete, selected and excluded paths for diagnostics/tests;
+- does not infer exclusions from filenames or categories.
 
 ### Important rollout rule
 
-At the end of **2A**, the exclusion manifest may be empty.
+Checkpoint 2A intentionally keeps:
 
-`test:fast` is allowed to execute the same tests as `npm test` initially.
+```text
+FAST_TEST_EXCLUSIONS = []
+```
 
-That is intentional: the goal of 2A is to prove selection/default semantics without reducing coverage.
+Therefore `npm run test:fast` currently selects every maintained Node test discovered by the selector. This checkpoint claims **zero coverage reduction** and no performance improvement.
 
 ### Validation integration
 
-Add a distinct fast Node check to `scripts/validation-contract.mjs`.
-
-Base composition becomes conceptually:
+`scripts/validation-contract.mjs` now owns a distinct `testFast` check:
 
 ```text
 fast:
@@ -291,28 +299,37 @@ full:
   authSmoke
 ```
 
-Workflow YAML remains orchestration only.
+Fast/Draft validation executes `npm run test:fast`. Full/Ready validation continues to execute complete `npm test`.
 
-`validate-ci.mjs` must preserve the current compact reporter behavior for both `test` and `testFast`.
+`.github/workflows/ci.yml` remains unchanged and orchestration-only.
+
+`scripts/validate-ci.mjs` attaches the structured Node reporter to both `test` and `testFast`. `scripts/test-fast.mjs` passes fast-check identity/reproduction metadata through to the existing reporter so connector-readable failure records remain attributable to `testFast` and reproduce with `npm run test:fast`.
 
 ### Contract tests
 
-Prove:
+Checkpoint 2A adds/updates contracts proving:
 
-- every fast-selected test belongs to complete discovery;
-- every exclusion exists;
-- every discovered maintained test is fast or explicitly excluded;
-- a new ordinary test defaults to fast;
-- `npm test` remains complete;
-- full uses `npm test`;
-- workflow YAML contains no duplicated file list.
+- every fast-selected test belongs to complete maintained discovery;
+- every configured exclusion must exist;
+- every discovered maintained test is selected or explicitly excluded;
+- a newly discovered ordinary `.test.js` file enters fast automatically without an allow-list edit;
+- empty real exclusions make selected maintained tests equal complete maintained tests;
+- ordering is deterministic;
+- `npm test` remains exactly `node --test`;
+- fast validation uses `testFast` / `npm run test:fast`;
+- full validation still uses `test` / `npm test`;
+- both Node checks receive structured reporter treatment;
+- fast reporter records retain `testFast` identity/repro information;
+- workflow YAML does not own test paths or exclusions.
 
 ### Acceptance criteria
 
-- zero coverage reduction is acceptable and preferred at this stage;
-- complete semantics unchanged;
-- default-to-fast behavior proven;
-- repository remains green.
+- zero coverage reduction is intentional at this stage;
+- complete semantics remain unchanged;
+- default-to-fast behavior is contract-tested;
+- no specialized test has been removed from generic Draft coverage;
+- no change-aware CI or production-operator specialization has been implemented;
+- repository validation and exact-head Draft CI are required before handoff.
 
 ---
 
@@ -841,17 +858,17 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization plus the corrected first source-contract consolidation tranche under Checkpoint 4. Do not infer that later checkpoints have started merely because their design remains documented here.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A zero-exclusion fast-test selection infrastructure, and the corrected first source-contract consolidation tranche under Checkpoint 4. Do not infer that later checkpoints have started merely because their design remains documented here.
 
-### Completed fixture foundation
+### Completed fixture and selection foundation
 
-Checkpoint 1 — current-schema fixture normalization — is complete for the audited target set.
+- Checkpoint 1 — current-schema fixture normalization — is complete for the audited target set.
+- Checkpoint 2A — selector/runner/validation wiring with zero exclusions — is implemented and leaves maintained Draft coverage complete.
 
-### Next safe fast-tier infrastructure
+### Next safe fast-tier work
 
 Checkpoints:
 
-- 2A — selector, no coverage reduction;
 - 2B — CI change-aware specialized execution;
 - 2C — named production-operator checks;
 - 2D — activate only proven-safe exclusions.
@@ -884,7 +901,7 @@ Specific gates:
 
 **Checkpoint 1:** satisfied for the audited target set: unsupported ordinary partial-schema fixtures were normalized, genuine migration fixtures were retained deliberately, and the implementation head passed repository-owned Draft validation.
 
-**Checkpoint 2A:** new tests default fast; no coverage reduction yet.
+**Checkpoint 2A:** implementation now defaults new ordinary tests into fast, keeps the explicit exclusion set empty, preserves full `npm test`, and keeps Draft maintained-test coverage complete. Exact-head Draft CI remains the handoff gate.
 
 **Checkpoint 2B:** related specialized changes demonstrably trigger specialized checks in ordinary CI.
 
