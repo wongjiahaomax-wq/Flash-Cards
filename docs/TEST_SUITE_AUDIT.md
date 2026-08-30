@@ -669,4 +669,4 @@ The defensible cleanup strategy is:
 
 PR #115 remains Draft. It now contains the corrected first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A zero-exclusion fast-test infrastructure, and Checkpoint 2B change-aware specialized CI. Checkpoints 2C/2D remain pending. `FAST_TEST_EXCLUSIONS` remains empty; no production-operator specialization, broader behavioral rewrite, profiling work, application behavior change, or schema/migration change was added by Checkpoint 2B.
 
-Final handoff must use the exact-head CI produced after these documentation updates; implementation run #1283 is the executable 2B evidence, not the final branch-head CI claim.
+The principal handoff requires green exact-head CI after these durable documentation updates; implementation run #1283 is the executable 2B evidence, not the final branch-head CI claim.
