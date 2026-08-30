@@ -17,6 +17,7 @@ const IGNORED_DIRECTORIES = new Set([
 /**
  * Explicit fast-suite exclusions. Checkpoint 2A intentionally keeps this empty.
  * Future entries must be exact repository-relative maintained test paths.
+ * @type {readonly string[]}
  */
 export const FAST_TEST_EXCLUSIONS = Object.freeze([]);
 
