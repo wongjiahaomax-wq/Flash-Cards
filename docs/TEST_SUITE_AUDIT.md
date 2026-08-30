@@ -1,10 +1,10 @@
 # Test Suite Audit
 
-Status: audit complete / Checkpoint 4 source-contract consolidation/review, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe exclusion activation, Checkpoint 3 intentional UX regression review, and all five bounded Checkpoint 5 behavioral rewrites implemented in Draft PR #115: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety
+Status: audit complete / Checkpoint 4 source-contract consolidation/review, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe exclusion activation, Checkpoint 3 intentional UX regression review, and all five bounded Checkpoint 5 behavioral rewrites implemented and independently corrected in Draft PR #115: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety
 
 This document is the durable evidence record for PR #115. It audits the repository-wide Node test suite, `npm run check`, and the repository-owned validation architecture. The audit/planning work is complete, and this document now also records completed Checkpoint 4 source-contract consolidation/review, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator checks, Checkpoint 2D activation of the six approved specialized exclusions plus the independent-review correction to slide-review production dependency ownership, Checkpoint 3 review of the two intentional UX regression contracts, and all five bounded Checkpoint 5 rewrites in the same Draft PR: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety.
 
-Those implementations remain intentionally bounded. Checkpoint 2D reduces generic unrelated-Draft fast selection by exactly six maintained specialized files while retaining complete `npm test` coverage and central related-Draft specialized ownership. Checkpoint 3 retains both intentional UX regression contracts because the repository has no cheap layout-capable rendered test layer that would provide a stronger owner; independent review then required a narrow hardening of the horizontal-overflow source assertion so the retained owner cannot false-green on a declaration in another CSS rule. Checkpoint 4 is complete for the audited primary source/UI inventory after five bounded consolidation tranches plus the separate Stimulus Family façade `RETAIN` review. Checkpoint 5 is now complete after five bounded subsystem rewrites: responsive Case-editor composition, Case Images information architecture, Stimulus curation controls, performance/read-model query ownership, and reusable-image safety. Additional exclusions and profiling remain separate later work.
+Those implementations remain intentionally bounded. Checkpoint 2D reduces generic unrelated-Draft fast selection by exactly six maintained specialized files while retaining complete `npm test` coverage and central related-Draft specialized ownership. Checkpoint 3 retains both intentional UX regression contracts because the repository has no cheap layout-capable rendered test layer that would provide a stronger owner; independent review then required a narrow hardening of the horizontal-overflow source assertion so the retained owner cannot false-green on a declaration in another CSS rule. Checkpoint 4 is complete for the audited primary source/UI inventory after five bounded consolidation tranches plus the separate Stimulus Family façade `RETAIN` review. Checkpoint 5 is complete after five bounded subsystem rewrites and the final independent-review correction described below. Additional exclusions and profiling remain separate later work.
 
 The implementation contract is `docs/NODE_TEST_SUITE_CLEANUP_PLAN.md`.
 
@@ -24,22 +24,13 @@ The audited baseline is broad but mostly valuable:
 - Checkpoint 3 reviewed the Shared Questions width and application horizontal-overflow regressions and retained both source contracts because no practical stronger cheap/reliable layout owner exists in the repository; independent review then hardened the horizontal-overflow assertion to ensure the required declaration is actually inside the `body` rule;
 - Checkpoint 4 completed five bounded source/UI consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review, removing only assertions with demonstrably stronger owners or incidental implementation detail while preserving distinct UI/architecture reachability;
 - Checkpoint 5 completed five bounded behavioral rewrites: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety;
+- the final independent Checkpoint 5 review found three false-green ownership paths in the two UI-oriented owners, all corrected test-only: reusable mutation forms are now checked across every matching form with branch-aware Svelte `{:else if}`/`{:else}` handling; ordinary and assigned Case-image card branches each prove their own linked Q&A data flow; and the actual visible Manage-questions button now owns its option-editor target and callback;
 - the reusable-image tranche moves production scope, exact Case/Asset identity, safe opt-in removal, fixed-image conversion atomicity and D1 defense-in-depth to executable current-schema owners, while preserving production form/action reachability, exact serialization/delegation, Preview mutation-surface absence, manager context, Manage-questions focus, semantic count vocabulary and inactive-review presentation as thin source/data-flow owners;
 - Ready/non-Draft `validate:full` continues to run complete `npm test` plus the repository's additional full checks, with structural deduplication for specialized Node coverage already satisfied by complete `test`.
 
 The original audit hypothesis was only partly correct. There is a meaningful cluster of brittle source-level UI contracts, but source-reading itself is not the problem. Several source/configuration contracts protect real architectural or operational boundaries and should remain.
 
-Seven corrections from independent review materially changed the recommended plan:
-
-1. **Static `test:fast` exclusions were unsafe before change-aware CI ownership existed.** Checkpoint 2B closed the ordinary-CI execution gap for existing slide-review specialization. Checkpoint 2C closed the corresponding ownership gap for the two production-operator tests. Checkpoint 2D activates only those six independently approved files after the ownership prerequisites were accepted.
-2. **Slide-review's specialized ownership crosses the tooling-directory boundary.** Independent review of the first 2D implementation found that excluded `tools/slide-import-review/tests/core.test.js` directly imports `src/lib/server/import/content-package.js`, `src/lib/server/import/reviewed-content-package.js`, and `src/lib/server/storage/media.js` to synchronize production limits and verify finalizer compatibility with production parsers. Those exact production files therefore require `slideReviewTest` even though they are outside `tools/slide-import-review/**`; they do not require `slideReviewBuild`.
-3. **The two proposed unconditional UI-test removals were over-classified.** Both were introduced alongside deliberate UX fixes and protect intentional regression outcomes, albeit through brittle source assertions. Checkpoint 3 investigated whether stronger practical owners now exist and found none: the repository has no browser/layout-capable test infrastructure, and nearby responsive/UI contracts remain source-level. Both tests are therefore retained rather than replaced by weaker pseudo-rendered assertions or retired without a product decision. Independent review then identified one precision defect in the retained horizontal-overflow owner; that source contract was tightened in-place rather than replacing it with weaker infrastructure.
-4. **A thinner source contract still has to prove the actual UI/action boundary.** Two review passes over the Admin Topic/System consolidation found six false-green paths. The corrected source owner now protects those exact reachability/wiring boundaries while direct DB tests continue to own mutation semantics.
-5. **Executable plan ownership can replace source-text duplication without retiring the wrapper boundary.** The Wrangler review moved local-preview plan semantics to `test/local-runtime.test.js` while retaining a thin wrapper/dependency authority contract.
-6. **Preview parity needs composition and adapter reachability, not duplicate component vocabulary.** Dedicated reusable-image tests own the duplicated image-question UI semantics; the parity contract keeps real production-editor composition and Preview action/data/form/scope reachability.
-7. **Preview deployment architecture and production data isolation have different strongest owners.** Deployment/auth/route safety remains a source/configuration contract; production Question/Image/Topic/Tag/dashboard isolation is owned by direct executable DB behavior.
-
-Checkpoint 5 applies the same rule subsystem-by-subsystem: pure semantics move to executable owners, while source/data-flow checks remain only where they protect distinct user-visible composition, form/action reachability, or architecture that no cheaper stronger layer currently owns.
+The recurring independent-review lesson is that a thinner source contract must still prove the exact boundary it claims to own. That applies both across files/actions and within Svelte control-flow/card branches: global source fragments or a single safe duplicate are not enough when the invariant is production-only reachability or branch-specific rendering.
 
 ## 2. Current validation architecture
 
@@ -71,7 +62,7 @@ test/ecg-batch-01-asset-rename.test.js
 test/production-taxonomy-operator.test.js
 ```
 
-No seventh exclusion was added by Checkpoint 5.
+No seventh exclusion was added by Checkpoint 5 or its independent-review correction.
 
 ### Svelte/compiler checks
 
@@ -108,7 +99,7 @@ Specialized checks continue to be added centrally from the actual PR feature dif
 
 The audited green baseline was approximately 19.6 seconds for Node tests and approximately 18.5 seconds for `npm run check`.
 
-Checkpoint 2D established a real file-selection reduction from 110 selected / 0 excluded to 104 selected / 6 excluded. Checkpoint 5's implementation runs varied materially without any controlled profiling: for example, CI #1366 reported about 14.77 seconds for 630 fast tests, CI #1370 about 15.00 seconds for 629 tests, and final exact-head CI #1372 about 20.51 seconds for the same 629-test fast suite. These are not comparable measurement runs and are **not** evidence of a material speedup.
+Checkpoint 2D established a real file-selection reduction from 110 selected / 0 excluded to 104 selected / 6 excluded. Checkpoint 5's implementation runs varied materially without any controlled profiling: for example, CI #1366 reported about 14.77 seconds for 630 fast tests, CI #1370 about 15.00 seconds for 629 tests, CI #1372 about 20.51 seconds for 629 tests, and independent-review corrective CI #1375 about 19.59 seconds for the same 629-test fast suite. These are not comparable measurement runs and are **not** evidence of a material speedup.
 
 Checkpoint 6 therefore remains pending and requires at least three comparable runs with median analysis before any latency claim or additional exclusion.
 
@@ -128,7 +119,7 @@ The durable hierarchy is:
 4. thin source/data-flow ownership when UI wiring or architecture itself is the invariant and no stronger cheap rendered owner exists;
 5. raw implementation text only when no stronger practical owner exists and the regression remains important.
 
-Domain behavior does not automatically replace distinct UI reachability, workflow wiring, architecture, or semantic product vocabulary.
+Domain behavior does not automatically replace distinct UI reachability, workflow wiring, architecture, or semantic product vocabulary. Conversely, a source/data-flow owner is only valid when it proves the exact active branch/control/form/card boundary rather than merely finding compatible fragments somewhere in the file.
 
 ## 6. Completed Checkpoint 4 source-contract consolidation
 
@@ -152,7 +143,7 @@ Key outcomes:
 
 ### Second bounded tranche — Case Images
 
-`test/case-images-editor-layout.test.js` leaves deep role/reusable semantics under DB/helper owners while executing actual role/anchor expressions and retaining learner-visible role/Q&A composition, Advanced role-workflow reachability and the canonical `#images` handoff. Self-review ties role and Q&A construction back to rendered card consumption so dead source cannot false-green.
+`test/case-images-editor-layout.test.js` leaves deep role/reusable semantics under DB/helper owners while executing actual role/anchor expressions and retaining learner-visible role/Q&A composition, Advanced role-workflow reachability and the canonical `#images` handoff. The final independent-review correction isolates the `ordinaryImages` and `assignedImages` `{#each}` branches separately and requires each branch to construct its own `imageQuestions`, gate/render its own `.image-questions` container, iterate that collection, and visibly consume scope/Prompt/Answer/Q/A. An ordinary-image Q&A block can therefore no longer mask removal of assigned Original/Alternative Q&A.
 
 ### Third bounded tranche — Stimulus curation
 
@@ -186,44 +177,38 @@ Protected safety/product invariants:
 - Case-specific versus Reusable Image Question vocabulary remains tied to visible counts/content;
 - Compact audit participation derives from live Family, option and Asset activity and visibly marks non-participating content inactive.
 
-The target now directly executes current-schema behavior through `createAssetQuestion`, `optInAssetQuestion`, `optInFixedAssetQuestion`, `removeAssetQuestionOptIn`, `setAssetQuestionActive`, `listCaseImageQuestionSummaries`, `createStimulusGroup` and `addStimulusOption`, plus the current D1 triggers. Raw source checks over loader SQL/filter/order details and generic helper-symbol bans are removed where executable behavior is stronger.
+The target directly executes current-schema behavior through `createAssetQuestion`, `optInAssetQuestion`, `optInFixedAssetQuestion`, `removeAssetQuestionOptIn`, `setAssetQuestionActive`, `listCaseImageQuestionSummaries`, `createStimulusGroup` and `addStimulusOption`, plus the current D1 triggers. Raw source checks over loader SQL/filter/order details and generic helper-symbol bans are removed where executable behavior is stronger.
 
 Thin source/data-flow ownership remains only for the distinct production form/action reachability, exact serialized fields and writer mapping, Preview action absence, manager context, option-editor target/focus behavior, semantic ownership vocabulary and inactive-review presentation.
 
 Self-review sequence:
 
 1. initial rewrite head `1d42ac9cd60c84ec8f8e2f30ca0ef2713733b048` moved principal production scope/identity/conversion/removal semantics into executable current-schema behavior and passed CI #1369/runtime-smoke #196;
-2. final review found create/edit route-delegation and direct D1 defense-in-depth gaps. Hardened head `1b3c124ffc3b81c083e6a1da48ba5d021505c4ec` added scoped create/save writer assertions and direct Preview-backing/exact-Asset trigger execution, then passed CI #1370/runtime-smoke #197.
+2. final self-review found create/edit route-delegation and direct D1 defense-in-depth gaps. Hardened head `1b3c124ffc3b81c083e6a1da48ba5d021505c4ec` added scoped create/save writer assertions and direct Preview-backing/exact-Asset trigger execution, then passed CI #1370/runtime-smoke #197.
 
-The fast assertion count decreased from 630 to 629 through consolidation inside the existing maintained target. Maintained-file discovery and the 104/6 fast-selection boundary are unchanged.
+Independent review then found two reusable-owner false-green paths plus the Case Images Q&A gap described above:
 
-No production component, route, DB/domain implementation, schema/migration, workflow, validation architecture, fast exclusion, browser dependency, application behavior, deployment, or production resource changed in this tranche.
+1. `activeIfConditionsAt()` understood only `{#if}`/`{/if}`, so a mutation form moved into an `{:else}` branch could still appear to be guarded by `!previewMode`; the form helper also checked only the first form for each action. The corrected owner uses branch-aware `{#if}` / `{:else if}` / `{:else}` / `{/if}` tracking and validates **every** matching create/edit/reuse/remove form, so a safe first form cannot mask an unguarded duplicate;
+2. Manage-questions reachability was previously assembled from unrelated file-wide fragments. The corrected owner locates the actual visible option-card toggle button and requires that same control to carry the Manage/Close label expression, exact `aria-controls` target, `aria-expanded` state and `onclick={() => selectOption(option.id)}` callback before separately verifying the target section and tick/scroll/focus handler.
 
-### Exact Checkpoint 5 completion gate
-
-Final documentation-reconciled head:
+The independent-review correction changed only:
 
 ```text
-3c53e7c2393cf94dd8a72e3fe97be6f9036829bb
+test/reusable-image-question-card-counts.test.js
+test/case-images-editor-layout.test.js
 ```
 
-Draft CI **#1372** passed on that exact head:
+Test-only corrective head `fb6d34b0c282168b061cc580ab484108c191bfab` passed Draft CI #1375 with **110 maintained / 104 selected / 6 excluded, 629/629 fast Node tests, 0 Svelte errors / 5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build**; runtime-smoke #202 passed.
 
-- maintained Node files: **110**;
-- fast selected: **104**;
-- excluded: **6**;
-- fast Node tests: **629/629 passed**;
-- fast Node duration: about **20.51 seconds** — not profiling evidence;
-- Svelte: **0 errors, 5 existing warnings**;
-- ECG operator: **6/6 passed**;
-- production taxonomy operator: **3/3 passed**;
-- slide-review: **23/23 passed**;
-- slide-review build: passed;
-- repository CI validation passed.
+The fast assertion count remains 629 and the maintained-file discovery / 104-selected / 6-excluded boundary is unchanged.
 
-Wrangler runtime-smoke **#199** also passed on the exact head.
+No production component, route, DB/domain implementation, schema/migration, workflow, validation architecture, fast exclusion, browser dependency, application behavior, deployment, or production resource changed in Checkpoint 5 or its independent-review correction.
 
-**Checkpoint 5 is complete.**
+### Checkpoint 5 completion gate
+
+The test-only independent-review correction is green at `fb6d34b0c282168b061cc580ab484108c191bfab` (CI #1375 / runtime-smoke #202). The final gate is repository-owned CI and runtime-smoke on the documentation-reconciled PR head after this audit update. This document intentionally does not embed that future head SHA, so recording the evidence cannot invalidate the head it describes.
+
+Checkpoint 5 is complete once that exact documentation-reconciled head is green and receives the intended independent acceptance. Checkpoint 6 remains separate and has not started.
 
 ## 8. High-value coverage that must remain effective
 
@@ -278,10 +263,10 @@ agent:checks
 | deliberate architecture/source contracts | KEEP |
 | Checkpoint 4 source/UI candidates | COMPLETE: consolidated, reclassified, or explicitly retained |
 | Case-editor responsive | CHECKPOINT 5 COMPLETE: executable helper semantics + thin composition/layout owner |
-| Case Images | CHECKPOINT 5 COMPLETE: deep DB/helper semantics + thin visible composition/workflow owner |
+| Case Images | CHECKPOINT 5 COMPLETE: deep DB/helper semantics + branch-specific visible composition/workflow owner after independent correction |
 | Stimulus curation | CHECKPOINT 5 COMPLETE: DB-backed role semantics + thin production control/data-flow owner |
 | performance/read-model | CHECKPOINT 5 COMPLETE: observable SQL/bind/consumer behavior replaces helper/source-name ownership |
-| reusable-image safety | CHECKPOINT 5 COMPLETE: current-schema loader/helper/D1 behavior owns deep safety; thin form/route/UI owner retains reachability and semantic presentation |
+| reusable-image safety | CHECKPOINT 5 COMPLETE: current-schema loader/helper/D1 behavior owns deep safety; branch-aware all-form Preview isolation and actual Manage-questions control own the surviving UI reachability |
 | Shared Questions width regression | RETAINED IN CHECKPOINT 3 |
 | application horizontal-overflow regression | RETAINED/HARDENED IN CHECKPOINT 3 |
 | slide-review tests | exactly four specialized fast omissions with central related-change ownership; complete `npm test` retains them |
@@ -319,7 +304,7 @@ The defensible cleanup sequence is now established and implemented through Check
 6. exactly six safe specialized fast omissions;
 7. explicit retention/hardening of intentional UX regressions;
 8. bounded source-contract consolidation around demonstrably stronger owners;
-9. five bounded behavioral rewrites around the strongest cheap owners, preserving distinct UI/route/architecture reachability;
-10. only now proceed to separate Checkpoint 6 profiling/measurement before considering any further exclusion or latency claim.
+9. five bounded behavioral rewrites around the strongest cheap owners, preserving distinct UI/route/architecture reachability and hardened after independent review against branch/duplicate/control false greens;
+10. only after the exact documentation-reconciled completion gate and independent acceptance proceed to separate Checkpoint 6 profiling/measurement before considering any further exclusion or latency claim.
 
-PR #115 remains Draft. Checkpoint 4 and Checkpoint 5 are complete for their audited inventories. Final exact head `3c53e7c2393cf94dd8a72e3fe97be6f9036829bb` passed Draft CI #1372 and runtime-smoke #199. Checkpoint 6 has **not** started. No seventh exclusion, application/domain behavior change, schema/migration change, deployment, production mutation, or performance claim is part of this completion gate.
+PR #115 remains Draft. Checkpoint 4 is complete. Checkpoint 5's five implementation families plus the final independent-review corrective tranche are complete and test-only correction head `fb6d34b0c282168b061cc580ab484108c191bfab` passed Draft CI #1375 and runtime-smoke #202. The remaining completion action is the exact-head gate after this documentation reconciliation. Checkpoint 6 has **not** started. No seventh exclusion, application/domain behavior change, schema/migration change, deployment, production mutation, or performance claim is part of this gate.
