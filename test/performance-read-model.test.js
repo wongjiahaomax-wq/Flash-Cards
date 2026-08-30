@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { getAdminDashboardSummary } from '../src/lib/server/db/admin-dashboard.js';
-import { getAdminCaseById, getAdminCaseData } from '../src/lib/server/db/case-assets.js';
+import { getAdminCaseData } from '../src/lib/server/db/case-assets.js';
 import { createDb } from '../src/lib/server/db/index.js';
 import { serverTimingValue, withServerReadTiming } from '../src/lib/server/performance-timing.js';
 import { applyCurrentSchema } from './current-schema.js';
@@ -139,29 +139,7 @@ test('dashboard Question count remains a database-side aggregate instead of load
   }
 });
 
-test('targeted production Case lookup returns one active Case with primary Topic and settings', async () => {
-  const fixture = createLearningDb();
-  try {
-    seed(fixture);
-    const row = await getAdminCaseById(fixture.db, 'case-1');
-    assert.deepEqual(row, {
-      id: 'case-1',
-      title: 'Case 01',
-      vignetteMd: 'Stem 1',
-      questionSelectionMode: 'fixed',
-      questionCount: 3,
-      conceptId: 'topic-a',
-      conceptName: 'Topic A'
-    });
-    assert.equal(await getAdminCaseById(fixture.db, 'case-off'), null);
-    assert.equal(await getAdminCaseById(fixture.db, 'case-preview'), null);
-    assert.equal(await getAdminCaseById(fixture.db, 'missing'), null);
-  } finally {
-    fixture.sqlite.close();
-  }
-});
-
-test('Case editor read keeps its external model while executing one bounded exact Case lookup', async () => {
+test('Case editor read preserves its external model while executing one bounded exact Case lookup', async () => {
   const fixture = createLearningDb();
   try {
     seed(fixture);
@@ -171,9 +149,15 @@ test('Case editor read keeps its external model while executing one bounded exac
 
     const data = await getAdminCaseData(fixture.db, 'case-1', { includeAvailable: false });
     assert.ok(data);
-    assert.equal(data.case.id, 'case-1');
-    assert.equal(data.case.conceptId, 'topic-a');
-    assert.equal(data.case.questionSelectionMode, 'fixed');
+    assert.deepEqual(data.case, {
+      id: 'case-1',
+      title: 'Case 01',
+      vignetteMd: 'Stem 1',
+      questionSelectionMode: 'fixed',
+      questionCount: 3,
+      conceptId: 'topic-a',
+      conceptName: 'Topic A'
+    });
     assert.equal(data.attached.length, 1);
     assert.deepEqual(data.available, []);
 
