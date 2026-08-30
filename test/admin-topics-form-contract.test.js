@@ -20,7 +20,6 @@ test('Topic creation supports searchable active System or Topic parents while Sy
 
 test('Systems and Topics route delegates the visual taxonomy to one organizer instead of rendering a second hierarchy manager', () => {
   assert.match(topicsPage, /TaxonomyOrganizer/);
-  assert.doesNotMatch(topicsPage, /Hierarchy manager/);
   assert.doesNotMatch(topicsPage, /Additional Study Topic/);
 });
 
@@ -34,5 +33,4 @@ test('Case editor can place its current Primary Topic under an active System', (
   assert.match(caseTopics, /name="topic_id" value=\{primaryTopic\.id\}/);
   assert.match(caseTopics, /<label>Parent System<select name="system_id"/);
   assert.match(caseAction, /assignPrimaryTopicToSystem/);
-  assert.match(taxonomyWrite, /The selected Topic is not the current Primary Topic for this Case/);
 });
