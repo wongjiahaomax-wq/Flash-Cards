@@ -1,10 +1,10 @@
 # Test Suite Audit
 
-Status: audit complete / first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, and Checkpoint 2D safe exclusion activation implemented in Draft PR #115
+Status: audit complete / first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe exclusion activation, and Checkpoint 3 intentional UX regression review implemented in Draft PR #115
 
-This document is the durable evidence record for PR #115. It audits the repository-wide Node test suite, `npm run check`, and the repository-owned validation architecture. The audit/planning work is complete, and this document now also records the first implemented source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator checks, and Checkpoint 2D activation of the six approved specialized exclusions plus the independent-review correction to slide-review production dependency ownership in the same Draft PR.
+This document is the durable evidence record for PR #115. It audits the repository-wide Node test suite, `npm run check`, and the repository-owned validation architecture. The audit/planning work is complete, and this document now also records the first implemented source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator checks, Checkpoint 2D activation of the six approved specialized exclusions plus the independent-review correction to slide-review production dependency ownership, and Checkpoint 3 review of the two intentional UX regression contracts in the same Draft PR.
 
-Those implementations remain intentionally bounded. Checkpoint 2D reduces generic unrelated-Draft fast selection by exactly six maintained specialized files while retaining complete `npm test` coverage and central related-Draft specialized ownership. Broader behavioral rewrite, additional exclusions, and profiling remain pending.
+Those implementations remain intentionally bounded. Checkpoint 2D reduces generic unrelated-Draft fast selection by exactly six maintained specialized files while retaining complete `npm test` coverage and central related-Draft specialized ownership. Checkpoint 3 retains both intentional UX regression contracts because the repository has no cheap layout-capable rendered test layer that would provide a stronger owner. Broader behavioral rewrite, additional exclusions, and profiling remain pending.
 
 The implementation contract is `docs/NODE_TEST_SUITE_CLEANUP_PLAN.md`.
 
@@ -21,6 +21,7 @@ The audited baseline is broad but mostly valuable:
 - Checkpoint 2B makes ordinary CI consume centrally classified specialized requirements from the actual PR feature diff;
 - Checkpoint 2C gives the ECG Batch 01 Asset rename and agreed taxonomy production-operator tests explicit repository-owned named checks and exact changed-path ownership;
 - Checkpoint 2D activates exactly six approved specialized exclusions from generic unrelated-Draft `test:fast`; corrective implementation CI discovered 110 maintained files, selected 104 and excluded six;
+- Checkpoint 3 reviewed the Shared Questions width and application horizontal-overflow regressions and retained both existing source contracts because no practical stronger cheap/reliable layout owner exists in the repository;
 - Ready/non-Draft `validate:full` continues to run complete `npm test` plus the repository's additional full checks, with structural deduplication for specialized Node coverage already satisfied by complete `test`.
 
 The original audit hypothesis was only partly correct. There is a meaningful cluster of brittle source-level UI contracts, but source-reading itself is not the problem. Several source/configuration contracts protect real architectural or operational boundaries and should remain.
@@ -29,9 +30,9 @@ Three corrections from independent review materially changed the recommended pla
 
 1. **Static `test:fast` exclusions were unsafe before change-aware CI ownership existed.** Checkpoint 2B closed the ordinary-CI execution gap for existing slide-review specialization. Checkpoint 2C closed the corresponding ownership gap for the two production-operator tests. Checkpoint 2D activates only those six independently approved files after the ownership prerequisites were accepted.
 2. **Slide-review's specialized ownership crosses the tooling-directory boundary.** Independent review of the first 2D implementation found that excluded `tools/slide-import-review/tests/core.test.js` directly imports `src/lib/server/import/content-package.js`, `src/lib/server/import/reviewed-content-package.js`, and `src/lib/server/storage/media.js` to synchronize production limits and verify finalizer compatibility with production parsers. Those exact production files therefore require `slideReviewTest` even though they are outside `tools/slide-import-review/**`; they do not require `slideReviewBuild`.
-3. **The two proposed unconditional UI-test removals were over-classified.** Both were introduced alongside deliberate UX fixes and protect intentional regression outcomes, albeit through brittle source assertions. They must be rewritten, retained, or consciously retired after confirming the product invariant; they are not automatic deletions.
+3. **The two proposed unconditional UI-test removals were over-classified.** Both were introduced alongside deliberate UX fixes and protect intentional regression outcomes, albeit through brittle source assertions. Checkpoint 3 investigated whether stronger practical owners now exist and found none: the repository has no browser/layout-capable test infrastructure, and nearby responsive/UI contracts remain source-level. Both tests are therefore retained rather than replaced by weaker pseudo-rendered assertions or retired without a product decision.
 
-PR #115 has implemented the first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A's selection architecture, Checkpoint 2B's central change-aware specialized-CI mechanism, Checkpoint 2C's named production-operator ownership, and Checkpoint 2D's six safe specialized omissions with the corrected slide-review production dependency boundary. Independent review of the consolidation tranche confirmed the core consolidation principle but also showed that domain/model coverage is not automatically a replacement for UI reachability. The corrected tranche therefore keeps thin UI/data-flow owners for Case Images information architecture, post-curation Original reassignment, the unified taxonomy staged-review/apply flow, and Case Library workflow wiring while leaving deep semantics under stronger helper/model/server/DB tests.
+PR #115 has implemented the first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A's selection architecture, Checkpoint 2B's central change-aware specialized-CI mechanism, Checkpoint 2C's named production-operator ownership, Checkpoint 2D's six safe specialized omissions with the corrected slide-review production dependency boundary, and Checkpoint 3's explicit retention review for the two intentional UX regressions. Independent review of the consolidation tranche confirmed the core consolidation principle but also showed that domain/model coverage is not automatically a replacement for UI reachability. The corrected tranche therefore keeps thin UI/data-flow owners for Case Images information architecture, post-curation Original reassignment, the unified taxonomy staged-review/apply flow, and Case Library workflow wiring while leaving deep semantics under stronger helper/model/server/DB tests.
 
 Checkpoint 1 aligned ordinary D1-backed current-runtime fixtures with the current supported schema without converting genuine migration tests into current-schema tests. The canonical bootstrap is `test/current-schema.js`, which discovers the complete numbered migration set in deterministic order. Historical application states remain representable as data inside the current schema; historical schemas remain only where migration/upgrade behavior is itself the subject under test.
 
@@ -62,6 +63,8 @@ src/lib/server/storage/media.js
 ```
 
 Full/Ready retains complete `npm test` and structural deduplication.
+
+Checkpoint 3 leaves both target test files and their production source owners unchanged. The investigation found no Playwright/Cypress/Puppeteer-style browser harness, no jsdom/happy-dom/Testing Library/Vitest component layer, and no existing authoritative `scrollWidth`/`clientWidth`/`getBoundingClientRect` layout contract. `package.json` continues to use Node's built-in test runner plus `svelte-check`; nearby responsive Admin tests likewise inspect source when layout structure is the only cheap deterministic owner. Introducing a browser dependency solely for these two assertions would violate the cleanup guardrail, while a DOM mock that does not calculate CSS layout would be weaker than the precise source regressions.
 
 The overall direction remains:
 
@@ -641,7 +644,11 @@ The first tranche applies the classification above without treating all source t
 
 This tranche therefore removes implementation-detail duplication while retaining semantic product vocabulary and workflow reachability where no stronger rendered/UI owner exists.
 
-### D. Corrected classification: intentional UX regressions expressed brittly
+### D. Checkpoint 3: intentional UX regressions retained after stronger-owner review
+
+Checkpoint 3 inspected both current test files in full, their production source owners, nearby Admin source/behavior tests, repository dependencies/scripts, browser/DOM/layout infrastructure, existing width/overflow assertions, and the introducing history in `d5fba9b` (`Refine admin editor widths and expandable fields`).
+
+The repository currently has no cheap deterministic test environment that computes browser layout. No Playwright/Cypress/Puppeteer browser harness or jsdom/happy-dom/Testing Library/Vitest component layer is present, and there is no existing authoritative `scrollWidth`, `clientWidth`, or `getBoundingClientRect` contract to consolidate into. Svelte compilation/static checking does not establish effective width or horizontal scroll behavior. Adding a fake DOM that reports synthetic layout values would be a weaker pseudo-rendered contract; adding a browser/E2E stack solely for these two assertions would be disproportionate.
 
 #### `test/admin-shared-questions-width-contract.test.js`
 
@@ -657,27 +664,27 @@ It requires the page to use the available admin content width:
 - `.form-grid` remains unconstrained by a reintroduced max-width;
 - no `.page { max-width: ... }` regression.
 
-The earlier audit incorrectly described a different route/class/declaration. That description is withdrawn.
+Git history confirms that `d5fba9b` deliberately changed `.page` from `max-width: 1180px` to `width: 100%` and removed `.form-grid`'s `max-width: 850px`, then added this regression contract in the same commit.
 
-Git history shows the test was introduced in commit `d5fba9b` (`Refine admin editor widths and expandable fields`) together with the deliberate Shared Questions width UX change.
+Protected product invariant: **Shared Questions should use the available admin content width rather than regress to an unnecessarily constrained page/form-grid layout.**
 
-Underlying product regression intent: **Shared Questions should use the available admin content width rather than regress to an unnecessarily constrained editor layout.**
+Final Checkpoint 3 disposition: **RETAIN**.
 
-The current source regex is brittle, but the invariant was intentional.
-
-Disposition: **KEEP UNTIL REPLACED OR EXPLICITLY RETIRED**. Prefer a behavioral/rendered layout owner when practical. If the product decision is that the width invariant no longer matters, record that decision before deleting the test.
+Surviving owner: `test/admin-shared-questions-width-contract.test.js` itself. It remains implementation-oriented, but today it is the strongest cheap deterministic owner of the specific regression. No existing rendered/component test measures usable width, and replacing it with class-name/render-only assertions would move farther away from the invariant. The product invariant has not been retired.
 
 #### `test/admin-horizontal-overflow-contract.test.js`
 
 The current test reads `src/app.css` and requires `body { overflow-x: hidden; }`.
 
-Git history shows it was introduced in the same UX-fix commit alongside that global CSS change.
+Git history confirms it was introduced in the same UX-fix commit alongside that global CSS change.
 
-Underlying regression intent: **child layouts should not cause unwanted application-level horizontal scrolling.**
+Protected product invariant: **application/Admin child layouts should not cause unwanted page-level horizontal scrolling.**
 
-The exact `overflow-x: hidden` declaration is only one implementation technique and can mask the true overflowing child, so the assertion form is brittle. But the user-observable regression intent is not incidental.
+Final Checkpoint 3 disposition: **RETAIN**.
 
-Disposition: **KEEP UNTIL REPLACED OR EXPLICITLY RETIRED**. A stronger owner would measure actual rendered horizontal overflow at representative viewports if a lightweight mechanism exists. Do not add a heavyweight browser stack only for this assertion.
+Surviving owner: `test/admin-horizontal-overflow-contract.test.js` itself. The declaration is a proxy/implementation mechanism rather than a direct `scrollWidth <= clientWidth` measurement, and global clipping can theoretically conceal an offending child. However, the repository has no browser/layout-capable harness that can measure document overflow reliably at representative viewports. A non-layout DOM mock would not improve the guarantee. The source contract therefore remains the strongest cheap practical owner until a real rendered layout layer exists or the product invariant is explicitly retired.
+
+No production Svelte/CSS change, test deletion, browser dependency, new fast exclusion, or change-aware CI modification was required by Checkpoint 3.
 
 ## 7. High-value coverage that must remain effective
 
@@ -823,8 +830,8 @@ For either operator family and for the three slide-review production compatibili
 | deliberate architecture/source contracts | KEEP |
 | PR104/taxonomy/Case Images duplicated source contracts | CONSOLIDATE; first tranche partially implemented in PR #115 |
 | responsive/editor/control source contracts with real behavior | REWRITE/CONSOLIDATE, preserve invariant |
-| Shared Questions width regression | KEEP UNTIL REPLACED OR EXPLICITLY RETIRED |
-| application horizontal-overflow regression | KEEP UNTIL REPLACED OR EXPLICITLY RETIRED |
+| Shared Questions width regression | RETAINED IN CHECKPOINT 3; current source contract remains strongest cheap practical owner |
+| application horizontal-overflow regression | RETAINED IN CHECKPOINT 3; current source contract remains strongest cheap practical owner |
 | slide-review tests | EXCLUDE FROM GENERIC FAST only via exact 2D manifest; tooling paths require `slideReviewTest` + `slideReviewBuild`; three explicit production compatibility dependencies require `slideReviewTest`; complete `npm test` retains all four tests |
 | ECG production-operator test | EXCLUDE FROM GENERIC FAST only via exact 2D manifest; related Drafts require `ecgAssetRenameOperatorTest`; complete `npm test` retains it |
 | taxonomy production-operator test | EXCLUDE FROM GENERIC FAST only via exact 2D manifest; related Drafts require `productionTaxonomyOperatorTest`; complete `npm test` retains it |
@@ -868,10 +875,10 @@ The defensible cleanup strategy is:
 4. make CI change-aware for specialized checks;
 5. give production operators named conditional ownership;
 6. activate only the six reviewed specialized exclusions after their complete changed-path ownership is proven, including cross-boundary dependencies of excluded contracts;
-7. preserve intentional UX regressions while replacing brittle assertion forms where practical;
+7. preserve intentional UX regressions while replacing brittle assertion forms only when a demonstrably stronger practical owner exists;
 8. consolidate duplicated source contracts;
 9. profile remaining runtime before trading away high-value coverage or adding exclusions.
 
-PR #115 remains Draft. It now contains the corrected first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, and Checkpoint 2D activation of exactly six safe specialized exclusions with the independent-review slide-review dependency correction. Checkpoint 3 has not started. No broader behavioral rewrite, profiling work, application behavior change, schema/migration change, production mutation, seventh exclusion, or fast-tier latency claim was added by Checkpoint 2D.
+PR #115 remains Draft. It now contains the corrected first source-contract consolidation tranche, Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions with the independent-review slide-review dependency correction, and Checkpoint 3's completed review of the two intentional UX regressions. Both Checkpoint 3 contracts are retained unchanged because no stronger cheap/reliable rendered layout owner exists. No new Checkpoint 4 tranche, broader behavioral rewrite, profiling work, application behavior change, schema/migration change, production mutation, seventh exclusion, or fast-tier latency claim was added by Checkpoint 3.
 
-Corrective implementation run #1303 on head `4aa59b30b4197fba22240a61d76daa480b6902cf` is the executable post-review Checkpoint 2D evidence: 110 complete / 104 selected / 6 excluded; 629/629 fast-selected tests; 0 Svelte errors / 5 existing warnings; ECG 6/6; taxonomy 3/3; slide-review 23/23; slide-review build passed; repository CI validation passed. Runtime-smoke run #134 also passed. The final handoff additionally requires green exact-head Draft CI after these durable documentation updates.
+Corrective Checkpoint 2D implementation run #1303 on head `4aa59b30b4197fba22240a61d76daa480b6902cf` remains the executable post-review 2D evidence: 110 complete / 104 selected / 6 excluded; 629/629 fast-selected tests; 0 Svelte errors / 5 existing warnings; ECG 6/6; taxonomy 3/3; slide-review 23/23; slide-review build passed; repository CI validation passed. Runtime-smoke run #134 also passed. Checkpoint 3 requires green exact-head Draft CI after these documentation-only changes; its exact-head result is reported in the implementation handoff rather than pre-stated here.
