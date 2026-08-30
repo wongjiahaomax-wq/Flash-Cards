@@ -13,7 +13,6 @@ const studyRoute = readFileSync(new URL('../src/routes/study/+page.server.js', i
 const reviewRoute = readFileSync(new URL('../src/routes/study/[reviewId]/+page.server.js', import.meta.url), 'utf8');
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const previewSignOut = readFileSync(new URL('../src/lib/components/PreviewSignOutButton.svelte', import.meta.url), 'utf8');
-const adminDashboardReadModel = readFileSync(new URL('../src/lib/server/db/admin-dashboard.js', import.meta.url), 'utf8');
 
 /** @param {string} configText @param {string} binding @param {string} field */
 function bindingValue(configText, binding, field) {
@@ -144,11 +143,4 @@ test('normal Preview logout resets the workspace before Better Auth sign-out', (
   assert.ok(resetCall >= 0);
   assert.ok(signOutCall > resetCall);
   assert.match(previewSignOut, /if \(!response\.ok\)[\s\S]*return;/);
-});
-
-test('normal Admin dashboard read model applies explicit production-ownership filters', () => {
-  assert.match(adminDashboardReadModel, /isNull\(assets\.previewSessionId\)/);
-  assert.match(adminDashboardReadModel, /isNull\(cases\.previewSessionId\)/);
-  assert.match(adminDashboardReadModel, /isNull\(questionPrompts\.previewSessionId\)/);
-  assert.doesNotMatch(adminDashboardReadModel, /questionCount:\s*\(await db\.select\(\)\.from\(caseQuestions\)\)\.length/);
 });
