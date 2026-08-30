@@ -59,7 +59,42 @@ function svelteIfBlocks(source) {
 
 /** @param {string} source @param {string} tagName */
 function tags(source, tagName) {
-  return [...source.matchAll(new RegExp(`<${escapeRegExp(tagName)}\\b[^>]*>`, 'g'))].map((match) => match[0]);
+  const found = [];
+  const startPattern = new RegExp(`<${escapeRegExp(tagName)}\\b`, 'g');
+  let start;
+  while ((start = startPattern.exec(source))) {
+    let braceDepth = 0;
+    let quote = null;
+    for (let index = start.index; index < source.length; index += 1) {
+      const char = source[index];
+      if (quote) {
+        if (char === '\\') {
+          index += 1;
+          continue;
+        }
+        if (char === quote) quote = null;
+        continue;
+      }
+      if (char === '"' || char === "'" || char === '`') {
+        quote = char;
+        continue;
+      }
+      if (char === '{') {
+        braceDepth += 1;
+        continue;
+      }
+      if (char === '}') {
+        braceDepth -= 1;
+        continue;
+      }
+      if (char === '>' && braceDepth === 0) {
+        found.push(source.slice(start.index, index + 1));
+        startPattern.lastIndex = index + 1;
+        break;
+      }
+    }
+  }
+  return found;
 }
 
 /** @param {string} tag @param {string} name */
@@ -93,14 +128,13 @@ function boundedAutoGrowLimit(source, actionName) {
 /** @param {string} source @param {string} className */
 function formBodiesWithClass(source, className) {
   const forms = [];
-  const openingForms = /<form\b[^>]*>/g;
-  let match;
-  while ((match = openingForms.exec(source))) {
-    const classList = (attribute(match[0], 'class') ?? '').split(/\s+/);
+  for (const opening of tags(source, 'form')) {
+    const classList = (attribute(opening, 'class') ?? '').split(/\s+/);
     if (!classList.includes(className)) continue;
-    const end = source.indexOf('</form>', openingForms.lastIndex);
+    const start = source.indexOf(opening);
+    const end = source.indexOf('</form>', start + opening.length);
     assert.ok(end >= 0, `Unclosed ${className} form.`);
-    forms.push(source.slice(match.index, end));
+    forms.push(source.slice(start, end));
   }
   return forms;
 }
@@ -197,17 +231,19 @@ test('Case editor exposes one shared Classic/Compact authoring tree', () => {
 });
 
 test('Compact Case questions keep scope and reorder controls together while preserving viewport scroll', () => {
-  const headerStart = questions.indexOf('<div class="header-actions">');
+  const cardStart = questions.indexOf('<div class="card-heading">');
+  const headerStart = questions.indexOf('<div class="header-actions">', cardStart);
   const editFormStart = questions.indexOf('<form id={`question-edit-', headerStart);
-  assert.ok(headerStart >= 0 && editFormStart > headerStart, 'Existing question header/actions must precede the edit form.');
+  assert.ok(cardStart >= 0 && headerStart > cardStart && editFormStart > headerStart, 'Existing question identity/actions must precede the edit form.');
+  const cardHeading = questions.slice(cardStart, editFormStart);
   const header = questions.slice(headerStart, editFormStart);
   const scopeDisclosure = tags(header, 'details').find((tag) => {
     const classList = (attribute(tag, 'class') ?? '').split(/\s+/);
     return classList.includes('scope-change') && classList.includes('scope-change-header');
   });
   assert.ok(scopeDisclosure, 'Compact scope editing must remain reachable in the question header.');
+  assert.match(cardHeading, /class="scope-badge">Whole Case<\/span>/);
   assert.match(header, /<summary>Change scope<\/summary>/);
-  assert.match(header, /class="scope-badge">Whole Case<\/span>/);
   assert.match(header, /class="question-order-actions"/);
   assert.match(header, /aria-label="Move question up"/);
   assert.match(header, /aria-label="Move question down"/);
