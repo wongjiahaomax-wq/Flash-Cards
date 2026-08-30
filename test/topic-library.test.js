@@ -161,6 +161,11 @@ test('Preview-owned Prompts never inflate Topic shared-question counts or appear
       INSERT INTO question_prompts (id, prompt_md, preview_session_id, is_active)
       VALUES (?, ?, ?, 1)
     `).run('preview-topic-prompt', 'Disposable Preview Topic prompt?', 'preview-topic-prompt-session');
+
+    // Current-schema writes reject this cross-boundary relationship. Drop only
+    // the fixture's insert guard so the read model is tested defensively against
+    // a historical/corrupt state that must still never leak into Production Admin.
+    fixture.sqlite.exec('DROP TRIGGER concept_questions_reject_preview_prompt_insert');
     fixture.sqlite.prepare(`
       INSERT INTO concept_questions (
         id, concept_id, question_prompt_id, answer_md, inherit_to_descendants, is_active
