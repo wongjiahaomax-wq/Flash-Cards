@@ -248,7 +248,7 @@ test('reusable Asset Questions remain production-owned even when Preview content
       answerMd: 'Production canonical answer.'
     });
     const prompt = fixture.sqlite.prepare(`
-      SELECT qp.preview_session_id
+      SELECT qp.preview_session_id, aq.question_prompt_id
       FROM asset_questions aq
       JOIN question_prompts qp ON qp.id = aq.question_prompt_id
       WHERE aq.id = ?
@@ -257,6 +257,19 @@ test('reusable Asset Questions remain production-owned even when Preview content
     assert.equal(prompt.preview_session_id, null);
     const matchingPrompts = fixture.sqlite.prepare("SELECT COUNT(*) AS count FROM question_prompts WHERE prompt_md = 'Same visible wording?'").get();
     assert.equal(Number(matchingPrompts?.count ?? 0), 2);
+
+    const insertRawQuestion = fixture.sqlite.prepare(`
+      INSERT INTO asset_questions (id, asset_id, question_prompt_id, answer_md, is_active)
+      VALUES (?, ?, ?, ?, 1)
+    `);
+    assert.throws(
+      () => insertRawQuestion.run('preview-asset-backed-question', 'preview-reusable-asset', prompt.question_prompt_id, 'Blocked.'),
+      /Preview content cannot back reusable Asset Questions/
+    );
+    assert.throws(
+      () => insertRawQuestion.run('preview-prompt-backed-question', 'production-reusable-asset', 'preview-matching-prompt', 'Blocked.'),
+      /Preview content cannot back reusable Asset Questions/
+    );
   } finally {
     fixture.sqlite.close();
   }
@@ -290,6 +303,13 @@ test('option reuse enforces Case and exact-Asset identity, and removal deletes o
     await assert.rejects(
       () => optInAssetQuestion(fixture.db, { caseId: 'seed-anterior-a', optionId, assetQuestionId: wrongAssetQuestionId }),
       /different Asset/
+    );
+    assert.throws(
+      () => fixture.sqlite.prepare(`
+        INSERT INTO stimulus_option_asset_questions (stimulus_group_option_id, asset_question_id)
+        VALUES (?, ?)
+      `).run(optionId, wrongAssetQuestionId),
+      /Reusable Asset Question must match the stimulus option Asset/
     );
     await optInAssetQuestion(fixture.db, { caseId: 'seed-anterior-a', optionId, assetQuestionId: matchingQuestionId });
 
@@ -376,6 +396,16 @@ test('production reusable controls serialize exact context and Preview exposes n
   assertProductionOnlyForm(manager, '?/saveReusableImageAnswer', ['case_id', 'asset_question_id', 'answer_md']);
   assert.match(manager, /Used in this Case\s*·\s*\{usedQuestions\.length\}/);
   assert.match(manager, /Available to reuse\s*·\s*\{availableQuestions\.length\}/);
+
+  const create = actionBlock(productionRoute, 'createReusableImageQuestion');
+  assert.match(create, /caseId !== params\.caseId/);
+  assert.match(create, /await createAssetQuestion\(createDb\(platform\.env\.DB\), \{ assetId: formText\(formData, 'asset_id'\), promptMd: formText\(formData, 'prompt_md'\), answerMd: formText\(formData, 'answer_md'\) \}\)/);
+  assert.match(create, /#images/);
+
+  const save = actionBlock(productionRoute, 'saveReusableImageAnswer');
+  assert.match(save, /caseId !== params\.caseId/);
+  assert.match(save, /await updateAssetQuestionAnswer\(createDb\(platform\.env\.DB\), \{ assetQuestionId: formText\(formData, 'asset_question_id'\), answerMd: formText\(formData, 'answer_md'\) \}\)/);
+  assert.match(save, /#images/);
 
   const reuse = actionBlock(productionRoute, 'reuseAssetQuestion');
   assert.match(reuse, /caseId !== params\.caseId/);
