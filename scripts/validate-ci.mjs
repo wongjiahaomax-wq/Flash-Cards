@@ -1,10 +1,21 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { classifyChangedFiles } from './agent-checks-lib.mjs';
 import { resolveInvocation } from './validate.mjs';
-import { VALIDATION_MODE_CHECK_IDS, validationCommandsForMode } from './validation-contract.mjs';
+import {
+  resolveValidationCheckIds,
+  VALIDATION_MODE_CHECK_IDS,
+  validationCommandsForCheckIds,
+} from './validation-contract.mjs';
+import { changedFilesFromFeatureDiff } from './validation-git.mjs';
 
 const NODE_TEST_DIAGNOSTIC = /^(not ok|  error:|  code:|  failureType:|  location:|  stack:|    at )/;
-const NODE_TEST_CHECK_IDS = new Set(['test', 'testFast']);
+const NODE_TEST_CHECK_IDS = new Set(['test', 'testFast', 'slideReviewTest']);
+const NODE_TEST_REPRO_COMMANDS = Object.freeze({
+  test: 'npm test',
+  testFast: 'npm run test:fast',
+  slideReviewTest: 'npm run slide-review:test',
+});
 export const CI_TEST_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 export const CI_TEST_REPORTER = './scripts/ci-test-reporter.mjs';
 
@@ -124,17 +135,50 @@ export function parseCiArgs(argv) {
 }
 
 /**
- * CI uses the shared repository validation mode definitions while keeping
+ * Resolve the repository-owned base mode plus ordinary-CI requirements from the
+ * same changed-path classifier used by agent:checks.
+ * @param {{ mode?: string, changedFiles?: string[] }} [options]
+ */
+export function ciValidationPlan(options = {}) {
+  const mode = options.mode ?? 'full';
+  assertCiValidationMode(mode);
+  const classification = classifyChangedFiles(options.changedFiles ?? []);
+  const checkIds = resolveValidationCheckIds(
+    VALIDATION_MODE_CHECK_IDS[mode],
+    classification.ciRequiredChecks,
+  );
+  return {
+    mode,
+    changedFiles: classification.files,
+    classification,
+    checkIds,
+  };
+}
+
+/**
+ * CI uses the shared repository validation definitions while keeping
  * PR-checkout diff semantics CI-specific.
- * @param {{ mode?: string, diffBase?: string, diffHead?: string }} [options]
+ * @param {{ mode?: string, diffBase?: string, diffHead?: string, changedFiles?: string[] }} [options]
  */
 export function ciValidationCommands(options = {}) {
-  const mode = options.mode ?? 'full';
   const diffBase = options.diffBase ?? 'HEAD^1';
   const diffHead = options.diffHead ?? 'HEAD';
-  return validationCommandsForMode(mode, {
+  const plan = ciValidationPlan(options);
+  return validationCommandsForCheckIds(plan.checkIds, {
     diffArgs: ['diff', '--check', diffBase, diffHead],
   });
+}
+
+/**
+ * CI classifies the actual full PR feature diff when PR base/head SHAs are
+ * available. The synthetic checkout diff remains a fallback for direct use.
+ * @param {{ root?: string, changedFiles?: string[], diffBase?: string, diffHead?: string, diffReproBaseSha?: string | null, diffReproHeadSha?: string | null }} [options]
+ */
+export function resolveCiChangedFiles(options = {}) {
+  if (options.changedFiles) return classifyChangedFiles(options.changedFiles).files;
+  const base = options.diffReproBaseSha ?? process.env.CI_PR_BASE_SHA ?? options.diffBase ?? 'HEAD^1';
+  const head = options.diffReproHeadSha ?? process.env.CI_PR_HEAD_SHA ?? options.diffHead ?? 'HEAD';
+  return changedFilesFromFeatureDiff(options.root ?? process.cwd(), base, head);
 }
 
 /** @param {string} id */
@@ -144,29 +188,58 @@ export function isCiNodeTestCheck(id) {
 
 /** @param {string} id @param {string[]} args */
 export function ciCommandArgs(id, args) {
-  if (!isCiNodeTestCheck(id)) return [...args];
+  if (id !== 'test' && id !== 'testFast') return [...args];
   return [...args, '--', `--test-reporter=${CI_TEST_REPORTER}`];
+}
+
+/**
+ * The slide-review npm script already places explicit test files after `node --test`,
+ * so appending a reporter CLI argument would be too late. NODE_OPTIONS applies the
+ * reporter before those file arguments while preserving the existing named command.
+ * @param {string} id
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export function ciCommandEnvironment(id, env = process.env) {
+  if (!isCiNodeTestCheck(id)) return { ...env };
+  const reproCommand = NODE_TEST_REPRO_COMMANDS[id];
+  if (!reproCommand) throw new Error(`Missing CI Node-test reproduction command for check: ${id}`);
+  const next = {
+    ...env,
+    CI_NODE_TEST_CHECK_ID: id,
+    CI_NODE_TEST_REPRO_COMMAND: reproCommand,
+  };
+  if (id === 'slideReviewTest') {
+    const existing = String(env.NODE_OPTIONS ?? '').trim();
+    next.NODE_OPTIONS = [existing, `--test-reporter=${CI_TEST_REPORTER}`].filter(Boolean).join(' ');
+  }
+  return next;
 }
 
 /**
  * CI keeps PR-checkout diff semantics and GitHub grouping CI-specific while
  * reusing the repository validation contract. Node-test diagnostics are
  * produced by a custom reporter that consumes structured node:test events.
- * @param {{ mode?: string, diffBase?: string, diffHead?: string, diffReproBaseSha?: string | null, diffReproHeadSha?: string | null }} [options]
+ * @param {{ mode?: string, root?: string, diffBase?: string, diffHead?: string, changedFiles?: string[], diffReproBaseSha?: string | null, diffReproHeadSha?: string | null }} [options]
  */
 export function runCiValidation(options = {}) {
   const mode = options.mode ?? 'full';
-  const checks = ciValidationCommands(options);
+  const changedFiles = resolveCiChangedFiles(options);
+  const plan = ciValidationPlan({ mode, changedFiles });
+  const checks = ciValidationCommands({ ...options, mode, changedFiles });
   const diffReproBaseSha = options.diffReproBaseSha ?? process.env.CI_PR_BASE_SHA ?? null;
   const diffReproHeadSha = options.diffReproHeadSha ?? process.env.CI_PR_HEAD_SHA ?? null;
 
   console.log(`Repository CI validation mode: ${mode}`);
+  console.log(`Repository CI changed paths: ${plan.changedFiles.length}`);
+  console.log(`Repository CI changed-path requirements: ${plan.classification.ciRequiredChecks.join(', ') || '(none)'}`);
+  console.log(`Repository CI checks: ${plan.checkIds.join(', ')}`);
   for (const { id, label, command, args } of checks) {
     console.log(`::group::${label}`);
     const invocation = resolveInvocation(command, ciCommandArgs(id, args));
     const result = spawnSync(invocation.executable, invocation.args, {
       stdio: 'inherit',
       shell: false,
+      env: ciCommandEnvironment(id),
     });
     console.log('::endgroup::');
     const reproCommand = ciReproCommand(id, command, args, {

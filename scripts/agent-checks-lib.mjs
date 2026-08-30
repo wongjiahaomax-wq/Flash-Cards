@@ -1,19 +1,14 @@
-import { formatValidationCommand, VALIDATION_MODE_CHECK_IDS } from './validation-contract.mjs';
+import {
+  CI_SPECIALIZED_CHECK_IDS,
+  formatValidationCommand,
+  SPECIALIZED_CHECK_IDS,
+  VALIDATION_CHECK_ORDER,
+  VALIDATION_MODE_CHECK_IDS,
+} from './validation-contract.mjs';
 
 const ORDINARY_FULL_CHECKS = VALIDATION_MODE_CHECK_IDS.full;
-const CHECK_ORDER = Object.freeze([
-  'diff',
-  'db',
-  'test',
-  'svelte',
-  'build',
-  'authSmoke',
-  'runtimeSmoke',
-  'slideReviewTest',
-  'slideReviewBuild',
-]);
 
-/** @typedef {{ id: string, area: string, patterns: readonly RegExp[], excludePatterns?: readonly RegExp[], required: readonly string[], recommendations?: readonly string[] }} ValidationRule */
+/** @typedef {{ id: string, area: string, patterns: readonly RegExp[], excludePatterns?: readonly RegExp[], required: readonly string[], ciRequired?: readonly string[], recommendations?: readonly string[] }} ValidationRule */
 
 /** @type {ReadonlyArray<ValidationRule>} */
 export const VALIDATION_RULES = Object.freeze([
@@ -100,11 +95,26 @@ export const VALIDATION_RULES = Object.freeze([
     area: 'Coding-agent / validation tooling',
     patterns: Object.freeze([
       /^scripts\/agent-(?:checks|doctor)(?:-lib)?\.mjs$/,
+      /^scripts\/ci-test-reporter\.mjs$/,
+      /^scripts\/test-(?:fast|selection)\.mjs$/,
       /^scripts\/validate(?:-ci)?\.mjs$/,
       /^scripts\/validation-(?:contract|git)\.mjs$/,
       /^tests\/agent-tooling\.test\.js$/,
     ]),
     required: Object.freeze([...ORDINARY_FULL_CHECKS]),
+    ciRequired: Object.freeze([...CI_SPECIALIZED_CHECK_IDS]),
+  }),
+  Object.freeze({
+    id: 'ci-validation-infrastructure',
+    area: 'CI validation infrastructure',
+    patterns: Object.freeze([
+      /^package\.json$/,
+      /^package-lock\.json$/,
+      /^\.github\/workflows\/ci\.yml$/,
+      /^tests\/(?:ci-change-aware|ci-test-reporter|test-selection)\.test\.js$/,
+    ]),
+    required: Object.freeze([]),
+    ciRequired: Object.freeze([...CI_SPECIALIZED_CHECK_IDS]),
   }),
   Object.freeze({
     id: 'tests',
@@ -135,7 +145,7 @@ export const VALIDATION_RULES = Object.freeze([
 ]);
 
 /** @param {string} file */
-function normalizePath(file) {
+export function normalizeChangedPath(file) {
   return String(file ?? '').trim().replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
@@ -157,18 +167,26 @@ function isImportantUnknown(file) {
 /** @param {string[]} values */
 function uniqueInCheckOrder(values) {
   const set = new Set(values);
-  return CHECK_ORDER.filter((checkId) => set.has(checkId));
+  const ordered = VALIDATION_CHECK_ORDER.filter((checkId) => set.has(checkId));
+  if (ordered.length !== set.size) {
+    const missing = [...set].filter((checkId) => !VALIDATION_CHECK_ORDER.includes(checkId));
+    throw new Error(`Changed-path validation rules reference unordered checks: ${missing.join(', ')}`);
+  }
+  return ordered;
 }
 
 /**
  * Deterministically classify repository paths into validation requirements.
+ * The same rule set owns agent advisory requirements and ordinary-CI additions.
  * @param {string[]} changedFiles
  */
 export function classifyChangedFiles(changedFiles) {
-  const files = [...new Set(changedFiles.map(normalizePath).filter(Boolean))].sort();
+  const files = [...new Set(changedFiles.map(normalizeChangedPath).filter(Boolean))].sort();
   const matchedRules = new Set();
   /** @type {string[]} */
   const required = [];
+  /** @type {string[]} */
+  const ciRequired = [];
   /** @type {string[]} */
   const recommendations = [];
   /** @type {string[]} */
@@ -181,11 +199,13 @@ export function classifyChangedFiles(changedFiles) {
       fileMatched = true;
       matchedRules.add(rule.id);
       required.push(...rule.required);
+      ciRequired.push(...(rule.ciRequired ?? []));
       recommendations.push(...(rule.recommendations ?? []));
     }
     if (!fileMatched && isImportantUnknown(file)) {
       unclassifiedImportant.push(file);
       required.push(...ORDINARY_FULL_CHECKS);
+      ciRequired.push(...ORDINARY_FULL_CHECKS, ...CI_SPECIALIZED_CHECK_IDS);
     }
   }
 
@@ -204,13 +224,17 @@ export function classifyChangedFiles(changedFiles) {
   ].includes(area));
   const filteredAreas = specificApplicationArea ? areas.filter((area) => area !== 'Application code') : areas;
   const requiredChecks = uniqueInCheckOrder(required);
-  const notRequired = ['runtimeSmoke', 'slideReviewTest', 'slideReviewBuild'].filter((checkId) => !requiredChecks.includes(checkId));
+  const specializedAgentRequirements = requiredChecks.filter((checkId) => CI_SPECIALIZED_CHECK_IDS.includes(checkId));
+  const ciRequiredChecks = uniqueInCheckOrder([...ciRequired, ...specializedAgentRequirements]);
+  const notRequired = SPECIALIZED_CHECK_IDS.filter((checkId) => !requiredChecks.includes(checkId));
 
   return {
     files,
     areas: [...new Set(filteredAreas)],
     requiredChecks,
     requiredCommands: requiredChecks.map(formatValidationCommand),
+    ciRequiredChecks,
+    ciRequiredCommands: ciRequiredChecks.map(formatValidationCommand),
     recommendations: [...new Set(recommendations)],
     notRequiredChecks: notRequired,
     notRequiredCommands: notRequired.map(formatValidationCommand),

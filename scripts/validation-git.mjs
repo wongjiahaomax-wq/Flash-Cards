@@ -15,6 +15,32 @@ function gitOutput(root, args, description) {
   return result.stdout.trim();
 }
 
+/** @param {string} value */
+function gitPathList(value) {
+  return value
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Resolve the complete feature diff from the merge-base of the actual PR base/head.
+ * This avoids last-commit approximations and avoids treating unrelated base-branch
+ * advancement as feature work when the branch is behind main.
+ * @param {string} root
+ * @param {string} baseRef
+ * @param {string} headRef
+ */
+export function changedFilesFromFeatureDiff(root, baseRef, headRef) {
+  if (!baseRef || !headRef) throw new Error('Feature diff base/head must be non-empty.');
+  const output = gitOutput(
+    root,
+    ['diff', '--name-only', '--no-renames', '--diff-filter=ACDMRTUXB', `${baseRef}...${headRef}`],
+    `Unable to read feature diff ${baseRef}...${headRef}`,
+  );
+  return [...new Set(gitPathList(output))].sort();
+}
+
 /**
  * Resolve the intended feature-branch base without network access or Git mutation.
  * Prefer the remote-tracking main ref because `git fetch origin` may advance it
