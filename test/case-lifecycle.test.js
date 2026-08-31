@@ -137,7 +137,7 @@ test('single Case lifecycle preserves content/history, learner exclusion, recove
     assert.deepEqual(activeLibrary.rows.map((row) => row.id), ['case-corrected']);
     const inactiveLibrary = await getCaseLibraryPage(
       fixture.db,
-      { search: '', topicSearch: 'glauc', systemSearch: 'eye', tagId: 'tag-urgent', sort: 'case-desc', lifecycle: 'inactive' },
+      { search: '', topicId: 'topic-glaucoma', systemId: 'system-eye', tagId: 'tag-urgent', sort: 'case-desc', lifecycle: 'inactive' },
       { page: 1, pageSize: 1 }
     );
     assert.equal(inactiveLibrary.totalCount, 2);
