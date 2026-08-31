@@ -22,6 +22,7 @@ import {
   setStimulusOptionActive,
   startStimulusGroupFromCaseAsset
 } from '../src/lib/server/db/stimulus-groups.js';
+import { applyCurrentSchema } from './current-schema.js';
 
 const preOriginalMigrationSql = [
   '0000_dashing_centennial.sql',
@@ -90,8 +91,7 @@ function createD1(sqlite) {
 function createFixture({ seed = true } = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(preOriginalMigrationSql);
-  sqlite.exec(originalMigrationSql);
+  applyCurrentSchema(sqlite);
   if (seed) sqlite.exec(buildSeedSql());
   return { sqlite, db: createDb(createD1(sqlite)) };
 }

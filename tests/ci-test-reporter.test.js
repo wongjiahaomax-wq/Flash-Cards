@@ -22,7 +22,7 @@ async function collect(events) {
     for (const event of events) yield event;
   }
   let output = '';
-  for await (const chunk of ciTestReporter(source())) output += chunk;
+  for await (const chunk of ciTestReporter(source(), { checkId: 'test', reproCommand: 'npm test' })) output += chunk;
   return output;
 }
 
@@ -51,9 +51,15 @@ function failureData() {
   };
 }
 
-test('CI invokes npm test with the structured reporter without changing the shared test command', () => {
+test('CI invokes both Node checks with the structured reporter without changing shared commands', () => {
   assert.deepEqual(ciCommandArgs('test', ['test']), [
     'test',
+    '--',
+    `--test-reporter=${CI_TEST_REPORTER}`,
+  ]);
+  assert.deepEqual(ciCommandArgs('testFast', ['run', 'test:fast']), [
+    'run',
+    'test:fast',
     '--',
     `--test-reporter=${CI_TEST_REPORTER}`,
   ]);
@@ -91,6 +97,25 @@ test('CI reporter emits compact event-driven progress and collects failures at t
   assert.ok(output.indexOf('=== CI AGENT SUMMARY ===') > output.indexOf('=== Node test failures'));
 });
 
+test('fast Node diagnostics preserve their validation-check identity and repro command', async () => {
+  const failure = failureData();
+  assert.match(agentFailureRecord(failure, 'testFast'), /^CI_ERROR\|check=testFast\|/);
+  assert.equal(
+    agentReproRecord(failure, 'testFast', 'npm run test:fast'),
+    'CI_REPRO|check=testFast|command=npm run test:fast',
+  );
+
+  async function* source() {
+    yield { type: 'test:fail', data: failure };
+    yield { type: 'test:summary', data: { success: false, counts: { tests: 1, passed: 0, failed: 1, skipped: 0, todo: 0, cancelled: 0 }, duration_ms: 10 } };
+  }
+  let output = '';
+  for await (const chunk of ciTestReporter(source(), { checkId: 'testFast', reproCommand: 'npm run test:fast' })) output += chunk;
+  assert.match(output, /CI_ERROR\|check=testFast\|/);
+  assert.match(output, /CI_REPRO\|check=testFast\|command=npm run test:fast/);
+  assert.match(output, /CI_STATUS\|check=testFast\|status=failed\|failed=1/);
+});
+
 test('real nested node:test failure emits one real failure instead of a duplicate suite failure', () => {
   const fixture = path.join(process.cwd(), 'tests', `.ci-reporter-nested-${process.pid}-${Date.now()}.test.mjs`);
   try {
@@ -105,6 +130,8 @@ test('real nested node:test failure emits one real failure instead of a duplicat
 
     const childEnv = { ...process.env };
     delete childEnv.NODE_TEST_CONTEXT;
+    delete childEnv.CI_NODE_TEST_CHECK_ID;
+    delete childEnv.CI_NODE_TEST_REPRO_COMMAND;
     const result = spawnSync(process.execPath, [
       '--test',
       `--test-reporter=${CI_TEST_REPORTER}`,

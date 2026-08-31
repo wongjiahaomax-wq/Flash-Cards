@@ -2,74 +2,457 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-const editor = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
-const navigation = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorNavigation.svelte', import.meta.url), 'utf8');
-const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
-const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url), 'utf8');
-const imageReview = readFileSync(new URL('../src/lib/components/ImageQuestionReview.svelte', import.meta.url), 'utf8');
+const editorUrl = new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url);
+const navigationUrl = new URL('../src/lib/components/case-editor/CaseEditorNavigation.svelte', import.meta.url);
+const questionsUrl = new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url);
+const imagesUrl = new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url);
+const imageReviewUrl = new URL('../src/lib/components/ImageQuestionReview.svelte', import.meta.url);
+
+const editor = readFileSync(editorUrl, 'utf8');
+const navigation = readFileSync(navigationUrl, 'utf8');
+const questions = readFileSync(questionsUrl, 'utf8');
+const images = readFileSync(imagesUrl, 'utf8');
+const imageReview = readFileSync(imageReviewUrl, 'utf8');
+
+/** @param {string} value */
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** @param {string | null | undefined} value @param {string} message @returns {string} */
+function requiredText(value, message) {
+  if (value === null || value === undefined) throw new Error(message);
+  return value;
+}
+
+/** @param {string} source @param {number} openingBrace */
+function bracedBody(source, openingBrace) {
+  let depth = 0;
+  for (let index = openingBrace; index < source.length; index += 1) {
+    if (source[index] === '{') depth += 1;
+    if (source[index] === '}') depth -= 1;
+    if (depth === 0) return { body: source.slice(openingBrace + 1, index), end: index + 1 };
+  }
+  assert.fail('Unclosed source block.');
+}
+
+/** @param {string} source @param {string} name */
+function callableBody(source, name) {
+  const match = new RegExp(`(?:function\\s+${escapeRegExp(name)}\\s*\\([^)]*\\)|const\\s+${escapeRegExp(name)}\\s*=\\s*\\([^)]*\\)\\s*=>)\\s*\\{`).exec(source);
+  assert.ok(match, `Missing callable ${name}.`);
+  return bracedBody(source, source.indexOf('{', match.index)).body;
+}
+
+/** @param {string} source @param {string} callee */
+function arrowCallbackBody(source, callee) {
+  const match = new RegExp(`${escapeRegExp(callee)}\\s*\\(\\s*\\([^)]*\\)\\s*=>\\s*\\{`).exec(source);
+  assert.ok(match, `Missing ${callee} arrow callback.`);
+  return bracedBody(source, source.indexOf('{', match.index)).body;
+}
+
+/** @param {string} source */
+function svelteIfBlocks(source) {
+  const tokens = /\{#if\s+([^}]+)\}|\{\/if\}/g;
+  const stack = [];
+  const blocks = [];
+  let match;
+  while ((match = tokens.exec(source))) {
+    if (match[1] !== undefined) {
+      stack.push({ condition: match[1].trim(), bodyStart: tokens.lastIndex });
+      continue;
+    }
+    const opening = stack.pop();
+    assert.ok(opening, 'Unmatched Svelte {/if}.');
+    blocks.push({ condition: opening.condition, body: source.slice(opening.bodyStart, match.index) });
+  }
+  assert.equal(stack.length, 0, 'Unclosed Svelte {#if}.');
+  return blocks;
+}
+
+/** @param {string} source @param {string} tagName */
+function tags(source, tagName) {
+  const found = [];
+  const startPattern = new RegExp(`<${escapeRegExp(tagName)}\\b`, 'g');
+  let start;
+  while ((start = startPattern.exec(source))) {
+    let braceDepth = 0;
+    let quote = null;
+    for (let index = start.index; index < source.length; index += 1) {
+      const char = source[index];
+      if (quote) {
+        if (char === '\\') {
+          index += 1;
+          continue;
+        }
+        if (char === quote) quote = null;
+        continue;
+      }
+      if (char === '"' || char === "'" || char === '`') {
+        quote = char;
+        continue;
+      }
+      if (char === '{') {
+        braceDepth += 1;
+        continue;
+      }
+      if (char === '}') {
+        braceDepth -= 1;
+        continue;
+      }
+      if (char === '>' && braceDepth === 0) {
+        found.push(source.slice(start.index, index + 1));
+        startPattern.lastIndex = index + 1;
+        break;
+      }
+    }
+  }
+  return found;
+}
+
+/** @param {string} tag @param {string} name */
+function attribute(tag, name) {
+  return new RegExp(`\\b${escapeRegExp(name)}=["']([^"']*)["']`).exec(tag)?.[1] ?? null;
+}
+
+/** @param {string} tag @param {string} name */
+function expressionAttribute(tag, name) {
+  return new RegExp(`\\b${escapeRegExp(name)}=\\{([A-Za-z_$][\\w$]*)\\}`).exec(tag)?.[1] ?? null;
+}
+
+/** @param {string} tag */
+function useAction(tag) {
+  return /\buse:([A-Za-z_$][\w$]*)\b/.exec(tag)?.[1] ?? null;
+}
+
+/** @param {string} tag */
+function enhanceCallback(tag) {
+  return /\buse:enhance=\{([A-Za-z_$][\w$]*)\}/.exec(tag)?.[1] ?? null;
+}
+
+/** @param {string} source @param {URL} importerUrl */
+function svelteComponentImports(source, importerUrl) {
+  const imports = [];
+  const pattern = /import\s+([A-Z][A-Za-z0-9_$]*)\s+from\s+['"]([^'"]+\.svelte)['"]/g;
+  let match;
+  while ((match = pattern.exec(source))) {
+    const [, name, specifier] = match;
+    let url;
+    if (specifier.startsWith('$lib/')) {
+      url = new URL(`../src/lib/${specifier.slice('$lib/'.length)}`, import.meta.url);
+    } else if (specifier.startsWith('.')) {
+      url = new URL(specifier, importerUrl);
+    } else {
+      continue;
+    }
+    imports.push({ name, specifier, url });
+  }
+  return imports;
+}
+
+/** @param {URL} componentUrl @param {Set<string>} [seen] @returns {boolean} */
+function componentTreeContainsForm(componentUrl, seen = new Set()) {
+  if (seen.has(componentUrl.href)) return false;
+  seen.add(componentUrl.href);
+  const source = readFileSync(componentUrl, 'utf8');
+  if (/<form\b/.test(source)) return true;
+  return svelteComponentImports(source, componentUrl).some((child) => componentTreeContainsForm(child.url, seen));
+}
+
+/** @param {string} source @param {string} moduleSpecifier @returns {string[]} */
+function namedImportsFrom(source, moduleSpecifier) {
+  const match = new RegExp(`import\\s*\\{([^}]*)\\}\\s*from\\s*['"]${escapeRegExp(moduleSpecifier)}['"]`).exec(source);
+  assert.ok(match, `Missing imports from ${moduleSpecifier}.`);
+  return match[1]
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const aliases = part.split(/\s+as\s+/);
+      return requiredText(aliases[aliases.length - 1], `Missing local import name for ${part}.`);
+    });
+}
+
+/** @param {string} body @param {string[]} names */
+function calledNames(body, names) {
+  return names.filter((name) => new RegExp(`\\b${escapeRegExp(name)}\\s*\\(`).test(body));
+}
+
+/** @param {string} source @param {string} actionName */
+function boundedAutoGrowLimit(source, actionName) {
+  const declaration = new RegExp(`const\\s+${escapeRegExp(actionName)}\\s*=\\s*\\(\\s*([A-Za-z_$][\\w$]*)\\s*\\)\\s*=>\\s*\\{`).exec(source);
+  assert.ok(declaration, `Missing textarea action ${actionName}.`);
+  const nodeName = declaration[1];
+  const body = bracedBody(source, source.indexOf('{', declaration.index)).body;
+  const bound = new RegExp(`Math\\.min\\(\\s*${escapeRegExp(nodeName)}\\.scrollHeight\\s*,\\s*([A-Za-z_$][\\w$]*)\\s*\\)`).exec(body);
+  assert.ok(bound, `${actionName} must bound collapsed field growth.`);
+  const limit = new RegExp(`\\bconst\\s+${escapeRegExp(bound[1])}\\s*=\\s*(\\d+(?:\\.\\d+)?)\\b`).exec(body);
+  assert.ok(limit, `${actionName} must define a finite local growth limit.`);
+  assert.match(body, /document\.createElement\(['"]button['"]\)/);
+  assert.match(body, /addEventListener\(['"]input['"]/);
+  assert.match(body, /addEventListener\(['"]click['"]/);
+  assert.match(body, /aria-expanded/);
+  assert.match(body, /insertAdjacentElement\s*\(/);
+  return Number(limit[1]);
+}
+
+/** @param {string} source @param {string} className */
+function formBodiesWithClass(source, className) {
+  const forms = [];
+  for (const opening of tags(source, 'form')) {
+    const classList = (attribute(opening, 'class') ?? '').split(/\s+/);
+    if (!classList.includes(className)) continue;
+    const start = source.indexOf(opening);
+    const end = source.indexOf('</form>', start + opening.length);
+    assert.ok(end >= 0, `Unclosed ${className} form.`);
+    forms.push(source.slice(start, end));
+  }
+  return forms;
+}
+
+/** @param {string} source @param {string} formClass */
+function imageAutoGrowLimit(source, formClass) {
+  const forms = formBodiesWithClass(source, formClass);
+  assert.ok(forms.length > 0, `Missing ${formClass} image-question forms.`);
+  const fields = forms.flatMap((form) => tags(form, 'textarea')).filter((tag) => {
+    const name = attribute(tag, 'name');
+    return name === 'prompt_md' || name === 'answer_md';
+  });
+  assert.ok(fields.some((tag) => attribute(tag, 'name') === 'prompt_md') && fields.some((tag) => attribute(tag, 'name') === 'answer_md'), 'Image Question UI must expose Prompt and Answer fields.');
+  const actions = fields.map((tag) => requiredText(useAction(tag), 'Every image Prompt/Answer field must use bounded auto-grow.'));
+  const limits = [...new Set(actions)].map((actionName) => boundedAutoGrowLimit(source, actionName));
+  return Math.max(...limits);
+}
+
+/** @param {string} source */
+function mediaBlocks(source) {
+  const style = /<style[^>]*>([\s\S]*?)<\/style>/.exec(source)?.[1] ?? '';
+  const blocks = [];
+  const media = /@media\s*(\([^)]*\))\s*\{/g;
+  let match;
+  while ((match = media.exec(style))) {
+    const block = bracedBody(style, style.indexOf('{', match.index));
+    blocks.push({ condition: match[1].replace(/\s+/g, ' ').trim(), body: block.body });
+    media.lastIndex = block.end;
+  }
+  return blocks;
+}
+
+/** @param {string} source @param {string} selectorFragment */
+function cssRule(source, selectorFragment) {
+  let cursor = 0;
+  while (cursor < source.length) {
+    const openingBrace = source.indexOf('{', cursor);
+    if (openingBrace < 0) break;
+    const selector = source.slice(cursor, openingBrace).trim();
+    const block = bracedBody(source, openingBrace);
+    if (selector.includes(selectorFragment)) return { selector, body: block.body };
+    cursor = block.end;
+  }
+  return null;
+}
+
+/** @param {string} body @param {string} property */
+function declaration(body, property) {
+  return new RegExp(`(?:^|;)\\s*${escapeRegExp(property)}\\s*:\\s*([^;]+)`, 'm').exec(body)?.[1].trim() ?? null;
+}
+
+/** @param {string} value */
+function trackCount(value) {
+  let depth = 0;
+  let count = 0;
+  let inTrack = false;
+  for (const char of `${value} `) {
+    if (char === '(') depth += 1;
+    if (char === ')') depth -= 1;
+    if (/\s/.test(char) && depth === 0) {
+      if (inTrack) count += 1;
+      inTrack = false;
+    } else if (!/\s/.test(char)) {
+      inTrack = true;
+    }
+  }
+  return count;
+}
+
+/** @param {string} body */
+function isHorizontalLayout(body) {
+  const gridTracks = declaration(body, 'grid-template-columns');
+  if (gridTracks) return trackCount(gridTracks) >= 2;
+  return declaration(body, 'display') === 'flex' && declaration(body, 'flex-direction') !== 'column';
+}
+
+/** @param {string} body */
+function isSingleColumnLayout(body) {
+  const gridTracks = declaration(body, 'grid-template-columns');
+  if (gridTracks) return trackCount(gridTracks) === 1;
+  return declaration(body, 'display') === 'flex' && declaration(body, 'flex-direction') === 'column';
+}
 
 test('Case editor exposes one shared Classic/Compact authoring tree', () => {
-  assert.match(editor, /data-editor-layout=\{editorLayout\}/);
-  assert.match(navigation, /> Classic<\/label>/);
-  assert.match(navigation, /> Compact<\/label>/);
-  assert.match(editor, /let editorLayout = \$state\('compact'\)/);
-  assert.match(editor, /readCaseEditorLayout\(getCaseEditorStorage\(window\)\)/);
-  assert.match(editor, /writeCaseEditorLayout\(getCaseEditorStorage\(window\), layout\)/);
-  assert.doesNotMatch(editor, /readCaseEditorLayout\(window\.localStorage\)/);
-  assert.doesNotMatch(editor, /writeCaseEditorLayout\(window\.localStorage,/);
-  assert.doesNotMatch(`${editor}\n${navigation}`, /ClassicCaseEditor|CompactCaseEditor/);
+  const editorRoot = tags(editor, 'div').find((tag) => (attribute(tag, 'class') ?? '').split(/\s+/).includes('case-editor'));
+  assert.ok(editorRoot, 'Missing Case editor root.');
+  const layoutState = requiredText(expressionAttribute(editorRoot, 'data-editor-layout'), 'Case editor root must expose its active presentation layout.');
+
+  const editorImports = svelteComponentImports(editor, editorUrl);
+  const sharedComponents = editorImports.filter(({ specifier }) => specifier.startsWith('$lib/components/case-editor/'));
+  assert.ok(sharedComponents.length > 0, 'Case editor must use the shared case-editor component family.');
+  for (const { name } of sharedComponents) {
+    assert.equal(tags(editor, name).length, 1, `${name} must remain a single shared authoring node.`);
+  }
+
+  const layoutInputs = tags(navigation, 'input').filter((tag) => attribute(tag, 'name') === 'case_editor_layout');
+  assert.deepEqual(layoutInputs.map((tag) => attribute(tag, 'value')).sort(), ['classic', 'compact']);
+  assert.match(navigation, />\s*Classic\s*<\/label>/);
+  assert.match(navigation, />\s*Compact\s*<\/label>/);
+  for (const input of layoutInputs) {
+    const value = requiredText(attribute(input, 'value'), 'Layout control must have a value.');
+    assert.match(input, new RegExp(`onchange=\\{[^}]*onlayoutchange\\(['"]${escapeRegExp(value)}['"]\\)`));
+  }
+
+  const importByName = new Map(editorImports.map((record) => [record.name, record]));
+  const layoutBranches = svelteIfBlocks(editor).filter(({ condition }) => condition.includes(layoutState));
+  for (const { body } of layoutBranches) {
+    assert.equal(tags(body, 'form').length, 0, 'Classic/Compact branches must not own raw authoring forms.');
+    for (const { name } of sharedComponents) {
+      assert.equal(tags(body, name).length, 0, `${name} must not be selected by Classic/Compact state.`);
+    }
+    for (const [name, record] of importByName) {
+      if (tags(body, name).length === 0) continue;
+      assert.equal(componentTreeContainsForm(record.url), false, `Layout-selected ${name} must remain presentation-only and may not own an authoring-form subtree.`);
+    }
+  }
 });
 
 test('Compact Case questions keep scope and reorder controls together while preserving viewport scroll', () => {
-  assert.match(questions, /<details class="scope-change scope-change-header">/);
-  assert.match(questions, /<summary>Change scope<\/summary>/);
-  assert.match(questions, /class="scope-badge">Whole Case<\/span>/);
-  assert.match(questions, /<\/details>\s*\{\/if\}\s*<div class="question-order-actions">/);
-  assert.match(questions, /aria-label="Move question up"/);
-  assert.match(questions, /aria-label="Move question down"/);
-  assert.match(questions, /use:enhance=\{preserveQuestionScroll\}/);
-  assert.match(questions, /replaceState\(result\.location, \{\}\)/);
-  assert.match(questions, /await invalidateAll\(\)/);
-  assert.match(questions, /root\.style\.overflowAnchor = 'none'/);
-  assert.match(questions, /window\.scrollTo\(scrollX, scrollY\)/);
-  assert.doesNotMatch(questions, /window\.scrollBy\(/);
+  const cardStart = questions.indexOf('<div class="card-heading">');
+  const headerStart = questions.indexOf('<div class="header-actions">', cardStart);
+  const editFormStart = questions.indexOf('<form id={`question-edit-', headerStart);
+  assert.ok(cardStart >= 0 && headerStart > cardStart && editFormStart > headerStart, 'Existing question identity/actions must precede the edit form.');
+  const cardHeading = questions.slice(cardStart, editFormStart);
+  const header = questions.slice(headerStart, editFormStart);
+  const scopeDisclosure = tags(header, 'details').find((tag) => {
+    const classList = (attribute(tag, 'class') ?? '').split(/\s+/);
+    return classList.includes('scope-change') && classList.includes('scope-change-header');
+  });
+  assert.ok(scopeDisclosure, 'Compact scope editing must remain reachable in the question header.');
+  assert.match(cardHeading, /class="scope-badge">Whole Case<\/span>/);
+  assert.match(header, /<summary>Change scope<\/summary>/);
+  assert.match(header, /class="question-order-actions"/);
+  assert.match(header, /aria-label="Move question up"/);
+  assert.match(header, /aria-label="Move question down"/);
+
+  const reorderForms = tags(header, 'form').filter((tag) => attribute(tag, 'action') === '?/reorderQuestion');
+  assert.equal(reorderForms.length, 2);
+  const callbacks = new Set(reorderForms.map(enhanceCallback));
+  assert.equal(callbacks.has(null), false, 'Reorder controls must remain progressively enhanced.');
+  assert.equal(callbacks.size, 1, 'Both reorder directions must share viewport-preserving behavior.');
+
+  const behavior = callableBody(questions, requiredText([...callbacks][0], 'Reorder controls must reach a viewport-preserving callback.'));
+  assert.match(behavior, /const\s+scrollX\s*=\s*window\.scrollX/);
+  assert.match(behavior, /const\s+scrollY\s*=\s*window\.scrollY/);
+  assert.match(behavior, /replaceState\s*\(/);
+  assert.match(behavior, /await\s+invalidateAll\s*\(/);
+  assert.match(behavior, /overflowAnchor\s*=\s*['"]none['"]/);
+  assert.match(behavior, /window\.scrollTo\(\s*scrollX\s*,\s*scrollY\s*\)/);
+  assert.doesNotMatch(behavior, /window\.scrollBy\s*\(|\bgoto\s*\(|\.reload\s*\(|window\.location/);
 });
 
-test('Compact Case question Prompt and Answer fields start at the same height', () => {
-  assert.match(questions, /class="question-prompt-field">Prompt<textarea name="prompt_md" rows="3"/);
-  assert.match(questions, /class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" rows="3"/);
-  assert.match(questions, /const autoGrowAnswer = \(node\) =>/);
-  assert.match(questions, /Math\.min\(node\.scrollHeight, maxHeight\)/);
-  assert.match(questions, /expandButton\.textContent = expanded \? 'Collapse answer' : 'Expand answer'/);
-  assert.match(questions, /const hidden = !isOverflowing && !expanded/);
-  assert.match(questions, /expandButton\.style\.display = hidden \? 'none' : ''/);
+test('Case question Prompt and Answer fields start comparably and long Answers expand without becoming unbounded', () => {
+  const formStart = questions.indexOf('<form id={`question-edit-');
+  const formEnd = questions.indexOf('</form>', formStart);
+  const form = questions.slice(formStart, formEnd);
+  const prompt = tags(form, 'textarea').find((tag) => attribute(tag, 'name') === 'prompt_md');
+  const answer = tags(form, 'textarea').find((tag) => attribute(tag, 'name') === 'answer_md');
+  assert.ok(prompt && answer);
+  const promptRows = Number(requiredText(attribute(prompt, 'rows'), 'Prompt must declare usable initial editing rows.'));
+  const answerRows = Number(requiredText(attribute(answer, 'rows'), 'Answer must declare usable initial editing rows.'));
+  assert.ok(Number.isInteger(promptRows) && promptRows > 1, 'Prompt needs more than a single-line editing surface.');
+  assert.equal(answerRows, promptRows, 'Prompt and Answer must start with comparable editing space.');
+  const answerAction = requiredText(useAction(answer), 'Long Case Answers must use bounded auto-grow.');
+  boundedAutoGrowLimit(questions, answerAction);
 });
 
-test('Image-specific answer fields use a smaller contextual auto-grow limit', () => {
-  assert.match(images, /const autoGrowImageField = \(node\) =>/);
-  assert.match(images, /const maxHeight = 220/);
-  assert.match(images, /use:autoGrowImageField name="prompt_md"/);
-  assert.match(images, /use:autoGrowImageField name="answer_md"/);
-  assert.match(images, /expandButton\.style\.display = hidden \? 'none' : ''/);
-  assert.match(imageReview, /const autoGrowImageField = \(node\) =>/);
-  assert.match(imageReview, /const maxHeight = 220/);
-  assert.match(imageReview, /use:autoGrowImageField name="prompt_md"/);
-  assert.match(imageReview, /use:autoGrowImageField name="answer_md"/);
+test('Image-specific Prompt and Answer fields use a smaller contextual bounded auto-grow behavior', () => {
+  const mainAnswer = tags(questions, 'textarea').find((tag) => attribute(tag, 'name') === 'answer_md' && useAction(tag));
+  assert.ok(mainAnswer);
+  const mainLimit = boundedAutoGrowLimit(questions, requiredText(useAction(mainAnswer), 'Case Answer auto-grow action must remain reachable.'));
+  assert.ok(imageAutoGrowLimit(images, 'image-question-form') < mainLimit);
+  assert.ok(imageAutoGrowLimit(imageReview, 'qa-row') < mainLimit);
+
+  const imageForms = tags(images, 'form').filter((tag) => /(?:^|\s)image-question-form(?:\s|$)/.test(attribute(tag, 'class') ?? ''));
+  assert.ok(imageForms.length > 0);
+  for (const form of imageForms) {
+    assert.ok((attribute(form, 'class') ?? '').split(/\s+/).includes('stack'), 'Image Question forms must stay vertically composed without depending on class ordering.');
+  }
 });
 
-test('Compact wide layout uses horizontal question fields and sticky section navigation only at the wide breakpoint', () => {
-  assert.match(questions, /@media \(min-width: 1024px\)/);
-  assert.match(questions, /data-editor-layout="compact"\]\) \.question-edit-form/);
-  assert.match(questions, /grid-template-columns: minmax\(0, 2fr\) minmax\(0, 3fr\)/);
-  assert.match(navigation, /@media \(min-width: 1024px\)/);
-  assert.match(navigation, /data-editor-layout="compact"\]\) \.section-nav \{ position: sticky;/);
-  assert.match(questions, /scroll-margin-top: 4\.75rem/);
-  assert.match(images, /class="stack image-question-form"/);
+test('Compact question editing is horizontal with sticky navigation when wide and reflows when narrow', () => {
+  const wideQuestions = mediaBlocks(questions).find((block) => {
+    const rule = cssRule(block.body, '.question-edit-form');
+    return /min-width/.test(block.condition) && rule?.selector.includes('data-editor-layout="compact"') && isHorizontalLayout(rule.body);
+  });
+  assert.ok(wideQuestions, 'Missing wide Compact question layout.');
+  const wideRule = cssRule(wideQuestions.body, '.question-edit-form');
+  assert.ok(wideRule);
+  assert.ok(isHorizontalLayout(wideRule.body), 'Wide Prompt/Answer editing must use a horizontal layout.');
+  const gridTracks = declaration(wideRule.body, 'grid-template-columns');
+  if (gridTracks) {
+    const promptRule = cssRule(wideQuestions.body, '.question-prompt-field');
+    const answerRule = cssRule(wideQuestions.body, '.question-answer-field');
+    assert.ok(promptRule && answerRule);
+    assert.notEqual(declaration(promptRule.body, 'grid-column'), declaration(answerRule.body, 'grid-column'));
+  }
+  const anchorRule = cssRule(wideQuestions.body, '#questions');
+  assert.ok(anchorRule);
+  assert.ok(Number.parseFloat(requiredText(declaration(anchorRule.body, 'scroll-margin-top'), 'Sticky navigation must provide question anchor clearance.')) > 0, 'Sticky navigation needs nonzero question anchor clearance.');
+
+  const wideNavigation = mediaBlocks(navigation).find((block) => {
+    const rule = cssRule(block.body, '.section-nav');
+    return /min-width/.test(block.condition) && rule?.selector.includes('data-editor-layout="compact"') && declaration(rule.body, 'position') === 'sticky';
+  });
+  assert.ok(wideNavigation, 'Missing wide Compact sticky navigation.');
+  assert.equal(wideNavigation.condition, wideQuestions.condition, 'Question layout and sticky navigation must use the same wide viewport class.');
+
+  const narrowQuestions = mediaBlocks(questions).find((block) => {
+    const rule = cssRule(block.body, '.question-edit-form');
+    return /max-width/.test(block.condition) && rule && isSingleColumnLayout(rule.body);
+  });
+  assert.ok(narrowQuestions, 'Missing narrow Case Question reflow.');
+  const narrowRule = cssRule(narrowQuestions.body, '.question-edit-form');
+  assert.ok(narrowRule);
+  assert.ok(isSingleColumnLayout(narrowRule.body), 'Narrow Case Question editing must reflow to one column.');
 });
 
-test('layout switching is presentation-only and keeps the existing question forms mounted', () => {
-  assert.match(editor, /function setEditorLayout\(layout\) \{\s*editorLayout = writeCaseEditorLayout/);
-  assert.doesNotMatch(editor, /setEditorLayout[\s\S]{0,180}(goto\(|location\.|reload\()/);
-  assert.match(questions, /id=\{`question-edit-\$\{question\.questionPromptId\}`\}/);
-  assert.match(questions, /action="\?\/saveQuestion" class="question-edit-form"/);
+test('layout switching is presentation-only and keeps existing question forms mounted', () => {
+  const editorRoot = tags(editor, 'div').find((tag) => (attribute(tag, 'class') ?? '').split(/\s+/).includes('case-editor'));
+  assert.ok(editorRoot);
+  const layoutState = requiredText(expressionAttribute(editorRoot, 'data-editor-layout'), 'Case editor root must expose its active layout state.');
+  const layoutHelpers = namedImportsFrom(editor, '$lib/admin-case-editor-layout.js');
+
+  const mountBody = arrowCallbackBody(editor, 'onMount');
+  const mountCalls = calledNames(mountBody, layoutHelpers);
+
+  const navigationTag = tags(editor, 'CaseEditorNavigation')[0];
+  const handlerName = /onlayoutchange=\{([A-Za-z_$][\w$]*)\}/.exec(navigationTag)?.[1];
+  assert.ok(handlerName, 'Case editor navigation must reach one in-place layout handler.');
+  const switchBody = callableBody(editor, handlerName);
+  const switchCalls = calledNames(switchBody, layoutHelpers);
+
+  const sharedCalls = mountCalls.filter((name) => switchCalls.includes(name));
+  const mountOnly = mountCalls.filter((name) => !switchCalls.includes(name));
+  const switchOnly = switchCalls.filter((name) => !mountCalls.includes(name));
+  assert.equal(sharedCalls.length, 1, 'Layout mount/switch flows must share one storage-access helper.');
+  assert.equal(mountOnly.length, 1, 'Layout mount must use one read-side helper distinct from switching.');
+  assert.equal(switchOnly.length, 1, 'Layout switching must use one write-side helper distinct from mounting.');
+  assert.match(mountBody, new RegExp(`${escapeRegExp(layoutState)}\\s*=\\s*${escapeRegExp(mountOnly[0])}\\s*\\(\\s*${escapeRegExp(sharedCalls[0])}\\s*\\(`));
+  assert.match(switchBody, new RegExp(`${escapeRegExp(layoutState)}\\s*=\\s*${escapeRegExp(switchOnly[0])}\\s*\\(\\s*${escapeRegExp(sharedCalls[0])}\\s*\\(`));
+  assert.doesNotMatch(switchBody, /\bgoto\s*\(|\blocation\b|\.reload\s*\(|\binvalidateAll\s*\(/);
+
+  const editForm = tags(questions, 'form').find((tag) => /(?:^|\s)question-edit-form(?:\s|$)/.test(attribute(tag, 'class') ?? ''));
+  assert.ok(editForm);
+  assert.equal(attribute(editForm, 'action'), '?/saveQuestion');
+  assert.match(editForm, /id=\{`question-edit-\$\{question\.questionPromptId\}`\}/);
+  for (const { condition, body } of svelteIfBlocks(questions).filter(({ condition }) => /(?:===|!==)\s*['"](?:classic|compact)['"]/.test(condition))) {
+    assert.equal(tags(body, 'form').some((tag) => /(?:^|\s)question-edit-form(?:\s|$)/.test(attribute(tag, 'class') ?? '')), false, `Existing question forms must not be mounted by layout condition: ${condition}`);
+  }
 });

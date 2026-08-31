@@ -13,6 +13,7 @@
     "prepare": "svelte-kit sync",
     "check": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json",
     "test": "node --test",
+    "test:fast": "node scripts/test-fast.mjs",
     "agent:doctor": "node scripts/agent-doctor.mjs",
     "agent:checks": "node scripts/agent-checks.mjs",
     "validate:fast": "node scripts/validate.mjs fast",

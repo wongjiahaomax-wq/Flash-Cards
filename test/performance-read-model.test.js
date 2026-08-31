@@ -1,45 +1,32 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { getAdminDashboardSummary } from '../src/lib/server/db/admin-dashboard.js';
-import { getAdminCaseById, getAdminCaseData } from '../src/lib/server/db/case-assets.js';
+import { getAdminCaseData } from '../src/lib/server/db/case-assets.js';
 import { createDb } from '../src/lib/server/db/index.js';
 import { serverTimingValue, withServerReadTiming } from '../src/lib/server/performance-timing.js';
+import { applyCurrentSchema } from './current-schema.js';
 
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
-
-const migrationSql = [
-  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0005_tag_foundation.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0010_reusable_image_reactivation_guard.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0013_review_assets_asset_lookup.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0014_review_question_pool_mode.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0015_contextual_system_topic_tag_navigation.sql', import.meta.url), 'utf8')
-].join('\n').replaceAll('--> statement-breakpoint', '');
+/** @typedef {{ sql: string, params: any[] }} RecordedQuery */
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql);
-  /** @type {string[]} */
-  const preparedSql = [];
+  applyCurrentSchema(sqlite);
+  /** @type {RecordedQuery[]} */
+  const preparedQueries = [];
   const d1 = {
     /** @param {string} sql */
     prepare(sql) {
-      preparedSql.push(sql);
+      /** @type {RecordedQuery} */
+      const recorded = { sql, params: [] };
+      preparedQueries.push(recorded);
       return {
         /** @param {...any} params */
         bind(...params) {
+          recorded.params = params;
           return {
             async all() { return { results: sqlite.prepare(sql).all(...params) }; },
             async raw() { return sqlite.prepare(sql).all(...params).map((row) => Object.values(row)); },
@@ -59,7 +46,7 @@ function createLearningDb() {
   return {
     db: /** @type {LearningDb} */ (createDb(/** @type {D1Database} */ (/** @type {unknown} */ (d1)))),
     sqlite,
-    preparedSql
+    preparedQueries
   };
 }
 
@@ -92,10 +79,23 @@ function seed(fixture) {
   sqlite.exec("INSERT INTO case_questions (id, case_id, question_prompt_id, answer_md, is_active) VALUES ('cq-preview', 'case-preview', 'prompt-preview', 'E', 1)");
 }
 
-test('dashboard read model preserves production/inactive semantics and bounds Case summaries', async () => {
+/** @param {RecordedQuery[]} preparedQueries @param {string} table */
+function queriesFrom(preparedQueries, table) {
+  return preparedQueries.filter((query) => query.sql.includes(`from "${table}"`));
+}
+
+/** @param {RecordedQuery} query @param {number} expected */
+function assertSqlLimit(query, expected) {
+  assert.match(query.sql, /\blimit\s+\?/i, `expected a bound SQL LIMIT: ${query.sql}`);
+  assert.equal(query.params.at(-1), expected, `expected SQL LIMIT ${expected}: ${JSON.stringify(query)}`);
+}
+
+test('dashboard read model preserves production/inactive semantics and bounds Case summaries in SQL', async () => {
   const fixture = createLearningDb();
   try {
     seed(fixture);
+    fixture.preparedQueries.length = 0;
+
     const summary = await getAdminDashboardSummary(fixture.db);
     assert.equal(summary.caseCount, 8);
     assert.equal(summary.questionCount, 4);
@@ -105,19 +105,51 @@ test('dashboard read model preserves production/inactive semantics and bounds Ca
     assert.deepEqual(summary.dashboardCases.map((item) => item.id), ['case-1', 'case-2', 'case-3', 'case-4', 'case-5', 'case-6']);
     assert.deepEqual(summary.dashboardCases[0], { id: 'case-1', title: 'Case 01', conceptName: 'Topic A' });
 
+    const caseQueries = queriesFrom(fixture.preparedQueries, 'cases');
+    const caseSummaryQueries = caseQueries.filter((query) => !/^\s*select\s+count\s*\(/i.test(query.sql));
+    assert.equal(caseSummaryQueries.length, 1, JSON.stringify(caseQueries));
+    assertSqlLimit(caseSummaryQueries[0], 6);
+
+    fixture.preparedQueries.length = 0;
     const bounded = await getAdminDashboardSummary(fixture.db, { caseLimit: 2 });
     assert.equal(bounded.dashboardCases.length, 2);
+    const boundedCaseQueries = queriesFrom(fixture.preparedQueries, 'cases')
+      .filter((query) => !/^\s*select\s+count\s*\(/i.test(query.sql));
+    assert.equal(boundedCaseQueries.length, 1, JSON.stringify(boundedCaseQueries));
+    assertSqlLimit(boundedCaseQueries[0], 2);
   } finally {
     fixture.sqlite.close();
   }
 });
 
-test('targeted production Case lookup returns one active Case with primary Topic and settings', async () => {
+test('dashboard Question count remains a database-side aggregate instead of loading Question rows', async () => {
   const fixture = createLearningDb();
   try {
     seed(fixture);
-    const row = await getAdminCaseById(fixture.db, 'case-1');
-    assert.deepEqual(row, {
+    fixture.preparedQueries.length = 0;
+
+    const summary = await getAdminDashboardSummary(fixture.db);
+    assert.equal(summary.questionCount, 4);
+
+    const questionQueries = queriesFrom(fixture.preparedQueries, 'case_questions');
+    assert.equal(questionQueries.length, 1, JSON.stringify(questionQueries));
+    assert.match(questionQueries[0].sql, /^\s*select\s+count\s*\(/i);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Case editor read preserves its external model while executing one bounded exact Case lookup', async () => {
+  const fixture = createLearningDb();
+  try {
+    seed(fixture);
+    fixture.sqlite.exec("INSERT INTO assets (id, type, storage_key, mime_type, original_filename, is_active) VALUES ('asset-case', 'image', 'case.png', 'image/png', 'Case image', 1)");
+    fixture.sqlite.exec("INSERT INTO case_assets (case_id, asset_id, display_order, caption_md) VALUES ('case-1', 'asset-case', 0, 'Caption')");
+    fixture.preparedQueries.length = 0;
+
+    const data = await getAdminCaseData(fixture.db, 'case-1', { includeAvailable: false });
+    assert.ok(data);
+    assert.deepEqual(data.case, {
       id: 'case-1',
       title: 'Case 01',
       vignetteMd: 'Stem 1',
@@ -126,46 +158,20 @@ test('targeted production Case lookup returns one active Case with primary Topic
       conceptId: 'topic-a',
       conceptName: 'Topic A'
     });
-    assert.equal(await getAdminCaseById(fixture.db, 'case-off'), null);
-    assert.equal(await getAdminCaseById(fixture.db, 'case-preview'), null);
-    assert.equal(await getAdminCaseById(fixture.db, 'missing'), null);
-  } finally {
-    fixture.sqlite.close();
-  }
-});
-
-test('Case editor read keeps its external model while using a bounded Case lookup', async () => {
-  const fixture = createLearningDb();
-  try {
-    seed(fixture);
-    fixture.sqlite.exec("INSERT INTO assets (id, type, storage_key, mime_type, original_filename, is_active) VALUES ('asset-case', 'image', 'case.png', 'image/png', 'Case image', 1)");
-    fixture.sqlite.exec("INSERT INTO case_assets (case_id, asset_id, display_order, caption_md) VALUES ('case-1', 'asset-case', 0, 'Caption')");
-    fixture.preparedSql.length = 0;
-
-    const data = await getAdminCaseData(fixture.db, 'case-1', { includeAvailable: false });
-    assert.ok(data);
-    assert.equal(data.case.id, 'case-1');
-    assert.equal(data.case.conceptId, 'topic-a');
-    assert.equal(data.case.questionSelectionMode, 'fixed');
     assert.equal(data.attached.length, 1);
     assert.deepEqual(data.available, []);
+
+    const caseQueries = queriesFrom(fixture.preparedQueries, 'cases');
+    assert.equal(caseQueries.length, 1, `Case detail read executed unexpected Case-table queries: ${JSON.stringify(caseQueries)}`);
+    assert.match(caseQueries[0].sql, /"cases"\."id"\s*=\s*\?/);
+    assertSqlLimit(caseQueries[0], 1);
+
     assert.equal(await getAdminCaseData(fixture.db, 'case-off', { includeAvailable: false }), null);
     assert.equal(await getAdminCaseData(fixture.db, 'case-preview', { includeAvailable: false }), null);
     assert.equal(await getAdminCaseData(fixture.db, 'missing', { includeAvailable: false }), null);
-
-    const caseLookupSql = fixture.preparedSql.find((statement) => statement.includes('from "cases"') && statement.includes('limit'));
-    assert.ok(caseLookupSql, 'expected a bounded Case lookup');
-    assert.match(caseLookupSql, /"cases"\."id" = \?/);
   } finally {
     fixture.sqlite.close();
   }
-});
-
-test('getAdminCaseData does not reintroduce listAdminCases for a detail read', () => {
-  const source = readFileSync(new URL('../src/lib/server/db/case-assets.js', import.meta.url), 'utf8');
-  const detail = source.slice(source.indexOf('export async function getAdminCaseData'), source.indexOf('export async function attachAssetToCase'));
-  assert.doesNotMatch(detail, /listAdminCases\s*\(/);
-  assert.match(source, /export async function getAdminCaseById[\s\S]*?\.limit\(1\)/);
 });
 
 test('timing instrumentation preserves return values and failure semantics', async () => {

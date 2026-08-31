@@ -13,6 +13,7 @@ import {
 } from '../src/lib/server/db/learning.js';
 import { QuestionPoolUnavailableError } from '../src/lib/server/learning/question-pool-mode.ts';
 import { buildSeedSql } from '../scripts/seed-content.mjs';
+import { applyCurrentSchema } from './current-schema.js';
 
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
 /** @typedef {{ prepare: (sql: string) => any, batch: (statements: any[]) => Promise<any[]> }} TestD1 */
@@ -34,33 +35,10 @@ const questionPoolModeMigrationSql = readFileSync(
   'utf8'
 ).replaceAll('--> statement-breakpoint', '');
 
-const contextualNavigationMigrationSql = readFileSync(
-  new URL('../drizzle/0015_contextual_system_topic_tag_navigation.sql', import.meta.url),
-  'utf8'
-).replaceAll('--> statement-breakpoint', '');
-
-const originalStimulusMigrationSql = readFileSync(
-  new URL('../drizzle/0016_original_stimulus_options.sql', import.meta.url),
-  'utf8'
-).replaceAll('--> statement-breakpoint', '');
-
-const reusablePromptGuardMigrationSql = readFileSync(
-  new URL('../drizzle/0017_align_reusable_prompt_live_state_guards.sql', import.meta.url),
-  'utf8'
-).replaceAll('--> statement-breakpoint', '');
-
-const migrationSql = [
-  migrationBeforeQuestionPoolModeSql,
-  questionPoolModeMigrationSql,
-  contextualNavigationMigrationSql,
-  originalStimulusMigrationSql,
-  reusablePromptGuardMigrationSql
-].join('\n');
-
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql);
+  applyCurrentSchema(sqlite);
   sqlite.exec(buildSeedSql());
   let batches = 0;
   /** @type {TestD1} */

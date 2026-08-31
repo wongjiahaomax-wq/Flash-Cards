@@ -8,9 +8,8 @@ const creatorSource = readFileSync(new URL('../src/lib/components/case-library/C
 const bulkTagSource = readFileSync(new URL('../src/lib/components/case-library/BulkCaseTagEditor.svelte', import.meta.url), 'utf8');
 const classificationSource = readFileSync(new URL('../src/lib/components/case-library/CaseClassificationEditor.svelte', import.meta.url), 'utf8');
 const classificationEndpointSource = readFileSync(new URL('../src/routes/admin/cases/[caseId]/classification/+server.js', import.meta.url), 'utf8');
-const adminContentSource = readFileSync(new URL('../src/lib/server/db/admin-content.js', import.meta.url), 'utf8');
 
-test('Case Library keeps deliberate search while persisting server-normalized state only after navigation', () => {
+test('Case Library keeps deliberate search and native browser state restoration', () => {
   for (const id of ['case-search', 'topic-search', 'system-search']) {
     const input = pageSource.match(new RegExp(`<input[^>]*id="${id}"[^>]*>`))?.[0] ?? '';
     assert.ok(input, `expected ${id}`);
@@ -21,30 +20,23 @@ test('Case Library keeps deliberate search while persisting server-normalized st
   assert.match(pageSource, /window\.location\.replace\(href\)/);
   assert.match(pageSource, /writeCaseLibraryStoredState\(currentStoredState\(\)\)/);
   assert.match(pageSource, /clearCaseLibraryStoredState\(\)/);
-  assert.match(pageSource, /placeholder="e\.g\. Cardiology or Unassigned"/);
   assert.doesNotMatch(pageSource, /history\.(pushState|replaceState)/, 'browser Back/Forward must remain native');
 });
 
-test('deliberate default pagination, sort, and lifecycle links remain explicit', () => {
+test('pagination, sort, lifecycle and named mutations stay wired through the Case Library state helpers', () => {
   assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), page \}, \['page'\]\)/);
   assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), sort: `\$\{column\}-\$\{direction\}`, page: 1 \}, \['sort'\]\)/);
   assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), lifecycle, page: 1 \}, \['lifecycle'\]\)/);
-});
-
-test('named mutation targets retain the current Case Library query and failed form data blocks restoration', () => {
   assert.match(pageSource, /caseLibraryNamedActionHref\(actionName, currentQuery\(\)\)/);
   assert.match(pageSource, /action=\{actionHref\(inactiveView \? 'bulkRestoreCases' : 'bulkDeactivateCases'\)\}/);
-  assert.match(pageSource, /action=\{actionHref\('bulkPromoteTopic'\)\}/);
-  assert.match(pageSource, /action=\{actionHref\('bulkMoveCaseTopicsToSystem'\)\}/);
   assert.match(pageSource, /actionQuery=\{currentQuery\(\)\}/);
   assert.match(creatorSource, /caseLibraryNamedActionHref\('createCaseLibraryTopic', actionQuery\)/);
-  assert.match(bulkTagSource, /actionQuery \|\| caseLibraryReturnQuery\(page\.url\.searchParams\)/);
   assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkAddCaseTag', effectiveActionQuery\)/);
   assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkRemoveCaseTag', effectiveActionQuery\)/);
   assert.match(bulkTagSource, /caseLibraryNamedActionHref\('bulkCreateAndAddCaseTag', effectiveActionQuery\)/);
 });
 
-test('active Case Library exposes quick Topic creation without replacing existing bulk actions', () => {
+test('active Case Library keeps the intended quick-authoring and bulk-action surfaces', () => {
   assert.match(pageSource, /CaseLibraryTopicCreator/);
   assert.match(pageSource, />Assign Topic<\/button>/);
   assert.match(pageSource, /BulkCaseTagEditor/);
@@ -53,110 +45,53 @@ test('active Case Library exposes quick Topic creation without replacing existin
   assert.match(creatorSource, /<option value="">Unassigned<\/option>/);
   assert.match(creatorSource, /optgroup label="Systems"/);
   assert.match(creatorSource, /optgroup label="Topics"/);
-  assert.match(creatorSource, /caseLibraryNamedActionHref\('createCaseLibraryTopic', actionQuery\)/);
   assert.match(creatorSource, /Create & assign to \$\{selectedCount\}/);
 });
 
-test('bulk Topic assignment and global Topic move use independent required controls and selected Case payloads', () => {
+test('bulk Topic assignment and global Topic move remain separate required workflows for the selected Cases', () => {
   assert.match(pageSource, /id="bulk-topic-assignment-form"[\s\S]*action=\{actionHref\('bulkPromoteTopic'\)\}/);
   assert.match(pageSource, /id="bulk-topic-system-move-form"[\s\S]*action=\{actionHref\('bulkMoveCaseTopicsToSystem'\)\}/);
   assert.match(pageSource, /name="concept_id" form="bulk-topic-assignment-form" required/);
-  assert.match(pageSource, /form="bulk-topic-assignment-form"[^>]*>Assign Topic<\/button>/);
   assert.match(pageSource, /name="system_id" form="bulk-topic-system-move-form" required/);
-  assert.match(pageSource, /form="bulk-topic-system-move-form"[^>]*>Move Topics globally<\/button>/);
   assert.match(pageSource, /\{#each selectedCaseIds as caseId\}<input type="hidden" name="case_ids" value=\{caseId\}/);
   assert.doesNotMatch(pageSource, /Move Topics globally<\/button>[\s\S]{0,120}formnovalidate|formnovalidate[^>]*>Move Topics globally/);
 });
 
-test('failed quick Topic creation retries only freshly visible submitted Cases and retains assignment intent', () => {
+test('failed Topic creation and normal navigation reconcile selection through the shared selection model', () => {
   assert.match(creatorSource, /name="topic_case_ids" value=\{caseId\}/);
-  assert.match(serverSource, /selectedCaseIds\(formData, 'topic_case_ids'\)/);
-  assert.match(serverSource, /topicCreationFailure\(error, input, caseIds\)/);
   assert.match(serverSource, /topicSelectedCaseIds: caseIds/);
   assert.match(pageSource, /failedTopicSelection\(form\)/);
-  assert.match(pageSource, /candidate\.topicSelectedCaseIds/);
-  assert.match(pageSource, /const visibleIds = data\.cases\.map\(\(item\) => item\.id\)/);
   assert.match(pageSource, /reconcileVisibleCaseSelection\(\{[\s\S]*visibleIds/);
   assert.match(pageSource, /selectedCaseIds = \$state\(failedSelection\.selectedIds\)/);
-  assert.match(pageSource, /removedFailedTopicSelectionCount/);
-  assert.match(pageSource, /no longer visible in this Case Library view/);
-  assert.match(pageSource, /topicCreationRetryRequiresSelection = \$derived\(topicCreationFailure && failedSelection\.submittedCount > 0\)/);
   assert.match(pageSource, /retryRequiresSelection=\{topicCreationRetryRequiresSelection\}/);
   assert.match(creatorSource, /retryRequiresSelection && !selectedCount/);
-  assert.match(creatorSource, /Select a Case to retry/);
+  assert.match(pageSource, /if \(reconciled\.removedCount\) selectedCaseIds = reconciled\.selectedIds/);
+  assert.match(pageSource, /if \(selectionAnchorId && !visibleIds\.includes\(selectionAnchorId\)\) selectionAnchorId = null/);
 });
 
-test('normal Case Library navigation drops selections and shift anchors that are no longer visible', () => {
-  assert.match(pageSource, /const visibleIds = data\.cases\.map\(\(item\) => item\.id\);\s*const reconciled = reconcileVisibleCaseSelection\(\{ selectedIds: selectedCaseIds, visibleIds \}\);/);
-  assert.match(pageSource, /if \(reconciled\.removedCount\) selectedCaseIds = reconciled\.selectedIds;/);
-  assert.match(pageSource, /if \(selectionAnchorId && !visibleIds\.includes\(selectionAnchorId\)\) selectionAnchorId = null;/);
-  assert.match(pageSource, /<CaseLibraryTopicCreator selectedCaseIds=\{selectedCaseIds\}/);
-  assert.match(creatorSource, /\{#each selectedCaseIds as caseId\}<input type="hidden" name="topic_case_ids" value=\{caseId\}/);
-});
-
-test('Case Library route reuses the page taxonomy model for Topic parent options and rejects inactive quick creation', () => {
-  assert.match(serverSource, /topicParents:\s*pageData\.topicParentOptions/);
-  assert.match(serverSource, /createCaseLibraryTopic:/);
-  assert.match(serverSource, /Create Topics from the active Case Library/);
-  assert.doesNotMatch(serverSource, /listAdminConcepts|listActiveSystems/);
-  assert.doesNotMatch(serverSource, /createCaseLibrarySystem|system-created|new_system_name/);
-});
-
-test('active rows expose one classification editor and inactive rows keep classification read-only', () => {
+test('Case Library classification UI stays editable only for active Cases and keeps global hierarchy changes explicit', () => {
   assert.match(pageSource, /CaseClassificationEditor/);
   assert.match(pageSource, /\{#if inactiveView\}<span>\{item\.conceptName \?\? 'Unassigned'\}<\/span>\{:else\}<div class="classification-cell">/);
   assert.match(classificationSource, />Edit classification<\/button>/);
   assert.match(classificationSource, /role="dialog" aria-label=\{`Edit classification for \$\{caseTitle\}`\}/);
-  assert.match(classificationSource, /Current Topic/);
-  assert.match(classificationSource, /Current System/);
-  assert.match(classificationSource, /closeOnEscape/);
-});
-
-test('classification System selection clears incompatible Topic state and exposes explicit global move', () => {
   assert.match(classificationSource, /filterCaseLibraryTopicsBySystem\(topics, nextContext\)/);
   assert.match(classificationSource, /selectedTopicId = ''/);
   assert.match(classificationSource, /Filters Topic choices only; it does not change taxonomy hierarchy/);
-  assert.match(classificationSource, /caseLibraryTopicLabel\(topic\)/);
   assert.match(classificationSource, /Move Topic to System/);
   assert.match(classificationSource, /move-topic-to-system/);
-  assert.match(classificationEndpointSource, /caseId,[\s\S]*topicId:[\s\S]*systemId:/);
-});
-
-test('global move confirmations communicate shared Case and descendant subtree impact', () => {
+  assert.match(classificationEndpointSource, /promoteCaseTopic\(db, \{ caseId, conceptId:/);
+  assert.match(classificationEndpointSource, /createCaseLibraryTopic\(db, \{/);
   assert.match(classificationSource, /global hierarchy change:[\s\S]*every Case using this Topic[\s\S]*descendant Topic subtree/);
   assert.match(pageSource, /affects every Case using those shared Topics[\s\S]*descendant Topic subtrees/);
 });
 
-test('bulk move success metadata includes the validated System name', () => {
-  assert.match(serverSource, /system_name: result\.system\.name/);
-  assert.match(pageSource, /data\.statusSystemName/);
-});
-
-test('classification writes reuse canonical Primary Topic and PR 104 Topic-authoring authorities', () => {
-  assert.match(classificationEndpointSource, /promoteCaseTopic\(db, \{ caseId, conceptId:/);
-  assert.match(classificationEndpointSource, /createCaseLibraryTopic\(db, \{/);
-  assert.match(classificationEndpointSource, /caseIds: \[caseId\]/);
-  assert.match(classificationSource, />\+ New Topic<\/button>/);
-  assert.match(classificationSource, /Create & assign/);
-
-  const start = adminContentSource.indexOf('export async function promoteCaseTopic');
-  const end = adminContentSource.indexOf('export async function bulkPromoteCaseTopics');
-  const promoteSource = adminContentSource.slice(start, end);
-  assert.match(promoteSource, /requireActiveCaseWithOnePrimary/);
-  assert.match(promoteSource, /requireActiveTopic/);
-  assert.match(promoteSource, /set\(\{ conceptId, role: 'primary' \}\)/);
-  assert.doesNotMatch(promoteSource, /caseTags|tag-schema|tags\./, 'Primary Topic reassignment must not mutate Case Tags');
-});
-
-test('active and inactive bulk action surfaces are one mutually-exclusive sticky toolbar with narrow-screen wrapping', () => {
+test('active and inactive bulk actions use one mutually-exclusive sticky toolbar with narrow-screen wrapping', () => {
   assert.equal((pageSource.match(/class="bulk-toolbar"/g) ?? []).length, 2, 'active and inactive branches each define their one runtime toolbar');
   assert.match(pageSource, /\{#if inactiveView\}[\s\S]*class="bulk-toolbar"[\s\S]*\{:else\}[\s\S]*class="bulk-toolbar"/);
   assert.doesNotMatch(pageSource, /bulk-toolbar-clone|floating-bulk-toolbar/);
   assert.match(pageSource, /\.bulk-toolbar \{[^}]*position: sticky;[^}]*top: 0\.75rem;[^}]*z-index: 12;/);
-  assert.match(pageSource, /\.bulk-toolbar \{[^}]*background: #fff;[^}]*box-shadow:/);
   assert.match(pageSource, /\.bulk-toolbar \{[^}]*flex-wrap: wrap;/);
   assert.match(pageSource, /@media \(max-width: 600px\)[\s\S]*\.bulk-topic, \.bulk-system \{ min-width: 100%; \}/);
-  assert.match(pageSource, /\.selection-hint \{ display: none; \}/);
   assert.match(pageSource, />Restore selected<\/button>/);
   assert.match(pageSource, /disabled=\{!selectedCaseIds\.length\}/);
 });

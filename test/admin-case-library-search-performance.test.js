@@ -5,43 +5,15 @@ import test from 'node:test';
 
 import { getCaseLibraryPage } from '../src/lib/server/db/case-library.js';
 import { createDb } from '../src/lib/server/db/index.js';
+import { applyCurrentSchema } from './current-schema.js';
 
 const pageSource = readFileSync(new URL('../src/routes/admin/cases/+page.svelte', import.meta.url), 'utf8');
 const serverSource = readFileSync(new URL('../src/routes/admin/cases/+page.server.js', import.meta.url), 'utf8');
 
-const currentMigrationNames = [
-  '0000_dashing_centennial.sql',
-  '0002_optional_stimulus_groups.sql',
-  '0003_multi_topic_study_routing.sql',
-  '0004_resumable_import_jobs.sql',
-  '0005_tag_foundation.sql',
-  '0006_preview_admin_workspace.sql',
-  '0007_image_collections.sql',
-  '0008_tag_shared_questions.sql',
-  '0009_reusable_image_questions.sql',
-  '0010_reusable_image_reactivation_guard.sql',
-  '0011_asset_supersession.sql',
-  '0012_archive_stimulus_options.sql',
-  '0013_review_assets_asset_lookup.sql',
-  '0014_review_question_pool_mode.sql',
-  '0015_contextual_system_topic_tag_navigation.sql',
-  '0016_original_stimulus_options.sql',
-  '0017_align_reusable_prompt_live_state_guards.sql'
-];
-
-/** @param {string[]} names */
-function migrationSql(names) {
-  return names
-    .map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8'))
-    .join('\n')
-    .replaceAll('--> statement-breakpoint', '');
-}
-
-/** @param {string[]} migrations */
-function createLearningDb(migrations) {
+function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql(migrations));
+  applyCurrentSchema(sqlite);
   /** @type {{ sql: string, params: any[] }[]} */
   const statements = [];
   const d1 = /** @type {any} */ ({
@@ -115,7 +87,7 @@ test('Case Library route reuses page taxonomy options and keeps lifecycle-correc
 });
 
 test('active Case Library derives Topic options from one canonical taxonomy supporting read', async () => {
-  const fixture = createLearningDb(currentMigrationNames);
+  const fixture = createLearningDb();
   try {
     fixture.sqlite.exec(`
       INSERT INTO preview_sessions (id, user_id, status, expires_at)

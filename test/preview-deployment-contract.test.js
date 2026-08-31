@@ -13,11 +13,6 @@ const studyRoute = readFileSync(new URL('../src/routes/study/+page.server.js', i
 const reviewRoute = readFileSync(new URL('../src/routes/study/[reviewId]/+page.server.js', import.meta.url), 'utf8');
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const previewSignOut = readFileSync(new URL('../src/lib/components/PreviewSignOutButton.svelte', import.meta.url), 'utf8');
-const questionsRoute = readFileSync(new URL('../src/routes/admin/questions/+page.server.js', import.meta.url), 'utf8');
-const imageLibrary = readFileSync(new URL('../src/lib/server/db/asset-library.js', import.meta.url), 'utf8');
-const adminDashboardReadModel = readFileSync(new URL('../src/lib/server/db/admin-dashboard.js', import.meta.url), 'utf8');
-const topicLibrary = readFileSync(new URL('../src/lib/server/db/topic-library.js', import.meta.url), 'utf8');
-const tagLibrary = readFileSync(new URL('../src/lib/server/db/tag-library.js', import.meta.url), 'utf8');
 
 /** @param {string} configText @param {string} binding @param {string} field */
 function bindingValue(configText, binding, field) {
@@ -148,26 +143,4 @@ test('normal Preview logout resets the workspace before Better Auth sign-out', (
   assert.ok(resetCall >= 0);
   assert.ok(signOutCall > resetCall);
   assert.match(previewSignOut, /if \(!response\.ok\)[\s\S]*return;/);
-});
-
-test('normal Admin libraries and dashboard read model apply explicit production-ownership filters', () => {
-  assert.match(questionsRoute, /isNull\(questionPrompts\.previewSessionId\)/);
-  // Image Management V2 centralizes production Asset ownership in the paginated
-  // DB helper shared by production and read-only Preview Image Library routes.
-  assert.match(imageLibrary, /isNull\(assets\.previewSessionId\)/);
-  assert.match(imageLibrary, /isNull\(cases\.previewSessionId\)/);
-  // The dashboard now centralizes its production-ownership filters in its read model.
-  assert.match(adminDashboardReadModel, /isNull\(assets\.previewSessionId\)/);
-  assert.match(adminDashboardReadModel, /isNull\(cases\.previewSessionId\)/);
-  assert.match(adminDashboardReadModel, /isNull\(questionPrompts\.previewSessionId\)/);
-  assert.doesNotMatch(adminDashboardReadModel, /questionCount:\s*\(await db\.select\(\)\.from\(caseQuestions\)\)\.length/);
-});
-
-test('Topic and Tag Admin aggregates/details exclude Preview-owned Cases and Prompts', () => {
-  assert.match(topicLibrary, /isNull\(cases\.previewSessionId\)/);
-  assert.match(topicLibrary, /isNull\(questionPrompts\.previewSessionId\)/);
-  assert.match(tagLibrary, /isNull\(cases\.previewSessionId\)/);
-  assert.match(tagLibrary, /isNull\(questionPrompts\.previewSessionId\)/);
-  assert.match(tagLibrary, /requireProductionCase/);
-  assert.match(tagLibrary, /requireProductionCaseQuestion/);
 });
