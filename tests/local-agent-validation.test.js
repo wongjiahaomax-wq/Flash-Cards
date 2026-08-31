@@ -91,3 +91,16 @@ test('compact agent-checks output separates iteration, checkpoint, and handoff g
   assert.match(output, /npm run check/);
   assert.match(output, /npm run build/);
 });
+
+test('compact phase guidance does not duplicate specialized required commands', () => {
+  const report = classifyChangedFiles(['tools/slide-import-review/scripts/finalize.mjs']);
+  const output = captureConsole(() => printCompactAgentChecksReport(report, 'fixture-base'));
+
+  assert.deepEqual(report.specializedRequiredCommands, [
+    'npm run slide-review:test',
+    'npm run slide-review:build',
+  ]);
+  for (const command of report.specializedRequiredCommands) {
+    assert.equal(output.split(command).length - 1, 1, `${command} should be rendered exactly once`);
+  }
+});
