@@ -1,8 +1,48 @@
-<script>
-  let { systems, form = null, action = '?/startSystemSelection' } = $props();
+<script lang="ts">
+  type BreadcrumbItem = {
+    id: string;
+    name: string;
+    kind?: string;
+  };
 
-  /** @param {unknown} value */
-  function canonicalRouteValue(value) {
+  type StudyTopic = {
+    id: string;
+    name: string;
+    caseCount: number;
+    breadcrumb: BreadcrumbItem[];
+  };
+
+  type StudyTag = {
+    id: string;
+    name: string;
+    caseCount: number;
+    displayOrder?: number;
+  };
+
+  type StudySystem = {
+    id: string;
+    name: string;
+    allCaseCount: number;
+    topics: StudyTopic[];
+    tags: StudyTag[];
+  };
+
+  type ActionForm = {
+    message?: string;
+    systemId?: string;
+    selectedRoutes?: unknown[];
+    questionPoolMode?: string;
+  } | null;
+
+  type QuestionPoolMode = 'core' | 'expanded';
+
+  let {
+    systems,
+    form = null,
+    action = '?/startSystemSelection'
+  }: { systems: StudySystem[]; form?: ActionForm; action?: string } = $props();
+
+  function canonicalRouteValue(value: unknown): string | null {
     if (typeof value !== 'string') return null;
     const separator = value.indexOf(':');
     if (separator < 1) return null;
@@ -12,88 +52,86 @@
     return `${routeType}:${routeId}`;
   }
 
-  /** @param {any} actionForm */
-  function restoredRoutes(actionForm) {
+  function restoredRoutes(actionForm: ActionForm): string[] {
     if (!Array.isArray(actionForm?.selectedRoutes)) return [];
-    return [...new Set(actionForm.selectedRoutes.map(canonicalRouteValue).filter(Boolean))];
+    return [...new Set(
+      actionForm.selectedRoutes
+        .map(canonicalRouteValue)
+        .filter((value): value is string => value !== null)
+    )];
   }
 
-  let selectedSystemId = $state(typeof form?.systemId === 'string' ? form.systemId : '');
-  let selectedRoutes = $state(restoredRoutes(form));
-  let questionPoolMode = $state(form?.questionPoolMode === 'expanded' ? 'expanded' : 'core');
-  let appliedForm = $state(form);
+  let selectedSystemIdOverride = $state<string | null>(null);
+  let selectedRoutesOverride = $state<string[] | null>(null);
+  let questionPoolModeOverride = $state<QuestionPoolMode | null>(null);
+  let suppressFormMessage = $state(false);
 
-  let selectedSystem = $derived(systems.find((system) => system.id === selectedSystemId) ?? null);
+  let formSystemId = $derived(typeof form?.systemId === 'string' ? form.systemId : '');
+  let formRoutes = $derived(restoredRoutes(form));
+  let formQuestionPoolMode = $derived<QuestionPoolMode>(form?.questionPoolMode === 'expanded' ? 'expanded' : 'core');
+  let selectedSystemId = $derived(selectedSystemIdOverride ?? formSystemId);
+  let selectedRoutes = $derived(selectedRoutesOverride ?? formRoutes);
+  let questionPoolMode = $derived(questionPoolModeOverride ?? formQuestionPoolMode);
+  let selectedSystem = $derived(systems.find((system: StudySystem) => system.id === selectedSystemId) ?? null);
   let selectedCount = $derived(selectedRoutes.length);
   let totalRouteCount = $derived(selectedSystem ? routesForSystem(selectedSystem).length : 0);
   let allSelected = $derived(totalRouteCount > 0 && selectedCount === totalRouteCount);
 
-  $effect(() => {
-    if (!form || form === appliedForm) return;
-    selectedSystemId = typeof form.systemId === 'string' ? form.systemId : '';
-    selectedRoutes = restoredRoutes(form);
-    questionPoolMode = form.questionPoolMode === 'expanded' ? 'expanded' : 'core';
-    appliedForm = form;
-  });
-
-  /** @param {'topic'|'tag'} routeType @param {string} routeId */
-  function routeValue(routeType, routeId) {
+  function routeValue(routeType: 'topic' | 'tag', routeId: string): string {
     return `${routeType}:${routeId}`;
   }
 
-  /** @param {any} system */
-  function routesForSystem(system) {
+  function routesForSystem(system: StudySystem): string[] {
     return [
-      ...system.topics.map((topic) => routeValue('topic', topic.id)),
-      ...system.tags.map((tag) => routeValue('tag', tag.id))
+      ...system.topics.map((topic: StudyTopic) => routeValue('topic', topic.id)),
+      ...system.tags.map((tag: StudyTag) => routeValue('tag', tag.id))
     ];
   }
 
-  /** @param {any} system */
-  function chooseSystem(system) {
-    selectedSystemId = system.id;
-    selectedRoutes = routesForSystem(system);
-    questionPoolMode = 'core';
+  function chooseSystem(system: StudySystem): void {
+    selectedSystemIdOverride = system.id;
+    selectedRoutesOverride = routesForSystem(system);
+    questionPoolModeOverride = 'core';
+    suppressFormMessage = true;
   }
 
-  function changeSystem() {
-    selectedSystemId = '';
-    selectedRoutes = [];
-    questionPoolMode = 'core';
+  function changeSystem(): void {
+    selectedSystemIdOverride = '';
+    selectedRoutesOverride = [];
+    questionPoolModeOverride = 'core';
+    suppressFormMessage = true;
   }
 
-  /** @param {string} value */
-  function isRouteSelected(value) {
+  function chooseQuestionPoolMode(mode: QuestionPoolMode): void {
+    questionPoolModeOverride = mode;
+    suppressFormMessage = true;
+  }
+
+  function isRouteSelected(value: string): boolean {
     return selectedRoutes.includes(value);
   }
 
-  /** @param {string[]} values @param {boolean} checked */
-  function setRoutes(values, checked) {
+  function setRoutes(values: string[], checked: boolean): void {
     const affected = new Set(values);
-    if (checked) {
-      selectedRoutes = [...new Set([...selectedRoutes, ...values])];
-      return;
-    }
-    selectedRoutes = selectedRoutes.filter((value) => !affected.has(value));
+    selectedRoutesOverride = checked
+      ? [...new Set([...selectedRoutes, ...values])]
+      : selectedRoutes.filter((value: string) => !affected.has(value));
+    suppressFormMessage = true;
   }
 
-  /** @param {any} topic */
-  function topicParentId(topic) {
-    const breadcrumb = Array.isArray(topic.breadcrumb) ? topic.breadcrumb : [];
+  function topicParentId(topic: StudyTopic): string | null {
+    const breadcrumb = topic.breadcrumb;
     return breadcrumb.length >= 2 ? breadcrumb[breadcrumb.length - 2]?.id ?? null : null;
   }
 
-  /** @param {any} topic */
-  function topicDepth(topic) {
-    const breadcrumb = Array.isArray(topic.breadcrumb) ? topic.breadcrumb : [];
-    return Math.max(0, breadcrumb.length - 2);
+  function topicDepth(topic: StudyTopic): number {
+    return Math.max(0, topic.breadcrumb.length - 2);
   }
 
-  /** @param {any} system */
-  function orderedTopics(system) {
+  function orderedTopics(system: StudySystem): StudyTopic[] {
     const topics = [...system.topics];
-    const topicIds = new Set(topics.map((topic) => topic.id));
-    const children = new Map();
+    const topicIds = new Set(topics.map((topic: StudyTopic) => topic.id));
+    const children = new Map<string | null, StudyTopic[]>();
     for (const topic of topics) {
       const parentId = topicParentId(topic);
       const key = parentId && topicIds.has(parentId) ? parentId : null;
@@ -102,10 +140,12 @@
       children.set(key, siblings);
     }
     for (const siblings of children.values()) {
-      siblings.sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
+      siblings.sort((left: StudyTopic, right: StudyTopic) =>
+        left.name.localeCompare(right.name) || left.id.localeCompare(right.id)
+      );
     }
-    const ordered = [];
-    const visit = (parentId) => {
+    const ordered: StudyTopic[] = [];
+    const visit = (parentId: string | null): void => {
       for (const topic of children.get(parentId) ?? []) {
         ordered.push(topic);
         visit(topic.id);
@@ -115,47 +155,47 @@
     return ordered;
   }
 
-  /** @param {any} system @param {string} topicId */
-  function topicSubtreeRoutes(system, topicId) {
+  function topicSubtreeRoutes(system: StudySystem, topicId: string): string[] {
     const topics = system.topics;
-    const routes = [];
-    const visit = (currentId) => {
+    const routes: string[] = [];
+    const visit = (currentId: string): void => {
       routes.push(routeValue('topic', currentId));
-      for (const child of topics.filter((topic) => topicParentId(topic) === currentId)) visit(child.id);
+      for (const child of topics.filter((topic: StudyTopic) => topicParentId(topic) === currentId)) {
+        visit(child.id);
+      }
     };
     visit(topicId);
     return routes;
   }
 
-  /** @param {any} system @param {any} topic */
-  function topicIndeterminate(system, topic) {
+  function topicIndeterminate(system: StudySystem, topic: StudyTopic): boolean {
     const subtree = topicSubtreeRoutes(system, topic.id);
     if (subtree.length < 2) return false;
     const count = subtree.filter(isRouteSelected).length;
     return count > 0 && count < subtree.length;
   }
 
-  /** @param {HTMLInputElement} node @param {boolean} value */
-  function indeterminate(node, value) {
+  function indeterminate(node: HTMLInputElement, value: boolean) {
     node.indeterminate = Boolean(value);
     return {
-      /** @param {boolean} next */
-      update(next) {
+      update(next: boolean) {
         node.indeterminate = Boolean(next);
       }
     };
   }
 
-  /** @param {any} system @param {any} topic @param {boolean} checked */
-  function toggleTopicSubtree(system, topic, checked) {
+  function eventChecked(event: Event): boolean {
+    return (event.currentTarget as HTMLInputElement).checked;
+  }
+
+  function toggleTopicSubtree(system: StudySystem, topic: StudyTopic, checked: boolean): void {
     setRoutes(topicSubtreeRoutes(system, topic.id), checked);
   }
 
-  /** @param {any} system @param {'topic'|'tag'} routeType @param {boolean} checked */
-  function toggleGroup(system, routeType, checked) {
+  function toggleGroup(system: StudySystem, routeType: 'topic' | 'tag', checked: boolean): void {
     const values = routeType === 'topic'
-      ? system.topics.map((topic) => routeValue('topic', topic.id))
-      : system.tags.map((tag) => routeValue('tag', tag.id));
+      ? system.topics.map((topic: StudyTopic) => routeValue('topic', topic.id))
+      : system.tags.map((tag: StudyTag) => routeValue('tag', tag.id));
     setRoutes(values, checked);
   }
 </script>
@@ -220,7 +260,7 @@
         <div class="option-list topic-list">
           {#each orderedTopics(selectedSystem) as topic}
             {@const value = routeValue('topic', topic.id)}
-            {@const breadcrumbText = topic.breadcrumb.map((item) => item.name).join(' → ')}
+            {@const breadcrumbText = topic.breadcrumb.map((item: BreadcrumbItem) => item.name).join(' → ')}
             {@const subtree = topicSubtreeRoutes(selectedSystem, topic.id)}
             <label class="study-option topic-option" style={`--topic-depth:${topicDepth(topic)}`}>
               <input
@@ -229,9 +269,9 @@
                 name="route"
                 value={value}
                 checked={isRouteSelected(value)}
-                aria-controls={subtree.length > 1 ? subtree.slice(1).map((route) => 'study-topic-' + route.slice('topic:'.length)).join(' ') : undefined}
+                aria-controls={subtree.length > 1 ? subtree.slice(1).map((route: string) => 'study-topic-' + route.slice('topic:'.length)).join(' ') : undefined}
                 use:indeterminate={topicIndeterminate(selectedSystem, topic)}
-                onchange={(event) => toggleTopicSubtree(selectedSystem, topic, event.currentTarget.checked)}
+                onchange={(event) => toggleTopicSubtree(selectedSystem, topic, eventChecked(event))}
               />
               <span class="option-copy">
                 <strong>{topic.name}</strong>
@@ -263,7 +303,7 @@
                   name="route"
                   value={value}
                   checked={isRouteSelected(value)}
-                  onchange={(event) => setRoutes([value], event.currentTarget.checked)}
+                  onchange={(event) => setRoutes([value], eventChecked(event))}
                 />
                 <span class="option-copy">
                   <strong>{tag.name}</strong>
@@ -279,17 +319,29 @@
         <legend>Question set</legend>
         <div class="question-options">
           <label class="mode-option">
-            <input type="radio" name="questionPoolMode" value="core" bind:group={questionPoolMode} />
+            <input
+              type="radio"
+              name="questionPoolMode"
+              value="core"
+              checked={questionPoolMode === 'core'}
+              onchange={() => chooseQuestionPoolMode('core')}
+            />
             <span><strong>Original questions</strong><small>Questions curated specifically for the selected Case.</small></span>
           </label>
           <label class="mode-option">
-            <input type="radio" name="questionPoolMode" value="expanded" bind:group={questionPoolMode} />
+            <input
+              type="radio"
+              name="questionPoolMode"
+              value="expanded"
+              checked={questionPoolMode === 'expanded'}
+              onchange={() => chooseQuestionPoolMode('expanded')}
+            />
             <span><strong>Expanded Learning</strong><small>Includes reusable questions relevant to the selected Case.</small></span>
           </label>
         </div>
       </fieldset>
 
-      {#if form?.message && form.systemId === selectedSystem.id}
+      {#if !suppressFormMessage && form?.message && form.systemId === selectedSystem.id}
         <p class="start-error" role="alert">{form.message}</p>
       {/if}
 
