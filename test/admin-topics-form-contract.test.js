@@ -52,10 +52,10 @@ test('Case editor can place its current Primary Topic under an active System', (
 
 
 test('Topic detail exposes permanent deletion only through the guarded unused-Topic writer', () => {
-  assert.match(topicDetailPage, /action="\\?\\/deleteTopic"/);
+  assert.match(topicDetailPage, /action="\?\/deleteTopic"/);
   assert.match(topicDetailPage, /canDeleteTopic/);
   assert.match(topicDetailPage, /Permanently remove an accidentally created Topic/);
-  assert.match(topicDetailPage, /window\\.confirm/);
+  assert.match(topicDetailPage, /window\.confirm/);
   assert.match(topicDetailAction, /deleteUnusedTopic/);
   assert.match(taxonomyWrite, /Only Topics can be deleted/);
   assert.match(taxonomyWrite, /Case attachments, reusable Topic questions, or child Topics/);
