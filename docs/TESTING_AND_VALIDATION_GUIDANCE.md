@@ -30,7 +30,7 @@ A test may be omitted from generic **unrelated-Draft** fast selection only when 
 
 1. the protected behavior has a clear specialized owner;
 2. that owner is a repository-owned named validation check;
-3. the central changed-path classifier maps every repository path that can invalidate the protected behavior to that specialized check;
+3. the central ordinary-CI changed-path classifier maps every repository path that can invalidate the protected behavior to that specialized check;
 4. ordinary CI consumes that central specialized requirement for the actual PR diff;
 5. focused contracts prove a related Draft cannot go green without the specialized check executing;
 6. complete `npm test` still discovers and executes the excluded test.
@@ -106,7 +106,7 @@ Detailed reporter/wrapper behavior and remote retrieval procedure are owned by `
 
 ## 5. Change-aware specialization ownership
 
-There is one central changed-path classification authority:
+For **ordinary PR CI's change-aware specialized requirements**, there is one central changed-path classification authority:
 
 ```text
 changed paths
@@ -123,13 +123,13 @@ resolves ordering + explicit satisfaction/deduplication
 
 The ownership split is deliberate:
 
-- `scripts/agent-checks-lib.mjs` owns changed-path classification;
+- `scripts/agent-checks-lib.mjs` owns repository changed-path classification used by advisory `agent:checks` and the specialized subset consumed by ordinary PR CI;
 - `npm run agent:checks` is **advisory** when run locally: it reports requirements but does not prove those checks executed;
 - `scripts/validation-contract.mjs` owns named checks, fast/full composition, ordering, and explicit satisfaction/deduplication;
-- `scripts/validate-ci.mjs` executes the repository-owned CI plan and provides CI-specific diagnostics;
-- `.github/workflows/ci.yml` selects/orchestrates PR state and execution, but must not grow a second path classifier or independent validation command list.
+- `scripts/validate-ci.mjs` executes the repository-owned ordinary-CI plan and provides CI-specific diagnostics;
+- `.github/workflows/ci.yml` selects/orchestrates ordinary PR state and execution, but must not grow a second classifier for ordinary-CI specialized requirements or an independent validation command list.
 
-Conceptually:
+Conceptually, for ordinary PR CI specialization:
 
 ```text
 changed paths
@@ -139,11 +139,23 @@ changed paths
 → shared validation contract resolves/deduplicates checks
 ```
 
+### Intentional Wrangler runtime-smoke exception
+
+`runtimeSmoke` is intentionally **not** part of `CI_SPECIALIZED_CHECK_IDS`. It remains enforced through the separate path-filtered `.github/workflows/wrangler-runtime-smoke.yml` workflow, whose `pull_request.paths` trigger is an intentional workflow-owned classifier rather than duplicated ordinary-CI specialization logic.
+
+`agent:checks` may advise `runtimeSmoke` for a broader set of runtime-sensitive changes than that workflow's path filter. Therefore:
+
+- do not remove or centralize the Wrangler runtime-smoke workflow's path filter merely because `scripts/agent-checks-lib.mjs` also knows about runtime-sensitive paths;
+- do not assume ordinary CI executed `runtimeSmoke` merely because `agent:checks` reported it;
+- treat a change to this exception as a separate validation/workflow architecture decision, not routine classifier deduplication.
+
+This qualification also governs shorthand “one central classifier” wording in historical PR #115 audit/plan records: that shorthand refers to ordinary PR CI's change-aware specialized subset, not to intentionally separate path-filtered workflows such as Wrangler runtime smoke.
+
 Advisory output is not proof of CI execution. When reviewing a remote PR, verify check evidence on the exact head.
 
-Complete `npm test` may structurally satisfy narrower specialized **Node** checks only where `scripts/validation-contract.mjs` explicitly records that relationship. Satisfaction/deduplication belongs there, not in ad-hoc workflow conditions. A fast subset must not be assumed to satisfy an excluded specialized owner merely because both use Node's test runner.
+Complete `npm test` may structurally satisfy narrower specialized **Node** checks only where `scripts/validation-contract.mjs` explicitly records that relationship. Satisfaction/deduplication belongs there, not in ad-hoc ordinary-CI workflow conditions. A fast subset must not be assumed to satisfy an excluded specialized owner merely because both use Node's test runner.
 
-When adding or changing a specialized rule, update the central classifier and focused contract tests. Do not independently reimplement the rule in workflow YAML.
+When adding or changing an ordinary-CI specialized rule, update the central classifier and focused contract tests. Do not independently reimplement that rule in `.github/workflows/ci.yml`. Preserve intentionally separate path-filtered workflows, including Wrangler runtime smoke, unless a separately reviewed change redesigns their ownership.
 
 ## 6. Author/reviewer checklist
 
@@ -155,7 +167,8 @@ Before adding or rewriting a test, confirm:
 - whether the fixture uses the correct current versus historical schema model;
 - whether an ordinary new maintained Node test will enter fast automatically;
 - whether any proposed specialized exclusion satisfies every conditional-ownership requirement above;
-- whether changed-path ownership and validation satisfaction live in the repository's central authorities;
+- whether ordinary-CI changed-path ownership and validation satisfaction live in the repository's central authorities;
+- whether any separately path-filtered workflow being touched is an intentional exception with its own execution contract;
 - whether CI diagnostic changes preserve the structured, compact-success, prominent-failure contract.
 
 When implementation and prose disagree, current executable implementation remains higher authority. Report the discrepancy and correct the appropriate living guidance rather than changing executable behavior merely to make documentation easier to state.
