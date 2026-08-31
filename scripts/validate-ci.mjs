@@ -148,12 +148,12 @@ export function formatSvelteFailureSummary(parsed, status) {
   const errors = (parsed?.diagnostics ?? []).filter((diagnostic) => diagnostic.severity === 'error');
   if (errors.length === 0 || status === 0) return null;
 
-  const malformedCount = Number.isInteger(parsed?.malformedDiagnosticRecords)
-    ? parsed.malformedDiagnosticRecords
+  const rawMalformedCount = parsed?.malformedDiagnosticRecords;
+  const malformedCount = typeof rawMalformedCount === 'number' && Number.isInteger(rawMalformedCount)
+    ? rawMalformedCount
     : 0;
-  const completionMismatch = Boolean(
-    parsed?.completion && parsed.completion.errors !== errors.length,
-  );
+  const completion = parsed?.completion ?? null;
+  const completionMismatch = completion !== null && completion.errors !== errors.length;
   const incomplete = malformedCount > 0 || completionMismatch;
 
   const lines = [];
@@ -167,9 +167,9 @@ export function formatSvelteFailureSummary(parsed, status) {
   if (incomplete) {
     const reasons = [];
     if (malformedCount > 0) reasons.push(`malformedRecords=${malformedCount}`);
-    if (completionMismatch && parsed?.completion) {
+    if (completionMismatch && completion) {
       reasons.push(`parsedErrors=${errors.length}`);
-      reasons.push(`reportedErrors=${parsed.completion.errors}`);
+      reasons.push(`reportedErrors=${completion.errors}`);
     }
     lines.push(
       `CI_ERROR|check=svelte|message=${escapeAgentField(
@@ -179,8 +179,8 @@ export function formatSvelteFailureSummary(parsed, status) {
   }
   lines.push('CI_REPRO|check=svelte|command=npm run check');
   const exit = Number.isInteger(status) ? `|exit=${status}` : '';
-  const counts = parsed?.completion
-    ? `|errors=${parsed.completion.errors}|warnings=${parsed.completion.warnings}`
+  const counts = completion
+    ? `|errors=${completion.errors}|warnings=${completion.warnings}`
     : '';
   const completeness = incomplete ? '|diagnostics=incomplete' : '';
   lines.push(`CI_STATUS|check=svelte|status=failed${exit}${counts}${completeness}`);
