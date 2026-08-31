@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { parseSvelteMachineOutput } from './ci-svelte-diagnostics.mjs';
 import { classifyChangedFiles } from './agent-checks-lib.mjs';
 import { resolveInvocation } from './validate.mjs';
 import {
@@ -25,6 +26,16 @@ const ENV_REPORTED_NODE_TEST_CHECK_IDS = new Set([
 ]);
 export const CI_TEST_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 export const CI_TEST_REPORTER = './scripts/ci-test-reporter.mjs';
+
+/** @param {unknown} value */
+export function escapeGithubCommandProperty(value) {
+  return String(value ?? '')
+    .replaceAll('%', '%25')
+    .replaceAll('\r', '%0D')
+    .replaceAll('\n', '%0A')
+    .replaceAll(':', '%3A')
+    .replaceAll(',', '%2C');
+}
 
 /** @param {unknown} value */
 export function escapeGithubCommandData(value) {
@@ -86,6 +97,68 @@ export function formatCiAgentFailureSummary(input) {
   lines.push(`CI_REPRO|check=${check}|command=${escapeAgentField(reproCommand)}`);
   const exit = Number.isInteger(input.status) ? `|exit=${input.status}` : '';
   lines.push(`CI_STATUS|check=${check}|status=failed${exit}`);
+  return lines.join('\n');
+}
+
+/** @param {{ source?: string | null, code?: string | number | null }} diagnostic */
+function svelteDiagnosticTitle(diagnostic) {
+  const identity = [diagnostic.source, diagnostic.code].filter((value) => value !== null && value !== undefined && value !== '');
+  return ['Svelte check', ...identity].join(' ');
+}
+
+/** @param {{ severity: string, file: string, line: number, column: number, endLine?: number | null, endColumn?: number | null, source?: string | null, code?: string | number | null, message: string }} diagnostic */
+export function formatSvelteDiagnosticRecord(diagnostic) {
+  const fields = [
+    'check=svelte',
+    `file=${escapeAgentField(diagnostic.file)}`,
+    `line=${escapeAgentField(diagnostic.line)}`,
+    `column=${escapeAgentField(diagnostic.column)}`,
+    Number.isInteger(diagnostic.endLine) ? `endLine=${escapeAgentField(diagnostic.endLine)}` : null,
+    Number.isInteger(diagnostic.endColumn) ? `endColumn=${escapeAgentField(diagnostic.endColumn)}` : null,
+    `severity=${escapeAgentField(diagnostic.severity)}`,
+    diagnostic.source ? `source=${escapeAgentField(diagnostic.source)}` : null,
+    diagnostic.code !== null && diagnostic.code !== undefined ? `code=${escapeAgentField(diagnostic.code)}` : null,
+    `message=${escapeAgentField(diagnostic.message)}`,
+  ].filter(Boolean);
+  return `CI_ERROR|${fields.join('|')}`;
+}
+
+/** @param {{ file: string, line: number, column: number, source?: string | null, code?: string | number | null, message: string }} diagnostic */
+export function githubSvelteDiagnosticAnnotation(diagnostic) {
+  const properties = [
+    `file=${escapeGithubCommandProperty(diagnostic.file)}`,
+    `line=${diagnostic.line}`,
+    `col=${diagnostic.column}`,
+    `title=${escapeGithubCommandProperty(svelteDiagnosticTitle(diagnostic))}`,
+  ];
+  return `::error ${properties.join(',')}::${escapeGithubCommandData(diagnostic.message)}`;
+}
+
+/**
+ * The outer CI wrapper owns Svelte detail/status so there is one final summary.
+ * Warnings are retained only in reliable completion counts and are never
+ * promoted into CI_ERROR records or failure authority.
+ * @param {{ diagnostics?: any[], completion?: { errors: number, warnings: number } | null }} parsed
+ * @param {number | null | undefined} status
+ */
+export function formatSvelteFailureSummary(parsed, status) {
+  const errors = (parsed?.diagnostics ?? []).filter((diagnostic) => diagnostic.severity === 'error');
+  if (errors.length === 0 || status === 0) return null;
+
+  const lines = [];
+  for (const diagnostic of errors) {
+    lines.push(githubSvelteDiagnosticAnnotation(diagnostic));
+  }
+  lines.push('=== CI AGENT SUMMARY ===');
+  for (const diagnostic of errors) {
+    lines.push(formatSvelteDiagnosticRecord(diagnostic));
+  }
+  lines.push('CI_REPRO|check=svelte|command=npm run check');
+  const exit = Number.isInteger(status) ? `|exit=${status}` : '';
+  const counts = parsed?.completion
+    ? `|errors=${parsed.completion.errors}|warnings=${parsed.completion.warnings}`
+    : '';
+  lines.push(`CI_STATUS|check=svelte|status=failed${exit}${counts}`);
   return lines.join('\n');
 }
 
@@ -195,6 +268,9 @@ export function isCiNodeTestCheck(id) {
 
 /** @param {string} id @param {string[]} args */
 export function ciCommandArgs(id, args) {
+  if (id === 'svelte') {
+    return [...args, '--', '--output', 'machine-verbose'];
+  }
   if (id !== 'test' && id !== 'testFast') return [...args];
   return [...args, '--', `--test-reporter=${CI_TEST_REPORTER}`];
 }
@@ -240,11 +316,19 @@ export function runCiValidation(options = {}) {
   for (const { id, label, command, args } of checks) {
     console.log(`::group::${label}`);
     const invocation = resolveInvocation(command, ciCommandArgs(id, args));
+    const svelteCheck = id === 'svelte';
     const result = spawnSync(invocation.executable, invocation.args, {
-      stdio: 'inherit',
+      stdio: svelteCheck ? ['inherit', 'pipe', 'pipe'] : 'inherit',
       shell: false,
       env: ciCommandEnvironment(id),
+      encoding: svelteCheck ? 'utf8' : undefined,
+      maxBuffer: svelteCheck ? CI_TEST_MAX_BUFFER_BYTES : undefined,
     });
+    const svelteOutput = svelteCheck ? String(result.stdout ?? '') : '';
+    const svelteErrorOutput = svelteCheck ? String(result.stderr ?? '') : '';
+    if (svelteOutput) process.stdout.write(svelteOutput);
+    if (svelteErrorOutput) process.stderr.write(svelteErrorOutput);
+    const svelteDiagnostics = svelteCheck ? parseSvelteMachineOutput(svelteOutput) : null;
     console.log('::endgroup::');
     const reproCommand = ciReproCommand(id, command, args, {
       diffBaseSha: diffReproBaseSha,
@@ -265,9 +349,20 @@ export function runCiValidation(options = {}) {
     }
     if (result.status !== 0) {
       const nodeTestCheck = isCiNodeTestCheck(id);
+      const svelteSummary = svelteCheck
+        ? formatSvelteFailureSummary(svelteDiagnostics, result.status)
+        : null;
+      if (svelteSummary) {
+        console.error(svelteSummary);
+        return result.status ?? 1;
+      }
+
+      const svelteFailureDetail = svelteCheck && svelteDiagnostics?.failure
+        ? ` svelte-check reported: ${svelteDiagnostics.failure}`
+        : '';
       const detail = nodeTestCheck
         ? `${reproCommand} failed; see the structured Node test failure summary above.`
-        : `${command} ${args.join(' ')} exited with ${result.status}.`;
+        : `${command} ${args.join(' ')} exited with ${result.status}.${svelteFailureDetail}`;
       const title = nodeTestCheck ? 'Node test failure' : `${label} failed`;
       console.error(`::error title=${title}::${escapeGithubCommandData(detail)}`);
       console.error(formatCiAgentFailureSummary({
