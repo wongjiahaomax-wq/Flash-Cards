@@ -100,6 +100,8 @@ export function parseSvelteMachineOutput(output) {
       continue;
     }
 
+    if (!protocolStarted) continue;
+
     const completed = COMPLETED_RECORD.exec(record);
     if (completed) {
       completion = {
