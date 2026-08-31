@@ -12,6 +12,7 @@ import { resolveDiffBase } from './validation-git.mjs';
 export function parseAgentChecksArgs(argv) {
   let base = null;
   let files = null;
+  let compact = false;
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === '--base') {
@@ -21,13 +22,15 @@ export function parseAgentChecksArgs(argv) {
       const value = argv[index + 1] ?? '';
       files = value.split(',').map((file) => file.trim()).filter(Boolean);
       index += 1;
+    } else if (arg === '--compact') {
+      compact = true;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
     }
   }
   if (base === '') throw new Error('--base requires a Git ref.');
   if (files && files.length === 0) throw new Error('--files requires a comma-separated path list.');
-  return { base, files };
+  return { base, files, compact };
 }
 
 /** @param {string} root @param {string[]} args */
@@ -124,7 +127,7 @@ export function checkUntrackedWhitespace(root, files) {
  * Apply invocation-specific Git context to the classifier's generic check IDs.
  * Real Git-backed runs get the same merge-base whitespace command as local validation;
  * fixture mode intentionally keeps the generic command representation.
- * @param {{ files: string[], areas: string[], requiredChecks: string[], requiredCommands: string[], recommendations: string[], notRequiredChecks: string[], notRequiredCommands: string[], unclassifiedImportant: string[] }} report
+ * @param {{ files: string[], areas: string[], requiredChecks: string[], requiredCommands: string[], specializedRequiredChecks: string[], specializedRequiredCommands: string[], recommendations: string[], notRequiredChecks: string[], notRequiredCommands: string[], unclassifiedImportant: string[] }} report
  * @param {string | null} [mergeBase]
  */
 export function contextualizeAgentChecksReport(report, mergeBase = null) {
@@ -179,6 +182,38 @@ export function printAgentChecksReport(report, baseDescription, untrackedWhitesp
   }
 }
 
+
+/**
+ * Compact presentation of the same classification/report used by verbose mode.
+ * Specialized commands are shown in their own section and omitted from the ordinary
+ * Required section only for presentation deduplication.
+ * @param {{ files: string[], areas: string[], requiredCommands: string[], specializedRequiredCommands: string[], recommendations: string[], unclassifiedImportant: string[] }} report
+ * @param {string} baseDescription
+ * @param {{ checkedFiles: string[], diagnostics: string[] } | null} [untrackedWhitespace]
+ */
+export function printCompactAgentChecksReport(report, baseDescription, untrackedWhitespace = null) {
+  const specialized = new Set(report.specializedRequiredCommands);
+  const ordinaryRequired = report.requiredCommands.filter((command) => !specialized.has(command));
+
+  console.log(`Diff base: ${baseDescription}`);
+  console.log(`Changed files: ${report.files.length}`);
+  printSection('Affected areas', report.areas, '(none)');
+  printSection('Required automated checks', ordinaryRequired, '(none)');
+  if (report.specializedRequiredCommands.length) {
+    printSection('Specialized required checks', report.specializedRequiredCommands);
+  }
+  if (untrackedWhitespace?.checkedFiles.length) {
+    console.log('\nUntracked whitespace validation');
+    console.log('-------------------------------');
+    console.log(`- ${untrackedWhitespace.diagnostics.length ? 'FAIL' : 'PASS'}: checked ${untrackedWhitespace.checkedFiles.length} untracked file(s) directly with Git whitespace rules.`);
+    for (const diagnostic of untrackedWhitespace.diagnostics) console.log(`- ${diagnostic}`);
+  }
+  printSection('Recommended follow-up', report.recommendations, '(none)');
+  if (report.unclassifiedImportant.length) {
+    console.warn(`\nWARNING: fail-safe full validation applied to ${report.unclassifiedImportant.length} unclassified code/tooling path(s).`);
+  }
+}
+
 /** @param {string[]} [argv] */
 export function runAgentChecks(argv = process.argv.slice(2)) {
   let args;
@@ -198,7 +233,8 @@ export function runAgentChecks(argv = process.argv.slice(2)) {
   try {
     if (args.files) {
       const report = classifyChangedFiles(args.files);
-      printAgentChecksReport(report, 'explicit --files list (Git diff not inspected)');
+      const printReport = args.compact ? printCompactAgentChecksReport : printAgentChecksReport;
+      printReport(report, 'explicit --files list (Git diff not inspected)');
       return 0;
     }
     const { baseRef, mergeBase } = resolveDiffBase(root, args.base);
@@ -206,7 +242,8 @@ export function runAgentChecks(argv = process.argv.slice(2)) {
     const files = changedFilesFromGit(root, mergeBase, untrackedFiles);
     const untrackedWhitespace = checkUntrackedWhitespace(root, untrackedFiles);
     const report = contextualizeAgentChecksReport(classifyChangedFiles(files), mergeBase);
-    printAgentChecksReport(report, `${baseRef} (merge-base ${mergeBase.slice(0, 12)})`, untrackedWhitespace);
+    const printReport = args.compact ? printCompactAgentChecksReport : printAgentChecksReport;
+    printReport(report, `${baseRef} (merge-base ${mergeBase.slice(0, 12)})`, untrackedWhitespace);
     return untrackedWhitespace.diagnostics.length ? 1 : 0;
   } catch (error) {
     console.error(`ERROR: ${error instanceof Error ? error.message : error}`);
