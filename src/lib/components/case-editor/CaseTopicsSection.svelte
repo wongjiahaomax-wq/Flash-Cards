@@ -22,7 +22,10 @@
   let replacementSystemId = $state(systemIdFromTopic(primaryTopic) || UNASSIGNED_SYSTEM_CONTEXT);
   let replacementTopicSearch = $state('');
   let replacementTopicId = $state('');
+  let replacementTopicOpen = $state(false);
+  let activeReplacementTopicIndex = $state(-1);
   const replacementTopics = $derived(filterTopicsForSystem(concepts, primaryTopic?.id, replacementSystemId));
+  const matchingReplacementTopics = $derived(filterTopicsBySearch(replacementTopics, replacementTopicSearch));
 
   /** @param {CaseTopic[]} topics */
   function inactivePrimaryTopic(topics) {
@@ -57,19 +60,73 @@
       .sort((left, right) => topicOptionLabel(left).localeCompare(topicOptionLabel(right)) || left.id.localeCompare(right.id));
   }
 
+  /** @param {ConceptOption[]} topicOptions @param {string} search */
+  function filterTopicsBySearch(topicOptions, search) {
+    const normalizedSearch = search.trim().toLocaleLowerCase();
+    if (!normalizedSearch) return topicOptions;
+    return topicOptions.filter((topic) => topicOptionLabel(topic).toLocaleLowerCase().includes(normalizedSearch));
+  }
+
   /** @param {string} nextSystemId */
   function changeReplacementSystem(nextSystemId) {
     replacementSystemId = nextSystemId;
     replacementTopicSearch = '';
     replacementTopicId = '';
+    replacementTopicOpen = false;
+    activeReplacementTopicIndex = -1;
   }
 
   /** @param {string} nextSearch */
   function updateReplacementTopic(nextSearch) {
     replacementTopicSearch = nextSearch;
-    const normalizedSearch = nextSearch.trim().toLocaleLowerCase();
-    const exactMatch = replacementTopics.find((topic) => topicOptionLabel(topic).toLocaleLowerCase() === normalizedSearch);
-    replacementTopicId = exactMatch?.id ?? '';
+    replacementTopicId = '';
+    replacementTopicOpen = true;
+    activeReplacementTopicIndex = -1;
+  }
+
+  /** @param {ConceptOption} topic */
+  function selectReplacementTopic(topic) {
+    replacementTopicId = topic.id;
+    replacementTopicSearch = topicOptionLabel(topic);
+    replacementTopicOpen = false;
+    activeReplacementTopicIndex = -1;
+  }
+
+  /** @param {ConceptOption} topic */
+  function duplicateTopicLabel(topic) {
+    const label = topicOptionLabel(topic);
+    return replacementTopics.some((candidate) => candidate.id !== topic.id && topicOptionLabel(candidate) === label);
+  }
+
+  /** @param {ConceptOption} topic */
+  function replacementTopicResultId(topic) {
+    return `primary-topic-option-${selectedCase.case.id}-${topic.id}`;
+  }
+
+  /** @param {KeyboardEvent} event */
+  function handleReplacementTopicKeydown(event) {
+    if (event.key === 'Escape') {
+      replacementTopicOpen = false;
+      activeReplacementTopicIndex = -1;
+      return;
+    }
+    if (!matchingReplacementTopics.length) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      replacementTopicOpen = true;
+      activeReplacementTopicIndex = (activeReplacementTopicIndex + 1) % matchingReplacementTopics.length;
+      return;
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      replacementTopicOpen = true;
+      activeReplacementTopicIndex = activeReplacementTopicIndex <= 0 ? matchingReplacementTopics.length - 1 : activeReplacementTopicIndex - 1;
+      return;
+    }
+    if (event.key === 'Enter' && replacementTopicOpen && activeReplacementTopicIndex >= 0) {
+      event.preventDefault();
+      selectReplacementTopic(matchingReplacementTopics[activeReplacementTopicIndex]);
+    }
   }
 </script>
 
@@ -141,19 +198,48 @@
             </select>
           </label>
           <label>Topic
-            <input
-              type="search"
-              list={`primary-topic-options-${selectedCase.case.id}`}
-              value={replacementTopicSearch}
-              placeholder="Search or select a Topic"
-              autocomplete="off"
-              required
-              oninput={(event) => updateReplacementTopic(event.currentTarget.value)}
-            />
+            <div class="topic-search-wrap">
+              <input
+                type="search"
+                value={replacementTopicSearch}
+                placeholder="Search or select a Topic"
+                autocomplete="off"
+                required
+                role="combobox"
+                aria-autocomplete="list"
+                aria-expanded={replacementTopicOpen}
+                aria-controls={`primary-topic-results-${selectedCase.case.id}`}
+                aria-activedescendant={replacementTopicOpen && activeReplacementTopicIndex >= 0 ? replacementTopicResultId(matchingReplacementTopics[activeReplacementTopicIndex]) : undefined}
+                onfocus={() => (replacementTopicOpen = true)}
+                onblur={() => { replacementTopicOpen = false; activeReplacementTopicIndex = -1; }}
+                oninput={(event) => updateReplacementTopic(event.currentTarget.value)}
+                onkeydown={handleReplacementTopicKeydown}
+              />
+              {#if replacementTopicOpen}
+                <div class="topic-search-results" id={`primary-topic-results-${selectedCase.case.id}`} role="listbox">
+                  {#if matchingReplacementTopics.length}
+                    {#each matchingReplacementTopics as concept (concept.id)}
+                      <button
+                        id={replacementTopicResultId(concept)}
+                        type="button"
+                        class="topic-search-option"
+                        role="option"
+                        aria-selected={replacementTopicId === concept.id}
+                        tabindex="-1"
+                        onmousedown={(event) => event.preventDefault()}
+                        onclick={() => selectReplacementTopic(concept)}
+                      >
+                        <span>{topicOptionLabel(concept)}</span>
+                        {#if duplicateTopicLabel(concept)}<small>Topic ID: {concept.id}</small>{/if}
+                      </button>
+                    {/each}
+                  {:else}
+                    <span class="topic-search-empty">No matching Topics in this System.</span>
+                  {/if}
+                </div>
+              {/if}
+            </div>
           </label>
-          <datalist id={`primary-topic-options-${selectedCase.case.id}`}>
-            {#each replacementTopics as concept}<option value={topicOptionLabel(concept)}></option>{/each}
-          </datalist>
         </div>
         <button class="button primary" type="submit" disabled={!replacementTopicId}>Save Primary Topic</button>
       </form>
@@ -261,6 +347,13 @@
   .form-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.55rem; width: 100%; }
   .form-row label { min-width: 0; }
   .topic-picker-fields { display: grid; grid-template-columns: minmax(9.5rem, 0.42fr) minmax(0, 1fr); gap: 0.55rem; min-width: 0; }
+  .topic-search-wrap { position: relative; min-width: 0; }
+  .topic-search-results { position: absolute; z-index: 40; top: calc(100% + 0.25rem); right: 0; left: 0; max-height: 17rem; overflow-y: auto; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; box-shadow: 0 12px 28px rgba(16, 24, 40, 0.16); }
+  .topic-search-option { display: grid; gap: 0.12rem; width: 100%; padding: 0.55rem 0.65rem; border: 0; border-bottom: 1px solid #f2f4f7; background: #fff; color: #172033; text-align: left; cursor: pointer; font: inherit; }
+  .topic-search-option:last-child { border-bottom: 0; }
+  .topic-search-option:hover, .topic-search-option[aria-selected="true"] { background: #f2f4f7; }
+  .topic-search-option small { color: #667085; font-size: 0.68rem; font-weight: 500; overflow-wrap: anywhere; }
+  .topic-search-empty { display: block; padding: 0.65rem; color: #667085; font-size: 0.8rem; font-weight: 500; }
   .secondary-section { display: grid; gap: 0.5rem; margin-top: 0.1rem; padding-top: 0.72rem; border-top: 1px solid #e4e7ec; }
 
   .tag-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
