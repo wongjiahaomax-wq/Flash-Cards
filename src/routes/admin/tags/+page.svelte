@@ -39,7 +39,7 @@
   <form method="GET" class="filter-form">
     <input type="hidden" name="case_q" value={data.filters.caseSearch} />
     <input type="hidden" name="question_q" value={data.filters.questionSearch} />
-    <label class="grow">Search Tags<input name="q" bind:value={query} placeholder="e.g. hypocalcaemia" /></label>
+    <label class="grow">Search Tags<input name="q" bind:value={query} maxlength={data.readModel.searchInputMaxLength} placeholder="e.g. hypocalcaemia" /></label>
     <label>Show assignments for
       <select name="tag">
         <option value="">All Tags</option>
@@ -48,6 +48,7 @@
     </label>
     <div class="filter-actions"><button class="button" type="submit">Filter</button>{#if query || data.filters.tagId || data.filters.caseSearch || data.filters.questionSearch}<a class="button" href="/admin/tags">Clear</a>{/if}</div>
   </form>
+  <p class="bounded-note">Showing up to {data.readModel.tagLimit} canonical Tags{data.filters.search ? ' matching this search' : ''}. Search to reach Tags outside the current window.</p>
 
   {#if data.tags.length === 0}
     <p class="empty-state">No Tags match this search.</p>
@@ -113,7 +114,7 @@
     <input type="hidden" name="q" value={data.filters.search} />
     <input type="hidden" name="tag" value={data.filters.tagId} />
     <input type="hidden" name="question_q" value={data.filters.questionSearch} />
-    <label class="grow">Find Case<input name="case_q" value={data.filters.caseSearch} placeholder="Search active Production Cases by title" /></label>
+    <label class="grow">Find Case<input name="case_q" value={data.filters.caseSearch} maxlength={data.readModel.searchInputMaxLength} placeholder="Search active Production Cases by title" /></label>
     <button class="button" type="submit">Search Cases</button>
   </form>
   <p class="bounded-note">Showing up to {data.readModel.selectorLimit} eligible active Production Cases{data.filters.caseSearch ? ' matching this search' : ''}. Search to reach Cases outside the current window.</p>
@@ -154,7 +155,7 @@
     <input type="hidden" name="q" value={data.filters.search} />
     <input type="hidden" name="tag" value={data.filters.tagId} />
     <input type="hidden" name="case_q" value={data.filters.caseSearch} />
-    <label class="grow">Find Case Question<input name="question_q" value={data.filters.questionSearch} placeholder="Search by Case title or question wording" /></label>
+    <label class="grow">Find Case Question<input name="question_q" value={data.filters.questionSearch} maxlength={data.readModel.searchInputMaxLength} placeholder="Search by Case title or question wording" /></label>
     <button class="button" type="submit">Search Questions</button>
   </form>
   <p class="bounded-note">Showing up to {data.readModel.selectorLimit} eligible active Production Case Questions{data.filters.questionSearch ? ' matching this search' : ''}. Search to reach Questions outside the current window.</p>

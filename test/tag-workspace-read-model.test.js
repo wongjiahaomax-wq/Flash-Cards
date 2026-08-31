@@ -6,8 +6,11 @@ import test from 'node:test';
 import { createDb } from '../src/lib/server/db/index.js';
 import { listActiveTagOptions, listAllTagOptions } from '../src/lib/server/db/library-options.js';
 import {
+  TAG_WORKSPACE_LIKE_PATTERN_BYTES,
+  TAG_WORKSPACE_LIKE_TERM_BYTES,
   TAG_WORKSPACE_OVERVIEW_LIMIT,
   TAG_WORKSPACE_SELECTOR_LIMIT,
+  TAG_WORKSPACE_TAG_LIMIT,
   listTagWorkspaceCaseAssignments,
   listTagWorkspaceCaseOptions,
   listTagWorkspaceCaseQuestionOptions,
@@ -19,6 +22,8 @@ import {
 } from '../src/lib/server/db/tag-workspace-read-model.js';
 import { applyCurrentSchema } from './current-schema.js';
 
+const textEncoder = new TextEncoder();
+
 function fixture() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
@@ -29,6 +34,19 @@ function fixture() {
       return {
         /** @param {...any} params */
         bind(...params) {
+          if (params.length > 100) {
+            throw new Error(`D1 bound parameter limit exceeded in fixture: ${params.length}`);
+          }
+          for (const param of params) {
+            if (
+              typeof param === 'string'
+              && param.startsWith('%')
+              && param.endsWith('%')
+              && textEncoder.encode(param).byteLength > TAG_WORKSPACE_LIKE_PATTERN_BYTES
+            ) {
+              throw new Error(`D1 LIKE pattern limit exceeded in fixture: ${textEncoder.encode(param).byteLength} bytes`);
+            }
+          }
           return {
             async all() { return { results: sqlite.prepare(sql).all(...params) }; },
             async raw() {
@@ -125,6 +143,65 @@ test('Tags workspace selectors are bounded/searchable and preserve Production el
   }
 });
 
+test('Tags workspace Tag library and System enrichment stay below the D1 bound-parameter ceiling', async () => {
+  const f = fixture();
+  try {
+    seedWorkspace(f.sqlite);
+    const tagInsert = f.sqlite.prepare('INSERT INTO tags (id, name, normalized_name, is_active) VALUES (?, ?, ?, 1)');
+    for (let index = 0; index < 105; index += 1) {
+      const suffix = String(index).padStart(3, '0');
+      tagInsert.run(`bulk-${suffix}`, `Bulk Tag ${suffix}`, `bulk tag ${suffix}`);
+    }
+    tagInsert.run('boundary-tag', 'ZZZ Boundary Tag', 'zzz boundary tag');
+
+    const visibleTags = await listTagWorkspaceTags(f.db);
+    assert.equal(visibleTags.length, TAG_WORKSPACE_TAG_LIMIT);
+    assert.equal(visibleTags.some((tag) => tag.id === 'boundary-tag'), false);
+
+    const searchedTags = await listTagWorkspaceTags(f.db, { search: 'Boundary Tag' });
+    assert.deepEqual(searchedTags.map((tag) => tag.id), ['boundary-tag']);
+
+    const allTagIds = (await listAllTagOptions(f.db)).map((tag) => tag.id);
+    assert.ok(allTagIds.length > 100);
+    await assert.doesNotReject(() => listTagWorkspaceSystemsForTags(f.db, allTagIds));
+  } finally {
+    f.sqlite.close();
+  }
+});
+
+test('Tags workspace LIKE searches stay within the D1 50-byte pattern ceiling', async () => {
+  const f = fixture();
+  try {
+    seedWorkspace(f.sqlite);
+    assert.equal(TAG_WORKSPACE_LIKE_TERM_BYTES, TAG_WORKSPACE_LIKE_PATTERN_BYTES - 2);
+
+    const asciiTerm = 'a'.repeat(TAG_WORKSPACE_LIKE_TERM_BYTES);
+    const unicodeTerm = '界'.repeat(TAG_WORKSPACE_LIKE_TERM_BYTES / 3);
+    assert.equal(textEncoder.encode(`%${asciiTerm}%`).byteLength, TAG_WORKSPACE_LIKE_PATTERN_BYTES);
+    assert.equal(textEncoder.encode(`%${unicodeTerm}%`).byteLength, TAG_WORKSPACE_LIKE_PATTERN_BYTES);
+
+    f.sqlite.prepare('INSERT INTO tags (id, name, normalized_name, is_active) VALUES (?, ?, ?, 1)')
+      .run('long-search-tag', `${asciiTerm} Tag`, `${asciiTerm} tag`);
+    f.sqlite.prepare('INSERT INTO cases (id, title, is_active) VALUES (?, ?, 1)')
+      .run('long-search-case', `${asciiTerm} Case`);
+    f.sqlite.prepare('INSERT INTO question_prompts (id, prompt_md, is_active) VALUES (?, ?, 1)')
+      .run('long-search-prompt', `${unicodeTerm} Prompt`);
+    f.sqlite.prepare('INSERT INTO case_questions (id, case_id, question_prompt_id, answer_md, is_active) VALUES (?, ?, ?, ?, 1)')
+      .run('long-search-question', 'long-search-case', 'long-search-prompt', 'Boundary answer');
+
+    const tagResults = await listTagWorkspaceTags(f.db, { search: 'a'.repeat(80) });
+    assert.deepEqual(tagResults.map((row) => row.id), ['long-search-tag']);
+
+    const caseResults = await listTagWorkspaceCaseOptions(f.db, { search: 'a'.repeat(80) });
+    assert.deepEqual(caseResults.map((row) => row.id), ['long-search-case']);
+
+    const questionResults = await listTagWorkspaceCaseQuestionOptions(f.db, { search: '界'.repeat(30) });
+    assert.deepEqual(questionResults.map((row) => row.id), ['long-search-question']);
+  } finally {
+    f.sqlite.close();
+  }
+});
+
 test('Tags workspace relationship reads are exact for a selected Tag and bounded otherwise', async () => {
   const f = fixture();
   try {
@@ -210,10 +287,16 @@ test('Tags page normal load uses the bounded read model while existing Tag mutat
     assert.equal(source.includes(broadRead), false, `${broadRead} must not remain in the normal Tags-page load path`);
   }
   assert.match(source, /listAllTagOptions/);
+  assert.match(source, /tagLimit: TAG_WORKSPACE_TAG_LIMIT/);
+  assert.match(source, /searchInputMaxLength: TAG_WORKSPACE_LIKE_TERM_BYTES/);
 
   const page = readFileSync(new URL('../src/routes/admin/tags/+page.svelte', import.meta.url), 'utf8');
   assert.match(page, /data\.filterTags/);
   assert.match(page, /data\.activeTags/);
+  assert.match(page, /Search to reach Tags outside the current window/);
+  for (const searchName of ['q', 'case_q', 'question_q']) {
+    assert.match(page, new RegExp(`name="${searchName}"[^>]*maxlength=\\{data\\.readModel\\.searchInputMaxLength\\}`));
+  }
   for (const action of [
     '?/createTag',
     '?/renameTag',

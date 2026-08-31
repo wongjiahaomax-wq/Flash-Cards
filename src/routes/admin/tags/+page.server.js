@@ -4,8 +4,10 @@ import { createDb } from '$lib/server/db/index.js';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { listActiveTagOptions, listAllTagOptions } from '$lib/server/db/library-options.js';
 import {
+  TAG_WORKSPACE_LIKE_TERM_BYTES,
   TAG_WORKSPACE_OVERVIEW_LIMIT,
   TAG_WORKSPACE_SELECTOR_LIMIT,
+  TAG_WORKSPACE_TAG_LIMIT,
   listTagWorkspaceCaseAssignments,
   listTagWorkspaceCaseOptions,
   listTagWorkspaceCaseQuestionOptions,
@@ -46,8 +48,10 @@ export async function load({ platform, url }) {
       systemExposures: [],
       filters,
       readModel: {
+        tagLimit: TAG_WORKSPACE_TAG_LIMIT,
         selectorLimit: TAG_WORKSPACE_SELECTOR_LIMIT,
         overviewLimit: TAG_WORKSPACE_OVERVIEW_LIMIT,
+        searchInputMaxLength: TAG_WORKSPACE_LIKE_TERM_BYTES,
         relationshipsScopedToTag: Boolean(filters.tagId)
       }
     };
@@ -85,8 +89,10 @@ export async function load({ platform, url }) {
     systemExposures,
     filters,
     readModel: {
+      tagLimit: TAG_WORKSPACE_TAG_LIMIT,
       selectorLimit: TAG_WORKSPACE_SELECTOR_LIMIT,
       overviewLimit: TAG_WORKSPACE_OVERVIEW_LIMIT,
+      searchInputMaxLength: TAG_WORKSPACE_LIKE_TERM_BYTES,
       relationshipsScopedToTag: Boolean(filters.tagId)
     }
   };

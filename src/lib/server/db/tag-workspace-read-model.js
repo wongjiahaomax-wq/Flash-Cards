@@ -14,10 +14,35 @@ import {
 
 export const TAG_WORKSPACE_SELECTOR_LIMIT = 60;
 export const TAG_WORKSPACE_OVERVIEW_LIMIT = 60;
+export const TAG_WORKSPACE_TAG_LIMIT = 60;
+export const TAG_WORKSPACE_LIKE_PATTERN_BYTES = 50;
+export const TAG_WORKSPACE_LIKE_TERM_BYTES = TAG_WORKSPACE_LIKE_PATTERN_BYTES - 2;
+
+const textEncoder = new TextEncoder();
 
 /** @param {unknown} value */
 function cleanSearch(value) {
   return String(value ?? '').trim();
+}
+
+/**
+ * Keep `%term%` patterns within D1's 50-byte LIKE/GLOB pattern ceiling.
+ * Iterating by Unicode code point avoids splitting surrogate pairs.
+ * @param {unknown} value
+ */
+function cleanLikeSearch(value) {
+  const search = cleanSearch(value);
+  if (textEncoder.encode(search).byteLength <= TAG_WORKSPACE_LIKE_TERM_BYTES) return search;
+
+  let result = '';
+  let bytes = 0;
+  for (const character of search) {
+    const characterBytes = textEncoder.encode(character).byteLength;
+    if (bytes + characterBytes > TAG_WORKSPACE_LIKE_TERM_BYTES) break;
+    result += character;
+    bytes += characterBytes;
+  }
+  return result;
 }
 
 /** @param {{ tagId: string, count: number }[]} rows */
@@ -26,14 +51,14 @@ function countMap(rows) {
 }
 
 /**
- * Tag-library rows with corpus-derived usage represented by grouped counts
- * rather than materializing complete assignment collections.
+ * Bounded Tag-library rows with corpus-derived usage represented by grouped
+ * counts rather than materializing complete assignment collections.
  *
  * @param {LearningDb} db
  * @param {{ search?: string }} [filters]
  */
 export async function listTagWorkspaceTags(db, filters = {}) {
-  const search = cleanSearch(filters.search);
+  const search = cleanLikeSearch(filters.search);
   const baseTagQuery = db
     .select({
       id: tags.id,
@@ -45,9 +70,10 @@ export async function listTagWorkspaceTags(db, filters = {}) {
     })
     .from(tags);
 
-  const tagRowsPromise = search
+  const tagRowsPromise = (search
     ? baseTagQuery.where(like(tags.name, `%${search}%`)).orderBy(asc(tags.name), asc(tags.id))
-    : baseTagQuery.orderBy(asc(tags.name), asc(tags.id));
+    : baseTagQuery.orderBy(asc(tags.name), asc(tags.id)))
+    .limit(TAG_WORKSPACE_TAG_LIMIT);
 
   const countExpression = sql`count(*)`.mapWith(Number).as('usage_count');
   const [tagRows, caseCountRows, questionCountRows, sharedReuseRows, sharedDescriptiveRows] = await Promise.all([
@@ -122,7 +148,7 @@ export async function listTagWorkspaceTags(db, filters = {}) {
  * @param {{ search?: string }} [filters]
  */
 export async function listTagWorkspaceCaseOptions(db, filters = {}) {
-  const search = cleanSearch(filters.search);
+  const search = cleanLikeSearch(filters.search);
   const conditions = [eq(cases.isActive, true), isNull(cases.previewSessionId)];
   if (search) conditions.push(like(cases.title, `%${search}%`));
   return db
@@ -142,7 +168,7 @@ export async function listTagWorkspaceCaseOptions(db, filters = {}) {
  * @param {{ search?: string }} [filters]
  */
 export async function listTagWorkspaceCaseQuestionOptions(db, filters = {}) {
-  const search = cleanSearch(filters.search);
+  const search = cleanLikeSearch(filters.search);
   const conditions = [
     eq(caseQuestions.isActive, true),
     eq(cases.isActive, true),
@@ -321,12 +347,15 @@ export async function listTagWorkspaceSystemExposures(db, filters = {}) {
 }
 
 /**
- * System exposure enrichment only for Tag rows visible in the Tag library.
+ * System exposure enrichment only for the bounded Tag rows visible in the Tag
+ * library. The defensive slice keeps this helper below D1's 100-parameter
+ * ceiling even if a future caller accidentally passes an unbounded ID set.
  * @param {LearningDb} db
  * @param {string[]} tagIds
  */
 export async function listTagWorkspaceSystemsForTags(db, tagIds) {
-  const ids = [...new Set(tagIds.map((id) => String(id).trim()).filter(Boolean))];
+  const ids = [...new Set(tagIds.map((id) => String(id).trim()).filter(Boolean))]
+    .slice(0, TAG_WORKSPACE_TAG_LIMIT);
   if (!ids.length) return [];
   return db
     .select({
