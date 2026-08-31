@@ -32,7 +32,7 @@ function normalizeSource(value) {
 
 /** @param {unknown} value */
 function normalizeFile(value) {
-  return typeof value === 'string' && value.length > 0 ? value.replaceAll('\\\\', '/') : null;
+  return typeof value === 'string' && value.length > 0 ? value.replaceAll('\\', '/') : null;
 }
 
 /**
