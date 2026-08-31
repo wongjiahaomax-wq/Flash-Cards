@@ -41,7 +41,44 @@ The current exclusion manifest contains exactly six independently reviewed speci
 
 Future exclusion proposals require separate measured cost evidence, explicit ownership/risk analysis, and review. Do not infer eligibility from runtime, DB usage, filename, or directory alone.
 
-## 2. Schema-fixture rules
+## 2. Local coding-agent validation phases
+
+Execution mode is capability-based, not product-name-based. Do not decide validation cadence from labels such as ChatGPT, Codex, VS Code, web, or mobile. A usable checkout plus command execution means the local side is available; GitHub access in addition makes the workflow Hybrid.
+
+Local coding-agent validation has three distinct phases:
+
+### Iteration
+
+Use the cheapest feedback that directly exercises the risk introduced by the current edit.
+
+- presentation-only Svelte/UX changes: batch copy, spacing, class and layout edits under `npm run dev` / Vite HMR; do not run repository validation after every edit;
+- component logic, form/action wiring, server behavior or domain logic: run the nearest directly related test file(s) first, normally with `node --test <test-file>` when the owner is a maintained Node test;
+- schema/migration changes: run `npm run db:check` plus the directly related migration/schema test(s) after a coherent schema edit;
+- after a focused failure and correction: rerun the focused failing check first rather than immediately rerunning the complete validation contract;
+- do not rerun an already-passing focused command unless subsequent edits could invalidate what it proved.
+
+`agent:checks` may report deterministic `iterationGuidance` for the changed paths, including exact direct commands for changed test files. This guidance is advisory. It narrows local feedback during implementation; it does not alter final validation ownership.
+
+### Checkpoint
+
+Use broader validation after a coherent batch when cross-file or cross-layer confidence is useful.
+
+- `npm run check` is an appropriate checkpoint for coherent Svelte/component changes;
+- `npm run validate:fast` is repository checkpoint validation, not an every-edit loop;
+- when stdout/stderr is entering a coding model's context, prefer `npm run validate:fast -- --compact` to reduce successful test output while selecting exactly the same shared fast checks;
+- subsystem-specific checkpoint checks such as `npm run runtime:smoke`, auth smoke or slide-review build/test should run when the affected rule or subsystem requires them, not universally after every edit.
+
+`agent:checks` may report deterministic `checkpointGuidance`. Like iteration guidance, this is advisory and cannot remove final handoff requirements.
+
+### Handoff / review boundary
+
+Before final handoff or principal review, run every final required check reported by `agent:checks` plus required specialized checks. Focused iteration/checkpoint success never substitutes for this set.
+
+When the ordinary full contract is required, `npm run validate:full -- --compact` is the preferred local coding-agent presentation. Compact mode is presentation-only: `scripts/validation-contract.mjs` still owns which checks run and their order; the existing structured Node reporter may be reused for successful-test compaction; successful Vite build chatter may be reduced; canonical `npm test`, `npm run check`, `npm run build`, `npm run validate:fast`, and `npm run validate:full` remain unchanged for verbose reproduction.
+
+If compact failure evidence is insufficient, rerun the canonical focused/verbose reproduction rather than making compact mode increasingly verbose by default.
+
+## 3. Schema-fixture rules
 
 First classify what the test is actually testing.
 
@@ -72,7 +109,7 @@ Do not restore missing-table/missing-column probing, alternate obsolete runtime 
 
 The deployment contract remains migration-before-runtime: current-schema-only runtime support does not permit deploying application code that requires an unapplied migration.
 
-## 3. Choose the strongest cheap practical owner
+## 4. Choose the strongest cheap practical owner
 
 Prefer an owner at the highest practical behavioral layer that directly protects the invariant:
 
@@ -88,9 +125,9 @@ Source-reading is not itself a defect. Source/configuration tests are legitimate
 
 When retaining a source assertion, be able to state what invariant it uniquely owns and why a stronger cheap owner is not available.
 
-## 4. CI diagnostics contract
+## 5. CI and compact-presentation diagnostics contract
 
-`npm test` remains the canonical complete suite. CI may change presentation without redefining the suite.
+`npm test` remains the canonical complete suite. CI and local coding-agent wrappers may change presentation without redefining the suite.
 
 Ordinary Node CI diagnostics must preserve the current structured-event architecture:
 
@@ -102,9 +139,11 @@ Ordinary Node CI diagnostics must preserve the current structured-event architec
 - do not parse unstable human TAP/spec/dot output as the machine contract;
 - do not restore hundreds of ordinary successful-test records to CI logs.
 
-Detailed reporter/wrapper behavior and remote retrieval procedure are owned by `docs/CI_AGENT_DIAGNOSTICS.md`. Update that authority when diagnostics semantics change instead of cloning its implementation details here.
+Local `validate:* -- --compact` may reuse the same structured Node reporter strictly as a presentation layer. It must not create another test-selection contract. Build compaction must preserve Vite's command exit status and actionable warnings/errors; the canonical verbose `npm run build` remains the reproduction command when more output is needed.
 
-## 5. Change-aware specialization ownership
+Detailed CI reporter/wrapper behavior and remote retrieval procedure are owned by `docs/CI_AGENT_DIAGNOSTICS.md`. Update that authority when CI diagnostics semantics change instead of cloning its implementation details here.
+
+## 6. Change-aware specialization ownership
 
 For **ordinary PR CI's change-aware specialized requirements**, there is one central changed-path classification authority:
 
@@ -124,6 +163,7 @@ resolves ordering + explicit satisfaction/deduplication
 The ownership split is deliberate:
 
 - `scripts/agent-checks-lib.mjs` owns repository changed-path classification used by advisory `agent:checks` and the specialized subset consumed by ordinary PR CI;
+- the same classifier may emit local-only iteration/checkpoint guidance, but that guidance is advisory presentation and does not participate in CI check selection or satisfaction;
 - `npm run agent:checks` is **advisory** when run locally: it reports requirements but does not prove those checks executed;
 - `scripts/validation-contract.mjs` owns named checks, fast/full composition, ordering, and explicit satisfaction/deduplication;
 - `scripts/validate-ci.mjs` executes the repository-owned ordinary-CI plan and provides CI-specific diagnostics;
@@ -157,7 +197,7 @@ Complete `npm test` may structurally satisfy narrower specialized **Node** check
 
 When adding or changing an ordinary-CI specialized rule, update the central classifier and focused contract tests. Do not independently reimplement that rule in `.github/workflows/ci.yml`. Preserve intentionally separate path-filtered workflows, including Wrangler runtime smoke, unless a separately reviewed change redesigns their ownership.
 
-## 6. Author/reviewer checklist
+## 7. Author/reviewer checklist
 
 Before adding or rewriting a test, confirm:
 
@@ -166,9 +206,10 @@ Before adding or rewriting a test, confirm:
 - whether a distinct UI/integration/architecture invariant would be lost by consolidation;
 - whether the fixture uses the correct current versus historical schema model;
 - whether an ordinary new maintained Node test will enter fast automatically;
+- whether local iteration/checkpoint guidance is cheaper than final handoff validation without pretending to replace it;
 - whether any proposed specialized exclusion satisfies every conditional-ownership requirement above;
 - whether ordinary-CI changed-path ownership and validation satisfaction live in the repository's central authorities;
 - whether any separately path-filtered workflow being touched is an intentional exception with its own execution contract;
-- whether CI diagnostic changes preserve the structured, compact-success, prominent-failure contract.
+- whether CI/local compact diagnostic changes preserve the structured, compact-success, prominent-failure contract and canonical verbose reproduction.
 
 When implementation and prose disagree, current executable implementation remains higher authority. Report the discrepancy and correct the appropriate living guidance rather than changing executable behavior merely to make documentation easier to state.

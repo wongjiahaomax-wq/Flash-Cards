@@ -48,6 +48,8 @@ const branchSuffix = branchCheck.level === 'ok' ? '' : `  ${branchCheck.level.to
 console.log(`Repository         ${root}`);
 console.log(`Branch             ${branchCheck.branch}${branchSuffix}`);
 console.log(`Worktree           ${worktree}${worktreeReadable ? '' : '  ERROR'}`);
+console.log('Local execution    available (repository checkout + command execution)');
+console.log('Agent workflow     Local checkout; use Hybrid when GitHub access is also available');
 console.log('');
 console.log(`Node               ${process.version}  ${nodeCheck.ok ? 'OK' : `ERROR (expected major ${expectedNodeMajor})`}`);
 console.log(`Dependencies       ${nodeModulesPresent ? 'present' : 'missing'}`);
