@@ -127,7 +127,7 @@ export function checkUntrackedWhitespace(root, files) {
  * Apply invocation-specific Git context to the classifier's generic check IDs.
  * Real Git-backed runs get the same merge-base whitespace command as local validation;
  * fixture mode intentionally keeps the generic command representation.
- * @param {{ files: string[], areas: string[], requiredChecks: string[], requiredCommands: string[], recommendations: string[], notRequiredChecks: string[], notRequiredCommands: string[], unclassifiedImportant: string[] }} report
+ * @param {{ files: string[], areas: string[], requiredChecks: string[], requiredCommands: string[], specializedRequiredChecks: string[], specializedRequiredCommands: string[], recommendations: string[], notRequiredChecks: string[], notRequiredCommands: string[], unclassifiedImportant: string[] }} report
  * @param {string | null} [mergeBase]
  */
 export function contextualizeAgentChecksReport(report, mergeBase = null) {
