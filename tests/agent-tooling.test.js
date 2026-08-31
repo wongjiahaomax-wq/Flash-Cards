@@ -46,6 +46,7 @@ function commitFile(root, file, content, message) {
 
 /** @param {() => void} callback */
 function captureConsole(callback) {
+  /** @type {string[]} */
   const lines = [];
   const originalLog = console.log;
   const originalWarn = console.warn;
