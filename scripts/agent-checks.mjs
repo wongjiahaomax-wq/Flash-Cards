@@ -187,8 +187,8 @@ export function printAgentChecksReport(report, baseDescription, untrackedWhitesp
 
 /**
  * Compact presentation of the same classification/report used by verbose mode.
- * Specialized commands are shown in their own section and omitted from the ordinary
- * Required section only for presentation deduplication.
+ * Specialized commands are shown in their own section and omitted from ordinary
+ * required/guidance sections when their exact command is already represented.
  * @param {{ files: string[], areas: string[], iterationGuidance: string[], checkpointGuidance: string[], requiredCommands: string[], specializedRequiredCommands: string[], recommendations: string[], unclassifiedImportant: string[] }} report
  * @param {string} baseDescription
  * @param {{ checkedFiles: string[], diagnostics: string[] } | null} [untrackedWhitespace]
@@ -196,12 +196,15 @@ export function printAgentChecksReport(report, baseDescription, untrackedWhitesp
 export function printCompactAgentChecksReport(report, baseDescription, untrackedWhitespace = null) {
   const specialized = new Set(report.specializedRequiredCommands);
   const ordinaryRequired = report.requiredCommands.filter((command) => !specialized.has(command));
+  const duplicatesSpecializedCommand = (value) => report.specializedRequiredCommands.some((command) => value.includes(command));
+  const compactIterationGuidance = report.iterationGuidance.filter((value) => !duplicatesSpecializedCommand(value));
+  const compactCheckpointGuidance = report.checkpointGuidance.filter((value) => !duplicatesSpecializedCommand(value));
 
   console.log(`Diff base: ${baseDescription}`);
   console.log(`Changed files: ${report.files.length}`);
   printSection('Affected areas', report.areas, '(none)');
-  printSection('Iteration guidance', report.iterationGuidance, '(none)');
-  printSection('Checkpoint guidance', report.checkpointGuidance, '(none)');
+  printSection('Iteration guidance', compactIterationGuidance, '(none)');
+  printSection('Checkpoint guidance', compactCheckpointGuidance, '(none)');
   console.log('\nHandoff: run every command under Required automated checks before final handoff/review.');
   printSection('Required automated checks', ordinaryRequired, '(none)');
   if (report.specializedRequiredCommands.length) {
