@@ -64,12 +64,20 @@ test('Admin Svelte changes receive cheap iteration guidance while retaining the 
   assert.equal(report.checkpointGuidance.some((line) => /validate:fast -- --compact/.test(line)), true);
 });
 
-test('changed test files get an exact direct iteration command before broad validation', () => {
-  const report = classifyChangedFiles(['tests/example-flow.test.js']);
-  assert.equal(report.iterationGuidance.includes(
+test('changed maintained tests get exact direct iteration commands from canonical maintained-test ownership', () => {
+  const ordinary = classifyChangedFiles(['tests/example-flow.test.js']);
+  assert.equal(ordinary.iterationGuidance.includes(
     'Iteration: run changed test directly: node --test tests/example-flow.test.js',
   ), true);
-  assert.deepEqual(report.requiredChecks, ['diff', 'test']);
+  assert.deepEqual(ordinary.requiredChecks, ['diff', 'test']);
+
+  const tooling = classifyChangedFiles(['tools/slide-import-review/tests/core.test.js']);
+  assert.equal(tooling.iterationGuidance.includes(
+    'Iteration: run changed test directly: node --test tools/slide-import-review/tests/core.test.js',
+  ), true);
+
+  const unsupportedTypeScript = classifyChangedFiles(['tests/example-flow.test.ts']);
+  assert.equal(unsupportedTypeScript.iterationGuidance.some((line) => line.includes('node --test tests/example-flow.test.ts')), false);
 });
 
 test('documentation-only changes do not gain application validation requirements', () => {
@@ -92,7 +100,7 @@ test('compact agent-checks output separates iteration, checkpoint, and handoff g
   assert.match(output, /npm run build/);
 });
 
-test('compact phase guidance does not duplicate specialized required commands', () => {
+test('compact specialized output includes specialized checks in the handoff instruction without duplicating commands', () => {
   const report = classifyChangedFiles(['tools/slide-import-review/scripts/finalize.mjs']);
   const output = captureConsole(() => printCompactAgentChecksReport(report, 'fixture-base'));
 
@@ -100,6 +108,10 @@ test('compact phase guidance does not duplicate specialized required commands', 
     'npm run slide-review:test',
     'npm run slide-review:build',
   ]);
+  assert.match(
+    output,
+    /Handoff: run every command under Required automated checks and Specialized required checks before final handoff\/review\./,
+  );
   for (const command of report.specializedRequiredCommands) {
     assert.equal(output.split(command).length - 1, 1, `${command} should be rendered exactly once`);
   }
