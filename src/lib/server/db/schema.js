@@ -395,6 +395,7 @@ export const reviews = sqliteTable(
     index('reviews_study_concept_completed_idx').on(table.studyConceptId, table.completedAt),
     index('reviews_study_system_completed_idx').on(table.studySystemConceptId, table.completedAt),
     index('reviews_study_tag_completed_idx').on(table.studyTagId, table.completedAt),
+    index('reviews_navigation_route_idx').on(table.navigationRouteType, table.navigationRouteId),
     check('reviews_route_type_check', sql`${table.routeType} in ('topic', 'tag')`),
     check(
       'reviews_navigation_route_type_check',
@@ -435,6 +436,7 @@ export const reviewQuestions = sqliteTable(
     index('review_questions_prompt_idx').on(table.questionPromptId),
     index('review_questions_asset_question_idx').on(table.sourceAssetQuestionId),
     index('review_questions_shared_question_idx').on(table.sourceSharedQuestionId),
+    index('review_questions_source_concept_idx').on(table.sourceConceptId),
     check(
       'review_questions_source_type_check',
       sql`${table.sourceType} in ('case', 'concept', 'ancestor_concept', 'stimulus_group', 'asset', 'stimulus_option', 'tag_shared')`
