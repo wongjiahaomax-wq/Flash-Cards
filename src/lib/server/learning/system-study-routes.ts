@@ -2,6 +2,28 @@ import { resolveCaseStudyCandidates } from './study-routes.js';
 import { conceptBreadcrumb, descendantTopicIds, systemAncestorId, type TaxonomyNode } from './taxonomy-graph.ts';
 
 export type SystemRouteType = 'all' | 'topic' | 'tag';
+export type SystemStudySelectionRouteType = Exclude<SystemRouteType, 'all'>;
+
+export type SystemStudySelectionRoute = {
+  routeType: SystemStudySelectionRouteType;
+  routeId: string;
+};
+
+export type SystemStudySelectionErrorCode =
+  | 'invalid-system'
+  | 'empty-selection'
+  | 'invalid-route'
+  | 'route-not-in-system';
+
+export class SystemStudySelectionError extends Error {
+  readonly code: SystemStudySelectionErrorCode;
+
+  constructor(code: SystemStudySelectionErrorCode, message: string) {
+    super(message);
+    this.name = 'SystemStudySelectionError';
+    this.code = code;
+  }
+}
 
 export type CaseTopicRow = {
   id: string;
@@ -107,6 +129,15 @@ function nativeSystemCandidates(systemId: string, input: SystemNavigationInput) 
   });
 }
 
+function exactTopicCandidates(systemId: string, selectedConceptId: string, input: SystemNavigationInput) {
+  const nodes = activeNodes(input.concepts);
+  const validTopics = new Set(descendantTopicIds(systemId, nodes, true));
+  if (!validTopics.has(selectedConceptId) || systemAncestorId(selectedConceptId, nodes) !== systemId) return [];
+
+  return nativeSystemCandidates(systemId, input)
+    .filter((candidate) => candidate.studyConceptId === selectedConceptId);
+}
+
 function tagCandidates(systemId: string, tagId: string, input: SystemNavigationInput) {
   const nodes = activeNodes(input.concepts);
   const curated = curatedTagsForSystem(systemId, input.systemTagRows).find((row) => row.tagId === tagId);
@@ -145,6 +176,98 @@ function tagCandidates(systemId: string, tagId: string, input: SystemNavigationI
     });
   }
   return candidates.sort((left, right) => left.id.localeCompare(right.id));
+}
+
+function compareSelectionRoutes(
+  left: SystemStudySelectionRoute,
+  right: SystemStudySelectionRoute,
+  tagOrder: Map<string, number>
+) {
+  if (left.routeType !== right.routeType) return left.routeType === 'topic' ? -1 : 1;
+  if (left.routeType === 'topic') return left.routeId.localeCompare(right.routeId);
+  return (tagOrder.get(left.routeId) ?? Number.MAX_SAFE_INTEGER)
+    - (tagOrder.get(right.routeId) ?? Number.MAX_SAFE_INTEGER)
+    || left.routeId.localeCompare(right.routeId);
+}
+
+export function routeBelongsToSystem(
+  systemId: string,
+  routeType: SystemStudySelectionRouteType,
+  routeId: string,
+  input: SystemNavigationInput
+) {
+  if (routeType === 'tag') {
+    return curatedTagsForSystem(systemId, input.systemTagRows).some((row) => row.tagId === routeId);
+  }
+  const nodes = activeNodes(input.concepts);
+  return descendantTopicIds(systemId, nodes, true).includes(routeId)
+    && systemAncestorId(routeId, nodes) === systemId;
+}
+
+export function normalizeSystemStudySelectionRoutes(
+  input: SystemNavigationInput & {
+    systemId: string;
+    routes: readonly { routeType: string; routeId: string }[];
+  }
+): SystemStudySelectionRoute[] {
+  if (!systemExists(input.systemId, input.concepts)) {
+    throw new SystemStudySelectionError('invalid-system', 'The selected System is not available for study.');
+  }
+  if (input.routes.length === 0) {
+    throw new SystemStudySelectionError('empty-selection', 'Select at least one Topic or curated Tag.');
+  }
+
+  const unique = new Map<string, SystemStudySelectionRoute>();
+  for (const route of input.routes) {
+    if (!route || (route.routeType !== 'topic' && route.routeType !== 'tag') || typeof route.routeId !== 'string') {
+      throw new SystemStudySelectionError('invalid-route', 'Study selections must be Topic or curated Tag routes.');
+    }
+    const routeId = route.routeId.trim();
+    if (!routeId) {
+      throw new SystemStudySelectionError('invalid-route', 'Study selection IDs cannot be empty.');
+    }
+    if (!routeBelongsToSystem(input.systemId, route.routeType, routeId, input)) {
+      throw new SystemStudySelectionError(
+        'route-not-in-system',
+        `The selected ${route.routeType === 'topic' ? 'Topic' : 'curated Tag'} is not available in this System.`
+      );
+    }
+    unique.set(`${route.routeType}\u0000${routeId}`, { routeType: route.routeType, routeId });
+  }
+
+  const tagOrder = new Map(
+    curatedTagsForSystem(input.systemId, input.systemTagRows).map((tag, index) => [tag.tagId, index])
+  );
+  return [...unique.values()].sort((left, right) => compareSelectionRoutes(left, right, tagOrder));
+}
+
+export function resolveSystemStudySelectionCandidates(
+  input: SystemNavigationInput & {
+    systemId: string;
+    routes: readonly { routeType: string; routeId: string }[];
+  }
+) {
+  const routes = normalizeSystemStudySelectionRoutes(input);
+  const selectedTopics = new Set(
+    routes.filter((route) => route.routeType === 'topic').map((route) => route.routeId)
+  );
+  const selectedTags = new Set(
+    routes.filter((route) => route.routeType === 'tag').map((route) => route.routeId)
+  );
+
+  const byCase = new Map<string, SystemStudyCandidate>();
+  for (const topicId of selectedTopics) {
+    for (const candidate of exactTopicCandidates(input.systemId, topicId, input)) {
+      byCase.set(candidate.id, candidate);
+    }
+  }
+  for (const curated of curatedTagsForSystem(input.systemId, input.systemTagRows)) {
+    if (!selectedTags.has(curated.tagId)) continue;
+    for (const candidate of tagCandidates(input.systemId, curated.tagId, input)) {
+      if (!byCase.has(candidate.id)) byCase.set(candidate.id, candidate);
+    }
+  }
+  return [...byCase.values()].sort((left, right) => left.id.localeCompare(right.id));
 }
 
 export function resolveSystemStudyCandidates(
@@ -213,13 +336,4 @@ export function buildSystemStudyNavigation(input: SystemNavigationInput) {
       tags: tagChoices
     }];
   });
-}
-
-export function routeBelongsToSystem(systemId: string, routeType: Exclude<SystemRouteType, 'all'>, routeId: string, input: SystemNavigationInput) {
-  if (routeType === 'tag') {
-    return curatedTagsForSystem(systemId, input.systemTagRows).some((row) => row.tagId === routeId);
-  }
-  const nodes = activeNodes(input.concepts);
-  return descendantTopicIds(systemId, nodes, true).includes(routeId)
-    && systemAncestorId(routeId, nodes) === systemId;
 }
