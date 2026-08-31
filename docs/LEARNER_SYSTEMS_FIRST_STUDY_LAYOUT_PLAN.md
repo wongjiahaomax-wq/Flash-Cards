@@ -1,4 +1,4 @@
-# Learner Systems-First Study Layout Plan
+# Learner Systems-First Study Layout and Custom Selection Plan
 
 _Status: implementation-ready plan for Draft PR #119._
 
@@ -6,139 +6,430 @@ _Last updated: 31 August 2026_
 
 ## Goal
 
-Make learner Study use the existing contextual navigation model:
+Make learner Study a systems-first navigation experience with an explicit multi-select study pool:
 
 ```text
 Study
 → choose System
-→ choose All / Topic / curated Tag
+→ all eligible Topics + curated Tags start selected
+→ optionally uncheck areas to narrow the pool
 → choose question set
 → start Review
 ```
 
-The Production Admin portal's **Preview learner study** entry must show the same prospective learner experience even while the real learner rollout flag remains disabled. Admin preview is therefore a pre-rollout UX validation surface, not merely a link to whatever learner rollout state happens to be active.
+The selected study pool is the **union (OR)** of every checked Topic and Tag. A Case that matches more than one checked area is included once.
 
-This work must not redefine the taxonomy model, Case classification, question eligibility, Review provenance, production content, or ordinary learner rollout policy.
+The default state must represent the whole eligible System: every eligible Topic and every curated Tag is checked. The learner narrows the pool by unchecking stronger or irrelevant areas and leaving weaker areas selected.
+
+The Production Admin portal's **Preview learner study** entry must show and exercise this same prospective learner experience even while the ordinary learner rollout flag remains disabled.
+
+This PR now intentionally includes the domain/persistence work required to make multi-route selection durable across Review continuation and Next case. This is no longer presentation-only work.
 
 ## Current state confirmed from implementation
 
-### Learner Study entry
+### Existing learner entry
 
-`src/routes/study/+page.server.js` already supports two paths:
+`src/routes/study/+page.server.js` currently supports two modes:
 
-- when `SYSTEM_STUDY_NAVIGATION_ENABLED` is enabled, load `listStudySystems()` and expose `startSystem`;
-- otherwise load the legacy Topic list and expose `start`.
+- flag on: `listStudySystems()` plus a `startSystem` action;
+- flag off: legacy Topic list plus the legacy `start` action.
 
-The current `startSystem` action has its own feature-flag guard. Therefore Admin preview cannot be implemented only by rendering System data: a flag-off Admin preview also needs a safe way to invoke the same System-start workflow without weakening the ordinary learner action.
+The System action currently accepts exactly one navigation route:
 
-### Learner Study presentation
+- `all`;
+- one `topic:<id>`;
+- one `tag:<id>`.
 
-`src/routes/study/+page.svelte` currently contains both:
+The action itself checks `SYSTEM_STUDY_NAVIGATION_ENABLED`, so Admin preview needs a separate authorized route boundary rather than a public query-string bypass.
 
-- the systems-first markup; and
-- the legacy Topic fallback.
+### Existing System candidate semantics
 
-The systems-first branch renders every System's route choices, question-set controls, and Start button simultaneously. This is the presentation density this PR is intended to fix.
+`src/lib/server/learning/system-study-routes.ts` already establishes important behavior that must survive:
+
+- `System → All` is the deduplicated union of native Topic candidates plus curated Tag candidates;
+- native Topic provenance wins over Tag provenance when the same Case matches both;
+- curated Tags are scoped to a System;
+- Topic routes currently support descendant routing.
+
+### Existing Review provenance
+
+`reviews` currently stores:
+
+- the effective Case provenance (`study_system_concept_id`, `route_type`, `study_tag_id`);
+- one learner-selected navigation route (`navigation_route_type`, `navigation_route_id`).
+
+Migration `0015_contextual_system_topic_tag_navigation.sql` enforces that single-route shape with D1 triggers.
+
+That is insufficient for the new requirement because the learner's selected set must survive:
+
+- the initial Review;
+- Original → Expanded continuation;
+- repeated **Next case** operations.
 
 ### Existing learner Review
 
-`src/routes/study/[reviewId]/+page.server.js` and `+page.svelte` already own the real learner Review UI and Review lifecycle.
-
-For System Reviews, `nextCaseAvailable` and the `next` action currently depend on `systemStudyNavigationEnabled(platform?.env)`. If an Admin starts a System Review while the global learner flag is off, the initial review itself can work, but the existing route would suppress/reject System **Next case** unless this Admin-preview case is handled deliberately.
+`src/routes/study/[reviewId]` owns the real learner Review UI and lifecycle. System Next-case availability currently depends on the rollout flag. Admin preview therefore needs a narrow Production-Admin exception so an Admin can exercise the prospective flow end-to-end before rollout.
 
 ### Admin boundary
 
-The Production Admin dashboard currently links **Preview learner study** directly to `/study`, so it inherits the learner feature flag and shows Topics while the flag is off.
-
-`src/routes/admin/+layout.server.js` already provides the desired authorization boundary:
+`src/routes/admin/+layout.server.js` already provides the Production Admin authorization boundary:
 
 - Preview Worker is rejected;
 - authentication is required;
-- the user must have the production `admin` role.
+- production `admin` role is required.
 
-This is separate from the retained Preview Worker / `preview_admin` subsystem.
+This is distinct from the retained Preview Worker / `preview_admin` subsystem.
 
-## Product model to preserve
+## Product decisions
 
-The existing contextual navigation contract remains authoritative:
+### 1. Multi-select uses union semantics
 
-- **System** is the top-level learner navigation grouping.
-- **Topic** is the canonical Case classification and direct Topic-question scope.
-- **Tag** is cross-cutting metadata that may be curated as a learner route within one or more Systems.
-- A Case still has one canonical Primary Topic plus zero or more Case Tags.
-- Selecting a Tag route does not reclassify the Case or substitute another Study Topic.
-- `System → All` remains the deduplicated union of native descendant Topic routes plus curated Tag routes, with native Topic provenance taking precedence for duplicate Cases.
-- Existing Review snapshots, question eligibility, provenance, reveal/rating behavior, Original→Expanded continuation, and ordinary learner Next-case semantics remain authoritative.
+The learner's checked Topics and Tags form one OR-union pool.
 
-## Target learner experience
+Example:
+
+```text
+Checked:
+- Arrhythmias
+- Heart failure
+- ECG interpretation
+
+Eligible pool =
+Cases in Arrhythmias
+OR Cases in Heart failure
+OR Cases matching ECG interpretation
+```
+
+A Case matching multiple checked areas is still present once.
+
+Do not implement AND/intersection behavior.
+
+### 2. All eligible areas start checked
+
+After choosing a System:
+
+- every eligible Topic starts checked;
+- every curated Tag with eligible Cases starts checked;
+- Original questions remains the default question set.
+
+Therefore a fresh selection is equivalent to the current `System → All` candidate pool.
+
+The UI should make narrowing easy with group-level controls such as **Select all** / **Clear all** where useful.
+
+At least one Topic or Tag must remain selected before **Start review** can succeed.
+
+### 3. Topic checkboxes represent exact Topic membership internally
+
+This is necessary to make hierarchical deselection behave predictably.
+
+The current single Topic route is descendant-inclusive. If custom selection reused that exact route semantic for every checkbox, unchecking a child Topic while its parent stayed checked would not actually remove the child Cases.
+
+For the new custom selection model:
+
+- persisted Topic selections are **exact canonical Topic IDs**;
+- a Case matches a selected Topic when its effective/canonical Study Topic is that selected Topic;
+- the UI may still present Topics hierarchically;
+- a parent checkbox may act as a tree control that toggles that Topic plus its descendant Topic checkboxes;
+- individual descendants can then be unchecked independently;
+- parent checked/indeterminate state should reflect the selected subtree using standard accessible tree-checkbox behavior.
+
+This does **not** change Case classification. Topic remains the canonical Case classification.
+
+The existing single-route descendant Topic behavior remains for historical/legacy single-route Reviews and existing compatibility paths.
+
+### 4. Curated Tags remain cross-cutting
+
+Tags remain separate from Topics visually and semantically.
+
+A checked Tag may include a Case whose canonical Topic is not among the currently checked Topics. That is intentional union behavior.
+
+Learner-facing copy should make this understandable without exposing implementation jargon, for example:
+
+> Curated Tags can add relevant cases across Topics.
+
+If a learner unchecks a Topic but leaves a Tag that also matches one of its Cases, that Case may still appear because another selected area still includes it.
+
+### 5. Deterministic provenance for a selected Case
+
+The selected route set and the effective provenance of the chosen Case are different concepts.
+
+For candidate deduplication/provenance:
+
+1. a selected exact Topic match takes precedence over Tag matches;
+2. if more than one selected Tag matches a Case and no selected Topic matches it, choose Tag provenance deterministically using the System's canonical curated-Tag ordering, not request checkbox order;
+3. effective `studyConceptId`, `routeType`, `studyTagId`, question scope, and Review snapshot semantics otherwise remain unchanged.
+
+When every eligible Topic and curated Tag is selected, the candidate set and effective provenance must be equivalent to existing `System → All` behavior.
+
+### 6. The selected set is snapshotted for the Review chain
+
+Starting a new custom System study creates an immutable internal study-selection snapshot.
+
+That same snapshot is reused for:
+
+- the first Review;
+- Original → Expanded continuation;
+- subsequent Next-case Reviews in the chain.
+
+This prevents Next case from silently broadening back to `All` or forgetting which areas the learner excluded.
+
+The selection snapshot is **not** a saved learner preset or cross-session preference in this PR. Returning to `/study` and starting a new System begins again with all eligible areas checked.
+
+If taxonomy/curation changes after the chain begins:
+
+- new Topics/Tags are not silently added to the existing snapshot;
+- new Cases inside still-selected valid areas may remain eligible;
+- if a stored selected area becomes invalid/unavailable, fail safely and direct the learner to choose a fresh Study selection rather than silently mutating the stored selection.
+
+## Target learner UX
 
 ### Stage 1 — choose a System
 
-The systems-first Study entry initially presents compact System choices.
+Initial `/study` System mode shows compact System choices only.
 
-Each choice should expose only information needed to choose the System:
+Each System card should show:
 
 - System name;
-- eligible Case count;
-- a clear select/open affordance.
+- total eligible unique Case count;
+- clear select/open affordance.
 
-The initial viewport should answer:
+Do not initially render every Topic, Tag, question-set control, and Start button for every System.
 
-> **What System do I want to study?**
+### Stage 2 — configure the selected System
 
-Do not initially render every Topic, Tag, question-pool choice, and Start button for every System.
+After selection, focus the page on one System and provide an obvious **Change System** control.
 
-### Stage 2 — configure the selected System route
+Suggested information hierarchy:
 
-After selection, progressively disclose only that System's study configuration.
+```text
+← Change System
 
-Present routes in this semantic order:
+Cardiovascular
+42 cases available
 
-1. **All cases** — primary/default;
-2. **Topics** — native descendant Topic routes;
-3. **Curated Tags** — explicitly labelled Tags and visually secondary/distinct from Topics.
+Choose what to include
 
-For nested Topics, retain breadcrumb context where it disambiguates hierarchy.
+Topics                         Select all / Clear all
+☑ Arrhythmias
+☑ Heart failure
+☑ Ischaemic heart disease
 
-Changing the selected System should reset its route to **All cases** and its question set to **Original questions**, unless the page is restoring a failed submitted form for that System.
+Curated Tags                   Select all / Clear all
+☑ ECG interpretation
+☑ Chest pain
 
-### Stage 3 — choose question set
+Question set
+● Original questions
+○ Expanded Learning
 
-Only after a System is selected, show:
+[ Start review → ]
+```
+
+Topics should use normal checkbox semantics, with hierarchy/breadcrumbs where useful. Curated Tags should have a distinct visual treatment or label.
+
+When all current study areas are selected, the UI may say **All available study areas selected**. After narrowing, it may say **Custom selection**.
+
+Do not display a misleading sum of per-route Case counts because overlaps are deduplicated. If a live exact unique Case count can be supplied cheaply without broad data exposure or a chatty request loop, it is useful; otherwise show the System total when everything is selected and the number of selected study areas after narrowing.
+
+### Stage 3 — question set
+
+Show only after a System is selected:
 
 - **Original questions** — default;
 - **Expanded Learning**.
 
 ### Stage 4 — start Review
 
-Use the existing canonical `startSystemReview(...)` behavior.
+One obvious primary CTA:
 
-Validation errors must remain associated with the submitted/selected System, and the UI must restore that System and the rejected route/question-set selection after an action failure.
+```text
+Start review →
+```
 
-## Production Admin learner-preview requirement
+Disable or reject Start when zero study areas are selected.
 
-The Production Admin portal must be able to exercise the prospective systems-first learner flow before it is enabled globally.
+Failed submissions must restore:
+
+- selected System;
+- the exact checked Topic/Tag set;
+- question set;
+- local validation/domain error.
+
+Do not throw the learner back to the System grid after an ordinary form error.
+
+## Responsive and accessibility requirements
+
+- System cards may use a compact desktop grid;
+- selected-System configuration should be single-column or otherwise easy to scan;
+- long names/breadcrumbs wrap without horizontal overflow;
+- checkbox rows are large touch targets;
+- group controls are keyboard accessible;
+- parent Topic tree checkboxes expose proper checked/indeterminate state;
+- do not implement hierarchy only through visual indentation;
+- the interaction must remain understandable with native labels and form controls.
+
+Avoid modals and nested independently scrolling configuration panels.
+
+## Production Admin learner preview
+
+Add a dedicated route under the existing Production Admin tree, preferably:
+
+```text
+/admin/study-preview
+```
 
 Required behavior:
 
-1. **Preview learner study** opens a dedicated Admin-authorized entry such as `/admin/study-preview`.
-2. The Admin entry always loads `listStudySystems()` regardless of `SYSTEM_STUDY_NAVIGATION_ENABLED`.
-3. It uses the same System chooser/configuration presentation owner as the real System-enabled `/study` path.
-4. It uses the same route/input validation and the same canonical `startSystemReview(...)` operation as the learner path.
-5. The feature-flag bypass exists only because the request is inside the existing Production Admin authorization boundary; the public `/study` System action retains its current flag guard.
-6. Starting a System Review from Admin preview redirects into the existing learner Review page rather than a copied Admin review page.
-7. A Production Admin viewing a System Review while the global System-navigation flag is disabled may continue to the next System case. This exception is Admin-only; ordinary learners remain governed by the rollout flag.
-8. In that Admin-preview state, the Review page should provide a sensible return path to `/admin/study-preview` rather than sending the Admin back to the flag-off Topic list.
-9. Preview Worker / Preview-only Admin learner-study restrictions remain intact.
-10. No query-string switch on `/study` may grant preview authority to a non-Admin.
+1. Admin dashboard **Preview learner study** points there, not to `/study`.
+2. The route loads System navigation regardless of `SYSTEM_STUDY_NAVIGATION_ENABLED`.
+3. It uses the same shared systems-first chooser component as flag-on learner `/study`.
+4. It uses the same multi-select parsing/validation/start workflow as learner `/study`.
+5. Successful start redirects into the actual `/study/[reviewId]` Review UI.
+6. Production Admin may use selection-based System **Next case** while the learner flag is off.
+7. Ordinary learner flag-off behavior remains unchanged.
+8. Preview Worker / Preview-only Admin remains blocked from learner Study.
+9. No query parameter or public `/study` path grants the Admin-preview bypass.
+10. A flag-off Admin System Review has a sensible **Back to Admin learner preview** path.
 
-## Resolved implementation architecture
+A small **Admin learner preview** indicator is acceptable, but do not duplicate the learner Review UI.
 
-The implementation should use one presentation owner and one System-start validation/workflow owner while keeping authorization/rollout decisions at route boundaries.
+## Persistence design
 
-### 1. Shared systems-first chooser component
+A real schema change is now expected.
 
-Create a focused shared component, preferably:
+### New immutable study-selection snapshot
+
+Prefer an explicit normalized model rather than encoding the checkbox set into one overloaded `navigation_route_id` string or pretending a custom selection is `navigation_route_type='all'`.
+
+Suggested shape:
+
+```text
+study_selections
+- id
+- user_id
+- system_concept_id
+- created_at
+
+study_selection_routes
+- study_selection_id
+- route_type       ('topic' | 'tag')
+- route_id
+- primary key (study_selection_id, route_type, route_id)
+
+reviews
+- add nullable study_selection_id
+```
+
+Names may be refined if current schema conventions suggest a clearer equivalent, but preserve the model:
+
+- one immutable selection snapshot belongs to one user and one System;
+- it contains many exact Topic/Tag selections;
+- multiple Reviews in the same chain may reference the same snapshot;
+- historical single-route Reviews remain valid and require no backfill.
+
+The polymorphic `route_id` may follow the precedent of existing `navigation_route_id`; application validation remains responsible for System membership. Add database checks/triggers for structural invariants where practical.
+
+### Review provenance compatibility
+
+Migration 0015 currently requires a System Review to have one non-null `navigation_route_type`.
+
+The new migration must update that database-level contract so a System Review has exactly one navigation-selection representation:
+
+- **legacy single-route provenance**: existing `navigation_route_type` / `navigation_route_id`, with `study_selection_id IS NULL`;
+- **new multi-select provenance**: `study_selection_id IS NOT NULL`, with legacy navigation route columns null.
+
+Do not weaken effective Case provenance checks (`route_type`, `study_tag_id`, System validity).
+
+The new D1 trigger(s) should also ensure a referenced study selection belongs to the same user/System as the Review.
+
+Do not rewrite migration 0015. Add a new migration, expected to be `0017_...sql` if the migration sequence is still unchanged when coding starts.
+
+### Atomicity
+
+Do not leave orphan study-selection snapshots when Review creation fails.
+
+The first selection snapshot, its selected route rows, the Review, review questions, and review assets should be committed within the same business operation/transactional batch after candidate/question selection has succeeded.
+
+Subsequent Next/Expanded Reviews should reuse the existing immutable selection snapshot rather than duplicating or mutating it.
+
+## Domain/read-model changes
+
+### Selection route model
+
+Introduce a focused type such as:
+
+```ts
+type SystemStudySelectionRoute =
+  | { routeType: 'topic'; routeId: string }
+  | { routeType: 'tag'; routeId: string };
+```
+
+Normalize submitted routes before use:
+
+- trim IDs;
+- reject malformed types;
+- deduplicate duplicates;
+- validate every selected route belongs to the selected System;
+- require at least one route;
+- canonicalize ordering so request order cannot affect provenance.
+
+### Exact Topic candidate resolution
+
+Add a selection-specific candidate resolver rather than changing the historical single Topic route semantics in place.
+
+For selection mode:
+
+- Topic route IDs mean exact Study Topic membership;
+- Tag route IDs use existing curated Tag matching;
+- union candidates by Case ID;
+- selected Topic candidate wins over selected Tag candidate;
+- selected Tag tie-breaking follows canonical System Tag order.
+
+Add a high-value equivalence test:
+
+> selecting every eligible exact Topic plus every curated Tag produces the same Case IDs and effective provenance as the existing `System → All` resolver.
+
+### Navigation read model for the UI
+
+`listStudySystems()` should expose enough hierarchy information for an accessible Topic tree. Add `parentId` or an equivalent focused field if the existing breadcrumb model is not sufficient.
+
+Do not expose broad Case records merely to calculate client-side counts.
+
+### Start workflow
+
+Retain one shared flag-independent route/action workflow used by learner Study and Admin preview.
+
+Prefer a focused TypeScript module under `src/lib/server/learning/`, for example:
+
+```text
+start-system-study.ts
+```
+
+It should:
+
+- read repeated submitted route values with `FormData.getAll(...)`;
+- parse `topic:<id>` / `tag:<id>` values;
+- validate question-pool mode;
+- invoke the canonical selection Review operation;
+- map known domain failures into a stable form payload containing `message`, `systemId`, selected routes, and `questionPoolMode`.
+
+It must not decide Admin authorization or the learner feature flag.
+
+### Review continuation
+
+Add focused selection-aware Review operations/helpers so:
+
+- Original → Expanded preserves `studySelectionId`;
+- Next case reloads the immutable selected routes and uses their union pool;
+- ordinary flag-off learner System Next remains unavailable;
+- flag-off Production Admin preview can use Next;
+- legacy single-route Reviews continue through the existing compatibility path.
+
+Do not silently convert historical single-route Reviews into new selection snapshots.
+
+## Shared UI architecture
+
+Create one focused component, preferably:
 
 ```text
 src/lib/components/study/SystemStudyChooser.svelte
@@ -146,126 +437,37 @@ src/lib/components/study/SystemStudyChooser.svelte
 
 Responsibilities:
 
-- render the compact System chooser;
-- own progressive-disclosure client state;
-- render the selected System's All / Topics / Curated Tags sections;
-- render Original / Expanded question-set controls;
-- preserve failed form state for the submitted System;
-- submit the existing named action `?/startSystem`;
-- remain agnostic about whether its caller is ordinary learner Study or Production Admin preview.
+- compact System chooser;
+- selected-System progressive disclosure;
+- default-all Topic/Tag checkbox state;
+- hierarchical Topic checkbox behavior;
+- curated Tag checkbox group;
+- Select all / Clear all interactions;
+- question-set controls;
+- failed-form restoration;
+- submission of repeated selected route values.
 
-Do **not** put authorization, feature-flag decisions, database reads, or Review creation into the Svelte component.
+It must remain agnostic about Admin authorization, feature flags, database access, and Review creation.
 
-`src/routes/study/+page.svelte` should retain the learner page shell/header and legacy Topic fallback. Its System-enabled branch should delegate to the shared component instead of owning a second copy of the systems-first UI.
+Use it from:
 
-`src/routes/admin/study-preview/+page.svelte` should provide only a small Admin-preview shell/indicator and **Back to Admin** affordance around the same shared chooser.
+- flag-on `/study`;
+- `/admin/study-preview`.
 
-### 2. Shared flag-independent System-start workflow
-
-The existing public `startSystem` action combines:
-
-- rollout gating;
-- FormData parsing;
-- System route parsing;
-- question-pool validation;
-- `startSystemReview(...)` invocation;
-- mapping known domain errors into the form failure shape.
-
-The Admin route needs the same behavior except for the rollout gate. Avoid copying that logic.
-
-Extract the smallest coherent route-independent workflow into a new focused TypeScript server module, for example:
-
-```text
-src/lib/server/learning/start-system-study.ts
-```
-
-The exact filename/API may change if current implementation evidence supports a clearer boundary, but the ownership rules are:
-
-- it must not authorize Admin users;
-- it must not read `SYSTEM_STUDY_NAVIGATION_ENABLED`;
-- it validates/parses the System-start request consistently;
-- it invokes the existing canonical `startSystemReview(...)` operation;
-- it exposes a result/error contract that both SvelteKit route actions can map consistently.
-
-Then:
-
-- ordinary `/study?/startSystem` keeps its current feature-flag check before invoking the shared workflow;
-- `/admin/study-preview?/startSystem` relies on the inherited `/admin` authorization boundary and invokes the same workflow without the learner rollout gate.
-
-This makes the bypass explicit at the route boundary instead of embedding an `isAdmin || flag` rule inside the canonical learner workflow.
-
-### 3. Dedicated Production Admin preview entry
-
-Add:
-
-```text
-src/routes/admin/study-preview/+page.server.js
-src/routes/admin/study-preview/+page.svelte
-```
-
-The route inherits `src/routes/admin/+layout.server.js`; do not reimplement production-Admin authorization independently unless a route-local assertion is needed as defense in depth.
-
-Server load:
-
-- if DB binding is absent, return the same meaningful database-not-configured state used by Study;
-- otherwise call `listStudySystems(createDb(DB))` regardless of feature flag;
-- return only data required by the shared chooser.
-
-Action:
-
-- expose the same named `startSystem` action expected by the shared chooser;
-- require DB/user context;
-- invoke the shared System-start workflow;
-- preserve the same known validation failure payload (`message`, `systemId`, `route`, `questionPoolMode`);
-- redirect successful starts to the existing `/study/{reviewId}` learner Review route.
-
-Update `src/routes/admin/+page.svelte` so **Preview learner study** points to `/admin/study-preview`.
-
-### 4. End-to-end Admin preview through the existing Review route
-
-Do not build `/admin/study-preview/[reviewId]` unless implementation evidence proves it is necessary. Reuse the actual learner Review page.
-
-In `src/routes/study/[reviewId]/+page.server.js`, distinguish two concepts:
-
-- global learner System-navigation rollout state;
-- whether the current authenticated user is allowed to continue an already-created System Review for Admin preview.
-
-For ordinary learners, current flag behavior remains unchanged.
-
-For authenticated Production Admins, when viewing a System Review, allow System Next-case resolution even when the global learner flag is off. Use the existing canonical `isProductionAdmin(...)` role predicate; do not invent a second role parser.
-
-The same effective availability predicate must drive both:
-
-- `caseStudy.nextCaseAvailable` in `load`; and
-- the boolean passed to `resolveNextSystemStudyRoute(...)` in the `next` action.
-
-This prevents UI/action disagreement.
-
-Also return a small navigation model such as a back href/label or Admin-preview indicator so `+page.svelte` can route the Admin back to `/admin/study-preview` for a flag-off System Review. Avoid changing the actual Review content/presentation.
-
-The existing `assertLearnerStudyAccess(...)` Preview Worker / Preview-only Admin block remains authoritative and must not be weakened.
-
-### 5. Progressive-disclosure behavior
-
-The shared chooser should have deterministic state behavior:
-
-- initial state: no System selected;
-- selecting a System: expose only that System's configuration;
-- default route on fresh selection: `all`;
-- default question set on fresh selection: `core` / Original questions;
-- failed `startSystem` submission: automatically reopen `form.systemId` and restore `form.route` + `form.questionPoolMode`;
-- changing to another System after an error must not show the previous System's validation message;
-- **Change System** or selecting another System must remain obvious and keyboard accessible.
-
-Prefer ordinary buttons/radios and native form semantics. Do not require URL-addressable selected-System state for this PR unless implementation testing shows a real usability/accessibility need.
+Keep the legacy flag-off Topic UI in `/study` until explicit rollout approval.
 
 ## Expected implementation surface
 
-Likely primary changes:
+Likely files include:
 
 ```text
-src/lib/components/study/SystemStudyChooser.svelte
+drizzle/0017_<system-study-selection>.sql
+src/lib/server/db/schema.js
+src/lib/server/db/study-navigation.ts
+src/lib/server/learning/system-study-routes.ts
 src/lib/server/learning/start-system-study.ts
+src/lib/server/db/learning.js
+src/lib/components/study/SystemStudyChooser.svelte
 src/routes/study/+page.server.js
 src/routes/study/+page.svelte
 src/routes/study/[reviewId]/+page.server.js
@@ -275,89 +477,119 @@ src/routes/admin/study-preview/+page.server.js
 src/routes/admin/study-preview/+page.svelte
 ```
 
-Tests should be selected from current owners rather than blindly editing every nearby test. Likely focused coverage includes:
+Also update migration fixture lists and directly relevant tests that instantiate the canonical schema.
 
-```text
-test/contextual-system-topic-tag-navigation.test.js
-test/system-review-navigation.test.js
-```
+Exact module extraction may differ after inspecting current code, but do not duplicate selection/candidate/provenance logic merely to fit this list.
 
-and a focused new/extended contract for Admin Study preview authorization/wiring or shared UI reachability if no current test owns those invariants strongly enough.
+## Implementation checkpoints
 
-No schema or migration change is expected.
+### Checkpoint A — multi-select domain semantics
 
-## Implementation sequence
+1. Add pure selection-route normalization/validation primitives.
+2. Add exact-Topic + Tag union candidate resolution.
+3. Preserve deterministic provenance.
+4. Prove all-selected equivalence with existing `System → All`.
+5. Prove parent/child exact Topic selection can exclude a child independently.
 
-### Checkpoint A — establish shared System-start workflow
+Stop and fix domain semantics before persistence/UI if these tests are not clear.
 
-1. Read current `startSystem` implementation and relevant domain tests.
-2. Extract only the flag-independent parsing/validation/start behavior.
-3. Keep the public `/study` feature-flag guard in place.
-4. Add focused tests for extracted validation/workflow behavior if current tests do not already own it.
-5. Confirm no Review/domain semantics changed.
+### Checkpoint B — persistence and Review-chain provenance
 
-Why first: this creates one safe server behavior owner before adding a second route consumer.
+1. Add the new migration and schema representation.
+2. Preserve historical single-route Reviews without backfill.
+3. Update D1 provenance triggers for mutually exclusive legacy-vs-selection navigation provenance.
+4. Add first-start selection snapshot persistence atomically with Review creation.
+5. Reuse the same snapshot for Expanded and Next.
+6. Add migration/DB-integrity tests.
 
-### Checkpoint B — extract and redesign the shared chooser
+### Checkpoint C — shared System-start workflow
 
-1. Extract only the System-enabled presentation from `/study/+page.svelte`.
-2. Implement compact System selection and progressive disclosure.
-3. Preserve form failure restoration.
-4. Keep the legacy Topic branch unchanged except for any minimal integration adjustment.
-5. Exercise long labels, nested breadcrumbs, curated Tags, empty sections, and mobile wrapping.
+1. Parse repeated selected routes from FormData.
+2. Keep ordinary learner feature-flag guard at `/study` route boundary.
+3. Share the same flag-independent selection-start workflow with Admin preview.
+4. Preserve stable form-error state.
 
-Why second: both future consumers then use the finished presentation owner.
+### Checkpoint D — shared systems-first UI
 
-### Checkpoint C — add Production Admin preview entry
+1. Extract one System chooser component.
+2. Implement compact System grid.
+3. On System selection, default all eligible Topics and Tags checked.
+4. Implement hierarchical Topic checkboxes and group controls.
+5. Keep Tags distinct and explain cross-Topic inclusion succinctly.
+6. Restore exact selection after action failure.
+7. Keep Original as question-set default.
+8. Verify mobile/overflow/accessibility behavior.
 
-1. Add `/admin/study-preview` under the inherited Production Admin layout.
-2. Load Systems regardless of rollout flag.
-3. Reuse the shared chooser and shared start workflow.
-4. Redirect successful starts to the actual learner Review route.
-5. Repoint the dashboard shortcut.
-6. Add focused authorization/wiring coverage.
+### Checkpoint E — Production Admin preview
 
-### Checkpoint D — make Admin preview Review continuation coherent
+1. Add `/admin/study-preview` under inherited Production Admin auth.
+2. Load Systems independent of learner rollout flag.
+3. Reuse shared chooser and start workflow.
+4. Redirect to real learner Review UI.
+5. Repoint Admin dashboard shortcut.
 
-1. Reuse `isProductionAdmin(...)` in `/study/[reviewId]`.
-2. Allow a Production Admin to continue a System Review when the global flag is off.
-3. Keep ordinary learner flag behavior unchanged.
-4. Ensure `nextCaseAvailable` and `next` action use the same effective predicate.
-5. Provide the Admin-preview return link when appropriate.
-6. Add/extend focused Next-case tests.
+### Checkpoint F — end-to-end Review continuation
 
-### Checkpoint E — integrated validation and UX review
+1. Preserve selection for Original → Expanded.
+2. Preserve selection for Next case.
+3. Keep legacy single-route Next behavior intact.
+4. Keep ordinary flag-off learner System Next blocked.
+5. Allow flag-off Production Admin selection-based System Next.
+6. Return Admin preview Review navigation to `/admin/study-preview` where appropriate.
 
-1. Verify ordinary flag-off `/study` is still the legacy Topic flow.
-2. Verify flag-on `/study` uses the new systems-first progressive disclosure.
-3. Verify flag-off Production Admin `/admin/study-preview` uses the same systems-first chooser.
-4. Start Original and Expanded System Reviews from Admin preview.
-5. Reveal, rate, continue Original→Expanded where available, and exercise Next case.
-6. Verify non-Admin/Preview-only Admin/Preview Worker boundaries remain intact.
-7. Verify narrow/mobile layout and no horizontal overflow.
-8. Run repository-owned validation required by `agent:checks` and the final handoff contract.
+### Checkpoint G — integrated validation
+
+Exercise:
+
+- learner flag off → legacy Topic flow;
+- learner flag on → systems-first multi-select flow;
+- all selected → current System-All-equivalent pool;
+- targeted Topic-only narrowing;
+- targeted mixed Topic + Tag union;
+- zero-selection validation;
+- Original and Expanded starts;
+- failed start state restoration;
+- Next-case continuity;
+- Admin flag-off preview;
+- non-Admin / Preview Worker boundaries;
+- mobile and long-label layout.
 
 ## Focused test requirements
 
-Tests should protect behavior, not implementation trivia. At minimum, obtain evidence for these invariants:
+At minimum protect these invariants with behavioral/domain tests where practical:
 
-- `SYSTEM_STUDY_NAVIGATION_ENABLED=false` still blocks ordinary `/study` System start;
-- the Admin preview route is reachable only through the existing Production Admin boundary;
-- Admin preview can invoke the same System-start validation/workflow while the learner flag is off;
-- invalid/mismatched System route input still fails safely;
-- question-pool validation remains unchanged;
-- System Review provenance remains unchanged;
-- flag-off ordinary learner System Next-case remains unavailable;
-- flag-off Production Admin System Review Next-case is available for preview;
-- Preview Worker / Preview-only Admin remains blocked from learner Study;
-- the Admin dashboard shortcut points to the explicit Admin preview route;
-- the real System-enabled learner page and Admin preview use one systems-first chooser presentation owner.
+1. selection union deduplicates Cases;
+2. exact Topic selections are independently deselectable even in a parent/child tree;
+3. Topic match wins over Tag match for effective provenance;
+4. selected Tag tie-breaking is deterministic;
+5. every selected route must belong to the chosen System;
+6. empty selection is rejected;
+7. duplicate submitted route values are harmless/deduplicated;
+8. all eligible Topic + Tag selections equal current `System → All` candidate IDs/provenance;
+9. first selection Review persists immutable selection routes;
+10. effective Review provenance remains correct;
+11. Expanded continuation reuses the selection snapshot;
+12. Next case reuses the same selection snapshot;
+13. historical `all` / one-Topic / one-Tag Reviews remain readable and continuable under their existing semantics;
+14. migration preserves existing Review snapshots and rows;
+15. database provenance guards reject mismatched Review/selection user or System;
+16. ordinary flag-off `/study` cannot start System selection;
+17. flag-off Production Admin preview can start the same selection workflow;
+18. ordinary flag-off learner selection-based System Next remains blocked;
+19. flag-off Production Admin selection-based System Next is available;
+20. Preview Worker / Preview-only Admin learner Study restriction remains;
+21. learner and Admin preview share one System chooser presentation owner;
+22. failed action state restores the selected System, exact checkbox set, and question set.
 
-A source-level UI/wiring contract is acceptable where it is the strongest cheap owner of presentation reuse or route reachability. Do not remove stronger behavioral/domain coverage merely to avoid source-reading tests.
+A focused source-level assertion is acceptable for presentation reuse or Admin shortcut wiring when it is the strongest cheap owner. Do not replace stronger behavioral coverage with brittle source assertions.
 
-## Validation plan for the coding agent
+## Validation contract for the coding agent
 
-Before editing, when command execution is available:
+Read repository guidance first, especially root `AGENTS.md`, `docs/AGENT_TASK_MAP.md`, `src/routes/admin/AGENTS.md`, `src/lib/server/db/AGENTS.md`, and `docs/ENGINEERING_ARCHITECTURE_GUIDELINES.md`.
+
+Because this PR now includes schema work, inspect current schema/migration contracts before editing and create a new migration; never rewrite historical migrations.
+
+When local execution is available:
 
 ```sh
 npm run agent:doctor
@@ -365,62 +597,74 @@ npm run agent:doctor
 
 During implementation:
 
-- use focused Node tests after server/workflow changes;
-- use Vite/HMR for presentation iteration instead of running broad validation after every CSS/Svelte edit;
-- run `npm run agent:checks` after a coherent implementation batch;
-- run any specialized checks it requires;
-- run `npm run validate:fast` at useful checkpoints, not every edit.
+- run focused domain/navigation tests after Checkpoint A;
+- run focused migration/schema tests after Checkpoint B;
+- use Vite/HMR for iterative Svelte/CSS work;
+- run `npm run agent:checks` after coherent batches;
+- run all specialized checks it identifies;
+- use `npm run validate:fast` at useful checkpoints.
 
-Before handoff when local execution is available:
+Before handoff, when local execution is available:
 
 ```sh
 npm run validate:full
 ```
 
-If only remote GitHub execution is available, do not claim local commands ran. Review the full PR diff and report GitHub CI/check evidence separately.
+Do not mutate Production D1/R2 for testing. Do not deploy. Do not claim commands ran when they did not.
 
-PR #119 must remain Draft for implementation handoff unless the user explicitly asks to change review state.
+If working remotely through GitHub only, review the complete diff and report GitHub CI evidence separately from local execution.
+
+Keep PR #119 Draft for independent review.
 
 ## Acceptance criteria
 
-1. With System navigation enabled, `/study` initially presents Systems as compact primary choices.
-2. Topic/Tag/question-set controls are progressively disclosed only for the selected System.
-3. `All cases` and Original questions are the fresh-selection defaults.
-4. Topics and curated Tags remain semantically and visually distinguishable.
-5. Existing System-route eligibility, Case deduplication, question-pool behavior, Review provenance, snapshots, and ordinary learner Next-case behavior remain unchanged.
-6. Failed System-start validation restores the submitted System/route/question-set UI and shows the error only there.
-7. The layout remains usable on narrow/mobile viewports without horizontal overflow.
-8. With the rollout flag disabled, ordinary `/study` continues to show the legacy Topic flow and cannot start System Study.
-9. With the same flag disabled, Production Admin **Preview learner study** opens `/admin/study-preview` and shows the prospective systems-first learner chooser.
-10. The Admin preview and real systems-first learner path use the same chooser presentation owner.
-11. Admin preview and learner System start use the same flag-independent parsing/validation/Review creation workflow owner.
-12. A System Review started from Admin preview renders in the actual learner Review UI.
-13. A Production Admin can use System Next case in that preview flow while the global learner flag is off; an ordinary learner cannot.
-14. Non-Admins cannot force the preview/bypass from public `/study`.
-15. Preview Worker / Preview-only Admin restrictions remain unchanged.
-16. No schema/migration change, production D1/R2 mutation, unrelated taxonomy redesign, or deployment is introduced.
+1. System-enabled `/study` initially shows compact Systems rather than every nested form.
+2. Selecting a System shows Topic and curated Tag checkboxes.
+3. Every eligible Topic and curated Tag starts checked.
+4. Learners can uncheck areas to narrow study to weaker Topics/Tags.
+5. Checked areas are combined by OR-union and duplicate Cases appear once.
+6. Topic hierarchy supports independent child deselection; a checked parent must not invisibly re-include an unchecked child through descendant-route semantics.
+7. Curated Tags remain visibly distinct and may intentionally re-include Cases across Topics.
+8. Zero selections cannot start a Review.
+9. Original questions is the default question set.
+10. All-selected behavior is candidate/provenance-equivalent to current `System → All`.
+11. The chosen selection persists across Original → Expanded and Next case.
+12. Historical single-route System Reviews keep existing behavior.
+13. Effective Case/Question/Asset Review snapshot and provenance semantics remain unchanged.
+14. Failed starts restore the exact System, checked routes, question set, and error.
+15. Mobile/narrow layouts do not horizontally overflow.
+16. Flag-off ordinary `/study` remains the legacy Topic flow.
+17. Flag-off Production Admin `/admin/study-preview` shows the same multi-select learner UI.
+18. Learner and Admin preview share one chooser and one selection-start workflow owner.
+19. Non-Admins cannot force the preview bypass.
+20. Flag-off Production Admin can exercise selection-based System Next case while ordinary learners cannot.
+21. Preview Worker / Preview-only Admin restrictions remain unchanged.
+22. A new migration implements selection persistence without rewriting migration history.
+23. No production data mutation or deployment occurs during implementation/testing.
+24. Production learner System navigation is not enabled unless separately and explicitly approved.
 
 ## Explicitly out of scope
 
-- changing the System/Topic/Tag domain model;
-- adding Additional Study Topics;
-- changing Case classification;
-- changing question eligibility/provenance semantics;
-- changing Review snapshots or rating semantics;
-- globally enabling `SYSTEM_STUDY_NAVIGATION_ENABLED` as an incidental part of implementation;
-- schema or migration work;
-- production D1/R2 mutation;
-- unrelated Admin taxonomy UX;
-- redesigning or expanding the separate Preview Worker subsystem;
-- creating a second copied learner Review application under `/admin` unless concrete implementation evidence makes reuse impossible;
-- deployment.
+- AND/intersection selection semantics;
+- saved named study presets;
+- persisting checkbox preferences across fresh Study sessions;
+- learner performance analytics that automatically select weak Topics;
+- automatic weak-area recommendations;
+- changing canonical Case Topic classification;
+- changing Tag assignment/curation semantics;
+- changing question eligibility rules;
+- changing Review reveal/rating behavior;
+- redesigning the separate Preview Worker subsystem;
+- production D1/R2 mutation for testing;
+- deployment;
+- enabling the production learner feature flag.
 
-## Handoff prompt
+## ChatGPT Chat Sol handoff
 
-The implementation-agent prompt is stored alongside this plan at:
+The implementation prompt for this PR is:
 
 ```text
 docs/PR119_IMPLEMENTATION_PROMPT.md
 ```
 
-That prompt is intended for a ChatGPT Chat Sol coding agent. It tells the agent to continue the existing Draft PR, inspect the actual current PR head before editing, implement this plan, validate it, and leave the PR Draft for independent review.
+The coding agent must inspect the actual current PR head and repository state before editing, follow this plan as the durable product/architecture contract, implement the work inside the existing Draft PR #119, validate it, and stop before rollout or merge.
