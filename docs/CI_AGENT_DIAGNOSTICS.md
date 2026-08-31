@@ -34,14 +34,31 @@ The diff validation itself intentionally continues to use `HEAD^1` → `HEAD` on
 
 ## Retrieval procedure for coding agents
 
+Use the smallest sufficient CI retrieval surface. This is an escalation model, not a requirement to mechanically perform every preceding read.
+
+Prefer the available equivalent of:
+
+```text
+status/check state
+→ workflow/run
+→ failed job
+→ failed step or compact diagnostic
+→ raw failed-job logs only when needed
+```
+
+Enter that escalation at the smallest level already sufficient from information in hand. Do not consume complete Actions logs merely to discover which job or step failed.
+
 When diagnosing PR CI through GitHub integration:
 
-1. Resolve the PR's current head SHA before trusting a run.
-2. Inspect workflow runs for that exact revision and ignore superseded, cancelled, or older-head runs.
+1. Resolve the PR's current head SHA before trusting a run, unless exact-head evidence is already established from a sufficient current response.
+2. Inspect check/workflow state for that exact revision and ignore superseded, cancelled, or older-head runs.
 3. Focus on failed jobs/stages rather than successful output.
-4. Search the failed log for `CI_ERROR|` and `CI_REPRO|` first.
-5. Use the adjacent detailed failure block, assertion values, and stack frames only when the compact record is insufficient.
-6. Treat `CI_REPRO` as the cheapest first local reproduction; broaden to the repository-selected validation contract after the focused fix.
+4. Prefer the existing `CI_ERROR|`, `CI_REPRO|`, and `CI_STATUS|` records when they already establish the failure and focused reproduction.
+5. Use the failed step, adjacent detailed failure block, assertion values, and stack frames only when the compact record is insufficient.
+6. Read raw failed-job logs only when the smaller surfaces do not provide enough diagnostic evidence.
+7. Treat `CI_REPRO` as the cheapest first local reproduction; broaden to the repository-selected validation contract after the focused fix.
+
+Reuse sufficient CI information already returned by a smaller retrieval. While the PR head is unchanged, do not repeatedly retrieve the same large failed-job log unless new information is genuinely required.
 
 ## Invariants
 
