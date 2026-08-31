@@ -6,6 +6,7 @@ import {
   continueReviewWithExpandedLearning,
   getReview,
   revealReview,
+  startNextSystemStudySelectionReview,
   startReview,
   startSystemReview
 } from '$lib/server/db/learning.js';
@@ -118,7 +119,9 @@ export const actions = {
     try {
       reviewId = await continueReviewWithExpandedLearning({ db, userId: context.user.id, reviewId: review.id });
     } catch (cause) {
-      if (cause instanceof QuestionPoolUnavailableError) return fail(400, { message: cause.message });
+      if (cause instanceof QuestionPoolUnavailableError || cause instanceof StudyNavigationInputError) {
+        return fail(400, { message: cause.message });
+      }
       throw cause;
     }
     if (!reviewId) throw error(404, 'This case is no longer available for study.');
@@ -139,26 +142,36 @@ export const actions = {
 
     let reviewId;
     try {
-      const systemRoute = resolveNextSystemStudyRoute(
-        review,
-        systemStudyNavigationEnabled(platform?.env)
-      );
-      if (systemRoute) {
-        reviewId = await startSystemReview({
+      if (review.studySelectionId) {
+        if (!systemStudyNavigationEnabled(platform?.env)) throw new SystemStudyNavigationDisabledError();
+        reviewId = await startNextSystemStudySelectionReview({
           db,
           userId: context.user.id,
-          systemId: systemRoute.systemId,
-          routeType: systemRoute.routeType,
-          routeId: systemRoute.routeId,
+          studySelectionId: review.studySelectionId,
           questionPoolMode
         });
       } else {
-        reviewId = await startReview({
-          db,
-          userId: context.user.id,
-          conceptId: review.primaryConceptId,
-          questionPoolMode
-        });
+        const systemRoute = resolveNextSystemStudyRoute(
+          review,
+          systemStudyNavigationEnabled(platform?.env)
+        );
+        if (systemRoute) {
+          reviewId = await startSystemReview({
+            db,
+            userId: context.user.id,
+            systemId: systemRoute.systemId,
+            routeType: systemRoute.routeType,
+            routeId: systemRoute.routeId,
+            questionPoolMode
+          });
+        } else {
+          reviewId = await startReview({
+            db,
+            userId: context.user.id,
+            conceptId: review.primaryConceptId,
+            questionPoolMode
+          });
+        }
       }
     } catch (cause) {
       if (
