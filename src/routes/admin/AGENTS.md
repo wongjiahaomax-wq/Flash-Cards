@@ -9,6 +9,7 @@ This file supplements the repository-wide `AGENTS.md` for `src/routes/admin/`.
 - Keep UX-only work out of schema/architecture changes unless explicitly required.
 - SvelteKit `redirect()` throws. Do not wrap a successful redirect in a broad catch that converts it to an error response.
 - Keep fallible DB/storage work inside the error boundary, then redirect after success.
+- Preserve the route's existing action error mapping; do not catch thrown values indiscriminately or collapse established domain/action errors into a generic response.
 - Preserve Production/Preview ownership and mutation semantics in Admin actions.
 - Reuse current Topic, Tag, Shared Question, image/stimulus, and reusable-image-question flows rather than duplicating them.
 
