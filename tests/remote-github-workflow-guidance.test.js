@@ -17,6 +17,14 @@ function remoteWriteSection() {
   return executionWorkflow.slice(start, end);
 }
 
+function remoteTaskMapSection() {
+  const start = taskMap.indexOf('### Remote GitHub mode');
+  const end = taskMap.indexOf('### Hybrid mode', start);
+  assert.notEqual(start, -1, 'Remote GitHub routing section must exist');
+  assert.notEqual(end, -1, 'Remote GitHub routing must remain bounded from Hybrid mode');
+  return taskMap.slice(start, end);
+}
+
 test('Remote GitHub write guidance prefers one coherent branch update when capabilities exist while keeping simple writes simple', () => {
   const section = remoteWriteSection();
 
@@ -69,14 +77,16 @@ test('Remote GitHub write guidance separates planning from mutation and retains 
   assert.match(section, /existing final-review and validation requirements/i);
 });
 
-test('Detailed Git-data write procedure has one execution authority rather than being duplicated into routing guidance', () => {
+test('Detailed Git-data write procedure has one execution authority and Remote GitHub routing points to it', () => {
+  const routingSection = remoteTaskMapSection();
+
+  assert.match(routingSection, /docs\/DEVELOPMENT_EXECUTION_WORKFLOW\.md/);
+  assert.match(routingSection, /retrieval/i);
+  assert.match(routingSection, /multi-file write/i);
+
   for (const routingDocument of [rootAgents, taskMap]) {
     assert.equal(routingDocument.includes('### Remote GitHub write discipline'), false);
     assert.equal(routingDocument.includes('create changed-file blobs'), false);
     assert.equal(routingDocument.includes("tree based on that exact head's tree"), false);
   }
-
-  assert.match(rootAgents, /Batch related edits where practical, use logical commits/i);
-  assert.match(taskMap, /batch related writes where practical, and use logical commits rather than one commit per file/i);
-  assert.match(taskMap, /review the complete branch\/PR diff/i);
 });
