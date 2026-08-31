@@ -198,6 +198,59 @@ test('detailed Svelte failure summary owns real diagnostics without adding a gen
   assert.equal(rendered.includes('warning only'), false);
 });
 
+test('partially malformed machine diagnostics preserve parsed errors and explicitly report incompleteness', () => {
+  const parsed = parseSvelteMachineOutput([
+    START,
+    machineRecord(2, {
+      type: 'ERROR',
+      filename: 'src/a.svelte',
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 1 },
+      message: 'parsed error',
+      code: 2322,
+      source: 'js',
+    }),
+    '3 {"type":"ERROR","filename":"src/b.svelte",',
+    '4 COMPLETED 2 FILES 2 ERRORS 0 WARNINGS 2 FILES_WITH_PROBLEMS',
+  ].join('\n'));
+
+  const summary = formatSvelteFailureSummary(parsed, 1);
+  assert.equal(typeof summary, 'string');
+  const rendered = /** @type {string} */ (summary);
+  assert.match(rendered, /^CI_ERROR\|check=svelte\|file=src\/a\.svelte\|/m);
+  assert.match(rendered, /^CI_ERROR\|check=svelte\|message=Structured Svelte diagnostics are incomplete /m);
+  assert.match(rendered, /malformedRecords=1/);
+  assert.match(rendered, /parsedErrors=1/);
+  assert.match(rendered, /reportedErrors=2/);
+  assert.match(rendered, /^CI_REPRO\|check=svelte\|command=npm run check$/m);
+  assert.match(rendered, /^CI_STATUS\|check=svelte\|status=failed\|exit=1\|errors=2\|warnings=0\|diagnostics=incomplete$/m);
+});
+
+test('completion error-count mismatch marks structured Svelte diagnostics incomplete even without malformed records', () => {
+  const parsed = parseSvelteMachineOutput([
+    START,
+    machineRecord(2, {
+      type: 'ERROR',
+      filename: 'src/a.svelte',
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 1 },
+      message: 'only decoded error',
+      source: 'svelte',
+    }),
+    '3 COMPLETED 2 FILES 2 ERRORS 0 WARNINGS 2 FILES_WITH_PROBLEMS',
+  ].join('\n'));
+
+  assert.equal(parsed.malformedDiagnosticRecords, 0);
+  const summary = formatSvelteFailureSummary(parsed, 1);
+  assert.equal(typeof summary, 'string');
+  const rendered = /** @type {string} */ (summary);
+  assert.match(rendered, /Structured Svelte diagnostics are incomplete/);
+  assert.match(rendered, /parsedErrors=1/);
+  assert.match(rendered, /reportedErrors=2/);
+  assert.equal(rendered.includes('malformedRecords='), false);
+  assert.match(rendered, /diagnostics=incomplete$/m);
+});
+
 test('warning-only protocol data remains non-failing presentation data', () => {
   const parsed = parseSvelteMachineOutput([
     START,
