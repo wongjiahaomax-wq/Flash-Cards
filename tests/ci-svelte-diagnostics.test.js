@@ -9,7 +9,7 @@ import {
 } from '../scripts/validate-ci.mjs';
 
 const START = '1590680325583 START "/workspace/flash-cards"';
-const COMPLETED = '1590680326807 COMPLETED 20 FILES 2 ERRORS 2 WARNINGS 3 FILES_WITH_PROBLEMS';
+const COMPLETED = '1590680326807 COMPLETED 20 FILES 1 ERRORS 1 WARNINGS 2 FILES_WITH_PROBLEMS';
 
 function machineRecord(timestamp, payload) {
   return `${timestamp} ${JSON.stringify(payload)}`;
@@ -44,9 +44,9 @@ test('pinned svelte-check machine-verbose records normalize zero-based coordinat
   assert.equal(parsed.workspace, '/workspace/flash-cards');
   assert.deepEqual(parsed.completion, {
     files: 20,
-    errors: 2,
-    warnings: 2,
-    filesWithProblems: 3,
+    errors: 1,
+    warnings: 1,
+    filesWithProblems: 2,
   });
   assert.deepEqual(parsed.diagnostics[0], {
     severity: 'error',
