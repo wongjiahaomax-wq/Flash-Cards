@@ -11,6 +11,7 @@ import {
 const START = '1590680325583 START "/workspace/flash-cards"';
 const COMPLETED = '1590680326807 COMPLETED 20 FILES 1 ERRORS 1 WARNINGS 2 FILES_WITH_PROBLEMS';
 
+/** @param {number} timestamp @param {Record<string, any>} payload */
 function machineRecord(timestamp, payload) {
   return `${timestamp} ${JSON.stringify(payload)}`;
 }
