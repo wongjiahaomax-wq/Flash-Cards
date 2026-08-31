@@ -1,175 +1,123 @@
 # Flash-Cards Agent Safety Contract
 
-This file is the short machine-facing entry point for coding agents working in this repository.
-It is a safety contract, not a replacement for the project documentation.
+This is the short universal machine-facing entry point for coding agents working in this repository. It defines repository-wide safety, routing, retrieval, and handoff invariants; it is not a substitute for scoped guidance or authoritative subsystem documentation.
 
 ## Start here
 
-Before changing code, read:
+Always read this file before changing the repository.
 
-1. `docs/DOCUMENTATION_INDEX.md`
-2. `docs/AGENT_TASK_MAP.md` to choose the minimum current task context
-3. `docs/HANDOVER.md` only when project-wide status or recent implementation state is materially relevant
-4. the domain-specific documents linked from the documentation index/task map for the task you are changing.
+Then load only the context needed for the task:
 
-For Cloudflare, Preview, local replicas, imports, authoring, or schema work, read the corresponding authoritative documents before editing those areas.
+1. read the nearest scoped `AGENTS.md` for the files/subsystem being changed;
+2. use `docs/AGENT_TASK_MAP.md` as the routing authority/lookup for additional task-specific documents and checks;
+3. read directly related implementation and tests;
+4. use `docs/DOCUMENTATION_INDEX.md` when the relevant authority is unclear or the task map directs you there;
+5. read `docs/HANDOVER.md` only when project-wide status or recent implementation state is materially relevant.
 
-When documentation conflicts with the current executable implementation or enforced contract, follow the current implementation and report the discrepancy. Do not silently rewrite working behavior to match stale prose.
+The governing retrieval principle is:
 
-## Execution capabilities
+> Read the minimum evidence necessary to make the next correct decision, then broaden only when the evidence requires it.
 
-At the beginning of a coding task, detect the capabilities actually available to the agent, then select the best supported workflow automatically. Do not infer the execution mode from the user's device, location, product/client name, or statements such as “I am at my laptop”, “I am on my phone”, “this is ChatGPT”, “this is Codex”, or “this is VS Code”. Explicit user constraints on how the task must be executed override automatic selection.
+For a clearly bounded task in an existing subsystem, normally:
 
-Relevant capabilities include, where applicable:
+1. locate the relevant symbol/file with targeted search;
+2. read bounded context around the relevant implementation;
+3. inspect directly related helpers/tests when needed to answer an implementation question;
+4. broaden to additional subsystems, architecture documents, history, or commits only while a material question remains unresolved.
 
-- usable command/shell execution;
-- an actual repository working tree and functional Git access to it;
-- ability to execute repository-owned commands;
-- GitHub repository/API/integration access;
-- ability to inspect PRs and GitHub CI/check results.
+Reuse sufficient information already retrieved. Do not load unrelated documentation “for completeness”, read complete large files when bounded ranges are sufficient, inspect history before current implementation without a material reason, repeatedly retrieve unchanged files/metadata, keep searching broadly after the implementation surface is established, or repeatedly inspect the complete PR diff during active implementation.
 
-Before creating or selecting a branch, identify the requested work state. If the task explicitly targets an existing PR or branch, inspect and continue that current head against its intended base rather than starting new work from `main`. If no existing work state is targeted, resolve the intended base, normally the latest `main`, and create the feature branch from that resolved base.
+### Retrieval escalation
 
-Use these conceptual modes:
+Constrained retrieval is appropriate when the work is clearly scoped to an existing subsystem and current evidence is sufficient. Automatically broaden context when evidence shows that the task materially touches any protected or cross-cutting boundary, including:
 
-- **Local checkout:** a usable checkout, command execution, and the repository workflow are available. Preserve the local validation flow documented in `docs/AGENT_TASK_MAP.md`.
-- **Remote GitHub:** useful GitHub access exists but no usable local checkout/execution environment exists. Preserve explicitly targeted existing PR/branch state; otherwise resolve the intended base, normally current `main`. Use the same minimum-context routing, inspect enough context before writing, make coherent branch changes, review the complete branch/PR diff, and use GitHub CI/check evidence for executable validation. Never report a repository command as locally executed when it was not.
-- **Hybrid:** both local execution and GitHub access are available. Prefer the local checkout for repository exploration, implementation, focused tests, and repository validation; use GitHub for branch collaboration, PR/review state, CI/check evidence, and durable handoff. Avoid expensive repeated remote reads for information already available locally.
+- schema or migrations;
+- authentication or security;
+- Production/Preview ownership or mutation boundaries;
+- Cloudflare, deployment, Wrangler, or runtime behavior;
+- Asset/R2 lifecycle or other persistent-storage ownership;
+- substantial architecture/refactoring;
+- multiple materially interacting subsystems;
+- exploratory audits where broad investigation is itself the task.
 
-Successfully running `npm run agent:doctor` establishes that the local-execution side is available because the command requires this repository checkout, Git access, and command execution. If GitHub access is also available, treat the session as Hybrid for workflow purposes rather than falling back to a product-name heuristic.
+This is an escalation model, not a rigid task-size classification. A bounded task may become elevated as soon as the evidence reveals a protected boundary.
 
-For remote GitHub work, do not use Actions as the first debugger when inspection and coherent self-review can catch the problem first. Batch related edits where practical, use logical commits, and avoid speculative push/CI loops. Before the principal handoff, inspect the complete proposed diff for task fit, behavioral invariants, scope expansion, stale references, missing or inappropriate tests, and documentation accuracy. Refactor-only work must explicitly preserve behavior.
+When documentation conflicts with current executable implementation or an enforced contract, follow the current implementation and report the discrepancy. Do not silently rewrite working behavior to match stale prose.
 
-A draft PR is an important durable handover artifact for remote work. Keep its title/body, branch diff, commits, review discussion, and CI/check state sufficient for a later coding-agent session to reconstruct the current work without the original chat. Use concise PR sections such as Goal, Behavioral invariants / constraints, Implementation, Validation, Remaining review points, and Explicitly out of scope when they add value; trivial changes do not need verbose PR bodies.
+## Execution capabilities and work state
 
-## Change discipline
+Detect the capabilities actually available to the agent and choose Local checkout, Remote GitHub, or Hybrid operation from those capabilities rather than product/client names or the user's device. `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md` is the detailed authority for those modes and Remote GitHub write mechanics.
+
+Before creating or selecting a branch, identify the requested work state:
+
+- if the task explicitly targets an existing PR/branch, continue its current head against its intended base;
+- otherwise resolve the intended base, normally the actual latest `main`, and create the feature branch from that resolved base.
+
+For an existing PR, normally establish the PR number, exact head SHA, intended base, and Draft/Ready state once at task start. Retrieve those facts again only after something capable of changing them, such as a push, rebase/update from `main`, external branch movement, or final handoff verification.
+
+A successful `npm run agent:doctor` establishes that the local-execution side is available. If GitHub access is also available, use Hybrid strengths rather than falling back to product-name heuristics.
+
+## Universal change discipline
 
 - Preserve product behavior in refactor-only work.
-- Prefer a small explicit guard, focused test, and clear invariant over a generic abstraction.
-- Do not broaden a task into unrelated cleanup, formatting, schema, UX, or architecture changes.
-- Inspect related tests and existing helpers before adding a new pattern.
-- Treat Production-vs-Preview predicates and ownership checks as data-integrity boundaries, not incidental query filters.
-- For capable coding agents, task prompts should normally supply the goal, behavioral/product invariants, constraints, acceptance criteria, and authority; use repository guidance to discover exact implementation details rather than requiring large hard-coded file lists unless the task genuinely needs them.
-- If you notice an unrelated issue, fix it only when required to complete the requested task safely; otherwise leave it out of the focused PR and record a meaningful follow-up observation when appropriate.
+- Keep the change focused; do not broaden a task into unrelated cleanup, formatting, schema, UX, or architecture work.
+- Prefer existing helpers/patterns and directly related tests before adding a new abstraction.
+- Treat Production/Preview scope and ownership checks as data-integrity boundaries, not incidental filters.
+- Never mutate production D1/R2 merely to test, debug, seed, or preview a change.
+- Never invent temporary deployment/mutation workflows, one-off production bypasses, or broader credentials to compensate for a missing capability.
+- Never commit credentials, API tokens, private keys, `.dev.vars`, `.wrangler/`, production-derived exports/snapshots/media, or deliberately excluded local replica state.
+- For SvelteKit actions, remember that `redirect()` throws; do not let a broad catch convert a successful redirect into an error response.
+- If you notice an unrelated issue, change it only when required for safe completion; otherwise keep it out of the focused PR and record a useful follow-up when appropriate.
 
-## Architecture direction
+## Protected-boundary routing
 
-For substantial structural work, consult `docs/ENGINEERING_ARCHITECTURE_GUIDELINES.md`.
+Load the scoped guidance and authorities before editing a protected area. Do not duplicate their detailed rules here.
 
-- New or extracted application modules should normally prefer TypeScript where the current toolchain supports it; do not convert existing JavaScript merely because a file is touched.
-- Prefer cohesive modules with explicit domain ownership, thin routes/coordinators, and downward dependency flow.
-- Do not append another independent responsibility to an architectural hotspot without evaluating a focused extraction boundary.
-- Keep ordinary feature and bug-fix PRs focused. Architectural direction is incremental guidance, not a requirement to broaden unrelated work into a migration.
+| Boundary | Required routing trigger |
+| --- | --- |
+| Database, schema, migrations, Preview DB ownership | `src/lib/server/db/AGENTS.md` plus the relevant `AGENT_TASK_MAP.md` row/document |
+| Admin authoring / Preview Admin / Svelte actions | `src/routes/admin/AGENTS.md` plus the relevant authoring/Preview authority |
+| Asset/media/R2 lifecycle | `src/lib/server/storage/AGENTS.md` plus the relevant image/storage authority |
+| Scripts, local replica, Wrangler/runtime tooling | `scripts/AGENTS.md` plus the relevant runbook |
+| GitHub Actions / CI / deployment workflows | `.github/AGENTS.md` plus the relevant CI/Cloudflare runbook |
+| Tests, validation selection, CI diagnostics | `docs/TESTING_AND_VALIDATION_GUIDANCE.md`; add `docs/CI_AGENT_DIAGNOSTICS.md` when CI presentation/retrieval changes |
+| Substantial structural work | `docs/ENGINEERING_ARCHITECTURE_GUIDELINES.md` plus the affected subsystem authority |
 
-## Production and Preview safety
-
-- Never mutate production D1 or R2 merely to test, debug, seed, or preview a change.
-- Preview and production may share Cloudflare infrastructure. Data scope must therefore be explicit in every mutation path.
-- Production content is normally identified by `previewSessionId IS NULL`.
-- Preview-owned mutable content must be scoped to the current Preview Session.
-- Do not remove Production-vs-Preview predicates as a cleanup without understanding and preserving the invariant.
-- Preview may legitimately reference/read production Assets. Do not equate “visible in Preview” with “owned by Preview”.
-- A Preview-owned Asset is different from a production Asset that a Preview Case is allowed to reference.
-- Do not invent temporary deployment workflows, one-off production commands, or bypasses around the repository's permanent safety workflows.
-- `docs/CLOUDFLARE.md` is the authority for production release procedure.
-
-Never commit:
-
-- credentials, API tokens, account IDs that are intended to remain secret, or private keys;
-- `.dev.vars` or equivalent local secret files;
-- `.wrangler/` state;
-- production-derived D1 exports or snapshots;
-- production-derived mirrored R2 media;
-- local production-replica state that repository ignore rules deliberately exclude.
-
-## Database and migration safety
-
-- Inspect `src/lib/server/db/schema.js`, current migrations, and migration checks before changing schema behavior.
-- Current application runtime code supports the canonical schema for the current repository revision. A database running that revision is expected to have every migration required by that revision applied before the application runs.
-- Do not add permanent historical-column/table probing, missing-column/table fallbacks, alternate runtime Drizzle schemas for obsolete migration states, or tests whose sole purpose is keeping current application code working before already-required migrations. Preserve migration/upgrade validation and valid historical data states represented by the current schema.
-- Never edit a historical migration merely to make local state work.
-- Genuine schema changes require a new migration.
-- Run the repository migration/schema checks after schema-related changes.
-- Keep migration-before-runtime sequencing safe for future schema changes; current-schema-only runtime support does not permit deploying code that requires an unapplied migration.
-- Avoid schema changes entirely in a refactor-only PR unless they are strictly necessary and explicitly in scope.
-- Do not use production data mutation as migration validation.
-
-## Production/Preview mutation guards
-
-High-risk production mutation code should use explicit semantic guards from `src/lib/server/db/content-guards.js` where the invariant matches:
-
-- `requireProductionCase(...)` for active production-only Case mutation paths;
-- `requireProductionImageAsset(...)` for active production image Asset mutation paths.
-
-Preview Case ownership has one authority: `requireOwnedPreviewCase(...)` exported by `src/lib/server/db/preview-workspace.js`. Preserve its full Case return value and `PreviewWorkspaceError` behavior; do not add a second independent implementation in `content-guards.js` or rewrite Preview mutation call sites merely to share an abstraction.
-
-Do not replace these guards with vague “scoped entity” helpers. Do not use the production Asset guard for Preview paths that intentionally allow production Asset reuse.
-
-## Asset and R2 safety
-
-- D1 `Asset` metadata and the corresponding R2 object lifecycle must remain coordinated.
-- Do not casually remove upload/delete compensation that cleans up one side when the other side fails.
-- Image replacement/refactoring must preserve existing Asset identity and historical relationships unless a task explicitly changes that lifecycle contract.
-- Do not permanently delete Assets or R2 objects as part of unrelated cleanup.
-- Before changing storage behavior, read the current Asset/media lifecycle code and Cloudflare documentation.
-
-## SvelteKit action safety
-
-SvelteKit `redirect()` throws internally.
-
-- Do not place a successful `redirect()` inside a broad `try/catch` that converts thrown values into an error response.
-- Keep fallible database/storage work inside the catch boundary, then redirect after successful completion.
-- Preserve the repository's existing action error mapping instead of catching everything indiscriminately.
-
-## Wrangler and runtime safety
-
-- The exact `wrangler` version in `package.json` / `package-lock.json` is the repository Wrangler authority.
-- Normal scripts and workflows must use that installed Wrangler; do not silently download a second version with `npx wrangler@...`.
-- Direct Wrangler invocations in ordinary GitHub Actions shell steps must use `./node_modules/.bin/wrangler`; do not assume repository-local binaries are on the shell `PATH`.
-- Do not lower `wrangler.jsonc` `compatibility_date` merely to make an older local runtime start.
-- Run `npm run runtime:smoke` when Wrangler/runtime-affecting files change.
-- The runtime smoke is local-only and must not acquire production D1/R2 bindings or secrets.
-
-## Local production-derived replicas
-
-- Follow `docs/LOCAL_DEVELOPMENT_REPLICA.md` for local production-derived data.
-- Production reads used to build a local replica must remain within the documented read-only contract.
-- Application/runtime writes during local development belong in local D1/R2 only.
-- Use `npm run local:stop` when local Flash-Cards `dev`/`preview` servers need to be stopped, especially before `npm ci` or when switching runtime modes. It is intentionally repository-scoped; do not substitute broad Node-process termination.
-- Do not commit replica databases, exports, mirrored media, or generated local secrets.
+Use `docs/AGENT_TASK_MAP.md` for the exact current routing for auth, imports, tags, stimulus behavior, slide-review tooling, and other task-specific areas.
 
 ## Validation and reporting
 
+Preserve PR #126's iteration → checkpoint → handoff architecture. Constrained retrieval never means reduced validation.
+
 - Do not claim a command, test, build, deployment, migration, or smoke check ran unless it actually ran.
-- Distinguish validation you executed from conclusions based on inspection and from validation executed by GitHub CI. “GitHub CI passed” is not the same claim as “`npm run validate:full` passed locally”.
-- Use the validation commands documented by the repository and the task.
-- `npm run agent:doctor` is the read-only pre-edit environment check. A successful run proves the local-execution side is available; it does not by itself determine whether GitHub access is also available.
-- After a coherent implementation change, run `npm run agent:checks` to inspect the branch diff and identify repository-specific iteration guidance, checkpoint guidance, final required checks, and recommended follow-up. It is advisory and must not mutate Git, contact GitHub, access production, or auto-run the recommended suites. Iteration/checkpoint guidance may narrow local feedback, but it never removes final handoff requirements.
-- During active editing, use the cheapest feedback that can meaningfully catch the likely failure. For presentation-only UX changes, batch small copy, spacing, class, and layout edits under Vite/HMR instead of running repository validation after every edit. When logic changes, run the nearest directly related test file(s) first; after a focused failure, rerun that focused check before broadening.
-- `npm run validate:fast` is checkpoint validation after a coherent batch of work, not an every-edit loop. Run focused tests earlier when changed logic warrants them. When command output is entering a coding model's context, prefer `npm run validate:fast -- --compact`; it selects the same checks and changes presentation only.
-- `npm run validate:full` is the ordinary local pre-handoff validation after implementation is complete. Do not repeatedly run it during normal iteration. When command output is entering a coding model's context, prefer `npm run validate:full -- --compact`; if compact failure evidence is insufficient, reproduce with the canonical verbose command printed by the runner.
-- Compact local validation must not redefine the validation contract. It may reuse the existing structured Node reporter and reduce successful build chatter, but `scripts/validation-contract.mjs` remains the authority for which checks run and in what order.
-- Ordinary PR CI consumes the same repository-owned `fast`/`full` validation definitions: Draft PR events run `fast`; non-Draft/Ready-for-Review PR events run `full`; and `ready_for_review` triggers full validation of the current PR revision even when no new source commit was pushed. Newer CI runs for the same PR cancel obsolete runs, while different PRs remain independent. Preserve the single required `check` status context and do not add a second manually maintained ordinary-validation command list in workflow YAML or another script.
-- Preserve the structured Node-test reporting contract. `npm test` remains the canonical complete `node --test` command. Ordinary CI adds `--test-reporter=./scripts/ci-test-reporter.mjs` through the CI wrapper, and local `validate:* -- --compact` may reuse the same reporter strictly as a presentation layer. The reporter must consume structured `node:test` events, keep successful-test output to compact progress plus one final summary, collect real failures prominently at the end, retain test name, file/line, failure type, error/code, operator, expected/actual values and useful stack frames, and emit GitHub/file-line plus connector-readable failure records as currently implemented. Do not regress to buffering/parsing TAP, dot, or spec text, and do not restore hundreds of successful per-test records.
-- Do not rerun an unchanged validation command merely because another small edit was made; rerun it when subsequent changes could invalidate what it checked.
-- Run specialized checks when `agent:checks`, the task contract, or the affected subsystem requires them. Examples include `npm run runtime:smoke`; slide-review tooling requires both `npm run slide-review:test` and `npm run slide-review:build`.
-- Before final handoff/review, execute every final required check reported by `agent:checks` plus required specialized checks regardless of how many focused iteration checks passed earlier.
-- When command execution is unavailable, inspect equivalent GitHub check/workflow evidence where it exists and explicitly report required validation that could not be executed or verified.
-- Report every check you could not run and the exact reason.
-- Do not describe an unexecuted check as passing based only on code inspection.
-- If implementation and documentation disagree, report the discrepancy and which source of truth you followed.
+- When local execution is available, use `npm run agent:doctor` as the read-only pre-edit environment check.
+- During active implementation, use the cheapest feedback that meaningfully tests the current risk: Vite/HMR for presentation-only iteration and the nearest directly related test(s) for logic changes.
+- After a coherent change, run `npm run agent:checks` (prefer `npm run agent:checks -- --compact` when output enters model context) to obtain current iteration/checkpoint guidance, final required checks, and specialized requirements.
+- `agent:checks` intentionally includes legitimate untracked files. Do not change it or local practice to ignore arbitrary untracked implementation files. Persistent checkout-local machine/tool artifacts belong in `.git/info/exclude`; universally inappropriate repository artifacts belong in `.gitignore`. Never add broad ignore patterns that could hide legitimate source, assets, or configuration.
+- Use `npm run validate:fast -- --compact` at a coherent checkpoint when the repository guidance calls for it; focused iteration success is not handoff completion.
+- Before final handoff/review, execute every final required check reported by `agent:checks` plus required specialized checks. `npm run validate:full -- --compact` remains the ordinary local pre-handoff contract when applicable; compact mode changes presentation only, never check selection or semantics.
+- Do not rerun an unchanged validation command unless later changes could invalidate what it checked.
+- When command execution is unavailable, inspect equivalent GitHub CI/check evidence where it exists and report separately what could not be executed. “GitHub CI passed” is not the same claim as “the local command passed”.
+- Low-level validation selection, reporter, specialized-check, and CI ownership rules live in `scripts/AGENTS.md`, `.github/AGENTS.md`, `docs/TESTING_AND_VALIDATION_GUIDANCE.md`, and `docs/CI_AGENT_DIAGNOSTICS.md`; load them only when that machinery is being changed.
 
-## Before committing
+Do not introduce arbitrary command-count limits, token budgets, context counters, caches, retrieval wrappers, or a second validation/retrieval DSL as substitutes for judgment and repository-owned contracts.
 
-Confirm that the complete diff:
+## Implementation versus final review
+
+During active implementation, prefer targeted implementation reads, changed-file/scoped diff inspection, directly relevant tests, and focused correction deltas. Do not repeatedly retrieve the complete PR diff after each small edit.
+
+At a deliberate final review/handoff checkpoint, inspect the complete intended-base → current-head branch/PR diff. Check task fit, behavioral and safety invariants, accidental scope expansion, unrelated changes, stale references/imports, missing or inappropriate tests, and documentation accuracy. A correction-only delta review never substitutes for this complete final review.
+
+A Draft PR is a durable handoff artifact for remote work. Keep its title/body, current diff, commits, review discussion, and CI/check state sufficient for a later agent to reconstruct the work without the original chat. Do not mark a Draft Ready for Review unless the task explicitly calls for it.
+
+## Before committing / handing off
+
+Confirm that the complete change:
 
 - satisfies the requested goal and acceptance criteria without unrelated cleanup;
-- preserves documented behavioral invariants, especially for refactor-only work;
-- does not mutate or embed production content;
-- does not weaken Production/Preview ownership boundaries;
-- does not introduce secrets or generated local state;
-- does not rewrite migration history;
-- does not add an alternate Wrangler/deployment path;
-- contains focused tests for any new safety invariant;
-- preserves behavior outside the intended safety tightening;
-- has no stale references/imports, accidental scope expansion, or documentation made inaccurate by the implementation.
+- preserves behavior where behavior change is out of scope;
+- does not weaken Production/Preview, auth/security, schema/migration, storage, runtime, deployment, or validation safeguards;
+- contains no secrets, generated local state, production-derived content, or broad ignore rules that could conceal legitimate repository files;
+- follows the routed scoped authorities for every protected boundary it touches;
+- has no stale references/imports or documentation made inaccurate by the implementation;
+- has received the repository-required final validation and complete intended-base → current-head review.
