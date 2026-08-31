@@ -63,7 +63,7 @@ test('CI invokes both Node checks with the structured reporter without changing 
     '--',
     `--test-reporter=${CI_TEST_REPORTER}`,
   ]);
-  assert.deepEqual(ciCommandArgs('svelte', ['run', 'check']), ['run', 'check']);
+  assert.deepEqual(ciCommandArgs('svelte', ['run', 'check']), ['run', 'check', '--', '--output', 'machine-verbose']);
 });
 
 test('CI reporter emits compact event-driven progress and collects failures at the end', async () => {
