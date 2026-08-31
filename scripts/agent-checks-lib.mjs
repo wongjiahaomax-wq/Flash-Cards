@@ -204,7 +204,7 @@ export const VALIDATION_RULES = Object.freeze([
     patterns: Object.freeze([/^static\//]),
     required: Object.freeze(['diff', 'build']),
     iteration: Object.freeze(['Iteration: inspect affected pages/assets under npm run dev; do not rebuild the application after every presentation-only asset edit.']),
-    checkpoint: Object.freeze(['Checkpoint: run npm run validate:full -- --compact when the static-asset change is ready for handoff/build verification.']),
+    checkpoint: Object.freeze(['Checkpoint: when the static-asset change is coherent, run npm run build; use npm run dev for visual verification rather than the full validation contract.']),
   }),
   Object.freeze({
     id: 'application-code',
@@ -323,6 +323,12 @@ export function classifyChangedFiles(changedFiles) {
     'Authentication / Better Auth',
   ].includes(area));
   const filteredAreas = specificApplicationArea ? areas.filter((area) => area !== 'Application code') : areas;
+  const filteredIterationGuidance = specificApplicationArea
+    ? iterationGuidance.filter((value) => value !== FOCUSED_LOGIC_ITERATION)
+    : iterationGuidance;
+  const filteredCheckpointGuidance = specificApplicationArea
+    ? checkpointGuidance.filter((value) => value !== COMPACT_CHECKPOINT)
+    : checkpointGuidance;
   const specializedRequiredChecks = uniqueInCheckOrder(specializedRequired);
   const requiredChecks = uniqueInCheckOrder([...required, ...specializedRequiredChecks]);
   const notRequired = SPECIALIZED_CHECK_IDS.filter((checkId) => !requiredChecks.includes(checkId));
@@ -330,8 +336,8 @@ export function classifyChangedFiles(changedFiles) {
   return {
     files,
     areas: [...new Set(filteredAreas)],
-    iterationGuidance: [...new Set(iterationGuidance)],
-    checkpointGuidance: [...new Set(checkpointGuidance)],
+    iterationGuidance: [...new Set(filteredIterationGuidance)],
+    checkpointGuidance: [...new Set(filteredCheckpointGuidance)],
     requiredChecks,
     requiredCommands: requiredChecks.map(formatValidationCommand),
     specializedRequiredChecks,
