@@ -1396,13 +1396,13 @@ Exact-head CI after this documentation reconciliation remains the final Checkpoi
 - exact product vocabulary retained when it carries semantic meaning;
 - no unnecessary browser-stack expansion.
 
-Satisfied for the five bounded Checkpoint 5 families, subject to exact-head documentation validation and independent review.
+Satisfied for the five bounded Checkpoint 5 families. Checkpoint 5 was independently accepted on head `67e874625afbd363c3211dcc1660593831a6f30c` before Checkpoint 6 began.
 
 ---
 
 ## Checkpoint 6 — Measure and profile runtime
 
-**Status: pending. Checkpoint 5 is complete; profiling/measurement has not started.**
+**Status: completed in Draft PR #115; controlled measurement/profiling complete and materiality gate evaluated.**
 
 ### Required measurements
 
