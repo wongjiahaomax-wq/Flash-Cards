@@ -91,6 +91,14 @@ test('machine parser preserves multiline and delimiter-heavy messages and normal
 test('machine parser handles multiple files, lifecycle failure, malformed diagnostics, and valid non-diagnostic JSON safely', () => {
   const parsed = parseSvelteMachineOutput([
     'svelte-kit sync prelude',
+    machineRecord(1, {
+      type: 'ERROR',
+      filename: 'src/pre-start.svelte',
+      start: { line: 0, character: 0 },
+      end: { line: 0, character: 1 },
+      message: 'must not be treated as svelte-check output before START',
+      source: 'js',
+    }),
     START,
     machineRecord(2, {
       type: 'ERROR',
@@ -114,6 +122,8 @@ test('machine parser handles multiple files, lifecycle failure, malformed diagno
   ].join('\n'));
 
   assert.equal(parsed.diagnostics.length, 2);
+  assert.equal(parsed.diagnostics[0].code, null);
+  assert.equal(parsed.diagnostics.some((diagnostic) => diagnostic.file === 'src/pre-start.svelte'), false);
   assert.equal(parsed.malformedDiagnosticRecords, 1);
   assert.equal(parsed.failure, 'Connection closed');
   assert.equal(parsed.completion, null);
