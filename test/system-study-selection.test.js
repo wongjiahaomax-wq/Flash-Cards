@@ -38,6 +38,7 @@ function selectionFixture() {
   };
 }
 
+/** @param {import('../src/lib/server/learning/system-study-routes.ts').SystemStudyCandidate[]} candidates */
 function provenance(candidates) {
   return candidates.map((candidate) => ({
     id: candidate.id,
