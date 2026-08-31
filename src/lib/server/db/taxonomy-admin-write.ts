@@ -1,8 +1,8 @@
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 
 import { taxonomyConcepts } from './contextual-schema.ts';
 import { buildTopicConceptInsert, listConceptTaxonomy } from './concept-taxonomy-compat.ts';
-import { caseConcepts, cases, conceptQuestions, concepts } from './schema.js';
+import { caseConcepts, cases, conceptQuestions, concepts, reviewQuestions, reviews } from './schema.js';
 import { systemTags, tags } from './tag-schema.js';
 import {
   applyParentChanges,
@@ -188,6 +188,75 @@ export async function updateTaxonomyConcept(
     if (error instanceof Error && /constraint|abort/i.test(error.message)) throw new TaxonomyInputError(error.message);
     throw error;
   }
+}
+
+export type TopicDeletionEligibility = {
+  canDelete: boolean;
+  hasCaseAttachments: boolean;
+  hasQuestions: boolean;
+  hasChildren: boolean;
+  hasReviewHistory: boolean;
+};
+
+export async function getTopicDeletionEligibility(
+  db: import('./index.js').LearningDb,
+  input: { conceptId: unknown }
+): Promise<TopicDeletionEligibility> {
+  const conceptId = requiredText(input.conceptId, 'Topic');
+  const [caseUsage, questionUsage, childUsage, reviewUsage, reviewQuestionUsage] = await Promise.all([
+    db.select({ id: caseConcepts.caseId }).from(caseConcepts).where(eq(caseConcepts.conceptId, conceptId)).limit(1),
+    db.select({ id: conceptQuestions.id }).from(conceptQuestions).where(eq(conceptQuestions.conceptId, conceptId)).limit(1),
+    db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(eq(taxonomyConcepts.parentId, conceptId)).limit(1),
+    db.select({ id: reviews.id }).from(reviews).where(or(
+      eq(reviews.primaryConceptId, conceptId),
+      eq(reviews.studyConceptId, conceptId),
+      eq(reviews.studySystemConceptId, conceptId),
+      and(eq(reviews.navigationRouteType, 'topic'), eq(reviews.navigationRouteId, conceptId))
+    )).limit(1),
+    db.select({ id: reviewQuestions.id }).from(reviewQuestions).where(eq(reviewQuestions.sourceConceptId, conceptId)).limit(1)
+  ]);
+  const hasCaseAttachments = Boolean(caseUsage[0]);
+  const hasQuestions = Boolean(questionUsage[0]);
+  const hasChildren = Boolean(childUsage[0]);
+  const hasReviewHistory = Boolean(reviewUsage[0] || reviewQuestionUsage[0]);
+  return {
+    canDelete: !(hasCaseAttachments || hasQuestions || hasChildren || hasReviewHistory),
+    hasCaseAttachments,
+    hasQuestions,
+    hasChildren,
+    hasReviewHistory
+  };
+}
+
+export async function deleteUnusedTopic(
+  db: import('./index.js').LearningDb,
+  input: { conceptId: unknown }
+) {
+  const conceptId = requiredText(input.conceptId, 'Topic');
+  const graph = await loadGraph(db);
+  const target = graph.find((node) => node.id === conceptId);
+  if (!target) throw new TaxonomyInputError('The selected Topic does not exist.');
+  if (target.kind !== 'topic') throw new TaxonomyInputError('Only Topics can be deleted. Systems cannot be deleted here.');
+
+  const eligibility = await getTopicDeletionEligibility(db, { conceptId });
+  if (eligibility.hasCaseAttachments || eligibility.hasQuestions || eligibility.hasChildren) {
+    throw new TaxonomyInputError('This Topic cannot be deleted while it has Case attachments, reusable Topic questions, or child Topics. Remove those relationships first.');
+  }
+  if (eligibility.hasReviewHistory) {
+    throw new TaxonomyInputError('This Topic is referenced by learner Review history and cannot be deleted.');
+  }
+
+  try {
+    await db.delete(taxonomyConcepts).where(and(eq(taxonomyConcepts.id, conceptId), eq(taxonomyConcepts.kind, 'topic')));
+  } catch (error) {
+    if (error instanceof Error && /constraint|foreign key|abort/i.test(error.message)) {
+      throw new TaxonomyInputError('This Topic is still referenced by content or learning history and cannot be deleted.');
+    }
+    throw error;
+  }
+
+  const remaining = await db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(eq(taxonomyConcepts.id, conceptId)).limit(1);
+  if (remaining[0]) throw new TaxonomyInputError('The selected Topic changed before it could be deleted. Reload and try again.');
 }
 
 export async function applyTaxonomyHierarchy(db: import('./index.js').LearningDb, changes: ParentChange[]) {
