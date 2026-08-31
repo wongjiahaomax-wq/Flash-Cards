@@ -196,6 +196,7 @@ export function printAgentChecksReport(report, baseDescription, untrackedWhitesp
 export function printCompactAgentChecksReport(report, baseDescription, untrackedWhitespace = null) {
   const specialized = new Set(report.specializedRequiredCommands);
   const ordinaryRequired = report.requiredCommands.filter((command) => !specialized.has(command));
+  /** @param {string} value */
   const duplicatesSpecializedCommand = (value) => report.specializedRequiredCommands.some((command) => value.includes(command));
   const compactIterationGuidance = report.iterationGuidance.filter((value) => !duplicatesSpecializedCommand(value));
   const compactCheckpointGuidance = report.checkpointGuidance.filter((value) => !duplicatesSpecializedCommand(value));
