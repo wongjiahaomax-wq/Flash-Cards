@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 31 August 2026_
+_Last reviewed: 28 August 2026_
 
 This index identifies the documents that describe current repository behavior, operational contracts, pending designs, and historical/implementation records.
 
