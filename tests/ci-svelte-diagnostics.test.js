@@ -189,11 +189,13 @@ test('detailed Svelte failure summary owns real diagnostics without adding a gen
   ].join('\n'));
 
   const summary = formatSvelteFailureSummary(parsed, 1);
-  assert.equal((summary.match(/^CI_ERROR\|/gm) ?? []).length, 1);
-  assert.match(summary, /^CI_ERROR\|check=svelte\|file=src\/a\.svelte\|line=1\|column=1\|/m);
-  assert.match(summary, /^CI_REPRO\|check=svelte\|command=npm run check$/m);
-  assert.match(summary, /^CI_STATUS\|check=svelte\|status=failed\|exit=1\|errors=1\|warnings=1$/m);
-  assert.equal(summary.includes('warning only'), false);
+  assert.equal(typeof summary, 'string');
+  const rendered = /** @type {string} */ (summary);
+  assert.equal((rendered.match(/^CI_ERROR\|/gm) ?? []).length, 1);
+  assert.match(rendered, /^CI_ERROR\|check=svelte\|file=src\/a\.svelte\|line=1\|column=1\|/m);
+  assert.match(rendered, /^CI_REPRO\|check=svelte\|command=npm run check$/m);
+  assert.match(rendered, /^CI_STATUS\|check=svelte\|status=failed\|exit=1\|errors=1\|warnings=1$/m);
+  assert.equal(rendered.includes('warning only'), false);
 });
 
 test('warning-only protocol data remains non-failing presentation data', () => {
