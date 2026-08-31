@@ -5,6 +5,7 @@ import { listStudyConcepts, startReview, startSystemReview } from '$lib/server/d
 import { listStudySystems, StudyNavigationInputError } from '$lib/server/db/study-navigation.ts';
 import { QuestionPoolUnavailableError, isQuestionPoolMode } from '$lib/server/learning/question-pool-mode';
 import { systemStudyNavigationEnabled } from '$lib/server/learning/system-review-navigation.ts';
+import { startSystemStudyFromForm } from '$lib/server/learning/start-system-study.ts';
 import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 
 /** @param {App.Locals['user']} user @param {App.Platform | undefined} platform */
@@ -111,5 +112,18 @@ export const actions = {
     }
     if (!reviewId) throw error(404, 'No active study cases are available for this System route.');
     redirect(303, `/study/${reviewId}`);
+  },
+
+  startSystemSelection: async ({ locals, platform, request }) => {
+    assertLearnerStudyAccess(locals.user, platform);
+    if (!systemStudyNavigationEnabled(platform?.env)) throw error(404, 'System study navigation is not enabled.');
+    if (!platform?.env?.DB || !locals.user) throw error(503, 'Study database is not configured.');
+    const result = await startSystemStudyFromForm({
+      db: createDb(platform.env.DB),
+      userId: locals.user.id,
+      formData: await request.formData()
+    });
+    if (!result.ok) return fail(result.status, result.form);
+    redirect(303, `/study/${result.reviewId}`);
   }
 };

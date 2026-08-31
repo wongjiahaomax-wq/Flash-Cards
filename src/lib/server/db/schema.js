@@ -62,6 +62,40 @@ export const concepts = sqliteTable(
   ]
 );
 
+export const studySelections = sqliteTable(
+  'study_selections',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    systemConceptId: text('system_concept_id')
+      .notNull()
+      .references(() => concepts.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at')
+  },
+  (table) => [
+    index('study_selections_user_system_created_idx').on(table.userId, table.systemConceptId, table.createdAt)
+  ]
+);
+
+export const studySelectionRoutes = sqliteTable(
+  'study_selection_routes',
+  {
+    studySelectionId: text('study_selection_id')
+      .notNull()
+      .references(() => studySelections.id, { onDelete: 'restrict' }),
+    routeType: text('route_type', { enum: ['topic', 'tag'] }).notNull(),
+    routeId: text('route_id').notNull()
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.studySelectionId, table.routeType, table.routeId],
+      name: 'study_selection_routes_pk'
+    }),
+    index('study_selection_routes_route_lookup_idx').on(table.routeType, table.routeId),
+    check('study_selection_routes_type_check', sql`${table.routeType} in ('topic', 'tag')`)
+  ]
+);
+
 export const cases = sqliteTable(
   'cases',
   {
@@ -379,6 +413,7 @@ export const reviews = sqliteTable(
     studyTagId: text('study_tag_id'),
     navigationRouteType: text('navigation_route_type', { enum: ['all', 'topic', 'tag'] }),
     navigationRouteId: text('navigation_route_id'),
+    studySelectionId: text('study_selection_id').references(() => studySelections.id, { onDelete: 'restrict' }),
     caseTitleSnapshot: text('case_title_snapshot').notNull(),
     vignetteSnapshotMd: text('vignette_snapshot_md'),
     questionPoolMode: text('question_pool_mode').notNull().default('expanded'),
@@ -396,6 +431,7 @@ export const reviews = sqliteTable(
     index('reviews_study_system_completed_idx').on(table.studySystemConceptId, table.completedAt),
     index('reviews_study_tag_completed_idx').on(table.studyTagId, table.completedAt),
     index('reviews_navigation_route_idx').on(table.navigationRouteType, table.navigationRouteId),
+    index('reviews_study_selection_idx').on(table.studySelectionId),
     check('reviews_route_type_check', sql`${table.routeType} in ('topic', 'tag')`),
     check(
       'reviews_navigation_route_type_check',
