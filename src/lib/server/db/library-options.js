@@ -18,6 +18,18 @@ export async function listActiveTagOptions(db) {
 }
 
 /**
+ * Lightweight complete Tag taxonomy options for curation filters that must
+ * retain access to relationships owned by inactive Tags.
+ * @param {LearningDb} db
+ */
+export async function listAllTagOptions(db) {
+  return db
+    .select({ id: tags.id, name: tags.name, isActive: tags.isActive })
+    .from(tags)
+    .orderBy(asc(tags.name), asc(tags.id));
+}
+
+/**
  * Case-library Tag options preserve the existing active-library behavior, while
  * the inactive recovery library intentionally exposes every Tag retained by an
  * inactive Production Case, including Tags that are themselves inactive.
