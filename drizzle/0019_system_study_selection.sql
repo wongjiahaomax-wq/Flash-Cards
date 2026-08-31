@@ -225,3 +225,15 @@ WHEN (
 BEGIN
   SELECT RAISE(ABORT, 'Review study-route provenance is invalid.');
 END;
+--> statement-breakpoint
+CREATE TRIGGER `concepts_study_selection_topic_history_delete_guard`
+BEFORE DELETE ON `concepts`
+WHEN OLD.`kind` = 'topic' AND EXISTS (
+  SELECT 1
+  FROM `study_selection_routes`
+  WHERE `route_type` = 'topic'
+    AND `route_id` = OLD.`id`
+)
+BEGIN
+  SELECT RAISE(ABORT, 'Topic is referenced by learner study selection history.');
+END;

@@ -3,6 +3,8 @@ import { and, asc, eq } from 'drizzle-orm';
 import { studySelectionRoutes, studySelections } from './schema.js';
 import type { SystemStudySelectionRoute } from '../learning/system-study-routes.ts';
 
+const STUDY_SELECTION_ROUTE_INSERT_CHUNK_SIZE = 30;
+
 export type StudySelectionSnapshot = {
   id: string;
   userId: string;
@@ -15,18 +17,20 @@ export function buildStudySelectionCreationWrites(
   input: { id: string; userId: string; systemId: string; routes: readonly SystemStudySelectionRoute[] }
 ) {
   if (input.routes.length === 0) throw new Error('A study selection requires at least one route.');
-  return [
-    db.insert(studySelections).values({
-      id: input.id,
-      userId: input.userId,
-      systemConceptId: input.systemId
-    }),
-    db.insert(studySelectionRoutes).values(input.routes.map((route) => ({
+  const writes: any[] = [db.insert(studySelections).values({
+    id: input.id,
+    userId: input.userId,
+    systemConceptId: input.systemId
+  })];
+  for (let offset = 0; offset < input.routes.length; offset += STUDY_SELECTION_ROUTE_INSERT_CHUNK_SIZE) {
+    const routeChunk = input.routes.slice(offset, offset + STUDY_SELECTION_ROUTE_INSERT_CHUNK_SIZE);
+    writes.push(db.insert(studySelectionRoutes).values(routeChunk.map((route) => ({
       studySelectionId: input.id,
       routeType: route.routeType,
       routeId: route.routeId
-    })))
-  ] as const;
+    }))));
+  }
+  return writes;
 }
 
 export async function readStudySelection(
