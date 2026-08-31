@@ -13,6 +13,12 @@ const ORDINARY_FULL_CHECKS = VALIDATION_MODE_CHECK_IDS.full;
 
 const FOCUSED_LOGIC_ITERATION = 'Iteration: run the nearest directly related test file(s) first; do not rerun the broad handoff suite after every small edit.';
 const COMPACT_CHECKPOINT = 'Checkpoint: after a coherent batch, use npm run validate:fast -- --compact when broader repository confidence is useful.';
+const SPECIFIC_APPLICATION_RULE_IDS = Object.freeze([
+  'admin-svelte',
+  'schema-migrations',
+  'database-code',
+  'authentication',
+]);
 
 /** @type {ReadonlyArray<ValidationRule>} */
 export const VALIDATION_RULES = Object.freeze([
@@ -285,19 +291,29 @@ export function classifyChangedFiles(changedFiles) {
   const checkpointGuidance = [];
   /** @type {string[]} */
   const unclassifiedImportant = [];
+  let genericApplicationAreaNeeded = false;
 
   for (const file of files) {
-    let fileMatched = false;
-    for (const rule of VALIDATION_RULES) {
-      if (!ruleMatches(rule, file)) continue;
-      fileMatched = true;
+    const fileRules = VALIDATION_RULES.filter((rule) => ruleMatches(rule, file));
+    const fileMatched = fileRules.length > 0;
+    const hasSpecificApplicationOwner = fileRules.some((rule) => SPECIFIC_APPLICATION_RULE_IDS.includes(rule.id));
+    if (fileRules.some((rule) => rule.id === 'application-code') && !hasSpecificApplicationOwner) {
+      genericApplicationAreaNeeded = true;
+    }
+
+    for (const rule of fileRules) {
       matchedRules.add(rule.id);
       required.push(...rule.required);
       specializedRequired.push(...(rule.specializedRequired ?? []));
       recommendations.push(...(rule.recommendations ?? []));
-      iterationGuidance.push(...(rule.iteration ?? []));
-      checkpointGuidance.push(...(rule.checkpoint ?? []));
+
+      const suppressGenericApplicationGuidance = rule.id === 'application-code' && hasSpecificApplicationOwner;
+      if (!suppressGenericApplicationGuidance) {
+        iterationGuidance.push(...(rule.iteration ?? []));
+        checkpointGuidance.push(...(rule.checkpoint ?? []));
+      }
     }
+
     if (!fileMatched && isImportantUnknown(file)) {
       unclassifiedImportant.push(file);
       required.push(...ORDINARY_FULL_CHECKS);
@@ -322,13 +338,9 @@ export function classifyChangedFiles(changedFiles) {
     'Database read/write logic',
     'Authentication / Better Auth',
   ].includes(area));
-  const filteredAreas = specificApplicationArea ? areas.filter((area) => area !== 'Application code') : areas;
-  const filteredIterationGuidance = specificApplicationArea
-    ? iterationGuidance.filter((value) => value !== FOCUSED_LOGIC_ITERATION)
-    : iterationGuidance;
-  const filteredCheckpointGuidance = specificApplicationArea
-    ? checkpointGuidance.filter((value) => value !== COMPACT_CHECKPOINT)
-    : checkpointGuidance;
+  const filteredAreas = specificApplicationArea && !genericApplicationAreaNeeded
+    ? areas.filter((area) => area !== 'Application code')
+    : areas;
   const specializedRequiredChecks = uniqueInCheckOrder(specializedRequired);
   const requiredChecks = uniqueInCheckOrder([...required, ...specializedRequiredChecks]);
   const notRequired = SPECIALIZED_CHECK_IDS.filter((checkId) => !requiredChecks.includes(checkId));
@@ -336,8 +348,8 @@ export function classifyChangedFiles(changedFiles) {
   return {
     files,
     areas: [...new Set(filteredAreas)],
-    iterationGuidance: [...new Set(filteredIterationGuidance)],
-    checkpointGuidance: [...new Set(filteredCheckpointGuidance)],
+    iterationGuidance: [...new Set(iterationGuidance)],
+    checkpointGuidance: [...new Set(checkpointGuidance)],
     requiredChecks,
     requiredCommands: requiredChecks.map(formatValidationCommand),
     specializedRequiredChecks,
