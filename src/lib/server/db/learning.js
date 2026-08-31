@@ -126,6 +126,7 @@ async function currentPrimaryConceptIdForCase(db, caseId) {
   return rows[0]?.conceptId ?? null;
 }
 
+/** @param {LearningDb} db @param {{ userId: string; studySelectionId: string; expectedSystemId?: string | null }} options */
 async function resolveStoredSystemStudySelection(db, { userId, studySelectionId, expectedSystemId = null }) {
   const selection = await readStudySelection(db, { selectionId: studySelectionId, userId });
   if (!selection || (expectedSystemId && selection.systemId !== expectedSystemId)) {
