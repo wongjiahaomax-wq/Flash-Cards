@@ -1,33 +1,16 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
 import { getTopicDetail, listTopicLibrary } from '../src/lib/server/db/topic-library.js';
-
-const migrationSql = [
-  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0005_tag_foundation.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0010_reusable_image_reactivation_guard.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0013_review_assets_asset_lookup.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0014_review_question_pool_mode.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0015_contextual_system_topic_tag_navigation.sql', import.meta.url), 'utf8')
-].join('\n').replaceAll('--> statement-breakpoint', '');
+import { applyCurrentSchema } from './current-schema.js';
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql);
+  applyCurrentSchema(sqlite);
   sqlite.exec(buildSeedSql());
   const d1 = /** @type {any} */ ({
     /** @param {string} sql */
@@ -164,5 +147,44 @@ test('Preview-owned Cases never inflate Topic counts or appear in normal Admin T
     assert.equal(detail.activeCaseCount, 3);
     assert.equal(detail.cases.some((item) => item.caseId === 'preview-topic-case'), false);
     assert.equal(detail.cases.length, 3);
+  } finally { fixture.sqlite.close(); }
+});
+
+test('Preview-owned Prompts never inflate Topic shared-question counts or appear in normal Admin Topic detail', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.prepare(`
+      INSERT INTO preview_sessions (id, user_id, status, expires_at)
+      VALUES (?, ?, 'active', ?)
+    `).run('preview-topic-prompt-session', 'preview-topic-prompt-user', 4102444800000);
+    fixture.sqlite.prepare(`
+      INSERT INTO question_prompts (id, prompt_md, preview_session_id, is_active)
+      VALUES (?, ?, ?, 1)
+    `).run('preview-topic-prompt', 'Disposable Preview Topic prompt?', 'preview-topic-prompt-session');
+
+    // Current-schema writes reject this cross-boundary relationship. Drop only
+    // the fixture's insert guard so the read model is tested defensively against
+    // a historical/corrupt state that must still never leak into Production Admin.
+    fixture.sqlite.exec('DROP TRIGGER concept_questions_reject_preview_prompt_insert');
+    fixture.sqlite.prepare(`
+      INSERT INTO concept_questions (
+        id, concept_id, question_prompt_id, answer_md, inherit_to_descendants, is_active
+      ) VALUES (?, ?, ?, ?, 0, 1)
+    `).run(
+      'preview-topic-concept-question',
+      'seed-anterior-stemi',
+      'preview-topic-prompt',
+      'Disposable Preview answer'
+    );
+
+    const row = (await listTopicLibrary(fixture.db)).find((item) => item.id === 'seed-anterior-stemi');
+    assert.ok(row);
+    assert.equal(row.activeSharedQuestionCount, 2);
+
+    const detail = await getTopicDetail(fixture.db, 'seed-anterior-stemi');
+    assert.ok(detail);
+    assert.equal(detail.activeSharedQuestionCount, 2);
+    assert.equal(detail.questions.some((item) => item.promptId === 'preview-topic-prompt'), false);
+    assert.equal(detail.questions.length, 2);
   } finally { fixture.sqlite.close(); }
 });

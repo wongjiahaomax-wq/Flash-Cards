@@ -38,6 +38,14 @@ function commandArgument(value) {
   return /^[A-Za-z0-9_./:@+-]+$/.test(value) ? value : JSON.stringify(value);
 }
 
+function reporterCheckId() {
+  return process.env.CI_NODE_TEST_CHECK_ID || 'test';
+}
+
+function reporterReproCommand() {
+  return process.env.CI_NODE_TEST_REPRO_COMMAND || 'npm test';
+}
+
 /** @param {unknown} file */
 function repositoryPath(file) {
   if (!file) return null;
@@ -142,8 +150,8 @@ export function githubFailureAnnotation(data) {
   return `::error ${properties.join(',')}::${escapeGithubCommandData(detail)}`;
 }
 
-/** @param {any} data */
-export function agentFailureRecord(data) {
+/** @param {any} data @param {string} [checkId] */
+export function agentFailureRecord(data, checkId = 'test') {
   const wrapper = data?.details?.error;
   const error = actualTestError(wrapper);
   const file = repositoryPath(data?.file);
@@ -153,7 +161,7 @@ export function agentFailureRecord(data) {
       ? firstLine(wrapper)
       : 'test failed without an Error payload';
   const fields = [
-    'check=test',
+    `check=${escapeAgentField(checkId)}`,
     file ? `file=${escapeAgentField(file)}` : null,
     data?.line ? `line=${escapeAgentField(data.line)}` : null,
     `name=${escapeAgentField(data?.name ?? '<unnamed test>')}`,
@@ -163,16 +171,21 @@ export function agentFailureRecord(data) {
   return `CI_ERROR|${fields.join('|')}`;
 }
 
-/** @param {any} data */
-export function agentReproRecord(data) {
+/** @param {any} data @param {string} [checkId] @param {string} [reproCommand] */
+export function agentReproRecord(data, checkId = 'test', reproCommand = 'npm test') {
   const file = repositoryPath(data?.file);
   if (!file) return null;
-  const command = `npm test -- ${commandArgument(file)}`;
-  return `CI_REPRO|check=test|command=${escapeAgentField(command)}`;
+  const command = checkId === 'test'
+    ? `${reproCommand} -- ${commandArgument(file)}`
+    : reproCommand;
+  return `CI_REPRO|check=${escapeAgentField(checkId)}|command=${escapeAgentField(command)}`;
 }
 
-/** @param {AsyncIterable<any>} source */
-export default async function* ciTestReporter(source) {
+/**
+ * @param {AsyncIterable<any>} source
+ * @param {{ checkId?: string, reproCommand?: string }} [options]
+ */
+export default async function* ciTestReporter(source, options = {}) {
   let progress = '';
   const failures = [];
   let summary = null;
@@ -217,17 +230,19 @@ export default async function* ciTestReporter(source) {
       yield `${githubFailureAnnotation(failure)}\n`;
     }
 
+    const checkId = options.checkId ?? reporterCheckId();
+    const reproCommand = options.reproCommand ?? reporterReproCommand();
     yield '\n=== CI AGENT SUMMARY ===\n';
     const reproRecords = new Set();
     for (const failure of failures) {
-      yield `${agentFailureRecord(failure)}\n`;
-      const reproRecord = agentReproRecord(failure);
+      yield `${agentFailureRecord(failure, checkId)}\n`;
+      const reproRecord = agentReproRecord(failure, checkId, reproCommand);
       if (reproRecord && !reproRecords.has(reproRecord)) {
         reproRecords.add(reproRecord);
         yield `${reproRecord}\n`;
       }
     }
     const failedCount = Number.isInteger(summary?.counts?.failed) ? summary.counts.failed : failures.length;
-    yield `CI_STATUS|check=test|status=failed|failed=${failedCount}\n`;
+    yield `CI_STATUS|check=${escapeAgentField(checkId)}|status=failed|failed=${failedCount}\n`;
   }
 }

@@ -6,10 +6,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { branchStatus, nodeMajorStatus, overallDoctorStatus, parseNodeMajor, wranglerVersionStatus } from '../scripts/agent-doctor-lib.mjs';
 import { classifyChangedFiles } from '../scripts/agent-checks-lib.mjs';
-import { parseAgentChecksArgs } from '../scripts/agent-checks.mjs';
+import { parseAgentChecksArgs, printAgentChecksReport, printCompactAgentChecksReport } from '../scripts/agent-checks.mjs';
 import { CI_TEST_MAX_BUFFER_BYTES, ciValidationCommands, escapeGithubCommandData, extractNodeTestDiagnostic, parseCiArgs } from '../scripts/validate-ci.mjs';
 import { resolveInvocation, runValidation, VALIDATION_MODES } from '../scripts/validate.mjs';
-import { VALIDATION_MODE_CHECK_IDS } from '../scripts/validation-contract.mjs';
+import { CI_SPECIALIZED_CHECK_IDS, VALIDATION_MODE_CHECK_IDS } from '../scripts/validation-contract.mjs';
 import { localDiffCheck, resolveDiffBase } from '../scripts/validation-git.mjs';
 
 /** @param {string} cwd @param {string[]} args @param {{ allowFailure?: boolean }} [options] */
@@ -41,6 +41,24 @@ function commitFile(root, file, content, message) {
   runGit(root, ['add', file]);
   runGit(root, ['commit', '-m', message]);
   return String(runGit(root, ['rev-parse', 'HEAD']).stdout ?? '').trim();
+}
+
+
+/** @param {() => void} callback */
+function captureConsole(callback) {
+  /** @type {string[]} */
+  const lines = [];
+  const originalLog = console.log;
+  const originalWarn = console.warn;
+  console.log = (...values) => lines.push(values.join(' '));
+  console.warn = (...values) => lines.push(values.join(' '));
+  try {
+    callback();
+  } finally {
+    console.log = originalLog;
+    console.warn = originalWarn;
+  }
+  return lines.join('\n');
 }
 
 test('Node major parsing and compatibility are deterministic', () => {
@@ -79,10 +97,10 @@ test('branch state distinguishes feature, main, detached, and unreadable Git sta
 });
 
 test('validation modes preserve the intended contracts from one shared authority', () => {
-  assert.deepEqual(VALIDATION_MODE_CHECK_IDS.fast, ['diff', 'test', 'svelte']);
+  assert.deepEqual(VALIDATION_MODE_CHECK_IDS.fast, ['diff', 'testFast', 'svelte']);
   assert.deepEqual(VALIDATION_MODE_CHECK_IDS.full, ['diff', 'db', 'test', 'svelte', 'build', 'authSmoke']);
   assert.deepEqual(VALIDATION_MODES.fast, [
-    ['git', ['diff', '--check']], ['npm', ['test']], ['npm', ['run', 'check']],
+    ['git', ['diff', '--check']], ['npm', ['run', 'test:fast']], ['npm', ['run', 'check']],
   ]);
   assert.deepEqual(VALIDATION_MODES.full.at(-1), ['node', ['scripts/local-auth-smoke.mjs']]);
 });
@@ -186,12 +204,104 @@ test('CI argument parsing preserves diff overrides, defaults omitted mode to ful
   assert.throws(() => parseCiArgs(['--mode', '']), /CI validation mode must be non-empty/);
 });
 
-test('agent:checks CLI accepts a base override or explicit file fixture list', () => {
-  assert.deepEqual(parseAgentChecksArgs(['--base', 'release']), { base: 'release', files: null });
-  assert.deepEqual(parseAgentChecksArgs(['--files', 'src/a.js,docs/b.md']), {
+test('agent:checks CLI accepts compact mode with base/files in sensible option order', () => {
+  assert.deepEqual(parseAgentChecksArgs(['--base', 'release']), { base: 'release', files: null, compact: false });
+  assert.deepEqual(parseAgentChecksArgs(['--compact', '--base', 'release']), {
+    base: 'release',
+    files: null,
+    compact: true,
+  });
+  assert.deepEqual(parseAgentChecksArgs(['--base', 'release', '--compact']), {
+    base: 'release',
+    files: null,
+    compact: true,
+  });
+  assert.deepEqual(parseAgentChecksArgs(['--compact', '--files', 'src/a.js,docs/b.md']), {
     base: null,
     files: ['src/a.js', 'docs/b.md'],
+    compact: true,
   });
+  assert.deepEqual(parseAgentChecksArgs(['--files', 'src/a.js,docs/b.md', '--compact']), {
+    base: null,
+    files: ['src/a.js', 'docs/b.md'],
+    compact: true,
+  });
+});
+
+test('agent:checks CLI preserves malformed and unknown argument errors', () => {
+  assert.throws(() => parseAgentChecksArgs(['--base']), /--base requires a Git ref/);
+  assert.throws(() => parseAgentChecksArgs(['--files', '']), /--files requires a comma-separated path list/);
+  assert.throws(() => parseAgentChecksArgs(['--quiet']), /Unknown argument: --quiet/);
+});
+
+test('agent:checks verbose presentation retains the existing observable sections and order', () => {
+  const report = classifyChangedFiles(['src/routes/admin/cases/+page.svelte']);
+  const output = captureConsole(() => printAgentChecksReport(report, 'fixture-base'));
+  const changed = output.indexOf('Changed files');
+  const areas = output.indexOf('Affected areas');
+  const required = output.indexOf('Required automated checks');
+  const recommended = output.indexOf('Recommended follow-up');
+  const notRequired = output.indexOf('Not required');
+
+  assert.match(output, /^Diff base: fixture-base/);
+  assert.match(output, /- src\/routes\/admin\/cases\/\+page\.svelte/);
+  assert.match(output, /npm test/);
+  assert.match(output, /npm run check/);
+  assert.equal(changed < areas && areas < required && required < recommended && recommended < notRequired, true);
+});
+
+test('agent:checks compact presentation summarizes one shared report without duplicate specialized commands', () => {
+  const report = classifyChangedFiles([
+    'src/routes/admin/cases/+page.svelte',
+    'tools/slide-import-review/scripts/finalize.mjs',
+  ]);
+  const before = structuredClone(report);
+  const output = captureConsole(() => printCompactAgentChecksReport(report, 'fixture-base'));
+
+  assert.deepEqual(report, before, 'rendering must not mutate classification/report data');
+  assert.match(output, /^Diff base: fixture-base/);
+  assert.match(output, /Changed files: 2/);
+  assert.match(output, /Affected areas/);
+  assert.match(output, /Required automated checks/);
+  assert.match(output, /Specialized required checks/);
+  assert.match(output, /Recommended follow-up/);
+  assert.equal(output.includes('Changed files\n-------------\n- '), false);
+  assert.equal(output.includes('Not required'), false);
+
+  for (const command of report.specializedRequiredCommands) {
+    assert.equal(output.split(command).length - 1, 1, `${command} should be rendered exactly once`);
+  }
+  assert.deepEqual(report.requiredChecks, before.requiredChecks);
+  assert.deepEqual(report.specializedRequiredChecks, before.specializedRequiredChecks);
+  assert.deepEqual(report.recommendations, before.recommendations);
+});
+
+test('agent:checks compact presentation stays lightweight for documentation-only changes', () => {
+  const report = classifyChangedFiles(['docs/DEVELOPMENT_EXECUTION_WORKFLOW.md']);
+  const output = captureConsole(() => printCompactAgentChecksReport(
+    report,
+    'explicit --files list (Git diff not inspected)',
+  ));
+
+  assert.match(output, /Diff base: explicit --files list \(Git diff not inspected\)/);
+  assert.match(output, /Changed files: 1/);
+  assert.match(output, /git diff --check/);
+  assert.equal(output.includes('merge-base'), false);
+  assert.equal(output.includes('Not required'), false);
+});
+
+test('agent:checks compact presentation surfaces fail-safe and untracked whitespace failures', () => {
+  const report = classifyChangedFiles(['scripts/new-agent-helper.mjs']);
+  const output = captureConsole(() => printCompactAgentChecksReport(report, 'fixture-base', {
+    checkedFiles: ['scripts/new-agent-helper.mjs'],
+    diagnostics: ['scripts/new-agent-helper.mjs:1: trailing whitespace.'],
+  }));
+
+  assert.match(output, /Unclassified code\/tooling \(fail-safe\)/);
+  assert.match(output, /Untracked whitespace validation/);
+  assert.match(output, /FAIL: checked 1 untracked file/);
+  assert.match(output, /trailing whitespace/);
+  assert.match(output, /WARNING: fail-safe full validation applied to 1 unclassified code\/tooling path/);
 });
 
 test('diff base prefers current origin/main when local main is stale', () => {
@@ -291,6 +401,35 @@ test('local replica helper stays automated-light and marks credential-dependent 
   assert.match(recommendation, /do not access production automatically/i);
 });
 
+test('ECG production-operator paths require only the named ECG specialized owner', () => {
+  for (const file of [
+    'scripts/rename-ecg-batch-01-assets.mjs',
+    'scripts/ecg-batch-01-asset-rename-targets.mjs',
+    'test/ecg-batch-01-asset-rename.test.js',
+  ]) {
+    const report = classifyChangedFiles([file]);
+    assert.deepEqual(report.specializedRequiredChecks, ['ecgAssetRenameOperatorTest'], file);
+    assert.deepEqual(report.requiredCommands, [
+      'git diff --check',
+      'node --test test/ecg-batch-01-asset-rename.test.js',
+    ], file);
+  }
+});
+
+test('production taxonomy operator paths require only the named taxonomy specialized owner', () => {
+  for (const file of [
+    'scripts/apply-agreed-taxonomy.mjs',
+    'test/production-taxonomy-operator.test.js',
+  ]) {
+    const report = classifyChangedFiles([file]);
+    assert.deepEqual(report.specializedRequiredChecks, ['productionTaxonomyOperatorTest'], file);
+    assert.deepEqual(report.requiredCommands, [
+      'git diff --check',
+      'node --test test/production-taxonomy-operator.test.js',
+    ], file);
+  }
+});
+
 test('slide-review changes require both specialized test and build contracts', () => {
   const report = classifyChangedFiles(['tools/slide-import-review/scripts/finalize.mjs']);
   assert.deepEqual(report.requiredCommands, [
@@ -298,6 +437,7 @@ test('slide-review changes require both specialized test and build contracts', (
     'npm run slide-review:test',
     'npm run slide-review:build',
   ]);
+  assert.deepEqual(report.specializedRequiredChecks, ['slideReviewTest', 'slideReviewBuild']);
   assert.equal(report.requiredCommands.includes('npm run runtime:smoke'), false);
 });
 
@@ -306,10 +446,17 @@ test('documentation-only changes stay lightweight', () => {
   assert.deepEqual(report.requiredCommands, ['git diff --check']);
 });
 
-test('GitHub workflow changes are explicit without pretending Actions can be run locally', () => {
+test('GitHub CI workflow changes fail safe for all ordinary-CI specialized validation without moving path ownership into YAML', () => {
   const report = classifyChangedFiles(['.github/workflows/ci.yml']);
   assert.equal(report.areas.includes('GitHub workflows / automation'), true);
-  assert.deepEqual(report.requiredCommands, ['git diff --check']);
+  assert.deepEqual(report.specializedRequiredChecks, CI_SPECIALIZED_CHECK_IDS);
+  assert.deepEqual(report.requiredCommands, [
+    'git diff --check',
+    'node --test test/ecg-batch-01-asset-rename.test.js',
+    'node --test test/production-taxonomy-operator.test.js',
+    'npm run slide-review:test',
+    'npm run slide-review:build',
+  ]);
   assert.match(report.recommendations.join('\n'), /GitHub Actions/);
 });
 
@@ -330,5 +477,6 @@ test('unknown important source/tooling changes fail safe to full ordinary valida
   for (const checkId of VALIDATION_MODE_CHECK_IDS.full) {
     assert.equal(report.requiredChecks.includes(checkId), true);
   }
+  assert.deepEqual(report.specializedRequiredChecks, CI_SPECIALIZED_CHECK_IDS);
   assert.deepEqual(report.unclassifiedImportant, ['scripts/new-agent-helper.mjs']);
 });

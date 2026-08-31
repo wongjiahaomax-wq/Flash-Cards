@@ -3,7 +3,7 @@
  * Local validation, CI validation, and agent:checks all consume this data.
  */
 
-/** @typedef {{ label: string, command: string, args: readonly string[] }} ValidationCheck */
+/** @typedef {{ label: string, command: string, args: readonly string[], satisfies?: readonly string[] }} ValidationCheck */
 /** @typedef {{ id: string, label: string, command: string, args: string[] }} ValidationCommand */
 
 /** @type {Readonly<Record<string, ValidationCheck>>} */
@@ -22,6 +22,17 @@ export const VALIDATION_CHECKS = Object.freeze({
     label: 'Run Node tests',
     command: 'npm',
     args: Object.freeze(['test']),
+    satisfies: Object.freeze([
+      'testFast',
+      'ecgAssetRenameOperatorTest',
+      'productionTaxonomyOperatorTest',
+      'slideReviewTest',
+    ]),
+  }),
+  testFast: Object.freeze({
+    label: 'Run fast Node tests',
+    command: 'npm',
+    args: Object.freeze(['run', 'test:fast']),
   }),
   svelte: Object.freeze({
     label: 'Run Svelte checks',
@@ -43,6 +54,16 @@ export const VALIDATION_CHECKS = Object.freeze({
     command: 'npm',
     args: Object.freeze(['run', 'runtime:smoke']),
   }),
+  ecgAssetRenameOperatorTest: Object.freeze({
+    label: 'Run ECG Batch 01 Asset rename operator tests',
+    command: 'node',
+    args: Object.freeze(['--test', 'test/ecg-batch-01-asset-rename.test.js']),
+  }),
+  productionTaxonomyOperatorTest: Object.freeze({
+    label: 'Run production taxonomy operator tests',
+    command: 'node',
+    args: Object.freeze(['--test', 'test/production-taxonomy-operator.test.js']),
+  }),
   slideReviewTest: Object.freeze({
     label: 'Run slide-review tooling tests',
     command: 'npm',
@@ -55,9 +76,41 @@ export const VALIDATION_CHECKS = Object.freeze({
   }),
 });
 
+export const VALIDATION_CHECK_ORDER = Object.freeze([
+  'diff',
+  'db',
+  'test',
+  'testFast',
+  'svelte',
+  'build',
+  'authSmoke',
+  'runtimeSmoke',
+  'ecgAssetRenameOperatorTest',
+  'productionTaxonomyOperatorTest',
+  'slideReviewTest',
+  'slideReviewBuild',
+]);
+
+export const SPECIALIZED_CHECK_IDS = Object.freeze([
+  'runtimeSmoke',
+  'ecgAssetRenameOperatorTest',
+  'productionTaxonomyOperatorTest',
+  'slideReviewTest',
+  'slideReviewBuild',
+]);
+
+// Ordinary CI owns specialized Node/operator and slide-review validation. Runtime
+// smoke remains enforced by its existing path-filtered workflow and agent advice.
+export const CI_SPECIALIZED_CHECK_IDS = Object.freeze([
+  'ecgAssetRenameOperatorTest',
+  'productionTaxonomyOperatorTest',
+  'slideReviewTest',
+  'slideReviewBuild',
+]);
+
 /** @type {Readonly<Record<string, readonly string[]>>} */
 export const VALIDATION_MODE_CHECK_IDS = Object.freeze({
-  fast: Object.freeze(['diff', 'test', 'svelte']),
+  fast: Object.freeze(['diff', 'testFast', 'svelte']),
   full: Object.freeze(['diff', 'db', 'test', 'svelte', 'build', 'authSmoke']),
 });
 
@@ -66,6 +119,45 @@ export function validationCheck(checkId) {
   const check = VALIDATION_CHECKS[checkId];
   if (!check) throw new Error(`Unknown validation check: ${checkId}`);
   return check;
+}
+
+/** @param {string} providerId @param {string} requiredId */
+export function validationCheckSatisfies(providerId, requiredId) {
+  const provider = validationCheck(providerId);
+  validationCheck(requiredId);
+  return providerId === requiredId || (provider.satisfies?.includes(requiredId) ?? false);
+}
+
+/**
+ * Combine base validation with changed-path requirements, then remove checks
+ * whose coverage is explicitly satisfied by another selected check.
+ * @param {readonly string[]} baseCheckIds
+ * @param {readonly string[]} [requiredCheckIds]
+ */
+export function resolveValidationCheckIds(baseCheckIds, requiredCheckIds = []) {
+  const base = [...new Set(baseCheckIds)];
+  const requested = [...new Set([...base, ...requiredCheckIds])];
+  for (const checkId of requested) validationCheck(checkId);
+
+  const baseSet = new Set(base);
+  const selected = new Set(requested);
+  for (const requiredId of requested) {
+    if (baseSet.has(requiredId)) continue;
+    for (const providerId of requested) {
+      if (providerId === requiredId) continue;
+      if (validationCheckSatisfies(providerId, requiredId)) {
+        selected.delete(requiredId);
+        break;
+      }
+    }
+  }
+
+  const ordered = VALIDATION_CHECK_ORDER.filter((checkId) => selected.has(checkId));
+  if (ordered.length !== selected.size) {
+    const missing = [...selected].filter((checkId) => !VALIDATION_CHECK_ORDER.includes(checkId));
+    throw new Error(`Validation check order is missing configured checks: ${missing.join(', ')}`);
+  }
+  return ordered;
 }
 
 /**
@@ -85,6 +177,15 @@ export function validationCommand(checkId, options = {}) {
 }
 
 /**
+ * @param {readonly string[]} checkIds
+ * @param {{ diffArgs?: string[] }} [options]
+ * @returns {ValidationCommand[]}
+ */
+export function validationCommandsForCheckIds(checkIds, options = {}) {
+  return checkIds.map((checkId) => validationCommand(checkId, options));
+}
+
+/**
  * @param {string} mode
  * @param {{ diffArgs?: string[] }} [options]
  * @returns {ValidationCommand[]}
@@ -92,7 +193,7 @@ export function validationCommand(checkId, options = {}) {
 export function validationCommandsForMode(mode, options = {}) {
   const checkIds = VALIDATION_MODE_CHECK_IDS[mode];
   if (!checkIds) throw new Error(`Unknown validation mode: ${mode}`);
-  return checkIds.map((checkId) => validationCommand(checkId, options));
+  return validationCommandsForCheckIds(checkIds, options);
 }
 
 /** @param {string} checkId */
