@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { createDb } from '../src/lib/server/db/index.js';
+import { listActiveTagOptions, listAllTagOptions } from '../src/lib/server/db/library-options.js';
 import {
   TAG_WORKSPACE_OVERVIEW_LIMIT,
   TAG_WORKSPACE_SELECTOR_LIMIT,
@@ -53,6 +54,7 @@ function fixture() {
 function seedWorkspace(sqlite) {
   sqlite.prepare('INSERT INTO tags (id, name, normalized_name, is_active) VALUES (?, ?, ?, 1)').run('target', 'Target Tag', 'target tag');
   sqlite.prepare('INSERT INTO tags (id, name, normalized_name, is_active) VALUES (?, ?, ?, 1)').run('other', 'Other Tag', 'other tag');
+  sqlite.prepare('INSERT INTO tags (id, name, normalized_name, is_active) VALUES (?, ?, ?, 0)').run('inactive-tag', 'Inactive Tag', 'inactive tag');
   sqlite.prepare("INSERT INTO concepts (id, name, slug, kind, is_active) VALUES ('system-a', 'System A', 'system-a', 'system', 1)").run();
   sqlite.prepare("INSERT INTO concepts (id, name, slug, kind, is_active) VALUES ('system-b', 'System B', 'system-b', 'system', 1)").run();
   sqlite.prepare("INSERT INTO system_tags (system_concept_id, tag_id, display_order) VALUES ('system-a', 'target', 0)").run();
@@ -77,6 +79,8 @@ function seedWorkspace(sqlite) {
   }
   caseTagInsert.run('case-000', 'other');
   questionTagInsert.run('question-000', 'other');
+  caseTagInsert.run('case-001', 'inactive-tag');
+  questionTagInsert.run('question-001', 'inactive-tag');
 
   sqlite.prepare("INSERT INTO preview_sessions (id, user_id, status, expires_at) VALUES ('preview', 'preview-user', 'active', 4102444800000)").run();
   sqlite.prepare("INSERT INTO cases (id, title, preview_session_id, is_active) VALUES ('preview-case', 'Preview Case', 'preview', 1)").run();
@@ -158,6 +162,25 @@ test('Tags workspace relationship reads are exact for a selected Tag and bounded
   }
 });
 
+test('inactive Tags remain reachable for selected-Tag curation while mutation options stay active-only', async () => {
+  const f = fixture();
+  try {
+    seedWorkspace(f.sqlite);
+    const [activeOptions, allOptions, inactiveCases, inactiveQuestions] = await Promise.all([
+      listActiveTagOptions(f.db),
+      listAllTagOptions(f.db),
+      listTagWorkspaceCaseAssignments(f.db, { tagId: 'inactive-tag' }),
+      listTagWorkspaceQuestionAssignments(f.db, { tagId: 'inactive-tag' })
+    ]);
+    assert.equal(activeOptions.some((tag) => tag.id === 'inactive-tag'), false);
+    assert.equal(allOptions.some((tag) => tag.id === 'inactive-tag' && tag.isActive === false), true);
+    assert.deepEqual(inactiveCases.map((row) => row.caseId), ['case-001']);
+    assert.deepEqual(inactiveQuestions.map((row) => row.caseQuestionId), ['question-001']);
+  } finally {
+    f.sqlite.close();
+  }
+});
+
 test('Tags workspace usage counts aggregate Production rows without Preview leakage', async () => {
   const f = fixture();
   try {
@@ -186,6 +209,11 @@ test('Tags page normal load uses the bounded read model while existing Tag mutat
   ]) {
     assert.equal(source.includes(broadRead), false, `${broadRead} must not remain in the normal Tags-page load path`);
   }
+  assert.match(source, /listAllTagOptions/);
+
+  const page = readFileSync(new URL('../src/routes/admin/tags/+page.svelte', import.meta.url), 'utf8');
+  assert.match(page, /data\.filterTags/);
+  assert.match(page, /data\.activeTags/);
   for (const action of [
     '?/createTag',
     '?/renameTag',
@@ -195,7 +223,6 @@ test('Tags page normal load uses the bounded read model while existing Tag mutat
     '?/addCaseQuestionTag',
     '?/removeCaseQuestionTag'
   ]) {
-    const page = readFileSync(new URL('../src/routes/admin/tags/+page.svelte', import.meta.url), 'utf8');
     assert.match(page, new RegExp(action.replace(/[?]/g, '\\?')));
   }
 });
