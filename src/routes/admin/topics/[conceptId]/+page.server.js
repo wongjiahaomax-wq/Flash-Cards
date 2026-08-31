@@ -6,6 +6,7 @@ import { listActiveTags } from '$lib/server/db/tag-library.js';
 import { getTaxonomyDetail } from '$lib/server/db/taxonomy-admin-read.ts';
 import {
   deleteUnusedTopic,
+  getTopicDeletionEligibility,
   replaceSystemTags,
   TaxonomyInputError,
   updateTaxonomyConcept
@@ -25,13 +26,16 @@ function actionFailure(cause) {
 }
 
 export async function load({ platform, params }) {
-  if (!platform?.env?.DB) return { topic: null, activeTags: [] };
+  if (!platform?.env?.DB) return { topic: null, activeTags: [], deletionEligibility: null };
   const db = createDb(platform.env.DB);
   const [topic, activeTags] = await Promise.all([
     getTaxonomyDetail(db, params.conceptId),
     listActiveTags(db)
   ]);
-  return { topic, activeTags };
+  const deletionEligibility = topic?.kind === 'topic'
+    ? await getTopicDeletionEligibility(db, { conceptId: params.conceptId })
+    : null;
+  return { topic, activeTags, deletionEligibility };
 }
 
 export const actions = {

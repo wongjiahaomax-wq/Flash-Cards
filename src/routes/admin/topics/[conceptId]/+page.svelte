@@ -3,9 +3,7 @@
 
   let canDeleteTopic = $derived(Boolean(
     data.topic?.kind === 'topic' &&
-    data.topic.cases.length === 0 &&
-    data.topic.questions.length === 0 &&
-    data.topic.children.length === 0
+    data.deletionEligibility?.canDelete
   ));
 
   /** @param {string} tagId */
@@ -63,7 +61,7 @@
           <button class="button danger" type="submit" disabled={!canDeleteTopic}>Delete Topic</button>
         </form>
       </div>
-      {#if !canDeleteTopic}<p class="blocker-copy">Any Case attachments, reusable Topic questions, and child Topics must be removed first.</p>{/if}
+      {#if !canDeleteTopic}<p class="blocker-copy">Case attachments, reusable Topic questions, child Topics, or learner Review history currently prevent permanent deletion.</p>{/if}
     </section>
   {/if}
 

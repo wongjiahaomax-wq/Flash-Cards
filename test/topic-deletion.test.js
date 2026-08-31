@@ -1,34 +1,22 @@
 // @ts-nocheck
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { createDb } from '../src/lib/server/db/index.js';
-import { deleteUnusedTopic, TaxonomyInputError } from '../src/lib/server/db/taxonomy-admin-write.ts';
-
-const migrationNames = [
-  '0000_dashing_centennial.sql', '0002_optional_stimulus_groups.sql', '0003_multi_topic_study_routing.sql',
-  '0004_resumable_import_jobs.sql', '0005_tag_foundation.sql', '0006_preview_admin_workspace.sql',
-  '0007_image_collections.sql', '0008_tag_shared_questions.sql', '0009_reusable_image_questions.sql',
-  '0010_reusable_image_reactivation_guard.sql', '0011_asset_supersession.sql', '0012_archive_stimulus_options.sql',
-  '0013_review_assets_asset_lookup.sql', '0014_review_question_pool_mode.sql', '0015_contextual_system_topic_tag_navigation.sql',
-  '0016_original_stimulus_options.sql', '0017_align_reusable_prompt_live_state_guards.sql'
-];
-
-function migrationSql() {
-  return migrationNames.map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8')).join('\n').replaceAll('--> statement-breakpoint', '');
-}
+import { deleteUnusedTopic, getTopicDeletionEligibility, TaxonomyInputError } from '../src/lib/server/db/taxonomy-admin-write.ts';
+import { applyCurrentSchema } from './current-schema.js';
 
 function createFixture() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql());
+  applyCurrentSchema(sqlite);
   sqlite.exec(`
     INSERT INTO concepts (id, name, slug, kind, parent_id, is_active) VALUES
       ('system-eye', 'Eye', 'eye', 'system', NULL, 1),
       ('topic-unused', 'Unused Topic', 'unused-topic', 'topic', 'system-eye', 1),
       ('topic-case', 'Case Topic', 'case-topic', 'topic', 'system-eye', 1),
+      ('topic-secondary', 'Historical Secondary Topic', 'historical-secondary-topic', 'topic', 'system-eye', 1),
       ('topic-question', 'Question Topic', 'question-topic', 'topic', 'system-eye', 1),
       ('topic-parent', 'Parent Topic', 'parent-topic', 'topic', 'system-eye', 1),
       ('topic-child', 'Child Topic', 'child-topic', 'topic', 'topic-parent', 1),
@@ -39,6 +27,7 @@ function createFixture() {
       ('case-history', 'Historical Case', 1);
     INSERT INTO case_concepts (case_id, concept_id, role) VALUES
       ('case-1', 'topic-case', 'primary'),
+      ('case-1', 'topic-secondary', 'secondary'),
       ('case-history', 'topic-history', 'primary');
     INSERT INTO question_prompts (id, prompt_md, is_active) VALUES ('prompt-1', 'What is the diagnosis?', 1);
     INSERT INTO concept_questions (id, concept_id, question_prompt_id, answer_md, inherit_to_descendants, is_active)
@@ -105,6 +94,29 @@ test('unused Topic deletion rejects Systems and Topics with current taxonomy/con
       );
       assert.equal(conceptExists(fixture.sqlite, conceptId), true);
     }
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Topic deletion eligibility includes hidden historical secondary Case relationships', async () => {
+  const fixture = createFixture();
+  try {
+    assert.deepEqual(
+      await getTopicDeletionEligibility(fixture.db, { conceptId: 'topic-secondary' }),
+      {
+        canDelete: false,
+        hasCaseAttachments: true,
+        hasQuestions: false,
+        hasChildren: false,
+        hasReviewHistory: false
+      }
+    );
+    await assert.rejects(
+      deleteUnusedTopic(fixture.db, { conceptId: 'topic-secondary' }),
+      (error) => error instanceof TaxonomyInputError && /Case attachments/i.test(error.message)
+    );
+    assert.equal(conceptExists(fixture.sqlite, 'topic-secondary'), true);
   } finally {
     fixture.sqlite.close();
   }

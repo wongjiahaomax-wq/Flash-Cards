@@ -51,12 +51,16 @@ test('Case editor can place its current Primary Topic under an active System', (
 });
 
 
-test('Topic detail exposes permanent deletion only through the guarded unused-Topic writer', () => {
+test('Topic detail exposes permanent deletion only through server-authoritative unused-Topic eligibility', () => {
   assert.match(topicDetailPage, /action="\?\/deleteTopic"/);
-  assert.match(topicDetailPage, /canDeleteTopic/);
+  assert.match(topicDetailPage, /data\.deletionEligibility\?\.canDelete/);
+  assert.doesNotMatch(topicDetailPage, /data\.topic\.cases\.length === 0/);
   assert.match(topicDetailPage, /Permanently remove an accidentally created Topic/);
+  assert.match(topicDetailPage, /learner Review history currently prevent permanent deletion/);
   assert.match(topicDetailPage, /window\.confirm/);
+  assert.match(topicDetailAction, /getTopicDeletionEligibility/);
   assert.match(topicDetailAction, /deleteUnusedTopic/);
+  assert.match(taxonomyWrite, /export async function getTopicDeletionEligibility/);
   assert.match(taxonomyWrite, /Only Topics can be deleted/);
   assert.match(taxonomyWrite, /Case attachments, reusable Topic questions, or child Topics/);
 });
