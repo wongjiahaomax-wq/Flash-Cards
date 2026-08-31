@@ -127,7 +127,7 @@ export function checkUntrackedWhitespace(root, files) {
  * Apply invocation-specific Git context to the classifier's generic check IDs.
  * Real Git-backed runs get the same merge-base whitespace command as local validation;
  * fixture mode intentionally keeps the generic command representation.
- * @param {{ files: string[], areas: string[], requiredChecks: string[], requiredCommands: string[], specializedRequiredChecks: string[], specializedRequiredCommands: string[], recommendations: string[], notRequiredChecks: string[], notRequiredCommands: string[], unclassifiedImportant: string[] }} report
+ * @param {{ files: string[], areas: string[], iterationGuidance: string[], checkpointGuidance: string[], requiredChecks: string[], requiredCommands: string[], specializedRequiredChecks: string[], specializedRequiredCommands: string[], recommendations: string[], notRequiredChecks: string[], notRequiredCommands: string[], unclassifiedImportant: string[] }} report
  * @param {string | null} [mergeBase]
  */
 export function contextualizeAgentChecksReport(report, mergeBase = null) {
@@ -159,7 +159,7 @@ function printSection(title, values, emptyText = '(none)') {
 }
 
 /**
- * @param {{ files: string[], areas: string[], requiredCommands: string[], recommendations: string[], notRequiredCommands: string[], unclassifiedImportant: string[] }} report
+ * @param {{ files: string[], areas: string[], iterationGuidance: string[], checkpointGuidance: string[], requiredCommands: string[], recommendations: string[], notRequiredCommands: string[], unclassifiedImportant: string[] }} report
  * @param {string} baseDescription
  * @param {{ checkedFiles: string[], diagnostics: string[] } | null} [untrackedWhitespace]
  */
@@ -167,6 +167,9 @@ export function printAgentChecksReport(report, baseDescription, untrackedWhitesp
   console.log(`Diff base: ${baseDescription}`);
   printSection('Changed files', report.files, '(no changed files detected)');
   printSection('Affected areas', report.areas, '(none)');
+  printSection('Iteration guidance', report.iterationGuidance, '(none)');
+  printSection('Checkpoint guidance', report.checkpointGuidance, '(none)');
+  console.log('\nHandoff: run every command under Required automated checks before final handoff/review.');
   printSection('Required automated checks', report.requiredCommands, '(none)');
   if (untrackedWhitespace?.checkedFiles.length) {
     console.log('\nUntracked whitespace validation');
@@ -182,12 +185,11 @@ export function printAgentChecksReport(report, baseDescription, untrackedWhitesp
   }
 }
 
-
 /**
  * Compact presentation of the same classification/report used by verbose mode.
  * Specialized commands are shown in their own section and omitted from the ordinary
  * Required section only for presentation deduplication.
- * @param {{ files: string[], areas: string[], requiredCommands: string[], specializedRequiredCommands: string[], recommendations: string[], unclassifiedImportant: string[] }} report
+ * @param {{ files: string[], areas: string[], iterationGuidance: string[], checkpointGuidance: string[], requiredCommands: string[], specializedRequiredCommands: string[], recommendations: string[], unclassifiedImportant: string[] }} report
  * @param {string} baseDescription
  * @param {{ checkedFiles: string[], diagnostics: string[] } | null} [untrackedWhitespace]
  */
@@ -198,6 +200,9 @@ export function printCompactAgentChecksReport(report, baseDescription, untracked
   console.log(`Diff base: ${baseDescription}`);
   console.log(`Changed files: ${report.files.length}`);
   printSection('Affected areas', report.areas, '(none)');
+  printSection('Iteration guidance', report.iterationGuidance, '(none)');
+  printSection('Checkpoint guidance', report.checkpointGuidance, '(none)');
+  console.log('\nHandoff: run every command under Required automated checks before final handoff/review.');
   printSection('Required automated checks', ordinaryRequired, '(none)');
   if (report.specializedRequiredCommands.length) {
     printSection('Specialized required checks', report.specializedRequiredCommands);
