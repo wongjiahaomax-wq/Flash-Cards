@@ -145,14 +145,16 @@ test('lifecycle-invalid and stale taxonomy IDs are cleared instead of becoming i
       INSERT INTO concepts (id, name, slug, kind, parent_id, is_active) VALUES
         ('system-active', 'Active System', 'active-system', 'system', NULL, 1),
         ('topic-active', 'Active Topic', 'active-topic', 'topic', 'system-active', 1),
-        ('system-retired', 'Retired System', 'retired-system', 'system', NULL, 0),
-        ('topic-retired', 'Retired Topic', 'retired-topic', 'topic', 'system-retired', 0);
+        ('system-retired', 'Retired System', 'retired-system', 'system', NULL, 1),
+        ('topic-retired', 'Retired Topic', 'retired-topic', 'topic', 'system-retired', 1);
       INSERT INTO cases (id, title, is_active) VALUES
         ('case-active', 'Active Case', 1),
         ('case-inactive', 'Inactive Case', 0);
       INSERT INTO case_concepts (case_id, concept_id, role) VALUES
         ('case-active', 'topic-active', 'primary'),
         ('case-inactive', 'topic-retired', 'primary');
+      UPDATE concepts SET is_active = 0 WHERE id = 'topic-retired';
+      UPDATE concepts SET is_active = 0 WHERE id = 'system-retired';
     `);
 
     const inactive = await getCaseLibraryPage(fixture.db, filters({
