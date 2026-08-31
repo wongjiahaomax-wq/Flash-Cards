@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
+import { listCaseEditorTaxonomyOptions } from '../src/lib/server/db/admin-content.js';
 import { getAdminDashboardSummary } from '../src/lib/server/db/admin-dashboard.js';
 import { getAdminCaseData } from '../src/lib/server/db/case-assets.js';
 import { createDb } from '../src/lib/server/db/index.js';
@@ -134,6 +135,40 @@ test('dashboard Question count remains a database-side aggregate instead of load
     const questionQueries = queriesFrom(fixture.preparedQueries, 'case_questions');
     assert.equal(questionQueries.length, 1, JSON.stringify(questionQueries));
     assert.match(questionQueries[0].sql, /^\s*select\s+count\s*\(/i);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Case editor taxonomy selectors preserve output while sharing one active taxonomy query', async () => {
+  const fixture = createLearningDb();
+  try {
+    seed(fixture);
+    fixture.sqlite.exec(`
+      INSERT INTO concepts (id, name, slug, kind, parent_id, is_active) VALUES
+        ('system-a', 'System A', 'system-a', 'system', NULL, 1),
+        ('topic-child', 'Topic Child', 'topic-child', 'topic', 'system-a', 1),
+        ('system-off', 'System Off', 'system-off', 'system', NULL, 0),
+        ('topic-off-child', 'Topic Off Child', 'topic-off-child', 'topic', NULL, 0)
+    `);
+    fixture.preparedQueries.length = 0;
+
+    const { concepts, systems } = await listCaseEditorTaxonomyOptions(fixture.db);
+    assert.deepEqual(systems, [{ id: 'system-a', name: 'System A' }]);
+    assert.equal(concepts.some((concept) => concept.id === 'topic-off'), false);
+    assert.equal(concepts.some((concept) => concept.id === 'topic-off-child'), false);
+    assert.deepEqual(concepts.find((concept) => concept.id === 'topic-child'), {
+      id: 'topic-child',
+      name: 'Topic Child',
+      slug: 'topic-child',
+      breadcrumb: [
+        { id: 'system-a', name: 'System A', kind: 'system' },
+        { id: 'topic-child', name: 'Topic Child', kind: 'topic' }
+      ]
+    });
+
+    const taxonomyQueries = queriesFrom(fixture.preparedQueries, 'concepts');
+    assert.equal(taxonomyQueries.length, 1, `Case editor selector construction executed more than one taxonomy query: ${JSON.stringify(taxonomyQueries)}`);
   } finally {
     fixture.sqlite.close();
   }
