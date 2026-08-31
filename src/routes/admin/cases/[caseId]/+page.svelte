@@ -61,7 +61,7 @@
   {#if !data.previewMode && data.status === 'case-restored'}<p class="success-message" role="status">Case restored. It is active and available to normal Admin and learner flows.</p>{/if}
   <div class="case-editor" data-editor-layout={editorLayout}>
     <CaseEditorNavigation {selectedCase} {primaryTopic} {editorLayout} {fastReviewSummary} auditCount={caseQuestionAudit.length} onlayoutchange={setEditorLayout} />
-    <CaseTopicsSection {selectedCase} concepts={data.concepts} systems={data.systems} {primaryTopic} previewMode={data.previewMode} {editorLayout} />
+    <CaseTopicsSection {selectedCase} concepts={data.concepts} systems={data.systems} tagOptions={selectedCase.tagOptions ?? []} {primaryTopic} previewMode={data.previewMode} {editorLayout} />
     <CaseDetailsSection {selectedCase} {primaryTopic} {editorLayout} />
     <CaseImagesSection {selectedCase} previewMode={data.previewMode} {editorLayout} {editorBase} onimageopen={showImage} />
     {#if !data.previewMode}<StimulusOriginalsPanel {selectedCase} />{/if}
