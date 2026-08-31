@@ -56,9 +56,15 @@
     return `${inputId}-option-${option.id}`;
   }
 
+  function restoreCommittedSelection() {
+    query = selectedOption ? optionDisplayLabel(selectedOption) : '';
+    editing = false;
+    open = false;
+    activeIndex = -1;
+  }
+
   function updateQuery(nextQuery: string) {
     query = nextQuery;
-    value = '';
     editing = true;
     open = true;
     activeIndex = -1;
@@ -74,8 +80,8 @@
 
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
-      open = false;
-      activeIndex = -1;
+      event.preventDefault();
+      restoreCommittedSelection();
       return;
     }
     if (event.key === 'ArrowDown') {
@@ -95,6 +101,11 @@
     if (event.key === 'Enter' && open && activeIndex >= 0) {
       event.preventDefault();
       selectOption(matchingOptions[activeIndex]);
+      return;
+    }
+    if (event.key === 'Enter' && editing) {
+      event.preventDefault();
+      restoreCommittedSelection();
     }
   }
 </script>
@@ -115,7 +126,7 @@
       aria-activedescendant={open && activeIndex >= 0 ? resultId(matchingOptions[activeIndex]) : undefined}
       disabled={disabled}
       onfocus={() => (open = true)}
-      onblur={() => { open = false; activeIndex = -1; }}
+      onblur={restoreCommittedSelection}
       oninput={(event) => updateQuery(event.currentTarget.value)}
       onkeydown={handleKeydown}
     />
