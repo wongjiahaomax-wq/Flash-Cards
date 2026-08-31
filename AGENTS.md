@@ -87,7 +87,7 @@ Use `docs/AGENT_TASK_MAP.md` for the exact current routing for auth, imports, ta
 
 ## Validation and reporting
 
-Preserve PR #126's iteration → checkpoint → handoff architecture. Constrained retrieval never means reduced validation.
+Preserve the repository's iteration → checkpoint → handoff validation architecture. Constrained retrieval never means reduced validation.
 
 - Do not claim a command, test, build, deployment, migration, or smoke check ran unless it actually ran.
 - When local execution is available, use `npm run agent:doctor` as the read-only pre-edit environment check.
