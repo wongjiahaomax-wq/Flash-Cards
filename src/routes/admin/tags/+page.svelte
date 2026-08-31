@@ -37,6 +37,8 @@
   </div>
 
   <form method="GET" class="filter-form">
+    <input type="hidden" name="case_q" value={data.filters.caseSearch} />
+    <input type="hidden" name="question_q" value={data.filters.questionSearch} />
     <label class="grow">Search Tags<input name="q" bind:value={query} placeholder="e.g. hypocalcaemia" /></label>
     <label>Show assignments for
       <select name="tag">
@@ -44,7 +46,7 @@
         {#each data.activeTags as tag}<option value={tag.id} selected={tag.id === data.filters.tagId}>{tag.name}</option>{/each}
       </select>
     </label>
-    <div class="filter-actions"><button class="button" type="submit">Filter</button>{#if query || data.filters.tagId}<a class="button" href="/admin/tags">Clear</a>{/if}</div>
+    <div class="filter-actions"><button class="button" type="submit">Filter</button>{#if query || data.filters.tagId || data.filters.caseSearch || data.filters.questionSearch}<a class="button" href="/admin/tags">Clear</a>{/if}</div>
   </form>
 
   {#if data.tags.length === 0}
@@ -81,6 +83,7 @@
     <span class="muted">Add, remove, and reorder exposure on each System detail page.</span>
   </div>
   <p class="scope-note">A Tag appears to learners only inside Systems where Admin explicitly exposes it. Exposure does not change Case Tags or Shared Question reuse scope.</p>
+  {#if !data.readModel.relationshipsScopedToTag}<p class="bounded-note">Showing up to {data.readModel.overviewLimit} relationships. Select a Tag above to inspect all relationships for that Tag.</p>{/if}
   {#if data.systemExposures.length === 0}
     <p class="empty-state">No System ↔ Tag exposures match this filter.</p>
   {:else}
@@ -106,12 +109,22 @@
   </div>
   <p class="scope-note">Case Tags classify the Case. They do <strong>not</strong> automatically become Case Question or Shared Question descriptive Tags.</p>
 
+  <form method="GET" class="selector-search-form">
+    <input type="hidden" name="q" value={data.filters.search} />
+    <input type="hidden" name="tag" value={data.filters.tagId} />
+    <input type="hidden" name="question_q" value={data.filters.questionSearch} />
+    <label class="grow">Find Case<input name="case_q" value={data.filters.caseSearch} placeholder="Search active Production Cases by title" /></label>
+    <button class="button" type="submit">Search Cases</button>
+  </form>
+  <p class="bounded-note">Showing up to {data.readModel.selectorLimit} eligible active Production Cases{data.filters.caseSearch ? ' matching this search' : ''}. Search to reach Cases outside the current window.</p>
+
   <form method="POST" action="?/addCaseTag" class="assignment-form">
     <label>Case<select name="case_id" required><option value="">Choose Case…</option>{#each data.cases as item}<option value={item.id}>{item.title}</option>{/each}</select></label>
     <label>Tag<select name="tag_id" required><option value="">Choose Tag…</option>{#each data.activeTags as tag}<option value={tag.id}>{tag.name}</option>{/each}</select></label>
     <button class="button primary" type="submit" disabled={data.activeTags.length === 0}>Attach Tag</button>
   </form>
 
+  {#if !data.readModel.relationshipsScopedToTag}<p class="bounded-note">Showing up to {data.readModel.overviewLimit} relationships. Select a Tag above to inspect all relationships for that Tag.</p>{/if}
   {#if data.caseAssignments.length === 0}
     <p class="empty-state">No Case Tag assignments match this filter.</p>
   {:else}
@@ -137,12 +150,22 @@
   </div>
   <p class="scope-note">Case Question Tags describe the medical knowledge tested by this specific Case Question. Tags are never attached to reusable <code>question_prompts</code>.</p>
 
+  <form method="GET" class="selector-search-form">
+    <input type="hidden" name="q" value={data.filters.search} />
+    <input type="hidden" name="tag" value={data.filters.tagId} />
+    <input type="hidden" name="case_q" value={data.filters.caseSearch} />
+    <label class="grow">Find Case Question<input name="question_q" value={data.filters.questionSearch} placeholder="Search by Case title or question wording" /></label>
+    <button class="button" type="submit">Search Questions</button>
+  </form>
+  <p class="bounded-note">Showing up to {data.readModel.selectorLimit} eligible active Production Case Questions{data.filters.questionSearch ? ' matching this search' : ''}. Search to reach Questions outside the current window.</p>
+
   <form method="POST" action="?/addCaseQuestionTag" class="assignment-form">
     <label>Case Question<select name="case_question_id" required><option value="">Choose Case Question…</option>{#each data.caseQuestions as question}<option value={question.id}>{question.caseTitle} — {question.promptMd}</option>{/each}</select></label>
     <label>Tag<select name="tag_id" required><option value="">Choose Tag…</option>{#each data.activeTags as tag}<option value={tag.id}>{tag.name}</option>{/each}</select></label>
     <button class="button primary" type="submit" disabled={data.activeTags.length === 0}>Attach Tag</button>
   </form>
 
+  {#if !data.readModel.relationshipsScopedToTag}<p class="bounded-note">Showing up to {data.readModel.overviewLimit} relationships. Select a Tag above to inspect all relationships for that Tag.</p>{/if}
   {#if data.questionAssignments.length === 0}
     <p class="empty-state">No Case Question Tag assignments match this filter.</p>
   {:else}
@@ -173,6 +196,7 @@
   </div>
   <p class="scope-note">Each Shared Question has exactly one <strong>Reuse Scope</strong> Tag. Descriptive Shared Question Tags are independent and never grant Case eligibility.</p>
 
+  {#if !data.readModel.relationshipsScopedToTag}<p class="bounded-note">Showing up to {data.readModel.overviewLimit} relationships. Select a Tag above to inspect all relationships for that Tag.</p>{/if}
   {#if data.sharedQuestionUsages.length === 0}
     <p class="empty-state">No Shared Question Tag usages match this filter.</p>
   {:else}
@@ -194,10 +218,11 @@
 <style>
   .page-heading, .panel-heading { display: flex; justify-content: space-between; align-items: end; gap: 1rem; }
   h1, h2, p { margin-top: 0; } h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 4vw, 2.5rem); } h2 { margin-bottom: 0.2rem; font-size: 1.2rem; }
-  .eyebrow { margin-bottom: 0.3rem; color: #667085; font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; } .muted { color: #667085; }
+  .eyebrow { margin-bottom: 0.3rem; color: #667085; font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; } .muted, .bounded-note { color: #667085; }
+  .bounded-note { margin-bottom: 0; font-size: 0.88rem; }
   .panel { display: grid; gap: 0.9rem; margin-top: 1rem; padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; }
   label { display: grid; gap: 0.35rem; color: #344054; font-weight: 650; } input, select { width: 100%; min-width: 0; box-sizing: border-box; padding: 0.65rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } .grow { min-width: 0; }
-  .inline-form, .filter-form, .assignment-form { display: grid; gap: 0.75rem; align-items: end; } .inline-form { grid-template-columns: minmax(0, 1fr) auto; } .filter-form { grid-template-columns: minmax(0, 1.5fr) minmax(180px, 1fr) auto; } .assignment-form { grid-template-columns: minmax(0, 1.6fr) minmax(180px, 0.8fr) auto; }
+  .inline-form, .filter-form, .assignment-form, .selector-search-form { display: grid; gap: 0.75rem; align-items: end; } .inline-form, .selector-search-form { grid-template-columns: minmax(0, 1fr) auto; } .filter-form { grid-template-columns: minmax(0, 1.5fr) minmax(180px, 1fr) auto; } .assignment-form { grid-template-columns: minmax(0, 1.6fr) minmax(180px, 0.8fr) auto; }
   .filter-actions { display: flex; gap: 0.5rem; } .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; white-space: nowrap; } .button.primary { border-color: #172033; background: #172033; color: #fff; } .button.small { padding: 0.45rem 0.65rem; font-size: 0.82rem; } .button:disabled { opacity: 0.5; cursor: not-allowed; }
   .form-error { margin: 1rem 0; padding: 0.75rem; border-radius: 8px; background: #fef3f2; color: #b42318; } .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
   .tag-list, .assignment-list { display: grid; gap: 0.6rem; } .tag-row, .assignment-row { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(220px, 1fr) auto; gap: 0.75rem; align-items: center; padding: 0.75rem; border: 1px solid #eaecf0; border-radius: 8px; background: #f8fafc; } .assignment-row { grid-template-columns: minmax(0, 1fr) auto; }
@@ -207,5 +232,5 @@
   .shared-link { color: #172033; text-decoration: none; } .shared-link:hover { text-decoration: underline; }
   code { padding: 0.1rem 0.25rem; border-radius: 4px; background: #f2f4f7; }
   @media (max-width: 850px) { .tag-row { grid-template-columns: minmax(0, 1fr); } .tag-row > form:last-child { justify-self: start; } }
-  @media (max-width: 680px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .inline-form, .filter-form, .assignment-form { grid-template-columns: minmax(0, 1fr); } .filter-actions { flex-wrap: wrap; } }
+  @media (max-width: 680px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .inline-form, .filter-form, .assignment-form, .selector-search-form { grid-template-columns: minmax(0, 1fr); } .filter-actions { flex-wrap: wrap; } }
 </style>
