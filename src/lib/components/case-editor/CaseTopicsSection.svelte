@@ -1,5 +1,4 @@
 <script>
-  import { onMount } from 'svelte';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
 
   /** @typedef {'classic' | 'compact'} CaseEditorLayout */
@@ -12,27 +11,12 @@
   /** @typedef {{ id: string, name: string }} SystemOption */
   /** @typedef {{ selectedCase: TopicsCase, concepts: ConceptOption[], systems?: SystemOption[], tagOptions?: TagOption[], primaryTopic?: CaseTopic | null, previewMode: boolean, editorLayout: CaseEditorLayout }} TopicsProps */
   let { selectedCase, concepts, systems = [], tagOptions = [], primaryTopic, previewMode, editorLayout } = $props();
-  /** @type {TagOption[]} */
-  let loadedTagOptions = $state([]);
-  let effectiveTagOptions = $derived(tagOptions.length ? tagOptions : loadedTagOptions);
   /** @param {CaseTopic | undefined | null} topic */
   function systemIdFromTopic(topic) {
     return topic?.breadcrumb?.find((/** @param {BreadcrumbItem} item */ item) => item.kind === 'system')?.id ?? '';
   }
   let currentSystemId = $derived(systemIdFromTopic(primaryTopic));
   const topicGroups = $derived(groupTopics(concepts, primaryTopic?.id));
-
-  onMount(async () => {
-    if (previewMode || tagOptions.length) return;
-    try {
-      const response = await fetch(`/admin/cases/${encodeURIComponent(selectedCase.case.id)}/case-tags`);
-      if (!response.ok) return;
-      const payload = await response.json();
-      loadedTagOptions = Array.isArray(payload.tags) ? payload.tags : [];
-    } catch {
-      // The global Tags link remains the no-JS/network fallback.
-    }
-  });
 
   /** @param {CaseTopic[]} topics */
   function inactivePrimaryTopic(topics) {
@@ -180,11 +164,11 @@
       </div>
 
       {#if !previewMode}
-        {#if effectiveTagOptions.some((tag) => !hasTag(selectedCase.caseTags, tag.id))}
+        {#if tagOptions.some((tag) => !hasTag(selectedCase.caseTags, tag.id))}
           <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-add-form form-row">
             <input type="hidden" name="case_id" value={selectedCase.case.id} />
             <input type="hidden" name="operation" value="add" />
-            <label>Add existing Case Tag<select name="tag_id" required><option value="" disabled selected>Select an active Tag</option>{#each effectiveTagOptions as tag}{#if !hasTag(selectedCase.caseTags, tag.id)}<option value={tag.id}>{tag.name}</option>{/if}{/each}</select></label>
+            <label>Add existing Case Tag<select name="tag_id" required><option value="" disabled selected>Select an active Tag</option>{#each tagOptions as tag}{#if !hasTag(selectedCase.caseTags, tag.id)}<option value={tag.id}>{tag.name}</option>{/if}{/each}</select></label>
             <button class="button primary" type="submit">Add Tag</button>
           </form>
         {/if}
