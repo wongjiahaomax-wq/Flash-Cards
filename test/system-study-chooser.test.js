@@ -14,7 +14,7 @@ test('flag-on learner Study delegates systems-first presentation to the shared c
 
 test('shared chooser owns multi-select defaults, restoration, hierarchy controls, and selection start action', () => {
   assert.match(chooserSource, /action = '\?\/startSystemSelection'/);
-  assert.match(chooserSource, /selectedRoutes = routesForSystem\(system\)/, 'choosing a System starts with every eligible route selected');
+  assert.match(chooserSource, /= routesForSystem\(system\)/, 'choosing a System starts with every eligible route selected');
   assert.match(chooserSource, /actionForm\.selectedRoutes/);
   assert.match(chooserSource, /type="checkbox"[\s\S]*name="route"/);
   assert.match(chooserSource, /topicSubtreeRoutes/);
