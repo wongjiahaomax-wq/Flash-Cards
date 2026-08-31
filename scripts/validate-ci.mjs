@@ -138,7 +138,7 @@ export function githubSvelteDiagnosticAnnotation(diagnostic) {
  * The outer CI wrapper owns Svelte detail/status so there is one final summary.
  * Warnings are retained only in reliable completion counts and are never
  * promoted into CI_ERROR records or failure authority.
- * @param {{ diagnostics?: any[], completion?: { errors: number, warnings: number } | null }} parsed
+ * @param {{ diagnostics?: any[], completion?: { errors: number, warnings: number } | null } | null} parsed
  * @param {number | null | undefined} status
  */
 export function formatSvelteFailureSummary(parsed, status) {
