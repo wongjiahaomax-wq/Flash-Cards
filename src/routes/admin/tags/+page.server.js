@@ -2,7 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 
 import { createDb } from '$lib/server/db/index.js';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
-import { listActiveTagOptions } from '$lib/server/db/library-options.js';
+import { listActiveTagOptions, listAllTagOptions } from '$lib/server/db/library-options.js';
 import {
   TAG_WORKSPACE_OVERVIEW_LIMIT,
   TAG_WORKSPACE_SELECTOR_LIMIT,
@@ -37,6 +37,7 @@ export async function load({ platform, url }) {
     return {
       tags: [],
       activeTags: [],
+      filterTags: [],
       cases: [],
       caseQuestions: [],
       caseAssignments: [],
@@ -53,9 +54,10 @@ export async function load({ platform, url }) {
   }
 
   const db = createDb(platform.env.DB);
-  const [tagRows, activeTags, cases, caseQuestions, caseAssignments, questionAssignments, sharedQuestionUsages, systemExposures] = await Promise.all([
+  const [tagRows, activeTags, filterTags, cases, caseQuestions, caseAssignments, questionAssignments, sharedQuestionUsages, systemExposures] = await Promise.all([
     listTagWorkspaceTags(db, { search: filters.search }),
     listActiveTagOptions(db),
+    listAllTagOptions(db),
     listTagWorkspaceCaseOptions(db, { search: filters.caseSearch }),
     listTagWorkspaceCaseQuestionOptions(db, { search: filters.questionSearch }),
     listTagWorkspaceCaseAssignments(db, { tagId: filters.tagId }),
@@ -74,6 +76,7 @@ export async function load({ platform, url }) {
   return {
     tags: tagRows.map((tag) => ({ ...tag, systems: systemsByTag.get(tag.id) ?? [] })),
     activeTags,
+    filterTags,
     cases,
     caseQuestions,
     caseAssignments,
