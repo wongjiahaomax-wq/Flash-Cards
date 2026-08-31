@@ -35,21 +35,9 @@ async function loadAllConcepts(db: import('./index.js').LearningDb) {
     .orderBy(asc(concepts.name), asc(concepts.id));
 }
 
-export async function listTaxonomyLibrary(
-  db: import('./index.js').LearningDb,
-  filters: { search?: string } = {}
-) {
-  const [conceptRows, directCaseRows, studyRows, questionRows] = await Promise.all([
+async function loadTaxonomyLibraryRows(db: import('./index.js').LearningDb) {
+  const [conceptRows, studyRows, questionRows] = await Promise.all([
     loadAllConcepts(db),
-    db
-      .select({ conceptId: caseConcepts.conceptId, caseId: cases.id })
-      .from(caseConcepts)
-      .innerJoin(cases, eq(cases.id, caseConcepts.caseId))
-      .where(and(
-        eq(caseConcepts.role, 'primary'),
-        eq(cases.isActive, true),
-        isNull(cases.previewSessionId)
-      )),
     db
       .select({
         id: cases.id,
@@ -83,8 +71,8 @@ export async function listTaxonomyLibrary(
   const directCaseCounts = new Map<string, number>();
   const directCasesByTopic = new Map<string, { id: string; title: string }[]>();
   const questionCounts = new Map<string, number>();
-  for (const row of directCaseRows) directCaseCounts.set(row.conceptId, (directCaseCounts.get(row.conceptId) ?? 0) + 1);
   for (const row of studyRows) {
+    directCaseCounts.set(row.conceptId, (directCaseCounts.get(row.conceptId) ?? 0) + 1);
     const current = directCasesByTopic.get(row.conceptId) ?? [];
     current.push({ id: row.id, title: row.title });
     directCasesByTopic.set(row.conceptId, current);
@@ -94,7 +82,6 @@ export async function listTaxonomyLibrary(
   }
   for (const row of questionRows) questionCounts.set(row.conceptId, (questionCounts.get(row.conceptId) ?? 0) + 1);
 
-  const search = cleanText(filters.search).toLocaleLowerCase();
   return conceptRows
     .map((concept) => {
       const breadcrumb = conceptBreadcrumb(concept.id, conceptRows as TaxonomyNode[]).map((item) => ({
@@ -118,8 +105,37 @@ export async function listTaxonomyLibrary(
         activeSharedQuestionCount: concept.isActive ? (questionCounts.get(concept.id) ?? 0) : 0
       };
     })
-    .filter((concept) => !search || concept.name.toLocaleLowerCase().includes(search) || concept.breadcrumbLabel.toLocaleLowerCase().includes(search))
     .sort((left, right) => left.breadcrumbLabel.localeCompare(right.breadcrumbLabel) || left.id.localeCompare(right.id));
+}
+
+function filterTaxonomyLibraryRows(
+  rows: Awaited<ReturnType<typeof loadTaxonomyLibraryRows>>,
+  filters: { search?: string } = {}
+) {
+  const search = cleanText(filters.search).toLocaleLowerCase();
+  if (!search) return rows;
+  return rows.filter((concept) =>
+    concept.name.toLocaleLowerCase().includes(search)
+    || concept.breadcrumbLabel.toLocaleLowerCase().includes(search)
+  );
+}
+
+export async function listTaxonomyLibrary(
+  db: import('./index.js').LearningDb,
+  filters: { search?: string } = {}
+) {
+  return filterTaxonomyLibraryRows(await loadTaxonomyLibraryRows(db), filters);
+}
+
+export async function getTaxonomyWorkspaceLibrary(
+  db: import('./index.js').LearningDb,
+  filters: { search?: string } = {}
+) {
+  const hierarchyOptions = await loadTaxonomyLibraryRows(db);
+  return {
+    topics: filterTaxonomyLibraryRows(hierarchyOptions, filters),
+    hierarchyOptions
+  };
 }
 
 export async function getTaxonomyCoverageReport(db: import('./index.js').LearningDb) {
