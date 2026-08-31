@@ -9,12 +9,12 @@
 
 const COMPLETED_RECORD = /^COMPLETED (\d+) FILES (\d+) ERRORS (\d+) WARNINGS (\d+) FILES_WITH_PROBLEMS$/;
 
-/** @param {unknown} value */
+/** @param {unknown} value @returns {number | null} */
 function nonNegativeInteger(value) {
-  return Number.isInteger(value) && value >= 0 ? value : null;
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : null;
 }
 
-/** @param {unknown} value */
+/** @param {unknown} value @returns {number | null} */
 function oneBasedCoordinate(value) {
   const coordinate = nonNegativeInteger(value);
   return coordinate === null ? null : coordinate + 1;
