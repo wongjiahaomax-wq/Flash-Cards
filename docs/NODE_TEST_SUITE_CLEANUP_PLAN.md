@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, Checkpoint 4 source-contract consolidation/review complete, and all five bounded Checkpoint 5 behavioral rewrites implemented in Draft PR #115: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety
+Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, Checkpoint 4 source-contract consolidation/review complete, all five bounded Checkpoint 5 behavioral rewrites complete, and Checkpoint 6 controlled runtime measurement/profiling complete in Draft PR #115
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, Checkpoint 4's five bounded corrected source-contract consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review, and all five bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety. Checkpoints 4 and 5 are complete for their audited inventories. Profiling/measurement, any additional exclusions, and the remaining durable-guidance work are still pending.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, Checkpoint 4's five bounded corrected source-contract consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review, and all five bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety. Checkpoints 4 and 5 are complete for their audited inventories. Checkpoint 6 controlled measurement/profiling is complete. No additional exclusion was authorized; any remaining durable-guidance work remains separate later work.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -1512,7 +1512,7 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, completed Checkpoint 4 source-contract consolidation/review, and all five bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety. Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review; Checkpoint 5 is complete.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, completed Checkpoint 4 source-contract consolidation/review, and all five bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety. Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review; Checkpoint 5 is complete; Checkpoint 6 controlled runtime measurement/profiling is also complete, with no seventh exclusion authorized.
 
 ### Completed fixture, selection, and UX-contract foundation
 
@@ -1539,7 +1539,15 @@ Checkpoint 3, Checkpoint 4 and Checkpoint 5 are complete for their audited targe
 
 ### Profiling
 
-Checkpoint 6 has not started. The observed 2D implementation runs and all Checkpoint 5 validation runs—including CI #1366 and #1370—are not sufficient for a performance claim. Additional exclusions require separate measured justification.
+Checkpoint 6 is complete. Four corrected comparable complete/fast samples on fixed measurement head `9cb814a0d5c280a49f98b92b1b7203a86f8562a8` produced a complete `npm test` median of **19.8520 s** and a fast `npm run test:fast` median of **19.1747 s**, an absolute median difference of **0.6773 s** or **3.4117469272617313%**.
+
+The required **20% materiality gate was not met**. The result therefore does not justify a seventh exclusion and must not be described as a material fast-tier performance win. The measured head retained **110 maintained / 104 selected / 6 excluded** files and executed **664 complete / 629 fast** tests.
+
+On the same controlled attempts, `npm run check` had a **17.7247464 s** median. Repository-owned Draft validation had a **37.99135485 s** median, but those Draft samples ran after the temporary complete/fast measurement activity in each job and are therefore preconditioned stage-composition evidence rather than a pristine cold-start Draft-latency baseline.
+
+Because the materiality gate failed, three complete-suite file profiles were collected on profiling head `aefaa303722528ca52707a700b82cb80a1416d50`. The six already-specialized files together contributed only about **348.2 ms** median summed file time, while the highest-cost ordinary files were distributed across DB-heavy behavior/integration suites. The higher-value future performance candidates are benchmarked reduction of repeated current-schema/SQLite fixture setup and runner/file-fragmentation overhead while preserving isolation and complete coverage.
+
+The temporary Checkpoint 6 profiler/reporter are measurement scaffolding only and are removed before handoff. Checkpoint 7 remains pending and is outside this checkpoint.
 
 ## 7. Review gates
 
@@ -1579,7 +1587,7 @@ Specific gates:
 
 **Checkpoint 5, fifth bounded reusable-image safety tranche:** first rewrite head `1d42ac9cd60c84ec8f8e2f30ca0ef2713733b048` passed Draft CI #1369 with 110 maintained / 104 selected / 6 excluded, 629/629 fast tests, 0 Svelte errors/5 existing warnings, all specialized checks, and runtime-smoke #196. Final self-review added scoped create/save route delegation and direct current-schema D1 trigger execution for Preview-backed reusable Questions and option/Question Asset mismatch. Hardened test-only head `1b3c124ffc3b81c083e6a1da48ba5d021505c4ec` passed Draft CI #1370 with 110 maintained / 104 selected / 6 excluded, 629/629 fast tests, 0 Svelte errors/5 existing warnings, ECG 6/6, taxonomy 3/3, slide-review 23/23 and slide-review build; runtime-smoke #197 passed. Final completion requires the same repository-owned validation on the exact documentation-reconciled head. This completes the Checkpoint 5 implementation inventory; do not begin Checkpoint 6 profiling as part of this gate.
 
-**Checkpoint 6:** runtime claim backed by comparable CI medians.
+**Checkpoint 6:** satisfied for controlled measurement/profiling. Four corrected comparable samples establish complete median 19.8520 s versus fast median 19.1747 s, a 3.4117469272617313% reduction below the 20% materiality gate. Profiling shows the six exclusions are cheap, no seventh exclusion is authorized, and future optimization should benchmark ordinary DB-fixture/setup and runner-fragmentation costs without weakening coverage. Final handoff still requires green repository-owned validation on the exact cleanup head.
 
 ## 8. Final target state
 

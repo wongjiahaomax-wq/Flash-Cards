@@ -129,7 +129,7 @@ npm run test:fast
 
 A first instrumentation experiment on head `547ea9898b526703e2c35b7723720fc2cec5e912` / CI #1377 injected reporter identity into the complete-suite environment. That changed the environment observed by `tests/test-selection.test.js` and produced an instrumentation-caused assertion failure inside the profiling copy of `npm test`. Ordinary Draft validation still passed, but **all profiling data from that defective head was invalidated and excluded**. The profiler was corrected before the comparable sample set began.
 
-The actual Draft validation measurements below come from the unchanged repository-owned `validate-ci.mjs` path on those same four corrected attempts. Dependency installation is not included in any Node-stage, Svelte-stage or Draft-validation number.
+The actual Draft validation measurements below come from the unchanged repository-owned `validate-ci.mjs` path on those same four corrected attempts. Dependency installation is not included in any Node-stage, Svelte-stage or Draft-validation number. Because the temporary complete/fast measurement ran earlier in each of those same CI attempts, these Draft-validation samples are preconditioned rather than pristine cold-start latency measurements. They remain useful controlled stage-composition evidence on the fixed measurement head, but the 37.99135485 s median should not be presented as a clean production-Draft latency baseline. The complete-vs-fast 3.4117469272617313% conclusion comes from the separately alternated canonical complete/fast samples above.
 
 ### Raw complete vs fast Node samples
 
@@ -140,10 +140,10 @@ The actual Draft validation measurements below come from the unchanged repositor
 | 3 | 20.0276 s | 664 | 19.3338 s | 629 |
 | 4 | 21.5357 s | 664 | 21.6795 s | 629 |
 
-Complete median: **19.8520 s**  
+Complete median: **19.8520 s**
 Complete range: **15.8644–21.5357 s** (5.6713 s span)
 
-Fast median: **19.1747 s**  
+Fast median: **19.1747 s**
 Fast range: **15.2971–21.6795 s** (6.3824 s span)
 
 Absolute median difference:
@@ -170,10 +170,10 @@ Classification: **materiality target not met**. The required gate is at least 20
 | 3 | 17.6922245 s | 38.1274226 s |
 | 4 | 20.0243043 s | 42.0176252 s |
 
-`npm run check` median: **17.7247464 s**  
+`npm run check` median: **17.7247464 s**
 `npm run check` range: **14.2731525–20.0243043 s**
 
-Actual Draft validation median: **37.99135485 s**  
+Actual Draft validation median: **37.99135485 s**
 Actual Draft validation range: **30.5296752–42.0176252 s**
 
 The actual Draft fast-Node group itself had a median of **19.23302865 s**, consistent with the standalone fast measurement. The current PR feature diff also required ECG Asset-rename operator tests, production-taxonomy operator tests, slide-review tests and slide-review build. Their combined measured Draft contribution was 0.8179377, 0.9265895, 1.0178534 and 1.0405239 s, median **0.97222145 s**. Those specialized checks are related-change ownership cost, not generic fast-suite overhead.
@@ -194,7 +194,7 @@ The six omissions therefore removed 35 test cases from unrelated Draft generic s
 
 ### Profiling because the 20% target failed
 
-A separate measurement-only profiler on head `aefaa303722528ca52707a700b82cb80a1416d50` / CI #1380 (`33343119928`) ran three complete `npm test` samples with a temporary reporter that consumed Node's per-file `test:summary` events. The profiler did not gate CI, change test selection, or replace ordinary repository validation. CI #1380 and Wrangler runtime-smoke #206 both passed.
+A separate measurement-only profiler on head `aefaa303722528ca52707a700b82cb80a1416d50` / CI #1380 (`33343119928`) ran three complete `npm test` samples with a temporary reporter that consumed Node's per-file `test:summary` events. The profiler did not gate CI, change test selection, or replace ordinary repository validation. CI #1380 and Wrangler runtime-smoke #206 both passed. The temporary profiler and reporter were removed from ordinary CI after evidence capture; they are not part of the durable validation path.
 
 Per-run distribution:
 
