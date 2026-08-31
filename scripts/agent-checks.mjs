@@ -200,13 +200,16 @@ export function printCompactAgentChecksReport(report, baseDescription, untracked
   const duplicatesSpecializedCommand = (value) => report.specializedRequiredCommands.some((command) => value.includes(command));
   const compactIterationGuidance = report.iterationGuidance.filter((value) => !duplicatesSpecializedCommand(value));
   const compactCheckpointGuidance = report.checkpointGuidance.filter((value) => !duplicatesSpecializedCommand(value));
+  const handoffSections = report.specializedRequiredCommands.length
+    ? 'Required automated checks and Specialized required checks'
+    : 'Required automated checks';
 
   console.log(`Diff base: ${baseDescription}`);
   console.log(`Changed files: ${report.files.length}`);
   printSection('Affected areas', report.areas, '(none)');
   printSection('Iteration guidance', compactIterationGuidance, '(none)');
   printSection('Checkpoint guidance', compactCheckpointGuidance, '(none)');
-  console.log('\nHandoff: run every command under Required automated checks before final handoff/review.');
+  console.log(`\nHandoff: run every command under ${handoffSections} before final handoff/review.`);
   printSection('Required automated checks', ordinaryRequired, '(none)');
   if (report.specializedRequiredCommands.length) {
     printSection('Specialized required checks', report.specializedRequiredCommands);
