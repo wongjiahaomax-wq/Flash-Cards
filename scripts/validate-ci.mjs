@@ -138,12 +138,23 @@ export function githubSvelteDiagnosticAnnotation(diagnostic) {
  * The outer CI wrapper owns Svelte detail/status so there is one final summary.
  * Warnings are retained only in reliable completion counts and are never
  * promoted into CI_ERROR records or failure authority.
- * @param {{ diagnostics?: any[], completion?: { errors: number, warnings: number } | null } | null} parsed
+ *
+ * Successfully decoded errors are still useful when the machine stream is
+ * incomplete, but they must not suppress an explicit incompleteness record.
+ * @param {{ diagnostics?: any[], completion?: { errors: number, warnings: number } | null, malformedDiagnosticRecords?: number } | null} parsed
  * @param {number | null | undefined} status
  */
 export function formatSvelteFailureSummary(parsed, status) {
   const errors = (parsed?.diagnostics ?? []).filter((diagnostic) => diagnostic.severity === 'error');
   if (errors.length === 0 || status === 0) return null;
+
+  const malformedCount = Number.isInteger(parsed?.malformedDiagnosticRecords)
+    ? parsed.malformedDiagnosticRecords
+    : 0;
+  const completionMismatch = Boolean(
+    parsed?.completion && parsed.completion.errors !== errors.length,
+  );
+  const incomplete = malformedCount > 0 || completionMismatch;
 
   const lines = [];
   for (const diagnostic of errors) {
@@ -153,12 +164,26 @@ export function formatSvelteFailureSummary(parsed, status) {
   for (const diagnostic of errors) {
     lines.push(formatSvelteDiagnosticRecord(diagnostic));
   }
+  if (incomplete) {
+    const reasons = [];
+    if (malformedCount > 0) reasons.push(`malformedRecords=${malformedCount}`);
+    if (completionMismatch && parsed?.completion) {
+      reasons.push(`parsedErrors=${errors.length}`);
+      reasons.push(`reportedErrors=${parsed.completion.errors}`);
+    }
+    lines.push(
+      `CI_ERROR|check=svelte|message=${escapeAgentField(
+        `Structured Svelte diagnostics are incomplete (${reasons.join(', ')}); see the original svelte-check output.`,
+      )}`,
+    );
+  }
   lines.push('CI_REPRO|check=svelte|command=npm run check');
   const exit = Number.isInteger(status) ? `|exit=${status}` : '';
   const counts = parsed?.completion
     ? `|errors=${parsed.completion.errors}|warnings=${parsed.completion.warnings}`
     : '';
-  lines.push(`CI_STATUS|check=svelte|status=failed${exit}${counts}`);
+  const completeness = incomplete ? '|diagnostics=incomplete' : '';
+  lines.push(`CI_STATUS|check=svelte|status=failed${exit}${counts}${completeness}`);
   return lines.join('\n');
 }
 
