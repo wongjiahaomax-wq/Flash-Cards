@@ -5,6 +5,7 @@ import {
   VALIDATION_CHECK_ORDER,
   VALIDATION_MODE_CHECK_IDS,
 } from './validation-contract.mjs';
+import { isMaintainedNodeTestPath } from './test-selection.mjs';
 
 const ORDINARY_FULL_CHECKS = VALIDATION_MODE_CHECK_IDS.full;
 
@@ -256,7 +257,7 @@ function uniqueInCheckOrder(values) {
 
 /** @param {string[]} files */
 function changedTestIterationGuidance(files) {
-  const tests = files.filter((file) => /^(?:test|tests)\/.+\.test\.(?:js|mjs|cjs|ts)$/.test(file));
+  const tests = files.filter(isMaintainedNodeTestPath);
   if (tests.length === 0) return [];
   if (tests.length <= 3) return tests.map((file) => `Iteration: run changed test directly: node --test ${file}`);
   return [`Iteration: run the ${tests.length} changed test files directly before broad Node-suite validation.`];
