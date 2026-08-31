@@ -211,7 +211,8 @@ async function createReviewForCase({
     rating: null
   });
   /** @type {[any, ...any[]]} */
-  const writes = /** @type {[any, ...any[]]} */ ([...preReviewWrites, reviewInsert]);
+  const writes = [reviewInsert];
+  if (preReviewWrites.length > 0) writes.unshift(...preReviewWrites);
   writes.push(db.insert(reviewQuestions).values(pickedQuestions.map((question) => ({
     id: newId(),
     reviewId,
