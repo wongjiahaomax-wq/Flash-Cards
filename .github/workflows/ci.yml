@@ -70,17 +70,14 @@ jobs:
               'Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review; Checkpoint 5 is complete; Checkpoint 6 controlled runtime measurement/profiling is also complete, with no seventh exclusion authorized.',
               'plan implementation strategy summary',
           )
-          profiling_replacement = '''### Profiling
-
-Checkpoint 6 is complete. Four corrected comparable complete/fast samples on fixed measurement head `9cb814a0d5c280a49f98b92b1b7203a86f8562a8` produced a complete `npm test` median of **19.8520 s** and a fast `npm run test:fast` median of **19.1747 s**, an absolute median difference of **0.6773 s** or **3.4117469272617313%**.
-
-The required **20% materiality gate was not met**. The result therefore does not justify a seventh exclusion and must not be described as a material fast-tier performance win. The measured head retained **110 maintained / 104 selected / 6 excluded** files and executed **664 complete / 629 fast** tests.
-
-On the same controlled attempts, `npm run check` had a **17.7247464 s** median. Repository-owned Draft validation had a **37.99135485 s** median, but those Draft samples ran after the temporary complete/fast measurement activity in each job and are therefore preconditioned stage-composition evidence rather than a pristine cold-start Draft-latency baseline.
-
-Because the materiality gate failed, three complete-suite file profiles were collected on profiling head `aefaa303722528ca52707a700b82cb80a1416d50`. The six already-specialized files together contributed only about **348.2 ms** median summed file time, while the highest-cost ordinary files were distributed across DB-heavy behavior/integration suites. The higher-value future performance candidates are benchmarked reduction of repeated current-schema/SQLite fixture setup and runner/file-fragmentation overhead while preserving isolation and complete coverage.
-
-The temporary Checkpoint 6 profiler/reporter are measurement scaffolding only and are removed before handoff. Checkpoint 7 remains pending and is outside this checkpoint.'''
+          profiling_replacement = (
+              '### Profiling\n\n'
+              'Checkpoint 6 is complete. Four corrected comparable complete/fast samples on fixed measurement head `9cb814a0d5c280a49f98b92b1b7203a86f8562a8` produced a complete `npm test` median of **19.8520 s** and a fast `npm run test:fast` median of **19.1747 s**, an absolute median difference of **0.6773 s** or **3.4117469272617313%**.\n\n'
+              'The required **20% materiality gate was not met**. The result therefore does not justify a seventh exclusion and must not be described as a material fast-tier performance win. The measured head retained **110 maintained / 104 selected / 6 excluded** files and executed **664 complete / 629 fast** tests.\n\n'
+              'On the same controlled attempts, `npm run check` had a **17.7247464 s** median. Repository-owned Draft validation had a **37.99135485 s** median, but those Draft samples ran after the temporary complete/fast measurement activity in each job and are therefore preconditioned stage-composition evidence rather than a pristine cold-start Draft-latency baseline.\n\n'
+              'Because the materiality gate failed, three complete-suite file profiles were collected on profiling head `aefaa303722528ca52707a700b82cb80a1416d50`. The six already-specialized files together contributed only about **348.2 ms** median summed file time, while the highest-cost ordinary files were distributed across DB-heavy behavior/integration suites. The higher-value future performance candidates are benchmarked reduction of repeated current-schema/SQLite fixture setup and runner/file-fragmentation overhead while preserving isolation and complete coverage.\n\n'
+              'The temporary Checkpoint 6 profiler/reporter are measurement scaffolding only and are removed before handoff. Checkpoint 7 remains pending and is outside this checkpoint.'
+          )
           plan, count = re.subn(
               r'### Profiling\n\n.*?\n\n## 7\. Review gates',
               profiling_replacement + '\n\n## 7. Review gates',
