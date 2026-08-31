@@ -11,12 +11,18 @@
   /** @typedef {{ id: string, name: string }} SystemOption */
   /** @typedef {{ selectedCase: TopicsCase, concepts: ConceptOption[], systems?: SystemOption[], tagOptions?: TagOption[], primaryTopic?: CaseTopic | null, previewMode: boolean, editorLayout: CaseEditorLayout }} TopicsProps */
   let { selectedCase, concepts, systems = [], tagOptions = [], primaryTopic, previewMode, editorLayout } = $props();
-  /** @param {CaseTopic | undefined | null} topic */
+  const UNASSIGNED_SYSTEM_CONTEXT = '__unassigned__';
+
+  /** @param {CaseTopic | ConceptOption | undefined | null} topic */
   function systemIdFromTopic(topic) {
     return topic?.breadcrumb?.find((/** @param {BreadcrumbItem} item */ item) => item.kind === 'system')?.id ?? '';
   }
+
   let currentSystemId = $derived(systemIdFromTopic(primaryTopic));
-  const topicGroups = $derived(groupTopics(concepts, primaryTopic?.id));
+  let replacementSystemId = $state(systemIdFromTopic(primaryTopic) || UNASSIGNED_SYSTEM_CONTEXT);
+  let replacementTopicSearch = $state('');
+  let replacementTopicId = $state('');
+  const replacementTopics = $derived(filterTopicsForSystem(concepts, primaryTopic?.id, replacementSystemId));
 
   /** @param {CaseTopic[]} topics */
   function inactivePrimaryTopic(topics) {
@@ -40,19 +46,30 @@
     return path.join(' → ');
   }
 
-  /** @param {ConceptOption[]} topicOptions @param {string | undefined} currentTopicId */
-  function groupTopics(topicOptions, currentTopicId) {
-    /** @type {Map<string, { label: string, topics: ConceptOption[] }>} */
-    const groups = new Map();
-    for (const concept of topicOptions) {
-      if (concept.id === currentTopicId) continue;
-      const system = concept.breadcrumb?.find((item) => item.kind === 'system');
-      const label = system?.name ?? 'Unassigned Topics';
-      const group = groups.get(label) ?? { label, topics: [] };
-      group.topics.push(concept);
-      groups.set(label, group);
-    }
-    return [...groups.values()];
+  /** @param {ConceptOption[]} topicOptions @param {string | undefined} currentTopicId @param {string} systemContext */
+  function filterTopicsForSystem(topicOptions, currentTopicId, systemContext) {
+    return topicOptions
+      .filter((concept) => {
+        if (concept.id === currentTopicId) return false;
+        const systemId = systemIdFromTopic(concept);
+        return systemContext === UNASSIGNED_SYSTEM_CONTEXT ? systemId === '' : systemId === systemContext;
+      })
+      .sort((left, right) => topicOptionLabel(left).localeCompare(topicOptionLabel(right)) || left.id.localeCompare(right.id));
+  }
+
+  /** @param {string} nextSystemId */
+  function changeReplacementSystem(nextSystemId) {
+    replacementSystemId = nextSystemId;
+    replacementTopicSearch = '';
+    replacementTopicId = '';
+  }
+
+  /** @param {string} nextSearch */
+  function updateReplacementTopic(nextSearch) {
+    replacementTopicSearch = nextSearch;
+    const normalizedSearch = nextSearch.trim().toLocaleLowerCase();
+    const exactMatch = replacementTopics.find((topic) => topicOptionLabel(topic).toLocaleLowerCase() === normalizedSearch);
+    replacementTopicId = exactMatch?.id ?? '';
   }
 </script>
 
@@ -115,8 +132,30 @@
 
       <form method="POST" action="?/promoteTopic" class="topic-primary-form form-row">
         <input type="hidden" name="case_id" value={selectedCase.case.id} />
-        <label class="topic-select-label">Change Primary Topic<select name="concept_id" required><option value="" disabled selected>Select an active Topic</option>{#each topicGroups as group}<optgroup label={group.label}>{#each group.topics as concept}<option value={concept.id}>{topicOptionLabel(concept)}</option>{/each}</optgroup>{/each}</select></label>
-        <button class="button primary" type="submit">Save Primary Topic</button>
+        <input type="hidden" name="concept_id" value={replacementTopicId} />
+        <div class="topic-picker-fields">
+          <label>System
+            <select value={replacementSystemId} onchange={(event) => changeReplacementSystem(event.currentTarget.value)}>
+              <option value={UNASSIGNED_SYSTEM_CONTEXT}>Unassigned</option>
+              {#each systems as system}<option value={system.id}>{system.name}</option>{/each}
+            </select>
+          </label>
+          <label>Topic
+            <input
+              type="search"
+              list={`primary-topic-options-${selectedCase.case.id}`}
+              value={replacementTopicSearch}
+              placeholder="Search or select a Topic"
+              autocomplete="off"
+              required
+              oninput={(event) => updateReplacementTopic(event.currentTarget.value)}
+            />
+          </label>
+          <datalist id={`primary-topic-options-${selectedCase.case.id}`}>
+            {#each replacementTopics as concept}<option value={topicOptionLabel(concept)}></option>{/each}
+          </datalist>
+        </div>
+        <button class="button primary" type="submit" disabled={!replacementTopicId}>Save Primary Topic</button>
       </form>
 
       {#if !previewMode}
@@ -221,6 +260,7 @@
 
   .form-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 0.55rem; width: 100%; }
   .form-row label { min-width: 0; }
+  .topic-picker-fields { display: grid; grid-template-columns: minmax(9.5rem, 0.42fr) minmax(0, 1fr); gap: 0.55rem; min-width: 0; }
   .secondary-section { display: grid; gap: 0.5rem; margin-top: 0.1rem; padding-top: 0.72rem; border-top: 1px solid #e4e7ec; }
 
   .tag-chips { display: flex; flex-wrap: wrap; gap: 0.4rem; }
@@ -236,6 +276,7 @@
 
   .button { display: inline-block; padding: 0.65rem 0.9rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; white-space: nowrap; }
   .button.primary { border-color: #172033; background: #172033; color: #fff; }
+  .button:disabled { cursor: not-allowed; opacity: 0.55; }
   label { display: grid; gap: 0.3rem; color: #344054; font-weight: 650; }
   input, select { width: 100%; box-sizing: border-box; padding: 0.62rem 0.7rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; }
   button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
@@ -252,6 +293,7 @@
   @media (max-width: 720px) {
     .taxonomy-context { align-items: flex-start; }
     .taxonomy-manage { white-space: normal; }
+    .topic-picker-fields { grid-template-columns: 1fr; }
   }
 
   @media (max-width: 560px) {
