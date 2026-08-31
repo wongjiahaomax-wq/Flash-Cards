@@ -1,6 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 
-import { AdminContentInputError, createCaseTopic, listActiveSystems, listAdminConcepts } from '$lib/server/db/admin-content.js';
+import { AdminContentInputError, createCaseTopic, listCaseEditorTaxonomyOptions } from '$lib/server/db/admin-content.js';
 import { createAssetFromUpload, AssetLibraryInputError } from '$lib/server/db/asset-library.js';
 import { AssetQuestionInputError, createAssetQuestion, optInAssetQuestion, optInFixedAssetQuestion, removeAssetQuestionOptIn, updateAssetQuestionAnswer } from '$lib/server/db/asset-questions.js';
 import { canManageCaseAssets, getAdminCaseData } from '$lib/server/db/case-assets.js';
@@ -9,6 +9,7 @@ import { listCaseQuestions } from '$lib/server/db/case-questions.js';
 import { listProductionCaseTags } from '$lib/server/db/case-tag-read.ts';
 import { AdminImageWorkflowInputError, attachAssetsToCase, bulkAddAssetsToStimulusGroup, listCaseImagePicker, updateStimulusOptionCaption, validateStimulusGroupTargetForNewAssets } from '$lib/server/db/admin-image-workflow.js';
 import { createDb } from '$lib/server/db/index.js';
+import { listActiveTagOptions } from '$lib/server/db/library-options.js';
 import { getAdminStimulusData, startStimulusGroupFromCaseAsset, StimulusGroupInputError } from '$lib/server/db/stimulus-groups.js';
 import { getTeachingImageUrl, MediaStorageLimitError } from '$lib/server/storage/media.js';
 import { assignPrimaryTopicToSystem, TaxonomyInputError } from '$lib/server/db/taxonomy-admin-write.ts';
@@ -29,9 +30,10 @@ export async function load({ locals, platform, params, url }) {
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { concepts: [], systems: [], status: null, removedQuestionPromptId: null, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
 
   const db = createDb(platform.env.DB);
-  const [concepts, systems, manager, questions, stimulusGroupsData] = await Promise.all([
-    listAdminConcepts(db), listActiveSystems(db), getAdminCaseData(db, params.caseId, { includeAvailable: false }), listCaseQuestions(db, params.caseId), getAdminStimulusData(db, params.caseId)
+  const [taxonomyOptions, tagOptions, manager, questions, stimulusGroupsData] = await Promise.all([
+    listCaseEditorTaxonomyOptions(db), listActiveTagOptions(db), getAdminCaseData(db, params.caseId, { includeAvailable: false }), listCaseQuestions(db, params.caseId), getAdminStimulusData(db, params.caseId)
   ]);
+  const { concepts, systems } = taxonomyOptions;
   if (!manager) return { concepts, systems, status: null, removedQuestionPromptId: null, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false };
 
   const stimulusGroups = stimulusGroupsData.map((group) => ({ ...group, options: group.options.map((option) => ({ ...option, imageUrl: option.assetIsActive ? getTeachingImageUrl(option.assetId) : null })) }));
@@ -51,7 +53,7 @@ export async function load({ locals, platform, params, url }) {
 
   return {
     concepts, systems, status: url.searchParams.get('status'), removedQuestionPromptId: url.searchParams.get('removed_question'), previewMode: false,
-    selectedCase: { ...manager, questions, stimulusGroups, reusableImageQuestions, caseTags, attached: manager.attached.map((asset) => ({ ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.assetId) : null })) },
+    selectedCase: { ...manager, questions, stimulusGroups, reusableImageQuestions, caseTags, tagOptions, attached: manager.attached.map((asset) => ({ ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.assetId) : null })) },
     imagePicker: { open: pickerOpen, ...pickerResults, targetGroupId: targetGroup?.id ?? null, targetGroupName: targetGroup?.name ?? null }
   };
 }
