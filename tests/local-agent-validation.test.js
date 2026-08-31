@@ -54,14 +54,23 @@ test('compact local validation changes presentation args without changing canoni
   );
 });
 
-test('Admin Svelte changes receive cheap iteration guidance while retaining the same handoff requirements', () => {
+test('Admin Svelte changes receive cheap specific guidance while retaining the same handoff requirements', () => {
   const report = classifyChangedFiles(['src/routes/admin/cases/+page.svelte']);
 
   assert.deepEqual(report.requiredChecks, ['diff', 'test', 'svelte', 'build']);
   assert.equal(report.iterationGuidance.some((line) => /presentation-only/.test(line) && /Vite HMR/.test(line)), true);
   assert.equal(report.iterationGuidance.some((line) => /component logic/.test(line) && /directly related test/.test(line)), true);
+  assert.equal(report.iterationGuidance.some((line) => /broad handoff suite/.test(line)), false);
   assert.equal(report.checkpointGuidance.some((line) => /npm run check/.test(line)), true);
-  assert.equal(report.checkpointGuidance.some((line) => /validate:fast -- --compact/.test(line)), true);
+  assert.equal(report.checkpointGuidance.some((line) => /after a coherent batch/.test(line)), false);
+});
+
+test('static assets keep checkpoint validation bounded to their actual build risk', () => {
+  const report = classifyChangedFiles(['static/favicon.svg']);
+
+  assert.deepEqual(report.requiredChecks, ['diff', 'build']);
+  assert.equal(report.checkpointGuidance.some((line) => /npm run build/.test(line)), true);
+  assert.equal(report.checkpointGuidance.some((line) => /validate:(?:fast|full)/.test(line)), false);
 });
 
 test('changed maintained tests get exact direct iteration commands from canonical maintained-test ownership', () => {
