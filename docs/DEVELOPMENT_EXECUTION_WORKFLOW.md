@@ -6,7 +6,7 @@
 
 _Status: current development/operator workflow._
 
-_Last reviewed: 29 August 2026._
+_Last reviewed: 31 August 2026._
 
 ## Purpose
 
@@ -286,9 +286,9 @@ identify requested work state
 → load only relevant authoritative context
 → inspect directly related implementation/tests
 → form a coherent implementation
-→ make coherent GitHub changes
-→ review complete branch/PR diff
-→ commit/push
+→ self-review intended changes
+→ make one coherent GitHub branch update where the active capabilities support it
+→ review the complete resulting branch/PR diff
 → inspect GitHub CI and specialized checks
 → make coherent follow-up fixes if required
 → leave draft PR as durable handover state
@@ -318,6 +318,41 @@ At deliberate principal/final review or handoff checkpoints, inspect the complet
 Do not repeatedly retrieve unchanged large evidence while the PR head is unchanged unless new information is genuinely required. Independent small reads already known to be necessary may be parallelized; do not parallel-fetch speculative large outputs. Prefer active/unresolved review threads and implicated patches over repeatedly loading complete historical review discussion.
 
 CI-specific retrieval semantics remain owned by `docs/CI_AGENT_DIAGNOSTICS.md`; follow its connector-first escalation rather than duplicating a competing Actions-log procedure here.
+
+### Remote GitHub write discipline
+
+Separate planning from branch mutation. For a coherent Remote GitHub implementation, prefer this sequence:
+
+```text
+inspect enough context
+→ form the coherent implementation
+→ self-review the intended changes
+→ mutate the branch coherently
+→ inspect the resulting complete diff
+→ inspect CI
+```
+
+Do not use sequential repository writes as a substitute for thinking through the complete change. Do not use GitHub Actions as an iterative debugger for intermediate partially implemented branch states when those states can reasonably be avoided.
+
+Keep simple writes simple. A single-file change may use the integration's ordinary file-update capability, and a trivial metadata-only PR change does not need low-level Git-data construction. Use the multi-file path only when it materially reduces sequential repository mutations or avoidable intermediate branch states.
+
+When one logical implementation spans multiple files and the active integration exposes the required Git-data capabilities, prefer one coherent Git commit constructed from the exact current feature-branch head:
+
+```text
+establish the exact feature-branch head
+→ create changed-file blobs
+→ create one tree based on that exact head's tree
+→ create one commit using that exact head as the intended parent
+→ move the feature branch once with a normal fast-forward update
+```
+
+The objective is one coherent implementation batch → one branch update → one normal PR synchronize/CI cycle, rather than one branch update and CI event per changed file. This is a write-efficiency preference, not a rule that every task must have exactly one commit. Multiple commits remain appropriate when they represent genuinely separate logical changes that improve reviewability.
+
+Exact-head safety is mandatory. Establish the feature-branch head immediately before constructing the commit, use that exact head as the intended parent/base, and move the branch only with a normal fast-forward update. Never force-update the feature branch merely to make a batched write succeed. If the branch moved concurrently, stop using the stale parent, inspect the new state, and reconcile normally before constructing another commit. When the task explicitly targets an existing PR or branch, preserve that existing work state and its intended base instead of rebuilding the work from `main`.
+
+After the branch update, inspect the current PR/head state, inspect the complete intended base → current head change, verify that every intended file landed correctly, and apply the existing final-review and validation requirements normally. An atomic write is not evidence that the implementation is correct, and it does not replace GitHub CI/check inspection.
+
+This runbook owns the detailed Remote GitHub write procedure. Keep root agent guidance and task-routing documentation at the concise policy/routing level rather than duplicating these Git-data steps into another competing execution workflow.
 
 GitHub API/integration access has a higher round-trip cost than a local filesystem. Inspect sufficient context before editing, avoid repeatedly fetching the same files unnecessarily, form the implementation before speculative writes, batch related changes where practical, and use logical commits rather than one commit per file. Multiple logical commits are appropriate when they genuinely improve reviewability.
 
