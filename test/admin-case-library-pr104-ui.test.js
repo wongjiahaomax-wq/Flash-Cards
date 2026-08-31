@@ -21,6 +21,11 @@ test('Case Library keeps deliberate search and native browser state restoration'
   assert.match(filterPickerSource, /onblur=\{restoreCommittedSelection\}/);
   assert.doesNotMatch(filterPickerSource, /function updateQuery\([\s\S]{0,180}value = '';/, 'typing must not replace the committed taxonomy ID');
   assert.match(filterPickerSource, /event\.key === 'Enter' && editing[\s\S]{0,180}event\.preventDefault\(\)[\s\S]{0,180}restoreCommittedSelection\(\)/, 'unresolved Enter must not submit visible text as though it were a selected ID');
+  assert.match(filterPickerSource, /if \(value && !selectedOption\) value = '';/, 'stale taxonomy IDs must not remain hidden in the combobox');
+  assert.match(filterPickerSource, /const navigableCount = matchingOptions\.length \+ 1;/, 'keyboard navigation must include the synthetic All option');
+  assert.match(filterPickerSource, /activeIndex === 0\) selectOption\(null\)/, 'keyboard users must be able to clear one taxonomy filter');
+  assert.match(filterPickerSource, /id=\{`\$\{inputId\}-option-all`\}/);
+  assert.match(serverSource, /caseFilters: pageData\.filters/, 'the page must render normalized lifecycle-valid taxonomy IDs');
   assert.match(pageSource, /shouldRestoreCaseLibraryState\(params, Boolean\(form\)\)/);
   assert.match(pageSource, /readCaseLibraryStoredState\(\)/);
   assert.match(pageSource, /window\.location\.replace\(href\)/);

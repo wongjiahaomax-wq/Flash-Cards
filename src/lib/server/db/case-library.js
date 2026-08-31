@@ -34,6 +34,22 @@ export function parseCaseLibraryPage(params) {
   return Number.isSafeInteger(raw) && raw > 0 ? raw : 1;
 }
 
+/**
+ * @param {TaxonomyRow[]} conceptRows
+ * @param {{ search: string, topicId?: string, systemId?: string, tagId: string, sort?: string, lifecycle?: 'active'|'inactive' }} filters
+ */
+function normalizeCaseLibraryTaxonomyFilters(conceptRows, filters) {
+  const topicIds = new Set(conceptRows.filter((concept) => concept.kind === 'topic').map((concept) => concept.id));
+  const systemIds = new Set(conceptRows.filter((concept) => concept.kind === 'system').map((concept) => concept.id));
+  const topicId = String(filters.topicId ?? '').trim();
+  const systemId = String(filters.systemId ?? '').trim();
+  return {
+    ...filters,
+    topicId: topicIds.has(topicId) ? topicId : '',
+    systemId: systemId === CASE_LIBRARY_UNASSIGNED_SYSTEM_ID || systemIds.has(systemId) ? systemId : ''
+  };
+}
+
 /** @param {TaxonomyRow[]} conceptRows @param {string | undefined} systemId @returns {CaseLibrarySystemFilter} */
 function resolveCaseLibrarySystemFilter(conceptRows, systemId) {
   const selectedId = String(systemId ?? '').trim();
@@ -191,10 +207,11 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
   const requestedPage = Math.max(1, Number(options.page ?? 1) || 1);
   const inactiveView = filters.lifecycle === 'inactive';
   const conceptRows = await listConceptTaxonomy(db, { activeOnly: !inactiveView });
+  const normalizedFilters = normalizeCaseLibraryTaxonomyFilters(conceptRows, filters);
   const topicOptions = inactiveView ? [] : caseLibraryTopicOptions(conceptRows);
   const topicParentOptions = inactiveView ? [] : caseLibraryTopicParentOptions(conceptRows);
-  const systemFilter = resolveCaseLibrarySystemFilter(conceptRows, filters.systemId);
-  const where = and(...caseLibraryConditions({ ...filters, lifecycle: inactiveView ? 'inactive' : 'active', taxonomyActiveOnly: !inactiveView, systemFilter }));
+  const systemFilter = resolveCaseLibrarySystemFilter(conceptRows, normalizedFilters.systemId);
+  const where = and(...caseLibraryConditions({ ...normalizedFilters, lifecycle: inactiveView ? 'inactive' : 'active', taxonomyActiveOnly: !inactiveView, systemFilter }));
   const countRows = await db.select({ count: sql`count(*)`.mapWith(Number) }).from(cases).where(where);
   const totalCount = Number(countRows[0]?.count ?? 0);
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
@@ -204,7 +221,7 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
   const tagSort = inactiveView
     ? sql`coalesce((select min(${tags.name}) from ${caseTags} inner join ${tags} on ${tags.id} = ${caseTags.tagId} where ${caseTags.caseId} = ${cases.id}), '')`
     : sql`coalesce((select min(${tags.name}) from ${caseTags} inner join ${tags} on ${tags.id} = ${caseTags.tagId} where ${caseTags.caseId} = ${cases.id} and ${tags.isActive} = true), '')`;
-  const sort = filters.sort ?? 'case-asc';
+  const sort = normalizedFilters.sort ?? 'case-asc';
   const systemIds = conceptRows.filter((concept) => concept.kind === 'system').map((concept) => concept.id);
   const systemSort = systemIds.length ? sql`coalesce((
     with recursive system_ancestors(id, parent_id, name) as (
@@ -245,6 +262,7 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
     topicParentOptions,
     topicFilterOptions: inactiveView ? caseLibraryTopicOptions(conceptRows) : topicOptions,
     systemFilterOptions: caseLibrarySystemFilterOptions(conceptRows),
+    filters: normalizedFilters,
     totalCount,
     totalPages,
     page,

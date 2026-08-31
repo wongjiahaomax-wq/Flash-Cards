@@ -42,7 +42,7 @@ function taxonomyReadCount(statements) {
   return statements.filter(({ sql }) => /from "concepts"/i.test(sql) && /description_md/i.test(sql) && /\bkind\b/i.test(sql) && /parent_id/i.test(sql)).length;
 }
 
-test('System filtering distinguishes real matches, Unassigned, and zero-match text', async () => {
+test('System filtering distinguishes real matches, Unassigned, and stale IDs', async () => {
   const fixture = createLearningDb();
   try {
     fixture.sqlite.exec(`
@@ -81,9 +81,9 @@ test('System filtering distinguishes real matches, Unassigned, and zero-match te
     assert.deepEqual(unassigned.rows.map((row) => row.id), ['case-free-direct', 'case-free-nested']);
     assert.ok(unassigned.rows.every((row) => row.systemName === null));
 
-    const noMatch = await getCaseLibraryPage(fixture.db, filters({ systemId: 'not-a-system' }), { pageSize: 20 });
-    assert.deepEqual(noMatch.rows, []);
-    assert.equal(noMatch.totalCount, 0);
+    const staleSystem = await getCaseLibraryPage(fixture.db, filters({ systemId: 'not-a-system' }), { pageSize: 20 });
+    assert.deepEqual(staleSystem.rows.map((row) => row.id), unrestricted.rows.map((row) => row.id));
+    assert.equal(staleSystem.filters.systemId, '');
 
     const composed = await getCaseLibraryPage(fixture.db, filters({
       search: 'Nested',
@@ -133,6 +133,53 @@ test('Case Library filters use Topic and System IDs, including named Unassigned 
     assert.deepEqual(namedSystem.rows.map((row) => row.id), ['case-named-system']);
     assert.deepEqual(unassigned.rows.map((row) => row.id), ['case-no-system']);
     assert.notDeepEqual(namedSystem.rows.map((row) => row.id), unassigned.rows.map((row) => row.id));
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('lifecycle-invalid and stale taxonomy IDs are cleared instead of becoming invisible active filters', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.exec(`
+      INSERT INTO concepts (id, name, slug, kind, parent_id, is_active) VALUES
+        ('system-active', 'Active System', 'active-system', 'system', NULL, 1),
+        ('topic-active', 'Active Topic', 'active-topic', 'topic', 'system-active', 1),
+        ('system-retired', 'Retired System', 'retired-system', 'system', NULL, 0),
+        ('topic-retired', 'Retired Topic', 'retired-topic', 'topic', 'system-retired', 0);
+      INSERT INTO cases (id, title, is_active) VALUES
+        ('case-active', 'Active Case', 1),
+        ('case-inactive', 'Inactive Case', 0);
+      INSERT INTO case_concepts (case_id, concept_id, role) VALUES
+        ('case-active', 'topic-active', 'primary'),
+        ('case-inactive', 'topic-retired', 'primary');
+    `);
+
+    const inactive = await getCaseLibraryPage(fixture.db, filters({
+      lifecycle: 'inactive',
+      topicId: 'topic-retired',
+      systemId: 'system-retired'
+    }), { pageSize: 20 });
+    assert.deepEqual(inactive.rows.map((row) => row.id), ['case-inactive']);
+    assert.equal(inactive.filters.topicId, 'topic-retired');
+    assert.equal(inactive.filters.systemId, 'system-retired');
+
+    const activeAfterLifecycleSwitch = await getCaseLibraryPage(fixture.db, filters({
+      lifecycle: 'active',
+      topicId: 'topic-retired',
+      systemId: 'system-retired'
+    }), { pageSize: 20 });
+    assert.deepEqual(activeAfterLifecycleSwitch.rows.map((row) => row.id), ['case-active']);
+    assert.equal(activeAfterLifecycleSwitch.filters.topicId, '');
+    assert.equal(activeAfterLifecycleSwitch.filters.systemId, '');
+
+    const stalePersistedIds = await getCaseLibraryPage(fixture.db, filters({
+      topicId: 'topic-that-no-longer-exists',
+      systemId: 'system-that-no-longer-exists'
+    }), { pageSize: 20 });
+    assert.deepEqual(stalePersistedIds.rows.map((row) => row.id), ['case-active']);
+    assert.equal(stalePersistedIds.filters.topicId, '');
+    assert.equal(stalePersistedIds.filters.systemId, '');
   } finally {
     fixture.sqlite.close();
   }

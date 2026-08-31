@@ -243,7 +243,7 @@ export async function load({ locals, platform, url, setHeaders }) {
     topicParents: pageData.topicParentOptions,
     filterTopics: pageData.topicFilterOptions,
     filterSystems: pageData.systemFilterOptions,
-    caseFilters: filters,
+    caseFilters: pageData.filters,
     cases: pageData.rows,
     pagination: {
       totalCount: pageData.totalCount,

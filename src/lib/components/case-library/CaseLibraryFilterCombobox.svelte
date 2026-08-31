@@ -40,6 +40,7 @@
   }));
 
   $effect(() => {
+    if (value && !selectedOption) value = '';
     if (!editing) query = selectedOption ? optionDisplayLabel(selectedOption) : '';
   });
 
@@ -54,6 +55,13 @@
 
   function resultId(option: SearchableTaxonomyOption) {
     return `${inputId}-option-${option.id}`;
+  }
+
+  function activeResultId() {
+    if (!open || activeIndex < 0) return undefined;
+    if (activeIndex === 0) return `${inputId}-option-all`;
+    const option = matchingOptions[activeIndex - 1];
+    return option ? resultId(option) : undefined;
   }
 
   function restoreCommittedSelection() {
@@ -84,23 +92,23 @@
       restoreCommittedSelection();
       return;
     }
+    const navigableCount = matchingOptions.length + 1;
     if (event.key === 'ArrowDown') {
-      if (!matchingOptions.length) return;
       event.preventDefault();
       open = true;
-      activeIndex = (activeIndex + 1) % matchingOptions.length;
+      activeIndex = (activeIndex + 1) % navigableCount;
       return;
     }
     if (event.key === 'ArrowUp') {
-      if (!matchingOptions.length) return;
       event.preventDefault();
       open = true;
-      activeIndex = activeIndex <= 0 ? matchingOptions.length - 1 : activeIndex - 1;
+      activeIndex = activeIndex <= 0 ? navigableCount - 1 : activeIndex - 1;
       return;
     }
     if (event.key === 'Enter' && open && activeIndex >= 0) {
       event.preventDefault();
-      selectOption(matchingOptions[activeIndex]);
+      if (activeIndex === 0) selectOption(null);
+      else selectOption(matchingOptions[activeIndex - 1]);
       return;
     }
     if (event.key === 'Enter' && editing) {
@@ -123,7 +131,7 @@
       aria-autocomplete="list"
       aria-expanded={open}
       aria-controls={`${inputId}-results`}
-      aria-activedescendant={open && activeIndex >= 0 ? resultId(matchingOptions[activeIndex]) : undefined}
+      aria-activedescendant={activeResultId()}
       disabled={disabled}
       onfocus={() => (open = true)}
       onblur={restoreCommittedSelection}
@@ -134,6 +142,7 @@
     {#if open}
       <div class="results" id={`${inputId}-results`} role="listbox">
         <button
+          id={`${inputId}-option-all`}
           type="button"
           class="option"
           role="option"
