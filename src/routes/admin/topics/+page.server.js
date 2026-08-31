@@ -6,7 +6,7 @@ import { applyStagedCasePrimaryTopics } from '$lib/server/db/case-primary-topic-
 import { applyStagedCaseTags } from '$lib/server/db/case-tag-staging.ts';
 import { createDb } from '$lib/server/db/index.js';
 import { listActiveTagOptions } from '$lib/server/db/library-options.js';
-import { getTaxonomyCoverageReport, listTaxonomyLibrary } from '$lib/server/db/taxonomy-admin-read.ts';
+import { getTaxonomyCoverageReport, getTaxonomyWorkspaceLibrary } from '$lib/server/db/taxonomy-admin-read.ts';
 import { applyStagedTaxonomyHierarchy } from '$lib/server/db/taxonomy-hierarchy-staging.ts';
 import {
   applyTaxonomyHierarchy,
@@ -76,17 +76,16 @@ export async function load({ platform, url }) {
   }
 
   const db = createDb(platform.env.DB);
-  const [topics, hierarchyOptions, coverage, tagOptions, caseTagAssignments] = await Promise.all([
-    listTaxonomyLibrary(db, filters),
-    filters.search ? listTaxonomyLibrary(db) : Promise.resolve(null),
+  const [taxonomyLibrary, coverage, tagOptions, caseTagAssignments] = await Promise.all([
+    getTaxonomyWorkspaceLibrary(db, filters),
     getTaxonomyCoverageReport(db),
     listActiveTagOptions(db),
     listCurrentCaseTagAssignments(db)
   ]);
 
   return {
-    topics,
-    hierarchyOptions: hierarchyOptions ?? topics,
+    topics: taxonomyLibrary.topics,
+    hierarchyOptions: taxonomyLibrary.hierarchyOptions,
     coverage,
     filters,
     selectedId,
