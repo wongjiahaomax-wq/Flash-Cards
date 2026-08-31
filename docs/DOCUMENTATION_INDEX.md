@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 28 August 2026_
+_Last reviewed: 31 August 2026_
 
 This index identifies the documents that describe current repository behavior, operational contracts, pending designs, and historical/implementation records.
 
@@ -107,6 +107,10 @@ Concrete content examples. Any historical Additional Study Topic example is supe
 ### `AGENT_TASK_MAP.md`
 
 Coding-agent routing guide for scoped context and validation.
+
+### `TESTING_AND_VALIDATION_GUIDANCE.md`
+
+Living test-authoring and validation authority. Read it when adding/rewriting tests, choosing current versus historical schema fixtures, changing fast/full or specialized validation ownership, or changing CI diagnostics. It owns the complete-suite/new-test defaults, exceptional exclusion requirements, invariant-owner hierarchy, and central change-aware specialization split. The PR #115 audit/cleanup plan remains historical implementation evidence rather than the normal future-authoring guide.
 
 ### `ENGINEERING_ARCHITECTURE_GUIDELINES.md`
 
@@ -238,7 +242,9 @@ The repository-installed/pinned Wrangler dependency and lockfile are the authori
 
 ## CI / validation authority
 
-PR #106 establishes:
+For current test-authoring and validation rules, start with `TESTING_AND_VALIDATION_GUIDANCE.md`. Detailed connector-readable CI failure semantics live in `CI_AGENT_DIAGNOSTICS.md`.
+
+Ordinary PR state remains:
 
 ```text
 Draft PR            → fast ordinary CI
@@ -253,17 +259,26 @@ The ordinary status/job remains `check`.
 Authority split:
 
 ```text
+scripts/agent-checks-lib.mjs
+→ one central changed-path classifier
+→ agent:checks advisory requirements
+→ ordinary-CI specialized requirements
+
 scripts/validation-contract.mjs
-→ fast/full check composition
+→ named checks
+→ fast/full composition
+→ explicit satisfaction/deduplication
 
 scripts/validate-ci.mjs
-→ CI runner/mode/diagnostics
+→ CI execution wrapper + diagnostics
 
 .github/workflows/ci.yml
-→ PR event state + concurrency + job orchestration
+→ PR event state + concurrency + job orchestration only
 ```
 
-Do not duplicate the static test list into task prompts. Use root `AGENTS.md`, `AGENT_TASK_MAP.md`, and repository commands.
+`agent:checks` is advisory when run locally; its output is not evidence that a check executed. Ordinary CI consumes the centrally classified specialized subset for the actual PR diff. Workflow YAML must not grow a second path classifier or independent validation command list.
+
+Do not duplicate the static test list into task prompts. Use root `AGENTS.md`, `AGENT_TASK_MAP.md`, `TESTING_AND_VALIDATION_GUIDANCE.md`, and repository commands.
 
 ## Historical / superseded records
 

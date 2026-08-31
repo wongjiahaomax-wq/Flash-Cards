@@ -1,10 +1,10 @@
 # Node Test Suite Cleanup Plan
 
-Status: implementation plan active / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, Checkpoint 4 source-contract consolidation/review complete, all five bounded Checkpoint 5 behavioral rewrites complete, and Checkpoint 6 controlled runtime measurement/profiling complete in Draft PR #115
+Status: implementation plan complete / Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D safe fast-test exclusions, Checkpoint 3 intentional UX regression review, Checkpoint 4 source-contract consolidation/review, all five bounded Checkpoint 5 behavioral rewrites, Checkpoint 6 controlled runtime measurement/profiling, and Checkpoint 7 durable authoring/validation guidance complete in Draft PR #115
 
 This document is the implementation contract that follows `docs/TEST_SUITE_AUDIT.md`.
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, Checkpoint 4's five bounded corrected source-contract consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review, and all five bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety. Checkpoints 4 and 5 are complete for their audited inventories. Checkpoint 6 controlled measurement/profiling is complete. No additional exclusion was authorized; any remaining durable-guidance work remains separate later work.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six specialized fast-test exclusions, Checkpoint 3 review and retention of the two intentional UX regression contracts, Checkpoint 4's five bounded corrected source-contract consolidation tranches plus the explicit Stimulus Family façade `RETAIN` review, all five bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety, Checkpoint 6 controlled measurement/profiling, and Checkpoint 7 durable testing/validation guidance. Checkpoints 4 and 5 are complete for their audited inventories. Checkpoint 6 is complete and authorized no additional exclusion. Checkpoint 7 is documentation/guidance-only and routes future authors to `docs/TESTING_AND_VALIDATION_GUIDANCE.md` rather than making this historical implementation plan the normal authoring authority.
 
 Checkpoint 0's compact CI diagnostics were implemented separately on current `main` by merged PR #117. They are part of the current repository baseline, not implementation performed by PR #115.
 
@@ -1452,43 +1452,59 @@ Any new exclusion requires:
 
 ## Checkpoint 7 — Durable authoring and validation guidance
 
-**Status: pending apart from this plan/audit status reconciliation.**
+**Status: implemented in Draft PR #115.**
 
-Update repository guidance so future tests follow the new architecture.
+### Durable authority and routing
 
-Document:
+The living future-authoring authority is now:
+
+```text
+docs/TESTING_AND_VALIDATION_GUIDANCE.md
+```
+
+It is routed through `docs/DOCUMENTATION_INDEX.md` and `docs/AGENT_TASK_MAP.md`, with concise scoped reinforcement in `scripts/AGENTS.md`, `.github/AGENTS.md`, and `src/lib/server/db/AGENTS.md`. This implementation plan and `docs/TEST_SUITE_AUDIT.md` remain historical implementation/evidence records rather than competing authoring authorities.
+
+The guide records:
 
 ### Test placement
 
-- `npm test` is complete;
-- new ordinary tests default to fast;
-- specialized exclusion requires explicit ownership and CI path coverage.
+- `npm test` is the canonical complete maintained `node --test` suite and must not become a subset;
+- new ordinary maintained Node tests enter Draft fast selection automatically through exclusion-based discovery;
+- specialized exclusion is exceptional and requires a clear owner, a repository-owned named check, complete central changed-path ownership, ordinary-CI execution of that ownership, focused contract proof, and continued complete-suite inclusion;
+- the six existing exclusions are not a general precedent for expensive-looking tests;
+- Checkpoint 6's 3.4117469272617313% median Node-stage reduction did not meet the 20% materiality gate and authorized no seventh exclusion.
 
 ### Schema fixtures
 
-- current app tests -> current schema;
-- migration tests -> historical schema allowed;
-- historical data state != historical runtime schema.
+- current application/runtime tests use the current supported schema, preferably the repository-owned current-schema bootstrap or an equally current purpose-built fixture;
+- historical schemas are deliberate fixtures for migration/upgrade/sequencing/preservation behavior;
+- historical or edge data states that remain representable today use the current schema and construct the historical state as data;
+- stale fixtures do not justify restoring current-runtime missing-table/missing-column probing or fallback behavior;
+- migration-before-runtime deployment sequencing remains explicit.
 
 ### Contract hierarchy
 
-- behavior first;
-- UI reachability/integration remains a separate invariant where applicable;
-- architecture/config source test when structure itself matters;
-- raw implementation source lock only when justified and reviewed.
+- prefer the strongest cheap practical owner: domain/helper, then server/action/query, then practical rendered/component behavior, then focused source/data-flow/architecture ownership, with raw implementation-text locks last;
+- domain behavior does not automatically replace distinct UI reachability, integration wiring, information architecture, semantic vocabulary, layout, deployment/configuration, or dependency-direction invariants;
+- source-reading is not categorized as a defect: source/configuration contracts remain legitimate when structure itself is the protected product/architecture/operational contract.
 
 ### CI diagnostics
 
-- passing output compact;
-- failures visible near end;
-- structured reporter events, not parsing unstable human text.
+- `npm test` remains complete while CI presentation may wrap it;
+- structured `node:test` events, compact successful output, prominent end-of-run failures, useful failure details, connector-readable reproduction/diagnostic records, and GitHub annotations remain the contract;
+- unstable human TAP/spec/dot parsing and hundreds of success records remain prohibited;
+- detailed operational semantics continue to live only in `docs/CI_AGENT_DIAGNOSTICS.md`.
 
 ### Change-aware specialization
 
-- path rules live in one central authority;
-- `agent:checks` reports them;
-- ordinary CI executes them;
-- workflow YAML does not duplicate them.
+- `scripts/agent-checks-lib.mjs` remains the single changed-path classifier;
+- local `agent:checks` is advisory and reports requirements but is not evidence that they executed;
+- ordinary CI consumes the specialized required subset from that same classifier;
+- `scripts/validation-contract.mjs` owns named checks, fast/full composition, ordering, and explicit satisfaction/deduplication;
+- `.github/workflows/ci.yml` remains orchestration-only and must not grow an independent path classifier or satisfaction rules;
+- complete `npm test` may satisfy narrower specialized Node checks only when the shared validation contract explicitly records that relationship.
+
+No executable validation, test-selection, application, schema, migration, workflow, or production-resource behavior changed in Checkpoint 7.
 
 ---
 
@@ -1512,7 +1528,7 @@ Broad `npm run check` remains in fast/full.
 
 ## 6. Implementation strategy after the completed PR #115 checkpoints
 
-PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, completed Checkpoint 4 source-contract consolidation/review, and all five bounded Checkpoint 5 behavioral-contract rewrites: Case-editor responsive, Case Images, Stimulus curation, performance/read-model, and reusable-image safety. Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review; Checkpoint 5 is complete; Checkpoint 6 controlled runtime measurement/profiling is also complete, with no seventh exclusion authorized.
+PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoint 2A fast-test selection infrastructure, Checkpoint 2B change-aware specialized CI, Checkpoint 2C named production-operator validation ownership, Checkpoint 2D activation of exactly six safe specialized exclusions including the independent-review correction to slide-review production dependency ownership, Checkpoint 3 explicit retention of the two intentional UX regression contracts after stronger-owner review plus the independent-review hardening of the horizontal-overflow owner, completed Checkpoint 4 source-contract consolidation/review, all five bounded Checkpoint 5 behavioral-contract rewrites, Checkpoint 6 controlled runtime measurement/profiling, and Checkpoint 7 durable testing/validation authoring guidance. Checkpoint 4 comprises five bounded consolidation tranches plus the separate explicit Stimulus Family façade retain review; Checkpoint 5 is complete; Checkpoint 6 authorized no seventh exclusion; Checkpoint 7 closes the guidance work without executable behavior changes.
 
 ### Completed fixture, selection, and UX-contract foundation
 
@@ -1528,6 +1544,7 @@ PR #115 now contains Checkpoint 1 current-schema fixture normalization, Checkpoi
 - Checkpoint 5 — the Stimulus curation controls family is implemented as the third bounded tranche. Initial pair mutation and deep Original/Alternative/Always-shown semantics remain under DB-backed owners; the rewritten UI contract executes the real visibility/selection conditions, scopes payload assertions to their forms and intent branches, requires actual submit controls, and now explicitly protects both reverse directions: Always shown → Alternative and Alternative → Always shown.
 - Checkpoint 5 — the performance/read-model family is implemented as the fourth bounded tranche. Raw helper/source-name ownership is removed from `performance-read-model.test.js`; the D1 fixture records executed SQL and bind parameters so dashboard bounds, database-side aggregation, the Case-editor external model, production isolation, and the exact one-row Case-detail read are owned by observable query/consumer behavior rather than `listAdminCases`/`getAdminCaseById` implementation names.
 - Checkpoint 5 — the reusable-image safety family is implemented as the fifth bounded tranche. Current-schema DB/helper/trigger behavior now owns production scope, exact Case/Asset identity, safe removal and atomic fixed-image conversion; the surviving thin UI/route owner protects production-only create/edit/reuse/remove reachability, exact form serialization/delegation, fixed-versus-option manager context, Manage-questions targeting/focus, semantic count vocabulary and inactive-review live-state presentation.
+- Checkpoint 7 — durable future test/validation authoring rules now live in `docs/TESTING_AND_VALIDATION_GUIDANCE.md`, routed through the documentation index/task map and reinforced only where scope-specific agent guidance benefits from the rule. The detailed CI diagnostics authority remains `docs/CI_AGENT_DIAGNOSTICS.md`.
 
 ### Fast-tier boundary after Checkpoint 2D
 
@@ -1547,7 +1564,7 @@ On the same controlled attempts, `npm run check` had a **17.7247464 s** median. 
 
 Because the materiality gate failed, three complete-suite file profiles were collected on profiling head `aefaa303722528ca52707a700b82cb80a1416d50`. The six already-specialized files together contributed only about **348.2 ms** median summed file time, while the highest-cost ordinary files were distributed across DB-heavy behavior/integration suites. The measured hotspot is the set of expensive DB-heavy suites. Repeated current-schema/SQLite fixture setup within those suites is a benchmark candidate, and runner/file fragmentation is a separate benchmark hypothesis; neither mechanism is established as dominant by the current profiler. Any follow-up must preserve isolation and complete coverage.
 
-The temporary Checkpoint 6 profiler/reporter are measurement scaffolding only and are removed before handoff. Checkpoint 7 remains pending and is outside this checkpoint.
+The temporary Checkpoint 6 profiler/reporter are measurement scaffolding only and are removed before handoff. Checkpoint 7 now closes the durable-guidance work through living repository authorities; it does not reinterpret or modify the Checkpoint 6 evidence.
 
 ## 7. Review gates
 
@@ -1589,9 +1606,11 @@ Specific gates:
 
 **Checkpoint 6:** satisfied for controlled measurement/profiling. Four corrected comparable samples establish complete median 19.8520 s versus fast median 19.1747 s, a 3.4117469272617313% reduction below the 20% materiality gate. Profiling shows the six exclusions are cheap and no seventh exclusion is authorized. Several ordinary DB-heavy suites are measured as expensive; repeated current-schema/SQLite fixture setup within them is a benchmark candidate. Runner/file fragmentation remains a separate benchmark hypothesis rather than an established cost driver. Cleanup head `24b513677da439a4d94be21d06b54f91a927a32f` satisfied the exact-head handoff gate with Draft CI #1392 and Wrangler runtime-smoke #213. Any subsequent documentation-only reconciliation must likewise pass repository-owned validation on its exact head before independent acceptance.
 
+**Checkpoint 7:** durable guidance is implemented through `docs/TESTING_AND_VALIDATION_GUIDANCE.md`, routed by the documentation index/task map, and reinforced only in scoped script/GitHub/database guidance. The change is documentation-only: no test, selector, validation contract, classifier, workflow, reporter, application, schema, migration, or production-resource behavior is modified. Completion still requires repository-owned CI/check evidence on the exact final documentation head and preservation of Draft status.
+
 ## 8. Final target state
 
-The desired repository state after Checkpoint 2D remains:
+The desired repository state after Checkpoint 7 is:
 
 ```text
 npm test
@@ -1611,5 +1630,8 @@ Ready/full CI
   + any specialized non-duplicated checks required by changed paths
 
 agent:checks
-  = reports the same centrally owned changed-path requirements CI executes
+  = advisory report of the same centrally owned changed-path requirements ordinary CI consumes
+
+TESTING_AND_VALIDATION_GUIDANCE.md
+  = durable future test/validation authoring authority
 ```
