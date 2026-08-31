@@ -2,17 +2,23 @@ import { fail, redirect } from '@sveltejs/kit';
 
 import { createDb } from '$lib/server/db/index.js';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
-import { listSharedQuestionTagUsages, listTagsWithSharedQuestionUsage } from '$lib/server/db/tag-shared-usage.js';
-import { listSystemTagExposures } from '$lib/server/db/system-tag-usage.ts';
+import { listActiveTagOptions } from '$lib/server/db/library-options.js';
+import {
+  TAG_WORKSPACE_OVERVIEW_LIMIT,
+  TAG_WORKSPACE_SELECTOR_LIMIT,
+  listTagWorkspaceCaseAssignments,
+  listTagWorkspaceCaseOptions,
+  listTagWorkspaceCaseQuestionOptions,
+  listTagWorkspaceQuestionAssignments,
+  listTagWorkspaceSharedQuestionUsages,
+  listTagWorkspaceSystemExposures,
+  listTagWorkspaceSystemsForTags,
+  listTagWorkspaceTags
+} from '$lib/server/db/tag-workspace-read-model.js';
 import {
   addCaseQuestionTag,
   addCaseTag,
   createTag,
-  listActiveTags,
-  listCaseQuestionTagAssignments,
-  listCaseTagAssignments,
-  listTaggableCaseQuestions,
-  listTaggableCases,
   removeCaseQuestionTag,
   removeCaseTag,
   renameTag,
@@ -23,7 +29,9 @@ import {
 export async function load({ platform, url }) {
   const filters = {
     search: url.searchParams.get('q')?.trim() ?? '',
-    tagId: url.searchParams.get('tag')?.trim() ?? ''
+    tagId: url.searchParams.get('tag')?.trim() ?? '',
+    caseSearch: url.searchParams.get('case_q')?.trim() ?? '',
+    questionSearch: url.searchParams.get('question_q')?.trim() ?? ''
   };
   if (!platform?.env?.DB) {
     return {
@@ -35,45 +43,49 @@ export async function load({ platform, url }) {
       questionAssignments: [],
       sharedQuestionUsages: [],
       systemExposures: [],
-      filters
+      filters,
+      readModel: {
+        selectorLimit: TAG_WORKSPACE_SELECTOR_LIMIT,
+        overviewLimit: TAG_WORKSPACE_OVERVIEW_LIMIT,
+        relationshipsScopedToTag: Boolean(filters.tagId)
+      }
     };
   }
 
   const db = createDb(platform.env.DB);
   const [tagRows, activeTags, cases, caseQuestions, caseAssignments, questionAssignments, sharedQuestionUsages, systemExposures] = await Promise.all([
-    listTagsWithSharedQuestionUsage(db, { search: filters.search }),
-    listActiveTags(db),
-    listTaggableCases(db),
-    listTaggableCaseQuestions(db),
-    listCaseTagAssignments(db),
-    listCaseQuestionTagAssignments(db),
-    listSharedQuestionTagUsages(db),
-    listSystemTagExposures(db)
+    listTagWorkspaceTags(db, { search: filters.search }),
+    listActiveTagOptions(db),
+    listTagWorkspaceCaseOptions(db, { search: filters.caseSearch }),
+    listTagWorkspaceCaseQuestionOptions(db, { search: filters.questionSearch }),
+    listTagWorkspaceCaseAssignments(db, { tagId: filters.tagId }),
+    listTagWorkspaceQuestionAssignments(db, { tagId: filters.tagId }),
+    listTagWorkspaceSharedQuestionUsages(db, { tagId: filters.tagId }),
+    listTagWorkspaceSystemExposures(db, { tagId: filters.tagId })
   ]);
-
-  const filteredSystemExposures = filters.tagId
-    ? systemExposures.filter((exposure) => exposure.tagId === filters.tagId)
-    : systemExposures;
+  const tagSystemExposures = await listTagWorkspaceSystemsForTags(db, tagRows.map((tag) => tag.id));
+  const systemsByTag = new Map();
+  for (const exposure of tagSystemExposures) {
+    const rows = systemsByTag.get(exposure.tagId) ?? [];
+    rows.push(exposure);
+    systemsByTag.set(exposure.tagId, rows);
+  }
 
   return {
-    tags: tagRows.map((tag) => ({
-      ...tag,
-      systems: systemExposures.filter((exposure) => exposure.tagId === tag.id)
-    })),
+    tags: tagRows.map((tag) => ({ ...tag, systems: systemsByTag.get(tag.id) ?? [] })),
     activeTags,
     cases,
     caseQuestions,
-    caseAssignments: filters.tagId
-      ? caseAssignments.filter((assignment) => assignment.tagId === filters.tagId)
-      : caseAssignments,
-    questionAssignments: filters.tagId
-      ? questionAssignments.filter((assignment) => assignment.tagId === filters.tagId)
-      : questionAssignments,
-    sharedQuestionUsages: filters.tagId
-      ? sharedQuestionUsages.filter((usage) => usage.tagId === filters.tagId)
-      : sharedQuestionUsages,
-    systemExposures: filteredSystemExposures,
-    filters
+    caseAssignments,
+    questionAssignments,
+    sharedQuestionUsages,
+    systemExposures,
+    filters,
+    readModel: {
+      selectorLimit: TAG_WORKSPACE_SELECTOR_LIMIT,
+      overviewLimit: TAG_WORKSPACE_OVERVIEW_LIMIT,
+      relationshipsScopedToTag: Boolean(filters.tagId)
+    }
   };
 }
 
