@@ -151,10 +151,11 @@ export async function listTagWorkspaceCaseQuestionOptions(db, filters = {}) {
     isNull(questionPrompts.previewSessionId)
   ];
   if (search) {
-    conditions.push(or(
+    const searchCondition = or(
       like(cases.title, `%${search}%`),
       like(questionPrompts.promptMd, `%${search}%`)
-    ));
+    );
+    if (searchCondition) conditions.push(searchCondition);
   }
   return db
     .select({
