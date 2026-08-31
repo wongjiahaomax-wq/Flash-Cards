@@ -65,6 +65,33 @@ test('Admin Svelte changes receive cheap specific guidance while retaining the s
   assert.equal(report.checkpointGuidance.some((line) => /after a coherent batch/.test(line)), false);
 });
 
+test('DB and schema changes keep their specific compact checkpoint guidance', () => {
+  const database = classifyChangedFiles(['src/lib/server/db/cases.js']);
+  assert.deepEqual(database.requiredChecks, ['diff', 'db', 'test', 'svelte', 'build']);
+  assert.equal(database.iterationGuidance.some((line) => /DB\/read-model behavioral test/.test(line)), true);
+  assert.equal(database.checkpointGuidance.some((line) => /validate:fast -- --compact/.test(line)), true);
+
+  const schema = classifyChangedFiles(['src/lib/server/db/schema.js']);
+  assert.deepEqual(schema.requiredChecks, ['diff', 'db', 'test', 'svelte', 'build']);
+  assert.equal(schema.iterationGuidance.some((line) => /schema\/migration edit/.test(line)), true);
+  assert.equal(schema.checkpointGuidance.some((line) => /validate:fast -- --compact/.test(line)), true);
+});
+
+test('mixed specific and generic application changes retain guidance for both owners', () => {
+  const report = classifyChangedFiles([
+    'src/routes/admin/cases/+page.svelte',
+    'src/lib/client/example.js',
+  ]);
+
+  assert.deepEqual(report.requiredChecks, ['diff', 'test', 'svelte', 'build']);
+  assert.equal(report.iterationGuidance.some((line) => /presentation-only/.test(line) && /Vite HMR/.test(line)), true);
+  assert.equal(report.iterationGuidance.some((line) => /broad handoff suite/.test(line)), true);
+  assert.equal(report.checkpointGuidance.some((line) => /npm run check/.test(line)), true);
+  assert.equal(report.checkpointGuidance.some((line) => /after a coherent batch/.test(line)), true);
+  assert.equal(report.areas.includes('Admin / Svelte routes'), true);
+  assert.equal(report.areas.includes('Application code'), true);
+});
+
 test('static assets keep checkpoint validation bounded to their actual build risk', () => {
   const report = classifyChangedFiles(['static/favicon.svg']);
 
