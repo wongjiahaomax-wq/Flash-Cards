@@ -66,6 +66,19 @@ That is insufficient for the new requirement because the learner's selected set 
 - Original → Expanded continuation;
 - repeated **Next case** operations.
 
+### Existing Topic deletion provenance safety
+
+Current `main` now includes PR #118. Topic permanent deletion is no longer based only on currently visible Topic detail relationships:
+
+- `getTopicDeletionEligibility()` checks current Case attachments, reusable Topic questions, child Topics, and historical learner provenance;
+- historical provenance currently includes Review concept/navigation references and `review_questions.source_concept_id`;
+- `deleteUnusedTopic()` refuses permanent deletion when that learner history exists;
+- migration `0018_topic_deletion_provenance_indexes.sql` adds indexed reverse lookups for the existing Review-navigation and Review-question provenance checks.
+
+PR #119 must preserve and extend that contract. A persisted multi-select route with `route_type='topic'` and `route_id=<Topic ID>` is itself historical learner provenance. Once `study_selection_routes` (or the current-code equivalent) exists, Topic deletion eligibility must include that reverse lookup and permanent deletion must remain blocked even when the Topic has no current Case/question/child relationship and no direct legacy Review Topic reference.
+
+Because the proposed route-table primary key begins with `study_selection_id`, it does not efficiently support Topic-first provenance lookup. The new schema must add an index whose leading columns support the deletion query, conceptually `(route_type, route_id)`.
+
 ### Existing learner Review
 
 `src/routes/study/[reviewId]` owns the real learner Review UI and lifecycle. System Next-case availability currently depends on the rollout flag. Admin preview therefore needs a narrow Production-Admin exception so an Admin can exercise the prospective flow end-to-end before rollout.
@@ -315,6 +328,7 @@ study_selection_routes
 - route_type       ('topic' | 'tag')
 - route_id
 - primary key (study_selection_id, route_type, route_id)
+- reverse-lookup index (route_type, route_id)
 
 reviews
 - add nullable study_selection_id
@@ -329,6 +343,8 @@ Names may be refined if current schema conventions suggest a clearer equivalent,
 
 The polymorphic `route_id` may follow the precedent of existing `navigation_route_id`; application validation remains responsible for System membership. Add database checks/triggers for structural invariants where practical.
 
+The `(route_type, route_id)` reverse-lookup index is part of the persistence contract because Topic deletion must efficiently discover historical exact-Topic selections; the PK beginning with `study_selection_id` is not a substitute for this read path.
+
 ### Review provenance compatibility
 
 Migration 0015 currently requires a System Review to have one non-null `navigation_route_type`.
@@ -342,7 +358,20 @@ Do not weaken effective Case provenance checks (`route_type`, `study_tag_id`, Sy
 
 The new D1 trigger(s) should also ensure a referenced study selection belongs to the same user/System as the Review.
 
-Do not rewrite migration 0015. Add a new migration, expected to be `0017_...sql` if the migration sequence is still unchanged when coding starts.
+Do not rewrite migration 0015, 0017, 0018, or any other historical migration. Current `main` ends at `0018_topic_deletion_provenance_indexes.sql`, so the implementation should use the next actual migration number, currently `0019_...sql`. Re-check immediately before creating the migration in case `main` advances again.
+
+### Topic deletion compatibility with persisted selection provenance
+
+PR #118 established the permanent-deletion rule that a Topic referenced by learner history cannot be deleted. PR #119 adds another learner-history representation and must extend the same guard rather than creating a deletion blind spot.
+
+When the selection schema exists:
+
+- `getTopicDeletionEligibility()` must treat any persisted selection route whose effective shape is `route_type='topic' AND route_id=<Topic ID>` as learner-history provenance;
+- `deleteUnusedTopic()` must therefore reject permanent deletion of that Topic through the existing eligibility/history guard;
+- the current `hasReviewHistory` semantic may absorb this additional provenance source unless current code justifies a clearer internal split, but the externally observable rule remains **historical multi-select Topic provenance blocks deletion**;
+- the lookup must use the selection-route reverse index whose leading columns are `(route_type, route_id)` (or an equivalent index for renamed columns), preserving PR #118's indexed-read requirement.
+
+Add an explicit regression test for a Topic that is otherwise deletion-eligible and is referenced **only** by historical multi-select study-selection provenance. It must be reported as non-deletable and `deleteUnusedTopic()` must refuse to remove it. Keep the existing PR #118 legacy Review-history and historical secondary-Case deletion regressions intact.
 
 ### Atomicity
 
@@ -461,9 +490,10 @@ Keep the legacy flag-off Topic UI in `/study` until explicit rollout approval.
 Likely files include:
 
 ```text
-drizzle/0017_<system-study-selection>.sql
+drizzle/0019_<system-study-selection>.sql
 src/lib/server/db/schema.js
 src/lib/server/db/study-navigation.ts
+src/lib/server/db/taxonomy-admin-write.ts
 src/lib/server/learning/system-study-routes.ts
 src/lib/server/learning/start-system-study.ts
 src/lib/server/db/learning.js
@@ -477,7 +507,7 @@ src/routes/admin/study-preview/+page.server.js
 src/routes/admin/study-preview/+page.svelte
 ```
 
-Also update migration fixture lists and directly relevant tests that instantiate the canonical schema.
+Also update migration fixture lists and directly relevant tests that instantiate the canonical schema. Preserve and extend `test/topic-deletion.test.js` / `test/topic-deletion-indexes.test.js` (or their current equivalents) so the new selection-route provenance source and its reverse index remain owned by regression coverage.
 
 Exact module extraction may differ after inspecting current code, but do not duplicate selection/candidate/provenance logic merely to fit this list.
 
@@ -495,12 +525,14 @@ Stop and fix domain semantics before persistence/UI if these tests are not clear
 
 ### Checkpoint B — persistence and Review-chain provenance
 
-1. Add the new migration and schema representation.
+1. Add the new migration and schema representation at the next actual migration number.
 2. Preserve historical single-route Reviews without backfill.
 3. Update D1 provenance triggers for mutually exclusive legacy-vs-selection navigation provenance.
-4. Add first-start selection snapshot persistence atomically with Review creation.
-5. Reuse the same snapshot for Expanded and Next.
-6. Add migration/DB-integrity tests.
+4. Add the `(route_type, route_id)` selection-route reverse lookup index (or exact renamed equivalent).
+5. Extend Topic deletion eligibility/permanent-deletion safety so persisted Topic selection routes count as learner-history provenance.
+6. Add first-start selection snapshot persistence atomically with Review creation.
+7. Reuse the same snapshot for Expanded and Next.
+8. Add migration/DB-integrity and Topic-deletion/index regressions.
 
 ### Checkpoint C — shared System-start workflow
 
@@ -573,13 +605,15 @@ At minimum protect these invariants with behavioral/domain tests where practical
 13. historical `all` / one-Topic / one-Tag Reviews remain readable and continuable under their existing semantics;
 14. migration preserves existing Review snapshots and rows;
 15. database provenance guards reject mismatched Review/selection user or System;
-16. ordinary flag-off `/study` cannot start System selection;
-17. flag-off Production Admin preview can start the same selection workflow;
-18. ordinary flag-off learner selection-based System Next remains blocked;
-19. flag-off Production Admin selection-based System Next is available;
-20. Preview Worker / Preview-only Admin learner Study restriction remains;
-21. learner and Admin preview share one System chooser presentation owner;
-22. failed action state restores the selected System, exact checkbox set, and question set.
+16. a Topic referenced only by a historical persisted multi-select `topic` route is non-deletable and `deleteUnusedTopic()` rejects it;
+17. selection-route Topic provenance reverse lookup is covered by an index led by route type + route ID;
+18. ordinary flag-off `/study` cannot start System selection;
+19. flag-off Production Admin preview can start the same selection workflow;
+20. ordinary flag-off learner selection-based System Next remains blocked;
+21. flag-off Production Admin selection-based System Next is available;
+22. Preview Worker / Preview-only Admin learner Study restriction remains;
+23. learner and Admin preview share one System chooser presentation owner;
+24. failed action state restores the selected System, exact checkbox set, and question set.
 
 A focused source-level assertion is acceptable for presentation reuse or Admin shortcut wiring when it is the strongest cheap owner. Do not replace stronger behavioral coverage with brittle source assertions.
 
@@ -598,7 +632,7 @@ npm run agent:doctor
 During implementation:
 
 - run focused domain/navigation tests after Checkpoint A;
-- run focused migration/schema tests after Checkpoint B;
+- run focused migration/schema and Topic-deletion/index tests after Checkpoint B;
 - use Vite/HMR for iterative Svelte/CSS work;
 - run `npm run agent:checks` after coherent batches;
 - run all specialized checks it identifies;
@@ -639,9 +673,10 @@ Keep PR #119 Draft for independent review.
 19. Non-Admins cannot force the preview bypass.
 20. Flag-off Production Admin can exercise selection-based System Next case while ordinary learners cannot.
 21. Preview Worker / Preview-only Admin restrictions remain unchanged.
-22. A new migration implements selection persistence without rewriting migration history.
-23. No production data mutation or deployment occurs during implementation/testing.
-24. Production learner System navigation is not enabled unless separately and explicitly approved.
+22. A new `0019` migration (or later next actual number if `main` advances again) implements selection persistence without rewriting migration history.
+23. Topics referenced by persisted multi-select Topic routes remain permanently non-deletable as learner-history provenance, with an indexed reverse lookup.
+24. No production data mutation or deployment occurs during implementation/testing.
+25. Production learner System navigation is not enabled unless separately and explicitly approved.
 
 ## Explicitly out of scope
 
