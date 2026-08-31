@@ -2,7 +2,6 @@
 // @ts-nocheck
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { deflateRawSync } from 'node:zlib';
@@ -16,22 +15,12 @@ import {
   parseImportPackage,
   validateImportPackage
 } from '../src/lib/server/import/reviewed-content-package.js';
-
-const migrationSql = [
-  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0005_tag_foundation.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0015_contextual_system_topic_tag_navigation.sql', import.meta.url), 'utf8')
-].join('\n').replaceAll('--> statement-breakpoint', '');
+import { applyCurrentSchema } from './current-schema.js';
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql);
+  applyCurrentSchema(sqlite);
   const d1 = {
     prepare(sql) {
       return {
@@ -199,7 +188,7 @@ test('use Question IDs must belong to the declared owner and prompt', async () =
       INSERT INTO concepts (id, name, slug, is_active) VALUES ('topic-one', 'One', 'topic-one', 1), ('topic-two', 'Two', 'topic-two', 1);
       INSERT INTO question_prompts (id, prompt_md, is_active) VALUES ('prompt-one', 'Prompt', 1);
       INSERT INTO case_questions (id, case_id, question_prompt_id, answer_md, is_active) VALUES ('case-question-one', 'case-one', 'prompt-one', 'Answer', 1);
-      INSERT INTO concept_questions (id, concept_id, question_prompt_id, answer_md, inherit_to_descendants, is_active) VALUES ('topic-question-one', 'topic-one', 'prompt-one', 'Answer', 0, 1);
+      INSERT INTO concept_questions (id, concept_id, question_prompt_id, answer_md, is_active) VALUES ('topic-question-one', 'topic-one', 'prompt-one', 'Answer', 1);
     `);
 
     const parsed = await parseImportPackage(packageBytes(emptyManifest({

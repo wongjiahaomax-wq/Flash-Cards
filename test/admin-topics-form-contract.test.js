@@ -12,22 +12,29 @@ const caseTopics = readFileSync(new URL('../src/lib/components/case-editor/CaseT
 const caseAction = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 
 test('Topic creation supports searchable active System or Topic parents while System creation remains top-level', () => {
+  assert.match(organizer, /onclick=\{\(\) => openCreate\('system'\)\}>\+ New System/);
+  assert.match(organizer, /onclick=\{\(\) => openCreate\('topic'\)\}>\+ New Topic/);
+  assert.match(organizer, /<form method="POST" action="\?\/createConcept" class="create-form">/);
   assert.match(organizer, /bind:value=\{createKind\}/);
+  assert.match(organizer, /\{#if createKind === 'topic'\}/);
   assert.match(organizer, /SearchableTaxonomyPicker bind:value=\{createParentId\}/);
+  assert.match(organizer, /name="parent_id" value=\{createParentId\}/);
+  assert.match(organizer, /\{:else\}<input type="hidden" name="parent_id" value="" \/>\{\/if\}/);
   assert.match(organizer, /emptyLabel="Unassigned"/);
   assert.match(organizer, /item\.kind === 'system' \? 'System' : 'Topic'/);
   assert.match(organizer, /\+ Add Topic/);
   assert.match(organizer, /\+ Add subtopic/);
 });
 
-test('Systems and Topics route delegates the visual taxonomy to one organizer instead of rendering a second hierarchy manager', () => {
-  assert.match(topicsPage, /TaxonomyOrganizer/);
-  assert.doesNotMatch(topicsPage, /Hierarchy manager/);
-  assert.doesNotMatch(topicsPage, /Additional Study Topic/);
+test('Systems and Topics route delegates the visual taxonomy to one organizer without retired Additional Study Topic authoring', () => {
+  assert.equal([...topicsPage.matchAll(/<TaxonomyOrganizer\b/g)].length, 1);
+  assert.doesNotMatch(`${topicsPage}\n${organizer}`, /Additional Study Topic/);
 });
 
 test('System creation always submits a null parent to the taxonomy writer', () => {
-  assert.match(topicsAction, /parentId:\s*formText\(formData, 'parent_id'\)/);
+  const createConceptAction = topicsAction.match(/createConcept:\s*async[\s\S]*?\n  },\n\n  updateConcept:/);
+  assert.ok(createConceptAction, 'Expected the Systems and Topics route to define createConcept before updateConcept.');
+  assert.match(createConceptAction[0], /parentId:\s*formText\(formData, 'parent_id'\)/);
   assert.match(taxonomyWrite, /const parentId = kind === 'system' \? null : optionalText\(input\.parentId\)/);
 });
 
@@ -35,15 +42,20 @@ test('Case editor can place its current Primary Topic under an active System', (
   assert.match(caseTopics, /action="\?\/assignPrimaryTopicToSystem"/);
   assert.match(caseTopics, /name="topic_id" value=\{primaryTopic\.id\}/);
   assert.match(caseTopics, /<label>Parent System<select name="system_id"/);
-  assert.match(caseAction, /assignPrimaryTopicToSystem/);
-  assert.match(taxonomyWrite, /The selected Topic is not the current Primary Topic for this Case/);
+
+  const assignPrimaryTopicAction = caseAction.match(/assignPrimaryTopicToSystem:\s*async[\s\S]*?\n  },\n  createCaseTopic:/);
+  assert.ok(assignPrimaryTopicAction, 'Expected the Case route to define assignPrimaryTopicToSystem before createCaseTopic.');
+  assert.match(assignPrimaryTopicAction[0], /await assignPrimaryTopicToSystem\(createDb\(platform\.env\.DB\),\s*\{/);
+  assert.match(assignPrimaryTopicAction[0], /topicId:\s*formText\(formData, 'topic_id'\)/);
+  assert.match(assignPrimaryTopicAction[0], /systemId:\s*formText\(formData, 'system_id'\)/);
 });
 
+
 test('Topic detail exposes permanent deletion only through the guarded unused-Topic writer', () => {
-  assert.match(topicDetailPage, /action="\?\/deleteTopic"/);
+  assert.match(topicDetailPage, /action="\\?\\/deleteTopic"/);
   assert.match(topicDetailPage, /canDeleteTopic/);
   assert.match(topicDetailPage, /Permanently remove an accidentally created Topic/);
-  assert.match(topicDetailPage, /window\.confirm/);
+  assert.match(topicDetailPage, /window\\.confirm/);
   assert.match(topicDetailAction, /deleteUnusedTopic/);
   assert.match(taxonomyWrite, /Only Topics can be deleted/);
   assert.match(taxonomyWrite, /Case attachments, reusable Topic questions, or child Topics/);

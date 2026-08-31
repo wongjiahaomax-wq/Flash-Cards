@@ -1,19 +1,14 @@
-import { formatValidationCommand, VALIDATION_MODE_CHECK_IDS } from './validation-contract.mjs';
+import {
+  CI_SPECIALIZED_CHECK_IDS,
+  formatValidationCommand,
+  SPECIALIZED_CHECK_IDS,
+  VALIDATION_CHECK_ORDER,
+  VALIDATION_MODE_CHECK_IDS,
+} from './validation-contract.mjs';
 
 const ORDINARY_FULL_CHECKS = VALIDATION_MODE_CHECK_IDS.full;
-const CHECK_ORDER = Object.freeze([
-  'diff',
-  'db',
-  'test',
-  'svelte',
-  'build',
-  'authSmoke',
-  'runtimeSmoke',
-  'slideReviewTest',
-  'slideReviewBuild',
-]);
 
-/** @typedef {{ id: string, area: string, patterns: readonly RegExp[], excludePatterns?: readonly RegExp[], required: readonly string[], recommendations?: readonly string[] }} ValidationRule */
+/** @typedef {{ id: string, area: string, patterns: readonly RegExp[], excludePatterns?: readonly RegExp[], required: readonly string[], specializedRequired?: readonly string[], recommendations?: readonly string[] }} ValidationRule */
 
 /** @type {ReadonlyArray<ValidationRule>} */
 export const VALIDATION_RULES = Object.freeze([
@@ -80,10 +75,43 @@ export const VALIDATION_RULES = Object.freeze([
     ]),
   }),
   Object.freeze({
+    id: 'ecg-asset-rename-operator',
+    area: 'ECG Batch 01 production operator',
+    patterns: Object.freeze([
+      /^scripts\/rename-ecg-batch-01-assets\.mjs$/,
+      /^scripts\/ecg-batch-01-asset-rename-targets\.mjs$/,
+      /^test\/ecg-batch-01-asset-rename\.test\.js$/,
+    ]),
+    required: Object.freeze(['diff']),
+    specializedRequired: Object.freeze(['ecgAssetRenameOperatorTest']),
+  }),
+  Object.freeze({
+    id: 'production-taxonomy-operator',
+    area: 'Production taxonomy operator',
+    patterns: Object.freeze([
+      /^scripts\/apply-agreed-taxonomy\.mjs$/,
+      /^test\/production-taxonomy-operator\.test\.js$/,
+    ]),
+    required: Object.freeze(['diff']),
+    specializedRequired: Object.freeze(['productionTaxonomyOperatorTest']),
+  }),
+  Object.freeze({
+    id: 'slide-review-production-contract',
+    area: 'Slide-review production compatibility',
+    patterns: Object.freeze([
+      /^src\/lib\/server\/import\/content-package\.js$/,
+      /^src\/lib\/server\/import\/reviewed-content-package\.js$/,
+      /^src\/lib\/server\/storage\/media\.js$/,
+    ]),
+    required: Object.freeze(['diff']),
+    specializedRequired: Object.freeze(['slideReviewTest']),
+  }),
+  Object.freeze({
     id: 'slide-review',
     area: 'Slide-review tooling',
     patterns: Object.freeze([/^tools\/slide-import-review\//]),
-    required: Object.freeze(['diff', 'slideReviewTest', 'slideReviewBuild']),
+    required: Object.freeze(['diff']),
+    specializedRequired: Object.freeze(['slideReviewTest', 'slideReviewBuild']),
   }),
   Object.freeze({
     id: 'github-automation',
@@ -100,11 +128,26 @@ export const VALIDATION_RULES = Object.freeze([
     area: 'Coding-agent / validation tooling',
     patterns: Object.freeze([
       /^scripts\/agent-(?:checks|doctor)(?:-lib)?\.mjs$/,
+      /^scripts\/ci-test-reporter\.mjs$/,
+      /^scripts\/test-(?:fast|selection)\.mjs$/,
       /^scripts\/validate(?:-ci)?\.mjs$/,
       /^scripts\/validation-(?:contract|git)\.mjs$/,
       /^tests\/agent-tooling\.test\.js$/,
     ]),
     required: Object.freeze([...ORDINARY_FULL_CHECKS]),
+    specializedRequired: Object.freeze([...CI_SPECIALIZED_CHECK_IDS]),
+  }),
+  Object.freeze({
+    id: 'ci-validation-infrastructure',
+    area: 'CI validation infrastructure',
+    patterns: Object.freeze([
+      /^package\.json$/,
+      /^package-lock\.json$/,
+      /^\.github\/workflows\/ci\.yml$/,
+      /^tests\/(?:ci-change-aware|ci-test-reporter|test-selection)\.test\.js$/,
+    ]),
+    required: Object.freeze([]),
+    specializedRequired: Object.freeze([...CI_SPECIALIZED_CHECK_IDS]),
   }),
   Object.freeze({
     id: 'tests',
@@ -135,7 +178,7 @@ export const VALIDATION_RULES = Object.freeze([
 ]);
 
 /** @param {string} file */
-function normalizePath(file) {
+export function normalizeChangedPath(file) {
   return String(file ?? '').trim().replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
@@ -157,18 +200,27 @@ function isImportantUnknown(file) {
 /** @param {string[]} values */
 function uniqueInCheckOrder(values) {
   const set = new Set(values);
-  return CHECK_ORDER.filter((checkId) => set.has(checkId));
+  const ordered = VALIDATION_CHECK_ORDER.filter((checkId) => set.has(checkId));
+  if (ordered.length !== set.size) {
+    const missing = [...set].filter((checkId) => !VALIDATION_CHECK_ORDER.includes(checkId));
+    throw new Error(`Changed-path validation rules reference unordered checks: ${missing.join(', ')}`);
+  }
+  return ordered;
 }
 
 /**
  * Deterministically classify repository paths into validation requirements.
+ * One rule set owns both agent advisory requirements and the specialized subset
+ * ordinary CI adds to its repository-owned fast/full base mode.
  * @param {string[]} changedFiles
  */
 export function classifyChangedFiles(changedFiles) {
-  const files = [...new Set(changedFiles.map(normalizePath).filter(Boolean))].sort();
+  const files = [...new Set(changedFiles.map(normalizeChangedPath).filter(Boolean))].sort();
   const matchedRules = new Set();
   /** @type {string[]} */
   const required = [];
+  /** @type {string[]} */
+  const specializedRequired = [];
   /** @type {string[]} */
   const recommendations = [];
   /** @type {string[]} */
@@ -181,11 +233,13 @@ export function classifyChangedFiles(changedFiles) {
       fileMatched = true;
       matchedRules.add(rule.id);
       required.push(...rule.required);
+      specializedRequired.push(...(rule.specializedRequired ?? []));
       recommendations.push(...(rule.recommendations ?? []));
     }
     if (!fileMatched && isImportantUnknown(file)) {
       unclassifiedImportant.push(file);
       required.push(...ORDINARY_FULL_CHECKS);
+      specializedRequired.push(...CI_SPECIALIZED_CHECK_IDS);
     }
   }
 
@@ -203,14 +257,17 @@ export function classifyChangedFiles(changedFiles) {
     'Authentication / Better Auth',
   ].includes(area));
   const filteredAreas = specificApplicationArea ? areas.filter((area) => area !== 'Application code') : areas;
-  const requiredChecks = uniqueInCheckOrder(required);
-  const notRequired = ['runtimeSmoke', 'slideReviewTest', 'slideReviewBuild'].filter((checkId) => !requiredChecks.includes(checkId));
+  const specializedRequiredChecks = uniqueInCheckOrder(specializedRequired);
+  const requiredChecks = uniqueInCheckOrder([...required, ...specializedRequiredChecks]);
+  const notRequired = SPECIALIZED_CHECK_IDS.filter((checkId) => !requiredChecks.includes(checkId));
 
   return {
     files,
     areas: [...new Set(filteredAreas)],
     requiredChecks,
     requiredCommands: requiredChecks.map(formatValidationCommand),
+    specializedRequiredChecks,
+    specializedRequiredCommands: specializedRequiredChecks.map(formatValidationCommand),
     recommendations: [...new Set(recommendations)],
     notRequiredChecks: notRequired,
     notRequiredCommands: notRequired.map(formatValidationCommand),

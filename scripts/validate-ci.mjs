@@ -1,11 +1,41 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
+import { parseSvelteMachineOutput } from './ci-svelte-diagnostics.mjs';
+import { classifyChangedFiles } from './agent-checks-lib.mjs';
 import { resolveInvocation } from './validate.mjs';
-import { VALIDATION_MODE_CHECK_IDS, validationCommandsForMode } from './validation-contract.mjs';
+import {
+  formatValidationCommand,
+  resolveValidationCheckIds,
+  VALIDATION_MODE_CHECK_IDS,
+  validationCommandsForCheckIds,
+} from './validation-contract.mjs';
+import { changedFilesFromFeatureDiff } from './validation-git.mjs';
 
 const NODE_TEST_DIAGNOSTIC = /^(not ok|  error:|  code:|  failureType:|  location:|  stack:|    at )/;
+const NODE_TEST_CHECK_IDS = new Set([
+  'test',
+  'testFast',
+  'ecgAssetRenameOperatorTest',
+  'productionTaxonomyOperatorTest',
+  'slideReviewTest',
+]);
+const ENV_REPORTED_NODE_TEST_CHECK_IDS = new Set([
+  'ecgAssetRenameOperatorTest',
+  'productionTaxonomyOperatorTest',
+  'slideReviewTest',
+]);
 export const CI_TEST_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 export const CI_TEST_REPORTER = './scripts/ci-test-reporter.mjs';
+
+/** @param {unknown} value */
+export function escapeGithubCommandProperty(value) {
+  return String(value ?? '')
+    .replaceAll('%', '%25')
+    .replaceAll('\r', '%0D')
+    .replaceAll('\n', '%0A')
+    .replaceAll(':', '%3A')
+    .replaceAll(',', '%2C');
+}
 
 /** @param {unknown} value */
 export function escapeGithubCommandData(value) {
@@ -70,6 +100,93 @@ export function formatCiAgentFailureSummary(input) {
   return lines.join('\n');
 }
 
+/** @param {{ source?: string | null, code?: string | number | null }} diagnostic */
+function svelteDiagnosticTitle(diagnostic) {
+  const identity = [diagnostic.source, diagnostic.code].filter((value) => value !== null && value !== undefined && value !== '');
+  return ['Svelte check', ...identity].join(' ');
+}
+
+/** @param {{ severity: string, file: string, line: number, column: number, endLine?: number | null, endColumn?: number | null, source?: string | null, code?: string | number | null, message: string }} diagnostic */
+export function formatSvelteDiagnosticRecord(diagnostic) {
+  const fields = [
+    'check=svelte',
+    `file=${escapeAgentField(diagnostic.file)}`,
+    `line=${escapeAgentField(diagnostic.line)}`,
+    `column=${escapeAgentField(diagnostic.column)}`,
+    Number.isInteger(diagnostic.endLine) ? `endLine=${escapeAgentField(diagnostic.endLine)}` : null,
+    Number.isInteger(diagnostic.endColumn) ? `endColumn=${escapeAgentField(diagnostic.endColumn)}` : null,
+    `severity=${escapeAgentField(diagnostic.severity)}`,
+    diagnostic.source ? `source=${escapeAgentField(diagnostic.source)}` : null,
+    diagnostic.code !== null && diagnostic.code !== undefined ? `code=${escapeAgentField(diagnostic.code)}` : null,
+    `message=${escapeAgentField(diagnostic.message)}`,
+  ].filter(Boolean);
+  return `CI_ERROR|${fields.join('|')}`;
+}
+
+/** @param {{ file: string, line: number, column: number, source?: string | null, code?: string | number | null, message: string }} diagnostic */
+export function githubSvelteDiagnosticAnnotation(diagnostic) {
+  const properties = [
+    `file=${escapeGithubCommandProperty(diagnostic.file)}`,
+    `line=${diagnostic.line}`,
+    `col=${diagnostic.column}`,
+    `title=${escapeGithubCommandProperty(svelteDiagnosticTitle(diagnostic))}`,
+  ];
+  return `::error ${properties.join(',')}::${escapeGithubCommandData(diagnostic.message)}`;
+}
+
+/**
+ * The outer CI wrapper owns Svelte detail/status so there is one final summary.
+ * Warnings are retained only in reliable completion counts and are never
+ * promoted into CI_ERROR records or failure authority.
+ *
+ * Successfully decoded errors are still useful when the machine stream is
+ * incomplete, but they must not suppress an explicit incompleteness record.
+ * @param {{ diagnostics?: any[], completion?: { errors: number, warnings: number } | null, malformedDiagnosticRecords?: number } | null} parsed
+ * @param {number | null | undefined} status
+ */
+export function formatSvelteFailureSummary(parsed, status) {
+  const errors = (parsed?.diagnostics ?? []).filter((diagnostic) => diagnostic.severity === 'error');
+  if (errors.length === 0 || status === 0) return null;
+
+  const rawMalformedCount = parsed?.malformedDiagnosticRecords;
+  const malformedCount = typeof rawMalformedCount === 'number' && Number.isInteger(rawMalformedCount)
+    ? rawMalformedCount
+    : 0;
+  const completion = parsed?.completion ?? null;
+  const completionMismatch = completion !== null && completion.errors !== errors.length;
+  const incomplete = malformedCount > 0 || completionMismatch;
+
+  const lines = [];
+  for (const diagnostic of errors) {
+    lines.push(githubSvelteDiagnosticAnnotation(diagnostic));
+  }
+  lines.push('=== CI AGENT SUMMARY ===');
+  for (const diagnostic of errors) {
+    lines.push(formatSvelteDiagnosticRecord(diagnostic));
+  }
+  if (incomplete) {
+    const reasons = [];
+    if (malformedCount > 0) reasons.push(`malformedRecords=${malformedCount}`);
+    if (completionMismatch && completion) {
+      reasons.push(`parsedErrors=${errors.length}`);
+      reasons.push(`reportedErrors=${completion.errors}`);
+    }
+    lines.push(
+      `CI_ERROR|check=svelte|message=${escapeAgentField(
+        `Structured Svelte diagnostics are incomplete (${reasons.join(', ')}); see the original svelte-check output.`,
+      )}`,
+    );
+  }
+  lines.push('CI_REPRO|check=svelte|command=npm run check');
+  const exit = Number.isInteger(status) ? `|exit=${status}` : '';
+  const counts = completion
+    ? `|errors=${completion.errors}|warnings=${completion.warnings}`
+    : '';
+  const completeness = incomplete ? '|diagnostics=incomplete' : '';
+  lines.push(`CI_STATUS|check=svelte|status=failed${exit}${counts}${completeness}`);
+  return lines.join('\n');
+}
+
 /**
  * Legacy compatibility helper retained for tooling tests from the previous
  * TAP-based implementation. The active CI path no longer parses test text.
@@ -123,45 +240,120 @@ export function parseCiArgs(argv) {
 }
 
 /**
- * CI uses the shared repository validation mode definitions while keeping
+ * Resolve the repository-owned base mode plus specialized requirements from the
+ * same changed-path classifier used by agent:checks.
+ * @param {{ mode?: string, changedFiles?: string[] }} [options]
+ */
+export function ciValidationPlan(options = {}) {
+  const mode = options.mode ?? 'full';
+  assertCiValidationMode(mode);
+  const classification = classifyChangedFiles(options.changedFiles ?? []);
+  const checkIds = resolveValidationCheckIds(
+    VALIDATION_MODE_CHECK_IDS[mode],
+    classification.specializedRequiredChecks,
+  );
+  return {
+    mode,
+    changedFiles: classification.files,
+    classification,
+    checkIds,
+  };
+}
+
+/**
+ * CI uses the shared repository validation definitions while keeping
  * PR-checkout diff semantics CI-specific.
- * @param {{ mode?: string, diffBase?: string, diffHead?: string }} [options]
+ * @param {{ mode?: string, diffBase?: string, diffHead?: string, changedFiles?: string[] }} [options]
  */
 export function ciValidationCommands(options = {}) {
-  const mode = options.mode ?? 'full';
   const diffBase = options.diffBase ?? 'HEAD^1';
   const diffHead = options.diffHead ?? 'HEAD';
-  return validationCommandsForMode(mode, {
+  const plan = ciValidationPlan(options);
+  return validationCommandsForCheckIds(plan.checkIds, {
     diffArgs: ['diff', '--check', diffBase, diffHead],
   });
 }
 
+/**
+ * CI classifies the actual full PR feature diff when PR base/head SHAs are
+ * available. The synthetic checkout diff remains a fallback for direct use.
+ * @param {{ root?: string, changedFiles?: string[], diffBase?: string, diffHead?: string, diffReproBaseSha?: string | null, diffReproHeadSha?: string | null }} [options]
+ */
+export function resolveCiChangedFiles(options = {}) {
+  if (options.changedFiles) return classifyChangedFiles(options.changedFiles).files;
+  const base = options.diffReproBaseSha ?? process.env.CI_PR_BASE_SHA ?? options.diffBase ?? 'HEAD^1';
+  const head = options.diffReproHeadSha ?? process.env.CI_PR_HEAD_SHA ?? options.diffHead ?? 'HEAD';
+  return changedFilesFromFeatureDiff(options.root ?? process.cwd(), base, head);
+}
+
+/** @param {string} id */
+export function isCiNodeTestCheck(id) {
+  return NODE_TEST_CHECK_IDS.has(id);
+}
+
 /** @param {string} id @param {string[]} args */
 export function ciCommandArgs(id, args) {
-  if (id !== 'test') return [...args];
+  if (id === 'svelte') {
+    return [...args, '--', '--output', 'machine-verbose'];
+  }
+  if (id !== 'test' && id !== 'testFast') return [...args];
   return [...args, '--', `--test-reporter=${CI_TEST_REPORTER}`];
+}
+
+/**
+ * Named specialized Node checks put explicit test files after `node --test`
+ * directly or through an npm script. NODE_OPTIONS applies the CI-only reporter
+ * before those positional arguments while preserving the named command. The
+ * reporter identity and repro command are derived from validation-contract.mjs.
+ * Base test/testFast reporter behavior remains unchanged.
+ * @param {string} id
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export function ciCommandEnvironment(id, env = process.env) {
+  if (!ENV_REPORTED_NODE_TEST_CHECK_IDS.has(id)) return { ...env };
+  const existing = String(env.NODE_OPTIONS ?? '').trim();
+  return {
+    ...env,
+    CI_NODE_TEST_CHECK_ID: id,
+    CI_NODE_TEST_REPRO_COMMAND: formatValidationCommand(id),
+    NODE_OPTIONS: [existing, `--test-reporter=${CI_TEST_REPORTER}`].filter(Boolean).join(' '),
+  };
 }
 
 /**
  * CI keeps PR-checkout diff semantics and GitHub grouping CI-specific while
  * reusing the repository validation contract. Node-test diagnostics are
  * produced by a custom reporter that consumes structured node:test events.
- * @param {{ mode?: string, diffBase?: string, diffHead?: string, diffReproBaseSha?: string | null, diffReproHeadSha?: string | null }} [options]
+ * @param {{ mode?: string, root?: string, diffBase?: string, diffHead?: string, changedFiles?: string[], diffReproBaseSha?: string | null, diffReproHeadSha?: string | null }} [options]
  */
 export function runCiValidation(options = {}) {
   const mode = options.mode ?? 'full';
-  const checks = ciValidationCommands(options);
+  const changedFiles = resolveCiChangedFiles(options);
+  const plan = ciValidationPlan({ mode, changedFiles });
+  const checks = ciValidationCommands({ ...options, mode, changedFiles });
   const diffReproBaseSha = options.diffReproBaseSha ?? process.env.CI_PR_BASE_SHA ?? null;
   const diffReproHeadSha = options.diffReproHeadSha ?? process.env.CI_PR_HEAD_SHA ?? null;
 
   console.log(`Repository CI validation mode: ${mode}`);
+  console.log(`Repository CI changed paths: ${plan.changedFiles.length}`);
+  console.log(`Repository CI specialized requirements: ${plan.classification.specializedRequiredChecks.join(', ') || '(none)'}`);
+  console.log(`Repository CI checks: ${plan.checkIds.join(', ')}`);
   for (const { id, label, command, args } of checks) {
     console.log(`::group::${label}`);
     const invocation = resolveInvocation(command, ciCommandArgs(id, args));
+    const svelteCheck = id === 'svelte';
     const result = spawnSync(invocation.executable, invocation.args, {
-      stdio: 'inherit',
+      stdio: svelteCheck ? ['inherit', 'pipe', 'pipe'] : 'inherit',
       shell: false,
+      env: ciCommandEnvironment(id),
+      encoding: svelteCheck ? 'utf8' : undefined,
+      maxBuffer: svelteCheck ? CI_TEST_MAX_BUFFER_BYTES : undefined,
     });
+    const svelteOutput = svelteCheck ? String(result.stdout ?? '') : '';
+    const svelteErrorOutput = svelteCheck ? String(result.stderr ?? '') : '';
+    if (svelteOutput) process.stdout.write(svelteOutput);
+    if (svelteErrorOutput) process.stderr.write(svelteErrorOutput);
+    const svelteDiagnostics = svelteCheck ? parseSvelteMachineOutput(svelteOutput) : null;
     console.log('::endgroup::');
     const reproCommand = ciReproCommand(id, command, args, {
       diffBaseSha: diffReproBaseSha,
@@ -181,10 +373,22 @@ export function runCiValidation(options = {}) {
       return 1;
     }
     if (result.status !== 0) {
-      const detail = id === 'test'
-        ? 'npm test failed; see the structured Node test failure summary above.'
-        : `${command} ${args.join(' ')} exited with ${result.status}.`;
-      const title = id === 'test' ? 'Node test failure' : `${label} failed`;
+      const nodeTestCheck = isCiNodeTestCheck(id);
+      const svelteSummary = svelteCheck
+        ? formatSvelteFailureSummary(svelteDiagnostics, result.status)
+        : null;
+      if (svelteSummary) {
+        console.error(svelteSummary);
+        return result.status ?? 1;
+      }
+
+      const svelteFailureDetail = svelteCheck && svelteDiagnostics?.failure
+        ? ` svelte-check reported: ${svelteDiagnostics.failure}`
+        : '';
+      const detail = nodeTestCheck
+        ? `${reproCommand} failed; see the structured Node test failure summary above.`
+        : `${command} ${args.join(' ')} exited with ${result.status}.${svelteFailureDetail}`;
+      const title = nodeTestCheck ? 'Node test failure' : `${label} failed`;
       console.error(`::error title=${title}::${escapeGithubCommandData(detail)}`);
       console.error(formatCiAgentFailureSummary({
         id,
@@ -192,7 +396,7 @@ export function runCiValidation(options = {}) {
         args,
         status: result.status,
         message: detail,
-        detailedErrorsAlreadyReported: id === 'test',
+        detailedErrorsAlreadyReported: nodeTestCheck,
         reproCommand,
       }));
       return result.status ?? 1;

@@ -13,6 +13,7 @@ This file supplements the repository-wide `AGENTS.md` for `src/lib/server/db/`.
 - If Preview removal is proposed, scope a separate decommissioning assessment first. Production filtering, ownership/security guards, Asset replacement safety, auth/deployment tooling, tests, and stored Preview-owned data may depend on the subsystem.
 - Before schema work, inspect `schema.js`, `migrations/`, and migration contract tests. Real schema changes require a new migration; never rewrite history.
 - Current application runtime code supports the canonical schema for the current repository revision. A database running that revision is expected to have every migration required by that revision applied before the application runs.
+- Tests of current application/runtime behavior should use that current supported schema, preferably through the repository-owned current-schema bootstrap or an equally current purpose-built fixture. Historical schemas are appropriate only when migration/upgrade/sequencing/preservation behavior is itself under test. Older-but-valid or unusual data states that remain representable today should be constructed as data inside the current schema. See `docs/TESTING_AND_VALIDATION_GUIDANCE.md`.
 - Do not add permanent historical-column/table probing, missing-column/table fallbacks, alternate runtime Drizzle models for obsolete migration states, or tests whose sole purpose is keeping current application code working before already-required migrations. Preserve migration/upgrade tests and valid historical data states represented by the current schema.
 - Keep migration-before-runtime deployment sequencing safe for future schema changes; current-schema-only runtime support does not permit deploying code that requires an unapplied migration.
 - Prefer focused SQL/read models that fetch only page-required data. Avoid broad load-all-then-filter behavior.
@@ -23,6 +24,7 @@ This file supplements the repository-wide `AGENTS.md` for `src/lib/server/db/`.
 
 Read for exact semantics:
 - `docs/V1_DATA_MODEL.md`
+- `docs/TESTING_AND_VALIDATION_GUIDANCE.md` for test fixtures/contract ownership when changing tests
 - the relevant subsystem document from `docs/DOCUMENTATION_INDEX.md`
 - `docs/PERFORMANCE_AND_READ_MODEL_PLAN.md` for read-path work
 - `docs/PREVIEW_ADMIN_WORKSPACE.md` for retained Preview ownership/safety work

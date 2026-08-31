@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
@@ -19,27 +18,14 @@ import {
   saveStimulusGroupQuestion,
   StimulusGroupInputError
 } from '../src/lib/server/db/stimulus-groups.js';
+import { applyCurrentSchema } from './current-schema.js';
 
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
-
-const migrationSql = [
-  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0003_multi_topic_study_routing.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0005_tag_foundation.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0008_tag_shared_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0010_reusable_image_reactivation_guard.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8')
-].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createFixture() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql);
+  applyCurrentSchema(sqlite);
   sqlite.exec(`
     INSERT INTO preview_sessions (id, user_id, status, expires_at) VALUES
       ('preview-a', 'preview-user-a', 'active', 2000000000000),
