@@ -296,6 +296,29 @@ identify requested work state
 
 This is guidance rather than a rigid algorithm.
 
+### Remote GitHub retrieval and review discipline
+
+Use the smallest sufficient retrieval surface that answers the current question. This is an escalation model, not a mandatory sequence: enter at the smallest level already sufficient from information in hand, reuse sufficient results already returned, and do not make another call solely to rediscover the same fact.
+
+For PR inspection, prefer the available equivalent of:
+
+```text
+PR metadata
+→ changed filenames
+→ relevant individual patches or file content
+→ complete PR diff when whole-PR inspection is actually required
+```
+
+Use metadata or another smaller GitHub surface for head/base SHA, Draft/state, mergeability, changed-file scope, or check state when that surface establishes the needed fact. Do not assume every fact is present in one metadata response. For PR-specific file reads, anchor to the established exact head SHA where practical; use bounded/ranged reads once a relevant location is known, otherwise read the relevant individual file. Use repository search for discovery when paths or symbols are unknown, not when the relevant files are already known.
+
+During active implementation, prefer targeted changed files, implicated patches, directly related tests, scoped guidance, and focused correction deltas. Do not repeatedly retrieve the complete PR diff after every small change. If a PR has a known previously reviewed head, a correction review may first inspect that reviewed head → current head to understand the new delta efficiently. That correction delta does not establish final review completeness.
+
+At deliberate principal/final review or handoff checkpoints, inspect the complete intended base → current head change. Use that whole-change review to check task scope, behavioral and safety invariants, unrelated changes, accidental scope expansion, stale references/imports, missing or inappropriate tests, and documentation accuracy. A correction-only delta review must never be presented as a substitute for this complete review.
+
+Do not repeatedly retrieve unchanged large evidence while the PR head is unchanged unless new information is genuinely required. Independent small reads already known to be necessary may be parallelized; do not parallel-fetch speculative large outputs. Prefer active/unresolved review threads and implicated patches over repeatedly loading complete historical review discussion.
+
+CI-specific retrieval semantics remain owned by `docs/CI_AGENT_DIAGNOSTICS.md`; follow its connector-first escalation rather than duplicating a competing Actions-log procedure here.
+
 GitHub API/integration access has a higher round-trip cost than a local filesystem. Inspect sufficient context before editing, avoid repeatedly fetching the same files unnecessarily, form the implementation before speculative writes, batch related changes where practical, and use logical commits rather than one commit per file. Multiple logical commits are appropriate when they genuinely improve reviewability.
 
 Before the principal implementation handoff/push, inspect the complete proposed change against:
