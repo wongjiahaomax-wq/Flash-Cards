@@ -43,7 +43,7 @@
     <label>Show assignments for
       <select name="tag">
         <option value="">All Tags</option>
-        {#each data.activeTags as tag}<option value={tag.id} selected={tag.id === data.filters.tagId}>{tag.name}</option>{/each}
+        {#each data.filterTags as tag}<option value={tag.id} selected={tag.id === data.filters.tagId}>{tag.name}{tag.isActive ? '' : ' (inactive)'}</option>{/each}
       </select>
     </label>
     <div class="filter-actions"><button class="button" type="submit">Filter</button>{#if query || data.filters.tagId || data.filters.caseSearch || data.filters.questionSearch}<a class="button" href="/admin/tags">Clear</a>{/if}</div>
