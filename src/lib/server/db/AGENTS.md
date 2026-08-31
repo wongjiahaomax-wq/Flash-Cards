@@ -5,6 +5,10 @@ This file supplements the repository-wide `AGENTS.md` for `src/lib/server/db/`.
 - Treat Production/Preview scope as a data-integrity boundary, not a cosmetic filter.
 - Production content is normally `previewSessionId IS NULL`; Preview mutation must preserve ownership checks.
 - Reuse `content-guards.js` and the focused Preview workspace helpers where their exact invariants apply.
+- For active production-only mutation paths, use the explicit semantic guards where their invariant matches: `requireProductionCase(...)` for Production Cases and `requireProductionImageAsset(...)` for Production image Assets.
+- Preview Case ownership has one authority: `requireOwnedPreviewCase(...)`, exported through `preview-workspace.js` from `preview-workspace/ownership.js`. Preserve its full Case return value and `PreviewWorkspaceError` behavior; do not add a second independent implementation in `content-guards.js` or rewrite Preview mutation call sites merely to share a generic abstraction.
+- Preview Asset eligibility is intentionally different from Production-only Asset ownership: `requirePreviewUsableAsset(...)` accepts active Production Assets as well as Assets owned by the current Preview Session. Do not substitute `requireProductionImageAsset(...)` on Preview paths that intentionally allow Production Asset reuse.
+- Do not replace these semantic ownership guards with vague generic “scoped entity” helpers that weaken or obscure their distinct invariants.
 - `preview-workspace.js` remains the stable Preview backend façade/coordinator while the retained legacy subsystem remains present.
 - `preview-workspace/ownership.js` and `preview-workspace/session.js` own Preview ownership/security and Session lifecycle foundations.
 - `preview-workspace/case.js` owns production-Case discovery for Preview, complete Case-clone orchestration (including fixed-image copying inside the clone transaction), Preview Case listing, Case metadata/vignette mutations, and current Topic compatibility behavior.
