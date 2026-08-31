@@ -68,9 +68,8 @@ function slugBase(name) {
   return slug || 'topic';
 }
 
-/** @param {LearningDb} db */
-export async function listAdminConcepts(db) {
-  const rows = await listActiveConceptTaxonomy(db);
+/** @param {Awaited<ReturnType<typeof listActiveConceptTaxonomy>>} rows */
+function adminConceptOptions(rows) {
   return rows
     .filter((concept) => concept.kind === 'topic')
     .map((concept) => ({
@@ -85,12 +84,30 @@ export async function listAdminConcepts(db) {
     }));
 }
 
-/** @param {LearningDb} db */
-export async function listActiveSystems(db) {
-  const rows = await listActiveConceptTaxonomy(db);
+/** @param {Awaited<ReturnType<typeof listActiveConceptTaxonomy>>} rows */
+function activeSystemOptions(rows) {
   return rows
     .filter((concept) => concept.kind === 'system')
     .map((concept) => ({ id: concept.id, name: concept.name }));
+}
+
+/** @param {LearningDb} db */
+export async function listCaseEditorTaxonomyOptions(db) {
+  const rows = await listActiveConceptTaxonomy(db);
+  return {
+    concepts: adminConceptOptions(rows),
+    systems: activeSystemOptions(rows)
+  };
+}
+
+/** @param {LearningDb} db */
+export async function listAdminConcepts(db) {
+  return adminConceptOptions(await listActiveConceptTaxonomy(db));
+}
+
+/** @param {LearningDb} db */
+export async function listActiveSystems(db) {
+  return activeSystemOptions(await listActiveConceptTaxonomy(db));
 }
 
 /** @param {LearningDb} db @param {string} name */
