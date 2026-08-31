@@ -110,7 +110,7 @@ Coding-agent routing guide for scoped context and validation.
 
 ### `TESTING_AND_VALIDATION_GUIDANCE.md`
 
-Living test-authoring and validation authority. Read it when adding/rewriting tests, choosing current versus historical schema fixtures, changing fast/full or specialized validation ownership, or changing CI diagnostics. It owns the complete-suite/new-test defaults, exceptional exclusion requirements, invariant-owner hierarchy, and central change-aware specialization split. The PR #115 audit/cleanup plan remains historical implementation evidence rather than the normal future-authoring guide.
+Living test-authoring and validation authority. Read it when adding/rewriting tests, choosing current versus historical schema fixtures, changing fast/full or specialized validation ownership, or changing CI diagnostics. It owns the complete-suite/new-test defaults, exceptional exclusion requirements, invariant-owner hierarchy, and ordinary-PR-CI change-aware specialization split, including the intentional separate path-filtered Wrangler runtime-smoke exception. The PR #115 audit/cleanup plan remains historical implementation evidence rather than the normal future-authoring guide.
 
 ### `ENGINEERING_ARCHITECTURE_GUIDELINES.md`
 
@@ -256,13 +256,12 @@ different PRs       → independent concurrency groups
 
 The ordinary status/job remains `check`.
 
-Authority split:
+Authority split for ordinary PR CI change-aware specialization:
 
 ```text
 scripts/agent-checks-lib.mjs
-→ one central changed-path classifier
+→ central classifier for ordinary-CI specialized requirements
 → agent:checks advisory requirements
-→ ordinary-CI specialized requirements
 
 scripts/validation-contract.mjs
 → named checks
@@ -270,13 +269,24 @@ scripts/validation-contract.mjs
 → explicit satisfaction/deduplication
 
 scripts/validate-ci.mjs
-→ CI execution wrapper + diagnostics
+→ ordinary-CI execution wrapper + diagnostics
 
 .github/workflows/ci.yml
-→ PR event state + concurrency + job orchestration only
+→ PR event state + concurrency + ordinary-CI job orchestration only
 ```
 
-`agent:checks` is advisory when run locally; its output is not evidence that a check executed. Ordinary CI consumes the centrally classified specialized subset for the actual PR diff. Workflow YAML must not grow a second path classifier or independent validation command list.
+Intentional separate exception:
+
+```text
+.github/workflows/wrangler-runtime-smoke.yml
+→ separate Wrangler runtime-smoke workflow
+→ owns its existing pull_request.paths trigger
+→ runtimeSmoke is not in the ordinary-CI specialized subset
+```
+
+`agent:checks` is advisory when run locally; its output is not evidence that a check executed. Ordinary CI consumes the centrally classified specialized subset for the actual PR diff. `agent:checks` may advise `runtimeSmoke` for a broader runtime-sensitive set than the separate workflow's path filter, so neither its advice nor the ordinary `check` job proves runtime smoke executed. Preserve the runtime-smoke workflow's path filter unless a separately reviewed validation-architecture change redesigns it.
+
+Do not add a second ordinary-CI classifier or independent validation command list to `.github/workflows/ci.yml`. Do not treat intentionally separate path-filtered workflows as duplication merely because `agent:checks` also knows about related paths.
 
 Do not duplicate the static test list into task prompts. Use root `AGENTS.md`, `AGENT_TASK_MAP.md`, `TESTING_AND_VALIDATION_GUIDANCE.md`, and repository commands.
 
