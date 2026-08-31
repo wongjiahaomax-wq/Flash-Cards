@@ -149,7 +149,7 @@ test('connector and GitHub records share normalized positions and escape unsafe 
   );
 
   const annotation = githubSvelteDiagnosticAnnotation(diagnostic);
-  assert.match(annotation, /^::error file=src\/routes\/a%2Cb%3A100%25\.svelte,line=1,col=1,title=Svelte check js TS%7C2322%25::/);
+  assert.match(annotation, /^::error file=src\/routes\/a%2Cb%3A100%25\.svelte,line=1,col=1,title=Svelte check js TS\|2322%25::/);
   assert.equal(annotation.includes('\n'), false);
 });
 
