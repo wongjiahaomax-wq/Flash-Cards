@@ -52,9 +52,11 @@ test('Case editor can place its current Primary Topic under an active System', (
 
 
 test('Topic detail exposes permanent deletion only through server-authoritative unused-Topic eligibility', () => {
+  const deleteEligibilityExpression = topicDetailPage.match(/let canDeleteTopic = \$derived\(Boolean\([\s\S]*?\)\);/);
+  assert.ok(deleteEligibilityExpression, 'Expected the Topic detail page to define canDeleteTopic from server data.');
   assert.match(topicDetailPage, /action="\?\/deleteTopic"/);
-  assert.match(topicDetailPage, /data\.deletionEligibility\?\.canDelete/);
-  assert.doesNotMatch(topicDetailPage, /data\.topic\.cases\.length === 0/);
+  assert.match(deleteEligibilityExpression[0], /data\.deletionEligibility\?\.canDelete/);
+  assert.doesNotMatch(deleteEligibilityExpression[0], /data\.topic\.(?:cases|questions|children)/);
   assert.match(topicDetailPage, /Permanently remove an accidentally created Topic/);
   assert.match(topicDetailPage, /learner Review history currently prevent permanent deletion/);
   assert.match(topicDetailPage, /window\.confirm/);
