@@ -84,6 +84,8 @@ make coherent follow-up fixes when genuinely required
 leave the draft PR as durable handoff state
 ```
 
+For Remote GitHub retrieval and coherent multi-file write mechanics, follow `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`; keep this task map at the routing/policy level rather than duplicating the detailed Git-data procedure here.
+
 GitHub API/integration reads and writes have higher round-trip cost than a local filesystem. Inspect sufficient context before editing, avoid repeatedly fetching unchanged files, batch related writes where practical, and use logical commits rather than one commit per file. Do not use GitHub Actions as the first debugger for speculative edits; self-review the coherent change before relying on CI.
 
 A remote agent must distinguish inspection from execution. Do not report `npm run validate:full`, `runtime:smoke`, or another repository command as passed unless that command actually ran in an environment the agent controlled. Report GitHub CI/check results as GitHub CI/check evidence, and state what could not be executed locally.
