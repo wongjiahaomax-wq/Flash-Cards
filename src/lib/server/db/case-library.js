@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray, isNull, like, sql } from 'drizzle-orm';
 
+import { CASE_LIBRARY_UNASSIGNED_SYSTEM as CASE_LIBRARY_UNASSIGNED_SYSTEM_ID } from '../../case-library-classification.ts';
 import { conceptBreadcrumb, systemAncestorId } from '../learning/taxonomy-graph.ts';
 import { listConceptTaxonomy } from './concept-taxonomy-compat.ts';
 import { caseConcepts, cases, concepts } from './schema.js';
@@ -13,14 +14,14 @@ export const CASE_LIBRARY_PAGE_SIZE = 60;
 
 /**
  * @param {URLSearchParams | { get(name: string): string | null }} params
- * @returns {{ search: string, topicSearch: string, systemSearch: string, tagId: string, sort: string, lifecycle: 'active'|'inactive' }}
+ * @returns {{ search: string, topicId: string, systemId: string, tagId: string, sort: string, lifecycle: 'active'|'inactive' }}
  */
 export function parseCaseLibraryFilters(params) {
   const sort = params.get('sort')?.trim() ?? '';
   return {
     search: params.get('q')?.trim() ?? '',
-    topicSearch: params.get('topic')?.trim() ?? '',
-    systemSearch: params.get('system')?.trim() ?? '',
+    topicId: params.get('topic')?.trim() ?? '',
+    systemId: params.get('system')?.trim() ?? '',
     tagId: params.get('tag')?.trim() ?? '',
     sort: ['case-asc', 'case-desc', 'topic-asc', 'topic-desc', 'system-asc', 'system-desc', 'tag-asc', 'tag-desc'].includes(sort) ? sort : 'case-asc',
     lifecycle: params.get('lifecycle') === 'inactive' ? 'inactive' : 'active'
@@ -33,32 +34,27 @@ export function parseCaseLibraryPage(params) {
   return Number.isSafeInteger(raw) && raw > 0 ? raw : 1;
 }
 
-/** @param {TaxonomyRow[]} conceptRows @param {string | undefined} systemSearch @returns {CaseLibrarySystemFilter} */
-function resolveCaseLibrarySystemFilter(conceptRows, systemSearch) {
-  const search = String(systemSearch ?? '').trim();
-  if (!search) return { mode: 'none' };
+/** @param {TaxonomyRow[]} conceptRows @param {string | undefined} systemId @returns {CaseLibrarySystemFilter} */
+function resolveCaseLibrarySystemFilter(conceptRows, systemId) {
+  const selectedId = String(systemId ?? '').trim();
+  if (!selectedId) return { mode: 'none' };
   const systemIds = conceptRows.filter((concept) => concept.kind === 'system').map((concept) => concept.id);
-  if (search.toLocaleLowerCase() === 'unassigned') return { mode: 'unassigned', systemIds };
-  const normalized = search.toLocaleLowerCase();
-  const ids = conceptRows
-    .filter((concept) => concept.kind === 'system' && concept.name.toLocaleLowerCase().includes(normalized))
-    .map((concept) => concept.id);
-  return ids.length ? { mode: 'matching-systems', ids } : { mode: 'no-match' };
+  if (selectedId === CASE_LIBRARY_UNASSIGNED_SYSTEM_ID) return { mode: 'unassigned', systemIds };
+  return systemIds.includes(selectedId) ? { mode: 'matching-systems', ids: [selectedId] } : { mode: 'no-match' };
 }
 
-/** @param {{ search: string, topicSearch?: string, systemFilter?: CaseLibrarySystemFilter, tagId: string, lifecycle?: 'active'|'inactive', taxonomyActiveOnly?: boolean }} filters */
+/** @param {{ search: string, topicId?: string, systemFilter?: CaseLibrarySystemFilter, tagId: string, lifecycle?: 'active'|'inactive', taxonomyActiveOnly?: boolean }} filters */
 function caseLibraryConditions(filters) {
   const inactiveView = filters.lifecycle === 'inactive';
   const conditions = [eq(cases.isActive, inactiveView ? false : true), isNull(cases.previewSessionId)];
   if (filters.search) conditions.push(like(cases.title, `%${filters.search.toLowerCase()}%`));
-  if (filters.topicSearch) {
+  if (filters.topicId) {
     conditions.push(sql`exists (
       select 1
       from case_concepts filter_case_concepts
-      join concepts filter_concepts on filter_concepts.id = filter_case_concepts.concept_id
       where filter_case_concepts.case_id = ${cases.id}
         and filter_case_concepts.role = 'primary'
-        and lower(filter_concepts.name) like ${`%${filters.topicSearch.toLowerCase()}%`}
+        and filter_case_concepts.concept_id = ${filters.topicId}
     )`);
   }
   if (filters.systemFilter?.mode === 'matching-systems') {
@@ -152,6 +148,13 @@ function caseLibraryTopicParentOptions(conceptRows) {
     }));
 }
 
+/** @param {TaxonomyRow[]} conceptRows */
+function caseLibrarySystemFilterOptions(conceptRows) {
+  return conceptRows
+    .filter((concept) => concept.kind === 'system')
+    .map((concept) => ({ id: concept.id, name: concept.name, slug: concept.slug }));
+}
+
 /** @param {LearningDb} db @param {string[]} caseIds @param {TaxonomyRow[]} conceptRows */
 async function listPagePrimaryTopics(db, caseIds, conceptRows) {
   if (!caseIds.length) return [];
@@ -180,7 +183,7 @@ async function listPageCaseTags(db, caseIds, includeInactiveTags) {
  * Active assignment and quick-create parent options are derived from the same
  * compatible taxonomy read. The inactive recovery view returns neither model.
  * @param {LearningDb} db
- * @param {{ search: string, topicSearch?: string, systemSearch?: string, tagId: string, sort?: string, lifecycle?: 'active'|'inactive' }} filters
+ * @param {{ search: string, topicId?: string, systemId?: string, tagId: string, sort?: string, lifecycle?: 'active'|'inactive' }} filters
  * @param {{ page?: number, pageSize?: number }} [options]
  */
 export async function getCaseLibraryPage(db, filters, options = {}) {
@@ -190,7 +193,7 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
   const conceptRows = await listConceptTaxonomy(db, { activeOnly: !inactiveView });
   const topicOptions = inactiveView ? [] : caseLibraryTopicOptions(conceptRows);
   const topicParentOptions = inactiveView ? [] : caseLibraryTopicParentOptions(conceptRows);
-  const systemFilter = resolveCaseLibrarySystemFilter(conceptRows, filters.systemSearch);
+  const systemFilter = resolveCaseLibrarySystemFilter(conceptRows, filters.systemId);
   const where = and(...caseLibraryConditions({ ...filters, lifecycle: inactiveView ? 'inactive' : 'active', taxonomyActiveOnly: !inactiveView, systemFilter }));
   const countRows = await db.select({ count: sql`count(*)`.mapWith(Number) }).from(cases).where(where);
   const totalCount = Number(countRows[0]?.count ?? 0);
@@ -240,6 +243,8 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
     rows: rawRows.map((row) => ({ ...row, conceptId: primaryByCase.get(row.id)?.conceptId ?? null, conceptName: primaryByCase.get(row.id)?.conceptName ?? null, systemName: primaryByCase.get(row.id)?.systemName ?? null, tags: tagsByCase.get(row.id) ?? [] })),
     topicOptions,
     topicParentOptions,
+    topicFilterOptions: inactiveView ? caseLibraryTopicOptions(conceptRows) : topicOptions,
+    systemFilterOptions: caseLibrarySystemFilterOptions(conceptRows),
     totalCount,
     totalPages,
     page,

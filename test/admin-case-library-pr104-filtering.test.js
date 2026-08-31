@@ -4,6 +4,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { getCaseLibraryPage } from '../src/lib/server/db/case-library.js';
+import { CASE_LIBRARY_UNASSIGNED_SYSTEM } from '../src/lib/case-library-classification.ts';
 import { createDb } from '../src/lib/server/db/index.js';
 import { applyCurrentSchema } from './current-schema.js';
 
@@ -34,7 +35,7 @@ function createLearningDb() {
 }
 
 function filters(overrides = {}) {
-  return { search: '', topicSearch: '', systemSearch: '', tagId: '', sort: 'case-asc', lifecycle: 'active', ...overrides };
+  return { search: '', topicId: '', systemId: '', tagId: '', sort: 'case-asc', lifecycle: 'active', ...overrides };
 }
 
 function taxonomyReadCount(statements) {
@@ -73,29 +74,65 @@ test('System filtering distinguishes real matches, Unassigned, and zero-match te
     assert.deepEqual(unrestricted.rows.map((row) => row.id), ['case-free-direct', 'case-eye', 'case-free-nested']);
     assert.equal(taxonomyReadCount(fixture.statements), 1, 'active Case Library must keep one canonical taxonomy read');
 
-    const realSystem = await getCaseLibraryPage(fixture.db, filters({ systemSearch: 'yE' }), { pageSize: 20 });
+    const realSystem = await getCaseLibraryPage(fixture.db, filters({ systemId: 'system-eye' }), { pageSize: 20 });
     assert.deepEqual(realSystem.rows.map((row) => row.id), ['case-eye']);
 
-    const unassigned = await getCaseLibraryPage(fixture.db, filters({ systemSearch: '  uNaSsIgNeD  ' }), { pageSize: 20 });
+    const unassigned = await getCaseLibraryPage(fixture.db, filters({ systemId: CASE_LIBRARY_UNASSIGNED_SYSTEM }), { pageSize: 20 });
     assert.deepEqual(unassigned.rows.map((row) => row.id), ['case-free-direct', 'case-free-nested']);
     assert.ok(unassigned.rows.every((row) => row.systemName === null));
 
-    const noMatch = await getCaseLibraryPage(fixture.db, filters({ systemSearch: 'not-a-system' }), { pageSize: 20 });
+    const noMatch = await getCaseLibraryPage(fixture.db, filters({ systemId: 'not-a-system' }), { pageSize: 20 });
     assert.deepEqual(noMatch.rows, []);
     assert.equal(noMatch.totalCount, 0);
 
     const composed = await getCaseLibraryPage(fixture.db, filters({
       search: 'Nested',
-      topicSearch: 'Child',
-      systemSearch: 'Unassigned',
+      topicId: 'topic-free-child',
+      systemId: CASE_LIBRARY_UNASSIGNED_SYSTEM,
       tagId: 'tag-shared'
     }), { pageSize: 20 });
     assert.deepEqual(composed.rows.map((row) => row.id), ['case-free-nested']);
 
-    const inactive = await getCaseLibraryPage(fixture.db, filters({ lifecycle: 'inactive', systemSearch: 'Unassigned' }), { pageSize: 20 });
+    const inactive = await getCaseLibraryPage(fixture.db, filters({ lifecycle: 'inactive', systemId: CASE_LIBRARY_UNASSIGNED_SYSTEM }), { pageSize: 20 });
     assert.deepEqual(inactive.rows.map((row) => row.id), ['case-inactive-free']);
     assert.deepEqual(inactive.topicOptions, []);
     assert.deepEqual(inactive.topicParentOptions, []);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Case Library filters use Topic and System IDs, including named Unassigned System', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.exec(`
+      INSERT INTO concepts (id, name, slug, kind, parent_id, is_active) VALUES
+        ('system-eye', 'Eye', 'eye', 'system', NULL, 1),
+        ('system-unassigned', 'Unassigned', 'unassigned', 'system', NULL, 1),
+        ('topic-duplicate-eye', 'Acute pericarditis', 'acute-pericarditis-eye', 'topic', 'system-eye', 1),
+        ('topic-duplicate-named', 'Acute pericarditis', 'acute-pericarditis-named', 'topic', 'system-unassigned', 1),
+        ('topic-no-system', 'Acute pericarditis', 'acute-pericarditis-free', 'topic', NULL, 1);
+      INSERT INTO cases (id, title, is_active) VALUES
+        ('case-eye', 'Eye Case', 1),
+        ('case-named-system', 'Named System Case', 1),
+        ('case-no-system', 'No System Case', 1);
+      INSERT INTO case_concepts (case_id, concept_id, role) VALUES
+        ('case-eye', 'topic-duplicate-eye', 'primary'),
+        ('case-named-system', 'topic-duplicate-named', 'primary'),
+        ('case-no-system', 'topic-no-system', 'primary');
+    `);
+
+    const eyeTopic = await getCaseLibraryPage(fixture.db, filters({ topicId: 'topic-duplicate-eye' }), { pageSize: 20 });
+    const namedTopic = await getCaseLibraryPage(fixture.db, filters({ topicId: 'topic-duplicate-named' }), { pageSize: 20 });
+    assert.deepEqual(eyeTopic.rows.map((row) => row.id), ['case-eye']);
+    assert.deepEqual(namedTopic.rows.map((row) => row.id), ['case-named-system']);
+    assert.equal(eyeTopic.topicFilterOptions.find((option) => option.id === 'topic-duplicate-eye')?.breadcrumb.at(-1)?.name, 'Acute pericarditis');
+
+    const namedSystem = await getCaseLibraryPage(fixture.db, filters({ systemId: 'system-unassigned' }), { pageSize: 20 });
+    const unassigned = await getCaseLibraryPage(fixture.db, filters({ systemId: CASE_LIBRARY_UNASSIGNED_SYSTEM }), { pageSize: 20 });
+    assert.deepEqual(namedSystem.rows.map((row) => row.id), ['case-named-system']);
+    assert.deepEqual(unassigned.rows.map((row) => row.id), ['case-no-system']);
+    assert.notDeepEqual(namedSystem.rows.map((row) => row.id), unassigned.rows.map((row) => row.id));
   } finally {
     fixture.sqlite.close();
   }

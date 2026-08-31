@@ -213,6 +213,8 @@ export async function load({ locals, platform, url, setHeaders }) {
       tags: [],
       topics: [],
       topicParents: [],
+      filterTopics: [],
+      filterSystems: [],
       caseFilters: filters,
       cases: [],
       pagination: emptyPagination,
@@ -239,6 +241,8 @@ export async function load({ locals, platform, url, setHeaders }) {
     tags: tagRows,
     topics: pageData.topicOptions,
     topicParents: pageData.topicParentOptions,
+    filterTopics: pageData.topicFilterOptions,
+    filterSystems: pageData.systemFilterOptions,
     caseFilters: filters,
     cases: pageData.rows,
     pagination: {
