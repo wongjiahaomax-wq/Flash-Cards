@@ -8,7 +8,7 @@ import { isProductionAdmin } from '../preview-auth.js';
  *
  * @param {{
  *   user: { role?: unknown } | null | undefined,
- *   env: { SYSTEM_STUDY_NAVIGATION_ENABLED?: unknown } | null | undefined,
+ *   env: { SYSTEM_STUDY_NAVIGATION_ENABLED?: string } | null | undefined,
  *   studySelectionId: string | null | undefined
  * }} input
  */
