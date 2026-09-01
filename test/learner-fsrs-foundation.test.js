@@ -107,7 +107,8 @@ test('FSRS migration creates additive learner foundation and cascades learner-ow
       'learner_aggregates',
       'learner_system_aggregates'
     ]) {
-      assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n, 0);
+      const row = db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get();
+      assert.equal(Number(row?.n ?? -1), 0);
     }
   } finally {
     db.close();
@@ -176,7 +177,13 @@ test('FSRS adapter pins the reviewed scheduler and serializes a deterministic sh
   assert.ok([1, 2, 3].includes(first.card.state));
   assert.equal(typeof getFsrsRetrievability(first.card, first.nextDueAt, parameters), 'number');
   assert.throws(
-    () => scheduleFsrsReview({ card: initial, rating: 'manual', now, parameters }),
+    () =>
+      scheduleFsrsReview({
+        card: initial,
+        rating: /** @type {any} */ ('manual'),
+        now,
+        parameters
+      }),
     /Unsupported FSRS rating/
   );
 });
@@ -185,13 +192,15 @@ test('all four learner ratings are accepted by the adapter', () => {
   const now = Date.UTC(2026, 8, 2, 0, 0, 0);
   const card = createInitialFsrsCard(now);
   const parameters = createDefaultFsrsParameters();
-  for (const rating of ['again', 'hard', 'good', 'easy']) {
+  const ratings = /** @type {const} */ (['again', 'hard', 'good', 'easy']);
+  for (const rating of ratings) {
     const transition = scheduleFsrsReview({ card, rating, now, parameters });
     assert.ok(transition.nextDueAt > now, rating);
   }
 });
 
 test('optimizer evidence is grouped by Case, generation and Reset/Fresh epoch with complete sequence checks', () => {
+  /** @type {Parameters<typeof groupOptimizerEvidence>[0]} */
   const rows = [
     { eventId: 'e2', userId: 'u', caseId: 'c', completedAt: 300, rating: 'good', generation: 1, reviewSequenceEpoch: 2, sequenceNo: 1 },
     { eventId: 'e1b', userId: 'u', caseId: 'c', completedAt: 200, rating: 'hard', generation: 1, reviewSequenceEpoch: 1, sequenceNo: 2 },
