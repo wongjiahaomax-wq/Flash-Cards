@@ -768,7 +768,7 @@ Use retained detailed events for:
 
 `Cohort/System trends` means a real **time series**, not merely lifetime totals rendered as a chart.
 
-The product contract is:
+The product/technical contract is:
 
 - Admin trend data uses bounded calendar-time buckets, initially **monthly** unless PR G presents a reviewed reason for another granularity;
 - per-System monthly buckets must survive ordinary detailed-event expiry so long-range System trends remain available;
