@@ -197,11 +197,17 @@ This is future intent, not current executable learner scheduling behavior.
 
 ### `LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md`
 
-**Subordinate technical-design companion.** It records the repository-grounded FSRS library direction, compact schema responsibilities, transaction boundaries, write-time active-Review/generation concurrency invariant, preliminary synthetic benchmark evidence, required D1 benchmark gate, Better Auth deletion direction, focused implementation decomposition, and the exact PR #119 reuse/discard boundary.
+**Primary subordinate technical-design companion.** It records the repository-grounded FSRS library direction, compact schema responsibilities, transaction boundaries, write-time active-Review/generation concurrency invariant, preliminary synthetic benchmark evidence, required D1 benchmark gate, Better Auth deletion direction, focused implementation decomposition, and the exact PR #119 reuse/discard boundary.
 
-If the technical companion conflicts with the locked product plan on product behavior, the product plan wins. Neither document is authorization to deploy, apply Production migrations, or enable learner behavior.
+### `LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md`
 
-Do not use an older simple-scheduler / Again-Good-only plan or a historical “FSRS later” statement as authority over these two documents.
+**Required final implementation-readiness addendum.** Read it with the technical design before PR A. It narrows the remaining technical boundaries for the explicit legacy-runtime cutover owner, synchronous expired-active replacement, server-clock authority, lazy first-learner bootstrap, scheduler-revision upgrades, optimizer-rescheduling deferral, historical System identity, Scheduled idempotency conflict reconciliation, browser/localStorage workload limits, repeat-waiting/deactivation lifecycle semantics, and removable learner contribution to future time-series analytics.
+
+If either technical document conflicts with the locked product plan on product behavior, the product plan wins. Where the readiness contract adds narrower implementation specificity to a boundary left open by the technical design, the readiness contract controls that technical boundary.
+
+None of these three documents is authorization to deploy, apply Production migrations, run the destructive cutover, or enable learner behavior.
+
+Do not use an older simple-scheduler / Again-Good-only plan or a historical “FSRS later” statement as authority over these three documents.
 
 ## Stimulus behavior
 
