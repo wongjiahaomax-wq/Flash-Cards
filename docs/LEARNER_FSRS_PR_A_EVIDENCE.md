@@ -280,4 +280,20 @@ resultingState: 1
 nextDueAt: 1788307800000
 ```
 
-This is the first Part A checkpoint that directly proves a transition by the real repository adapter/pinned `ts-fsrs` executes under the repository-pinned Cloudflare local Worker runtime. The documentation commit recording this evidence moves the PR head again; final handoff/acceptance must therefore also require ordinary exact-head CI plus the two path-filtered runtime workflows to remain green on that final documentation head.
+This is the first Part A checkpoint that directly proves a transition by the real repository adapter/pinned `ts-fsrs` executes under the repository-pinned Cloudflare local Worker runtime.
+
+The final reviewed implementation head before this durable evidence marker was:
+
+```text
+7ae44321c9aa910777c0e1d0a0b146be16620ba9
+```
+
+and it completed:
+
+```text
+CI #1567 — passed
+Wrangler runtime smoke #253 — passed
+Learner FSRS workerd smoke #3 — passed
+```
+
+The only change after that validated head is this documentation-only evidence marker. Final acceptance should still verify the PR's current exact-head status, but no scheduler/runtime implementation changed after `7ae44321c9aa910777c0e1d0a0b146be16620ba9`.
