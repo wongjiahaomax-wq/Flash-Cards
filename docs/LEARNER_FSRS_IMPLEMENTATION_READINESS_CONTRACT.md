@@ -38,7 +38,8 @@ The cutover checkpoint owns, at minimum:
 7. update local replica/reset/fixture/tooling that explicitly knows the legacy Review tables;
 8. remove obsolete schema exports, source contracts, tests, and documentation whose only owner is the retired learner Review persistence model;
 9. keep Admin Study Preview outside learner SRS persistence;
-10. prove the new runtime does not accidentally write the retired model.
+10. prove the new runtime does not accidentally write the retired model;
+11. prove every then-current durable learner-history System attribution is registered with the repository's centralized taxonomy deletion/provenance authority so an attributed System cannot be permanently removed.
 
 This is a removal/cutover checkpoint, not a legacy compatibility layer.
 
@@ -83,11 +84,11 @@ Background expiry cleanup remains a maintenance backstop, not a prerequisite for
 
 ---
 
-## 3. Authenticated Scheduled run boundary and two server-time roles
+## 3. Authenticated Scheduled run boundary, captured-work membership, and two server-time roles
 
 Scheduler and lifecycle timing is server-authoritative.
 
-The browser may store/display timestamps and the browser-local run descriptor, but it does not choose scheduler-authoritative time, scope, or profile boundaries.
+The browser may store/display timestamps and the browser-local run descriptor, but it does not choose scheduler-authoritative time, scope, profile boundaries, or captured-work membership.
 
 ### Authenticated run boundary
 
@@ -113,9 +114,10 @@ Before opening any Scheduled work, the server must:
 2. verify token ownership by the authenticated learner;
 3. verify the request's normalized effective scope matches the token-bound scope/fingerprint;
 4. compare the token's scheduler/generation/epoch/parameter boundary with the current learner profile;
-5. then perform the ordinary current content, scope, and scheduler-state revalidation for the requested queue entry.
+5. verify authenticated captured-work membership/origin for the requested queue entry;
+6. then perform the ordinary current content, scope, and scheduler-state revalidation for the requested queue entry.
 
-Malformed, expired where expiry is used, unsupported-version, wrong-owner, or integrity-invalid tokens fail closed. A valid token is **not** authorization to bypass current content eligibility, active-Review ownership, or Case-state revalidation.
+Malformed, expired where expiry is used, unsupported-version, wrong-owner, or integrity-invalid tokens fail closed. A valid token is **not** authorization to bypass captured-work membership, current content eligibility, active-Review ownership, or Case-state revalidation.
 
 Reset/Fresh/parameter/scheduler changes continue to invalidate an otherwise authentic old run through current-profile comparison; token authenticity does not freeze the learner profile forever.
 
@@ -128,6 +130,34 @@ Selected System/Topic/Tag scope is also browser-local convenience state, not aut
 Canonicalization must be deterministic enough that semantically identical scope normalizes identically and a materially different scope does not. A client must not be able to reuse a valid run token while substituting a different learner Study selection.
 
 The server still revalidates that the requested route/content remains currently eligible when opening work.
+
+### Captured-workload membership integrity
+
+Authenticating the run boundary and selected scope is not sufficient by itself. A Case that is currently eligible inside the same scope must not be accepted merely because the browser labels it as captured Due/New or as an in-run repeat.
+
+PR B must emit **server-verifiable authenticated evidence of captured-work membership** for every Scheduled Due/New item that the browser may later ask to open. The physical representation is intentionally not locked here. A straightforward option is a compact per-entry signed/MACed capability, but an authenticated descriptor/root plus a compact membership proof or another measured equivalent is acceptable if it preserves the same invariant and browser-storage model.
+
+For captured Due/New work, the membership evidence must bind enough information to prove at least:
+
+- authenticated learner identity;
+- run ID;
+- Case ID;
+- queue class (`due` or `new`);
+- authenticated run boundary/revision identity;
+- normalized scope fingerprint;
+- captured state/classification metadata needed for the relevant revalidation, including expected state revision for Due where applicable;
+- proof/token schema version.
+
+For in-run repeats, membership is created only by a **successful committed Scheduled completion belonging to that same authenticated run**. The completion response must return authenticated repeat-origin evidence binding at least the learner, run ID, Case ID, resulting `state_revision`, resulting `nextDueAt`/due time, run boundary/scope identity, and proof/token version. A currently-Due Case elsewhere in scope cannot become a repeat merely because the browser submits its ID and current state.
+
+Before creating a Scheduled active Review, the server must fail closed unless it can verify the requested item is either:
+
+- an authenticated member of the original captured Due/New workload for that run; or
+- an authenticated repeat generated by a committed completion from that same run.
+
+This protects the core start-of-run snapshot even when PR B later chooses an explicitly bounded/chunked captured workload. It also means `currently eligible in scope` is necessary but never sufficient to manufacture new Scheduled work.
+
+The chosen proof representation and its byte/storage cost are part of PR B's browser-descriptor benchmark. Do not add a persistent D1 run/session row merely to authenticate captured membership.
 
 ### Request/scheduler time
 
@@ -161,11 +191,12 @@ An earlier `requestNow < expires_at` pre-read does not authorize a later write a
 For unchanged captured Due state, opening work must prove all of:
 
 1. valid authenticated run-boundary token;
-2. current profile boundary still matches the token;
-3. expected Case `state_revision` still matches;
-4. the outstanding Case state was Due at the authenticated original run start;
-5. the outstanding Case state is also currently Due at authoritative server request time;
-6. current content/scope eligibility remains valid.
+2. valid authenticated captured-Due membership evidence for this learner/run/Case;
+3. current profile boundary still matches the token;
+4. expected Case `state_revision` still matches;
+5. the outstanding Case state was Due at the authenticated original run start;
+6. the outstanding Case state is also currently Due at authoritative server request time;
+7. current content/scope eligibility remains valid.
 
 Therefore, for the same unchanged outstanding state, require conceptually:
 
@@ -179,11 +210,21 @@ and:
 due_at <= requestNow
 ```
 
-A client-modified timestamp must never make a later-Due Case appear to have belonged to the original captured queue.
+A client-modified timestamp or substituted same-scope Case must never make a later-Due/noncaptured Case appear to have belonged to the original captured queue.
 
 ### Captured New and repeat opening
 
-Captured New still requires no current FSRS state plus valid token/profile/scope/content boundaries. An in-run repeat must still match its expected state revision, token/profile/scope boundaries, and `due_at <= requestNow` before a repeat Review is created.
+Captured New requires valid authenticated captured-New membership evidence, no current FSRS state, and valid token/profile/scope/content boundaries. Another currently-New Case in the same scope is not interchangeable with a captured member.
+
+An in-run repeat requires valid authenticated repeat-origin evidence from a committed completion in this run, matching expected state revision, token/profile/scope boundaries, and `due_at <= requestNow` before a repeat Review is created.
+
+### 50-consecutive-New guardrail authority
+
+The 50-consecutive-New rule remains a **browser-enforced learner UX guardrail**, not a security/data-integrity authorization boundary in V1.
+
+Normal clients must enforce the locked counter semantics, but V1 does not add durable run state or a replay-resistant server-side monotonic counter solely to make that limit cryptographically unbypassable. Browser tampering may therefore bypass the UX count itself; it must **not** allow the client to manufacture Cases outside the authenticated captured workload, reuse another run's work proof, create a fake repeat, bypass one-active-Review ownership, or bypass scheduler/content/state validation.
+
+If a future product requirement upgrades the 50-New rule into a hard server-enforced quota, that requires a separately reviewed authoritative/replay-safe counter design rather than pretending localStorage is authoritative.
 
 ---
 
@@ -278,24 +319,35 @@ Until that later decision, no implementation agent should interpret the technica
 
 ---
 
-## 7. Historical System identity cannot be reclassified away
+## 7. Historical System identity cannot be reclassified or deleted away
 
 Completed Scheduled history and learner/System aggregates promise stable historical System attribution.
 
-Current taxonomy administration allows a System to be reclassified into a Topic once its exposed System Tags are removed; current code does not use learner history as a reclassification guard.
+Current taxonomy administration allows a System to be reclassified into a Topic once its exposed System Tags are removed; current code does not yet use future FSRS learner history as a reclassification guard. Current permanent Topic deletion is server-authoritative and already treats learner Review provenance as a deletion blocker; its writer explicitly rejects Systems rather than providing a separate System-delete path.
 
-Once a System has learner Scheduled history or retained learner/System aggregates/time-bucket contributions, that concept's historical identity must remain a **System**.
+Once a System has learner Scheduled history or retained learner/System aggregate/time-bucket contributions, that concept's historical identity must remain a **System and must continue to exist as the stable historical System identity**.
 
 Therefore:
 
 - rename remains allowed;
 - deactivation remains allowed subject to ordinary current-content rules;
 - reclassification from System → Topic is blocked once learner Scheduled history/aggregate ownership exists;
-- the implementation should enforce this in the normal taxonomy write path and, where practical, with a defensive database invariant/guard appropriate to the final schema.
+- permanent deletion/removal of that System identity is blocked while any retained durable learner-history attribution still references it;
+- the implementation should enforce reclassification in the normal taxonomy write path and, where practical, with a defensive database invariant/guard appropriate to the final schema;
+- permanent-deletion protection must extend the repository's existing centralized taxonomy deletion/provenance eligibility/writer authority rather than adding an independent FSRS-only deletion rule.
+
+Durable historical blockers include, as applicable at the relevant implementation stage:
+
+- retained `scheduled_review_events` historical System attribution;
+- retained learner × System aggregate ownership;
+- retained monthly System/cohort trend-bucket attribution introduced later;
+- any other durable learner-history representation whose meaning depends on that System identity continuing to exist.
 
 This preserves stable System attribution without adding a separate System-title snapshot to every Scheduled event.
 
-Account-history cleanup does not automatically make a historically used System safe to reclassify unless the final implementation can prove no retained learner history/aggregate/time-bucket ownership remains. Do not make reclassification depend on fragile UI-only checks.
+The learner runtime cutover must prove that every historical System-owning table that exists at cutover is incorporated into the centralized deletion/provenance decision before Scheduled history can become normal production data. Later PRs that introduce a new durable System-attribution table, including PR G monthly buckets, must extend the same authority as part of that PR; they must not create a new independent deletion mechanism.
+
+Account-history cleanup does not automatically make a historically used System safe to reclassify or delete unless the final implementation can prove no retained learner history/aggregate/time-bucket ownership remains. Do not make either protection depend on fragile UI-only checks.
 
 ---
 
@@ -343,11 +395,11 @@ The D1 benchmark is not enough. Captured Scheduled workload can be a substantial
 
 Before the run-planner/browser-storage implementation is accepted, benchmark representative and worst-supported descriptors including:
 
-- serialized JSON bytes for captured New IDs;
-- serialized Due entries including Case ID + expected state revision / required metadata;
+- serialized JSON bytes for captured New IDs and their authenticated membership proofs;
+- serialized Due entries including Case ID + expected state revision / required metadata and authenticated membership proofs;
 - selected scope metadata;
 - authenticated opaque run-boundary token / run boundary values;
-- repeat-lane metadata;
+- repeat-lane metadata including authenticated repeat-origin proofs;
 - browser/localStorage write time;
 - read + JSON parse time;
 - response payload size;
@@ -363,7 +415,9 @@ PR B must choose a measured supported strategy before learner rollout:
 - an explicitly bounded maximum captured workload; or
 - another browser-local representation that preserves the no-D1-run-state architecture.
 
-Do not silently fall back to persistent D1 run/session rows merely because one browser descriptor is large or because the run boundary needs authentication.
+The chosen authenticated membership-proof representation is part of that measured strategy. Do not choose a per-entry proof shape blindly if its size makes the supported workload impractical when an equivalent compact authenticated representation can preserve the same invariant.
+
+Do not silently fall back to persistent D1 run/session rows merely because one browser descriptor is large or because the run boundary/workload membership needs authentication.
 
 If the browser cannot persist the planned descriptor:
 
@@ -460,6 +514,8 @@ PR G owns the final physical bucket schema and stable cohort definition, but acc
 
 A strong default candidate is learner-scoped monthly System buckets with `ON DELETE CASCADE`, aggregated across learners at read time. A shared bucket representation is acceptable only if it has correct compensating-decrement/rebuild semantics and associated concurrency tests.
 
+Any PR G bucket that durably attributes history to a System must also register that System dependency with the centralized taxonomy deletion/provenance authority described above.
+
 ### PR G deletion scale gate
 
 Before shipping account deletion, PR G must benchmark a worst-supported mature learner across all learner-owned data, including where present:
@@ -517,10 +573,13 @@ Must additionally establish/prove:
 - server-generated `runStartedAt`;
 - authenticated opaque run-boundary token/equivalent binding learner identity, run ID, server `runStartedAt`, scheduler revision, generation, epoch, parameter revision, normalized scope fingerprint, and token/schema version;
 - deterministic normalized-scope fingerprinting and wrong-scope rejection;
+- authenticated captured-work membership evidence for every emitted Due/New item, without requiring a D1 run/session row;
+- measured choice of per-entry capability vs another equivalent compact authenticated membership representation;
 - per-entry state/classification metadata;
 - captured Due proof against both authenticated run start and current server time;
-- browser descriptor size/localStorage benchmark and graceful storage-failure behavior;
-- no persistent D1 run/session row solely for token protection;
+- browser descriptor size/localStorage benchmark including work-membership proof overhead and graceful storage-failure behavior;
+- explicit 50-New UX-guardrail/non-security-boundary semantics;
+- no persistent D1 run/session row solely for token or membership protection;
 - no first active Review is created when descriptor persistence failed.
 
 ### PR C — temporary active Review lifecycle
@@ -531,7 +590,7 @@ Must additionally establish/prove:
 - synchronous expired-row replacement using database write-boundary time;
 - multi-device expired replacement race;
 - completion/replacement/cleanup expiry serialization;
-- creation guards against current authenticated scheduler/run/scope/classification state;
+- creation guards against current authenticated scheduler/run/scope/classification state **and authenticated captured-work/repeat membership**;
 - frozen Review remains completable after ordinary Admin deactivation;
 - scheduler revision captured on active Review;
 - worst-supported frozen Review payload benchmark;
@@ -544,6 +603,8 @@ Must additionally establish/prove:
 
 - current-Due validation at open time against authenticated run start and request time;
 - server-clock repeat maturity;
+- successful completion returns authenticated repeat-origin evidence bound to the same run and committed resulting state;
+- another same-scope currently-Due Case cannot be forged into an in-run repeat;
 - database-write-time expiry guard inside the atomic completion transaction;
 - expiry-crossing completion rollback behavior;
 - post-conflict Scheduled idempotency reconciliation;
@@ -567,7 +628,8 @@ After Scheduled + Free behavior is complete and validated:
 - retire legacy writers/readers/tables as appropriate;
 - update Asset/R2 lifecycle references;
 - update replica/reset tooling, schema exports, tests, and authoritative docs;
-- prove no legacy learner Review rows can be recreated.
+- prove no legacy learner Review rows can be recreated;
+- prove the then-current durable FSRS System-attribution tables are blockers in the centralized taxonomy deletion/provenance authority before learner Scheduled history is enabled.
 
 No legacy dual-read phase is required.
 
@@ -580,6 +642,7 @@ Continue with the already locked reset/epoch/retention/optimizer-prefix/Progress
 Continue with the already locked Admin/history/account-delete contracts, plus:
 
 - removable learner contribution for monthly trend aggregation;
+- any new durable System-attribution bucket must extend centralized taxonomy deletion/provenance protection;
 - worst-supported learner deletion benchmark against actual D1 behavior;
 - evidence-based direct-cascade vs staged-deletion choice;
 - retry/access-safety proof for staged deletion if required.
@@ -601,9 +664,15 @@ In addition to the tests already required by the technical plan, protect at mini
 - using another learner identity invalidates token use;
 - changing normalized selected scope invalidates token use;
 - stale scheduler revision/generation/epoch/parameter boundary invalidates an otherwise authentic token/run;
+- substituting another currently-New same-scope Case without valid captured-New membership evidence is rejected;
+- substituting another same-scope Due Case without valid captured-Due membership evidence is rejected even if its current scheduling state would otherwise be Due/eligible;
+- captured-work evidence cannot be replayed across learners, runs, queue classes, or materially different authenticated scope/boundary identities;
 - captured Due whose unchanged state became Due only after the real authenticated run start cannot open as captured Due;
 - captured Due still must be currently Due at request time;
-- no D1 persistent run/session row is required for authenticated run-boundary protection;
+- a currently-Due Case cannot be forged into an in-run repeat without authenticated repeat-origin evidence from a committed completion in that same run;
+- authenticated repeat evidence binds the committed resulting `state_revision` and due time and cannot be reused after another transition changes state;
+- no D1 persistent run/session row is required for authenticated run-boundary or captured-membership protection;
+- browser tampering with the 50-New counter cannot manufacture work outside the authenticated captured workload or bypass server scheduling/content/state guards;
 - repeat opening uses server time and rejects premature client requests;
 - an expired active row never permanently blocks a new Review;
 - two devices racing to replace one expired active Review create exactly one replacement;
@@ -623,6 +692,8 @@ In addition to the tests already required by the technical plan, protect at mini
 - zero-data cutover gate fails closed if an unexpected learner legacy Review row exists;
 - post-cutover learner flows cannot write legacy Review tables;
 - System→Topic reclassification is blocked after Scheduled learner historical attribution exists;
+- a System with retained Scheduled events or learner × System aggregate ownership cannot be permanently removed by taxonomy deletion;
+- later monthly System buckets register the same System-survival dependency in centralized taxonomy deletion/provenance authority;
 - future monthly trend storage can remove an individual learner's contribution on full account deletion;
 - PR G benchmark covers worst-supported mature-learner deletion and proves the chosen direct/staged path is bounded, retry-safe, and access-safe.
 
