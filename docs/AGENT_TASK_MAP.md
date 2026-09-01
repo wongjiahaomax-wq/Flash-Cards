@@ -52,11 +52,13 @@ both local execution and GitHub access
 
 ### Local checkout mode
 
-Use the repository-owned iteration → checkpoint → handoff flow:
+Use the repository-owned iteration → checkpoint → handoff flow. Treat `agent:doctor` as session/environment setup rather than a mandatory first step of every small task:
 
 ```text
-npm run agent:doctor
-        ↓
+session/environment/Git-worktree conclusions already current?
+        ├─ no → npm run agent:doctor
+        └─ yes → reuse prior result
+                    ↓
 implement narrowly with targeted reads
         ↓
 focused feedback for the current risk
@@ -70,7 +72,7 @@ final required + specialized checks
 complete final diff review
 ```
 
-Presentation-only UX iteration should normally use Vite/HMR. If this checkout already has a healthy usable `npm run dev` / Vite HMR process, reuse it rather than starting another development server merely for agent iteration. Do not restart or stop a healthy local dev server after ordinary source edits; start, stop, or switch runtime processes only when the task or environment requires it. Production-style `npm run preview` remains a checkpoint tool rather than the normal edit loop. Logic changes should normally run the nearest directly related test(s) first. Do not repeatedly run broad validation after every small edit.
+Presentation-only UX iteration should normally use Vite/HMR. Reuse a healthy existing `npm run dev` / Vite HMR process during ordinary iteration rather than starting another development server merely for agent work. Do not restart or stop it after ordinary source edits; stop or switch it when required by the established Preview, dependency-install, stale-process, or other task/environment workflow. Production-style `npm run preview` remains a checkpoint tool rather than the normal edit loop. Logic changes should normally run the nearest directly related test(s) first. Do not repeatedly run broad validation after every small edit.
 
 `agent:checks` intentionally includes tracked branch/working-tree changes and legitimate untracked files. Do not hide arbitrary untracked implementation files from it. Persistent machine/tool-only artifacts that are checkout-local belong in `.git/info/exclude`; artifacts that are universally inappropriate for the repository belong in `.gitignore`. Keep ignore patterns narrow enough that legitimate source, assets, or configuration remain visible.
 
@@ -141,7 +143,7 @@ npm run validate:full -- --compact
 npm run local:stop
 ```
 
-`agent:doctor` is the read-only environment check. Run it normally once per local coding session, not after every edit or every small task. Rerun it when its conclusions may no longer be trustworthy—for example after switching to a different checkout/environment, dependency installation or `npm ci`, Node/Wrangler/toolchain changes, unexpected local tooling failures, or other evidence of environment drift. Application source changes alone are not a reason to rerun it. A successful run establishes the local-execution side; it does not determine whether GitHub access also exists.
+`agent:doctor` is the read-only environment/Git-state check. Run it normally once per local coding session, not after every edit or every small task. Rerun it when its conclusions may no longer be trustworthy—for example after switching checkout or branch when the prior Git/worktree conclusions no longer apply, after a material Git/worktree-state change that invalidates the earlier assessment, dependency installation or `npm ci`, Node/Wrangler/toolchain changes, unexpected local tooling failures, or other evidence of environment drift. Ordinary application source edits alone are not a reason to rerun it. A successful run establishes the local-execution side; it does not determine whether GitHub access also exists.
 
 `agent:checks` is the read-only changed-file validation advisor. Its compact form uses the same classification/report as verbose mode and changes presentation only. It includes committed feature-branch changes, tracked working-tree changes, and untracked files. Its final required/specialized checks remain authoritative for handoff regardless of how narrow iteration feedback was.
 
