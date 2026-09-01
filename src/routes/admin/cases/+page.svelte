@@ -2,8 +2,10 @@
   import { onMount } from 'svelte';
   import BulkCaseTagEditor from '$lib/components/case-library/BulkCaseTagEditor.svelte';
   import CaseClassificationEditor from '$lib/components/case-library/CaseClassificationEditor.svelte';
+  import CaseLibraryFilterCombobox from '$lib/components/case-library/CaseLibraryFilterCombobox.svelte';
   import CaseLibraryTopicCreator from '$lib/components/case-library/CaseLibraryTopicCreator.svelte';
   import CaseTagInlineEditor from '$lib/components/case-library/CaseTagInlineEditor.svelte';
+  import { CASE_LIBRARY_UNASSIGNED_SYSTEM as CASE_LIBRARY_UNASSIGNED_SYSTEM_ID } from '$lib/case-library-classification.ts';
   import { applyCaseSelection, reconcileVisibleCaseSelection } from '$lib/admin-case-selection.js';
   import {
     CASE_LIBRARY_STATE_VERSION,
@@ -31,8 +33,8 @@
   }
 
   let query = $state('');
-  let topicQuery = $state('');
-  let systemQuery = $state('');
+  let topicId = $state('');
+  let systemId = $state('');
   let searchForm = $state();
   let persistenceReady = $state(false);
   const failedSelection = failedTopicSelection(form);
@@ -45,6 +47,17 @@
   let firstShown = $derived(data.pagination.totalCount === 0 ? 0 : (data.pagination.page - 1) * data.pagination.pageSize + 1);
   let lastShown = $derived(Math.min(data.pagination.page * data.pagination.pageSize, data.pagination.totalCount));
   let allVisibleSelected = $derived(data.cases.length > 0 && data.cases.every((item) => selectedCaseIds.includes(item.id)));
+  let topicFilterOptions = $derived((data.filterTopics ?? []).map((topic) => ({
+    id: topic.id,
+    label: topic.name,
+    displayLabel: topic.breadcrumb?.map((item) => item.name).join(' → ') ?? topic.name,
+    searchLabel: topic.breadcrumb?.map((item) => item.name).join(' '),
+    meta: 'Topic'
+  })));
+  let systemFilterOptions = $derived([
+    { id: CASE_LIBRARY_UNASSIGNED_SYSTEM_ID, label: 'Unassigned (no System)', meta: 'Primary Topic has no System ancestor' },
+    ...(data.filterSystems ?? []).map((system) => ({ id: system.id, label: system.name, displayLabel: system.name, meta: 'System' }))
+  ]);
   let topicGroups = $derived.by(() => {
     /** @type {Map<string, { label: string, topics: { id: string, name: string, breadcrumb: { id: string, name: string, kind: string }[] }[] }>} */
     const groups = new Map();
@@ -69,8 +82,8 @@
     return {
       version: CASE_LIBRARY_STATE_VERSION,
       q: data.caseFilters.search,
-      topic: data.caseFilters.topicSearch,
-      system: data.caseFilters.systemSearch,
+      topic: data.caseFilters.topicId,
+      system: data.caseFilters.systemId,
       tag: data.caseFilters.tagId,
       sort: data.caseFilters.sort,
       lifecycle: data.caseFilters.lifecycle,
@@ -96,8 +109,8 @@
 
   $effect(() => {
     query = data.caseFilters.search;
-    topicQuery = data.caseFilters.topicSearch;
-    systemQuery = data.caseFilters.systemSearch;
+    topicId = data.caseFilters.topicId;
+    systemId = data.caseFilters.systemId;
   });
 
   $effect(() => {
@@ -156,8 +169,8 @@
   function currentQuery() {
     const params = new URLSearchParams();
     if (data.caseFilters.search) params.set('q', data.caseFilters.search);
-    if (data.caseFilters.topicSearch) params.set('topic', data.caseFilters.topicSearch);
-    if (data.caseFilters.systemSearch) params.set('system', data.caseFilters.systemSearch);
+    if (data.caseFilters.topicId) params.set('topic', data.caseFilters.topicId);
+    if (data.caseFilters.systemId) params.set('system', data.caseFilters.systemId);
     if (data.caseFilters.tagId) params.set('tag', data.caseFilters.tagId);
     if (data.caseFilters.sort && data.caseFilters.sort !== 'case-asc') params.set('sort', data.caseFilters.sort);
     preserveLifecycle(params);
@@ -215,12 +228,12 @@
 
 <form class="search-form" method="GET" bind:this={searchForm}>
   <label class="search-field" for="case-search">Case contains<input id="case-search" name="q" bind:value={query} placeholder="e.g. pericarditis" /></label>
-  <label class="search-field" for="topic-search">Topic contains<input id="topic-search" name="topic" bind:value={topicQuery} placeholder="e.g. AMI" /></label>
-  <label class="search-field" for="system-search">System contains<input id="system-search" name="system" bind:value={systemQuery} placeholder="e.g. Cardiology or Unassigned" /></label>
+  <CaseLibraryFilterCombobox bind:value={topicId} name="topic" inputId="topic-search" options={topicFilterOptions} label="Topic" placeholder="Search Topics…" emptyLabel="All Topics" duplicateIdLabel="Topic ID" />
+  <CaseLibraryFilterCombobox bind:value={systemId} name="system" inputId="system-search" options={systemFilterOptions} label="System" placeholder="Search Systems…" emptyLabel="All Systems" duplicateIdLabel="System ID" />
   <label for="case-tag">Tag<select id="case-tag" name="tag" onchange={applyFilters}><option value="">All Tags</option>{#each data.tags as tag}<option value={tag.id} selected={tag.id === data.caseFilters.tagId}>{tag.name}</option>{/each}</select></label>
   {#if inactiveView}<input type="hidden" name="lifecycle" value="inactive" />{/if}
   {#if data.caseFilters.sort && data.caseFilters.sort !== 'case-asc'}<input type="hidden" name="sort" value={data.caseFilters.sort} />{/if}
-  <div class="search-actions"><button class="button primary" type="submit">Search</button>{#if query || topicQuery || systemQuery || data.caseFilters.tagId}<a class="button" href={clearHref()} onclick={clearRememberedState}>Clear</a>{/if}</div>
+  <div class="search-actions"><button class="button primary" type="submit">Search</button>{#if query || topicId || systemId || data.caseFilters.tagId}<a class="button" href={clearHref()} onclick={clearRememberedState}>Clear</a>{/if}</div>
 </form>
 
 <section class="panel" aria-labelledby="case-list-heading">

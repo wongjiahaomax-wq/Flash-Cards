@@ -9,6 +9,7 @@ import { applyCurrentSchema } from './current-schema.js';
 
 const pageSource = readFileSync(new URL('../src/routes/admin/cases/+page.svelte', import.meta.url), 'utf8');
 const serverSource = readFileSync(new URL('../src/routes/admin/cases/+page.server.js', import.meta.url), 'utf8');
+const filterPickerSource = readFileSync(new URL('../src/lib/components/case-library/CaseLibraryFilterCombobox.svelte', import.meta.url), 'utf8');
 
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
@@ -55,16 +56,22 @@ function inputTag(id) {
   return pageSource.match(new RegExp(`<input[^>]*id="${id}"[^>]*>`))?.[0] ?? '';
 }
 
-test('Case Library text filters submit deliberately while Tag change remains immediate', () => {
+test('Case Library ID filters search in an overlay while Search and Tag behavior remain deliberate', () => {
   const searchForm = pageSource.match(/<form class="search-form"[\s\S]*?<\/form>/)?.[0] ?? '';
   assert.ok(searchForm, 'expected the Case Library GET search form');
 
-  for (const [id, name] of [['case-search', 'q'], ['topic-search', 'topic'], ['system-search', 'system']]) {
-    const input = inputTag(id);
-    assert.ok(input, `expected ${id}`);
-    assert.match(input, new RegExp(`name="${name}"`));
-    assert.doesNotMatch(input, /oninput=|onkeydown=|onkeyup=/, `${id} must not submit while typing`);
-  }
+  const caseInput = inputTag('case-search');
+  assert.ok(caseInput, 'expected case-search');
+  assert.match(caseInput, /name="q"/);
+  assert.doesNotMatch(caseInput, /oninput=|onkeydown=|onkeyup=/, 'Case search must not submit while typing');
+  assert.match(pageSource, /<CaseLibraryFilterCombobox[^>]*name="topic"[^>]*label="Topic"/s);
+  assert.match(pageSource, /<CaseLibraryFilterCombobox[^>]*name="system"[^>]*label="System"/s);
+  assert.doesNotMatch(pageSource, /Topic contains|System contains/);
+  assert.match(pageSource, /Unassigned \(no System\)/);
+  assert.match(filterPickerSource, /role="combobox"/);
+  assert.match(filterPickerSource, /type="hidden" name=\{name\} value=\{value\}/);
+  assert.match(filterPickerSource, /position: absolute/);
+  assert.match(filterPickerSource, /oninput=\{\(event\) => updateQuery/);
 
   assert.match(searchForm, /method="GET"/);
   assert.match(searchForm, /<button class="button primary" type="submit">Search<\/button>/);
@@ -111,7 +118,7 @@ test('active Case Library derives Topic options from one canonical taxonomy supp
     fixture.statements.length = 0;
     const active = await getCaseLibraryPage(
       fixture.db,
-      { search: 'glaucoma', topicSearch: 'glauc', systemSearch: 'eye', tagId: '', sort: 'case-asc', lifecycle: 'active' },
+      { search: 'glaucoma', topicId: 'topic-glaucoma', systemId: 'system-eye', tagId: '', sort: 'case-asc', lifecycle: 'active' },
       { pageSize: 10 }
     );
 
@@ -141,7 +148,7 @@ test('active Case Library derives Topic options from one canonical taxonomy supp
     fixture.statements.length = 0;
     const inactive = await getCaseLibraryPage(
       fixture.db,
-      { search: '', topicSearch: 'retired', systemSearch: 'eye', tagId: '', sort: 'case-asc', lifecycle: 'inactive' },
+      { search: '', topicId: 'topic-retired', systemId: 'system-eye', tagId: '', sort: 'case-asc', lifecycle: 'inactive' },
       { pageSize: 10 }
     );
     assert.equal(taxonomyReadCount(fixture.statements), 1, 'inactive page still needs one taxonomy read for filter/display context');
