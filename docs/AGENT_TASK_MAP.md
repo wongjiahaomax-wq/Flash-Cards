@@ -1,14 +1,41 @@
 # Coding-agent task map
 
-Purpose: route a coding task to the **minimum current context** needed before editing. `docs/DOCUMENTATION_INDEX.md` remains the documentation authority/index. Historical plans and completed agent-task prompts are not default reading.
+Purpose: route a coding task to the **minimum current context** needed before editing. This file is a routing authority/lookup, not default cover-to-cover reading. `docs/DOCUMENTATION_INDEX.md` remains the documentation authority/index; historical plans and completed agent-task prompts are not default context.
 
-Always read the root `AGENTS.md`, the nearest scoped `AGENTS.md`, and the directly related implementation/tests. Load more context only when the task crosses subsystem boundaries.
+Always read the root `AGENTS.md`. Then read the nearest scoped `AGENTS.md` for the implementation surface. Use the relevant row/section of this task map to identify additional authoritative documents and checks. When the task boundary is already obvious, do not load unrelated task-map sections or documentation merely for completeness.
+
+## Progressive retrieval and escalation
+
+Use this rule throughout implementation:
+
+> Read the minimum evidence necessary to make the next correct decision, then broaden only when the evidence requires it.
+
+For a bounded task in an established subsystem, prefer this retrieval ladder:
+
+1. locate relevant symbols/files with targeted search;
+2. read bounded context around those symbols;
+3. inspect directly related helpers/tests only when needed to resolve an implementation question;
+4. broaden to additional subsystems, architecture documents, history, or commits only while a material question remains unresolved.
+
+Reuse sufficient information already retrieved. For bounded work, avoid:
+
+- reading complete large files when bounded ranges answer the question;
+- loading unrelated documentation “for completeness”;
+- inspecting historical commits before current implementation unless history materially matters;
+- repeatedly retrieving unchanged files;
+- repeating PR/base/head metadata reads when no event capable of changing them occurred;
+- broad repository searches after the relevant implementation surface is already established;
+- repeatedly reviewing the complete PR diff during active implementation.
+
+A task can remain constrained when it is clearly scoped to an existing subsystem and the evidence does not cross a protected boundary. Automatically elevate retrieval when evidence materially touches schema/migrations, auth/security, Production/Preview ownership, Cloudflare/deployment/runtime, Asset/R2 lifecycle, substantial architecture/refactoring, multiple interacting subsystems, or an exploratory audit where broad investigation is the work itself.
+
+This is an escalation model rather than a permanent “small/large” label. Encountered evidence can change the required context at any time.
 
 ## Execution mode selection
 
-Detect the agent's actual capabilities at task start, then select the best supported workflow automatically. Do not use the user's phone/laptop status as a proxy for agent capabilities. Explicit user execution constraints override automatic selection.
+Detect actual capabilities at task start. Do not infer execution mode from the user's device, physical location, or product/client name. Explicit user execution constraints override automatic selection.
 
-Before creating or selecting a branch, identify the requested work state. If an existing PR or branch is explicitly targeted, inspect and continue that current head against its intended base. If no existing work state is targeted, resolve the intended base, normally the latest `main`, and create a feature branch from that resolved base.
+Before creating/selecting a branch, identify the requested work state. If an existing PR/branch is explicitly targeted, continue its current head against its intended base. Otherwise resolve the actual intended base, normally latest `main`, before creating new work.
 
 ```text
 usable checkout + command execution + repository workflow
@@ -21,98 +48,88 @@ both local execution and GitHub access
 → Hybrid mode
 ```
 
-All modes use the same minimum-context routing:
-
-1. root `AGENTS.md`;
-2. this task map;
-3. nearest relevant scoped `AGENTS.md`;
-4. directly relevant authoritative documentation;
-5. directly relevant implementation and tests.
-
-`docs/HANDOVER.md` remains optional unless project-wide state or recent implementation status is materially relevant.
-
-Load `docs/ENGINEERING_ARCHITECTURE_GUIDELINES.md` when the task performs a substantial refactor, introduces a new domain/module boundary, decomposes an architectural hotspot, or performs meaningful JavaScript-to-TypeScript extraction/migration. It is not required context for every trivial coding task.
+`docs/HANDOVER.md` is optional unless project-wide state or recent implementation status is materially relevant. Load `docs/ENGINEERING_ARCHITECTURE_GUIDELINES.md` only for substantial structural work or when the task-map row explicitly requires it.
 
 ### Local checkout mode
 
-When a usable checkout and command execution are available, preserve the repository's local flow:
+Use the repository-owned iteration → checkpoint → handoff flow. Treat `agent:doctor` as session/environment setup rather than a mandatory first step of every small task:
 
 ```text
-npm run agent:doctor
+session/environment/Git-worktree conclusions already current?
+        ├─ no → npm run agent:doctor
+        └─ yes → reuse prior result
+                    ↓
+implement narrowly with targeted reads
         ↓
-implement narrowly
+focused feedback for the current risk
         ↓
-npm run agent:checks
+npm run agent:checks -- --compact
         ↓
-run the relevant focused checks
+checkpoint validation when useful
         ↓
-npm run validate:full before handoff when applicable
+final required + specialized checks
         ↓
-run specialized checks identified by agent:checks
+complete final diff review
 ```
 
-Do not weaken local validation merely because GitHub access also exists.
+Presentation-only UX iteration should normally use Vite/HMR. Reuse a healthy existing `npm run dev` / Vite HMR process during ordinary iteration rather than starting another development server merely for agent work. Do not restart or stop it after ordinary source edits; stop or switch it when required by the established Preview, dependency-install, stale-process, or other task/environment workflow. Production-style `npm run preview` remains a checkpoint tool rather than the normal edit loop. Logic changes should normally run the nearest directly related test(s) first. Do not repeatedly run broad validation after every small edit.
+
+`agent:checks` intentionally includes tracked branch/working-tree changes and legitimate untracked files. Do not hide arbitrary untracked implementation files from it. Persistent machine/tool-only artifacts that are checkout-local belong in `.git/info/exclude`; artifacts that are universally inappropriate for the repository belong in `.gitignore`. Keep ignore patterns narrow enough that legitimate source, assets, or configuration remain visible.
 
 ### Remote GitHub mode
 
-When GitHub access is useful but no usable local checkout/execution environment exists, use repository and PR state as the working surface:
+When GitHub access is useful but local execution is unavailable, use repository/PR state as the working surface:
 
 ```text
 identify requested work state
         ↓
-existing PR/branch explicitly targeted?
-        ├─ yes → inspect/use that PR head and intended base
-        └─ no  → resolve current intended base, normally latest main,
-                 then create feature branch
+establish exact PR/branch head + intended base
         ↓
-load minimum routed context
+read root AGENTS.md
         ↓
-inspect directly related implementation/tests
+read nearest scoped AGENTS.md
         ↓
-form a coherent implementation
+use the relevant task-map routing only as needed
         ↓
-make coherent GitHub changes
+targeted implementation/test retrieval
         ↓
-review the complete branch/PR diff
+coherent implementation + self-review
         ↓
-commit/push
+coherent GitHub branch update
         ↓
-inspect GitHub CI and specialized check evidence
+complete intended-base → current-head review at final checkpoint
         ↓
-make coherent follow-up fixes when genuinely required
+GitHub CI/check evidence
         ↓
-leave the draft PR as durable handoff state
+Draft PR durable handoff
 ```
 
-For Remote GitHub retrieval and coherent multi-file write mechanics, follow `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`; keep this task map at the routing/policy level rather than duplicating the detailed Git-data procedure here.
+For an existing PR, normally establish the PR number, exact head SHA, intended base, and Draft/Ready state once at the start. Re-read those facts only after a push, rebase/update from `main`, external branch movement, or final handoff verification.
 
-GitHub API/integration reads and writes have higher round-trip cost than a local filesystem. Inspect sufficient context before editing, avoid repeatedly fetching unchanged files, batch related writes where practical, and use logical commits rather than one commit per file. Do not use GitHub Actions as the first debugger for speculative edits; self-review the coherent change before relying on CI.
+During active implementation, prefer targeted retrieval, bounded file reads, implicated patches, directly related tests, and focused correction deltas. Do not repeatedly fetch the complete PR diff. At final review/handoff, inspect the complete intended base → current head change; a correction delta is not a substitute for final completeness.
 
-A remote agent must distinguish inspection from execution. Do not report `npm run validate:full`, `runtime:smoke`, or another repository command as passed unless that command actually ran in an environment the agent controlled. Report GitHub CI/check results as GitHub CI/check evidence, and state what could not be executed locally.
+For detailed Remote GitHub retrieval discipline and coherent multi-file write mechanics, follow `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`. That runbook owns the retrieval and multi-file write procedure; this task map owns routing and escalation only.
 
-Before the principal handoff/push, review the complete change against the task goal, behavioral invariants, acceptance criteria, accidental scope expansion, unrelated cleanup, stale references/imports, missing or inappropriate tests, unintended behavior changes, and documentation accuracy. Refactor-only work must explicitly check behavior preservation.
-
-The draft PR should be sufficient durable context for later sessions through its title/body, current diff, commits, conversation/review threads, and CI/check state. Keep the PR description concise but include Goal, Behavioral invariants / constraints, Implementation, Validation, Remaining review points, and Explicitly out of scope when those sections improve handoff quality.
+Distinguish inspection from execution. Do not report local commands as passed unless they actually ran. Report GitHub CI/check evidence separately and list required validation that could not be executed or verified.
 
 ### Hybrid mode
 
-When both a usable local checkout/execution environment and GitHub access are available, use each where it is strongest:
+Use each capability where it is strongest:
 
 ```text
 local checkout
-→ repository exploration
+→ targeted repository exploration
 → implementation
 → focused testing
 → repository validation
 
 GitHub
-→ branch collaboration
-→ PR/review discussion
-→ CI/check state
+→ branch / PR collaboration
+→ reviews and CI/check state
 → durable handoff
 ```
 
-Do not perform expensive remote reads for information already available in the local checkout, and do not ignore PR/check state merely because local validation exists.
+Do not perform expensive remote reads for information already available in the local checkout, and do not ignore current PR/check state merely because local validation exists.
 
 ## Local agent commands
 
@@ -120,55 +137,44 @@ Use these from the repository root when command execution is available:
 
 ```sh
 npm run agent:doctor
-npm run agent:checks
-npm run validate:fast
-npm run validate:full
+npm run agent:checks -- --compact
+npm run validate:fast -- --compact
+npm run validate:full -- --compact
 npm run local:stop
 ```
 
-`agent:doctor` is a read-only pre-edit environment check. It reports Git state, the Node 22 contract, repository-installed Wrangler consistency, and the presence of local developer state without reading secrets or modifying D1/R2.
+`agent:doctor` is the read-only environment/Git-state check. Run it normally once per local coding session, not after every edit or every small task. Rerun it when its conclusions may no longer be trustworthy—for example after switching checkout or branch when the prior Git/worktree conclusions no longer apply, after a material Git/worktree-state change that invalidates the earlier assessment, dependency installation or `npm ci`, Node/Wrangler/toolchain changes, unexpected local tooling failures, or other evidence of environment drift. Ordinary application source edits alone are not a reason to rerun it. A successful run establishes the local-execution side; it does not determine whether GitHub access also exists.
 
-`agent:checks` is the read-only changed-file validation advisor. By default it compares the current branch from the merge-base with locally available `origin/main` (falling back to local `main`) through `HEAD`, then includes tracked working-tree changes and untracked files. It classifies repository-specific subsystems and prints required automated checks separately from recommended follow-up. The printed merge-base `git diff --check` command covers committed, staged, and unstaged tracked changes; because Git diff does not include completely untracked files, `agent:checks` directly checks any untracked paths with Git's whitespace rules and exits non-zero if that check fails. It never contacts GitHub, mutates Git state, accesses production, or automatically runs the recommended validation suites. Use `npm run agent:checks -- --compact` when a lower-volume rendering is useful; compact mode consumes the same classification/report and changes presentation only, summarizing changed-file count while omitting the full changed-file and not-required lists and separating specialized required commands without duplicating them. The default invocation remains the existing verbose report. Use `node scripts/agent-checks.mjs --base <ref>` only when the intended base is not the normal `main` branch; `--compact` may be combined with `--base`. `--files <comma-separated-paths>` is available for deterministic classifier verification without altering real files and may also be combined with `--compact`; fixture mode has no filesystem/Git context, so it does not invent a merge-base or perform the untracked-file whitespace precheck.
+`agent:checks` is the read-only changed-file validation advisor. Its compact form uses the same classification/report as verbose mode and changes presentation only. It includes committed feature-branch changes, tracked working-tree changes, and untracked files. Its final required/specialized checks remain authoritative for handoff regardless of how narrow iteration feedback was.
 
-`validate:fast` is checkpoint validation: feature-diff whitespace validation, Node tests, and Svelte checks. Use it after a coherent batch of edits or when a broader checkpoint is useful; do not treat it as an every-edit loop.
+`validate:fast` is checkpoint validation after a coherent batch, not an every-edit loop. `validate:full` is the ordinary local pre-handoff contract when required. Compact variants preserve the same check selection/ordering and reduce presentation volume only. Run specialized checks surfaced by `agent:checks` in addition to the ordinary contract.
 
-`validate:full` is the ordinary local pre-handoff contract: feature-diff whitespace validation, migration/schema checks, Node tests, Svelte checks, build, and the existing local Better Auth/D1 smoke test. Run it after implementation is complete, not repeatedly during normal iteration. It does not install dependencies or run production operations.
+`local:stop` is the repository-scoped cleanup command for this checkout's Vite/Wrangler development processes. Reuse a healthy existing local development process when possible; do not call `local:stop` merely because an application source edit completed. Detailed command/runtime semantics live in `scripts/AGENTS.md` and `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`.
 
-`local:stop` is the repository-scoped local server cleanup command. It stops only this checkout's repository-installed Vite `dev` and Wrangler `dev` process trees and is safe when nothing is running. Prefer it before switching between `npm run dev` and `npm run preview`, before a Windows `npm ci` that could encounter locked native modules, or when stale local runtime processes are suspected. Do not replace it with broad `node.exe`/Node termination.
+For tasks that change maintained tests, test selection, validation composition, changed-path rules, specialized-check ownership, or CI diagnostics, read `docs/TESTING_AND_VALIDATION_GUIDANCE.md`; add `docs/CI_AGENT_DIAGNOSTICS.md` when CI presentation/retrieval itself changes. Low-level validation/reporter ownership lives in the scoped `scripts/` and `.github/` guidance rather than here.
 
-Local `validate:*` uses the same preferred feature-branch base resolution as `agent:checks`; its diff check compares the merge-base with the current tracked working tree, so committed branch changes plus staged and unstaged tracked changes are covered. Ordinary PR CI consumes the same repository-owned `fast`/`full` mode definitions: Draft PR events use `fast`, non-Draft/Ready-for-Review PR events use `full`, and `ready_for_review` triggers `full` on the current PR revision without requiring another source commit. CI installs dependencies separately and keeps its PR-specific diff semantics and GitHub failure annotations explicit.
-
-For the Node-test stage, CI intentionally changes presentation without changing the canonical suite: `npm test` remains `node --test`, while `scripts/validate-ci.mjs` adds `--test-reporter=./scripts/ci-test-reporter.mjs`. That reporter consumes structured `node:test` events, renders passing tests as compact progress plus one final summary, and collects failures at the end with test name, file/line, failure type, error/code, operator, expected/actual values, useful stack frames, and GitHub file/line annotations. Future CI/reporting work must preserve this event-driven contract and must not return to buffered/parsing TAP/spec/dot output or hundreds of successful per-test records.
-
-For any task that adds, removes, rewrites, or specializes maintained tests—or changes test selection, validation composition, changed-path rules, or CI diagnostics—read `docs/TESTING_AND_VALIDATION_GUIDANCE.md`. It is the living authoring authority for complete-versus-fast placement, exceptional exclusion requirements, current-versus-historical schema fixtures, invariant-owner hierarchy, CI diagnostics, and the central change-aware specialization split. Do not use the historical PR #115 plan/audit as the normal authoring guide.
-
-During active editing, prefer the cheapest feedback that meaningfully tests the current risk. Presentation-only UX changes such as copy, spacing, classes, and layout should normally be batched under Vite/HMR. Run focused tests earlier when logic changes warrant them. Do not rerun a previously passing command unless subsequent changes could invalidate what it checked.
-
-Runtime and slide-review suites remain specialized rather than universal gates. `agent:checks` surfaces `npm run runtime:smoke` when runtime-sensitive paths change, and requires both `npm run slide-review:test` and `npm run slide-review:build` for `tools/slide-import-review/**` changes. When command execution is unavailable, inspect equivalent GitHub check/workflow evidence where available and report anything required that could not be verified; do not convert specialized checks into universal CI.
+## Task routing lookup
 
 | Task | Scoped guidance | Minimum authoritative context | Common checks |
 | --- | --- | --- | --- |
-| Tests / validation architecture / fixtures | nearest relevant scoped guidance | `TESTING_AND_VALIDATION_GUIDANCE.md`; `CI_AGENT_DIAGNOSTICS.md` when CI presentation/retrieval changes | `agent:checks`; focused validation-contract/selection tests as applicable; normal validation at checkpoint/handoff |
-| Substantial refactor / new module boundary / hotspot decomposition / meaningful JS→TS extraction | nearest relevant scoped guidance | `ENGINEERING_ARCHITECTURE_GUIDELINES.md` plus the affected subsystem authority | `agent:checks`; focused characterization tests where sensitive legacy behavior is being decomposed; normal validation at checkpoint/handoff |
-| Admin UX / Case editor | `src/routes/admin/AGENTS.md` | `AUTHORING_MODEL.md`; relevant current Admin/image design | Vite/HMR for presentation-only iteration; focused tests for logic; `agent:checks`; `validate:full` before handoff when applicable |
-| Authentication / Account Management | relevant Admin/server guidance; inspect current auth routes/modules | `ACCOUNT_MANAGEMENT_PLAN.md`; current PR A/PR B state and active handoff prompt when applicable; current auth implementation/tests | `agent:checks`; focused auth/account security tests; `validate:full` before handoff when applicable; runtime smoke when bindings/runtime-sensitive auth configuration changes |
-| Database / read models | `src/lib/server/db/AGENTS.md` | `V1_DATA_MODEL.md`; `PERFORMANCE_AND_READ_MODEL_PLAN.md` | `agent:checks`; `npm run db:check`; focused tests; normal validation at checkpoint/handoff |
-| Schema / migrations | `src/lib/server/db/AGENTS.md` | `V1_DATA_MODEL.md`; current schema + migrations | `agent:checks`; `npm run db:check`; focused tests; full validation before handoff |
-| Asset / R2 lifecycle | DB + storage guidance | `IMAGE_PROVENANCE.md`; `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md` | `agent:checks`; focused tests; check/build at checkpoint; runtime smoke if bindings/runtime change |
-| Cloudflare / Wrangler runtime | `scripts/AGENTS.md`; `.github/AGENTS.md` | `CLOUDFLARE.md`; `DEVELOPMENT_EXECUTION_WORKFLOW.md` | `agent:checks`; focused tests; `npm run runtime:smoke`; full validation before handoff |
-| Preview (retained legacy subsystem only) | Admin/DB/GitHub guidance as applicable | `PREVIEW_ADMIN_WORKSPACE.md`; `PREVIEW_DEPLOYMENT.md` only when remote Preview deployment itself is relevant | `agent:checks`; focused tests + relevant runtime checks at checkpoint/handoff |
-| Local development replica | `scripts/AGENTS.md` | `LOCAL_DEVELOPMENT_REPLICA.md`; `DEVELOPMENT_EXECUTION_WORKFLOW.md` | `agent:checks`; focused script tests; credential-dependent local verification when appropriate |
-| Imports / reviewed imports | DB/storage guidance | `CONTENT_IMPORT_PACKAGES.md`; `RESUMABLE_IMPORT_RUNTIME_SAFETY.md` | `agent:checks`; import tests; normal validation at checkpoint/handoff |
+| Tests / validation architecture / fixtures | `scripts/AGENTS.md`; `.github/AGENTS.md` as applicable | `TESTING_AND_VALIDATION_GUIDANCE.md`; `CI_AGENT_DIAGNOSTICS.md` when CI presentation/retrieval changes | `agent:checks`; focused validation-contract/selection tests; repository-selected handoff checks |
+| Substantial refactor / new module boundary / hotspot decomposition / meaningful JS→TS extraction | nearest affected scoped guidance | `ENGINEERING_ARCHITECTURE_GUIDELINES.md` plus the affected subsystem authority | `agent:checks`; focused characterization tests; repository-selected handoff checks |
+| Admin presentation / interaction | `src/routes/admin/AGENTS.md` | directly affected implementation/tests; relevant current Admin design only when needed | Vite/HMR for presentation-only iteration; focused tests for interaction logic; `agent:checks`; final required checks |
+| Case editor authoring / classification / question / image semantics | `src/routes/admin/AGENTS.md`; DB/storage guidance when ownership or lifecycle is involved | `AUTHORING_MODEL.md`; relevant Topic/Tag/question/image authority for the changed semantics | `agent:checks`; focused tests; Vite/HMR for presentation changes; final required checks |
+| Authentication / Account Management | relevant Admin/server guidance; inspect current auth routes/modules | `ACCOUNT_MANAGEMENT_PLAN.md` only where still future-intent authority; current auth implementation/tests | `agent:checks`; focused auth/security tests; final required checks; runtime smoke when runtime/binding-sensitive |
+| Database / read models | `src/lib/server/db/AGENTS.md` | `V1_DATA_MODEL.md`; `PERFORMANCE_AND_READ_MODEL_PLAN.md` | `agent:checks`; `npm run db:check`; focused tests; final required checks |
+| Schema / migrations | `src/lib/server/db/AGENTS.md` | `V1_DATA_MODEL.md`; current schema + migrations | `agent:checks`; `npm run db:check`; focused migration/schema tests; full handoff validation |
+| Asset / R2 lifecycle | `src/lib/server/storage/AGENTS.md`; DB guidance when relationships change | `IMAGE_PROVENANCE.md`; `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md` | `agent:checks`; focused tests; final required checks; runtime smoke if bindings/runtime change |
+| Cloudflare / Wrangler runtime | `scripts/AGENTS.md`; `.github/AGENTS.md` | `CLOUDFLARE.md`; `DEVELOPMENT_EXECUTION_WORKFLOW.md` | `agent:checks`; focused tests; `npm run runtime:smoke`; final required checks |
+| Preview retained subsystem | Admin/DB/GitHub guidance as applicable | `PREVIEW_ADMIN_WORKSPACE.md`; `PREVIEW_DEPLOYMENT.md` only for remote Preview deployment | `agent:checks`; focused ownership/runtime tests; final required checks |
+| Local development replica | `scripts/AGENTS.md` | `LOCAL_DEVELOPMENT_REPLICA.md`; `DEVELOPMENT_EXECUTION_WORKFLOW.md` | `agent:checks`; focused script tests; credential-dependent verification only when appropriate |
+| Imports / reviewed imports | DB/storage guidance | `CONTENT_IMPORT_PACKAGES.md`; `RESUMABLE_IMPORT_RUNTIME_SAFETY.md` | `agent:checks`; import tests; final required checks |
 | Slide-review tooling | `tools/slide-import-review/AGENTS.md` | `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md`; `CONTENT_IMPORT_PACKAGES.md` | `agent:checks`; `npm run slide-review:test`; `npm run slide-review:build` |
-| Tags / Shared Questions | Admin + DB guidance | `TAGGING_MODEL_DECISIONS.md`; `TAGGING_STAGE_B_BEHAVIOR.md` | `agent:checks`; focused tests for logic; Vite/HMR for presentation-only edits; normal validation at checkpoint/handoff |
-| Stimulus / reusable-image behavior | Admin + DB guidance | `STIMULUS_GROUPS_DESIGN.md`; `REUSABLE_IMAGE_QUESTIONS.md`; `AUTHORING_MODEL.md` | `agent:checks`; focused tests for logic; Vite/HMR for presentation-only edits; normal validation at checkpoint/handoff |
+| Tags / Shared Questions | Admin + DB guidance | `TAGGING_MODEL_DECISIONS.md`; `TAGGING_STAGE_B_BEHAVIOR.md` | `agent:checks`; focused tests; Vite/HMR for presentation-only edits; final required checks |
+| Stimulus / reusable-image behavior | Admin + DB + storage guidance as applicable | `STIMULUS_GROUPS_DESIGN.md`; `REUSABLE_IMAGE_QUESTIONS.md`; `AUTHORING_MODEL.md` | `agent:checks`; focused tests; Vite/HMR for presentation-only edits; final required checks |
 
-For account/auth work, the design plan is future-intent authority only where current code has not already established behavior. If an implementation PR is explicitly targeted, inspect and continue that PR head against its intended base; do not restart from `main` or blindly follow an older handoff prompt. Once PR A or PR B is completed, its implementation prompt is historical context and current code/current subsystem documentation take precedence.
+If a task affects more than one row, load the authorities for each material boundary. Do not read the entire documentation corpus by default.
 
-For Preview backend work, keep caller imports on `src/lib/server/db/preview-workspace.js` while the retained subsystem remains present. Preview Session lookup/creation and TTL live in `src/lib/server/db/preview-workspace/session.js`; ownership/security guards live in `src/lib/server/db/preview-workspace/ownership.js`; shared Preview error/input primitives live beside them. Preview Case lifecycle/cloning lives in `src/lib/server/db/preview-workspace/case.js`, including child-domain copying that must remain inside the complete Case-clone transaction. Fixed Case-image editor reads plus ongoing fixed-image attach/bulk-attach, caption, detach, and reorder operations live in `src/lib/server/db/preview-workspace/fixed-images.js`.
+For Preview backend implementation details, use `src/lib/server/db/AGENTS.md` and `docs/PREVIEW_ADMIN_WORKSPACE.md`; do not duplicate the current helper/module ownership map here. If Preview removal is proposed, treat it as a separate decommissioning assessment because production filtering, ownership/security, Asset safety, auth/deployment tooling, tests, and stored Preview-owned data may depend on it.
 
-Alternative Set/stimulus operations, question/scope/reusable-question operations, `ensurePreviewWorkspace()`, composed editor loading, and full cleanup coordination intentionally remain behind the façade. That is now an accepted legacy boundary rather than a staged extraction queue. Do **not** create or resume PR2D/PR2E/PR2F merely to complete the former Preview decomposition plan. Draft PR #91 was closed unmerged after the project moved to a local-first testing workflow.
-
-If a task proposes removing the Preview subsystem, treat that as a separate decommissioning assessment first because production filtering, ownership/security guards, Asset replacement safety, auth/deployment tooling, tests, and stored Preview-owned data may depend on it.
-
-If a task affects more than one row above, read the authorities for each affected boundary. Do not read the entire documentation corpus by default.
+For account/auth work, current implementation and current subsystem guidance take precedence over completed historical prompts. If an existing implementation PR is explicitly targeted, continue that PR head against its intended base rather than restarting from `main`.
