@@ -9,6 +9,7 @@
     id: string;
     name: string;
     caseCount: number;
+    subtreeCaseCount: number;
     breadcrumb: BreadcrumbItem[];
   };
 
@@ -73,8 +74,9 @@
   let selectedRoutes = $derived(selectedRoutesOverride ?? formRoutes);
   let questionPoolMode = $derived(questionPoolModeOverride ?? formQuestionPoolMode);
   let selectedSystem = $derived(systems.find((system: StudySystem) => system.id === selectedSystemId) ?? null);
-  let selectedCount = $derived(selectedRoutes.length);
-  let totalRouteCount = $derived(selectedSystem ? routesForSystem(selectedSystem).length : 0);
+  let contributingRoutes = $derived(selectedSystem ? routesForSystem(selectedSystem) : []);
+  let selectedCount = $derived(selectedRoutes.filter((value: string) => contributingRoutes.includes(value)).length);
+  let totalRouteCount = $derived(contributingRoutes.length);
   let allSelected = $derived(totalRouteCount > 0 && selectedCount === totalRouteCount);
 
   function routeValue(routeType: 'topic' | 'tag', routeId: string): string {
@@ -83,7 +85,9 @@
 
   function routesForSystem(system: StudySystem): string[] {
     return [
-      ...system.topics.map((topic: StudyTopic) => routeValue('topic', topic.id)),
+      ...system.topics
+        .filter((topic: StudyTopic) => topic.caseCount > 0)
+        .map((topic: StudyTopic) => routeValue('topic', topic.id)),
       ...system.tags.map((tag: StudyTag) => routeValue('tag', tag.id))
     ];
   }
@@ -155,17 +159,36 @@
     return ordered;
   }
 
+  function topicDescendantIds(system: StudySystem, topicId: string): string[] {
+    const ids: string[] = [];
+    const visit = (currentId: string): void => {
+      for (const child of system.topics.filter((topic: StudyTopic) => topicParentId(topic) === currentId)) {
+        ids.push(child.id);
+        visit(child.id);
+      }
+    };
+    visit(topicId);
+    return ids;
+  }
+
   function topicSubtreeRoutes(system: StudySystem, topicId: string): string[] {
     const topics = system.topics;
     const routes: string[] = [];
     const visit = (currentId: string): void => {
-      routes.push(routeValue('topic', currentId));
+      const current = topics.find((topic: StudyTopic) => topic.id === currentId);
+      if (current && current.caseCount > 0) routes.push(routeValue('topic', currentId));
       for (const child of topics.filter((topic: StudyTopic) => topicParentId(topic) === currentId)) {
         visit(child.id);
       }
     };
     visit(topicId);
     return routes;
+  }
+
+  function topicChecked(system: StudySystem, topic: StudyTopic): boolean {
+    if (topic.caseCount > 0) return isRouteSelected(routeValue('topic', topic.id));
+    const subtree = topicSubtreeRoutes(system, topic.id);
+    return subtree.length > 0 && subtree.every(isRouteSelected);
   }
 
   function topicIndeterminate(system: StudySystem, topic: StudyTopic): boolean {
@@ -194,7 +217,9 @@
 
   function toggleGroup(system: StudySystem, routeType: 'topic' | 'tag', checked: boolean): void {
     const values = routeType === 'topic'
-      ? system.topics.map((topic: StudyTopic) => routeValue('topic', topic.id))
+      ? system.topics
+        .filter((topic: StudyTopic) => topic.caseCount > 0)
+        .map((topic: StudyTopic) => routeValue('topic', topic.id))
       : system.tags.map((tag: StudyTag) => routeValue('tag', tag.id));
     setRoutes(values, checked);
   }
@@ -261,21 +286,25 @@
           {#each orderedTopics(selectedSystem) as topic}
             {@const value = routeValue('topic', topic.id)}
             {@const breadcrumbText = topic.breadcrumb.map((item: BreadcrumbItem) => item.name).join(' → ')}
-            {@const subtree = topicSubtreeRoutes(selectedSystem, topic.id)}
+            {@const descendants = topicDescendantIds(selectedSystem, topic.id)}
             <label class="study-option topic-option" style={`--topic-depth:${topicDepth(topic)}`}>
               <input
                 id={'study-topic-' + topic.id}
                 type="checkbox"
-                name="route"
+                name={topic.caseCount > 0 ? 'route' : undefined}
                 value={value}
-                checked={isRouteSelected(value)}
-                aria-controls={subtree.length > 1 ? subtree.slice(1).map((route: string) => 'study-topic-' + route.slice('topic:'.length)).join(' ') : undefined}
+                checked={topicChecked(selectedSystem, topic)}
+                aria-controls={descendants.length > 0 ? descendants.map((id: string) => 'study-topic-' + id).join(' ') : undefined}
                 use:indeterminate={topicIndeterminate(selectedSystem, topic)}
                 onchange={(event) => toggleTopicSubtree(selectedSystem, topic, eventChecked(event))}
               />
               <span class="option-copy">
                 <strong>{topic.name}</strong>
-                <small>{topic.caseCount} exact-Topic {topic.caseCount === 1 ? 'Case' : 'Cases'}{#if topic.breadcrumb.length > 2} · {breadcrumbText}{/if}</small>
+                {#if topic.caseCount > 0}
+                  <small>{topic.caseCount} exact-Topic {topic.caseCount === 1 ? 'Case' : 'Cases'}{#if topic.breadcrumb.length > 2} · {breadcrumbText}{/if}</small>
+                {:else}
+                  <small>0 exact-Topic Cases · {topic.subtreeCaseCount} {topic.subtreeCaseCount === 1 ? 'Case' : 'Cases'} in descendant Topics{#if topic.breadcrumb.length > 2} · {breadcrumbText}{/if}</small>
+                {/if}
               </span>
             </label>
           {/each}
