@@ -70,7 +70,7 @@ final required + specialized checks
 complete final diff review
 ```
 
-Presentation-only UX iteration should normally use Vite/HMR. Logic changes should normally run the nearest directly related test(s) first. Do not repeatedly run broad validation after every small edit.
+Presentation-only UX iteration should normally use Vite/HMR. If this checkout already has a healthy usable `npm run dev` / Vite HMR process, reuse it rather than starting another development server merely for agent iteration. Do not restart or stop a healthy local dev server after ordinary source edits; start, stop, or switch runtime processes only when the task or environment requires it. Production-style `npm run preview` remains a checkpoint tool rather than the normal edit loop. Logic changes should normally run the nearest directly related test(s) first. Do not repeatedly run broad validation after every small edit.
 
 `agent:checks` intentionally includes tracked branch/working-tree changes and legitimate untracked files. Do not hide arbitrary untracked implementation files from it. Persistent machine/tool-only artifacts that are checkout-local belong in `.git/info/exclude`; artifacts that are universally inappropriate for the repository belong in `.gitignore`. Keep ignore patterns narrow enough that legitimate source, assets, or configuration remain visible.
 
@@ -141,13 +141,13 @@ npm run validate:full -- --compact
 npm run local:stop
 ```
 
-`agent:doctor` is the read-only pre-edit environment check. A successful run establishes the local-execution side; it does not determine whether GitHub access also exists.
+`agent:doctor` is the read-only environment check. Run it normally once per local coding session, not after every edit or every small task. Rerun it when its conclusions may no longer be trustworthy—for example after switching to a different checkout/environment, dependency installation or `npm ci`, Node/Wrangler/toolchain changes, unexpected local tooling failures, or other evidence of environment drift. Application source changes alone are not a reason to rerun it. A successful run establishes the local-execution side; it does not determine whether GitHub access also exists.
 
 `agent:checks` is the read-only changed-file validation advisor. Its compact form uses the same classification/report as verbose mode and changes presentation only. It includes committed feature-branch changes, tracked working-tree changes, and untracked files. Its final required/specialized checks remain authoritative for handoff regardless of how narrow iteration feedback was.
 
 `validate:fast` is checkpoint validation after a coherent batch, not an every-edit loop. `validate:full` is the ordinary local pre-handoff contract when required. Compact variants preserve the same check selection/ordering and reduce presentation volume only. Run specialized checks surfaced by `agent:checks` in addition to the ordinary contract.
 
-`local:stop` is the repository-scoped cleanup command for this checkout's Vite/Wrangler development processes. Detailed command/runtime semantics live in `scripts/AGENTS.md` and `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`.
+`local:stop` is the repository-scoped cleanup command for this checkout's Vite/Wrangler development processes. Reuse a healthy existing local development process when possible; do not call `local:stop` merely because an application source edit completed. Detailed command/runtime semantics live in `scripts/AGENTS.md` and `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`.
 
 For tasks that change maintained tests, test selection, validation composition, changed-path rules, specialized-check ownership, or CI diagnostics, read `docs/TESTING_AND_VALIDATION_GUIDANCE.md`; add `docs/CI_AGENT_DIAGNOSTICS.md` when CI presentation/retrieval itself changes. Low-level validation/reporter ownership lives in the scoped `scripts/` and `.github/` guidance rather than here.
 
