@@ -67,6 +67,8 @@ It owns:
 
 It deliberately owns no database, authentication, session, route-selection, active-Review, or browser-state behavior.
 
+The package/runtime version contract is deliberately redundant and checked. `package.json` pins the install dependency, `package-lock.json` pins the resolved package artifact/integrity, and the repository adapter exports `FSRS_LIBRARY_VERSION`. A test fails if the declared dependency version and adapter metadata drift apart.
+
 Worker compatibility is checked by:
 
 ```bash
@@ -217,3 +219,20 @@ PR A does **not** implement:
 - automatic optimizer execution/parameter replacement — later optimizer PR.
 
 No learner-facing application behavior is switched by PR A.
+
+## 8. Exact-head validation evidence
+
+Before the final dependency/version drift hardening edit, exact PR head:
+
+```text
+4cea2d7d0e40ca9b2745919c1556eeb300be94a9
+```
+
+completed both required GitHub workflows successfully:
+
+```text
+CI #1555 — passed
+Wrangler runtime smoke #241 — passed
+```
+
+The final drift-protection test/documentation edits intentionally move the PR head. Final acceptance must use the new exact head and its own successful CI/runtime-smoke runs; the evidence above is retained as the immediately preceding validated checkpoint rather than being misrepresented as validation of a later commit.
