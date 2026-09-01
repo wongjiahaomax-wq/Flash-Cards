@@ -5,6 +5,13 @@ import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
+import {
+  FSRS_LIBRARY_VERSION,
+  FSRS_SCHEDULER_REVISION,
+  createDefaultFsrsParameters,
+  serializeFsrsParameters
+} from '../src/lib/server/learning/fsrs-scheduler.js';
+
 const migrationSql = readFileSync(
   new URL('../drizzle/0019_learner_fsrs_foundation.sql', import.meta.url),
   'utf8'
@@ -27,18 +34,16 @@ function measured(fn) {
   return { value, durationMs: +(performance.now() - started).toFixed(3) };
 }
 
+/** @template T @param {T|undefined} row @param {string} label @returns {T} */
+function requireRow(row, label) {
+  if (!row) throw new Error(`Benchmark query returned no ${label} row.`);
+  return row;
+}
+
 /** @param {DatabaseSync} db @param {number} caseCount @param {number} eventCount */
 function seedRepresentativeData(db, caseCount, eventCount) {
   const now = Date.UTC(2026, 8, 2, 0, 0, 0);
-  const paramsJson = JSON.stringify({
-    request_retention: 0.9,
-    maximum_interval: 36500,
-    enable_fuzz: false,
-    enable_short_term: true,
-    learning_steps: ['1m', '10m'],
-    relearning_steps: ['10m'],
-    w: Array.from({ length: 19 }, () => 1)
-  });
+  const paramsJson = serializeFsrsParameters(createDefaultFsrsParameters());
 
   db.exec('BEGIN');
   try {
@@ -47,8 +52,8 @@ function seedRepresentativeData(db, caseCount, eventCount) {
       INSERT INTO learner_fsrs_profiles (
         user_id, generation, review_sequence_epoch, parameter_revision,
         scheduler_revision, scheduler_library_version, parameters_json
-      ) VALUES (?, 1, 1, 1, 1, '5.4.2', ?)
-    `).run('benchmark-user', paramsJson);
+      ) VALUES (?, 1, 1, 1, ?, ?, ?)
+    `).run('benchmark-user', FSRS_SCHEDULER_REVISION, FSRS_LIBRARY_VERSION, paramsJson);
     db.prepare(`
       INSERT INTO learner_aggregates (
         user_id, scheduled_completed, scheduled_again, scheduled_hard,
@@ -71,7 +76,7 @@ function seedRepresentativeData(db, caseCount, eventCount) {
       ) VALUES (
         'benchmark-user', ?, ?, 8.5, 5.2, 2,
         4, 7, 0, ?, 1,
-        ?, 1, 1, 1, 1, '5.4.2', ?
+        ?, 1, 1, 1, ?, ?, ?
       )
     `);
     const insertEncounter = db.prepare(`
@@ -85,7 +90,15 @@ function seedRepresentativeData(db, caseCount, eventCount) {
       insertCase.run(caseId);
       const reviewsForCase = Math.floor((eventCount + caseCount - 1 - index) / caseCount);
       const dueAt = now + ((index % 5) - 2) * 86_400_000;
-      insertState.run(caseId, dueAt, reviewsForCase, now - 86_400_000, Math.max(1, reviewsForCase));
+      insertState.run(
+        caseId,
+        dueAt,
+        reviewsForCase,
+        now - 86_400_000,
+        FSRS_SCHEDULER_REVISION,
+        FSRS_LIBRARY_VERSION,
+        Math.max(1, reviewsForCase)
+      );
       insertEncounter.run(caseId, now - 30 * 86_400_000);
     }
 
@@ -96,7 +109,7 @@ function seedRepresentativeData(db, caseCount, eventCount) {
         parameter_revision, scheduler_revision, scheduler_library_version,
         resulting_state_revision, next_due_at
       ) VALUES (?, 'benchmark-user', ?, ?, 'system-benchmark', ?,
-        'good', 'original', 1, 1, ?, 1, 1, '5.4.2', ?, ?)
+        'good', 'original', 1, 1, ?, 1, ?, ?, ?, ?)
     `);
     const insertEvidence = db.prepare(`
       INSERT INTO learner_optimizer_evidence (
@@ -117,6 +130,8 @@ function seedRepresentativeData(db, caseCount, eventCount) {
         `Benchmark Case ${caseIndex}`,
         completedAt,
         sequenceNo,
+        FSRS_SCHEDULER_REVISION,
+        FSRS_LIBRARY_VERSION,
         sequenceNo,
         completedAt + 86_400_000
       );
@@ -184,20 +199,25 @@ export function runLearnerFsrsBenchmark(options = {}) {
     );
 
     const write = measured(() => {
-      const state = db.prepare(`
-        SELECT state_revision
-        FROM learner_case_fsrs
-        WHERE user_id = 'benchmark-user' AND case_id = 'case-00000'
-      `).get();
-      let stateRevision = Number(state.state_revision);
-      let sequenceNo = Number(
+      const state = requireRow(
+        db.prepare(`
+          SELECT state_revision
+          FROM learner_case_fsrs
+          WHERE user_id = 'benchmark-user' AND case_id = 'case-00000'
+        `).get(),
+        'learner Case state'
+      );
+      const sequence = requireRow(
         db.prepare(`
           SELECT MAX(sequence_no) AS n
           FROM learner_optimizer_evidence
           WHERE user_id = 'benchmark-user' AND case_id = 'case-00000'
             AND generation = 1 AND review_sequence_epoch = 1
-        `).get().n
+        `).get(),
+        'optimizer sequence'
       );
+      let stateRevision = Number(state.state_revision);
+      let sequenceNo = Number(sequence.n);
       const base = Date.UTC(2026, 8, 2, 1, 0, 0);
       for (let iteration = 0; iteration < writeIterations; iteration += 1) {
         stateRevision += 1;
@@ -213,8 +233,16 @@ export function runLearnerFsrsBenchmark(options = {}) {
               parameter_revision, scheduler_revision, scheduler_library_version,
               resulting_state_revision, next_due_at
             ) VALUES (?, 'benchmark-user', 'case-00000', 'Benchmark Case 0', 'system-benchmark', ?,
-              'good', 'original', 1, 1, ?, 1, 1, '5.4.2', ?, ?)
-          `).run(eventId, completedAt, sequenceNo, stateRevision, completedAt + 86_400_000);
+              'good', 'original', 1, 1, ?, 1, ?, ?, ?, ?)
+          `).run(
+            eventId,
+            completedAt,
+            sequenceNo,
+            FSRS_SCHEDULER_REVISION,
+            FSRS_LIBRARY_VERSION,
+            stateRevision,
+            completedAt + 86_400_000
+          );
           db.prepare(`
             INSERT INTO learner_optimizer_evidence (
               event_id, user_id, case_id, completed_at, rating,
@@ -250,8 +278,20 @@ export function runLearnerFsrsBenchmark(options = {}) {
 
     db.exec('PRAGMA wal_checkpoint(TRUNCATE);');
     const foreignKeyViolations = db.prepare('PRAGMA foreign_key_check').all();
-    const pageCount = Number(db.prepare('PRAGMA page_count').get().page_count);
-    const pageSize = Number(db.prepare('PRAGMA page_size').get().page_size);
+    const pageCount = Number(requireRow(db.prepare('PRAGMA page_count').get(), 'page count').page_count);
+    const pageSize = Number(requireRow(db.prepare('PRAGMA page_size').get(), 'page size').page_size);
+    const scheduledEvents = Number(
+      requireRow(
+        db.prepare('SELECT COUNT(*) AS n FROM scheduled_review_events').get(),
+        'scheduled event count'
+      ).n
+    );
+    const optimizerEvidence = Number(
+      requireRow(
+        db.prepare('SELECT COUNT(*) AS n FROM learner_optimizer_evidence').get(),
+        'optimizer evidence count'
+      ).n
+    );
 
     return {
       kind: 'D1-compatible SQLite baseline',
@@ -273,12 +313,8 @@ export function runLearnerFsrsBenchmark(options = {}) {
       rows: {
         dueReturned: due.value.length,
         optimizerReturned: optimizer.value.length,
-        scheduledEvents: Number(
-          db.prepare('SELECT COUNT(*) AS n FROM scheduled_review_events').get().n
-        ),
-        optimizerEvidence: Number(
-          db.prepare('SELECT COUNT(*) AS n FROM learner_optimizer_evidence').get().n
-        )
+        scheduledEvents,
+        optimizerEvidence
       },
       queryPlans: {
         due: explain(db, dueSql),
@@ -296,6 +332,7 @@ export function runLearnerFsrsBenchmark(options = {}) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  /** @param {string} name @param {number} fallback */
   const parseNumber = (name, fallback) => {
     const prefix = `--${name}=`;
     const argument = process.argv.slice(2).find((value) => value.startsWith(prefix));
