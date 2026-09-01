@@ -24,6 +24,7 @@ import {
   extractLegacyReviewCounts
 } from '../scripts/learner-fsrs-preflight.mjs';
 import { runLearnerFsrsBenchmark } from '../scripts/learner-fsrs-benchmark.mjs';
+import { runFsrsWorkerBundleSmoke } from '../scripts/learner-fsrs-worker-smoke.mjs';
 
 const foundationSql = readFileSync(
   new URL('../drizzle/0019_learner_fsrs_foundation.sql', import.meta.url),
@@ -231,4 +232,12 @@ test('benchmark harness exercises indexed Due and optimizer paths with represent
   assert.equal(result.rows.scheduledEvents, 103);
   assert.match(result.queryPlans.due.join('\n'), /learner_case_fsrs_due_idx/i);
   assert.match(result.queryPlans.optimizer.join('\n'), /learner_optimizer_evidence_optimizer_idx/i);
+});
+
+test('pinned FSRS adapter bundles and executes through the Worker-targeted Vite toolchain', async () => {
+  const result = await runFsrsWorkerBundleSmoke();
+  assert.ok(result.bundledBytes > 0);
+  assert.equal(result.schedulerRevision, 1);
+  assert.equal(result.schedulerLibraryVersion, '5.4.2');
+  assert.ok(result.nextDueAt > 0);
 });
