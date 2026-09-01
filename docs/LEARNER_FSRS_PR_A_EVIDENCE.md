@@ -69,13 +69,33 @@ It deliberately owns no database, authentication, session, route-selection, acti
 
 The package/runtime version contract is deliberately redundant and checked. `package.json` pins the install dependency, `package-lock.json` pins the resolved package artifact/integrity, and the repository adapter exports `FSRS_LIBRARY_VERSION`. A test fails if the declared dependency version and adapter metadata drift apart.
 
-Worker compatibility is checked by:
+### Bundle compatibility
+
+The existing structural/bundle smoke remains:
 
 ```bash
 npm run fsrs:worker-smoke
 ```
 
-The smoke check bundles the adapter through the repository Vite toolchain, rejects an external `ts-fsrs` or Node-builtin runtime dependency in the resulting scheduling bundle, imports that bundle, and executes an actual transition.
+It bundles the adapter through the repository Vite toolchain, rejects an external `ts-fsrs` or Node-builtin runtime dependency in the resulting scheduling bundle, imports that generated bundle in the Node test harness, and executes an actual transition. This proves the dependency is bundled into Worker-targeted JavaScript, but it is not by itself treated as proof that the scheduler executes inside workerd.
+
+### Cloudflare Worker runtime compatibility
+
+PR A therefore also adds:
+
+```bash
+npm run fsrs:workerd-smoke
+```
+
+and the dedicated path-filtered GitHub workflow:
+
+```text
+Learner FSRS workerd smoke
+```
+
+The smoke harness launches the repository-pinned Wrangler in `dev --local` mode using the repository `compatibility_date` and `nodejs_compat` flag. It creates a temporary Worker whose module imports the real repository `src/lib/server/learning/fsrs-scheduler.js`. The Worker itself constructs canonical default parameters/current Card state, performs a real `good` scheduling transition, and returns the scheduler library version, repository scheduler revision, resulting state and next-due timestamp over HTTP. The Node process only launches Wrangler and verifies the HTTP result; the FSRS transition is executed by the Worker runtime.
+
+No Cloudflare credentials are required or exposed. The smoke explicitly removes Cloudflare account/API credential environment variables and runs locally without D1/R2 bindings or Production mutation.
 
 ## 3. Persistence foundation
 
@@ -220,19 +240,44 @@ PR A does **not** implement:
 
 No learner-facing application behavior is switched by PR A.
 
-## 8. Exact-head validation evidence
+## 8. Validation evidence
 
-Before the final dependency/version drift hardening edit, exact PR head:
+The dependency/version drift hardening checkpoint at exact head:
 
 ```text
 4cea2d7d0e40ca9b2745919c1556eeb300be94a9
 ```
 
-completed both required GitHub workflows successfully:
+completed:
 
 ```text
 CI #1555 — passed
 Wrangler runtime smoke #241 — passed
 ```
 
-The final drift-protection test/documentation edits intentionally move the PR head. Final acceptance must use the new exact head and its own successful CI/runtime-smoke runs; the evidence above is retained as the immediately preceding validated checkpoint rather than being misrepresented as validation of a later commit.
+After independent review identified that this did not execute the scheduler inside workerd, PR A added the dedicated runtime smoke described above. The corrected scheduler/runtime checkpoint at exact PR head:
+
+```text
+7a336183f36aa43d420261bdb49625f5bdd57e14
+```
+
+completed all three relevant workflows successfully:
+
+```text
+CI #1565 — passed
+Wrangler runtime smoke #251 — passed
+Learner FSRS workerd smoke #1 — passed
+```
+
+The FSRS workerd job output reported:
+
+```text
+compatibilityDate: 2026-08-14
+schedulerLibraryVersion: 5.4.2
+schedulerRevision: 1
+ok: true
+resultingState: 1
+nextDueAt: 1788307800000
+```
+
+This is the first Part A checkpoint that directly proves a transition by the real repository adapter/pinned `ts-fsrs` executes under the repository-pinned Cloudflare local Worker runtime. The documentation commit recording this evidence moves the PR head again; final handoff/acceptance must therefore also require ordinary exact-head CI plus the two path-filtered runtime workflows to remain green on that final documentation head.
