@@ -28,11 +28,12 @@ function memoryStorage(initial = null) {
 }
 
 test('Case Library stored state normalizes the supported working context', () => {
+  assert.equal(CASE_LIBRARY_STATE_KEY, 'flash-cards:admin:case-library-state:v2');
   const parsed = parseCaseLibraryStoredState(JSON.stringify({
     version: CASE_LIBRARY_STATE_VERSION,
     q: ' uveitis ',
-    topic: ' eye ',
-    system: ' Unassigned ',
+    topic: ' topic-retina ',
+    system: ' system-eye ',
     tag: 'tag-1',
     sort: 'system-desc',
     lifecycle: 'inactive',
@@ -40,10 +41,10 @@ test('Case Library stored state normalizes the supported working context', () =>
     cases: [{ id: 'must-not-be-accepted' }]
   }));
   assert.deepEqual(parsed, {
-    version: 1,
+    version: 2,
     q: 'uveitis',
-    topic: 'eye',
-    system: 'Unassigned',
+    topic: 'topic-retina',
+    system: 'system-eye',
     tag: 'tag-1',
     sort: 'system-desc',
     lifecycle: 'inactive',
@@ -55,23 +56,24 @@ test('Case Library stored state normalizes the supported working context', () =>
 test('malformed and stale Case Library state fails safely', () => {
   assert.equal(parseCaseLibraryStoredState('{bad json'), null);
   assert.equal(parseCaseLibraryStoredState(JSON.stringify({ version: 0, q: 'old' })), null);
-  assert.deepEqual(parseCaseLibraryStoredState(JSON.stringify({ version: 1, sort: 'evil', lifecycle: 'other', page: -8 })), {
-    version: 1,
+  assert.equal(parseCaseLibraryStoredState(JSON.stringify({ version: 1, topic: 'pericarditis', system: 'Unassigned' })), null, 'v1 text taxonomy filters must not be restored as v2 IDs');
+  assert.deepEqual(parseCaseLibraryStoredState(JSON.stringify({ version: CASE_LIBRARY_STATE_VERSION, sort: 'evil', lifecycle: 'other', page: -8 })), {
+    version: 2,
     q: '', topic: '', system: '', tag: '', sort: 'case-asc', lifecycle: 'active', page: 1
   });
 });
 
 test('stored Case Library state round-trips through the normal URL model', () => {
   const storage = memoryStorage();
-  writeCaseLibraryStoredState({ version: 1, q: 'uveitis', topic: 'retina', system: 'Eye', tag: 'tag-1', sort: 'topic-desc', lifecycle: 'inactive', page: 4 }, storage);
+  writeCaseLibraryStoredState({ version: CASE_LIBRARY_STATE_VERSION, q: 'uveitis', topic: 'topic-retina', system: 'system-eye', tag: 'tag-1', sort: 'topic-desc', lifecycle: 'inactive', page: 4 }, storage);
   assert.deepEqual(readCaseLibraryStoredState(storage), {
-    version: 1, q: 'uveitis', topic: 'retina', system: 'Eye', tag: 'tag-1', sort: 'topic-desc', lifecycle: 'inactive', page: 4
+    version: 2, q: 'uveitis', topic: 'topic-retina', system: 'system-eye', tag: 'tag-1', sort: 'topic-desc', lifecycle: 'inactive', page: 4
   });
-  assert.equal(caseLibraryStateHref(readCaseLibraryStoredState(storage)), '/admin/cases?q=uveitis&topic=retina&system=Eye&tag=tag-1&sort=topic-desc&lifecycle=inactive&page=4');
+  assert.equal(caseLibraryStateHref(readCaseLibraryStoredState(storage)), '/admin/cases?q=uveitis&topic=topic-retina&system=system-eye&tag=tag-1&sort=topic-desc&lifecycle=inactive&page=4');
 });
 
 test('deliberate default-state navigation stays explicit so persisted state cannot override it', () => {
-  const defaultState = { version: 1, q: '', topic: '', system: '', tag: '', sort: 'case-asc', lifecycle: 'active', page: 1 };
+  const defaultState = { version: CASE_LIBRARY_STATE_VERSION, q: '', topic: '', system: '', tag: '', sort: 'case-asc', lifecycle: 'active', page: 1 };
   const activeHref = caseLibraryStateHref(defaultState, ['lifecycle']);
   const firstPageHref = caseLibraryStateHref(defaultState, ['page']);
   const defaultSortHref = caseLibraryStateHref(defaultState, ['sort']);
@@ -85,10 +87,10 @@ test('deliberate default-state navigation stays explicit so persisted state cann
 });
 
 test('default active state and Clear remove the remembered working state', () => {
-  const storage = memoryStorage(JSON.stringify({ version: 1, q: 'old' }));
-  writeCaseLibraryStoredState({ version: 1, q: '', topic: '', system: '', tag: '', sort: 'case-asc', lifecycle: 'active', page: 1 }, storage);
+  const storage = memoryStorage(JSON.stringify({ version: CASE_LIBRARY_STATE_VERSION, q: 'old' }));
+  writeCaseLibraryStoredState({ version: CASE_LIBRARY_STATE_VERSION, q: '', topic: '', system: '', tag: '', sort: 'case-asc', lifecycle: 'active', page: 1 }, storage);
   assert.equal(storage.value(), null);
-  writeCaseLibraryStoredState({ version: 1, q: 'new', topic: '', system: '', tag: '', sort: 'case-asc', lifecycle: 'active', page: 1 }, storage);
+  writeCaseLibraryStoredState({ version: CASE_LIBRARY_STATE_VERSION, q: 'new', topic: '', system: '', tag: '', sort: 'case-asc', lifecycle: 'active', page: 1 }, storage);
   assert.notEqual(storage.value(), null);
   clearCaseLibraryStoredState(storage);
   assert.equal(storage.value(), null);
@@ -96,17 +98,17 @@ test('default active state and Clear remove the remembered working state', () =>
 
 test('recognized URL query state is detectable so explicit URLs can win', () => {
   assert.equal(hasExplicitCaseLibraryQuery(new URLSearchParams()), false);
-  for (const query of ['q=', 'topic=x', 'system=Unassigned', 'tag=x', 'sort=case-desc', 'lifecycle=inactive', 'page=2']) {
+  for (const query of ['q=', 'topic=topic-retina', 'system=__unassigned__', 'tag=x', 'sort=case-desc', 'lifecycle=inactive', 'page=2']) {
     assert.equal(hasExplicitCaseLibraryQuery(new URLSearchParams(query)), true, query);
   }
 });
 
 test('named action targets preserve Case Library query context and failed actions suppress restoration', () => {
-  const actionHref = caseLibraryNamedActionHref('createCaseLibraryTopic', 'q=uveitis&system=Eye&page=2');
-  assert.equal(actionHref, '?q=uveitis&system=Eye&page=2&/createCaseLibraryTopic');
+  const actionHref = caseLibraryNamedActionHref('createCaseLibraryTopic', 'q=uveitis&system=system-eye&page=2');
+  assert.equal(actionHref, '?q=uveitis&system=system-eye&page=2&/createCaseLibraryTopic');
   const actionParams = new URLSearchParams(actionHref.slice(1));
   assert.equal(actionParams.get('q'), 'uveitis');
-  assert.equal(actionParams.get('system'), 'Eye');
+  assert.equal(actionParams.get('system'), 'system-eye');
   assert.equal(actionParams.get('page'), '2');
   assert.equal(actionParams.has('/createCaseLibraryTopic'), true);
   assert.equal(shouldRestoreCaseLibraryState(actionParams, false), false);
@@ -114,8 +116,8 @@ test('named action targets preserve Case Library query context and failed action
   assert.equal(shouldRestoreCaseLibraryState(new URLSearchParams(), false), true);
   assert.equal(caseLibraryNamedActionHref('bulkPromoteTopic'), '?/bulkPromoteTopic');
 
-  const retryQuery = caseLibraryReturnQuery(new URLSearchParams('q=uveitis&system=Eye&page=2&/bulkAddCaseTag&unknown=drop-me'));
-  assert.equal(retryQuery, 'q=uveitis&system=Eye&page=2');
-  assert.equal(caseLibraryNamedActionHref('bulkRemoveCaseTag', retryQuery), '?q=uveitis&system=Eye&page=2&/bulkRemoveCaseTag');
+  const retryQuery = caseLibraryReturnQuery(new URLSearchParams('q=uveitis&system=system-eye&page=2&/bulkAddCaseTag&unknown=drop-me'));
+  assert.equal(retryQuery, 'q=uveitis&system=system-eye&page=2');
+  assert.equal(caseLibraryNamedActionHref('bulkRemoveCaseTag', retryQuery), '?q=uveitis&system=system-eye&page=2&/bulkRemoveCaseTag');
   assert.equal(caseLibraryReturnQuery(new URLSearchParams('lifecycle=active&page=1&/bulkRestoreCases')), 'lifecycle=active&page=1');
 });

@@ -6,15 +6,26 @@ const pageSource = readFileSync(new URL('../src/routes/admin/cases/+page.svelte'
 const serverSource = readFileSync(new URL('../src/routes/admin/cases/+page.server.js', import.meta.url), 'utf8');
 const creatorSource = readFileSync(new URL('../src/lib/components/case-library/CaseLibraryTopicCreator.svelte', import.meta.url), 'utf8');
 const bulkTagSource = readFileSync(new URL('../src/lib/components/case-library/BulkCaseTagEditor.svelte', import.meta.url), 'utf8');
+const filterPickerSource = readFileSync(new URL('../src/lib/components/case-library/CaseLibraryFilterCombobox.svelte', import.meta.url), 'utf8');
 const classificationSource = readFileSync(new URL('../src/lib/components/case-library/CaseClassificationEditor.svelte', import.meta.url), 'utf8');
 const classificationEndpointSource = readFileSync(new URL('../src/routes/admin/cases/[caseId]/classification/+server.js', import.meta.url), 'utf8');
 
 test('Case Library keeps deliberate search and native browser state restoration', () => {
-  for (const id of ['case-search', 'topic-search', 'system-search']) {
-    const input = pageSource.match(new RegExp(`<input[^>]*id="${id}"[^>]*>`))?.[0] ?? '';
-    assert.ok(input, `expected ${id}`);
-    assert.doesNotMatch(input, /oninput=|onkeyup=|onkeydown=/, `${id} must not persist/navigate on each keystroke`);
-  }
+  const caseInput = pageSource.match(/<input[^>]*id="case-search"[^>]*>/)?.[0] ?? '';
+  assert.ok(caseInput, 'expected case-search');
+  assert.doesNotMatch(caseInput, /oninput=|onkeyup=|onkeydown=/, 'case-search must not persist/navigate on each keystroke');
+  assert.match(pageSource, /inputId="topic-search"/);
+  assert.match(pageSource, /inputId="system-search"/);
+  assert.doesNotMatch(filterPickerSource, /requestSubmit|window\.location|goto\(/, 'taxonomy filter typing must stay local until Search is submitted');
+  assert.match(filterPickerSource, /function restoreCommittedSelection\(\)/);
+  assert.match(filterPickerSource, /onblur=\{restoreCommittedSelection\}/);
+  assert.doesNotMatch(filterPickerSource, /function updateQuery\([\s\S]{0,180}value = '';/, 'typing must not replace the committed taxonomy ID');
+  assert.match(filterPickerSource, /event\.key === 'Enter' && editing[\s\S]{0,180}event\.preventDefault\(\)[\s\S]{0,180}restoreCommittedSelection\(\)/, 'unresolved Enter must not submit visible text as though it were a selected ID');
+  assert.match(filterPickerSource, /if \(value && !selectedOption\) value = '';/, 'stale taxonomy IDs must not remain hidden in the combobox');
+  assert.match(filterPickerSource, /const navigableCount = matchingOptions\.length \+ 1;/, 'keyboard navigation must include the synthetic All option');
+  assert.match(filterPickerSource, /activeIndex === 0\) selectOption\(null\)/, 'keyboard users must be able to clear one taxonomy filter');
+  assert.match(filterPickerSource, /id=\{`\$\{inputId\}-option-all`\}/);
+  assert.match(serverSource, /caseFilters: pageData\.filters/, 'the page must render normalized lifecycle-valid taxonomy IDs');
   assert.match(pageSource, /shouldRestoreCaseLibraryState\(params, Boolean\(form\)\)/);
   assert.match(pageSource, /readCaseLibraryStoredState\(\)/);
   assert.match(pageSource, /window\.location\.replace\(href\)/);

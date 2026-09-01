@@ -1,5 +1,5 @@
-export const CASE_LIBRARY_STATE_KEY = 'flash-cards:admin:case-library-state:v1';
-export const CASE_LIBRARY_STATE_VERSION = 1;
+export const CASE_LIBRARY_STATE_KEY = 'flash-cards:admin:case-library-state:v2';
+export const CASE_LIBRARY_STATE_VERSION = 2;
 
 const CASE_LIBRARY_SORTS = new Set([
   'case-asc', 'case-desc', 'topic-asc', 'topic-desc',
@@ -10,7 +10,7 @@ const CASE_LIBRARY_QUERY_KEYS = ['q', 'topic', 'system', 'tag', 'sort', 'lifecyc
 type CaseLibraryExplicitQueryKey = 'sort' | 'lifecycle' | 'page';
 
 export type CaseLibraryStoredState = {
-  version: 1;
+  version: 2;
   q: string;
   topic: string;
   system: string;
