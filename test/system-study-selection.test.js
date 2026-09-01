@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   SystemStudySelectionError,
+  buildSystemStudyNavigation,
   normalizeSystemStudySelectionRoutes,
   resolveSystemStudyCandidates,
   resolveSystemStudySelectionCandidates
@@ -182,6 +183,35 @@ test('custom Topic selections are exact so a selected parent does not re-include
     ['child-case', 'parent-case'],
     'legacy single Topic navigation remains descendant-inclusive'
   );
+});
+
+test('navigation distinguishes zero-exact structural parents from descendant Case counts', () => {
+  const fixture = selectionFixture();
+  const withoutParentCase = {
+    ...fixture,
+    caseTopicRows: fixture.caseTopicRows.filter((row) => row.id !== 'parent-case')
+  };
+  const cardio = buildSystemStudyNavigation(withoutParentCase).find((system) => system.id === 'cardio');
+  assert.ok(cardio);
+
+  const parent = cardio.topics.find((topic) => topic.id === 'rhythm');
+  const child = cardio.topics.find((topic) => topic.id === 'qtc');
+  assert.deepEqual(
+    { caseCount: parent?.caseCount, subtreeCaseCount: parent?.subtreeCaseCount },
+    { caseCount: 0, subtreeCaseCount: 1 },
+    'structural parent stays available for hierarchy controls but contributes no exact Topic route'
+  );
+  assert.deepEqual(
+    { caseCount: child?.caseCount, subtreeCaseCount: child?.subtreeCaseCount },
+    { caseCount: 1, subtreeCaseCount: 1 }
+  );
+
+  const parentOnly = resolveSystemStudySelectionCandidates({
+    ...withoutParentCase,
+    systemId: 'cardio',
+    routes: [{ routeType: 'topic', routeId: 'rhythm' }]
+  });
+  assert.deepEqual(parentOnly, [], 'an exact structural parent has no candidates after its child is excluded');
 });
 
 test('all eligible exact Topics plus curated Tags matches existing System All IDs and effective provenance', () => {
