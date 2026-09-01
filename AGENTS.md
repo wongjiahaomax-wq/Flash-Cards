@@ -62,6 +62,7 @@ A successful `npm run agent:doctor` establishes that the local-execution side is
 - Preserve product behavior in refactor-only work.
 - Keep the change focused; do not broaden a task into unrelated cleanup, formatting, schema, UX, or architecture work.
 - Prefer existing helpers/patterns and directly related tests before adding a new abstraction.
+- For capable coding agents, task prompts should normally state the goal, important behavioral/safety invariants, scope constraints, acceptance criteria, and any explicit existing-PR/branch requirement. Do not force broad hard-coded file, documentation, test, or exploration lists when current repository routing can discover the needed context; exact artifacts remain appropriate when they are genuinely part of the task contract, and prompt instructions must not force unrelated context to be loaded “for completeness”.
 - Treat Production/Preview scope and ownership checks as data-integrity boundaries, not incidental filters.
 - Never mutate production D1/R2 merely to test, debug, seed, or preview a change.
 - Never invent temporary deployment/mutation workflows, one-off production bypasses, or broader credentials to compensate for a missing capability.
@@ -90,7 +91,7 @@ Use `docs/AGENT_TASK_MAP.md` for the exact current routing for auth, imports, ta
 Preserve the repository's iteration → checkpoint → handoff validation architecture. Constrained retrieval never means reduced validation.
 
 - Do not claim a command, test, build, deployment, migration, or smoke check ran unless it actually ran.
-- When local execution is available, use `npm run agent:doctor` as the read-only pre-edit environment check.
+- When local execution is available, use `npm run agent:doctor` as the read-only environment check normally once per local coding session; rerun it when environment/toolchain assumptions may have changed, not merely because application source changed.
 - During active implementation, use the cheapest feedback that meaningfully tests the current risk: Vite/HMR for presentation-only iteration and the nearest directly related test(s) for logic changes.
 - After a coherent change, run `npm run agent:checks` (prefer `npm run agent:checks -- --compact` when output enters model context) to obtain current iteration/checkpoint guidance, final required checks, and specialized requirements.
 - `agent:checks` intentionally includes legitimate untracked files. Do not change it or local practice to ignore arbitrary untracked implementation files. Persistent checkout-local machine/tool artifacts belong in `.git/info/exclude`; universally inappropriate repository artifacts belong in `.gitignore`. Never add broad ignore patterns that could hide legitimate source, assets, or configuration.
