@@ -17,6 +17,7 @@ import {
   isQuestionPoolMode
 } from '$lib/server/learning/question-pool-mode';
 import { StudyNavigationInputError } from '$lib/server/db/study-navigation.ts';
+import { canUseAdminStudySelectionPreview } from '$lib/server/learning/admin-study-preview.ts';
 import {
   SystemStudyNavigationDisabledError,
   resolveNextSystemStudyRoute,
@@ -45,6 +46,11 @@ export async function load({ locals, params, platform }) {
   const reviewMedia = await listOwnedReviewMedia(db, review.id, context.user.id);
   const reviewAssetIdByAssetId = new Map(reviewMedia.map((row) => [row.assetId, row.reviewAssetId]));
   const questionSet = QUESTION_POOL_MODE_DETAILS[review.questionPoolMode];
+  const adminStudyPreview = canUseAdminStudySelectionPreview({
+    user: context.user,
+    env: platform?.env,
+    studySelectionId: review.studySelectionId
+  });
 
   return {
     caseStudy: {
@@ -58,7 +64,10 @@ export async function load({ locals, params, platform }) {
       studyTagId: review.studyTagId,
       studyConceptId: review.studyConceptId,
       primaryConceptId: review.primaryConceptId,
-      nextCaseAvailable: !review.studySystemConceptId || systemStudyNavigationEnabled(platform?.env),
+      adminStudyPreview,
+      backHref: adminStudyPreview ? '/admin/study-preview' : '/study',
+      backLabel: adminStudyPreview ? 'Back to Admin learner preview' : 'Back to topics',
+      nextCaseAvailable: !review.studySystemConceptId || systemStudyNavigationEnabled(platform?.env) || adminStudyPreview,
       vignette: review.vignette,
       status: review.status,
       rating: review.rating,
@@ -140,10 +149,16 @@ export const actions = {
       return fail(400, { message: 'Choose Original questions or Expanded Learning for the next review.' });
     }
 
+    const navigationEnabled = systemStudyNavigationEnabled(platform?.env);
     let reviewId;
     try {
       if (review.studySelectionId) {
-        if (!systemStudyNavigationEnabled(platform?.env)) throw new SystemStudyNavigationDisabledError();
+        const adminStudyPreview = canUseAdminStudySelectionPreview({
+          user: context.user,
+          env: platform?.env,
+          studySelectionId: review.studySelectionId
+        });
+        if (!navigationEnabled && !adminStudyPreview) throw new SystemStudyNavigationDisabledError();
         reviewId = await startNextSystemStudySelectionReview({
           db,
           userId: context.user.id,
@@ -151,10 +166,7 @@ export const actions = {
           questionPoolMode
         });
       } else {
-        const systemRoute = resolveNextSystemStudyRoute(
-          review,
-          systemStudyNavigationEnabled(platform?.env)
-        );
+        const systemRoute = resolveNextSystemStudyRoute(review, navigationEnabled);
         if (systemRoute) {
           reviewId = await startSystemReview({
             db,
