@@ -51,6 +51,7 @@ export async function load({ locals, params, platform }) {
     env: platform?.env,
     studySelectionId: review.studySelectionId
   });
+  const systemStudyReview = Boolean(review.studySystemConceptId);
 
   return {
     caseStudy: {
@@ -66,7 +67,11 @@ export async function load({ locals, params, platform }) {
       primaryConceptId: review.primaryConceptId,
       adminStudyPreview,
       backHref: adminStudyPreview ? '/admin/study-preview' : '/study',
-      backLabel: adminStudyPreview ? 'Back to Admin learner preview' : 'Back to topics',
+      backLabel: adminStudyPreview
+        ? 'Back to Admin learner preview'
+        : systemStudyReview
+          ? 'Back to Study'
+          : 'Back to topics',
       nextCaseAvailable: !review.studySystemConceptId || systemStudyNavigationEnabled(platform?.env) || adminStudyPreview,
       vignette: review.vignette,
       status: review.status,
