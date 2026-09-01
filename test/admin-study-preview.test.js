@@ -43,3 +43,8 @@ test('flag-off Admin selection Review gets Next and return path without widening
   assert.match(reviewPageSource, /Admin learner preview/);
   assert.match(reviewPageSource, /caseStudy\.backHref/);
 });
+
+test('Review return label distinguishes Admin preview, System study, and legacy Topic study', () => {
+  assert.match(reviewServerSource, /const systemStudyReview = Boolean\(review\.studySystemConceptId\)/);
+  assert.match(reviewServerSource, /\? 'Back to Admin learner preview'[\s\S]*\? 'Back to Study'[\s\S]*: 'Back to topics'/);
+});
