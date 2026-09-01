@@ -18,6 +18,7 @@ import {
 } from '../src/lib/server/learning/fsrs-scheduler.js';
 
 function bootstrapDb() {
+  /** @type {Map<unknown, Record<string, unknown>>} */
   const rows = new Map();
   let insertCount = 0;
 
@@ -25,8 +26,10 @@ function bootstrapDb() {
     get insertCount() {
       return insertCount;
     },
+    /** @param {unknown} table */
     insert(table) {
       return {
+        /** @param {Record<string, unknown>} value */
         values(value) {
           return {
             async onConflictDoNothing() {
@@ -40,6 +43,7 @@ function bootstrapDb() {
     },
     select() {
       return {
+        /** @param {unknown} table */
         from(table) {
           return {
             where() {
@@ -130,9 +134,11 @@ test('uninitialized profile read is non-creating for future Reset no-op semantic
 });
 
 test('conflict-safe bootstrap primitive re-reads the database winner', async () => {
+  /** @type {string|null} */
   let winner = null;
   let attempted = 0;
   const readWinner = async () => winner;
+  /** @param {string} value */
   const contender = (value) =>
     ensureDeterministicBootstrapRow(async () => {
       attempted += 1;
