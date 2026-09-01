@@ -10,7 +10,10 @@ import { learnerFsrsProfiles, learnerPreferences } from './fsrs-schema.js';
 
 export const DEFAULT_DETAILED_HISTORY_RETENTION = '24m';
 
-/** @param {string} userId */
+/**
+ * @param {string} userId
+ * @returns {{userId:string, expandedLearning:false, scheduledOrder:'due_first'}}
+ */
 export function initialLearnerPreferences(userId) {
   return {
     userId,
@@ -19,7 +22,19 @@ export function initialLearnerPreferences(userId) {
   };
 }
 
-/** @param {string} userId */
+/**
+ * @param {string} userId
+ * @returns {{
+ *   userId:string,
+ *   generation:1,
+ *   reviewSequenceEpoch:1,
+ *   parameterRevision:1,
+ *   schedulerRevision:number,
+ *   schedulerLibraryVersion:string,
+ *   parametersJson:string,
+ *   detailedHistoryRetention:'24m'
+ * }}
+ */
 export function initialLearnerFsrsProfile(userId) {
   return {
     userId,
@@ -38,7 +53,7 @@ export function initialLearnerFsrsProfile(userId) {
  * winner, then every contender re-reads that same persisted row.
  *
  * @template T
- * @param {() => Promise<unknown>} insertIfAbsent
+ * @param {() => unknown} insertIfAbsent
  * @param {() => Promise<T|null|undefined>} readWinner
  * @returns {Promise<T>}
  */
