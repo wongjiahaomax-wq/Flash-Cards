@@ -91,7 +91,7 @@ Use `docs/AGENT_TASK_MAP.md` for the exact current routing for auth, imports, ta
 Preserve the repository's iteration → checkpoint → handoff validation architecture. Constrained retrieval never means reduced validation.
 
 - Do not claim a command, test, build, deployment, migration, or smoke check ran unless it actually ran.
-- When local execution is available, use `npm run agent:doctor` as the read-only environment check normally once per local coding session; rerun it when environment/toolchain assumptions may have changed, not merely because application source changed.
+- When local execution is available, use `npm run agent:doctor` as the read-only environment check normally once per local coding session; rerun it when environment/toolchain/Git-worktree assumptions may have become stale, not merely because ordinary application source changed.
 - During active implementation, use the cheapest feedback that meaningfully tests the current risk: Vite/HMR for presentation-only iteration and the nearest directly related test(s) for logic changes.
 - After a coherent change, run `npm run agent:checks` (prefer `npm run agent:checks -- --compact` when output enters model context) to obtain current iteration/checkpoint guidance, final required checks, and specialized requirements.
 - `agent:checks` intentionally includes legitimate untracked files. Do not change it or local practice to ignore arbitrary untracked implementation files. Persistent checkout-local machine/tool artifacts belong in `.git/info/exclude`; universally inappropriate repository artifacts belong in `.gitignore`. Never add broad ignore patterns that could hide legitimate source, assets, or configuration.
