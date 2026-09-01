@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { dirname, join, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { removeRuntimeSmokeDirectory } from './wrangler-runtime-smoke-lib.mjs';
 
@@ -173,14 +173,20 @@ export async function runFsrsWorkerdSmoke() {
           `Wrangler exited before FSRS workerd smoke became ready (code=${exitState.code}, signal=${exitState.signal ?? 'none'}).`
         );
       }
+
+      let response = null;
       try {
-        const response = await fetch(`http://127.0.0.1:${port}/`);
-        if (response.ok) {
-          const result = assertFsrsWorkerdResult(await response.json());
-          return { compatibilityDate, ...result };
+        response = await fetch(`http://127.0.0.1:${port}/`);
+      } catch {
+        // The local socket is expected to refuse connections until workerd is ready.
+      }
+      if (response) {
+        if (!response.ok) {
+          const body = (await response.text()).slice(0, 2_000);
+          throw new Error(`FSRS workerd Worker responded ${response.status}: ${body}`);
         }
-      } catch (error) {
-        if (error instanceof Error && error.message.startsWith('FSRS workerd')) throw error;
+        const result = assertFsrsWorkerdResult(await response.json());
+        return { compatibilityDate, ...result };
       }
       await new Promise((resolveWait) => setTimeout(resolveWait, 100));
     }
@@ -195,7 +201,7 @@ export async function runFsrsWorkerdSmoke() {
   }
 }
 
-if (import.meta.url === new URL(`file://${process.argv[1] ?? ''}`).href) {
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   runFsrsWorkerdSmoke()
     .then((result) => {
       console.log(JSON.stringify(result, null, 2));
