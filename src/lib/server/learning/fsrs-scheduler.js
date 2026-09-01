@@ -70,13 +70,13 @@ export function serializeFsrsCard(card) {
   };
 }
 
-/** @param {PersistedFsrsCard} card @returns {import('ts-fsrs').CardInput} */
+/** @param {PersistedFsrsCard} card @returns {import('ts-fsrs').Card} */
 export function deserializeFsrsCard(card) {
   return {
     due: new Date(card.dueAt),
     stability: card.stability,
     difficulty: card.difficulty,
-    state: card.state,
+    state: /** @type {import('ts-fsrs').State} */ (card.state),
     elapsed_days: card.elapsedDays,
     scheduled_days: card.scheduledDays,
     learning_steps: card.learningSteps,
@@ -91,9 +91,7 @@ export function createInitialFsrsCard(now = new Date()) {
   return serializeFsrsCard(createEmptyCard(new Date(now)));
 }
 
-/**
- * @param {import('ts-fsrs').ReviewLog} log
- */
+/** @param {import('ts-fsrs').ReviewLog} log */
 function serializeReviewLog(log) {
   return {
     rating: log.rating,
