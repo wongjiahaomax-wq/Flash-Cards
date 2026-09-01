@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 28 August 2026_
+_Last reviewed: 1 September 2026_
 
 This index identifies the documents that describe current repository behavior, operational contracts, pending designs, and historical/implementation records.
 
@@ -187,6 +187,22 @@ For account/auth work, inspect current implementation and current PR state befor
 
 Public signup remains intentionally disabled unless a separately reviewed product decision changes that contract.
 
+## Learner Study / FSRS / progress — pending design authority
+
+### `LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md`
+
+**Locked product/planning authority for future learner scheduling work.** It specifies Case-level FSRS from the first SRS implementation; 90% desired retention; Again / Hard / Good / Easy; Scheduled and Free Study; Due/New start-of-run queues; default Due-first ordering with New fallback; Expanded Learning as a global preference default OFF; compact Scheduled events; temporary active-Review snapshots; reset/fresh-generation semantics; retention; learner/Admin analytics; and selective reuse of the systems-first UX from Draft PR #119 without merging #119.
+
+This is future intent, not current executable learner scheduling behavior.
+
+### `LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md`
+
+**Subordinate technical-design companion.** It records the repository-grounded FSRS library direction, compact schema responsibilities, transaction boundaries, write-time active-Review/generation concurrency invariant, preliminary synthetic benchmark evidence, required D1 benchmark gate, Better Auth deletion direction, focused implementation decomposition, and the exact PR #119 reuse/discard boundary.
+
+If the technical companion conflicts with the locked product plan on product behavior, the product plan wins. Neither document is authorization to deploy, apply Production migrations, or enable learner behavior.
+
+Do not use an older simple-scheduler / Again-Good-only plan or a historical “FSRS later” statement as authority over these two documents.
+
 ## Stimulus behavior
 
 - `ORIGINAL_AND_ALTERNATIVE_STIMULI.md` — explicit Original pointer and Core/Expanded family-selection semantics. Curated Core uses Original; Expanded substitutes an eligible non-Original Alternative when available, otherwise Original; legacy `NULL` families retain random eligible-option selection.
@@ -236,7 +252,7 @@ Issue #105's Original/Alternative authoring UX is production Admin + learner Rev
 - `PRODUCTION_CONTENT_SNAPSHOT.md` — read-only production-content snapshot/reporting contract.
 - `OPEN_SOURCE_READINESS.md` — publication-cleanup checklist.
 
-`npm run dev` and `npm run preview` use repository-owned launchers and repository-local Wrangler/XDG state. `npm run local:stop` is the preferred checkout-scoped cleanup command.
+`npm run dev` and `npm run preview` use repository-owned local launchers and repository-local Wrangler/XDG state. `npm run local:stop` is the preferred checkout-scoped cleanup command.
 
 The repository-installed/pinned Wrangler dependency and lockfile are the authority. Avoid documentation that hard-codes an independent ad-hoc Wrangler version.
 
