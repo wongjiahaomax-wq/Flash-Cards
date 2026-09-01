@@ -304,16 +304,18 @@ export function buildSystemStudyNavigation(input: SystemNavigationInput) {
     const topicChoices = descendantTopicIds(system.id, nodes, true)
       .map((topicId) => {
         const node = nodes.find((candidate) => candidate.id === topicId);
-        const caseCount = topicCandidates(system.id, topicId, input).length;
+        const caseCount = exactTopicCandidates(system.id, topicId, input).length;
+        const subtreeCaseCount = topicCandidates(system.id, topicId, input).length;
         return {
           id: topicId,
           routeType: 'topic' as const,
           name: node?.name ?? topicId,
           breadcrumb: conceptBreadcrumb(topicId, nodes).map((item) => ({ id: item.id, name: item.name ?? item.id, kind: item.kind })),
-          caseCount
+          caseCount,
+          subtreeCaseCount
         };
       })
-      .filter((choice) => choice.caseCount > 0)
+      .filter((choice) => choice.subtreeCaseCount > 0)
       .sort((left, right) => left.name.localeCompare(right.name) || left.id.localeCompare(right.id));
 
     const tagChoices = curatedTagsForSystem(system.id, input.systemTagRows)
