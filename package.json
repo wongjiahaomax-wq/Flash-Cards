@@ -29,6 +29,7 @@
     "fsrs:preflight": "node scripts/learner-fsrs-preflight.mjs",
     "fsrs:benchmark": "node scripts/learner-fsrs-benchmark.mjs",
     "fsrs:worker-smoke": "node scripts/learner-fsrs-worker-smoke.mjs",
+    "fsrs:workerd-smoke": "node scripts/learner-fsrs-workerd-smoke.mjs",
     "local:setup": "node scripts/refresh-local-replica.mjs setup",
     "local:refresh": "node scripts/refresh-local-replica.mjs all",
     "local:refresh:d1": "node scripts/refresh-local-replica.mjs d1",
