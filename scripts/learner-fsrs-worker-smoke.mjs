@@ -17,10 +17,22 @@ export async function runFsrsWorkerBundleSmoke() {
       rollupOptions: { output: { inlineDynamicImports: true } }
     }
   });
-  const output = (Array.isArray(result) ? result.flatMap((item) => item.output) : result.output).find(
-    (item) => item.type === 'chunk'
-  );
-  if (!output || output.type !== 'chunk') {
+
+  const results = Array.isArray(result) ? result : [result];
+  /** @type {import('rolldown').OutputChunk|undefined} */
+  let output;
+  for (const buildResult of results) {
+    if (!('output' in buildResult)) {
+      throw new Error('Vite unexpectedly returned a watcher for the FSRS smoke build.');
+    }
+    const chunk = buildResult.output.find((item) => item.type === 'chunk');
+    if (chunk?.type === 'chunk') {
+      output = chunk;
+      break;
+    }
+  }
+
+  if (!output) {
     throw new Error('Vite did not produce an FSRS smoke bundle.');
   }
   if (/from\s+["']ts-fsrs["']/.test(output.code)) {
