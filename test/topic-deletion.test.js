@@ -21,7 +21,8 @@ function createFixture() {
       ('topic-parent', 'Parent Topic', 'parent-topic', 'topic', 'system-eye', 1),
       ('topic-child', 'Child Topic', 'child-topic', 'topic', 'topic-parent', 1),
       ('topic-history', 'Historical Topic', 'historical-topic', 'topic', 'system-eye', 1),
-      ('topic-question-history', 'Historical Question Topic', 'historical-question-topic', 'topic', 'system-eye', 1);
+      ('topic-question-history', 'Historical Question Topic', 'historical-question-topic', 'topic', 'system-eye', 1),
+      ('topic-selection-history', 'Selection-only Historical Topic', 'selection-only-historical-topic', 'topic', 'system-eye', 1);
     INSERT INTO cases (id, title, is_active) VALUES
       ('case-1', 'Case One', 1),
       ('case-history', 'Historical Case', 1);
@@ -29,6 +30,12 @@ function createFixture() {
       ('case-1', 'topic-case', 'primary'),
       ('case-1', 'topic-secondary', 'secondary'),
       ('case-history', 'topic-history', 'primary');
+    INSERT INTO tags (id, name, normalized_name, is_active)
+    VALUES ('selection-tag', 'Selection Tag', 'selection tag', 1);
+    INSERT INTO system_tags (system_concept_id, tag_id, display_order)
+    VALUES ('system-eye', 'selection-tag', 0);
+    INSERT INTO case_tags (case_id, tag_id)
+    VALUES ('case-1', 'selection-tag');
     INSERT INTO question_prompts (id, prompt_md, is_active) VALUES ('prompt-1', 'What is the diagnosis?', 1);
     INSERT INTO concept_questions (id, concept_id, question_prompt_id, answer_md, inherit_to_descendants, is_active)
     VALUES ('concept-question-1', 'topic-question', 'prompt-1', 'Example answer', 0, 1);
@@ -42,6 +49,20 @@ function createFixture() {
     ) VALUES (
       'review-question-source', 'review-source', 'prompt-1', 'concept', 'topic-question-history', 0,
       'What is the diagnosis?', 'Historical answer'
+    );
+    INSERT INTO study_selections (id, user_id, system_concept_id)
+    VALUES ('selection-history', 'user-1', 'system-eye');
+    INSERT INTO study_selection_routes (study_selection_id, route_type, route_id) VALUES
+      ('selection-history', 'topic', 'topic-selection-history'),
+      ('selection-history', 'tag', 'selection-tag');
+    INSERT INTO reviews (
+      id, user_id, case_id, primary_concept_id, study_concept_id,
+      study_system_concept_id, route_type, study_tag_id,
+      study_selection_id, case_title_snapshot, status
+    ) VALUES (
+      'selection-review', 'user-1', 'case-1', 'topic-case', 'topic-case',
+      'system-eye', 'tag', 'selection-tag',
+      'selection-history', 'Case One', 'completed'
     );
     DELETE FROM case_concepts WHERE case_id = 'case-history' AND concept_id = 'topic-history';
   `);
@@ -132,6 +153,29 @@ test('unused Topic deletion preserves Topics referenced only by learner Review h
       );
       assert.equal(conceptExists(fixture.sqlite, conceptId), true);
     }
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Topic referenced only by historical multi-select selection provenance is permanently non-deletable', async () => {
+  const fixture = createFixture();
+  try {
+    assert.deepEqual(
+      await getTopicDeletionEligibility(fixture.db, { conceptId: 'topic-selection-history' }),
+      {
+        canDelete: false,
+        hasCaseAttachments: false,
+        hasQuestions: false,
+        hasChildren: false,
+        hasReviewHistory: true
+      }
+    );
+    await assert.rejects(
+      deleteUnusedTopic(fixture.db, { conceptId: 'topic-selection-history' }),
+      (error) => error instanceof TaxonomyInputError && /learner Review history/i.test(error.message)
+    );
+    assert.equal(conceptExists(fixture.sqlite, 'topic-selection-history'), true);
   } finally {
     fixture.sqlite.close();
   }

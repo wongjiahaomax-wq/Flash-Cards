@@ -2,7 +2,7 @@ import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 
 import { taxonomyConcepts } from './contextual-schema.ts';
 import { buildTopicConceptInsert, listConceptTaxonomy } from './concept-taxonomy-compat.ts';
-import { caseConcepts, cases, conceptQuestions, concepts, reviewQuestions, reviews } from './schema.js';
+import { caseConcepts, cases, conceptQuestions, concepts, reviewQuestions, reviews, studySelectionRoutes } from './schema.js';
 import { systemTags, tags } from './tag-schema.js';
 import {
   applyParentChanges,
@@ -203,7 +203,7 @@ export async function getTopicDeletionEligibility(
   input: { conceptId: unknown }
 ): Promise<TopicDeletionEligibility> {
   const conceptId = requiredText(input.conceptId, 'Topic');
-  const [caseUsage, questionUsage, childUsage, reviewUsage, reviewQuestionUsage] = await Promise.all([
+  const [caseUsage, questionUsage, childUsage, reviewUsage, reviewQuestionUsage, selectionRouteUsage] = await Promise.all([
     db.select({ id: caseConcepts.caseId }).from(caseConcepts).where(eq(caseConcepts.conceptId, conceptId)).limit(1),
     db.select({ id: conceptQuestions.id }).from(conceptQuestions).where(eq(conceptQuestions.conceptId, conceptId)).limit(1),
     db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(eq(taxonomyConcepts.parentId, conceptId)).limit(1),
@@ -213,12 +213,16 @@ export async function getTopicDeletionEligibility(
       eq(reviews.studySystemConceptId, conceptId),
       and(eq(reviews.navigationRouteType, 'topic'), eq(reviews.navigationRouteId, conceptId))
     )).limit(1),
-    db.select({ id: reviewQuestions.id }).from(reviewQuestions).where(eq(reviewQuestions.sourceConceptId, conceptId)).limit(1)
+    db.select({ id: reviewQuestions.id }).from(reviewQuestions).where(eq(reviewQuestions.sourceConceptId, conceptId)).limit(1),
+    db.select({ id: studySelectionRoutes.studySelectionId }).from(studySelectionRoutes).where(and(
+      eq(studySelectionRoutes.routeType, 'topic'),
+      eq(studySelectionRoutes.routeId, conceptId)
+    )).limit(1)
   ]);
   const hasCaseAttachments = Boolean(caseUsage[0]);
   const hasQuestions = Boolean(questionUsage[0]);
   const hasChildren = Boolean(childUsage[0]);
-  const hasReviewHistory = Boolean(reviewUsage[0] || reviewQuestionUsage[0]);
+  const hasReviewHistory = Boolean(reviewUsage[0] || reviewQuestionUsage[0] || selectionRouteUsage[0]);
   return {
     canDelete: !(hasCaseAttachments || hasQuestions || hasChildren || hasReviewHistory),
     hasCaseAttachments,

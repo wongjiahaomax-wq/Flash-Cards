@@ -13,6 +13,7 @@ type ReviewInsert = {
   studyTagId: string | null;
   navigationRouteType: 'all' | 'topic' | 'tag' | null;
   navigationRouteId: string | null;
+  studySelectionId?: string | null;
   caseTitleSnapshot: string;
   vignetteSnapshotMd: string | null;
   questionPoolMode: 'core' | 'expanded';
@@ -25,7 +26,7 @@ export function buildReviewInsertWithOptionalRouteProvenance(
   db: import('./index.js').LearningDb,
   value: ReviewInsert
 ) {
-  return db.insert(reviewsWithRouteProvenance).values(value);
+  return db.insert(reviewsWithRouteProvenance).values({ ...value, studySelectionId: value.studySelectionId ?? null });
 }
 
 const reviewSelection = {
@@ -38,6 +39,7 @@ const reviewSelection = {
   studyTagId: reviewsWithRouteProvenance.studyTagId,
   navigationRouteType: reviewsWithRouteProvenance.navigationRouteType,
   navigationRouteId: reviewsWithRouteProvenance.navigationRouteId,
+  studySelectionId: reviewsWithRouteProvenance.studySelectionId,
   questionPoolMode: reviewsWithRouteProvenance.questionPoolMode,
   title: reviewsWithRouteProvenance.caseTitleSnapshot,
   vignette: reviewsWithRouteProvenance.vignetteSnapshotMd,
@@ -57,6 +59,7 @@ type ReviewWithOptionalRouteProvenance = {
   studyTagId: string | null;
   navigationRouteType: 'all' | 'topic' | 'tag' | null;
   navigationRouteId: string | null;
+  studySelectionId: string | null;
   questionPoolMode: string;
   title: string;
   vignette: string | null;

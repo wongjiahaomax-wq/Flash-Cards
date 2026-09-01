@@ -1,5 +1,6 @@
 <script>
   import SignOutButton from '$lib/components/SignOutButton.svelte';
+  import SystemStudyChooser from '$lib/components/study/SystemStudyChooser.svelte';
 
   let { data, form } = $props();
 </script>
@@ -15,7 +16,7 @@
       <h1>{data.systemNavigationEnabled ? 'Choose a System to review' : 'Choose a topic to review'}</h1>
       <p class="muted intro">
         {#if data.systemNavigationEnabled}
-          Choose a System, then study All eligible Cases or focus on one Topic or curated Tag. Flash-Cards snapshots the selected route, questions, and teaching images for this review.
+          Choose a System, then narrow the study pool by unchecking Topics or curated Tags. All available study areas start selected.
         {:else}
           Choose a topic and question set. Flash-Cards will select a compatible case and snapshot its questions and teaching images for this review.
         {/if}
@@ -37,57 +38,7 @@
   {/if}
 
   {#if data.systemNavigationEnabled}
-    <div class="topic-grid">
-      {#each data.systems as system}
-        <section class="topic-card">
-          <div class="topic-heading">
-            <div>
-              <p class="eyebrow">{system.allCaseCount} {system.allCaseCount === 1 ? 'case' : 'cases'} in All</p>
-              <h2>{system.name}</h2>
-            </div>
-            <p class="muted">Choose All, a native Topic, or a Tag curated specifically for this System.</p>
-          </div>
-
-          <form method="POST" action="?/startSystem" class="start-form">
-            <input type="hidden" name="systemId" value={system.id} />
-            <fieldset class="route-set">
-              <legend>Study route</legend>
-              <label class="route-option">
-                <input type="radio" name="route" value="all" checked={form?.systemId === system.id ? form.route === 'all' : true} />
-                <span><strong>All</strong><small>{system.allCaseCount} eligible {system.allCaseCount === 1 ? 'Case' : 'Cases'} · native Topic matches take precedence over Tag matches.</small></span>
-              </label>
-              {#each system.topics as topic}
-                <label class="route-option">
-                  <input type="radio" name="route" value={'topic:' + topic.id} checked={form?.systemId === system.id && form.route === 'topic:' + topic.id} />
-                  <span><strong>{topic.name}</strong><small>Topic · {topic.caseCount} {topic.caseCount === 1 ? 'Case' : 'Cases'}{#if topic.breadcrumb.length > 1} · {topic.breadcrumb.map((item) => item.name).join(' → ')}{/if}</small></span>
-                </label>
-              {/each}
-              {#each system.tags as tag}
-                <label class="route-option tag-route">
-                  <input type="radio" name="route" value={'tag:' + tag.id} checked={form?.systemId === system.id && form.route === 'tag:' + tag.id} />
-                  <span><strong>{tag.name}</strong><small>Tag · {tag.caseCount} {tag.caseCount === 1 ? 'Case' : 'Cases'} · curated for {system.name}</small></span>
-                </label>
-              {/each}
-            </fieldset>
-
-            <fieldset class="question-set">
-              <legend>Choose question set</legend>
-              <label class="mode-option">
-                <input type="radio" name="questionPoolMode" value="core" checked={form?.systemId === system.id ? form.questionPoolMode === 'core' : true} />
-                <span><strong>Original questions</strong><small>Questions curated specifically for this Case.</small></span>
-              </label>
-              <label class="mode-option">
-                <input type="radio" name="questionPoolMode" value="expanded" checked={form?.systemId === system.id && form.questionPoolMode === 'expanded'} />
-                <span><strong>Expanded Learning</strong><small>Includes reusable questions relevant to this Case.</small></span>
-              </label>
-            </fieldset>
-
-            {#if form?.message && form.systemId === system.id}<p class="start-error" role="alert">{form.message}</p>{/if}
-            <button class="button primary" type="submit">Start review →</button>
-          </form>
-        </section>
-      {/each}
-    </div>
+    <SystemStudyChooser systems={data.systems} {form} />
   {:else}
     <div class="topic-grid">
       {#each data.concepts as topic}
@@ -133,9 +84,15 @@
   .demo-note { display:grid; gap:.3rem; padding:1rem 1.1rem; border:1px solid #cdd6e3; border-radius:12px; background:#eef3f8; line-height:1.5; }
   .topic-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
   .topic-card { display:grid; gap:1.2rem; align-content:start; background:#fff; border:1px solid #dfe5ee; border-radius:14px; padding:1.25rem; }
-  .topic-heading,.start-form { display:grid; gap:.75rem; } .topic-heading p:last-child { margin:0; line-height:1.5; }
-  .route-set,.question-set { display:grid; gap:.6rem; margin:0; padding:0; border:0; } .route-set legend,.question-set legend { margin-bottom:.15rem; color:#344054; font-size:.88rem; font-weight:700; }
-  .route-option,.mode-option { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:start; gap:.65rem; padding:.75rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; } .route-option:has(input:checked),.mode-option:has(input:checked) { border-color:#98a2b3; background:#f8fafc; } .route-option.tag-route { border-style:dashed; } .route-option input,.mode-option input { margin-top:.18rem; } .route-option span,.mode-option span { display:grid; gap:.2rem; } .route-option small,.mode-option small { color:#667085; line-height:1.4; }
+  .topic-heading,.start-form { display:grid; gap:.75rem; }
+  .topic-heading p:last-child { margin:0; line-height:1.5; }
+  .question-set { display:grid; gap:.6rem; margin:0; padding:0; border:0; }
+  .question-set legend { margin-bottom:.15rem; color:#344054; font-size:.88rem; font-weight:700; }
+  .mode-option { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:start; gap:.65rem; padding:.75rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; }
+  .mode-option:has(input:checked) { border-color:#98a2b3; background:#f8fafc; }
+  .mode-option input { margin-top:.18rem; }
+  .mode-option span { display:grid; gap:.2rem; }
+  .mode-option small { color:#667085; line-height:1.4; }
   .start-error { margin:0; color:#b42318; font-size:.88rem; line-height:1.45; }
   @media (max-width:760px) { .study-header { display:grid; } .account-actions { justify-content:flex-start; } .topic-grid { grid-template-columns:1fr; } }
 </style>

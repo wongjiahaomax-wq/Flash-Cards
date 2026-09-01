@@ -10,8 +10,12 @@
 
 <main class="shell review-shell">
   <nav class="review-nav" aria-label="Study navigation">
-    <a href="/study">← Back to topics</a>
-    <span class="muted">Saved review</span>
+    <a href={caseStudy.backHref}>← {caseStudy.backLabel}</a>
+    {#if caseStudy.adminStudyPreview}
+      <span class="preview-badge">Admin learner preview</span>
+    {:else}
+      <span class="muted">Saved review</span>
+    {/if}
   </nav>
 
   <header class="case-header">
@@ -137,7 +141,9 @@
         {:else}
           <div class="next-case-form">
             <span class="next-case-prompt">System study navigation is currently unavailable.</span>
-            <a class="button action-button" href="/study">Return to Study to choose a Topic</a>
+            <a class="button action-button" href={caseStudy.backHref}>
+              {caseStudy.adminStudyPreview ? 'Return to Admin learner preview' : 'Return to Study to choose a Topic'}
+            </a>
           </div>
         {/if}
       </div>
@@ -166,6 +172,15 @@
 
   .review-nav a:hover {
     text-decoration: underline;
+  }
+
+  .preview-badge {
+    padding: 0.25rem 0.55rem;
+    border-radius: 999px;
+    background: #eef3f8;
+    color: #344054;
+    font-size: 0.78rem;
+    font-weight: 700;
   }
 
   .case-header {

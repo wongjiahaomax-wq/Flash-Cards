@@ -15,7 +15,12 @@ import {
   buildReviewInsertWithOptionalRouteProvenance,
   readReviewWithOptionalRouteProvenance
 } from './review-provenance-compat.ts';
-import { listSystemEligibleCases } from './study-navigation.ts';
+import { buildStudySelectionCreationWrites, readStudySelection } from './study-selection.ts';
+import {
+  StudyNavigationInputError,
+  listSystemEligibleCases,
+  resolveSystemStudySelection
+} from './study-navigation.ts';
 import { loadCaseSource } from './learner-case-source.js';
 import { pickCase } from '../learning/cases.js';
 import {
@@ -24,10 +29,13 @@ import {
 } from '../learning/question-pool-mode.ts';
 import { pickReviewQuestions } from '../learning/questions.js';
 import { resolveCaseStudyCandidates } from '../learning/study-routes.js';
+import { SystemStudySelectionError } from '../learning/system-study-routes.ts';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 /** @typedef {import('../learning/question-pool-mode.ts').QuestionPoolMode} QuestionPoolMode */
 /** @typedef {'all'|'topic'|'tag'} SystemRouteType */
+
+const STALE_STUDY_SELECTION_MESSAGE = 'This study selection is no longer available. Return to Study and choose a fresh selection.';
 
 /** @param {string | undefined} value */
 function requiredId(value) {
@@ -118,6 +126,25 @@ async function currentPrimaryConceptIdForCase(db, caseId) {
   return rows[0]?.conceptId ?? null;
 }
 
+/** @param {LearningDb} db @param {{ userId: string; studySelectionId: string; expectedSystemId?: string | null }} options */
+async function resolveStoredSystemStudySelection(db, { userId, studySelectionId, expectedSystemId = null }) {
+  const selection = await readStudySelection(db, { selectionId: studySelectionId, userId });
+  if (!selection || (expectedSystemId && selection.systemId !== expectedSystemId)) {
+    throw new StudyNavigationInputError(STALE_STUDY_SELECTION_MESSAGE);
+  }
+  try {
+    return await resolveSystemStudySelection(db, {
+      systemId: selection.systemId,
+      routes: selection.routes
+    });
+  } catch (cause) {
+    if (cause instanceof SystemStudySelectionError) {
+      throw new StudyNavigationInputError(STALE_STUDY_SELECTION_MESSAGE);
+    }
+    throw cause;
+  }
+}
+
 /** @param {Awaited<ReturnType<typeof loadCaseSource>> extends infer T ? Exclude<T, null> : never} source @param {QuestionPoolMode} questionPoolMode @param {() => number} rng */
 function pickQuestionsForReview(source, questionPoolMode, rng) {
   try {
@@ -164,6 +191,9 @@ function pickQuestionsForReview(source, questionPoolMode, rng) {
  * @param {string | null} [options.studyTagId]
  * @param {SystemRouteType | null} [options.navigationRouteType]
  * @param {string | null} [options.navigationRouteId]
+ * @param {string | null} [options.studySelectionId]
+ * @param {any[]} [options.preReviewWrites]
+ * @param {boolean} [options.requireAtomicBatch]
  */
 async function createReviewForCase({
   db,
@@ -176,11 +206,17 @@ async function createReviewForCase({
   routeType = 'topic',
   studyTagId = null,
   navigationRouteType = null,
-  navigationRouteId = null
+  navigationRouteId = null,
+  studySelectionId = null,
+  preReviewWrites = [],
+  requireAtomicBatch = false
 }) {
   const source = await loadCaseSource(db, caseId, studyConceptId, questionPoolMode, rng);
   if (!source) return null;
   const pickedQuestions = pickQuestionsForReview(source, questionPoolMode, rng);
+  if (requireAtomicBatch && typeof db.batch !== 'function') {
+    throw new Error('Selection-based Review creation requires atomic D1 batch support.');
+  }
   const reviewId = newId();
   const reviewInsert = buildReviewInsertWithOptionalRouteProvenance(db, {
     id: reviewId,
@@ -193,6 +229,7 @@ async function createReviewForCase({
     studyTagId,
     navigationRouteType,
     navigationRouteId,
+    studySelectionId,
     caseTitleSnapshot: source.case.title,
     vignetteSnapshotMd: source.case.vignetteMd,
     questionPoolMode,
@@ -201,6 +238,7 @@ async function createReviewForCase({
   });
   /** @type {[any, ...any[]]} */
   const writes = [reviewInsert];
+  if (preReviewWrites.length > 0) writes.unshift(...preReviewWrites);
   writes.push(db.insert(reviewQuestions).values(pickedQuestions.map((question) => ({
     id: newId(),
     reviewId,
@@ -276,6 +314,99 @@ export async function startSystemReview({ db, userId, systemId, routeType, route
   });
 }
 
+/**
+ * Start a new Review from an immutable exact-Topic/curated-Tag selection snapshot.
+ * Candidate/question resolution happens before any write. The selection, routes,
+ * Review, question snapshots and asset snapshots are then submitted in one D1 batch.
+ *
+ * @param {object} options
+ * @param {LearningDb} options.db
+ * @param {string} options.userId
+ * @param {string} options.systemId
+ * @param {readonly import('../learning/system-study-routes.ts').SystemStudySelectionRoute[]} options.routes
+ * @param {QuestionPoolMode} options.questionPoolMode
+ * @param {() => number} [options.rng]
+ */
+export async function startSystemStudySelectionReview({ db, userId, systemId, routes, questionPoolMode, rng = Math.random }) {
+  requiredId(userId);
+  requiredId(systemId);
+  assertQuestionPoolMode(questionPoolMode);
+  const resolved = await resolveSystemStudySelection(db, { systemId, routes });
+  const selectedCase = pickCase(resolved.candidates, {
+    lastCompletedCaseId: await lastCompletedCaseId(db, userId),
+    rng
+  });
+  if (!selectedCase) return null;
+
+  const studySelectionId = newId();
+  const selectionWrites = buildStudySelectionCreationWrites(db, {
+    id: studySelectionId,
+    userId,
+    systemId: resolved.systemId,
+    routes: resolved.routes
+  });
+  return createReviewForCase({
+    db,
+    userId,
+    caseId: selectedCase.id,
+    studyConceptId: selectedCase.studyConceptId,
+    studySystemConceptId: selectedCase.studySystemConceptId,
+    routeType: selectedCase.routeType,
+    studyTagId: selectedCase.studyTagId,
+    navigationRouteType: null,
+    navigationRouteId: null,
+    studySelectionId,
+    preReviewWrites: [...selectionWrites],
+    requireAtomicBatch: true,
+    questionPoolMode,
+    rng
+  });
+}
+
+/**
+ * Start the next Review from an existing immutable System study selection.
+ * Stored routes are revalidated against current taxonomy/curation before use;
+ * invalid selections fail closed instead of silently broadening or changing scope.
+ *
+ * @param {object} options
+ * @param {LearningDb} options.db
+ * @param {string} options.userId
+ * @param {string} options.studySelectionId
+ * @param {QuestionPoolMode} options.questionPoolMode
+ * @param {() => number} [options.rng]
+ */
+export async function startNextSystemStudySelectionReview({
+  db,
+  userId,
+  studySelectionId,
+  questionPoolMode,
+  rng = Math.random
+}) {
+  requiredId(userId);
+  requiredId(studySelectionId);
+  assertQuestionPoolMode(questionPoolMode);
+  const resolved = await resolveStoredSystemStudySelection(db, { userId, studySelectionId });
+  const selectedCase = pickCase(resolved.candidates, {
+    lastCompletedCaseId: await lastCompletedCaseId(db, userId),
+    rng
+  });
+  if (!selectedCase) return null;
+  return createReviewForCase({
+    db,
+    userId,
+    caseId: selectedCase.id,
+    studyConceptId: selectedCase.studyConceptId,
+    studySystemConceptId: selectedCase.studySystemConceptId,
+    routeType: selectedCase.routeType,
+    studyTagId: selectedCase.studyTagId,
+    navigationRouteType: null,
+    navigationRouteId: null,
+    studySelectionId,
+    questionPoolMode,
+    rng
+  });
+}
+
 /** @param {object} options @param {LearningDb} options.db @param {string} options.userId @param {string} options.reviewId @param {() => number} [options.rng] */
 export async function continueReviewWithExpandedLearning({ db, userId, reviewId, rng = Math.random }) {
   requiredId(userId);
@@ -284,6 +415,14 @@ export async function continueReviewWithExpandedLearning({ db, userId, reviewId,
   if (!review) throw new Error('Review not found.');
   if (review.status !== 'completed') throw new Error('Complete this review before continuing with Expanded Learning.');
   if (review.questionPoolMode !== 'core') throw new Error('Expanded Learning continuation is only available after an Original questions review.');
+  if (review.studySelectionId) {
+    if (!review.studySystemConceptId) throw new StudyNavigationInputError(STALE_STUDY_SELECTION_MESSAGE);
+    await resolveStoredSystemStudySelection(db, {
+      userId,
+      studySelectionId: review.studySelectionId,
+      expectedSystemId: review.studySystemConceptId
+    });
+  }
   const primaryConceptId = await currentPrimaryConceptIdForCase(db, review.caseId);
   if (!primaryConceptId) return null;
   return createReviewForCase({
@@ -296,6 +435,7 @@ export async function continueReviewWithExpandedLearning({ db, userId, reviewId,
     studyTagId: review.studyTagId,
     navigationRouteType: review.navigationRouteType,
     navigationRouteId: review.navigationRouteId,
+    studySelectionId: review.studySelectionId,
     questionPoolMode: 'expanded',
     rng
   });

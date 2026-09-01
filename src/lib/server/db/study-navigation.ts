@@ -5,9 +5,12 @@ import { caseConcepts, cases } from './schema.js';
 import { caseTags, systemTags, tags } from './tag-schema.js';
 import {
   buildSystemStudyNavigation,
+  normalizeSystemStudySelectionRoutes,
   resolveSystemStudyCandidates,
+  resolveSystemStudySelectionCandidates,
   routeBelongsToSystem,
-  type SystemRouteType
+  type SystemRouteType,
+  type SystemStudySelectionRoute
 } from '../learning/system-study-routes.ts';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
@@ -107,4 +110,19 @@ export async function listSystemEligibleCases(
     routeType: input.routeType,
     routeId
   });
+}
+
+export async function resolveSystemStudySelection(
+  db: import('./index.js').LearningDb,
+  input: { systemId: string; routes: readonly SystemStudySelectionRoute[] }
+) {
+  const systemId = String(input.systemId ?? '').trim();
+  if (!systemId) throw new StudyNavigationInputError('A study System is required.');
+  const snapshot = await loadStudyNavigationSnapshot(db);
+  const routes = normalizeSystemStudySelectionRoutes({ ...snapshot, systemId, routes: input.routes });
+  return {
+    systemId,
+    routes,
+    candidates: resolveSystemStudySelectionCandidates({ ...snapshot, systemId, routes })
+  };
 }

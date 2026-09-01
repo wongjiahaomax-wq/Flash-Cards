@@ -24,6 +24,10 @@ test('Topic deletion provenance lookups have current-schema indexes', () => {
       indexColumns(sqlite, 'review_questions_source_concept_idx'),
       ['source_concept_id']
     );
+    assert.deepEqual(
+      indexColumns(sqlite, 'study_selection_routes_route_lookup_idx'),
+      ['route_type', 'route_id']
+    );
   } finally {
     sqlite.close();
   }
