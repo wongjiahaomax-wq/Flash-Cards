@@ -1,8 +1,9 @@
 name: Read-only production migration check
 
 on:
-  pull_request:
-    branches: [main]
+  push:
+    branches:
+      - agent/read-only-production-migration-check-20260901
 
 permissions:
   contents: read
