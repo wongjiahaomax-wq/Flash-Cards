@@ -26,6 +26,10 @@
     "db:check": "drizzle-kit check",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "fsrs:preflight": "node scripts/learner-fsrs-preflight.mjs",
+    "fsrs:benchmark": "node scripts/learner-fsrs-benchmark.mjs",
+    "fsrs:worker-smoke": "node scripts/learner-fsrs-worker-smoke.mjs",
+    "fsrs:workerd-smoke": "node scripts/learner-fsrs-workerd-smoke.mjs",
     "local:setup": "node scripts/refresh-local-replica.mjs setup",
     "local:refresh": "node scripts/refresh-local-replica.mjs all",
     "local:refresh:d1": "node scripts/refresh-local-replica.mjs d1",
@@ -40,7 +44,8 @@
   },
   "dependencies": {
     "better-auth": "1.6.25",
-    "drizzle-orm": "0.45.2"
+    "drizzle-orm": "0.45.2",
+    "ts-fsrs": "5.4.2"
   },
   "devDependencies": {
     "@sveltejs/adapter-cloudflare": "7.2.9",

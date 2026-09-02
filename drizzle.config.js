@@ -3,6 +3,7 @@ import { defineConfig } from 'drizzle-kit';
 export default defineConfig({
   schema: [
     './src/lib/server/db/schema.js',
+    './src/lib/server/db/fsrs-schema.js',
     './src/lib/server/db/import-job-schema.js',
     './src/lib/server/db/tag-schema.js'
   ],
