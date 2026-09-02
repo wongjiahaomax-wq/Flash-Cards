@@ -15,6 +15,7 @@ import {
   buildFreeStudyRunDescriptor,
   buildScheduledStudyRunDescriptor
 } from '../learning/study-run-planner.js';
+import { assertScheduledStudyRouteCount } from '../learning/study-run-envelope.js';
 
 /**
  * PR B intentionally reads learner-owned state in bounded table reads rather
@@ -51,15 +52,18 @@ export async function planScheduledSystemStudyRun(input) {
     systemId: input.systemId,
     routes: input.routes
   });
+
+  // Both descriptor-envelope guards intentionally run on the normalized server
+  // selection before lazy FSRS/preference bootstrap or any learner-state read.
+  // Route count is independent of unique Case count because overlapping valid
+  // Topic/Tag routes can add scope metadata without adding captured work.
+  assertScheduledStudyRouteCount(selection.routes.length);
   if (selection.candidates.length === 0) {
     throw new StudyRunPlanningError(
       'empty-selection',
       'No active study Cases are available for this selection.'
     );
   }
-
-  // This guard intentionally runs before lazy FSRS/preference bootstrap or any
-  // learner-state read. Oversized selections fail before a run can begin.
   assertScheduledStudySelectionSize(selection.candidates.length);
 
   const [profile, preferences] = await Promise.all([
