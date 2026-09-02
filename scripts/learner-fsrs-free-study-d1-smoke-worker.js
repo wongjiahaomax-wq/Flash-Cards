@@ -255,12 +255,25 @@ async function runSmoke(binding) {
     }
   }
 
+  // Receipt retention bounds retry authority as well as storage. Once the
+  // receipt has expired, a retry must not return stale success merely because
+  // maintenance has not deleted the row yet.
   await binding.prepare(`
     UPDATE free_review_completion_receipts
     SET completed_at = completed_at - 604800001,
         expires_at = cast((julianday('now') - 2440587.5) * 86400000 as integer) - 1
     WHERE id = ?
   `).bind(fixtures.base.reviewId).run();
+  const expiredReceiptReplay = (await Promise.allSettled([
+    completeFreeReview(completionInput)
+  ]))[0];
+  if (
+    expiredReceiptReplay.status !== 'rejected'
+    || expiredReceiptReplay.reason?.code !== 'unavailable'
+  ) {
+    throw new Error('Expired Free completion receipt remained authoritative before cleanup.');
+  }
+
   const cleanedReceipts = await cleanupExpiredFreeCompletionReceipts(db, { limit: 10 });
   if (cleanedReceipts.length !== 1 || cleanedReceipts[0].id !== fixtures.base.reviewId) {
     throw new Error('Bounded Free receipt cleanup did not remove the expired receipt.');
@@ -284,6 +297,7 @@ async function runSmoke(binding) {
       cleanup: settledSummary(cleanupSettled[1]),
       counts: cleanupCounts
     },
+    expiredReceiptReplay: settledSummary(expiredReceiptReplay),
     expiredReceiptsCleaned: cleanedReceipts.length
   };
 }
