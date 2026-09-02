@@ -1,0 +1,390 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import test from 'node:test';
+
+import {
+  AccountManagementError,
+  changeProductionRole,
+  createAccount,
+  disableAccount,
+  getAccount,
+  listAccounts,
+  productionRoleTransition,
+  requireProductionAccountManager,
+  restoreAccount,
+  revokeAccountSessions,
+  sendAccountPasswordEmail
+} from '../src/lib/server/accounts/admin-accounts.ts';
+import { renderSetPasswordEmail } from '../src/lib/server/email/password-reset.ts';
+import { isPreviewOnlyAdmin } from '../src/lib/server/preview-auth.js';
+
+/** @param {any[]} [initialUsers] */
+function fakeAuth(initialUsers = []) {
+  /** @type {Map<string, any>} */
+  const users = new Map(initialUsers.map((user) => [user.id, { banned: false, role: 'user', ...user }]));
+  /** @type {any[]} */
+  const calls = [];
+  /** @type {Map<string, number>} */
+  const sessionCounts = new Map(initialUsers.map((user) => [user.id, user.sessions ?? 1]));
+  let nextId = 1;
+
+  const api = {
+    /** @param {{ query: any }} input */
+    async listUsers({ query }) {
+      calls.push({ operation: 'listUsers', query });
+      let rows = [...users.values()];
+      if (query.searchValue) {
+        const field = query.searchField ?? 'email';
+        const needle = String(query.searchValue).toLowerCase();
+        rows = rows.filter((user) => String(user[field] ?? '').toLowerCase().includes(needle));
+      }
+      if (query.filterField === 'role' && query.filterOperator === 'contains') {
+        rows = rows.filter((user) => String(user.role ?? '').includes(String(query.filterValue)));
+      }
+      const total = rows.length;
+      const offset = Number(query.offset ?? 0);
+      const limit = Number(query.limit ?? 100);
+      return { users: rows.slice(offset, offset + limit), total, limit, offset };
+    },
+    /** @param {{ query: any }} input */
+    async getUser({ query }) {
+      calls.push({ operation: 'getUser', userId: query.id });
+      const user = users.get(query.id);
+      if (!user) throw { code: 'USER_NOT_FOUND' };
+      return { ...user };
+    },
+    /** @param {{ body: any }} input */
+    async createUser({ body }) {
+      calls.push({ operation: 'createUser', body: { ...body } });
+      if ([...users.values()].some((user) => user.email.toLowerCase() === body.email.toLowerCase())) {
+        throw { code: 'USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL' };
+      }
+      const user = {
+        id: `new-${nextId++}`,
+        name: body.name,
+        email: body.email.toLowerCase(),
+        role: body.role ?? 'user',
+        banned: false,
+        createdAt: new Date('2026-08-25T00:00:00Z')
+      };
+      users.set(user.id, user);
+      sessionCounts.set(user.id, 0);
+      return { user: { ...user } };
+    },
+    /** @param {{ body: any }} input */
+    async setRole({ body }) {
+      calls.push({ operation: 'setRole', body: { ...body, role: [...body.role] } });
+      const user = users.get(body.userId);
+      if (!user) throw { code: 'USER_NOT_FOUND' };
+      user.role = Array.isArray(body.role) ? body.role.join(',') : body.role;
+      return { user: { ...user } };
+    },
+    /** @param {{ body: any }} input */
+    async banUser({ body }) {
+      calls.push({ operation: 'banUser', body: { ...body } });
+      const user = users.get(body.userId);
+      if (!user) throw { code: 'USER_NOT_FOUND' };
+      user.banned = true;
+      sessionCounts.set(user.id, 0);
+      return { user: { ...user } };
+    },
+    /** @param {{ body: any }} input */
+    async unbanUser({ body }) {
+      calls.push({ operation: 'unbanUser', body: { ...body } });
+      const user = users.get(body.userId);
+      if (!user) throw { code: 'USER_NOT_FOUND' };
+      user.banned = false;
+      return { user: { ...user } };
+    },
+    /** @param {{ body: any }} input */
+    async revokeUserSessions({ body }) {
+      calls.push({ operation: 'revokeUserSessions', body: { ...body } });
+      sessionCounts.set(body.userId, 0);
+      return { success: true };
+    }
+  };
+
+  return { api, calls, users, sessionCounts };
+}
+
+const headers = new Headers({ cookie: 'better-auth.session_token=test' });
+
+test('Production Accounts authority rejects unauthenticated, learner, Preview-only, and Preview Worker access', () => {
+  assert.throws(() => requireProductionAccountManager(null, {}), AccountManagementError);
+  assert.throws(
+    () => requireProductionAccountManager({ id: 'learner', role: 'user' }, {}),
+    AccountManagementError
+  );
+  assert.throws(
+    () => requireProductionAccountManager({ id: 'preview', role: 'preview_admin' }, {}),
+    AccountManagementError
+  );
+  assert.throws(
+    () => requireProductionAccountManager({ id: 'owner', role: 'admin,preview_admin' }, { PREVIEW_MODE: 'true' }),
+    AccountManagementError
+  );
+  assert.equal(
+    requireProductionAccountManager({ id: 'owner', role: 'admin,preview_admin' }, {}),
+    'owner'
+  );
+});
+
+test('Preview-only detection permits a Learner to retain Preview Admin access', () => {
+  assert.equal(isPreviewOnlyAdmin({ role: 'preview_admin' }), true);
+  assert.equal(isPreviewOnlyAdmin({ role: 'user,preview_admin' }), false);
+  assert.equal(isPreviewOnlyAdmin({ role: 'admin,preview_admin' }), false);
+});
+
+test('production role transitions preserve unrelated/Preview roles and establish the ordinary user role for Learners', () => {
+  assert.deepEqual(productionRoleTransition('user', 'administrator'), ['admin']);
+  assert.deepEqual(productionRoleTransition('admin', 'learner'), ['user']);
+  assert.deepEqual(productionRoleTransition('admin,preview_admin', 'learner'), ['user', 'preview_admin']);
+  assert.deepEqual(productionRoleTransition('user,author', 'administrator'), ['admin', 'author']);
+  assert.deepEqual(productionRoleTransition('admin,author,preview_admin', 'learner'), ['user', 'author', 'preview_admin']);
+});
+
+test('account listing is bounded, supports name/email search, maps product state, and hides pure Preview-only identities', async () => {
+  const auth = fakeAuth([
+    { id: 'a', name: 'Alice', email: 'alice@example.test', role: 'user', createdAt: new Date('2026-01-01') },
+    { id: 'b', name: 'Boss', email: 'boss@example.test', role: 'admin,preview_admin', createdAt: new Date('2026-01-02') },
+    { id: 'lp', name: 'Learner Preview', email: 'learner-preview@example.test', role: 'user,preview_admin', createdAt: new Date('2026-01-03') },
+    { id: 'p', name: 'Preview', email: 'preview@example.test', role: 'preview_admin', createdAt: new Date('2026-01-04') }
+  ]);
+
+  const result = await listAccounts({ auth, headers, search: 'example.test', searchField: 'email', page: 1 });
+  assert.equal(result.pageSize, 25);
+  assert.deepEqual(result.accounts.map((account) => account.id).sort(), ['a', 'b', 'lp']);
+  assert.equal(result.accounts.find((account) => account.id === 'b')?.accountType, 'Administrator');
+  assert.equal(result.accounts.find((account) => account.id === 'b')?.hasPreviewAccess, true);
+  assert.equal(result.accounts.find((account) => account.id === 'lp')?.accountType, 'Learner');
+  assert.equal(result.accounts.find((account) => account.id === 'lp')?.hasPreviewAccess, true);
+
+  const listCall = auth.calls.find((call) => call.operation === 'listUsers');
+  assert.equal(listCall.query.limit, 25);
+  assert.equal(listCall.query.offset, 0);
+  assert.equal(listCall.query.searchField, 'email');
+  assert.equal(listCall.query.searchOperator, 'contains');
+});
+
+test('Admin account creation uses Better Auth without any temporary password and requests set-password email', async () => {
+  const auth = fakeAuth([]);
+  /** @type {Array<{ email: string; purpose: string }>} */
+  const deliveries = [];
+  const result = await createAccount({
+    auth,
+    headers,
+    name: 'New Learner',
+    email: 'New.Learner@example.test',
+    accountType: 'learner',
+    sendPasswordEmail: async (email, purpose) => {
+      deliveries.push({ email, purpose });
+    }
+  });
+
+  assert.equal(result.account.email, 'new.learner@example.test');
+  assert.equal(result.account.accountType, 'Learner');
+  assert.equal(result.invitationStatus, 'sent');
+  assert.deepEqual(deliveries, [{ email: 'new.learner@example.test', purpose: 'account-setup' }]);
+
+  const createCall = auth.calls.find((call) => call.operation === 'createUser');
+  assert.equal(Object.hasOwn(createCall.body, 'password'), false);
+  assert.equal(createCall.body.role, 'user');
+});
+
+test('email delivery failure preserves the created account for safe resend instead of creating a second user', async () => {
+  const auth = fakeAuth([]);
+  const result = await createAccount({
+    auth,
+    headers,
+    name: 'Email Failure',
+    email: 'failure@example.test',
+    accountType: 'administrator',
+    sendPasswordEmail: async () => {
+      throw new Error('provider unavailable');
+    }
+  });
+
+  assert.equal(result.invitationStatus, 'failed');
+  assert.equal(auth.users.size, 1);
+  assert.equal(result.account.accountType, 'Administrator');
+
+  await assert.rejects(
+    () =>
+      createAccount({
+        auth,
+        headers,
+        name: 'Email Failure',
+        email: 'failure@example.test',
+        accountType: 'administrator',
+        sendPasswordEmail: async () => {}
+      }),
+    (error) => error instanceof AccountManagementError && error.code === 'ACCOUNT_ALREADY_EXISTS'
+  );
+});
+
+test('combined Admin/Preview demotion retains Preview access and establishes Learner access', async () => {
+  const auth = fakeAuth([
+    { id: 'actor', name: 'Actor', email: 'actor@example.test', role: 'admin' },
+    { id: 'combined', name: 'Combined', email: 'combined@example.test', role: 'admin,preview_admin' }
+  ]);
+
+  const updated = await changeProductionRole({
+    auth,
+    headers,
+    actorUserId: 'actor',
+    userId: 'combined',
+    accountType: 'learner'
+  });
+
+  assert.equal(updated?.accountType, 'Learner');
+  assert.equal(updated?.hasPreviewAccess, true);
+  assert.equal(auth.users.get('combined').role, 'user,preview_admin');
+  const roleCall = auth.calls.find((call) => call.operation === 'setRole');
+  assert.deepEqual(roleCall.body.role, ['user', 'preview_admin']);
+});
+
+test('self-disable and self-demote fail closed server-side', async () => {
+  const auth = fakeAuth([{ id: 'actor', name: 'Actor', email: 'actor@example.test', role: 'admin' }]);
+
+  await assert.rejects(
+    () => disableAccount({ auth, headers, actorUserId: 'actor', userId: 'actor' }),
+    (error) => error instanceof AccountManagementError && error.code === 'SELF_DISABLE_BLOCKED'
+  );
+  await assert.rejects(
+    () => changeProductionRole({ auth, headers, actorUserId: 'actor', userId: 'actor', accountType: 'learner' }),
+    (error) => error instanceof AccountManagementError && error.code === 'SELF_LOCKOUT_BLOCKED'
+  );
+});
+
+test('last-active-production-Admin removal fails closed when no other active Admin exists', async () => {
+  const auth = fakeAuth([
+    { id: 'target', name: 'Last Admin', email: 'last@example.test', role: 'admin' },
+    { id: 'preview', name: 'Preview', email: 'preview@example.test', role: 'preview_admin' },
+    { id: 'disabled-admin', name: 'Disabled', email: 'disabled@example.test', role: 'admin', banned: true }
+  ]);
+
+  await assert.rejects(
+    () => disableAccount({ auth, headers, actorUserId: 'external-admin-session', userId: 'target' }),
+    (error) => error instanceof AccountManagementError && error.code === 'LAST_ADMIN_BLOCKED'
+  );
+});
+
+test('database last-active-Admin guard failures map to the product lockout error', async () => {
+  const auth = fakeAuth([
+    { id: 'actor', name: 'Actor', email: 'actor@example.test', role: 'admin' },
+    { id: 'target', name: 'Target', email: 'target@example.test', role: 'admin' }
+  ]);
+  auth.api.setRole = async () => {
+    throw new Error('D1_ERROR: LAST_ACTIVE_PRODUCTION_ADMIN');
+  };
+
+  await assert.rejects(
+    () => changeProductionRole({ auth, headers, actorUserId: 'actor', userId: 'target', accountType: 'learner' }),
+    (error) =>
+      error instanceof AccountManagementError &&
+      error.code === 'LAST_ADMIN_BLOCKED' &&
+      error.status === 409
+  );
+});
+
+test('Disable uses Better Auth ban semantics, revokes sessions, and Restore does not resurrect them', async () => {
+  const auth = fakeAuth([
+    { id: 'actor', name: 'Actor', email: 'actor@example.test', role: 'admin', sessions: 1 },
+    { id: 'learner', name: 'Learner', email: 'learner@example.test', role: 'user', sessions: 3 }
+  ]);
+
+  const disabled = await disableAccount({ auth, headers, actorUserId: 'actor', userId: 'learner' });
+  assert.equal(disabled.status, 'Disabled');
+  assert.equal(auth.sessionCounts.get('learner'), 0);
+  assert.equal(auth.calls.some((call) => call.operation === 'banUser'), true);
+
+  const restored = await restoreAccount({ auth, headers, userId: 'learner' });
+  assert.equal(restored.status, 'Active');
+  assert.equal(auth.sessionCounts.get('learner'), 0, 'restore must not recreate revoked sessions');
+});
+
+test('manual session revocation works for another account and is blocked for self', async () => {
+  const auth = fakeAuth([
+    { id: 'actor', name: 'Actor', email: 'actor@example.test', role: 'admin', sessions: 1 },
+    { id: 'learner', name: 'Learner', email: 'learner@example.test', role: 'user', sessions: 2 }
+  ]);
+
+  await revokeAccountSessions({ auth, headers, actorUserId: 'actor', userId: 'learner' });
+  assert.equal(auth.sessionCounts.get('learner'), 0);
+  await assert.rejects(
+    () => revokeAccountSessions({ auth, headers, actorUserId: 'actor', userId: 'actor' }),
+    (error) => error instanceof AccountManagementError && error.code === 'SELF_SESSION_REVOKE_BLOCKED'
+  );
+});
+
+test('Preview-only identities cannot be opened or receive Production Accounts password actions', async () => {
+  const auth = fakeAuth([
+    { id: 'preview', name: 'Preview', email: 'preview@example.test', role: 'preview_admin' }
+  ]);
+  await assert.rejects(
+    () => getAccount(auth, headers, 'preview'),
+    (error) => error instanceof AccountManagementError && error.code === 'PREVIEW_ACCOUNT_NOT_MANAGED'
+  );
+  await assert.rejects(
+    () =>
+      sendAccountPasswordEmail({
+        auth,
+        headers,
+        userId: 'preview',
+        purpose: 'reset',
+        sendPasswordEmail: async () => {}
+      }),
+    (error) => error instanceof AccountManagementError && error.code === 'PREVIEW_ACCOUNT_NOT_MANAGED'
+  );
+});
+
+test('set-password email is distinct, secure, and contains no temporary credential', () => {
+  const message = renderSetPasswordEmail('https://flash-cards.example.test/reset-password#token=one-time');
+  assert.equal(message.subject, 'Set your Flash-Cards password');
+  assert.match(message.text, /account was created/i);
+  assert.match(message.text, /expires in 1 hour/i);
+  assert.match(message.text, /No temporary password/i);
+  assert.match(message.text, /#token=one-time/);
+});
+
+test('PR-B source preserves closed enrollment and closes privileged bypass/last-Admin escape hatches', async () => {
+  const authSource = await readFile(new URL('../src/lib/server/auth.js', import.meta.url), 'utf8');
+  const accountSource = await readFile(
+    new URL('../src/lib/server/accounts/admin-accounts.ts', import.meta.url),
+    'utf8'
+  );
+  const passwordEmailSource = await readFile(
+    new URL('../src/lib/server/accounts/password-email.ts', import.meta.url),
+    'utf8'
+  );
+  const hooksSource = await readFile(new URL('../src/hooks.server.js', import.meta.url), 'utf8');
+  const listRouteSource = await readFile(
+    new URL('../src/routes/admin/accounts/+page.server.js', import.meta.url),
+    'utf8'
+  );
+  const lastAdminGuardSource = await readFile(
+    new URL('../drizzle/0016_last_active_production_admin_guard.sql', import.meta.url),
+    'utf8'
+  );
+
+  assert.match(authSource, /disableSignUp:\s*true/);
+  assert.match(authSource, /revokeSessionsOnPasswordReset:\s*true/);
+  assert.match(authSource, /preview_admin:\s*accountAdminAccessControl\.newRole\(\{\}\)/);
+  assert.match(authSource, /admin\(\{\s*ac:\s*accountAdminAccessControl,\s*roles:\s*accountAdminRoles/s);
+  assert.doesNotMatch(authSource, /adminRoles:\s*\[[^\]]*preview_admin/);
+  assert.match(passwordEmailSource, /requestPasswordReset/);
+  assert.match(passwordEmailSource, /awaitPasswordEmailDelivery:\s*true/);
+  assert.doesNotMatch(passwordEmailSource, /randomUUID|generateId|createVerification|verificationToken/i);
+  assert.doesNotMatch(accountSource, /removeUser|deleteUser|delete.*review/i);
+  assert.match(accountSource, /banUser/);
+  assert.match(accountSource, /revokeUserSessions/);
+  assert.match(listRouteSource, /requireProductionAccountManager/);
+  assert.match(hooksSource, /if \(isRouteWithin\(pathname, '\/api\/auth\/admin'\)\)/);
+  assert.doesNotMatch(
+    hooksSource,
+    /isPreviewWorker\(env\)\s*&&\s*isRouteWithin\(pathname, '\/api\/auth\/admin'\)/
+  );
+  assert.match(lastAdminGuardSource, /BEFORE UPDATE OF `role`, `banned` ON `user`/);
+  assert.match(lastAdminGuardSource, /BEFORE DELETE ON `user`/);
+  assert.match(lastAdminGuardSource, /LAST_ACTIVE_PRODUCTION_ADMIN/);
+});

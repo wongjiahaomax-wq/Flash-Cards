@@ -116,6 +116,12 @@ Living test-authoring and validation authority. Read it when adding/rewriting te
 
 Repository-wide modularity, TypeScript, thin-route, ownership, transaction, testing, and scope-control guidance.
 
+## Authentication / account lifecycle
+
+- `PASSWORD_RECOVERY.md` — current repository contract for Better Auth password recovery, Resend transactional-email delivery, anti-enumeration behavior, Cloudflare `waitUntil`, required runtime configuration, testing, and the residual per-isolate rate-limit limitation. Production Resend/domain/secret configuration and live rollout verification remain separate facts.
+
+The production Admin Accounts UI/account-creation lifecycle is not implemented by the password-recovery foundation. Future account-management work should reuse its small server-side email transport rather than duplicating provider calls.
+
 ## Current taxonomy / learner-navigation contracts
 
 ### `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md`

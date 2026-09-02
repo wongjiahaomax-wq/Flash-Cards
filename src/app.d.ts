@@ -17,6 +17,8 @@ declare global {
       env: Cloudflare.Env & {
         BETTER_AUTH_SECRET: string;
         BETTER_AUTH_URL?: string;
+        RESEND_API_KEY?: string;
+        AUTH_EMAIL_FROM?: string;
         PREVIEW_MODE?: string;
         SYSTEM_STUDY_NAVIGATION_ENABLED?: string;
       };

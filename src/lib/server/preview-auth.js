@@ -18,7 +18,8 @@ export function isPreviewAdmin(user) {
 
 /** @param {{ role?: unknown } | null | undefined} user */
 export function isPreviewOnlyAdmin(user) {
-  return isPreviewAdmin(user) && !isProductionAdmin(user);
+  const roles = parseRoles(user?.role);
+  return roles.includes('preview_admin') && !roles.includes('admin') && !roles.includes('user');
 }
 
 /** @param {{ PREVIEW_MODE?: unknown } | null | undefined} env */

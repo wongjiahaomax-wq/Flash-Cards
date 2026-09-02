@@ -13,8 +13,22 @@ const stateDir = '.wrangler/auth-smoke';
 const seedFile = `${stateDir}/seed-auth-smoke.sql`;
 const email = 'local-smoke-admin@example.test';
 const password = 'LocalSmokePassword123!';
+const newPassword = 'LocalSmokePassword456!';
+const previewEmail = 'local-smoke-preview@example.test';
+const previewPassword = 'LocalSmokePreviewPassword123!';
+const combinedEmail = 'local-smoke-combined@example.test';
+const combinedPassword = 'LocalSmokeCombinedPassword123!';
+const managedEmail = 'local-smoke-managed@example.test';
 const userId = '00000000-0000-4000-8000-000000000001';
 const accountId = '00000000-0000-4000-8000-000000000002';
+const previewUserId = '00000000-0000-4000-8000-000000000011';
+const previewAccountId = '00000000-0000-4000-8000-000000000012';
+const combinedUserId = '00000000-0000-4000-8000-000000000021';
+const combinedAccountId = '00000000-0000-4000-8000-000000000022';
+const validResetToken = 'local-smoke-valid-reset-token';
+const expiredResetToken = 'local-smoke-expired-reset-token';
+const validVerificationId = '00000000-0000-4000-8000-000000000003';
+const expiredVerificationId = '00000000-0000-4000-8000-000000000004';
 const secret = 'local-auth-smoke-secret-32-characters-minimum';
 
 function runWrangler(args) {
@@ -25,6 +39,13 @@ function runWrangler(args) {
 
 function sqlString(value) {
   return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+function roles(role) {
+  return String(role ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 async function waitForServer(processHandle, logs) {
@@ -68,6 +89,46 @@ function stopWorker(processHandle) {
   }
 }
 
+async function requestPasswordReset(emailAddress) {
+  const response = await fetch(`${baseURL}/api/auth/request-password-reset`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({ email: emailAddress })
+  });
+
+  return {
+    status: response.status,
+    body: await response.json()
+  };
+}
+
+async function postNamedAction(path, action, cookies) {
+  return fetch(`${baseURL}${path}?/${action}`, {
+    method: 'POST',
+    headers: {
+      // Node fetch defaults to Accept: */*, which SvelteKit negotiates to its
+      // JSON ActionResult protocol. Use browser-native form semantics here so
+      // redirect assertions observe the real HTTP 303 + Location response.
+      accept: 'text/html',
+      cookie: cookies,
+      origin: baseURL
+    },
+    body: new URLSearchParams(),
+    redirect: 'manual'
+  });
+}
+
+async function getSession(cookies) {
+  const response = await fetch(`${baseURL}/api/auth/get-session`, {
+    headers: { cookie: cookies }
+  });
+  assert.equal(response.status, 200);
+  return response.json();
+}
+
 rmSync(stateDir, { recursive: true, force: true });
 mkdirSync(stateDir, { recursive: true });
 
@@ -84,13 +145,21 @@ runWrangler([
 ]);
 
 const passwordHash = await hashPassword(password);
+const previewPasswordHash = await hashPassword(previewPassword);
+const combinedPasswordHash = await hashPassword(combinedPassword);
 const now = Date.now();
 writeFileSync(
   seedFile,
   [
     'PRAGMA foreign_keys = ON;',
     `INSERT INTO \`user\` (\`id\`, \`name\`, \`email\`, \`emailVerified\`, \`createdAt\`, \`updatedAt\`, \`role\`, \`banned\`) VALUES (${sqlString(userId)}, 'Local Smoke Admin', ${sqlString(email)}, 1, ${now}, ${now}, 'admin', 0);`,
-    `INSERT INTO \`account\` (\`id\`, \`accountId\`, \`providerId\`, \`userId\`, \`password\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(accountId)}, ${sqlString(userId)}, 'credential', ${sqlString(userId)}, ${sqlString(passwordHash)}, ${now}, ${now});`
+    `INSERT INTO \`account\` (\`id\`, \`accountId\`, \`providerId\`, \`userId\`, \`password\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(accountId)}, ${sqlString(userId)}, 'credential', ${sqlString(userId)}, ${sqlString(passwordHash)}, ${now}, ${now});`,
+    `INSERT INTO \`user\` (\`id\`, \`name\`, \`email\`, \`emailVerified\`, \`createdAt\`, \`updatedAt\`, \`role\`, \`banned\`) VALUES (${sqlString(previewUserId)}, 'Local Smoke Preview Admin', ${sqlString(previewEmail)}, 1, ${now}, ${now}, 'preview_admin', 0);`,
+    `INSERT INTO \`account\` (\`id\`, \`accountId\`, \`providerId\`, \`userId\`, \`password\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(previewAccountId)}, ${sqlString(previewUserId)}, 'credential', ${sqlString(previewUserId)}, ${sqlString(previewPasswordHash)}, ${now}, ${now});`,
+    `INSERT INTO \`user\` (\`id\`, \`name\`, \`email\`, \`emailVerified\`, \`createdAt\`, \`updatedAt\`, \`role\`, \`banned\`) VALUES (${sqlString(combinedUserId)}, 'Local Smoke Combined Admin', ${sqlString(combinedEmail)}, 1, ${now}, ${now}, 'admin,preview_admin', 0);`,
+    `INSERT INTO \`account\` (\`id\`, \`accountId\`, \`providerId\`, \`userId\`, \`password\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(combinedAccountId)}, ${sqlString(combinedUserId)}, 'credential', ${sqlString(combinedUserId)}, ${sqlString(combinedPasswordHash)}, ${now}, ${now});`,
+    `INSERT INTO \`verification\` (\`id\`, \`identifier\`, \`value\`, \`expiresAt\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(validVerificationId)}, ${sqlString(`reset-password:${validResetToken}`)}, ${sqlString(userId)}, ${sqlString(new Date(now + 60 * 60 * 1000).toISOString())}, ${now}, ${now});`,
+    `INSERT INTO \`verification\` (\`id\`, \`identifier\`, \`value\`, \`expiresAt\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(expiredVerificationId)}, ${sqlString(`reset-password:${expiredResetToken}`)}, ${sqlString(userId)}, ${sqlString(new Date(now - 1000).toISOString())}, ${now}, ${now});`
   ].join('\n')
 );
 
@@ -140,6 +209,13 @@ try {
   const signInPage = await fetch(`${baseURL}/sign-in`, { redirect: 'manual' });
   assert.equal(signInPage.status, 200);
 
+  const forgotPasswordPage = await fetch(`${baseURL}/forgot-password`, { redirect: 'manual' });
+  assert.equal(forgotPasswordPage.status, 200);
+
+  const resetPasswordPage = await fetch(`${baseURL}/reset-password`, { redirect: 'manual' });
+  assert.equal(resetPasswordPage.status, 200);
+  assert.doesNotMatch(await resetPasswordPage.text(), /local-smoke-(?:valid|expired)-reset-token/);
+
   const anonymousStudy = await fetch(`${baseURL}/study`, { redirect: 'manual' });
   assert.equal(anonymousStudy.status, 303);
   assert.match(anonymousStudy.headers.get('location') ?? '', /^\/sign-in\?redirect=/);
@@ -163,6 +239,12 @@ try {
   assert.equal(disabledSignUp.status, 400);
   assert.match(await disabledSignUp.text(), /EMAIL_PASSWORD_SIGN_UP_DISABLED/);
 
+  const existingResetRequest = await requestPasswordReset(email);
+  const unknownResetRequest = await requestPasswordReset('unknown-user@example.test');
+  assert.equal(existingResetRequest.status, 200);
+  assert.equal(unknownResetRequest.status, 200);
+  assert.deepEqual(existingResetRequest.body, unknownResetRequest.body);
+
   const signIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
     method: 'POST',
     headers: {
@@ -176,11 +258,7 @@ try {
   const cookies = cookieHeader(signIn);
   assert.ok(cookies, 'Expected Better Auth to set a session cookie.');
 
-  const session = await fetch(`${baseURL}/api/auth/get-session`, {
-    headers: { cookie: cookies }
-  });
-  assert.equal(session.status, 200);
-  const sessionBody = await session.json();
+  const sessionBody = await getSession(cookies);
   assert.equal(sessionBody?.user?.email, email);
   assert.equal(sessionBody?.user?.role, 'admin');
 
@@ -195,6 +273,311 @@ try {
     redirect: 'manual'
   });
   assert.equal(admin.status, 200);
+
+  const accountsPage = await fetch(`${baseURL}/admin/accounts`, {
+    headers: { cookie: cookies },
+    redirect: 'manual'
+  });
+  assert.equal(accountsPage.status, 200);
+
+  // Exercise PR B through the actual SvelteKit action and pinned Better Auth
+  // Admin plugin. No Resend variables are configured, so user creation must
+  // persist while synchronous set-password delivery reports a recoverable
+  // failure instead of exposing or manufacturing a temporary password.
+  const createManagedAccount = await fetch(`${baseURL}/admin/accounts?/create`, {
+    method: 'POST',
+    headers: {
+      accept: 'text/html',
+      cookie: cookies,
+      origin: baseURL
+    },
+    body: new URLSearchParams({
+      name: 'Local Smoke Managed Learner',
+      email: managedEmail,
+      account_type: 'learner'
+    }),
+    redirect: 'manual'
+  });
+  assert.equal(createManagedAccount.status, 303, await createManagedAccount.text());
+  const createManagedLocation = createManagedAccount.headers.get('location') ?? '';
+  assert.match(createManagedLocation, /^\/admin\/accounts\/[^?]+\?status=created-email-failed$/);
+  const managedUserId = decodeURIComponent(
+    createManagedLocation.match(/^\/admin\/accounts\/([^?]+)/)?.[1] ?? ''
+  );
+  assert.ok(managedUserId, 'Expected account creation to redirect to the created account.');
+
+  // The set-password recovery action must remain available after the transient
+  // creation-status query parameter is gone.
+  const managedDetail = await fetch(`${baseURL}/admin/accounts/${encodeURIComponent(managedUserId)}`, {
+    headers: { cookie: cookies },
+    redirect: 'manual'
+  });
+  assert.equal(managedDetail.status, 200);
+  assert.match(await managedDetail.text(), /Send set-password email/);
+
+  const promoteManaged = await postNamedAction(
+    `/admin/accounts/${encodeURIComponent(managedUserId)}`,
+    'promote',
+    cookies
+  );
+  assert.equal(promoteManaged.status, 303, await promoteManaged.text());
+  assert.match(promoteManaged.headers.get('location') ?? '', /\?status=promoted$/);
+
+  // Generic Better Auth Admin HTTP endpoints include role/password/ban/delete
+  // operations that bypass the product Account Management guards. Production
+  // Administrators must not be able to invoke them directly.
+  const blockedDirectSetRole = await fetch(`${baseURL}/api/auth/admin/set-role`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      cookie: cookies,
+      origin: baseURL
+    },
+    body: JSON.stringify({
+      userId: managedUserId,
+      role: 'admin'
+    })
+  });
+  assert.equal(blockedDirectSetRole.status, 403, await blockedDirectSetRole.text());
+
+  const demoteManaged = await postNamedAction(
+    `/admin/accounts/${encodeURIComponent(managedUserId)}`,
+    'demote',
+    cookies
+  );
+  assert.equal(demoteManaged.status, 303, await demoteManaged.text());
+  assert.match(demoteManaged.headers.get('location') ?? '', /\?status=demoted$/);
+
+  const managedAfterDemote = await fetch(
+    `${baseURL}/admin/accounts/${encodeURIComponent(managedUserId)}`,
+    {
+      headers: { cookie: cookies },
+      redirect: 'manual'
+    }
+  );
+  assert.equal(managedAfterDemote.status, 200);
+  const managedAfterDemoteHtml = await managedAfterDemote.text();
+  assert.match(
+    managedAfterDemoteHtml,
+    /Promote to Administrator/,
+    'Expected the temporary managed account to be a Learner before the race.'
+  );
+  assert.doesNotMatch(managedAfterDemoteHtml, /Change to Learner/);
+
+  // A combined owner demoted through the guarded product action must become an
+  // ordinary Learner while retaining Preview Admin authority.
+  const demoteCombined = await postNamedAction(
+    `/admin/accounts/${encodeURIComponent(combinedUserId)}`,
+    'demote',
+    cookies
+  );
+  assert.equal(demoteCombined.status, 303, await demoteCombined.text());
+  assert.match(demoteCombined.headers.get('location') ?? '', /\?status=demoted$/);
+
+  const combinedLearnerSignIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({ email: combinedEmail, password: combinedPassword, rememberMe: false })
+  });
+  assert.equal(combinedLearnerSignIn.status, 200, await combinedLearnerSignIn.text());
+  const combinedLearnerCookies = cookieHeader(combinedLearnerSignIn);
+  assert.ok(combinedLearnerCookies, 'Expected combined smoke identity to receive a Learner session.');
+  const combinedLearnerSession = await getSession(combinedLearnerCookies);
+  assert.deepEqual(roles(combinedLearnerSession?.user?.role).sort(), ['preview_admin', 'user']);
+
+  const combinedLearnerStudy = await fetch(`${baseURL}/study`, {
+    headers: { cookie: combinedLearnerCookies },
+    redirect: 'manual'
+  });
+  assert.equal(combinedLearnerStudy.status, 200);
+
+  const combinedLearnerAccounts = await fetch(`${baseURL}/admin/accounts`, {
+    headers: { cookie: combinedLearnerCookies },
+    redirect: 'manual'
+  });
+  assert.equal(combinedLearnerAccounts.status, 303);
+  assert.equal(combinedLearnerAccounts.headers.get('location'), '/study');
+
+  const promoteCombined = await postNamedAction(
+    `/admin/accounts/${encodeURIComponent(combinedUserId)}`,
+    'promote',
+    cookies
+  );
+  assert.equal(promoteCombined.status, 303, await promoteCombined.text());
+  assert.match(promoteCombined.headers.get('location') ?? '', /\?status=promoted$/);
+
+  const combinedAdminSignIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({ email: combinedEmail, password: combinedPassword, rememberMe: false })
+  });
+  assert.equal(combinedAdminSignIn.status, 200, await combinedAdminSignIn.text());
+  const combinedAdminCookies = cookieHeader(combinedAdminSignIn);
+  assert.ok(combinedAdminCookies, 'Expected re-promoted combined identity to receive a session.');
+  const combinedAdminSession = await getSession(combinedAdminCookies);
+  assert.deepEqual(roles(combinedAdminSession?.user?.role).sort(), ['admin', 'preview_admin']);
+
+  // A pure Preview-only identity may authenticate on the Production Worker but
+  // must not gain Production Accounts or learner Study authority.
+  const previewSignIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({ email: previewEmail, password: previewPassword, rememberMe: false })
+  });
+  assert.equal(previewSignIn.status, 200, await previewSignIn.text());
+  const previewCookies = cookieHeader(previewSignIn);
+  assert.ok(previewCookies, 'Expected Preview-only smoke identity to receive a session cookie.');
+
+  const previewAdminApi = await fetch(`${baseURL}/api/auth/admin/list-users?limit=1`, {
+    headers: { cookie: previewCookies, origin: baseURL }
+  });
+  assert.equal(previewAdminApi.status, 403);
+
+  const previewAccountsPage = await fetch(`${baseURL}/admin/accounts`, {
+    headers: { cookie: previewCookies },
+    redirect: 'manual'
+  });
+  assert.equal(previewAccountsPage.status, 303);
+  assert.equal(previewAccountsPage.headers.get('location'), '/study');
+
+  const previewStudy = await fetch(`${baseURL}/study`, {
+    headers: { cookie: previewCookies },
+    redirect: 'manual'
+  });
+  assert.equal(previewStudy.status, 403);
+
+  const reset = await fetch(`${baseURL}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({
+      newPassword,
+      token: validResetToken
+    })
+  });
+  assert.equal(reset.status, 200, await reset.text());
+
+  const revokedSession = await fetch(`${baseURL}/api/auth/get-session`, {
+    headers: { cookie: cookies }
+  });
+  assert.equal(revokedSession.status, 200);
+  assert.equal(await revokedSession.json(), null);
+
+  const oldPasswordSignIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({ email, password, rememberMe: false })
+  });
+  assert.equal(oldPasswordSignIn.status, 401);
+
+  const newPasswordSignIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({ email, password: newPassword, rememberMe: false })
+  });
+  assert.equal(newPasswordSignIn.status, 200, await newPasswordSignIn.text());
+  const newPasswordCookies = cookieHeader(newPasswordSignIn);
+  assert.ok(newPasswordCookies, 'Expected the reset password to establish a new session.');
+
+  const reusedToken = await fetch(`${baseURL}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({
+      newPassword: password,
+      token: validResetToken
+    })
+  });
+  assert.equal(reusedToken.status, 400);
+  assert.match(await reusedToken.text(), /INVALID_TOKEN/);
+
+  const expiredToken = await fetch(`${baseURL}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      origin: baseURL
+    },
+    body: JSON.stringify({
+      newPassword: password,
+      token: expiredResetToken
+    })
+  });
+  assert.equal(expiredToken.status, 400);
+  assert.match(await expiredToken.text(), /INVALID_TOKEN/);
+
+  // Race two guarded demotions against one another. Exactly one target may lose
+  // Production Administrator access. Depending on request ordering, the losing
+  // actor's competing request can either reach the last-Admin guard (409) or be
+  // redirected by the Admin layout after that actor has already lost authority.
+  // A 303 is therefore only a successful demotion when its Location carries the
+  // explicit ?status=demoted product redirect.
+  const [demoteCombinedRace, demoteMainRace] = await Promise.all([
+    postNamedAction(`/admin/accounts/${encodeURIComponent(combinedUserId)}`, 'demote', newPasswordCookies),
+    postNamedAction(`/admin/accounts/${encodeURIComponent(userId)}`, 'demote', combinedAdminCookies)
+  ]);
+
+  const mainAfterRace = await getSession(newPasswordCookies);
+  const combinedAfterRace = await getSession(combinedAdminCookies);
+  const mainStillAdmin = roles(mainAfterRace?.user?.role).includes('admin');
+  const combinedStillAdmin = roles(combinedAfterRace?.user?.role).includes('admin');
+  const raceResponses = [demoteCombinedRace, demoteMainRace];
+  const raceOutcomes = raceResponses.map((response) => ({
+    status: response.status,
+    location: response.headers.get('location') ?? ''
+  }));
+  const successfulDemotions = raceOutcomes.filter(
+    (outcome) => outcome.status === 303 && /\?status=demoted$/.test(outcome.location)
+  );
+  const blockedOutcomes = raceOutcomes.filter(
+    (outcome) => !(outcome.status === 303 && /\?status=demoted$/.test(outcome.location))
+  );
+
+  assert.equal(
+    Number(mainStillAdmin) + Number(combinedStillAdmin),
+    1,
+    `Expected exactly one racing account to retain Production Administrator access; main=${String(
+      mainAfterRace?.user?.role
+    )}, combined=${String(combinedAfterRace?.user?.role)}, outcomes=${JSON.stringify(raceOutcomes)}`
+  );
+  assert.equal(
+    successfulDemotions.length,
+    1,
+    `Expected exactly one successful demotion redirect; outcomes=${JSON.stringify(raceOutcomes)}`
+  );
+  assert.equal(blockedOutcomes.length, 1);
+  assert.ok(
+    blockedOutcomes[0].status === 409 ||
+      (blockedOutcomes[0].status === 303 && blockedOutcomes[0].location === '/study'),
+    `Expected the competing request to fail closed with 409 or lose Admin authority and redirect to /study; outcomes=${JSON.stringify(
+      raceOutcomes
+    )}`
+  );
+
+  const survivorCookies = mainStillAdmin ? newPasswordCookies : combinedAdminCookies;
+  const survivorAccountsPage = await fetch(`${baseURL}/admin/accounts`, {
+    headers: { cookie: survivorCookies },
+    redirect: 'manual'
+  });
+  assert.equal(survivorAccountsPage.status, 200);
 
   console.log('Local D1 + Better Auth smoke test passed.');
 } catch (error) {
