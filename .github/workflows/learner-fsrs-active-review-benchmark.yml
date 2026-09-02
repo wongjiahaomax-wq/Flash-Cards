@@ -16,8 +16,10 @@ on:
       - 'src/lib/server/db/active-review-content.js'
       - 'src/lib/server/db/active-review-schema.js'
       - 'src/lib/server/db/active-reviews.js'
+      - 'src/lib/server/learning/study-run-proof.js'
       - 'test/learner-fsrs-active-review.test.js'
       - 'test/learner-fsrs-active-review-scope.test.js'
+      - 'test/learner-fsrs-active-review-resume-race.test.js'
       - 'docs/DOCUMENTATION_INDEX.md'
       - 'docs/LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md'
       - 'docs/LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md'
@@ -47,6 +49,9 @@ jobs:
 
       - name: Validate migration history
         run: npm run db:check
+
+      - name: Run active Review Resume race regression
+        run: node --test test/learner-fsrs-active-review-resume-race.test.js
 
       - name: Run active Review snapshot benchmark
         run: npm run fsrs:active-review-benchmark
