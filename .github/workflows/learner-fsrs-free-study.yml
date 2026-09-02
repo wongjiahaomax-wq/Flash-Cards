@@ -1,0 +1,63 @@
+name: Learner FSRS Free Study D1 smoke
+
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'wrangler.jsonc'
+      - 'drizzle/0019_learner_fsrs_foundation.sql'
+      - 'drizzle/0020_learner_fsrs_active_reviews.sql'
+      - 'drizzle/0021_learner_fsrs_scheduled_completion.sql'
+      - 'drizzle/0022_learner_fsrs_free_study.sql'
+      - 'drizzle.config.js'
+      - 'scripts/learner-fsrs-free-study-benchmark.mjs'
+      - 'scripts/learner-fsrs-free-study-d1-smoke.mjs'
+      - 'scripts/learner-fsrs-free-study-d1-smoke-worker.js'
+      - 'src/lib/server/db/index.js'
+      - 'src/lib/server/db/fsrs-bootstrap.js'
+      - 'src/lib/server/db/fsrs-schema.js'
+      - 'src/lib/server/db/active-review-schema.js'
+      - 'src/lib/server/db/active-reviews.js'
+      - 'src/lib/server/db/free-study-schema.js'
+      - 'src/lib/server/db/free-review-completion.js'
+      - 'src/lib/server/db/learner-preferences.js'
+      - 'src/lib/server/db/study-run-planning.js'
+      - 'src/lib/server/learning/study-run-planner.js'
+      - 'test/learner-fsrs-bootstrap.test.js'
+      - 'test/learner-fsrs-run-planner.test.js'
+      - 'test/learner-fsrs-free-study.test.js'
+      - 'test/learner-fsrs-free-study-benchmark.test.js'
+      - '.github/workflows/learner-fsrs-free-study.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  free-study-d1-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Validate migration history
+        run: npm run db:check
+
+      - name: Run focused Free Study contracts
+        run: node --test test/learner-fsrs-bootstrap.test.js test/learner-fsrs-run-planner.test.js test/learner-fsrs-free-study.test.js test/learner-fsrs-free-study-benchmark.test.js
+
+      - name: Measure Free completion and receipt cleanup cost
+        run: npm run fsrs:free-study-benchmark -- --completions=1000 --cleanup-limit=100
+
+      - name: Run Free completion and lifecycle races through local workerd and D1
+        run: node scripts/learner-fsrs-free-study-d1-smoke.mjs

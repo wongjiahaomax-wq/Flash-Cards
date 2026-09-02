@@ -1,0 +1,195 @@
+# Learner FSRS Part E implementation evidence
+
+Status: **staged implementation evidence for PR E — Free Study + Expanded preference. No learner runtime cutover, Production migration application, deployment, or Production D1/R2 mutation is authorized by this file.**
+
+Base at implementation start:
+
+`8d2c75eb72360387e5ae2b6e0720ccb4eea37ca6`
+
+This is the `main` merge commit for PR #133 / Part D.
+
+## Scope implemented
+
+Part E reuses the already-merged Part B/C foundations instead of duplicating them:
+
+- `buildFreeStudyRunDescriptor()` already provides the deduplicated Free shuffle bag and contains no scheduler boundary/proof fields;
+- `planFreeSystemStudyRun()` already reads the global learner preference without initializing or reading an FSRS profile/state;
+- `createFreeActiveReview()` already freezes Free content outside the scheduler boundary and reads the same `learner_preferences.expanded_learning` preference used by Scheduled active-Review creation;
+- the persistent preference default remains Expanded Learning OFF.
+
+This tranche adds the missing Free completion/write side:
+
+- migration `0022_learner_fsrs_free_study.sql` adds short-lived unique `free_review_completion_receipts`;
+- `free-study-schema.js` is registered in `drizzle.config.js` so the receipt table remains part of Drizzle Kit's declared schema authority;
+- `completeFreeReview()` atomically writes the retry receipt, accumulates the Free learner×Case encounter, increments the learner Free lifetime aggregate, and consumes the exact active Free Review;
+- receipt insertion is guarded at database-write time by exact active ownership, Free mode, reveal state, and database-time expiry;
+- the final active-Review consume has an expiry-crossing guard so a Review that becomes expired before the transaction commits rolls back every Free outcome write;
+- ordinary Admin Case deactivation after the Review has been frozen does not retroactively cancel that valid frozen Review;
+- duplicate/concurrent/lost-response completion reconciles from the unique **unexpired** receipt and cannot increment Free counters twice;
+- an expired receipt is no longer replay authority even if bounded maintenance cleanup has not deleted the row yet;
+- receipt cleanup is bounded and uses database time;
+- the receipt table has both expiry-oriented cleanup indexing and user-leading account-owned indexing;
+- `setExpandedLearningPreference()` changes only the global learner preference row and does not initialize an FSRS profile.
+
+## No-FSRS boundary
+
+Free completion deliberately does **not** write:
+
+- `learner_fsrs_profiles`;
+- `learner_case_fsrs`;
+- `scheduled_review_events`;
+- `learner_optimizer_evidence`;
+- `learner_system_aggregates`;
+- any Again / Hard / Good / Easy rating.
+
+The real local-workerd/D1 smoke asserts those tables remain untouched while Free encounter/aggregate state advances exactly once.
+
+## Short-lived receipt shape
+
+The Free receipt is retry provenance, not durable learner history or optimizer evidence. It stores only:
+
+- Review/receipt id;
+- learner id;
+- Case id;
+- completion time;
+- resulting `free_times_studied` value needed to replay the same success;
+- expiry time.
+
+The default TTL is seven days, aligned with the temporary active-Review horizon. Replay checks expiry against database time. Cleanup is bounded (`100` by default, maximum `500` per call) and is a storage-maintenance backstop rather than what makes an expired receipt cease being authoritative.
+
+## Part E D1-compatible benchmark gate
+
+Part A explicitly deferred Free-receipt costs until the tranche that made them executable. Part E therefore adds:
+
+```bash
+npm run fsrs:free-study-benchmark
+```
+
+The benchmark applies the actual Part A foundation migration (`0019`), Part C active-Review migration (`0020`), Part D Scheduled-completion migration (`0021`), and Part-E migration (`0022`) to a temporary SQLite database before measuring the candidate Part-E persistence shape. This keeps the focused benchmark on the current supported A–D schema rather than an artificial A–C–E schema.
+
+### Completion timing scope
+
+Active-Review creation is **not** part of the reported Free completion timing because Part C owns a separate active-Review benchmark. The database invariant permits only one active Review for the learner, so the benchmark cannot precreate all benchmark Reviews at once. Instead, for each sample it:
+
+1. creates the next active Free Review as untimed setup;
+2. starts the timer;
+3. executes only the four-write Free completion transaction;
+4. stops the timer after that completion returns.
+
+The reported `completion.totalMs` / `completion.meanMs` therefore aggregate only separately timed Free completion transactions. The benchmark output carries `activeReviewCreationIncluded: false` and an explicit `timingScope` string so this boundary remains machine-checkable.
+
+### Temporary receipt storage scope
+
+The benchmark distinguishes durable Free outcome rows from temporary receipt storage. After the representative completions it compacts/checkpoints the SQLite database and records its size with receipts present. It then expires and deletes every temporary receipt, leaves the durable learner×Case encounter and learner aggregate in place, compacts/checkpoints again, and computes:
+
+- `temporaryReceiptRetainedBytes = withReceiptsBytes - afterReceiptCleanupBytes`;
+- approximate retained bytes per temporary receipt from that isolated delta;
+- `persistentOutcomeDeltaBytes = afterReceiptCleanupBytes - baselineBytes` separately.
+
+This avoids attributing the durable encounter/aggregate rows to receipt storage. The file-size metric remains a compacted local-SQLite approximation rather than a Cloudflare storage/billing claim.
+
+For representative Free completions the benchmark records:
+
+- the logical rows changed by the completion bundle;
+- mean/total **completion-only** timing;
+- isolated temporary-receipt retained bytes and approximate bytes per receipt;
+- durable post-cleanup outcome delta separately;
+- accumulated learner×Case Free encounter count;
+- learner-wide `free_completed` count;
+- bounded expired-receipt cleanup timing, batch count, and deleted rows;
+- the expired-receipt cleanup query plan;
+- foreign-key violations.
+
+The expected Part-E completion bundle changes exactly four logical rows per successful completion:
+
+1. unique retry receipt insert;
+2. learner×Case encounter upsert;
+3. learner aggregate upsert;
+4. active Free Review consume.
+
+This is deliberately D1-compatible local SQLite evidence rather than a claim about Cloudflare network latency or billing metadata.
+
+## Current-schema focused contract
+
+`test/learner-fsrs-free-study.test.js` also applies `0019 → 0020 → 0021 → 0022` in order. A focused regression assertion requires both active-Review deletion guards to coexist:
+
+- `active_reviews_scheduled_completion_expiry_guard` from Part D; and
+- `active_reviews_free_completion_expiry_guard` from Part E.
+
+The specialized Free Study workflow includes `drizzle/0021_learner_fsrs_scheduled_completion.sql` in its path trigger, so future changes to the Part-D completion migration retrigger the Part-E focused contracts, benchmark, and real workerd/D1 smoke.
+
+## Admin Study Preview boundary and tranche ownership
+
+The programme invariant remains that Admin Study Preview must not contaminate learner state/history/aggregates/preferences or other learner Review persistence. Current `main` does not contain the old PR #119 Production Admin Study Preview implementation. That implementation depended on the rejected permanent `studySelectionId` / legacy Review architecture and is intentionally **not** transplanted here.
+
+`LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md` is the registered normative tranche-ownership authority for conflicts in the PR #101 technical design/readiness chain. It now explicitly supersedes the technical design's PR-E bullet `Admin Preview contamination tests` **as a PR-E acceptance requirement** and assigns the executable contamination proof to the learner runtime cutover checkpoint, when the accepted Production Admin Study Preview surface is selectively transplanted or rebuilt.
+
+This does not weaken the invariant. Cutover remains blocked until the real Preview surface has executable regression coverage proving it does not mutate learner FSRS/Free state, history, aggregates, preferences, active learner Reviews, or completion receipts. PR E documents that no current accepted Admin Preview surface can reach its new persistence functions; absence of a Preview surface is not treated as the final contamination test.
+
+## Focused validation ownership
+
+`test/learner-fsrs-free-study.test.js` covers:
+
+- Drizzle Kit registration of the Part-E receipt schema;
+- current A–D migration ordering before Part E and coexistence of the Scheduled/Free active-Review deletion guards;
+- Expanded OFF default and scheduler-free Free descriptor shape;
+- seven-day short-lived receipt schema/account cascade;
+- completion after ordinary Admin Case deactivation;
+- reveal/exact-active/database-expiry write guards;
+- expiry-crossing all-or-nothing rollback.
+
+`test/learner-fsrs-free-study-benchmark.test.js` protects the benchmark contract, including:
+
+- active-Review creation excluded from reported completion timing;
+- the four-row completion bundle;
+- temporary receipt storage isolated from durable encounter/aggregate rows;
+- bounded cleanup and cleanup index use;
+- FK integrity.
+
+`.github/workflows/learner-fsrs-free-study.yml` additionally runs:
+
+- migration history validation;
+- focused bootstrap/run-planner/Part-E/benchmark contracts;
+- the representative Part-E Free completion/receipt benchmark against the current A–D schema plus Part E;
+- the real repository-pinned Wrangler/workerd + local D1 Free completion smoke.
+
+The workerd/D1 smoke proves:
+
+- preference mutation leaves FSRS profile uninitialized;
+- two concurrent identical Free completions serialize to one `completed` and one `replayed` result;
+- a subsequent lost-response retry replays the same unexpired receipt/result;
+- an expired receipt cannot replay stale success before cleanup;
+- the committed completion increments Free encounter and learner Free aggregate exactly once;
+- Scheduled events, optimizer evidence, learner×Case FSRS state, learner/System Scheduled aggregates, and FSRS profile remain absent;
+- completion-vs-Discard serializes to one coherent owner;
+- expired completion-vs-active-cleanup leaves zero partial Free writes;
+- bounded expired-receipt cleanup removes the expired retry receipt.
+
+## Browser/runtime and Preview work deliberately left to cutover
+
+Part B staged the browser-local Scheduled/Free run descriptors but explicitly deferred browser runtime advancement. The later learner runtime cutover therefore still owns wiring the staged FSRS/Free system into `/study`, including:
+
+- advancing/persisting the Free bag position in browser state;
+- reshuffling after a Free bag is exhausted and handling explicit Start new Free Study session;
+- learner-facing controls for persistent global preferences;
+- `Study More` routing into Free Study;
+- rebuilding/selectively transplanting Production Admin Study Preview without learner persistence contamination;
+- executable Admin Preview contamination regression coverage against that actual runtime surface.
+
+Those are not implemented by inventing a second pre-cutover learner runtime in Part E.
+
+## Other deliberate exclusions
+
+This tranche does not:
+
+- cut `/study` over to the staged FSRS/Free runtime;
+- add a persistent Free run/session row;
+- persist the browser Free shuffle bag in D1;
+- add ratings or any FSRS transition to Free Study;
+- implement Reset Progress / Fresh FSRS Start;
+- implement retention, learner Progress, Admin analytics, optimizer execution, or account deletion;
+- retire legacy learner Review persistence;
+- implement the rejected PR #119 persisted-selection architecture;
+- mutate Production D1/R2 or deploy anything.
+
+Learner runtime cutover remains a separate checkpoint after Scheduled and Free behavior is validated.
