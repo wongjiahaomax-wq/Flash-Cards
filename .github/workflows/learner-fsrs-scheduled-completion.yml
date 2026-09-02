@@ -50,4 +50,4 @@ jobs:
         run: node --test test/learner-fsrs-scheduled-completion.test.js test/learner-fsrs-scheduled-run.test.js
 
       - name: Run Scheduled completion through local workerd and D1
-        run: npm run fsrs:scheduled-completion-d1-smoke
+        run: node scripts/learner-fsrs-scheduled-completion-d1-smoke.mjs
