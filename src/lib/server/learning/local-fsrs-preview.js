@@ -1,3 +1,8 @@
+import {
+  isFsrsPreviewRunDescriptor,
+  isFsrsPreviewRunOwnedBy
+} from '../../fsrs-preview-run-storage.js';
+
 export const LOCAL_FSRS_PREVIEW_PROOF_SECRET =
   'flash-cards-local-fsrs-preview-proof-v1-local-bindings-only';
 
@@ -24,4 +29,28 @@ export function isLocalFsrsPreviewRequest(url, env) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Browser-local preview runs are learner-owned state. Validate both descriptor
+ * structure and ownership before any active-Review lookup or open mutation.
+ * @param {unknown} descriptor
+ * @param {string} userId
+ */
+export function validateLocalFsrsPreviewRunOwner(descriptor, userId) {
+  if (!isFsrsPreviewRunDescriptor(descriptor)) {
+    return {
+      ok: false,
+      status: 400,
+      message: 'Preview run descriptor is invalid or unsupported.'
+    };
+  }
+  if (!isFsrsPreviewRunOwnedBy(descriptor, userId)) {
+    return {
+      ok: false,
+      status: 403,
+      message: 'This preview run belongs to another learner. Plan a new run for the signed-in account.'
+    };
+  }
+  return { ok: true, descriptor };
 }
