@@ -1,5 +1,9 @@
 import { createDb } from '../src/lib/server/db/index.js';
 import { ensureLearnerFsrsProfile } from '../src/lib/server/db/fsrs-bootstrap.js';
+import {
+  cleanupExpiredActiveReviews,
+  discardActiveReview
+} from '../src/lib/server/db/active-reviews.js';
 import { completeScheduledReview } from '../src/lib/server/db/scheduled-review-completion.js';
 import {
   fingerprintStudyScope,
@@ -8,12 +12,32 @@ import {
 } from '../src/lib/server/learning/study-run-proof.js';
 
 const proofSecret = 'scheduled-completion-d1-smoke-secret-0123456789abcdefghijklmnopqrstuvwxyz';
-const userId = 'scheduled-completion-d1-smoke-user';
 const systemId = 'scheduled-completion-d1-smoke-system';
 const topicId = 'scheduled-completion-d1-smoke-topic';
 const caseId = 'scheduled-completion-d1-smoke-case';
-const reviewId = 'scheduled-completion-d1-smoke-review';
-const runId = 'scheduled-completion-d1-smoke-run';
+
+const fixtures = {
+  base: {
+    userId: 'scheduled-completion-d1-smoke-user',
+    reviewId: 'scheduled-completion-d1-smoke-review',
+    runId: 'scheduled-completion-d1-smoke-run'
+  },
+  ratingRace: {
+    userId: 'scheduled-completion-d1-smoke-rating-race-user',
+    reviewId: 'scheduled-completion-d1-smoke-rating-race-review',
+    runId: 'scheduled-completion-d1-smoke-rating-race-run'
+  },
+  discardRace: {
+    userId: 'scheduled-completion-d1-smoke-discard-race-user',
+    reviewId: 'scheduled-completion-d1-smoke-discard-race-review',
+    runId: 'scheduled-completion-d1-smoke-discard-race-run'
+  },
+  cleanupRace: {
+    userId: 'scheduled-completion-d1-smoke-cleanup-race-user',
+    reviewId: 'scheduled-completion-d1-smoke-cleanup-race-review',
+    runId: 'scheduled-completion-d1-smoke-cleanup-race-run'
+  }
+};
 
 /** @param {unknown} value */
 function json(value) {
@@ -22,10 +46,30 @@ function json(value) {
   });
 }
 
-/** @param {D1Database} binding */
-async function completeFixture(binding) {
-  const db = createDb(binding);
-  const profile = await ensureLearnerFsrsProfile(db, userId);
+/** @param {D1Database} binding @param {string} userId */
+async function ensureSmokeUser(binding, userId) {
+  const current = Date.now();
+  await binding.prepare(`
+    INSERT OR IGNORE INTO \`user\` (
+      \`id\`, \`name\`, \`email\`, \`emailVerified\`, \`createdAt\`, \`updatedAt\`
+    ) VALUES (?, ?, ?, 1, ?, ?)
+  `).bind(
+    userId,
+    userId,
+    `${userId}@example.test`,
+    current,
+    current
+  ).run();
+}
+
+/**
+ * @param {D1Database} binding
+ * @param {import('../src/lib/server/db/index.js').LearningDb} db
+ * @param {{userId:string,reviewId:string,runId:string}} fixture
+ */
+async function createActiveFixture(binding, db, fixture) {
+  await ensureSmokeUser(binding, fixture.userId);
+  const profile = await ensureLearnerFsrsProfile(db, fixture.userId);
   const scope = {
     systemId,
     routes: [{ routeType: 'topic', routeId: topicId }]
@@ -33,8 +77,8 @@ async function completeFixture(binding) {
   const scopeFingerprint = await fingerprintStudyScope(scope);
   const runStartedAt = Date.now() - 1_000;
   const boundary = {
-    userId,
-    runId,
+    userId: fixture.userId,
+    runId: fixture.runId,
     runStartedAt,
     scopeFingerprint,
     generation: Number(profile.generation),
@@ -58,11 +102,11 @@ async function completeFixture(binding) {
     ) VALUES (?, ?, ?, ?, 'scheduled', 'original', 'new', ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, 1,
       cast((julianday('now') - 2440587.5) * 86400000 as integer))
   `).bind(
-    reviewId,
-    userId,
+    fixture.reviewId,
+    fixture.userId,
     caseId,
     systemId,
-    runId,
+    fixture.runId,
     scopeFingerprint,
     JSON.stringify(scope),
     boundary.generation,
@@ -74,20 +118,78 @@ async function completeFixture(binding) {
     'Scheduled completion D1 smoke Case'
   ).run();
 
-  // Frozen Reviews remain completable after ordinary Admin content deactivation.
+  return {
+    ...fixture,
+    boundary,
+    runBoundaryToken
+  };
+}
+
+/**
+ * @param {D1Database} binding
+ * @param {{userId:string,reviewId:string}} fixture
+ */
+async function completionCounts(binding, fixture) {
+  return binding.prepare(`
+    SELECT
+      (SELECT count(*) FROM scheduled_review_events WHERE id = ?) AS events,
+      (SELECT count(*) FROM learner_optimizer_evidence WHERE event_id = ?) AS optimizer_evidence,
+      (SELECT count(*) FROM learner_case_fsrs WHERE user_id = ? AND case_id = ?) AS case_states,
+      (SELECT count(*) FROM learner_case_encounters WHERE user_id = ? AND case_id = ?) AS encounters,
+      coalesce((SELECT scheduled_completed FROM learner_aggregates WHERE user_id = ?), 0) AS learner_scheduled,
+      coalesce((SELECT scheduled_completed FROM learner_system_aggregates WHERE user_id = ? AND system_id = ?), 0) AS system_scheduled,
+      (SELECT count(*) FROM active_reviews WHERE user_id = ?) AS active_reviews
+  `).bind(
+    fixture.reviewId,
+    fixture.reviewId,
+    fixture.userId,
+    caseId,
+    fixture.userId,
+    caseId,
+    fixture.userId,
+    fixture.userId,
+    systemId,
+    fixture.userId
+  ).first();
+}
+
+/** @param {PromiseSettledResult<any>} settled */
+function settledSummary(settled) {
+  if (settled.status === 'fulfilled') {
+    return { status: 'fulfilled', value: settled.value };
+  }
+  return {
+    status: 'rejected',
+    error: settled.reason instanceof Error
+      ? {
+        name: settled.reason.name,
+        message: settled.reason.message,
+        code: settled.reason.code ?? null
+      }
+      : { name: 'Error', message: String(settled.reason), code: null }
+  };
+}
+
+/** @param {D1Database} binding */
+async function completeFixture(binding) {
+  const db = createDb(binding);
+  const base = await createActiveFixture(binding, db, fixtures.base);
+  const ratingRace = await createActiveFixture(binding, db, fixtures.ratingRace);
+  const discardRace = await createActiveFixture(binding, db, fixtures.discardRace);
+  const cleanupRace = await createActiveFixture(binding, db, fixtures.cleanupRace);
+
+  // All four Reviews are frozen while the Case is active. Ordinary Admin
+  // deactivation after freeze must not retroactively cancel completion.
   await binding.prepare('UPDATE cases SET is_active = 0 WHERE id = ?').bind(caseId).run();
 
   const completionInput = {
     db,
-    userId,
-    reviewId,
+    userId: base.userId,
+    reviewId: base.reviewId,
     rating: /** @type {const} */ ('again'),
-    runBoundaryToken,
+    runBoundaryToken: base.runBoundaryToken,
     proofSecret
   };
-  // Exercise the actual uniqueness race. Both requests begin against the same
-  // active Review; one batch commits and the loser must reconcile from the
-  // durable Scheduled event rather than applying a second FSRS transition.
   const racingCompletions = await Promise.all([
     completeScheduledReview(completionInput),
     completeScheduledReview(completionInput)
@@ -111,34 +213,121 @@ async function completeFixture(binding) {
   const verifiedRepeat = first.repeatEntry
     ? await verifyScheduledRepeatOriginProof({
       secret: proofSecret,
-      userId,
-      runToken: runBoundaryToken,
+      userId: base.userId,
+      runToken: base.runBoundaryToken,
       repeatToken: first.repeatEntry.workProof,
       caseId
     })
     : null;
 
-  const counts = await binding.prepare(`
-    SELECT
-      (SELECT count(*) FROM scheduled_review_events WHERE id = ?) AS events,
-      (SELECT count(*) FROM learner_optimizer_evidence WHERE event_id = ?) AS optimizer_evidence,
-      (SELECT count(*) FROM learner_case_fsrs WHERE user_id = ? AND case_id = ?) AS case_states,
-      (SELECT count(*) FROM learner_case_encounters WHERE user_id = ? AND case_id = ?) AS encounters,
-      (SELECT scheduled_completed FROM learner_aggregates WHERE user_id = ?) AS learner_scheduled,
-      (SELECT scheduled_completed FROM learner_system_aggregates WHERE user_id = ? AND system_id = ?) AS system_scheduled,
-      (SELECT count(*) FROM active_reviews WHERE user_id = ?) AS active_reviews
-  `).bind(
-    reviewId,
-    reviewId,
-    userId,
-    caseId,
-    userId,
-    caseId,
-    userId,
-    userId,
-    systemId,
-    userId
-  ).first();
+  // Competing different ratings must serialize to exactly one transition. The
+  // loser reconciles from the durable event and reports payload mismatch.
+  const ratingRaceResults = await Promise.all([
+    completeScheduledReview({
+      db,
+      userId: ratingRace.userId,
+      reviewId: ratingRace.reviewId,
+      rating: 'again',
+      runBoundaryToken: ratingRace.runBoundaryToken,
+      proofSecret
+    }),
+    completeScheduledReview({
+      db,
+      userId: ratingRace.userId,
+      reviewId: ratingRace.reviewId,
+      rating: 'easy',
+      runBoundaryToken: ratingRace.runBoundaryToken,
+      proofSecret
+    })
+  ]);
+  const ratingCompleted = ratingRaceResults.filter((result) => result.status === 'completed');
+  const ratingReplayed = ratingRaceResults.filter((result) => result.status === 'replayed');
+  if (ratingCompleted.length !== 1 || ratingReplayed.length !== 1) {
+    throw new Error('Competing ratings did not serialize to one completed and one replayed response.');
+  }
+  if (ratingRaceResults.filter((result) => result.payloadMismatch).length !== 1) {
+    throw new Error('Exactly one competing-rating response must report payload mismatch.');
+  }
+  if (ratingRaceResults[0].rating !== ratingRaceResults[1].rating) {
+    throw new Error('Competing ratings did not reconcile to the same committed rating.');
+  }
+
+  // Discard and completion are allowed to race. Exactly one operation may own
+  // the active Review: either completion commits atomically, or Discard removes
+  // it and completion fails without any durable completion writes.
+  const discardRaceSettled = await Promise.allSettled([
+    completeScheduledReview({
+      db,
+      userId: discardRace.userId,
+      reviewId: discardRace.reviewId,
+      rating: 'again',
+      runBoundaryToken: discardRace.runBoundaryToken,
+      proofSecret
+    }),
+    discardActiveReview({
+      db,
+      userId: discardRace.userId,
+      reviewId: discardRace.reviewId
+    })
+  ]);
+  const discardCompletion = discardRaceSettled[0];
+  const discardWriter = discardRaceSettled[1];
+  if (discardWriter.status !== 'fulfilled') {
+    throw new Error('Discard writer unexpectedly rejected during completion race.');
+  }
+  if (discardCompletion.status === 'fulfilled') {
+    if (discardCompletion.value.status !== 'completed' || discardWriter.value !== false) {
+      throw new Error('Completion-wins Discard race did not serialize coherently.');
+    }
+  } else if (discardWriter.value !== true) {
+    throw new Error('Discard-wins race must delete the active Review when completion does not commit.');
+  }
+
+  // An already-expired Review is raced against explicit DB-time cleanup. The
+  // completion side must not commit any event/state/aggregate writes.
+  await binding.prepare(`
+    UPDATE active_reviews
+    SET expires_at = cast((julianday('now') - 2440587.5) * 86400000 as integer) - 1
+    WHERE id = ? AND user_id = ?
+  `).bind(cleanupRace.reviewId, cleanupRace.userId).run();
+  const cleanupRaceSettled = await Promise.allSettled([
+    completeScheduledReview({
+      db,
+      userId: cleanupRace.userId,
+      reviewId: cleanupRace.reviewId,
+      rating: 'again',
+      runBoundaryToken: cleanupRace.runBoundaryToken,
+      proofSecret
+    }),
+    cleanupExpiredActiveReviews(db)
+  ]);
+  if (cleanupRaceSettled[0].status !== 'rejected') {
+    throw new Error('Expired Review completion unexpectedly committed during cleanup race.');
+  }
+  if (cleanupRaceSettled[1].status !== 'fulfilled') {
+    throw new Error('Expired active-Review cleanup unexpectedly rejected.');
+  }
+
+  const counts = await completionCounts(binding, base);
+  const ratingRaceCounts = await completionCounts(binding, ratingRace);
+  const discardRaceCounts = await completionCounts(binding, discardRace);
+  const cleanupRaceCounts = await completionCounts(binding, cleanupRace);
+
+  const discardCompletionCommitted = discardCompletion.status === 'fulfilled';
+  const expectedDiscardCount = discardCompletionCommitted ? 1 : 0;
+  for (const key of ['events', 'optimizer_evidence', 'case_states', 'encounters', 'learner_scheduled', 'system_scheduled']) {
+    if (Number(discardRaceCounts?.[key]) !== expectedDiscardCount) {
+      throw new Error(`Discard race left incoherent ${key} count ${discardRaceCounts?.[key]}.`);
+    }
+  }
+  if (Number(discardRaceCounts?.active_reviews) !== 0) {
+    throw new Error('Discard race left an active Review behind.');
+  }
+  for (const key of ['events', 'optimizer_evidence', 'case_states', 'encounters', 'learner_scheduled', 'system_scheduled', 'active_reviews']) {
+    if (Number(cleanupRaceCounts?.[key]) !== 0) {
+      throw new Error(`Cleanup race left partial ${key} state ${cleanupRaceCounts?.[key]}.`);
+    }
+  }
 
   return {
     racingCompletions,
@@ -147,7 +336,19 @@ async function completeFixture(binding) {
     sameRatingReplay,
     differentRatingReplay,
     verifiedRepeat,
-    counts
+    ratingRaceResults,
+    discardRace: {
+      completion: settledSummary(discardCompletion),
+      discard: settledSummary(discardWriter),
+      counts: discardRaceCounts
+    },
+    cleanupRace: {
+      completion: settledSummary(cleanupRaceSettled[0]),
+      cleanup: settledSummary(cleanupRaceSettled[1]),
+      counts: cleanupRaceCounts
+    },
+    counts,
+    ratingRaceCounts
   };
 }
 
