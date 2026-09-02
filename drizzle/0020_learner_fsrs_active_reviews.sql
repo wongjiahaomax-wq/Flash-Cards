@@ -122,15 +122,10 @@ BEGIN
 			AND c.`is_active` = 1
 			AND c.`preview_session_id` IS NULL
 			AND EXISTS (
-				WITH RECURSIVE ancestry(`id`,`parent_id`,`kind`,`is_active`) AS (
-					SELECT topic.`id`, topic.`parent_id`, topic.`kind`, topic.`is_active`
-					UNION ALL
-					SELECT parent.`id`, parent.`parent_id`, parent.`kind`, parent.`is_active`
-					FROM `concepts` parent
-					INNER JOIN ancestry child ON child.`parent_id` = parent.`id`
-				)
-				SELECT 1 FROM ancestry
-				WHERE `id` = NEW.`system_id` AND `kind` = 'system' AND `is_active` = 1
+				SELECT 1 FROM `concepts` system
+				WHERE system.`id` = NEW.`system_id`
+					AND system.`kind` = 'system'
+					AND system.`is_active` = 1
 			)
 			AND EXISTS (
 				SELECT 1
@@ -138,6 +133,17 @@ BEGIN
 				WHERE (
 					json_extract(route.value, '$.routeType') = 'topic'
 					AND json_extract(route.value, '$.routeId') = topic.`id`
+					AND EXISTS (
+						WITH RECURSIVE ancestry(`id`,`parent_id`,`kind`,`is_active`) AS (
+							SELECT topic.`id`, topic.`parent_id`, topic.`kind`, topic.`is_active`
+							UNION ALL
+							SELECT parent.`id`, parent.`parent_id`, parent.`kind`, parent.`is_active`
+							FROM `concepts` parent
+							INNER JOIN ancestry child ON child.`parent_id` = parent.`id`
+						)
+						SELECT 1 FROM ancestry
+						WHERE `id` = NEW.`system_id` AND `kind` = 'system' AND `is_active` = 1
+					)
 				) OR (
 					json_extract(route.value, '$.routeType') = 'tag'
 					AND EXISTS (
