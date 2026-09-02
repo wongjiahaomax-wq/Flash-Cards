@@ -10,6 +10,7 @@ import {
 } from '$lib/server/learning/local-fsrs-preview.js';
 import { issueScheduledRunBoundaryToken } from '$lib/server/learning/study-run-proof.js';
 
+/** @param {unknown} body @param {number} [status] */
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -17,12 +18,14 @@ function json(body, status = 200) {
   });
 }
 
+/** @param {unknown} value */
 function timestampMs(value) {
   if (value instanceof Date) return value.getTime();
   const result = Number(value);
   return Number.isFinite(result) ? result : null;
 }
 
+/** @param {NonNullable<Awaited<ReturnType<typeof getActiveReviewById>>>} review @param {string} userId */
 async function reconstructedRunToken(review, userId) {
   const runStartedAt = timestampMs(review.runStartedAt);
   if (runStartedAt == null) throw new Error('Active Scheduled Review has no valid run start time.');
@@ -47,6 +50,7 @@ export async function POST({ locals, params, platform, request, url }) {
   if (!locals.user) return json({ message: 'Authentication required.' }, 401);
   if (!platform?.env?.DB) return json({ message: 'Local D1 is not configured.' }, 503);
 
+  /** @type {any} */
   let payload;
   try {
     payload = await request.json();

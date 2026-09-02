@@ -11,6 +11,7 @@ import {
 } from '$lib/server/learning/local-fsrs-preview.js';
 import { planSystemStudyRunFromForm } from '$lib/server/learning/plan-system-study.ts';
 
+/** @param {App.Locals} locals @param {App.Platform | undefined} platform @param {URL} url */
 function context(locals, platform, url) {
   if (!isLocalFsrsPreviewRequest(url, platform?.env)) error(404, 'Local FSRS preview is unavailable.');
   if (!locals.user || !platform?.env?.DB) error(503, 'Local FSRS preview is not configured.');

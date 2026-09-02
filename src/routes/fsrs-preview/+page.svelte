@@ -10,6 +10,7 @@
   } from '$lib/fsrs-preview-run-storage.js';
 
   let { data, form } = $props();
+  /** @type {any} */
   let browserRun = $state(null);
   let runMessage = $state('');
   let opening = $state(false);
@@ -31,14 +32,16 @@
     }
   });
 
+  /** @param {string} systemId @param {string} value */
   function routeChecked(systemId, value) {
     if (form?.systemId !== systemId || !Array.isArray(form?.selectedRoutes)) return true;
     return form.selectedRoutes.includes(value);
   }
 
+  /** @param {string} systemId @param {'scheduled'|'free'} mode */
   function selectedMode(systemId, mode) {
     if (form?.systemId !== systemId) return mode === 'scheduled';
-    return form.studyMode === mode;
+    return form?.studyMode === mode;
   }
 
   function clearBrowserRun() {
@@ -47,6 +50,7 @@
     runMessage = 'Browser-only preview run cleared. Local learner scheduling/history was not reset.';
   }
 
+  /** @param {any} descriptor */
   function runSummary(descriptor) {
     if (!descriptor) return null;
     if (descriptor.kind === 'scheduled') {

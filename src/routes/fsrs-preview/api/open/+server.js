@@ -11,6 +11,7 @@ import {
   isLocalFsrsPreviewRequest
 } from '$lib/server/learning/local-fsrs-preview.js';
 
+/** @param {unknown} body @param {number} [status] */
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -23,6 +24,7 @@ export async function POST({ locals, platform, request, url }) {
   if (!locals.user) return json({ message: 'Authentication required.' }, 401);
   if (!platform?.env?.DB) return json({ message: 'Local D1 is not configured.' }, 503);
 
+  /** @type {any} */
   let descriptor;
   try {
     descriptor = (await request.json())?.descriptor;

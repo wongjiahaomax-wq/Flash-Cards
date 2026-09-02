@@ -9,6 +9,7 @@
   } from '$lib/fsrs-preview-run-storage.js';
 
   let { data } = $props();
+  /** @type {any} */
   let browserRun = $state(null);
   let completionError = $state('');
   let completing = $state(false);
@@ -17,10 +18,12 @@
     browserRun = readFsrsPreviewRun(localStorage);
   });
 
+  /** @param {string} mode */
   function contentModeLabel(mode) {
     return mode === 'expanded' ? 'Expanded Learning' : 'Original questions';
   }
 
+  /** @param {'again'|'hard'|'good'|'easy'|null} [rating] */
   async function completeReview(rating = null) {
     if (completing) return;
     completing = true;

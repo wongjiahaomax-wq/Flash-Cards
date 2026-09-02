@@ -1,6 +1,8 @@
+/** @typedef {{getItem:(key:string)=>string|null,setItem:(key:string,value:string)=>void,removeItem:(key:string)=>void}} PreviewRunStorage */
+
 export const FSRS_PREVIEW_RUN_STORAGE_KEY = 'flash-cards:fsrs-preview-run:v1';
 
-/** @param {Storage} storage */
+/** @param {PreviewRunStorage} storage */
 export function readFsrsPreviewRun(storage) {
   const raw = storage.getItem(FSRS_PREVIEW_RUN_STORAGE_KEY);
   if (!raw) return null;
@@ -14,7 +16,7 @@ export function readFsrsPreviewRun(storage) {
   }
 }
 
-/** @param {Storage} storage @param {any} descriptor */
+/** @param {PreviewRunStorage} storage @param {any} descriptor */
 export function writeFsrsPreviewRun(storage, descriptor) {
   if (!descriptor || descriptor.version !== 1 || !['scheduled', 'free'].includes(descriptor.kind)) {
     throw new TypeError('FSRS preview run descriptor is invalid.');
@@ -23,7 +25,7 @@ export function writeFsrsPreviewRun(storage, descriptor) {
   return descriptor;
 }
 
-/** @param {Storage} storage */
+/** @param {PreviewRunStorage} storage */
 export function clearFsrsPreviewRun(storage) {
   storage.removeItem(FSRS_PREVIEW_RUN_STORAGE_KEY);
 }

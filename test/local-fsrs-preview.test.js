@@ -31,8 +31,11 @@ function freeDescriptor(overrides = {}) {
 
 class MemoryStorage {
   constructor() { this.values = new Map(); }
+  /** @param {string} key */
   getItem(key) { return this.values.has(key) ? this.values.get(key) : null; }
+  /** @param {string} key @param {string} value */
   setItem(key, value) { this.values.set(key, String(value)); }
+  /** @param {string} key */
   removeItem(key) { this.values.delete(key); }
 }
 

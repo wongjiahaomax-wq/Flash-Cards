@@ -14,7 +14,7 @@ function isLoopbackHostname(hostname) {
  * URL and the Better Auth binding to be loopback prevents a forged Host header
  * from turning a deployed route into a learner-state mutation surface.
  * @param {URL} url
- * @param {App.Platform['env'] | undefined} env
+ * @param {{BETTER_AUTH_URL?: unknown} | undefined} env
  */
 export function isLocalFsrsPreviewRequest(url, env) {
   if (!isLoopbackHostname(url.hostname)) return false;
