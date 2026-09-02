@@ -77,29 +77,35 @@ async function completeFixture(binding) {
   // Frozen Reviews remain completable after ordinary Admin content deactivation.
   await binding.prepare('UPDATE cases SET is_active = 0 WHERE id = ?').bind(caseId).run();
 
-  const first = await completeScheduledReview({
+  const completionInput = {
     db,
     userId,
     reviewId,
-    rating: 'again',
+    rating: /** @type {const} */ ('again'),
     runBoundaryToken,
     proofSecret
-  });
-  const sameRatingReplay = await completeScheduledReview({
-    db,
-    userId,
-    reviewId,
-    rating: 'again',
-    runBoundaryToken,
-    proofSecret
-  });
+  };
+  // Exercise the actual uniqueness race. Both requests begin against the same
+  // active Review; one batch commits and the loser must reconcile from the
+  // durable Scheduled event rather than applying a second FSRS transition.
+  const racingCompletions = await Promise.all([
+    completeScheduledReview(completionInput),
+    completeScheduledReview(completionInput)
+  ]);
+  const statuses = racingCompletions.map((result) => result.status).sort();
+  if (statuses.length !== 2 || statuses[0] !== 'completed' || statuses[1] !== 'replayed') {
+    throw new Error(`Expected one completed and one replayed racing completion; received ${statuses.join(',')}.`);
+  }
+  const first = racingCompletions.find((result) => result.status === 'completed');
+  const raceReplay = racingCompletions.find((result) => result.status === 'replayed');
+  if (!first || !raceReplay) {
+    throw new Error('Racing completion reconciliation did not expose both committed and replayed outcomes.');
+  }
+
+  const sameRatingReplay = await completeScheduledReview(completionInput);
   const differentRatingReplay = await completeScheduledReview({
-    db,
-    userId,
-    reviewId,
-    rating: 'easy',
-    runBoundaryToken,
-    proofSecret
+    ...completionInput,
+    rating: 'easy'
   });
 
   const verifiedRepeat = first.repeatEntry
@@ -135,7 +141,9 @@ async function completeFixture(binding) {
   ).first();
 
   return {
+    racingCompletions,
     first,
+    raceReplay,
     sameRatingReplay,
     differentRatingReplay,
     verifiedRepeat,
