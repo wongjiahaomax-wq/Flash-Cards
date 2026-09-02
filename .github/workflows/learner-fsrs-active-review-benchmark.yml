@@ -19,6 +19,7 @@ on:
       - 'test/learner-fsrs-active-review.test.js'
       - 'test/learner-fsrs-active-review-scope.test.js'
       - 'docs/LEARNER_FSRS_PR_C_EVIDENCE.md'
+      - 'docs/LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md'
       - '.github/workflows/learner-fsrs-active-review-benchmark.yml'
 
 permissions:
