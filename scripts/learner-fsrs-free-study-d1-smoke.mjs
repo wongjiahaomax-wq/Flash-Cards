@@ -222,6 +222,8 @@ async function main() {
     assert.equal(result.baseCounts.case_states, 0);
     assert.equal(result.baseCounts.fsrs_profiles, 0);
     assert.equal(result.baseCounts.active_reviews, 0);
+    assert.equal(result.expiredReceiptReplay.status, 'rejected');
+    assert.equal(result.expiredReceiptReplay.error.code, 'unavailable');
     assert.equal(result.expiredReceiptsCleaned, 1);
 
     console.log(JSON.stringify({
@@ -231,6 +233,7 @@ async function main() {
       fsrsProfileRowsAfterPreferenceWrite: result.preference.fsrsProfileRowsAfterPreferenceWrite,
       completionStatuses: result.racingCompletions.map((entry) => entry.status),
       retryStatus: result.retry.status,
+      expiredReceiptRetryStatus: result.expiredReceiptReplay.status,
       freeTimesStudied: result.baseCounts.free_times_studied,
       learnerFreeCompleted: result.baseCounts.learner_free,
       scheduledEvents: result.baseCounts.scheduled_events,
