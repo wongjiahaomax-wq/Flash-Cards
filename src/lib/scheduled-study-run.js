@@ -1,5 +1,9 @@
 const MAX_CONSECUTIVE_NEW = 50;
 
+/** @typedef {'due'|'new'|'repeat'} ScheduledQueueClass */
+/** @typedef {{queueClass:ScheduledQueueClass,caseId:string,stateRevision?:number,dueAt?:number,workProof:string}} ScheduledWork */
+/** @typedef {{status:'ready',work:ScheduledWork}|{status:'waiting',nextRepeatDueAt:number}|{status:'new-limit-reached',limit:number}|{status:'complete'}} ScheduledWorkSelection */
+
 export class ScheduledStudyRunError extends Error {
   /** @param {'invalid-descriptor'|'invalid-time'|'work-mismatch'|'review-in-progress'} code @param {string} message */
   constructor(code, message) {
@@ -25,7 +29,7 @@ function finiteTime(value) {
   return normalized;
 }
 
-/** @param {any} descriptor @param {'due'|'new'} queueClass @param {any} entry */
+/** @param {any} descriptor @param {'due'|'new'} queueClass @param {any} entry @returns {ScheduledWork} */
 function capturedWork(descriptor, queueClass, entry) {
   const proofs = descriptor.membershipProofs?.[queueClass];
   const workProof = Array.isArray(proofs) ? proofs[entry.proofIndex] : null;
@@ -59,6 +63,7 @@ function firstNew(descriptor) {
  *
  * @param {any} descriptor
  * @param {{serverNow:number|Date,scheduledOrder?:'due_first'|'new_first'}} input
+ * @returns {ScheduledWorkSelection}
  */
 export function selectNextScheduledWork(descriptor, input) {
   assertDescriptor(descriptor);
@@ -66,7 +71,8 @@ export function selectNextScheduledWork(descriptor, input) {
     throw new ScheduledStudyRunError('review-in-progress', 'Finish or discard the current Review before selecting more work.');
   }
   const serverNow = finiteTime(input.serverNow);
-  const maturedRepeats = (descriptor.repeatEntries ?? [])
+  const repeatEntries = /** @type {any[]} */ (descriptor.repeatEntries ?? []);
+  const maturedRepeats = repeatEntries
     .filter((entry) => Number(entry.dueAt) <= serverNow)
     .sort((left, right) => Number(left.dueAt) - Number(right.dueAt) || String(left.caseId).localeCompare(String(right.caseId)));
   const matured = maturedRepeats[0];
@@ -102,7 +108,7 @@ export function selectNextScheduledWork(descriptor, input) {
     if (nextNew && newAllowed) return { status: 'ready', work: capturedWork(descriptor, 'new', nextNew) };
   }
 
-  const futureRepeat = (descriptor.repeatEntries ?? [])
+  const futureRepeat = repeatEntries
     .filter((entry) => Number(entry.dueAt) > serverNow)
     .sort((left, right) => Number(left.dueAt) - Number(right.dueAt))[0];
   if (futureRepeat) {
@@ -114,7 +120,7 @@ export function selectNextScheduledWork(descriptor, input) {
   return { status: 'complete' };
 }
 
-/** @param {any} descriptor @param {any} work @param {string} reviewId */
+/** @param {any} descriptor @param {ScheduledWork} work @param {string} reviewId */
 export function beginScheduledWork(descriptor, work, reviewId) {
   assertDescriptor(descriptor);
   if (descriptor.currentReviewId) {
@@ -135,7 +141,7 @@ export function beginScheduledWork(descriptor, work, reviewId) {
   };
 }
 
-/** @param {any} descriptor @param {any} work */
+/** @param {any} descriptor @param {ScheduledWork} work */
 export function skipScheduledWork(descriptor, work) {
   assertDescriptor(descriptor);
   if (descriptor.currentReviewId) {
@@ -152,10 +158,11 @@ export function skipScheduledWork(descriptor, work) {
     return { ...descriptor, newPosition: Number(descriptor.newPosition) + 1 };
   }
   if (work.queueClass === 'repeat') {
-    const repeatEntries = (descriptor.repeatEntries ?? []).filter((entry) => !(
+    const currentRepeats = /** @type {any[]} */ (descriptor.repeatEntries ?? []);
+    const repeatEntries = currentRepeats.filter((entry) => !(
       entry.caseId === work.caseId && Number(entry.stateRevision) === Number(work.stateRevision)
     ));
-    if (repeatEntries.length === (descriptor.repeatEntries ?? []).length) {
+    if (repeatEntries.length === currentRepeats.length) {
       throw new ScheduledStudyRunError('work-mismatch', 'Repeat lane no longer contains this work item.');
     }
     return { ...descriptor, repeatEntries };
@@ -169,7 +176,7 @@ export function skipScheduledWork(descriptor, work) {
  * harmless because there is no current Review left to consume.
  *
  * @param {any} descriptor
- * @param {{eventId:string,caseId:string,queueClass:'due'|'new'|'repeat',repeatEntry:any|null}} result
+ * @param {{eventId:string,caseId:string,queueClass:ScheduledQueueClass,repeatEntry:any|null}} result
  */
 export function applyScheduledCompletion(descriptor, result) {
   assertDescriptor(descriptor);
@@ -200,15 +207,17 @@ export function applyScheduledCompletion(descriptor, result) {
       consecutiveNewCompleted: Number(next.consecutiveNewCompleted ?? 0) + 1
     };
   } else {
+    const currentRepeats = /** @type {any[]} */ (next.repeatEntries ?? []);
     next = {
       ...next,
-      repeatEntries: (next.repeatEntries ?? []).filter((entry) => !(
+      repeatEntries: currentRepeats.filter((entry) => !(
         entry.caseId === work.caseId && Number(entry.stateRevision) === Number(work.stateRevision)
       ))
     };
   }
 
-  const repeatsWithoutCase = (next.repeatEntries ?? []).filter((entry) => entry.caseId !== result.caseId);
+  const nextRepeats = /** @type {any[]} */ (next.repeatEntries ?? []);
+  const repeatsWithoutCase = nextRepeats.filter((entry) => entry.caseId !== result.caseId);
   const repeatEntries = result.repeatEntry
     ? [...repeatsWithoutCase, { ...result.repeatEntry }]
     : repeatsWithoutCase;

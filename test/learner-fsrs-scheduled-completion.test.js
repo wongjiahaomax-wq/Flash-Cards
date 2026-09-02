@@ -171,6 +171,7 @@ function insertEvent(db, row) {
   `).run(row);
 }
 
+/** @param {DatabaseSync} db */
 function dbNow(db) {
   return Number(db.prepare("SELECT cast((julianday('now') - 2440587.5) * 86400000 as integer) AS n").get()?.n);
 }
@@ -188,7 +189,9 @@ test('Part D migration adds compact idempotent run/result context to Scheduled e
 });
 
 test('four ratings use the pinned FSRS transition and only short-term results enter the repeat lane', () => {
-  for (const rating of ['again', 'hard', 'good', 'easy']) {
+  /** @type {Array<'again'|'hard'|'good'|'easy'>} */
+  const ratings = ['again', 'hard', 'good', 'easy'];
+  for (const rating of ratings) {
     const prepared = prepareScheduledReviewCompletion({
       activeReview: review('new'),
       profile: profile(),

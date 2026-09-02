@@ -46,6 +46,7 @@ test('matured authenticated repeat takes priority over captured Due/New work', (
   }), { serverNow: 200 });
 
   assert.equal(result.status, 'ready');
+  assert.ok(result.work);
   assert.equal(result.work.queueClass, 'repeat');
   assert.equal(result.work.caseId, 'repeat-now');
   assert.equal(result.work.workProof, 'now-proof');
@@ -53,7 +54,7 @@ test('matured authenticated repeat takes priority over captured Due/New work', (
 
 test('repeat maturity has no browser-clock fallback and future repeat yields an explicit waiting state', () => {
   assert.throws(
-    () => selectNextScheduledWork(descriptor(), {}),
+    () => selectNextScheduledWork(descriptor(), /** @type {any} */ ({})),
     /server-authoritative time/i
   );
 
@@ -67,28 +68,38 @@ test('repeat maturity has no browser-clock fallback and future repeat yields an 
 
 test('Due-first and New-first preferences consume only the captured queues with fallback', () => {
   const dueFirst = selectNextScheduledWork(descriptor(), { serverNow: 200 });
+  assert.equal(dueFirst.status, 'ready');
+  assert.ok(dueFirst.work);
   assert.equal(dueFirst.work.queueClass, 'due');
   assert.equal(dueFirst.work.caseId, 'due-1');
   assert.equal(dueFirst.work.workProof, 'due-proof');
 
   const newFirst = selectNextScheduledWork(descriptor(), { serverNow: 200, scheduledOrder: 'new_first' });
+  assert.equal(newFirst.status, 'ready');
+  assert.ok(newFirst.work);
   assert.equal(newFirst.work.queueClass, 'new');
   assert.equal(newFirst.work.caseId, 'new-1');
   assert.equal(newFirst.work.workProof, 'new-proof');
 
   const fallback = selectNextScheduledWork(descriptor({ capturedDue: [] }), { serverNow: 200 });
+  assert.equal(fallback.status, 'ready');
+  assert.ok(fallback.work);
   assert.equal(fallback.work.queueClass, 'new');
 });
 
 test('50-New guard blocks another introduction but never blocks Due or a matured repeat', () => {
   const atLimit = descriptor({ consecutiveNewCompleted: SCHEDULED_STUDY_CONSECUTIVE_NEW_LIMIT });
   const due = selectNextScheduledWork(atLimit, { serverNow: 200, scheduledOrder: 'new_first' });
+  assert.equal(due.status, 'ready');
+  assert.ok(due.work);
   assert.equal(due.work.queueClass, 'due');
 
   const repeat = selectNextScheduledWork(descriptor({
     consecutiveNewCompleted: SCHEDULED_STUDY_CONSECUTIVE_NEW_LIMIT,
     repeatEntries: [{ caseId: 'repeat', stateRevision: 3, dueAt: 100, workProof: 'repeat-proof' }]
   }), { serverNow: 200 });
+  assert.equal(repeat.status, 'ready');
+  assert.ok(repeat.work);
   assert.equal(repeat.work.queueClass, 'repeat');
 
   const blocked = selectNextScheduledWork(descriptor({
@@ -99,8 +110,10 @@ test('50-New guard blocks another introduction but never blocks Due or a matured
 });
 
 test('committed New increments the streak, Due resets it, and repeat is neutral', () => {
-  const newWork = selectNextScheduledWork(descriptor(), { serverNow: 200, scheduledOrder: 'new_first' }).work;
-  let run = beginScheduledWork(descriptor(), newWork, 'review-new');
+  const firstNewSelection = selectNextScheduledWork(descriptor(), { serverNow: 200, scheduledOrder: 'new_first' });
+  assert.equal(firstNewSelection.status, 'ready');
+  assert.ok(firstNewSelection.work);
+  let run = beginScheduledWork(descriptor(), firstNewSelection.work, 'review-new');
   run = applyScheduledCompletion(run, {
     eventId: 'review-new',
     caseId: 'new-1',
@@ -112,8 +125,10 @@ test('committed New increments the streak, Due resets it, and repeat is neutral'
   assert.equal(run.repeatEntries.length, 1);
   assert.deepEqual(run.completedCaseIds, ['new-1']);
 
-  const dueWork = selectNextScheduledWork(run, { serverNow: 200 }).work;
-  run = beginScheduledWork(run, dueWork, 'review-due');
+  const dueSelection = selectNextScheduledWork(run, { serverNow: 200 });
+  assert.equal(dueSelection.status, 'ready');
+  assert.ok(dueSelection.work);
+  run = beginScheduledWork(run, dueSelection.work, 'review-due');
   run = applyScheduledCompletion(run, {
     eventId: 'review-due',
     caseId: 'due-1',
@@ -123,7 +138,10 @@ test('committed New increments the streak, Due resets it, and repeat is neutral'
   assert.equal(run.duePosition, 1);
   assert.equal(run.consecutiveNewCompleted, 0);
 
-  const matured = selectNextScheduledWork(run, { serverNow: 600 }).work;
+  const maturedSelection = selectNextScheduledWork(run, { serverNow: 600 });
+  assert.equal(maturedSelection.status, 'ready');
+  assert.ok(maturedSelection.work);
+  const matured = maturedSelection.work;
   assert.equal(matured.queueClass, 'repeat');
   run = beginScheduledWork(run, matured, 'review-repeat');
   run = applyScheduledCompletion(run, {
@@ -139,19 +157,23 @@ test('committed New increments the streak, Due resets it, and repeat is neutral'
 });
 
 test('completion replay after local advancement is harmless and skip advances only the authenticated work item', () => {
-  const dueWork = selectNextScheduledWork(descriptor(), { serverNow: 200 }).work;
-  let run = beginScheduledWork(descriptor(), dueWork, 'review-1');
-  const receipt = {
+  const dueSelection = selectNextScheduledWork(descriptor(), { serverNow: 200 });
+  assert.equal(dueSelection.status, 'ready');
+  assert.ok(dueSelection.work);
+  let run = beginScheduledWork(descriptor(), dueSelection.work, 'review-1');
+  const receipt = /** @type {const} */ ({
     eventId: 'review-1',
     caseId: 'due-1',
     queueClass: 'due',
     repeatEntry: null
-  };
+  });
   run = applyScheduledCompletion(run, receipt);
   const replayed = applyScheduledCompletion(run, receipt);
   assert.deepEqual(replayed, run);
 
-  const nextDue = selectNextScheduledWork(run, { serverNow: 200 }).work;
-  const skipped = skipScheduledWork(run, nextDue);
+  const nextDueSelection = selectNextScheduledWork(run, { serverNow: 200 });
+  assert.equal(nextDueSelection.status, 'ready');
+  assert.ok(nextDueSelection.work);
+  const skipped = skipScheduledWork(run, nextDueSelection.work);
   assert.equal(skipped.duePosition, 2);
 });
