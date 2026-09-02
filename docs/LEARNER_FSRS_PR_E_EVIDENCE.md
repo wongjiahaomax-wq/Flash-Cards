@@ -65,7 +65,7 @@ Part A explicitly deferred Free-receipt costs until the tranche that made them e
 npm run fsrs:free-study-benchmark
 ```
 
-The benchmark applies the actual foundation, active-Review, and Part-E migrations to a temporary SQLite database and measures the candidate Part-E persistence shape. Active-Review creation is intentionally outside the measured completion bundle because Part C owns a separate active-Review benchmark.
+The benchmark applies the actual Part A foundation migration (`0019`), Part C active-Review migration (`0020`), Part D Scheduled-completion migration (`0021`), and Part-E migration (`0022`) to a temporary SQLite database before measuring the candidate Part-E persistence shape. This keeps the focused benchmark on the current supported A–D schema rather than an artificial A–C–E schema. Active-Review creation is intentionally outside the measured completion bundle because Part C owns a separate active-Review benchmark.
 
 For representative Free completions it records:
 
@@ -88,17 +88,29 @@ The expected Part-E completion bundle changes exactly four logical rows per succ
 
 This is deliberately D1-compatible local SQLite evidence rather than a claim about Cloudflare network latency or billing metadata.
 
-## Admin Study Preview boundary
+## Current-schema focused contract
 
-The merged technical design requires Admin Study Preview not to contaminate learner state/history/aggregates/preferences. Current `main` does not contain the old PR #119 Admin Study Preview implementation. That implementation depended on the rejected permanent `studySelectionId` / legacy Review architecture and is intentionally **not** transplanted here.
+`test/learner-fsrs-free-study.test.js` also applies `0019 → 0020 → 0021 → 0022` in order. A focused regression assertion requires both active-Review deletion guards to coexist:
 
-No Part E code is reachable from an Admin Preview surface, and this tranche does not add a new Preview persistence path. The implementation-readiness contract separately assigns the learner runtime cutover to keep Admin Study Preview outside learner SRS persistence. When a Production Admin Study Preview surface is selectively transplanted or rebuilt, that checkpoint must add executable contamination regression coverage before learner runtime cutover is accepted.
+- `active_reviews_scheduled_completion_expiry_guard` from Part D; and
+- `active_reviews_free_completion_expiry_guard` from Part E.
+
+The specialized Free Study workflow includes `drizzle/0021_learner_fsrs_scheduled_completion.sql` in its path trigger, so future changes to the Part-D completion migration retrigger the Part-E focused contracts, benchmark, and real workerd/D1 smoke.
+
+## Admin Study Preview boundary and tranche ownership
+
+The programme invariant remains that Admin Study Preview must not contaminate learner state/history/aggregates/preferences or other learner Review persistence. Current `main` does not contain the old PR #119 Production Admin Study Preview implementation. That implementation depended on the rejected permanent `studySelectionId` / legacy Review architecture and is intentionally **not** transplanted here.
+
+`LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md` is the registered normative tranche-ownership authority for conflicts in the PR #101 technical design/readiness chain. It now explicitly supersedes the technical design's PR-E bullet `Admin Preview contamination tests` **as a PR-E acceptance requirement** and assigns the executable contamination proof to the learner runtime cutover checkpoint, when the accepted Production Admin Study Preview surface is selectively transplanted or rebuilt.
+
+This does not weaken the invariant. Cutover remains blocked until the real Preview surface has executable regression coverage proving it does not mutate learner FSRS/Free state, history, aggregates, preferences, active learner Reviews, or completion receipts. PR E documents that no current accepted Admin Preview surface can reach its new persistence functions; absence of a Preview surface is not treated as the final contamination test.
 
 ## Focused validation ownership
 
 `test/learner-fsrs-free-study.test.js` covers:
 
 - Drizzle Kit registration of the Part-E receipt schema;
+- current A–D migration ordering before Part E and coexistence of the Scheduled/Free active-Review deletion guards;
 - Expanded OFF default and scheduler-free Free descriptor shape;
 - seven-day short-lived receipt schema/account cascade;
 - completion after ordinary Admin Case deactivation;
@@ -111,7 +123,7 @@ No Part E code is reachable from an Admin Preview surface, and this tranche does
 
 - migration history validation;
 - focused bootstrap/run-planner/Part-E/benchmark contracts;
-- the representative Part-E Free completion/receipt benchmark;
+- the representative Part-E Free completion/receipt benchmark against the current A–D schema plus Part E;
 - the real repository-pinned Wrangler/workerd + local D1 Free completion smoke.
 
 The workerd/D1 smoke proves:
