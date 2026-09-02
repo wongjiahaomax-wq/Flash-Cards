@@ -31,6 +31,7 @@
     "fsrs:run-benchmark": "node scripts/learner-fsrs-run-benchmark.mjs",
     "fsrs:run-d1-benchmark": "node scripts/learner-fsrs-run-d1-benchmark.mjs",
     "fsrs:active-review-benchmark": "node scripts/learner-fsrs-active-review-benchmark.mjs",
+    "fsrs:active-review-d1-smoke": "node scripts/learner-fsrs-active-review-d1-smoke.mjs",
     "fsrs:worker-smoke": "node scripts/learner-fsrs-worker-smoke.mjs",
     "fsrs:workerd-smoke": "node scripts/learner-fsrs-workerd-smoke.mjs",
     "local:setup": "node scripts/refresh-local-replica.mjs setup",
