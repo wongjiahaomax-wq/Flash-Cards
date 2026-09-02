@@ -47,13 +47,14 @@ function databaseErrorMessage(cause) {
 }
 
 /** @param {import('./index.js').LearningDb} db @param {string} userId @param {string} reviewId */
-async function readReceipt(db, userId, reviewId) {
+async function readUnexpiredReceipt(db, userId, reviewId) {
   const rows = await db
     .select()
     .from(freeReviewCompletionReceipts)
     .where(and(
       eq(freeReviewCompletionReceipts.id, reviewId),
-      eq(freeReviewCompletionReceipts.userId, userId)
+      eq(freeReviewCompletionReceipts.userId, userId),
+      sql`${freeReviewCompletionReceipts.expiresAt} > ${DATABASE_NOW_MS}`
     ))
     .limit(1);
   return rows[0] ?? null;
@@ -121,20 +122,20 @@ export async function completeFreeReview(input) {
     throw new FreeReviewCompletionError('invalid-input', 'Free completion time is invalid.');
   }
 
-  const existingReceipt = await readReceipt(input.db, userId, reviewId);
+  const existingReceipt = await readUnexpiredReceipt(input.db, userId, reviewId);
   if (existingReceipt) {
     return { status: 'replayed', ...completionResponse(existingReceipt) };
   }
 
   const activeReview = await readCompletableActiveReview(input.db, userId, reviewId);
   if (!activeReview) {
-    const racedReceipt = await readReceipt(input.db, userId, reviewId);
+    const racedReceipt = await readUnexpiredReceipt(input.db, userId, reviewId);
     if (racedReceipt) {
       return { status: 'replayed', ...completionResponse(racedReceipt) };
     }
     throw new FreeReviewCompletionError(
       'unavailable',
-      'No unexpired active Free Review is available to complete.'
+      'No unexpired active Free Review or retry receipt is available to complete.'
     );
   }
   if (!activeReview.revealedAt) {
@@ -204,16 +205,16 @@ export async function completeFreeReview(input) {
   try {
     await client.batch(writes);
   } catch (cause) {
-    const committed = await readReceipt(input.db, userId, reviewId);
+    const committed = await readUnexpiredReceipt(input.db, userId, reviewId);
     if (committed) {
       return { status: 'replayed', ...completionResponse(committed) };
     }
     throw mappedWriteError(cause);
   }
 
-  const receipt = await readReceipt(input.db, userId, reviewId);
+  const receipt = await readUnexpiredReceipt(input.db, userId, reviewId);
   if (!receipt) {
-    throw new Error('Free Review completion committed without a retry receipt.');
+    throw new Error('Free Review completion committed without an unexpired retry receipt.');
   }
   return { status: 'completed', ...completionResponse(receipt) };
 }
