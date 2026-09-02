@@ -124,6 +124,7 @@ export async function runStudyRunDescriptorBenchmark(options = {}) {
   });
   const { due, fresh } = syntheticEntries(dueCount, newCount);
 
+  /** @param {number} proofChunkSize */
   const buildDescriptor = async (proofChunkSize) => {
     const [dueProofs, newProofs] = await Promise.all([
       issueCapturedMembershipProofs({
@@ -198,6 +199,7 @@ export async function runStudyRunDescriptorBenchmark(options = {}) {
   const chosen = await buildDescriptor(chunkSize);
   const perEntry = await buildDescriptor(1);
 
+  /** @param {Awaited<ReturnType<typeof buildDescriptor>>} descriptor */
   const measure = (descriptor) => {
     const serialized = JSON.stringify(descriptor);
     const stringifyTimes = [];
