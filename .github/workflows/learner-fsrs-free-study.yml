@@ -3,12 +3,14 @@ name: Learner FSRS Free Study D1 smoke
 on:
   pull_request:
     paths:
+      - 'package.json'
       - 'package-lock.json'
       - 'wrangler.jsonc'
       - 'drizzle/0019_learner_fsrs_foundation.sql'
       - 'drizzle/0020_learner_fsrs_active_reviews.sql'
       - 'drizzle/0022_learner_fsrs_free_study.sql'
       - 'drizzle.config.js'
+      - 'scripts/learner-fsrs-free-study-benchmark.mjs'
       - 'scripts/learner-fsrs-free-study-d1-smoke.mjs'
       - 'scripts/learner-fsrs-free-study-d1-smoke-worker.js'
       - 'src/lib/server/db/index.js'
@@ -24,6 +26,7 @@ on:
       - 'test/learner-fsrs-bootstrap.test.js'
       - 'test/learner-fsrs-run-planner.test.js'
       - 'test/learner-fsrs-free-study.test.js'
+      - 'test/learner-fsrs-free-study-benchmark.test.js'
       - '.github/workflows/learner-fsrs-free-study.yml'
 
 permissions:
@@ -50,7 +53,10 @@ jobs:
         run: npm run db:check
 
       - name: Run focused Free Study contracts
-        run: node --test test/learner-fsrs-bootstrap.test.js test/learner-fsrs-run-planner.test.js test/learner-fsrs-free-study.test.js
+        run: node --test test/learner-fsrs-bootstrap.test.js test/learner-fsrs-run-planner.test.js test/learner-fsrs-free-study.test.js test/learner-fsrs-free-study-benchmark.test.js
+
+      - name: Measure Free completion and receipt cleanup cost
+        run: npm run fsrs:free-study-benchmark -- --completions=1000 --cleanup-limit=100
 
       - name: Run Free completion and lifecycle races through local workerd and D1
         run: node scripts/learner-fsrs-free-study-d1-smoke.mjs
