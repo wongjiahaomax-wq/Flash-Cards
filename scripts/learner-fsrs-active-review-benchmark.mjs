@@ -108,6 +108,32 @@ export function buildActiveReviewBenchmarkSnapshot(questionCount, textBytes, ass
   };
 }
 
+/**
+ * Find the densest generated fixture below the application byte ceiling. The
+ * 512-byte target headroom avoids relying on an exact JSON-byte coincidence.
+ *
+ * @param {number} questionCount
+ * @param {number} assetCount
+ */
+function buildNearLimitSnapshot(questionCount, assetCount) {
+  const target = MAX_ACTIVE_REVIEW_SNAPSHOT_BYTES - 512;
+  let low = 1;
+  let high = MAX_ACTIVE_REVIEW_SNAPSHOT_BYTES;
+  let best = buildActiveReviewBenchmarkSnapshot(questionCount, low, assetCount);
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const candidate = buildActiveReviewBenchmarkSnapshot(questionCount, middle, assetCount);
+    const bytes = activeReviewSnapshotBytes(candidate);
+    if (bytes <= target) {
+      best = candidate;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return best;
+}
+
 /** @param {DatabaseSync} db @param {ReturnType<typeof buildActiveReviewBenchmarkSnapshot>} snapshot */
 function persistSnapshot(db, snapshot) {
   const reviewId = 'active-benchmark';
@@ -177,18 +203,20 @@ function databaseBytes(db) {
 /**
  * PR C's executable evidence uses a normalized snapshot rather than one large
  * JSON row. `productionLike` is a deliberately dense current-model fixture;
- * `supportedLarge` approaches the explicit application envelope. A local
- * production-content replica can be measured separately by passing its frozen
- * snapshot through `measureActiveReviewSnapshot` without weakening this limit.
+ * the default `supportedLarge` fixture is fitted to within 512 bytes of the
+ * exact application support ceiling while using maximum question/asset counts.
+ * A local production-content replica can be measured separately using the same
+ * exported snapshot-size helpers without weakening this fixed support limit.
  *
  * @param {{questionCount?:number,assetCount?:number,targetBytes?:number}} [options]
  */
 export function runActiveReviewBenchmark(options = {}) {
   const questionCount = options.questionCount ?? MAX_ACTIVE_REVIEW_QUESTIONS;
   const assetCount = options.assetCount ?? MAX_ACTIVE_REVIEW_ASSETS;
-  const targetBytes = options.targetBytes ?? 460 * 1024;
   const productionLike = buildActiveReviewBenchmarkSnapshot(40, 96 * 1024, 12);
-  const supportedLarge = buildActiveReviewBenchmarkSnapshot(questionCount, targetBytes, assetCount);
+  const supportedLarge = options.targetBytes == null
+    ? buildNearLimitSnapshot(questionCount, assetCount)
+    : buildActiveReviewBenchmarkSnapshot(questionCount, options.targetBytes, assetCount);
   const productionLikeBytes = assertActiveReviewSnapshotSupported(productionLike);
   const supportedBytes = assertActiveReviewSnapshotSupported(supportedLarge);
 
@@ -237,6 +265,7 @@ export function runActiveReviewBenchmark(options = {}) {
       fixtures: {
         productionLikeBytes,
         supportedLargeBytes: supportedBytes,
+        supportedLargeHeadroomBytes: MAX_ACTIVE_REVIEW_SNAPSHOT_BYTES - supportedBytes,
         oversizedBytes: activeReviewSnapshotBytes(oversized),
         oversizedRejected
       },
