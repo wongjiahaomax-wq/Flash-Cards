@@ -5,9 +5,12 @@ import { caseConcepts, cases } from './schema.js';
 import { caseTags, systemTags, tags } from './tag-schema.js';
 import {
   buildSystemStudyNavigation,
+  normalizeSystemStudySelectionRoutes,
   resolveSystemStudyCandidates,
+  resolveSystemStudySelectionCandidates,
   routeBelongsToSystem,
-  type SystemRouteType
+  type SystemRouteType,
+  type SystemStudySelectionRoute
 } from '../learning/system-study-routes.ts';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
@@ -76,8 +79,27 @@ export async function loadStudyNavigationSnapshot(db: import('./index.js').Learn
   return { concepts: conceptRows, caseTopicRows, caseTagRows, systemTagRows };
 }
 
-export async function listStudySystems(db: import('./index.js').LearningDb) {
+/**
+ * PR B's systems-first chooser needs exact Topic counts plus subtree counts.
+ * Keep that richer read model separate from the current single-route learner
+ * page until the later runtime cutover.
+ */
+export async function listSystemStudySelectionSystems(db: import('./index.js').LearningDb) {
   return buildSystemStudyNavigation(await loadStudyNavigationSnapshot(db));
+}
+
+/**
+ * Legacy single-Topic navigation remains descendant-inclusive. Preserve its
+ * existing displayed count while PR B remains an unwired planning tranche.
+ */
+export async function listStudySystems(db: import('./index.js').LearningDb) {
+  return (await listSystemStudySelectionSystems(db)).map((system) => ({
+    ...system,
+    topics: system.topics.map((topic) => ({
+      ...topic,
+      caseCount: topic.subtreeCaseCount
+    }))
+  }));
 }
 
 export async function listSystemEligibleCases(
@@ -107,4 +129,19 @@ export async function listSystemEligibleCases(
     routeType: input.routeType,
     routeId
   });
+}
+
+export async function resolveSystemStudySelection(
+  db: import('./index.js').LearningDb,
+  input: { systemId: string; routes: readonly SystemStudySelectionRoute[] }
+) {
+  const systemId = String(input.systemId ?? '').trim();
+  if (!systemId) throw new StudyNavigationInputError('A study System is required.');
+  const snapshot = await loadStudyNavigationSnapshot(db);
+  const routes = normalizeSystemStudySelectionRoutes({ ...snapshot, systemId, routes: input.routes });
+  return {
+    systemId,
+    routes,
+    candidates: resolveSystemStudySelectionCandidates({ ...snapshot, systemId, routes })
+  };
 }

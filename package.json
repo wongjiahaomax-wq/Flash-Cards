@@ -28,6 +28,8 @@
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "fsrs:preflight": "node scripts/learner-fsrs-preflight.mjs",
     "fsrs:benchmark": "node scripts/learner-fsrs-benchmark.mjs",
+    "fsrs:run-benchmark": "node scripts/learner-fsrs-run-benchmark.mjs",
+    "fsrs:run-d1-benchmark": "node scripts/learner-fsrs-run-d1-benchmark.mjs",
     "fsrs:worker-smoke": "node scripts/learner-fsrs-worker-smoke.mjs",
     "fsrs:workerd-smoke": "node scripts/learner-fsrs-workerd-smoke.mjs",
     "local:setup": "node scripts/refresh-local-replica.mjs setup",
