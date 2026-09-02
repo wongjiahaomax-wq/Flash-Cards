@@ -104,4 +104,26 @@ Therefore PR B adds no learner runtime cutover, migration, Production mutation, 
 
 Before the branch write, the proof module plus proof/representation benchmark tests were executed in an isolated Node mirror of the exact draft code: **5/5 passed**. The representative browser/proof benchmark above was also executed from that exact draft code.
 
-This is not a claim that repository-wide validation ran locally. Remote GitHub CI remains authoritative for the branch; exact-head CI evidence should be appended after the Draft PR is checked.
+This is not a claim that repository-wide validation ran locally. Remote GitHub CI is authoritative for the branch.
+
+## 9. GitHub validation of the completed implementation head
+
+The completed implementation head before this evidence-only documentation update was:
+
+```text
+9bcfa8182fbaef4900d8bff0e16913fccd617bd2
+```
+
+At that exact head, all PR-triggered validation workflows completed successfully:
+
+```text
+CI #1576                         SUCCESS
+Wrangler runtime smoke #261     SUCCESS
+Learner FSRS workerd smoke #11  SUCCESS
+```
+
+The earlier CI correction cycle had already established that the repository fast-test suite reached **714/714 passing tests**; the remaining failures at that earlier head were only `noImplicitAny` diagnostics in newly added benchmark/test helper parameters. Those typing diagnostics were corrected before `9bcfa8182fbaef4900d8bff0e16913fccd617bd2`, after which the three exact-head workflows above passed.
+
+No migration, deployment, Production D1/R2 mutation, learner Review runtime cutover, or Ready-for-Review transition was performed as part of PR B implementation.
+
+This section records validation of the implementation head. Because adding this evidence is itself a documentation-only commit, it necessarily creates a later PR head; an independent reviewer should review the actual current PR head and may use the workflow status attached to that later head as the final executable check.
