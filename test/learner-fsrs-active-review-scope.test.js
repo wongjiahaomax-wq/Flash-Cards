@@ -30,6 +30,7 @@ function database() {
   return db;
 }
 
+/** @param {DatabaseSync} db @param {string} scopeJson */
 function insertFreeReview(db, scopeJson) {
   db.prepare(`
     INSERT INTO active_reviews (
