@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 1 September 2026_
+_Last reviewed: 2 September 2026_
 
 This index identifies the documents that describe current repository behavior, operational contracts, pending designs, and historical/implementation records.
 
@@ -203,11 +203,15 @@ This is future intent, not current executable learner scheduling behavior.
 
 **Required final implementation-readiness addendum.** Read it with the technical design before PR A. It narrows the remaining technical boundaries for the explicit legacy-runtime cutover owner, synchronous expired-active replacement, server-clock authority, lazy first-learner bootstrap, scheduler-revision upgrades, optimizer-rescheduling deferral, historical System identity, Scheduled idempotency conflict reconciliation, browser/localStorage workload limits, repeat-waiting/deactivation lifecycle semantics, and removable learner contribution to future time-series analytics.
 
-If either technical document conflicts with the locked product plan on product behavior, the product plan wins. Where the readiness contract adds narrower implementation specificity to a boundary left open by the technical design, the readiness contract controls that technical boundary.
+### `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md`
 
-None of these three documents is authorization to deploy, apply Production migrations, run the destructive cutover, or enable learner behavior.
+**Normative implementation-readiness amendment for focused tranche ownership.** Read it with the technical design and readiness contract for PR C and every later FSRS implementation tranche. It preserves the programme's lifecycle/concurrency invariants while correcting which focused PR owns the completion, Free-completion, and Reset/Fresh sides of cross-operation proofs.
 
-Do not use an older simple-scheduler / Again-Good-only plan or a historical “FSRS later” statement as authority over these three documents.
+If any of these technical documents conflicts with the locked product plan on product behavior, the product plan wins. Where the readiness contract adds narrower implementation specificity to a boundary left open by the technical design, the readiness contract controls that technical boundary. **For tranche ownership only**, `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md` supersedes conflicting PR-assignment language in the technical design/readiness contract; it does not otherwise supersede or weaken those documents.
+
+None of these four documents is authorization to deploy, apply Production migrations, run the destructive cutover, or enable learner behavior.
+
+Do not use an older simple-scheduler / Again-Good-only plan or a historical “FSRS later” statement as authority over these four documents.
 
 ## Stimulus behavior
 
