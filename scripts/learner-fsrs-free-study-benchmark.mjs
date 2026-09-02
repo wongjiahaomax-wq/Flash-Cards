@@ -158,7 +158,7 @@ function completeFreeBundle(db, reviewId, completedAt) {
   }
 }
 
-/** @param {DatabaseSync} db */
+/** @param {DatabaseSync} db @param {string} databasePath */
 function databaseBytes(db, databasePath) {
   db.exec('PRAGMA wal_checkpoint(TRUNCATE); VACUUM;');
   return statSync(databasePath).size;
@@ -312,6 +312,7 @@ export function runFreeStudyBenchmark(options = {}) {
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+  /** @param {string} name @param {number} fallback */
   const parseNumber = (name, fallback) => {
     const prefix = `--${name}=`;
     const argument = process.argv.slice(2).find((value) => value.startsWith(prefix));
