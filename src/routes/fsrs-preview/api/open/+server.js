@@ -5,14 +5,11 @@ import {
   getActiveReview
 } from '$lib/server/db/active-reviews.js';
 import { beginFreeWork, selectNextFreeWork } from '$lib/free-study-run.js';
-import {
-  isFsrsPreviewRunDescriptor,
-  isFsrsPreviewRunOwnedBy
-} from '$lib/fsrs-preview-run-storage.js';
 import { beginScheduledWork, selectNextScheduledWork } from '$lib/scheduled-study-run.js';
 import {
   LOCAL_FSRS_PREVIEW_PROOF_SECRET,
-  isLocalFsrsPreviewRequest
+  isLocalFsrsPreviewRequest,
+  validateLocalFsrsPreviewRunOwner
 } from '$lib/server/learning/local-fsrs-preview.js';
 
 /** @param {unknown} body @param {number} [status] */
@@ -35,12 +32,9 @@ export async function POST({ locals, platform, request, url }) {
   } catch {
     return json({ message: 'Invalid preview run payload.' }, 400);
   }
-  if (!isFsrsPreviewRunDescriptor(descriptor)) {
-    return json({ message: 'Preview run descriptor is invalid or unsupported.' }, 400);
-  }
-  if (!isFsrsPreviewRunOwnedBy(descriptor, locals.user.id)) {
-    return json({ message: 'This preview run belongs to another learner. Plan a new run for the signed-in account.' }, 403);
-  }
+  const ownership = validateLocalFsrsPreviewRunOwner(descriptor, locals.user.id);
+  if (!ownership.ok) return json({ message: ownership.message }, ownership.status);
+  descriptor = ownership.descriptor;
 
   const db = createDb(platform.env.DB);
   const existing = await getActiveReview(db, locals.user.id);
