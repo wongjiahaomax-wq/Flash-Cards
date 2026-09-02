@@ -22,11 +22,13 @@ PR B deliberately does **not** port permanent selection tables, `study_selection
 
 The reusable chooser accepts an explicit `scheduled` or `free` mode and has no question-set selector. Expanded Learning remains the persistent learner preference established by Part A.
 
-## 2. Run descriptor ownership
+## 2. Run descriptor ownership and resume cursors
 
 For Scheduled Study, at one server-generated `runStartedAt`, the planner normalizes/resolves the selected scope, bootstraps the learner preference/profile boundary, reads learner FSRS and compact encounter state without an N+1 query, partitions selected Cases into Due/New/not-due, orders Due by lowest FSRS retrievability, orders New as shuffled unseen then shuffled previously-encountered groups, creates one authenticated run boundary, attaches authenticated Due/New membership evidence, and initializes repeat/completed/current-Review/consecutive-New browser state.
 
 Currently not-due Cases are absent from the captured workload. Due/New preference and Expanded Learning values in the descriptor are convenience snapshots; D1 preferences remain the cross-device owner.
+
+The Scheduled descriptor has explicit `duePosition = 0` and `newPosition = 0` cursors. `capturedDue` and `capturedNew` are immutable captured-order arrays. Later browser runtime work advances the relevant cursor as it scans work; skipping a stale/revalidated-away entry can therefore advance a cursor without falsely adding that Case to `completedCaseIds`. Serialize → browser storage → read → parse preserves both positions and the captured arrays.
 
 The Free descriptor contains the same normalized scope plus one deduplicated shuffled Case bag, position, current Review reference, and Expanded Learning preference snapshot. It does not initialize/read FSRS profile/state and contains no scheduler proof.
 
@@ -46,36 +48,59 @@ Verification rejects wrong learner, bad signature, cross-run/boundary/scope repl
 
 The descriptor initializes `consecutiveNewCompleted = 0`. This is browser UX state only. PR B adds no server counter, replay ledger, run/session row, or authorization dependence for the 50-New rule.
 
-## 5. Browser/proof benchmark
+## 5. Browser/proof benchmark and supported Scheduled envelope
 
-PR B adds:
+PR B retains the Node companion command:
 
 ```bash
 npm run fsrs:run-benchmark
 ```
 
-It uses the actual proof implementation and actual systems-first selection resolver, comparing the chosen chunk representation with equivalent per-entry capabilities.
+It now builds the production Scheduled descriptor shape through `buildScheduledStudyRunDescriptor(...)`, uses the actual proof implementation and systems-first selection resolver, and compares the chosen 64-entry chunk representation with per-entry capabilities. It is a representation/serialization companion, not the browser acceptance gate.
 
-An implementation-time run of the exact proof/serialization code for 1,000 Due + 4,000 New (5,000 total) measured:
+PR B also adds a dedicated GitHub Actions workflow, **Learner FSRS browser benchmark**, which installs a pinned ephemeral Playwright runner and real Chromium without adding Playwright to the application dependency or lockfile surface. The benchmark writes the actual serialized Scheduled descriptor to `localStorage`, reads it back, parses it, verifies the Due/New cursors and captured membership counts, and probes the same origin until Chromium returns `QuotaExceededError`.
+
+### Supported Scheduled maximum and fail-closed boundary
+
+PR B establishes an explicit maximum of **20,000 selected Cases per Scheduled run**.
+
+The server-side systems-first planning boundary checks this immediately after authoritative selection resolution and **before** lazy FSRS profile/preference bootstrap or learner FSRS/encounter reads. `20,001` selected Cases therefore fails with `selection-too-large` before a run descriptor or learner progress can begin. The pure planner repeats the same guard defensively.
+
+This is an application support boundary, not an assertion that every browser has an identical storage quota.
+
+### Exact Chromium evidence
+
+At correction head:
 
 ```text
-64-entry chunks:
-  descriptor bytes: 395,549
-  proof count:       79
-  proof bytes:       150,562
-  max one proof:     3,016 bytes
-
-one proof per entry:
-  descriptor bytes: 1,824,809
-  proof count:       5,000
-  proof bytes:       1,556,000
-  max one proof:     328 bytes
-
-chunked/per-entry descriptor ratio: ~0.217
-chunked/per-entry proof-byte ratio: ~0.097
+06c788ea2930a2e6cd8b183946ef5f9c5c9093de
 ```
 
-The same run measured roughly 1 ms-class JSON serialization/parsing for the chunked descriptor in the implementation environment. These are Node UTF-8 serialization numbers, **not** a universal browser quota or Cloudflare latency claim. The executable benchmark also reports actual selection-resolver timing wherever it is run.
+**Learner FSRS browser benchmark #1** passed on Chromium `140.0.7339.16` with these measurements:
+
+```text
+Representative: 1,000 Due + 4,000 New
+  response/descriptor UTF-8 bytes: 396,648
+  serialized characters:           396,648
+  median localStorage write:        0.7 ms
+  median localStorage read:         0.0 ms at browser timer resolution
+  median JSON parse:                0.7 ms
+
+Worst-supported: 20,000 Due + 0 New
+  response/descriptor UTF-8 bytes: 2,581,068
+  serialized characters:           2,581,068
+  median localStorage write:        7.2 ms
+  median localStorage read:         0.0 ms at browser timer resolution
+  median JSON parse:                6.1 ms
+
+Quota probe on the same Chromium origin
+  characters stored before QuotaExceededError: 5,111,808
+  approximate UTF-16 payload bytes:             10,223,616
+```
+
+The worst-supported all-Due descriptor is deliberately more storage-heavy than a New-only descriptor because each captured Due entry carries state-revision/due metadata as well as proof membership indexing. Chromium successfully persisted and restored that descriptor before the quota probe was run.
+
+The quota number is evidence for this GitHub runner/browser combination only. It is **not** a universal Chrome, Safari, Firefox, mobile, OS, or private-mode quota promise. The product safety boundary is the explicit 20,000-Case server guard plus fail-closed handling before learner progress starts.
 
 ## 6. D1-compatible planning-read benchmark
 
@@ -102,19 +127,28 @@ Therefore PR B adds no learner runtime cutover, migration, Production mutation, 
 
 ## 8. Focused implementation-time checks
 
-Before the branch write, the proof module plus proof/representation benchmark tests were executed in an isolated Node mirror of the exact draft code: **5/5 passed**. The representative browser/proof benchmark above was also executed from that exact draft code.
+Before the initial branch write, the proof module plus proof/representation benchmark tests were executed in an isolated Node mirror of the then-current draft code: **5/5 passed**.
 
-This is not a claim that repository-wide validation ran locally. Remote GitHub CI is authoritative for the branch.
+The correction adds repository tests proving:
 
-## 9. GitHub validation of the completed implementation head
+- 20,000 Scheduled Cases are accepted by the support-boundary guard;
+- 20,001 are rejected with `selection-too-large`;
+- Scheduled descriptors initialize `duePosition` and `newPosition` at zero;
+- serialize/parse preserves those cursors and immutable captured order;
+- advancing a cursor does not imply completion;
+- the synthetic benchmark uses the real production Scheduled descriptor shape.
 
-The completed implementation head before this evidence-only documentation update was:
+Remote GitHub CI remains authoritative for repository-wide validation.
+
+## 9. GitHub validation history
+
+The original completed implementation head was:
 
 ```text
 9bcfa8182fbaef4900d8bff0e16913fccd617bd2
 ```
 
-At that exact head, all PR-triggered validation workflows completed successfully:
+At that exact head:
 
 ```text
 CI #1576                         SUCCESS
@@ -122,8 +156,23 @@ Wrangler runtime smoke #261     SUCCESS
 Learner FSRS workerd smoke #11  SUCCESS
 ```
 
-The earlier CI correction cycle had already established that the repository fast-test suite reached **714/714 passing tests**; the remaining failures at that earlier head were only `noImplicitAny` diagnostics in newly added benchmark/test helper parameters. Those typing diagnostics were corrected before `9bcfa8182fbaef4900d8bff0e16913fccd617bd2`, after which the three exact-head workflows above passed.
+After the independent-review correction for the browser benchmark gate and Scheduled resume cursors, exact correction head:
 
-No migration, deployment, Production D1/R2 mutation, learner Review runtime cutover, or Ready-for-Review transition was performed as part of PR B implementation.
+```text
+06c788ea2930a2e6cd8b183946ef5f9c5c9093de
+```
 
-This section records validation of the implementation head. Because adding this evidence is itself a documentation-only commit, it necessarily creates a later PR head; an independent reviewer should review the actual current PR head and may use the workflow status attached to that later head as the final executable check.
+passed:
+
+```text
+CI #1580                              SUCCESS
+Wrangler runtime smoke #265          SUCCESS
+Learner FSRS workerd smoke #15       SUCCESS
+Learner FSRS browser benchmark #1    SUCCESS
+```
+
+The browser benchmark #1 values recorded in Section 5 come from that exact correction-head workflow log.
+
+No migration, deployment, Production D1/R2 mutation, learner Review runtime cutover, merge, or Ready-for-Review transition was performed as part of these corrections.
+
+This evidence update is documentation-only and therefore creates a later PR head. The independent reviewer should review the actual current head, use `d0d303e1d4bb722c710abcc38c18d69b4d366f14 → 06c788ea2930a2e6cd8b183946ef5f9c5c9093de` as the bounded implementation-correction delta, and verify the workflows attached to the final evidence head as the last executable gate.
