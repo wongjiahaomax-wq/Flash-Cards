@@ -22,6 +22,7 @@ export const freeReviewCompletionReceipts = sqliteTable(
       table.userId,
       table.id
     ),
+    index('free_review_completion_receipts_user_idx').on(table.userId, table.id),
     check(
       'free_review_completion_receipts_count_check',
       sql`${table.resultingFreeTimesStudied} >= 1`
