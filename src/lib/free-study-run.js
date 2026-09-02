@@ -7,6 +7,8 @@ export class FreeStudyRunError extends Error {
   }
 }
 
+/** @typedef {{status:'ready',caseId:string}|{status:'complete'}} FreeWorkSelection */
+
 /** @param {any} descriptor */
 function assertDescriptor(descriptor) {
   if (!descriptor || descriptor.kind !== 'free' || descriptor.version !== 1 || !Array.isArray(descriptor.bag)) {
@@ -14,7 +16,7 @@ function assertDescriptor(descriptor) {
   }
 }
 
-/** @param {any} descriptor */
+/** @param {any} descriptor @returns {FreeWorkSelection} */
 export function selectNextFreeWork(descriptor) {
   assertDescriptor(descriptor);
   if (descriptor.currentReviewId) {
