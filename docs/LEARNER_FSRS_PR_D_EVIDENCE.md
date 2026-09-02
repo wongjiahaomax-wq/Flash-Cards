@@ -49,6 +49,14 @@ The transition is prepared from the exact active Review boundary and the current
 
 The successful write increments the Case state revision once and records the resulting state and next Due time in the durable event.
 
+The real workerd + local-D1 validation owns all three Scheduled completion queue branches:
+
+- **New** — initializes the learner × Case state at revision 1;
+- **Due** — starts from a pre-existing mature FSRS state, advances optimizer sequence 1 → 2, updates the existing learner × Case row at revision 1 → 2, records matching event result state/Due evidence, and consumes the active Review exactly once;
+- **Repeat** — starts from a pre-existing matured short-term FSRS state, advances optimizer sequence 1 → 2, updates that same learner × Case row at revision 1 → 2, records matching event result state/Due evidence, and consumes the active Review exactly once.
+
+The Due/Repeat smoke seeds the durable footprint of an earlier Scheduled completion while deliberately omitting its human-readable event row, which is a legitimate retained-state shape after detailed-history pruning. The compact optimizer evidence, encounter marker, lifetime aggregates, and current FSRS state therefore prove the writer's update path rather than a second New initialization.
+
 ## 3. Frozen Review and expiry authority
 
 Ordinary Admin Case deactivation after the Review was frozen does not retroactively cancel that Review. Scheduled completion therefore does not re-read current Case eligibility as authority to invalidate already-frozen content.
@@ -96,6 +104,8 @@ A result enters the browser-local repeat lane only when the resulting FSRS state
 
 Repeat maturity is evaluated using a server-supplied timestamp. There is deliberately no browser-clock fallback. Matured authenticated repeats take priority over captured Due/New work.
 
+The real Repeat-completion D1 fixture begins from a matured short-term FSRS state rather than a New card, so migration `0021`'s existing-state `queue_class = 'repeat'` guard and the writer's update branch are exercised end to end.
+
 ## 7. Browser-local run behavior
 
 `src/lib/scheduled-study-run.js` keeps ordinary navigation state browser-local and bounded:
@@ -121,9 +131,24 @@ The dedicated workflow `.github/workflows/learner-fsrs-scheduled-completion.yml`
 npm run db:check
 node --test test/learner-fsrs-scheduled-completion.test.js test/learner-fsrs-scheduled-run.test.js
 node scripts/learner-fsrs-scheduled-completion-d1-smoke.mjs
+node scripts/learner-fsrs-scheduled-due-repeat-d1-smoke.mjs
 ```
 
-The D1 smoke applies the complete repository migration history to an isolated **local** D1 database, bundles the real implementation under workerd, invokes the actual Scheduled completion writer, and verifies durable post-race counts. General CI, the repository Wrangler runtime smoke, and the learner FSRS browser benchmark remain additional handoff checks for this tranche.
+The first D1 smoke applies the complete repository migration history to an isolated **local** D1 database, bundles the real implementation under workerd, invokes the actual New Scheduled completion writer, and verifies idempotency plus completion-versus-Discard/cleanup race behavior.
+
+The second D1 smoke independently applies the same migration chain and invokes the actual writer for **Due and Repeat over pre-existing FSRS state**. It requires:
+
+- event `queue_class` to match the completed branch;
+- optimizer `sequence_no` to advance from 1 to 2;
+- resulting event and current-state `state_revision` to advance from 1 to 2;
+- durable event state and Due time to equal the returned committed result;
+- exactly one current learner × Case row and encounter row;
+- lifetime and System Scheduled aggregates to advance from 1 to 2;
+- zero active Reviews after successful completion.
+
+Because the lifecycle-race smoke directly imports `discardActiveReview()` and `cleanupExpiredActiveReviews()`, `src/lib/server/db/active-reviews.js` is explicitly included in the specialized workflow path filter. A later lifecycle-writer change therefore reruns the Part-D completion-versus-Discard/cleanup integration rather than relying only on the Part-C workflow.
+
+General CI, the repository Wrangler runtime smoke, and the learner FSRS browser benchmark remain additional handoff checks for this tranche.
 
 No validation command in this document authorizes a remote migration, deployment, or Production D1/R2 mutation.
 
