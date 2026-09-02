@@ -5,7 +5,7 @@
   import SignOutButton from '$lib/components/SignOutButton.svelte';
   import {
     clearFsrsPreviewRun,
-    readFsrsPreviewRun,
+    readFsrsPreviewRunForUser,
     writeFsrsPreviewRun
   } from '$lib/fsrs-preview-run-storage.js';
 
@@ -16,7 +16,7 @@
   let opening = $state(false);
 
   onMount(() => {
-    browserRun = readFsrsPreviewRun(localStorage);
+    browserRun = readFsrsPreviewRunForUser(localStorage, data.user.id);
   });
 
   $effect(() => {
