@@ -1,0 +1,42 @@
+name: Learner FSRS browser benchmark
+
+on:
+  pull_request:
+    paths:
+      - 'docs/LEARNER_FSRS_PR_B_EVIDENCE.md'
+      - 'scripts/learner-fsrs-run-benchmark.mjs'
+      - 'src/lib/server/db/study-run-planning.js'
+      - 'src/lib/server/learning/study-run-planner.js'
+      - 'test/learner-fsrs-run-benchmark.test.js'
+      - 'test/learner-fsrs-run-planner.test.js'
+      - 'tools/learner-fsrs-browser-benchmark/benchmark.spec.mjs'
+      - '.github/workflows/learner-fsrs-browser-benchmark.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  browser-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Install ephemeral pinned Playwright runner
+        run: npm install --no-save --package-lock=false @playwright/test@1.55.0
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Run real-browser localStorage benchmark
+        run: npx playwright test tools/learner-fsrs-browser-benchmark/benchmark.spec.mjs --reporter=line --workers=1

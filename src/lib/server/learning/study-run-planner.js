@@ -10,10 +10,11 @@ import {
 } from './study-run-proof.js';
 
 export const STUDY_RUN_DESCRIPTOR_VERSION = 1;
+export const MAX_SCHEDULED_STUDY_CASES = 20_000;
 
 export class StudyRunPlanningError extends Error {
   /**
-   * @param {'invalid-input'|'empty-selection'|'state-boundary-mismatch'} code
+   * @param {'invalid-input'|'empty-selection'|'selection-too-large'|'state-boundary-mismatch'} code
    * @param {string} message
    */
   constructor(code, message) {
@@ -58,6 +59,19 @@ export function hasPriorLearnerEncounter(encounter) {
     || encounter.freeLastSeenAt
     || Number(encounter.freeTimesStudied ?? 0) > 0
   );
+}
+
+/** @param {number} candidateCount */
+export function assertScheduledStudySelectionSize(candidateCount) {
+  if (!Number.isInteger(candidateCount) || candidateCount < 0) {
+    throw new StudyRunPlanningError('invalid-input', 'Scheduled Study candidate count must be a non-negative integer.');
+  }
+  if (candidateCount > MAX_SCHEDULED_STUDY_CASES) {
+    throw new StudyRunPlanningError(
+      'selection-too-large',
+      `Scheduled Study supports at most ${MAX_SCHEDULED_STUDY_CASES.toLocaleString('en-US')} selected Cases. Narrow the selection before starting the run.`
+    );
+  }
 }
 
 /** @param {any} row */
@@ -142,6 +156,7 @@ export async function buildScheduledStudyRunDescriptor(input) {
   }
   const runId = input.runId ?? globalThis.crypto.randomUUID();
   const candidates = uniqueCandidates(input.candidates);
+  assertScheduledStudySelectionSize(candidates.length);
   const candidateIds = new Set(candidates.map((candidate) => candidate.id));
   const states = new Map(
     input.states
@@ -260,10 +275,12 @@ export async function buildScheduledStudyRunDescriptor(input) {
       ...entry,
       proofIndex: Math.floor(index / chunkSize)
     })),
+    duePosition: 0,
     capturedNew: newMembership.map((entry, index) => ({
       ...entry,
       proofIndex: Math.floor(index / chunkSize)
     })),
+    newPosition: 0,
     membershipProofs: {
       version: STUDY_RUN_DESCRIPTOR_VERSION,
       chunkSize,

@@ -11,6 +11,7 @@ import {
 import { resolveSystemStudySelection } from './study-navigation.ts';
 import {
   StudyRunPlanningError,
+  assertScheduledStudySelectionSize,
   buildFreeStudyRunDescriptor,
   buildScheduledStudyRunDescriptor
 } from '../learning/study-run-planner.js';
@@ -56,6 +57,10 @@ export async function planScheduledSystemStudyRun(input) {
       'No active study Cases are available for this selection.'
     );
   }
+
+  // This guard intentionally runs before lazy FSRS/preference bootstrap or any
+  // learner-state read. Oversized selections fail before a run can begin.
+  assertScheduledStudySelectionSize(selection.candidates.length);
 
   const [profile, preferences] = await Promise.all([
     ensureLearnerFsrsProfile(input.db, input.userId),

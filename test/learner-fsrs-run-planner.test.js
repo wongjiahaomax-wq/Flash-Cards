@@ -8,7 +8,9 @@ import {
   serializeFsrsParameters
 } from '../src/lib/server/learning/fsrs-scheduler.js';
 import {
+  MAX_SCHEDULED_STUDY_CASES,
   StudyRunPlanningError,
+  assertScheduledStudySelectionSize,
   buildFreeStudyRunDescriptor,
   buildScheduledStudyRunDescriptor
 } from '../src/lib/server/learning/study-run-planner.js';
@@ -52,7 +54,7 @@ function state(caseId, { stability, dueAt, stateRevision = 1 }) {
   };
 }
 
-test('Scheduled planner captures Due/New once, orders risk first, and keeps future state out of the run', async () => {
+test('Scheduled planner captures Due/New once, orders risk first, and initializes explicit queue cursors', async () => {
   const descriptor = await buildScheduledStudyRunDescriptor({
     userId: 'learner',
     systemId: 'cardio',
@@ -93,11 +95,21 @@ test('Scheduled planner captures Due/New once, orders risk first, and keeps futu
   assert.deepEqual(descriptor.capturedDue.map((entry) => entry.caseId), ['due-low', 'due-high']);
   assert.deepEqual(descriptor.capturedNew.map((entry) => entry.caseId), ['new-unseen', 'new-seen']);
   assert.equal(descriptor.capturedDue.some((entry) => entry.caseId === 'future'), false);
+  assert.equal(descriptor.duePosition, 0);
+  assert.equal(descriptor.newPosition, 0);
   assert.deepEqual(descriptor.repeatEntries, []);
   assert.deepEqual(descriptor.completedCaseIds, []);
   assert.equal(descriptor.consecutiveNewCompleted, 0);
   assert.equal(descriptor.scheduledOrder, 'due_first');
   assert.equal(descriptor.expandedLearning, false);
+
+  const resumed = JSON.parse(JSON.stringify(descriptor));
+  assert.equal(resumed.duePosition, 0);
+  assert.equal(resumed.newPosition, 0);
+  resumed.duePosition = 1;
+  assert.deepEqual(resumed.completedCaseIds, []);
+  assert.equal(resumed.capturedDue[0].caseId, 'due-low');
+  assert.equal(resumed.capturedDue[1].caseId, 'due-high');
 
   const firstDue = descriptor.capturedDue[0];
   const verified = await verifyCapturedMembership({
@@ -128,6 +140,17 @@ test('Scheduled planner fails closed when persisted Case state crosses the sched
       runId: 'run-2'
     }),
     (error) => error instanceof StudyRunPlanningError && error.code === 'state-boundary-mismatch'
+  );
+});
+
+test('Scheduled selection limit accepts 20,000 Cases and rejects 20,001 before run planning', () => {
+  assert.doesNotThrow(() => assertScheduledStudySelectionSize(MAX_SCHEDULED_STUDY_CASES));
+  assert.throws(
+    () => assertScheduledStudySelectionSize(MAX_SCHEDULED_STUDY_CASES + 1),
+    (error) =>
+      error instanceof StudyRunPlanningError
+      && error.code === 'selection-too-large'
+      && /20,000/.test(error.message)
   );
 });
 

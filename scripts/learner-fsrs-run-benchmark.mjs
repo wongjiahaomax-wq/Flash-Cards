@@ -1,15 +1,21 @@
 import { pathToFileURL } from 'node:url';
 
-import { resolveSystemStudySelectionCandidates } from '../src/lib/server/learning/system-study-routes.ts';
 import {
-  CAPTURED_MEMBERSHIP_CHUNK_SIZE,
-  fingerprintStudyScope,
-  issueCapturedMembershipProofs,
-  issueScheduledRunBoundaryToken
-} from '../src/lib/server/learning/study-run-proof.js';
+  FSRS_LIBRARY_VERSION,
+  FSRS_SCHEDULER_REVISION,
+  createDefaultFsrsParameters,
+  serializeFsrsParameters
+} from '../src/lib/server/learning/fsrs-scheduler.js';
+import {
+  MAX_SCHEDULED_STUDY_CASES,
+  buildScheduledStudyRunDescriptor
+} from '../src/lib/server/learning/study-run-planner.js';
+import { resolveSystemStudySelectionCandidates } from '../src/lib/server/learning/system-study-routes.ts';
+import { CAPTURED_MEMBERSHIP_CHUNK_SIZE } from '../src/lib/server/learning/study-run-proof.js';
 
 const encoder = new TextEncoder();
 const BENCHMARK_SECRET = 'pr-b-benchmark-only-secret-0123456789abcdefghijklmnopqrstuvwxyz';
+const BENCHMARK_NOW = 1_788_307_200_000;
 
 /** @param {string} value */
 function bytes(value) {
@@ -28,16 +34,66 @@ function caseId(index) {
 }
 
 /** @param {number} dueCount @param {number} newCount */
-function syntheticEntries(dueCount, newCount) {
-  const due = Array.from({ length: dueCount }, (_, index) => ({
-    caseId: caseId(index),
-    stateRevision: 1 + (index % 7),
-    dueAt: 1_788_307_200_000 - (index * 60_000)
-  }));
-  const fresh = Array.from({ length: newCount }, (_, index) => ({
-    caseId: caseId(dueCount + index)
-  }));
-  return { due, fresh };
+function syntheticPlannerInput(dueCount, newCount) {
+  const total = dueCount + newCount;
+  const profile = {
+    generation: 1,
+    reviewSequenceEpoch: 1,
+    parameterRevision: 1,
+    schedulerRevision: FSRS_SCHEDULER_REVISION,
+    schedulerLibraryVersion: FSRS_LIBRARY_VERSION,
+    parametersJson: serializeFsrsParameters(createDefaultFsrsParameters())
+  };
+  return {
+    userId: 'learner-benchmark',
+    systemId: 'system-benchmark',
+    routes: [
+      { routeType: /** @type {const} */ ('topic'), routeId: 'topic-a' },
+      { routeType: /** @type {const} */ ('topic'), routeId: 'topic-b' },
+      { routeType: /** @type {const} */ ('tag'), routeId: 'tag-a' }
+    ],
+    candidates: Array.from({ length: total }, (_, index) => ({ id: caseId(index) })),
+    profile,
+    preferences: { scheduledOrder: /** @type {const} */ ('due_first'), expandedLearning: false },
+    states: Array.from({ length: dueCount }, (_, index) => ({
+      userId: 'learner-benchmark',
+      caseId: caseId(index),
+      dueAt: new Date(BENCHMARK_NOW - (index * 60_000)),
+      stability: 1 + (index % 30),
+      difficulty: 5,
+      state: 2,
+      elapsedDays: 5,
+      scheduledDays: 1,
+      learningSteps: 0,
+      reps: 2,
+      lapses: 0,
+      lastReviewAt: new Date(BENCHMARK_NOW - (5 * 24 * 60 * 60 * 1000)),
+      generation: 1,
+      reviewSequenceEpoch: 1,
+      parameterRevision: 1,
+      schedulerRevision: FSRS_SCHEDULER_REVISION,
+      schedulerLibraryVersion: FSRS_LIBRARY_VERSION,
+      stateRevision: 1 + (index % 7)
+    })),
+    encounters: [],
+    proofSecret: BENCHMARK_SECRET,
+    now: BENCHMARK_NOW,
+    rng: () => 0.5,
+    runId: `run-benchmark-${dueCount}-${newCount}`
+  };
+}
+
+/**
+ * Build the same Scheduled descriptor shape used by production planning, using
+ * synthetic candidates/state solely to make the benchmark deterministic.
+ *
+ * @param {{dueCount:number,newCount:number,chunkSize?:number}} input
+ */
+export async function buildSyntheticScheduledStudyRunDescriptor(input) {
+  return buildScheduledStudyRunDescriptor({
+    ...syntheticPlannerInput(input.dueCount, input.newCount),
+    membershipChunkSize: input.chunkSize ?? CAPTURED_MEMBERSHIP_CHUNK_SIZE
+  });
 }
 
 /** @param {number} caseCount */
@@ -98,91 +154,6 @@ export async function runStudyRunDescriptorBenchmark(options = {}) {
   const newCount = options.newCount ?? 4_000;
   const chunkSize = options.chunkSize ?? CAPTURED_MEMBERSHIP_CHUNK_SIZE;
   const iterations = options.iterations ?? 10;
-  const scope = {
-    systemId: 'system-benchmark',
-    routes: [
-      { routeType: /** @type {const} */ ('topic'), routeId: 'topic-a' },
-      { routeType: /** @type {const} */ ('topic'), routeId: 'topic-b' },
-      { routeType: /** @type {const} */ ('tag'), routeId: 'tag-a' }
-    ]
-  };
-  const scopeFingerprint = await fingerprintStudyScope(scope);
-  const boundary = {
-    userId: 'learner-benchmark',
-    runId: 'run-benchmark',
-    runStartedAt: 1_788_307_200_000,
-    scopeFingerprint,
-    generation: 1,
-    reviewSequenceEpoch: 1,
-    parameterRevision: 1,
-    schedulerRevision: 1,
-    schedulerLibraryVersion: '5.4.2'
-  };
-  const runToken = await issueScheduledRunBoundaryToken({
-    secret: BENCHMARK_SECRET,
-    boundary
-  });
-  const { due, fresh } = syntheticEntries(dueCount, newCount);
-
-  /** @param {number} proofChunkSize */
-  const buildDescriptor = async (proofChunkSize) => {
-    const [dueProofs, newProofs] = await Promise.all([
-      issueCapturedMembershipProofs({
-        secret: BENCHMARK_SECRET,
-        runToken,
-        boundary,
-        queueClass: 'due',
-        entries: due,
-        chunkSize: proofChunkSize
-      }),
-      issueCapturedMembershipProofs({
-        secret: BENCHMARK_SECRET,
-        runToken,
-        boundary,
-        queueClass: 'new',
-        entries: fresh,
-        chunkSize: proofChunkSize
-      })
-    ]);
-    return {
-      version: 1,
-      kind: 'scheduled',
-      userId: boundary.userId,
-      runId: boundary.runId,
-      runStartedAt: boundary.runStartedAt,
-      selectedScope: scope,
-      scopeFingerprint,
-      runBoundaryToken: runToken,
-      schedulerBoundary: {
-        generation: 1,
-        reviewSequenceEpoch: 1,
-        parameterRevision: 1,
-        schedulerRevision: 1,
-        schedulerLibraryVersion: '5.4.2'
-      },
-      scheduledOrder: 'due_first',
-      expandedLearning: false,
-      capturedDue: due.map((entry, index) => ({
-        ...entry,
-        proofIndex: Math.floor(index / proofChunkSize)
-      })),
-      capturedNew: fresh.map((entry, index) => ({
-        ...entry,
-        proofIndex: Math.floor(index / proofChunkSize)
-      })),
-      membershipProofs: {
-        version: 1,
-        chunkSize: proofChunkSize,
-        due: dueProofs,
-        new: newProofs
-      },
-      repeatEntries: [],
-      completedCaseIds: [],
-      consecutiveNewCompleted: 0,
-      currentReviewId: null
-    };
-  };
-
   const selection = syntheticSelection(dueCount + newCount);
   const selectionTimes = [];
   let resolvedCandidates = [];
@@ -196,10 +167,12 @@ export async function runStudyRunDescriptorBenchmark(options = {}) {
     selectionTimes.push(performance.now() - started);
   }
 
-  const chosen = await buildDescriptor(chunkSize);
-  const perEntry = await buildDescriptor(1);
+  const [chosen, perEntry] = await Promise.all([
+    buildSyntheticScheduledStudyRunDescriptor({ dueCount, newCount, chunkSize }),
+    buildSyntheticScheduledStudyRunDescriptor({ dueCount, newCount, chunkSize: 1 })
+  ]);
 
-  /** @param {Awaited<ReturnType<typeof buildDescriptor>>} descriptor */
+  /** @param {Awaited<ReturnType<typeof buildSyntheticScheduledStudyRunDescriptor>>} descriptor */
   const measure = (descriptor) => {
     const serialized = JSON.stringify(descriptor);
     const stringifyTimes = [];
@@ -226,12 +199,13 @@ export async function runStudyRunDescriptorBenchmark(options = {}) {
   const chosenResult = measure(chosen);
   const perEntryResult = measure(perEntry);
   return {
-    version: 1,
+    version: 2,
     representativeWorkload: {
       due: dueCount,
       new: newCount,
       total: dueCount + newCount
     },
+    supportedScheduledMaximum: MAX_SCHEDULED_STUDY_CASES,
     chosenChunkSize: chunkSize,
     selectionResolver: {
       routeCount: selection.routes.length,
@@ -244,7 +218,7 @@ export async function runStudyRunDescriptorBenchmark(options = {}) {
       descriptorBytesVsPerEntry: chosenResult.descriptorBytes / perEntryResult.descriptorBytes,
       proofBytesVsPerEntry: chosenResult.proofBytes / perEntryResult.proofBytes
     },
-    interpretation: 'Node UTF-8 serialization benchmark; browser quota/engine limits must be assessed separately.'
+    interpretation: 'Node serialization companion benchmark. Real Chromium/localStorage evidence is owned by the dedicated learner FSRS browser benchmark workflow.'
   };
 }
 
