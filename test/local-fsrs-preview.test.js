@@ -11,10 +11,15 @@ import {
 import {
   clearFsrsPreviewRun,
   FSRS_PREVIEW_RUN_STORAGE_KEY,
+  isFsrsPreviewRunOwnedBy,
   readFsrsPreviewRun,
+  readFsrsPreviewRunForUser,
   writeFsrsPreviewRun
 } from '../src/lib/fsrs-preview-run-storage.js';
-import { isLocalFsrsPreviewRequest } from '../src/lib/server/learning/local-fsrs-preview.js';
+import {
+  isLocalFsrsPreviewRequest,
+  validateLocalFsrsPreviewRunOwner
+} from '../src/lib/server/learning/local-fsrs-preview.js';
 
 function freeDescriptor(overrides = {}) {
   return {
@@ -154,6 +159,23 @@ test('malformed persisted preview descriptors are discarded instead of reaching 
   );
 });
 
+test('Free preview run cannot cross from learner A browser state to learner B', () => {
+  const storage = new MemoryStorage();
+  const learnerARun = freeDescriptor({ userId: 'learner-a', runId: 'learner-a-run' });
+  writeFsrsPreviewRun(storage, learnerARun);
+
+  assert.equal(isFsrsPreviewRunOwnedBy(learnerARun, 'learner-a'), true);
+  assert.equal(isFsrsPreviewRunOwnedBy(learnerARun, 'learner-b'), false);
+  assert.deepEqual(validateLocalFsrsPreviewRunOwner(learnerARun, 'learner-b'), {
+    ok: false,
+    status: 403,
+    message: 'This preview run belongs to another learner. Plan a new run for the signed-in account.'
+  });
+
+  assert.equal(readFsrsPreviewRunForUser(storage, 'learner-b'), null);
+  assert.equal(storage.getItem(FSRS_PREVIEW_RUN_STORAGE_KEY), null);
+});
+
 test('Scheduled completion HTTP orchestration replays after commit succeeds and the response is lost', async () => {
   const descriptor = scheduledDescriptor({
     currentReviewId: 'review-1',
@@ -214,12 +236,13 @@ test('local preview requires both loopback request and loopback Better Auth bind
   assert.equal(isLocalFsrsPreviewRequest(new URL('http://localhost:5173/fsrs-preview'), { BETTER_AUTH_URL: 'https://flash-cards.example' }), false);
 });
 
-test('preview route reuses staged FSRS service owners and delegates completion orchestration', async () => {
+test('preview route reuses staged FSRS service owners and delegates guarded completion orchestration', async () => {
   const previewServer = await readFile(new URL('../src/routes/fsrs-preview/+page.server.js', import.meta.url), 'utf8');
   const openServer = await readFile(new URL('../src/routes/fsrs-preview/api/open/+server.js', import.meta.url), 'utf8');
   const completeServer = await readFile(new URL('../src/routes/fsrs-preview/api/complete/[reviewId]/+server.js', import.meta.url), 'utf8');
   assert.match(previewServer, /planSystemStudyRunFromForm/);
   assert.match(previewServer, /setExpandedLearningPreference/);
+  assert.match(openServer, /validateLocalFsrsPreviewRunOwner/);
   assert.match(openServer, /createScheduledActiveReview/);
   assert.match(openServer, /createFreeActiveReview/);
   assert.match(completeServer, /completeFsrsPreviewRequest/);
