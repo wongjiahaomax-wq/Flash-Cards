@@ -3,9 +3,14 @@ name: Learner FSRS active Review benchmark
 on:
   pull_request:
     paths:
+      - 'package.json'
+      - 'wrangler.jsonc'
+      - 'drizzle/0019_learner_fsrs_foundation.sql'
       - 'drizzle/0020_learner_fsrs_active_reviews.sql'
       - 'drizzle.config.js'
       - 'scripts/learner-fsrs-active-review-benchmark.mjs'
+      - 'scripts/learner-fsrs-active-review-d1-smoke.mjs'
+      - 'scripts/learner-fsrs-active-review-d1-smoke-worker.js'
       - 'src/lib/server/db/active-review-content.js'
       - 'src/lib/server/db/active-review-schema.js'
       - 'src/lib/server/db/active-reviews.js'
@@ -39,3 +44,6 @@ jobs:
 
       - name: Run active Review snapshot benchmark
         run: npm run fsrs:active-review-benchmark
+
+      - name: Run active Review through local workerd and D1
+        run: npm run fsrs:active-review-d1-smoke
