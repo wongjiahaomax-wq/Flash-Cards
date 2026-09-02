@@ -228,6 +228,8 @@ Repository validation now covers:
 
 PR D still owns the actual atomic Scheduled completion transaction, completion idempotency, FSRS rating transition, event write, active-Review deletion on successful completion, and completion-vs-expiry crossing tests.
 
+The authoritative tranche-ownership chain is documented in `DOCUMENTATION_INDEX.md` and `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md`. The locked product plan remains superior for product behavior; the amendment controls only conflicting focused-PR ownership assignments.
+
 ## 10. Rollout boundary
 
 PR C deliberately does **not** connect these primitives to the current learner `/study` runtime. The legacy Review runtime remains in place until Scheduled completion/cutover work exists.
