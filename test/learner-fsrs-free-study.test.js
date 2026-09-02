@@ -184,7 +184,8 @@ test('Free completion receipt guard requires reveal, exact active ownership, and
 
     const expired = insertFreeActive(db, { id: 'expired' });
     const current = dbNow(db);
-    db.prepare('UPDATE active_reviews SET expires_at = ? WHERE id = ?').run(current - 1, expired);
+    db.prepare('UPDATE active_reviews SET started_at = ?, expires_at = ? WHERE id = ?')
+      .run(current - 10_000, current - 1, expired);
     assert.throws(
       () => insertReceipt(db, expired, current),
       /free_completion_expired/
@@ -214,8 +215,9 @@ test('expiry crossing at final Free active consume rolls back receipt, encounter
             user_id, free_completed, first_activity_at, last_activity_at
           ) VALUES ('learner', 1, ?, ?)
         `).run(completedAt, completedAt);
-        db.prepare('UPDATE active_reviews SET expires_at = ? WHERE id = ?')
-          .run(dbNow(db) - 1, reviewId);
+        const crossedAt = dbNow(db);
+        db.prepare('UPDATE active_reviews SET started_at = ?, expires_at = ? WHERE id = ?')
+          .run(crossedAt - 10_000, crossedAt - 1, reviewId);
         db.prepare("DELETE FROM active_reviews WHERE id = ? AND study_mode = 'free'").run(reviewId);
         db.exec('COMMIT');
       } catch (error) {
