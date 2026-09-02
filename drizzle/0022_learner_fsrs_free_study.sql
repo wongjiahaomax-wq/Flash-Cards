@@ -12,6 +12,8 @@ CREATE TABLE `free_review_completion_receipts` (
 --> statement-breakpoint
 CREATE INDEX `free_review_completion_receipts_expiry_idx` ON `free_review_completion_receipts` (`expires_at`,`user_id`,`id`);
 --> statement-breakpoint
+CREATE INDEX `free_review_completion_receipts_user_idx` ON `free_review_completion_receipts` (`user_id`,`id`);
+--> statement-breakpoint
 CREATE TRIGGER `free_review_completion_receipts_active_guard`
 BEFORE INSERT ON `free_review_completion_receipts`
 BEGIN
