@@ -1,0 +1,41 @@
+name: Learner FSRS active Review benchmark
+
+on:
+  pull_request:
+    paths:
+      - 'drizzle/0020_learner_fsrs_active_reviews.sql'
+      - 'drizzle.config.js'
+      - 'scripts/learner-fsrs-active-review-benchmark.mjs'
+      - 'src/lib/server/db/active-review-content.js'
+      - 'src/lib/server/db/active-review-schema.js'
+      - 'src/lib/server/db/active-reviews.js'
+      - 'test/learner-fsrs-active-review.test.js'
+      - 'test/learner-fsrs-active-review-scope.test.js'
+      - 'docs/LEARNER_FSRS_PR_C_EVIDENCE.md'
+      - '.github/workflows/learner-fsrs-active-review-benchmark.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  active-review-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Validate migration history
+        run: npm run db:check
+
+      - name: Run active Review snapshot benchmark
+        run: npm run fsrs:active-review-benchmark
