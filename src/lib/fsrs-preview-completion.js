@@ -1,5 +1,5 @@
 import { applyFreeCompletion } from './free-study-run.js';
-import { isFsrsPreviewRunDescriptor } from './fsrs-preview-run-storage.js';
+import { isFsrsPreviewRunOwnedBy } from './fsrs-preview-run-storage.js';
 import { applyScheduledCompletion } from './scheduled-study-run.js';
 
 /** @param {unknown} value */
@@ -9,9 +9,9 @@ function timestampMs(value) {
   return Number.isFinite(result) ? result : null;
 }
 
-/** @param {any} descriptor @param {string} reviewId */
-function matchingBrowserDescriptor(descriptor, reviewId) {
-  return isFsrsPreviewRunDescriptor(descriptor) && descriptor.currentReviewId === reviewId;
+/** @param {any} descriptor @param {string} userId @param {string} reviewId */
+function matchingBrowserDescriptor(descriptor, userId, reviewId) {
+  return isFsrsPreviewRunOwnedBy(descriptor, userId) && descriptor.currentReviewId === reviewId;
 }
 
 /** @param {any} descriptor @param {any} result @param {(descriptor:any,result:any)=>any} apply */
@@ -24,10 +24,10 @@ function browserCompletion(descriptor, result, apply) {
 }
 
 /**
- * Preview completion orchestration. A matching browser descriptor is intentionally
- * routed to the receipt-owning completion service before reading active_reviews,
- * so an identical retry remains safe after the first transaction consumed the
- * active Review and its HTTP response was lost.
+ * Preview completion orchestration. A matching, learner-owned browser descriptor
+ * is intentionally routed to the receipt-owning completion service before
+ * reading active_reviews, so an identical retry remains safe after the first
+ * transaction consumed the active Review and its HTTP response was lost.
  *
  * @param {{db:any,userId:string,reviewId:string,payload:any,proofSecret:string,now?:Date|number|string}} input
  * @param {{
@@ -40,7 +40,7 @@ function browserCompletion(descriptor, result, apply) {
  */
 export async function completeFsrsPreviewRequest(input, services) {
   const descriptor = input.payload?.descriptor;
-  const descriptorMatches = matchingBrowserDescriptor(descriptor, input.reviewId);
+  const descriptorMatches = matchingBrowserDescriptor(descriptor, input.userId, input.reviewId);
   const now = input.now ?? new Date();
 
   if (descriptorMatches && descriptor.kind === 'scheduled') {
