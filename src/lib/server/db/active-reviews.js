@@ -5,13 +5,8 @@ import {
   activeReviewQuestions,
   activeReviews
 } from './active-review-schema.js';
-import {
-  ensureLearnerPreferences
-} from './fsrs-bootstrap.js';
-import {
-  learnerCaseFsrs,
-  learnerFsrsProfiles
-} from './fsrs-schema.js';
+import { ensureLearnerPreferences } from './fsrs-bootstrap.js';
+import { learnerCaseFsrs, learnerFsrsProfiles } from './fsrs-schema.js';
 import { resolveSystemStudySelection } from './study-navigation.ts';
 import {
   ACTIVE_REVIEW_SNAPSHOT_VERSION,
@@ -23,6 +18,9 @@ import {
   verifyCapturedMembership,
   verifyScheduledRepeatOriginProof
 } from '../learning/study-run-proof.js';
+
+/** @typedef {typeof activeReviews.$inferInsert} ActiveReviewInsert */
+/** @typedef {Awaited<ReturnType<typeof resolveSystemStudySelection>>} StudySelection */
 
 const DATABASE_NOW_MS = sql`cast((julianday('now') - 2440587.5) * 86400000 as integer)`;
 
@@ -54,7 +52,7 @@ function timestampMs(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-/** @param {any} value */
+/** @param {unknown} value */
 function databaseErrorMessage(value) {
   if (value instanceof Error) return value.message;
   return String(value ?? '');
@@ -88,7 +86,7 @@ async function deleteExpiredForUser(db, userId) {
   ));
 }
 
-/** @param {import('./index.js').LearningDb} db @param {any} review */
+/** @param {import('./index.js').LearningDb} db @param {typeof activeReviews.$inferSelect} review */
 async function hydrateActiveReview(db, review) {
   const [questions, assets] = await Promise.all([
     db
@@ -108,18 +106,12 @@ async function hydrateActiveReview(db, review) {
   } catch {
     throw new Error(`Active Review ${review.id} contains invalid persisted scope JSON.`);
   }
-  return {
-    ...review,
-    selectedScope,
-    questions,
-    assets
-  };
+  return { ...review, selectedScope, questions, assets };
 }
 
 /**
  * Discover the one server-backed active Review even when browser localStorage is
  * missing. Expired ownership is consumed synchronously using database time.
- *
  * @param {import('./index.js').LearningDb} db
  * @param {string} userId
  */
@@ -147,7 +139,7 @@ export async function getActiveReviewById(db, userId, reviewId) {
   return rows[0] ? hydrateActiveReview(db, rows[0]) : null;
 }
 
-/** @param {any} cause */
+/** @param {unknown} cause */
 function mappedCreateError(cause) {
   if (cause instanceof ActiveReviewError || cause instanceof ActiveReviewContentError) return cause;
   const message = databaseErrorMessage(cause);
@@ -179,7 +171,7 @@ function mappedCreateError(cause) {
  * @param {{
  *   db:import('./index.js').LearningDb,
  *   userId:string,
- *   parent:Record<string, any>,
+ *   parent:ActiveReviewInsert,
  *   snapshot:Awaited<ReturnType<typeof buildActiveReviewSnapshot>>
  * }} input
  */
@@ -195,7 +187,6 @@ async function persistActiveReview(input) {
     activeReviewId,
     ...asset
   }));
-
   /** @type {[any, ...any[]]} */
   const writes = [
     dbDeleteExpired(input.db, input.userId),
@@ -210,8 +201,6 @@ async function persistActiveReview(input) {
     }
     await input.db.batch(writes);
   } catch (cause) {
-    // A concurrent device may have won ownership. Return that canonical Review
-    // rather than surfacing a uniqueness error or attempting a second insert.
     const existing = await getActiveReview(input.db, input.userId);
     if (existing) return { status: 'resume', review: existing };
     throw mappedCreateError(cause);
@@ -230,12 +219,12 @@ function dbDeleteExpired(db, userId) {
   ));
 }
 
-/** @param {any} preferences */
+/** @param {{expandedLearning:boolean}} preferences */
 function contentModeForPreferences(preferences) {
   return preferences.expandedLearning ? 'expanded' : 'original';
 }
 
-/** @param {any} selection @param {string} caseId */
+/** @param {StudySelection} selection @param {string} caseId */
 function selectedCandidate(selection, caseId) {
   const candidate = selection.candidates.find((item) => item.id === caseId);
   if (!candidate) {
@@ -327,12 +316,15 @@ export async function createScheduledActiveReview(input) {
       throw new ActiveReviewError('stale-case-state', 'This Case is no longer New in the current learner state.');
     }
   } else {
+    if (!('stateRevision' in membership) || !('dueAt' in membership)) {
+      throw new ActiveReviewError('stale-case-state', 'Scheduled work proof is missing Case state metadata.');
+    }
     const proofStateRevision = Number(membership.stateRevision);
     const proofDueAt = Number(membership.dueAt);
     if (
       !stateMatchesBoundary(state, boundary)
-      || Number(state.stateRevision) !== proofStateRevision
-      || timestampMs(state.dueAt) !== proofDueAt
+      || Number(state?.stateRevision) !== proofStateRevision
+      || timestampMs(state?.dueAt) !== proofDueAt
       || proofDueAt > requestNow
       || (input.queueClass === 'due' && proofDueAt > boundary.runStartedAt)
     ) {
@@ -376,8 +368,8 @@ export async function createScheduledActiveReview(input) {
       schedulerRevision: boundary.schedulerRevision,
       schedulerLibraryVersion: boundary.schedulerLibraryVersion,
       expectedStateRevision,
-      expectedDueAt,
-      runStartedAt: boundary.runStartedAt,
+      expectedDueAt: expectedDueAt == null ? null : new Date(expectedDueAt),
+      runStartedAt: new Date(boundary.runStartedAt),
       caseTitleSnapshot: snapshot.case.title,
       vignetteSnapshotMd: snapshot.case.vignetteMd,
       snapshotVersion: ACTIVE_REVIEW_SNAPSHOT_VERSION
@@ -485,7 +477,6 @@ export async function discardActiveReview(input) {
  * Explicit cleanup primitive for maintenance/tests. Replacement and discovery
  * use the same database-time predicate, so cleanup cannot make an unexpired
  * Review disappear merely because an application clock is skewed.
- *
  * @param {import('./index.js').LearningDb} db
  */
 export async function cleanupExpiredActiveReviews(db) {
