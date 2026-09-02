@@ -36,6 +36,7 @@ function browserCompletion(descriptor, result, apply) {
  *   completeFreeReview:(input:any)=>Promise<any>,
  *   issueScheduledRunBoundaryToken:(input:any)=>Promise<string>
  * }} services
+ * @returns {Promise<any>}
  */
 export async function completeFsrsPreviewRequest(input, services) {
   const descriptor = input.payload?.descriptor;

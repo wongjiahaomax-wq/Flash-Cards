@@ -75,6 +75,7 @@ class MemoryStorage {
   removeItem(key) { this.values.delete(key); }
 }
 
+/** @param {{mode:'scheduled'|'free'}} input */
 function completionServices({ mode }) {
   let committed = false;
   let activeReads = 0;

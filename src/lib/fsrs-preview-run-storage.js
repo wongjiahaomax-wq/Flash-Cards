@@ -22,17 +22,20 @@ function positiveInteger(value) {
   return Number.isInteger(value) && Number(value) >= 1;
 }
 
+/** @param {any} route */
+function validRoute(route) {
+  return Boolean(route)
+    && (route.routeType === 'topic' || route.routeType === 'tag')
+    && nonEmptyString(route.routeId);
+}
+
 /** @param {any} scope */
 function validScope(scope) {
   return Boolean(scope)
     && nonEmptyString(scope.systemId)
     && Array.isArray(scope.routes)
     && scope.routes.length > 0
-    && scope.routes.every((route) =>
-      route
-      && (route.routeType === 'topic' || route.routeType === 'tag')
-      && nonEmptyString(route.routeId)
-    );
+    && scope.routes.every(validRoute);
 }
 
 /** @param {any} descriptor */
