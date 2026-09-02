@@ -23,7 +23,7 @@ export class ActiveReviewContentError extends Error {
   }
 }
 
-/** @param {any} source @param {'core'|'expanded'} questionPoolMode @param {() => number} rng */
+/** @param {Awaited<ReturnType<typeof loadCaseSource>> extends infer T ? Exclude<T, null> : never} source @param {'core'|'expanded'} questionPoolMode @param {() => number} rng */
 function pickQuestions(source, questionPoolMode, rng) {
   try {
     const picked = pickReviewQuestions(source.questionPool, {
