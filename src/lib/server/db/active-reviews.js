@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import {
   activeReviewAssets,
@@ -135,20 +135,53 @@ function stateMatchesBoundary(state, boundary) {
     && String(state.schedulerLibraryVersion) === boundary.schedulerLibraryVersion;
 }
 
-/** @param {import('./index.js').LearningDb} db @param {typeof activeReviews.$inferSelect} review */
-async function hydrateActiveReview(db, review) {
-  const [questions, assets] = await Promise.all([
+/** @param {string} userId @param {string|null} reviewId */
+function activeReviewIdentityFilter(userId, reviewId) {
+  return reviewId == null
+    ? eq(activeReviews.userId, userId)
+    : and(eq(activeReviews.userId, userId), eq(activeReviews.id, reviewId));
+}
+
+/**
+ * Read the visible parent and its frozen children in one D1 transactional batch.
+ * Child lookup intentionally uses only the stable ownership identity rather than
+ * re-evaluating expiry: if database time crosses the expiry boundary after the
+ * parent statement, the transaction still returns the same complete snapshot.
+ * A concurrent Discard/cleanup therefore serializes either before the batch
+ * (returning null) or after its snapshot (returning the complete frozen Review).
+ * @param {import('./index.js').LearningDb} db
+ * @param {string} userId
+ * @param {string|null} reviewId
+ */
+async function readActiveReviewSnapshot(db, userId, reviewId) {
+  const identityFilter = activeReviewIdentityFilter(userId, reviewId);
+  const ownedReviewIds = db
+    .select({ id: activeReviews.id })
+    .from(activeReviews)
+    .where(identityFilter)
+    .limit(1);
+
+  const [reviews, questions, assets] = await db.batch([
+    db
+      .select()
+      .from(activeReviews)
+      .where(and(identityFilter, sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`))
+      .limit(1),
     db
       .select()
       .from(activeReviewQuestions)
-      .where(eq(activeReviewQuestions.activeReviewId, review.id))
+      .where(inArray(activeReviewQuestions.activeReviewId, ownedReviewIds))
       .orderBy(asc(activeReviewQuestions.displayOrder)),
     db
       .select()
       .from(activeReviewAssets)
-      .where(eq(activeReviewAssets.activeReviewId, review.id))
+      .where(inArray(activeReviewAssets.activeReviewId, ownedReviewIds))
       .orderBy(asc(activeReviewAssets.displayOrder))
   ]);
+
+  const review = reviews[0];
+  if (!review) return null;
+
   let selectedScope = null;
   try {
     selectedScope = JSON.parse(review.scopeJson);
@@ -166,32 +199,15 @@ async function hydrateActiveReview(db, review) {
  * @param {string} userId
  */
 export async function getActiveReview(db, userId) {
-  requiredString(userId, 'Learner');
-  const rows = await db
-    .select()
-    .from(activeReviews)
-    .where(and(
-      eq(activeReviews.userId, userId),
-      sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`
-    ))
-    .limit(1);
-  return rows[0] ? hydrateActiveReview(db, rows[0]) : null;
+  const normalizedUserId = requiredString(userId, 'Learner');
+  return readActiveReviewSnapshot(db, normalizedUserId, null);
 }
 
 /** @param {import('./index.js').LearningDb} db @param {string} userId @param {string} reviewId */
 export async function getActiveReviewById(db, userId, reviewId) {
-  requiredString(userId, 'Learner');
-  requiredString(reviewId, 'Active Review');
-  const rows = await db
-    .select()
-    .from(activeReviews)
-    .where(and(
-      eq(activeReviews.userId, userId),
-      eq(activeReviews.id, reviewId),
-      sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`
-    ))
-    .limit(1);
-  return rows[0] ? hydrateActiveReview(db, rows[0]) : null;
+  const normalizedUserId = requiredString(userId, 'Learner');
+  const normalizedReviewId = requiredString(reviewId, 'Active Review');
+  return readActiveReviewSnapshot(db, normalizedUserId, normalizedReviewId);
 }
 
 /** @param {unknown} cause */
