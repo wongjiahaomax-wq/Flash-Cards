@@ -6,7 +6,7 @@ export const CAPTURED_MEMBERSHIP_CHUNK_SIZE = 64;
 
 export class StudyRunProofError extends Error {
   /**
-   * @param {'invalid-secret'|'invalid-token'|'unsupported-version'|'invalid-signature'|'wrong-owner'|'wrong-run'|'wrong-scope'|'wrong-boundary'|'wrong-queue'|'not-member'} code
+   * @param {'invalid-secret'|'invalid-token'|'unsupported-version'|'invalid-signature'|'wrong-owner'|'wrong-run'|'wrong-scope'|'wrong-boundary'|'wrong-queue'|'not-member'|'wrong-case'} code
    * @param {string} message
    */
   constructor(code, message) {
@@ -138,9 +138,7 @@ export async function fingerprintStudyScope(scope) {
  * @property {string} schedulerLibraryVersion
  */
 
-/**
- * @param {{secret:string,boundary:ScheduledRunBoundary}} input
- */
+/** @param {{secret:string,boundary:ScheduledRunBoundary}} input */
 export async function issueScheduledRunBoundaryToken(input) {
   const boundary = input.boundary;
   return signPayload({
@@ -205,18 +203,7 @@ export async function verifyScheduledRunBoundaryToken(token, input) {
  */
 
 /**
- * Issue compact authenticated workload chunks. Each chunk is bound to a digest
- * of the already-authenticated run token, avoiding repeated generation/epoch/
- * parameter/scheduler fields in every browser-stored membership capability.
- *
- * @param {{
- *   secret:string,
- *   runToken:string,
- *   boundary:ScheduledRunBoundary,
- *   queueClass:'due'|'new',
- *   entries:readonly (CapturedDueMembership|CapturedNewMembership)[],
- *   chunkSize?:number
- * }} input
+ * @param {{secret:string,runToken:string,boundary:ScheduledRunBoundary,queueClass:'due'|'new',entries:readonly (CapturedDueMembership|CapturedNewMembership)[],chunkSize?:number}} input
  */
 export async function issueCapturedMembershipProofs(input) {
   const chunkSize = input.chunkSize ?? CAPTURED_MEMBERSHIP_CHUNK_SIZE;
@@ -248,14 +235,7 @@ export async function issueCapturedMembershipProofs(input) {
 }
 
 /**
- * @param {{
- *   secret:string,
- *   userId:string,
- *   runToken:string,
- *   membershipToken:string,
- *   queueClass:'due'|'new',
- *   caseId:string
- * }} input
+ * @param {{secret:string,userId:string,runToken:string,membershipToken:string,queueClass:'due'|'new',caseId:string}} input
  */
 export async function verifyCapturedMembership(input) {
   const boundary = await verifyScheduledRunBoundaryToken(input.runToken, {
@@ -289,12 +269,7 @@ export async function verifyCapturedMembership(input) {
     throw new StudyRunProofError('not-member', 'Case is not an authenticated member of this captured workload.');
   }
   if (input.queueClass === 'due') {
-    if (
-      entry.length !== 3
-      || !Number.isInteger(entry[1])
-      || entry[1] < 1
-      || !Number.isFinite(entry[2])
-    ) {
+    if (entry.length !== 3 || !Number.isInteger(entry[1]) || entry[1] < 1 || !Number.isFinite(entry[2])) {
       throw new StudyRunProofError('invalid-token', 'Captured Due membership metadata is invalid.');
     }
     return {
@@ -311,6 +286,68 @@ export async function verifyCapturedMembership(input) {
   return {
     queueClass: 'new',
     caseId: input.caseId,
+    boundary
+  };
+}
+
+/**
+ * PR C defines the server-verifiable repeat-origin primitive; PR D is the only
+ * normal learner flow that may issue one, after a Scheduled completion commits.
+ *
+ * @param {{secret:string,runToken:string,boundary:ScheduledRunBoundary,caseId:string,stateRevision:number,dueAt:number}} input
+ */
+export async function issueScheduledRepeatOriginProof(input) {
+  if (!input.caseId || !Number.isInteger(input.stateRevision) || input.stateRevision < 1 || !Number.isFinite(input.dueAt)) {
+    throw new StudyRunProofError('invalid-token', 'Repeat origin metadata is invalid.');
+  }
+  return signPayload({
+    v: STUDY_RUN_PROOF_VERSION,
+    t: 'repeat',
+    u: input.boundary.userId,
+    r: input.boundary.runId,
+    b: await sha256Base64Url(input.runToken),
+    s: input.boundary.scopeFingerprint,
+    c: input.caseId,
+    x: input.stateRevision,
+    d: input.dueAt
+  }, input.secret);
+}
+
+/**
+ * @param {{secret:string,userId:string,runToken:string,repeatToken:string,caseId:string}} input
+ */
+export async function verifyScheduledRepeatOriginProof(input) {
+  const boundary = await verifyScheduledRunBoundaryToken(input.runToken, {
+    secret: input.secret,
+    userId: input.userId
+  });
+  const payload = await verifyPayload(input.repeatToken, input.secret);
+  if (payload.v !== STUDY_RUN_PROOF_VERSION || payload.t !== 'repeat') {
+    throw new StudyRunProofError('unsupported-version', 'Repeat origin proof version or token type is unsupported.');
+  }
+  if (payload.u !== input.userId) {
+    throw new StudyRunProofError('wrong-owner', 'Repeat origin proof belongs to another learner.');
+  }
+  if (payload.r !== boundary.runId) {
+    throw new StudyRunProofError('wrong-run', 'Repeat origin proof belongs to another run.');
+  }
+  if (payload.s !== boundary.scopeFingerprint) {
+    throw new StudyRunProofError('wrong-scope', 'Repeat origin proof belongs to another study scope.');
+  }
+  if (payload.b !== await sha256Base64Url(input.runToken)) {
+    throw new StudyRunProofError('wrong-boundary', 'Repeat origin proof belongs to another run boundary.');
+  }
+  if (payload.c !== input.caseId) {
+    throw new StudyRunProofError('wrong-case', 'Repeat origin proof belongs to another Case.');
+  }
+  if (!Number.isInteger(payload.x) || payload.x < 1 || !Number.isFinite(payload.d)) {
+    throw new StudyRunProofError('invalid-token', 'Repeat origin proof metadata is invalid.');
+  }
+  return {
+    queueClass: 'repeat',
+    caseId: input.caseId,
+    stateRevision: payload.x,
+    dueAt: payload.d,
     boundary
   };
 }
