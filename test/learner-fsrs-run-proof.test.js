@@ -5,8 +5,10 @@ import {
   StudyRunProofError,
   fingerprintStudyScope,
   issueCapturedMembershipProofs,
+  issueScheduledRepeatOriginProof,
   issueScheduledRunBoundaryToken,
   verifyCapturedMembership,
+  verifyScheduledRepeatOriginProof,
   verifyScheduledRunBoundaryToken
 } from '../src/lib/server/learning/study-run-proof.js';
 
@@ -155,4 +157,55 @@ test('New membership proves captured identity without pretending localStorage is
   assert.equal(verified.queueClass, 'new');
   assert.equal(verified.caseId, 'new-b');
   assert.equal(verified.boundary.runId, 'run-1');
+});
+
+test('repeat-origin proof binds the committed resulting Case state to the same run and Case', async () => {
+  const expected = boundary();
+  const runToken = await issueScheduledRunBoundaryToken({ secret, boundary: expected });
+  const repeatToken = await issueScheduledRepeatOriginProof({
+    secret,
+    runToken,
+    boundary: expected,
+    caseId: 'case-a',
+    stateRevision: 11,
+    dueAt: expected.runStartedAt + 60_000
+  });
+  assert.deepEqual(
+    await verifyScheduledRepeatOriginProof({
+      secret,
+      userId: expected.userId,
+      runToken,
+      repeatToken,
+      caseId: 'case-a'
+    }),
+    {
+      queueClass: 'repeat',
+      caseId: 'case-a',
+      stateRevision: 11,
+      dueAt: expected.runStartedAt + 60_000,
+      boundary: expected
+    }
+  );
+  await assert.rejects(
+    () => verifyScheduledRepeatOriginProof({
+      secret,
+      userId: expected.userId,
+      runToken,
+      repeatToken,
+      caseId: 'case-b'
+    }),
+    (error) => error instanceof StudyRunProofError && error.code === 'wrong-case'
+  );
+  const otherBoundary = boundary({ runId: 'run-2' });
+  const otherRunToken = await issueScheduledRunBoundaryToken({ secret, boundary: otherBoundary });
+  await assert.rejects(
+    () => verifyScheduledRepeatOriginProof({
+      secret,
+      userId: expected.userId,
+      runToken: otherRunToken,
+      repeatToken,
+      caseId: 'case-a'
+    }),
+    (error) => error instanceof StudyRunProofError && error.code === 'wrong-run'
+  );
 });
