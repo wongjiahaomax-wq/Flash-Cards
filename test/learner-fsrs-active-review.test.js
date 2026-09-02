@@ -55,6 +55,7 @@ function activeReviewDb() {
   return db;
 }
 
+/** @param {string} [id] @param {Record<string, unknown>} [overrides] */
 function freeReviewInsert(id = 'active-1', overrides = {}) {
   return {
     id,
@@ -82,6 +83,7 @@ function freeReviewInsert(id = 'active-1', overrides = {}) {
   };
 }
 
+/** @param {DatabaseSync} db @param {Record<string, any>} row */
 function insertReview(db, row) {
   db.prepare(`
     INSERT INTO active_reviews (
@@ -100,8 +102,12 @@ function insertReview(db, row) {
   `).run(row);
 }
 
+/** @param {DatabaseSync} db */
 function dbNow(db) {
-  return Number(db.prepare("SELECT cast((julianday('now') - 2440587.5) * 86400000 as integer) AS now_ms").get().now_ms);
+  const row = db.prepare("SELECT cast((julianday('now') - 2440587.5) * 86400000 as integer) AS now_ms").get();
+  const value = Number(row?.now_ms ?? Number.NaN);
+  assert.equal(Number.isFinite(value), true, 'database time should be readable');
+  return value;
 }
 
 test('Part C migration creates normalized temporary snapshot tables with one-active ownership', () => {
@@ -136,10 +142,10 @@ test('active snapshot children cascade while live Asset references block permane
     `);
     assert.throws(() => db.exec("DELETE FROM assets WHERE id = 'asset-1'"), /FOREIGN KEY constraint/i);
     db.exec("DELETE FROM active_reviews WHERE id = 'active-1'");
-    assert.equal(Number(db.prepare('SELECT COUNT(*) AS n FROM active_review_questions').get().n), 0);
-    assert.equal(Number(db.prepare('SELECT COUNT(*) AS n FROM active_review_assets').get().n), 0);
+    assert.equal(Number(db.prepare('SELECT COUNT(*) AS n FROM active_review_questions').get()?.n ?? 0), 0);
+    assert.equal(Number(db.prepare('SELECT COUNT(*) AS n FROM active_review_assets').get()?.n ?? 0), 0);
     db.exec("DELETE FROM assets WHERE id = 'asset-1'");
-    assert.equal(Number(db.prepare('SELECT COUNT(*) AS n FROM assets').get().n), 0);
+    assert.equal(Number(db.prepare('SELECT COUNT(*) AS n FROM assets').get()?.n ?? 0), 0);
   } finally {
     db.close();
   }
@@ -151,6 +157,7 @@ test('ordinary Admin Case deactivation does not cancel an already-frozen active 
     insertReview(db, freeReviewInsert());
     db.exec("UPDATE cases SET is_active = 0 WHERE id = 'case-1'");
     const frozen = db.prepare("SELECT id, vignette_snapshot_md FROM active_reviews WHERE user_id = 'learner'").get();
+    assert.ok(frozen);
     assert.equal(frozen.id, 'active-1');
     assert.equal(frozen.vignette_snapshot_md, 'Frozen vignette');
     assert.throws(() => insertReview(db, freeReviewInsert('active-2')), /active_review_ineligible_scope|UNIQUE constraint/i);
@@ -198,6 +205,7 @@ test('expired replacement consumes only a row expired at database write time and
       throw error;
     }
     const winner = db.prepare("SELECT id, run_id FROM active_reviews WHERE user_id = 'learner'").get();
+    assert.ok(winner);
     assert.equal(winner.id, 'winner');
     assert.equal(winner.run_id, 'winner-run');
   } finally {
