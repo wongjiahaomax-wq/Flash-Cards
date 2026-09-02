@@ -65,18 +65,39 @@ Part A explicitly deferred Free-receipt costs until the tranche that made them e
 npm run fsrs:free-study-benchmark
 ```
 
-The benchmark applies the actual Part A foundation migration (`0019`), Part C active-Review migration (`0020`), Part D Scheduled-completion migration (`0021`), and Part-E migration (`0022`) to a temporary SQLite database before measuring the candidate Part-E persistence shape. This keeps the focused benchmark on the current supported A–D schema rather than an artificial A–C–E schema. Active-Review creation is intentionally outside the measured completion bundle because Part C owns a separate active-Review benchmark.
+The benchmark applies the actual Part A foundation migration (`0019`), Part C active-Review migration (`0020`), Part D Scheduled-completion migration (`0021`), and Part-E migration (`0022`) to a temporary SQLite database before measuring the candidate Part-E persistence shape. This keeps the focused benchmark on the current supported A–D schema rather than an artificial A–C–E schema.
 
-For representative Free completions it records:
+### Completion timing scope
+
+Active-Review creation is **not** part of the reported Free completion timing because Part C owns a separate active-Review benchmark. The database invariant permits only one active Review for the learner, so the benchmark cannot precreate all benchmark Reviews at once. Instead, for each sample it:
+
+1. creates the next active Free Review as untimed setup;
+2. starts the timer;
+3. executes only the four-write Free completion transaction;
+4. stops the timer after that completion returns.
+
+The reported `completion.totalMs` / `completion.meanMs` therefore aggregate only separately timed Free completion transactions. The benchmark output carries `activeReviewCreationIncluded: false` and an explicit `timingScope` string so this boundary remains machine-checkable.
+
+### Temporary receipt storage scope
+
+The benchmark distinguishes durable Free outcome rows from temporary receipt storage. After the representative completions it compacts/checkpoints the SQLite database and records its size with receipts present. It then expires and deletes every temporary receipt, leaves the durable learner×Case encounter and learner aggregate in place, compacts/checkpoints again, and computes:
+
+- `temporaryReceiptRetainedBytes = withReceiptsBytes - afterReceiptCleanupBytes`;
+- approximate retained bytes per temporary receipt from that isolated delta;
+- `persistentOutcomeDeltaBytes = afterReceiptCleanupBytes - baselineBytes` separately.
+
+This avoids attributing the durable encounter/aggregate rows to receipt storage. The file-size metric remains a compacted local-SQLite approximation rather than a Cloudflare storage/billing claim.
+
+For representative Free completions the benchmark records:
 
 - the logical rows changed by the completion bundle;
-- mean/total completion-bundle timing;
-- retained receipt occupancy/storage delta and approximate bytes per retained receipt;
+- mean/total **completion-only** timing;
+- isolated temporary-receipt retained bytes and approximate bytes per receipt;
+- durable post-cleanup outcome delta separately;
 - accumulated learner×Case Free encounter count;
 - learner-wide `free_completed` count;
 - bounded expired-receipt cleanup timing, batch count, and deleted rows;
 - the expired-receipt cleanup query plan;
-- post-cleanup storage reclamation;
 - foreign-key violations.
 
 The expected Part-E completion bundle changes exactly four logical rows per successful completion:
@@ -117,7 +138,13 @@ This does not weaken the invariant. Cutover remains blocked until the real Previ
 - reveal/exact-active/database-expiry write guards;
 - expiry-crossing all-or-nothing rollback.
 
-`test/learner-fsrs-free-study-benchmark.test.js` protects the benchmark contract, including the four-row completion bundle, retained receipt footprint, bounded cleanup, cleanup index use, and FK integrity.
+`test/learner-fsrs-free-study-benchmark.test.js` protects the benchmark contract, including:
+
+- active-Review creation excluded from reported completion timing;
+- the four-row completion bundle;
+- temporary receipt storage isolated from durable encounter/aggregate rows;
+- bounded cleanup and cleanup index use;
+- FK integrity.
 
 `.github/workflows/learner-fsrs-free-study.yml` additionally runs:
 
