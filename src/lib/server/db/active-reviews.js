@@ -24,6 +24,63 @@ import {
 
 const DATABASE_NOW_MS = sql`cast((julianday('now') - 2440587.5) * 86400000 as integer)`;
 
+const INSERT_ACTIVE_REVIEW_SQL = `
+  INSERT INTO active_reviews (
+    id, user_id, case_id, system_id, study_mode, content_mode, queue_class,
+    run_id, scope_fingerprint, scope_json, generation, review_sequence_epoch,
+    parameter_revision, scheduler_revision, scheduler_library_version,
+    expected_state_revision, expected_due_at, run_started_at,
+    case_title_snapshot, vignette_snapshot_md, snapshot_version
+  ) VALUES (
+    ?, ?, ?, ?, ?, ?, ?,
+    ?, ?, ?, ?, ?,
+    ?, ?, ?,
+    ?, ?, ?,
+    ?, ?, ?
+  )
+`;
+
+const INSERT_ACTIVE_REVIEW_QUESTIONS_JSON_SQL = `
+  INSERT INTO active_review_questions (
+    id, active_review_id, question_prompt_id, source_type, source_concept_id,
+    source_stimulus_group_id, source_stimulus_option_id, source_asset_question_id,
+    source_shared_question_id, display_order, prompt_snapshot_md, answer_snapshot_md
+  )
+  SELECT
+    json_extract(value, '$.id'),
+    json_extract(value, '$.activeReviewId'),
+    json_extract(value, '$.questionPromptId'),
+    json_extract(value, '$.sourceType'),
+    json_extract(value, '$.sourceConceptId'),
+    json_extract(value, '$.sourceStimulusGroupId'),
+    json_extract(value, '$.sourceStimulusOptionId'),
+    json_extract(value, '$.sourceAssetQuestionId'),
+    json_extract(value, '$.sourceSharedQuestionId'),
+    json_extract(value, '$.displayOrder'),
+    json_extract(value, '$.promptSnapshotMd'),
+    json_extract(value, '$.answerSnapshotMd')
+  FROM json_each(?)
+`;
+
+const INSERT_ACTIVE_REVIEW_ASSETS_JSON_SQL = `
+  INSERT INTO active_review_assets (
+    id, active_review_id, asset_id, display_order, storage_key_snapshot,
+    caption_snapshot_md, alt_text_snapshot, source_stimulus_group_id,
+    source_stimulus_option_id
+  )
+  SELECT
+    json_extract(value, '$.id'),
+    json_extract(value, '$.activeReviewId'),
+    json_extract(value, '$.assetId'),
+    json_extract(value, '$.displayOrder'),
+    json_extract(value, '$.storageKeySnapshot'),
+    json_extract(value, '$.captionSnapshotMd'),
+    json_extract(value, '$.altTextSnapshot'),
+    json_extract(value, '$.sourceStimulusGroupId'),
+    json_extract(value, '$.sourceStimulusOptionId')
+  FROM json_each(?)
+`;
+
 export class ActiveReviewError extends Error {
   /**
    * @param {'invalid-input'|'stale-run'|'stale-case-state'|'ineligible-scope'|'content-unavailable'} code
@@ -78,14 +135,6 @@ function stateMatchesBoundary(state, boundary) {
     && String(state.schedulerLibraryVersion) === boundary.schedulerLibraryVersion;
 }
 
-/** @param {import('./index.js').LearningDb} db @param {string} userId */
-async function deleteExpiredForUser(db, userId) {
-  await db.delete(activeReviews).where(and(
-    eq(activeReviews.userId, userId),
-    sql`${activeReviews.expiresAt} <= ${DATABASE_NOW_MS}`
-  ));
-}
-
 /** @param {import('./index.js').LearningDb} db @param {typeof activeReviews.$inferSelect} review */
 async function hydrateActiveReview(db, review) {
   const [questions, assets] = await Promise.all([
@@ -111,17 +160,20 @@ async function hydrateActiveReview(db, review) {
 
 /**
  * Discover the one server-backed active Review even when browser localStorage is
- * missing. Expired ownership is consumed synchronously using database time.
+ * missing. Expired rows are invisible to Resume but remain physically owned
+ * until replacement or explicit cleanup consumes them using database time.
  * @param {import('./index.js').LearningDb} db
  * @param {string} userId
  */
 export async function getActiveReview(db, userId) {
   requiredString(userId, 'Learner');
-  await deleteExpiredForUser(db, userId);
   const rows = await db
     .select()
     .from(activeReviews)
-    .where(eq(activeReviews.userId, userId))
+    .where(and(
+      eq(activeReviews.userId, userId),
+      sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`
+    ))
     .limit(1);
   return rows[0] ? hydrateActiveReview(db, rows[0]) : null;
 }
@@ -130,11 +182,14 @@ export async function getActiveReview(db, userId) {
 export async function getActiveReviewById(db, userId, reviewId) {
   requiredString(userId, 'Learner');
   requiredString(reviewId, 'Active Review');
-  await deleteExpiredForUser(db, userId);
   const rows = await db
     .select()
     .from(activeReviews)
-    .where(and(eq(activeReviews.userId, userId), eq(activeReviews.id, reviewId)))
+    .where(and(
+      eq(activeReviews.userId, userId),
+      eq(activeReviews.id, reviewId),
+      sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`
+    ))
     .limit(1);
   return rows[0] ? hydrateActiveReview(db, rows[0]) : null;
 }
@@ -167,6 +222,44 @@ function mappedCreateError(cause) {
   return cause;
 }
 
+/** @param {ActiveReviewInsert} parent @param {D1Database} client */
+function dbInsertActiveReview(parent, client) {
+  return client.prepare(INSERT_ACTIVE_REVIEW_SQL).bind(
+    parent.id,
+    parent.userId,
+    parent.caseId,
+    parent.systemId,
+    parent.studyMode,
+    parent.contentMode,
+    parent.queueClass ?? null,
+    parent.runId,
+    parent.scopeFingerprint,
+    parent.scopeJson,
+    parent.generation ?? null,
+    parent.reviewSequenceEpoch ?? null,
+    parent.parameterRevision ?? null,
+    parent.schedulerRevision ?? null,
+    parent.schedulerLibraryVersion ?? null,
+    parent.expectedStateRevision ?? null,
+    timestampMs(parent.expectedDueAt),
+    timestampMs(parent.runStartedAt),
+    parent.caseTitleSnapshot,
+    parent.vignetteSnapshotMd ?? null,
+    parent.snapshotVersion ?? ACTIVE_REVIEW_SNAPSHOT_VERSION
+  );
+}
+
+/** @param {D1Database} client @param {string} userId */
+function dbDeleteExpired(client, userId) {
+  return client
+    .prepare(`
+      DELETE FROM active_reviews
+      WHERE user_id = ?
+        AND expires_at <= cast((julianday('now') - 2440587.5) * 86400000 as integer)
+    `)
+    .bind(userId);
+}
+
 /**
  * @param {{
  *   db:import('./index.js').LearningDb,
@@ -187,19 +280,33 @@ async function persistActiveReview(input) {
     activeReviewId,
     ...asset
   }));
-  /** @type {[any, ...any[]]} */
+  const client = input.db.$client;
+  if (!client || typeof client.prepare !== 'function' || typeof client.batch !== 'function') {
+    throw new Error('Active Review creation requires a Cloudflare D1 client with atomic batch support.');
+  }
+
+  /** @type {D1PreparedStatement[]} */
   const writes = [
-    dbDeleteExpired(input.db, input.userId),
-    input.db.insert(activeReviews).values(input.parent)
+    dbDeleteExpired(client, input.userId),
+    dbInsertActiveReview(input.parent, client)
   ];
-  if (questionRows.length > 0) writes.push(input.db.insert(activeReviewQuestions).values(questionRows));
-  if (assetRows.length > 0) writes.push(input.db.insert(activeReviewAssets).values(assetRows));
+  if (questionRows.length > 0) {
+    writes.push(
+      client
+        .prepare(INSERT_ACTIVE_REVIEW_QUESTIONS_JSON_SQL)
+        .bind(JSON.stringify(questionRows))
+    );
+  }
+  if (assetRows.length > 0) {
+    writes.push(
+      client
+        .prepare(INSERT_ACTIVE_REVIEW_ASSETS_JSON_SQL)
+        .bind(JSON.stringify(assetRows))
+    );
+  }
 
   try {
-    if (typeof input.db.batch !== 'function') {
-      throw new Error('Active Review creation requires atomic D1 batch support.');
-    }
-    await input.db.batch(writes);
+    await client.batch(writes);
   } catch (cause) {
     const existing = await getActiveReview(input.db, input.userId);
     if (existing) return { status: 'resume', review: existing };
@@ -209,14 +316,6 @@ async function persistActiveReview(input) {
   const created = await getActiveReviewById(input.db, input.userId, activeReviewId);
   if (!created) throw new Error('Active Review creation committed without a readable Review.');
   return { status: 'created', review: created };
-}
-
-/** @param {import('./index.js').LearningDb} db @param {string} userId */
-function dbDeleteExpired(db, userId) {
-  return db.delete(activeReviews).where(and(
-    eq(activeReviews.userId, userId),
-    sql`${activeReviews.expiresAt} <= ${DATABASE_NOW_MS}`
-  ));
 }
 
 /** @param {{expandedLearning:boolean}} preferences */
@@ -449,7 +548,6 @@ export async function createFreeActiveReview(input) {
 export async function revealActiveReview(input) {
   const userId = requiredString(input.userId, 'Learner');
   const reviewId = requiredString(input.reviewId, 'Active Review');
-  await deleteExpiredForUser(input.db, userId);
   await input.db
     .update(activeReviews)
     .set({ revealedAt: DATABASE_NOW_MS })
@@ -474,9 +572,9 @@ export async function discardActiveReview(input) {
 }
 
 /**
- * Explicit cleanup primitive for maintenance/tests. Replacement and discovery
- * use the same database-time predicate, so cleanup cannot make an unexpired
- * Review disappear merely because an application clock is skewed.
+ * Explicit cleanup primitive for maintenance/tests. Replacement, discovery and
+ * cleanup all evaluate expiry from database time, so application clock skew
+ * cannot make an unexpired Review disappear.
  * @param {import('./index.js').LearningDb} db
  */
 export async function cleanupExpiredActiveReviews(db) {
