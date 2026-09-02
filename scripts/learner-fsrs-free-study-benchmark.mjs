@@ -13,6 +13,10 @@ const activeSql = readFileSync(
   new URL('../drizzle/0020_learner_fsrs_active_reviews.sql', import.meta.url),
   'utf8'
 ).replaceAll('--> statement-breakpoint', '');
+const scheduledCompletionSql = readFileSync(
+  new URL('../drizzle/0021_learner_fsrs_scheduled_completion.sql', import.meta.url),
+  'utf8'
+).replaceAll('--> statement-breakpoint', '');
 const freeSql = readFileSync(
   new URL('../drizzle/0022_learner_fsrs_free_study.sql', import.meta.url),
   'utf8'
@@ -57,6 +61,7 @@ function installSchema(db) {
   `);
   db.exec(foundationSql);
   db.exec(activeSql);
+  db.exec(scheduledCompletionSql);
   db.exec(freeSql);
   db.exec(`
     INSERT INTO user (id) VALUES ('benchmark-user');
@@ -271,7 +276,7 @@ export function runFreeStudyBenchmark(options = {}) {
     return {
       kind: 'D1-compatible SQLite Part E benchmark',
       caveat:
-        'This measures local SQLite storage/timing and logical changed rows. It is not Cloudflare network latency or billing metadata.',
+        'This measures local SQLite storage/timing and logical changed rows on the current A-D schema plus Part E. It is not Cloudflare network latency or billing metadata.',
       occupancy: { completionCount, cleanupLimit },
       completion: {
         totalMs: completion.durationMs,
