@@ -120,6 +120,7 @@ export function runStudyRunD1Benchmark(options = {}) {
     const encounterSql = 'SELECT * FROM learner_case_encounters WHERE user_id = ?';
     const states = measured(() => db.prepare(stateSql).all('benchmark-user'));
     const encounters = measured(() => db.prepare(encounterSql).all('benchmark-user'));
+    /** @param {string} sql */
     const plan = (sql) =>
       db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all('benchmark-user').map((row) => String(row.detail));
 
