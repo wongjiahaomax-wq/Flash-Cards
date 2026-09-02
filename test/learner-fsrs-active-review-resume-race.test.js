@@ -12,6 +12,9 @@ import {
   getActiveReviewById
 } from '../src/lib/server/db/active-reviews.js';
 
+/** @typedef {ReturnType<typeof createDb>} LearningDb */
+/** @typedef {Awaited<ReturnType<typeof getActiveReview>>} ActiveReviewResult */
+
 const foundationSql = readFileSync(
   new URL('../drizzle/0019_learner_fsrs_foundation.sql', import.meta.url),
   'utf8'
@@ -21,12 +24,14 @@ const activeSql = readFileSync(
   'utf8'
 ).replaceAll('--> statement-breakpoint', '');
 
+/** @param {DatabaseSync} db */
 function configureConnection(db) {
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
   db.exec('PRAGMA busy_timeout = 5000');
 }
 
+/** @param {DatabaseSync} db */
 function initializeDatabase(db) {
   db.exec(`
     CREATE TABLE user (id text PRIMARY KEY NOT NULL);
@@ -60,6 +65,7 @@ function initializeDatabase(db) {
   `);
 }
 
+/** @param {DatabaseSync} db */
 function seedFrozenReview(db) {
   db.prepare(`
     INSERT INTO active_reviews (
@@ -94,6 +100,7 @@ function seedFrozenReview(db) {
   `);
 }
 
+/** @param {string} sql */
 function isVisibleParentSelect(sql) {
   return /\bfrom\s+"active_reviews"/i.test(sql)
     && !/\bfrom\s+"active_review_questions"/i.test(sql)
@@ -101,18 +108,23 @@ function isVisibleParentSelect(sql) {
 }
 
 class SqliteD1Statement {
+  /** @param {SqliteD1Client} client @param {string} sql @param {any[]} [params] */
   constructor(client, sql, params = []) {
     this.client = client;
     this.sql = sql;
     this.params = params;
   }
 
+  /** @param {...any} params */
   bind(...params) {
     return new SqliteD1Statement(this.client, this.sql, params);
   }
 
+  /** @returns {Record<string, any>[]} */
   rows() {
-    return this.client.database.prepare(this.sql).all(...this.params);
+    return /** @type {Record<string, any>[]} */ (
+      this.client.database.prepare(this.sql).all(...this.params)
+    );
   }
 
   async raw() {
@@ -127,6 +139,7 @@ class SqliteD1Statement {
     return { success: true, meta: {}, results: rows };
   }
 
+  /** @param {string} [columnName] */
   async first(columnName) {
     const rows = this.rows();
     await this.client.afterStatement(this.sql);
@@ -143,22 +156,26 @@ class SqliteD1Statement {
 }
 
 class SqliteD1Client {
+  /** @param {DatabaseSync} database @param {(()=>Promise<void>)|null} [afterParent] */
   constructor(database, afterParent = null) {
     this.database = database;
     this.afterParent = afterParent;
     this.parentHookFired = false;
   }
 
+  /** @param {string} sql */
   prepare(sql) {
     return new SqliteD1Statement(this, sql);
   }
 
+  /** @param {string} sql */
   async afterStatement(sql) {
     if (this.parentHookFired || !this.afterParent || !isVisibleParentSelect(sql)) return;
     this.parentHookFired = true;
     await this.afterParent();
   }
 
+  /** @param {SqliteD1Statement[]} statements */
   async batch(statements) {
     this.database.exec('BEGIN');
     try {
@@ -177,10 +194,17 @@ class SqliteD1Client {
   }
 }
 
+/** @param {SqliteD1Client} client @returns {D1Database} */
+function asD1Database(client) {
+  return /** @type {D1Database} */ (/** @type {unknown} */ (client));
+}
+
+/** @param {(db:LearningDb)=>Promise<ActiveReviewResult>} getter */
 async function assertResumeDeletionRace(getter) {
   const directory = mkdtempSync(join(tmpdir(), 'flash-cards-active-review-resume-race-'));
   const databasePath = join(directory, 'race.sqlite');
   const writer = new DatabaseSync(databasePath);
+  /** @type {DatabaseSync|null} */
   let reader = null;
   try {
     configureConnection(writer);
@@ -189,9 +213,9 @@ async function assertResumeDeletionRace(getter) {
 
     reader = new DatabaseSync(databasePath);
     configureConnection(reader);
-    const writerDb = createDb(new SqliteD1Client(writer));
+    const writerDb = createDb(asD1Database(new SqliteD1Client(writer)));
     let discardCount = 0;
-    const readerDb = createDb(new SqliteD1Client(reader, async () => {
+    const readerDb = createDb(asD1Database(new SqliteD1Client(reader, async () => {
       discardCount += 1;
       const discarded = await discardActiveReview({
         db: writerDb,
@@ -204,7 +228,7 @@ async function assertResumeDeletionRace(getter) {
         0,
         'the writer should observe the Review as deleted while Resume is still hydrating'
       );
-    }));
+    })));
 
     const review = await getter(readerDb);
     assert.ok(review, 'Resume may return the snapshot that won the transactional read boundary');
