@@ -151,7 +151,8 @@ test('ordinary Admin Case deactivation does not cancel an already-frozen active 
     insertReview(db, freeReviewInsert());
     db.exec("UPDATE cases SET is_active = 0 WHERE id = 'case-1'");
     const frozen = db.prepare("SELECT id, vignette_snapshot_md FROM active_reviews WHERE user_id = 'learner'").get();
-    assert.deepEqual(frozen, { id: 'active-1', vignette_snapshot_md: 'Frozen vignette' });
+    assert.equal(frozen.id, 'active-1');
+    assert.equal(frozen.vignette_snapshot_md, 'Frozen vignette');
     assert.throws(() => insertReview(db, freeReviewInsert('active-2')), /active_review_ineligible_scope|UNIQUE constraint/i);
   } finally {
     db.close();
@@ -163,7 +164,7 @@ test('expired replacement consumes only a row expired at database write time and
   try {
     const now = dbNow(db);
     insertReview(db, freeReviewInsert('expired', { runId: 'old-run' }));
-    db.prepare("UPDATE active_reviews SET expires_at = ? WHERE id = 'expired'").run(now - 1);
+    db.prepare("UPDATE active_reviews SET started_at = ?, expires_at = ? WHERE id = 'expired'").run(now - 10_000, now - 1);
 
     db.exec('BEGIN');
     try {
@@ -196,10 +197,9 @@ test('expired replacement consumes only a row expired at database write time and
       if (db.isTransaction) db.exec('ROLLBACK');
       throw error;
     }
-    assert.deepEqual(
-      db.prepare("SELECT id, run_id FROM active_reviews WHERE user_id = 'learner'").get(),
-      { id: 'winner', run_id: 'winner-run' }
-    );
+    const winner = db.prepare("SELECT id, run_id FROM active_reviews WHERE user_id = 'learner'").get();
+    assert.equal(winner.id, 'winner');
+    assert.equal(winner.run_id, 'winner-run');
   } finally {
     db.close();
   }
