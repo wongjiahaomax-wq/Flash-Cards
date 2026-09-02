@@ -10,6 +10,10 @@ const formOwnerSource = readFileSync(
   new URL('../src/lib/server/learning/plan-system-study.ts', import.meta.url),
   'utf8'
 );
+const studyNavigationSource = readFileSync(
+  new URL('../src/lib/server/db/study-navigation.ts', import.meta.url),
+  'utf8'
+);
 const learnerPageServerSource = readFileSync(
   new URL('../src/routes/study/+page.server.js', import.meta.url),
   'utf8'
@@ -53,6 +57,15 @@ test('PR B removes per-run Original/Expanded choice and plans explicit Scheduled
   assert.match(formOwnerSource, /planScheduledSystemStudyRun/);
   assert.match(formOwnerSource, /planFreeSystemStudyRun/);
   assert.doesNotMatch(formOwnerSource, /questionPoolMode/);
+});
+
+test('PR B preserves legacy descendant-inclusive counts until the learner runtime cutover', () => {
+  assert.match(studyNavigationSource, /listSystemStudySelectionSystems/);
+  assert.match(
+    studyNavigationSource,
+    /caseCount: topic\.subtreeCaseCount/,
+    'current single-Topic page must keep showing the count for its descendant-inclusive route'
+  );
 });
 
 test('PR B does not switch the normal learner Review runtime before active Review/completion work exists', () => {
