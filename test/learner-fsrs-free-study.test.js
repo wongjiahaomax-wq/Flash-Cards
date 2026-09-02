@@ -7,6 +7,10 @@ import { FREE_COMPLETION_RECEIPT_TTL_MS } from '../src/lib/server/db/free-review
 import { initialLearnerPreferences } from '../src/lib/server/db/fsrs-bootstrap.js';
 import { buildFreeStudyRunDescriptor } from '../src/lib/server/learning/study-run-planner.js';
 
+const drizzleConfigSource = readFileSync(
+  new URL('../drizzle.config.js', import.meta.url),
+  'utf8'
+);
 const foundationSql = readFileSync(
   new URL('../drizzle/0019_learner_fsrs_foundation.sql', import.meta.url),
   'utf8'
@@ -102,6 +106,14 @@ function insertReceipt(db, reviewId, completedAt) {
     ) VALUES (?, 'learner', 'case-1', ?, 1)
   `).run(reviewId, completedAt);
 }
+
+test('Part E registers its receipt schema with Drizzle Kit authority', () => {
+  assert.match(
+    drizzleConfigSource,
+    /\.\/src\/lib\/server\/db\/free-study-schema\.js/,
+    'drizzle.config.js must include the Part E receipt schema'
+  );
+});
 
 test('Part E keeps Expanded Learning globally OFF by default and Free descriptors carry no scheduler boundary', () => {
   assert.deepEqual(initialLearnerPreferences('learner'), {
