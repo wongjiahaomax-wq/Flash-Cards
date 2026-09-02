@@ -19,6 +19,10 @@ const activeSql = readFileSync(
   new URL('../drizzle/0020_learner_fsrs_active_reviews.sql', import.meta.url),
   'utf8'
 ).replaceAll('--> statement-breakpoint', '');
+const scheduledCompletionSql = readFileSync(
+  new URL('../drizzle/0021_learner_fsrs_scheduled_completion.sql', import.meta.url),
+  'utf8'
+).replaceAll('--> statement-breakpoint', '');
 const freeSql = readFileSync(
   new URL('../drizzle/0022_learner_fsrs_free_study.sql', import.meta.url),
   'utf8'
@@ -48,6 +52,7 @@ function freeDb() {
   `);
   db.exec(foundationSql);
   db.exec(activeSql);
+  db.exec(scheduledCompletionSql);
   db.exec(freeSql);
   db.exec(`
     INSERT INTO user (id) VALUES ('learner');
@@ -113,6 +118,27 @@ test('Part E registers its receipt schema with Drizzle Kit authority', () => {
     /\.\/src\/lib\/server\/db\/free-study-schema\.js/,
     'drizzle.config.js must include the Part E receipt schema'
   );
+});
+
+test('Part E focused fixture applies the current A-D schema before Part E', () => {
+  const db = freeDb();
+  try {
+    const scheduledGuard = db.prepare(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'trigger' AND name = 'active_reviews_scheduled_completion_expiry_guard'
+    `).get();
+    const freeGuard = db.prepare(`
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'trigger' AND name = 'active_reviews_free_completion_expiry_guard'
+    `).get();
+
+    assert.equal(scheduledGuard?.name, 'active_reviews_scheduled_completion_expiry_guard');
+    assert.equal(freeGuard?.name, 'active_reviews_free_completion_expiry_guard');
+  } finally {
+    db.close();
+  }
 });
 
 test('Part E keeps Expanded Learning globally OFF by default and Free descriptors carry no scheduler boundary', () => {
