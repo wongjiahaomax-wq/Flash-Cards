@@ -28,7 +28,7 @@ const DATABASE_NOW_SQL = "cast((julianday('now') - 2440587.5) * 86400000 as inte
 function measured(fn) {
   const started = performance.now();
   const value = fn();
-  return { value, durationMs: +(performance.now() - started).toFixed(3) };
+  return { value, durationMs: performance.now() - started };
 }
 
 /** @template T @param {T|undefined} row @param {string} label @returns {T} */
@@ -164,15 +164,19 @@ function completeFreeBundle(db, reviewId, completedAt) {
 }
 
 /** @param {DatabaseSync} db @param {string} databasePath */
-function databaseBytes(db, databasePath) {
-  db.exec('PRAGMA wal_checkpoint(TRUNCATE); VACUUM;');
+function compactedDatabaseBytes(db, databasePath) {
+  // Flush pending WAL content before VACUUM, then checkpoint the compacted image
+  // again so stat() observes the normalized main database file.
+  db.exec('PRAGMA wal_checkpoint(TRUNCATE); VACUUM; PRAGMA wal_checkpoint(TRUNCATE);');
   return statSync(databasePath).size;
 }
 
 /**
  * D1-compatible SQLite benchmark for Part E Free Study persistence.
- * Active-Review creation is deliberately outside the measured completion bundle
- * because Part C has its own active-Review benchmark.
+ * Active-Review creation is deliberately untimed setup because Part C has its
+ * own active-Review benchmark. The one-active-per-learner invariant means each
+ * next Review must be created after the previous completion consumes its Review,
+ * so setup is performed immediately before each separately timed completion.
  *
  * @param {{completionCount?:number,cleanupLimit?:number}} [options]
  */
@@ -192,19 +196,22 @@ export function runFreeStudyBenchmark(options = {}) {
 
   try {
     installSchema(db);
-    const baselineBytes = databaseBytes(db, databasePath);
+    const baselineBytes = compactedDatabaseBytes(db, databasePath);
     const baseCompletedAt = Date.UTC(2026, 8, 2, 0, 0, 0);
     let totalChangedRows = 0;
+    let completionDurationMs = 0;
 
-    const completion = measured(() => {
-      for (let index = 0; index < completionCount; index += 1) {
-        const reviewId = `free-benchmark-${String(index).padStart(6, '0')}`;
-        createFreeActiveReview(db, reviewId);
-        totalChangedRows += completeFreeBundle(db, reviewId, baseCompletedAt + index);
-      }
-    });
+    for (let index = 0; index < completionCount; index += 1) {
+      const reviewId = `free-benchmark-${String(index).padStart(6, '0')}`;
+      createFreeActiveReview(db, reviewId);
+      const completionSample = measured(() =>
+        completeFreeBundle(db, reviewId, baseCompletedAt + index)
+      );
+      totalChangedRows += completionSample.value;
+      completionDurationMs += completionSample.durationMs;
+    }
 
-    const withReceiptsBytes = databaseBytes(db, databasePath);
+    const withReceiptsBytes = compactedDatabaseBytes(db, databasePath);
     const receiptRows = Number(requireRow(
       db.prepare('SELECT count(*) AS n FROM free_review_completion_receipts').get(),
       'receipt count'
@@ -266,7 +273,15 @@ export function runFreeStudyBenchmark(options = {}) {
       return { deleted, batches };
     });
 
-    const afterCleanupBytes = databaseBytes(db, databasePath);
+    const afterReceiptCleanupBytes = compactedDatabaseBytes(db, databasePath);
+    const temporaryReceiptRetainedBytes = Math.max(
+      0,
+      withReceiptsBytes - afterReceiptCleanupBytes
+    );
+    const persistentOutcomeDeltaBytes = Math.max(
+      0,
+      afterReceiptCleanupBytes - baselineBytes
+    );
     const remainingReceipts = Number(requireRow(
       db.prepare('SELECT count(*) AS n FROM free_review_completion_receipts').get(),
       'remaining receipt count'
@@ -276,22 +291,25 @@ export function runFreeStudyBenchmark(options = {}) {
     return {
       kind: 'D1-compatible SQLite Part E benchmark',
       caveat:
-        'This measures local SQLite storage/timing and logical changed rows on the current A-D schema plus Part E. It is not Cloudflare network latency or billing metadata.',
+        'This measures local SQLite storage/timing and logical changed rows on the current A-D schema plus Part E. Completion timing excludes active-Review creation. Receipt storage is isolated by comparing compacted database size before versus after receipt cleanup while persistent encounter/aggregate outcomes remain. It is not Cloudflare network latency or billing metadata.',
       occupancy: { completionCount, cleanupLimit },
       completion: {
-        totalMs: completion.durationMs,
-        meanMs: +(completion.durationMs / completionCount).toFixed(3),
+        timingScope: 'Free completion transaction only; active-Review creation excluded',
+        activeReviewCreationIncluded: false,
+        totalMs: +completionDurationMs.toFixed(3),
+        meanMs: +(completionDurationMs / completionCount).toFixed(3),
         logicalRowsChangedTotal: totalChangedRows,
         logicalRowsChangedPerCompletion: totalChangedRows / completionCount
       },
       storage: {
         baselineBytes,
         withReceiptsBytes,
-        receiptOccupancyDeltaBytes: withReceiptsBytes - baselineBytes,
+        afterReceiptCleanupBytes,
+        persistentOutcomeDeltaBytes,
+        temporaryReceiptRetainedBytes,
         approximateBytesPerRetainedReceipt:
-          +((withReceiptsBytes - baselineBytes) / completionCount).toFixed(2),
-        afterCleanupBytes,
-        reclaimedBytes: withReceiptsBytes - afterCleanupBytes
+          +(temporaryReceiptRetainedBytes / completionCount).toFixed(2),
+        cleanupReclaimedBytes: temporaryReceiptRetainedBytes
       },
       rows: {
         receiptRows,
@@ -300,7 +318,7 @@ export function runFreeStudyBenchmark(options = {}) {
         remainingReceipts
       },
       cleanup: {
-        totalMs: cleanup.durationMs,
+        totalMs: +cleanup.durationMs.toFixed(3),
         deleted: cleanup.value.deleted,
         batches: cleanup.value.batches,
         meanBatchMs: cleanup.value.batches === 0
