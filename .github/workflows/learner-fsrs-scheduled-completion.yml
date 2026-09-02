@@ -11,11 +11,14 @@ on:
       - 'drizzle.config.js'
       - 'scripts/learner-fsrs-scheduled-completion-d1-smoke.mjs'
       - 'scripts/learner-fsrs-scheduled-completion-d1-smoke-worker.js'
+      - 'scripts/learner-fsrs-scheduled-due-repeat-d1-smoke.mjs'
+      - 'scripts/learner-fsrs-scheduled-due-repeat-d1-smoke-worker.js'
       - 'src/lib/scheduled-study-run.js'
       - 'src/lib/server/db/index.js'
       - 'src/lib/server/db/fsrs-bootstrap.js'
       - 'src/lib/server/db/fsrs-schema.js'
       - 'src/lib/server/db/active-review-schema.js'
+      - 'src/lib/server/db/active-reviews.js'
       - 'src/lib/server/db/scheduled-review-completion.js'
       - 'src/lib/server/learning/fsrs-scheduler.js'
       - 'src/lib/server/learning/study-run-planner.js'
@@ -50,5 +53,8 @@ jobs:
       - name: Run focused Scheduled completion contracts
         run: node --test test/learner-fsrs-scheduled-completion.test.js test/learner-fsrs-scheduled-run.test.js
 
-      - name: Run Scheduled completion through local workerd and D1
+      - name: Run New completion and lifecycle races through local workerd and D1
         run: node scripts/learner-fsrs-scheduled-completion-d1-smoke.mjs
+
+      - name: Run Due and Repeat completion through local workerd and D1
+        run: node scripts/learner-fsrs-scheduled-due-repeat-d1-smoke.mjs
