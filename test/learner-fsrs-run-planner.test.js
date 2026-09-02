@@ -28,6 +28,7 @@ function profile() {
   };
 }
 
+/** @param {string} caseId @param {{stability:number,dueAt:number,stateRevision?:number}} input */
 function state(caseId, { stability, dueAt, stateRevision = 1 }) {
   return {
     userId: 'learner',
