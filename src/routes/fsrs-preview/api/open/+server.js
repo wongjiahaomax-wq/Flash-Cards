@@ -5,6 +5,10 @@ import {
   getActiveReview
 } from '$lib/server/db/active-reviews.js';
 import { beginFreeWork, selectNextFreeWork } from '$lib/free-study-run.js';
+import {
+  isFsrsPreviewRunDescriptor,
+  isFsrsPreviewRunOwnedBy
+} from '$lib/fsrs-preview-run-storage.js';
 import { beginScheduledWork, selectNextScheduledWork } from '$lib/scheduled-study-run.js';
 import {
   LOCAL_FSRS_PREVIEW_PROOF_SECRET,
@@ -31,6 +35,13 @@ export async function POST({ locals, platform, request, url }) {
   } catch {
     return json({ message: 'Invalid preview run payload.' }, 400);
   }
+  if (!isFsrsPreviewRunDescriptor(descriptor)) {
+    return json({ message: 'Preview run descriptor is invalid or unsupported.' }, 400);
+  }
+  if (!isFsrsPreviewRunOwnedBy(descriptor, locals.user.id)) {
+    return json({ message: 'This preview run belongs to another learner. Plan a new run for the signed-in account.' }, 403);
+  }
+
   const db = createDb(platform.env.DB);
   const existing = await getActiveReview(db, locals.user.id);
   if (existing) {
@@ -42,7 +53,7 @@ export async function POST({ locals, platform, request, url }) {
   }
 
   try {
-    if (descriptor?.kind === 'scheduled') {
+    if (descriptor.kind === 'scheduled') {
       const selection = selectNextScheduledWork(descriptor, { serverNow: new Date() });
       if (selection.status !== 'ready') return json({ ...selection, descriptor });
       const work = selection.work;
@@ -72,7 +83,7 @@ export async function POST({ locals, platform, request, url }) {
       });
     }
 
-    if (descriptor?.kind === 'free') {
+    if (descriptor.kind === 'free') {
       const selection = selectNextFreeWork(descriptor);
       if (selection.status !== 'ready') return json({ ...selection, descriptor });
       const opened = await createFreeActiveReview({
