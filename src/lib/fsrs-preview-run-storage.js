@@ -148,6 +148,13 @@ export function isFsrsPreviewRunDescriptor(descriptor) {
   return validScheduledDescriptor(descriptor) || validFreeDescriptor(descriptor);
 }
 
+/** @param {unknown} descriptor @param {unknown} userId */
+export function isFsrsPreviewRunOwnedBy(descriptor, userId) {
+  return isFsrsPreviewRunDescriptor(descriptor)
+    && nonEmptyString(userId)
+    && descriptor.userId === userId;
+}
+
 /** @param {PreviewRunStorage} storage */
 export function readFsrsPreviewRun(storage) {
   const raw = storage.getItem(FSRS_PREVIEW_RUN_STORAGE_KEY);
@@ -158,6 +165,15 @@ export function readFsrsPreviewRun(storage) {
   } catch {
     // Malformed local preview state is disposable browser state.
   }
+  storage.removeItem(FSRS_PREVIEW_RUN_STORAGE_KEY);
+  return null;
+}
+
+/** @param {PreviewRunStorage} storage @param {string} userId */
+export function readFsrsPreviewRunForUser(storage, userId) {
+  const descriptor = readFsrsPreviewRun(storage);
+  if (!descriptor) return null;
+  if (isFsrsPreviewRunOwnedBy(descriptor, userId)) return descriptor;
   storage.removeItem(FSRS_PREVIEW_RUN_STORAGE_KEY);
   return null;
 }
