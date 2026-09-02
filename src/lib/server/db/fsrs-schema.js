@@ -170,7 +170,13 @@ export const scheduledReviewEvents = sqliteTable(
     schedulerRevision: integer('scheduler_revision').notNull(),
     schedulerLibraryVersion: text('scheduler_library_version').notNull(),
     resultingStateRevision: integer('resulting_state_revision').notNull(),
-    nextDueAt: integer('next_due_at', { mode: 'timestamp_ms' }).notNull()
+    nextDueAt: integer('next_due_at', { mode: 'timestamp_ms' }).notNull(),
+    // Part D completion context is compact retry/proof provenance, not a persisted run/session snapshot.
+    queueClass: text('queue_class', { enum: ['due', 'new', 'repeat'] }),
+    runId: text('run_id'),
+    scopeFingerprint: text('scope_fingerprint'),
+    runStartedAt: integer('run_started_at', { mode: 'timestamp_ms' }),
+    resultingState: integer('resulting_state')
   },
   (table) => [
     uniqueIndex('scheduled_review_events_sequence_unique').on(

@@ -290,7 +290,8 @@ export async function buildScheduledStudyRunDescriptor(input) {
     repeatEntries: [],
     completedCaseIds: [],
     consecutiveNewCompleted: 0,
-    currentReviewId: null
+    currentReviewId: null,
+    currentWork: null
   };
 }
 
