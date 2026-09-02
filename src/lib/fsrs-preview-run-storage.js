@@ -148,7 +148,7 @@ export function isFsrsPreviewRunDescriptor(descriptor) {
   return validScheduledDescriptor(descriptor) || validFreeDescriptor(descriptor);
 }
 
-/** @param {unknown} descriptor @param {unknown} userId */
+/** @param {any} descriptor @param {unknown} userId */
 export function isFsrsPreviewRunOwnedBy(descriptor, userId) {
   return isFsrsPreviewRunDescriptor(descriptor)
     && nonEmptyString(userId)
