@@ -236,6 +236,59 @@ async function main() {
       active_reviews: 0
     });
 
+    assert.equal(result.ratingRaceResults.filter((entry) => entry.status === 'completed').length, 1);
+    assert.equal(result.ratingRaceResults.filter((entry) => entry.status === 'replayed').length, 1);
+    assert.equal(result.ratingRaceResults.filter((entry) => entry.payloadMismatch).length, 1);
+    assert.equal(result.ratingRaceResults[0].rating, result.ratingRaceResults[1].rating);
+    assert.deepEqual(result.ratingRaceCounts, {
+      events: 1,
+      optimizer_evidence: 1,
+      case_states: 1,
+      encounters: 1,
+      learner_scheduled: 1,
+      system_scheduled: 1,
+      active_reviews: 0
+    });
+
+    assert.equal(result.discardRace.discard.status, 'fulfilled');
+    assert.equal(result.discardRace.counts.active_reviews, 0);
+    if (result.discardRace.completion.status === 'fulfilled') {
+      assert.equal(result.discardRace.completion.value.status, 'completed');
+      assert.equal(result.discardRace.discard.value, false);
+      assert.deepEqual(result.discardRace.counts, {
+        events: 1,
+        optimizer_evidence: 1,
+        case_states: 1,
+        encounters: 1,
+        learner_scheduled: 1,
+        system_scheduled: 1,
+        active_reviews: 0
+      });
+    } else {
+      assert.equal(result.discardRace.discard.value, true);
+      assert.deepEqual(result.discardRace.counts, {
+        events: 0,
+        optimizer_evidence: 0,
+        case_states: 0,
+        encounters: 0,
+        learner_scheduled: 0,
+        system_scheduled: 0,
+        active_reviews: 0
+      });
+    }
+
+    assert.equal(result.cleanupRace.completion.status, 'rejected');
+    assert.equal(result.cleanupRace.cleanup.status, 'fulfilled');
+    assert.deepEqual(result.cleanupRace.counts, {
+      events: 0,
+      optimizer_evidence: 0,
+      case_states: 0,
+      encounters: 0,
+      learner_scheduled: 0,
+      system_scheduled: 0,
+      active_reviews: 0
+    });
+
     console.log(JSON.stringify({
       runtime: 'workerd + local D1 binding',
       compatibilityDate,
@@ -246,6 +299,10 @@ async function main() {
       repeatProofVerified: Boolean(result.verifiedRepeat),
       sameRatingReplay: result.sameRatingReplay.status,
       differentRatingPayloadMismatch: result.differentRatingReplay.payloadMismatch,
+      competingRatingWinner: result.ratingRaceResults[0].rating,
+      competingRatingMismatchCount: result.ratingRaceResults.filter((entry) => entry.payloadMismatch).length,
+      discardRaceCompletion: result.discardRace.completion.status,
+      cleanupRaceCompletion: result.cleanupRace.completion.status,
       counts: result.counts
     }, null, 2));
   } catch (error) {
