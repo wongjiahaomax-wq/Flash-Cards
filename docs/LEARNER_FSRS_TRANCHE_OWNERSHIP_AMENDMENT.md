@@ -4,14 +4,14 @@ Status: **Normative implementation-readiness amendment to the merged PR #101 tec
 
 Date: 2 September 2026
 
-This amendment reconciles one tranche-boundary inconsistency between:
+This amendment reconciles tranche-boundary inconsistencies between:
 
 - `LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md`; and
 - `LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md`.
 
 `DOCUMENTATION_INDEX.md` registers this file in the FSRS authority chain. The locked `LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md` remains superior for product behavior. For tranche ownership only, this amendment controls where it conflicts with the technical design/readiness contract; it does not otherwise supersede or weaken those documents.
 
-The underlying lifecycle, concurrency, expiry, deactivation, idempotency, and Reset/Fresh invariants remain required. This amendment changes **which focused implementation tranche must establish each side of those invariants** so a tranche is not required to implement a later tranche's operation merely to prove a cross-operation race.
+The underlying lifecycle, concurrency, expiry, deactivation, idempotency, Reset/Fresh, and Admin Study Preview non-contamination invariants remain required. This amendment changes **which focused implementation tranche must establish each side of those invariants** so a tranche is not required to implement a later tranche's operation or runtime surface merely to prove a cross-operation/runtime invariant.
 
 For tranche ownership only, this amendment supersedes the conflicting assignment language described below. It does not supersede the locked product plan or weaken any invariant required before learner runtime cutover.
 
@@ -84,14 +84,33 @@ PR F owns the Reset/Fresh writer and therefore the full two-sided creation-vs-Re
 
 PR C's stale-boundary creation guard is a prerequisite for this invariant, but PR F is the tranche that can complete the race proof because PR F owns the Reset/Fresh operation itself.
 
-## 6. Cross-tranche acceptance rule
+## 6. Admin Study Preview contamination — learner runtime cutover
 
-A focused tranche may be accepted without implementing a later tranche's operation when:
+The technical design's `PR E — Free Study + Expanded preference` decomposition currently includes the focused acceptance bullet:
+
+- `Admin Preview contamination tests`.
+
+That bullet is **superseded as a PR-E tranche-acceptance requirement** and reassigned to the learner runtime cutover checkpoint.
+
+Reason: the accepted current runtime does not contain the Production Admin Study Preview surface from Draft PR #119. That old surface depends on the rejected persistent `studySelectionId` / legacy Review architecture. PR E must not recreate or transplant that obsolete persistence/runtime merely to manufacture an executable Preview contamination test before the accepted Preview surface exists.
+
+The programme invariant is unchanged: **Admin Study Preview must never mutate learner FSRS/Free state, history, aggregates, preferences, active learner Reviews, or completion receipts.** The learner runtime cutover owns:
+
+- selectively transplanting or rebuilding the Production Admin Study Preview UX/authorization boundary against the accepted systems-first/FSRS architecture;
+- keeping that Preview path outside learner Review/SRS persistence;
+- executable regression tests against the actual Preview runtime proving zero learner state/history/aggregate/preference/active-Review/receipt contamination;
+- blocking cutover acceptance if those tests do not exist or fail.
+
+PR E may document/prove that its new persistence functions are not reachable from any current accepted Admin Preview runtime, but absence of a Preview surface is not itself the final contamination test. The final executable proof is mandatory at cutover when that surface becomes real.
+
+## 7. Cross-tranche acceptance rule
+
+A focused tranche may be accepted without implementing a later tranche's operation or runtime surface when:
 
 1. it implements and proves its own side of the shared invariant;
-2. the later side is explicitly assigned here to its owning tranche;
-3. learner runtime cutover remains blocked until all required sides are implemented and proven.
+2. the later side/surface is explicitly assigned here to its owning tranche/checkpoint;
+3. learner runtime cutover remains blocked until all required sides and runtime-surface proofs are implemented and proven.
 
-Therefore PR C can be complete after proving active ownership, creation, freeze, Resume/Discard, replacement, cleanup, and its write-boundary creation guards. PR D/E/F remain responsible for the completion and Reset/Fresh sides above before those capabilities or the eventual learner cutover may be considered complete.
+Therefore PR C can be complete after proving active ownership, creation, freeze, Resume/Discard, replacement, cleanup, and its write-boundary creation guards. PR D/E/F remain responsible for the completion and Reset/Fresh sides above, and the learner runtime cutover remains responsible for the executable Admin Study Preview non-contamination proof before those capabilities or the eventual learner cutover may be considered complete.
 
 No Production D1/R2 mutation, migration application, deployment, or learner runtime enablement is authorized by this amendment.
