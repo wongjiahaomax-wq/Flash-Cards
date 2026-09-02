@@ -9,6 +9,8 @@ This amendment reconciles one tranche-boundary inconsistency between:
 - `LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md`; and
 - `LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md`.
 
+`DOCUMENTATION_INDEX.md` registers this file in the FSRS authority chain. The locked `LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md` remains superior for product behavior. For tranche ownership only, this amendment controls where it conflicts with the technical design/readiness contract; it does not otherwise supersede or weaken those documents.
+
 The underlying lifecycle, concurrency, expiry, deactivation, idempotency, and Reset/Fresh invariants remain required. This amendment changes **which focused implementation tranche must establish each side of those invariants** so a tranche is not required to implement a later tranche's operation merely to prove a cross-operation race.
 
 For tranche ownership only, this amendment supersedes the conflicting assignment language described below. It does not supersede the locked product plan or weaken any invariant required before learner runtime cutover.
