@@ -29,8 +29,8 @@ async function ensureActiveReviewAssetFixture(db) {
   `));
 }
 
-/** @param {any} db @param {any} filters */
-export async function listAssetLibrary(db, filters) {
+/** @param {any} db @param {any} [filters] */
+export async function listAssetLibrary(db, filters = {}) {
   await ensureActiveReviewAssetFixture(db);
   return listAssetLibraryReal(db, filters);
 }
