@@ -1,11 +1,8 @@
 /**
- * Current-schema aliases for contextual System/Topic/Tag code.
+ * Current-schema alias for contextual System/Topic/Tag code.
  *
- * `schema.js` is the authoritative Drizzle model. These aliases keep the
- * contextual modules explicit about taxonomy/review semantics without defining
- * competing physical-table shapes.
+ * `schema.js` is the authoritative current Drizzle model. Legacy persisted
+ * learner Review tables are intentionally not exposed through current schema
+ * aliases after the FSRS learner runtime cutover.
  */
-export {
-  concepts as taxonomyConcepts,
-  reviews as reviewsWithRouteProvenance
-} from './schema.js';
+export { concepts as taxonomyConcepts } from './schema.js';
