@@ -1,0 +1,42 @@
+name: PR 141 review fixup
+
+on:
+  push:
+    branches:
+      - agent/fsrs-pr-g-admin-analytics-deletion
+
+permissions:
+  contents: write
+
+jobs:
+  fix-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: agent/fsrs-pr-g-admin-analytics-deletion
+          fetch-depth: 0
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Apply review fixes and validate before push
+        shell: bash
+        run: |
+          python scripts/pr141-review-fixup.py
+          if git diff --quiet; then
+            echo 'Fixes already applied; no push required.'
+            exit 0
+          fi
+          npm ci
+          npm run db:check
+          node --test test/learner-fsrs-pr-g.test.js test/learner-fsrs-pr-g-verification-guard.test.js test/learner-fsrs-pr-g-source-contract.test.js
+          npm run fsrs:account-deletion-benchmark
+          npm run fsrs:account-deletion-d1-smoke
+          npm run check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix: bound auth deletion and sync PR G authority docs'
+          git push origin HEAD:agent/fsrs-pr-g-admin-analytics-deletion
