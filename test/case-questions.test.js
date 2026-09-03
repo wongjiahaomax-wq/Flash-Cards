@@ -19,8 +19,8 @@ import {
   saveStimulusOptionQuestion,
   setStimulusOptionActive
 } from '../src/lib/server/db/stimulus-groups.js';
-import { getReview, startReview } from '../src/lib/server/db/learning.js';
 import { buildSeedSql } from '../scripts/seed-content.mjs';
+import { getReview, startReview } from './active-review-snapshot-adapter.js';
 import { applyCurrentSchema } from './current-schema.js';
 
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
