@@ -37,6 +37,7 @@
     "fsrs:workerd-smoke": "node scripts/learner-fsrs-workerd-smoke.mjs",
     "fsrs:account-deletion-benchmark": "node scripts/learner-fsrs-account-deletion-benchmark.mjs",
     "fsrs:account-deletion-d1-smoke": "node scripts/learner-fsrs-account-deletion-d1-smoke.mjs",
+    "fsrs:pr-g-acceptance-d1": "node scripts/learner-fsrs-pr-g-acceptance-d1.mjs",
     "local:setup": "node scripts/refresh-local-replica.mjs setup",
     "local:refresh": "node scripts/refresh-local-replica.mjs all",
     "local:refresh:d1": "node scripts/refresh-local-replica.mjs d1",
