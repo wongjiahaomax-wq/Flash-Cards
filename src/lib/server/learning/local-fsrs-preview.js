@@ -32,6 +32,16 @@ export function isLocalFsrsPreviewRequest(url, env) {
 }
 
 /**
+ * Keep Admin learner-study links on the current production runtime unless the
+ * exact same fail-closed local guard that protects /fsrs-preview succeeds.
+ * @param {URL} url
+ * @param {{BETTER_AUTH_URL?: unknown} | undefined} env
+ */
+export function getLearnerStudyPreviewHref(url, env) {
+  return isLocalFsrsPreviewRequest(url, env) ? '/fsrs-preview' : '/study';
+}
+
+/**
  * Browser-local preview runs are learner-owned state. Validate both descriptor
  * structure and ownership before any active-Review lookup or open mutation.
  * @param {unknown} descriptor
