@@ -182,12 +182,12 @@ test('Free Study enforces 5/10/20 distinct-Case boundaries and All available', (
 
 test('Free Study stale-entry skip preserves the distinct-Case target slot', () => {
   const descriptor = freeDescriptor({
-    bag: ['stale-case', 'case-a', 'case-b'],
-    distinctCaseTarget: 2
+    bag: ['stale-case', 'case-a', 'case-b', 'case-c', 'case-d', 'case-e'],
+    distinctCaseTarget: 5
   });
   const skipped = skipFreeWork(descriptor, 'stale-case');
   assert.equal(skipped.position, 0);
-  assert.deepEqual(skipped.bag, ['case-a', 'case-b']);
+  assert.deepEqual(skipped.bag, ['case-a', 'case-b', 'case-c', 'case-d', 'case-e']);
   assert.deepEqual(selectNextFreeWork(skipped), { status: 'ready', caseId: 'case-a' });
 
   const active = beginFreeWork(skipped, 'case-a', 'review-1');
