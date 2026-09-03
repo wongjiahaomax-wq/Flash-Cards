@@ -12,12 +12,12 @@ import {
   AssetReplacementInputError,
   replaceAssetWithHigherResolution
 } from '../src/lib/server/db/asset-replacement.js';
-import { getReview, startReview } from '../src/lib/server/db/learning.js';
 import {
   MAX_IMAGE_BYTES,
   MAX_MEDIA_BYTES,
   MediaStorageLimitError
 } from '../src/lib/server/storage/media.js';
+import { getReview, startReview } from './active-review-snapshot-adapter.js';
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -166,10 +166,13 @@ function fixture(options = {}) {
   const db = createDb(/** @type {any} */ (d1));
 
   sqlite.prepare(
-    'INSERT INTO concepts (id, name, slug, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)'
+    "INSERT INTO concepts (id, name, slug, kind, parent_id, is_active, created_at, updated_at) VALUES (?, ?, ?, 'system', NULL, 1, 1, 1)"
+  ).run('system-fixture', 'Fixture system', 'fixture-system');
+  sqlite.prepare(
+    "INSERT INTO concepts (id, name, slug, kind, parent_id, is_active, created_at, updated_at) VALUES (?, ?, ?, 'topic', 'system-fixture', 1, 1, 1)"
   ).run('topic-fixed', 'Fixed topic', 'fixed-topic');
   sqlite.prepare(
-    'INSERT INTO concepts (id, name, slug, is_active, created_at, updated_at) VALUES (?, ?, ?, 1, 1, 1)'
+    "INSERT INTO concepts (id, name, slug, kind, parent_id, is_active, created_at, updated_at) VALUES (?, ?, ?, 'topic', 'system-fixture', 1, 1, 1)"
   ).run('topic-stimulus', 'Stimulus topic', 'stimulus-topic');
 
   sqlite.prepare(
@@ -278,7 +281,7 @@ async function startStimulusReview(fx) {
   return review;
 }
 
-test('replacement creates B, migrates production relationships, clones reusable questions, and preserves historical A provenance', async () => {
+test('replacement creates B, migrates production relationships, clones reusable questions, and preserves frozen snapshot provenance', async () => {
   const fx = fixture();
   try {
     const oldReview = await startStimulusReview(fx);
@@ -401,14 +404,14 @@ test('replacement creates B, migrates production relationships, clones reusable 
       'asset-a'
     );
 
-    const historical = await getReview(fx.db, oldReview.id, 'learner-a');
-    assert.ok(historical);
-    assert.equal(historical.assets[0].assetId, 'asset-a');
-    assert.equal(historical.assets[0].storageKey, 'teaching-images/asset-a.png');
-    const historicalReusable = historical.questions.find((question) => question.sourceType === 'asset');
-    assert.equal(historicalReusable.sourceAssetQuestionId, 'aq-old-active');
-    assert.equal(historicalReusable.prompt, 'What finding is intrinsic to this image?');
-    assert.equal(historicalReusable.answer, 'Canonical reusable answer');
+    const frozen = await getReview(fx.db, oldReview.id, 'learner-a');
+    assert.ok(frozen);
+    assert.equal(frozen.assets[0].assetId, 'asset-a');
+    assert.equal(frozen.assets[0].storageKey, 'teaching-images/asset-a.png');
+    const frozenReusable = frozen.questions.find((question) => question.sourceType === 'asset');
+    assert.equal(frozenReusable.sourceAssetQuestionId, 'aq-old-active');
+    assert.equal(frozenReusable.prompt, 'What finding is intrinsic to this image?');
+    assert.equal(frozenReusable.answer, 'Canonical reusable answer');
     const newReview = await startStimulusReview(fx);
     assert.equal(newReview.assets[0].assetId, result.newAssetId);
     assert.notEqual(newReview.assets[0].assetId, 'asset-a');
@@ -483,11 +486,11 @@ test('simulated D1 replacement failure rolls back semantics and removes only the
       0
     );
 
-    const historical = await getReview(fx.db, oldReview.id, 'learner-a');
-    assert.ok(historical);
-    assert.equal(historical.assets[0].storageKey, 'teaching-images/asset-a.png');
+    const frozen = await getReview(fx.db, oldReview.id, 'learner-a');
+    assert.ok(frozen);
+    assert.equal(frozen.assets[0].storageKey, 'teaching-images/asset-a.png');
     assert.equal(
-      historical.questions.find((question) => question.sourceType === 'asset').sourceAssetQuestionId,
+      frozen.questions.find((question) => question.sourceType === 'asset').sourceAssetQuestionId,
       'aq-old-active'
     );
 
@@ -599,14 +602,45 @@ test('Preview-owned source Assets and missing same-image confirmation are reject
   }
 });
 
-test('historical Review media serves storage_key_snapshot after A is inactive and another learner is denied', async () => {
+test('active Review media keeps its frozen R2 snapshot across higher-resolution replacement', async () => {
   const fx = fixture();
   try {
-    const oldReview = await startStimulusReview(fx);
-    const reviewAsset = fx.sqlite.prepare(
-      'SELECT id FROM review_assets WHERE review_id = ?'
-    ).get(oldReview.id);
-    assert.ok(reviewAsset);
+    fx.sqlite.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)')
+      .run('learner-a', 'Learner A', 'learner-a@example.test', 1, 1);
+    fx.sqlite.prepare(`
+      INSERT INTO active_reviews (
+        id, user_id, case_id, system_id, study_mode, content_mode, queue_class,
+        run_id, scope_fingerprint, scope_json, generation, review_sequence_epoch,
+        parameter_revision, scheduler_revision, scheduler_library_version,
+        expected_state_revision, expected_due_at, run_started_at,
+        case_title_snapshot, snapshot_version, revealed_at
+      ) VALUES (?, ?, ?, ?, 'free', 'expanded', NULL, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, 1, ?)
+    `).run(
+      'active-media-review',
+      'learner-a',
+      'case-stimulus',
+      'system-fixture',
+      'active-media-run',
+      'active-media-scope',
+      JSON.stringify({ systemId: 'system-fixture', routes: [{ routeType: 'topic', routeId: 'topic-stimulus' }] }),
+      'Stimulus case',
+      2
+    );
+    fx.sqlite.prepare(`
+      INSERT INTO active_review_assets (
+        id, active_review_id, asset_id, display_order, storage_key_snapshot,
+        caption_snapshot_md, alt_text_snapshot, source_stimulus_group_id, source_stimulus_option_id
+      ) VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?)
+    `).run(
+      'active-media-asset',
+      'active-media-review',
+      'asset-a',
+      'teaching-images/asset-a.png',
+      'Alternative caption',
+      'Neutral image alt',
+      'group-1',
+      'option-1'
+    );
 
     const result = await replaceAssetWithHigherResolution({
       db: fx.db,
@@ -619,23 +653,20 @@ test('historical Review media serves storage_key_snapshot after A is inactive an
       fx.sqlite.prepare('SELECT is_active FROM assets WHERE id = ?').get('asset-a').is_active,
       0
     );
-
-    const { GET } = await import(
-      '../src/routes/api/reviews/[reviewId]/assets/[reviewAssetId]/image/+server.js'
+    assert.equal(
+      fx.sqlite.prepare('SELECT storage_key_snapshot FROM active_review_assets WHERE id = ?').get('active-media-asset').storage_key_snapshot,
+      'teaching-images/asset-a.png'
     );
+
+    const { GET } = await import('../src/routes/study/media/[reviewId]/[assetId]/+server.js');
     const response = await GET({
       locals: { user: { id: 'learner-a', role: 'user' } },
-      params: { reviewId: oldReview.id, reviewAssetId: reviewAsset.id },
+      params: { reviewId: 'active-media-review', assetId: 'active-media-asset' },
       platform: { env: { DB: fx.d1, MEDIA: fx.bucket } },
-      request: new Request(
-        `https://example.test/api/reviews/${oldReview.id}/assets/${reviewAsset.id}/image`
-      )
+      request: new Request('https://example.test/study/media/active-media-review/active-media-asset')
     });
     assert.equal(response.status, 200);
-    assert.equal(
-      response.headers.get('cache-control'),
-      'private, max-age=0, must-revalidate'
-    );
+    assert.equal(response.headers.get('cache-control'), 'private, max-age=0, must-revalidate');
     assert.equal(await response.text(), 'old-image-bytes');
     assert.equal(fx.reads.at(-1), 'teaching-images/asset-a.png');
     assert.notEqual(fx.reads.at(-1), result.newStorageKey);
@@ -643,14 +674,17 @@ test('historical Review media serves storage_key_snapshot after A is inactive an
     const readsBeforeDenial = fx.reads.length;
     const denied = await GET({
       locals: { user: { id: 'learner-b', role: 'user' } },
-      params: { reviewId: oldReview.id, reviewAssetId: reviewAsset.id },
+      params: { reviewId: 'active-media-review', assetId: 'active-media-asset' },
       platform: { env: { DB: fx.d1, MEDIA: fx.bucket } },
-      request: new Request(
-        `https://example.test/api/reviews/${oldReview.id}/assets/${reviewAsset.id}/image`
-      )
+      request: new Request('https://example.test/study/media/active-media-review/active-media-asset')
     });
     assert.equal(denied.status, 404);
     assert.equal(fx.reads.length, readsBeforeDenial);
+
+    const { GET: getLegacyReviewMedia } = await import('../src/routes/api/reviews/[reviewId]/assets/[reviewAssetId]/image/+server.js');
+    const retired = getLegacyReviewMedia();
+    assert.equal(retired.status, 410);
+    assert.equal(retired.headers.get('cache-control'), 'no-store');
   } finally {
     fx.sqlite.close();
   }
@@ -673,7 +707,7 @@ test('schema/UI/routes keep replacement narrow, production-only, and outside Imp
   assert.match(adminUi, /Replace with higher-resolution version/);
   assert.match(adminUi, /same underlying image/);
   assert.match(adminUi, /preserving every Stimulus Option ID/);
-  assert.match(adminUi, /historical Reviews/);
+  assert.match(adminUi, /active unfinished Review/);
 
   const previewServer = readFileSync(
     new URL('../src/routes/preview-admin/images/+page.server.js', import.meta.url),
@@ -685,17 +719,24 @@ test('schema/UI/routes keep replacement narrow, production-only, and outside Imp
     new URL('../src/routes/study/[reviewId]/+page.server.js', import.meta.url),
     'utf8'
   );
-  assert.match(studyServer, /getReviewImageUrl/);
-  assert.doesNotMatch(studyServer, /getTeachingImageUrl/);
+  assert.match(studyServer, /getActiveReviewById/);
+  assert.match(studyServer, /\/study\/media\//);
+  assert.doesNotMatch(studyServer, /getReviewImageUrl|getTeachingImageUrl/);
 
-  const reviewRoute = readFileSync(
+  const activeReviewMediaRoute = readFileSync(
+    new URL('../src/routes/study/media/[reviewId]/[assetId]/+server.js', import.meta.url),
+    'utf8'
+  );
+  assert.match(activeReviewMediaRoute, /getActiveReviewById/);
+  assert.match(activeReviewMediaRoute, /storageKeySnapshot/);
+  assert.match(activeReviewMediaRoute, /serveReviewImage/);
+
+  const legacyReviewRoute = readFileSync(
     new URL('../src/routes/api/reviews/[reviewId]/assets/[reviewAssetId]/image/+server.js', import.meta.url),
     'utf8'
   );
-  assert.match(reviewRoute, /getOwnedReviewMediaSnapshot/);
-  assert.match(reviewRoute, /storageKeySnapshot/);
-  assert.match(reviewRoute, /isPreviewWorker/);
-  assert.match(reviewRoute, /isPreviewOnlyAdmin/);
+  assert.match(legacyReviewRoute, /status:\s*410/);
+  assert.match(legacyReviewRoute, /Legacy learner Review media has been retired/);
 
   const currentAssetRoute = readFileSync(
     new URL('../src/routes/api/assets/[assetId]/image/+server.js', import.meta.url),
