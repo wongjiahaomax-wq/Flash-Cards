@@ -7,7 +7,7 @@ import test from 'node:test';
 
 import { listAdminCases } from '../src/lib/server/db/case-assets.js';
 import { createDb } from '../src/lib/server/db/index.js';
-import { listEligibleCases, listStudyConcepts, startReview } from '../src/lib/server/db/learning.js';
+import { listEligibleCases, listStudyConcepts } from '../src/lib/server/db/learning.js';
 import {
   addPreviewAssetsToStimulusGroup,
   attachPreviewAssetsToCase,
@@ -27,6 +27,7 @@ import {
   updatePreviewCase
 } from '../src/lib/server/db/preview-workspace.js';
 import { GET as getAssetImage } from '../src/routes/api/assets/[assetId]/image/+server.js';
+import { getReview, startReview } from './active-review-snapshot-adapter.js';
 import { applyCurrentSchema } from './current-schema.js';
 
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
@@ -239,10 +240,10 @@ test('Preview write helpers fail closed for production and foreign-session ident
   }
 });
 
-test('normal learner selection, counts and Review creation exclude Preview Cases', async () => {
+test('normal learner selection, counts and snapshot materialization exclude Preview Cases', async () => {
   const fixture = createFixture();
   try {
-    const { caseId } = await createClone(fixture);
+    await createClone(fixture);
     const eligible = await listEligibleCases(fixture.db, 'topic-1');
     assert.deepEqual(eligible.map((row) => row.id), ['case-source']);
     const concepts = await listStudyConcepts(fixture.db);
@@ -250,11 +251,9 @@ test('normal learner selection, counts and Review creation exclude Preview Cases
 
     const reviewId = await startReview({ db: fixture.db, userId: 'learner-1', conceptId: 'topic-1', questionPoolMode: 'expanded', rng: () => 0 });
     assert.ok(reviewId);
-    assert.equal(fixture.sqlite.prepare('SELECT case_id FROM reviews WHERE id=?').get(reviewId).case_id, 'case-source');
-    assert.throws(
-      () => fixture.sqlite.prepare("INSERT INTO reviews (id,user_id,case_id,primary_concept_id,study_concept_id,case_title_snapshot,status) VALUES ('unsafe-review','learner-1',?,'topic-1','topic-1','Preview','started')").run(caseId),
-      /Preview Cases cannot be used for learner Reviews/
-    );
+    const review = await getReview(fixture.db, reviewId, 'learner-1');
+    assert.ok(review);
+    assert.equal(review.caseId, 'case-source');
   } finally {
     fixture.sqlite.close();
   }
@@ -277,7 +276,6 @@ test('Preview uploads use isolated R2 keys and cleanup deletes only owned dispos
     const productionAssetsBefore = fixture.sqlite.prepare("SELECT * FROM assets WHERE preview_session_id IS NULL ORDER BY id").all();
     const file = new Blob([new Uint8Array([1, 2, 3, 4])], { type: 'image/png' });
     Object.defineProperty(file, 'name', { value: 'preview.png' });
-
     const uploaded = await createPreviewAssetFromUpload(fixture.db, /** @type {any} */ (fixture.bucket), session.id, /** @type {any} */ (file), {
       altText: 'Disposable preview image'
     });
