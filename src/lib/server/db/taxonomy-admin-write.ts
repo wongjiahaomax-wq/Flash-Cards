@@ -1,8 +1,9 @@
-import { and, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { taxonomyConcepts } from './contextual-schema.ts';
 import { buildTopicConceptInsert, listConceptTaxonomy } from './concept-taxonomy-compat.ts';
-import { caseConcepts, cases, conceptQuestions, concepts, reviewQuestions, reviews } from './schema.js';
+import { hasFsrsSystemHistory } from './fsrs-system-provenance.ts';
+import { caseConcepts, cases, conceptQuestions, concepts } from './schema.js';
 import { systemTags, tags } from './tag-schema.js';
 import {
   applyParentChanges,
@@ -167,8 +168,14 @@ export async function updateTaxonomyConcept(
   }
 
   if (target.kind === 'system' && kind !== 'system') {
-    const relationships = await db.select({ tagId: systemTags.tagId }).from(systemTags).where(eq(systemTags.systemConceptId, conceptId)).limit(1);
+    const [relationships, hasLearnerHistory] = await Promise.all([
+      db.select({ tagId: systemTags.tagId }).from(systemTags).where(eq(systemTags.systemConceptId, conceptId)).limit(1),
+      hasFsrsSystemHistory(db, conceptId)
+    ]);
     if (relationships[0]) throw new TaxonomyInputError('Remove this System’s exposed Tags before changing it to a Topic.');
+    if (hasLearnerHistory) {
+      throw new TaxonomyInputError('This System has retained learner FSRS history and must remain a System.');
+    }
   }
   if (target.kind === 'system' && !isActive) {
     const relationships = await db.select({ tagId: systemTags.tagId }).from(systemTags).where(eq(systemTags.systemConceptId, conceptId)).limit(1);
@@ -195,7 +202,6 @@ export type TopicDeletionEligibility = {
   hasCaseAttachments: boolean;
   hasQuestions: boolean;
   hasChildren: boolean;
-  hasReviewHistory: boolean;
 };
 
 export async function getTopicDeletionEligibility(
@@ -203,28 +209,19 @@ export async function getTopicDeletionEligibility(
   input: { conceptId: unknown }
 ): Promise<TopicDeletionEligibility> {
   const conceptId = requiredText(input.conceptId, 'Topic');
-  const [caseUsage, questionUsage, childUsage, reviewUsage, reviewQuestionUsage] = await Promise.all([
+  const [caseUsage, questionUsage, childUsage] = await Promise.all([
     db.select({ id: caseConcepts.caseId }).from(caseConcepts).where(eq(caseConcepts.conceptId, conceptId)).limit(1),
     db.select({ id: conceptQuestions.id }).from(conceptQuestions).where(eq(conceptQuestions.conceptId, conceptId)).limit(1),
-    db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(eq(taxonomyConcepts.parentId, conceptId)).limit(1),
-    db.select({ id: reviews.id }).from(reviews).where(or(
-      eq(reviews.primaryConceptId, conceptId),
-      eq(reviews.studyConceptId, conceptId),
-      eq(reviews.studySystemConceptId, conceptId),
-      and(eq(reviews.navigationRouteType, 'topic'), eq(reviews.navigationRouteId, conceptId))
-    )).limit(1),
-    db.select({ id: reviewQuestions.id }).from(reviewQuestions).where(eq(reviewQuestions.sourceConceptId, conceptId)).limit(1)
+    db.select({ id: taxonomyConcepts.id }).from(taxonomyConcepts).where(eq(taxonomyConcepts.parentId, conceptId)).limit(1)
   ]);
   const hasCaseAttachments = Boolean(caseUsage[0]);
   const hasQuestions = Boolean(questionUsage[0]);
   const hasChildren = Boolean(childUsage[0]);
-  const hasReviewHistory = Boolean(reviewUsage[0] || reviewQuestionUsage[0]);
   return {
-    canDelete: !(hasCaseAttachments || hasQuestions || hasChildren || hasReviewHistory),
+    canDelete: !(hasCaseAttachments || hasQuestions || hasChildren),
     hasCaseAttachments,
     hasQuestions,
-    hasChildren,
-    hasReviewHistory
+    hasChildren
   };
 }
 
@@ -242,15 +239,12 @@ export async function deleteUnusedTopic(
   if (eligibility.hasCaseAttachments || eligibility.hasQuestions || eligibility.hasChildren) {
     throw new TaxonomyInputError('This Topic cannot be deleted while it has Case attachments, reusable Topic questions, or child Topics. Remove those relationships first.');
   }
-  if (eligibility.hasReviewHistory) {
-    throw new TaxonomyInputError('This Topic is referenced by learner Review history and cannot be deleted.');
-  }
 
   try {
     await db.delete(taxonomyConcepts).where(and(eq(taxonomyConcepts.id, conceptId), eq(taxonomyConcepts.kind, 'topic')));
   } catch (error) {
     if (error instanceof Error && /constraint|foreign key|abort/i.test(error.message)) {
-      throw new TaxonomyInputError('This Topic is still referenced by content or learning history and cannot be deleted.');
+      throw new TaxonomyInputError('This Topic is still referenced by current content and cannot be deleted.');
     }
     throw error;
   }
