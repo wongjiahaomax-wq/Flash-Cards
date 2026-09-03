@@ -63,10 +63,11 @@ test('combined local learner/content reset clears retained monthly System histor
       ) VALUES ('local-learner', 'local-system-old', 0, 1, 1, 0, 0);
     `);
 
-    assert.equal(
-      sqlite.prepare('SELECT count(*) AS count FROM learner_system_monthly_buckets').get().count,
-      1
-    );
+    const bucketBeforeReset = sqlite
+      .prepare('SELECT count(*) AS count FROM learner_system_monthly_buckets')
+      .get();
+    assert.ok(bucketBeforeReset);
+    assert.equal(bucketBeforeReset.count, 1);
 
     // Content reset alone must fail closed because migration 0025 treats the
     // retained monthly bucket as historical System provenance.
@@ -79,14 +80,22 @@ test('combined local learner/content reset clears retained monthly System histor
     // reset. The runtime phase must remove the monthly provenance row so the old
     // System can be deleted/replaced deterministically.
     sqlite.exec(buildLocalLearnerRuntimeResetSql());
-    assert.equal(
-      sqlite.prepare('SELECT count(*) AS count FROM learner_system_monthly_buckets').get().count,
-      0
-    );
+    const bucketAfterRuntimeReset = sqlite
+      .prepare('SELECT count(*) AS count FROM learner_system_monthly_buckets')
+      .get();
+    assert.ok(bucketAfterRuntimeReset);
+    assert.equal(bucketAfterRuntimeReset.count, 0);
 
     sqlite.exec(buildLocalResetSql());
-    assert.equal(sqlite.prepare('SELECT count(*) AS count FROM concepts').get().count, 0);
-    assert.equal(sqlite.prepare('SELECT count(*) AS count FROM user WHERE id = ?').get('local-learner').count, 1);
+    const conceptsAfterRefresh = sqlite.prepare('SELECT count(*) AS count FROM concepts').get();
+    assert.ok(conceptsAfterRefresh);
+    assert.equal(conceptsAfterRefresh.count, 0);
+
+    const preservedLearner = sqlite
+      .prepare('SELECT count(*) AS count FROM user WHERE id = ?')
+      .get('local-learner');
+    assert.ok(preservedLearner);
+    assert.equal(preservedLearner.count, 1);
   } finally {
     sqlite.close();
   }
