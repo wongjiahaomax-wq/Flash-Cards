@@ -202,6 +202,9 @@ function seedDeletionFixture(sqlite) {
     VALUES ('account-a', 'learner-a', 'credential', 'learner-a', 'not-a-real-password-hash', 1, 1);
     INSERT INTO session (id, expiresAt, token, createdAt, updatedAt, userId)
     VALUES ('session-a', 9999999999999, 'session-token-a', 1, 1, 'learner-a');
+    INSERT INTO verification (id, identifier, value, expiresAt, createdAt, updatedAt) VALUES
+      ('verification-reset-a', 'reset-password:token-a', 'learner-a', 9999999999999, 1, 1),
+      ('verification-unrelated', 'reset-password:other', 'other-user', 9999999999999, 1, 1);
 
     INSERT INTO learner_preferences (user_id) VALUES ('learner-a');
     INSERT INTO learner_fsrs_profiles (
@@ -296,7 +299,7 @@ test('staged learner deletion revokes access first, bounds every step, is retry-
     );
 
     const started = await beginLearnerAccountDeletion({ db, userId: 'learner-a' });
-    assert.equal(started.phase, 'free_receipts');
+    assert.equal(started.phase, 'auth_verifications');
     assert.equal(sqlite.prepare("SELECT banned FROM user WHERE id = 'learner-a'").get().banned, 1);
     assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM session WHERE userId = 'learner-a'").get().n, 0);
     assert.throws(
@@ -318,6 +321,16 @@ test('staged learner deletion revokes access first, bounds every step, is retry-
     }
     assert.equal(ready, true, 'bounded retries should reach the identity-ready state');
     assert.ok(deletionSteps.filter((step) => step.rowsDeleted === 2).length >= 2, 'fixture should require repeated bounded chunks');
+    assert.equal(
+      sqlite.prepare("SELECT COUNT(*) AS n FROM verification WHERE value = 'learner-a'").get().n,
+      0,
+      'Better Auth verification rows whose value owns the learner id must be removed before identity delete'
+    );
+    assert.equal(
+      sqlite.prepare("SELECT COUNT(*) AS n FROM verification WHERE id = 'verification-unrelated'").get().n,
+      1,
+      'staged verification cleanup must not delete unrelated tokens'
+    );
 
     sqlite.exec("DELETE FROM user WHERE id = 'learner-a';");
     assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM user WHERE id = 'learner-a'").get().n, 0);
