@@ -1,11 +1,13 @@
 import { createDb } from '$lib/server/db/index.js';
+import { ActiveReviewContentError } from '$lib/server/db/active-review-content.js';
 import {
+  ActiveReviewError,
   createFreeActiveReview,
   createScheduledActiveReview,
   getActiveReview
 } from '$lib/server/db/active-reviews.js';
-import { beginFreeWork, selectNextFreeWork } from '$lib/free-study-run.js';
-import { beginScheduledWork, selectNextScheduledWork } from '$lib/scheduled-study-run.js';
+import { beginFreeWork, selectNextFreeWork, skipFreeWork } from '$lib/free-study-run.js';
+import { beginScheduledWork, selectNextScheduledWork, skipScheduledWork } from '$lib/scheduled-study-run.js';
 import {
   LOCAL_FSRS_PREVIEW_PROOF_SECRET,
   isLocalFsrsPreviewRequest,
@@ -18,6 +20,13 @@ function json(body, status = 200) {
     status,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   });
+}
+
+/** @param {unknown} cause */
+function skippableOpenError(cause) {
+  if (cause instanceof ActiveReviewContentError) return cause.code === 'content-unavailable';
+  return cause instanceof ActiveReviewError
+    && ['stale-case-state', 'ineligible-scope', 'content-unavailable'].includes(cause.code);
 }
 
 export async function POST({ locals, platform, request, url }) {
@@ -48,54 +57,72 @@ export async function POST({ locals, platform, request, url }) {
 
   try {
     if (descriptor.kind === 'scheduled') {
-      const selection = selectNextScheduledWork(descriptor, { serverNow: new Date() });
-      if (selection.status !== 'ready') return json({ ...selection, descriptor });
-      const work = selection.work;
-      const opened = await createScheduledActiveReview({
-        db,
-        userId: locals.user.id,
-        systemId: descriptor.selectedScope.systemId,
-        routes: descriptor.selectedScope.routes,
-        caseId: work.caseId,
-        queueClass: work.queueClass,
-        runBoundaryToken: descriptor.runBoundaryToken,
-        workProof: work.workProof,
-        proofSecret: LOCAL_FSRS_PREVIEW_PROOF_SECRET,
-        now: new Date()
-      });
-      if (
-        opened.review.runId !== descriptor.runId
-        || opened.review.caseId !== work.caseId
-        || opened.review.queueClass !== work.queueClass
-      ) {
-        return json({ status: 'resume', reviewId: opened.review.id, message: 'Another active Review won the open race.' }, 409);
+      while (true) {
+        const selection = selectNextScheduledWork(descriptor, { serverNow: new Date() });
+        if (selection.status !== 'ready') return json({ ...selection, descriptor });
+        const work = selection.work;
+        let opened;
+        try {
+          opened = await createScheduledActiveReview({
+            db,
+            userId: locals.user.id,
+            systemId: descriptor.selectedScope.systemId,
+            routes: descriptor.selectedScope.routes,
+            caseId: work.caseId,
+            queueClass: work.queueClass,
+            runBoundaryToken: descriptor.runBoundaryToken,
+            workProof: work.workProof,
+            proofSecret: LOCAL_FSRS_PREVIEW_PROOF_SECRET,
+            now: new Date()
+          });
+        } catch (cause) {
+          if (!skippableOpenError(cause)) throw cause;
+          descriptor = skipScheduledWork(descriptor, work);
+          continue;
+        }
+        if (
+          opened.review.runId !== descriptor.runId
+          || opened.review.caseId !== work.caseId
+          || opened.review.queueClass !== work.queueClass
+        ) {
+          return json({ status: 'resume', reviewId: opened.review.id, message: 'Another active Review won the open race.' }, 409);
+        }
+        return json({
+          status: 'review',
+          reviewId: opened.review.id,
+          descriptor: beginScheduledWork(descriptor, work, opened.review.id)
+        });
       }
-      return json({
-        status: 'review',
-        reviewId: opened.review.id,
-        descriptor: beginScheduledWork(descriptor, work, opened.review.id)
-      });
     }
 
     if (descriptor.kind === 'free') {
-      const selection = selectNextFreeWork(descriptor);
-      if (selection.status !== 'ready') return json({ ...selection, descriptor });
-      const opened = await createFreeActiveReview({
-        db,
-        userId: locals.user.id,
-        systemId: descriptor.selectedScope.systemId,
-        routes: descriptor.selectedScope.routes,
-        caseId: selection.caseId,
-        runId: descriptor.runId
-      });
-      if (opened.review.runId !== descriptor.runId || opened.review.caseId !== selection.caseId) {
-        return json({ status: 'resume', reviewId: opened.review.id, message: 'Another active Review won the open race.' }, 409);
+      while (true) {
+        const selection = selectNextFreeWork(descriptor);
+        if (selection.status !== 'ready') return json({ ...selection, descriptor });
+        let opened;
+        try {
+          opened = await createFreeActiveReview({
+            db,
+            userId: locals.user.id,
+            systemId: descriptor.selectedScope.systemId,
+            routes: descriptor.selectedScope.routes,
+            caseId: selection.caseId,
+            runId: descriptor.runId
+          });
+        } catch (cause) {
+          if (!skippableOpenError(cause)) throw cause;
+          descriptor = skipFreeWork(descriptor, selection.caseId);
+          continue;
+        }
+        if (opened.review.runId !== descriptor.runId || opened.review.caseId !== selection.caseId) {
+          return json({ status: 'resume', reviewId: opened.review.id, message: 'Another active Review won the open race.' }, 409);
+        }
+        return json({
+          status: 'review',
+          reviewId: opened.review.id,
+          descriptor: beginFreeWork(descriptor, selection.caseId, opened.review.id)
+        });
       }
-      return json({
-        status: 'review',
-        reviewId: opened.review.id,
-        descriptor: beginFreeWork(descriptor, selection.caseId, opened.review.id)
-      });
     }
 
     return json({ message: 'Unsupported preview run descriptor.' }, 400);
