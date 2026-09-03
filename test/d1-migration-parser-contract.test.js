@@ -5,7 +5,8 @@ import test from 'node:test';
 const parserSensitiveMigrations = [
   '../drizzle/0020_learner_fsrs_active_reviews.sql',
   '../drizzle/0021_learner_fsrs_scheduled_completion.sql',
-  '../drizzle/0022_learner_fsrs_free_study.sql'
+  '../drizzle/0022_learner_fsrs_free_study.sql',
+  '../drizzle/0023_learner_fsrs_system_provenance_guard.sql'
 ];
 
 test('pending FSRS trigger migrations remain compatible with the remote D1 statement splitter', () => {
