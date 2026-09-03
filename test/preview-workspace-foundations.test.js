@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { createDb } from '../src/lib/server/db/index.js';
-import * as previewWorkspace from '../src/lib/server/db/preview-workspace.js';
+import * as previewWorkspace from './preview-workspace-test-adapter.js';
 import { PreviewWorkspaceError as InternalPreviewWorkspaceError } from '../src/lib/server/db/preview-workspace/errors.js';
 import { requiredText } from '../src/lib/server/db/preview-workspace/input.js';
 import {
@@ -209,7 +209,7 @@ test('Preview Session creation uses the existing TTL and reuses the existing liv
 test('ensurePreviewWorkspace returns an unexpired active Session unchanged', async () => {
   const fixture = createFixture();
   try {
-    const now = 1_800_000_000_000;
+    const now = 1_800_000_000;
     const first = await previewWorkspace.createPreviewSession(fixture.db, 'owner-a', now);
     const ensured = await previewWorkspace.ensurePreviewWorkspace({
       db: fixture.db,
