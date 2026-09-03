@@ -1,10 +1,10 @@
 <script>
-  let { selectedCase, previewMode } = $props();
+  let { selectedCase, previewMode, studyPreviewHref = '/study' } = $props();
 </script>
 
 <section class="page-heading">
   <div><p class="eyebrow">Case editor</p><h1>{selectedCase.case.title}</h1><p class="muted">Topic: {#if selectedCase.case.conceptId}<a class="topic-link" href={'/admin/topics/' + selectedCase.case.conceptId}>{selectedCase.case.conceptName}</a>{:else}No primary Topic assigned{/if}</p></div>
-  <div class="actions"><a class="button" href="/admin/cases">All Cases</a>{#if previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href="/study">Preview in Study</a>{/if}</div>
+  <div class="actions"><a class="button" href="/admin/cases">All Cases</a>{#if previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href={studyPreviewHref}>Preview in Study</a>{/if}</div>
 </section>
 
 <style>
