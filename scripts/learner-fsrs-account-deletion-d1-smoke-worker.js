@@ -27,6 +27,7 @@ async function status(env) {
     batchesCompleted: Number(deletion?.batches_completed ?? 0),
     sessions: await count(env, 'session', 'userId'),
     accounts: await count(env, 'account', 'userId'),
+    verifications: await count(env, 'verification', 'value'),
     freeReceipts: await count(env, 'free_review_completion_receipts'),
     scheduledEvents: await count(env, 'scheduled_review_events'),
     activeReviews: await count(env, 'active_reviews'),
