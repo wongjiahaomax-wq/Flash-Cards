@@ -7,11 +7,14 @@ import {
 } from '$lib/server/db/study-navigation.ts';
 import { buildAdminStudyPreview } from '$lib/server/learning/admin-study-preview.js';
 
-/** @param {any} system */
+/**
+ * @param {{topics:{id:string}[],tags:{id:string}[]}} system
+ * @returns {{routeType:'topic'|'tag',routeId:string}[]}
+ */
 function allRoutes(system) {
   return [
-    ...system.topics.map((topic) => ({ routeType: 'topic', routeId: topic.id })),
-    ...system.tags.map((tag) => ({ routeType: 'tag', routeId: tag.id }))
+    ...system.topics.map((/** @type {{id:string}} */ topic) => ({ routeType: /** @type {'topic'} */ ('topic'), routeId: topic.id })),
+    ...system.tags.map((/** @type {{id:string}} */ tag) => ({ routeType: /** @type {'tag'} */ ('tag'), routeId: tag.id }))
   ];
 }
 
