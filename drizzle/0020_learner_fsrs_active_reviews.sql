@@ -111,7 +111,7 @@ CREATE INDEX `active_review_assets_asset_idx` ON `active_review_assets` (`asset_
 CREATE TRIGGER `active_reviews_content_scope_guard`
 BEFORE INSERT ON `active_reviews`
 BEGIN
-	SELECT CASE WHEN NOT EXISTS (
+	SELECT (CASE WHEN NOT EXISTS (
 		SELECT 1
 		FROM `cases` c
 		INNER JOIN `case_concepts` cc
@@ -157,14 +157,14 @@ BEGIN
 					)
 				)
 			)
-	) THEN RAISE(ABORT, 'active_review_ineligible_scope') END;
+	) THEN RAISE(ABORT, 'active_review_ineligible_scope') END);
 END;
 --> statement-breakpoint
 CREATE TRIGGER `active_reviews_scheduled_boundary_guard`
 BEFORE INSERT ON `active_reviews`
 WHEN NEW.`study_mode` = 'scheduled'
 BEGIN
-	SELECT CASE WHEN NOT EXISTS (
+	SELECT (CASE WHEN NOT EXISTS (
 		SELECT 1
 		FROM `learner_fsrs_profiles` p
 		WHERE p.`user_id` = NEW.`user_id`
@@ -173,14 +173,14 @@ BEGIN
 			AND p.`parameter_revision` = NEW.`parameter_revision`
 			AND p.`scheduler_revision` = NEW.`scheduler_revision`
 			AND p.`scheduler_library_version` = NEW.`scheduler_library_version`
-	) THEN RAISE(ABORT, 'active_review_stale_boundary') END;
+	) THEN RAISE(ABORT, 'active_review_stale_boundary') END);
 
-	SELECT CASE WHEN NEW.`queue_class` = 'new' AND EXISTS (
+	SELECT (CASE WHEN NEW.`queue_class` = 'new' AND EXISTS (
 		SELECT 1 FROM `learner_case_fsrs` s
 		WHERE s.`user_id` = NEW.`user_id` AND s.`case_id` = NEW.`case_id`
-	) THEN RAISE(ABORT, 'active_review_stale_case_state') END;
+	) THEN RAISE(ABORT, 'active_review_stale_case_state') END);
 
-	SELECT CASE WHEN NEW.`queue_class` = 'due' AND NOT EXISTS (
+	SELECT (CASE WHEN NEW.`queue_class` = 'due' AND NOT EXISTS (
 		SELECT 1
 		FROM `learner_case_fsrs` s
 		WHERE s.`user_id` = NEW.`user_id`
@@ -194,9 +194,9 @@ BEGIN
 			AND s.`scheduler_library_version` = NEW.`scheduler_library_version`
 			AND s.`due_at` <= NEW.`run_started_at`
 			AND s.`due_at` <= cast((julianday('now') - 2440587.5) * 86400000 as integer)
-	) THEN RAISE(ABORT, 'active_review_stale_case_state') END;
+	) THEN RAISE(ABORT, 'active_review_stale_case_state') END);
 
-	SELECT CASE WHEN NEW.`queue_class` = 'repeat' AND NOT EXISTS (
+	SELECT (CASE WHEN NEW.`queue_class` = 'repeat' AND NOT EXISTS (
 		SELECT 1
 		FROM `learner_case_fsrs` s
 		WHERE s.`user_id` = NEW.`user_id`
@@ -209,5 +209,5 @@ BEGIN
 			AND s.`scheduler_revision` = NEW.`scheduler_revision`
 			AND s.`scheduler_library_version` = NEW.`scheduler_library_version`
 			AND s.`due_at` <= cast((julianday('now') - 2440587.5) * 86400000 as integer)
-	) THEN RAISE(ABORT, 'active_review_stale_case_state') END;
+	) THEN RAISE(ABORT, 'active_review_stale_case_state') END);
 END;
