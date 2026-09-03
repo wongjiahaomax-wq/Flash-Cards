@@ -66,13 +66,14 @@ Direct cascade is not the supported mature-account path because Scheduled histor
 The staged path:
 
 1. creates a durable `learner_account_deletions` marker;
-2. bans the learner and deletes Better Auth sessions before large child cleanup;
-3. database guards reject new sessions and active Reviews while the marker exists;
-4. deletes at most 1,000 rows in one staged child-table step;
-5. is retry-safe if a delete commits but the phase update does not;
-6. performs a full residual rescan before declaring the identity ready for deletion;
-7. keeps a database guard on learner `user` deletion so an in-flight writer that recreates learner-owned rows forces the final identity delete to fail closed and be retried;
-8. calls pinned Better Auth Admin `removeUser` only after the staged data gate is clear.
+2. bans the learner and commits that access-disabled state with the durable deletion marker;
+3. the request hook treats that marker as immediate access denial even while old session/account rows remain; database guards reject new sessions, linked accounts, and active Reviews;
+4. drains existing Better Auth sessions as the first retry-safe phase, deleting at most 1,000 rows per step;
+5. stages learner-owned Better Auth verification rows and linked accounts under the same 1,000-row bound before FSRS/runtime cleanup;
+6. is retry-safe if a delete commits but the phase update does not;
+7. performs a full residual rescan before declaring the identity ready for deletion;
+8. keeps a database guard on learner `user` deletion so any surviving session/account/verification/application row forces final identity deletion to fail closed and be retried;
+9. calls pinned Better Auth Admin `removeUser` only after the staged data gate is clear, where the auth-owned collection deletes are already zero-row operations.
 
 Receipt/history rows are deleted before active Reviews so the existing completion-expiry deletion guards cannot obstruct account erasure in an abnormal partially-consumed Review state.
 
@@ -103,9 +104,9 @@ The synthetic mature learner benchmark includes, at minimum:
 - 60 months of generated monthly System attribution across representative Systems;
 - learner/System and learner-wide aggregates;
 - an active Review with 256 frozen questions and 64 assets;
-- Better Auth credential account, 20 sessions, and a learner-owned password-reset verification row.
+- 5,000 Better Auth sessions, 2,500 Better Auth linked/credential accounts, and a learner-owned password-reset verification row.
 
-The local workerd/D1 smoke uses a smaller but multi-batch fixture, including the same Better Auth verification ownership class, and proves the same state machine through the actual D1 binding. Benchmark timings are environment-specific evidence, not Production latency promises; the merge handoff records the exact-head CI measurements.
+The local workerd/D1 smoke uses a smaller but multi-batch fixture with 2,500 sessions, 1,500 linked/credential accounts, and the same verification ownership class, and proves the same state machine through the actual D1 binding. Benchmark timings are environment-specific evidence, not Production latency promises; the merge handoff records the exact-head CI measurements.
 
 ## Regression coverage
 
@@ -122,7 +123,7 @@ PR G tests cover:
 - retry progression to identity-ready;
 - deletion of Scheduled events, optimizer evidence, Case state, encounters, aggregates, monthly buckets, active Review children, Free receipts, preferences and profile state;
 - Better Auth reset-verification cleanup without deleting unrelated verification rows;
-- session invalidation/new-session guard during deletion;
+- immediate marker-authoritative access denial, bounded multi-batch session/account purge, and new-session/new-account guards during deletion;
 - final auth account cascade at identity-root deletion;
 - Drizzle schema registration and production-to-local replica exclusion contract;
 - no legacy Review persistence resurrection.

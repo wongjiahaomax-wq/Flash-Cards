@@ -3,7 +3,9 @@ export const LEARNER_ACCOUNT_DELETION_BATCH_SIZE = 1_000;
 const DATABASE_NOW_MS_SQL = "cast((julianday('now') - 2440587.5) * 86400000 as integer)";
 
 const PHASES = [
-  { phase: 'auth_verifications', table: 'verification', userColumn: 'value', next: 'free_receipts' },
+  { phase: 'auth_sessions', table: 'session', userColumn: 'userId', next: 'auth_verifications' },
+  { phase: 'auth_verifications', table: 'verification', userColumn: 'value', next: 'auth_accounts' },
+  { phase: 'auth_accounts', table: 'account', userColumn: 'userId', next: 'free_receipts' },
   { phase: 'free_receipts', table: 'free_review_completion_receipts', userColumn: 'user_id', next: 'scheduled_events' },
   { phase: 'scheduled_events', table: 'scheduled_review_events', userColumn: 'user_id', next: 'active_reviews' },
   { phase: 'active_reviews', table: 'active_reviews', userColumn: 'user_id', next: 'optimizer_evidence' },
@@ -66,17 +68,14 @@ async function readDeletion(client: D1Database, userId: string) {
 }
 
 async function revokeAccess(client: D1Database, userId: string) {
-  await client.batch([
-    client.prepare(`
-      UPDATE user
-      SET banned = 1,
-          banReason = 'Account deletion in progress',
-          banExpires = NULL,
-          updatedAt = ${DATABASE_NOW_MS_SQL}
-      WHERE id = ? AND (role IS NULL OR role = 'user')
-    `).bind(userId),
-    client.prepare('DELETE FROM session WHERE userId = ?').bind(userId)
-  ]);
+  await client.prepare(`
+    UPDATE user
+    SET banned = 1,
+        banReason = 'Account deletion in progress',
+        banExpires = NULL,
+        updatedAt = ${DATABASE_NOW_MS_SQL}
+    WHERE id = ? AND (role IS NULL OR role = 'user')
+  `).bind(userId).run();
 }
 
 /**
@@ -101,7 +100,7 @@ export async function beginLearnerAccountDeletion(input: {
   await client.batch([
     client.prepare(`
       INSERT INTO learner_account_deletions (user_id, phase)
-      VALUES (?, 'auth_verifications')
+      VALUES (?, 'auth_sessions')
       ON CONFLICT(user_id) DO NOTHING
     `).bind(userId),
     client.prepare(`
@@ -111,8 +110,7 @@ export async function beginLearnerAccountDeletion(input: {
           banExpires = NULL,
           updatedAt = ${DATABASE_NOW_MS_SQL}
       WHERE id = ? AND (role IS NULL OR role = 'user')
-    `).bind(userId),
-    client.prepare('DELETE FROM session WHERE userId = ?').bind(userId)
+    `).bind(userId)
   ]);
 
   const deletion = await readDeletion(client, userId);
@@ -127,7 +125,9 @@ export async function beginLearnerAccountDeletion(input: {
 
 const FIRST_REMAINING_PHASE_SQL = `
   SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM session WHERE userId = ? LIMIT 1) THEN 'auth_sessions'
     WHEN EXISTS (SELECT 1 FROM verification WHERE value = ? LIMIT 1) THEN 'auth_verifications'
+    WHEN EXISTS (SELECT 1 FROM account WHERE userId = ? LIMIT 1) THEN 'auth_accounts'
     WHEN EXISTS (SELECT 1 FROM free_review_completion_receipts WHERE user_id = ? LIMIT 1) THEN 'free_receipts'
     WHEN EXISTS (SELECT 1 FROM scheduled_review_events WHERE user_id = ? LIMIT 1) THEN 'scheduled_events'
     WHEN EXISTS (SELECT 1 FROM active_reviews WHERE user_id = ? LIMIT 1) THEN 'active_reviews'
@@ -145,7 +145,7 @@ const FIRST_REMAINING_PHASE_SQL = `
 
 async function firstRemainingPhase(client: D1Database, userId: string): Promise<LearnerAccountDeletionPhase> {
   const row = await client.prepare(FIRST_REMAINING_PHASE_SQL)
-    .bind(...Array(12).fill(userId))
+    .bind(...Array(14).fill(userId))
     .first<{ phase: LearnerAccountDeletionPhase }>();
   return row?.phase ?? 'identity_ready';
 }
@@ -154,7 +154,9 @@ async function firstRemainingPhase(client: D1Database, userId: string): Promise<
  * Delete at most one bounded child-table chunk. Repeated calls are intentionally
  * safe: the durable phase can move only after its current table is empty, and a
  * final full learner-row rescan repairs any in-flight write that committed before
- * access revocation became authoritative. Better Auth 1.6.25 reset-password
+ * access revocation became authoritative. Existing Better Auth sessions and linked
+ * accounts are bounded staged phases; the durable marker is the immediate
+ * access-denial authority. Better Auth 1.6.25 reset-password
  * verification rows carry the learner user id in verification.value, so they are
  * explicitly staged even though the Better Auth verification table has no user FK.
  */

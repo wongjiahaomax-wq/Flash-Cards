@@ -198,10 +198,16 @@ test('monthly bucket attribution independently keeps a historical System identit
 function seedDeletionFixture(sqlite) {
   seedLearnerAndSystems(sqlite);
   sqlite.exec(`
-    INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt)
-    VALUES ('account-a', 'learner-a', 'credential', 'learner-a', 'not-a-real-password-hash', 1, 1);
-    INSERT INTO session (id, expiresAt, token, createdAt, updatedAt, userId)
-    VALUES ('session-a', 9999999999999, 'session-token-a', 1, 1, 'learner-a');
+    INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt) VALUES
+      ('account-a', 'learner-a', 'credential', 'learner-a', 'not-a-real-password-hash', 1, 1),
+      ('account-b', 'linked-b', 'provider-b', 'learner-a', NULL, 1, 1),
+      ('account-c', 'linked-c', 'provider-c', 'learner-a', NULL, 1, 1);
+    INSERT INTO session (id, expiresAt, token, createdAt, updatedAt, userId) VALUES
+      ('session-a', 9999999999999, 'session-token-a', 1, 1, 'learner-a'),
+      ('session-b', 9999999999999, 'session-token-b', 1, 1, 'learner-a'),
+      ('session-c', 9999999999999, 'session-token-c', 1, 1, 'learner-a'),
+      ('session-d', 9999999999999, 'session-token-d', 1, 1, 'learner-a'),
+      ('session-e', 9999999999999, 'session-token-e', 1, 1, 'learner-a');
     INSERT INTO verification (id, identifier, value, expiresAt, createdAt, updatedAt) VALUES
       ('verification-reset-a', 'reset-password:token-a', 'learner-a', 9999999999999, 1, 1),
       ('verification-unrelated', 'email-verification:other', 'other-user', 9999999999999, 1, 1);
@@ -299,9 +305,14 @@ test('staged learner deletion revokes access first, bounds every step, is retry-
     );
 
     const started = await beginLearnerAccountDeletion({ db, userId: 'learner-a' });
-    assert.equal(started.phase, 'auth_verifications');
+    assert.equal(started.phase, 'auth_sessions');
     assert.equal(sqlite.prepare("SELECT banned FROM user WHERE id = 'learner-a'").get().banned, 1);
-    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM session WHERE userId = 'learner-a'").get().n, 0);
+    assert.equal(
+      sqlite.prepare("SELECT COUNT(*) AS n FROM session WHERE userId = 'learner-a'").get().n,
+      5,
+      'begin must revoke access through durable state without an unbounded session delete'
+    );
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM account WHERE userId = 'learner-a'").get().n, 3);
     assert.throws(
       () => sqlite.exec(`
         INSERT INTO session (id, expiresAt, token, createdAt, updatedAt, userId)
@@ -309,6 +320,14 @@ test('staged learner deletion revokes access first, bounds every step, is retry-
       `),
       /deletion_in_progress/i,
       'a staged learner cannot regain a new Better Auth session'
+    );
+    assert.throws(
+      () => sqlite.exec(`
+        INSERT INTO account (id, accountId, providerId, userId, createdAt, updatedAt)
+        VALUES ('new-account', 'new-linked', 'provider-new', 'learner-a', 1, 1);
+      `),
+      /deletion_in_progress/i,
+      'a staged learner cannot acquire a new Better Auth linked account'
     );
 
     let ready = false;
@@ -320,6 +339,20 @@ test('staged learner deletion revokes access first, bounds every step, is retry-
       ready = result.readyForIdentityDelete;
     }
     assert.equal(ready, true, 'bounded retries should reach the identity-ready state');
+    assert.deepEqual(
+      deletionSteps.slice(0, 6).map((step) => [step.phase, step.rowsDeleted]),
+      [
+        ['auth_sessions', 2],
+        ['auth_sessions', 2],
+        ['auth_verifications', 1],
+        ['auth_accounts', 1],
+        ['auth_accounts', 2],
+        ['free_receipts', 1]
+      ],
+      'Better Auth sessions, verification, and accounts must drain through bounded staged phases'
+    );
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM session WHERE userId = 'learner-a'").get().n, 0);
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM account WHERE userId = 'learner-a'").get().n, 0);
     assert.ok(deletionSteps.filter((step) => step.rowsDeleted === 2).length >= 2, 'fixture should require repeated bounded chunks');
     assert.equal(
       sqlite.prepare("SELECT COUNT(*) AS n FROM verification WHERE value = 'learner-a'").get().n,

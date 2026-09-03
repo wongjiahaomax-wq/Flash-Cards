@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 3 September 2026_
+_Last reviewed: 4 September 2026_
 
 This index identifies the documents that describe current repository behavior, operational contracts, pending designs, and historical/implementation records.
 
@@ -21,7 +21,7 @@ An old PR instruction, stale status banner, rollout note, staged-refactor plan, 
 
 ## Current repository baseline
 
-Current `main` contains learner FSRS Parts A–E, PR #137 learner runtime cutover, and merged PR #139 (PR F). PR #137 moved `/study` onto the FSRS/Free runtime, made `active_reviews` / `active_review_questions` / `active_review_assets` the current unfinished learner Review owner, retired legacy Review readers/writers, and retained `/fsrs-preview` as a local regression/reference surface. PR #139 added learner Reset Progress / Fresh FSRS Start, detailed Scheduled-history retention and its per-learner Production Admin control, learner Progress, and migration `0024_learner_fsrs_reset_fresh.sql`. The merged repository migration chain therefore extends through `0024`.
+The repository baseline documented here contains learner FSRS Parts A–E, PR #137 learner runtime cutover, merged PR #139 (PR F), and the PR G Admin analytics/mature-account-deletion implementation through migration `0025`. PR #137 moved `/study` onto the FSRS/Free runtime, made `active_reviews` / `active_review_questions` / `active_review_assets` the current unfinished learner Review owner, retired legacy Review readers/writers, and retained `/fsrs-preview` as a local regression/reference surface. PR #139 added learner Reset Progress / Fresh FSRS Start, detailed Scheduled-history retention and its per-learner Production Admin control, learner Progress, and migration `0024_learner_fsrs_reset_fresh.sql`. The repository migration chain documented by this PR therefore extends through `0025`.
 
 Repository merge state is not evidence that Production D1 migrations have been applied or that the Production Worker has been deployed. Preserve those operational facts separately.
 
@@ -50,7 +50,7 @@ Do not infer Topic→Tag conversion from matching names/labels. Clinically usefu
 On current `main`, the repository migration sequence extends through:
 
 ```text
-0024_learner_fsrs_reset_fresh.sql
+0025_learner_fsrs_admin_analytics_deletion.sql
 ```
 
 Important recent migrations:
@@ -66,6 +66,7 @@ Important recent migrations:
 - `0022_learner_fsrs_free_study.sql` — Free Study completion and short-lived retry receipts;
 - `0023_learner_fsrs_system_provenance_guard.sql` — defensive System deletion/reclassification protection for durable System attribution in `scheduled_review_events` and `learner_system_aggregates`;
 - `0024_learner_fsrs_reset_fresh.sql` — defensive Scheduled active-Review/profile-boundary guard for Reset/Fresh serialization; the migration itself does not reset learner data.
+- `0025_learner_fsrs_admin_analytics_deletion.sql` — durable learner × historical-System monthly analytics, transactional retained-history maintenance, System-provenance extension, and durable staged account-deletion guards/state with bounded auth/application ownership phases.
 
 Historical migration `0013_review_assets_asset_lookup.sql` and the Review-related portions of `0014`/`0015` remain immutable migration history; they do not make `review_assets`, `reviews`, or `review_questions` current runtime owners after cutover.
 
@@ -95,11 +96,11 @@ Current V1 product behavior specification. Exact implementation status of later 
 
 ### `V1_DATA_MODEL.md`
 
-Authoritative implemented domain model for current `main`, including the physical compatibility shape of `case_concepts`, current Primary-Topic behavior, Tags/System exposure, Original/Alternative stimulus relationships, FSRS/Free active-Review ownership, Scheduled/Free completion owners, Reset/Fresh profile boundaries, detailed-history retention ownership, authenticated Review-media and Asset/R2 lifecycle ownership, durable System provenance, legacy Review sentinel status, Preview ownership, and the migration ledger through `0024`.
+Authoritative implemented domain model for current `main`, including the physical compatibility shape of `case_concepts`, current Primary-Topic behavior, Tags/System exposure, Original/Alternative stimulus relationships, FSRS/Free active-Review ownership, Scheduled/Free completion owners, Reset/Fresh profile boundaries, detailed-history retention ownership, authenticated Review-media and Asset/R2 lifecycle ownership, durable System provenance, PR G monthly analytics/deletion ownership, legacy Review sentinel status, Preview ownership, and the migration ledger through `0025`.
 
 ### `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`
 
-**Current implementation-status companion for the post-PR #137 learner runtime including merged PR #139 (PR F).** Read it with `V1_DATA_MODEL.md` for `/study` ownership, legacy zero-data Review sentinels, active Review/media ownership, Reset/Fresh serialization, detailed-history retention, learner Progress, local replica/reset boundaries, Admin Study Preview contamination boundaries, local `/fsrs-preview`, durable System provenance, and the explicit separation between merged repository state and Production deployment/migration state.
+**Current implementation-status companion for the post-PR #137 learner runtime including merged PR #139 (PR F) and the PR G branch implementation.** Read it with `V1_DATA_MODEL.md` for `/study` ownership, legacy zero-data Review sentinels, active Review/media ownership, Reset/Fresh serialization, detailed-history retention, learner Progress, local replica/reset boundaries, Admin Study Preview contamination boundaries, local `/fsrs-preview`, durable System provenance, and the explicit separation between merged repository state and Production deployment/migration state.
 
 ### `AUTHORING_MODEL.md`
 
@@ -204,11 +205,15 @@ Public signup remains intentionally disabled unless a separately reviewed produc
 
 **Locked product/planning authority for the learner scheduling programme.** It specifies Case-level FSRS from the first SRS implementation; 90% desired retention; Again / Hard / Good / Easy; Scheduled and Free Study; Due/New start-of-run queues; default Due-first ordering with New fallback; Expanded Learning as a global preference default OFF; compact Scheduled events; temporary active-Review snapshots; reset/fresh-generation semantics; retention; learner/Admin analytics; and selective reuse of the systems-first UX from Draft PR #119 without merging #119.
 
-Parts A–E, PR #137, and PR #139 (PR F) are merged into the current repository runtime. PR #139 implements its assigned Reset/Fresh/retention/learner-Progress subset. Use current code, migrations, `V1_DATA_MODEL.md`, and `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` for executable repository behavior; PR G Admin/cohort analytics, account deletion, and automatic optimizer execution remain separately owned.
+Parts A–E, PR #137, and PR #139 (PR F) are merged into the current repository runtime. PR #139 implements its assigned Reset/Fresh/retention/learner-Progress subset, and PR G implements the separately owned Admin/cohort analytics plus mature-account deletion tranche. Automatic optimizer execution/parameter replacement remains outside PR G. Use current code, migrations, `V1_DATA_MODEL.md`, `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`, and `LEARNER_FSRS_PR_G_EVIDENCE.md` for executable repository behavior/evidence.
 
 ### `LEARNER_FSRS_RUN_SIZE_PRODUCT_AMENDMENT.md`
 
 **Normative product-behavior amendment for run sizing and continuous between-Case navigation.** For this specific behavior it updates the locked product baseline: Scheduled and Free Study offer 5 / 10 / 20 / All available with default 10; the target counts distinct Cases; FSRS short-term repeats do not consume another slot and must still be honored before run completion; successful Case completion automatically advances to the next eligible Case when one can open immediately; and run-size/navigation state remains browser-local. PR #137 carries this approved behavior into `/study`; `/fsrs-preview` remains the local regression/reference surface.
+
+### `LEARNER_FSRS_PR_G_EVIDENCE.md`
+
+**Focused PR G implementation/validation evidence.** Records durable monthly analytics semantics, stable account-created-month cohorts, historical System provenance, the staged deletion scale-gate decision, bounded auth/application purges, workerd/D1 proof, and Production deployment exclusions.
 
 ### `LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md`
 

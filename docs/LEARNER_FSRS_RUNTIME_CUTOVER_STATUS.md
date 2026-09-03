@@ -2,7 +2,7 @@
 
 Status: **Current repository runtime authority after PR #137 and merged PR #139 (PR F), including Reset Progress / Fresh FSRS Start, detailed-history retention/control, and learner Progress.**
 
-Date: 3 September 2026
+Date: 4 September 2026
 
 This document records the repository architecture established by the FSRS learner runtime cutover and the current post-cutover FSRS tranches. It is an implementation-status companion to:
 
@@ -199,15 +199,15 @@ PR G chooses **retry-safe staged deletion**, not direct mature-account cascade. 
 
 1. verifies that the target is a normal learner;
 2. creates/resumes the durable deletion marker;
-3. bans the learner and removes Better Auth sessions before large child cleanup;
-4. rejects new sessions and new active Reviews while deletion is in progress;
-5. removes at most 1,000 rows from one learner-owned deletion class per staged step;
-6. removes Better Auth password-reset verification records owned by the learner through `verification.value` before FSRS/runtime cleanup;
+3. bans the learner and commits the durable deletion marker as the immediate access-disabled authority;
+4. the request hook rejects any already-issued learner session while the marker exists, and database guards reject new sessions, linked accounts, and active Reviews;
+5. drains Better Auth sessions, learner-owned verification rows, and linked accounts as staged ownership classes at at most 1,000 rows per step;
+6. removes at most 1,000 rows from every subsequent application deletion class per staged step;
 7. removes Free receipts, Scheduled events, active Reviews/children, optimizer evidence, learner×Case state, encounters, durable monthly buckets, System aggregates, learner aggregates, preferences and profile state;
-8. rescans every staged ownership class before declaring the identity ready;
-9. calls pinned Better Auth Admin `removeUser` only after the staged-data gate is clear.
+8. rescans every staged auth/application ownership class before declaring the identity ready;
+9. calls pinned Better Auth Admin `removeUser` only after the staged-data gate is clear, leaving no unbounded auth-owned collection for the final one-row identity operation.
 
-A database user-delete guard fails closed if any learner-owned row or learner-owned verification record remains or reappears before identity deletion, so an interrupted/racing deletion is safe to retry rather than partially bypassing the staged contract.
+A database user-delete guard fails closed if any learner-owned session, account, verification, or application row remains or reappears before identity deletion, so an interrupted/racing deletion is safe to retry rather than partially bypassing the staged contract.
 
 ### Better Auth verification ownership
 

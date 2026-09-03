@@ -69,7 +69,7 @@ function createDatabase() {
 }
 
 function seedMatureLearner(db, options) {
-  const { caseCount, eventCount, systemCount, freeReceiptCount } = options;
+  const { caseCount, eventCount, systemCount, freeReceiptCount, sessionCount, accountCount } = options;
   const now = Date.UTC(2026, 8, 3, 0, 0, 0);
   db.exec('DROP TRIGGER scheduled_review_events_active_guard;');
   db.exec('DROP TRIGGER active_reviews_content_scope_guard;');
@@ -80,10 +80,20 @@ function seedMatureLearner(db, options) {
       INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt, role, banned)
       VALUES ('benchmark-user', 'Mature Learner', 'mature@example.test', 1, ?, ?, 'user', 0)
     `).run(now - 5 * 365 * 86_400_000, now);
-    db.prepare(`
+    const insertAccount = db.prepare(`
       INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt)
-      VALUES ('benchmark-account', 'benchmark-user', 'credential', 'benchmark-user', 'fixture', ?, ?)
-    `).run(now, now);
+      VALUES (?, ?, ?, 'benchmark-user', ?, ?, ?)
+    `);
+    for (let index = 0; index < accountCount; index += 1) {
+      insertAccount.run(
+        `benchmark-account-${index}`,
+        index === 0 ? 'benchmark-user' : `linked-${index}`,
+        index === 0 ? 'credential' : `provider-${index}`,
+        index === 0 ? 'fixture' : null,
+        now,
+        now
+      );
+    }
     db.prepare(`
       INSERT INTO verification (id, identifier, value, expiresAt, createdAt, updatedAt)
       VALUES ('benchmark-reset', 'reset-password:benchmark-token', 'benchmark-user', ?, ?, ?)
@@ -92,7 +102,7 @@ function seedMatureLearner(db, options) {
       INSERT INTO session (id, expiresAt, token, createdAt, updatedAt, userId)
       VALUES (?, ?, ?, ?, ?, 'benchmark-user')
     `);
-    for (let index = 0; index < 20; index += 1) {
+    for (let index = 0; index < sessionCount; index += 1) {
       insertSession.run(`session-${index}`, now + 86_400_000, `token-${index}`, now, now);
     }
 
@@ -221,7 +231,9 @@ export async function runLearnerAccountDeletionBenchmark(options = {}) {
     caseCount: options.caseCount ?? 5_000,
     eventCount: options.eventCount ?? 20_000,
     systemCount: options.systemCount ?? 12,
-    freeReceiptCount: options.freeReceiptCount ?? 2_000
+    freeReceiptCount: options.freeReceiptCount ?? 2_000,
+    sessionCount: options.sessionCount ?? 5_000,
+    accountCount: options.accountCount ?? 2_500
   };
   const db = createDatabase();
   const client = new SqliteD1Client(db);
@@ -235,6 +247,14 @@ export async function runLearnerAccountDeletionBenchmark(options = {}) {
       SELECT COUNT(*) AS n FROM verification WHERE value = 'benchmark-user'
     `).get().n);
     assert.equal(authVerificationCount, 1);
+    const authSessionCount = Number(db.prepare(`
+      SELECT COUNT(*) AS n FROM session WHERE userId = 'benchmark-user'
+    `).get().n);
+    const authAccountCount = Number(db.prepare(`
+      SELECT COUNT(*) AS n FROM account WHERE userId = 'benchmark-user'
+    `).get().n);
+    assert.equal(authSessionCount, fixture.sessionCount);
+    assert.equal(authAccountCount, fixture.accountCount);
 
     let directDeleteBlocked = false;
     const directDelete = await measured(() => {
@@ -248,6 +268,9 @@ export async function runLearnerAccountDeletionBenchmark(options = {}) {
     assert.equal(directDeleteBlocked, true);
 
     const begin = await measured(() => beginLearnerAccountDeletion({ db: learningDb, userId: 'benchmark-user' }));
+    assert.equal(begin.value.phase, 'auth_sessions');
+    assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM session WHERE userId = 'benchmark-user'").get().n), fixture.sessionCount);
+    assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM account WHERE userId = 'benchmark-user'").get().n), fixture.accountCount);
     const stepDurations = [];
     const stepRows = [];
     let ready = false;
@@ -265,13 +288,17 @@ export async function runLearnerAccountDeletionBenchmark(options = {}) {
     }
     assert.equal(ready, true, `staged deletion did not reach identity_ready; last phase=${phase}`);
     assert.ok(Math.max(...stepRows) <= LEARNER_ACCOUNT_DELETION_BATCH_SIZE);
+    assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM session WHERE userId = 'benchmark-user'").get().n), 0);
+    assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM account WHERE userId = 'benchmark-user'").get().n), 0);
     assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM verification WHERE value = 'benchmark-user'").get().n), 0);
 
     const identityDelete = await measured(() => db.exec("DELETE FROM user WHERE id = 'benchmark-user';"));
     const remainingUser = Number(db.prepare("SELECT COUNT(*) AS n FROM user WHERE id = 'benchmark-user'").get().n);
-    const remainingAccount = Number(db.prepare("SELECT COUNT(*) AS n FROM account WHERE userId = 'benchmark-user'").get().n);
     const remainingVerification = Number(db.prepare("SELECT COUNT(*) AS n FROM verification WHERE value = 'benchmark-user'").get().n);
+    const remainingSession = Number(db.prepare("SELECT COUNT(*) AS n FROM session WHERE userId = 'benchmark-user'").get().n);
+    const remainingAccount = Number(db.prepare("SELECT COUNT(*) AS n FROM account WHERE userId = 'benchmark-user'").get().n);
     assert.equal(remainingUser, 0);
+    assert.equal(remainingSession, 0);
     assert.equal(remainingAccount, 0);
     assert.equal(remainingVerification, 0);
 
@@ -280,14 +307,15 @@ export async function runLearnerAccountDeletionBenchmark(options = {}) {
       decision: 'staged',
       directCascadeEligible: false,
       rationale:
-        'Scheduled history and current-generation optimizer evidence are not hard-capped, so no finite one-shot mature-account cascade can be proven bounded. The staged path caps each child delete at 1,000 rows.',
+        'Scheduled history, current-generation optimizer evidence, Better Auth sessions, and linked accounts have no finite per-learner lifetime row cap. The supported path caps every learner-owned auth/application purge at 1,000 rows before the one-row identity root.',
       fixture: {
         ...fixture,
         monthlyBucketCount,
         authVerifications: authVerificationCount,
         activeReviewQuestions: 256,
         activeReviewAssets: 64,
-        authSessions: 20
+        authSessions: authSessionCount,
+        authAccounts: authAccountCount
       },
       timingsMs: {
         seed: seed.durationMs,
@@ -304,7 +332,7 @@ export async function runLearnerAccountDeletionBenchmark(options = {}) {
         maximumRowsDeletedInOneStep: Math.max(...stepRows),
         finalPhase: phase
       },
-      residual: { remainingUser, remainingAccount, remainingVerification }
+      residual: { remainingUser, remainingSession, remainingAccount, remainingVerification }
     };
   } finally {
     db.close();

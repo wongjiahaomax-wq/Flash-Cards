@@ -59,7 +59,9 @@ export const learnerAccountDeletions = sqliteTable(
     userId: text('user_id').primaryKey(),
     phase: text('phase', {
       enum: [
+        'auth_sessions',
         'auth_verifications',
+        'auth_accounts',
         'free_receipts',
         'scheduled_events',
         'active_reviews',
@@ -75,7 +77,7 @@ export const learnerAccountDeletions = sqliteTable(
       ]
     })
       .notNull()
-      .default('auth_verifications'),
+      .default('auth_sessions'),
     requestedAt: timestamp('requested_at'),
     updatedAt: timestamp('updated_at'),
     batchesCompleted: integer('batches_completed').notNull().default(0)

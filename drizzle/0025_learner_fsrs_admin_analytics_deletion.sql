@@ -89,13 +89,15 @@ END;
 --> statement-breakpoint
 CREATE TABLE `learner_account_deletions` (
 	`user_id` text PRIMARY KEY NOT NULL,
-	`phase` text DEFAULT 'auth_verifications' NOT NULL,
+	`phase` text DEFAULT 'auth_sessions' NOT NULL,
 	`requested_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`batches_completed` integer DEFAULT 0 NOT NULL,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT `learner_account_deletions_phase_check` CHECK (`phase` in (
+		'auth_sessions',
 		'auth_verifications',
+		'auth_accounts',
 		'free_receipts',
 		'scheduled_events',
 		'active_reviews',
@@ -142,6 +144,15 @@ BEGIN
 	SELECT RAISE(ABORT, 'learner_account_deletion_in_progress');
 END;
 --> statement-breakpoint
+CREATE TRIGGER `account_learner_account_deletion_guard`
+BEFORE INSERT ON `account`
+WHEN EXISTS (
+	SELECT 1 FROM `learner_account_deletions` d WHERE d.`user_id` = NEW.`userId`
+)
+BEGIN
+	SELECT RAISE(ABORT, 'learner_account_deletion_in_progress');
+END;
+--> statement-breakpoint
 CREATE TRIGGER `verification_learner_account_deletion_guard`
 BEFORE INSERT ON `verification`
 WHEN EXISTS (
@@ -172,7 +183,9 @@ CREATE TRIGGER `user_learner_data_staged_delete_guard`
 BEFORE DELETE ON `user`
 WHEN (OLD.`role` IS NULL OR OLD.`role` = 'user')
 	AND (
-		EXISTS (SELECT 1 FROM `verification` x WHERE x.`value` = OLD.`id`)
+		EXISTS (SELECT 1 FROM `session` x WHERE x.`userId` = OLD.`id`)
+		OR EXISTS (SELECT 1 FROM `verification` x WHERE x.`value` = OLD.`id`)
+		OR EXISTS (SELECT 1 FROM `account` x WHERE x.`userId` = OLD.`id`)
 		OR EXISTS (SELECT 1 FROM `learner_preferences` x WHERE x.`user_id` = OLD.`id`)
 		OR EXISTS (SELECT 1 FROM `learner_fsrs_profiles` x WHERE x.`user_id` = OLD.`id`)
 		OR EXISTS (SELECT 1 FROM `learner_case_fsrs` x WHERE x.`user_id` = OLD.`id`)

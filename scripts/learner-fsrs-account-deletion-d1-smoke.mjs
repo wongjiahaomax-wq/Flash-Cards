@@ -18,6 +18,8 @@ const eventCount = 2_500;
 const freeReceiptCount = 1_200;
 const systemCount = 4;
 const deletionBatchSize = 1_000;
+const sessionCount = 2_500;
+const accountCount = 1_500;
 
 function extractCompatibilityDate(configText) {
   const matches = [...configText.matchAll(/"compatibility_date"\s*:\s*"(\d{4}-\d{2}-\d{2})"/g)];
@@ -43,14 +45,18 @@ function buildSeedSql() {
     'DROP TRIGGER active_reviews_content_scope_guard;',
     'DROP TRIGGER free_review_completion_receipts_active_guard;',
     `INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt, role, banned) VALUES ('d1-deletion-user', 'D1 Mature Learner', 'd1-mature@example.test', 1, ${now - 5 * 365 * 86_400_000}, ${now}, 'user', 0);`,
-    `INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt) VALUES ('d1-account', 'd1-deletion-user', 'credential', 'd1-deletion-user', 'fixture', ${now}, ${now});`,
     `INSERT INTO verification (id, identifier, value, expiresAt, createdAt, updatedAt) VALUES ('d1-reset', 'reset-password:d1-token', 'd1-deletion-user', ${now + 86_400_000}, ${now}, ${now});`
   ];
 
   appendMultiRow(
     lines,
+    'INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt)',
+    Array.from({ length: accountCount }, (_, index) => `(${sqlString(`d1-account-${index}`)}, ${sqlString(index === 0 ? 'd1-deletion-user' : `linked-${index}`)}, ${sqlString(index === 0 ? 'credential' : `provider-${index}`)}, 'd1-deletion-user', ${index === 0 ? sqlString('fixture') : 'NULL'}, ${now}, ${now})`)
+  );
+  appendMultiRow(
+    lines,
     'INSERT INTO session (id, expiresAt, token, createdAt, updatedAt, userId)',
-    Array.from({ length: 20 }, (_, index) => `(${sqlString(`session-${index}`)}, ${now + 86_400_000}, ${sqlString(`token-${index}`)}, ${now}, ${now}, 'd1-deletion-user')`)
+    Array.from({ length: sessionCount }, (_, index) => `(${sqlString(`session-${index}`)}, ${now + 86_400_000}, ${sqlString(`token-${index}`)}, ${now}, ${now}, 'd1-deletion-user')`)
   );
   appendMultiRow(
     lines,
@@ -258,6 +264,8 @@ async function main() {
 
     const initial = await fetchJson(baseUrl, '/status');
     assert.equal(initial.verifications, 1, 'mature fixture must include learner-owned Better Auth verification state');
+    assert.equal(initial.sessions, sessionCount, 'mature fixture must force multiple bounded auth-session batches');
+    assert.equal(initial.accounts, accountCount, 'mature fixture must force multiple bounded auth-account batches');
     assert.equal(initial.scheduledEvents, eventCount);
     assert.equal(initial.optimizerEvidence, eventCount);
     assert.equal(initial.caseState, caseCount);
@@ -270,7 +278,9 @@ async function main() {
 
     const begun = await fetchJson(baseUrl, '/begin');
     assert.equal(begun.status.banned, true);
-    assert.equal(begun.status.sessions, 0, 'access revocation must delete Better Auth sessions before child cleanup');
+    assert.equal(begun.status.phase, 'auth_sessions');
+    assert.equal(begun.status.sessions, sessionCount, 'begin must not perform an unbounded Better Auth session delete');
+    assert.equal(begun.status.accounts, accountCount, 'begin must not perform an unbounded Better Auth account delete');
 
     const steps = [];
     let latest = begun.status;
@@ -283,6 +293,13 @@ async function main() {
       ready = step.result.readyForIdentityDelete;
     }
     assert.equal(ready, true, `D1 staged deletion did not become identity-ready; phase=${latest.phase}`);
+    assert.deepEqual(steps.slice(0, 3), [
+      { phase: 'auth_sessions', rowsDeleted: 1000 },
+      { phase: 'auth_sessions', rowsDeleted: 1000 },
+      { phase: 'auth_verifications', rowsDeleted: 500 }
+    ], 'D1 must drain 2,500 auth sessions through three bounded staged steps');
+    assert.equal(latest.sessions, 0);
+    assert.equal(latest.accounts, 0);
     assert.equal(latest.verifications, 0);
     assert.equal(latest.scheduledEvents, 0);
     assert.equal(latest.optimizerEvidence, 0);
@@ -291,7 +308,6 @@ async function main() {
     assert.equal(latest.monthlyBuckets, 0);
     assert.equal(latest.freeReceipts, 0);
     assert.equal(latest.activeReviews, 0);
-    assert.equal(latest.accounts, 1, 'Better Auth credential remains until identity-root deletion');
 
     const final = await fetchJson(baseUrl, '/identity-delete');
     assert.equal(final.userExists, false);
@@ -313,11 +329,12 @@ async function main() {
         monthlyBucketRows: initial.monthlyBuckets,
         activeReviewQuestions: 256,
         activeReviewAssets: 64,
-        authSessions: 20,
+        authSessions: sessionCount,
+        authAccounts: accountCount,
         authVerifications: initial.verifications
       },
       directCascadeBlocked: direct.blocked,
-      accessRevokedBeforeCleanup: begun.status.banned && begun.status.sessions === 0,
+      accessRevokedBeforeCleanup: begun.status.banned && begun.status.phase === 'auth_sessions' && begun.status.sessions === sessionCount,
       stagedSteps: steps.length,
       maximumRowsDeletedPerStep: Math.max(...steps.map((step) => step.rowsDeleted)),
       identityDeleteResidual: {

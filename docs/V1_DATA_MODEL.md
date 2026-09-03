@@ -1,8 +1,8 @@
 # Flash-Cards — V1 Data Model
 
-_Last updated: 3 September 2026_
+_Last updated: 4 September 2026_
 
-This document records the implemented V1 application data model represented by current `main` after the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, Original/Alternative stimulus changes, and merged PR #139 (PR F) Reset/Fresh/retention ownership. It should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the current learner-runtime boundary and explicitly distinguishes repository state from Production deployment state.
+This document records the implemented V1 application data model through the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, Original/Alternative stimulus changes, merged PR #139 (PR F), and the PR G Admin analytics/account-deletion repository implementation through migration `0025`. It should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the current learner-runtime boundary and explicitly distinguishes repository state from Production deployment state.
 
 A migration file being committed is not proof that it has been applied to production D1. Merge status, production migration application, Worker deployment, taxonomy/stimulus curation, learner feature enablement, and behavior verification remain separate operational facts.
 
@@ -36,6 +36,7 @@ The repository migration sequence contains:
 0022_learner_fsrs_free_study.sql
 0023_learner_fsrs_system_provenance_guard.sql
 0024_learner_fsrs_reset_fresh.sql
+0025_learner_fsrs_admin_analytics_deletion.sql
 ```
 
 Important migrations for the current model include:
@@ -56,12 +57,13 @@ Important migrations for the current model include:
 - `0022` — Free Study completion with short-lived `free_review_completion_receipts` plus write-time active-Review/expiry guards;
 - `0023` — defensive deletion/reclassification protection for Systems referenced by durable FSRS System provenance in `scheduled_review_events` or `learner_system_aggregates`;
 - `0024` — defensive Scheduled active-Review/profile-boundary guard used by Reset Progress / Fresh FSRS Start serialization. It prevents generation/review-sequence/parameter/scheduler boundary movement while a Scheduled active Review still survives.
+- `0025` — durable learner × historical-System × UTC-month Scheduled analytics buckets, transactional maintenance/backfill from still-retained detailed history, System-provenance guards, and durable retry-safe learner account-deletion state/guards with bounded auth/application ownership phases.
 
 Migrations `0013`–`0015` remain immutable and valid migration history. Their legacy `reviews`, `review_questions`, and `review_assets` semantics must not be read as current runtime architecture after the FSRS cutover.
 
 `0016` does not claim that every existing family has a known Original. It assigns an Original only to an unambiguous eligible one-option **production** family, leaves ambiguous legacy multi-option production families uncurated with `original_option_id = NULL`, and leaves retained Preview-owned families uncurated. It does not rewrite older legacy Review rows. The migration also prevents creating a group with an arbitrary non-null Original pointer; a family is inserted with `original_option_id = NULL`, then an eligible option is inserted/restored and an explicit validated update assigns the Original.
 
-No new migration is required to retire Additional Study Topics from current product behavior. The current Drizzle authority is split deliberately across `src/lib/server/db/schema.js` for content/domain tables, `src/lib/server/db/fsrs-schema.js` for durable FSRS/progress state, `src/lib/server/db/active-review-schema.js` for unfinished learner Review ownership, and `src/lib/server/db/free-study-schema.js` for Free completion receipts; `drizzle.config.js` registers the current schema modules. `src/lib/server/db/schema.js` intentionally exports no legacy `reviews`, `review_questions`, or `review_assets` tables after cutover. The historical physical `case_concepts.role = primary | secondary` shape remains unchanged, while current application read/write paths treat only `role = 'primary'` as behaviorally active.
+No new migration is required to retire Additional Study Topics from current product behavior. The current Drizzle authority is split deliberately across `src/lib/server/db/schema.js` for content/domain tables, `src/lib/server/db/fsrs-schema.js` for durable FSRS/progress state, `src/lib/server/db/fsrs-analytics-schema.js` for durable PR G monthly analytics/deletion state, `src/lib/server/db/active-review-schema.js` for unfinished learner Review ownership, and `src/lib/server/db/free-study-schema.js` for Free completion receipts; `drizzle.config.js` registers the current schema modules. `src/lib/server/db/schema.js` intentionally exports no legacy `reviews`, `review_questions`, or `review_assets` tables after cutover. The historical physical `case_concepts.role = primary | secondary` shape remains unchanged, while current application read/write paths treat only `role = 'primary'` as behaviorally active.
 
 ## 2. General design rules
 
@@ -84,6 +86,7 @@ No new migration is required to retire Additional Study Topics from current prod
 17. A current learner-presentable Case has exactly one behaviorally active canonical Primary Topic; alternate/cross-cutting classification uses Case Tags rather than Additional Study Topics.
 18. A curated stimulus family has an explicit Original pointer; insertion/display order, filename, caption, naming, or learner snapshot/history must never be treated as implicit Original semantics.
 19. Reset/Fresh scheduler-boundary changes consume any active Review and clear current learner×Case scheduler state atomically with the boundary change; browser run state is convenience only and old proofs still fail server-side current-profile checks.
+20. Long-range Admin System/cohort time series are sourced from durable monthly buckets, never reconstructed from lifetime aggregates or optimizer evidence; mature account deletion uses marker-authoritative access denial and bounded retry-safe auth/application purges.
 
 ## 3. Authentication and Preview ownership
 
@@ -131,7 +134,7 @@ Taxonomy invariants include:
 - active children block parent deactivation until moved/deactivated;
 - Topics may temporarily remain top-level while curation is incomplete;
 - a Topic with Case/Topic-question usage cannot be reclassified as a System without first resolving those usages;
-- a System with durable FSRS history in `scheduled_review_events` or `learner_system_aggregates` cannot be reclassified or deleted; application checks plus migration `0023` database triggers enforce this current provenance boundary.
+- a System with durable FSRS history in `scheduled_review_events`, `learner_system_aggregates`, or `learner_system_monthly_buckets` cannot be reclassified or deleted; centralized application checks plus migrations `0023`/`0025` database triggers enforce this provenance boundary.
 
 ### `cases`
 
@@ -896,3 +899,12 @@ The current schema intentionally does **not** imply:
 - stimulus-option → Topic learner routing merely because one image has an incidental finding.
 
 Add schema only when a concrete product/content requirement justifies it.
+
+
+## PR G — durable Admin analytics and mature learner account deletion
+
+Migration `0025_learner_fsrs_admin_analytics_deletion.sql` adds `learner_system_monthly_buckets`, keyed by `(user_id, system_id, month_start)`. `month_start` is the UTC calendar-month boundary; each row retains compact Scheduled completion and Again/Hard/Good/Easy counts plus first/last completion timestamps for the historical System captured at study time. The migration backfills only still-retained `scheduled_review_events`, and an `AFTER INSERT` trigger maintains future buckets transactionally. Detailed-history expiry does not decrement or delete these buckets. Long-range Admin System/cohort trends use the monthly table directly and must not reconstruct expired time axes from `learner_system_aggregates` or `learner_optimizer_evidence`.
+
+`learner_account_deletions` is the durable mature-account deletion state. Its first phases are `auth_sessions`, `auth_verifications`, and `auth_accounts`, followed by the learner FSRS/runtime ownership classes. Starting deletion atomically creates/resumes the marker and bans the learner; `src/hooks.server.js` treats that marker as immediate access denial even while pre-existing Better Auth rows remain. Database guards prevent new session/account ownership after the marker, and each auth/application collection is purged in retry-safe chunks of at most 1,000 rows. The final residual scan includes sessions, linked accounts, verification ownership, and all learner FSRS/runtime classes. The user-delete guard prevents an identity-root delete while any staged row remains; Better Auth Admin `removeUser` is called only after those collection deletes are guaranteed to be zero-row operations and only the one user identity root remains.
+
+The monthly analytics table and deletion-state table are learner-owned state, are account-deletable, and are explicitly forbidden from Production-to-local content replica import. `learner_system_monthly_buckets` is also part of centralized historical System provenance, so retained monthly attribution blocks destructive System reclassification/deletion even after detailed events expire.

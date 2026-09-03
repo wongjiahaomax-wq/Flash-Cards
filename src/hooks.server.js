@@ -17,6 +17,14 @@ function forbidden(message) {
   });
 }
 
+/** @param {D1Database} db @param {string} userId */
+async function learnerDeletionInProgress(db, userId) {
+  const row = await db.prepare(`
+    SELECT 1 AS active FROM learner_account_deletions WHERE user_id = ? LIMIT 1
+  `).bind(userId).first();
+  return Boolean(row);
+}
+
 export async function handle({ event, resolve }) {
   // SvelteKit's build step has no request-scoped Cloudflare bindings.
   if (building) {
@@ -62,6 +70,19 @@ export async function handle({ event, resolve }) {
 
   event.locals.session = session?.session ?? null;
   event.locals.user = session?.user ?? null;
+
+  // The durable deletion marker is immediate access revocation. Existing Better
+  // Auth session/account rows are drained later in bounded batches, so an old
+  // session cookie must fail closed before its physical session row disappears.
+  if (
+    event.locals.user?.id &&
+    (event.locals.user.role == null || event.locals.user.role === 'user') &&
+    await learnerDeletionInProgress(env.DB, event.locals.user.id)
+  ) {
+    event.locals.session = null;
+    event.locals.user = null;
+    return forbidden('Learner account deletion is in progress.');
+  }
 
   // Preview-only identities must never create or mutate ordinary learner
   // Reviews. A combined production Admin + Preview Admin owner may use the
