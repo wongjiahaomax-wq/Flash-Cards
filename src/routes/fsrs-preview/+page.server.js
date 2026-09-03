@@ -55,7 +55,7 @@ export const actions = {
       proofSecret: LOCAL_FSRS_PREVIEW_PROOF_SECRET
     });
     if (!result.ok) return fail(result.status, result.form);
-    return { descriptor: result.descriptor, message: 'Preview run planned. Continue to open the first Review.' };
+    return { descriptor: result.descriptor, message: 'Preview run planned. Opening the first Review…' };
   },
 
   preference: async ({ locals, platform, request, url }) => {
