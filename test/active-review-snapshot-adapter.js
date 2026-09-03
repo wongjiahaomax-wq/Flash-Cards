@@ -7,13 +7,54 @@ import {
 export { listEligibleCases, listStudyConcepts };
 
 /**
+ * @typedef {{
+ *   prompt:string,
+ *   answer:string,
+ *   sourceType:string,
+ *   sourceConceptId:string|null,
+ *   sourceStimulusGroupId:string|null,
+ *   sourceStimulusOptionId:string|null,
+ *   sourceAssetQuestionId:string|null,
+ *   sourceSharedQuestionId:string|null,
+ *   displayOrder:number
+ * }} TestSnapshotQuestion
+ */
+/**
+ * @typedef {{
+ *   assetId:string,
+ *   storageKey:string,
+ *   caption:string|null,
+ *   altText:string|null,
+ *   stimulusGroupId:string|null,
+ *   stimulusOptionId:string|null,
+ *   displayOrder:number
+ * }} TestSnapshotAsset
+ */
+/**
+ * @typedef {{
+ *   id:string,
+ *   userId:string,
+ *   caseId:string,
+ *   primaryConceptId:string,
+ *   studyConceptId:string,
+ *   caseTitleSnapshot:string,
+ *   vignetteSnapshotMd:string|null,
+ *   questionPoolMode:'core'|'expanded',
+ *   questions:TestSnapshotQuestion[],
+ *   assets:TestSnapshotAsset[]
+ * }} TestActiveReviewSnapshot
+ */
+
+/**
  * Test-only adapter for content tests that historically materialized a persisted
  * legacy Review solely to inspect its frozen learner snapshot. Production code
  * must not import this module. It writes no learner persistence of any kind.
+ * @type {WeakMap<object, Map<string, TestActiveReviewSnapshot>>}
  */
 const snapshotsByDb = new WeakMap();
 let sequence = 0;
 
+/** @param {object} db @returns {Map<string, TestActiveReviewSnapshot>} */
 function snapshotStore(db) {
   let store = snapshotsByDb.get(db);
   if (!store) {
@@ -28,6 +69,7 @@ function snapshotStore(db) {
  * active Review row or touching FSRS/Free learner state.
  *
  * @param {{db:any,userId:string,conceptId:string,questionPoolMode:'core'|'expanded',rng?:()=>number}} input
+ * @returns {Promise<string|null>}
  */
 export async function startReview(input) {
   const rng = input.rng ?? Math.random;
@@ -76,7 +118,12 @@ export async function startReview(input) {
   return id;
 }
 
-/** @param {any} db @param {string} reviewId @param {string} userId */
+/**
+ * @param {object} db
+ * @param {string} reviewId
+ * @param {string} userId
+ * @returns {Promise<TestActiveReviewSnapshot|null>}
+ */
 export async function getReview(db, reviewId, userId) {
   const snapshot = snapshotStore(db).get(reviewId) ?? null;
   return snapshot?.userId === userId ? snapshot : null;
