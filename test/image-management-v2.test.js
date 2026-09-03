@@ -90,7 +90,7 @@ function insertOption(sqlite, id, groupId, assetId, order, caption = null, activ
     .run(id, groupId, assetId, order, caption, active ? 1 : 0, 11_000 + order);
 }
 
-test('Image Library derives current, historical-only, and unused lifecycle states', async () => {
+test('Image Library derives current, active-Review-retained, historical-only, and unused lifecycle states', async () => {
   const { sqlite, db, getQueryCount } = fixture();
   try {
     for (const id of ['lifecycle-fixed', 'lifecycle-option', 'lifecycle-inactive-option', 'lifecycle-removed-option', 'lifecycle-review', 'lifecycle-unused', 'lifecycle-preview-only']) insertAsset(sqlite, id, 12_000);
@@ -102,13 +102,35 @@ test('Image Library derives current, historical-only, and unused lifecycle state
     insertOption(sqlite, 'lifecycle-removed-row', 'lifecycle-group', 'lifecycle-removed-option', 2);
     sqlite.prepare('UPDATE stimulus_group_options SET is_active = 0, removed_from_case = 1 WHERE id = ?').run('lifecycle-removed-row');
 
-    const reviewSource = sqlite.prepare(`SELECT c.id AS case_id, cc.concept_id FROM cases c JOIN case_concepts cc ON cc.case_id = c.id AND cc.role = 'primary' WHERE c.preview_session_id IS NULL LIMIT 1`).get();
-    assert.ok(reviewSource);
-    sqlite.prepare(`INSERT INTO case_concepts (case_id, concept_id, role, created_at) VALUES (?, ?, 'primary', ?)`).run('lifecycle-case', reviewSource.concept_id, 12_002);
-    sqlite.prepare(`INSERT INTO reviews (id, user_id, case_id, primary_concept_id, study_concept_id, case_title_snapshot, status) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-      .run('lifecycle-review-row', 'lifecycle-user', reviewSource.case_id, reviewSource.concept_id, reviewSource.concept_id, 'Historical Case', 'completed');
-    sqlite.prepare(`INSERT INTO review_assets (id, review_id, asset_id, display_order, storage_key_snapshot) VALUES (?, ?, ?, ?, ?)`)
-      .run('lifecycle-review-asset', 'lifecycle-review-row', 'lifecycle-review', 0, 'teaching-images/lifecycle-review.png');
+    sqlite.prepare(`INSERT INTO concepts (id, name, slug, kind, parent_id, is_active) VALUES (?, ?, ?, 'system', NULL, 1)`)
+      .run('lifecycle-system', 'Lifecycle System', 'lifecycle-system');
+    sqlite.prepare(`INSERT INTO concepts (id, name, slug, kind, parent_id, is_active) VALUES (?, ?, ?, 'topic', ?, 1)`)
+      .run('lifecycle-topic', 'Lifecycle Topic', 'lifecycle-topic', 'lifecycle-system');
+    sqlite.prepare(`INSERT INTO case_concepts (case_id, concept_id, role, created_at) VALUES (?, ?, 'primary', ?)`)
+      .run('lifecycle-case', 'lifecycle-topic', 12_002);
+    sqlite.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, ?, ?)')
+      .run('lifecycle-user', 'Lifecycle User', 'lifecycle-user@example.test', 12_002, 12_002);
+    sqlite.prepare(`
+      INSERT INTO active_reviews (
+        id, user_id, case_id, system_id, study_mode, content_mode, queue_class,
+        run_id, scope_fingerprint, scope_json, generation, review_sequence_epoch,
+        parameter_revision, scheduler_revision, scheduler_library_version,
+        expected_state_revision, expected_due_at, run_started_at,
+        case_title_snapshot, snapshot_version, revealed_at
+      ) VALUES (?, ?, ?, ?, 'free', 'original', NULL, ?, ?, ?, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, ?, 1, ?)
+    `).run(
+      'lifecycle-active-review',
+      'lifecycle-user',
+      'lifecycle-case',
+      'lifecycle-system',
+      'lifecycle-run',
+      'lifecycle-scope',
+      JSON.stringify({ systemId: 'lifecycle-system', routes: [{ routeType: 'topic', routeId: 'lifecycle-topic' }] }),
+      'Lifecycle Case',
+      12_003
+    );
+    sqlite.prepare(`INSERT INTO active_review_assets (id, active_review_id, asset_id, display_order, storage_key_snapshot) VALUES (?, ?, ?, ?, ?)`)
+      .run('lifecycle-active-review-asset', 'lifecycle-active-review', 'lifecycle-review', 0, 'teaching-images/lifecycle-review.png');
 
     sqlite.prepare(`INSERT INTO preview_sessions (id, user_id, status, expires_at) VALUES (?, ?, 'active', ?)`).run('lifecycle-preview', 'lifecycle-preview-user', 4_102_444_800_000);
     insertCase(sqlite, 'lifecycle-preview-case', 'lifecycle-preview');
@@ -123,7 +145,7 @@ test('Image Library derives current, historical-only, and unused lifecycle state
     assert.equal(states['lifecycle-review'], 'historical');
     assert.equal(states['lifecycle-unused'], 'unused');
     assert.equal(states['lifecycle-preview-only'], 'unused');
-    assert.equal(rows.rows.find((row) => row.id === 'lifecycle-review')?.historicalReviewCount, 1);
+    assert.equal(rows.rows.find((row) => row.id === 'lifecycle-review')?.activeReviewCount, 1);
     assert.ok(rows.rows.find((row) => row.id === 'lifecycle-inactive-option')?.topicNames.length);
 
     const historicalDetail = await getAssetLibraryDetail(db, 'lifecycle-inactive-option');
@@ -140,13 +162,11 @@ test('Image Library derives current, historical-only, and unused lifecycle state
     assert.deepEqual(new Set(historical.rows.map((row) => row.id)), new Set(['lifecycle-inactive-option', 'lifecycle-removed-option', 'lifecycle-review']));
     assert.deepEqual(new Set(unused.rows.map((row) => row.id)), new Set(['lifecycle-unused', 'lifecycle-preview-only']));
 
-    const lifecycleConceptId = sqlite.prepare(`SELECT concept_id FROM case_concepts WHERE case_id = 'lifecycle-case' AND role = 'primary'`).get()?.concept_id;
-    assert.ok(lifecycleConceptId);
-    const historicalByTopic = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams(`topic=${lifecycleConceptId}&usage=historical&q=lifecycle-`)));
+    const historicalByTopic = await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('topic=lifecycle-topic&usage=historical&q=lifecycle-')));
     assert.deepEqual(new Set(historicalByTopic.rows.map((row) => row.id)), new Set(['lifecycle-inactive-option', 'lifecycle-removed-option']));
 
-    const reviewPlan = sqlite.prepare(`EXPLAIN QUERY PLAN SELECT COUNT(DISTINCT review_id) FROM review_assets WHERE asset_id = ?`).all('lifecycle-review');
-    assert.match(reviewPlan.map((row) => String(row.detail)).join(' '), /review_assets_asset_review_idx/);
+    const activeReviewPlan = sqlite.prepare(`EXPLAIN QUERY PLAN SELECT COUNT(DISTINCT active_review_id) FROM active_review_assets WHERE asset_id = ?`).all('lifecycle-review');
+    assert.match(activeReviewPlan.map((row) => String(row.detail)).join(' '), /active_review_assets_asset_idx/);
 
     const beforeSmallPage = getQueryCount();
     await getAssetLibraryPage(db, parseAssetLibraryFilters(new URLSearchParams('q=lifecycle-')), { pageSize: 1 });
