@@ -1,21 +1,25 @@
 <script>
   let { progress } = $props();
 
+  /** @param {number} part @param {number} whole */
   function percent(part, whole) {
     if (!whole) return 0;
     return Math.round((Number(part) / Number(whole)) * 100);
   }
 
+  /** @param {number|string|null|undefined} value */
   function formatDate(value) {
     const timestamp = Number(value);
     return Number.isFinite(timestamp) ? new Date(timestamp).toLocaleString() : 'Unknown time';
   }
 
+  /** @param {unknown} value */
   function ratingLabel(value) {
     const text = String(value ?? '');
     return text ? `${text[0].toUpperCase()}${text.slice(1)}` : 'Unknown';
   }
 
+  /** @param {unknown} value */
   function retentionLabel(value) {
     if (value === '36m') return '36 months';
     if (value === '60m') return '60 months';
@@ -23,6 +27,7 @@
     return '24 months';
   }
 
+  /** @param {SubmitEvent} event @param {string} message */
   function confirmBoundaryChange(event, message) {
     if (!window.confirm(message)) event.preventDefault();
   }
