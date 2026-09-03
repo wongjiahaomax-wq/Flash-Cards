@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reviewed: 2 September 2026_
+_Last reviewed: 3 September 2026_
 
 This index identifies the documents that describe current repository behavior, operational contracts, pending designs, and historical/implementation records.
 
@@ -148,7 +148,7 @@ Current implemented boundary includes Topic hierarchy changes, Case Primary Topi
 
 **Implemented design/implementation record — PR #100 merged.** Current lifecycle is Active → Deactivate → preserved Inactive → validated Restore. Deactivation is not deletion.
 
-PR #100 also added inline and bulk Case Tag curation in the Case Library. Current code/PR #100 are authoritative over any older draft-status wording in this document.
+PR #100 also added inline and bulk Case Tag curation in the Case Library. Current code/PR #100 are authoritative over any older `draft` / `validation pending` status wording in this document.
 
 ### `CASE_LIBRARY_SEARCH_PERFORMANCE_PLAN.md`
 
@@ -195,6 +195,10 @@ Public signup remains intentionally disabled unless a separately reviewed produc
 
 This is future intent, not current executable learner scheduling behavior.
 
+### `LEARNER_FSRS_RUN_SIZE_PRODUCT_AMENDMENT.md`
+
+**Normative product-behavior amendment for run sizing and continuous between-Case navigation.** For this specific behavior it updates the locked product baseline: Scheduled and Free Study offer 5 / 10 / 20 / All available with default 10; the target counts distinct Cases; FSRS short-term repeats do not consume another slot and must still be honored before run completion; successful Case completion automatically advances to the next eligible Case when one can open immediately; and run-size/navigation state remains browser-local. The local FSRS preview is the first executable surface for this rule, but `/study` remains unchanged until the separately reviewed learner runtime cutover.
+
 ### `LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md`
 
 **Primary subordinate technical-design companion.** It records the repository-grounded FSRS library direction, compact schema responsibilities, transaction boundaries, write-time active-Review/generation concurrency invariant, preliminary synthetic benchmark evidence, required D1 benchmark gate, Better Auth deletion direction, focused implementation decomposition, and the exact PR #119 reuse/discard boundary.
@@ -207,11 +211,11 @@ This is future intent, not current executable learner scheduling behavior.
 
 **Normative implementation-readiness amendment for focused tranche ownership.** Read it with the technical design and readiness contract for PR C and every later FSRS implementation tranche. It preserves the programme's lifecycle/concurrency invariants while correcting which focused PR owns the completion, Free-completion, and Reset/Fresh sides of cross-operation proofs.
 
-If any of these technical documents conflicts with the locked product plan on product behavior, the product plan wins. Where the readiness contract adds narrower implementation specificity to a boundary left open by the technical design, the readiness contract controls that technical boundary. **For tranche ownership only**, `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md` supersedes conflicting PR-assignment language in the technical design/readiness contract; it does not otherwise supersede or weaken those documents.
+For the run-size and continuous between-Case behavior specifically, `LEARNER_FSRS_RUN_SIZE_PRODUCT_AMENDMENT.md` controls over older wording in the locked product plan. For all other product behavior, the locked product plan remains superior to the technical documents. Where the readiness contract adds narrower implementation specificity to a boundary left open by the technical design, the readiness contract controls that technical boundary. **For tranche ownership only**, `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md` supersedes conflicting PR-assignment language in the technical design/readiness contract; it does not otherwise supersede or weaken those documents.
 
-None of these four documents is authorization to deploy, apply Production migrations, run the destructive cutover, or enable learner behavior.
+None of these five documents is authorization to deploy, apply Production migrations, run the destructive cutover, or enable learner behavior.
 
-Do not use an older simple-scheduler / Again-Good-only plan or a historical “FSRS later” statement as authority over these four documents.
+Do not use an older simple-scheduler / Again-Good-only plan or a historical “FSRS later” statement as authority over these five documents.
 
 ## Stimulus behavior
 

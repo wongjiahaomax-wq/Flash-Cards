@@ -1,8 +1,8 @@
 <script>
-  let { previewMode } = $props();
+  let { previewMode, studyPreviewHref = null } = $props();
 </script>
 
-<section id="preview" class="panel preview-panel"><p class="eyebrow">Learner view</p><h2>Preview</h2>{#if previewMode}<p class="muted">Learner Study is available on the production Worker only. Preview Mode is limited to inspecting and editing the disposable Preview Case workspace.</p>{:else}<p class="muted">Open the Study flow to verify the Case stem, selected images, question composition, and answer reveal behaviour.</p><a class="button primary" href="/study">Open Study preview</a>{/if}</section>
+<section id="preview" class="panel preview-panel"><p class="eyebrow">Learner view</p><h2>Preview</h2>{#if previewMode}<p class="muted">Learner Study is available on the production Worker only. Preview Mode is limited to inspecting and editing the disposable Preview Case workspace.</p>{:else}<p class="muted">Open the Study flow to verify the Case stem, selected images, question composition, and answer reveal behaviour.</p><a class="button primary" href={studyPreviewHref ?? '/study'}>Open Study preview</a>{/if}</section>
 
 <style>
   h2, p { margin-top: 0; } h2 { margin-bottom: 0.2rem; font-size: 1.2rem; }

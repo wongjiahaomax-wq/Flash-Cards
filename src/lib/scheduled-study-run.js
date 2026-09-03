@@ -1,3 +1,8 @@
+import {
+  hasReachedStudyRunDistinctCaseTarget,
+  isStudyRunDistinctCaseTarget
+} from './study-run-size.js';
+
 const MAX_CONSECUTIVE_NEW = 50;
 
 /** @typedef {'due'|'new'|'repeat'} ScheduledQueueClass */
@@ -15,7 +20,12 @@ export class ScheduledStudyRunError extends Error {
 
 /** @param {any} descriptor */
 function assertDescriptor(descriptor) {
-  if (!descriptor || descriptor.kind !== 'scheduled' || descriptor.version !== 1) {
+  if (
+    !descriptor
+    || descriptor.kind !== 'scheduled'
+    || descriptor.version !== 1
+    || !isStudyRunDistinctCaseTarget(descriptor.distinctCaseTarget)
+  ) {
     throw new ScheduledStudyRunError('invalid-descriptor', 'Scheduled run descriptor is invalid or unsupported.');
   }
 }
@@ -56,10 +66,21 @@ function firstNew(descriptor) {
   return descriptor.capturedNew?.[Number(descriptor.newPosition) || 0] ?? null;
 }
 
+/** @param {any[]} repeatEntries @param {number} serverNow */
+function firstFutureRepeat(repeatEntries, serverNow) {
+  return repeatEntries
+    .filter((entry) => Number(entry.dueAt) > serverNow)
+    .sort((left, right) => Number(left.dueAt) - Number(right.dueAt))[0] ?? null;
+}
+
 /**
  * Choose the next browser-local Scheduled work item. Repeat maturity must be
  * evaluated with a server-authoritative timestamp supplied by the caller; this
  * helper intentionally has no Date.now()/browser-clock fallback.
+ *
+ * A learner-selected distinct-Case target limits only the introduction of
+ * captured Due/New Cases. Matured repeats remain first-class work, and future
+ * required repeats keep the run waiting even after the distinct target is met.
  *
  * @param {any} descriptor
  * @param {{serverNow:number|Date,scheduledOrder?:'due_first'|'new_first'}} input
@@ -92,6 +113,14 @@ export function selectNextScheduledWork(descriptor, input) {
     };
   }
 
+  const completedDistinctCases = new Set(descriptor.completedCaseIds ?? []).size;
+  if (hasReachedStudyRunDistinctCaseTarget(descriptor.distinctCaseTarget, completedDistinctCases)) {
+    const futureRepeat = firstFutureRepeat(repeatEntries, serverNow);
+    return futureRepeat
+      ? { status: 'waiting', nextRepeatDueAt: Number(futureRepeat.dueAt) }
+      : { status: 'complete' };
+  }
+
   const due = firstDue(descriptor);
   const nextNew = firstNew(descriptor);
   const newAllowed = Number(descriptor.consecutiveNewCompleted ?? 0) < MAX_CONSECUTIVE_NEW;
@@ -108,9 +137,7 @@ export function selectNextScheduledWork(descriptor, input) {
     if (nextNew && newAllowed) return { status: 'ready', work: capturedWork(descriptor, 'new', nextNew) };
   }
 
-  const futureRepeat = repeatEntries
-    .filter((entry) => Number(entry.dueAt) > serverNow)
-    .sort((left, right) => Number(left.dueAt) - Number(right.dueAt))[0];
+  const futureRepeat = firstFutureRepeat(repeatEntries, serverNow);
   if (futureRepeat) {
     return { status: 'waiting', nextRepeatDueAt: Number(futureRepeat.dueAt) };
   }

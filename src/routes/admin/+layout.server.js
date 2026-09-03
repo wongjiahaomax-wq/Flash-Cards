@@ -1,5 +1,6 @@
 import { error, redirect } from '@sveltejs/kit';
 
+import { getLearnerStudyPreviewHref } from '$lib/server/learning/local-fsrs-preview.js';
 import { isPreviewWorker, isProductionAdmin } from '$lib/server/preview-auth.js';
 
 export function load({ locals, platform, url }) {
@@ -17,6 +18,7 @@ export function load({ locals, platform, url }) {
   }
 
   return {
-    user: locals.user
+    user: locals.user,
+    learnerStudyPreviewHref: getLearnerStudyPreviewHref(url, platform?.env)
   };
 }

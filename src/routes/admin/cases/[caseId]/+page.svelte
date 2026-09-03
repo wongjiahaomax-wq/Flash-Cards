@@ -20,6 +20,11 @@
   let selectedCase = $derived(data.selectedCase);
   let primaryTopic = $derived(selectedCase?.topics.find((topic) => topic.role === 'primary'));
   let editorBase = $derived(data.previewMode ? '/preview-admin' : '/admin');
+  let studyPreviewHref = $derived.by(() => {
+    if (data.previewMode) return null;
+    const { learnerStudyPreviewHref = '/study' } = data;
+    return learnerStudyPreviewHref;
+  });
   let fastReviewSummary = $derived(buildCaseFastReviewSummary(selectedCase));
   let caseQuestionAudit = $derived(buildCaseQuestionAudit(selectedCase));
   /** @type {CaseEditorLayout} */
@@ -55,7 +60,7 @@
 {#if !selectedCase}
   <section class="panel"><h1>Case not found</h1><p class="muted">This Case may be inactive or no longer available.</p><a class="button" href="/admin/cases">Back to Cases</a></section>
 {:else}
-  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} />
+  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} {studyPreviewHref} />
 
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if !data.previewMode && data.status === 'case-restored'}<p class="success-message" role="status">Case restored. It is active and available to normal Admin and learner flows.</p>{/if}
@@ -67,7 +72,7 @@
     {#if !data.previewMode}<StimulusOriginalsPanel {selectedCase} />{/if}
     <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} status={data.status} removedQuestionPromptId={data.removedQuestionPromptId} {editorLayout} />
     {#if editorLayout === 'compact'}<CaseQuestionAudit rows={caseQuestionAudit} onimageopen={showImage} />{/if}
-    <CasePreviewSection previewMode={data.previewMode} />
+    <CasePreviewSection previewMode={data.previewMode} {studyPreviewHref} />
     {#if !data.previewMode}
       <section class="lifecycle-panel" aria-labelledby="case-lifecycle-heading">
         <div><p class="eyebrow">Case lifecycle</p><h2 id="case-lifecycle-heading">Active</h2><p class="muted">Deactivate this Case to remove it from learner study and the active Case library. Questions, images, Topics, Tags, and review history are retained for recovery.</p></div>

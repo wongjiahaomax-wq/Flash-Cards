@@ -215,10 +215,50 @@ export function buildInsertSql(tableName, rows) {
     .join('\n');
 }
 
+/** @param {D1Row[]} rows */
+function stimulusGroupsForInitialInsert(rows) {
+  return rows.map((row) => (
+    row.original_option_id == null
+      ? row
+      : { ...row, original_option_id: null }
+  ));
+}
+
+/** @param {D1Row[]} rows */
+export function buildStimulusGroupOriginalPointerRestoreSql(rows) {
+  const statements = rows
+    .filter((row) => row.original_option_id != null)
+    .map((row) => {
+      if (row.id == null) throw new Error('Stimulus group Original restoration requires a group id.');
+      return `UPDATE \`stimulus_groups\` SET \`original_option_id\` = ${sqlValue(row.original_option_id)} WHERE \`id\` = ${sqlValue(row.id)};`;
+    });
+  return statements.length
+    ? statements.join('\n')
+    : '-- stimulus_groups Original pointers: 0 rows';
+}
+
+/** @param {readonly {name:string,rows:D1Row[]}[]} snapshots */
+export function buildReplicaContentSql(snapshots) {
+  const stimulusGroupRows = snapshots.find((table) => table.name === 'stimulus_groups')?.rows ?? [];
+  return [
+    '-- Generated from allowlisted production content. Auth, learner Reviews, Preview sessions and import jobs are excluded.',
+    ...snapshots.map((table) => {
+      const rows = table.name === 'stimulus_groups'
+        ? stimulusGroupsForInitialInsert(table.rows)
+        : table.rows;
+      return `\n-- ${table.name}\n${buildInsertSql(table.name, rows)}`;
+    }),
+    '\n-- Restore Original stimulus pointers only after all family options exist locally.',
+    buildStimulusGroupOriginalPointerRestoreSql(stimulusGroupRows),
+    ''
+  ].join('\n');
+}
+
 export function buildLocalResetSql() {
   return [
     '-- Generated local-only reset. Better Auth user/account/session tables are intentionally preserved.',
-    '-- Break self-referencing production content locally before deleting rows.',
+    '-- Break trigger-protected and self-referencing production content locally before deleting rows.',
+    'UPDATE `stimulus_groups` SET `original_option_id` = NULL WHERE `original_option_id` IS NOT NULL;',
     'UPDATE `concepts` SET `parent_id` = NULL WHERE `parent_id` IS NOT NULL;',
     'UPDATE `assets` SET `superseded_by_asset_id` = NULL WHERE `superseded_by_asset_id` IS NOT NULL;',
     ...LOCAL_RESET_TABLES.map((table) => `DELETE FROM ${sqlIdentifier(table)};`),
@@ -242,7 +282,7 @@ export function buildLocalD1FileArgs(filePath) {
   return ['d1', 'execute', 'DB', '--local', '--file', String(filePath), '--yes'];
 }
 
-/** @param {string} bucket @param {string} key @param {string} filePath @returns {string[]} */
+/** @param {string} bucket @param {string} key @param {string} filePath */
 export function buildRemoteR2GetArgs(bucket, key, filePath) {
   return ['r2', 'object', 'get', `${bucket}/${key}`, '--remote', '--file', String(filePath)];
 }
@@ -252,7 +292,6 @@ export function buildRemoteR2GetArgs(bucket, key, filePath) {
  * @param {string} key
  * @param {string} filePath
  * @param {string | null | undefined} mimeType
- * @returns {string[]}
  */
 export function buildLocalR2PutArgs(bucket, key, filePath, mimeType) {
   return [

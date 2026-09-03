@@ -8,6 +8,7 @@ import {
   SystemStudySelectionError,
   type SystemStudySelectionRoute
 } from './system-study-routes.ts';
+import { parseStudyRunDistinctCaseTarget } from '../../study-run-size.js';
 
 export type StudyRunMode = 'scheduled' | 'free';
 
@@ -16,11 +17,13 @@ export type PlanSystemStudyFormState = {
   systemId: string;
   selectedRoutes: string[];
   studyMode: string;
+  runSize: string;
 };
 
-type PlannedDescriptor =
+type PlannedDescriptor = (
   | Awaited<ReturnType<typeof planScheduledSystemStudyRun>>
-  | Awaited<ReturnType<typeof planFreeSystemStudyRun>>;
+  | Awaited<ReturnType<typeof planFreeSystemStudyRun>>
+) & { distinctCaseTarget: 5 | 10 | 20 | null };
 
 export type PlanSystemStudyResult =
   | { ok: true; descriptor: PlannedDescriptor }
@@ -58,11 +61,26 @@ export async function planSystemStudyRunFromForm(input: {
 }): Promise<PlanSystemStudyResult> {
   const systemValue = input.formData.get('systemId');
   const studyModeValue = input.formData.get('studyMode');
+  const runSizeValue = input.formData.get('runSize');
   const submittedRouteValues = input.formData.getAll('route');
   const systemId = typeof systemValue === 'string' ? systemValue.trim() : '';
   const studyMode = typeof studyModeValue === 'string' ? studyModeValue.trim() : '';
+  const submittedRunSize = typeof runSizeValue === 'string' ? runSizeValue.trim().toLowerCase() : '';
   const selectedRoutes = submittedRouteValues.filter((value): value is string => typeof value === 'string');
-  const state = { systemId, selectedRoutes, studyMode };
+  let distinctCaseTarget: 5 | 10 | 20 | null;
+  try {
+    distinctCaseTarget = parseStudyRunDistinctCaseTarget(submittedRunSize);
+  } catch (cause) {
+    const runSize = submittedRunSize || '10';
+    return failure(cause instanceof Error ? cause.message : 'Choose a valid run size.', {
+      systemId,
+      selectedRoutes,
+      studyMode,
+      runSize
+    });
+  }
+  const runSize = distinctCaseTarget == null ? 'all' : String(distinctCaseTarget);
+  const state = { systemId, selectedRoutes, studyMode, runSize };
 
   if (!systemId) return failure('A study System is required.', state);
   if (studyMode !== 'scheduled' && studyMode !== 'free') {
@@ -103,7 +121,7 @@ export async function planSystemStudyRunFromForm(input: {
         rng: input.rng,
         runId: input.runId
       });
-    return { ok: true, descriptor };
+    return { ok: true, descriptor: { ...descriptor, distinctCaseTarget } as PlannedDescriptor };
   } catch (cause) {
     if (
       cause instanceof SystemStudySelectionError
