@@ -17,30 +17,30 @@ CREATE INDEX `free_review_completion_receipts_user_idx` ON `free_review_completi
 CREATE TRIGGER `free_review_completion_receipts_active_guard`
 BEFORE INSERT ON `free_review_completion_receipts`
 BEGIN
-	SELECT CASE WHEN NOT EXISTS (
+	SELECT (CASE WHEN NOT EXISTS (
 		SELECT 1
 		FROM `active_reviews` a
 		WHERE a.`id` = NEW.`id`
 			AND a.`user_id` = NEW.`user_id`
 			AND a.`case_id` = NEW.`case_id`
 			AND a.`study_mode` = 'free'
-	) THEN RAISE(ABORT, 'free_completion_active_review_changed') END;
+	) THEN RAISE(ABORT, 'free_completion_active_review_changed') END);
 
-	SELECT CASE WHEN NOT EXISTS (
+	SELECT (CASE WHEN NOT EXISTS (
 		SELECT 1
 		FROM `active_reviews` a
 		WHERE a.`id` = NEW.`id`
 			AND a.`user_id` = NEW.`user_id`
 			AND a.`revealed_at` IS NOT NULL
-	) THEN RAISE(ABORT, 'free_completion_unrevealed') END;
+	) THEN RAISE(ABORT, 'free_completion_unrevealed') END);
 
-	SELECT CASE WHEN NOT EXISTS (
+	SELECT (CASE WHEN NOT EXISTS (
 		SELECT 1
 		FROM `active_reviews` a
 		WHERE a.`id` = NEW.`id`
 			AND a.`user_id` = NEW.`user_id`
 			AND a.`expires_at` > cast((julianday('now') - 2440587.5) * 86400000 as integer)
-	) THEN RAISE(ABORT, 'free_completion_expired') END;
+	) THEN RAISE(ABORT, 'free_completion_expired') END);
 END;
 --> statement-breakpoint
 CREATE TRIGGER `active_reviews_free_completion_expiry_guard`
