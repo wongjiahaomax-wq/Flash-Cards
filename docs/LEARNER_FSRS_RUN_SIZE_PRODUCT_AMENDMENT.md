@@ -55,9 +55,11 @@ Free Study keeps its shuffled, deduplicated browser-local bag and no-FSRS-transi
 - All available consumes the full current bag.
 - Free completion continues to update only the existing compact Free encounter/receipt owners.
 
-## 5. Continuous between-Case navigation
+## 5. Continuous run navigation
 
 A run is a continuous Case sequence rather than a sequence of one-Case mini-runs.
+
+A newly planned run starts immediately. After planning succeeds and the browser-local descriptor is persisted, the client must immediately ask the existing server open boundary for the first eligible Review. The learner must not need a second `Continue run` click merely to start a freshly planned run. A Continue control may remain for returning to an already-planned browser run after deliberate navigation away or a recoverable interruption.
 
 After a Scheduled or Free Case successfully completes, the client immediately asks the existing server open boundary for the next item using the **advanced browser descriptor**. If the server opens another eligible Review, navigate directly to that Review without returning to System selection between Cases.
 
@@ -69,7 +71,7 @@ Return to the preview/run screen only when the run cannot immediately continue b
 - blocked by an existing/resumable Review or recoverable run-state problem; or
 - deliberately left/stopped by the learner.
 
-The browser may perform the completion-to-next-open navigation automatically, but it must not duplicate scheduler, eligibility, active-Review, or completion authority. The existing server-side open/revalidation and Part C–E completion owners remain authoritative.
+The browser may perform the plan-to-first-open and completion-to-next-open navigation automatically, but it must not duplicate scheduler, eligibility, active-Review, or completion authority. The existing server-side open/revalidation and Part C–E completion owners remain authoritative.
 
 ## 6. Lost-response and idempotency invariant
 
