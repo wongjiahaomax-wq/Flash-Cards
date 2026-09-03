@@ -1,6 +1,6 @@
 # Learner FSRS Runtime Cutover Status
 
-Status: **Current repository runtime authority after PR #137, extended on the PR F branch for Reset Progress / Fresh FSRS Start, detailed-history retention, and learner Progress.**
+Status: **Current repository runtime authority after PR #137, extended on the PR F branch for Reset Progress / Fresh FSRS Start, detailed-history retention/control, and learner Progress.**
 
 Date: 3 September 2026
 
@@ -70,6 +70,8 @@ Together with the active-Review creation guard introduced by PR C, the final rac
 - active Review creation commits first → Reset/Fresh atomically consumes it and changes/clears the relevant scheduler boundary/state;
 - no committed Reset/Fresh may leave a Scheduled active Review on an old generation/sequence boundary.
 
+PR F proves this with the supported writers in the specialized active-Review workflow. The local workerd/D1 smoke plans a genuine signed Scheduled descriptor and captured-New proof, then concurrently races `createScheduledActiveReview()` against Reset and against Fresh. Either valid serialization order is accepted, but every run must finish on the exact intended new boundary with zero stale active Reviews. The earlier node:sqlite trigger tests remain regression coverage rather than the sole concurrency proof.
+
 The learner `/study` boundary actions return a browser-run invalidation result. The page clears the learner browser-local run descriptor after Reset/Fresh. This removes stale run/work proofs from the normal client resume path; server-side current-profile comparison remains the hard authority if stale localStorage is presented by a modified or interrupted client.
 
 ## Detailed Scheduled-history retention
@@ -82,6 +84,10 @@ The human-readable Scheduled event retention policy is active in PR F:
 - Indefinite.
 
 `src/lib/server/db/fsrs-retention.js` owns the database-time retention cutoff and the bounded physical cleanup statements. Learner-visible detailed-history reads apply the retention cutoff even before physical cleanup runs.
+
+PR F also owns the per-learner Admin control at `/admin/learner-retention`. `src/lib/server/db/fsrs-retention-admin.js` validates exactly the four locked policies and targets normal learner accounts only. If an explicit Admin override is saved before first Scheduled Study, the readiness contract permits that operation to establish the ordinary initial FSRS profile; the writer uses `initialLearnerFsrsProfile()` so generation/epoch/parameter revision are `1`, scheduler/library identity is canonical, and the adapter-generated parameter JSON retains desired retention `0.90`. The override does not manufacture learner×Case FSRS state.
+
+For an initialized learner, changing detailed-history retention does not change generation, review-sequence epoch, parameter revision, scheduler parameters, current Case scheduling state, or active-run boundaries. A shorter policy forces the same bounded learner-scoped cleanup immediately.
 
 Normal Scheduled completion opportunistically runs throttled learner-scoped cleanup. Reset/Fresh may force the same bounded learner-scoped cleanup while they already own a mutation transaction.
 
@@ -120,7 +126,7 @@ A destructive local content refresh remains local-only destructive tooling and i
 
 Admin Study Preview remains outside learner persistence. It resolves current learner content using the active snapshot/content resolver but does not create learner preferences, FSRS state, active Reviews, completion receipts, or legacy Review rows.
 
-PR F does not add Reset/Fresh/Progress persistence reachability to Admin Study Preview and does not implement PR G analytics.
+The separate `/admin/learner-retention` control is ordinary Production Admin account-scoped configuration and is not Admin Study Preview. PR F does not add Reset/Fresh/Progress persistence reachability to Admin Study Preview and does not implement PR G analytics.
 
 ## Local FSRS regression preview
 
@@ -144,9 +150,10 @@ Migration `0023_learner_fsrs_system_provenance_guard.sql` protects current durab
 
 Before PR F is ready to merge, one exact head must have:
 
-- the focused Reset/Fresh/retention/Progress tests green;
+- the focused Reset/Fresh/retention/Progress tests green, including the Admin retention-control contract;
+- real supported-writer Reset-vs-creation and Fresh-vs-creation serialization coverage through local workerd/D1 in an appropriate specialized workflow;
 - the existing learner-runtime source contract green, including unchanged local `/fsrs-preview` and legacy Review retirement boundaries;
 - repository-required schema/migration and full validation green;
 - the complete `main...HEAD` diff reviewed for scope and concurrency invariants.
 
-Production deployment, Production D1 migration application, optimizer execution, account deletion, and PR G analytics remain outside PR F unless separately authorized.
+Production deployment, Production D1 migration application, optimizer execution, account deletion, and PR G Admin/cohort/time-series analytics remain outside PR F unless separately authorized.
