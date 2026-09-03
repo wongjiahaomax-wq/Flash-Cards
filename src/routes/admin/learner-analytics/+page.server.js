@@ -94,7 +94,7 @@ export const actions = {
         deleted: false,
         deletionInProgress: true,
         userId,
-        phase: progress?.phase ?? 'free_receipts',
+        phase: progress?.phase ?? 'auth_verifications',
         message: 'Account access is revoked. Bounded learner-data deletion is still in progress; submit Continue deletion to advance it.'
       };
     } catch (cause) {
