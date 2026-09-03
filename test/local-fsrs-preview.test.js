@@ -252,7 +252,7 @@ test('preview run storage round-trips supported descriptors and clears browser-o
 test('legacy target-less preview descriptor remains readable as All available compatibility state', () => {
   const storage = new MemoryStorage();
   const descriptor = freeDescriptor();
-  delete descriptor.distinctCaseTarget;
+  assert.equal(Reflect.deleteProperty(descriptor, 'distinctCaseTarget'), true);
   writeFsrsPreviewRun(storage, descriptor);
   assert.deepEqual(readFsrsPreviewRun(storage), descriptor);
   assert.deepEqual(selectNextFreeWork(descriptor), { status: 'ready', caseId: 'case-a' });
@@ -293,17 +293,19 @@ test('Free preview run cannot cross from learner A browser state to learner B', 
 test('completion-to-next transport posts the advanced browser descriptor and returns the next Review', async () => {
   const descriptor = freeDescriptor({ position: 1 });
   let capturedUrl = '';
+  /** @type {any} */
   let capturedInit = null;
   const result = await requestNextFsrsPreviewWork(descriptor, async (url, init) => {
     capturedUrl = String(url);
     capturedInit = init;
-    return {
-      ok: true,
+    return new Response(JSON.stringify({
+      status: 'review',
+      reviewId: 'review-2',
+      descriptor: { ...descriptor, currentReviewId: 'review-2' }
+    }), {
       status: 200,
-      async json() {
-        return { status: 'review', reviewId: 'review-2', descriptor: { ...descriptor, currentReviewId: 'review-2' } };
-      }
-    };
+      headers: { 'Content-Type': 'application/json' }
+    });
   });
   assert.equal(capturedUrl, '/fsrs-preview/api/open');
   assert.equal(capturedInit?.method, 'POST');
@@ -400,8 +402,8 @@ test('Admin learner-study links use FSRS preview only behind the strict local pr
   assert.match(casePage, /let studyPreviewHref = \$derived\.by/);
   assert.match(casePage, /const \{ learnerStudyPreviewHref = '\/study' \} = data/);
   assert.match(casePage, /<CaseEditorHeader[^>]*\{studyPreviewHref\}/);
-  assert.match(caseHeader, /href=\{studyPreviewHref\}>Preview in Study/);
-  assert.match(casePreview, /href=\{studyPreviewHref\}>Open Study preview/);
+  assert.match(caseHeader, /href=\{studyPreviewHref \?\? '\/study'\}>Preview in Study/);
+  assert.match(casePreview, /href=\{studyPreviewHref \?\? '\/study'\}>Open Study preview/);
 });
 
 test('preview route reuses staged FSRS service owners and auto-opens the next Case after completion', async () => {
