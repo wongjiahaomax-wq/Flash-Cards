@@ -28,9 +28,14 @@ function fixture() {
   sqlite.exec('PRAGMA foreign_keys = ON');
   applyCurrentSchema(sqlite);
   sqlite.exec(buildSeedSql());
-  // Reclassify the seed root into a real System so the preview exercises the
-  // accepted Systems-first selector against current Production content.
-  sqlite.exec("UPDATE concepts SET kind = 'system' WHERE id = 'seed-stemi'");
+  // Add a real top-level System and move the existing seed Topic tree beneath it.
+  // Do not reclassify a Topic that already owns Cases/questions: current taxonomy
+  // guards correctly reject that mutation.
+  sqlite.exec(`
+    INSERT INTO concepts (id, name, slug, kind, parent_id, is_active)
+    VALUES ('preview-system', 'Preview System', 'preview-system', 'system', NULL, 1);
+    UPDATE concepts SET parent_id = 'preview-system' WHERE id = 'seed-stemi';
+  `);
 
   const d1 = {
     prepare(sql) {
@@ -71,14 +76,14 @@ test('Admin Study Preview resolves current learner content without mutating any 
 
     const preview = await buildAdminStudyPreview({
       db,
-      systemId: 'seed-stemi',
+      systemId: 'preview-system',
       routes: [{ routeType: 'topic', routeId: 'seed-anterior-stemi' }],
       caseId: 'seed-anterior-a',
       contentMode: 'expanded',
       rng: () => 0
     });
 
-    assert.equal(preview.systemId, 'seed-stemi');
+    assert.equal(preview.systemId, 'preview-system');
     assert.equal(preview.candidate.id, 'seed-anterior-a');
     assert.equal(preview.snapshot.case.id, 'seed-anterior-a');
     assert.ok(preview.snapshot.questions.length > 0);
