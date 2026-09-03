@@ -174,7 +174,7 @@
       <thead><tr><th>Cohort</th><th>Activity month</th><th>Active learners</th><th>Completed</th><th>Again</th><th>Hard</th><th>Good</th><th>Easy</th></tr></thead>
       <tbody>
         {#each data.trends.cohortMonthly as row}
-          <tr><td>{row.cohortMonth}</td><td>{row.month}</td><td>{row.activeLearers ?? row.activeLearners}</td><td>{row.scheduledCompleted}</td><td>{row.again}</td><td>{row.hard}</td><td>{row.good}</td><td>{row.easy}</td></tr>
+          <tr><td>{row.cohortMonth}</td><td>{row.month}</td><td>{row.activeLearners}</td><td>{row.scheduledCompleted}</td><td>{row.again}</td><td>{row.hard}</td><td>{row.good}</td><td>{row.easy}</td></tr>
         {:else}
           <tr><td colspan="8">No cohort trend data yet.</td></tr>
         {/each}
