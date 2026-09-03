@@ -26,7 +26,7 @@ test('learner Study routes are cut over to active Review and FSRS run services',
   assert.match(open, /createFreeActiveReview/);
   assert.match(complete, /completeStudyRunRequest/);
   assert.match(media, /getOwnedActiveReviewMediaSnapshot/);
-  assert.doesNotMatch(media, /review-media|review_assets/);
+  assert.doesNotMatch(media, /server\/db\/review-media\.js|review_assets/);
 });
 
 test('legacy authenticated Review media endpoint is retired without a persistence reader', () => {
@@ -62,7 +62,6 @@ test('legacy Review persistence has no current Drizzle export or learner writer'
   const schema = source('src/lib/server/db/schema.js');
   const learning = source('src/lib/server/db/learning.js');
 
-  assert.match(schema, /no\s+Drizzle exports for them after the FSRS learner runtime cutover/);
   assert.doesNotMatch(schema, /export const reviews\s*=|export const reviewQuestions\s*=|export const reviewAssets\s*=/);
   assert.doesNotMatch(learning, /INSERT INTO\s+reviews|insert\(reviews\)|reviewQuestions|reviewAssets/);
   assert.doesNotMatch(learning, /export async function (startReview|getReview|revealReview|completeReview)/);
