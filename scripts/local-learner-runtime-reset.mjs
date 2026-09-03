@@ -1,5 +1,10 @@
 export const LOCAL_LEARNER_RUNTIME_RESET_TABLES = Object.freeze([
   'scheduled_review_events',
+  // Durable monthly analytics preserve historical System attribution after
+  // detailed Scheduled history expires. Local content refresh is intentionally
+  // destructive to learner runtime/progress state, so these buckets must be
+  // removed before old Systems are deleted/replaced.
+  'learner_system_monthly_buckets',
   'free_review_completion_receipts',
   'active_review_questions',
   'active_review_assets',
@@ -19,10 +24,10 @@ export const LOCAL_LEARNER_RUNTIME_RESET_TABLES = Object.freeze([
 
 /**
  * Local content refresh is a destructive replica rebuild. Active Reviews,
- * retired legacy Review sentinels, and learner progress derived from the old
- * content snapshot must be removed before Cases/Assets/Concepts are replaced,
- * otherwise learner-history foreign keys intentionally prevent the content
- * reset.
+ * retained monthly analytics, retired legacy Review sentinels, and learner
+ * progress derived from the old content snapshot must be removed before
+ * Cases/Assets/Concepts are replaced, otherwise learner-history/provenance
+ * guards intentionally prevent the content reset.
  *
  * Better Auth identity, learner preferences, and the learner FSRS profile are
  * deliberately not included here. Their reset semantics belong to later FSRS
