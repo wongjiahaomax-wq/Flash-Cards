@@ -7,13 +7,13 @@ import {
   CONTENT_TABLES,
   FORBIDDEN_PRODUCTION_TABLES,
   assertReplicaContract,
-  buildInsertSql,
   buildLocalD1FileArgs,
   buildLocalD1QueryArgs,
   buildLocalResetSql,
   buildLocalR2PutArgs,
   buildRemoteD1QueryArgs,
   buildRemoteR2GetArgs,
+  buildReplicaContentSql,
   extractD1Rows,
   readR2BucketName,
   stagingFilenameForKey
@@ -100,15 +100,6 @@ function collectProductionContent() {
   return snapshots;
 }
 
-/** @param {ContentSnapshot[]} snapshots */
-function buildContentSql(snapshots) {
-  return [
-    '-- Generated from allowlisted production content. Auth, learner Reviews, Preview sessions and import jobs are excluded.',
-    ...snapshots.map((table) => `\n-- ${table.name}\n${buildInsertSql(table.name, table.rows)}`),
-    ''
-  ].join('\n');
-}
-
 /** @returns {D1Row[]} */
 function refreshD1() {
   assertReplicaContract();
@@ -119,7 +110,7 @@ function refreshD1() {
   const snapshots = collectProductionContent();
 
   mkdirSync(stagingDir, { recursive: true });
-  writeFileSync(dataFile, buildContentSql(snapshots), { mode: 0o600 });
+  writeFileSync(dataFile, buildReplicaContentSql(snapshots), { mode: 0o600 });
   writeFileSync(resetFile, buildLocalResetSql(), { mode: 0o600 });
 
   console.log('Replacing local content tables; local Better Auth identity is preserved...');
