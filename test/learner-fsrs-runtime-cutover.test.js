@@ -16,6 +16,9 @@ test('learner Study routes are cut over to active Review and FSRS run services',
 
   assert.match(chooser, /planSystemStudyRunFromForm/);
   assert.match(chooser, /getActiveReview/);
+  assert.match(chooser, /getLearnerFsrsProgress/);
+  assert.match(chooser, /resetLearnerFsrsProgress/);
+  assert.match(chooser, /freshLearnerFsrsStart/);
   assert.doesNotMatch(chooser, /startReview|startSystemReview|server\/db\/learning\.js/);
 
   assert.match(review, /getActiveReviewById/);
@@ -28,6 +31,32 @@ test('learner Study routes are cut over to active Review and FSRS run services',
   assert.match(complete, /completeStudyRunRequest/);
   assert.match(media, /getOwnedActiveReviewMediaSnapshot/);
   assert.doesNotMatch(media, /server\/db\/review-media\.js|review_assets/);
+});
+
+test('Reset/Fresh is learner-facing, invalidates browser run state and keeps the active-Review boundary defensive', () => {
+  const chooser = source('src/routes/study/+page.svelte');
+  const progress = source('src/lib/components/LearnerFsrsProgress.svelte');
+  const resetFresh = source('src/lib/server/db/fsrs-reset-fresh.js');
+  const migration = source('drizzle/0024_learner_fsrs_reset_fresh.sql');
+
+  assert.match(chooser, /LearnerFsrsProgress/);
+  assert.match(chooser, /form\?\.browserRunInvalidated/);
+  assert.match(chooser, /clearLearnerStudyRun\(localStorage\)/);
+  assert.match(progress, /Reset Progress/);
+  assert.match(progress, /Fresh FSRS Start/);
+  assert.match(progress, /default 90% desired retention/);
+
+  assert.match(resetFresh, /DELETE FROM active_reviews WHERE user_id = \?/);
+  assert.match(resetFresh, /DELETE FROM learner_case_fsrs WHERE user_id = \?/);
+  assert.match(resetFresh, /review_sequence_epoch = review_sequence_epoch \+ 1/);
+  assert.match(resetFresh, /generation = learner_fsrs_profiles\.generation \+ 1/);
+  assert.match(resetFresh, /parameter_revision = learner_fsrs_profiles\.parameter_revision \+ 1/);
+  assert.match(resetFresh, /last_optimized_at = NULL/);
+
+  assert.match(migration, /learner_fsrs_profiles_active_scheduled_boundary_guard/);
+  assert.match(migration, /learner_fsrs_boundary_active_review/);
+  assert.match(migration, /active_reviews/);
+  assert.match(migration, /study_mode` = 'scheduled'/);
 });
 
 test('legacy authenticated Review media endpoint is retired without a persistence reader', () => {

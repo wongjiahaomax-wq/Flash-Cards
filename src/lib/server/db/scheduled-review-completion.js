@@ -10,6 +10,7 @@ import {
   learnerSystemAggregates,
   scheduledReviewEvents
 } from './fsrs-schema.js';
+import { buildDetailedHistoryCleanupStatements } from './fsrs-retention.js';
 import {
   createInitialFsrsCard,
   deserializeFsrsParameters,
@@ -421,6 +422,7 @@ export async function completeScheduledReview(input) {
   const counts = ratingCounts(rating);
   const state = prepared.state;
   const writes = [
+    ...buildDetailedHistoryCleanupStatements(client, userId),
     client.prepare(`
       INSERT INTO scheduled_review_events (
         id, user_id, case_id, case_title_snapshot, system_id, completed_at, rating,
