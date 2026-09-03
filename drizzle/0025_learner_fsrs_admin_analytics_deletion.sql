@@ -35,17 +35,69 @@ CREATE INDEX `learner_system_monthly_buckets_system_month_idx`
 CREATE INDEX `learner_system_monthly_buckets_month_idx`
 	ON `learner_system_monthly_buckets` (`month_start`,`system_id`,`user_id`);
 --> statement-breakpoint
+INSERT INTO `learner_system_monthly_buckets` (
+	`user_id`, `system_id`, `month_start`, `scheduled_completed`,
+	`scheduled_again`, `scheduled_hard`, `scheduled_good`, `scheduled_easy`,
+	`first_completed_at`, `last_completed_at`
+)
+SELECT
+	`user_id`,
+	`system_id`,
+	cast(strftime('%s', `completed_at` / 1000, 'unixepoch', 'start of month') as integer) * 1000,
+	count(*),
+	sum(CASE WHEN `rating` = 'again' THEN 1 ELSE 0 END),
+	sum(CASE WHEN `rating` = 'hard' THEN 1 ELSE 0 END),
+	sum(CASE WHEN `rating` = 'good' THEN 1 ELSE 0 END),
+	sum(CASE WHEN `rating` = 'easy' THEN 1 ELSE 0 END),
+	min(`completed_at`),
+	max(`completed_at`)
+FROM `scheduled_review_events`
+GROUP BY
+	`user_id`,
+	`system_id`,
+	cast(strftime('%s', `completed_at` / 1000, 'unixepoch', 'start of month') as integer) * 1000;
+--> statement-breakpoint
+CREATE TRIGGER `scheduled_review_events_monthly_bucket_insert`
+AFTER INSERT ON `scheduled_review_events`
+BEGIN
+	INSERT INTO `learner_system_monthly_buckets` (
+		`user_id`, `system_id`, `month_start`, `scheduled_completed`,
+		`scheduled_again`, `scheduled_hard`, `scheduled_good`, `scheduled_easy`,
+		`first_completed_at`, `last_completed_at`
+	) VALUES (
+		NEW.`user_id`,
+		NEW.`system_id`,
+		cast(strftime('%s', NEW.`completed_at` / 1000, 'unixepoch', 'start of month') as integer) * 1000,
+		1,
+		CASE WHEN NEW.`rating` = 'again' THEN 1 ELSE 0 END,
+		CASE WHEN NEW.`rating` = 'hard' THEN 1 ELSE 0 END,
+		CASE WHEN NEW.`rating` = 'good' THEN 1 ELSE 0 END,
+		CASE WHEN NEW.`rating` = 'easy' THEN 1 ELSE 0 END,
+		NEW.`completed_at`,
+		NEW.`completed_at`
+	)
+	ON CONFLICT(`user_id`, `system_id`, `month_start`) DO UPDATE SET
+		`scheduled_completed` = `learner_system_monthly_buckets`.`scheduled_completed` + 1,
+		`scheduled_again` = `learner_system_monthly_buckets`.`scheduled_again` + excluded.`scheduled_again`,
+		`scheduled_hard` = `learner_system_monthly_buckets`.`scheduled_hard` + excluded.`scheduled_hard`,
+		`scheduled_good` = `learner_system_monthly_buckets`.`scheduled_good` + excluded.`scheduled_good`,
+		`scheduled_easy` = `learner_system_monthly_buckets`.`scheduled_easy` + excluded.`scheduled_easy`,
+		`first_completed_at` = min(`learner_system_monthly_buckets`.`first_completed_at`, excluded.`first_completed_at`),
+		`last_completed_at` = max(`learner_system_monthly_buckets`.`last_completed_at`, excluded.`last_completed_at`),
+		`updated_at` = (unixepoch() * 1000);
+END;
+--> statement-breakpoint
 CREATE TABLE `learner_account_deletions` (
 	`user_id` text PRIMARY KEY NOT NULL,
-	`phase` text DEFAULT 'active_reviews' NOT NULL,
+	`phase` text DEFAULT 'free_receipts' NOT NULL,
 	`requested_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`updated_at` integer DEFAULT (unixepoch() * 1000) NOT NULL,
 	`batches_completed` integer DEFAULT 0 NOT NULL,
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade,
 	CONSTRAINT `learner_account_deletions_phase_check` CHECK (`phase` in (
-		'active_reviews',
 		'free_receipts',
 		'scheduled_events',
+		'active_reviews',
 		'optimizer_evidence',
 		'case_state',
 		'case_encounters',
