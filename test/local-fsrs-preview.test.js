@@ -17,6 +17,7 @@ import {
   writeFsrsPreviewRun
 } from '../src/lib/fsrs-preview-run-storage.js';
 import {
+  getLearnerStudyPreviewHref,
   isLocalFsrsPreviewRequest,
   validateLocalFsrsPreviewRunOwner
 } from '../src/lib/server/learning/local-fsrs-preview.js';
@@ -234,6 +235,31 @@ test('local preview requires both loopback request and loopback Better Auth bind
   assert.equal(isLocalFsrsPreviewRequest(new URL('http://127.0.0.1:8787/fsrs-preview'), { BETTER_AUTH_URL: 'http://127.0.0.1:8787' }), true);
   assert.equal(isLocalFsrsPreviewRequest(new URL('https://flash-cards.example/fsrs-preview'), localEnv), false);
   assert.equal(isLocalFsrsPreviewRequest(new URL('http://localhost:5173/fsrs-preview'), { BETTER_AUTH_URL: 'https://flash-cards.example' }), false);
+});
+
+test('Admin learner-study links use FSRS preview only behind the strict local preview guard', async () => {
+  const localEnv = { BETTER_AUTH_URL: 'http://localhost:5173' };
+  assert.equal(getLearnerStudyPreviewHref(new URL('http://localhost:5173/admin'), localEnv), '/fsrs-preview');
+  assert.equal(getLearnerStudyPreviewHref(new URL('https://flash-cards.example/admin'), localEnv), '/study');
+  assert.equal(
+    getLearnerStudyPreviewHref(new URL('http://localhost:5173/admin'), { BETTER_AUTH_URL: 'https://flash-cards.example' }),
+    '/study'
+  );
+
+  const adminLayoutServer = await readFile(new URL('../src/routes/admin/+layout.server.js', import.meta.url), 'utf8');
+  const adminLayout = await readFile(new URL('../src/routes/admin/+layout.svelte', import.meta.url), 'utf8');
+  const adminDashboard = await readFile(new URL('../src/routes/admin/+page.svelte', import.meta.url), 'utf8');
+  const casePage = await readFile(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
+  const caseHeader = await readFile(new URL('../src/lib/components/case-editor/CaseEditorHeader.svelte', import.meta.url), 'utf8');
+  const casePreview = await readFile(new URL('../src/lib/components/case-editor/CasePreviewSection.svelte', import.meta.url), 'utf8');
+
+  assert.match(adminLayoutServer, /getLearnerStudyPreviewHref/);
+  assert.match(adminLayoutServer, /learnerStudyPreviewHref:/);
+  assert.match(adminLayout, /href=\{data\.learnerStudyPreviewHref \?\? '\/study'\}/);
+  assert.match(adminDashboard, /href=\{data\.learnerStudyPreviewHref \?\? '\/study'\}/);
+  assert.match(casePage, /studyPreviewHref=\{data\.learnerStudyPreviewHref\}/);
+  assert.match(caseHeader, /href=\{studyPreviewHref\}>Preview in Study/);
+  assert.match(casePreview, /href=\{studyPreviewHref\}>Open Study preview/);
 });
 
 test('preview route reuses staged FSRS service owners and delegates guarded completion orchestration', async () => {
