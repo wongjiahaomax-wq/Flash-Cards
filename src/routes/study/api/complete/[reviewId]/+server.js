@@ -2,12 +2,12 @@ import { createDb } from '$lib/server/db/index.js';
 import { getActiveReviewById } from '$lib/server/db/active-reviews.js';
 import { completeFreeReview } from '$lib/server/db/free-review-completion.js';
 import { completeScheduledReview } from '$lib/server/db/scheduled-review-completion.js';
-import { completeFsrsPreviewRequest } from '$lib/fsrs-preview-completion.js';
 import {
   learnerStudyAccessError,
   learnerStudyProofSecret
 } from '$lib/server/learning/learner-study-runtime.js';
 import { issueScheduledRunBoundaryToken } from '$lib/server/learning/study-run-proof.js';
+import { completeStudyRunRequest } from '$lib/study-run-completion.js';
 
 /** @param {unknown} body @param {number} [status] */
 function json(body, status = 200) {
@@ -31,7 +31,7 @@ export async function POST({ locals, params, platform, request }) {
   }
 
   try {
-    const result = await completeFsrsPreviewRequest({
+    const result = await completeStudyRunRequest({
       db: createDb(platform.env.DB),
       userId: locals.user.id,
       reviewId: params.reviewId,
