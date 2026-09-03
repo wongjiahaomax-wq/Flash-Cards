@@ -16,6 +16,7 @@
   let browserRun = $state(null);
   let runMessage = $state('');
   let opening = $state(false);
+  /** @type {string | null} */
   let autoStartedRunId = $state(null);
 
   /** @param {string} search */
