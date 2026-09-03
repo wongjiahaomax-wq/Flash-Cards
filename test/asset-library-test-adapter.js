@@ -29,11 +29,13 @@ async function ensureActiveReviewAssetFixture(db) {
   `));
 }
 
+/** @param {any} db @param {any} filters */
 export async function listAssetLibrary(db, filters) {
   await ensureActiveReviewAssetFixture(db);
   return listAssetLibraryReal(db, filters);
 }
 
+/** @param {any} db @param {string} assetId */
 export async function getAssetLibraryDetail(db, assetId) {
   await ensureActiveReviewAssetFixture(db);
   return getAssetLibraryDetailReal(db, assetId);
