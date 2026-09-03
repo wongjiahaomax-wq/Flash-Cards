@@ -8,7 +8,6 @@ import { and, eq } from 'drizzle-orm';
 import { createAssetQuestion, optInAssetQuestion } from '../src/lib/server/db/asset-questions.js';
 import { assets, caseAssets, stimulusGroupOptions, stimulusGroupQuestions, stimulusOptionAssetQuestions, stimulusOptionQuestions } from '../src/lib/server/db/schema.js';
 import { updateCase } from '../src/lib/server/db/admin-content.js';
-import { getReview, startReview } from '../src/lib/server/db/learning.js';
 import { listAssetLibrary } from '../src/lib/server/db/asset-library.js';
 import { getQuestionPromptDetail, listQuestionLibrary } from '../src/lib/server/db/question-library.js';
 import {
@@ -24,6 +23,7 @@ import {
   updateStimulusGroup
 } from '../src/lib/server/db/stimulus-groups.js';
 import { pickReviewQuestions, resolveQuestionPool } from '../src/lib/server/learning/questions.js';
+import { getReview, startReview } from './active-review-snapshot-adapter.js';
 import { applyCurrentSchema } from './current-schema.js';
 
 function createLearningDb() {
