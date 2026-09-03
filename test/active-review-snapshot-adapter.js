@@ -1,5 +1,10 @@
 import { buildActiveReviewSnapshot } from '../src/lib/server/db/active-review-content.js';
-import { listEligibleCases } from '../src/lib/server/db/learning.js';
+import {
+  listEligibleCases,
+  listStudyConcepts
+} from '../src/lib/server/db/learning.js';
+
+export { listEligibleCases, listStudyConcepts };
 
 /**
  * Test-only adapter for content tests that historically materialized a persisted
