@@ -204,7 +204,7 @@ function seedDeletionFixture(sqlite) {
     VALUES ('session-a', 9999999999999, 'session-token-a', 1, 1, 'learner-a');
     INSERT INTO verification (id, identifier, value, expiresAt, createdAt, updatedAt) VALUES
       ('verification-reset-a', 'reset-password:token-a', 'learner-a', 9999999999999, 1, 1),
-      ('verification-unrelated', 'reset-password:other', 'other-user', 9999999999999, 1, 1);
+      ('verification-unrelated', 'email-verification:other', 'other-user', 9999999999999, 1, 1);
 
     INSERT INTO learner_preferences (user_id) VALUES ('learner-a');
     INSERT INTO learner_fsrs_profiles (
