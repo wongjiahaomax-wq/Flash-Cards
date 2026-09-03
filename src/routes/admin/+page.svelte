@@ -42,7 +42,7 @@
     <div class="shortcut-list">
       <a class="shortcut" href="/admin/cases/new"><strong>Create a Case</strong><span>Set a title, topic, and learner vignette.</span></a>
       <a class="shortcut" href="/admin/cases"><strong>Open the Cases library</strong><span>Find and edit existing learning content.</span></a>
-      <a class="shortcut" href="/study"><strong>Preview learner study</strong><span>Check active content in the study flow.</span></a>
+      <a class="shortcut" href={data.learnerStudyPreviewHref ?? '/study'}><strong>Preview learner study</strong><span>Check active content in the study flow.</span></a>
     </div>
   </article>
 </section>
