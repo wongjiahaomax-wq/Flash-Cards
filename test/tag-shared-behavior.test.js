@@ -3,13 +3,13 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { createDb } from '../src/lib/server/db/index.js';
-import { getReview, startReview } from '../src/lib/server/db/learning.js';
 import { pickReviewQuestions, resolveQuestionPool } from '../src/lib/server/learning/questions.js';
 import {
   createSharedQuestion,
   setSharedQuestionActive,
   SharedQuestionInputError
 } from '../src/lib/server/db/shared-question-library.js';
+import { getReview, startReview } from './active-review-snapshot-adapter.js';
 import { applyCurrentSchema } from './current-schema.js';
 
 function fixture() {
