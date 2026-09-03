@@ -10,7 +10,8 @@ import {
 import {
   applyFreeCompletion,
   beginFreeWork,
-  selectNextFreeWork
+  selectNextFreeWork,
+  skipFreeWork
 } from '../src/lib/free-study-run.js';
 import {
   clearFsrsPreviewRun,
@@ -177,6 +178,22 @@ test('Free Study enforces 5/10/20 distinct-Case boundaries and All available', (
     selectNextFreeWork(freeDescriptor({ bag, distinctCaseTarget: null, position: bag.length })),
     { status: 'complete' }
   );
+});
+
+test('Free Study stale-entry skip preserves the distinct-Case target slot', () => {
+  const descriptor = freeDescriptor({
+    bag: ['stale-case', 'case-a', 'case-b'],
+    distinctCaseTarget: 2
+  });
+  const skipped = skipFreeWork(descriptor, 'stale-case');
+  assert.equal(skipped.position, 0);
+  assert.deepEqual(skipped.bag, ['case-a', 'case-b']);
+  assert.deepEqual(selectNextFreeWork(skipped), { status: 'ready', caseId: 'case-a' });
+
+  const active = beginFreeWork(skipped, 'case-a', 'review-1');
+  const completed = applyFreeCompletion(active, { receiptId: 'review-1', caseId: 'case-a' });
+  assert.equal(completed.position, 1);
+  assert.deepEqual(selectNextFreeWork(completed), { status: 'ready', caseId: 'case-b' });
 });
 
 test('Scheduled Study enforces 5/10/20 distinct-Case boundaries and All available', () => {
@@ -406,7 +423,7 @@ test('Admin learner-study links use FSRS preview only behind the strict local pr
   assert.match(casePreview, /href=\{studyPreviewHref \?\? '\/study'\}>Open Study preview/);
 });
 
-test('preview route reuses staged FSRS service owners and auto-opens the next Case after completion', async () => {
+test('preview route reuses staged FSRS service owners and auto-opens the next eligible Case after completion', async () => {
   const previewServer = await readFile(new URL('../src/routes/fsrs-preview/+page.server.js', import.meta.url), 'utf8');
   const previewPage = await readFile(new URL('../src/routes/fsrs-preview/+page.svelte', import.meta.url), 'utf8');
   const reviewPage = await readFile(new URL('../src/routes/fsrs-preview/review/[reviewId]/+page.svelte', import.meta.url), 'utf8');
@@ -425,6 +442,9 @@ test('preview route reuses staged FSRS service owners and auto-opens the next Ca
   assert.match(openServer, /validateLocalFsrsPreviewRunOwner/);
   assert.match(openServer, /createScheduledActiveReview/);
   assert.match(openServer, /createFreeActiveReview/);
+  assert.match(openServer, /skippableOpenError/);
+  assert.match(openServer, /skipScheduledWork/);
+  assert.match(openServer, /skipFreeWork/);
   assert.match(completeServer, /completeFsrsPreviewRequest/);
   assert.match(completeServer, /completeScheduledReview/);
   assert.match(completeServer, /completeFreeReview/);
