@@ -39,10 +39,12 @@ permissions:
 jobs:
   analytics-and-deletion:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - name: Check out repository
+      - name: Check out repository with validation base
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v5
@@ -52,6 +54,9 @@ jobs:
 
       - name: Install repository dependencies
         run: npm ci
+
+      - name: Report required repository checks
+        run: npm run agent:checks -- --compact
 
       - name: Validate migration history
         run: npm run db:check
@@ -67,3 +72,6 @@ jobs:
 
       - name: Run full repository validation
         run: npm run validate:full -- --compact
+
+      - name: Run repository runtime smoke
+        run: npm run runtime:smoke
