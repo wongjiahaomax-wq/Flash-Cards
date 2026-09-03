@@ -21,7 +21,7 @@ export async function runFastNodeTests(options = {}) {
     throw new Error('Fast Node test selection resolved to zero maintained tests; refusing to fall back to implicit Node discovery.');
   }
 
-  const result = spawn(process.execPath, ['--import', './test/active-review-test-hooks.js', '--test', ...argv, ...selection.selected], {
+  const result = spawn(process.execPath, ['--test', ...argv, ...selection.selected], {
     cwd: root,
     stdio: 'inherit',
     shell: false,
