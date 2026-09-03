@@ -1,7 +1,7 @@
 <script>
   import SignOutButton from '$lib/components/SignOutButton.svelte';
 
-  let { children } = $props();
+  let { data, children } = $props();
 </script>
 
 <svelte:head>
@@ -12,7 +12,7 @@
   <header class="admin-header">
     <a class="admin-brand" href="/admin">Flash-Cards <span>Admin</span></a>
     <nav class="admin-header-actions" aria-label="Global navigation">
-      <a href="/study">Study</a>
+      <a href={data.learnerStudyPreviewHref ?? '/study'}>Study</a>
       <SignOutButton />
     </nav>
   </header>
