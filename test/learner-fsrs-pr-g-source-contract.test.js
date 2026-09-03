@@ -4,6 +4,7 @@ import test from 'node:test';
 
 import { CONTENT_TABLES } from '../scripts/local-replica-lib.mjs';
 
+/** @param {string} path */
 function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 }
