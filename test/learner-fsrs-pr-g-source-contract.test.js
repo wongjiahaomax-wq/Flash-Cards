@@ -24,6 +24,19 @@ test('PR G learner analytics/deletion tables remain excluded from production-to-
   }
 });
 
+test('PR G locks the pinned Better Auth identity-root and non-FK verification cleanup boundary', () => {
+  const packageJson = JSON.parse(source('package.json'));
+  const adminRoute = source('src/routes/admin/learner-analytics/+page.server.js');
+  const deletion = source('src/lib/server/db/learner-account-deletion.ts');
+  const migration = source('drizzle/0025_learner_fsrs_admin_analytics_deletion.sql');
+
+  assert.equal(packageJson.dependencies['better-auth'], '1.6.25');
+  assert.match(adminRoute, /auth\.api\.removeUser/);
+  assert.match(deletion, /phase:\s*'auth_verifications'/);
+  assert.match(deletion, /table:\s*'verification',\s*userColumn:\s*'value'/);
+  assert.match(migration, /EXISTS \(SELECT 1 FROM `verification` x WHERE x\.`value` = OLD\.`id`\)/);
+});
+
 test('PR G does not resurrect legacy Review persistence', () => {
   const migration = source('drizzle/0025_learner_fsrs_admin_analytics_deletion.sql');
   const analytics = source('src/lib/server/db/fsrs-admin-analytics.ts');
