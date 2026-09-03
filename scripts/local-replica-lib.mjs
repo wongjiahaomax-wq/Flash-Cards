@@ -73,9 +73,23 @@ export const FORBIDDEN_PRODUCTION_TABLES = Object.freeze([
   'account',
   'session',
   'verification',
+  // Retired legacy Review persistence remains a zero-data cutover sentinel only.
   'reviews',
   'review_questions',
   'review_assets',
+  // Current learner runtime/state is intentionally local-only during replica refresh.
+  'learner_preferences',
+  'learner_fsrs_profiles',
+  'learner_case_fsrs',
+  'learner_case_encounters',
+  'learner_optimizer_evidence',
+  'learner_aggregates',
+  'learner_system_aggregates',
+  'active_reviews',
+  'active_review_questions',
+  'active_review_assets',
+  'scheduled_review_events',
+  'free_review_completion_receipts',
   'preview_sessions',
   'import_jobs'
 ]);
@@ -241,7 +255,7 @@ export function buildStimulusGroupOriginalPointerRestoreSql(rows) {
 export function buildReplicaContentSql(snapshots) {
   const stimulusGroupRows = snapshots.find((table) => table.name === 'stimulus_groups')?.rows ?? [];
   return [
-    '-- Generated from allowlisted production content. Auth, learner Reviews, Preview sessions and import jobs are excluded.',
+    '-- Generated from allowlisted production content. Auth, learner state, Preview sessions and import jobs are excluded.',
     ...snapshots.map((table) => {
       const rows = table.name === 'stimulus_groups'
         ? stimulusGroupsForInitialInsert(table.rows)

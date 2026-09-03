@@ -12,29 +12,20 @@ When documentation appears to disagree, use this order:
 
 1. current code, executable validators, committed schema/migrations, and workflow definitions, while keeping production application/deployment status separate;
 2. `CURRENT_PRODUCT_ROADMAP.md` and `HANDOVER.md` for merged/deployed status and current priorities;
-3. `V1_DATA_MODEL.md` plus the relevant current subsystem behavior document for exact semantics;
+3. `V1_DATA_MODEL.md` plus the relevant current subsystem behavior/status document for exact semantics; for the learner FSRS runtime cutover, use `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` as that companion;
 4. `CURRENT_DESIGN.md`, `V1_SPEC.md`, and `AUTHORING_MODEL.md` for product mental model;
 5. pending designs only for future intent;
 6. implementation plans/historical records only for decision context.
 
-An old PR instruction, stale status banner, rollout note, staged-refactor plan, or historical design is never authority over current code/current priorities.
+An old PR instruction, stale status banner, rollout note, staged-refactor plan, or historical design is never authority over current code/current priorities. Pre-cutover documents that describe `reviews`, `review_questions`, or `review_assets` as the current learner Review runtime are historical context after the PR #137 cutover architecture; they do not override current code, `V1_DATA_MODEL.md`, or `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`.
 
 ## Current repository baseline
 
-At this refresh, current `main` is through merged PR #106. Draft PR #108 adds the Original/Alternative stimulus model described below; its presence on this branch is not evidence that it has merged, been migrated in production, or been deployed.
+On the PR #137 branch, the staged learner FSRS Parts A–E are followed by the learner runtime cutover. The cutover moves `/study` onto the FSRS/Free runtime, makes `active_reviews` / `active_review_questions` / `active_review_assets` the current unfinished learner Review owner, retires legacy Review readers/writers, retains `/fsrs-preview` as a local regression/reference surface, and extends the repository migration chain through `0023_learner_fsrs_system_provenance_guard.sql`.
 
-Important post-PR-#90 merged changes include:
+This is repository/PR state only. It is not evidence that the cutover has merged, that Production D1 migrations have been applied, or that the Production Worker has been deployed. Preserve those operational facts separately.
 
-- PR #92 — local-first workflow decision / Preview refactor pause;
-- PR #93 — Case-editor desktop UX refinement;
-- PR #95 — Account Management v1 **design documentation**;
-- PR #98 — bulk Case Primary Topic assignment;
-- PR #99 — visual Systems & Topics taxonomy/Case-classification workspace with mixed staged review, unified workspace apply, and all-domain preflight before canonical writes;
-- PR #100 — Production Case lifecycle + inline/bulk Case Tag curation;
-- PR #102 — Case Library text-filter/read-path performance improvement;
-- PR #106 — Draft-fast / Ready-full PR CI and same-PR run cancellation.
-
-Account Management implementation PRs are not current-main features merely because PR #95's plan is merged. Inspect actual implementation PR/merge state before relying on the implementation prompts.
+Older implementation/evidence documents remain useful historical context and should not be rewritten merely because their then-current Review model has since been retired.
 
 ## Current taxonomy rule
 
@@ -56,17 +47,26 @@ Do not infer Topic→Tag conversion from matching names/labels. Clinically usefu
 
 ## Repository migration boundary
 
-On this PR branch, the repository migration sequence extends through:
+On the PR #137 branch, the repository migration sequence extends through:
 
 ```text
-0016_original_stimulus_options.sql
+0023_learner_fsrs_system_provenance_guard.sql
 ```
 
 Important recent migrations:
 
-- `0014_review_question_pool_mode.sql` — Original/Core versus Expanded Review source-mode provenance;
-- `0015_contextual_system_topic_tag_navigation.sql` — System/Topic taxonomy, System↔Tag exposure, and System-route Review provenance;
-- `0016_original_stimulus_options.sql` — nullable `stimulus_groups.original_option_id`, conservative production-only Original backfill, and defensive Original-integrity guards.
+- `0014_review_question_pool_mode.sql` — historical legacy Review source-mode compatibility; `reviews` is no longer current learner runtime state after cutover;
+- `0015_contextual_system_topic_tag_navigation.sql` — System/Topic taxonomy, System↔Tag exposure, and historical legacy Review route-provenance columns;
+- `0016_original_stimulus_options.sql` — nullable `stimulus_groups.original_option_id`, conservative production-only Original backfill, and defensive Original-integrity guards;
+- `0017_align_reusable_prompt_live_state_guards.sql` — reusable-question live-state guard alignment;
+- `0018_topic_deletion_provenance_indexes.sql` — Topic deletion-provenance indexes;
+- `0019_learner_fsrs_foundation.sql` — learner preferences/profiles, learner×Case FSRS state, encounters, Scheduled events, optimizer evidence, learner aggregates, and learner×System Scheduled aggregates;
+- `0020_learner_fsrs_active_reviews.sql` — temporary normalized `active_reviews`, `active_review_questions`, and `active_review_assets` ownership;
+- `0021_learner_fsrs_scheduled_completion.sql` — Scheduled FSRS completion write-boundary context/guards;
+- `0022_learner_fsrs_free_study.sql` — Free Study completion and short-lived retry receipts;
+- `0023_learner_fsrs_system_provenance_guard.sql` — defensive System deletion/reclassification protection for durable System attribution in `scheduled_review_events` and `learner_system_aggregates`.
+
+Historical migration `0013_review_assets_asset_lookup.sql` and the Review-related portions of `0014`/`0015` remain immutable migration history; they do not make `review_assets`, `reviews`, or `review_questions` current runtime owners after cutover.
 
 Migration `0016` leaves ambiguous legacy multi-option production families and retained Preview-owned families with `original_option_id = NULL`; it does not infer Original from ordering or labels. See `ORIGINAL_AND_ALTERNATIVE_STIMULI.md` and `V1_DATA_MODEL.md` for the current branch contract.
 
@@ -78,23 +78,27 @@ A committed migration is not proof that it has been applied to production. Merge
 
 ### `CURRENT_PRODUCT_ROADMAP.md`
 
-Shortest status map for verified production, current `main`, and next product priorities. Updated through PR #106.
+Shortest status map for verified production, current `main`, and next product priorities. Cross-check an in-flight PR against its exact head rather than treating an older roadmap snapshot as current branch behavior.
 
 ### `HANDOVER.md`
 
-Current implementation handover, operational boundaries, recent merged changes, and current coding-agent/CI lifecycle.
+Current implementation handover, operational boundaries, recent merged changes, and current coding-agent/CI lifecycle. Cross-check an in-flight PR against its exact head when the handover predates that work.
 
 ### `CURRENT_DESIGN.md`
 
-Living product/design summary across classification, Cases/stimuli, questions/reuse, Review provenance, imports, Preview, and lifecycle behavior. If it omits a newer Admin convenience/UX feature, use the roadmap/handover plus the relevant implementation record; omission is not authority against current code.
+Living product/design summary across classification, Cases/stimuli, questions/reuse, Review provenance, imports, Preview, and lifecycle behavior. If it omits a newer Admin convenience/UX feature, use the roadmap/handover plus the relevant implementation record; omission is not authority against current code. For learner Review persistence after the FSRS cutover, use `V1_DATA_MODEL.md` plus `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` over older legacy Review wording.
 
 ### `V1_SPEC.md`
 
-Current V1 product behavior specification. Exact implementation status of later Admin UX/tooling changes should be cross-checked with roadmap/handover/current code.
+Current V1 product behavior specification. Exact implementation status of later Admin UX/tooling and learner-runtime changes should be cross-checked with roadmap/handover/current code.
 
 ### `V1_DATA_MODEL.md`
 
-Authoritative implemented domain model for the current branch, including the physical compatibility shape of `case_concepts`, current Primary-Topic behavior, Tags/System exposure, Original/Alternative stimulus relationships, question-pool modes, Review provenance, Preview ownership, and migration ledger.
+Authoritative implemented domain model for the current branch, including the physical compatibility shape of `case_concepts`, current Primary-Topic behavior, Tags/System exposure, Original/Alternative stimulus relationships, FSRS/Free active-Review ownership, Scheduled/Free completion owners, authenticated Review-media and Asset/R2 lifecycle ownership, durable System provenance, legacy Review sentinel status, Preview ownership, and the migration ledger through `0023`.
+
+### `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`
+
+**Current implementation-status companion for PR #137's learner runtime cutover.** Read it with `V1_DATA_MODEL.md` for the post-cutover `/study` ownership boundary, legacy zero-data Review sentinels, active Review/media ownership, local replica/reset boundary, Admin Study Preview contamination boundary, local `/fsrs-preview` regression surface, durable System provenance, migration/parser compatibility, and the explicit separation between repository cutover state and Production deployment/migration state.
 
 ### `AUTHORING_MODEL.md`
 
@@ -120,13 +124,14 @@ Repository-wide modularity, TypeScript, thin-route, ownership, transaction, test
 
 ### `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md`
 
-Current System/Topic/Tag learner-routing contract:
+Current System/Topic/Tag content-reachability contract:
 
 - canonical Topic routes use the Case's one Primary Topic;
 - Tag routes discover the Case without changing direct Topic-question context;
 - System → All deduplicates Topic + exposed-Tag reachability;
-- effective Review provenance is separate from learner-selected navigation provenance;
 - taxonomy curation, Worker deployment, and learner rollout remain separate operational steps.
+
+Its legacy `reviews` route-provenance/continuation details describe the pre-FSRS-cutover runtime. For current learner Review persistence and System provenance, use `V1_DATA_MODEL.md` plus `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`.
 
 ### `ADDITIONAL_STUDY_TOPICS_TO_TAGS_PLAN.md`
 
@@ -162,7 +167,7 @@ Current code/PR #102 are authoritative over any older `draft` / `validation pend
 - `STAGE_A_TAG_FOUNDATION.md` — Tag foundation record.
 - `TAGGING_STAGE_B_BEHAVIOR.md` — Shared Question eligibility/precedence/Admin/Review behavior.
 
-Case Tags additionally carry alternate/cross-cutting Case classification and may become learner routes only when a System explicitly exposes the Tag. System exposure does not itself make a Shared Question eligible; explicit matching Case Tag remains required.
+Case Tags additionally carry alternate/cross-cutting Case classification and may become learner routes only when a System explicitly exposes the Tag. System exposure does not itself make a Shared Question eligible; explicit matching Case Tag remains required. For current learner Review persistence/snapshot ownership, `V1_DATA_MODEL.md` controls over any legacy `review_questions` examples.
 
 ## Admin/content management
 
@@ -177,6 +182,8 @@ Case Tags additionally carry alternate/cross-cutting Case classification and may
 
 The Case editor is componentized under `src/lib/components/case-editor/`. Current classification actions are Primary Topic + Case Tags; Additional Study Topic actions are retired/fail closed.
 
+For current learner-owned media and Asset/R2 deletion protection during an unfinished Review, `active_review_assets` is authoritative; legacy `review_assets` is not a current lifecycle owner.
+
 ## Authentication / account management
 
 - `ACCOUNT_MANAGEMENT_PLAN.md` — merged Account Management v1 product/security design for closed enrollment, password recovery, transactional email, production account administration, Disable/Restore semantics, session controls, and Admin lockout guards.
@@ -187,35 +194,45 @@ For account/auth work, inspect current implementation and current PR state befor
 
 Public signup remains intentionally disabled unless a separately reviewed product decision changes that contract.
 
-## Learner Study / FSRS / progress — pending design authority
+## Learner Study / FSRS / progress — current runtime authority and design history
+
+### `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`
+
+**Current implementation-status authority for PR #137's learner `/study` cutover.** It records the active FSRS/Free runtime ownership, retirement/zero-data-sentinel status of legacy Review tables, active Review media and Asset/R2 lifecycle ownership, local replica/reset boundary, Admin Study Preview contamination boundary, retained local `/fsrs-preview`, and durable System provenance. It does not claim Production deployment.
 
 ### `LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md`
 
-**Locked product/planning authority for future learner scheduling work.** It specifies Case-level FSRS from the first SRS implementation; 90% desired retention; Again / Hard / Good / Easy; Scheduled and Free Study; Due/New start-of-run queues; default Due-first ordering with New fallback; Expanded Learning as a global preference default OFF; compact Scheduled events; temporary active-Review snapshots; reset/fresh-generation semantics; retention; learner/Admin analytics; and selective reuse of the systems-first UX from Draft PR #119 without merging #119.
+**Locked product/planning authority for the learner scheduling programme.** It specifies Case-level FSRS from the first SRS implementation; 90% desired retention; Again / Hard / Good / Easy; Scheduled and Free Study; Due/New start-of-run queues; default Due-first ordering with New fallback; Expanded Learning as a global preference default OFF; compact Scheduled events; temporary active-Review snapshots; reset/fresh-generation semantics; retention; learner/Admin analytics; and selective reuse of the systems-first UX from Draft PR #119 without merging #119.
 
-This is future intent, not current executable learner scheduling behavior.
+Parts A–E and the PR #137 cutover implement the current supported subset. Use current code, migrations, `V1_DATA_MODEL.md`, and `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` for executable current behavior; later retention/reset/optimizer/analytics work remains separately owned.
 
 ### `LEARNER_FSRS_RUN_SIZE_PRODUCT_AMENDMENT.md`
 
-**Normative product-behavior amendment for run sizing and continuous between-Case navigation.** For this specific behavior it updates the locked product baseline: Scheduled and Free Study offer 5 / 10 / 20 / All available with default 10; the target counts distinct Cases; FSRS short-term repeats do not consume another slot and must still be honored before run completion; successful Case completion automatically advances to the next eligible Case when one can open immediately; and run-size/navigation state remains browser-local. The local FSRS preview is the first executable surface for this rule, but `/study` remains unchanged until the separately reviewed learner runtime cutover.
+**Normative product-behavior amendment for run sizing and continuous between-Case navigation.** For this specific behavior it updates the locked product baseline: Scheduled and Free Study offer 5 / 10 / 20 / All available with default 10; the target counts distinct Cases; FSRS short-term repeats do not consume another slot and must still be honored before run completion; successful Case completion automatically advances to the next eligible Case when one can open immediately; and run-size/navigation state remains browser-local. PR #137 carries this approved behavior into `/study`; `/fsrs-preview` remains the local regression/reference surface.
 
 ### `LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md`
 
-**Primary subordinate technical-design companion.** It records the repository-grounded FSRS library direction, compact schema responsibilities, transaction boundaries, write-time active-Review/generation concurrency invariant, preliminary synthetic benchmark evidence, required D1 benchmark gate, Better Auth deletion direction, focused implementation decomposition, and the exact PR #119 reuse/discard boundary.
+**Primary subordinate technical-design companion.** It records the repository-grounded FSRS library direction, compact schema responsibilities, transaction boundaries, write-time active-Review/generation concurrency invariant, preliminary synthetic benchmark evidence, required D1 benchmark gate, Better Auth deletion direction, focused implementation decomposition, and the exact PR #119 reuse/discard boundary. Current code/migrations and the runtime status document are higher authority for post-cutover current-state facts.
 
 ### `LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md`
 
-**Required final implementation-readiness addendum.** Read it with the technical design before PR A. It narrows the remaining technical boundaries for the explicit legacy-runtime cutover owner, synchronous expired-active replacement, server-clock authority, lazy first-learner bootstrap, scheduler-revision upgrades, optimizer-rescheduling deferral, historical System identity, Scheduled idempotency conflict reconciliation, browser/localStorage workload limits, repeat-waiting/deactivation lifecycle semantics, and removable learner contribution to future time-series analytics.
+**Required implementation-readiness addendum.** Read it with the technical design for the safety/behavioral constraints it established around the explicit legacy-runtime cutover owner, synchronous expired-active replacement, server-clock authority, lazy first-learner bootstrap, scheduler-revision upgrades, optimizer-rescheduling deferral, historical System identity, Scheduled idempotency conflict reconciliation, browser/localStorage workload limits, repeat-waiting/deactivation lifecycle semantics, and removable learner contribution to future time-series analytics.
+
+Its statement that the then-current runtime persisted `reviews`, `review_questions`, and `review_assets` is a pre-cutover repository observation. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` and `V1_DATA_MODEL.md` supersede that current-state observation after PR #137 while preserving the readiness contract's behavioral/safety requirements.
 
 ### `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md`
 
-**Normative implementation-readiness amendment for focused tranche ownership.** Read it with the technical design and readiness contract for PR C and every later FSRS implementation tranche. It preserves the programme's lifecycle/concurrency invariants while correcting which focused PR owns the completion, Free-completion, and Reset/Fresh sides of cross-operation proofs.
+**Normative implementation-readiness amendment for focused tranche ownership.** It preserves the programme's lifecycle/concurrency invariants while correcting which focused PR owns the completion, Free-completion, and Reset/Fresh sides of cross-operation proofs. It remains tranche-assignment/history context rather than current runtime schema authority.
+
+### FSRS implementation evidence records
+
+`LEARNER_FSRS_PR_A_EVIDENCE.md` through `LEARNER_FSRS_PR_E_EVIDENCE.md` are **historical staged implementation evidence**. Preserve their then-current statements, including references to the legacy Review runtime before cutover. They remain useful for proving the boundary established by each tranche but do not override the post-cutover runtime/data-model authorities.
 
 For the run-size and continuous between-Case behavior specifically, `LEARNER_FSRS_RUN_SIZE_PRODUCT_AMENDMENT.md` controls over older wording in the locked product plan. For all other product behavior, the locked product plan remains superior to the technical documents. Where the readiness contract adds narrower implementation specificity to a boundary left open by the technical design, the readiness contract controls that technical boundary. **For tranche ownership only**, `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md` supersedes conflicting PR-assignment language in the technical design/readiness contract; it does not otherwise supersede or weaken those documents.
 
-None of these five documents is authorization to deploy, apply Production migrations, run the destructive cutover, or enable learner behavior.
+None of these documents authorizes a Production deployment, Production D1 migration/mutation, bypass of the zero-legacy-Review gate, or unreviewed later-tranche work.
 
-Do not use an older simple-scheduler / Again-Good-only plan or a historical “FSRS later” statement as authority over these five documents.
+Do not use an older simple-scheduler / Again-Good-only plan or a historical “FSRS later” statement as authority over this chain.
 
 ## Stimulus behavior
 
@@ -254,6 +271,8 @@ Preview backend decomposition is intentionally paused after PRs #80/#82/#83 and 
 Preview cloning copies the canonical Primary Topic and Case Tags, not legacy secondary Topic rows. Preview shares global production Topics/Tags read-only and does not gain global Tag/System mutation authority.
 
 Issue #105's Original/Alternative authoring UX is production Admin + learner Review only. Migration `0016` deliberately does not auto-curate retained Preview stimulus groups, so an existing one-option Preview family does not unexpectedly acquire a protected Original that Preview has no UI to manage.
+
+Production **Admin Study Preview** is a separate surface. Under the PR #137 cutover boundary it must remain outside learner persistence: no learner FSRS state, active Reviews, completion events/receipts, preferences, or legacy Review rows.
 
 ## Cloudflare / operations / local development
 
@@ -327,6 +346,7 @@ Historical implementation prompts and decision records remain useful for explain
 Notable examples:
 
 - `MULTI_TOPIC_STUDY_ROUTES.md` — former Additional Study Topic behavior;
+- `LEARNER_FSRS_PR_A_EVIDENCE.md` through `LEARNER_FSRS_PR_E_EVIDENCE.md` — staged FSRS implementation evidence before the explicit learner runtime cutover;
 - `PROPOSED_TAGGING_MODEL.md` — superseded Tag proposal;
 - `PARALLEL_WORK_PLAN.md` — completed parallel Admin phase;
 - old Preview staged-refactor instructions expecting PR2D/PR2E/PR2F;
@@ -353,11 +373,11 @@ Do not expand schema/taxonomy merely for conceptual completeness.
 
 ## Documentation maintenance rules
 
-1. Update the relevant subsystem behavior document in the same PR when behavior changes.
-2. Update `V1_DATA_MODEL.md` in the same PR when schema/relationship semantics change.
+1. Update the relevant subsystem behavior/status document in the same PR when behavior changes.
+2. Update `V1_DATA_MODEL.md` in the same PR when schema/relationship/runtime ownership semantics change.
 3. Update roadmap/handover when status or priorities materially change; do not call a draft/merged feature deployed without explicit verification.
 4. Keep migration presence, production migration application, Worker deployment, curation, feature enablement, and behavior verification as separate facts.
-5. Preserve historical decision records, but label their current status clearly in the index when their original banner is phase-specific.
+5. Preserve historical decision/evidence records, but label their current authority clearly in the index when their original banner/current-state wording is phase-specific.
 6. If a future production data change is needed, use explicit reviewed identifiers and verification; never infer clinical mapping from matching labels.
 7. Keep terminology consistent: System, Topic, Case, Tag, Asset, Collection, Question Prompt, Shared Question, Reusable Image Question, Stimulus Group, Stimulus Option, Original, Alternative.
 8. Behavior-preserving refactors should update ownership/routing docs when future agents need a new file/module boundary.

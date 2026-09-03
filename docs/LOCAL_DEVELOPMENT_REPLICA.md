@@ -8,7 +8,7 @@
 
 _Status: implemented local developer workflow and primary application testing path._
 
-_Last reviewed: 25 August 2026._
+_Last reviewed: 3 September 2026._
 
 ## Purpose
 
@@ -160,7 +160,7 @@ The allowlist lives in `scripts/local-replica-lib.mjs`. Treat additions as secur
 
 ## Production data deliberately excluded
 
-The normal replica does not read production rows from:
+The normal replica does not read production rows from authentication, learner runtime/history, Preview workspace, or import-operational tables. The explicit denylist currently includes:
 
 ```text
 user
@@ -170,11 +170,23 @@ verification
 reviews
 review_questions
 review_assets
+learner_preferences
+learner_fsrs_profiles
+learner_case_fsrs
+learner_case_encounters
+learner_optimizer_evidence
+learner_aggregates
+learner_system_aggregates
+active_reviews
+active_review_questions
+active_review_assets
+scheduled_review_events
+free_review_completion_receipts
 preview_sessions
 import_jobs
 ```
 
-This keeps production Better Auth identities/credentials/session material, learner progress, Preview workspace state and operational import state out of the normal developer copy.
+The three legacy Review tables remain physically present only as zero-data cutover sentinels and are never mirrored. Current FSRS/Free learner state is also never mirrored. This keeps production Better Auth identities/credentials/session material, learner preferences/progress/history, active unfinished Reviews, Preview workspace state and operational import state out of the normal developer copy.
 
 Local Better Auth tables exist because migrations create them, but they contain local-only identities created by `npm run local:admin`.
 
@@ -196,7 +208,7 @@ Preview/import staging objects are therefore not copied merely because they exis
 
 A missing production teaching object referenced by a mirrored Asset is reported explicitly. Stale unreferenced objects may remain in local R2 after a refresh; they are harmless because the refreshed local D1 no longer references them.
 
-Inactive superseded Assets remain production content and are mirrored when present because Asset lineage and retained immutable teaching-image objects may be relevant to current authoring/history inspection. Learner Review rows themselves remain excluded.
+Inactive superseded Assets remain production content and are mirrored when present because Asset lineage and retained immutable teaching-image objects may be relevant to current authoring/history inspection. Learner runtime rows themselves remain excluded.
 
 ## Requirements
 
@@ -288,7 +300,7 @@ npm run local:refresh
 npm run dev
 ```
 
-Refresh is intentionally destructive to local content edits and local Review/progress state. Local administrator identity is preserved.
+Refresh is intentionally destructive to local content edits and local learner runtime/progress state. Local administrator identity is preserved.
 
 Component/CSS/Svelte changes can then be inspected with Vite hot reload without creating a PR or deploying a Worker for every iteration.
 
@@ -370,7 +382,7 @@ local admin can sign in
 /study can navigate production-derived Cases
 ```
 
-For current image authoring, also verify that Reusable Image Questions and their current Case/stimulus opt-ins appear locally for mirrored production Assets, and that superseded Asset lineage can be represented without requiring production Review history.
+For current image authoring, also verify that Reusable Image Questions and their current Case/stimulus opt-ins appear locally for mirrored production Assets, and that superseded Asset lineage can be represented without requiring production learner history.
 
 ## Local mutation safety check
 
@@ -385,7 +397,7 @@ The structural safety proof is instead in the command contract/tests:
 - local Preview migration arguments require `--local` and reject/omit `--remote`;
 - ordinary Vite platform bindings remain local-only;
 - `local:stop` matches only the exact repository-installed Vite/Wrangler `dev` entrypoints rather than generic Node processes;
-- forbidden production tables are absent from the mirror allowlist;
+- forbidden production tables, including all current FSRS/Free learner-state tables, are absent from the mirror allowlist;
 - Asset supersession ordering is dependency-based rather than ID-based;
 - Reusable Image Question tables are explicitly allowlisted/reset.
 

@@ -75,12 +75,13 @@ export async function serveTeachingImage({ user, asset, bucket, request }) {
 }
 
 /**
- * Deliver the exact object snapshotted into one owned Review. Current Asset
- * activity/storage metadata is deliberately irrelevant: the caller supplies a
- * storage key loaded from review_assets.storage_key_snapshot after ownership
- * validation. Review URLs are owner-specific, so browser caches must revalidate
- * with the authenticated endpoint instead of treating a successful response as
- * fresh across later application sessions on the same browser.
+ * Deliver the exact object snapshotted into one owned unfinished active Review.
+ * Current Asset activity/storage metadata is deliberately irrelevant: the
+ * caller supplies `active_review_assets.storage_key_snapshot` after active
+ * Review ownership validation. Review URLs are owner-specific, so browser
+ * caches must revalidate with the authenticated endpoint instead of treating a
+ * successful response as fresh across later application sessions on the same
+ * browser.
  *
  * @param {{ user: unknown, storageKeySnapshot: string, bucket: R2Bucket, request: Request }} options
  */

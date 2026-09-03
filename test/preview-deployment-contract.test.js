@@ -11,6 +11,7 @@ const adminLayout = readFileSync(new URL('../src/routes/admin/+layout.server.js'
 const studyLayout = readFileSync(new URL('../src/routes/study/+layout.server.js', import.meta.url), 'utf8');
 const studyRoute = readFileSync(new URL('../src/routes/study/+page.server.js', import.meta.url), 'utf8');
 const reviewRoute = readFileSync(new URL('../src/routes/study/[reviewId]/+page.server.js', import.meta.url), 'utf8');
+const learnerRuntime = readFileSync(new URL('../src/lib/server/learning/learner-study-runtime.js', import.meta.url), 'utf8');
 const previewRoute = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const previewSignOut = readFileSync(new URL('../src/lib/components/PreviewSignOutButton.svelte', import.meta.url), 'utf8');
 
@@ -112,20 +113,18 @@ test('Preview Worker blocks Better Auth Admin API before Better Auth can mutate 
   assert.doesNotMatch(hooks, /isRouteWithin\(pathname, '\/api\/auth\/get-session'\)/);
 });
 
-test('Preview-only Admin cannot enter Study, while combined production Admin/Preview Admin can use production Study', () => {
+test('Preview-only Admin cannot enter Study, while combined production Admin/Preview Admin can use the active FSRS/Free Study runtime', () => {
   assert.match(hooks, /isPreviewOnlyAdmin\(event\.locals\.user\)[\s\S]*isRouteWithin\(pathname, '\/study'\)/);
   assert.match(studyLayout, /isPreviewOnlyAdmin\(locals\.user\)[\s\S]*error\(403/);
-  assert.match(studyRoute, /isPreviewOnlyAdmin\(user\)/);
-  assert.match(reviewRoute, /isPreviewOnlyAdmin\(user\)/);
-  assert.match(reviewRoute, /isPreviewWorker\(platform\?\.env\) \|\| isPreviewOnlyAdmin\(user\)/);
-  assert.match(studyRoute, /assertLearnerStudyAccess\(locals\.user, platform\)/);
-  assert.match(studyRoute, /startReview\(/);
-  assert.match(reviewRoute, /function assertLearnerStudyAccess/);
-  assert.equal((reviewRoute.match(/assertLearnerStudyAccess\(locals\.user, platform\)/g) ?? []).length, 5);
-  assert.match(reviewRoute, /revealReview\(/);
-  assert.match(reviewRoute, /completeReview\(/);
-  assert.match(reviewRoute, /continueReviewWithExpandedLearning\(/);
-  assert.match(reviewRoute, /startReview\(/);
+  assert.match(learnerRuntime, /isPreviewWorker\(env\) \|\| isPreviewOnlyAdmin\(user\)/);
+  assert.match(studyRoute, /learnerStudyAccessError\(locals\.user, platform\?\.env\)/);
+  assert.match(reviewRoute, /learnerStudyAccessError\(locals\.user, platform\?\.env\)/);
+  assert.match(studyRoute, /planSystemStudyRunFromForm/);
+  assert.match(studyRoute, /getActiveReview/);
+  assert.match(reviewRoute, /getActiveReviewById/);
+  assert.match(reviewRoute, /revealActiveReview/);
+  assert.doesNotMatch(studyRoute, /startReview\(|startSystemReview\(/);
+  assert.doesNotMatch(reviewRoute, /getReview\(|revealReview\(|completeReview\(|continueReviewWithExpandedLearning\(|startReview\(/);
 });
 
 test('Preview Case route rejects global authoring and never calls production Admin mutation helpers', () => {

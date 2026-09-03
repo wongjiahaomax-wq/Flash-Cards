@@ -1,94 +1,41 @@
-import { error, fail, redirect } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
 
 import { createDb } from '$lib/server/db/index.js';
-import {
-  completeReview,
-  continueReviewWithExpandedLearning,
-  getReview,
-  revealReview,
-  startReview,
-  startSystemReview
-} from '$lib/server/db/learning.js';
-import { listOwnedReviewMedia } from '$lib/server/db/review-media.js';
-import {
-  QUESTION_POOL_MODE_DETAILS,
-  QuestionPoolUnavailableError,
-  isQuestionPoolMode
-} from '$lib/server/learning/question-pool-mode';
-import { StudyNavigationInputError } from '$lib/server/db/study-navigation.ts';
-import {
-  SystemStudyNavigationDisabledError,
-  resolveNextSystemStudyRoute,
-  systemStudyNavigationEnabled
-} from '$lib/server/learning/system-review-navigation.ts';
-import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
-import { getReviewImageUrl } from '$lib/server/storage/media.js';
+import { getActiveReviewById, revealActiveReview } from '$lib/server/db/active-reviews.js';
+import { learnerStudyAccessError } from '$lib/server/learning/learner-study-runtime.js';
 
-/** @param {App.Locals['user']} user @param {App.Platform | undefined} platform */
-function assertLearnerStudyAccess(user, platform) {
-  if (isPreviewWorker(platform?.env) || isPreviewOnlyAdmin(user)) {
-    throw error(403, 'Learner Study is unavailable for Preview-only Admin.');
-  }
-  const database = platform?.env?.DB;
-  if (!database || !user) throw error(503, 'Study database is not configured.');
-  return { database, user };
+/** @param {App.Locals} locals @param {App.Platform | undefined} platform */
+function context(locals, platform) {
+  const access = learnerStudyAccessError(locals.user, platform?.env);
+  if (access) error(access.status, access.message);
+  if (!locals.user || !platform?.env?.DB) error(503, 'Study database is not configured.');
+  return { user: locals.user, db: createDb(platform.env.DB) };
 }
 
 export async function load({ locals, params, platform }) {
-  const context = assertLearnerStudyAccess(locals.user, platform);
-  const db = createDb(context.database);
-  const review = await getReview(db, params.reviewId, context.user.id);
-  if (!review) throw error(404, 'Review not found.');
-  if (!isQuestionPoolMode(review.questionPoolMode)) throw error(500, 'Review question set is invalid.');
-
-  const reviewMedia = await listOwnedReviewMedia(db, review.id, context.user.id);
-  const reviewAssetIdByAssetId = new Map(reviewMedia.map((row) => [row.assetId, row.reviewAssetId]));
-  const questionSet = QUESTION_POOL_MODE_DETAILS[review.questionPoolMode];
-
+  const { user, db } = context(locals, platform);
+  const review = await getActiveReviewById(db, user.id, params.reviewId);
+  if (!review) error(404, 'Active Review not found or expired.');
   return {
-    caseStudy: {
+    review: {
       id: review.id,
-      // The database title is an internal/admin label and is deliberately not
-      // rendered here because it may disclose the diagnosis before reveal.
-      title: 'Case review',
-      concept: review.routeLabel,
-      systemName: review.systemName,
-      routeType: review.routeType,
-      studyTagId: review.studyTagId,
-      studyConceptId: review.studyConceptId,
-      primaryConceptId: review.primaryConceptId,
-      nextCaseAvailable: !review.studySystemConceptId || systemStudyNavigationEnabled(platform?.env),
-      vignette: review.vignette,
-      status: review.status,
-      rating: review.rating,
-      revealed: review.revealed,
-      questionPoolMode: review.questionPoolMode,
-      questionSet,
-      assets: review.assets.map((asset) => {
-        const reviewAssetId = reviewAssetIdByAssetId.get(asset.assetId);
-        if (!reviewAssetId) throw error(500, 'Review media snapshot is incomplete.');
-        return {
-          ...asset,
-          imageUrl: getReviewImageUrl(review.id, reviewAssetId)
-        };
-      }),
+      studyMode: review.studyMode,
+      contentMode: review.contentMode,
+      queueClass: review.queueClass,
+      vignette: review.vignetteSnapshotMd,
+      revealed: Boolean(review.revealedAt),
+      startedAt: review.startedAt?.getTime?.() ?? Number(review.startedAt),
       questions: review.questions.map((question) => ({
-        prompt: question.prompt,
-        answer: question.answer,
-        scope:
-          question.sourceType === 'case'
-            ? 'Case-specific answer'
-            : question.sourceType === 'stimulus_option'
-              ? 'Selected stimulus option answer'
-              : question.sourceType === 'asset'
-                ? 'Reusable image answer'
-                : question.sourceType === 'stimulus_group'
-                  ? 'Stimulus group answer'
-                  : question.sourceType === 'tag_shared'
-                    ? 'Shared Tag-scoped answer'
-                    : question.sourceType === 'ancestor_concept'
-                      ? 'Inherited topic question'
-                      : 'Topic question'
+        id: question.id,
+        prompt: question.promptSnapshotMd,
+        answer: question.answerSnapshotMd,
+        sourceType: question.sourceType
+      })),
+      assets: review.assets.map((asset) => ({
+        id: asset.id,
+        caption: asset.captionSnapshotMd,
+        altText: asset.altTextSnapshot,
+        imageUrl: `/study/media/${review.id}/${asset.id}`
       }))
     }
   };
@@ -96,81 +43,8 @@ export async function load({ locals, params, platform }) {
 
 export const actions = {
   reveal: async ({ locals, params, platform }) => {
-    const context = assertLearnerStudyAccess(locals.user, platform);
-    await revealReview(createDb(context.database), params.reviewId, context.user.id);
-  },
-  rate: async ({ locals, params, platform, request }) => {
-    const context = assertLearnerStudyAccess(locals.user, platform);
-    const formData = await request.formData();
-    const rating = formData.get('rating');
-    if (rating !== 'again' && rating !== 'good') throw error(400, 'Invalid review rating.');
-    await completeReview(createDb(context.database), params.reviewId, context.user.id, rating);
-  },
-  continueExpanded: async ({ locals, params, platform }) => {
-    const context = assertLearnerStudyAccess(locals.user, platform);
-    const db = createDb(context.database);
-    const review = await getReview(db, params.reviewId, context.user.id);
-    if (!review) throw error(404, 'Review not found.');
-    if (review.status !== 'completed') throw error(400, 'Complete this review before continuing with Expanded Learning.');
-    if (review.questionPoolMode !== 'core') throw error(400, 'Expanded Learning continuation is only available after Original questions.');
-
-    let reviewId;
-    try {
-      reviewId = await continueReviewWithExpandedLearning({ db, userId: context.user.id, reviewId: review.id });
-    } catch (cause) {
-      if (cause instanceof QuestionPoolUnavailableError) return fail(400, { message: cause.message });
-      throw cause;
-    }
-    if (!reviewId) throw error(404, 'This case is no longer available for study.');
-    redirect(303, `/study/${reviewId}`);
-  },
-  next: async ({ locals, params, platform, request }) => {
-    const context = assertLearnerStudyAccess(locals.user, platform);
-    const db = createDb(context.database);
-    const review = await getReview(db, params.reviewId, context.user.id);
-    if (!review) throw error(404, 'Review not found.');
-    if (review.status !== 'completed') throw error(400, 'Complete this review before starting another case.');
-
-    const formData = await request.formData();
-    const questionPoolMode = formData.get('questionPoolMode');
-    if (!isQuestionPoolMode(questionPoolMode)) {
-      return fail(400, { message: 'Choose Original questions or Expanded Learning for the next review.' });
-    }
-
-    let reviewId;
-    try {
-      const systemRoute = resolveNextSystemStudyRoute(
-        review,
-        systemStudyNavigationEnabled(platform?.env)
-      );
-      if (systemRoute) {
-        reviewId = await startSystemReview({
-          db,
-          userId: context.user.id,
-          systemId: systemRoute.systemId,
-          routeType: systemRoute.routeType,
-          routeId: systemRoute.routeId,
-          questionPoolMode
-        });
-      } else {
-        reviewId = await startReview({
-          db,
-          userId: context.user.id,
-          conceptId: review.primaryConceptId,
-          questionPoolMode
-        });
-      }
-    } catch (cause) {
-      if (
-        cause instanceof QuestionPoolUnavailableError
-        || cause instanceof StudyNavigationInputError
-        || cause instanceof SystemStudyNavigationDisabledError
-      ) {
-        return fail(400, { message: cause.message });
-      }
-      throw cause;
-    }
-    if (!reviewId) throw error(404, 'No active study cases are available for this route.');
-    redirect(303, `/study/${reviewId}`);
+    const { user, db } = context(locals, platform);
+    const review = await revealActiveReview({ db, userId: user.id, reviewId: params.reviewId });
+    if (!review) error(404, 'Active Review not found or expired.');
   }
 };

@@ -3,6 +3,7 @@ import { and, asc, desc, eq, inArray, isNull, like, notInArray, or } from 'drizz
 import { getTeachingImageUrl, putTeachingImage, deleteTeachingImage, assertSupportedImageType } from '../storage/media.js';
 import { listAdminConcepts, listCaseTopics } from './admin-content.js';
 import { listPreviewCaseTags } from './case-tag-read.ts';
+import { activeReviewAssets, activeReviews } from './active-review-schema.js';
 import {
   assets,
   caseAssets,
@@ -13,8 +14,6 @@ import {
   conceptQuestions,
   previewSessions,
   questionPrompts,
-  reviewAssets,
-  reviews,
   stimulusGroupOptions,
   stimulusGroupQuestions,
   stimulusGroups,
@@ -909,10 +908,10 @@ export async function cleanupPreviewWorkspace({ db, bucket, previewSessionId, us
     const assetIds = ownedAssets.map((row) => row.id);
 
     if (caseIds.length) {
-      const existingReviews = await db.select({ id: reviews.id }).from(reviews).where(inArray(reviews.caseId, caseIds)).limit(1);
+      const existingReviews = await db.select({ id: activeReviews.id }).from(activeReviews).where(inArray(activeReviews.caseId, caseIds)).limit(1);
       if (existingReviews[0]) {
         throw new PreviewWorkspaceError(
-          'Cleanup stopped because a learner Review unexpectedly references Preview content.',
+          'Cleanup stopped because an active learner Review unexpectedly references Preview content.',
           'AMBIGUOUS_OWNERSHIP'
         );
       }
@@ -934,9 +933,9 @@ export async function cleanupPreviewWorkspace({ db, bucket, previewSessionId, us
         .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
         .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
         .where(eq(stimulusGroupOptions.assetId, asset.id));
-      const historical = await db.select({ id: reviewAssets.id }).from(reviewAssets).where(eq(reviewAssets.assetId, asset.id)).limit(1);
-      if (historical[0] || [...fixedUsages, ...optionUsages].some((usage) => usage.previewSessionId !== previewSessionId)) {
-        throw new PreviewWorkspaceError('Cleanup stopped because a Preview Asset has non-Preview or foreign usage.', 'AMBIGUOUS_OWNERSHIP');
+      const activeUsage = await db.select({ id: activeReviewAssets.id }).from(activeReviewAssets).where(eq(activeReviewAssets.assetId, asset.id)).limit(1);
+      if (activeUsage[0] || [...fixedUsages, ...optionUsages].some((usage) => usage.previewSessionId !== previewSessionId)) {
+        throw new PreviewWorkspaceError('Cleanup stopped because a Preview Asset has non-Preview or active-Review usage.', 'AMBIGUOUS_OWNERSHIP');
       }
     }
 

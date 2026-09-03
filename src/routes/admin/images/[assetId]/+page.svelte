@@ -15,11 +15,11 @@
   {#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
   {#if data.status === 'saved'}<p class="success" role="status">Asset metadata saved. The R2 object and its storage key were unchanged.</p>{/if}
   {#if data.status === 'uploaded'}<p class="success" role="status">Image uploaded. You can now maintain its Asset metadata.</p>{/if}
-  {#if data.status === 'replaced'}<p class="success" role="status">Higher-resolution replacement created. Current production relationships now use this new Asset; historical Reviews retain the previous image snapshot.</p>{/if}
+  {#if data.status === 'replaced'}<p class="success" role="status">Higher-resolution replacement created. Current production relationships now use this new Asset; active unfinished Reviews retain their frozen previous-image snapshots.</p>{/if}
   {#if data.status?.startsWith('reusable') || data.status === 'reused' || data.status === 'removed-from-case'}<p class="success" role="status">Reusable image questions updated.</p>{/if}
 
   {#if data.replacement?.supersededBy}
-    <p class="lineage-notice" role="status">This Asset has been superseded and is retained for historical Review integrity. Current authoring uses <a href={`/admin/images/${data.replacement.supersededBy.id}`}>{data.replacement.supersededBy.originalFilename ?? data.replacement.supersededBy.id}</a>.</p>
+    <p class="lineage-notice" role="status">This Asset has been superseded. Its old R2 object remains available while active unfinished Reviews may still reference a frozen snapshot. Current authoring uses <a href={`/admin/images/${data.replacement.supersededBy.id}`}>{data.replacement.supersededBy.originalFilename ?? data.replacement.supersededBy.id}</a>.</p>
   {:else if data.replacement?.supersedes}
     <p class="lineage-notice" role="status">This Asset is the current higher-resolution replacement for <a href={`/admin/images/${data.replacement.supersedes.id}`}>{data.replacement.supersedes.originalFilename ?? data.replacement.supersedes.id}</a>.</p>
   {/if}
@@ -28,7 +28,7 @@
     <section class="panel preview-panel">
       <p class="eyebrow">Protected preview</p>
       {#if detail.asset.imageUrl}<img class="large-preview" src={detail.asset.imageUrl} alt={detail.asset.altText ?? ''} />{:else}<div class="inactive-preview">Inactive image is not served through the current Asset route.</div>{/if}
-      <p class="muted">Runtime image delivery uses the protected R2-backed Asset route. Historical Reviews use their own authenticated snapshot route. The source URL below is attribution/reference metadata only.</p>
+      <p class="muted">Runtime image delivery uses the protected R2-backed Asset route. Active unfinished Reviews use their own authenticated frozen-snapshot route. The source URL below is attribution/reference metadata only.</p>
     </section>
 
     <section class="panel">
@@ -64,7 +64,7 @@
           <li>move {data.replacement.impact.stimulusOptions} alternative-image {data.replacement.impact.stimulusOptions === 1 ? 'option' : 'options'} while preserving every Stimulus Option ID;</li>
           <li>clone {data.replacement.impact.reusableImageQuestions} reusable Image {data.replacement.impact.reusableImageQuestions === 1 ? 'Question' : 'Questions'} to the new Asset and remap current production opt-ins;</li>
           <li>preserve Case-specific exact-image questions because their Stimulus Option identities do not change;</li>
-          <li>keep this old Asset, its reusable-question provenance and its old R2 bytes for historical Reviews, then mark this Asset superseded/inactive.</li>
+          <li>keep this old Asset and its old R2 bytes available for any active unfinished Review that already froze them, then mark this Asset superseded/inactive.</li>
         </ul>
       </div>
       <form method="POST" action="?/replaceHigherResolution" enctype="multipart/form-data" class="replacement-form">
@@ -73,7 +73,7 @@
         <button class="button primary" type="submit">Create replacement Asset</button>
       </form>
     {:else if data.replacement?.supersededBy}
-      <p class="muted">This historical Asset has already been superseded. To make a further quality upgrade, open the current replacement and replace that Asset, producing a natural A → B → C chain.</p>
+      <p class="muted">This superseded Asset has already been replaced. To make a further quality upgrade, open the current replacement and replace that Asset, producing a natural A → B → C chain.</p>
     {:else}
       <p class="muted">Only an active production image Asset that has not already been superseded is eligible for this operation.</p>
     {/if}
@@ -99,7 +99,7 @@
             <form method="POST" action="?/saveReusableAnswer" class="answer-form">
               <input type="hidden" name="asset_question_id" value={question.id} />
               <label>Canonical answer<textarea name="answer_md" rows="3" required maxlength="10000">{question.answerMd}</textarea></label>
-              <p class="muted compact">Changing this answer affects all current opt-ins for future Reviews. Existing Review snapshots remain unchanged.</p>
+              <p class="muted compact">Changing this answer affects all current opt-ins for future Reviews. Existing active Review snapshots remain unchanged.</p>
               <button class="button" type="submit">Save canonical answer</button>
             </form>
             <form method="POST" action="?/setReusableActive" class="inline-form">
@@ -130,8 +130,8 @@
     {/if}
   </section>
 
-  <section class="panel usage-panel"><div class="panel-heading"><div><p class="eyebrow">Relationship usage</p><h2>Retained Case relationships <span class="count">{detail.usages.length}</span></h2></div><span class="muted">{detail.asset.usageCount} current {detail.asset.usageCount === 1 ? 'Case' : 'Cases'} · historical relationships remain visible for context.</span></div>
-    {#if detail.usages.length === 0}<p class="empty-state">This image has no retained production Case relationship.</p>{:else}<div class="usage-list">{#each detail.usages as usage}<a class="usage-row" href={`/admin/cases/${usage.caseId}`}><span><strong>{usage.caseTitle}</strong>{#if usage.stimulusGroupName}<small>Alternative stimulus: {usage.stimulusGroupName}</small>{/if}{#if usage.removedFromCase}<small>Removed from Case</small>{:else if usage.stimulusOptionId && !usage.stimulusOptionIsActive}<small>Deactivated alternative</small>{:else if usage.stimulusGroupId && !usage.stimulusGroupIsActive}<small>Inactive alternative set</small>{/if}{#if usage.captionMd}<small>Case caption: {usage.captionMd}</small>{/if}</span><span class="usage-status">{usage.relationshipIsCurrent ? 'Current' : usage.caseIsActive ? 'Historical' : 'Inactive Case'} →</span></a>{/each}</div>{/if}
+  <section class="panel usage-panel"><div class="panel-heading"><div><p class="eyebrow">Relationship usage</p><h2>Retained Case relationships <span class="count">{detail.usages.length}</span></h2></div><span class="muted">{detail.asset.usageCount} current {detail.asset.usageCount === 1 ? 'Case' : 'Cases'} · historical authored relationships remain visible for context.</span></div>
+    {#if detail.usages.length === 0}<p class="empty-state">This image has no retained production Case relationship.</p>{:else}<div class="usage-list">{#each detail.usages as usage}<a class="usage-row" href={`/admin/cases/${usage.caseId}`}><span><strong>{usage.caseTitle}</strong>{#if usage.stimulusGroupName}<small>Alternative stimulus: {usage.stimulusGroupName}</small>{/if}{#if usage.removedFromCase}<small>Removed from Case</small>{:else if usage.stimulusOptionId && !usage.stimulusOptionIsActive}<small>Deactivated alternative</small>{:else if usage.stimulusGroupId && !usage.stimulusGroupIsActive}<small>Inactive alternative set</small>{/if}{#if usage.captionMd}<small>Case caption: {usage.captionMd}</small>{/if}</span><span class="usage-status">{usage.relationshipIsCurrent ? 'Current' : usage.caseIsActive ? 'Historical authored relationship' : 'Inactive Case'} →</span></a>{/each}</div>{/if}
   </section>
 {/if}
 

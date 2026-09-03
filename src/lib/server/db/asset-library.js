@@ -210,9 +210,9 @@ const currentUseExpr = sql`exists (
     )
 )`;
 
-// Any retained production relationship or provenance that would make deletion
-// unsafe. Current relationships deliberately satisfy this too; the derived
-// Historical-only state adds NOT currentUseExpr.
+// Any retained Production relationship or temporary active-Review reference
+// that makes permanent Asset/R2 deletion unsafe. Legacy review_assets is not an
+// owner after the FSRS cutover; active_review_assets owns frozen learner media.
 const retainedHistoryExpr = sql`(
   exists (
     select 1 from case_assets history_ca
@@ -227,7 +227,7 @@ const retainedHistoryExpr = sql`(
     where history_sgo.asset_id = ${assets.id}
       and history_case.preview_session_id is null
   )
-  or exists (select 1 from review_assets history_ra where history_ra.asset_id = ${assets.id})
+  or exists (select 1 from active_review_assets active_ra where active_ra.asset_id = ${assets.id})
   or exists (select 1 from asset_questions history_aq where history_aq.asset_id = ${assets.id})
   or ${assets.supersededByAssetId} is not null
   or exists (select 1 from assets history_predecessor where history_predecessor.superseded_by_asset_id = ${assets.id})
@@ -235,10 +235,10 @@ const retainedHistoryExpr = sql`(
 
 const historicalOnlyExpr = sql`not (${currentUseExpr}) and ${retainedHistoryExpr}`;
 const unusedExpr = sql`not (${currentUseExpr}) and not (${retainedHistoryExpr})`;
-const historicalReviewCountExpr = sql`(
-  select count(distinct history_ra.review_id)
-  from review_assets history_ra
-  where history_ra.asset_id = ${assets.id}
+const activeReviewCountExpr = sql`(
+  select count(distinct active_ra.active_review_id)
+  from active_review_assets active_ra
+  where active_ra.asset_id = ${assets.id}
 )`;
 
 /** @param {ReturnType<typeof parseAssetLibraryFilters>} filters */
@@ -351,7 +351,7 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
     isActive: assets.isActive,
     hasCurrentUsage: currentUseExpr.mapWith(Boolean),
     hasRetainedHistory: retainedHistoryExpr.mapWith(Boolean),
-    historicalReviewCount: historicalReviewCountExpr.mapWith(Number),
+    activeReviewCount: activeReviewCountExpr.mapWith(Number),
     createdAt: assets.createdAt,
     updatedAt: assets.updatedAt
   }).from(assets).leftJoin(imageCollections, eq(assets.imageCollectionId, imageCollections.id)).where(where).orderBy(...libraryOrder(filters.sort)).limit(pageSize).offset((page - 1) * pageSize);
@@ -387,7 +387,6 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
   const rows = rawRows.map((asset) => {
     const currentTopicNames = [...(currentTopicsByAsset.get(asset.id)?.values() ?? [])];
     const historicalTopicNames = [...(historicalTopicsByAsset.get(asset.id)?.values() ?? [])];
-    // Aggregate retained for the enlarged-image viewer subtitle and legacy callers.
     const topicNames = [...new Set([...currentTopicNames, ...historicalTopicNames])];
     /** @type {'current' | 'historical' | 'unused'} */
     const usageState = asset.hasCurrentUsage ? 'current' : asset.hasRetainedHistory ? 'historical' : 'unused';
@@ -412,7 +411,7 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
 }
 
 /**
- * Backwards-compatible unpaged helper retained for legacy callers/tests.
+ * Backwards-compatible unpaged helper retained for current callers/tests.
  * @param {LearningDb} db
  * @param {Partial<ReturnType<typeof parseAssetLibraryFilters>>} [filters]
  */

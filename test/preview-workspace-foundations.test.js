@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { createDb } from '../src/lib/server/db/index.js';
-import * as previewWorkspace from '../src/lib/server/db/preview-workspace.js';
+import * as previewWorkspace from './preview-workspace-test-adapter.js';
 import { PreviewWorkspaceError as InternalPreviewWorkspaceError } from '../src/lib/server/db/preview-workspace/errors.js';
 import { requiredText } from '../src/lib/server/db/preview-workspace/input.js';
 import {

@@ -14,10 +14,6 @@ const studyNavigationSource = readFileSync(
   new URL('../src/lib/server/db/study-navigation.ts', import.meta.url),
   'utf8'
 );
-const learnerPageServerSource = readFileSync(
-  new URL('../src/routes/study/+page.server.js', import.meta.url),
-  'utf8'
-);
 
 test('PR B chooser owns systems-first multi-select defaults, restoration and hierarchy controls', () => {
   assert.match(chooserSource, /= routesForSystem\(system\)/, 'choosing a System starts with every contributing route selected');
@@ -59,17 +55,11 @@ test('PR B removes per-run Original/Expanded choice and plans explicit Scheduled
   assert.doesNotMatch(formOwnerSource, /questionPoolMode/);
 });
 
-test('PR B preserves legacy descendant-inclusive counts until the learner runtime cutover', () => {
+test('systems-first chooser keeps descendant-inclusive Topic counts for structural selection', () => {
   assert.match(studyNavigationSource, /listSystemStudySelectionSystems/);
   assert.match(
     studyNavigationSource,
     /caseCount: topic\.subtreeCaseCount/,
-    'current single-Topic page must keep showing the count for its descendant-inclusive route'
+    'current systems-first selector should show the count for a descendant-inclusive Topic route'
   );
-});
-
-test('PR B does not switch the normal learner Review runtime before active Review/completion work exists', () => {
-  assert.match(learnerPageServerSource, /startReview/);
-  assert.match(learnerPageServerSource, /startSystemReview/);
-  assert.doesNotMatch(learnerPageServerSource, /planSystemStudyRunFromForm|study-run-planning|study-run-planner/);
 });

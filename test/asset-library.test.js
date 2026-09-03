@@ -12,7 +12,7 @@ import {
   listAssetLibrary,
   parseAssetLibraryFilters,
   updateAssetMetadata
-} from '../src/lib/server/db/asset-library.js';
+} from './asset-library-test-adapter.js';
 
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
 

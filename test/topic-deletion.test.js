@@ -4,7 +4,12 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { createDb } from '../src/lib/server/db/index.js';
-import { deleteUnusedTopic, getTopicDeletionEligibility, TaxonomyInputError } from '../src/lib/server/db/taxonomy-admin-write.ts';
+import {
+  deleteUnusedTopic,
+  getTopicDeletionEligibility,
+  TaxonomyInputError,
+  updateTaxonomyConcept
+} from '../src/lib/server/db/taxonomy-admin-write.ts';
 import { applyCurrentSchema } from './current-schema.js';
 
 function createFixture() {
@@ -12,38 +17,26 @@ function createFixture() {
   sqlite.exec('PRAGMA foreign_keys = ON');
   applyCurrentSchema(sqlite);
   sqlite.exec(`
+    INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt)
+    VALUES ('learner-1', 'Learner', 'learner@example.com', 1, 1, 1);
     INSERT INTO concepts (id, name, slug, kind, parent_id, is_active) VALUES
       ('system-eye', 'Eye', 'eye', 'system', NULL, 1),
+      ('system-history', 'Historical System', 'historical-system', 'system', NULL, 1),
       ('topic-unused', 'Unused Topic', 'unused-topic', 'topic', 'system-eye', 1),
       ('topic-case', 'Case Topic', 'case-topic', 'topic', 'system-eye', 1),
-      ('topic-secondary', 'Historical Secondary Topic', 'historical-secondary-topic', 'topic', 'system-eye', 1),
+      ('topic-secondary', 'Secondary Topic', 'secondary-topic', 'topic', 'system-eye', 1),
       ('topic-question', 'Question Topic', 'question-topic', 'topic', 'system-eye', 1),
       ('topic-parent', 'Parent Topic', 'parent-topic', 'topic', 'system-eye', 1),
-      ('topic-child', 'Child Topic', 'child-topic', 'topic', 'topic-parent', 1),
-      ('topic-history', 'Historical Topic', 'historical-topic', 'topic', 'system-eye', 1),
-      ('topic-question-history', 'Historical Question Topic', 'historical-question-topic', 'topic', 'system-eye', 1);
-    INSERT INTO cases (id, title, is_active) VALUES
-      ('case-1', 'Case One', 1),
-      ('case-history', 'Historical Case', 1);
+      ('topic-child', 'Child Topic', 'child-topic', 'topic', 'topic-parent', 1);
+    INSERT INTO cases (id, title, is_active) VALUES ('case-1', 'Case One', 1);
     INSERT INTO case_concepts (case_id, concept_id, role) VALUES
       ('case-1', 'topic-case', 'primary'),
-      ('case-1', 'topic-secondary', 'secondary'),
-      ('case-history', 'topic-history', 'primary');
+      ('case-1', 'topic-secondary', 'secondary');
     INSERT INTO question_prompts (id, prompt_md, is_active) VALUES ('prompt-1', 'What is the diagnosis?', 1);
     INSERT INTO concept_questions (id, concept_id, question_prompt_id, answer_md, inherit_to_descendants, is_active)
     VALUES ('concept-question-1', 'topic-question', 'prompt-1', 'Example answer', 0, 1);
-    INSERT INTO reviews (
-      id, user_id, case_id, primary_concept_id, study_concept_id, route_type, case_title_snapshot, status
-    ) VALUES
-      ('review-history', 'user-1', 'case-history', 'topic-history', 'topic-history', 'topic', 'Historical Case', 'completed'),
-      ('review-source', 'user-1', 'case-1', 'topic-case', 'topic-case', 'topic', 'Case One', 'completed');
-    INSERT INTO review_questions (
-      id, review_id, question_prompt_id, source_type, source_concept_id, display_order, prompt_snapshot_md, answer_snapshot_md
-    ) VALUES (
-      'review-question-source', 'review-source', 'prompt-1', 'concept', 'topic-question-history', 0,
-      'What is the diagnosis?', 'Historical answer'
-    );
-    DELETE FROM case_concepts WHERE case_id = 'case-history' AND concept_id = 'topic-history';
+    INSERT INTO learner_system_aggregates (user_id, system_id, scheduled_completed)
+    VALUES ('learner-1', 'system-history', 1);
   `);
 
   const d1 = {
@@ -99,7 +92,7 @@ test('unused Topic deletion rejects Systems and Topics with current taxonomy/con
   }
 });
 
-test('Topic deletion eligibility includes hidden historical secondary Case relationships', async () => {
+test('Topic deletion eligibility includes hidden secondary Case relationships', async () => {
   const fixture = createFixture();
   try {
     assert.deepEqual(
@@ -108,30 +101,51 @@ test('Topic deletion eligibility includes hidden historical secondary Case relat
         canDelete: false,
         hasCaseAttachments: true,
         hasQuestions: false,
-        hasChildren: false,
-        hasReviewHistory: false
+        hasChildren: false
       }
     );
     await assert.rejects(
       deleteUnusedTopic(fixture.db, { conceptId: 'topic-secondary' }),
       (error) => error instanceof TaxonomyInputError && /Case attachments/i.test(error.message)
     );
-    assert.equal(conceptExists(fixture.sqlite, 'topic-secondary'), true);
   } finally {
     fixture.sqlite.close();
   }
 });
 
-test('unused Topic deletion preserves Topics referenced only by learner Review history', async () => {
+test('central taxonomy writer blocks System to Topic reclassification after retained FSRS history', async () => {
   const fixture = createFixture();
   try {
-    for (const conceptId of ['topic-history', 'topic-question-history']) {
-      await assert.rejects(
-        deleteUnusedTopic(fixture.db, { conceptId }),
-        (error) => error instanceof TaxonomyInputError && /learner Review history/i.test(error.message)
-      );
-      assert.equal(conceptExists(fixture.sqlite, conceptId), true);
-    }
+    await assert.rejects(
+      updateTaxonomyConcept(fixture.db, {
+        conceptId: 'system-history',
+        name: 'Historical System',
+        descriptionMd: null,
+        kind: 'topic',
+        isActive: true
+      }),
+      (error) => error instanceof TaxonomyInputError && /retained learner FSRS history/i.test(error.message)
+    );
+    assert.equal(
+      fixture.sqlite.prepare("SELECT kind FROM concepts WHERE id = 'system-history'").get()?.kind,
+      'system'
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('database guard independently blocks raw reclassification or deletion of an attributed System', () => {
+  const fixture = createFixture();
+  try {
+    assert.throws(
+      () => fixture.sqlite.exec("UPDATE concepts SET kind = 'topic' WHERE id = 'system-history'"),
+      /durable learner FSRS history.*reclassified/i
+    );
+    assert.throws(
+      () => fixture.sqlite.exec("DELETE FROM concepts WHERE id = 'system-history'"),
+      /durable learner FSRS history.*deleted/i
+    );
   } finally {
     fixture.sqlite.close();
   }

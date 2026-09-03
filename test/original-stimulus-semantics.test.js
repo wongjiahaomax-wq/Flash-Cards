@@ -10,7 +10,6 @@ import { and, eq } from 'drizzle-orm';
 import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
 import { moveStimulusOptionWithinCase } from '../src/lib/server/db/image-option-move.js';
-import { getReview, startReview } from '../src/lib/server/db/learning.js';
 import { assets, caseAssets, stimulusGroupOptions, stimulusGroups } from '../src/lib/server/db/schema.js';
 import { setStimulusGroupOriginal } from '../src/lib/server/db/stimulus-originals.js';
 import { convertStimulusOptionToSupporting } from '../src/lib/server/db/stimulus-role-conversion.js';
@@ -22,6 +21,7 @@ import {
   setStimulusOptionActive,
   startStimulusGroupFromCaseAsset
 } from '../src/lib/server/db/stimulus-groups.js';
+import { getReview, startReview } from './active-review-snapshot-adapter.js';
 import { applyCurrentSchema } from './current-schema.js';
 
 const preOriginalMigrationSql = [
