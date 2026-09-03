@@ -1,6 +1,7 @@
 <script>
   let { data, form } = $props();
 
+  /** @param {string | number | Date | null | undefined} value */
   function formatDate(value) {
     if (!value) return '—';
     return new Intl.DateTimeFormat('en-SG', {
@@ -13,9 +14,11 @@
     }).format(new Date(value));
   }
 
+  /** @param {{ scheduledCompleted?: number | null, good?: number | null, easy?: number | null } | null | undefined} row */
   function rate(row) {
-    if (!row?.scheduledCompleted) return '—';
-    return `${Math.round(((row.good + row.easy) / row.scheduledCompleted) * 100)}%`;
+    const completed = Number(row?.scheduledCompleted ?? 0);
+    if (!completed) return '—';
+    return `${Math.round(((Number(row?.good ?? 0) + Number(row?.easy ?? 0)) / completed) * 100)}%`;
   }
 </script>
 
