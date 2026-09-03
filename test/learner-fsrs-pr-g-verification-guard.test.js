@@ -17,6 +17,12 @@ function fixture() {
   return sqlite;
 }
 
+/** @param {DatabaseSync} sqlite */
+function verificationCount(sqlite) {
+  const row = sqlite.prepare("SELECT COUNT(*) AS n FROM verification").get();
+  return Number(row?.n ?? 0);
+}
+
 test('staged deletion blocks a new Better Auth verification whose value owns the learner id', () => {
   const sqlite = fixture();
   try {
@@ -27,7 +33,7 @@ test('staged deletion blocks a new Better Auth verification whose value owns the
       `),
       /learner_account_deletion_in_progress/i
     );
-    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM verification").get().n, 0);
+    assert.equal(verificationCount(sqlite), 0);
   } finally {
     sqlite.close();
   }
@@ -46,7 +52,7 @@ test('a password-reset verification cannot be created after its user identity ha
       `),
       /reset_password_verification_user_missing/i
     );
-    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM verification").get().n, 0);
+    assert.equal(verificationCount(sqlite), 0);
   } finally {
     sqlite.close();
   }
