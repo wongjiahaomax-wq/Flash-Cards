@@ -8,10 +8,7 @@ import {
 } from '$lib/server/db/fsrs-retention-admin.js';
 import { isPreviewWorker, isProductionAdmin } from '$lib/server/preview-auth.js';
 
-/**
- * @param {{ user?: { role?: unknown } | null }} locals
- * @param {{ env?: ({ PREVIEW_MODE?: unknown, DB?: D1Database } & Record<string, unknown>) } | null | undefined} platform
- */
+/** @param {App.Locals} locals @param {App.Platform | undefined} platform */
 function requireAdminDb(locals, platform) {
   if (isPreviewWorker(platform?.env)) {
     error(403, 'Learner retention administration is unavailable on the Preview Worker.');
