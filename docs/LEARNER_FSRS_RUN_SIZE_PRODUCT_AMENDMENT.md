@@ -94,3 +94,11 @@ This amendment does not authorize:
 - learner runtime cutover.
 
 Those remain separate reviewed steps under the existing FSRS authority chain.
+
+## 8. Local preview lifecycle
+
+Keep `/fsrs-preview` available as a **local-only reference and regression surface through the learner FSRS runtime cutover**. Its purpose during that period is to let maintainers exercise the staged FSRS services safely, compare the cutover `/study` experience against the approved preview behavior, and reproduce learner-flow regressions without exposing a second production learner surface.
+
+The preview must remain a thin local shell around the same authoritative planning, active-Review, revalidation, completion, and persistence services used by the learner runtime. Do not let it evolve into an independent scheduler or a second product implementation.
+
+After the FSRS `/study` cutover has shipped and the real learner runtime has stable local regression coverage, reassess whether `/fsrs-preview` still provides enough diagnostic value to justify its maintenance cost. It may then be retained as a lightweight internal harness or removed in a separately reviewed cleanup. Retention in this PR is **not** a commitment to maintain the preview permanently.
