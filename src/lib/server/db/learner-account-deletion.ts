@@ -3,17 +3,18 @@ export const LEARNER_ACCOUNT_DELETION_BATCH_SIZE = 1_000;
 const DATABASE_NOW_MS_SQL = "cast((julianday('now') - 2440587.5) * 86400000 as integer)";
 
 const PHASES = [
-  { phase: 'free_receipts', table: 'free_review_completion_receipts', next: 'scheduled_events' },
-  { phase: 'scheduled_events', table: 'scheduled_review_events', next: 'active_reviews' },
-  { phase: 'active_reviews', table: 'active_reviews', next: 'optimizer_evidence' },
-  { phase: 'optimizer_evidence', table: 'learner_optimizer_evidence', next: 'case_state' },
-  { phase: 'case_state', table: 'learner_case_fsrs', next: 'case_encounters' },
-  { phase: 'case_encounters', table: 'learner_case_encounters', next: 'monthly_buckets' },
-  { phase: 'monthly_buckets', table: 'learner_system_monthly_buckets', next: 'system_aggregates' },
-  { phase: 'system_aggregates', table: 'learner_system_aggregates', next: 'learner_aggregates' },
-  { phase: 'learner_aggregates', table: 'learner_aggregates', next: 'preferences' },
-  { phase: 'preferences', table: 'learner_preferences', next: 'profile' },
-  { phase: 'profile', table: 'learner_fsrs_profiles', next: 'identity_ready' }
+  { phase: 'auth_verifications', table: 'verification', userColumn: 'value', next: 'free_receipts' },
+  { phase: 'free_receipts', table: 'free_review_completion_receipts', userColumn: 'user_id', next: 'scheduled_events' },
+  { phase: 'scheduled_events', table: 'scheduled_review_events', userColumn: 'user_id', next: 'active_reviews' },
+  { phase: 'active_reviews', table: 'active_reviews', userColumn: 'user_id', next: 'optimizer_evidence' },
+  { phase: 'optimizer_evidence', table: 'learner_optimizer_evidence', userColumn: 'user_id', next: 'case_state' },
+  { phase: 'case_state', table: 'learner_case_fsrs', userColumn: 'user_id', next: 'case_encounters' },
+  { phase: 'case_encounters', table: 'learner_case_encounters', userColumn: 'user_id', next: 'monthly_buckets' },
+  { phase: 'monthly_buckets', table: 'learner_system_monthly_buckets', userColumn: 'user_id', next: 'system_aggregates' },
+  { phase: 'system_aggregates', table: 'learner_system_aggregates', userColumn: 'user_id', next: 'learner_aggregates' },
+  { phase: 'learner_aggregates', table: 'learner_aggregates', userColumn: 'user_id', next: 'preferences' },
+  { phase: 'preferences', table: 'learner_preferences', userColumn: 'user_id', next: 'profile' },
+  { phase: 'profile', table: 'learner_fsrs_profiles', userColumn: 'user_id', next: 'identity_ready' }
 ] as const;
 
 export type LearnerAccountDeletionPhase = (typeof PHASES)[number]['phase'] | 'identity_ready';
@@ -100,7 +101,7 @@ export async function beginLearnerAccountDeletion(input: {
   await client.batch([
     client.prepare(`
       INSERT INTO learner_account_deletions (user_id, phase)
-      VALUES (?, 'free_receipts')
+      VALUES (?, 'auth_verifications')
       ON CONFLICT(user_id) DO NOTHING
     `).bind(userId),
     client.prepare(`
@@ -126,6 +127,7 @@ export async function beginLearnerAccountDeletion(input: {
 
 const FIRST_REMAINING_PHASE_SQL = `
   SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM verification WHERE value = ? LIMIT 1) THEN 'auth_verifications'
     WHEN EXISTS (SELECT 1 FROM free_review_completion_receipts WHERE user_id = ? LIMIT 1) THEN 'free_receipts'
     WHEN EXISTS (SELECT 1 FROM scheduled_review_events WHERE user_id = ? LIMIT 1) THEN 'scheduled_events'
     WHEN EXISTS (SELECT 1 FROM active_reviews WHERE user_id = ? LIMIT 1) THEN 'active_reviews'
@@ -143,7 +145,7 @@ const FIRST_REMAINING_PHASE_SQL = `
 
 async function firstRemainingPhase(client: D1Database, userId: string): Promise<LearnerAccountDeletionPhase> {
   const row = await client.prepare(FIRST_REMAINING_PHASE_SQL)
-    .bind(...Array(11).fill(userId))
+    .bind(...Array(12).fill(userId))
     .first<{ phase: LearnerAccountDeletionPhase }>();
   return row?.phase ?? 'identity_ready';
 }
@@ -152,7 +154,9 @@ async function firstRemainingPhase(client: D1Database, userId: string): Promise<
  * Delete at most one bounded child-table chunk. Repeated calls are intentionally
  * safe: the durable phase can move only after its current table is empty, and a
  * final full learner-row rescan repairs any in-flight write that committed before
- * access revocation became authoritative.
+ * access revocation became authoritative. Better Auth 1.6.25 reset-password
+ * verification rows carry the learner user id in verification.value, so they are
+ * explicitly staged even though the Better Auth verification table has no user FK.
  */
 export async function advanceLearnerAccountDeletion(input: {
   db: import('./index.js').LearningDb;
@@ -204,12 +208,12 @@ export async function advanceLearnerAccountDeletion(input: {
   const deleteResult = await client.prepare(`
     DELETE FROM ${descriptor.table}
     WHERE rowid IN (
-      SELECT rowid FROM ${descriptor.table} WHERE user_id = ? LIMIT ?
+      SELECT rowid FROM ${descriptor.table} WHERE ${descriptor.userColumn} = ? LIMIT ?
     )
   `).bind(userId, batchSize).run();
   const rowsDeleted = changes(deleteResult);
   const remaining = await client.prepare(`
-    SELECT 1 AS present FROM ${descriptor.table} WHERE user_id = ? LIMIT 1
+    SELECT 1 AS present FROM ${descriptor.table} WHERE ${descriptor.userColumn} = ? LIMIT 1
   `).bind(userId).first();
 
   if (!remaining) {
