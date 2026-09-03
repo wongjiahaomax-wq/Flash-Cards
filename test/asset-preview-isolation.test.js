@@ -10,7 +10,7 @@ import {
   getAssetLibraryDetail,
   listAssetLibrary,
   updateAssetMetadata
-} from '../src/lib/server/db/asset-library.js';
+} from './asset-library-test-adapter.js';
 
 const migrationSql = [
   readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
