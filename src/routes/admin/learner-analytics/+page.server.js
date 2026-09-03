@@ -17,7 +17,8 @@ import { isPreviewWorker, isProductionAdmin } from '$lib/server/preview-auth.js'
 
 const MAX_DELETION_STEPS_PER_REQUEST = 8;
 
-function requireAdminDb(locals, platform) {
+/** @param {App.Locals} locals @param {App.Platform | undefined} platform */
+function requireAdminContext(locals, platform) {
   if (isPreviewWorker(platform?.env)) {
     error(403, 'Learner analytics are unavailable on the Preview Worker.');
   }
@@ -27,11 +28,14 @@ function requireAdminDb(locals, platform) {
   if (!platform?.env?.DB) {
     error(503, 'Learner analytics require the application database.');
   }
-  return createDb(platform.env.DB);
+  return {
+    db: createDb(platform.env.DB),
+    env: platform.env
+  };
 }
 
 export async function load({ locals, platform, url }) {
-  const db = requireAdminDb(locals, platform);
+  const { db } = requireAdminContext(locals, platform);
   const learners = await listLearnerAnalyticsOverview(db);
   const selectedUserId = url.searchParams.get('learner')?.trim() || learners[0]?.userId || null;
   const selectedExists = selectedUserId && learners.some((learner) => learner.userId === selectedUserId);
@@ -51,7 +55,7 @@ export async function load({ locals, platform, url }) {
 
 export const actions = {
   deleteLearner: async ({ locals, platform, request }) => {
-    const db = requireAdminDb(locals, platform);
+    const { db, env } = requireAdminContext(locals, platform);
     const formData = await request.formData();
     const userId = typeof formData.get('userId') === 'string' ? String(formData.get('userId')).trim() : '';
     const confirmEmail = typeof formData.get('confirmEmail') === 'string'
@@ -77,7 +81,7 @@ export const actions = {
       }
 
       if (progress?.readyForIdentityDelete) {
-        const auth = createAuth(platform.env);
+        const auth = createAuth(env);
         await auth.api.removeUser({
           body: { userId },
           headers: request.headers
