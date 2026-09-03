@@ -1,0 +1,59 @@
+name: Learner FSRS PR G analytics and deletion
+
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'wrangler.jsonc'
+      - 'drizzle/0025_learner_fsrs_admin_analytics_deletion.sql'
+      - 'drizzle.config.js'
+      - 'scripts/learner-fsrs-account-deletion-benchmark.mjs'
+      - 'scripts/learner-fsrs-account-deletion-d1-smoke.mjs'
+      - 'scripts/learner-fsrs-account-deletion-d1-smoke-worker.js'
+      - 'src/lib/server/db/fsrs-admin-analytics.ts'
+      - 'src/lib/server/db/fsrs-analytics-schema.js'
+      - 'src/lib/server/db/fsrs-system-provenance.ts'
+      - 'src/lib/server/db/learner-account-deletion.ts'
+      - 'src/routes/admin/learner-analytics/**'
+      - 'test/learner-fsrs-pr-g.test.js'
+      - 'docs/LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md'
+      - 'docs/LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md'
+      - 'docs/LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md'
+      - 'docs/LEARNER_FSRS_PR_G_EVIDENCE.md'
+      - '.github/workflows/learner-fsrs-pr-g-analytics-deletion.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  analytics-and-deletion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Validate migration history
+        run: npm run db:check
+
+      - name: Run PR G unit and integration regressions
+        run: node --test test/learner-fsrs-pr-g.test.js
+
+      - name: Benchmark large mature learner staged deletion
+        run: npm run fsrs:account-deletion-benchmark
+
+      - name: Prove staged deletion through local workerd and D1
+        run: npm run fsrs:account-deletion-d1-smoke
+
+      - name: Type and Svelte check
+        run: npm run check
