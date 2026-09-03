@@ -1,4 +1,5 @@
 <script>
+  import { applyAction, enhance } from '$app/forms';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
 
@@ -16,8 +17,7 @@
   let browserRun = $state(null);
   let runMessage = $state('');
   let opening = $state(false);
-  /** @type {string | null} */
-  let autoStartedRunId = $state(null);
+  let planning = $state(false);
 
   /** @param {string} search */
   function runStatusMessage(search) {
@@ -47,15 +47,6 @@
 
   $effect(() => {
     if (typeof localStorage === 'undefined') return;
-    if (form?.descriptor) {
-      const plannedRun = writeFsrsPreviewRun(localStorage, form.descriptor);
-      browserRun = plannedRun;
-      runMessage = form.message ?? 'Preview run planned.';
-      if (autoStartedRunId !== plannedRun.runId) {
-        autoStartedRunId = plannedRun.runId;
-        void openRun(plannedRun);
-      }
-    }
     if (form?.discardedReviewId && browserRun?.currentReviewId === form.discardedReviewId) {
       clearFsrsPreviewRun(localStorage);
       browserRun = null;
@@ -147,6 +138,34 @@
     }
   }
 
+  /** @type {NonNullable<Parameters<typeof enhance>[1]>} */
+  const startPlannedRun = () => {
+    planning = true;
+    runMessage = 'Planning run…';
+
+    return async ({ result }) => {
+      try {
+        if (result.type !== 'success') {
+          await applyAction(result);
+          return;
+        }
+
+        const descriptor = result.data?.descriptor;
+        if (!descriptor) {
+          runMessage = result.data?.message ?? 'Run planning completed without a browser run descriptor.';
+          return;
+        }
+
+        const plannedRun = writeFsrsPreviewRun(localStorage, descriptor);
+        browserRun = plannedRun;
+        runMessage = result.data?.message ?? 'Run planned. Opening the first Review…';
+        await openRun(plannedRun);
+      } finally {
+        planning = false;
+      }
+    };
+  };
+
   async function continueRun() {
     await openRun(browserRun);
   }
@@ -233,7 +252,7 @@
         <p class="muted">Run size: {summary.allAvailable ? 'All available' : summary.total ?? summary.target}. Run id: <code>{browserRun.runId}</code></p>
       </div>
       <div class="run-actions">
-        <button class="button primary" type="button" onclick={continueRun} disabled={opening || Boolean(data.activeReview)}>
+        <button class="button primary" type="button" onclick={continueRun} disabled={opening || planning || Boolean(data.activeReview)}>
           {opening ? 'Opening…' : 'Continue run →'}
         </button>
         <button class="button" type="button" onclick={clearBrowserRun}>Clear browser run</button>
@@ -264,7 +283,7 @@
           <p class="muted">Exact Topic routes and curated Tags are unioned and deduplicated by the existing Part B selector.</p>
         </div>
 
-        <form method="POST" action="?/plan" class="plan-form">
+        <form method="POST" action="?/plan" use:enhance={startPlannedRun} class="plan-form">
           <input type="hidden" name="systemId" value={system.id} />
 
           <fieldset class="mode-set">
@@ -322,7 +341,9 @@
           {#if form?.message && form?.systemId === system.id}
             <p class="form-error" role="alert">{form.message}</p>
           {/if}
-          <button class="button primary" type="submit" disabled={Boolean(data.activeReview)}>Start {system.name} run</button>
+          <button class="button primary" type="submit" disabled={Boolean(data.activeReview) || planning || opening}>
+            {planning ? 'Starting…' : `Start ${system.name} run`}
+          </button>
         </form>
       </section>
     {/each}
