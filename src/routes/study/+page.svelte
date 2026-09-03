@@ -3,6 +3,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
 
+  import LearnerFsrsProgress from '$lib/components/LearnerFsrsProgress.svelte';
   import SignOutButton from '$lib/components/SignOutButton.svelte';
   import { requestNextLearnerStudyWork } from '$lib/learner-study-open.js';
   import {
@@ -41,6 +42,12 @@
   }
 
   onMount(() => {
+    if (form?.browserRunInvalidated) {
+      clearLearnerStudyRun(localStorage);
+      browserRun = null;
+      runMessage = form.message ?? 'Scheduling changed. The stale browser run was cleared.';
+      return;
+    }
     browserRun = readLearnerStudyRunForUser(localStorage, data.user.id);
     runMessage = runStatusMessage(window.location.search);
   });
@@ -225,6 +232,8 @@
       <button class="button" type="submit">Save preference</button>
     </form>
   </section>
+
+  <LearnerFsrsProgress progress={data.progress} />
 
   {#if browserRun && summary}
     <section class="run-card" aria-label="Browser Study run">

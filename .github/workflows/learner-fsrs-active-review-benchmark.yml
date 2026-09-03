@@ -8,6 +8,7 @@ on:
       - 'wrangler.jsonc'
       - 'drizzle/0019_learner_fsrs_foundation.sql'
       - 'drizzle/0020_learner_fsrs_active_reviews.sql'
+      - 'drizzle/0024_learner_fsrs_reset_fresh.sql'
       - 'drizzle.config.js'
       - 'scripts/learner-fsrs-active-review-benchmark.mjs'
       - 'scripts/learner-fsrs-active-review-d1-smoke.mjs'
@@ -16,14 +17,23 @@ on:
       - 'src/lib/server/db/active-review-content.js'
       - 'src/lib/server/db/active-review-schema.js'
       - 'src/lib/server/db/active-reviews.js'
+      - 'src/lib/server/db/fsrs-reset-fresh.js'
+      - 'src/lib/server/db/fsrs-retention.js'
+      - 'src/lib/server/db/fsrs-retention-admin.js'
+      - 'src/lib/server/db/study-run-planning.js'
       - 'src/lib/server/learning/study-run-proof.js'
+      - 'src/routes/admin/learner-retention/**'
       - 'test/learner-fsrs-active-review.test.js'
       - 'test/learner-fsrs-active-review-scope.test.js'
       - 'test/learner-fsrs-active-review-resume-race.test.js'
+      - 'test/learner-fsrs-reset-fresh.test.js'
+      - 'test/learner-fsrs-retention-admin.test.js'
+      - 'test/learner-fsrs-pr-f-acceptance.test.js'
       - 'docs/DOCUMENTATION_INDEX.md'
       - 'docs/LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md'
       - 'docs/LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md'
       - 'docs/LEARNER_FSRS_PR_C_EVIDENCE.md'
+      - 'docs/LEARNER_FSRS_PR_F_EVIDENCE.md'
       - 'docs/LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md'
       - '.github/workflows/learner-fsrs-active-review-benchmark.yml'
 
@@ -53,8 +63,11 @@ jobs:
       - name: Run active Review Resume race regression
         run: node --test test/learner-fsrs-active-review-resume-race.test.js
 
+      - name: Run PR F Reset/Fresh and retention contracts
+        run: node --test test/learner-fsrs-reset-fresh.test.js test/learner-fsrs-retention-admin.test.js test/learner-fsrs-pr-f-acceptance.test.js
+
       - name: Run active Review snapshot benchmark
         run: npm run fsrs:active-review-benchmark
 
-      - name: Run active Review through local workerd and D1
+      - name: Run active Review plus Reset/Fresh creation races through local workerd and D1
         run: npm run fsrs:active-review-d1-smoke

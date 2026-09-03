@@ -2,7 +2,7 @@
 
 _Last updated: 3 September 2026_
 
-This document records the implemented V1 application data model represented by the repository after the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, and Original/Alternative stimulus changes. It should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the cutover boundary and explicitly distinguishes repository state from Production deployment state.
+This document records the implemented V1 application data model represented by the repository after the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, Original/Alternative stimulus changes, and the PR F branch's Reset/Fresh/retention ownership. It should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the current learner-runtime boundary and explicitly distinguishes repository state from Production deployment state.
 
 A migration file being committed is not proof that it has been applied to production D1. Merge status, production migration application, Worker deployment, taxonomy/stimulus curation, learner feature enablement, and behavior verification remain separate operational facts.
 
@@ -35,6 +35,7 @@ The repository migration sequence contains:
 0021_learner_fsrs_scheduled_completion.sql
 0022_learner_fsrs_free_study.sql
 0023_learner_fsrs_system_provenance_guard.sql
+0024_learner_fsrs_reset_fresh.sql
 ```
 
 Important migrations for the current model include:
@@ -53,7 +54,8 @@ Important migrations for the current model include:
 - `0020` — normalized temporary active-Review ownership in `active_reviews`, `active_review_questions`, and `active_review_assets`;
 - `0021` — Scheduled FSRS completion context and database write-time guards for exactly-once active-Review consumption and durable Scheduled event/state updates;
 - `0022` — Free Study completion with short-lived `free_review_completion_receipts` plus write-time active-Review/expiry guards;
-- `0023` — defensive deletion/reclassification protection for Systems referenced by durable FSRS System provenance in `scheduled_review_events` or `learner_system_aggregates`.
+- `0023` — defensive deletion/reclassification protection for Systems referenced by durable FSRS System provenance in `scheduled_review_events` or `learner_system_aggregates`;
+- `0024` — defensive Scheduled active-Review/profile-boundary guard used by Reset Progress / Fresh FSRS Start serialization. It prevents generation/review-sequence/parameter/scheduler boundary movement while a Scheduled active Review still survives.
 
 Migrations `0013`–`0015` remain immutable and valid migration history. Their legacy `reviews`, `review_questions`, and `review_assets` semantics must not be read as current runtime architecture after the FSRS cutover.
 
@@ -81,6 +83,7 @@ No new migration is required to retire Additional Study Topics from current prod
 16. Current learner runtime scope/provenance is split by purpose: the unfinished active Review owns its selected System/scope and frozen content, while durable Scheduled completion records compact System attribution in Scheduled events/aggregates.
 17. A current learner-presentable Case has exactly one behaviorally active canonical Primary Topic; alternate/cross-cutting classification uses Case Tags rather than Additional Study Topics.
 18. A curated stimulus family has an explicit Original pointer; insertion/display order, filename, caption, naming, or learner snapshot/history must never be treated as implicit Original semantics.
+19. Reset/Fresh scheduler-boundary changes consume any active Review and clear current learner×Case scheduler state atomically with the boundary change; browser run state is convenience only and old proofs still fail server-side current-profile checks.
 
 ## 3. Authentication and Preview ownership
 
@@ -598,6 +601,8 @@ expires_at
 
 There is one active Review per learner. Scheduled active Reviews carry the authenticated FSRS/run/captured-state boundary; Free active Reviews deliberately carry no scheduler-state boundary. Resume discovery returns only an unexpired learner-owned row, and database-time expiry remains authoritative for create/replace/completion serialization.
 
+Reset Progress and Fresh FSRS Start are explicit active-Review invalidators. Their supported mutation transaction deletes the learner's active Review before clearing current Case scheduler state and, where applicable, changing the profile generation/review-sequence/parameter boundary. Migration `0024` prevents a Scheduled profile-boundary update from committing while a Scheduled active Review still survives. Conversely, the existing active-Review creation guard rejects an old Scheduled run after Reset/Fresh has already moved the current profile boundary.
+
 ### `active_review_questions`
 
 Conceptually:
@@ -639,7 +644,7 @@ These rows freeze learner media ordering/storage metadata and keep a restrictive
 
 An active Review is temporary execution ownership, not durable completion history. Scheduled and Free completion consume it and write their own narrowly scoped durable/receipt state described below.
 
-## 17. Scheduled FSRS completion and durable state
+## 17. Scheduled FSRS completion, profile boundaries, retention, and durable state
 
 Scheduled completion is owned by the FSRS Scheduled completion service, not by a mutable `reviews.status/rating` row.
 
@@ -655,11 +660,35 @@ scheduled_review_events
 + consume the exact active Review
 ```
 
+`learner_fsrs_profiles` is the learner-wide FSRS boundary/parameter owner. It carries the current `generation`, `review_sequence_epoch`, `parameter_revision`, scheduler revision/library version, canonical serialized parameter object, detailed-history retention policy, and optimizer/cleanup metadata. An authentic browser run token never freezes this profile forever: Scheduled open/completion paths compare the run/Review boundary against the current profile and fail stale work closed.
+
 `learner_case_fsrs` is the current per-learner×Case scheduling state: Due time, FSRS card state, generation/review-sequence/parameter/scheduler boundaries, and monotonic `state_revision`.
 
 `scheduled_review_events` is the compact durable Scheduled completion event. It stores the committed rating, Case/System/content mode, scheduler/generation/sequence boundary, resulting state revision and next Due time, plus only the run context needed for idempotent replay/proof. The completed active Review ID is the event ID, so this durable event is also the Scheduled completion idempotency receipt.
 
+Human-readable `scheduled_review_events` follow `learner_fsrs_profiles.detailed_history_retention`: 24 months by default, with 36-month, 60-month, and indefinite policies representable in the current schema. Learner-facing history reads apply the retention cutoff even before physical cleanup. Bounded opportunistic cleanup removes only expired detailed Scheduled events; it does not delete current-generation optimizer sequence evidence, encounter state, or aggregates merely because display history expired.
+
 `learner_optimizer_evidence` stores the compact retained rating sequence used by future optimizer work. `learner_case_encounters` stores the first Scheduled completion marker. `learner_aggregates` and `learner_system_aggregates` maintain lifetime Scheduled counters.
+
+Reset Progress and Fresh FSRS Start are deliberately distinct profile-boundary operations:
+
+```text
+Reset Progress
+→ delete active Review + current learner_case_fsrs state atomically
+→ preserve current generation, parameter_revision and parameters_json
+→ increment review_sequence_epoch for an initialized learner
+→ preserve retained Scheduled history, encounters, aggregates and current-generation optimizer evidence
+→ never-initialized Reset does not create an FSRS profile
+
+Fresh FSRS Start
+→ delete active Review + current learner_case_fsrs state atomically
+→ restore canonical default parameters (90% desired retention)
+→ increment generation + review_sequence_epoch + parameter_revision for an initialized learner
+→ clear optimizer metadata without executing an optimizer
+→ preserve the learner's detailed-history retention override, retained history, encounters and aggregates
+→ prune optimizer-only evidence from generations made permanently ineligible by the new generation
+→ never-initialized Fresh creates the ordinary initial generation/epoch/revision 1 profile
+```
 
 A successful completion consumes the temporary active Review exactly once. Same-payload/lost-response retries reconcile from the durable Scheduled event rather than recreating or reading legacy Review rows.
 
@@ -781,7 +810,12 @@ active_reviews
   ├── active_review_questions
   └── active_review_assets ── assets
 
-Scheduled completion
+learner_fsrs_profiles
+  ├── generation / review_sequence_epoch / parameter_revision
+  ├── scheduler revision / parameters_json
+  └── detailed_history_retention / optimizer-cleanup metadata
+
+Scheduled completion / current scheduling
   ├── learner_case_fsrs
   ├── scheduled_review_events ── system_id
   ├── learner_optimizer_evidence
@@ -856,6 +890,8 @@ The current schema intentionally does **not** imply:
 - a persisted D1 Scheduled/Free run queue or ordinary Study-session row; run continuation state remains browser-local and server-validated;
 - a durable completed-Review question/asset snapshot after the temporary active Review is consumed;
 - Free Study FSRS transitions, FSRS ratings, optimizer evidence, or learner×System Scheduled aggregates;
+- automatic optimizer execution/parameter replacement merely because optimizer evidence and parameter revisions exist;
+- PR G Admin/cohort/monthly analytics or account-deletion semantics merely because learner aggregates exist;
 - any supported runtime fallback that writes/reads/completes `reviews`, `review_questions`, or `review_assets`;
 - stimulus-option → Topic learner routing merely because one image has an incidental finding.
 

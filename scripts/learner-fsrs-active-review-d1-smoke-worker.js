@@ -6,15 +6,23 @@ import {
 } from '../src/lib/server/db/active-review-content.js';
 import { createDb } from '../src/lib/server/db/index.js';
 import {
+  ActiveReviewError,
   createFreeActiveReview,
+  createScheduledActiveReview,
   getActiveReview
 } from '../src/lib/server/db/active-reviews.js';
+import {
+  freshLearnerFsrsStart,
+  resetLearnerFsrsProgress
+} from '../src/lib/server/db/fsrs-reset-fresh.js';
+import { planScheduledSystemStudyRun } from '../src/lib/server/db/study-run-planning.js';
 
 const userId = 'active-review-d1-smoke-user';
 const systemId = 'active-review-d1-smoke-system';
 const topicId = 'active-review-d1-smoke-topic';
 const caseId = 'active-review-d1-smoke-case';
 const routes = [{ routeType: 'topic', routeId: topicId }];
+const proofSecret = 'active-review-d1-smoke-proof-secret';
 
 function exactSnapshot(review) {
   return {
@@ -59,6 +67,207 @@ async function createMaximumReview(db, runId) {
   return {
     id: result.review.id,
     snapshotBytes: assertMaximumFixture(result.review)
+  };
+}
+
+async function readProfile(env) {
+  const profile = await env.DB.prepare(`
+    SELECT generation, review_sequence_epoch, parameter_revision
+    FROM learner_fsrs_profiles
+    WHERE user_id = ?
+    LIMIT 1
+  `).bind(userId).first();
+  if (!profile) throw new Error('Expected an initialized learner FSRS profile during race smoke.');
+  return {
+    generation: Number(profile.generation),
+    reviewSequenceEpoch: Number(profile.review_sequence_epoch),
+    parameterRevision: Number(profile.parameter_revision)
+  };
+}
+
+async function readActiveBoundary(env) {
+  const row = await env.DB.prepare(`
+    SELECT generation, review_sequence_epoch, parameter_revision
+    FROM active_reviews
+    WHERE user_id = ?
+    LIMIT 1
+  `).bind(userId).first();
+  if (!row) return null;
+  return {
+    generation: Number(row.generation),
+    reviewSequenceEpoch: Number(row.review_sequence_epoch),
+    parameterRevision: Number(row.parameter_revision)
+  };
+}
+
+async function activeReviewCount(env) {
+  const row = await env.DB
+    .prepare('SELECT COUNT(*) AS n FROM active_reviews WHERE user_id = ?')
+    .bind(userId)
+    .first();
+  return Number(row?.n ?? 0);
+}
+
+async function prepareBoundaryScenario(db, env, runId) {
+  await env.DB.prepare('DELETE FROM active_reviews WHERE user_id = ?').bind(userId).run();
+  await env.DB.prepare('DELETE FROM learner_case_fsrs WHERE user_id = ?').bind(userId).run();
+
+  const descriptor = await planScheduledSystemStudyRun({
+    db,
+    userId,
+    systemId,
+    routes,
+    proofSecret,
+    now: Date.now(),
+    rng: () => 0,
+    runId
+  });
+  const entry = descriptor.capturedNew[0];
+  if (!entry) {
+    throw new Error('Reset/Fresh race smoke expected the fixture Case to be captured New.');
+  }
+  const workProof = descriptor.membershipProofs.new[entry.proofIndex];
+  if (!workProof) throw new Error('Reset/Fresh race smoke expected a captured-New work proof.');
+
+  return {
+    before: {
+      generation: descriptor.schedulerBoundary.generation,
+      reviewSequenceEpoch: descriptor.schedulerBoundary.reviewSequenceEpoch,
+      parameterRevision: descriptor.schedulerBoundary.parameterRevision
+    },
+    input: {
+      db,
+      userId,
+      systemId,
+      routes,
+      caseId: entry.caseId,
+      queueClass: 'new',
+      runBoundaryToken: descriptor.runBoundaryToken,
+      workProof,
+      proofSecret,
+      now: descriptor.runStartedAt + 1,
+      rng: () => 0
+    }
+  };
+}
+
+function assertExpectedBoundaryChange(before, after, operation) {
+  if (operation === 'reset') {
+    if (after.generation !== before.generation) {
+      throw new Error('Reset race changed generation unexpectedly.');
+    }
+    if (after.reviewSequenceEpoch !== before.reviewSequenceEpoch + 1) {
+      throw new Error('Reset race did not advance the review-sequence epoch exactly once.');
+    }
+    if (after.parameterRevision !== before.parameterRevision) {
+      throw new Error('Reset race changed parameter revision unexpectedly.');
+    }
+    return;
+  }
+
+  if (after.generation !== before.generation + 1) {
+    throw new Error('Fresh race did not advance generation exactly once.');
+  }
+  if (after.reviewSequenceEpoch !== before.reviewSequenceEpoch + 1) {
+    throw new Error('Fresh race did not advance the review-sequence epoch exactly once.');
+  }
+  if (after.parameterRevision !== before.parameterRevision + 1) {
+    throw new Error('Fresh race did not publish exactly one new parameter revision.');
+  }
+}
+
+function classifyCreationRaceResult(creation) {
+  if (creation.status === 'fulfilled') {
+    if (creation.value.status !== 'created') {
+      throw new Error(`Concurrent Scheduled creation unexpectedly returned ${creation.value.status}.`);
+    }
+    return 'created-then-consumed';
+  }
+  if (creation.reason instanceof ActiveReviewError && creation.reason.code === 'stale-run') {
+    return 'stale-rejected';
+  }
+  if (
+    creation.reason instanceof Error
+    && creation.reason.message.includes('Active Review creation committed without a readable Review')
+  ) {
+    return 'created-then-consumed';
+  }
+  throw creation.reason;
+}
+
+async function applyBoundaryChange(db, operation) {
+  return operation === 'reset'
+    ? resetLearnerFsrsProgress({ db, userId })
+    : freshLearnerFsrsStart({ db, userId });
+}
+
+async function runBoundaryCreationRace(db, env, operation) {
+  const runId = `active-review-${operation}-race-${globalThis.crypto.randomUUID()}`;
+  const { before, input } = await prepareBoundaryScenario(db, env, runId);
+
+  const creationPromise = createScheduledActiveReview(input);
+  const boundaryPromise = applyBoundaryChange(db, operation);
+  const [creation, boundary] = await Promise.allSettled([creationPromise, boundaryPromise]);
+
+  if (boundary.status !== 'fulfilled') throw boundary.reason;
+  const creationOutcome = classifyCreationRaceResult(creation);
+
+  const after = await readProfile(env);
+  assertExpectedBoundaryChange(before, after, operation);
+
+  const remainingActiveReviews = await activeReviewCount(env);
+  if (remainingActiveReviews !== 0) {
+    throw new Error(`${operation} committed with ${remainingActiveReviews} stale active Review row(s).`);
+  }
+
+  return {
+    operation,
+    serialization: 'concurrent',
+    creationOutcome,
+    before,
+    after,
+    remainingActiveReviews
+  };
+}
+
+async function runCreationFirstBoundary(db, env, operation) {
+  const runId = `active-review-${operation}-creation-first-${globalThis.crypto.randomUUID()}`;
+  const { before, input } = await prepareBoundaryScenario(db, env, runId);
+
+  const creation = await createScheduledActiveReview(input);
+  if (creation.status !== 'created') {
+    throw new Error(`Creation-first ${operation} proof expected a newly created Scheduled Review.`);
+  }
+
+  const activeBoundaryBefore = await readActiveBoundary(env);
+  if (!activeBoundaryBefore) {
+    throw new Error(`Creation-first ${operation} proof could not read the committed Scheduled active Review.`);
+  }
+  if (
+    activeBoundaryBefore.generation !== before.generation
+    || activeBoundaryBefore.reviewSequenceEpoch !== before.reviewSequenceEpoch
+    || activeBoundaryBefore.parameterRevision !== before.parameterRevision
+  ) {
+    throw new Error(`Creation-first ${operation} proof created a Review on an unexpected boundary.`);
+  }
+
+  await applyBoundaryChange(db, operation);
+
+  const after = await readProfile(env);
+  assertExpectedBoundaryChange(before, after, operation);
+  const remainingActiveReviews = await activeReviewCount(env);
+  if (remainingActiveReviews !== 0) {
+    throw new Error(`Creation-first ${operation} committed with ${remainingActiveReviews} stale active Review row(s).`);
+  }
+
+  return {
+    operation,
+    serialization: 'creation-first',
+    creationOutcome: 'created-then-consumed',
+    before,
+    activeBoundaryBefore,
+    after,
+    remainingActiveReviews
   };
 }
 
@@ -112,6 +321,22 @@ export default {
         throw new Error('Expired replacement must commit exactly one active ownership row.');
       }
       return Response.json(replacement);
+    }
+
+    if (pathname === '/race-reset') {
+      return Response.json(await runBoundaryCreationRace(db, env, 'reset'));
+    }
+
+    if (pathname === '/race-fresh') {
+      return Response.json(await runBoundaryCreationRace(db, env, 'fresh'));
+    }
+
+    if (pathname === '/creation-first-reset') {
+      return Response.json(await runCreationFirstBoundary(db, env, 'reset'));
+    }
+
+    if (pathname === '/creation-first-fresh') {
+      return Response.json(await runCreationFirstBoundary(db, env, 'fresh'));
     }
 
     return new Response('Not found', { status: 404 });

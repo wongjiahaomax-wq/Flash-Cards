@@ -26,6 +26,7 @@
       <a href="/admin/images">Images</a>
       <a href="/admin/topics">Systems &amp; Topics</a>
       <a href="/admin/tags">Tags</a>
+      <a href="/admin/learner-retention">Learner retention</a>
       <a href="/admin/import">Import package</a>
     </aside>
 

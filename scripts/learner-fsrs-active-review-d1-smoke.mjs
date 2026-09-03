@@ -16,6 +16,7 @@ const startupTimeoutMs = 20_000;
 const maximumQuestions = 256;
 const maximumAssets = 64;
 const minimumLargeFixtureBytes = 400 * 1024;
+const boundaryRaceIterations = 4;
 
 function extractCompatibilityDate(configText) {
   const matches = [...configText.matchAll(/"compatibility_date"\s*:\s*"(\d{4}-\d{2}-\d{2})"/g)];
@@ -164,6 +165,36 @@ async function fetchJson(baseUrl, pathname) {
   return JSON.parse(text);
 }
 
+function assertBoundaryChange(result, operation) {
+  assert.equal(result.operation, operation);
+  assert.equal(result.remainingActiveReviews, 0);
+  if (operation === 'reset') {
+    assert.equal(result.after.generation, result.before.generation);
+    assert.equal(result.after.reviewSequenceEpoch, result.before.reviewSequenceEpoch + 1);
+    assert.equal(result.after.parameterRevision, result.before.parameterRevision);
+  } else {
+    assert.equal(result.after.generation, result.before.generation + 1);
+    assert.equal(result.after.reviewSequenceEpoch, result.before.reviewSequenceEpoch + 1);
+    assert.equal(result.after.parameterRevision, result.before.parameterRevision + 1);
+  }
+}
+
+function assertConcurrentBoundaryRace(result, operation) {
+  assertBoundaryChange(result, operation);
+  assert.equal(result.serialization, 'concurrent');
+  assert.ok(
+    result.creationOutcome === 'stale-rejected' || result.creationOutcome === 'created-then-consumed',
+    `Unexpected ${operation} race serialization: ${result.creationOutcome}`
+  );
+}
+
+function assertCreationFirstBoundary(result, operation) {
+  assertBoundaryChange(result, operation);
+  assert.equal(result.serialization, 'creation-first');
+  assert.equal(result.creationOutcome, 'created-then-consumed');
+  assert.deepEqual(result.activeBoundaryBefore, result.before);
+}
+
 async function main() {
   const compatibilityDate = extractCompatibilityDate(await readFile(wranglerConfigPath, 'utf8'));
   const workDir = await mkdtemp(join(tmpdir(), 'flash-cards-active-review-d1-smoke-'));
@@ -253,6 +284,23 @@ async function main() {
     assert.notEqual(replacement.id, created.id);
     assert.ok(replacement.snapshotBytes >= minimumLargeFixtureBytes);
 
+    const resetRaces = [];
+    const freshRaces = [];
+    for (let index = 0; index < boundaryRaceIterations; index += 1) {
+      const resetRace = await fetchJson(baseUrl, '/race-reset');
+      assertConcurrentBoundaryRace(resetRace, 'reset');
+      resetRaces.push(resetRace.creationOutcome);
+
+      const freshRace = await fetchJson(baseUrl, '/race-fresh');
+      assertConcurrentBoundaryRace(freshRace, 'fresh');
+      freshRaces.push(freshRace.creationOutcome);
+    }
+
+    const creationFirstReset = await fetchJson(baseUrl, '/creation-first-reset');
+    assertCreationFirstBoundary(creationFirstReset, 'reset');
+    const creationFirstFresh = await fetchJson(baseUrl, '/creation-first-fresh');
+    assertCreationFirstBoundary(creationFirstFresh, 'fresh');
+
     console.log(JSON.stringify({
       runtime: 'workerd + local D1 binding',
       compatibilityDate,
@@ -261,7 +309,12 @@ async function main() {
       initialSnapshotBytes: created.snapshotBytes,
       replacementSnapshotBytes: replacement.snapshotBytes,
       discoveryPreservedExpiredOwnership: expired.stillOwned,
-      replacementCreatedNewOwner: replacement.id !== created.id
+      replacementCreatedNewOwner: replacement.id !== created.id,
+      boundaryRaceIterations,
+      resetCreationRaceOutcomes: resetRaces,
+      freshCreationRaceOutcomes: freshRaces,
+      creationFirstResetOutcome: creationFirstReset.creationOutcome,
+      creationFirstFreshOutcome: creationFirstFresh.creationOutcome
     }, null, 2));
   } catch (error) {
     const output = [stdout.trim(), stderr.trim()].filter(Boolean).join('\n--- stderr ---\n');
