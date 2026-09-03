@@ -397,7 +397,9 @@ test('Admin learner-study links use FSRS preview only behind the strict local pr
   assert.match(adminLayoutServer, /learnerStudyPreviewHref:/);
   assert.match(adminLayout, /href=\{data\.learnerStudyPreviewHref \?\? '\/study'\}/);
   assert.match(adminDashboard, /href=\{data\.learnerStudyPreviewHref \?\? '\/study'\}/);
-  assert.match(casePage, /studyPreviewHref=\{data\.learnerStudyPreviewHref\}/);
+  assert.match(casePage, /let studyPreviewHref = \$derived\.by/);
+  assert.match(casePage, /const \{ learnerStudyPreviewHref = '\/study' \} = data/);
+  assert.match(casePage, /<CaseEditorHeader[^>]*\{studyPreviewHref\}/);
   assert.match(caseHeader, /href=\{studyPreviewHref\}>Preview in Study/);
   assert.match(casePreview, /href=\{studyPreviewHref\}>Open Study preview/);
 });
