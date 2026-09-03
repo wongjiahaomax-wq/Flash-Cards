@@ -102,7 +102,7 @@ export async function startReview(input) {
       sourceStimulusGroupId: question.sourceStimulusGroupId,
       sourceStimulusOptionId: question.sourceStimulusOptionId,
       sourceAssetQuestionId: question.sourceAssetQuestionId,
-      sourceSharedQuestionId: question.sourceSharedQuestionId,
+      sourceSharedQuestionId: question.sourceSharedQuestionId ?? null,
       displayOrder: question.displayOrder
     })),
     assets: snapshot.assets.map((asset) => ({
