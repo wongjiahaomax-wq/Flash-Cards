@@ -1,6 +1,9 @@
 name: Learner FSRS PR G analytics and deletion
 
 on:
+  push:
+    branches:
+      - 'agent/fsrs-pr-g-admin-analytics-deletion'
   pull_request:
     paths:
       - 'package.json'
@@ -36,7 +39,7 @@ permissions:
 jobs:
   analytics-and-deletion:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -62,5 +65,5 @@ jobs:
       - name: Prove staged deletion through local workerd and D1
         run: npm run fsrs:account-deletion-d1-smoke
 
-      - name: Type and Svelte check
-        run: npm run check
+      - name: Run full repository validation
+        run: npm run validate:full -- --compact
