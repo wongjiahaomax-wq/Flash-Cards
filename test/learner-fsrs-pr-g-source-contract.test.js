@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { CONTENT_TABLES } from '../scripts/local-replica-lib.mjs';
+import { CONTENT_TABLES, FORBIDDEN_PRODUCTION_TABLES } from '../scripts/local-replica-lib.mjs';
 
 /** @param {string} path */
 function source(path) {
@@ -14,13 +14,19 @@ test('PR G analytics schema is registered with Drizzle migration tooling', () =>
   assert.match(drizzleConfig, /fsrs-analytics-schema\.js/);
 });
 
-test('PR G learner analytics/deletion tables remain excluded from production-to-local replica content', () => {
+test('PR G learner analytics/deletion tables remain explicitly forbidden from production-to-local replica content', () => {
   const mirroredNames = new Set(CONTENT_TABLES.map((table) => table.name));
+  const forbiddenNames = new Set(FORBIDDEN_PRODUCTION_TABLES);
   for (const table of ['learner_system_monthly_buckets', 'learner_account_deletions']) {
     assert.equal(
       mirroredNames.has(table),
       false,
       `${table} is learner-owned runtime/history state and must never be mirrored from Production`
+    );
+    assert.equal(
+      forbiddenNames.has(table),
+      true,
+      `${table} must stay on the explicit production-replica denylist`
     );
   }
 });
