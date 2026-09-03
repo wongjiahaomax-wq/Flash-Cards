@@ -58,9 +58,9 @@ export const learnerAccountDeletions = sqliteTable(
     userId: text('user_id').primaryKey(),
     phase: text('phase', {
       enum: [
-        'active_reviews',
         'free_receipts',
         'scheduled_events',
+        'active_reviews',
         'optimizer_evidence',
         'case_state',
         'case_encounters',
@@ -73,7 +73,7 @@ export const learnerAccountDeletions = sqliteTable(
       ]
     })
       .notNull()
-      .default('active_reviews'),
+      .default('free_receipts'),
     requestedAt: timestamp('requested_at'),
     updatedAt: timestamp('updated_at'),
     batchesCompleted: integer('batches_completed').notNull().default(0)
