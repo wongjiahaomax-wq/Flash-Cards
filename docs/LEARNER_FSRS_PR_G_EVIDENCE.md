@@ -103,9 +103,9 @@ The synthetic mature learner benchmark includes, at minimum:
 - 60 months of generated monthly System attribution across representative Systems;
 - learner/System and learner-wide aggregates;
 - an active Review with 256 frozen questions and 64 assets;
-- Better Auth credential account and sessions.
+- Better Auth credential account, 20 sessions, and a learner-owned password-reset verification row.
 
-The local workerd/D1 smoke uses a smaller but multi-batch fixture and proves the same state machine through the actual D1 binding. Benchmark timings are environment-specific evidence, not Production latency promises; the merge handoff records the exact-head CI measurements.
+The local workerd/D1 smoke uses a smaller but multi-batch fixture, including the same Better Auth verification ownership class, and proves the same state machine through the actual D1 binding. Benchmark timings are environment-specific evidence, not Production latency promises; the merge handoff records the exact-head CI measurements.
 
 ## Regression coverage
 
