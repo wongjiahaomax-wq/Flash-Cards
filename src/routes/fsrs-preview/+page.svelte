@@ -152,13 +152,13 @@
 
         const descriptor = result.data?.descriptor;
         if (!descriptor) {
-          runMessage = result.data?.message ?? 'Run planning completed without a browser run descriptor.';
+          runMessage = 'Run planning completed without a browser run descriptor.';
           return;
         }
 
         const plannedRun = writeFsrsPreviewRun(localStorage, descriptor);
         browserRun = plannedRun;
-        runMessage = result.data?.message ?? 'Run planned. Opening the first Review…';
+        runMessage = 'Run planned. Opening the first Review…';
         await openRun(plannedRun);
       } finally {
         planning = false;
