@@ -8,6 +8,7 @@ on:
       - 'drizzle/0019_learner_fsrs_foundation.sql'
       - 'drizzle/0020_learner_fsrs_active_reviews.sql'
       - 'drizzle/0021_learner_fsrs_scheduled_completion.sql'
+      - 'drizzle/0023_learner_fsrs_system_provenance_guard.sql'
       - 'drizzle.config.js'
       - 'scripts/learner-fsrs-scheduled-completion-d1-smoke.mjs'
       - 'scripts/learner-fsrs-scheduled-completion-d1-smoke-worker.js'
