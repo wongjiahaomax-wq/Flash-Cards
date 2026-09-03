@@ -242,6 +242,7 @@ function seedDeletionFixture(sqlite) {
     `).run(`optimizer-${index}`, completedAt, index + 1);
   }
 
+  sqlite.exec('DROP TRIGGER active_reviews_content_scope_guard;');
   sqlite.exec(`
     INSERT INTO active_reviews (
       id, user_id, case_id, system_id, study_mode, content_mode, run_id,
