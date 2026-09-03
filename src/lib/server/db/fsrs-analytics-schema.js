@@ -1,6 +1,7 @@
 import { sql } from 'drizzle-orm';
 import { check, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
+/** @param {string} name */
 const timestamp = (name) =>
   integer(name, { mode: 'timestamp_ms' })
     .notNull()
