@@ -38,3 +38,15 @@ export async function getDurableFsrsSystemProvenance(
     hasDurableHistory: hasScheduledHistory || hasLearnerSystemAggregates
   };
 }
+
+/**
+ * Boolean guard used by taxonomy write paths. Keep the detailed provenance
+ * function above as the single registry owner so every caller evaluates the
+ * same durable FSRS history tables.
+ */
+export async function hasFsrsSystemHistory(
+  db: import('./index.js').LearningDb,
+  systemId: string
+): Promise<boolean> {
+  return (await getDurableFsrsSystemProvenance(db, systemId)).hasDurableHistory;
+}
