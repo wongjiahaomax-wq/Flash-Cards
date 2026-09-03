@@ -1,6 +1,7 @@
 import { error, fail } from '@sveltejs/kit';
 
 import { createAuth } from '$lib/server/auth.js';
+import { removeUserWithBetterAuth } from '$lib/server/auth-config.js';
 import { createDb } from '$lib/server/db/index.js';
 import {
   LearnerAnalyticsError,
@@ -82,8 +83,8 @@ export const actions = {
 
       if (progress?.readyForIdentityDelete) {
         const auth = createAuth(env);
-        await auth.api.removeUser({
-          body: { userId },
+        await removeUserWithBetterAuth(auth, {
+          userId,
           headers: request.headers
         });
         return {
