@@ -46,11 +46,16 @@ jobs:
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
           CLOUDFLARE_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
             echo "::error::GitHub repository secret CLOUDFLARE_API_TOKEN is not configured."
+            exit 1
+          fi
+          if [ -z "${CLOUDFLARE_D1_READ_TOKEN:-}" ]; then
+            echo "::error::CLOUDFLARE_D1_READ_TOKEN is required for the FSRS legacy-Review cutover gate."
             exit 1
           fi
           if [ "${{ inputs.apply_migrations }}" = "true" ] && [ -z "${CLOUDFLARE_D1_WRITE_TOKEN:-}" ]; then
@@ -76,6 +81,17 @@ jobs:
       - name: Smoke test local D1 and Better Auth
         run: node scripts/local-auth-smoke.mjs
 
+      - name: Require zero Production legacy learner Review rows
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/wrangler d1 execute DB --remote \
+            --command "SELECT (SELECT count(*) FROM reviews) AS reviews_count, (SELECT count(*) FROM review_questions) AS review_questions_count, (SELECT count(*) FROM review_assets) AS review_assets_count;" \
+            --json > learner-fsrs-legacy-review-counts.json
+          node scripts/learner-fsrs-legacy-review-gate.mjs learner-fsrs-legacy-review-counts.json
+
       - name: Apply production D1 migrations
         if: ${{ inputs.apply_migrations == true }}
         env:
@@ -96,5 +112,6 @@ jobs:
             echo "- Ref: `${GITHUB_REF}`"
             echo "- Commit: `${GITHUB_SHA}`"
             echo "- Worker: https://flash-cards.mmed-fm-flashcardstest.workers.dev"
+            echo "- Legacy learner Review zero-data gate: `passed`"
             echo "- D1 migrations applied: `${{ inputs.apply_migrations }}`"
           } >> "$GITHUB_STEP_SUMMARY"
