@@ -44,7 +44,7 @@
       <a class="shortcut" href="/admin/cases"><strong>Open the Cases library</strong><span>Find and edit existing learning content.</span></a>
       <a class="shortcut" href="/admin/study-preview"><strong>Admin Study Preview</strong><span>Render current learner Case content without mutating learner study state.</span></a>
       {#if data.learnerStudyPreviewHref}
-        <a class="shortcut" href={data.learnerStudyPreviewHref}><strong>Local FSRS regression preview</strong><span>Open the local-only FSRS reference surface.</span></a>
+        <a class="shortcut" href={data.learnerStudyPreviewHref ?? '/study'}><strong>Local FSRS regression preview</strong><span>Open the local-only FSRS reference surface.</span></a>
       {/if}
     </div>
   </article>
