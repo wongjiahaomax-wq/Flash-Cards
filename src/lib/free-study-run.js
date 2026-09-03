@@ -1,3 +1,8 @@
+import {
+  effectiveStudyRunDistinctCaseTarget,
+  isStudyRunDistinctCaseTarget
+} from './study-run-size.js';
+
 export class FreeStudyRunError extends Error {
   /** @param {'invalid-descriptor'|'work-mismatch'|'review-in-progress'} code @param {string} message */
   constructor(code, message) {
@@ -11,7 +16,13 @@ export class FreeStudyRunError extends Error {
 
 /** @param {any} descriptor */
 function assertDescriptor(descriptor) {
-  if (!descriptor || descriptor.kind !== 'free' || descriptor.version !== 1 || !Array.isArray(descriptor.bag)) {
+  if (
+    !descriptor
+    || descriptor.kind !== 'free'
+    || descriptor.version !== 1
+    || !Array.isArray(descriptor.bag)
+    || !isStudyRunDistinctCaseTarget(descriptor.distinctCaseTarget)
+  ) {
     throw new FreeStudyRunError('invalid-descriptor', 'Free Study run descriptor is invalid or unsupported.');
   }
 }
@@ -26,6 +37,11 @@ export function selectNextFreeWork(descriptor) {
   if (!Number.isInteger(position) || position < 0 || position > descriptor.bag.length) {
     throw new FreeStudyRunError('invalid-descriptor', 'Free Study bag position is invalid.');
   }
+  const effectiveTarget = effectiveStudyRunDistinctCaseTarget(
+    descriptor.distinctCaseTarget,
+    descriptor.bag.length
+  );
+  if (position >= effectiveTarget) return { status: 'complete' };
   const caseId = descriptor.bag[position];
   return typeof caseId === 'string' && caseId
     ? { status: 'ready', caseId }

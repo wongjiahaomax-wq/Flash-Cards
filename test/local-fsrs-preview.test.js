@@ -4,6 +4,10 @@ import test from 'node:test';
 
 import { completeFsrsPreviewRequest } from '../src/lib/fsrs-preview-completion.js';
 import {
+  fsrsPreviewRunReturnHref,
+  requestNextFsrsPreviewWork
+} from '../src/lib/fsrs-preview-open.js';
+import {
   applyFreeCompletion,
   beginFreeWork,
   selectNextFreeWork
@@ -16,6 +20,15 @@ import {
   readFsrsPreviewRunForUser,
   writeFsrsPreviewRun
 } from '../src/lib/fsrs-preview-run-storage.js';
+import {
+  applyScheduledCompletion,
+  beginScheduledWork,
+  selectNextScheduledWork
+} from '../src/lib/scheduled-study-run.js';
+import {
+  STUDY_RUN_DEFAULT_DISTINCT_CASE_TARGET,
+  parseStudyRunDistinctCaseTarget
+} from '../src/lib/study-run-size.js';
 import {
   getLearnerStudyPreviewHref,
   isLocalFsrsPreviewRequest,
@@ -31,6 +44,7 @@ function freeDescriptor(overrides = {}) {
     runStartedAt: 1_000,
     selectedScope: { systemId: 'system-1', routes: [{ routeType: 'topic', routeId: 'topic-1' }] },
     expandedLearning: false,
+    distinctCaseTarget: 10,
     bag: ['case-a', 'case-b'],
     position: 0,
     currentReviewId: null,
@@ -57,6 +71,7 @@ function scheduledDescriptor(overrides = {}) {
     },
     scheduledOrder: 'due_first',
     expandedLearning: false,
+    distinctCaseTarget: 10,
     capturedDue: [],
     duePosition: 0,
     capturedNew: [{ caseId: 'case-a', proofIndex: 0 }],
@@ -120,6 +135,17 @@ function completionServices({ mode }) {
   };
 }
 
+test('run-size form contract defaults to 10 and accepts only 5, 10, 20, or All available', () => {
+  assert.equal(STUDY_RUN_DEFAULT_DISTINCT_CASE_TARGET, 10);
+  assert.equal(parseStudyRunDistinctCaseTarget(undefined), 10);
+  assert.equal(parseStudyRunDistinctCaseTarget(''), 10);
+  assert.equal(parseStudyRunDistinctCaseTarget('5'), 5);
+  assert.equal(parseStudyRunDistinctCaseTarget('10'), 10);
+  assert.equal(parseStudyRunDistinctCaseTarget('20'), 20);
+  assert.equal(parseStudyRunDistinctCaseTarget('all'), null);
+  assert.throws(() => parseStudyRunDistinctCaseTarget('25'), /5, 10, 20, or All available/);
+});
+
 test('Free browser run opens and advances exactly one bag entry per completion', () => {
   const descriptor = freeDescriptor();
   assert.deepEqual(selectNextFreeWork(descriptor), { status: 'ready', caseId: 'case-a' });
@@ -129,6 +155,84 @@ test('Free browser run opens and advances exactly one bag entry per completion',
   assert.equal(completed.position, 1);
   assert.equal(completed.currentReviewId, null);
   assert.deepEqual(selectNextFreeWork(completed), { status: 'ready', caseId: 'case-b' });
+});
+
+test('Free Study enforces 5/10/20 distinct-Case boundaries and All available', () => {
+  const bag = Array.from({ length: 25 }, (_, index) => `case-${index + 1}`);
+  for (const target of [5, 10, 20]) {
+    assert.deepEqual(
+      selectNextFreeWork(freeDescriptor({ bag, distinctCaseTarget: target, position: target - 1 })),
+      { status: 'ready', caseId: bag[target - 1] }
+    );
+    assert.deepEqual(
+      selectNextFreeWork(freeDescriptor({ bag, distinctCaseTarget: target, position: target })),
+      { status: 'complete' }
+    );
+  }
+  assert.deepEqual(
+    selectNextFreeWork(freeDescriptor({ bag, distinctCaseTarget: null, position: 20 })),
+    { status: 'ready', caseId: bag[20] }
+  );
+  assert.deepEqual(
+    selectNextFreeWork(freeDescriptor({ bag, distinctCaseTarget: null, position: bag.length })),
+    { status: 'complete' }
+  );
+});
+
+test('Scheduled Study enforces 5/10/20 distinct-Case boundaries and All available', () => {
+  for (const target of [5, 10, 20]) {
+    const justBefore = scheduledDescriptor({
+      distinctCaseTarget: target,
+      completedCaseIds: Array.from({ length: target - 1 }, (_, index) => `completed-${index + 1}`)
+    });
+    assert.equal(selectNextScheduledWork(justBefore, { serverNow: 2_000 }).status, 'ready');
+
+    const atTarget = scheduledDescriptor({
+      distinctCaseTarget: target,
+      completedCaseIds: Array.from({ length: target }, (_, index) => `completed-${index + 1}`)
+    });
+    assert.deepEqual(selectNextScheduledWork(atTarget, { serverNow: 2_000 }), { status: 'complete' });
+  }
+
+  const allAvailable = scheduledDescriptor({
+    distinctCaseTarget: null,
+    completedCaseIds: Array.from({ length: 20 }, (_, index) => `completed-${index + 1}`)
+  });
+  assert.equal(selectNextScheduledWork(allAvailable, { serverNow: 2_000 }).status, 'ready');
+});
+
+test('Scheduled repeat does not consume another distinct-Case slot and remains runnable after target', () => {
+  let descriptor = scheduledDescriptor({
+    distinctCaseTarget: 5,
+    capturedNew: [{ caseId: 'case-f', proofIndex: 0 }],
+    completedCaseIds: ['case-a', 'case-b', 'case-c', 'case-d', 'case-e'],
+    repeatEntries: [{ caseId: 'case-a', stateRevision: 2, dueAt: 1_500, workProof: 'repeat-proof' }]
+  });
+  const selected = selectNextScheduledWork(descriptor, { serverNow: 2_000 });
+  assert.equal(selected.status, 'ready');
+  assert.ok(selected.work);
+  assert.equal(selected.work.queueClass, 'repeat');
+  descriptor = beginScheduledWork(descriptor, selected.work, 'repeat-review');
+  descriptor = applyScheduledCompletion(descriptor, {
+    eventId: 'repeat-review',
+    caseId: 'case-a',
+    queueClass: 'repeat',
+    repeatEntry: null
+  });
+  assert.deepEqual(descriptor.completedCaseIds, ['case-a', 'case-b', 'case-c', 'case-d', 'case-e']);
+  assert.deepEqual(selectNextScheduledWork(descriptor, { serverNow: 2_000 }), { status: 'complete' });
+});
+
+test('target reached with a future required Scheduled repeat waits instead of completing', () => {
+  const descriptor = scheduledDescriptor({
+    distinctCaseTarget: 5,
+    completedCaseIds: ['a', 'b', 'c', 'd', 'e'],
+    repeatEntries: [{ caseId: 'case-a', stateRevision: 2, dueAt: 5_000, workProof: 'repeat-proof' }]
+  });
+  assert.deepEqual(
+    selectNextScheduledWork(descriptor, { serverNow: 2_000 }),
+    { status: 'waiting', nextRepeatDueAt: 5_000 }
+  );
 });
 
 test('Free completion replay after browser advancement is harmless', () => {
@@ -143,6 +247,15 @@ test('preview run storage round-trips supported descriptors and clears browser-o
   assert.deepEqual(readFsrsPreviewRun(storage), descriptor);
   clearFsrsPreviewRun(storage);
   assert.equal(readFsrsPreviewRun(storage), null);
+});
+
+test('legacy target-less preview descriptor remains readable as All available compatibility state', () => {
+  const storage = new MemoryStorage();
+  const descriptor = freeDescriptor();
+  delete descriptor.distinctCaseTarget;
+  writeFsrsPreviewRun(storage, descriptor);
+  assert.deepEqual(readFsrsPreviewRun(storage), descriptor);
+  assert.deepEqual(selectNextFreeWork(descriptor), { status: 'ready', caseId: 'case-a' });
 });
 
 test('malformed persisted preview descriptors are discarded instead of reaching page rendering', () => {
@@ -175,6 +288,33 @@ test('Free preview run cannot cross from learner A browser state to learner B', 
 
   assert.equal(readFsrsPreviewRunForUser(storage, 'learner-b'), null);
   assert.equal(storage.getItem(FSRS_PREVIEW_RUN_STORAGE_KEY), null);
+});
+
+test('completion-to-next transport posts the advanced browser descriptor and returns the next Review', async () => {
+  const descriptor = freeDescriptor({ position: 1 });
+  let capturedUrl = '';
+  let capturedInit = null;
+  const result = await requestNextFsrsPreviewWork(descriptor, async (url, init) => {
+    capturedUrl = String(url);
+    capturedInit = init;
+    return {
+      ok: true,
+      status: 200,
+      async json() {
+        return { status: 'review', reviewId: 'review-2', descriptor: { ...descriptor, currentReviewId: 'review-2' } };
+      }
+    };
+  });
+  assert.equal(capturedUrl, '/fsrs-preview/api/open');
+  assert.equal(capturedInit?.method, 'POST');
+  assert.deepEqual(JSON.parse(String(capturedInit?.body)), { descriptor });
+  assert.equal(result.payload.status, 'review');
+  assert.equal(result.payload.reviewId, 'review-2');
+  assert.equal(fsrsPreviewRunReturnHref({ status: 'complete' }), '/fsrs-preview?runStatus=complete');
+  assert.match(
+    fsrsPreviewRunReturnHref({ status: 'waiting', nextRepeatDueAt: 5_000 }),
+    /runStatus=waiting&nextRepeatDueAt=5000/
+  );
 });
 
 test('Scheduled completion HTTP orchestration replays after commit succeeds and the response is lost', async () => {
@@ -262,16 +402,29 @@ test('Admin learner-study links use FSRS preview only behind the strict local pr
   assert.match(casePreview, /href=\{studyPreviewHref\}>Open Study preview/);
 });
 
-test('preview route reuses staged FSRS service owners and delegates guarded completion orchestration', async () => {
+test('preview route reuses staged FSRS service owners and auto-opens the next Case after completion', async () => {
   const previewServer = await readFile(new URL('../src/routes/fsrs-preview/+page.server.js', import.meta.url), 'utf8');
+  const previewPage = await readFile(new URL('../src/routes/fsrs-preview/+page.svelte', import.meta.url), 'utf8');
+  const reviewPage = await readFile(new URL('../src/routes/fsrs-preview/review/[reviewId]/+page.svelte', import.meta.url), 'utf8');
   const openServer = await readFile(new URL('../src/routes/fsrs-preview/api/open/+server.js', import.meta.url), 'utf8');
   const completeServer = await readFile(new URL('../src/routes/fsrs-preview/api/complete/[reviewId]/+server.js', import.meta.url), 'utf8');
+  const planningBoundary = await readFile(new URL('../src/lib/server/learning/plan-system-study.ts', import.meta.url), 'utf8');
+
   assert.match(previewServer, /planSystemStudyRunFromForm/);
   assert.match(previewServer, /setExpandedLearningPreference/);
+  assert.match(planningBoundary, /parseStudyRunDistinctCaseTarget/);
+  assert.match(planningBoundary, /distinctCaseTarget/);
+  assert.match(previewPage, /name="runSize" value="5"/);
+  assert.match(previewPage, /name="runSize" value="10"/);
+  assert.match(previewPage, /name="runSize" value="20"/);
+  assert.match(previewPage, /name="runSize" value="all"/);
   assert.match(openServer, /validateLocalFsrsPreviewRunOwner/);
   assert.match(openServer, /createScheduledActiveReview/);
   assert.match(openServer, /createFreeActiveReview/);
   assert.match(completeServer, /completeFsrsPreviewRequest/);
   assert.match(completeServer, /completeScheduledReview/);
   assert.match(completeServer, /completeFreeReview/);
+  assert.match(reviewPage, /openFollowingReview\(browserRun\)/);
+  assert.match(reviewPage, /requestNextFsrsPreviewWork/);
+  assert.match(reviewPage, /goto\(`\/fsrs-preview\/review\/\$\{next\.payload\.reviewId\}`\)/);
 });

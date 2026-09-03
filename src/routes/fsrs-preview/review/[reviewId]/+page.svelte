@@ -3,6 +3,10 @@
   import { onMount } from 'svelte';
 
   import {
+    fsrsPreviewRunReturnHref,
+    requestNextFsrsPreviewWork
+  } from '$lib/fsrs-preview-open.js';
+  import {
     clearFsrsPreviewRun,
     readFsrsPreviewRun,
     writeFsrsPreviewRun
@@ -23,6 +27,27 @@
     return mode === 'expanded' ? 'Expanded Learning' : 'Original questions';
   }
 
+  /** @param {any} descriptor */
+  async function openFollowingReview(descriptor) {
+    try {
+      const next = await requestNextFsrsPreviewWork(descriptor);
+      if (next.payload.descriptor) {
+        browserRun = writeFsrsPreviewRun(localStorage, next.payload.descriptor);
+      }
+      if (next.payload.status === 'review' && next.payload.reviewId) {
+        await goto(`/fsrs-preview/review/${next.payload.reviewId}`);
+        return;
+      }
+      if (['waiting', 'new-limit-reached', 'complete', 'resume'].includes(next.payload.status)) {
+        await goto(fsrsPreviewRunReturnHref(next.payload));
+        return;
+      }
+      await goto('/fsrs-preview?runStatus=open-failed');
+    } catch {
+      await goto('/fsrs-preview?runStatus=open-failed');
+    }
+  }
+
   /** @param {'again'|'hard'|'good'|'easy'|null} [rating] */
   async function completeReview(rating = null) {
     if (completing) return;
@@ -41,11 +66,16 @@
       }
       if (payload.descriptor) {
         browserRun = writeFsrsPreviewRun(localStorage, payload.descriptor);
-      } else if (payload.runLost) {
+        await openFollowingReview(browserRun);
+        return;
+      }
+      if (payload.runLost) {
         clearFsrsPreviewRun(localStorage);
         browserRun = null;
+        await goto(fsrsPreviewRunReturnHref({ status: 'run-lost' }));
+        return;
       }
-      await goto('/fsrs-preview');
+      await goto('/fsrs-preview?runStatus=open-failed');
     } catch (cause) {
       completionError = cause instanceof Error ? cause.message : String(cause);
     } finally {

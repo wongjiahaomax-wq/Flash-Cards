@@ -1,3 +1,5 @@
+import { isStudyRunDistinctCaseTarget } from './study-run-size.js';
+
 /** @typedef {{getItem:(key:string)=>string|null,setItem:(key:string,value:string)=>void,removeItem:(key:string)=>void}} PreviewRunStorage */
 
 export const FSRS_PREVIEW_RUN_STORAGE_KEY = 'flash-cards:fsrs-preview-run:v1';
@@ -46,7 +48,8 @@ function validCommonDescriptor(descriptor) {
     && nonEmptyString(descriptor.runId)
     && Number.isFinite(descriptor.runStartedAt)
     && validScope(descriptor.selectedScope)
-    && nullableString(descriptor.currentReviewId);
+    && nullableString(descriptor.currentReviewId)
+    && isStudyRunDistinctCaseTarget(descriptor.distinctCaseTarget);
 }
 
 /** @param {any} boundary */

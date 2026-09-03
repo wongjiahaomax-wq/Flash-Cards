@@ -3,11 +3,13 @@
   import { onMount } from 'svelte';
 
   import SignOutButton from '$lib/components/SignOutButton.svelte';
+  import { requestNextFsrsPreviewWork } from '$lib/fsrs-preview-open.js';
   import {
     clearFsrsPreviewRun,
     readFsrsPreviewRunForUser,
     writeFsrsPreviewRun
   } from '$lib/fsrs-preview-run-storage.js';
+  import { effectiveStudyRunDistinctCaseTarget } from '$lib/study-run-size.js';
 
   let { data, form } = $props();
   /** @type {any} */
@@ -15,8 +17,30 @@
   let runMessage = $state('');
   let opening = $state(false);
 
+  /** @param {string} search */
+  function runStatusMessage(search) {
+    const params = new URLSearchParams(search);
+    const status = params.get('runStatus');
+    if (status === 'waiting') {
+      const nextRepeatDueAt = Number(params.get('nextRepeatDueAt'));
+      return Number.isFinite(nextRepeatDueAt)
+        ? `No distinct Case can be introduced now. The next required in-run repeat matures at ${new Date(nextRepeatDueAt).toLocaleTimeString()}.`
+        : 'The run is waiting for a required in-run repeat.';
+    }
+    if (status === 'new-limit-reached') {
+      const limit = Number(params.get('limit'));
+      return `The safety limit of ${Number.isFinite(limit) ? limit : 50} consecutive New completions was reached. Start a new Scheduled run to continue.`;
+    }
+    if (status === 'complete') return 'This preview run is complete.';
+    if (status === 'resume') return 'Another active Review must be resumed or discarded before this browser run can continue.';
+    if (status === 'run-lost') return 'The Review completed, but the browser-local run could not be recovered. Plan a new run to continue.';
+    if (status === 'open-failed') return 'The previous Review completed, but the next Review could not be opened. Continue the browser run when ready.';
+    return '';
+  }
+
   onMount(() => {
     browserRun = readFsrsPreviewRunForUser(localStorage, data.user.id);
+    runMessage = runStatusMessage(window.location.search);
   });
 
   $effect(() => {
@@ -44,6 +68,12 @@
     return form?.studyMode === mode;
   }
 
+  /** @param {string} systemId @param {'5'|'10'|'20'|'all'} value */
+  function selectedRunSize(systemId, value) {
+    if (form?.systemId !== systemId) return value === '10';
+    return (form?.runSize || '10') === value;
+  }
+
   function clearBrowserRun() {
     clearFsrsPreviewRun(localStorage);
     browserRun = null;
@@ -54,18 +84,23 @@
   function runSummary(descriptor) {
     if (!descriptor) return null;
     if (descriptor.kind === 'scheduled') {
+      const available = descriptor.capturedDue.length + descriptor.capturedNew.length;
       return {
         mode: 'Scheduled Study',
         due: Math.max(0, descriptor.capturedDue.length - Number(descriptor.duePosition ?? 0)),
         newCount: Math.max(0, descriptor.capturedNew.length - Number(descriptor.newPosition ?? 0)),
         repeats: descriptor.repeatEntries?.length ?? 0,
-        completed: descriptor.completedCaseIds?.length ?? 0
+        completed: new Set(descriptor.completedCaseIds ?? []).size,
+        target: effectiveStudyRunDistinctCaseTarget(descriptor.distinctCaseTarget, available),
+        allAvailable: descriptor.distinctCaseTarget == null
       };
     }
+    const total = effectiveStudyRunDistinctCaseTarget(descriptor.distinctCaseTarget, descriptor.bag.length);
     return {
       mode: 'Free Study',
-      remaining: Math.max(0, descriptor.bag.length - Number(descriptor.position ?? 0)),
-      total: descriptor.bag.length
+      remaining: Math.max(0, total - Number(descriptor.position ?? 0)),
+      total,
+      allAvailable: descriptor.distinctCaseTarget == null
     };
   }
 
@@ -74,12 +109,7 @@
     opening = true;
     runMessage = '';
     try {
-      const response = await fetch('/fsrs-preview/api/open', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ descriptor: browserRun })
-      });
-      const payload = await response.json();
+      const { ok, payload } = await requestNextFsrsPreviewWork(browserRun);
       if (payload.descriptor) browserRun = writeFsrsPreviewRun(localStorage, payload.descriptor);
       if (payload.status === 'review' && payload.reviewId) {
         await goto(`/fsrs-preview/review/${payload.reviewId}`);
@@ -90,7 +120,7 @@
         return;
       }
       if (payload.status === 'waiting') {
-        runMessage = `No captured Due/New work remains. The next in-run repeat matures at ${new Date(payload.nextRepeatDueAt).toLocaleTimeString()}.`;
+        runMessage = `No new distinct Case can be introduced yet. The next in-run repeat matures at ${new Date(payload.nextRepeatDueAt).toLocaleTimeString()}.`;
         return;
       }
       if (payload.status === 'new-limit-reached') {
@@ -101,7 +131,7 @@
         runMessage = 'This preview run is complete.';
         return;
       }
-      if (!response.ok) runMessage = payload.message ?? 'Unable to open the next Review.';
+      if (!ok) runMessage = payload.message ?? 'Unable to open the next Review.';
     } catch (cause) {
       runMessage = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -178,17 +208,17 @@
         <h2>{summary.mode}</h2>
         {#if browserRun.kind === 'scheduled'}
           <div class="metrics">
-            <span><strong>{summary.due}</strong> Due left</span>
-            <span><strong>{summary.newCount}</strong> New left</span>
+            <span><strong>{summary.completed}</strong> / {summary.target} distinct Cases</span>
+            <span><strong>{summary.due}</strong> Due queued</span>
+            <span><strong>{summary.newCount}</strong> New queued</span>
             <span><strong>{summary.repeats}</strong> repeats queued</span>
-            <span><strong>{summary.completed}</strong> Cases completed</span>
           </div>
         {:else}
           <div class="metrics">
-            <span><strong>{summary.remaining}</strong> of {summary.total} left</span>
+            <span><strong>{summary.remaining}</strong> of {summary.total} distinct Cases left</span>
           </div>
         {/if}
-        <p class="muted">Run id: <code>{browserRun.runId}</code></p>
+        <p class="muted">Run size: {summary.allAvailable ? 'All available' : summary.total ?? summary.target}. Run id: <code>{browserRun.runId}</code></p>
       </div>
       <div class="run-actions">
         <button class="button primary" type="button" onclick={continueRun} disabled={opening || Boolean(data.activeReview)}>
@@ -235,6 +265,27 @@
               <input type="radio" name="studyMode" value="free" checked={selectedMode(system.id, 'free')} />
               <span><strong>Free Study</strong><small>Shuffled eligible Cases, no FSRS rating or scheduler transition.</small></span>
             </label>
+          </fieldset>
+
+          <fieldset class="size-set">
+            <legend>Run size</legend>
+            <label class="size-option">
+              <input type="radio" name="runSize" value="5" checked={selectedRunSize(system.id, '5')} />
+              <span>5</span>
+            </label>
+            <label class="size-option">
+              <input type="radio" name="runSize" value="10" checked={selectedRunSize(system.id, '10')} />
+              <span>10</span>
+            </label>
+            <label class="size-option">
+              <input type="radio" name="runSize" value="20" checked={selectedRunSize(system.id, '20')} />
+              <span>20</span>
+            </label>
+            <label class="size-option">
+              <input type="radio" name="runSize" value="all" checked={selectedRunSize(system.id, 'all')} />
+              <span>All available</span>
+            </label>
+            <p class="field-help">Counts distinct Cases. Required FSRS repeats do not consume another slot and can continue after the target is reached.</p>
           </fieldset>
 
           <fieldset class="route-set">
@@ -286,10 +337,15 @@
   .system-card { display:grid; gap:1.1rem; align-content:start; padding:1.2rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
   .system-heading,.plan-form { display:grid; gap:.75rem; }
   .system-heading p:last-child { margin:0; line-height:1.5; }
-  .mode-set,.route-set { display:grid; gap:.55rem; margin:0; padding:0; border:0; }
-  .mode-set legend,.route-set legend { margin-bottom:.1rem; color:#344054; font-size:.88rem; font-weight:700; }
+  .mode-set,.size-set,.route-set { display:grid; gap:.55rem; margin:0; padding:0; border:0; }
+  .mode-set legend,.size-set legend,.route-set legend { margin-bottom:.1rem; color:#344054; font-size:.88rem; font-weight:700; }
   .mode-option,.route-option { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.65rem; align-items:start; padding:.72rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; }
   .mode-option:has(input:checked),.route-option:has(input:checked) { border-color:#98a2b3; background:#f8fafc; }
+  .size-set { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .size-set legend,.size-set .field-help { grid-column:1 / -1; }
+  .size-option { display:flex; gap:.4rem; align-items:center; justify-content:center; padding:.6rem .45rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; font-weight:700; text-align:center; }
+  .size-option:has(input:checked) { border-color:#98a2b3; background:#f8fafc; }
+  .field-help { margin:0; color:#667085; font-size:.82rem; line-height:1.45; }
   .tag-route { border-style:dashed; }
   .mode-option input,.route-option input { margin-top:.18rem; }
   .mode-option span,.route-option span { display:grid; gap:.18rem; }
@@ -301,5 +357,8 @@
     .account-actions,.active-actions,.run-actions,.preference-form { justify-content:flex-start; }
     .chooser-heading > p { text-align:left; }
     .system-grid { grid-template-columns:1fr; }
+  }
+  @media (max-width:520px) {
+    .size-set { grid-template-columns:repeat(2,minmax(0,1fr)); }
   }
 </style>
