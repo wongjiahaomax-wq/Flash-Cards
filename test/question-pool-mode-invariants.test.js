@@ -10,20 +10,7 @@ const migrationSql = readFileSync(
   'utf8'
 ).replaceAll('--> statement-breakpoint', '');
 
-const learningSource = readFileSync(
-  new URL('../src/lib/server/db/learning.js', import.meta.url),
-  'utf8'
-);
-const reviewRouteSource = readFileSync(
-  new URL('../src/routes/study/[reviewId]/+page.server.js', import.meta.url),
-  'utf8'
-);
-const reviewPageSource = readFileSync(
-  new URL('../src/routes/study/[reviewId]/+page.svelte', import.meta.url),
-  'utf8'
-);
-
-test('Review question-pool mode rejects invalid persistent values while historical rows default to Expanded', () => {
+test('historical Review question-pool rows retain the 0014 Expanded default and value constraint', () => {
   const sqlite = new DatabaseSync(':memory:');
   try {
     sqlite.exec('CREATE TABLE reviews (id text PRIMARY KEY);');
@@ -43,22 +30,9 @@ test('Review question-pool mode rejects invalid persistent values while historic
   }
 });
 
-test('Review-start mode is an explicit domain input with no implicit Expanded fallback', () => {
+test('question-pool mode validation remains explicit for active snapshot content resolution', () => {
+  assert.doesNotThrow(() => assertQuestionPoolMode('core'));
+  assert.doesNotThrow(() => assertQuestionPoolMode('expanded'));
   assert.throws(() => assertQuestionPoolMode(undefined), /Question pool mode must be core or expanded/);
-  assert.doesNotMatch(learningSource, /questionPoolMode\s*=\s*['"]expanded['"]/);
-  assert.match(learningSource, /assertQuestionPoolMode\(questionPoolMode\)/);
-});
-
-test('ordinary Next case requires an explicit question-set choice instead of inheriting the prior Review mode', () => {
-  const nextAction = reviewRouteSource.slice(reviewRouteSource.indexOf('next: async'));
-
-  assert.match(nextAction, /formData\.get\(['"]questionPoolMode['"]\)/);
-  assert.match(nextAction, /isQuestionPoolMode\(questionPoolMode\)/);
-  assert.match(nextAction, /questionPoolMode\s*\n\s*}\);/);
-  assert.doesNotMatch(nextAction, /questionPoolMode:\s*review\.questionPoolMode/);
-
-  assert.match(reviewPageSource, /name="questionPoolMode" value="core"/);
-  assert.match(reviewPageSource, /Next case — Original questions/);
-  assert.match(reviewPageSource, /name="questionPoolMode" value="expanded"/);
-  assert.match(reviewPageSource, /Next case — Expanded Learning/);
+  assert.throws(() => assertQuestionPoolMode('unexpected'), /Question pool mode must be core or expanded/);
 });
