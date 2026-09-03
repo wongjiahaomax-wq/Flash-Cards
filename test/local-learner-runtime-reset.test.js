@@ -6,13 +6,16 @@ import {
   buildLocalLearnerRuntimeResetSql
 } from '../scripts/local-learner-runtime-reset.mjs';
 
-test('local learner runtime reset removes FK blockers before content replacement', () => {
+test('local learner runtime reset removes active FSRS and retired legacy Review FK blockers before content replacement', () => {
   for (const table of [
     'scheduled_review_events',
     'free_review_completion_receipts',
     'active_review_questions',
     'active_review_assets',
     'active_reviews',
+    'review_questions',
+    'review_assets',
+    'reviews',
     'learner_case_fsrs',
     'learner_case_encounters',
     'learner_optimizer_evidence',
@@ -31,4 +34,6 @@ test('local learner runtime reset removes FK blockers before content replacement
   assert.ok(sql.indexOf('DELETE FROM `free_review_completion_receipts`') < sql.indexOf('DELETE FROM `active_reviews`'));
   assert.ok(sql.indexOf('DELETE FROM `active_review_questions`') < sql.indexOf('DELETE FROM `active_reviews`'));
   assert.ok(sql.indexOf('DELETE FROM `active_review_assets`') < sql.indexOf('DELETE FROM `active_reviews`'));
+  assert.ok(sql.indexOf('DELETE FROM `review_questions`') < sql.indexOf('DELETE FROM `reviews`'));
+  assert.ok(sql.indexOf('DELETE FROM `review_assets`') < sql.indexOf('DELETE FROM `reviews`'));
 });
