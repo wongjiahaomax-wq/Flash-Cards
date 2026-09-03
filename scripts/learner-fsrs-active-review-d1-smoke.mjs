@@ -165,12 +165,8 @@ async function fetchJson(baseUrl, pathname) {
   return JSON.parse(text);
 }
 
-function assertBoundaryRace(result, operation) {
+function assertBoundaryChange(result, operation) {
   assert.equal(result.operation, operation);
-  assert.ok(
-    result.creationOutcome === 'stale-rejected' || result.creationOutcome === 'created-then-consumed',
-    `Unexpected ${operation} race serialization: ${result.creationOutcome}`
-  );
   assert.equal(result.remainingActiveReviews, 0);
   if (operation === 'reset') {
     assert.equal(result.after.generation, result.before.generation);
@@ -181,6 +177,22 @@ function assertBoundaryRace(result, operation) {
     assert.equal(result.after.reviewSequenceEpoch, result.before.reviewSequenceEpoch + 1);
     assert.equal(result.after.parameterRevision, result.before.parameterRevision + 1);
   }
+}
+
+function assertConcurrentBoundaryRace(result, operation) {
+  assertBoundaryChange(result, operation);
+  assert.equal(result.serialization, 'concurrent');
+  assert.ok(
+    result.creationOutcome === 'stale-rejected' || result.creationOutcome === 'created-then-consumed',
+    `Unexpected ${operation} race serialization: ${result.creationOutcome}`
+  );
+}
+
+function assertCreationFirstBoundary(result, operation) {
+  assertBoundaryChange(result, operation);
+  assert.equal(result.serialization, 'creation-first');
+  assert.equal(result.creationOutcome, 'created-then-consumed');
+  assert.deepEqual(result.activeBoundaryBefore, result.before);
 }
 
 async function main() {
@@ -276,13 +288,18 @@ async function main() {
     const freshRaces = [];
     for (let index = 0; index < boundaryRaceIterations; index += 1) {
       const resetRace = await fetchJson(baseUrl, '/race-reset');
-      assertBoundaryRace(resetRace, 'reset');
+      assertConcurrentBoundaryRace(resetRace, 'reset');
       resetRaces.push(resetRace.creationOutcome);
 
       const freshRace = await fetchJson(baseUrl, '/race-fresh');
-      assertBoundaryRace(freshRace, 'fresh');
+      assertConcurrentBoundaryRace(freshRace, 'fresh');
       freshRaces.push(freshRace.creationOutcome);
     }
+
+    const creationFirstReset = await fetchJson(baseUrl, '/creation-first-reset');
+    assertCreationFirstBoundary(creationFirstReset, 'reset');
+    const creationFirstFresh = await fetchJson(baseUrl, '/creation-first-fresh');
+    assertCreationFirstBoundary(creationFirstFresh, 'fresh');
 
     console.log(JSON.stringify({
       runtime: 'workerd + local D1 binding',
@@ -295,7 +312,9 @@ async function main() {
       replacementCreatedNewOwner: replacement.id !== created.id,
       boundaryRaceIterations,
       resetCreationRaceOutcomes: resetRaces,
-      freshCreationRaceOutcomes: freshRaces
+      freshCreationRaceOutcomes: freshRaces,
+      creationFirstResetOutcome: creationFirstReset.creationOutcome,
+      creationFirstFreshOutcome: creationFirstFresh.creationOutcome
     }, null, 2));
   } catch (error) {
     const output = [stdout.trim(), stderr.trim()].filter(Boolean).join('\n--- stderr ---\n');

@@ -36,6 +36,10 @@ test('active Review specialized workflow owns Reset/Fresh supported-writer race 
   assert.match(worker, /resetLearnerFsrsProgress/);
   assert.match(worker, /freshLearnerFsrsStart/);
   assert.match(worker, /Promise\.allSettled/);
+  assert.match(worker, /runCreationFirstBoundary/);
   assert.match(runner, /\/race-reset/);
   assert.match(runner, /\/race-fresh/);
+  assert.match(runner, /\/creation-first-reset/);
+  assert.match(runner, /\/creation-first-fresh/);
+  assert.match(runner, /activeBoundaryBefore/);
 });
