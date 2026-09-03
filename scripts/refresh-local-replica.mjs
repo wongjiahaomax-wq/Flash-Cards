@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+import { buildLocalLearnerRuntimeResetSql } from './local-learner-runtime-reset.mjs';
 import {
   CONTENT_TABLES,
   FORBIDDEN_PRODUCTION_TABLES,
@@ -111,9 +112,13 @@ function refreshD1() {
 
   mkdirSync(stagingDir, { recursive: true });
   writeFileSync(dataFile, buildReplicaContentSql(snapshots), { mode: 0o600 });
-  writeFileSync(resetFile, buildLocalResetSql(), { mode: 0o600 });
+  writeFileSync(
+    resetFile,
+    `${buildLocalLearnerRuntimeResetSql()}\n${buildLocalResetSql()}`,
+    { mode: 0o600 }
+  );
 
-  console.log('Replacing local content tables; local Better Auth identity is preserved...');
+  console.log('Replacing local content tables; local Better Auth identity and learner settings are preserved, while local learner Review/progress state is reset...');
   runWrangler(buildLocalD1FileArgs(resetFile));
   runWrangler(buildLocalD1FileArgs(dataFile));
 
@@ -198,6 +203,7 @@ function printSafetySummary() {
   console.log('- production R2 operations are object GET only');
   console.log('- all application/runtime mutations remain in local D1/R2');
   console.log('- production auth identities, sessions, learner Reviews, Preview sessions and import jobs are not mirrored');
+  console.log('- D1 content refresh clears local learner Review/progress rows tied to the previous content snapshot');
 }
 
 async function main() {
