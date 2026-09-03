@@ -9,7 +9,7 @@ import { resolveSystemStudySelection } from '../db/study-navigation.ts';
  * @param {{
  *   db: import('../db/index.js').LearningDb,
  *   systemId: string,
- *   routes: readonly {routeType:string,routeId:string}[],
+ *   routes: readonly {routeType:'topic'|'tag',routeId:string}[],
  *   caseId: string,
  *   contentMode: 'original'|'expanded',
  *   rng?: () => number
