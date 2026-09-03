@@ -1,9 +1,6 @@
 name: Learner FSRS PR G analytics and deletion
 
 on:
-  push:
-    branches:
-      - 'agent/fsrs-pr-g-admin-analytics-deletion'
   pull_request:
     paths:
       - 'package.json'
@@ -15,6 +12,7 @@ on:
       - 'scripts/learner-fsrs-account-deletion-benchmark.mjs'
       - 'scripts/learner-fsrs-account-deletion-d1-smoke.mjs'
       - 'scripts/learner-fsrs-account-deletion-d1-smoke-worker.js'
+      - 'src/lib/server/auth.js'
       - 'src/lib/server/db/fsrs-admin-analytics.ts'
       - 'src/lib/server/db/fsrs-analytics-schema.js'
       - 'src/lib/server/db/fsrs-system-provenance.ts'
