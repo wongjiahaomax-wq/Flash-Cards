@@ -14,6 +14,18 @@ test('PR G analytics schema is registered with Drizzle migration tooling', () =>
   assert.match(drizzleConfig, /fsrs-analytics-schema\.js/);
 });
 
+test('PR G long-range trend reads are sourced only from durable monthly buckets', () => {
+  const analytics = source('src/lib/server/db/fsrs-admin-analytics.ts');
+  const marker = 'export async function getAdminLearnerTrendSeries';
+  const offset = analytics.indexOf(marker);
+  assert.notEqual(offset, -1, 'Admin long-range trend function must remain present');
+  const trendSource = analytics.slice(offset);
+
+  assert.match(trendSource, /learner_system_monthly_buckets/);
+  assert.doesNotMatch(trendSource, /learner_optimizer_evidence/);
+  assert.doesNotMatch(trendSource, /learner_system_aggregates/);
+});
+
 test('PR G learner analytics/deletion tables remain explicitly forbidden from production-to-local replica content', () => {
   const mirroredNames = new Set(CONTENT_TABLES.map((table) => table.name));
   const forbiddenNames = new Set(FORBIDDEN_PRODUCTION_TABLES);
