@@ -142,6 +142,23 @@ BEGIN
 	SELECT RAISE(ABORT, 'learner_account_deletion_in_progress');
 END;
 --> statement-breakpoint
+CREATE TRIGGER `verification_learner_account_deletion_guard`
+BEFORE INSERT ON `verification`
+WHEN EXISTS (
+	SELECT 1 FROM `learner_account_deletions` d WHERE d.`user_id` = NEW.`value`
+)
+BEGIN
+	SELECT RAISE(ABORT, 'learner_account_deletion_in_progress');
+END;
+--> statement-breakpoint
+CREATE TRIGGER `verification_reset_password_user_guard`
+BEFORE INSERT ON `verification`
+WHEN NEW.`identifier` LIKE 'reset-password:%'
+	AND NOT EXISTS (SELECT 1 FROM `user` u WHERE u.`id` = NEW.`value`)
+BEGIN
+	SELECT RAISE(ABORT, 'reset_password_verification_user_missing');
+END;
+--> statement-breakpoint
 CREATE TRIGGER `active_reviews_learner_account_deletion_guard`
 BEFORE INSERT ON `active_reviews`
 WHEN EXISTS (
