@@ -22,11 +22,13 @@ async function ensureActiveReviewFixture(db) {
   `));
 }
 
+/** @param {Parameters<typeof real.ensurePreviewWorkspace>[0]} input */
 export async function ensurePreviewWorkspace(input) {
   await ensureActiveReviewFixture(input.db);
   return real.ensurePreviewWorkspace(input);
 }
 
+/** @param {Parameters<typeof real.cleanupPreviewWorkspace>[0]} input */
 export async function cleanupPreviewWorkspace(input) {
   await ensureActiveReviewFixture(input.db);
   return real.cleanupPreviewWorkspace(input);
