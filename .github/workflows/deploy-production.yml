@@ -82,15 +82,9 @@ jobs:
         run: node scripts/local-auth-smoke.mjs
 
       - name: Require zero Production legacy learner Review rows
-        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
-        run: |
-          set -euo pipefail
-          ./node_modules/.bin/wrangler d1 execute DB --remote \
-            --command "SELECT (SELECT count(*) FROM reviews) AS reviews_count, (SELECT count(*) FROM review_questions) AS review_questions_count, (SELECT count(*) FROM review_assets) AS review_assets_count;" \
-            --json > learner-fsrs-legacy-review-counts.json
-          node scripts/learner-fsrs-legacy-review-gate.mjs learner-fsrs-legacy-review-counts.json
+        run: node scripts/learner-fsrs-preflight.mjs --remote
 
       - name: Apply production D1 migrations
         if: ${{ inputs.apply_migrations == true }}
