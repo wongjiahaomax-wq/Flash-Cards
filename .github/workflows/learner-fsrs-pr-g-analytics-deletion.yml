@@ -20,6 +20,7 @@ on:
       - 'src/routes/admin/learner-analytics/**'
       - 'test/learner-fsrs-pr-g.test.js'
       - 'test/learner-fsrs-pr-g-source-contract.test.js'
+      - 'test/learner-fsrs-pr-g-verification-guard.test.js'
       - 'docs/DOCUMENTATION_INDEX.md'
       - 'docs/V1_DATA_MODEL.md'
       - 'docs/LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md'
@@ -52,8 +53,8 @@ jobs:
       - name: Validate migration history
         run: npm run db:check
 
-      - name: Run PR G unit, integration, and source-contract regressions
-        run: node --test test/learner-fsrs-pr-g.test.js test/learner-fsrs-pr-g-source-contract.test.js
+      - name: Run PR G unit, integration, verification-race, and source-contract regressions
+        run: node --test test/learner-fsrs-pr-g.test.js test/learner-fsrs-pr-g-verification-guard.test.js test/learner-fsrs-pr-g-source-contract.test.js
 
       - name: Benchmark large mature learner staged deletion
         run: npm run fsrs:account-deletion-benchmark
