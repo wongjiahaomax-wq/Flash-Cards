@@ -3,9 +3,9 @@ export const LEARNER_ACCOUNT_DELETION_BATCH_SIZE = 1_000;
 const DATABASE_NOW_MS_SQL = "cast((julianday('now') - 2440587.5) * 86400000 as integer)";
 
 const PHASES = [
-  { phase: 'active_reviews', table: 'active_reviews', next: 'free_receipts' },
   { phase: 'free_receipts', table: 'free_review_completion_receipts', next: 'scheduled_events' },
-  { phase: 'scheduled_events', table: 'scheduled_review_events', next: 'optimizer_evidence' },
+  { phase: 'scheduled_events', table: 'scheduled_review_events', next: 'active_reviews' },
+  { phase: 'active_reviews', table: 'active_reviews', next: 'optimizer_evidence' },
   { phase: 'optimizer_evidence', table: 'learner_optimizer_evidence', next: 'case_state' },
   { phase: 'case_state', table: 'learner_case_fsrs', next: 'case_encounters' },
   { phase: 'case_encounters', table: 'learner_case_encounters', next: 'monthly_buckets' },
@@ -100,7 +100,7 @@ export async function beginLearnerAccountDeletion(input: {
   await client.batch([
     client.prepare(`
       INSERT INTO learner_account_deletions (user_id, phase)
-      VALUES (?, 'active_reviews')
+      VALUES (?, 'free_receipts')
       ON CONFLICT(user_id) DO NOTHING
     `).bind(userId),
     client.prepare(`
@@ -126,9 +126,9 @@ export async function beginLearnerAccountDeletion(input: {
 
 const FIRST_REMAINING_PHASE_SQL = `
   SELECT CASE
-    WHEN EXISTS (SELECT 1 FROM active_reviews WHERE user_id = ? LIMIT 1) THEN 'active_reviews'
     WHEN EXISTS (SELECT 1 FROM free_review_completion_receipts WHERE user_id = ? LIMIT 1) THEN 'free_receipts'
     WHEN EXISTS (SELECT 1 FROM scheduled_review_events WHERE user_id = ? LIMIT 1) THEN 'scheduled_events'
+    WHEN EXISTS (SELECT 1 FROM active_reviews WHERE user_id = ? LIMIT 1) THEN 'active_reviews'
     WHEN EXISTS (SELECT 1 FROM learner_optimizer_evidence WHERE user_id = ? LIMIT 1) THEN 'optimizer_evidence'
     WHEN EXISTS (SELECT 1 FROM learner_case_fsrs WHERE user_id = ? LIMIT 1) THEN 'case_state'
     WHEN EXISTS (SELECT 1 FROM learner_case_encounters WHERE user_id = ? LIMIT 1) THEN 'case_encounters'
