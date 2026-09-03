@@ -140,11 +140,11 @@ test('database guard independently blocks raw reclassification or deletion of an
   try {
     assert.throws(
       () => fixture.sqlite.exec("UPDATE concepts SET kind = 'topic' WHERE id = 'system-history'"),
-      /fsrs_system_history_reclassification_blocked/i
+      /durable learner FSRS history.*reclassified/i
     );
     assert.throws(
       () => fixture.sqlite.exec("DELETE FROM concepts WHERE id = 'system-history'"),
-      /fsrs_system_history_delete_blocked/i
+      /durable learner FSRS history.*deleted/i
     );
   } finally {
     fixture.sqlite.close();
