@@ -16,6 +16,7 @@
   let browserRun = $state(null);
   let runMessage = $state('');
   let opening = $state(false);
+  let autoStartedRunId = $state(null);
 
   /** @param {string} search */
   function runStatusMessage(search) {
@@ -46,8 +47,13 @@
   $effect(() => {
     if (typeof localStorage === 'undefined') return;
     if (form?.descriptor) {
-      browserRun = writeFsrsPreviewRun(localStorage, form.descriptor);
+      const plannedRun = writeFsrsPreviewRun(localStorage, form.descriptor);
+      browserRun = plannedRun;
       runMessage = form.message ?? 'Preview run planned.';
+      if (autoStartedRunId !== plannedRun.runId) {
+        autoStartedRunId = plannedRun.runId;
+        void openRun(plannedRun);
+      }
     }
     if (form?.discardedReviewId && browserRun?.currentReviewId === form.discardedReviewId) {
       clearFsrsPreviewRun(localStorage);
@@ -104,12 +110,13 @@
     };
   }
 
-  async function continueRun() {
-    if (!browserRun || data.activeReview || opening) return;
+  /** @param {any} descriptor */
+  async function openRun(descriptor) {
+    if (!descriptor || data.activeReview || opening) return;
     opening = true;
     runMessage = '';
     try {
-      const { ok, payload } = await requestNextFsrsPreviewWork(browserRun);
+      const { ok, payload } = await requestNextFsrsPreviewWork(descriptor);
       if (payload.descriptor) browserRun = writeFsrsPreviewRun(localStorage, payload.descriptor);
       if (payload.status === 'review' && payload.reviewId) {
         await goto(`/fsrs-preview/review/${payload.reviewId}`);
@@ -137,6 +144,10 @@
     } finally {
       opening = false;
     }
+  }
+
+  async function continueRun() {
+    await openRun(browserRun);
   }
 
   let summary = $derived(runSummary(browserRun));
@@ -235,7 +246,7 @@
 
   <section class="chooser-heading">
     <div>
-      <p class="eyebrow">Plan a new run</p>
+      <p class="eyebrow">Start a new run</p>
       <h2>Choose a System and scope</h2>
     </div>
     <p class="muted">All contributing Topic/Tag routes start selected. Uncheck routes to narrow the union.</p>
@@ -310,7 +321,7 @@
           {#if form?.message && form?.systemId === system.id}
             <p class="form-error" role="alert">{form.message}</p>
           {/if}
-          <button class="button primary" type="submit" disabled={Boolean(data.activeReview)}>Plan {system.name} run</button>
+          <button class="button primary" type="submit" disabled={Boolean(data.activeReview)}>Start {system.name} run</button>
         </form>
       </section>
     {/each}
