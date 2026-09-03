@@ -727,7 +727,7 @@ test('schema/UI/routes keep replacement narrow, production-only, and outside Imp
     new URL('../src/routes/study/media/[reviewId]/[assetId]/+server.js', import.meta.url),
     'utf8'
   );
-  assert.match(activeReviewMediaRoute, /getActiveReviewById/);
+  assert.match(activeReviewMediaRoute, /getOwnedActiveReviewMediaSnapshot/);
   assert.match(activeReviewMediaRoute, /storageKeySnapshot/);
   assert.match(activeReviewMediaRoute, /serveReviewImage/);
 
