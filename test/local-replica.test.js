@@ -14,6 +14,7 @@ import {
   buildLocalR2PutArgs,
   buildRemoteD1QueryArgs,
   buildRemoteR2GetArgs,
+  buildReplicaContentSql,
   orderRowsForInsert,
   readR2BucketName
 } from '../scripts/local-replica-lib.mjs';
@@ -83,7 +84,7 @@ test('Vite platform proxy persists local state and refuses remote binding connec
   assert.match(config, /remoteBindings:\s*false/);
 });
 
-test('local reset deliberately preserves Better Auth identity tables', () => {
+test('local reset deliberately preserves Better Auth identity tables and clears trigger-protected Original pointers first', () => {
   for (const table of ['user', 'account', 'session', 'verification']) assert.equal(LOCAL_RESET_TABLES.includes(table), false);
   for (const table of [
     'reviews',
@@ -97,10 +98,37 @@ test('local reset deliberately preserves Better Auth identity tables', () => {
     assert.equal(LOCAL_RESET_TABLES.includes(table), true);
   }
   const sql = buildLocalResetSql();
+  const clearOriginal = 'UPDATE `stimulus_groups` SET `original_option_id` = NULL';
+  const deleteOptions = 'DELETE FROM `stimulus_group_options`';
+  assert.match(sql, /UPDATE `stimulus_groups` SET `original_option_id` = NULL/);
+  assert.ok(sql.indexOf(clearOriginal) < sql.indexOf(deleteOptions));
   assert.match(sql, /UPDATE `concepts` SET `parent_id` = NULL/);
   assert.match(sql, /UPDATE `assets` SET `superseded_by_asset_id` = NULL/);
   assert.ok(sql.indexOf('DELETE FROM `stimulus_option_asset_questions`') < sql.indexOf('DELETE FROM `asset_questions`'));
   assert.ok(sql.indexOf('DELETE FROM `asset_questions`') < sql.indexOf('DELETE FROM `assets`'));
+});
+
+test('local replica restores Original stimulus pointers only after family options are inserted', () => {
+  const sql = buildReplicaContentSql([
+    {
+      name: 'stimulus_groups',
+      rows: [{ id: 'group-1', case_id: 'case-1', original_option_id: 'option-1' }]
+    },
+    {
+      name: 'stimulus_group_options',
+      rows: [{ id: 'option-1', stimulus_group_id: 'group-1', asset_id: 'asset-1' }]
+    }
+  ]);
+
+  const groupInsert = sql.indexOf('INSERT INTO `stimulus_groups`');
+  const optionInsert = sql.indexOf('INSERT INTO `stimulus_group_options`');
+  const restoreOriginal = sql.indexOf("UPDATE `stimulus_groups` SET `original_option_id` = 'option-1' WHERE `id` = 'group-1';");
+  assert.ok(groupInsert >= 0);
+  assert.ok(optionInsert > groupInsert);
+  assert.ok(restoreOriginal > optionInsert);
+
+  const groupBlock = sql.slice(groupInsert, optionInsert);
+  assert.match(groupBlock, /`original_option_id`\) VALUES \('group-1', 'case-1', NULL\);/);
 });
 
 test('Topic rows are inserted parent-first even when source IDs sort child-first', () => {
