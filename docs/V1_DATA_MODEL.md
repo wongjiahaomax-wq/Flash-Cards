@@ -1,8 +1,8 @@
 # Flash-Cards — V1 Data Model
 
-_Last updated: 28 August 2026_
+_Last updated: 3 September 2026_
 
-This document records the implemented V1 application data model represented by the repository after the contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, and Original/Alternative stimulus changes. It should agree with the current Drizzle schema, committed D1 migrations, and subsystem invariant documents.
+This document records the implemented V1 application data model represented by the repository after the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, and Original/Alternative stimulus changes. It should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the cutover boundary and explicitly distinguishes repository state from Production deployment state.
 
 A migration file being committed is not proof that it has been applied to production D1. Merge status, production migration application, Worker deployment, taxonomy/stimulus curation, learner feature enablement, and behavior verification remain separate operational facts.
 
@@ -28,24 +28,38 @@ The repository migration sequence contains:
 0014_review_question_pool_mode.sql
 0015_contextual_system_topic_tag_navigation.sql
 0016_original_stimulus_options.sql
+0017_align_reusable_prompt_live_state_guards.sql
+0018_topic_deletion_provenance_indexes.sql
+0019_learner_fsrs_foundation.sql
+0020_learner_fsrs_active_reviews.sql
+0021_learner_fsrs_scheduled_completion.sql
+0022_learner_fsrs_free_study.sql
+0023_learner_fsrs_system_provenance_guard.sql
 ```
 
-Relevant later migrations:
+Important migrations for the current model include:
 
-- `0009` — exact-Asset Reusable Image Questions, explicit stimulus-option opt-ins, reusable-image Review provenance, and cross-group Prompt protection;
+- `0009` — exact-Asset Reusable Image Questions, explicit stimulus-option opt-ins, reusable-image provenance, and cross-group Prompt protection;
 - `0010` — defense in depth when reactivating dormant Reusable Image Questions;
 - `0011` — nullable `assets.superseded_by_asset_id` self-FK/index for narrow same-image higher-resolution replacement;
 - `0012` — `stimulus_group_options.removed_from_case`, separating archived removal from ordinary `is_active` deactivation;
-- `0013` — `review_assets(asset_id, review_id)` index for Asset-leading historical Review existence/count lookups used by Image Library lifecycle classification;
-- `0014` — non-null `reviews.question_pool_mode`, defaulting historical Reviews to `expanded`, matching the pre-feature full resolver behavior without rebuilding snapshots;
-- `0015` — `concepts.kind`, contextual `system_tags`, taxonomy/relationship guards, effective Review System/Tag provenance, and learner-selected System navigation provenance;
-- `0016` — nullable `stimulus_groups.original_option_id`, conservative production-only Original backfill, and defensive Original-integrity guards.
+- `0013` — historical `review_assets(asset_id, review_id)` lookup index. The indexed table is now a legacy migration-history/cutover-sentinel table and is not current Asset lifecycle ownership;
+- `0014` — historical `reviews.question_pool_mode` compatibility. `reviews` is now a legacy migration-history/cutover-sentinel table and is not current learner runtime state;
+- `0015` — `concepts.kind`, contextual `system_tags`, taxonomy/relationship guards, and the then-current legacy Review route-provenance columns. Those legacy Review columns are retained only as physical migration history;
+- `0016` — nullable `stimulus_groups.original_option_id`, conservative production-only Original backfill, and defensive Original-integrity guards;
+- `0017` — aligns reusable-question Prompt/live-state database guards with current authoring invariants;
+- `0018` — Topic deletion-provenance indexes used by current content safety checks;
+- `0019` — learner FSRS foundation: persistent learner preference/profile state, learner×Case FSRS state, encounters, Scheduled events, optimizer evidence, learner aggregates, and learner×System Scheduled aggregates;
+- `0020` — normalized temporary active-Review ownership in `active_reviews`, `active_review_questions`, and `active_review_assets`;
+- `0021` — Scheduled FSRS completion context and database write-time guards for exactly-once active-Review consumption and durable Scheduled event/state updates;
+- `0022` — Free Study completion with short-lived `free_review_completion_receipts` plus write-time active-Review/expiry guards;
+- `0023` — defensive deletion/reclassification protection for Systems referenced by durable FSRS System provenance in `scheduled_review_events` or `learner_system_aggregates`.
 
-`0015` defaults all existing Concepts to `kind = 'topic'` and all historical Reviews to `route_type = 'topic'` with null System/Tag and selected-navigation provenance. It does not rewrite `review_questions` or `review_assets` snapshots.
+Migrations `0013`–`0015` remain immutable and valid migration history. Their legacy `reviews`, `review_questions`, and `review_assets` semantics must not be read as current runtime architecture after the FSRS cutover.
 
-`0016` does not claim that every existing family has a known Original. It assigns an Original only to an unambiguous eligible one-option **production** family, leaves ambiguous legacy multi-option production families uncurated with `original_option_id = NULL`, and leaves retained Preview-owned families uncurated. It does not rewrite historical Review snapshots. The migration also prevents creating a group with an arbitrary non-null Original pointer; a family is inserted with `original_option_id = NULL`, then an eligible option is inserted/restored and an explicit validated update assigns the Original.
+`0016` does not claim that every existing family has a known Original. It assigns an Original only to an unambiguous eligible one-option **production** family, leaves ambiguous legacy multi-option production families uncurated with `original_option_id = NULL`, and leaves retained Preview-owned families uncurated. It does not rewrite older legacy Review rows. The migration also prevents creating a group with an arbitrary non-null Original pointer; a family is inserted with `original_option_id = NULL`, then an eligible option is inserted/restored and an explicit validated update assigns the Original.
 
-No new migration is required to retire Additional Study Topics from current product behavior. `src/lib/server/db/schema.js` remains the authoritative post-0016 Drizzle model loaded by `drizzle.config.js`, and the historical physical `case_concepts.role = primary | secondary` shape remains unchanged. Current application read/write paths treat only `role = 'primary'` as behaviorally active.
+No new migration is required to retire Additional Study Topics from current product behavior. The current Drizzle authority is split deliberately across `src/lib/server/db/schema.js` for content/domain tables, `src/lib/server/db/fsrs-schema.js` for durable FSRS/progress state, `src/lib/server/db/active-review-schema.js` for unfinished learner Review ownership, and `src/lib/server/db/free-study-schema.js` for Free completion receipts; `drizzle.config.js` registers the current schema modules. `src/lib/server/db/schema.js` intentionally exports no legacy `reviews`, `review_questions`, or `review_assets` tables after cutover. The historical physical `case_concepts.role = primary | secondary` shape remains unchanged, while current application read/write paths treat only `role = 'primary'` as behaviorally active.
 
 ## 2. General design rules
 
@@ -54,7 +68,7 @@ No new migration is required to retire Additional Study Topics from current prod
 3. Use foreign keys, checks, unique indexes, and defensive triggers where practical.
 4. Prefer deactivation/archive over destructive deletion for teaching content.
 5. Store private R2 object keys, not public/provider media URLs.
-6. Snapshot what the learner actually saw when a Review begins.
+6. Freeze what the learner actually sees into the current active Review before progress begins; do not use the retired legacy Review tables for new snapshots.
 7. Store answers/clinical meaning on the relationship/object that makes them correct; `question_prompts` stores wording only.
 8. Keep Systems, Topics, Tags, stimulus groups, Image Collections, and exact-Asset reuse semantically separate.
 9. Keep new content structures additive/backward-compatible where safe; compatibility shapes must not preserve retired product behavior accidentally.
@@ -64,9 +78,9 @@ No new migration is required to retire Additional Study Topics from current prod
 13. Asset lifecycle status and derived usage classification are distinct concepts.
 14. Learner question-pool eligibility and Case question-count selection are orthogonal concerns: source eligibility is decided before duplicate-Prompt resolution, then existing Automatic/All/Fixed selection is applied.
 15. System/Tag learner navigation chooses Case entry context; it does not replace canonical Topic-question resolution.
-16. A Review distinguishes the learner-selected System route from the effective Topic/Tag provenance that actually selected its Case.
+16. Current learner runtime scope/provenance is split by purpose: the unfinished active Review owns its selected System/scope and frozen content, while durable Scheduled completion records compact System attribution in Scheduled events/aggregates.
 17. A current learner-presentable Case has exactly one behaviorally active canonical Primary Topic; alternate/cross-cutting classification uses Case Tags rather than Additional Study Topics.
-18. A curated stimulus family has an explicit Original pointer; insertion/display order, filename, caption, naming, or Review history must never be treated as implicit Original semantics.
+18. A curated stimulus family has an explicit Original pointer; insertion/display order, filename, caption, naming, or learner snapshot/history must never be treated as implicit Original semantics.
 
 ## 3. Authentication and Preview ownership
 
@@ -113,7 +127,8 @@ Taxonomy invariants include:
 - the hierarchy must be acyclic;
 - active children block parent deactivation until moved/deactivated;
 - Topics may temporarily remain top-level while curation is incomplete;
-- a Topic with Case/Topic-question usage cannot be reclassified as a System without first resolving those usages.
+- a Topic with Case/Topic-question usage cannot be reclassified as a System without first resolving those usages;
+- a System with durable FSRS history in `scheduled_review_events` or `learner_system_aggregates` cannot be reclassified or deleted; application checks plus migration `0023` database triggers enforce this current provenance boundary.
 
 ### `cases`
 
@@ -169,7 +184,7 @@ Changing a Case's Primary Topic replaces its canonical current relationship rath
 
 ### `image_collections`
 
-Global Admin Image Library organisation only. Collections have no learner-routing, Tag, Case, question, or Review semantics.
+Global Admin Image Library organisation only. Collections have no learner-routing, Tag, Case, question, or completion-history semantics.
 
 ### `assets`
 
@@ -211,7 +226,7 @@ A later upgrade may produce A → B → C. This is not a generic Asset-family/ve
 
 ### Derived Image Library usage state
 
-Usage is computed from current/historical relationships rather than stored as an Asset flag:
+Usage is computed from current/retained relationships rather than stored as an Asset flag:
 
 ```text
 Current
@@ -219,14 +234,15 @@ Current
   OR active Asset on active, non-removed option in active group.
 
 Historical only
-→ no Current use, but retained production relationship, Review snapshot,
-  Reusable Image Question, or supersession relationship still requires provenance.
+→ no Current use, but a retained production relationship,
+  an unfinished active_review_assets reference, a Reusable Image Question,
+  or a supersession relationship still requires the Asset/R2 object.
 
 Unused
-→ neither Current use nor retained historical/provenance dependency.
+→ neither Current use nor any retained current/provenance dependency.
 ```
 
-Preview-session relationships do not affect production lifecycle classification.
+The `Historical only` label is a lifecycle classification; an `active_review_assets` dependency represents **unfinished current learner ownership**, not completed historical Review persistence. Legacy `review_assets` rows do not participate in the current lifecycle model and must be zero at the cutover gate. Preview-session relationships do not affect production lifecycle classification.
 
 ## 6. Fixed Case images
 
@@ -267,15 +283,15 @@ updated_at
 For an active curated production family:
 
 ```text
-Core / question_pool_mode = core
+Core / Original content mode
 → select original_option_id
 
-Expanded / question_pool_mode = expanded
+Expanded Learning content mode
 → select an eligible active, non-removed, non-Original Alternative when one exists
 → otherwise fall back to original_option_id
 ```
 
-For a legacy family with `original_option_id = NULL`, selection preserves the pre-0016 random eligible-option behavior. The application must not infer an Original from option insertion order, display order, filename, caption, name, or historical Review selection.
+For a legacy family with `original_option_id = NULL`, selection preserves the pre-0016 random eligible-option behavior. The application must not infer an Original from option insertion order, display order, filename, caption, name, or older learner history.
 
 A new group is created with `original_option_id = NULL`. The option must exist and be eligible before an explicit validated update may assign it as Original. Source-aware authoring may perform these steps atomically when the semantics are unambiguous. In particular, **Start Alternative Set** from an ordinary Case image A means A is the explicit source/principal image, so the domain operation creates the family, preserves A's Asset/caption relationship as the new option, assigns that exact option as Original, and only then removes the ordinary `case_assets` relationship. Generic sequential option insertion remains order-agnostic and never promotes “first inserted” by convention.
 
@@ -309,11 +325,11 @@ Current learner selection considers active, non-removed options backed by active
 `is_active` and `removed_from_case` are deliberately different:
 
 - `is_active = false` deactivates the option while retaining it in normal authoring/history;
-- `removed_from_case = true` archives the Case relationship out of current authoring/selection while preserving the row for restrictive foreign keys, question relationships, restoration, and Review provenance.
+- `removed_from_case = true` archives the Case relationship out of current authoring/selection while preserving the row for restrictive foreign keys, question relationships, restoration, and content provenance.
 
 Re-adding the same Asset to its original group can restore that archived relationship when there is no current group conflict and retained teaching remains valid.
 
-Removing an option does not delete the Asset, R2 object, exact-option questions, Reusable Image Questions, or Review rows.
+Removing an option does not delete the Asset, R2 object, exact-option questions, or Reusable Image Questions. An already-frozen active Review remains governed by its `active_review_questions` / `active_review_assets` snapshot until it is completed, discarded, replaced, or expired.
 
 Higher-resolution replacement changes a current production option's `asset_id` A → B without changing the option ID or the family's `original_option_id` pointer when that option is Original.
 
@@ -419,7 +435,7 @@ stimulus_option_questions
 stimulus_option_asset_questions -> asset_questions.question_prompt_id
 ```
 
-Application preflight plus D1 triggers defend the invariant. `0010` extends protection to Asset Question reactivation.
+Application preflight plus D1 triggers defend the invariant. `0010` and `0017` extend/align protection for current reusable-question live-state transitions.
 
 ## 12. Tags, System Tag exposure, and Shared Questions
 
@@ -466,7 +482,7 @@ Shared Question eligibility requires an active Shared Question/Prompt/Reuse Scop
 
 Eligible Shared Questions use `source_type = tag_shared` and are Expanded-only reusable sources. Their underlying eligibility rule is unchanged by System navigation.
 
-## 13. Question resolver precedence and pool mode
+## 13. Question resolver precedence and content mode
 
 Duplicate-Prompt precedence is:
 
@@ -483,15 +499,15 @@ selected exact stimulus-option question
 
 The final candidate set is deduplicated by `question_prompt_id` before Automatic/All/Fixed selection.
 
-`QuestionPoolMode` applies source eligibility **before** that resolver precedence:
+Logical question-pool eligibility applies **before** that resolver precedence:
 
 ```text
-core / Original
+Original/Core
 → case
 → stimulus_group
 → stimulus_option
 
-expanded / Expanded Learning
+Expanded Learning
 → case
 → stimulus_group
 → stimulus_option
@@ -501,13 +517,13 @@ expanded / Expanded Learning
 → asset
 ```
 
-The mode is applied to resolver inputs, not already-resolved output. Expanded remains the regression baseline for pre-feature learner question-pool behavior.
+The active learner runtime persists this choice as `active_reviews.content_mode = original | expanded`. `original` corresponds to the Original/Core source set above. The persistent global `learner_preferences.expanded_learning` preference selects the default content mode for new active Reviews; it is not stored in the retired legacy `reviews.question_pool_mode` column for current work.
 
-Stimulus-family selection is also mode-aware as described in section 7: a curated family uses its explicit Original for Core and substitutes an eligible non-Original Alternative for Expanded when possible. This selection is frozen before question resolution and follows the option actually snapshotted into the Review.
+Stimulus-family selection is also mode-aware as described in section 7: a curated family uses its explicit Original for Original/Core and substitutes an eligible non-Original Alternative for Expanded Learning when possible. The selected content is frozen into `active_review_questions` and `active_review_assets` before progress begins.
 
-System/Tag routing happens before this question pipeline. Current Topic routes and Tag routes both pass the selected Case's canonical Primary Topic as `study_concept_id`. A Tag may make Tag-scoped Shared Questions eligible, but it does not substitute an alternate direct Topic bank.
+System/Tag routing happens before this question pipeline. Topic and Tag reachability still resolve the selected Case's canonical Primary Topic for direct Topic-question context; a Tag may make Tag-scoped Shared Questions eligible, but it does not substitute an alternate direct Topic bank. Current active Reviews persist the selected System/scope boundary rather than the retired `reviews.study_concept_id`, `route_type`, and navigation-provenance columns.
 
-Historical or development Review rows may retain a different `study_concept_id` from the retired multi-Topic model; stored history is not rewritten by this behavior change.
+Older physical `reviews` rows may contain pre-cutover `study_concept_id` and route-provenance fields because migrations are immutable history. Those rows are not a supported current reader/writer path and must be zero for Production cutover.
 
 ## 14. Import jobs
 
@@ -517,196 +533,173 @@ Import Package v1 retains the `secondaryTopicIds` field for package-shape compat
 
 Reviewed source-derived questions continue to become Case Questions, which is exactly the ownership used for Original/Core eligibility.
 
-Tags, Reusable Image Questions, option archival, Asset supersession, learner question-pool mode, System navigation, and Original/Alternative curation remain later authoring/learner layers unless explicitly included by their own reviewed import contract. Reviewed imports must not guess an Original from filenames, order, captions, or image similarity.
+Tags, Reusable Image Questions, option archival, Asset supersession, learner content mode, System navigation, and Original/Alternative curation remain later authoring/learner layers unless explicitly included by their own reviewed import contract. Reviewed imports must not guess an Original from filenames, order, captions, or image similarity.
 
-## 15. Reviews
+## 15. Legacy Review tables — physical migration history and cutover sentinels only
 
-A `reviews` row represents one learner attempt at one resolved Case and question pool. It preserves canonical primary Topic, actual Topic context, optional System/Tag effective provenance, learner-selected System navigation provenance, Case title/vignette snapshots, and completion/rating state.
-
-Relevant conceptual fields include:
+The physical tables:
 
 ```text
-id
-user_id
-case_id
-primary_concept_id
-study_concept_id
-study_system_concept_id nullable
-route_type topic | tag
-study_tag_id nullable
-navigation_route_type nullable all | topic | tag
-navigation_route_id nullable
-case_title_snapshot
-vignette_snapshot_md
-question_pool_mode core | expanded
-status
-rating
-started_at
-revealed_at
-completed_at
+reviews
+review_questions
+review_assets
 ```
 
-For new Reviews under the current model:
+are **not** the current learner Review model.
+
+They remain in D1 migration history because historical migrations are immutable and because the Production cutover preflight uses their row counts as fail-closed zero-data sentinels. Current application Drizzle schema exports no legacy Review tables, current `/study` routes do not create/read/complete them, and authenticated learner Review media does not read `review_assets`.
+
+The cutover assumption is therefore:
 
 ```text
-study_concept_id = primary_concept_id
+reviews          = 0 rows
+review_questions = 0 rows
+review_assets    = 0 rows
 ```
 
-whether the Case is reached by its native Topic or by an exposed Tag. `route_type`/`study_tag_id` still record effective Tag provenance where applicable.
+A non-zero or unreadable count blocks the Production cutover. It is not a compatibility mode and must not be bypassed by deleting learner data inside the gate.
 
-Stored Reviews created under older development/multi-Topic behavior may legitimately have:
+Migrations `0013`, `0014`, and the Review-related portions of `0015` document the architecture that existed before the FSRS runtime cutover. Keep them as historical evidence; do not use their Review provenance/media columns as current runtime semantics.
 
-```text
-study_concept_id != primary_concept_id
-```
+## 16. Active Reviews — current unfinished learner ownership
 
-That stored provenance remains readable. Original reassignment, option role conversion, migration `0016`, and current authoring do not rewrite Review rows or immutable Review Question/Asset snapshots. Changing Original affects future Review creation only.
+`active_reviews`, `active_review_questions`, and `active_review_assets` are the current normalized temporary learner Review snapshot.
 
-`question_pool_mode` records which source family was eligible when the immutable Review snapshot was created. It is per Review start and is not a persistent learner preference.
-
-Historical compatibility is:
-
-```text
-pre-0014 Review
-→ question_pool_mode = expanded
-
-pre-0015 Review
-→ route_type = topic
-→ study_system_concept_id = NULL
-→ study_tag_id = NULL
-→ navigation_route_type = NULL
-→ navigation_route_id = NULL
-```
-
-because the older learner path resolved the full reusable pool through Topic routing. Additive defaults/nulls provide this meaning without rewriting `review_questions` or `review_assets`.
-
-Effective route-provenance rules are:
-
-```text
-topic effective route
-→ study_tag_id MUST be NULL
-→ study_system_concept_id may be NULL for legacy Topic navigation
-  or contain the System used by System navigation
-→ current study_concept_id is the canonical Primary Topic
-
-tag effective route
-→ study_system_concept_id required
-→ study_tag_id required
-→ study_concept_id remains the selected Case's canonical Primary Topic
-```
-
-Selected navigation provenance is deliberately separate:
-
-```text
-System → All
-→ navigation_route_type = all
-→ navigation_route_id = NULL
-→ effective route_type may be topic or tag for the selected Case
-
-System → Topic
-→ navigation_route_type = topic
-→ navigation_route_id = the Topic the learner selected
-→ current Case resolution still uses that Case's canonical eligible descendant Topic
-
-System → Tag
-→ navigation_route_type = tag
-→ navigation_route_id = study_tag_id
-```
-
-Original → Expanded continuation preserves both selected and effective provenance. “Next case” reconstructs the selected navigation route, so `All` remains `All` and a parent Topic selection does not narrow to the first Case's descendant canonical Topic.
-
-Question-pool mode is orthogonal to `cases.question_selection_mode`:
-
-```text
-question_pool_mode
-= which source inputs are eligible
-
-question_selection_mode
-= how many questions are selected from the resolved pool
-```
-
-## 16. Review Questions
-
-Current conceptual fields include:
-
-```text
-id
-review_id
-question_prompt_id
-source_type
-source_concept_id
-source_stimulus_group_id
-source_stimulus_option_id
-source_asset_question_id
-source_shared_question_id
-display_order
-prompt_snapshot_md
-answer_snapshot_md
-```
-
-Current source types include:
-
-```text
-case
-concept
-ancestor_concept
-stimulus_group
-asset
-stimulus_option
-tag_shared
-```
-
-For Reusable Image Questions:
-
-```text
-source_type = asset
-source_asset_question_id = canonical asset_questions.id
-source_stimulus_group_id = selected group
-source_stimulus_option_id = selected option
-```
-
-For Shared Questions:
-
-```text
-source_type = tag_shared
-source_shared_question_id = shared_questions.id
-```
-
-Uniqueness preserves one Prompt per Review and deterministic display order. Snapshot wording/answers are immutable historical truth even if current canonical content later changes.
-
-Review-level question-pool and System/Tag route provenance do not rewrite this per-question provenance.
-
-## 17. Review Assets
+### `active_reviews`
 
 Conceptually:
 
 ```text
 id
-review_id
+user_id
+case_id
+system_id
+study_mode scheduled | free
+content_mode original | expanded
+queue_class nullable due | new | repeat
+run_id
+scope_fingerprint
+scope_json
+generation nullable
+review_sequence_epoch nullable
+parameter_revision nullable
+scheduler_revision nullable
+scheduler_library_version nullable
+expected_state_revision nullable
+expected_due_at nullable
+run_started_at nullable
+case_title_snapshot
+vignette_snapshot_md
+snapshot_version
+started_at
+revealed_at nullable
+expires_at
+```
+
+There is one active Review per learner. Scheduled active Reviews carry the authenticated FSRS/run/captured-state boundary; Free active Reviews deliberately carry no scheduler-state boundary. Resume discovery returns only an unexpired learner-owned row, and database-time expiry remains authoritative for create/replace/completion serialization.
+
+### `active_review_questions`
+
+Conceptually:
+
+```text
+id
+active_review_id
+question_prompt_id
+source_type
+source_concept_id nullable
+source_stimulus_group_id nullable
+source_stimulus_option_id nullable
+source_asset_question_id nullable
+source_shared_question_id nullable
+display_order
+prompt_snapshot_md
+answer_snapshot_md
+```
+
+These rows freeze the exact selected Prompt/answer content and source provenance for the unfinished Review. They cascade when the active Review is consumed/removed.
+
+### `active_review_assets`
+
+Conceptually:
+
+```text
+id
+active_review_id
 asset_id
 display_order
 storage_key_snapshot
 caption_snapshot_md
 alt_text_snapshot
-source_stimulus_group_id
-source_stimulus_option_id
+source_stimulus_group_id nullable
+source_stimulus_option_id nullable
 ```
 
-`storage_key_snapshot` is authoritative historical media identity. `source_stimulus_option_id` records the exact option selected when the Review was created; later Original reassignment cannot change that historical choice.
+These rows freeze learner media ordering/storage metadata and keep a restrictive live Asset reference while the unfinished Review exists. `storage_key_snapshot` is the current frozen media authority for authenticated Review media; section 19 owns the serving/lifecycle semantics.
 
-The authenticated Review-owned media route verifies learner ownership and serves only the snapshotted R2 key, even when the referenced Asset is now inactive/superseded. It uses owner-specific revalidation semantics rather than the ordinary active-Asset route's long-lived current-media cache behavior.
+An active Review is temporary execution ownership, not durable completion history. Scheduled and Free completion consume it and write their own narrowly scoped durable/receipt state described below.
 
-`0013_review_assets_asset_lookup.sql` adds:
+## 17. Scheduled FSRS completion and durable state
+
+Scheduled completion is owned by the FSRS Scheduled completion service, not by a mutable `reviews.status/rating` row.
+
+One successful Scheduled completion atomically advances/records the current owners:
 
 ```text
-review_assets_asset_review_idx (asset_id, review_id)
+scheduled_review_events
++ learner_optimizer_evidence
++ learner_case_fsrs
++ learner_case_encounters
++ learner_aggregates
++ learner_system_aggregates
++ consume the exact active Review
 ```
 
-This supports Asset-leading historical usage existence/count queries used by Image Library lifecycle views. It does not change Review ownership or snapshot semantics.
+`learner_case_fsrs` is the current per-learner×Case scheduling state: Due time, FSRS card state, generation/review-sequence/parameter/scheduler boundaries, and monotonic `state_revision`.
 
-A same-Case Original → Expanded continuation creates a new immutable Review using normal current stimulus selection; fixed/one-option stimuli naturally remain stable while a curated multi-option group may choose an eligible Alternative in Expanded mode.
+`scheduled_review_events` is the compact durable Scheduled completion event. It stores the committed rating, Case/System/content mode, scheduler/generation/sequence boundary, resulting state revision and next Due time, plus only the run context needed for idempotent replay/proof. The completed active Review ID is the event ID, so this durable event is also the Scheduled completion idempotency receipt.
 
-## 18. Higher-resolution replacement invariant
+`learner_optimizer_evidence` stores the compact retained rating sequence used by future optimizer work. `learner_case_encounters` stores the first Scheduled completion marker. `learner_aggregates` and `learner_system_aggregates` maintain lifetime Scheduled counters.
+
+A successful completion consumes the temporary active Review exactly once. Same-payload/lost-response retries reconcile from the durable Scheduled event rather than recreating or reading legacy Review rows.
+
+## 18. Free Study completion and receipt ownership
+
+Free Study deliberately does not perform an FSRS transition and does not create Again/Hard/Good/Easy rating history.
+
+One successful Free completion atomically owns:
+
+```text
+free_review_completion_receipts
++ learner_case_encounters
++ learner_aggregates
++ consume the exact active Free Review
+```
+
+`learner_case_encounters` is the durable learner×Case Free outcome owner (`free_first_seen_at`, `free_last_seen_at`, `free_times_studied`). `learner_aggregates.free_completed` is the durable learner-wide Free count.
+
+`free_review_completion_receipts` is a **short-lived** unique retry receipt, not durable learner history or optimizer evidence. It stores the active Review/receipt ID, learner, Case, completion time, resulting Free-study count, and expiry; the current default TTL is seven days. Duplicate/concurrent/lost-response completion may replay only an unexpired receipt.
+
+Free completion does **not** write `learner_fsrs_profiles`, `learner_case_fsrs`, `scheduled_review_events`, `learner_optimizer_evidence`, or `learner_system_aggregates`.
+
+## 19. Authenticated Review media and Asset/R2 lifecycle
+
+For current unfinished learner Reviews, authenticated Review media ownership is:
+
+```text
+active_reviews
+  └── active_review_assets
+        ├── asset_id                  [restrictive live Asset ownership]
+        └── storage_key_snapshot      [frozen R2 media authority]
+```
+
+The authenticated Review-media route verifies learner ownership and an unexpired active Review, resolves the requested owner-scoped `active_review_assets` row, and serves its `storage_key_snapshot`. It does not use legacy `review_assets`, and it does not need to load the complete active Review snapshot for each object request. The frozen key remains authoritative for that unfinished Review even if current authored Asset state later changes.
+
+`active_review_assets.asset_id` is the current active-Review Asset/R2 deletion guard. An Asset/R2 object required by an unfinished active Review cannot be permanently deleted while that restrictive reference exists. Completion, Discard, expiry cleanup, or replacement removes/cascades the temporary active-Review rows; after that, ordinary content/provenance/supersession dependencies determine whether the Asset/R2 object remains retainable.
+
+There is no current durable completed-Review media snapshot in legacy `review_assets`. Historical migration `0013_review_assets_asset_lookup.sql` remains migration archaeology only after cutover and does not own current Image Library lifecycle checks.
+
+## 20. Higher-resolution replacement invariant
 
 Use replacement only for:
 
@@ -727,11 +720,11 @@ new Asset B
 
 A group whose Original is that preserved option continues to point to the same Stimulus Option ID. Higher-resolution replacement therefore changes Asset identity for the better-quality copy but does not change the family Original pointer or contextual option/question identity. A genuinely different image is not a quality replacement; add it as a separate Alternative and use Make Original if it should become canonical.
 
-Old Asset Questions and old R2 bytes remain for historical provenance. Existing Review rows are never rewritten.
+An already-frozen active Review is not rewritten: its `active_review_assets.storage_key_snapshot` continues to name the media it was given, and its restrictive Asset reference keeps that object safe for the unfinished Review. Old Asset Questions and superseded R2 bytes remain where current content/provenance/supersession dependencies require them. Legacy Review tables are not part of this current replacement contract.
 
 R2 and D1 are not a shared transaction: the new object is uploaded first; if the D1 semantic batch fails, the new object alone is cleaned up. A conditional claim makes concurrent/double source replacement fail closed.
 
-## 19. Preview workspace implementation boundary
+## 21. Preview workspace implementation boundary
 
 Schema ownership remains the same regardless of internal code refactors. Current backend implementation keeps the public API at:
 
@@ -745,7 +738,9 @@ The complete Case clone transaction remains cohesive in `preview-workspace/case.
 
 Preview may replace its canonical Topic. Deprecated secondary-Topic Preview helpers fail closed. Existing secondary rows in an older disposable Preview workspace remain compatibility data rather than active authoring relationships. Preview does not gain System, hierarchy, Tag, System↔Tag, or Original/Alternative global mutation authority. Migration `0016` deliberately leaves retained Preview stimulus families uncurated so existing Preview editing is not blocked by production Original integrity semantics. Production/Preview ownership rules otherwise remain unchanged.
 
-## 20. Relationship overview
+Production Admin Study Preview remains outside learner persistence: it may resolve the current learner content surface, but it must not create learner preferences, FSRS state, active Reviews, completion events/receipts, or legacy Review rows. The loopback `/fsrs-preview` surface is a separate local regression/reference runtime and is not another persisted Review model.
+
+## 22. Relationship overview
 
 ```text
 preview_sessions
@@ -780,19 +775,34 @@ shared_questions
   ├── reuse_scope_tag_id ── tags
   └── shared_question_tags ── tags
 
-reviews
-  ├── primary_concept_id ── concepts [Topic]
-  ├── study_concept_id ── concepts   [Topic; may differ in stored older rows]
-  ├── study_system_concept_id ── concepts [nullable System]
-  ├── study_tag_id ── tags [nullable]
-  ├── navigation_route_type / navigation_route_id [selected System route]
+active_reviews
+  ├── case_id ── cases
+  ├── system_id ── concepts [System]
+  ├── active_review_questions
+  └── active_review_assets ── assets
+
+Scheduled completion
+  ├── learner_case_fsrs
+  ├── scheduled_review_events ── system_id
+  ├── learner_optimizer_evidence
+  ├── learner_case_encounters
+  ├── learner_aggregates
+  └── learner_system_aggregates ── system_id
+
+Free completion
+  ├── free_review_completion_receipts [short-lived]
+  ├── learner_case_encounters
+  └── learner_aggregates
+
+legacy physical sentinels only
+  ├── reviews
   ├── review_questions
   └── review_assets
 ```
 
-## 21. System study-route semantics
+## 23. System study-route and durable provenance semantics
 
-For a chosen System, learner routes are derived rather than stored on Cases:
+For a chosen System, learner content reachability remains derived rather than stored on Cases:
 
 ```text
 System → Topic
@@ -808,13 +818,22 @@ System → All
 → native canonical Topic provenance wins when both routes match
 ```
 
-A Tag can be exposed by more than one System. Each Review records both the actual effective System/Topic/Tag context used for that Case and, for System navigation, the learner-selected `All`/Topic/Tag route needed to continue navigation correctly.
+A Tag can be exposed by more than one System. The post-cutover `/study` runtime is System-scoped FSRS/Free Study. While work is unfinished, `active_reviews.system_id` plus normalized `scope_json` / `scope_fingerprint` and the Scheduled proof fields own the exact active scope boundary; the retired legacy `reviews.route_type`, `study_*`, and `navigation_route_*` fields are not current runtime provenance.
 
-The learner System surface is rollout-gated by `SYSTEM_STUDY_NAVIGATION_ENABLED=true`. Absence of that exact value retains the existing rollout behavior and blocks “Next case” from selecting another System-routed Case even when an older System Review remains open. Existing Reviews remain readable/completable; same-Case Original → Expanded continuation may finish the current Case without selecting another System Case.
+Durable FSRS System attribution is registered centrally in:
 
-See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for the operational Phase A/Phase B contract.
+```text
+scheduled_review_events.system_id
+learner_system_aggregates.system_id
+```
 
-## 22. Non-goals encoded by the current model
+Application deletion/reclassification checks must consult this durable registry. Migration `0023_learner_fsrs_system_provenance_guard.sql` adds database defense in depth: a `concepts.kind = 'system'` row referenced by either durable store cannot be reclassified away from System or deleted. New durable System-attribution tables must join the same centralized provenance authority rather than inventing independent deletion rules.
+
+Free Study completion does not write `learner_system_aggregates` or a durable System event. Its unfinished System ownership exists only on the active Review until that Review is consumed.
+
+See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for content reachability semantics and `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` for the current learner-runtime cutover boundary.
+
+## 24. Non-goals encoded by the current model
 
 The current schema intentionally does **not** imply:
 
@@ -825,7 +844,7 @@ The current schema intentionally does **not** imply:
 - automatic Case Tag → Question Tag inheritance;
 - automatic System Tag exposure from Case Tags;
 - automatic reusable-image opt-in;
-- automatic Original inference from option insertion/display order, filename, caption, name, or Review history;
+- automatic Original inference from option insertion/display order, filename, caption, name, or learner history;
 - mandatory Original assignment for retained Preview families;
 - generic Asset families/version tables;
 - automatic visual similarity/deduplication;
@@ -834,8 +853,10 @@ The current schema intentionally does **not** imply:
 - arbitrary different-image substitution through supersession;
 - an Import Package secondary-Topic creation path;
 - an `original_question` flag or frozen import-era question set;
-- a learner-level persistent Core/Expanded preference;
-- automatic Core/Expanded switching based on Case completion history;
+- a persisted D1 Scheduled/Free run queue or ordinary Study-session row; run continuation state remains browser-local and server-validated;
+- a durable completed-Review question/asset snapshot after the temporary active Review is consumed;
+- Free Study FSRS transitions, FSRS ratings, optimizer evidence, or learner×System Scheduled aggregates;
+- any supported runtime fallback that writes/reads/completes `reviews`, `review_questions`, or `review_assets`;
 - stimulus-option → Topic learner routing merely because one image has an incidental finding.
 
 Add schema only when a concrete product/content requirement justifies it.
