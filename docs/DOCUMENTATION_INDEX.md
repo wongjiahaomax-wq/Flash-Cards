@@ -21,9 +21,7 @@ An old PR instruction, stale status banner, rollout note, staged-refactor plan, 
 
 ## Current repository baseline
 
-Current `main` contains the learner FSRS Parts A–E and PR #137 learner runtime cutover. The cutover moved `/study` onto the FSRS/Free runtime, made `active_reviews` / `active_review_questions` / `active_review_assets` the current unfinished learner Review owner, retired legacy Review readers/writers, retained `/fsrs-preview` as a local regression/reference surface, and extended the merged migration chain through `0023_learner_fsrs_system_provenance_guard.sql`.
-
-The in-flight PR F branch adds learner Reset Progress / Fresh FSRS Start, detailed Scheduled-history retention behavior, learner Progress, and migration `0024_learner_fsrs_reset_fresh.sql`. Treat those as branch/PR state until PR F merges.
+Current `main` contains learner FSRS Parts A–E, PR #137 learner runtime cutover, and merged PR #139 (PR F). PR #137 moved `/study` onto the FSRS/Free runtime, made `active_reviews` / `active_review_questions` / `active_review_assets` the current unfinished learner Review owner, retired legacy Review readers/writers, and retained `/fsrs-preview` as a local regression/reference surface. PR #139 added learner Reset Progress / Fresh FSRS Start, detailed Scheduled-history retention and its per-learner Production Admin control, learner Progress, and migration `0024_learner_fsrs_reset_fresh.sql`. The merged repository migration chain therefore extends through `0024`.
 
 Repository merge state is not evidence that Production D1 migrations have been applied or that the Production Worker has been deployed. Preserve those operational facts separately.
 
@@ -49,7 +47,7 @@ Do not infer Topic→Tag conversion from matching names/labels. Clinically usefu
 
 ## Repository migration boundary
 
-On the PR F branch, the repository migration sequence extends through:
+On current `main`, the repository migration sequence extends through:
 
 ```text
 0024_learner_fsrs_reset_fresh.sql
@@ -97,11 +95,11 @@ Current V1 product behavior specification. Exact implementation status of later 
 
 ### `V1_DATA_MODEL.md`
 
-Authoritative implemented domain model for the current branch, including the physical compatibility shape of `case_concepts`, current Primary-Topic behavior, Tags/System exposure, Original/Alternative stimulus relationships, FSRS/Free active-Review ownership, Scheduled/Free completion owners, Reset/Fresh profile boundaries, detailed-history retention ownership, authenticated Review-media and Asset/R2 lifecycle ownership, durable System provenance, legacy Review sentinel status, Preview ownership, and the migration ledger through `0024` on the PR F branch.
+Authoritative implemented domain model for current `main`, including the physical compatibility shape of `case_concepts`, current Primary-Topic behavior, Tags/System exposure, Original/Alternative stimulus relationships, FSRS/Free active-Review ownership, Scheduled/Free completion owners, Reset/Fresh profile boundaries, detailed-history retention ownership, authenticated Review-media and Asset/R2 lifecycle ownership, durable System provenance, legacy Review sentinel status, Preview ownership, and the migration ledger through `0024`.
 
 ### `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`
 
-**Current implementation-status companion for the post-PR #137 learner runtime and in-flight PR F branch.** Read it with `V1_DATA_MODEL.md` for `/study` ownership, legacy zero-data Review sentinels, active Review/media ownership, Reset/Fresh serialization, detailed-history retention, learner Progress, local replica/reset boundaries, Admin Study Preview contamination boundaries, local `/fsrs-preview`, durable System provenance, and the explicit separation between repository branch state and Production deployment/migration state.
+**Current implementation-status companion for the post-PR #137 learner runtime including merged PR #139 (PR F).** Read it with `V1_DATA_MODEL.md` for `/study` ownership, legacy zero-data Review sentinels, active Review/media ownership, Reset/Fresh serialization, detailed-history retention, learner Progress, local replica/reset boundaries, Admin Study Preview contamination boundaries, local `/fsrs-preview`, durable System provenance, and the explicit separation between merged repository state and Production deployment/migration state.
 
 ### `AUTHORING_MODEL.md`
 
@@ -137,7 +135,6 @@ Current System/Topic/Tag content-reachability contract:
 Its legacy `reviews` route-provenance/continuation details describe the pre-FSRS-cutover runtime. For current learner Review persistence and System provenance, use `V1_DATA_MODEL.md` plus `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`.
 
 ### `ADDITIONAL_STUDY_TOPICS_TO_TAGS_PLAN.md`
-
 PR #90 product/domain decision record. Use it to understand why secondary relationships remain physically compatible while current behavior uses Primary Topic + Tags.
 
 ### `MULTI_TOPIC_STUDY_ROUTES.md`
@@ -201,13 +198,13 @@ Public signup remains intentionally disabled unless a separately reviewed produc
 
 ### `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`
 
-**Current implementation-status authority for the post-PR #137 learner `/study` runtime and in-flight PR F branch.** It records active FSRS/Free ownership, retirement/zero-data-sentinel status of legacy Review tables, active Review media/R2 ownership, Reset/Fresh serialization, detailed-history retention, learner Progress, local replica/reset boundaries, Admin Study Preview contamination boundaries, retained local `/fsrs-preview`, and durable System provenance. It does not claim Production deployment or Production migration application.
+**Current implementation-status authority for the post-PR #137 learner `/study` runtime including merged PR #139 (PR F).** It records active FSRS/Free ownership, retirement/zero-data-sentinel status of legacy Review tables, active Review media/R2 ownership, Reset/Fresh serialization, detailed-history retention, learner Progress, local replica/reset boundaries, Admin Study Preview contamination boundaries, retained local `/fsrs-preview`, and durable System provenance. It does not claim Production deployment or Production migration application.
 
 ### `LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md`
 
 **Locked product/planning authority for the learner scheduling programme.** It specifies Case-level FSRS from the first SRS implementation; 90% desired retention; Again / Hard / Good / Easy; Scheduled and Free Study; Due/New start-of-run queues; default Due-first ordering with New fallback; Expanded Learning as a global preference default OFF; compact Scheduled events; temporary active-Review snapshots; reset/fresh-generation semantics; retention; learner/Admin analytics; and selective reuse of the systems-first UX from Draft PR #119 without merging #119.
 
-Parts A–E and PR #137 are merged into the current repository runtime. The in-flight PR F branch implements its assigned Reset/Fresh/retention/learner-Progress subset. Use current code, migrations, `V1_DATA_MODEL.md`, and `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` for executable branch behavior; PR G Admin/cohort analytics, account deletion, and automatic optimizer execution remain separately owned.
+Parts A–E, PR #137, and PR #139 (PR F) are merged into the current repository runtime. PR #139 implements its assigned Reset/Fresh/retention/learner-Progress subset. Use current code, migrations, `V1_DATA_MODEL.md`, and `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` for executable repository behavior; PR G Admin/cohort analytics, account deletion, and automatic optimizer execution remain separately owned.
 
 ### `LEARNER_FSRS_RUN_SIZE_PRODUCT_AMENDMENT.md`
 
@@ -231,7 +228,7 @@ Its statement that the then-current runtime persisted `reviews`, `review_questio
 
 `LEARNER_FSRS_PR_A_EVIDENCE.md` through `LEARNER_FSRS_PR_E_EVIDENCE.md` are **historical staged implementation evidence**. Preserve their then-current statements, including references to the legacy Review runtime before cutover. They remain useful for proving the boundary established by each tranche but do not override the post-cutover runtime/data-model authorities.
 
-`LEARNER_FSRS_PR_F_EVIDENCE.md` is the implementation-evidence record for the current PR F branch. It documents Reset/Fresh, retention, learner Progress, concurrency coverage, and explicit exclusions; it is not evidence that PR F has merged or been deployed.
+`LEARNER_FSRS_PR_F_EVIDENCE.md` is the implementation-evidence record for merged PR #139 (PR F). It documents Reset/Fresh, retention, learner Progress, concurrency coverage, and explicit exclusions. It records repository implementation/validation evidence and does not by itself establish Production migration application, deployment, or Production behavior verification.
 
 For the run-size and continuous between-Case behavior specifically, `LEARNER_FSRS_RUN_SIZE_PRODUCT_AMENDMENT.md` controls over older wording in the locked product plan. For all other product behavior, the locked product plan remains superior to the technical documents. Where the readiness contract adds narrower implementation specificity to a boundary left open by the technical design, the readiness contract controls that technical boundary. **For tranche ownership only**, `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md` supersedes conflicting PR-assignment language in the technical design/readiness contract; it does not otherwise supersede or weaken those documents.
 
