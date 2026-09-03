@@ -43,7 +43,8 @@ function buildSeedSql() {
     'DROP TRIGGER active_reviews_content_scope_guard;',
     'DROP TRIGGER free_review_completion_receipts_active_guard;',
     `INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt, role, banned) VALUES ('d1-deletion-user', 'D1 Mature Learner', 'd1-mature@example.test', 1, ${now - 5 * 365 * 86_400_000}, ${now}, 'user', 0);`,
-    `INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt) VALUES ('d1-account', 'd1-deletion-user', 'credential', 'd1-deletion-user', 'fixture', ${now}, ${now});`
+    `INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt) VALUES ('d1-account', 'd1-deletion-user', 'credential', 'd1-deletion-user', 'fixture', ${now}, ${now});`,
+    `INSERT INTO verification (id, identifier, value, expiresAt, createdAt, updatedAt) VALUES ('d1-reset', 'reset-password:d1-token', 'd1-deletion-user', ${now + 86_400_000}, ${now}, ${now});`
   ];
 
   appendMultiRow(
@@ -256,6 +257,7 @@ async function main() {
     }
 
     const initial = await fetchJson(baseUrl, '/status');
+    assert.equal(initial.verifications, 1, 'mature fixture must include learner-owned Better Auth verification state');
     assert.equal(initial.scheduledEvents, eventCount);
     assert.equal(initial.optimizerEvidence, eventCount);
     assert.equal(initial.caseState, caseCount);
@@ -281,6 +283,7 @@ async function main() {
       ready = step.result.readyForIdentityDelete;
     }
     assert.equal(ready, true, `D1 staged deletion did not become identity-ready; phase=${latest.phase}`);
+    assert.equal(latest.verifications, 0);
     assert.equal(latest.scheduledEvents, 0);
     assert.equal(latest.optimizerEvidence, 0);
     assert.equal(latest.caseState, 0);
@@ -294,6 +297,7 @@ async function main() {
     assert.equal(final.userExists, false);
     assert.equal(final.accounts, 0);
     assert.equal(final.sessions, 0);
+    assert.equal(final.verifications, 0);
     assert.equal(final.phase, null, 'deletion marker cascades with the Better Auth identity root');
 
     console.log(JSON.stringify({
@@ -309,13 +313,19 @@ async function main() {
         monthlyBucketRows: initial.monthlyBuckets,
         activeReviewQuestions: 256,
         activeReviewAssets: 64,
-        authSessions: 20
+        authSessions: 20,
+        authVerifications: initial.verifications
       },
       directCascadeBlocked: direct.blocked,
       accessRevokedBeforeCleanup: begun.status.banned && begun.status.sessions === 0,
       stagedSteps: steps.length,
       maximumRowsDeletedPerStep: Math.max(...steps.map((step) => step.rowsDeleted)),
-      identityDeleteResidual: { userExists: final.userExists, accounts: final.accounts, sessions: final.sessions }
+      identityDeleteResidual: {
+        userExists: final.userExists,
+        accounts: final.accounts,
+        sessions: final.sessions,
+        verifications: final.verifications
+      }
     }, null, 2));
   } catch (error) {
     const output = [stdout.trim(), stderr.trim()].filter(Boolean).join('\n--- stderr ---\n');
