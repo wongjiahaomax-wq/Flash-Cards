@@ -43,15 +43,29 @@ test('PR G learner analytics/deletion tables remain explicitly forbidden from pr
   }
 });
 
-test('PR G locks the pinned Better Auth identity-root and non-FK verification cleanup boundary', () => {
+test('PR G locks the pinned Better Auth identity-root and indexed non-FK verification cleanup boundary', () => {
   const packageJson = JSON.parse(source('package.json'));
   const adminRoute = source('src/routes/admin/learner-analytics/+page.server.js');
+  const auth = source('src/lib/server/auth.js');
+  const authConfig = source('src/lib/server/auth-config.js');
   const deletion = source('src/lib/server/db/learner-account-deletion.ts');
   const migration = source('drizzle/0025_learner_fsrs_admin_analytics_deletion.sql');
   const hooks = source('src/hooks.server.js');
+  const d1Acceptance = source('scripts/learner-fsrs-pr-g-acceptance-d1.mjs');
+  const d1AcceptanceWorker = source('scripts/learner-fsrs-pr-g-acceptance-d1-worker.js');
 
   assert.equal(packageJson.dependencies['better-auth'], '1.6.25');
-  assert.match(adminRoute, /auth\.api\.removeUser/);
+  assert.match(auth, /getBetterAuthBaseOptions/);
+  assert.match(adminRoute, /removeUserWithBetterAuth/);
+  assert.match(authConfig, /auth\.api\.removeUser/);
+  assert.match(d1AcceptanceWorker, /removeUserWithBetterAuth/);
+  assert.match(d1AcceptanceWorker, /betterAuth\(/);
+  assert.match(d1AcceptanceWorker, /plugins:\s*\[admin\(\)\]/);
+  assert.match(d1Acceptance, /TARGET_VERIFICATION_ROWS\s*=\s*2_500/);
+  assert.match(d1Acceptance, /UNRELATED_VERIFICATION_ROWS\s*=\s*5_000/);
+  assert.match(d1Acceptance, /verificationBatchRows, \[1_000, 1_000, 500\]/);
+  assert.match(d1Acceptance, /verification_value_idx/);
+
   assert.match(deletion, /phase:\s*'auth_sessions'/);
   assert.match(deletion, /table:\s*'session',\s*userColumn:\s*'userId'/);
   assert.match(deletion, /phase:\s*'auth_accounts'/);
@@ -60,10 +74,25 @@ test('PR G locks the pinned Better Auth identity-root and non-FK verification cl
   assert.match(hooks, /learner_account_deletions/);
   assert.match(deletion, /phase:\s*'auth_verifications'/);
   assert.match(deletion, /table:\s*'verification',\s*userColumn:\s*'value'/);
+  assert.match(migration, /CREATE INDEX `verification_value_idx`\s+ON `verification` \(`value`\)/);
   assert.match(migration, /EXISTS \(SELECT 1 FROM `session` x WHERE x\.`userId` = OLD\.`id`\)/);
   assert.match(migration, /EXISTS \(SELECT 1 FROM `verification` x WHERE x\.`value` = OLD\.`id`\)/);
   assert.match(migration, /EXISTS \(SELECT 1 FROM `account` x WHERE x\.`userId` = OLD\.`id`\)/);
   assert.match(migration, /account_learner_account_deletion_guard/);
+});
+
+test('PR G D1 acceptance benchmark covers monthly write overhead, long-lived volume, and Admin aggregation cost', () => {
+  const packageJson = JSON.parse(source('package.json'));
+  const workflow = source('.github/workflows/learner-fsrs-pr-g-analytics-deletion.yml');
+  const benchmark = source('scripts/learner-fsrs-pr-g-acceptance-d1-worker.js');
+
+  assert.equal(packageJson.scripts['fsrs:pr-g-acceptance-d1'], 'node scripts/learner-fsrs-pr-g-acceptance-d1.mjs');
+  assert.match(workflow, /npm run fsrs:pr-g-acceptance-d1/);
+  assert.match(benchmark, /baselineWriteMs/);
+  assert.match(benchmark, /monthlyBucketWriteMs/);
+  assert.match(benchmark, /longRunningFixture/);
+  assert.match(benchmark, /adminSystemAggregationMs/);
+  assert.match(benchmark, /adminCohortAggregationMs/);
 });
 
 test('PR G authoritative data-model/index documents include migration 0025 and no longer describe PR G as pending', () => {
