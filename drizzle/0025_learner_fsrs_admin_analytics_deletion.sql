@@ -35,6 +35,9 @@ CREATE INDEX `learner_system_monthly_buckets_system_month_idx`
 CREATE INDEX `learner_system_monthly_buckets_month_idx`
 	ON `learner_system_monthly_buckets` (`month_start`,`system_id`,`user_id`);
 --> statement-breakpoint
+CREATE INDEX `verification_value_idx`
+	ON `verification` (`value`);
+--> statement-breakpoint
 INSERT INTO `learner_system_monthly_buckets` (
 	`user_id`, `system_id`, `month_start`, `scheduled_completed`,
 	`scheduled_again`, `scheduled_hard`, `scheduled_good`, `scheduled_easy`,
