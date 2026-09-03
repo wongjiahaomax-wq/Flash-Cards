@@ -12,7 +12,10 @@ on:
       - 'scripts/learner-fsrs-account-deletion-benchmark.mjs'
       - 'scripts/learner-fsrs-account-deletion-d1-smoke.mjs'
       - 'scripts/learner-fsrs-account-deletion-d1-smoke-worker.js'
+      - 'scripts/learner-fsrs-pr-g-acceptance-d1.mjs'
+      - 'scripts/learner-fsrs-pr-g-acceptance-d1-worker.js'
       - 'src/lib/server/auth.js'
+      - 'src/lib/server/auth-config.js'
       - 'src/lib/server/db/fsrs-admin-analytics.ts'
       - 'src/lib/server/db/fsrs-analytics-schema.js'
       - 'src/lib/server/db/fsrs-system-provenance.ts'
@@ -37,7 +40,7 @@ permissions:
 jobs:
   analytics-and-deletion:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out repository with validation base
         uses: actions/checkout@v5
@@ -67,6 +70,9 @@ jobs:
 
       - name: Prove staged deletion through local workerd and D1
         run: npm run fsrs:account-deletion-d1-smoke
+
+      - name: Prove verification indexing, Better Auth identity removal, and monthly analytics cost through local D1
+        run: npm run fsrs:pr-g-acceptance-d1
 
       - name: Run full repository validation
         run: npm run validate:full -- --compact
