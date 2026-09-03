@@ -1,6 +1,6 @@
 # Learner FSRS Runtime Cutover Status
 
-Status: **Current repository runtime authority after PR #137, extended on the PR F branch for Reset Progress / Fresh FSRS Start, detailed-history retention/control, and learner Progress.**
+Status: **Current repository runtime authority after PR #137 and merged PR #139 (PR F), including Reset Progress / Fresh FSRS Start, detailed-history retention/control, and learner Progress.**
 
 Date: 3 September 2026
 
@@ -13,7 +13,7 @@ This document records the repository architecture established by the FSRS learne
 
 The readiness contract's Section 1 sentence that described then-current `main` as still owning learner Review runtime through `reviews`, `review_questions`, and `review_assets` was a **pre-cutover repository observation**. PR #137 superseded that current-state observation. The readiness contract's behavioral and safety requirements remain authoritative.
 
-This document does **not** claim that PR F has been merged or that any repository migration has been applied to Production. Repository merge state, D1 migration state, Worker deployment, feature enablement, and explicit Production verification remain separate facts.
+PR #139 (PR F) is merged on current `main`. That repository merge does **not** establish that migration `0024` has been applied to Production, that the Production Worker has been deployed from the merged commit, that the feature has been enabled in Production, or that Production behavior has been explicitly verified. Repository merge state, D1 migration state, Worker deployment, feature enablement, and explicit Production verification remain separate facts.
 
 ## Post-cutover repository ownership
 
@@ -33,7 +33,7 @@ The old persisted learner Review model is not a supported runtime mode.
 
 ## PR F — Reset Progress / Fresh FSRS Start
 
-PR F adds the post-cutover learner boundary writers without changing the existing Scheduled/Free run architecture.
+Merged PR #139 (PR F) adds the post-cutover learner boundary writers without changing the existing Scheduled/Free run architecture.
 
 ### Reset Progress
 
@@ -70,13 +70,13 @@ Together with the active-Review creation guard introduced by PR C, the final rac
 - active Review creation commits first → Reset/Fresh atomically consumes it and changes/clears the relevant scheduler boundary/state;
 - no committed Reset/Fresh may leave a Scheduled active Review on an old generation/sequence boundary.
 
-PR F proves this with the supported writers in the specialized active-Review workflow. The local workerd/D1 smoke plans a genuine signed Scheduled descriptor and captured-New proof, then concurrently races `createScheduledActiveReview()` against Reset and against Fresh. Either valid serialization order is accepted, but every run must finish on the exact intended new boundary with zero stale active Reviews. The earlier node:sqlite trigger tests remain regression coverage rather than the sole concurrency proof.
+Merged PR #139 proves this with the supported writers in the specialized active-Review workflow. The local workerd/D1 smoke plans a genuine signed Scheduled descriptor and captured-New proof, then concurrently races `createScheduledActiveReview()` against Reset and against Fresh. Either valid serialization order is accepted, but every run must finish on the exact intended new boundary with zero stale active Reviews. The earlier node:sqlite trigger tests remain regression coverage rather than the sole concurrency proof.
 
 The learner `/study` boundary actions return a browser-run invalidation result. The page clears the learner browser-local run descriptor after Reset/Fresh. This removes stale run/work proofs from the normal client resume path; server-side current-profile comparison remains the hard authority if stale localStorage is presented by a modified or interrupted client.
 
 ## Detailed Scheduled-history retention
 
-The human-readable Scheduled event retention policy is active in PR F:
+The human-readable Scheduled event retention policy is active on current `main` through merged PR #139:
 
 - 24 months by default;
 - 36 months;
@@ -85,7 +85,7 @@ The human-readable Scheduled event retention policy is active in PR F:
 
 `src/lib/server/db/fsrs-retention.js` owns the database-time retention cutoff and the bounded physical cleanup statements. Learner-visible detailed-history reads apply the retention cutoff even before physical cleanup runs.
 
-PR F also owns the per-learner Admin control at `/admin/learner-retention`. `src/lib/server/db/fsrs-retention-admin.js` validates exactly the four locked policies and targets normal learner accounts only. If an explicit Admin override is saved before first Scheduled Study, the readiness contract permits that operation to establish the ordinary initial FSRS profile; the writer uses `initialLearnerFsrsProfile()` so generation/epoch/parameter revision are `1`, scheduler/library identity is canonical, and the adapter-generated parameter JSON retains desired retention `0.90`. The override does not manufacture learner×Case FSRS state.
+Merged PR #139 also owns the per-learner Admin control at `/admin/learner-retention`. `src/lib/server/db/fsrs-retention-admin.js` validates exactly the four locked policies and targets normal learner accounts only. If an explicit Admin override is saved before first Scheduled Study, the readiness contract permits that operation to establish the ordinary initial FSRS profile; the writer uses `initialLearnerFsrsProfile()` so generation/epoch/parameter revision are `1`, scheduler/library identity is canonical, and the adapter-generated parameter JSON retains desired retention `0.90`. The override does not manufacture learner×Case FSRS state.
 
 For an initialized learner, changing detailed-history retention does not change generation, review-sequence epoch, parameter revision, scheduler parameters, current Case scheduling state, or active-run boundaries. A shorter policy forces the same bounded learner-scoped cleanup immediately.
 
@@ -95,7 +95,7 @@ Detailed-history cleanup deletes only expired `scheduled_review_events`. It does
 
 ## Learner Progress
 
-PR F adds the learner-facing Progress read model and `/study` presentation required by the locked product plan. It exposes:
+Merged PR #139 adds the learner-facing Progress read model and `/study` presentation required by the locked product plan. It exposes:
 
 - Due Cases;
 - SRS coverage as Cases entered into SRS / currently eligible Cases;
@@ -120,17 +120,17 @@ The Production cutover gate remains fail-closed and read-only: require zero lega
 
 Production-derived local replicas continue to mirror teaching **content only**. `scripts/local-replica-lib.mjs` forbids Production Better Auth state, current FSRS/Free learner-state tables, retired legacy Review sentinels, Preview sessions, and import-job state from entering the replica allowlist.
 
-A destructive local content refresh remains local-only destructive tooling and is not the learner-facing Reset Progress / Fresh FSRS Start contract. PR F does not convert local replica refresh into a Production learner reset mechanism.
+A destructive local content refresh remains local-only destructive tooling and is not the learner-facing Reset Progress / Fresh FSRS Start contract. Merged PR #139 does not convert local replica refresh into a Production learner reset mechanism.
 
 ## Admin Study Preview boundary
 
 Admin Study Preview remains outside learner persistence. It resolves current learner content using the active snapshot/content resolver but does not create learner preferences, FSRS state, active Reviews, completion receipts, or legacy Review rows.
 
-The separate `/admin/learner-retention` control is ordinary Production Admin account-scoped configuration and is not Admin Study Preview. PR F does not add Reset/Fresh/Progress persistence reachability to Admin Study Preview and does not implement PR G analytics.
+The separate `/admin/learner-retention` control is ordinary Production Admin account-scoped configuration and is not Admin Study Preview. Merged PR #139 does not add Reset/Fresh/Progress persistence reachability to Admin Study Preview and does not implement PR G analytics.
 
 ## Local FSRS regression preview
 
-`/fsrs-preview` remains a loopback/local-bindings-only regression surface. It keeps continuous runs and the approved 5/10/20/All distinct-Case targets; required Scheduled repeats do not consume additional run slots. Its browser storage/proof boundary remains separate from Production `/study` browser-run state. PR F does not transplant learner Reset/Fresh persistence into this local-only reference surface.
+`/fsrs-preview` remains a loopback/local-bindings-only regression surface. It keeps continuous runs and the approved 5/10/20/All distinct-Case targets; required Scheduled repeats do not consume additional run slots. Its browser storage/proof boundary remains separate from Production `/study` browser-run state. Merged PR #139 does not transplant learner Reset/Fresh persistence into this local-only reference surface.
 
 ## Durable System provenance
 
@@ -138,7 +138,7 @@ System deletion/reclassification safety remains centrally owned. Durable FSRS Sy
 
 ## Migration/parser compatibility
 
-The current post-cutover migration sequence on the PR F branch extends through:
+The current post-cutover migration sequence on `main` extends through:
 
 ```text
 0024_learner_fsrs_reset_fresh.sql
@@ -146,14 +146,14 @@ The current post-cutover migration sequence on the PR F branch extends through:
 
 Migration `0023_learner_fsrs_system_provenance_guard.sql` protects current durable System attribution. Migration `0024` adds only the defensive Scheduled profile-boundary/active-Review guard required by Reset/Fresh serialization; it does not itself reset learners or mutate historical progress.
 
-## PR F validation boundary
+## PR F merged validation evidence
 
-Before PR F is ready to merge, one exact head must have:
+PR #139 merged from exact source head `9356ccb3ac65ccab5831bf9f2ba14c79f50ca65b` after the required validation evidence was green:
 
-- the focused Reset/Fresh/retention/Progress tests green, including the Admin retention-control contract;
-- real supported-writer Reset-vs-creation and Fresh-vs-creation serialization coverage through local workerd/D1 in an appropriate specialized workflow;
-- the existing learner-runtime source contract green, including unchanged local `/fsrs-preview` and legacy Review retirement boundaries;
-- repository-required schema/migration and full validation green;
-- the complete `main...HEAD` diff reviewed for scope and concurrency invariants.
+- focused Reset/Fresh/retention/Progress tests, including the Admin retention-control contract;
+- real supported-writer Reset-vs-creation and Fresh-vs-creation serialization coverage through local workerd/D1 in the specialized active-Review workflow;
+- the learner-runtime source contract, including unchanged local `/fsrs-preview` and legacy Review retirement boundaries;
+- repository-required schema/migration and full validation;
+- review of the complete PR #137 merge base → exact PR F head diff for scope and concurrency invariants.
 
-Production deployment, Production D1 migration application, optimizer execution, account deletion, and PR G Admin/cohort/time-series analytics remain outside PR F unless separately authorized.
+Production deployment, Production D1 migration application, optimizer execution, account deletion, and PR G Admin/cohort/time-series analytics remain outside the merged PR F scope unless separately authorized.
