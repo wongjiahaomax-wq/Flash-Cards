@@ -8,6 +8,7 @@ on:
       - 'wrangler.jsonc'
       - 'drizzle/0025_learner_fsrs_admin_analytics_deletion.sql'
       - 'drizzle.config.js'
+      - 'scripts/local-replica-lib.mjs'
       - 'scripts/learner-fsrs-account-deletion-benchmark.mjs'
       - 'scripts/learner-fsrs-account-deletion-d1-smoke.mjs'
       - 'scripts/learner-fsrs-account-deletion-d1-smoke-worker.js'
@@ -15,8 +16,13 @@ on:
       - 'src/lib/server/db/fsrs-analytics-schema.js'
       - 'src/lib/server/db/fsrs-system-provenance.ts'
       - 'src/lib/server/db/learner-account-deletion.ts'
+      - 'src/routes/admin/+layout.svelte'
       - 'src/routes/admin/learner-analytics/**'
       - 'test/learner-fsrs-pr-g.test.js'
+      - 'test/learner-fsrs-pr-g-source-contract.test.js'
+      - 'docs/DOCUMENTATION_INDEX.md'
+      - 'docs/V1_DATA_MODEL.md'
+      - 'docs/LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md'
       - 'docs/LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md'
       - 'docs/LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md'
       - 'docs/LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md'
@@ -46,8 +52,8 @@ jobs:
       - name: Validate migration history
         run: npm run db:check
 
-      - name: Run PR G unit and integration regressions
-        run: node --test test/learner-fsrs-pr-g.test.js
+      - name: Run PR G unit, integration, and source-contract regressions
+        run: node --test test/learner-fsrs-pr-g.test.js test/learner-fsrs-pr-g-source-contract.test.js
 
       - name: Benchmark large mature learner staged deletion
         run: npm run fsrs:account-deletion-benchmark
