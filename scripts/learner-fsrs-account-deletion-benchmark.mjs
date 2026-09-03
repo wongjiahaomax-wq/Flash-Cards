@@ -84,6 +84,10 @@ function seedMatureLearner(db, options) {
       INSERT INTO account (id, accountId, providerId, userId, password, createdAt, updatedAt)
       VALUES ('benchmark-account', 'benchmark-user', 'credential', 'benchmark-user', 'fixture', ?, ?)
     `).run(now, now);
+    db.prepare(`
+      INSERT INTO verification (id, identifier, value, expiresAt, createdAt, updatedAt)
+      VALUES ('benchmark-reset', 'reset-password:benchmark-token', 'benchmark-user', ?, ?, ?)
+    `).run(now + 86_400_000, now, now);
     const insertSession = db.prepare(`
       INSERT INTO session (id, expiresAt, token, createdAt, updatedAt, userId)
       VALUES (?, ?, ?, ?, ?, 'benchmark-user')
@@ -227,6 +231,10 @@ export async function runLearnerAccountDeletionBenchmark(options = {}) {
     const monthlyBucketCount = Number(db.prepare(`
       SELECT COUNT(*) AS n FROM learner_system_monthly_buckets WHERE user_id = 'benchmark-user'
     `).get().n);
+    const authVerificationCount = Number(db.prepare(`
+      SELECT COUNT(*) AS n FROM verification WHERE value = 'benchmark-user'
+    `).get().n);
+    assert.equal(authVerificationCount, 1);
 
     let directDeleteBlocked = false;
     const directDelete = await measured(() => {
@@ -257,12 +265,15 @@ export async function runLearnerAccountDeletionBenchmark(options = {}) {
     }
     assert.equal(ready, true, `staged deletion did not reach identity_ready; last phase=${phase}`);
     assert.ok(Math.max(...stepRows) <= LEARNER_ACCOUNT_DELETION_BATCH_SIZE);
+    assert.equal(Number(db.prepare("SELECT COUNT(*) AS n FROM verification WHERE value = 'benchmark-user'").get().n), 0);
 
     const identityDelete = await measured(() => db.exec("DELETE FROM user WHERE id = 'benchmark-user';"));
     const remainingUser = Number(db.prepare("SELECT COUNT(*) AS n FROM user WHERE id = 'benchmark-user'").get().n);
     const remainingAccount = Number(db.prepare("SELECT COUNT(*) AS n FROM account WHERE userId = 'benchmark-user'").get().n);
+    const remainingVerification = Number(db.prepare("SELECT COUNT(*) AS n FROM verification WHERE value = 'benchmark-user'").get().n);
     assert.equal(remainingUser, 0);
     assert.equal(remainingAccount, 0);
+    assert.equal(remainingVerification, 0);
 
     return {
       kind: 'mature learner staged-deletion scale gate',
@@ -270,7 +281,14 @@ export async function runLearnerAccountDeletionBenchmark(options = {}) {
       directCascadeEligible: false,
       rationale:
         'Scheduled history and current-generation optimizer evidence are not hard-capped, so no finite one-shot mature-account cascade can be proven bounded. The staged path caps each child delete at 1,000 rows.',
-      fixture: { ...fixture, monthlyBucketCount, activeReviewQuestions: 256, activeReviewAssets: 64, authSessions: 20 },
+      fixture: {
+        ...fixture,
+        monthlyBucketCount,
+        authVerifications: authVerificationCount,
+        activeReviewQuestions: 256,
+        activeReviewAssets: 64,
+        authSessions: 20
+      },
       timingsMs: {
         seed: seed.durationMs,
         blockedDirectDelete: directDelete.durationMs,
@@ -286,7 +304,7 @@ export async function runLearnerAccountDeletionBenchmark(options = {}) {
         maximumRowsDeletedInOneStep: Math.max(...stepRows),
         finalPhase: phase
       },
-      residual: { remainingUser, remainingAccount }
+      residual: { remainingUser, remainingAccount, remainingVerification }
     };
   } finally {
     db.close();
