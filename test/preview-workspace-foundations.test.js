@@ -209,7 +209,7 @@ test('Preview Session creation uses the existing TTL and reuses the existing liv
 test('ensurePreviewWorkspace returns an unexpired active Session unchanged', async () => {
   const fixture = createFixture();
   try {
-    const now = 1_800_000_000;
+    const now = 1_800_000_000_000;
     const first = await previewWorkspace.createPreviewSession(fixture.db, 'owner-a', now);
     const ensured = await previewWorkspace.ensurePreviewWorkspace({
       db: fixture.db,
