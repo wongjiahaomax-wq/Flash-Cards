@@ -6,7 +6,11 @@ import { ciValidationPlan } from '../scripts/validate-ci.mjs';
 import { FAST_TEST_EXCLUSIONS, isMaintainedNodeTestPath } from '../scripts/test-selection.mjs';
 
 const PR_G_WORKFLOW = '.github/workflows/learner-fsrs-pr-g-analytics-deletion.yml';
-const PR_G_SOURCE_CONTRACT_TEST = 'test/learner-fsrs-pr-g-source-contract.test.js';
+const PR_G_REGRESSION_TESTS = [
+  'test/learner-fsrs-pr-g.test.js',
+  'test/learner-fsrs-pr-g-source-contract.test.js',
+  'test/learner-fsrs-pr-g-verification-guard.test.js',
+];
 const PR_G_AUTHORITY_DOCS = [
   'docs/DOCUMENTATION_INDEX.md',
   'docs/V1_DATA_MODEL.md',
@@ -99,23 +103,22 @@ test('PR G heavy acceptance routing excludes authority-doc-only changes and reta
   }
 });
 
-test('FSRS authority docs remain covered by cheap ordinary Draft source-contract validation', () => {
+test('FSRS authority docs retain cheap ordinary Draft source-contract coverage', () => {
   const authorityDoc = 'docs/LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md';
   const plan = ciValidationPlan({ mode: 'fast', changedFiles: [authorityDoc] });
 
   assert.deepEqual(plan.checkIds, ['diff', 'testFast', 'svelte']);
-  assert.equal(isMaintainedNodeTestPath(PR_G_SOURCE_CONTRACT_TEST), true);
-  assert.equal(FAST_TEST_EXCLUSIONS.includes(PR_G_SOURCE_CONTRACT_TEST), false);
+  for (const regressionTest of PR_G_REGRESSION_TESTS) {
+    assert.equal(isMaintainedNodeTestPath(regressionTest), true, regressionTest);
+    assert.equal(FAST_TEST_EXCLUSIONS.includes(regressionTest), false, regressionTest);
+  }
 });
 
-test('PR G workflow keeps critical specialized acceptance commands without duplicating Ready full validation', () => {
+test('PR G workflow keeps unique specialized acceptance commands without duplicating ordinary Node/full validation', () => {
   const workflow = source(PR_G_WORKFLOW);
   const ordinaryCi = source('.github/workflows/ci.yml');
 
   for (const required of [
-    'test/learner-fsrs-pr-g.test.js',
-    'test/learner-fsrs-pr-g-verification-guard.test.js',
-    PR_G_SOURCE_CONTRACT_TEST,
     'npm run fsrs:account-deletion-benchmark',
     'npm run fsrs:account-deletion-d1-smoke',
     'npm run fsrs:pr-g-acceptance-d1',
@@ -124,6 +127,9 @@ test('PR G workflow keeps critical specialized acceptance commands without dupli
     assert.equal(workflow.includes(required), true, required);
   }
 
+  for (const ordinaryRegression of PR_G_REGRESSION_TESTS) {
+    assert.equal(workflow.includes(`node --test ${ordinaryRegression}`), false, ordinaryRegression);
+  }
   assert.equal(workflow.includes('npm run validate:full'), false);
   assert.match(ordinaryCi, /VALIDATION_MODE: \$\{\{ github\.event\.pull_request\.draft && 'fast' \|\| 'full' \}\}/);
   assert.match(ordinaryCi, /node scripts\/validate-ci\.mjs --mode/);
