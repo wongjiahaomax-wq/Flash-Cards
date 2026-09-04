@@ -17,15 +17,22 @@ on:
       - 'src/lib/server/learning/study-run-proof.js'
       - 'src/lib/server/learning/learner-study-runtime.js'
       - 'src/routes/study/**'
+      - 'src/routes/api/runtime-cutover-status/**'
       - 'scripts/multi-system-v2-*.mjs'
+      - 'scripts/multi-system-v2-*.js'
       - 'test/multi-system-runtime-v2*.test.js'
       - 'test/learner-fsrs-run-envelope.test.js'
       - 'test/learner-fsrs-run-proof.test.js'
       - 'test/local-fsrs-preview.test.js'
+      - 'tests/dependency-install-performance.test.js'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/deploy-production.yml'
       - '.github/workflows/multi-system-runtime-v2.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -33,7 +40,7 @@ permissions:
 jobs:
   v2-runtime:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -60,8 +67,14 @@ jobs:
           test/learner-fsrs-run-proof.test.js
           test/local-fsrs-preview.test.js
 
-      - name: Run migrated-D1 v2 scope acceptance
+      - name: Run migrated-D1 v2 scope guard acceptance
         run: npm run multi-system:d1-acceptance
 
-      - name: Run supported-envelope benchmark
+      - name: Run migrated-D1 v2 Scheduled and Free lifecycle acceptance
+        run: npm run multi-system:d1-lifecycle-acceptance
+
+      - name: Run supported JS/browser-envelope benchmark
         run: npm run multi-system:benchmark
+
+      - name: Run supported-envelope v2 D1 trigger benchmark
+        run: npm run multi-system:d1-trigger-benchmark
