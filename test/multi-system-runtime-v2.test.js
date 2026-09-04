@@ -164,13 +164,15 @@ test('Scheduled proof v2 binds the complete normalized runScope fingerprint', as
 });
 
 test('learner browser v1 state is retired instead of reinterpreted', () => {
+  /** @type {Map<string, string>} */
   const values = new Map([
     [LEGACY_LEARNER_STUDY_RUN_STORAGE_KEY, JSON.stringify({ version: 1 })]
   ]);
+  /** @type {{getItem:(key:string)=>string|null,setItem:(key:string,value:string)=>void,removeItem:(key:string)=>void}} */
   const storage = {
     getItem: (key) => values.get(key) ?? null,
-    setItem: (key, value) => values.set(key, value),
-    removeItem: (key) => values.delete(key)
+    setItem: (key, value) => { values.set(key, value); },
+    removeItem: (key) => { values.delete(key); }
   };
   assert.equal(readLearnerStudyRun(storage), null);
   assert.equal(values.has(LEGACY_LEARNER_STUDY_RUN_STORAGE_KEY), false);
