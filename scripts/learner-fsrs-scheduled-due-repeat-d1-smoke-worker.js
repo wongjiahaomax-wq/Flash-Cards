@@ -172,8 +172,11 @@ async function createExistingStateFixture(binding, db, fixture) {
   await ensureSmokeUser(binding, fixture.userId);
   const profile = await ensureLearnerFsrsProfile(db, fixture.userId);
   const scope = {
-    systemId,
-    routes: [{ routeType: 'topic', routeId: topicId }]
+    systems: [{
+      systemId,
+      mode: 'routes',
+      routes: [{ routeType: 'topic', routeId: topicId }]
+    }]
   };
   const scopeFingerprint = await fingerprintStudyScope(scope);
   const runStartedAt = Date.now() - 1_000;
