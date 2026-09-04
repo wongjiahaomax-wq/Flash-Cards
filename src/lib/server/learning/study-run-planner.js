@@ -12,7 +12,17 @@ import {
 export const STUDY_RUN_DESCRIPTOR_VERSION = 2;
 export const MAX_SCHEDULED_STUDY_CASES = 20_000;
 
+/**
+ * @typedef {{routeType:'topic'|'tag',routeId:string}} V2StudyRoute
+ * @typedef {{systemId:string,mode:'all'}|{systemId:string,mode:'routes',routes:readonly V2StudyRoute[]}} V2SystemScope
+ * @typedef {{systems:readonly V2SystemScope[]}} V2RunScope
+ */
+
 export class StudyRunPlanningError extends Error {
+  /**
+   * @param {'invalid-input'|'empty-selection'|'selection-too-large'|'state-boundary-mismatch'} code
+   * @param {string} message
+   */
   constructor(code, message) {
     super(message);
     this.name = 'StudyRunPlanningError';
@@ -20,12 +30,14 @@ export class StudyRunPlanningError extends Error {
   }
 }
 
+/** @param {Date|number|string|null|undefined} value */
 function timestampMs(value) {
   if (value == null) return null;
   const timestamp = value instanceof Date ? value.getTime() : new Date(value).getTime();
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
+/** @param {() => number} rng */
 function randomUnit(rng) {
   const value = rng();
   if (!Number.isFinite(value) || value < 0 || value >= 1) {
@@ -34,6 +46,7 @@ function randomUnit(rng) {
   return value;
 }
 
+/** @template T @param {readonly T[]} values @param {() => number} rng */
 export function shuffleStudyBag(values, rng = Math.random) {
   const shuffled = [...values];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
@@ -43,6 +56,7 @@ export function shuffleStudyBag(values, rng = Math.random) {
   return shuffled;
 }
 
+/** @param {any} encounter */
 export function hasPriorLearnerEncounter(encounter) {
   if (!encounter) return false;
   return Boolean(
@@ -53,6 +67,7 @@ export function hasPriorLearnerEncounter(encounter) {
   );
 }
 
+/** @param {number} candidateCount */
 export function assertScheduledStudySelectionSize(candidateCount) {
   if (!Number.isInteger(candidateCount) || candidateCount < 0) {
     throw new StudyRunPlanningError('invalid-input', 'Scheduled Study candidate count must be a non-negative integer.');
@@ -65,6 +80,7 @@ export function assertScheduledStudySelectionSize(candidateCount) {
   }
 }
 
+/** @param {any} row */
 function persistedCard(row) {
   const dueAt = timestampMs(row.dueAt);
   if (dueAt == null) throw new StudyRunPlanningError('invalid-input', 'Persisted learner FSRS state has an invalid due time.');
@@ -82,6 +98,7 @@ function persistedCard(row) {
   };
 }
 
+/** @param {any} row @param {any} profile */
 function assertCurrentStateBoundary(row, profile) {
   if (
     Number(row.generation) !== Number(profile.generation)
@@ -99,15 +116,20 @@ function assertCurrentStateBoundary(row, profile) {
   }
 }
 
+/** @param {readonly {id:string}[]} candidates */
 function uniqueCandidates(candidates) {
   const byId = new Map();
   for (const candidate of candidates) {
     if (!candidate?.id) throw new StudyRunPlanningError('invalid-input', 'Study candidates require Case identifiers.');
     if (!byId.has(candidate.id)) byId.set(candidate.id, candidate);
   }
-  return [...byId.values()];
+  return /** @type {{id:string}[]} */ ([...byId.values()]);
 }
 
+/**
+ * @param {{runScope?:V2RunScope,systemId?:string,routes?:readonly V2StudyRoute[]}} input
+ * @returns {V2RunScope}
+ */
 function canonicalRunScope(input) {
   if (input.runScope?.systems?.length) return input.runScope;
   // Internal single-System compatibility only: still emits/authenticates v2.
@@ -117,6 +139,24 @@ function canonicalRunScope(input) {
   throw new StudyRunPlanningError('invalid-input', 'Study requires a normalized non-empty v2 run scope.');
 }
 
+/**
+ * @param {{
+ *   userId:string,
+ *   runScope?:V2RunScope,
+ *   systemId?:string,
+ *   routes?:readonly V2StudyRoute[],
+ *   candidates:readonly {id:string}[],
+ *   profile:any,
+ *   preferences:{scheduledOrder:'due_first'|'new_first',expandedLearning:boolean},
+ *   states:readonly any[],
+ *   encounters:readonly any[],
+ *   proofSecret:string,
+ *   now?:Date|number|string,
+ *   rng?:()=>number,
+ *   runId?:string,
+ *   membershipChunkSize?:number
+ * }} input
+ */
 export async function buildScheduledStudyRunDescriptor(input) {
   if (!input.userId) throw new StudyRunPlanningError('invalid-input', 'Scheduled Study requires a learner.');
   const runScope = canonicalRunScope(input);
@@ -219,6 +259,19 @@ export async function buildScheduledStudyRunDescriptor(input) {
   };
 }
 
+/**
+ * @param {{
+ *   userId:string,
+ *   runScope?:V2RunScope,
+ *   systemId?:string,
+ *   routes?:readonly V2StudyRoute[],
+ *   candidates:readonly {id:string}[],
+ *   preferences:{expandedLearning:boolean},
+ *   now?:Date|number|string,
+ *   rng?:()=>number,
+ *   runId?:string
+ * }} input
+ */
 export function buildFreeStudyRunDescriptor(input) {
   if (!input.userId) throw new StudyRunPlanningError('invalid-input', 'Free Study requires a learner.');
   const runScope = canonicalRunScope(input);
