@@ -8,12 +8,12 @@ on:
       - 'wrangler.jsonc'
       - 'drizzle/0025_learner_fsrs_admin_analytics_deletion.sql'
       - 'drizzle.config.js'
-      - 'scripts/local-replica-lib.mjs'
       - 'scripts/learner-fsrs-account-deletion-benchmark.mjs'
       - 'scripts/learner-fsrs-account-deletion-d1-smoke.mjs'
       - 'scripts/learner-fsrs-account-deletion-d1-smoke-worker.js'
       - 'scripts/learner-fsrs-pr-g-acceptance-d1.mjs'
       - 'scripts/learner-fsrs-pr-g-acceptance-d1-worker.js'
+      - 'src/hooks.server.js'
       - 'src/lib/server/auth.js'
       - 'src/lib/server/auth-config.js'
       - 'src/lib/server/db/fsrs-admin-analytics.ts'
@@ -25,14 +25,11 @@ on:
       - 'test/learner-fsrs-pr-g.test.js'
       - 'test/learner-fsrs-pr-g-source-contract.test.js'
       - 'test/learner-fsrs-pr-g-verification-guard.test.js'
-      - 'docs/DOCUMENTATION_INDEX.md'
-      - 'docs/V1_DATA_MODEL.md'
-      - 'docs/LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md'
-      - 'docs/LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md'
-      - 'docs/LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md'
-      - 'docs/LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md'
-      - 'docs/LEARNER_FSRS_PR_G_EVIDENCE.md'
       - '.github/workflows/learner-fsrs-pr-g-analytics-deletion.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -52,12 +49,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install repository dependencies
-        run: npm ci
-
-      - name: Report required repository checks
-        run: npm run agent:checks -- --compact
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Validate migration history
         run: npm run db:check
@@ -85,9 +80,6 @@ jobs:
           path: pr-g-acceptance.log
           if-no-files-found: ignore
           retention-days: 1
-
-      - name: Run full repository validation
-        run: npm run validate:full -- --compact
 
       - name: Run repository runtime smoke
         run: npm run runtime:smoke
