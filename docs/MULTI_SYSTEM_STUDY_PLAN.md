@@ -256,6 +256,8 @@ Any future retirement of v1 descriptor/proof support must be separately reviewed
 - unexpired Free completion receipts;
 - browser-local v1 state that may still legitimately correspond to those persisted owners.
 
+Do not define retirement as simply "seven days after deploy": the Active Review lifetime is only one part of the replay contract, and Scheduled completion receipts may outlive the consumed Review. The compatibility verifier should remain until a separate cleanup proves that removing it cannot break a supported replay path.
+
 Until that cleanup is proven safe, v1 remains a supported compatibility format for in-flight/replay paths only.
 
 ## 7. Active Review and D1 scope-guard contract
