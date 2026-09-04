@@ -2,7 +2,7 @@
 
 _Status: repository implementation evidence for the Multi-System Runtime tranche. This document does not claim Production migration or deployment._
 
-_Date: 4 September 2026._
+_Date: 5 September 2026._
 
 This document records the implementation of the first tranche assigned by `MULTI_SYSTEM_STUDY_PLAN.md`: the scope/runtime foundation only. The learner multi-select chooser and learner-facing per-System configuration remain a later Multi-System UX tranche.
 
@@ -170,29 +170,55 @@ Any malformed count or any nonzero required sentinel fails the gate.
 
 ## Mechanically enforced Production cutover
 
-The Production workflow may retain its normal `apply_migrations` control for ordinary **post-cutover** releases, but there is no effective `apply_migrations=false` bypass for the first Runtime v2 cutover. If the v2 Active Review guard is absent, the workflow independently marks the cutover required and makes migration mandatory regardless of the ordinary input.
+The Production workflow may retain its normal `apply_migrations` control for ordinary **post-cutover** releases, but there is no effective `apply_migrations=false` bypass for the first or an incomplete Runtime v2 cutover.
 
-When the v2 guard is not yet present, `.github/workflows/deploy-production.yml` mechanically performs:
+A strict-v2 D1 trigger by itself is **not** considered evidence that the clean cutover completed. Before any Production fence is installed, `.github/workflows/deploy-production.yml` independently inspects:
+
+1. the D1 Active Review guard; and
+2. the currently deployed runtime status endpoint.
+
+A previous v2 cutover is treated as complete only when both signals are valid:
 
 ```text
-repository validation + local migrated-D1 v2 acceptance
-→ detect missing v2 guard and require the D1 write credential before fencing
+D1 active_reviews_content_scope_guard = verified v2
+AND
+/api/runtime-cutover-status = HTTP 200 with:
+  learnerRuntimeCutoverVersion = 2
+  learnerRuntimeScopeVersion = 2
+  learnerRuntimeWriteFence = false
+  learnerRuntimeBuildSha = valid immutable 40-hex commit SHA
+```
+
+An absent, legacy, malformed, or still-fenced runtime therefore does **not** become “complete” merely because migration `0026` exists. That state re-enters the fenced exact-zero sequence. A D1 inspection/authentication failure or runtime-status transport failure stops before the workflow mutates or fences Production.
+
+For a first or incomplete cutover, the workflow mechanically performs:
+
+```text
+repository validation
+→ migrated-D1 v2 scope-guard acceptance
+→ migrated-D1 Scheduled/Free lifecycle acceptance
+→ supported JS/browser-envelope benchmark
+→ supported-envelope D1 trigger benchmark
+→ inspect D1 guard + deployed v2 runtime completion state
+→ require D1 write credential before fencing
 → deploy temporary learner-runtime fence Worker
 → verify fence is live
 → run exact-zero Production gate
 → apply all pending D1 migrations regardless of ordinary migration input
 → verify v2 Active Review guard
-→ deploy v2 Worker with LEARNER_RUNTIME_WRITE_FENCE=true
-→ perform non-mutating runtime/guard/zero-data verification
-→ redeploy v2 Worker without the fence
-→ verify v2 runtime reports open
+→ deploy expected v2 Worker with LEARNER_RUNTIME_WRITE_FENCE=true and APP_BUILD_SHA=GITHUB_SHA
+→ verify exact expected build SHA + fence=true + v2 runtime/guard/zero-data state
+→ redeploy the same expected build without the fence
+→ verify exact expected build SHA + fence=false
 ```
 
 The shared learner Study access owner rejects `/study` planning/open/resume/reveal/completion while `LEARNER_RUNTIME_WRITE_FENCE` is active. The temporary Worker provides an additional outage-level fence before migration.
 
-Subsequent deployments, once the v2 guard already exists, skip the historical exact-zero/fence sequence and return to the ordinary repository migration policy: code-only deployment is allowed with `apply_migrations=false`, while `apply_migrations=true` applies pending migrations before Worker deployment. Guard verification still fails closed before the deployed v2 runtime is accepted.
+The runtime status endpoint exposes `learnerRuntimeBuildSha` from `APP_BUILD_SHA`. Fenced and reopened verification compare it to the exact workflow `GITHUB_SHA`; merely reaching some v2 Worker is not enough.
 
-Production verification during the one-time fence is non-mutating. It checks the runtime status endpoint, guard presence, and zero-data sentinels; it does not bypass the fence to manufacture synthetic learner history.
+Subsequent ordinary deployments may skip the historical exact-zero/fence sequence only when both the v2 D1 guard and an already-open identified v2 runtime prove the previous cutover completed. They then return to the normal repository migration policy: code-only deployment is allowed with `apply_migrations=false`, while `apply_migrations=true` applies pending migrations before Worker deployment.
+
+Production verification during the cutover fence is non-mutating. It checks runtime build/status, guard presence, and zero-data sentinels; it does not bypass the fence to manufacture synthetic learner history.
 
 ## Validation owners
 
@@ -200,14 +226,18 @@ Repository-owned focused commands are:
 
 ```sh
 npm run multi-system:d1-acceptance
+npm run multi-system:d1-lifecycle-acceptance
 npm run multi-system:benchmark
+npm run multi-system:d1-trigger-benchmark
 npm run multi-system:cutover-gate
 npm run multi-system:guard-verify
 ```
 
-`.github/workflows/multi-system-runtime-v2.yml` runs the focused v2 source/runtime contracts, applies all repository migrations to isolated local D1 for the strict scope acceptance, and runs the supported-envelope benchmark.
+`.github/workflows/multi-system-runtime-v2.yml` uses the current pull-request concurrency convention (`cancel-in-progress: true` for the same PR), runs focused v2 source/runtime contracts, applies all repository migrations to isolated local D1, runs both D1 acceptance owners, and executes both supported-envelope benchmarks.
 
-The migrated-D1 acceptance explicitly covers:
+### Direct migration / scope-guard acceptance
+
+`multi-system:d1-acceptance` remains the focused migration-`0026` guard test. It uses direct `active_reviews` INSERT fixtures after all repository migrations and explicitly covers:
 
 - whole-System `all` native Topic reachability;
 - whole-System curated-Tag reachability;
@@ -220,17 +250,57 @@ The migrated-D1 acceptance explicitly covers:
 - missing Primary Topic;
 - attribution System not selected.
 
-### Supported-envelope benchmark evidence
+This command is deliberately retained as a trigger-focused acceptance; it is not presented as the complete runtime lifecycle acceptance.
+
+### Real migrated-D1 lifecycle acceptance
+
+`multi-system:d1-lifecycle-acceptance` bundles the real runtime service code into workerd, applies **all repository migrations** to isolated local D1, and exercises a genuine two-System scope where a Case contributes by a curated Tag under System A and by its native active Primary Topic under System B.
+
+The Scheduled path proves:
+
+```text
+multi-System Scheduled planning
+→ owner/proof validation
+→ authenticated Active Review open/revalidation
+→ deterministic concrete attribution to native System B
+→ persisted v2 attribution envelope with both selected Systems
+→ reveal
+→ Good completion
+→ same-request lost-response replay
+→ one scheduled_review_event
+→ one learner×System aggregate update for System B
+→ one UTC-month learner_system_monthly_buckets update for System B
+→ learner aggregate + optimizer evidence + learner×Case FSRS state
+→ Active Review consumed exactly once
+```
+
+The Free path proves:
+
+```text
+multi-System Free planning
+→ authenticated Active Review open
+→ deterministic concrete attribution to System B
+→ reveal
+→ completion
+→ same-request lost-response replay
+→ exactly one Free receipt/encounter/learner aggregate update
+→ no Scheduled event, System aggregate, monthly bucket, or FSRS profile
+→ Active Review consumed exactly once
+```
+
+The same acceptance also proves an invalid cross-System Topic scope cannot open an Active Review.
+
+### Supported JS/browser-envelope benchmark evidence
 
 The focused v2 workflow was measured against the supported maximum envelope of **64 Systems, 512 normalized explicit routes, and 20,000 unique Cases** after eliminating repeated native-System scans for multi-Topic selections.
 
-Measured GitHub Actions result:
+Latest green GitHub Actions result on the code-validation head:
 
 ```text
-scope normalization:                  69.97 ms
-union / dedupe / System attribution: 1271.98 ms
-Scheduled descriptor + proofs:        97.46 ms
-Free Study bag:                        6.89 ms
+scope normalization:                  68.35 ms
+union / dedupe / System attribution: 1312.74 ms
+Scheduled descriptor + proofs:        93.41 ms
+Free Study bag:                       25.86 ms
 
 Scheduled descriptor:             1,387,180 bytes
 Free descriptor:                    307,680 bytes
@@ -239,7 +309,7 @@ proof bytes total:                  524,844 bytes
 largest proof:                        1,679 bytes
 ```
 
-The enforced limits remain:
+The enforced JS/browser limits remain:
 
 ```text
 scope resolution:             < 5,000 ms
@@ -248,7 +318,35 @@ Free planning:                < 5,000 ms
 browser descriptor size:      < 4,500,000 bytes
 ```
 
-The measured resolver therefore has substantial headroom relative to the executable 5-second supported-envelope gate; the earlier repeated per-Topic native-System scans are not part of the final implementation.
+### Supported-envelope D1 trigger benchmark evidence
+
+`multi-system:d1-trigger-benchmark` uses workerd plus D1 after all repository migrations and writes valid Active Reviews through migration `0026` itself. It measures both:
+
+- canonical **64-System / 512 explicit Topic-route** persisted v2 scope; and
+- representative **64-System `all`** persisted v2 scope.
+
+After two warmups, twelve measured INSERTs per shape produced:
+
+```text
+64 Systems / 512 routes:
+  median: 16.84 ms
+  p95:    20.40 ms
+  max:    20.40 ms
+
+64 Systems / all:
+  median: 13.77 ms
+  p95:    17.04 ms
+  max:    17.04 ms
+```
+
+Executable D1-trigger limits are:
+
+```text
+p95 valid Active Review insert: < 750 ms
+single valid Active Review insert: < 1,500 ms
+```
+
+The measured strict-v2 trigger therefore has substantial headroom at the supported scope envelope.
 
 Existing specialized FSRS workflows continue to cover Active Review lifecycle, Scheduled completion including Due/Repeat, Free completion, Reset/Fresh races, workerd compatibility, browser descriptor storage, and analytics/deletion regressions.
 
