@@ -14,12 +14,14 @@ import {
   validateLearnerStudyRunOwner
 } from '$lib/server/learning/learner-study-runtime.js';
 
+/** @param {unknown} body @param {number} [status] */
 function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   });
 }
+/** @param {unknown} cause */
 function skippableOpenError(cause) {
   if (cause instanceof ActiveReviewContentError) return cause.code === 'content-unavailable';
   return cause instanceof ActiveReviewError
