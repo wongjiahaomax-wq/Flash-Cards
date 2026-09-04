@@ -30,6 +30,10 @@ on:
       - 'test/learner-fsrs-free-study-benchmark.test.js'
       - '.github/workflows/learner-fsrs-free-study.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
