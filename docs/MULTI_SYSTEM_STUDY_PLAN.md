@@ -6,7 +6,7 @@ _Last reviewed against `main` at `ca56f915` on 4 September 2026._
 
 ## 1. Goal
 
-Allow a learner to build one Scheduled Study or Free Study run from more than one System while preserving the existing FSRS, active-Review, run-proof, idempotency, D1 eligibility, continuous-navigation, and per-System analytics invariants.
+Allow a learner to build one Scheduled Study or Free Study run from more than one System while preserving the existing FSRS, Active Review, run-proof, idempotency, D1 eligibility, continuous-navigation, and per-System analytics invariants.
 
 Intended learner flow:
 
@@ -32,7 +32,7 @@ Current `/study` is deliberately single-System:
 - Scheduled descriptors carry v1 captured-membership proof metadata;
 - the cryptographic proof layer has its own independent `STUDY_RUN_PROOF_VERSION = 1` boundary;
 - `active_reviews.system_id` stores one System attribution;
-- `active_reviews_scope_system_check` requires `scope_json.systemId = system_id`;
+- `active_reviews_scope_system_check` currently uses `json_extract(scope_json, '$.systemId') = system_id`;
 - the current D1 `active_reviews_content_scope_guard` only understands top-level `scope_json.routes`.
 
 This plan is intentionally based on the current project state that there is **no learner runtime data or in-flight learner work that must be preserved**.
@@ -73,6 +73,7 @@ What do you want to study?
 327 unique eligible Cases
 
 Run size: 5 / 10 / 20 / All
+Default: 10 Cases
 ```
 
 The displayed eligible count must use the same union/deduplication semantics as the server planner. It must not simply add per-System counts when selections overlap.
@@ -117,6 +118,8 @@ The exact serialized contract may differ during implementation, but it must be n
 ### 3.3 Run size
 
 `5`, `10`, `20`, and `All` apply to the **combined unique Case pool**.
+
+The default remains **10 Cases**, matching the locked run-size amendment.
 
 A 20-Case run across three Systems means up to 20 distinct Cases total, not 20 per System.
 
@@ -169,7 +172,7 @@ The union step must retain the contributing Systems/routes for that Case so attr
 
 A mixed run does **not** create a synthetic `Mixed` System.
 
-Every individual active Review and completion still has one concrete `system_id` for historical attribution, matching the existing analytics model.
+Every individual Active Review and completion still has one concrete `system_id` for historical attribution, matching the existing analytics model.
 
 The implementation must define and test a deterministic attribution rule for multiply-contributed Cases. Recommended precedence:
 
@@ -179,7 +182,7 @@ The implementation must define and test a deterministic attribution rule for mul
 
 A Case reached only through a curated Tag preserves the existing curated-System study semantics rather than silently rewriting attribution to another System.
 
-The chosen attribution System must itself be selected in the authenticated `runScope`, and the Case must actually be reachable through that selected System scope.
+The chosen attribution System must itself be selected in the authenticated `runScope`, and the Case must actually be reachable through that selected System sub-scope.
 
 ## 6. Clean descriptor/proof v2 cutover
 
@@ -200,7 +203,7 @@ The complete normalized `runScope` is the material whose fingerprint is authenti
 
 ### 6.1 Mandatory zero-data deployment gate
 
-The clean cutover is permitted only when a fail-closed pre-deployment gate proves there is no learner runtime state that requires v1 compatibility.
+The clean cutover is permitted only when a fail-closed Production gate proves there is no learner runtime state that requires v1 compatibility.
 
 The gate must be executable and committed as part of Multi-System Runtime. It must not rely on memory or manual inspection alone.
 
@@ -218,27 +221,67 @@ learner_optimizer_evidence
 learner_aggregates
 learner_system_aggregates
 learner_system_monthly_buckets
+learner_fsrs_profiles
 ```
 
-The implementation must also explicitly evaluate `learner_fsrs_profiles`. If current bootstrap behavior can create an untouched default profile without actual learner study, the gate may distinguish pristine bootstrap-only rows from meaningful learner runtime state rather than failing on raw profile count. That rule must be explicit and tested.
+For this clean cutover, **`learner_fsrs_profiles` must have exactly zero rows**.
+
+There is no pristine/default-profile exception. Under the current runtime, Scheduled planning can create the default profile before an Active Review or completion exists, so a default-looking profile is a server-side signal that a legitimate v1 browser run may have been planned. Allowing it would undermine the premise that there is no v1 run requiring preservation.
+
+`learner_preferences` do **not** need to be zero. Normal `/study` page loading can create preferences without starting a learner run, so preferences are not a reliable clean-cutover sentinel.
 
 Legacy `reviews`, `review_questions`, and `review_assets` remain relevant zero-data sentinels under the existing runtime-cutover philosophy and should remain fail-closed where the current Production preflight already treats them that way.
 
-The gate must fail if any relevant non-pristine learner runtime/history row exists.
+Any nonzero count in a required sentinel causes the gate to fail. Do not classify a row as harmless merely to keep the clean cutover available.
 
-### 6.2 Browser-local v1 state
+If implementation later discovers a profile-producing path that is provably unrelated to learner run planning and needs preservation, that exception requires a separate reviewed contract change. It is not part of this plan.
+
+### 6.2 Mandatory learner-runtime write quiescence
+
+A zero-data check alone is insufficient because the current Production workflow performs preflight before D1 migration and Worker deployment. Without a write fence, the old v1 Worker could create a new v1 run after the gate passed but before the v2 Worker became live.
+
+The clean cutover therefore requires a **mechanically enforced quiescence boundary**.
+
+Required order:
+
+```text
+close/fence learner study runtime writes
+→ run the full zero-data gate
+→ if any sentinel is nonzero, abort and keep learner runtime closed or restore the old safe state
+→ apply the v2 D1 migration
+→ deploy the v2 Worker
+→ verify v2 planning/open/completion against Production
+→ reopen learner study runtime
+```
+
+From the moment the write fence begins until the v2 Worker is live and verified, the old learner runtime must not be able to:
+
+- plan a new Scheduled or Free run;
+- open/create/resume an Active Review;
+- reveal or complete an Active Review;
+- create learner FSRS/runtime/history rows that participate in the clean-cutover invariant.
+
+Multi-System Runtime must update the Production deployment workflow so this ordering is mechanically enforced. Merely documenting the sequence in a runbook is insufficient if the deployed v1 Worker can still accept learner study writes during the migration window.
+
+If the application is operationally guaranteed to have `/study` unavailable to all learners for the entire deployment window, that outage itself may serve as the write fence, but the workflow/runbook must make that guarantee explicit and verifiable. Otherwise implement an actual temporary learner-runtime maintenance/fence mechanism.
+
+The full zero-data gate should run **after** the fence is active and immediately before the v2 migration. If the gate fails, do not apply the migration or deploy the v2-only runtime.
+
+### 6.3 Browser-local v1 state
 
 A server-side D1 gate cannot inspect every browser's localStorage.
 
-The clean-cutover assumption therefore also requires an explicit operational statement that no learner v1 browser run needs preservation. Under that verified condition, the v2 client may intentionally reject/clear the old learner v1 run descriptor and write only v2 state.
+The clean-cutover assumption therefore also requires an explicit operational statement that no learner v1 browser run needs preservation. The strict zero-profile rule closes the main Scheduled server-side blind spot; the write fence closes the post-gate race.
+
+Under that verified condition, the v2 client may intentionally reject/clear the old learner v1 run descriptor and write only v2 state.
 
 Local-only preview state may be reset as disposable test state, but `/fsrs-preview` must remain a thin regression/reference surface around the authoritative services.
 
-If learner rollout occurs before this cutover and a v1 browser run may correspond to real persisted learner work, the clean-cutover assumption is invalid and deployment must stop for a compatibility design.
+If learner rollout occurs before this cutover and a v1 browser run may correspond to real learner work, the clean-cutover assumption is invalid and deployment must stop for a compatibility design.
 
-### 6.3 No default dual-version machinery
+### 6.4 No default dual-version machinery
 
-Under a successful zero-data gate, Multi-System Runtime should **not** add dual v1/v2 production compatibility merely as precautionary complexity.
+Under a successful fenced zero-data cutover, Multi-System Runtime should **not** add dual v1/v2 Production compatibility merely as precautionary complexity.
 
 The default implementation therefore does not require:
 
@@ -284,7 +327,7 @@ could prove that the Case is genuinely reachable through `system-b`, but the old
 
 That is a correctness/integrity gap for future v2 data even when there is no existing learner data to migrate.
 
-Therefore the normal implementation path is a **new immutable D1 migration that replaces/updates the Active Review content-scope guard for v2**.
+Therefore the normal implementation path is a **new immutable D1 migration that replaces/updates the Active Review scope/content guard for v2**.
 
 ### 7.2 Preferred v2 Active Review scope shape
 
@@ -314,13 +357,36 @@ Keep one top-level Review attribution System so the existing scalar ownership mo
 
 `runScope` is the complete authenticated v2 selection.
 
-The existing scalar check `scope_json.systemId = system_id` may remain if it continues to fit the migrated v2 shape.
-
 The old top-level `routes` compatibility projection is no longer the preferred contract.
 
-### 7.3 Required v2 D1 proof
+### 7.3 Strict v2 JSON-shape guard
 
-The migrated D1 guard must independently prove all three relationships:
+The v2 migration must validate JSON shape as well as semantic eligibility. Do not rely only on the current scalar CHECK:
+
+```sql
+json_extract(scope_json, '$.systemId') = system_id
+```
+
+because SQLite `CHECK` expressions that evaluate to `NULL` do not fail merely because a required JSON field is missing.
+
+The migrated database boundary must explicitly require at least:
+
+- `scope_json` is valid JSON of the expected object shape;
+- `version` exists, is an integer, and equals `2`;
+- top-level `systemId` exists, is a non-empty JSON string, and equals `NEW.system_id`;
+- `runScope` exists and is an object;
+- `runScope.systems` exists, is an array, and contains at least one System entry;
+- each System entry is an object with a non-empty string `systemId`;
+- each System entry has a string `mode` and only `all` or `routes` is accepted;
+- `routes` mode has the expected non-empty route-array shape;
+- each route has only a known route type (`topic` or `tag`) and a non-empty string route ID;
+- malformed, missing, `null`, or wrong-typed required fields fail closed.
+
+Application normalization should also reject duplicate/ambiguous System entries and malformed routes before insertion. D1 remains the final integrity boundary.
+
+### 7.4 Required v2 D1 semantic proof
+
+After shape validation, the migrated D1 guard must independently prove all three relationships:
 
 ```text
 1. attribution System is selected in runScope
@@ -344,7 +410,7 @@ The guard must continue to require an active, non-preview Case and an active Sys
 
 Application code should perform the same validation for useful errors, but application validation does not replace the D1 guard.
 
-### 7.4 Required forged-attribution rejection
+### 7.5 Required forged-attribution rejection
 
 A particularly important regression is:
 
@@ -452,6 +518,7 @@ Recommended interaction:
 - visible selected-System count;
 - visible unique eligible-Case count;
 - existing 5 / 10 / 20 / All run-size choice;
+- **default run size remains 10 Cases**;
 - clear Scheduled Study / Free Study start actions.
 
 The learner should not need to enter and leave separate System pages to build one integrated run.
@@ -469,7 +536,7 @@ Implementation must explicitly verify:
 - browser serialization/localStorage size;
 - planning latency for the largest supported mixed selection;
 - Free Study bag size for the largest supported mixed selection;
-- D1 trigger cost for the v2 scope check.
+- D1 trigger cost for strict v2 shape plus selected-scope eligibility checks.
 
 Whole-System `mode: all` prevents run-scope route-count growth from scaling with every Topic/Tag under every selected System.
 
@@ -496,16 +563,22 @@ Do not increase existing safety limits merely to make the feature pass without m
 
 At minimum prove all of the following.
 
-### 12.1 Zero-data clean cutover
+### 12.1 Zero-data clean cutover and deployment fence
 
 - the committed cutover gate passes on the verified empty learner-runtime state;
 - any Active Review causes the gate to fail;
 - any Scheduled completion event/receipt causes the gate to fail;
 - any Free completion receipt causes the gate to fail;
 - any Case FSRS state, learner encounter, optimizer evidence, lifetime aggregate, per-System aggregate, or monthly bucket causes the gate to fail;
+- **any `learner_fsrs_profiles` row causes the gate to fail, including a default/pristine-looking profile**;
+- `learner_preferences` alone do not cause the gate to fail;
 - legacy Review sentinel rows continue to fail closed where required by the existing Production preflight;
-- `learner_fsrs_profiles` are handled by an explicit tested rule distinguishing pristine bootstrap-only state from meaningful learner state if necessary;
-- failed gate means no v2 Production cutover;
+- failed gate means no v2 Production migration/deploy;
+- the learner-runtime write fence is active before the full gate runs;
+- v1 planning/open/completion cannot occur between the gate and v2 Worker activation;
+- the v2 D1 migration cannot be applied while the old learner runtime remains writable;
+- the fence remains active through migration, v2 Worker deployment, and Production v2 verification;
+- learner runtime reopens only after the v2 Worker is live and verified;
 - successful clean cutover emits/accepts learner v2 descriptors and does not create new learner v1 runs.
 
 ### 12.2 Selection / normalization
@@ -536,12 +609,13 @@ At minimum prove all of the following.
 - repeat-origin proof behavior remains valid under v2;
 - modifying selected System/route scope invalidates authentication;
 - malformed/forged v2 descriptor or proof material is rejected;
-- old learner v1 browser state is intentionally cleared/rejected under the verified clean-cutover assumption rather than silently reinterpreted as v2.
+- old learner v1 browser state is intentionally cleared/rejected under the verified fenced clean-cutover assumption rather than silently reinterpreted as v2.
 
 ### 12.5 Scheduled Study
 
 - Due/New ordering works across Systems;
 - 5/10/20 counts distinct Cases globally;
+- **default run size remains 10 Cases**;
 - required short-term repeats do not consume extra distinct-Case slots;
 - stale generation/review-sequence boundaries still fail;
 - Reset Progress / Fresh FSRS Start still invalidate stale browser/run work;
@@ -562,6 +636,7 @@ At minimum prove all of the following.
 
 - mixed candidate bag is deduplicated and shuffled;
 - run size applies globally;
+- **default run size remains 10 Cases**;
 - Free completion still does not mutate Scheduled FSRS state;
 - v2 Free completion remains exactly-once and a lost HTTP response can still be safely retried through the Free receipt path.
 
@@ -575,7 +650,7 @@ For both Scheduled and Free mixed runs:
 - changing Systems between adjacent Cases does not return the learner to System selection;
 - waiting/complete/guard/recovery states still return to the appropriate run surface rather than manufacturing another Review.
 
-### 12.9 Active Review / v2 D1 guard / analytics
+### 12.9 Active Review / strict v2 D1 guard / analytics
 
 Using real migrated D1/SQLite trigger behavior, prove at minimum:
 
@@ -586,7 +661,15 @@ Using real migrated D1/SQLite trigger behavior, prove at minimum:
 - a Case genuinely reachable through System B is rejected when System B is not selected in `runScope`;
 - a selected System B is rejected when its explicit selected routes do not reach the Case;
 - forged/non-contributing `system_id` attribution fails at the D1 guard;
-- top-level `scope_json.systemId` still matches persisted `system_id`;
+- top-level `scope_json.systemId` is a required non-empty string and matches persisted `system_id`;
+- missing/null/wrong-type `version` fails;
+- any version other than `2` fails for the v2 Active Review path;
+- missing/null/wrong-type top-level `systemId` fails;
+- missing/null/wrong-type `runScope` or `runScope.systems` fails;
+- empty `runScope.systems` fails;
+- missing/null/wrong-type System entry `systemId` fails;
+- missing/null/wrong-type/unknown `mode` fails;
+- malformed `routes` mode or malformed route entries fail;
 - inactive/non-production Case or inactive System still fails;
 - every Review has one concrete System attribution;
 - Scheduled completion writes the intended validated System attribution;
@@ -621,7 +704,7 @@ Choose one or more Systems
 → 5 / 10 / 20 / All unique Cases
 ```
 
-Document the actual migration number, zero-data preflight command, and v2 descriptor/proof contract after implementation chooses their concrete names.
+Document the actual migration number, zero-data preflight command, write-fence mechanism, Production workflow ordering, and v2 descriptor/proof contract after implementation chooses their concrete names.
 
 Do not rewrite historical PR evidence as if multi-System study already existed at the time it was authored.
 
@@ -634,18 +717,20 @@ Use names that cannot be confused with the existing FSRS programme's historical 
 Own:
 
 - executable fail-closed zero-data cutover gate;
+- strict `learner_fsrs_profiles = 0` cutover sentinel;
+- learner-runtime write-quiescence mechanism and Production workflow enforcement;
 - multi-System scope types and normalization;
 - raw-input envelope limits;
 - candidate union/deduplication;
 - deterministic Case System attribution;
 - descriptor/scope v2;
 - study-run proof v2;
-- clean v1 learner-browser-state retirement under the verified zero-data assumption;
+- clean v1 learner-browser-state retirement under the verified fenced zero-data assumption;
 - Scheduled and Free planner/open support;
 - Active Review creation/revalidation support;
-- immutable migration replacing/updating `active_reviews_content_scope_guard` for v2 `runScope` semantics;
+- immutable migration replacing/updating `active_reviews_content_scope_guard` for strict v2 JSON shape and `runScope` semantics;
 - D1 proof that attribution System is selected and the Case is reachable under that exact selected sub-scope;
-- native-Topic, curated-Tag cross-System, whole-System `all`, unselected-System, wrong-route, and forged-attribution D1 regressions;
+- native-Topic, curated-Tag cross-System, whole-System `all`, unselected-System, wrong-route, malformed-scope, and forged-attribution D1 regressions;
 - global 50-New regressions;
 - exactly-once/lost-response v2 completion regressions;
 - plan→first and completion→next continuous-navigation runtime support;
@@ -654,7 +739,7 @@ Own:
 
 This tranche keeps current learner behavior available until runtime, D1, cutover, and performance invariants are proven.
 
-Production deployment is a separate explicit step. Immediately before that deployment, rerun the zero-data gate against Production and fail closed if the assumption changed.
+Production deployment is a separate explicit step. Multi-System Runtime must modify the deployment workflow so the learner-runtime fence begins before the full Production zero-data gate and remains in force through migration, v2 Worker deployment, and v2 verification.
 
 ### Multi-System UX — learner cutover
 
@@ -666,6 +751,7 @@ Own:
 - unique combined candidate count;
 - `/study` form/action wiring;
 - 5/10/20/All mixed-run start behavior;
+- **default run size of 10 Cases**;
 - immediate plan→first-open UX;
 - completion→next-open navigation across System boundaries;
 - learner-facing regression coverage;
@@ -684,9 +770,13 @@ Do not include in this feature:
 - per-System 50-New counters;
 - taxonomy restructuring;
 - Case authoring changes;
-- long-lived v1/v2 compatibility when the mandatory zero-data cutover gate passes;
+- long-lived v1/v2 compatibility when the mandatory fenced zero-data cutover passes;
 - weakening the zero-data gate to avoid compatibility work if learner data appears;
+- a pristine/default `learner_fsrs_profiles` exception for this cutover;
+- running the zero-data gate while the v1 learner runtime remains writable;
+- applying the v2 D1 migration before learner study writes are quiesced;
 - retaining the old top-level-route D1 guard merely to avoid a migration;
+- relying on nullable `json_extract(...) = system_id` alone as proof of required v2 scope shape;
 - weakening or bypassing independent D1 validation of selected-scope attribution;
 - changes to Scheduled/Free completion semantics unrelated to the mixed-scope/v2 cutover;
 - Production mutation/deployment as part of this planning documentation PR.
@@ -700,18 +790,21 @@ Multi-System learner study is ready for learner cutover when all of the followin
 3. the server, not browser state, owns normalization, eligibility, and attribution;
 4. overlapping scope contributes each Case at most once;
 5. System attribution for every presented Case is deterministic and persisted on its Active Review;
-6. a mandatory executable Production zero-data gate proves the clean v2 cutover is safe immediately before deployment;
-7. if the zero-data gate fails, deployment stops rather than silently requiring live v1 compatibility;
-8. new learner runs use descriptor/scope v2 and Scheduled proof v2;
-9. the migrated D1 guard proves the attribution System is selected in `runScope` and the Case is reachable through that exact selected System sub-scope;
-10. a Case/System relationship that is taxonomically valid but not selected in `runScope` is rejected at the D1 boundary;
-11. FSRS state remains Case-level and unchanged in ownership;
-12. per-System analytics/provenance remain correct;
-13. 5/10/20/All apply to the combined unique candidate pool;
-14. the 50-consecutive-New guard remains global and unchanged across System boundaries;
-15. v2 Scheduled and Free completion preserve exactly-once/lost-response retry semantics;
-16. plan→first-open and completion→next-open remain continuous without returning to System selection between Cases;
-17. raw input and normalized scope are both bounded before expensive work;
-18. browser/Worker/D1 performance stays inside measured supported envelopes;
-19. current single-System study remains a valid special case of the new v2 contract;
-20. living learner-study documentation is updated only when the implementation actually ships.
+6. a mandatory executable Production zero-data gate proves the clean v2 cutover is safe;
+7. `learner_fsrs_profiles` is exactly zero at that gate, with no pristine/default exception;
+8. learner study writes are mechanically quiesced before the gate and remain quiesced through v2 migration, Worker deployment, and v2 verification;
+9. if the zero-data gate fails, deployment stops rather than silently requiring live v1 compatibility;
+10. new learner runs use descriptor/scope v2 and Scheduled proof v2;
+11. the migrated D1 guard strictly validates v2 JSON shape before semantic eligibility;
+12. the migrated D1 guard proves the attribution System is selected in `runScope` and the Case is reachable through that exact selected System sub-scope;
+13. a Case/System relationship that is taxonomically valid but not selected in `runScope` is rejected at the D1 boundary;
+14. FSRS state remains Case-level and unchanged in ownership;
+15. per-System analytics/provenance remain correct;
+16. 5/10/20/All apply to the combined unique candidate pool and **10 Cases remains the default**;
+17. the 50-consecutive-New guard remains global and unchanged across System boundaries;
+18. v2 Scheduled and Free completion preserve exactly-once/lost-response retry semantics;
+19. plan→first-open and completion→next-open remain continuous without returning to System selection between Cases;
+20. raw input and normalized scope are both bounded before expensive work;
+21. browser/Worker/D1 performance stays inside measured supported envelopes;
+22. current single-System study remains a valid special case of the new v2 contract;
+23. living learner-study documentation is updated only when the implementation actually ships.
