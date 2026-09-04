@@ -11,7 +11,6 @@ import {
 
 const DELETION_USER_ID = 'pr-g-deletion-user';
 const ADMIN_EMAIL = 'pr-g-smoke-admin@example.test';
-const ADMIN_PASSWORD = 'PrG-Smoke-Admin-Password-2026!';
 const EXPECTED_TARGET_VERIFICATIONS = 2_500;
 const EXPECTED_UNRELATED_VERIFICATIONS = 5_000;
 const ANALYTICS_LEARNERS = 40;
@@ -82,7 +81,7 @@ async function createAdminHeaders(env) {
     body: {
       name: 'PR G Smoke Admin',
       email: ADMIN_EMAIL,
-      password: ADMIN_PASSWORD
+      password: `PrG-${crypto.randomUUID()}-Aa1!`
     }
   });
 
@@ -213,7 +212,7 @@ async function analyticsBenchmark(env) {
   const baselineWrite = await timed(() => insertScheduledEvents(env, 'baseline-event', WRITE_COUNT));
   await env.DB.prepare("DELETE FROM scheduled_review_events WHERE user_id = 'analytics-write-user'").run();
 
-  await env.DB.exec(MONTHLY_TRIGGER_SQL);
+  await env.DB.prepare(MONTHLY_TRIGGER_SQL).run();
   const bucketWrite = await timed(() => insertScheduledEvents(env, 'bucket-event', WRITE_COUNT));
 
   const writeBucket = await env.DB.prepare(`
