@@ -170,16 +170,17 @@ Any malformed count or any nonzero required sentinel fails the gate.
 
 ## Mechanically enforced Production cutover
 
-The normal Production workflow has no `apply_migrations=false` dispatch path for this one-time cutover.
+The Production workflow may retain its normal `apply_migrations` control for ordinary **post-cutover** releases, but there is no effective `apply_migrations=false` bypass for the first Runtime v2 cutover. If the v2 Active Review guard is absent, the workflow independently marks the cutover required and makes migration mandatory regardless of the ordinary input.
 
 When the v2 guard is not yet present, `.github/workflows/deploy-production.yml` mechanically performs:
 
 ```text
 repository validation + local migrated-D1 v2 acceptance
+→ detect missing v2 guard and require the D1 write credential before fencing
 → deploy temporary learner-runtime fence Worker
 → verify fence is live
 → run exact-zero Production gate
-→ apply all pending D1 migrations
+→ apply all pending D1 migrations regardless of ordinary migration input
 → verify v2 Active Review guard
 → deploy v2 Worker with LEARNER_RUNTIME_WRITE_FENCE=true
 → perform non-mutating runtime/guard/zero-data verification
@@ -189,7 +190,7 @@ repository validation + local migrated-D1 v2 acceptance
 
 The shared learner Study access owner rejects `/study` planning/open/resume/reveal/completion while `LEARNER_RUNTIME_WRITE_FENCE` is active. The temporary Worker provides an additional outage-level fence before migration.
 
-Subsequent deployments, once the v2 guard already exists, apply pending migrations before deploying the ordinary Worker without rerunning the historical exact-zero cutover requirement.
+Subsequent deployments, once the v2 guard already exists, skip the historical exact-zero/fence sequence and return to the ordinary repository migration policy: code-only deployment is allowed with `apply_migrations=false`, while `apply_migrations=true` applies pending migrations before Worker deployment. Guard verification still fails closed before the deployed v2 runtime is accepted.
 
 Production verification during the one-time fence is non-mutating. It checks the runtime status endpoint, guard presence, and zero-data sentinels; it does not bypass the fence to manufacture synthetic learner history.
 
