@@ -622,7 +622,13 @@ test('active Review media keeps its frozen R2 snapshot across higher-resolution 
       'system-fixture',
       'active-media-run',
       'active-media-scope',
-      JSON.stringify({ systems: [{ systemId: 'system-fixture', mode: 'routes', routes: [{ routeType: 'topic', routeId: 'topic-stimulus' }] }] }),
+      JSON.stringify({
+        version: 2,
+        systemId: 'system-fixture',
+        runScope: {
+          systems: [{ systemId: 'system-fixture', mode: 'routes', routes: [{ routeType: 'topic', routeId: 'topic-stimulus' }] }]
+        }
+      }),
       'Stimulus case',
       2
     );
