@@ -70,7 +70,7 @@ function createDatabase() {
 
 function seedMatureLearner(db, options) {
   const { caseCount, eventCount, systemCount, freeReceiptCount, sessionCount, accountCount } = options;
-  const now = Date.UTC(2026, 8, 3, 0, 0, 0);
+  const now = Date.now();
   db.exec('DROP TRIGGER scheduled_review_events_active_guard;');
   db.exec('DROP TRIGGER active_reviews_content_scope_guard;');
   db.exec('DROP TRIGGER free_review_completion_receipts_active_guard;');
