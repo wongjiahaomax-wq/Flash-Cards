@@ -14,7 +14,10 @@ export const NPM_CI_ARGS = ['ci', '--prefer-offline', '--no-audit', '--no-fund']
 /** @typedef {(executable: string, args: string[], options: { cwd: string, stdio: 'inherit', env: StringEnvironment }) => SpawnResult} SpawnCommand */
 
 /** @type {SpawnCommand} */
-const defaultSpawn = (executable, args, options) => spawnSync(executable, args, options);
+const defaultSpawn = (executable, args, options) => spawnSync(executable, args, {
+  ...options,
+  env: /** @type {NodeJS.ProcessEnv} */ (options.env),
+});
 
 /** @param {string[]} argv */
 export function parseDepsEnsureArgs(argv) {
