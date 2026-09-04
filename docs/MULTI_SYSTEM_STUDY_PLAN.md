@@ -6,7 +6,7 @@ _Last reviewed against `main` at `ca56f915` on 4 September 2026._
 
 ## 1. Goal
 
-Allow a learner to build one Scheduled Study or Free Study run from more than one System while preserving the existing FSRS, active-Review, provenance, run-proof, and per-System analytics invariants.
+Allow a learner to build one Scheduled Study or Free Study run from more than one System while preserving the existing FSRS, active-Review, provenance, run-proof, D1 scope-guard, and per-System analytics invariants.
 
 The intended learner flow is:
 
@@ -30,9 +30,13 @@ Current `/study` is deliberately single-System:
 - Scheduled and Free planners receive one `systemId`;
 - run descriptors currently persist `selectedScope: { systemId, routes }`;
 - Scheduled scope fingerprints and membership proofs authenticate that singular normalized scope;
-- `active_reviews.system_id` stores one System attribution and `scope_json` currently requires a top-level matching `systemId`.
+- `active_reviews.system_id` stores one System attribution;
+- the `active_reviews_scope_system_check` database check requires `scope_json.systemId = system_id`;
+- the D1 `active_reviews_content_scope_guard` trigger independently iterates `json_each(NEW.scope_json, '$.routes')` and requires at least one top-level Topic/Tag route that proves the inserted Case is reachable through `NEW.system_id`.
 
-Therefore multi-System study is not a presentation-only change. The selection, descriptor, proof, active-Review creation, browser validation, and learner UX contracts all need coordinated changes.
+The trigger is a material security/integrity boundary, including for curated-Tag cross-System study. A mixed-scope shape that only stores `{ systemId, runScope }`, or that represents a whole System only as `mode: 'all'`, is **not compatible with the current trigger as written** because it provides no qualifying top-level `$.routes` entry.
+
+Therefore multi-System study is not a presentation-only change. The selection, descriptor, proof, active-Review creation, D1 eligibility guard, browser validation, and learner UX contracts all need coordinated changes.
 
 ## 3. Product behavior
 
@@ -70,7 +74,7 @@ The displayed eligible count must use the same union/deduplication semantics as 
 
 ### 3.2 Per-System narrowing
 
-A System may be represented as either:
+A System may be represented in the authenticated run scope as either:
 
 ```text
 all
@@ -82,9 +86,9 @@ or:
 explicit Topic / curated Tag routes
 ```
 
-Selecting the whole System should not require materializing every Topic/Tag route into browser state. This avoids consuming the Scheduled route envelope merely because the learner selected several complete Systems.
+Selecting the whole System should not require materializing every Topic/Tag route into browser run state. This avoids consuming the Scheduled route envelope merely because the learner selected several complete Systems.
 
-Conceptual scope shape:
+Conceptual authenticated run-scope shape:
 
 ```js
 {
@@ -104,6 +108,8 @@ Conceptual scope shape:
 ```
 
 The exact serialized contract may differ during implementation, but it must be normalized, deterministic, bounded, and server-validated.
+
+This compact run-scope representation is distinct from any per-Review compatibility projection required by the current D1 Active Review guard; see section 7.
 
 ### 3.3 Run size
 
@@ -138,16 +144,17 @@ The multi-System resolver must:
 3. validate every Topic/Tag route against its declared System;
 4. resolve candidates for every System scope;
 5. union candidates by `caseId`;
-6. retain enough contribution metadata to determine stable System attribution;
-7. return a deterministic normalized scope and deduplicated candidate set.
+6. retain all contributing Systems/routes needed for stable System attribution and D1 eligibility proof;
+7. for `mode: 'all'`, retain or derive a concrete qualifying contribution route for each selected Case rather than treating `all` itself as sufficient D1 proof;
+8. return a deterministic normalized run scope and deduplicated candidate set.
 
-No client-provided candidate list is authoritative.
+No client-provided candidate list, attribution System, or compatibility route is authoritative.
 
 ## 5. Case deduplication and System attribution
 
 A Case that is reachable through more than one selected scope must appear only once in one run.
 
-The union step should retain the contributing Systems/routes for that Case so attribution does not depend on checkbox order or incidental iteration order.
+The union step must retain the contributing Systems/routes for that Case so attribution does not depend on checkbox order or incidental iteration order.
 
 ### 5.1 Attribution invariant
 
@@ -162,6 +169,8 @@ The implementation must define and test a deterministic attribution rule for mul
 3. freeze that chosen attribution when the Review is created.
 
 A Case reached only through a curated Tag should preserve the existing curated-System study semantics rather than silently rewriting attribution to another System.
+
+The chosen attribution System must always have at least one **server-derived concrete contributing Topic/Tag route** that the current D1 content-scope guard can validate, unless the implementation deliberately migrates that guard to understand the v2 mixed-scope shape.
 
 This rule must be locked by regression tests before learner cutover.
 
@@ -182,22 +191,22 @@ Recommended approach:
 
 Equivalent selections must produce equivalent normalized scope bytes regardless of learner checkbox order.
 
-A browser-edited scope must never allow an unsigned System, Topic, Tag, or Case to enter Scheduled work.
+A browser-edited scope must never allow an unsigned System, Topic, Tag, Case, attribution System, or compatibility route to enter Scheduled work.
 
-## 7. Active Review contract
+The per-Review D1 compatibility projection described below is **not** a substitute for the authenticated run scope. The complete normalized run scope remains the material hashed/signed by the run-proof contract.
+
+## 7. Active Review and D1 scope-guard contract
 
 A run may span several Systems, but one presented Case still creates one active Review with one concrete System attribution.
 
 Avoid introducing a many-to-many active-Review/System model unless implementation evidence proves it necessary.
 
-Current `active_reviews` stores:
+Current `active_reviews` has two separate D1 scope invariants that must both be respected:
 
-- scalar `system_id`;
-- `scope_fingerprint`;
-- `scope_json`;
-- a database check requiring `scope_json.systemId = system_id`.
+1. `active_reviews_scope_system_check` requires top-level `scope_json.systemId = system_id`;
+2. `active_reviews_content_scope_guard` iterates top-level `scope_json.routes` and requires at least one route proving that `case_id` is eligible through `system_id`.
 
-Preferred implementation direction is to preserve the scalar Review attribution and place the complete run scope inside the JSON while retaining a top-level Review-attribution `systemId`, for example:
+The second invariant means this shape is **insufficient** and must not be used as the implementation contract:
 
 ```js
 {
@@ -208,9 +217,67 @@ Preferred implementation direction is to preserve the scalar Review attribution 
 }
 ```
 
-The authenticated fingerprint must represent the authoritative normalized run scope, not merely the Review-attribution System.
+It has no top-level `routes`, and a compact `mode: 'all'` entry inside `runScope` is not directly understood by the existing trigger.
 
-This approach is expected to avoid a D1 schema migration, but that is an implementation hypothesis rather than a locked requirement. If the final safe implementation requires a migration, the migration must be reviewed explicitly.
+### 7.1 Preferred no-migration approach: compatibility projection
+
+If implementation keeps the current D1 trigger unchanged, each Active Review should retain a small **server-derived compatibility projection** at the top level while storing the complete authenticated mixed scope separately:
+
+```js
+{
+  systemId: 'renal',
+  routes: [
+    { routeType: 'topic', routeId: 'renal-electrolytes' }
+  ],
+  runScope: {
+    systems: [/* complete normalized mixed run scope */]
+  }
+}
+```
+
+For a curated-Tag contribution, the compatibility route may instead be:
+
+```js
+{
+  systemId: 'emergency-medicine',
+  routes: [
+    { routeType: 'tag', routeId: 'hyperkalaemia' }
+  ],
+  runScope: {
+    systems: [/* complete normalized mixed run scope */]
+  }
+}
+```
+
+Requirements:
+
+- `systemId` equals the frozen attribution `system_id` for this Review;
+- `routes` contains at least one **concrete server-derived contributing route** that proves this exact Case/System attribution under the current trigger;
+- `routes` must not be copied from untrusted browser input without server re-resolution;
+- `runScope` contains the complete canonical multi-System selection;
+- `scope_fingerprint` and Scheduled proofs authenticate the complete canonical `runScope`, not merely the top-level compatibility projection;
+- for an authenticated `mode: 'all'` System, the server must derive a qualifying concrete native Topic or curated-Tag route for the particular Case before Active Review insertion;
+- if a Case has several qualifying routes, selection of the compatibility route must be deterministic or otherwise semantically irrelevant and covered by regression tests.
+
+This is the preferred initial direction because it preserves the existing independent D1 content-scope guard without requiring the compact run descriptor itself to enumerate every route in every selected whole System.
+
+### 7.2 Alternative migration approach
+
+If the compatibility projection proves unsafe, misleading, or materially awkward during implementation, deliberately migrate the D1 guard instead of bypassing it.
+
+That approach must:
+
+- add a new immutable migration;
+- explicitly replace/update `active_reviews_content_scope_guard` so it understands the v2 mixed-scope representation, including `mode: 'all'`;
+- preserve independent database verification that `case_id` is genuinely reachable through `system_id`;
+- preserve curated-Tag cross-System behavior;
+- reject forged/non-contributing System attribution;
+- add D1 regression coverage for the new trigger semantics;
+- update schema/source contracts and migration documentation.
+
+Do not drop or weaken the guard merely because application code already validated the scope.
+
+A migration is therefore **not expected by default**, but neither is "no migration" a locked assumption. PR A must choose and prove one of these two approaches before learner UX cutover.
 
 ## 8. FSRS and analytics invariants
 
@@ -261,9 +328,10 @@ Implementation must explicitly verify:
 - Worker request/response size;
 - browser serialization/localStorage size;
 - planning latency for the largest supported mixed selection;
-- Free Study bag size for the largest supported mixed selection.
+- Free Study bag size for the largest supported mixed selection;
+- any additional per-Review compatibility-projection cost.
 
-Whole-System `mode: all` exists partly to prevent route-count growth from scaling with every Topic/Tag under every selected System.
+Whole-System `mode: all` exists partly to prevent run-scope route-count growth from scaling with every Topic/Tag under every selected System. A one-Review compatibility route does not defeat that goal because it exists only for the presented Case's D1 eligibility guard.
 
 Do not increase existing safety limits merely to make the feature pass without measured evidence.
 
@@ -286,6 +354,8 @@ At minimum prove:
 - overlapping Topic/Tag selections return one Case once;
 - the same Case contributed by several Systems appears once;
 - multiply-contributed System attribution is deterministic;
+- the chosen attribution has a concrete server-derived contributing route;
+- `mode: 'all'` can derive a concrete qualifying route for each selected Case;
 - unique eligible counts match planner union semantics.
 
 ### Scheduled Study
@@ -305,13 +375,23 @@ At minimum prove:
 - run size applies globally;
 - Free completion still does not mutate Scheduled FSRS state.
 
-### Active Review / analytics
+### Active Review / D1 guard / analytics
 
+Using real migrated D1/SQLite trigger behavior, prove at minimum:
+
+- a native-Topic Active Review from a mixed run passes the content-scope guard;
+- a curated-Tag cross-System Active Review from a mixed run passes the guard;
+- a whole-System `mode: 'all'` run derives a concrete compatibility route and passes the guard;
+- forged/non-contributing `system_id` attribution fails with the D1 guard rather than relying only on application rejection;
+- a forged compatibility route fails;
+- top-level `scope_json.systemId` still matches persisted `system_id`;
 - every Review has one concrete System attribution;
 - Scheduled completion writes the intended System attribution;
 - monthly/per-System analytics remain correct after mixed runs;
 - curated-Tag-only attribution preserves current semantics;
 - repeated access to the same mixed run cannot change attribution nondeterministically.
+
+If PR A chooses the migration approach instead, equivalent D1 tests must prove the migrated guard itself understands native Topic, curated-Tag cross-System, and whole-System `all` scope while still rejecting forged/non-contributing attribution.
 
 ### Browser / envelope
 
@@ -350,14 +430,17 @@ Own:
 - multi-System scope types and normalization;
 - multi-System candidate union/deduplication;
 - deterministic Case System attribution;
+- concrete per-Case contribution-route retention/derivation;
 - new run-descriptor/scope version;
 - Scheduled fingerprint/proof changes;
 - Scheduled and Free planner support;
 - active-Review creation/revalidation support;
+- explicit choice and proof of either the no-migration compatibility projection or a migrated v2 D1 content-scope guard;
+- native-Topic, curated-Tag cross-System, whole-System `all`, and forged-attribution D1 regressions;
 - browser descriptor validation/storage transition;
 - regression and maximum-envelope benchmarks.
 
-This PR should keep existing learner behavior available until its runtime invariants are proven.
+This PR should keep existing learner behavior available until its runtime and D1 invariants are proven.
 
 ### PR B — learner UX cutover
 
@@ -384,6 +467,7 @@ Do not include in this feature:
 - balanced sampling modes;
 - taxonomy restructuring;
 - Case authoring changes;
+- weakening or bypassing existing D1 Active Review eligibility enforcement;
 - changes to Scheduled/Free completion semantics unrelated to scope;
 - Production mutation/deployment as part of the planning documentation PR.
 
@@ -393,13 +477,15 @@ Multi-System learner study is ready for learner cutover when all of the followin
 
 1. a learner can select more than one System in one study run;
 2. each System can independently mean all or an explicit Topic/Tag subset;
-3. the server, not browser state, owns normalization and eligibility;
+3. the server, not browser state, owns normalization, eligibility, attribution, and compatibility-route derivation;
 4. overlapping scope contributes each Case at most once;
 5. System attribution for every presented Case is deterministic and persisted on its active Review;
-6. Scheduled run proofs authenticate the complete normalized mixed scope;
-7. FSRS state remains Case-level and unchanged in ownership;
-8. per-System analytics/provenance remain correct;
-9. 5/10/20/All apply to the combined unique candidate pool;
-10. browser/Worker/D1 performance stays inside measured supported envelopes;
-11. current single-System study remains a valid special case of the new contract;
-12. living learner-study documentation is updated only when the implementation actually ships.
+6. Scheduled run proofs authenticate the complete normalized mixed run scope;
+7. Active Review insertion remains independently protected by D1 eligibility enforcement for native Topic, curated-Tag cross-System, and whole-System `all` study;
+8. forged/non-contributing System attribution still fails at the D1 guard boundary;
+9. FSRS state remains Case-level and unchanged in ownership;
+10. per-System analytics/provenance remain correct;
+11. 5/10/20/All apply to the combined unique candidate pool;
+12. browser/Worker/D1 performance stays inside measured supported envelopes;
+13. current single-System study remains a valid special case of the new contract;
+14. living learner-study documentation is updated only when the implementation actually ships.
