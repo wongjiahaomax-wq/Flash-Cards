@@ -38,7 +38,7 @@ function appendMultiRow(lines, prefix, rows, chunkSize = 100) {
 }
 
 function buildSeedSql() {
-  const now = Date.UTC(2026, 8, 3, 0, 0, 0);
+  const now = Date.now();
   const lines = [
     'PRAGMA foreign_keys = ON;',
     'DROP TRIGGER scheduled_review_events_active_guard;',
