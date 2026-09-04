@@ -2,6 +2,12 @@ name: Deploy production
 
 on:
   workflow_dispatch:
+    inputs:
+      apply_migrations:
+        description: Apply pending D1 migrations on an ordinary post-v2 deployment. The first v2 cutover always migrates.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -38,15 +44,14 @@ jobs:
           cache: npm
           cache-dependency-path: package-lock.json
 
-      - name: Verify Cloudflare credentials
+      - name: Verify Cloudflare read/deploy credentials
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
-          CLOUDFLARE_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
         run: |
           set -euo pipefail
-          for secret_name in CLOUDFLARE_API_TOKEN CLOUDFLARE_D1_READ_TOKEN CLOUDFLARE_D1_WRITE_TOKEN; do
+          for secret_name in CLOUDFLARE_API_TOKEN CLOUDFLARE_D1_READ_TOKEN; do
             if [ -z "${!secret_name:-}" ]; then
               echo "::error::GitHub repository secret ${secret_name} is required."
               exit 1
@@ -89,8 +94,20 @@ jobs:
             echo "Existing Production D1 already has the v2 Active Review guard."
           else
             echo "required=true" >> "$GITHUB_OUTPUT"
-            echo "Production D1 does not yet have the v2 guard; the fenced zero-data cutover is mandatory."
+            echo "Production D1 does not yet have the v2 guard; the fenced zero-data cutover and migration are mandatory."
             cat /tmp/v2-guard.txt
+          fi
+
+      - name: Require D1 write credential when migration is required
+        if: ${{ steps.cutover.outputs.required == 'true' || inputs.apply_migrations == true }}
+        shell: bash
+        env:
+          CLOUDFLARE_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_D1_WRITE_TOKEN:-}" ]; then
+            echo "::error::GitHub repository secret CLOUDFLARE_D1_WRITE_TOKEN is required for this deployment."
+            exit 1
           fi
 
       - name: Install temporary learner write fence Worker
@@ -141,6 +158,7 @@ jobs:
         run: npm run multi-system:cutover-gate -- --remote
 
       - name: Apply all pending production D1 migrations
+        if: ${{ steps.cutover.outputs.required == 'true' || inputs.apply_migrations == true }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
         run: ./node_modules/.bin/wrangler d1 migrations apply DB --remote
@@ -197,7 +215,8 @@ jobs:
             echo "- Commit: `${GITHUB_SHA}`"
             echo "- Worker: ${PRODUCTION_WORKER_URL}"
             echo "- Multi-System v2 one-time cutover required: `${{ steps.cutover.outputs.required }}`"
-            echo "- Pending D1 migrations: `always applied before Worker deployment`"
+            echo "- Ordinary post-cutover migration input: `${{ inputs.apply_migrations }}`"
+            echo "- First-cutover migration policy: `mandatory when v2 guard is absent`"
             echo "- v2 Active Review guard: `verified`"
             echo "- Learner runtime write fence after verification: `open`"
           } >> "$GITHUB_STEP_SUMMARY"
