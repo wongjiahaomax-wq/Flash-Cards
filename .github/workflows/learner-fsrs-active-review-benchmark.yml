@@ -37,6 +37,10 @@ on:
       - 'docs/LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md'
       - '.github/workflows/learner-fsrs-active-review-benchmark.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
