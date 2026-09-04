@@ -256,9 +256,14 @@ export function resolveSystemStudySelectionCandidates(
   );
 
   const byCase = new Map<string, SystemStudyCandidate>();
-  for (const topicId of selectedTopics) {
-    for (const candidate of exactTopicCandidates(input.systemId, topicId, input)) {
-      byCase.set(candidate.id, candidate);
+  // Route normalization already proved that every selected Topic belongs to this
+  // System. Resolve the native System candidate set once, then filter it by the
+  // selected exact Topic IDs. This is semantically equivalent to calling
+  // exactTopicCandidates once per selected Topic without repeatedly rescanning
+  // the full Case/topic input for multi-route scopes.
+  if (selectedTopics.size > 0) {
+    for (const candidate of nativeSystemCandidates(input.systemId, input)) {
+      if (selectedTopics.has(candidate.studyConceptId)) byCase.set(candidate.id, candidate);
     }
   }
   for (const curated of curatedTagsForSystem(input.systemId, input.systemTagRows)) {
