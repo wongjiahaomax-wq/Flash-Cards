@@ -40,8 +40,15 @@ async function ensureSmokeUser(binding, userId) {
 async function createFreeActiveFixture(binding, fixture) {
   await ensureSmokeUser(binding, fixture.userId);
   const scope = {
+    version: 2,
     systemId,
-    routes: [{ routeType: 'topic', routeId: topicId }]
+    runScope: {
+      systems: [{
+        systemId,
+        mode: 'routes',
+        routes: [{ routeType: 'topic', routeId: topicId }]
+      }]
+    }
   };
   await binding.prepare(`
     INSERT INTO active_reviews (
