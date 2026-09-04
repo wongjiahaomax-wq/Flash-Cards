@@ -19,6 +19,7 @@ on:
       - 'src/lib/server/db/fsrs-admin-analytics.ts'
       - 'src/lib/server/db/fsrs-analytics-schema.js'
       - 'src/lib/server/db/fsrs-system-provenance.ts'
+      - 'src/lib/server/db/index.js'
       - 'src/lib/server/db/learner-account-deletion.ts'
       - 'src/routes/admin/learner-analytics/**'
       - 'test/learner-fsrs-pr-g.test.js'
