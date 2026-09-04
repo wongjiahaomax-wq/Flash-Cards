@@ -16,6 +16,7 @@ import {
 import {
   clearFsrsPreviewRun,
   FSRS_PREVIEW_RUN_STORAGE_KEY,
+  LEGACY_FSRS_PREVIEW_RUN_STORAGE_KEY,
   isFsrsPreviewRunOwnedBy,
   readFsrsPreviewRun,
   readFsrsPreviewRunForUser,
@@ -36,14 +37,24 @@ import {
   validateLocalFsrsPreviewRunOwner
 } from '../src/lib/server/learning/local-fsrs-preview.js';
 
+function v2Scope() {
+  return {
+    systems: [{
+      systemId: 'system-1',
+      mode: 'routes',
+      routes: [{ routeType: 'topic', routeId: 'topic-1' }]
+    }]
+  };
+}
+
 function freeDescriptor(overrides = {}) {
   return {
-    version: 1,
+    version: 2,
     kind: 'free',
     userId: 'user-1',
     runId: 'run-1',
     runStartedAt: 1_000,
-    selectedScope: { systemId: 'system-1', routes: [{ routeType: 'topic', routeId: 'topic-1' }] },
+    selectedScope: v2Scope(),
     expandedLearning: false,
     distinctCaseTarget: 10,
     bag: ['case-a', 'case-b'],
@@ -55,12 +66,12 @@ function freeDescriptor(overrides = {}) {
 
 function scheduledDescriptor(overrides = {}) {
   return {
-    version: 1,
+    version: 2,
     kind: 'scheduled',
     userId: 'user-1',
     runId: 'run-1',
     runStartedAt: 1_000,
-    selectedScope: { systemId: 'system-1', routes: [{ routeType: 'topic', routeId: 'topic-1' }] },
+    selectedScope: v2Scope(),
     scopeFingerprint: 'scope-1',
     runBoundaryToken: 'run-token-1',
     schedulerBoundary: {
@@ -77,7 +88,7 @@ function scheduledDescriptor(overrides = {}) {
     duePosition: 0,
     capturedNew: [{ caseId: 'case-a', proofIndex: 0 }],
     newPosition: 0,
-    membershipProofs: { version: 1, chunkSize: 100, due: [], new: ['new-proof-1'] },
+    membershipProofs: { version: 2, chunkSize: 100, due: [], new: ['new-proof-1'] },
     repeatEntries: [],
     completedCaseIds: [],
     consecutiveNewCompleted: 0,
@@ -257,7 +268,7 @@ test('Free completion replay after browser advancement is harmless', () => {
   assert.equal(applyFreeCompletion(descriptor, { receiptId: 'old', caseId: 'case-a' }), descriptor);
 });
 
-test('preview run storage round-trips supported descriptors and clears browser-only state', () => {
+test('preview run storage round-trips supported v2 descriptors and clears browser-only state', () => {
   const storage = new MemoryStorage();
   const descriptor = freeDescriptor();
   writeFsrsPreviewRun(storage, descriptor);
@@ -266,13 +277,21 @@ test('preview run storage round-trips supported descriptors and clears browser-o
   assert.equal(readFsrsPreviewRun(storage), null);
 });
 
-test('legacy target-less preview descriptor remains readable as All available compatibility state', () => {
+test('v1 preview browser state is retired instead of reinterpreted as v2', () => {
   const storage = new MemoryStorage();
-  const descriptor = freeDescriptor();
-  assert.equal(Reflect.deleteProperty(descriptor, 'distinctCaseTarget'), true);
-  writeFsrsPreviewRun(storage, descriptor);
-  assert.deepEqual(readFsrsPreviewRun(storage), descriptor);
-  assert.deepEqual(selectNextFreeWork(descriptor), { status: 'ready', caseId: 'case-a' });
+  storage.setItem(LEGACY_FSRS_PREVIEW_RUN_STORAGE_KEY, JSON.stringify({
+    version: 1,
+    kind: 'free',
+    userId: 'user-1',
+    runId: 'legacy-run',
+    runStartedAt: 1_000,
+    selectedScope: { systemId: 'system-1', routes: [{ routeType: 'topic', routeId: 'topic-1' }] },
+    bag: ['case-a'],
+    position: 0,
+    currentReviewId: null
+  }));
+  assert.equal(readFsrsPreviewRun(storage), null);
+  assert.equal(storage.getItem(LEGACY_FSRS_PREVIEW_RUN_STORAGE_KEY), null);
 });
 
 test('malformed persisted preview descriptors are discarded instead of reaching page rendering', () => {
