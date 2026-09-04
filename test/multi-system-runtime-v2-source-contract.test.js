@@ -43,10 +43,11 @@ test('v2 Active Review migration is strict and proves selected concrete System a
   assert.match(migration, /DROP TRIGGER `active_reviews_content_scope_guard`/);
   assert.match(migration, /json_extract\(NEW\.`scope_json`, '\$\.version'\) <> 2/);
   assert.match(migration, /json_extract\(NEW\.`scope_json`, '\$\.systemId'\) <> NEW\.`system_id`/);
-  assert.match(migration, /json_type\(NEW\.`scope_json`, '\$\.runScope\.systems'\) <> 'array'/);
+  assert.match(migration, /json_type\(NEW\.`scope_json`, '\$\.runScope\.systems'\) IS NOT 'array'/);
   assert.match(migration, /active_review_invalid_scope_v2/);
   assert.match(migration, /active_review_ineligible_scope/);
-  assert.match(migration, /COUNT\(DISTINCT json_extract\(selected\.value, '\$\.systemId'\)\)/);
+  assert.match(migration, /GROUP BY json_extract\(system_scope\.value, '\$\.systemId'\)/);
+  assert.match(migration, /HAVING count\(\*\) > 1/);
   assert.match(migration, /cc\.`role` = 'primary'/);
   assert.match(migration, /topic\.`is_active` = 1/);
   assert.match(migration, /c\.`preview_session_id` IS NULL/);
