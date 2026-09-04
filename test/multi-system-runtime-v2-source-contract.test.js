@@ -149,6 +149,25 @@ test('migrated-D1 validation owns both full lifecycle acceptance and trigger-env
   assert.match(workflow, /cancel-in-progress: true/);
 });
 
+test('Runtime v2 specialized CI owns direct taxonomy, route, and migration dependencies', () => {
+  const workflow = source('.github/workflows/multi-system-runtime-v2.yml');
+
+  for (const ownedPath of [
+    "- 'drizzle/**'",
+    "- 'src/lib/server/learning/system-study-routes.ts'",
+    "- 'src/lib/server/learning/taxonomy-graph.ts'",
+    "- 'src/lib/server/learning/study-routes.js'"
+  ]) {
+    assert.ok(workflow.includes(ownedPath), `Runtime v2 workflow must own ${ownedPath}`);
+  }
+
+  assert.doesNotMatch(
+    workflow,
+    /drizzle\/0026_multi_system_active_review_scope_v2\.sql/,
+    'migration ownership must remain broad enough for later migrations that alter migrated-D1 runtime behavior'
+  );
+});
+
 test('learner runtime write fence is shared by the normal Study access owner', () => {
   const runtime = source('src/lib/server/learning/learner-study-runtime.js');
   const chooser = source('src/routes/study/+page.server.js');
