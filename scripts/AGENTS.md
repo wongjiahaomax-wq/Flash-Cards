@@ -6,6 +6,7 @@ This file supplements the repository-wide `AGENTS.md` for `scripts/`.
 - Production mutation is forbidden unless a current runbook explicitly defines that operation.
 - Local replica refresh is read-production/write-local only; preserve its hard-coded SELECT / R2 GET remote surface.
 - The exact package/lockfile Wrangler pin is the only Wrangler authority. Use the repository-installed Wrangler; never add `npx --yes wrangler@<version>`.
+- For local dependency preparation, prefer `npm run deps:ensure`. It reuses `node_modules` only when its package/runtime fingerprint matches; use `npm run deps:ensure -- --force` after `agent:doctor` reports dependency drift or when the install is known to be damaged. Do not run a clean install after ordinary code-only changes merely by habit.
 - Prefer `process.execPath` for repository Node scripts and cross-platform child-process handling for npm/Windows.
 - `npm run local:stop` is the repository-scoped cleanup command for local `dev`/`preview` servers. Preserve its exact Flash-Cards Vite/Wrangler process matching; never replace it with broad Node termination such as `taskkill /IM node.exe`, `killall node`, or equivalent.
 - Never print `.dev.vars` contents, tokens, secrets, or production-derived data.

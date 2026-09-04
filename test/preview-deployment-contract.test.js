@@ -60,7 +60,7 @@ test('Preview deployment refuses Worker-config-changing PRs and installs from th
   assert.match(workflow, /grep -qx 'wrangler\.jsonc'/);
   assert.match(workflow, /This PR changes wrangler\.jsonc/);
   assert.match(workflow, /review and merge configuration separately/);
-  assert.match(workflow, /run:\s*npm ci\s*$/m);
+  assert.match(workflow, /run:\s*npm ci --prefer-offline --no-audit --no-fund\s*$/m);
   assert.doesNotMatch(workflow, /run:\s*npm install\s*$/m);
 });
 

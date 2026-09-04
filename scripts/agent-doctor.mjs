@@ -65,9 +65,9 @@ if (branchCheck.message) {
   log(`\n${branchCheck.level.toUpperCase()}: ${branchCheck.message}`);
 }
 if (!worktreeReadable) console.error('\nERROR: Git worktree state could not be read. Confirm Git is available and this checkout is healthy.');
-if (!nodeCheck.ok) console.error(`\nERROR: Node ${expectedNodeMajor}.x is required. Switch Node versions, then rerun npm ci.`);
-if (!nodeModulesPresent || !installedWrangler) console.error('\nERROR: repository dependencies are not installed.\nRun: npm ci');
-else if (!wranglerCheck.ok) console.error(`\nERROR: installed Wrangler does not match package.json (${expectedWrangler}).\nRun: npm ci`);
+if (!nodeCheck.ok) console.error(`\nERROR: Node ${expectedNodeMajor}.x is required. Switch Node versions, then run npm run deps:ensure -- --force.`);
+if (!nodeModulesPresent || !installedWrangler) console.error('\nERROR: repository dependencies are not installed.\nRun: npm run deps:ensure');
+else if (!wranglerCheck.ok) console.error(`\nERROR: installed Wrangler does not match package.json (${expectedWrangler}).\nRun: npm run deps:ensure -- --force`);
 
 const status = overallDoctorStatus(checks);
 if (status === 'error') process.exit(1);
