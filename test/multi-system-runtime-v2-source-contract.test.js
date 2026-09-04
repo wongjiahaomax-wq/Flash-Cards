@@ -68,8 +68,9 @@ test('clean-cutover gate is exact-zero, includes learner_fsrs_profiles, and excl
 
 test('Production workflow mechanically enforces the one-time fenced v2 cutover order', () => {
   const workflow = source('.github/workflows/deploy-production.yml');
-  assert.doesNotMatch(workflow, /apply_migrations/);
+  assert.match(workflow, /apply_migrations:/);
   assertOrdered(workflow, [
+    'Detect whether the one-time v2 cutover is still required',
     'Install temporary learner write fence Worker',
     'Verify temporary write fence',
     'Require exact zero Production learner runtime data',
@@ -80,6 +81,17 @@ test('Production workflow mechanically enforces the one-time fenced v2 cutover o
     'Reopen learner runtime with v2 Worker',
     'Verify deployed v2 runtime is open'
   ]);
+
+  const migrationStart = workflow.indexOf('- name: Apply all pending production D1 migrations');
+  const migrationEnd = workflow.indexOf('- name: Verify v2 Active Review D1 guard');
+  assert.ok(migrationStart >= 0 && migrationEnd > migrationStart);
+  const migrationStep = workflow.slice(migrationStart, migrationEnd);
+  assert.match(
+    migrationStep,
+    /if: \$\{\{ steps\.cutover\.outputs\.required == 'true' \|\| inputs\.apply_migrations == true \}\}/,
+    'missing v2 guard must force migration even when the ordinary post-cutover input is false'
+  );
+
   assert.match(workflow, /LEARNER_RUNTIME_WRITE_FENCE:true/);
   assert.match(workflow, /multi-system:cutover-gate -- --remote/);
   assert.match(workflow, /multi-system:guard-verify -- --remote/);
