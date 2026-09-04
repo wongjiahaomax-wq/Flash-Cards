@@ -25,6 +25,7 @@ SELECT
 ${MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS.map((table) => `  (SELECT COUNT(*) FROM ${table}) AS ${table}_count`).join(',\n')};
 `.trim();
 
+/** @param {unknown} value @returns {Record<string, unknown>|null} */
 function findCountRow(value) {
   if (Array.isArray(value)) {
     for (const item of value) {
@@ -34,7 +35,7 @@ function findCountRow(value) {
     return null;
   }
   if (!value || typeof value !== 'object') return null;
-  const record = value;
+  const record = /** @type {Record<string, unknown>} */ (value);
   if (MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS.every((table) => `${table}_count` in record)) return record;
   for (const child of Object.values(record)) {
     const found = findCountRow(child);
@@ -43,6 +44,7 @@ function findCountRow(value) {
   return null;
 }
 
+/** @param {unknown} payload @returns {Record<string, number>} */
 export function extractMultiSystemV2ZeroDataCounts(payload) {
   const row = findCountRow(payload);
   if (!row) throw new Error('Could not locate multi-System v2 zero-data counts in Wrangler JSON output.');
@@ -51,6 +53,7 @@ export function extractMultiSystemV2ZeroDataCounts(payload) {
   );
 }
 
+/** @param {Record<string, number>} counts */
 export function assertMultiSystemV2ZeroData(counts) {
   const invalid = MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS.filter(
     (table) => !Number.isSafeInteger(counts[table]) || counts[table] < 0
@@ -67,6 +70,7 @@ export function assertMultiSystemV2ZeroData(counts) {
   return counts;
 }
 
+/** @param {{remote?:boolean}} [options] */
 export function runMultiSystemV2ZeroDataGate(options = {}) {
   const wrangler = join(process.cwd(), 'node_modules', '.bin', process.platform === 'win32' ? 'wrangler.cmd' : 'wrangler');
   const args = [
