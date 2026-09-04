@@ -2,7 +2,7 @@
 
 Status: **current repository runtime authority, including the Multi-System Runtime v2 foundation on Draft PR #147. The learner multi-select UX is not yet implemented.**
 
-Date: 4 September 2026
+Date: 5 September 2026
 
 This document records the current repository learner-runtime boundary. It complements:
 
@@ -101,11 +101,68 @@ review_assets
 
 `learner_fsrs_profiles` must be exactly zero; there is no pristine/default-profile exception. `learner_preferences` are intentionally excluded because Study page use can create them without starting a run.
 
-For the first Production v2 cutover, `.github/workflows/deploy-production.yml` has no `apply_migrations=false` path. It mechanically fences learner writes, verifies the fence, runs the exact-zero gate, applies pending migrations, verifies the v2 guard, deploys the v2 Worker while still fenced, performs non-mutating status/guard/zero-data verification, then explicitly reopens the learner runtime.
+For a first or incomplete Production v2 cutover, `.github/workflows/deploy-production.yml` has no effective `apply_migrations=false` bypass. The normal migration input may remain available for later releases, but an incomplete cutover independently forces migration and the fenced exact-zero sequence.
+
+A v2 D1 trigger alone is not cutover-completion evidence. Before fencing, the workflow must successfully inspect both the D1 Active Review guard and the currently deployed runtime. A previous cutover is considered complete only when:
+
+```text
+D1 active_reviews_content_scope_guard = verified v2
+AND
+/api/runtime-cutover-status = HTTP 200 with:
+  learnerRuntimeCutoverVersion = 2
+  learnerRuntimeScopeVersion = 2
+  learnerRuntimeWriteFence = false
+  learnerRuntimeBuildSha = valid immutable 40-hex commit SHA
+```
+
+Therefore a state where migration `0026` was applied manually, or where an earlier cutover stopped after migration or while the app remained fenced, re-enters the fenced exact-zero path rather than being treated as complete. D1 inspection/authentication failures and runtime-status transport failures fail before the workflow installs a Production fence.
+
+The cutover mechanically performs repository validation plus both migrated-D1 acceptances and both envelope benchmarks, verifies the preconditions above, installs/verifies the temporary fence, runs the exact-zero gate, applies migrations, verifies the v2 guard, deploys the expected v2 Worker with `LEARNER_RUNTIME_WRITE_FENCE=true` and `APP_BUILD_SHA=GITHUB_SHA`, performs non-mutating verification, then reopens that same expected build.
+
+`/api/runtime-cutover-status` reports `learnerRuntimeBuildSha`; both fenced and final-open verification require it to equal the exact workflow `GITHUB_SHA`. Reaching an unidentified or different v2-looking Worker is not sufficient evidence.
 
 The shared `/study` access owner also honors `LEARNER_RUNTIME_WRITE_FENCE`, so planning/open/resume/reveal/completion cannot run while the fenced v2 Worker is being verified.
 
+Only after both the v2 D1 guard and an already-open identified v2 runtime prove the historical cutover completed may an ordinary later deployment skip the exact-zero/fence sequence and return to the normal optional migration policy.
+
 These repository mechanics are not evidence that the Production cutover has been executed.
+
+## Multi-System Runtime v2 validation owners
+
+The focused repository validation owners are:
+
+```sh
+npm run multi-system:d1-acceptance
+npm run multi-system:d1-lifecycle-acceptance
+npm run multi-system:benchmark
+npm run multi-system:d1-trigger-benchmark
+npm run multi-system:cutover-gate
+npm run multi-system:guard-verify
+```
+
+`multi-system:d1-acceptance` is deliberately the direct migration-`0026` trigger/scope acceptance. It proves strict valid/invalid persisted-scope cases but is not described as a complete runtime lifecycle test.
+
+`multi-system:d1-lifecycle-acceptance` bundles the real runtime into workerd after applying all repository migrations to isolated local D1. Its two-System fixture makes one Case reachable by a curated Tag under System A and by its active native Primary Topic under System B. It proves Scheduled planning → authenticated open → concrete System B attribution → persisted v2 envelope → reveal → rating completion → lost-response replay, including one Scheduled event, learner×System aggregate, UTC-month System bucket, learner aggregate, optimizer evidence and learner×Case FSRS state. It also proves Free planning → open → System B attribution → reveal → completion → replay with exactly one Free receipt/encounter/aggregate and no Scheduled/FSRS provenance, plus invalid cross-System scope rejection.
+
+The supported JS/browser envelope remains 64 Systems, 512 explicit routes and 20,000 unique Cases. The current green code-validation run measured approximately 68.35 ms normalization, 1,312.74 ms union/deduplication/attribution, 93.41 ms Scheduled descriptor/proof construction and 25.86 ms Free bag construction; Scheduled and Free descriptors were 1,387,180 and 307,680 bytes respectively.
+
+`multi-system:d1-trigger-benchmark` separately measures valid Active Review INSERT cost through migration `0026` on workerd + fully migrated D1. After two warmups and twelve measured inserts per shape, the current green run measured:
+
+```text
+64 Systems / 512 explicit Topic routes:
+  median 16.84 ms
+  p95    20.40 ms
+  max    20.40 ms
+
+64 Systems / all:
+  median 13.77 ms
+  p95    17.04 ms
+  max    17.04 ms
+```
+
+The executable D1 trigger gates are p95 < 750 ms and single valid insert < 1,500 ms.
+
+The dedicated `.github/workflows/multi-system-runtime-v2.yml` also follows the current PR validation cancellation policy: runs for the same PR use the workflow/PR-number concurrency group with `cancel-in-progress: true`.
 
 ## Legacy Review table status
 
@@ -296,7 +353,7 @@ The repository sequence on this branch extends through:
 
 `0024` owns the defensive Reset/Fresh profile-boundary guard. `0025` owns monthly analytics/provenance and staged-deletion schema/guards. `0026` owns the strict v2 Active Review scope shape and selected-sub-scope attribution proof.
 
-Presence of `0026` in the repository is not proof that it has been applied to Production D1.
+Presence of `0026` in the repository or D1 trigger text is not proof that the clean Runtime v2 Worker cutover completed.
 
 ## Explicit exclusions
 
