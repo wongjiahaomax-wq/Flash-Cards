@@ -70,6 +70,7 @@ Product/design chain:
 
 - `LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md` — locked product authority;
 - `LEARNER_FSRS_RUN_SIZE_PRODUCT_AMENDMENT.md` — 5/10/20/All and continuous-run amendment;
+- `MULTI_SYSTEM_STUDY_PLAN.md` — proposed future-intent plan for mixed multi-System study, including a fenced zero-data v2 cutover, mandatory v2 Active Review migration, active-primary-Topic eligibility preservation, and non-mutating fenced Production verification; split into `Multi-System Runtime` and `Multi-System UX`; not current implemented behavior;
 - `LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md` — technical design/history;
 - `LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md` — readiness/safety requirements;
 - `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md` — focused tranche ownership where older assignments conflict.
