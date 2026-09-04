@@ -1,0 +1,67 @@
+name: Multi-System Runtime v2
+
+on:
+  pull_request:
+    paths:
+      - 'drizzle/0026_multi_system_active_review_scope_v2.sql'
+      - 'src/lib/free-study-run.js'
+      - 'src/lib/scheduled-study-run.js'
+      - 'src/lib/learner-study-run-storage.js'
+      - 'src/lib/fsrs-preview-run-storage.js'
+      - 'src/lib/server/db/active-reviews.js'
+      - 'src/lib/server/db/study-navigation.ts'
+      - 'src/lib/server/db/study-run-planning.js'
+      - 'src/lib/server/learning/multi-system-study-scope.ts'
+      - 'src/lib/server/learning/study-run-envelope.js'
+      - 'src/lib/server/learning/study-run-planner.js'
+      - 'src/lib/server/learning/study-run-proof.js'
+      - 'src/lib/server/learning/learner-study-runtime.js'
+      - 'src/routes/study/**'
+      - 'scripts/multi-system-v2-*.mjs'
+      - 'test/multi-system-runtime-v2*.test.js'
+      - 'test/learner-fsrs-run-envelope.test.js'
+      - 'test/learner-fsrs-run-proof.test.js'
+      - 'test/local-fsrs-preview.test.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/deploy-production.yml'
+      - '.github/workflows/multi-system-runtime-v2.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  v2-runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Check migrations
+        run: npm run db:check
+
+      - name: Run focused v2 source and runtime tests
+        run: >-
+          node --test
+          test/multi-system-runtime-v2.test.js
+          test/multi-system-runtime-v2-source-contract.test.js
+          test/learner-fsrs-run-envelope.test.js
+          test/learner-fsrs-run-proof.test.js
+          test/local-fsrs-preview.test.js
+
+      - name: Run migrated-D1 v2 scope acceptance
+        run: npm run multi-system:d1-acceptance
+
+      - name: Run supported-envelope benchmark
+        run: npm run multi-system:benchmark
