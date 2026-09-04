@@ -238,7 +238,7 @@ async function createExistingStateFixture(binding, db, fixture) {
     fixture.queueClass,
     fixture.runId,
     scopeFingerprint,
-    JSON.stringify(scope),
+    JSON.stringify({ version: 2, systemId, runScope: scope }),
     boundary.generation,
     boundary.reviewSequenceEpoch,
     boundary.parameterRevision,
