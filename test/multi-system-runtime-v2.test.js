@@ -143,8 +143,8 @@ test('active-primary-Topic baseline remains required for curated Tag eligibility
 });
 
 test('Scheduled proof v2 binds the complete normalized runScope fingerprint', async () => {
-  const first = { systems: [{ systemId: 'cardio', mode: 'all' }] };
-  const second = { systems: [{ systemId: 'metabolic', mode: 'all' }] };
+  const first = { systems: [{ systemId: 'cardio', mode: /** @type {const} */ ('all') }] };
+  const second = { systems: [{ systemId: 'metabolic', mode: /** @type {const} */ ('all') }] };
   const firstFingerprint = await fingerprintStudyScope(first);
   const secondFingerprint = await fingerprintStudyScope(second);
   assert.notEqual(firstFingerprint, secondFingerprint);
