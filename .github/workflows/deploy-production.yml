@@ -19,7 +19,7 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
       CLOUDFLARE_ACCOUNT_ID: 0ada6bfd273d96d92682a853c4dd6fd2
       PRODUCTION_WORKER_URL: https://flash-cards.mmed-fm-flashcardstest.workers.dev
@@ -76,11 +76,17 @@ jobs:
       - name: Smoke test local D1 and Better Auth
         run: node scripts/local-auth-smoke.mjs
 
-      - name: Run multi-System v2 migrated-D1 acceptance
+      - name: Run multi-System v2 migrated-D1 scope guard acceptance
         run: npm run multi-system:d1-acceptance
 
-      - name: Run multi-System v2 supported-envelope benchmark
+      - name: Run multi-System v2 migrated-D1 lifecycle acceptance
+        run: npm run multi-system:d1-lifecycle-acceptance
+
+      - name: Run multi-System v2 supported JS/browser-envelope benchmark
         run: npm run multi-system:benchmark
+
+      - name: Run multi-System v2 supported-envelope D1 trigger benchmark
+        run: npm run multi-system:d1-trigger-benchmark
 
       - name: Detect whether the one-time v2 cutover is still required
         id: cutover
@@ -89,17 +95,48 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
         run: |
           set -euo pipefail
-          # --inspect exits successfully only after Wrangler successfully reads D1.
-          # Missing/legacy guard is then data, not an operational read failure.
-          status_json="$(node scripts/multi-system-v2-guard-verify.mjs --remote --inspect)"
-          guard_status="$(node -e 'const value=JSON.parse(process.argv[1]); const status=value?.inspection?.status; if(!["v2","legacy","missing"].includes(status)) process.exit(1); process.stdout.write(status);' "$status_json")"
-          if [ "$guard_status" = "v2" ]; then
+
+          # D1 inspection must itself succeed. Operational read/auth failures stop
+          # before any Production fence is installed.
+          guard_json="$(node scripts/multi-system-v2-guard-verify.mjs --remote --inspect)"
+          guard_status="$(node -e 'const value=JSON.parse(process.argv[1]); const status=value?.inspection?.status; if(!["v2","legacy","missing"].includes(status)) process.exit(1); process.stdout.write(status);' "$guard_json")"
+
+          # Schema-v2 is not enough to prove that the clean browser/runtime cutover
+          # completed. A successful earlier cutover must also expose an unfenced v2
+          # runtime carrying an immutable commit SHA. HTTP legacy/maintenance states
+          # are treated as incomplete; transport failures stop before mutation.
+          if ! runtime_http="$(curl --silent --show-error --output /tmp/runtime-cutover-status.json --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/api/runtime-cutover-status")"; then
+            echo "::error::Unable to inspect the currently deployed Production runtime. No cutover action was taken."
+            exit 1
+          fi
+
+          runtime_status="absent"
+          runtime_build_sha=""
+          if [ "$runtime_http" = "200" ]; then
+            runtime_eval="$(node -e '
+              let value;
+              try { value = JSON.parse(process.argv[1]); } catch { process.stdout.write("incomplete|"); process.exit(0); }
+              const sha = typeof value?.learnerRuntimeBuildSha === "string" ? value.learnerRuntimeBuildSha.toLowerCase() : "";
+              const complete = value?.learnerRuntimeCutoverVersion === 2
+                && value?.learnerRuntimeScopeVersion === 2
+                && value?.learnerRuntimeWriteFence === false
+                && /^[0-9a-f]{40}$/.test(sha);
+              process.stdout.write(`${complete ? "complete" : "incomplete"}|${sha}`);
+            ' "$(cat /tmp/runtime-cutover-status.json)")"
+            runtime_status="${runtime_eval%%|*}"
+            runtime_build_sha="${runtime_eval#*|}"
+          fi
+
+          if [ "$guard_status" = "v2" ] && [ "$runtime_status" = "complete" ]; then
             echo "required=false" >> "$GITHUB_OUTPUT"
-            echo "Existing Production D1 already has the v2 Active Review guard."
+            echo "Existing Production D1 guard and deployed runtime both prove a completed v2 cutover."
           else
             echo "required=true" >> "$GITHUB_OUTPUT"
-            echo "Production D1 guard status is ${guard_status}; the fenced zero-data cutover and migration are mandatory."
+            echo "Production cutover is incomplete: guard=${guard_status}, runtime=${runtime_status}, http=${runtime_http}. The fenced exact-zero sequence is mandatory."
           fi
+          echo "guard_status=${guard_status}" >> "$GITHUB_OUTPUT"
+          echo "runtime_status=${runtime_status}" >> "$GITHUB_OUTPUT"
+          echo "prior_build_sha=${runtime_build_sha}" >> "$GITHUB_OUTPUT"
 
       - name: Require D1 write credential when migration is required
         if: ${{ steps.cutover.outputs.required == 'true' || inputs.apply_migrations == true }}
@@ -175,13 +212,16 @@ jobs:
         if: ${{ steps.cutover.outputs.required == 'true' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: ./node_modules/.bin/wrangler deploy --var LEARNER_RUNTIME_WRITE_FENCE:true
+        run: >-
+          ./node_modules/.bin/wrangler deploy
+          --var LEARNER_RUNTIME_WRITE_FENCE:true
+          --var APP_BUILD_SHA:${GITHUB_SHA}
 
       - name: Deploy Worker
         if: ${{ steps.cutover.outputs.required != 'true' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: ./node_modules/.bin/wrangler deploy
+        run: ./node_modules/.bin/wrangler deploy --var APP_BUILD_SHA:${GITHUB_SHA}
 
       - name: Non-mutating verification while v2 Worker is fenced
         if: ${{ steps.cutover.outputs.required == 'true' }}
@@ -191,7 +231,14 @@ jobs:
         run: |
           set -euo pipefail
           status_json="$(curl --fail --silent --show-error "$PRODUCTION_WORKER_URL/api/runtime-cutover-status")"
-          node -e 'const value=JSON.parse(process.argv[1]); if(value.learnerRuntimeScopeVersion!==2 || value.learnerRuntimeWriteFence!==true) process.exit(1);' "$status_json"
+          node -e '
+            const value=JSON.parse(process.argv[1]);
+            const expected=process.argv[2].toLowerCase();
+            if(value.learnerRuntimeCutoverVersion!==2
+              || value.learnerRuntimeScopeVersion!==2
+              || value.learnerRuntimeWriteFence!==true
+              || value.learnerRuntimeBuildSha!==expected) process.exit(1);
+          ' "$status_json" "$GITHUB_SHA"
           npm run multi-system:guard-verify -- --remote
           npm run multi-system:cutover-gate -- --remote
 
@@ -199,14 +246,21 @@ jobs:
         if: ${{ steps.cutover.outputs.required == 'true' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-        run: ./node_modules/.bin/wrangler deploy
+        run: ./node_modules/.bin/wrangler deploy --var APP_BUILD_SHA:${GITHUB_SHA}
 
       - name: Verify deployed v2 runtime is open
         shell: bash
         run: |
           set -euo pipefail
           status_json="$(curl --fail --silent --show-error "$PRODUCTION_WORKER_URL/api/runtime-cutover-status")"
-          node -e 'const value=JSON.parse(process.argv[1]); if(value.learnerRuntimeScopeVersion!==2 || value.learnerRuntimeWriteFence!==false) process.exit(1);' "$status_json"
+          node -e '
+            const value=JSON.parse(process.argv[1]);
+            const expected=process.argv[2].toLowerCase();
+            if(value.learnerRuntimeCutoverVersion!==2
+              || value.learnerRuntimeScopeVersion!==2
+              || value.learnerRuntimeWriteFence!==false
+              || value.learnerRuntimeBuildSha!==expected) process.exit(1);
+          ' "$status_json" "$GITHUB_SHA"
 
       - name: Write deployment summary
         shell: bash
@@ -217,9 +271,13 @@ jobs:
             echo "- Ref: `${GITHUB_REF}`"
             echo "- Commit: `${GITHUB_SHA}`"
             echo "- Worker: ${PRODUCTION_WORKER_URL}"
-            echo "- Multi-System v2 one-time cutover required: `${{ steps.cutover.outputs.required }}`"
+            echo "- Pre-deploy v2 D1 guard: `${{ steps.cutover.outputs.guard_status }}`"
+            echo "- Pre-deploy v2 runtime completion state: `${{ steps.cutover.outputs.runtime_status }}`"
+            echo "- Prior deployed v2 build: `${{ steps.cutover.outputs.prior_build_sha }}`"
+            echo "- Multi-System v2 fenced cutover required: `${{ steps.cutover.outputs.required }}`"
             echo "- Ordinary post-cutover migration input: `${{ inputs.apply_migrations }}`"
-            echo "- First-cutover migration policy: `mandatory when v2 guard is absent`"
+            echo "- First/incomplete-cutover migration policy: `mandatory`"
+            echo "- Deployed build identity: `${GITHUB_SHA}`"
             echo "- v2 Active Review guard: `verified`"
             echo "- Learner runtime write fence after verification: `open`"
           } >> "$GITHUB_STEP_SUMMARY"
