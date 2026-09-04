@@ -12,6 +12,12 @@ import {
   type SystemRouteType,
   type SystemStudySelectionRoute
 } from '../learning/system-study-routes.ts';
+import {
+  assertRawMultiSystemStudyScopeInput,
+  normalizeMultiSystemStudyRunScope,
+  resolveMultiSystemStudySelectionCandidates,
+  type MultiSystemStudySystemScope
+} from '../learning/multi-system-study-scope.ts';
 
 /** @typedef {import('./index.js').LearningDb} LearningDb */
 
@@ -79,19 +85,10 @@ export async function loadStudyNavigationSnapshot(db: import('./index.js').Learn
   return { concepts: conceptRows, caseTopicRows, caseTagRows, systemTagRows };
 }
 
-/**
- * PR B's systems-first chooser needs exact Topic counts plus subtree counts.
- * Keep that richer read model separate from the current single-route learner
- * page until the later runtime cutover.
- */
 export async function listSystemStudySelectionSystems(db: import('./index.js').LearningDb) {
   return buildSystemStudyNavigation(await loadStudyNavigationSnapshot(db));
 }
 
-/**
- * Legacy single-Topic navigation remains descendant-inclusive. Preserve its
- * existing displayed count while PR B remains an unwired planning tranche.
- */
 export async function listStudySystems(db: import('./index.js').LearningDb) {
   return (await listSystemStudySelectionSystems(db)).map((system) => ({
     ...system,
@@ -144,4 +141,29 @@ export async function resolveSystemStudySelection(
     routes,
     candidates: resolveSystemStudySelectionCandidates({ ...snapshot, systemId, routes })
   };
+}
+
+/**
+ * Canonical v2 owner. Raw envelope/shape checks run before the database snapshot;
+ * taxonomy validation, normalization, union/dedupe and attribution then run from
+ * one consistent server snapshot.
+ */
+export async function resolveMultiSystemStudySelection(
+  db: import('./index.js').LearningDb,
+  input: { systems: readonly unknown[] }
+) {
+  assertRawMultiSystemStudyScopeInput(input.systems);
+  const snapshot = await loadStudyNavigationSnapshot(db);
+  const runScope = normalizeMultiSystemStudyRunScope({ ...snapshot, systems: input.systems });
+  return {
+    runScope,
+    candidates: resolveMultiSystemStudySelectionCandidates({ ...snapshot, runScope })
+  };
+}
+
+export function singleSystemRoutesScope(
+  systemId: string,
+  routes: readonly SystemStudySelectionRoute[]
+): MultiSystemStudySystemScope[] {
+  return [{ systemId, mode: 'routes', routes: [...routes] }];
 }

@@ -1,7 +1,7 @@
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-export const STUDY_RUN_PROOF_VERSION = 1;
+export const STUDY_RUN_PROOF_VERSION = 2;
 export const CAPTURED_MEMBERSHIP_CHUNK_SIZE = 64;
 
 export class StudyRunProofError extends Error {
@@ -19,10 +19,7 @@ export class StudyRunProofError extends Error {
 /** @param {unknown} value */
 function requireSecret(value) {
   if (typeof value !== 'string' || value.length < 32) {
-    throw new StudyRunProofError(
-      'invalid-secret',
-      'Study run proof signing requires a server secret of at least 32 characters.'
-    );
+    throw new StudyRunProofError('invalid-secret', 'Study run proof signing requires a server secret of at least 32 characters.');
   }
   return value;
 }
@@ -42,8 +39,7 @@ function base64UrlDecode(value) {
   if (!value || !/^[A-Za-z0-9_-]+$/u.test(value)) {
     throw new StudyRunProofError('invalid-token', 'Study run proof contains invalid base64url data.');
   }
-  const padded = value.replaceAll('-', '+').replaceAll('_', '/')
-    + '='.repeat((4 - (value.length % 4)) % 4);
+  const padded = value.replaceAll('-', '+').replaceAll('_', '/') + '='.repeat((4 - (value.length % 4)) % 4);
   let binary;
   try {
     binary = atob(padded);
@@ -59,13 +55,7 @@ async function hmacKey(secret) {
     'SHA-256',
     textEncoder.encode(`flash-cards:study-run-proof:v${STUDY_RUN_PROOF_VERSION}\u0000${requireSecret(secret)}`)
   );
-  return globalThis.crypto.subtle.importKey(
-    'raw',
-    keyMaterial,
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign', 'verify']
-  );
+  return globalThis.crypto.subtle.importKey('raw', keyMaterial, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 
 /** @param {string} value */
@@ -83,29 +73,16 @@ async function signPayload(payload, secret) {
 
 /** @param {string} token @param {string} secret */
 async function verifyPayload(token, secret) {
-  if (typeof token !== 'string') {
-    throw new StudyRunProofError('invalid-token', 'Study run proof must be a string.');
-  }
+  if (typeof token !== 'string') throw new StudyRunProofError('invalid-token', 'Study run proof must be a string.');
   const parts = token.split('.');
-  if (parts.length !== 2) {
-    throw new StudyRunProofError('invalid-token', 'Study run proof has an invalid token shape.');
-  }
+  if (parts.length !== 2) throw new StudyRunProofError('invalid-token', 'Study run proof has an invalid token shape.');
   const payloadBytes = base64UrlDecode(parts[0]);
   const signature = base64UrlDecode(parts[1]);
-  const valid = await globalThis.crypto.subtle.verify(
-    'HMAC',
-    await hmacKey(secret),
-    signature,
-    payloadBytes
-  );
-  if (!valid) {
-    throw new StudyRunProofError('invalid-signature', 'Study run proof signature is invalid.');
-  }
+  const valid = await globalThis.crypto.subtle.verify('HMAC', await hmacKey(secret), signature, payloadBytes);
+  if (!valid) throw new StudyRunProofError('invalid-signature', 'Study run proof signature is invalid.');
   try {
     const payload = JSON.parse(textDecoder.decode(payloadBytes));
-    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-      throw new Error('not an object');
-    }
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('not an object');
     return /** @type {Record<string, any>} */ (payload);
   } catch {
     throw new StudyRunProofError('invalid-token', 'Study run proof payload is invalid.');
@@ -113,15 +90,29 @@ async function verifyPayload(token, secret) {
 }
 
 /**
- * Fingerprint an already-normalized systems-first scope.
- *
- * @param {{systemId:string, routes:readonly {routeType:'topic'|'tag',routeId:string}[]}} scope
+ * @typedef {{routeType:'topic'|'tag',routeId:string}} V2StudyRoute
+ * @typedef {{systemId:string,mode:'all'}|{systemId:string,mode:'routes',routes:readonly V2StudyRoute[]}} V2SystemScope
+ * @typedef {{systems:readonly V2SystemScope[]}} V2RunScope
+ */
+
+/** @param {V2StudyRoute} route */
+function fingerprintRoute(route) {
+  return [route.routeType, route.routeId];
+}
+
+/**
+ * Fingerprint the complete already-normalized canonical v2 runScope.
+ * @param {V2RunScope} scope
  */
 export async function fingerprintStudyScope(scope) {
+  if (!scope || !Array.isArray(scope.systems) || scope.systems.length === 0) {
+    throw new StudyRunProofError('invalid-token', 'Study run scope is invalid.');
+  }
   return sha256Base64Url(JSON.stringify({
     v: STUDY_RUN_PROOF_VERSION,
-    s: scope.systemId,
-    r: scope.routes.map((route) => [route.routeType, route.routeId])
+    systems: scope.systems.map((system) => system.mode === 'all'
+      ? [system.systemId, 'all']
+      : [system.systemId, 'routes', system.routes.map(fingerprintRoute)])
   }));
 }
 
@@ -166,21 +157,12 @@ export async function verifyScheduledRunBoundaryToken(token, input) {
   if (payload.v !== STUDY_RUN_PROOF_VERSION || payload.t !== 'run') {
     throw new StudyRunProofError('unsupported-version', 'Study run proof version or token type is unsupported.');
   }
-  if (payload.u !== input.userId) {
-    throw new StudyRunProofError('wrong-owner', 'Study run proof belongs to another learner.');
-  }
+  if (payload.u !== input.userId) throw new StudyRunProofError('wrong-owner', 'Study run proof belongs to another learner.');
   if (
-    typeof payload.r !== 'string'
-    || !payload.r
-    || !Number.isFinite(payload.n)
-    || typeof payload.s !== 'string'
-    || !payload.s
-    || !Number.isInteger(payload.g)
-    || !Number.isInteger(payload.e)
-    || !Number.isInteger(payload.p)
-    || !Number.isInteger(payload.sr)
-    || typeof payload.lv !== 'string'
-    || !payload.lv
+    typeof payload.r !== 'string' || !payload.r || !Number.isFinite(payload.n)
+    || typeof payload.s !== 'string' || !payload.s
+    || !Number.isInteger(payload.g) || !Number.isInteger(payload.e) || !Number.isInteger(payload.p)
+    || !Number.isInteger(payload.sr) || typeof payload.lv !== 'string' || !payload.lv
   ) {
     throw new StudyRunProofError('invalid-token', 'Study run proof boundary fields are invalid.');
   }
@@ -207,9 +189,7 @@ export async function verifyScheduledRunBoundaryToken(token, input) {
  */
 export async function issueCapturedMembershipProofs(input) {
   const chunkSize = input.chunkSize ?? CAPTURED_MEMBERSHIP_CHUNK_SIZE;
-  if (!Number.isInteger(chunkSize) || chunkSize < 1) {
-    throw new TypeError('Captured membership chunk size must be a positive integer.');
-  }
+  if (!Number.isInteger(chunkSize) || chunkSize < 1) throw new TypeError('Captured membership chunk size must be a positive integer.');
   const runBoundaryDigest = await sha256Base64Url(input.runToken);
   const tokens = [];
   for (let offset = 0; offset < input.entries.length; offset += chunkSize) {
@@ -234,66 +214,34 @@ export async function issueCapturedMembershipProofs(input) {
   return tokens;
 }
 
-/**
- * @param {{secret:string,userId:string,runToken:string,membershipToken:string,queueClass:'due'|'new',caseId:string}} input
- */
+/** @param {{secret:string,userId:string,runToken:string,membershipToken:string,queueClass:'due'|'new',caseId:string}} input */
 export async function verifyCapturedMembership(input) {
-  const boundary = await verifyScheduledRunBoundaryToken(input.runToken, {
-    secret: input.secret,
-    userId: input.userId
-  });
+  const boundary = await verifyScheduledRunBoundaryToken(input.runToken, { secret: input.secret, userId: input.userId });
   const payload = await verifyPayload(input.membershipToken, input.secret);
   if (payload.v !== STUDY_RUN_PROOF_VERSION || payload.t !== 'members') {
     throw new StudyRunProofError('unsupported-version', 'Captured work proof version or token type is unsupported.');
   }
-  if (payload.u !== input.userId) {
-    throw new StudyRunProofError('wrong-owner', 'Captured work proof belongs to another learner.');
-  }
-  if (payload.r !== boundary.runId) {
-    throw new StudyRunProofError('wrong-run', 'Captured work proof belongs to another run.');
-  }
-  if (payload.s !== boundary.scopeFingerprint) {
-    throw new StudyRunProofError('wrong-scope', 'Captured work proof belongs to another study scope.');
-  }
-  if (payload.b !== await sha256Base64Url(input.runToken)) {
-    throw new StudyRunProofError('wrong-boundary', 'Captured work proof belongs to another run boundary.');
-  }
-  if (payload.q !== input.queueClass) {
-    throw new StudyRunProofError('wrong-queue', 'Captured work proof belongs to another queue class.');
-  }
-  if (!Array.isArray(payload.e)) {
-    throw new StudyRunProofError('invalid-token', 'Captured work proof entries are invalid.');
-  }
+  if (payload.u !== input.userId) throw new StudyRunProofError('wrong-owner', 'Captured work proof belongs to another learner.');
+  if (payload.r !== boundary.runId) throw new StudyRunProofError('wrong-run', 'Captured work proof belongs to another run.');
+  if (payload.s !== boundary.scopeFingerprint) throw new StudyRunProofError('wrong-scope', 'Captured work proof belongs to another study scope.');
+  if (payload.b !== await sha256Base64Url(input.runToken)) throw new StudyRunProofError('wrong-boundary', 'Captured work proof belongs to another run boundary.');
+  if (payload.q !== input.queueClass) throw new StudyRunProofError('wrong-queue', 'Captured work proof belongs to another queue class.');
+  if (!Array.isArray(payload.e)) throw new StudyRunProofError('invalid-token', 'Captured work proof entries are invalid.');
   const entry = payload.e.find((candidate) => Array.isArray(candidate) && candidate[0] === input.caseId);
-  if (!entry) {
-    throw new StudyRunProofError('not-member', 'Case is not an authenticated member of this captured workload.');
-  }
+  if (!entry) throw new StudyRunProofError('not-member', 'Case is not an authenticated member of this captured workload.');
   if (input.queueClass === 'due') {
     if (entry.length !== 3 || !Number.isInteger(entry[1]) || entry[1] < 1 || !Number.isFinite(entry[2])) {
       throw new StudyRunProofError('invalid-token', 'Captured Due membership metadata is invalid.');
     }
-    return {
-      queueClass: 'due',
-      caseId: input.caseId,
-      stateRevision: entry[1],
-      dueAt: entry[2],
-      boundary
-    };
+    return { queueClass: 'due', caseId: input.caseId, stateRevision: entry[1], dueAt: entry[2], boundary };
   }
-  if (entry.length !== 1) {
-    throw new StudyRunProofError('invalid-token', 'Captured New membership metadata is invalid.');
-  }
-  return {
-    queueClass: 'new',
-    caseId: input.caseId,
-    boundary
-  };
+  if (entry.length !== 1) throw new StudyRunProofError('invalid-token', 'Captured New membership metadata is invalid.');
+  return { queueClass: 'new', caseId: input.caseId, boundary };
 }
 
 /**
  * PR C defines the server-verifiable repeat-origin primitive; PR D is the only
  * normal learner flow that may issue one, after a Scheduled completion commits.
- *
  * @param {{secret:string,runToken:string,boundary:ScheduledRunBoundary,caseId:string,stateRevision:number,dueAt:number}} input
  */
 export async function issueScheduledRepeatOriginProof(input) {
@@ -313,41 +261,20 @@ export async function issueScheduledRepeatOriginProof(input) {
   }, input.secret);
 }
 
-/**
- * @param {{secret:string,userId:string,runToken:string,repeatToken:string,caseId:string}} input
- */
+/** @param {{secret:string,userId:string,runToken:string,repeatToken:string,caseId:string}} input */
 export async function verifyScheduledRepeatOriginProof(input) {
-  const boundary = await verifyScheduledRunBoundaryToken(input.runToken, {
-    secret: input.secret,
-    userId: input.userId
-  });
+  const boundary = await verifyScheduledRunBoundaryToken(input.runToken, { secret: input.secret, userId: input.userId });
   const payload = await verifyPayload(input.repeatToken, input.secret);
   if (payload.v !== STUDY_RUN_PROOF_VERSION || payload.t !== 'repeat') {
     throw new StudyRunProofError('unsupported-version', 'Repeat origin proof version or token type is unsupported.');
   }
-  if (payload.u !== input.userId) {
-    throw new StudyRunProofError('wrong-owner', 'Repeat origin proof belongs to another learner.');
-  }
-  if (payload.r !== boundary.runId) {
-    throw new StudyRunProofError('wrong-run', 'Repeat origin proof belongs to another run.');
-  }
-  if (payload.s !== boundary.scopeFingerprint) {
-    throw new StudyRunProofError('wrong-scope', 'Repeat origin proof belongs to another study scope.');
-  }
-  if (payload.b !== await sha256Base64Url(input.runToken)) {
-    throw new StudyRunProofError('wrong-boundary', 'Repeat origin proof belongs to another run boundary.');
-  }
-  if (payload.c !== input.caseId) {
-    throw new StudyRunProofError('wrong-case', 'Repeat origin proof belongs to another Case.');
-  }
+  if (payload.u !== input.userId) throw new StudyRunProofError('wrong-owner', 'Repeat origin proof belongs to another learner.');
+  if (payload.r !== boundary.runId) throw new StudyRunProofError('wrong-run', 'Repeat origin proof belongs to another run.');
+  if (payload.s !== boundary.scopeFingerprint) throw new StudyRunProofError('wrong-scope', 'Repeat origin proof belongs to another study scope.');
+  if (payload.b !== await sha256Base64Url(input.runToken)) throw new StudyRunProofError('wrong-boundary', 'Repeat origin proof belongs to another run boundary.');
+  if (payload.c !== input.caseId) throw new StudyRunProofError('wrong-case', 'Repeat origin proof belongs to another Case.');
   if (!Number.isInteger(payload.x) || payload.x < 1 || !Number.isFinite(payload.d)) {
     throw new StudyRunProofError('invalid-token', 'Repeat origin proof metadata is invalid.');
   }
-  return {
-    queueClass: 'repeat',
-    caseId: input.caseId,
-    stateRevision: payload.x,
-    dueAt: payload.d,
-    boundary
-  };
+  return { queueClass: 'repeat', caseId: input.caseId, stateRevision: payload.x, dueAt: payload.d, boundary };
 }

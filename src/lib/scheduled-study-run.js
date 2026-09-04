@@ -23,7 +23,7 @@ function assertDescriptor(descriptor) {
   if (
     !descriptor
     || descriptor.kind !== 'scheduled'
-    || descriptor.version !== 1
+    || descriptor.version !== 2
     || !isStudyRunDistinctCaseTarget(descriptor.distinctCaseTarget)
   ) {
     throw new ScheduledStudyRunError('invalid-descriptor', 'Scheduled run descriptor is invalid or unsupported.');

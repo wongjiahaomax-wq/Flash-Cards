@@ -19,7 +19,7 @@ function assertDescriptor(descriptor) {
   if (
     !descriptor
     || descriptor.kind !== 'free'
-    || descriptor.version !== 1
+    || descriptor.version !== 2
     || !Array.isArray(descriptor.bag)
     || !isStudyRunDistinctCaseTarget(descriptor.distinctCaseTarget)
   ) {

@@ -21,7 +21,6 @@ function json(body, status = 200) {
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   });
 }
-
 /** @param {unknown} cause */
 function skippableOpenError(cause) {
   if (cause instanceof ActiveReviewContentError) return cause.code === 'content-unavailable';
@@ -34,7 +33,6 @@ export async function POST({ locals, platform, request }) {
   if (access) return json({ message: access.message }, access.status);
   if (!locals.user || !platform?.env?.DB) return json({ message: 'Study database is not configured.' }, 503);
 
-  /** @type {any} */
   let descriptor;
   try {
     descriptor = (await request.json())?.descriptor;
@@ -67,8 +65,7 @@ export async function POST({ locals, platform, request }) {
           opened = await createScheduledActiveReview({
             db,
             userId: locals.user.id,
-            systemId: descriptor.selectedScope.systemId,
-            routes: descriptor.selectedScope.routes,
+            runScope: descriptor.selectedScope,
             caseId: work.caseId,
             queueClass: work.queueClass,
             runBoundaryToken: descriptor.runBoundaryToken,
@@ -105,8 +102,7 @@ export async function POST({ locals, platform, request }) {
           opened = await createFreeActiveReview({
             db,
             userId: locals.user.id,
-            systemId: descriptor.selectedScope.systemId,
-            routes: descriptor.selectedScope.routes,
+            runScope: descriptor.selectedScope,
             caseId: selection.caseId,
             runId: descriptor.runId
           });

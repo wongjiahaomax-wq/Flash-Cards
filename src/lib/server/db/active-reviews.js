@@ -7,7 +7,7 @@ import {
 } from './active-review-schema.js';
 import { ensureLearnerPreferences } from './fsrs-bootstrap.js';
 import { learnerCaseFsrs, learnerFsrsProfiles } from './fsrs-schema.js';
-import { resolveSystemStudySelection } from './study-navigation.ts';
+import { resolveMultiSystemStudySelection } from './study-navigation.ts';
 import {
   ACTIVE_REVIEW_SNAPSHOT_VERSION,
   ActiveReviewContentError,
@@ -20,7 +20,9 @@ import {
 } from '../learning/study-run-proof.js';
 
 /** @typedef {typeof activeReviews.$inferInsert} ActiveReviewInsert */
-/** @typedef {Awaited<ReturnType<typeof resolveSystemStudySelection>>} StudySelection */
+/** @typedef {Awaited<ReturnType<typeof resolveMultiSystemStudySelection>>} StudySelection */
+/** @typedef {import('../learning/multi-system-study-scope.ts').MultiSystemStudyRunScope} MultiSystemStudyRunScope */
+/** @typedef {import('../learning/system-study-routes.ts').SystemStudySelectionRoute} SystemStudySelectionRoute */
 
 const DATABASE_NOW_MS = sql`cast((julianday('now') - 2440587.5) * 86400000 as integer)`;
 
@@ -115,7 +117,7 @@ function databaseErrorMessage(value) {
   return String(value ?? '');
 }
 
-/** @param {any} profile @param {any} boundary */
+/** @param {any} profile @param {import('../learning/study-run-proof.js').ScheduledRunBoundary} boundary */
 function profileMatchesBoundary(profile, boundary) {
   return Boolean(profile)
     && Number(profile.generation) === boundary.generation
@@ -125,7 +127,7 @@ function profileMatchesBoundary(profile, boundary) {
     && String(profile.schedulerLibraryVersion) === boundary.schedulerLibraryVersion;
 }
 
-/** @param {any} state @param {any} boundary */
+/** @param {any} state @param {import('../learning/study-run-proof.js').ScheduledRunBoundary} boundary */
 function stateMatchesBoundary(state, boundary) {
   return Boolean(state)
     && Number(state.generation) === boundary.generation
@@ -144,44 +146,20 @@ function activeReviewIdentityFilter(userId, reviewId) {
 
 /**
  * Read the visible parent and its frozen children in one D1 transactional batch.
- * Child lookup intentionally uses only the stable ownership identity rather than
- * re-evaluating expiry: if database time crosses the expiry boundary after the
- * parent statement, the transaction still returns the same complete snapshot.
- * A concurrent Discard/cleanup therefore serializes either before the batch
- * (returning null) or after its snapshot (returning the complete frozen Review).
  * @param {import('./index.js').LearningDb} db
  * @param {string} userId
  * @param {string|null} reviewId
  */
 async function readActiveReviewSnapshot(db, userId, reviewId) {
   const identityFilter = activeReviewIdentityFilter(userId, reviewId);
-  const ownedReviewIds = db
-    .select({ id: activeReviews.id })
-    .from(activeReviews)
-    .where(identityFilter)
-    .limit(1);
-
+  const ownedReviewIds = db.select({ id: activeReviews.id }).from(activeReviews).where(identityFilter).limit(1);
   const [reviews, questions, assets] = await db.batch([
-    db
-      .select()
-      .from(activeReviews)
-      .where(and(identityFilter, sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`))
-      .limit(1),
-    db
-      .select()
-      .from(activeReviewQuestions)
-      .where(inArray(activeReviewQuestions.activeReviewId, ownedReviewIds))
-      .orderBy(asc(activeReviewQuestions.displayOrder)),
-    db
-      .select()
-      .from(activeReviewAssets)
-      .where(inArray(activeReviewAssets.activeReviewId, ownedReviewIds))
-      .orderBy(asc(activeReviewAssets.displayOrder))
+    db.select().from(activeReviews).where(and(identityFilter, sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`)).limit(1),
+    db.select().from(activeReviewQuestions).where(inArray(activeReviewQuestions.activeReviewId, ownedReviewIds)).orderBy(asc(activeReviewQuestions.displayOrder)),
+    db.select().from(activeReviewAssets).where(inArray(activeReviewAssets.activeReviewId, ownedReviewIds)).orderBy(asc(activeReviewAssets.displayOrder))
   ]);
-
   const review = reviews[0];
   if (!review) return null;
-
   let selectedScope = null;
   try {
     selectedScope = JSON.parse(review.scopeJson);
@@ -191,23 +169,14 @@ async function readActiveReviewSnapshot(db, userId, reviewId) {
   return { ...review, selectedScope, questions, assets };
 }
 
-/**
- * Discover the one server-backed active Review even when browser localStorage is
- * missing. Expired rows are invisible to Resume but remain physically owned
- * until replacement or explicit cleanup consumes them using database time.
- * @param {import('./index.js').LearningDb} db
- * @param {string} userId
- */
+/** @param {import('./index.js').LearningDb} db @param {string} userId */
 export async function getActiveReview(db, userId) {
-  const normalizedUserId = requiredString(userId, 'Learner');
-  return readActiveReviewSnapshot(db, normalizedUserId, null);
+  return readActiveReviewSnapshot(db, requiredString(userId, 'Learner'), null);
 }
 
 /** @param {import('./index.js').LearningDb} db @param {string} userId @param {string} reviewId */
 export async function getActiveReviewById(db, userId, reviewId) {
-  const normalizedUserId = requiredString(userId, 'Learner');
-  const normalizedReviewId = requiredString(reviewId, 'Active Review');
-  return readActiveReviewSnapshot(db, normalizedUserId, normalizedReviewId);
+  return readActiveReviewSnapshot(db, requiredString(userId, 'Learner'), requiredString(reviewId, 'Active Review'));
 }
 
 /** @param {unknown} cause */
@@ -218,22 +187,16 @@ function mappedCreateError(cause) {
     return new ActiveReviewError('stale-run', 'This Scheduled run is stale. Start a fresh run.');
   }
   if (message.includes('active_review_stale_case_state')) {
-    return new ActiveReviewError(
-      'stale-case-state',
-      'This Case changed scheduling state before the Review could open.'
-    );
+    return new ActiveReviewError('stale-case-state', 'This Case changed scheduling state before the Review could open.');
+  }
+  if (message.includes('active_review_invalid_scope_v2')) {
+    return new ActiveReviewError('invalid-input', 'The v2 study scope is malformed or noncanonical.');
   }
   if (message.includes('active_review_ineligible_scope')) {
-    return new ActiveReviewError(
-      'ineligible-scope',
-      'This Case is no longer active learner content in the selected study scope.'
-    );
+    return new ActiveReviewError('ineligible-scope', 'This Case is no longer active learner content in the selected study scope.');
   }
   if (message.includes('FOREIGN KEY constraint failed')) {
-    return new ActiveReviewError(
-      'content-unavailable',
-      'The Case or learner asset changed before the Review could be frozen.'
-    );
+    return new ActiveReviewError('content-unavailable', 'The Case or learner asset changed before the Review could be frozen.');
   }
   return cause;
 }
@@ -241,86 +204,40 @@ function mappedCreateError(cause) {
 /** @param {ActiveReviewInsert} parent @param {D1Database} client */
 function dbInsertActiveReview(parent, client) {
   return client.prepare(INSERT_ACTIVE_REVIEW_SQL).bind(
-    parent.id,
-    parent.userId,
-    parent.caseId,
-    parent.systemId,
-    parent.studyMode,
-    parent.contentMode,
-    parent.queueClass ?? null,
-    parent.runId,
-    parent.scopeFingerprint,
-    parent.scopeJson,
-    parent.generation ?? null,
-    parent.reviewSequenceEpoch ?? null,
-    parent.parameterRevision ?? null,
-    parent.schedulerRevision ?? null,
-    parent.schedulerLibraryVersion ?? null,
-    parent.expectedStateRevision ?? null,
-    timestampMs(parent.expectedDueAt),
-    timestampMs(parent.runStartedAt),
-    parent.caseTitleSnapshot,
-    parent.vignetteSnapshotMd ?? null,
+    parent.id, parent.userId, parent.caseId, parent.systemId, parent.studyMode, parent.contentMode,
+    parent.queueClass ?? null, parent.runId, parent.scopeFingerprint, parent.scopeJson,
+    parent.generation ?? null, parent.reviewSequenceEpoch ?? null, parent.parameterRevision ?? null,
+    parent.schedulerRevision ?? null, parent.schedulerLibraryVersion ?? null,
+    parent.expectedStateRevision ?? null, timestampMs(parent.expectedDueAt), timestampMs(parent.runStartedAt),
+    parent.caseTitleSnapshot, parent.vignetteSnapshotMd ?? null,
     parent.snapshotVersion ?? ACTIVE_REVIEW_SNAPSHOT_VERSION
   );
 }
 
 /** @param {D1Database} client @param {string} userId */
 function dbDeleteExpired(client, userId) {
-  return client
-    .prepare(`
-      DELETE FROM active_reviews
-      WHERE user_id = ?
-        AND expires_at <= cast((julianday('now') - 2440587.5) * 86400000 as integer)
-    `)
-    .bind(userId);
+  return client.prepare(`
+    DELETE FROM active_reviews
+    WHERE user_id = ?
+      AND expires_at <= cast((julianday('now') - 2440587.5) * 86400000 as integer)
+  `).bind(userId);
 }
 
 /**
- * @param {{
- *   db:import('./index.js').LearningDb,
- *   userId:string,
- *   parent:ActiveReviewInsert,
- *   snapshot:Awaited<ReturnType<typeof buildActiveReviewSnapshot>>
- * }} input
+ * @param {{db:import('./index.js').LearningDb,userId:string,parent:ActiveReviewInsert,snapshot:Awaited<ReturnType<typeof buildActiveReviewSnapshot>>}} input
  */
 async function persistActiveReview(input) {
   const activeReviewId = input.parent.id;
-  const questionRows = input.snapshot.questions.map((question) => ({
-    id: globalThis.crypto.randomUUID(),
-    activeReviewId,
-    ...question
-  }));
-  const assetRows = input.snapshot.assets.map((asset) => ({
-    id: globalThis.crypto.randomUUID(),
-    activeReviewId,
-    ...asset
-  }));
+  const questionRows = input.snapshot.questions.map((question) => ({ id: globalThis.crypto.randomUUID(), activeReviewId, ...question }));
+  const assetRows = input.snapshot.assets.map((asset) => ({ id: globalThis.crypto.randomUUID(), activeReviewId, ...asset }));
   const client = input.db.$client;
   if (!client || typeof client.prepare !== 'function' || typeof client.batch !== 'function') {
     throw new Error('Active Review creation requires a Cloudflare D1 client with atomic batch support.');
   }
-
   /** @type {D1PreparedStatement[]} */
-  const writes = [
-    dbDeleteExpired(client, input.userId),
-    dbInsertActiveReview(input.parent, client)
-  ];
-  if (questionRows.length > 0) {
-    writes.push(
-      client
-        .prepare(INSERT_ACTIVE_REVIEW_QUESTIONS_JSON_SQL)
-        .bind(JSON.stringify(questionRows))
-    );
-  }
-  if (assetRows.length > 0) {
-    writes.push(
-      client
-        .prepare(INSERT_ACTIVE_REVIEW_ASSETS_JSON_SQL)
-        .bind(JSON.stringify(assetRows))
-    );
-  }
-
+  const writes = [dbDeleteExpired(client, input.userId), dbInsertActiveReview(input.parent, client)];
+  if (questionRows.length > 0) writes.push(client.prepare(INSERT_ACTIVE_REVIEW_QUESTIONS_JSON_SQL).bind(JSON.stringify(questionRows)));
+  if (assetRows.length > 0) writes.push(client.prepare(INSERT_ACTIVE_REVIEW_ASSETS_JSON_SQL).bind(JSON.stringify(assetRows)));
   try {
     await client.batch(writes);
   } catch (cause) {
@@ -328,7 +245,6 @@ async function persistActiveReview(input) {
     if (existing) return { status: 'resume', review: existing };
     throw mappedCreateError(cause);
   }
-
   const created = await getActiveReviewById(input.db, input.userId, activeReviewId);
   if (!created) throw new Error('Active Review creation committed without a readable Review.');
   return { status: 'created', review: created };
@@ -343,20 +259,41 @@ function contentModeForPreferences(preferences) {
 function selectedCandidate(selection, caseId) {
   const candidate = selection.candidates.find((item) => item.id === caseId);
   if (!candidate) {
-    throw new ActiveReviewError(
-      'ineligible-scope',
-      'This Case is no longer active learner content in the selected study scope.'
-    );
+    throw new ActiveReviewError('ineligible-scope', 'This Case is no longer active learner content in the selected study scope.');
   }
   return candidate;
+}
+
+/** @param {{runScope?:MultiSystemStudyRunScope,systemId?:string,routes?:readonly SystemStudySelectionRoute[]}} input @returns {MultiSystemStudyRunScope} */
+function canonicalInputRunScope(input) {
+  if (input.runScope?.systems?.length) return input.runScope;
+  // Repository-internal single-System callers are retained as v2 wrappers for
+  // existing smoke/benchmark coverage. Browser v1 descriptors and persisted v1
+  // scope are still rejected and retired.
+  if (input.systemId && Array.isArray(input.routes) && input.routes.length > 0) {
+    return { systems: [{ systemId: input.systemId, mode: 'routes', routes: input.routes }] };
+  }
+  throw new ActiveReviewError('invalid-input', 'A canonical v2 study run scope is required.');
+}
+
+/** @param {import('./index.js').LearningDb} db @param {{runScope?:MultiSystemStudyRunScope,systemId?:string,routes?:readonly SystemStudySelectionRoute[]}} input */
+async function resolveV2Selection(db, input) {
+  const runScope = canonicalInputRunScope(input);
+  return resolveMultiSystemStudySelection(db, { systems: runScope.systems });
+}
+
+/** @param {MultiSystemStudyRunScope} runScope @param {string} attributionSystemId */
+function persistedScope(runScope, attributionSystemId) {
+  return { version: 2, systemId: attributionSystemId, runScope };
 }
 
 /**
  * @param {{
  *   db:import('./index.js').LearningDb,
  *   userId:string,
- *   systemId:string,
- *   routes:readonly {routeType:'topic'|'tag',routeId:string}[],
+ *   runScope?:MultiSystemStudyRunScope,
+ *   systemId?:string,
+ *   routes?:readonly SystemStudySelectionRoute[],
  *   caseId:string,
  *   queueClass:'due'|'new'|'repeat',
  *   runBoundaryToken:string,
@@ -372,54 +309,33 @@ export async function createScheduledActiveReview(input) {
   if (!['due', 'new', 'repeat'].includes(input.queueClass)) {
     throw new ActiveReviewError('invalid-input', 'Scheduled active Review queue class is invalid.');
   }
-
   const existing = await getActiveReview(input.db, userId);
   if (existing) return { status: 'resume', review: existing };
 
-  const selection = await resolveSystemStudySelection(input.db, {
-    systemId: input.systemId,
-    routes: input.routes
-  });
+  const selection = await resolveV2Selection(input.db, input);
   const candidate = selectedCandidate(selection, caseId);
-  const scope = { systemId: selection.systemId, routes: selection.routes };
-  const scopeFingerprint = await fingerprintStudyScope(scope);
-
+  const scopeFingerprint = await fingerprintStudyScope(selection.runScope);
   const membership = input.queueClass === 'repeat'
     ? await verifyScheduledRepeatOriginProof({
-      secret: input.proofSecret,
-      userId,
-      runToken: input.runBoundaryToken,
-      repeatToken: input.workProof,
-      caseId
+      secret: input.proofSecret, userId, runToken: input.runBoundaryToken,
+      repeatToken: input.workProof, caseId
     })
     : await verifyCapturedMembership({
-      secret: input.proofSecret,
-      userId,
-      runToken: input.runBoundaryToken,
-      membershipToken: input.workProof,
-      queueClass: input.queueClass,
-      caseId
+      secret: input.proofSecret, userId, runToken: input.runBoundaryToken,
+      membershipToken: input.workProof, queueClass: input.queueClass, caseId
     });
   const boundary = membership.boundary;
   if (boundary.scopeFingerprint !== scopeFingerprint) {
     throw new ActiveReviewError('stale-run', 'The selected study scope no longer matches this Scheduled run.');
   }
 
-  const profileRows = await input.db
-    .select()
-    .from(learnerFsrsProfiles)
-    .where(eq(learnerFsrsProfiles.userId, userId))
-    .limit(1);
+  const profileRows = await input.db.select().from(learnerFsrsProfiles).where(eq(learnerFsrsProfiles.userId, userId)).limit(1);
   const profile = profileRows[0];
   if (!profileMatchesBoundary(profile, boundary)) {
     throw new ActiveReviewError('stale-run', 'This Scheduled run is stale. Start a fresh run.');
   }
-
-  const stateRows = await input.db
-    .select()
-    .from(learnerCaseFsrs)
-    .where(and(eq(learnerCaseFsrs.userId, userId), eq(learnerCaseFsrs.caseId, caseId)))
-    .limit(1);
+  const stateRows = await input.db.select().from(learnerCaseFsrs)
+    .where(and(eq(learnerCaseFsrs.userId, userId), eq(learnerCaseFsrs.caseId, caseId))).limit(1);
   const state = stateRows[0] ?? null;
   const requestNow = timestampMs(input.now ?? new Date());
   if (requestNow == null) throw new ActiveReviewError('invalid-input', 'Scheduled Review time is invalid.');
@@ -427,9 +343,7 @@ export async function createScheduledActiveReview(input) {
   let expectedStateRevision = null;
   let expectedDueAt = null;
   if (input.queueClass === 'new') {
-    if (state) {
-      throw new ActiveReviewError('stale-case-state', 'This Case is no longer New in the current learner state.');
-    }
+    if (state) throw new ActiveReviewError('stale-case-state', 'This Case is no longer New in the current learner state.');
   } else {
     if (!('stateRevision' in membership) || !('dueAt' in membership)) {
       throw new ActiveReviewError('stale-case-state', 'Scheduled work proof is missing Case state metadata.');
@@ -443,10 +357,7 @@ export async function createScheduledActiveReview(input) {
       || proofDueAt > requestNow
       || (input.queueClass === 'due' && proofDueAt > boundary.runStartedAt)
     ) {
-      throw new ActiveReviewError(
-        'stale-case-state',
-        'This Case changed scheduling state before the Review could open.'
-      );
+      throw new ActiveReviewError('stale-case-state', 'This Case changed scheduling state before the Review could open.');
     }
     expectedStateRevision = proofStateRevision;
     expectedDueAt = proofDueAt;
@@ -455,39 +366,23 @@ export async function createScheduledActiveReview(input) {
   const preferences = await ensureLearnerPreferences(input.db, userId);
   const contentMode = contentModeForPreferences(preferences);
   const snapshot = await buildActiveReviewSnapshot({
-    db: input.db,
-    caseId,
-    studyConceptId: candidate.studyConceptId,
-    contentMode,
-    rng: input.rng
+    db: input.db, caseId, studyConceptId: candidate.studyConceptId, contentMode, rng: input.rng
   });
   const reviewId = globalThis.crypto.randomUUID();
-
+  const scope = persistedScope(selection.runScope, candidate.attributionSystemId);
   return persistActiveReview({
     db: input.db,
     userId,
     parent: {
-      id: reviewId,
-      userId,
-      caseId,
-      systemId: selection.systemId,
-      studyMode: 'scheduled',
-      contentMode,
-      queueClass: input.queueClass,
-      runId: boundary.runId,
-      scopeFingerprint,
-      scopeJson: JSON.stringify(scope),
-      generation: boundary.generation,
-      reviewSequenceEpoch: boundary.reviewSequenceEpoch,
-      parameterRevision: boundary.parameterRevision,
-      schedulerRevision: boundary.schedulerRevision,
-      schedulerLibraryVersion: boundary.schedulerLibraryVersion,
-      expectedStateRevision,
+      id: reviewId, userId, caseId, systemId: candidate.attributionSystemId,
+      studyMode: 'scheduled', contentMode, queueClass: input.queueClass,
+      runId: boundary.runId, scopeFingerprint, scopeJson: JSON.stringify(scope),
+      generation: boundary.generation, reviewSequenceEpoch: boundary.reviewSequenceEpoch,
+      parameterRevision: boundary.parameterRevision, schedulerRevision: boundary.schedulerRevision,
+      schedulerLibraryVersion: boundary.schedulerLibraryVersion, expectedStateRevision,
       expectedDueAt: expectedDueAt == null ? null : new Date(expectedDueAt),
-      runStartedAt: new Date(boundary.runStartedAt),
-      caseTitleSnapshot: snapshot.case.title,
-      vignetteSnapshotMd: snapshot.case.vignetteMd,
-      snapshotVersion: ACTIVE_REVIEW_SNAPSHOT_VERSION
+      runStartedAt: new Date(boundary.runStartedAt), caseTitleSnapshot: snapshot.case.title,
+      vignetteSnapshotMd: snapshot.case.vignetteMd, snapshotVersion: ACTIVE_REVIEW_SNAPSHOT_VERSION
     },
     snapshot
   });
@@ -497,8 +392,9 @@ export async function createScheduledActiveReview(input) {
  * @param {{
  *   db:import('./index.js').LearningDb,
  *   userId:string,
- *   systemId:string,
- *   routes:readonly {routeType:'topic'|'tag',routeId:string}[],
+ *   runScope?:MultiSystemStudyRunScope,
+ *   systemId?:string,
+ *   routes?:readonly SystemStudySelectionRoute[],
  *   caseId:string,
  *   runId?:string,
  *   rng?:()=>number
@@ -510,50 +406,29 @@ export async function createFreeActiveReview(input) {
   const existing = await getActiveReview(input.db, userId);
   if (existing) return { status: 'resume', review: existing };
 
-  const selection = await resolveSystemStudySelection(input.db, {
-    systemId: input.systemId,
-    routes: input.routes
-  });
+  const selection = await resolveV2Selection(input.db, input);
   const candidate = selectedCandidate(selection, caseId);
-  const scope = { systemId: selection.systemId, routes: selection.routes };
   const [scopeFingerprint, preferences] = await Promise.all([
-    fingerprintStudyScope(scope),
+    fingerprintStudyScope(selection.runScope),
     ensureLearnerPreferences(input.db, userId)
   ]);
   const contentMode = contentModeForPreferences(preferences);
   const snapshot = await buildActiveReviewSnapshot({
-    db: input.db,
-    caseId,
-    studyConceptId: candidate.studyConceptId,
-    contentMode,
-    rng: input.rng
+    db: input.db, caseId, studyConceptId: candidate.studyConceptId, contentMode, rng: input.rng
   });
   const reviewId = globalThis.crypto.randomUUID();
-
+  const scope = persistedScope(selection.runScope, candidate.attributionSystemId);
   return persistActiveReview({
     db: input.db,
     userId,
     parent: {
-      id: reviewId,
-      userId,
-      caseId,
-      systemId: selection.systemId,
-      studyMode: 'free',
-      contentMode,
-      queueClass: null,
-      runId: input.runId ?? globalThis.crypto.randomUUID(),
-      scopeFingerprint,
-      scopeJson: JSON.stringify(scope),
-      generation: null,
-      reviewSequenceEpoch: null,
-      parameterRevision: null,
-      schedulerRevision: null,
-      schedulerLibraryVersion: null,
-      expectedStateRevision: null,
-      expectedDueAt: null,
-      runStartedAt: null,
-      caseTitleSnapshot: snapshot.case.title,
-      vignetteSnapshotMd: snapshot.case.vignetteMd,
+      id: reviewId, userId, caseId, systemId: candidate.attributionSystemId,
+      studyMode: 'free', contentMode, queueClass: null,
+      runId: input.runId ?? globalThis.crypto.randomUUID(), scopeFingerprint,
+      scopeJson: JSON.stringify(scope), generation: null, reviewSequenceEpoch: null,
+      parameterRevision: null, schedulerRevision: null, schedulerLibraryVersion: null,
+      expectedStateRevision: null, expectedDueAt: null, runStartedAt: null,
+      caseTitleSnapshot: snapshot.case.title, vignetteSnapshotMd: snapshot.case.vignetteMd,
       snapshotVersion: ACTIVE_REVIEW_SNAPSHOT_VERSION
     },
     snapshot
@@ -564,15 +439,10 @@ export async function createFreeActiveReview(input) {
 export async function revealActiveReview(input) {
   const userId = requiredString(input.userId, 'Learner');
   const reviewId = requiredString(input.reviewId, 'Active Review');
-  await input.db
-    .update(activeReviews)
-    .set({ revealedAt: DATABASE_NOW_MS })
-    .where(and(
-      eq(activeReviews.userId, userId),
-      eq(activeReviews.id, reviewId),
-      isNull(activeReviews.revealedAt),
-      sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`
-    ));
+  await input.db.update(activeReviews).set({ revealedAt: DATABASE_NOW_MS }).where(and(
+    eq(activeReviews.userId, userId), eq(activeReviews.id, reviewId),
+    isNull(activeReviews.revealedAt), sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`
+  ));
   return getActiveReviewById(input.db, userId, reviewId);
 }
 
@@ -580,22 +450,15 @@ export async function revealActiveReview(input) {
 export async function discardActiveReview(input) {
   const userId = requiredString(input.userId, 'Learner');
   const reviewId = requiredString(input.reviewId, 'Active Review');
-  const deleted = await input.db
-    .delete(activeReviews)
+  const deleted = await input.db.delete(activeReviews)
     .where(and(eq(activeReviews.userId, userId), eq(activeReviews.id, reviewId)))
     .returning({ id: activeReviews.id });
   return deleted.length > 0;
 }
 
-/**
- * Explicit cleanup primitive for maintenance/tests. Replacement, discovery and
- * cleanup all evaluate expiry from database time, so application clock skew
- * cannot make an unexpired Review disappear.
- * @param {import('./index.js').LearningDb} db
- */
+/** @param {import('./index.js').LearningDb} db */
 export async function cleanupExpiredActiveReviews(db) {
-  return db
-    .delete(activeReviews)
+  return db.delete(activeReviews)
     .where(sql`${activeReviews.expiresAt} <= ${DATABASE_NOW_MS}`)
     .returning({ id: activeReviews.id, userId: activeReviews.userId });
 }

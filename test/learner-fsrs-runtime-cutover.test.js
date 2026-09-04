@@ -28,6 +28,7 @@ test('learner Study routes are cut over to active Review and FSRS run services',
 
   assert.match(open, /createScheduledActiveReview/);
   assert.match(open, /createFreeActiveReview/);
+  assert.match(open, /runScope:\s*descriptor\.selectedScope/);
   assert.match(complete, /completeStudyRunRequest/);
   assert.match(media, /getOwnedActiveReviewMediaSnapshot/);
   assert.doesNotMatch(media, /server\/db\/review-media\.js|review_assets/);
@@ -80,12 +81,63 @@ test('local FSRS preview remains local-only and keeps 5, 10, 20 and All run size
   assert.match(page, /Continue run/);
 });
 
-test('learner and local-preview browser run storage remain separate', () => {
+test('learner and local-preview browser run storage are v2-only, separate, and retire v1 keys', () => {
   const learner = source('src/lib/learner-study-run-storage.js');
   const preview = source('src/lib/fsrs-preview-run-storage.js');
-  assert.match(learner, /flash-cards:learner-study-run:v1/);
-  assert.match(preview, /flash-cards:fsrs-preview-run:v1/);
-  assert.doesNotMatch(learner, /flash-cards:fsrs-preview-run:v1/);
+
+  assert.match(learner, /flash-cards:learner-study-run:v2/);
+  assert.match(preview, /flash-cards:fsrs-preview-run:v2/);
+  assert.match(learner, /LEGACY_LEARNER_STUDY_RUN_STORAGE_KEY = 'flash-cards:learner-study-run:v1'/);
+  assert.match(preview, /LEGACY_FSRS_PREVIEW_RUN_STORAGE_KEY = 'flash-cards:fsrs-preview-run:v1'/);
+  assert.doesNotMatch(learner, /flash-cards:fsrs-preview-run:v2/);
+});
+
+test('multi-System v2 cutover retries unless both schema and an open identified v2 runtime prove completion', () => {
+  const runtime = source('src/lib/server/learning/learner-study-runtime.js');
+  const workflow = source('.github/workflows/deploy-production.yml');
+  const statusRoute = source('src/routes/api/runtime-cutover-status/+server.js');
+  const gate = source('scripts/multi-system-v2-cutover-gate.mjs');
+  const guard = source('scripts/multi-system-v2-guard-verify.mjs');
+
+  assert.match(runtime, /LEARNER_RUNTIME_WRITE_FENCE/);
+  assert.match(statusRoute, /learnerRuntimeCutoverVersion:\s*2/);
+  assert.match(statusRoute, /learnerRuntimeBuildSha/);
+  assert.match(statusRoute, /APP_BUILD_SHA/);
+
+  assert.match(workflow, /apply_migrations:/);
+  assert.match(workflow, /default:\s*false/);
+  assert.match(workflow, /multi-system-v2-guard-verify\.mjs --remote --inspect/);
+  assert.match(workflow, /guard_status/);
+  assert.match(workflow, /runtime_status/);
+  assert.match(workflow, /\[ "\$guard_status" = "v2" \] && \[ "\$runtime_status" = "complete" \]/);
+  assert.match(workflow, /Install temporary learner write fence Worker/);
+  assert.match(workflow, /Require exact zero Production learner runtime data/);
+  assert.match(workflow, /Apply all pending production D1 migrations/);
+  assert.match(workflow, /steps\.cutover\.outputs\.required == 'true' \|\| inputs\.apply_migrations == true/);
+  assert.match(workflow, /Verify v2 Active Review D1 guard/);
+  assert.match(workflow, /APP_BUILD_SHA:\$\{GITHUB_SHA\}/);
+  assert.match(workflow, /learnerRuntimeBuildSha!==expected/);
+  assert.match(workflow, /Non-mutating verification while v2 Worker is fenced/);
+  assert.match(workflow, /Reopen learner runtime with v2 Worker/);
+  assert.match(gate, /learner_fsrs_profiles/);
+  assert.match(gate, /no pristine-profile exception/);
+  assert.match(guard, /active_review_invalid_scope_v2/);
+  assert.match(guard, /inspection/);
+
+  const order = [
+    'Run multi-System v2 migrated-D1 lifecycle acceptance',
+    'Run multi-System v2 supported-envelope D1 trigger benchmark',
+    'Detect whether the one-time v2 cutover is still required',
+    'Install temporary learner write fence Worker',
+    'Require exact zero Production learner runtime data',
+    'Apply all pending production D1 migrations',
+    'Verify v2 Active Review D1 guard',
+    'Deploy v2 Worker while learner writes remain fenced',
+    'Non-mutating verification while v2 Worker is fenced',
+    'Reopen learner runtime with v2 Worker'
+  ].map((label) => workflow.indexOf(label));
+  assert.equal(order.every((position) => position >= 0), true);
+  assert.deepEqual(order, [...order].sort((a, b) => a - b));
 });
 
 test('legacy Review persistence has no current Drizzle export or learner writer', () => {

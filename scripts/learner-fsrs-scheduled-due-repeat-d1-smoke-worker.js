@@ -172,8 +172,11 @@ async function createExistingStateFixture(binding, db, fixture) {
   await ensureSmokeUser(binding, fixture.userId);
   const profile = await ensureLearnerFsrsProfile(db, fixture.userId);
   const scope = {
-    systemId,
-    routes: [{ routeType: 'topic', routeId: topicId }]
+    systems: [{
+      systemId,
+      mode: 'routes',
+      routes: [{ routeType: 'topic', routeId: topicId }]
+    }]
   };
   const scopeFingerprint = await fingerprintStudyScope(scope);
   const runStartedAt = Date.now() - 1_000;
@@ -235,7 +238,7 @@ async function createExistingStateFixture(binding, db, fixture) {
     fixture.queueClass,
     fixture.runId,
     scopeFingerprint,
-    JSON.stringify(scope),
+    JSON.stringify({ version: 2, systemId, runScope: scope }),
     boundary.generation,
     boundary.reviewSequenceEpoch,
     boundary.parameterRevision,

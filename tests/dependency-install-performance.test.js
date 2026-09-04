@@ -26,6 +26,7 @@ const workflowPaths = [
   '.github/workflows/learner-fsrs-free-study.yml',
   '.github/workflows/learner-fsrs-scheduled-completion.yml',
   '.github/workflows/learner-fsrs-workerd-smoke.yml',
+  '.github/workflows/multi-system-runtime-v2.yml',
   '.github/workflows/production-content-snapshot.yml',
   '.github/workflows/rename-ecg-batch-01-assets.yml',
   '.github/workflows/restore-main-to-preview.yml',
@@ -39,6 +40,7 @@ const prWorkflowPaths = [
   '.github/workflows/learner-fsrs-pr-g-analytics-deletion.yml',
   '.github/workflows/learner-fsrs-scheduled-completion.yml',
   '.github/workflows/learner-fsrs-workerd-smoke.yml',
+  '.github/workflows/multi-system-runtime-v2.yml',
   '.github/workflows/wrangler-runtime-smoke.yml',
 ];
 

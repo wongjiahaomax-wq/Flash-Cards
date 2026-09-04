@@ -19,15 +19,15 @@ test('Scheduled route limit accepts MAX_ROUTES and rejects MAX_ROUTES + 1', () =
   );
 });
 
-test('Scheduled route envelope is checked on normalized routes before learner bootstrap', () => {
+test('Scheduled route envelope is checked on normalized v2 run scope before learner bootstrap', () => {
   const source = readFileSync(
     new URL('../src/lib/server/db/study-run-planning.js', import.meta.url),
     'utf8'
   );
-  const routeGuard = source.indexOf('assertScheduledStudyRouteCount(selection.routes.length);');
+  const routeGuard = source.indexOf('assertScheduledStudyRouteCount(totalNormalizedMultiSystemRouteCount(selection.runScope));');
   const bootstrap = source.indexOf('ensureLearnerFsrsProfile(input.db, input.userId)');
 
-  assert.ok(routeGuard >= 0, 'expected normalized-route guard in Scheduled planning');
+  assert.ok(routeGuard >= 0, 'expected normalized v2 run-scope route guard in Scheduled planning');
   assert.ok(bootstrap >= 0, 'expected learner profile bootstrap in Scheduled planning');
-  assert.ok(routeGuard < bootstrap, 'normalized-route guard must run before learner bootstrap');
+  assert.ok(routeGuard < bootstrap, 'normalized v2 route guard must run before learner bootstrap');
 });

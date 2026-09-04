@@ -2,7 +2,7 @@
 
 _Last updated: 4 September 2026_
 
-This document records the implemented V1 application data model through the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, Original/Alternative stimulus changes, merged PR #139 (PR F), and the PR G Admin analytics/account-deletion repository implementation through migration `0025`. It should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the current learner-runtime boundary and explicitly distinguishes repository state from Production deployment state.
+This document records the implemented V1 application data model through the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, Original/Alternative stimulus changes, merged PR #139 (PR F), the PR G Admin analytics/account-deletion repository implementation, and the Multi-System Runtime v2 scope/runtime foundation through migration `0026`. It should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the current learner-runtime boundary and explicitly distinguishes repository state from Production deployment state. `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` records the focused Runtime v2 implementation/cutover evidence; learner-facing multi-select configuration remains a later UX tranche.
 
 A migration file being committed is not proof that it has been applied to production D1. Merge status, production migration application, Worker deployment, taxonomy/stimulus curation, learner feature enablement, and behavior verification remain separate operational facts.
 
@@ -37,6 +37,7 @@ The repository migration sequence contains:
 0023_learner_fsrs_system_provenance_guard.sql
 0024_learner_fsrs_reset_fresh.sql
 0025_learner_fsrs_admin_analytics_deletion.sql
+0026_multi_system_active_review_scope_v2.sql
 ```
 
 Important migrations for the current model include:
@@ -58,12 +59,13 @@ Important migrations for the current model include:
 - `0023` — defensive deletion/reclassification protection for Systems referenced by durable FSRS System provenance in `scheduled_review_events` or `learner_system_aggregates`;
 - `0024` — defensive Scheduled active-Review/profile-boundary guard used by Reset Progress / Fresh FSRS Start serialization. It prevents generation/review-sequence/parameter/scheduler boundary movement while a Scheduled active Review still survives.
 - `0025` — durable learner × historical-System × UTC-month Scheduled analytics buckets, transactional maintenance/backfill from still-retained detailed history, System-provenance guards, and durable retry-safe learner account-deletion state/guards with bounded auth/application ownership phases.
+- `0026` — replaces the Active Review content/scope guard with the strict canonical Runtime v2 envelope, validates bounded canonical multi-System `runScope`, proves the frozen scalar attribution System is selected and can actually reach the Case through that selected sub-scope, rejects duplicate/contradictory scope shapes, and retains the active/non-Preview Case plus active Primary Topic eligibility baseline.
 
 Migrations `0013`–`0015` remain immutable and valid migration history. Their legacy `reviews`, `review_questions`, and `review_assets` semantics must not be read as current runtime architecture after the FSRS cutover.
 
 `0016` does not claim that every existing family has a known Original. It assigns an Original only to an unambiguous eligible one-option **production** family, leaves ambiguous legacy multi-option production families uncurated with `original_option_id = NULL`, and leaves retained Preview-owned families uncurated. It does not rewrite older legacy Review rows. The migration also prevents creating a group with an arbitrary non-null Original pointer; a family is inserted with `original_option_id = NULL`, then an eligible option is inserted/restored and an explicit validated update assigns the Original.
 
-No new migration is required to retire Additional Study Topics from current product behavior. The current Drizzle authority is split deliberately across `src/lib/server/db/schema.js` for content/domain tables, `src/lib/server/db/fsrs-schema.js` for durable FSRS/progress state, `src/lib/server/db/fsrs-analytics-schema.js` for durable PR G monthly analytics/deletion state, `src/lib/server/db/active-review-schema.js` for unfinished learner Review ownership, and `src/lib/server/db/free-study-schema.js` for Free completion receipts; `drizzle.config.js` registers the current schema modules. `src/lib/server/db/schema.js` intentionally exports no legacy `reviews`, `review_questions`, or `review_assets` tables after cutover. The historical physical `case_concepts.role = primary | secondary` shape remains unchanged, while current application read/write paths treat only `role = 'primary'` as behaviorally active.
+No new migration is required to retire Additional Study Topics from current product behavior. The current Drizzle authority is split deliberately across `src/lib/server/db/schema.js` for content/domain tables, `src/lib/server/db/fsrs-schema.js` for durable FSRS/progress state, `src/lib/server/db/fsrs-analytics-schema.js` for durable PR G monthly analytics/deletion state, `src/lib/server/db/active-review-schema.js` for unfinished learner Review ownership, and `src/lib/server/db/free-study-schema.js` for Free completion receipts; `drizzle.config.js` registers the current schema modules. `src/lib/server/db/schema.js` intentionally exports no legacy `reviews`, `review_questions`, or `review_assets` tables after cutover. The historical physical `case_concepts.role = primary | secondary` shape remains unchanged, while current application read/write paths treat only `role = 'primary'` as behaviorally active. Migration `0026` changes database guard semantics rather than adding a new Drizzle table/column.
 
 ## 2. General design rules
 
@@ -82,11 +84,12 @@ No new migration is required to retire Additional Study Topics from current prod
 13. Asset lifecycle status and derived usage classification are distinct concepts.
 14. Learner question-pool eligibility and Case question-count selection are orthogonal concerns: source eligibility is decided before duplicate-Prompt resolution, then existing Automatic/All/Fixed selection is applied.
 15. System/Tag learner navigation chooses Case entry context; it does not replace canonical Topic-question resolution.
-16. Current learner runtime scope/provenance is split by purpose: the unfinished active Review owns its selected System/scope and frozen content, while durable Scheduled completion records compact System attribution in Scheduled events/aggregates.
+16. Current learner runtime scope/provenance is split by purpose: the unfinished active Review owns the complete authenticated canonical v2 run scope plus one frozen concrete attribution System for the presented Case, while durable Scheduled completion records compact historical System attribution in Scheduled events/aggregates/monthly buckets.
 17. A current learner-presentable Case has exactly one behaviorally active canonical Primary Topic; alternate/cross-cutting classification uses Case Tags rather than Additional Study Topics.
 18. A curated stimulus family has an explicit Original pointer; insertion/display order, filename, caption, naming, or learner snapshot/history must never be treated as implicit Original semantics.
 19. Reset/Fresh scheduler-boundary changes consume any active Review and clear current learner×Case scheduler state atomically with the boundary change; browser run state is convenience only and old proofs still fail server-side current-profile checks.
 20. Long-range Admin System/cohort time series are sourced from durable monthly buckets, never reconstructed from lifetime aggregates or optimizer evidence; mature account deletion uses marker-authoritative access denial and bounded retry-safe auth/application purges.
+21. Multi-System selection changes Case eligibility/routing only: FSRS state/parameters remain learner-wide/per-Case rather than per-System, run-size and 50-New limits remain global, and no synthetic `Mixed` System or implicit balanced System quota is created.
 
 ## 3. Authentication and Preview ownership
 
@@ -527,7 +530,7 @@ The active learner runtime persists this choice as `active_reviews.content_mode 
 
 Stimulus-family selection is also mode-aware as described in section 7: a curated family uses its explicit Original for Original/Core and substitutes an eligible non-Original Alternative for Expanded Learning when possible. The selected content is frozen into `active_review_questions` and `active_review_assets` before progress begins.
 
-System/Tag routing happens before this question pipeline. Topic and Tag reachability still resolve the selected Case's canonical Primary Topic for direct Topic-question context; a Tag may make Tag-scoped Shared Questions eligible, but it does not substitute an alternate direct Topic bank. Current active Reviews persist the selected System/scope boundary rather than the retired `reviews.study_concept_id`, `route_type`, and navigation-provenance columns.
+System/Tag routing happens before this question pipeline. Topic and Tag reachability still resolve the selected Case's canonical Primary Topic for direct Topic-question context; a Tag may make Tag-scoped Shared Questions eligible, but it does not substitute an alternate direct Topic bank. Current active Reviews persist the selected v2 run scope and one concrete System attribution rather than the retired `reviews.study_concept_id`, `route_type`, and navigation-provenance columns.
 
 Older physical `reviews` rows may contain pre-cutover `study_concept_id` and route-provenance fields because migrations are immutable history. Those rows are not a supported current reader/writer path and must be zero for Production cutover.
 
@@ -603,6 +606,30 @@ expires_at
 ```
 
 There is one active Review per learner. Scheduled active Reviews carry the authenticated FSRS/run/captured-state boundary; Free active Reviews deliberately carry no scheduler-state boundary. Resume discovery returns only an unexpired learner-owned row, and database-time expiry remains authoritative for create/replace/completion serialization.
+
+Under Runtime v2, `scope_json` is a strict attribution envelope rather than a loose route bag:
+
+```js
+{
+  version: 2,
+  systemId: '<frozen concrete attribution System>',
+  runScope: {
+    systems: [
+      { systemId: 'system-a', mode: 'all' },
+      {
+        systemId: 'system-b',
+        mode: 'routes',
+        routes: [
+          { routeType: 'topic', routeId: 'topic-b' },
+          { routeType: 'tag', routeId: 'curated-tag-b' }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The top-level `systemId` must equal scalar `active_reviews.system_id`. Migration `0026` validates canonical shape/order/bounds and proves that this System is selected in `runScope` and that the Case is reachable through that exact selected System sub-scope. The active/non-Preview Case plus active Primary Topic baseline applies to Topic, curated-Tag, and whole-System `all` reachability. Duplicate/ambiguous Systems, duplicate routes, contradictory `all` shapes, forged attribution, and unselected/wrong routes fail closed.
 
 Reset Progress and Fresh FSRS Start are explicit active-Review invalidators. Their supported mutation transaction deletes the learner's active Review before clearing current Case scheduler state and, where applicable, changing the profile generation/review-sequence/parameter boundary. Migration `0024` prevents a Scheduled profile-boundary update from committing while a Scheduled active Review still survives. Conversely, the existing active-Review creation guard rejects an old Scheduled run after Reset/Fresh has already moved the current profile boundary.
 
@@ -809,7 +836,8 @@ shared_questions
 
 active_reviews
   ├── case_id ── cases
-  ├── system_id ── concepts [System]
+  ├── system_id ── concepts [one concrete attribution System]
+  ├── scope_json             [strict v2 attribution envelope + complete runScope]
   ├── active_review_questions
   └── active_review_assets ── assets
 
@@ -824,7 +852,8 @@ Scheduled completion / current scheduling
   ├── learner_optimizer_evidence
   ├── learner_case_encounters
   ├── learner_aggregates
-  └── learner_system_aggregates ── system_id
+  ├── learner_system_aggregates ── system_id
+  └── learner_system_monthly_buckets ── system_id
 
 Free completion
   ├── free_review_completion_receipts [short-lived]
@@ -837,9 +866,9 @@ legacy physical sentinels only
   └── review_assets
 ```
 
-## 23. System study-route and durable provenance semantics
+## 23. System/multi-System study-route and durable provenance semantics
 
-For a chosen System, learner content reachability remains derived rather than stored on Cases:
+For each selected System sub-scope, learner content reachability remains derived rather than stored on Cases:
 
 ```text
 System → Topic
@@ -851,24 +880,45 @@ System → Tag
 
 System → All
 → union of native descendant Topic routes and curated Tag routes
-→ deduplicated by Case
+→ deduplicated by Case within the sub-scope
 → native canonical Topic provenance wins when both routes match
 ```
 
-A Tag can be exposed by more than one System. The post-cutover `/study` runtime is System-scoped FSRS/Free Study. While work is unfinished, `active_reviews.system_id` plus normalized `scope_json` / `scope_fingerprint` and the Scheduled proof fields own the exact active scope boundary; the retired legacy `reviews.route_type`, `study_*`, and `navigation_route_*` fields are not current runtime provenance.
+Runtime v2 combines one or more such System sub-scopes in one canonical authenticated `runScope`:
+
+```js
+{
+  systems: [
+    { systemId: 'cardiovascular', mode: 'all' },
+    {
+      systemId: 'endocrine',
+      mode: 'routes',
+      routes: [
+        { routeType: 'topic', routeId: 'diabetes' },
+        { routeType: 'tag', routeId: 'adrenal' }
+      ]
+    }
+  ]
+}
+```
+
+The combined candidate pool is globally deduplicated by Case. Contributor information is retained long enough to choose one concrete historical System deterministically: prefer a selected native Primary-Topic System contribution, otherwise use stable contributing System-ID order. Checkbox/input order is not attribution authority. The chosen System is frozen on the Active Review; there is no synthetic `Mixed` System.
+
+A Tag can be exposed by more than one System. The current `/study` chooser remains single-System until the Multi-System UX tranche, but that single-System choice is already a valid special case of the v2 runtime. While work is unfinished, `active_reviews.system_id` plus strict v2 `scope_json` / `scope_fingerprint` and the Scheduled proof fields own the exact active scope/attribution boundary; the retired legacy `reviews.route_type`, `study_*`, and `navigation_route_*` fields are not current runtime provenance.
 
 Durable FSRS System attribution is registered centrally in:
 
 ```text
 scheduled_review_events.system_id
 learner_system_aggregates.system_id
+learner_system_monthly_buckets.system_id
 ```
 
-Application deletion/reclassification checks must consult this durable registry. Migration `0023_learner_fsrs_system_provenance_guard.sql` adds database defense in depth: a `concepts.kind = 'system'` row referenced by either durable store cannot be reclassified away from System or deleted. New durable System-attribution tables must join the same centralized provenance authority rather than inventing independent deletion rules.
+Application deletion/reclassification checks must consult this durable registry. Migrations `0023` and `0025` provide database defense in depth so retained durable System attribution blocks destructive System reclassification/deletion. New durable System-attribution tables must join the same centralized provenance authority rather than inventing independent deletion rules.
 
-Free Study completion does not write `learner_system_aggregates` or a durable System event. Its unfinished System ownership exists only on the active Review until that Review is consumed.
+Free Study completion does not write `learner_system_aggregates`, `learner_system_monthly_buckets`, or a durable System event. Its unfinished System ownership exists only on the active Review until that Review is consumed.
 
-See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for content reachability semantics and `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` for the current learner-runtime cutover boundary.
+See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for content reachability semantics, `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` for the v2 runtime/cutover evidence, and `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` for the current learner-runtime boundary.
 
 ## 24. Non-goals encoded by the current model
 
@@ -893,6 +943,10 @@ The current schema intentionally does **not** imply:
 - a persisted D1 Scheduled/Free run queue or ordinary Study-session row; run continuation state remains browser-local and server-validated;
 - a durable completed-Review question/asset snapshot after the temporary active Review is consumed;
 - Free Study FSRS transitions, FSRS ratings, optimizer evidence, or learner×System Scheduled aggregates;
+- per-System FSRS state, parameters, optimizer ownership, run-size counters, or 50-New counters merely because one run may select several Systems;
+- equal/balanced per-System sampling or quotas;
+- a synthetic `Mixed` System identity for mixed runs;
+- long-lived Production v1/v2 descriptor/proof compatibility after a successful fenced exact-zero v2 cutover;
 - automatic optimizer execution/parameter replacement merely because optimizer evidence and parameter revisions exist;
 - PR G Admin/cohort/monthly analytics or account-deletion semantics merely because learner aggregates exist;
 - any supported runtime fallback that writes/reads/completes `reviews`, `review_questions`, or `review_assets`;

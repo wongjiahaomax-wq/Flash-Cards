@@ -19,6 +19,8 @@ declare global {
         BETTER_AUTH_URL?: string;
         PREVIEW_MODE?: string;
         SYSTEM_STUDY_NAVIGATION_ENABLED?: string;
+        LEARNER_RUNTIME_WRITE_FENCE?: string;
+        APP_BUILD_SHA?: string;
       };
       cf?: CfProperties;
       ctx?: ExecutionContext;

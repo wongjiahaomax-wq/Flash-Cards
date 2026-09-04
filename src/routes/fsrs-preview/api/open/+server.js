@@ -21,7 +21,6 @@ function json(body, status = 200) {
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   });
 }
-
 /** @param {unknown} cause */
 function skippableOpenError(cause) {
   if (cause instanceof ActiveReviewContentError) return cause.code === 'content-unavailable';
@@ -34,7 +33,6 @@ export async function POST({ locals, platform, request, url }) {
   if (!locals.user) return json({ message: 'Authentication required.' }, 401);
   if (!platform?.env?.DB) return json({ message: 'Local D1 is not configured.' }, 503);
 
-  /** @type {any} */
   let descriptor;
   try {
     descriptor = (await request.json())?.descriptor;
@@ -66,8 +64,7 @@ export async function POST({ locals, platform, request, url }) {
           opened = await createScheduledActiveReview({
             db,
             userId: locals.user.id,
-            systemId: descriptor.selectedScope.systemId,
-            routes: descriptor.selectedScope.routes,
+            runScope: descriptor.selectedScope,
             caseId: work.caseId,
             queueClass: work.queueClass,
             runBoundaryToken: descriptor.runBoundaryToken,
@@ -104,8 +101,7 @@ export async function POST({ locals, platform, request, url }) {
           opened = await createFreeActiveReview({
             db,
             userId: locals.user.id,
-            systemId: descriptor.selectedScope.systemId,
-            routes: descriptor.selectedScope.routes,
+            runScope: descriptor.selectedScope,
             caseId: selection.caseId,
             runId: descriptor.runId
           });
