@@ -92,25 +92,30 @@ test('learner and local-preview browser run storage are v2-only, separate, and r
   assert.doesNotMatch(learner, /flash-cards:fsrs-preview-run:v2/);
 });
 
-test('multi-System v2 cutover is mechanically fenced and production deployment has no migration bypass', () => {
+test('multi-System v2 first cutover is mechanically fenced and cannot bypass its migration', () => {
   const runtime = source('src/lib/server/learning/learner-study-runtime.js');
   const workflow = source('.github/workflows/deploy-production.yml');
   const gate = source('scripts/multi-system-v2-cutover-gate.mjs');
   const guard = source('scripts/multi-system-v2-guard-verify.mjs');
 
   assert.match(runtime, /LEARNER_RUNTIME_WRITE_FENCE/);
+  assert.match(workflow, /apply_migrations:/);
+  assert.match(workflow, /default:\s*false/);
+  assert.match(workflow, /multi-system-v2-guard-verify\.mjs --remote --inspect/);
   assert.match(workflow, /Install temporary learner write fence Worker/);
   assert.match(workflow, /Require exact zero Production learner runtime data/);
   assert.match(workflow, /Apply all pending production D1 migrations/);
+  assert.match(workflow, /steps\.cutover\.outputs\.required == 'true' \|\| inputs\.apply_migrations == true/);
   assert.match(workflow, /Verify v2 Active Review D1 guard/);
   assert.match(workflow, /Non-mutating verification while v2 Worker is fenced/);
   assert.match(workflow, /Reopen learner runtime with v2 Worker/);
-  assert.doesNotMatch(workflow, /apply_migrations/);
   assert.match(gate, /learner_fsrs_profiles/);
   assert.match(gate, /no pristine-profile exception/);
   assert.match(guard, /active_review_invalid_scope_v2/);
+  assert.match(guard, /inspection/);
 
   const order = [
+    'Detect whether the one-time v2 cutover is still required',
     'Install temporary learner write fence Worker',
     'Require exact zero Production learner runtime data',
     'Apply all pending production D1 migrations',
