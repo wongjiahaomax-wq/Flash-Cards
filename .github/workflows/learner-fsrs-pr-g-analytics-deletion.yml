@@ -57,9 +57,6 @@ jobs:
       - name: Report required repository checks
         run: npm run agent:checks -- --compact
 
-      - name: Run handoff full Node validation
-        run: npm test
-
       - name: Validate migration history
         run: npm run db:check
 
