@@ -66,10 +66,32 @@ test('clean-cutover gate is exact-zero, includes learner_fsrs_profiles, and excl
   assert.doesNotMatch(gate, /'learner_preferences'/);
 });
 
-test('Production workflow mechanically enforces the one-time fenced v2 cutover order', () => {
+test('Production cutover completion requires both the v2 guard and an open identified v2 runtime', () => {
+  const workflow = source('.github/workflows/deploy-production.yml');
+  const statusRoute = source('src/routes/api/runtime-cutover-status/+server.js');
+
+  assert.match(statusRoute, /learnerRuntimeCutoverVersion:\s*2/);
+  assert.match(statusRoute, /learnerRuntimeScopeVersion:\s*2/);
+  assert.match(statusRoute, /learnerRuntimeBuildSha/);
+  assert.match(statusRoute, /APP_BUILD_SHA/);
+
+  assert.match(workflow, /guard_status/);
+  assert.match(workflow, /runtime_status/);
+  assert.match(workflow, /\[ "\$guard_status" = "v2" \] && \[ "\$runtime_status" = "complete" \]/);
+  assert.match(workflow, /learnerRuntimeWriteFence === false/);
+  assert.match(workflow, /\^\[0-9a-f\]\{40\}\$/);
+  assert.match(workflow, /APP_BUILD_SHA:\$\{GITHUB_SHA\}/);
+  assert.match(workflow, /learnerRuntimeBuildSha!==expected/);
+  assert.match(workflow, /Unable to inspect the currently deployed Production runtime\. No cutover action was taken\./);
+});
+
+test('Production workflow mechanically enforces the retry-safe fenced v2 cutover order', () => {
   const workflow = source('.github/workflows/deploy-production.yml');
   assert.match(workflow, /apply_migrations:/);
   assertOrdered(workflow, [
+    'Run multi-System v2 migrated-D1 scope guard acceptance',
+    'Run multi-System v2 migrated-D1 lifecycle acceptance',
+    'Run multi-System v2 supported-envelope D1 trigger benchmark',
     'Detect whether the one-time v2 cutover is still required',
     'Install temporary learner write fence Worker',
     'Verify temporary write fence',
@@ -89,12 +111,42 @@ test('Production workflow mechanically enforces the one-time fenced v2 cutover o
   assert.match(
     migrationStep,
     /if: \$\{\{ steps\.cutover\.outputs\.required == 'true' \|\| inputs\.apply_migrations == true \}\}/,
-    'missing v2 guard must force migration even when the ordinary post-cutover input is false'
+    'an incomplete v2 cutover must force migration even when the ordinary post-cutover input is false'
   );
 
   assert.match(workflow, /LEARNER_RUNTIME_WRITE_FENCE:true/);
   assert.match(workflow, /multi-system:cutover-gate -- --remote/);
   assert.match(workflow, /multi-system:guard-verify -- --remote/);
+});
+
+test('migrated-D1 validation owns both full lifecycle acceptance and trigger-envelope timing', () => {
+  const pkg = JSON.parse(source('package.json'));
+  const lifecycle = source('scripts/multi-system-v2-lifecycle-d1-worker.js');
+  const workflow = source('.github/workflows/multi-system-runtime-v2.yml');
+
+  assert.equal(pkg.scripts['multi-system:d1-acceptance'], 'node scripts/multi-system-v2-d1-acceptance.mjs');
+  assert.equal(pkg.scripts['multi-system:d1-lifecycle-acceptance'], 'node scripts/multi-system-v2-lifecycle-d1.mjs --acceptance');
+  assert.equal(pkg.scripts['multi-system:d1-trigger-benchmark'], 'node scripts/multi-system-v2-lifecycle-d1.mjs --benchmark');
+  assert.equal(pkg.scripts['multi-system:benchmark'], 'node scripts/multi-system-v2-benchmark.mjs');
+  assert.equal(pkg.scripts['multi-system:cutover-gate'], 'node scripts/multi-system-v2-cutover-gate.mjs');
+  assert.equal(pkg.scripts['multi-system:guard-verify'], 'node scripts/multi-system-v2-guard-verify.mjs');
+
+  assert.match(lifecycle, /planScheduledMultiSystemStudyRun/);
+  assert.match(lifecycle, /createScheduledActiveReview/);
+  assert.match(lifecycle, /revealActiveReview/);
+  assert.match(lifecycle, /completeScheduledReview/);
+  assert.match(lifecycle, /learner_system_monthly_buckets/);
+  assert.match(lifecycle, /planFreeMultiSystemStudyRun/);
+  assert.match(lifecycle, /createFreeActiveReview/);
+  assert.match(lifecycle, /completeFreeReview/);
+  assert.match(lifecycle, /BENCHMARK_SYSTEMS = 64/);
+  assert.match(lifecycle, /BENCHMARK_ROUTES_PER_SYSTEM = 8/);
+  assert.match(lifecycle, /measureTriggerScope/);
+
+  assert.match(workflow, /multi-system:d1-lifecycle-acceptance/);
+  assert.match(workflow, /multi-system:d1-trigger-benchmark/);
+  assert.match(workflow, /group: \$\{\{ github\.workflow \}\}-pr-\$\{\{ github\.event\.pull_request\.number \}\}/);
+  assert.match(workflow, /cancel-in-progress: true/);
 });
 
 test('learner runtime write fence is shared by the normal Study access owner', () => {
@@ -109,12 +161,4 @@ test('learner runtime write fence is shared by the normal Study access owner', (
   for (const route of [chooser, open, completion, review]) {
     assert.match(route, /learnerStudyAccessError/);
   }
-});
-
-test('focused acceptance and benchmark commands are repository-owned', () => {
-  const pkg = JSON.parse(source('package.json'));
-  assert.equal(pkg.scripts['multi-system:d1-acceptance'], 'node scripts/multi-system-v2-d1-acceptance.mjs');
-  assert.equal(pkg.scripts['multi-system:benchmark'], 'node scripts/multi-system-v2-benchmark.mjs');
-  assert.equal(pkg.scripts['multi-system:cutover-gate'], 'node scripts/multi-system-v2-cutover-gate.mjs');
-  assert.equal(pkg.scripts['multi-system:guard-verify'], 'node scripts/multi-system-v2-guard-verify.mjs');
 });
