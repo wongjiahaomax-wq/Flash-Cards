@@ -152,14 +152,11 @@ async function readActiveReviewSnapshot(db, userId, reviewId) {
 }
 
 export async function getActiveReview(db, userId) {
-  const normalizedUserId = requiredString(userId, 'Learner');
-  return readActiveReviewSnapshot(db, normalizedUserId, null);
+  return readActiveReviewSnapshot(db, requiredString(userId, 'Learner'), null);
 }
 
 export async function getActiveReviewById(db, userId, reviewId) {
-  const normalizedUserId = requiredString(userId, 'Learner');
-  const normalizedReviewId = requiredString(reviewId, 'Active Review');
-  return readActiveReviewSnapshot(db, normalizedUserId, normalizedReviewId);
+  return readActiveReviewSnapshot(db, requiredString(userId, 'Learner'), requiredString(reviewId, 'Active Review'));
 }
 
 function mappedCreateError(cause) {
@@ -185,36 +182,22 @@ function mappedCreateError(cause) {
 
 function dbInsertActiveReview(parent, client) {
   return client.prepare(INSERT_ACTIVE_REVIEW_SQL).bind(
-    parent.id,
-    parent.userId,
-    parent.caseId,
-    parent.systemId,
-    parent.studyMode,
-    parent.contentMode,
-    parent.queueClass ?? null,
-    parent.runId,
-    parent.scopeFingerprint,
-    parent.scopeJson,
-    parent.generation ?? null,
-    parent.reviewSequenceEpoch ?? null,
-    parent.parameterRevision ?? null,
-    parent.schedulerRevision ?? null,
-    parent.schedulerLibraryVersion ?? null,
-    parent.expectedStateRevision ?? null,
-    timestampMs(parent.expectedDueAt),
-    timestampMs(parent.runStartedAt),
-    parent.caseTitleSnapshot,
-    parent.vignetteSnapshotMd ?? null,
+    parent.id, parent.userId, parent.caseId, parent.systemId, parent.studyMode, parent.contentMode,
+    parent.queueClass ?? null, parent.runId, parent.scopeFingerprint, parent.scopeJson,
+    parent.generation ?? null, parent.reviewSequenceEpoch ?? null, parent.parameterRevision ?? null,
+    parent.schedulerRevision ?? null, parent.schedulerLibraryVersion ?? null,
+    parent.expectedStateRevision ?? null, timestampMs(parent.expectedDueAt), timestampMs(parent.runStartedAt),
+    parent.caseTitleSnapshot, parent.vignetteSnapshotMd ?? null,
     parent.snapshotVersion ?? ACTIVE_REVIEW_SNAPSHOT_VERSION
   );
 }
 
 function dbDeleteExpired(client, userId) {
   return client.prepare(`
-      DELETE FROM active_reviews
-      WHERE user_id = ?
-        AND expires_at <= cast((julianday('now') - 2440587.5) * 86400000 as integer)
-    `).bind(userId);
+    DELETE FROM active_reviews
+    WHERE user_id = ?
+      AND expires_at <= cast((julianday('now') - 2440587.5) * 86400000 as integer)
+  `).bind(userId);
 }
 
 async function persistActiveReview(input) {
@@ -226,12 +209,8 @@ async function persistActiveReview(input) {
     throw new Error('Active Review creation requires a Cloudflare D1 client with atomic batch support.');
   }
   const writes = [dbDeleteExpired(client, input.userId), dbInsertActiveReview(input.parent, client)];
-  if (questionRows.length > 0) {
-    writes.push(client.prepare(INSERT_ACTIVE_REVIEW_QUESTIONS_JSON_SQL).bind(JSON.stringify(questionRows)));
-  }
-  if (assetRows.length > 0) {
-    writes.push(client.prepare(INSERT_ACTIVE_REVIEW_ASSETS_JSON_SQL).bind(JSON.stringify(assetRows)));
-  }
+  if (questionRows.length > 0) writes.push(client.prepare(INSERT_ACTIVE_REVIEW_QUESTIONS_JSON_SQL).bind(JSON.stringify(questionRows)));
+  if (assetRows.length > 0) writes.push(client.prepare(INSERT_ACTIVE_REVIEW_ASSETS_JSON_SQL).bind(JSON.stringify(assetRows)));
   try {
     await client.batch(writes);
   } catch (cause) {
@@ -256,19 +235,24 @@ function selectedCandidate(selection, caseId) {
   return candidate;
 }
 
-async function resolveV2Selection(db, runScope) {
-  if (!runScope || !Array.isArray(runScope.systems)) {
-    throw new ActiveReviewError('invalid-input', 'A canonical v2 study run scope is required.');
+function canonicalInputRunScope(input) {
+  if (input.runScope?.systems?.length) return input.runScope;
+  // Repository-internal single-System callers are retained as v2 wrappers for
+  // existing smoke/benchmark coverage. Browser v1 descriptors and persisted v1
+  // scope are still rejected and retired.
+  if (input.systemId && Array.isArray(input.routes) && input.routes.length > 0) {
+    return { systems: [{ systemId: input.systemId, mode: 'routes', routes: input.routes }] };
   }
+  throw new ActiveReviewError('invalid-input', 'A canonical v2 study run scope is required.');
+}
+
+async function resolveV2Selection(db, input) {
+  const runScope = canonicalInputRunScope(input);
   return resolveMultiSystemStudySelection(db, { systems: runScope.systems });
 }
 
 function persistedScope(runScope, attributionSystemId) {
-  return {
-    version: 2,
-    systemId: attributionSystemId,
-    runScope
-  };
+  return { version: 2, systemId: attributionSystemId, runScope };
 }
 
 export async function createScheduledActiveReview(input) {
@@ -280,24 +264,17 @@ export async function createScheduledActiveReview(input) {
   const existing = await getActiveReview(input.db, userId);
   if (existing) return { status: 'resume', review: existing };
 
-  const selection = await resolveV2Selection(input.db, input.runScope);
+  const selection = await resolveV2Selection(input.db, input);
   const candidate = selectedCandidate(selection, caseId);
   const scopeFingerprint = await fingerprintStudyScope(selection.runScope);
   const membership = input.queueClass === 'repeat'
     ? await verifyScheduledRepeatOriginProof({
-      secret: input.proofSecret,
-      userId,
-      runToken: input.runBoundaryToken,
-      repeatToken: input.workProof,
-      caseId
+      secret: input.proofSecret, userId, runToken: input.runBoundaryToken,
+      repeatToken: input.workProof, caseId
     })
     : await verifyCapturedMembership({
-      secret: input.proofSecret,
-      userId,
-      runToken: input.runBoundaryToken,
-      membershipToken: input.workProof,
-      queueClass: input.queueClass,
-      caseId
+      secret: input.proofSecret, userId, runToken: input.runBoundaryToken,
+      membershipToken: input.workProof, queueClass: input.queueClass, caseId
     });
   const boundary = membership.boundary;
   if (boundary.scopeFingerprint !== scopeFingerprint) {
@@ -341,11 +318,7 @@ export async function createScheduledActiveReview(input) {
   const preferences = await ensureLearnerPreferences(input.db, userId);
   const contentMode = contentModeForPreferences(preferences);
   const snapshot = await buildActiveReviewSnapshot({
-    db: input.db,
-    caseId,
-    studyConceptId: candidate.studyConceptId,
-    contentMode,
-    rng: input.rng
+    db: input.db, caseId, studyConceptId: candidate.studyConceptId, contentMode, rng: input.rng
   });
   const reviewId = globalThis.crypto.randomUUID();
   const scope = persistedScope(selection.runScope, candidate.attributionSystemId);
@@ -353,27 +326,15 @@ export async function createScheduledActiveReview(input) {
     db: input.db,
     userId,
     parent: {
-      id: reviewId,
-      userId,
-      caseId,
-      systemId: candidate.attributionSystemId,
-      studyMode: 'scheduled',
-      contentMode,
-      queueClass: input.queueClass,
-      runId: boundary.runId,
-      scopeFingerprint,
-      scopeJson: JSON.stringify(scope),
-      generation: boundary.generation,
-      reviewSequenceEpoch: boundary.reviewSequenceEpoch,
-      parameterRevision: boundary.parameterRevision,
-      schedulerRevision: boundary.schedulerRevision,
-      schedulerLibraryVersion: boundary.schedulerLibraryVersion,
-      expectedStateRevision,
+      id: reviewId, userId, caseId, systemId: candidate.attributionSystemId,
+      studyMode: 'scheduled', contentMode, queueClass: input.queueClass,
+      runId: boundary.runId, scopeFingerprint, scopeJson: JSON.stringify(scope),
+      generation: boundary.generation, reviewSequenceEpoch: boundary.reviewSequenceEpoch,
+      parameterRevision: boundary.parameterRevision, schedulerRevision: boundary.schedulerRevision,
+      schedulerLibraryVersion: boundary.schedulerLibraryVersion, expectedStateRevision,
       expectedDueAt: expectedDueAt == null ? null : new Date(expectedDueAt),
-      runStartedAt: new Date(boundary.runStartedAt),
-      caseTitleSnapshot: snapshot.case.title,
-      vignetteSnapshotMd: snapshot.case.vignetteMd,
-      snapshotVersion: ACTIVE_REVIEW_SNAPSHOT_VERSION
+      runStartedAt: new Date(boundary.runStartedAt), caseTitleSnapshot: snapshot.case.title,
+      vignetteSnapshotMd: snapshot.case.vignetteMd, snapshotVersion: ACTIVE_REVIEW_SNAPSHOT_VERSION
     },
     snapshot
   });
@@ -385,7 +346,7 @@ export async function createFreeActiveReview(input) {
   const existing = await getActiveReview(input.db, userId);
   if (existing) return { status: 'resume', review: existing };
 
-  const selection = await resolveV2Selection(input.db, input.runScope);
+  const selection = await resolveV2Selection(input.db, input);
   const candidate = selectedCandidate(selection, caseId);
   const [scopeFingerprint, preferences] = await Promise.all([
     fingerprintStudyScope(selection.runScope),
@@ -393,11 +354,7 @@ export async function createFreeActiveReview(input) {
   ]);
   const contentMode = contentModeForPreferences(preferences);
   const snapshot = await buildActiveReviewSnapshot({
-    db: input.db,
-    caseId,
-    studyConceptId: candidate.studyConceptId,
-    contentMode,
-    rng: input.rng
+    db: input.db, caseId, studyConceptId: candidate.studyConceptId, contentMode, rng: input.rng
   });
   const reviewId = globalThis.crypto.randomUUID();
   const scope = persistedScope(selection.runScope, candidate.attributionSystemId);
@@ -405,26 +362,13 @@ export async function createFreeActiveReview(input) {
     db: input.db,
     userId,
     parent: {
-      id: reviewId,
-      userId,
-      caseId,
-      systemId: candidate.attributionSystemId,
-      studyMode: 'free',
-      contentMode,
-      queueClass: null,
-      runId: input.runId ?? globalThis.crypto.randomUUID(),
-      scopeFingerprint,
-      scopeJson: JSON.stringify(scope),
-      generation: null,
-      reviewSequenceEpoch: null,
-      parameterRevision: null,
-      schedulerRevision: null,
-      schedulerLibraryVersion: null,
-      expectedStateRevision: null,
-      expectedDueAt: null,
-      runStartedAt: null,
-      caseTitleSnapshot: snapshot.case.title,
-      vignetteSnapshotMd: snapshot.case.vignetteMd,
+      id: reviewId, userId, caseId, systemId: candidate.attributionSystemId,
+      studyMode: 'free', contentMode, queueClass: null,
+      runId: input.runId ?? globalThis.crypto.randomUUID(), scopeFingerprint,
+      scopeJson: JSON.stringify(scope), generation: null, reviewSequenceEpoch: null,
+      parameterRevision: null, schedulerRevision: null, schedulerLibraryVersion: null,
+      expectedStateRevision: null, expectedDueAt: null, runStartedAt: null,
+      caseTitleSnapshot: snapshot.case.title, vignetteSnapshotMd: snapshot.case.vignetteMd,
       snapshotVersion: ACTIVE_REVIEW_SNAPSHOT_VERSION
     },
     snapshot
@@ -435,10 +379,8 @@ export async function revealActiveReview(input) {
   const userId = requiredString(input.userId, 'Learner');
   const reviewId = requiredString(input.reviewId, 'Active Review');
   await input.db.update(activeReviews).set({ revealedAt: DATABASE_NOW_MS }).where(and(
-    eq(activeReviews.userId, userId),
-    eq(activeReviews.id, reviewId),
-    isNull(activeReviews.revealedAt),
-    sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`
+    eq(activeReviews.userId, userId), eq(activeReviews.id, reviewId),
+    isNull(activeReviews.revealedAt), sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`
   ));
   return getActiveReviewById(input.db, userId, reviewId);
 }
