@@ -95,6 +95,11 @@ async function verifyPayload(token, secret) {
  * @typedef {{systems:readonly V2SystemScope[]}} V2RunScope
  */
 
+/** @param {V2StudyRoute} route */
+function fingerprintRoute(route) {
+  return [route.routeType, route.routeId];
+}
+
 /**
  * Fingerprint the complete already-normalized canonical v2 runScope.
  * @param {V2RunScope} scope
@@ -107,7 +112,7 @@ export async function fingerprintStudyScope(scope) {
     v: STUDY_RUN_PROOF_VERSION,
     systems: scope.systems.map((system) => system.mode === 'all'
       ? [system.systemId, 'all']
-      : [system.systemId, 'routes', system.routes.map((route) => [route.routeType, route.routeId])])
+      : [system.systemId, 'routes', system.routes.map(fingerprintRoute)])
   }));
 }
 
