@@ -46,6 +46,7 @@ export function getLearnerStudyPreviewHref(url, env) {
  * structure and ownership before any active-Review lookup or open mutation.
  * @param {unknown} descriptor
  * @param {string} userId
+ * @returns {{ok:true,descriptor:import('../../fsrs-preview-run-storage.js').FsrsPreviewRunDescriptor}|{ok:false,status:number,message:string}}
  */
 export function validateLocalFsrsPreviewRunOwner(descriptor, userId) {
   if (!isFsrsPreviewRunDescriptor(descriptor)) {
