@@ -89,13 +89,16 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
         run: |
           set -euo pipefail
-          if node scripts/multi-system-v2-guard-verify.mjs --remote >/tmp/v2-guard.txt 2>&1; then
+          # --inspect exits successfully only after Wrangler successfully reads D1.
+          # Missing/legacy guard is then data, not an operational read failure.
+          status_json="$(node scripts/multi-system-v2-guard-verify.mjs --remote --inspect)"
+          guard_status="$(node -e 'const value=JSON.parse(process.argv[1]); const status=value?.inspection?.status; if(!["v2","legacy","missing"].includes(status)) process.exit(1); process.stdout.write(status);' "$status_json")"
+          if [ "$guard_status" = "v2" ]; then
             echo "required=false" >> "$GITHUB_OUTPUT"
             echo "Existing Production D1 already has the v2 Active Review guard."
           else
             echo "required=true" >> "$GITHUB_OUTPUT"
-            echo "Production D1 does not yet have the v2 guard; the fenced zero-data cutover and migration are mandatory."
-            cat /tmp/v2-guard.txt
+            echo "Production D1 guard status is ${guard_status}; the fenced zero-data cutover and migration are mandatory."
           fi
 
       - name: Require D1 write credential when migration is required
