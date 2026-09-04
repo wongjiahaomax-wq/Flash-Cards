@@ -12,7 +12,12 @@ on:
       - 'test/learner-fsrs-run-envelope.test.js'
       - 'test/learner-fsrs-run-planner.test.js'
       - 'tools/learner-fsrs-browser-benchmark/benchmark.spec.mjs'
+      - 'tools/learner-fsrs-browser-benchmark/package.json'
       - '.github/workflows/learner-fsrs-browser-benchmark.yml'
+
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -20,6 +25,9 @@ permissions:
 jobs:
   browser-benchmark:
     runs-on: ubuntu-latest
+    container:
+      image: mcr.microsoft.com/playwright:v1.55.0-noble
+      options: --user 1001
     timeout-minutes: 10
     steps:
       - name: Check out repository
@@ -35,11 +43,8 @@ jobs:
       - name: Install repository dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
-      - name: Install ephemeral pinned Playwright runner
-        run: npm install --no-save --package-lock=false @playwright/test@1.55.0
-
-      - name: Install Chromium
-        run: npx playwright install --with-deps chromium
+      - name: Install isolated pinned Playwright runner
+        run: npm install --prefix tools/learner-fsrs-browser-benchmark --no-save --package-lock=false --prefer-offline --no-audit --no-fund @playwright/test@1.55.0
 
       - name: Run real-browser localStorage benchmark
-        run: npx playwright test tools/learner-fsrs-browser-benchmark/benchmark.spec.mjs --reporter=line --workers=1
+        run: tools/learner-fsrs-browser-benchmark/node_modules/.bin/playwright test tools/learner-fsrs-browser-benchmark/benchmark.spec.mjs --reporter=line --workers=1

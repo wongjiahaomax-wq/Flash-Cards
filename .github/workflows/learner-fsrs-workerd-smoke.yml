@@ -10,6 +10,10 @@ on:
       - 'scripts/learner-fsrs-workerd-smoke.mjs'
       - '.github/workflows/learner-fsrs-workerd-smoke.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
