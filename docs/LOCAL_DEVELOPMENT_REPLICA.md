@@ -95,7 +95,7 @@ npm run local:admin
 npm run dev
 ```
 
-`local:setup` prepares/refreshed local content/state according to the current replica tooling. `local:admin` bootstraps the local administrator required for local testing.
+`local:setup` prepares or refreshes local content/state according to the current replica tooling. `local:admin` bootstraps the local administrator required for local testing.
 
 Exact credential/configuration prerequisites remain in the implementation/runbook comments and environment examples; never commit real values.
 
@@ -163,10 +163,9 @@ Use the normal repository flow:
 npm run agent:doctor
 npm run agent:checks -- --compact
 npm run validate:fast -- --compact
-npm run validate:full -- --compact
 ```
 
-Run only the checks required for the current risk during iteration, then all final required/specialized checks before handoff.
+Run `npm run validate:full -- --compact` and any specialized commands when `agent:checks` requires them for final handoff. Run only the checks required for the current risk during iteration, then all final required/specialized checks before handoff.
 
 Local replica success is not Production deployment evidence.
 
