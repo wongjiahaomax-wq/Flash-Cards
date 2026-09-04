@@ -129,11 +129,14 @@ For work already created remotely or by another agent:
 git fetch origin
 git switch <branch>
 git pull --ff-only origin <branch>
+npm run deps:ensure
 ```
 
-Run `npm ci` after dependency/lockfile changes or when the local install is not known to match the branch. The committed lockfile is authoritative; do not use `npm install` in CI as an implicit lockfile repair step.
+Use `npm run deps:ensure` as the normal dependency-preparation command after switching or syncing branches. It reuses the existing `node_modules` only when its `package.json`, `package-lock.json`, Node ABI, platform and architecture fingerprint still matches; otherwise it performs the repository's clean `npm ci` refresh and records the new fingerprint. The committed lockfile remains authoritative; do not use `npm install` as an implicit lockfile repair step.
 
-On Windows, if a repository Vite/Wrangler server may still be running and holding native Node modules open, run `npm run local:stop` before `npm ci`. The command is repository-scoped and must be preferred over broad `node.exe` termination.
+Use `npm run deps:ensure -- --force` when the installation is known to be damaged or drifted, or when `agent:doctor` reports dependency/Wrangler mismatch and a clean refresh is required.
+
+On Windows, if a repository Vite/Wrangler server may still be running and holding native Node modules open, run `npm run local:stop` before a forced or fingerprint-required clean refresh. The command is repository-scoped and must be preferred over broad `node.exe` termination.
 
 ### 2. Use the local replica only when realistic production-derived content is useful
 
@@ -447,7 +450,6 @@ local execution surface
 → implementation when appropriate
 → focused testing
 → repository validation
-
 GitHub
 → branch collaboration
 → PR

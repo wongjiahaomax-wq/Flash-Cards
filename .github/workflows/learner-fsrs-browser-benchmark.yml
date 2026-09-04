@@ -30,9 +30,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install repository dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       - name: Install ephemeral pinned Playwright runner
         run: npm install --no-save --package-lock=false @playwright/test@1.55.0
