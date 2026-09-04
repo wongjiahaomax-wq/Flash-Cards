@@ -29,7 +29,7 @@ Root `AGENTS.md` and `docs/AGENT_TASK_MAP.md` own coding-agent routing/safety. T
 
 ## Production release boundary
 
-This file does **not** authorize or duplicate Production deployment/migration commands. `docs/CLOUDFLARE.md` is the Production release authority.
+This file does **not** authorize or duplicate Production deployment/migration commands. `docs/CLOUDFLFLARE.md` is the Production release authority.
 
 Development/validation state is separate from:
 
@@ -158,13 +158,80 @@ Prefer the smallest sufficient GitHub surface:
 
 Reuse information already retrieved. Do not repeatedly load unchanged large files/diffs merely for completeness.
 
-### Write discipline
+### Remote GitHub write discipline
 
-Think through a coherent multi-file change before mutation. Prefer one coherent commit/tree update where supported rather than a sequence of partially valid intermediate states.
+Separate planning from branch mutation. For a coherent Remote GitHub implementation, prefer this sequence:
 
-After writing, review the resulting complete diff and CI. A correction delta does not substitute for final full-diff review.
+```text
+inspect enough context
+→ form the coherent implementation
+→ self-review the intended changes
+→ mutate the branch coherently
+→ inspect the resulting complete diff
+→ inspect CI
+```
 
-GitHub CI evidence is not the same as local command evidence. Report the distinction.
+Do not use sequential repository writes as a substitute for thinking through the complete change. Do not use GitHub Actions as an iterative debugger for intermediate partially implemented branch states when those states can reasonably be avoided.
+
+Keep simple writes simple. A single-file change may use the integration's ordinary file-update capability, and a trivial metadata-only PR change does not need low-level Git-data construction. Use the multi-file path only when it materially reduces sequential repository mutations or avoidable intermediate branch states.
+
+When one logical implementation spans multiple files and the active integration exposes the required Git-data capabilities, prefer one coherent Git commit constructed from the exact current feature-branch head:
+
+```text
+establish the exact feature-branch head
+→ create changed-file blobs
+→ create one tree based on that exact head's tree
+→ create one commit using that exact head as the intended parent
+→ move the feature branch once with a normal fast-forward update
+```
+
+The objective is one coherent implementation batch → one branch update → one normal PR synchronize/CI cycle, rather than one branch update and CI event per changed file. This is a write-efficiency preference, not a rule that every task must have exactly one commit. Multiple commits remain appropriate when they represent genuinely separate logical changes that improve reviewability.
+
+Exact-head safety is mandatory. Establish the feature-branch head immediately before constructing the commit, use that exact head as the intended parent/base, and move the branch only with a normal fast-forward update. Never force-update the feature branch merely to make a batched write succeed. If the branch moved concurrently, stop using the stale parent, inspect the new state, and reconcile normally before constructing another commit. When the task explicitly targets an existing PR or branch, preserve that existing work state and its intended base instead of rebuilding the work from `main`.
+
+After the branch update, inspect the current PR/head state, inspect the complete intended base → current head change, verify that every intended file landed correctly, and apply the existing final-review and validation requirements normally. An atomic write is not evidence that the implementation is correct, and it does not replace GitHub CI/check inspection.
+
+This runbook owns the detailed Remote GitHub write procedure. Keep root agent guidance and task-routing documentation at the concise policy/routing level rather than duplicating these Git-data steps into another competing execution workflow.
+
+GitHub API/integration access has a higher round-trip cost than a local filesystem. Inspect sufficient context before editing, avoid repeatedly fetching the same files unnecessarily, form the implementation before speculative writes, batch related changes where practical, and use logical commits rather than one commit per file. Multiple logical commits are appropriate when they genuinely improve reviewability.
+
+Before the principal implementation handoff/push, inspect the complete proposed change against:
+
+- task goal;
+- behavioral invariants;
+- acceptance criteria;
+- accidental scope expansion;
+- unrelated cleanup;
+- stale references/imports;
+- missing tests;
+- inappropriate tests;
+- unintended behavioral changes;
+- documentation made inaccurate by the implementation.
+
+For refactor-only work, explicitly confirm that behavior was preserved.
+
+Do not use GitHub Actions as the first debugger for a stream of small speculative changes. Prefer:
+
+```text
+inspect
+→ reason
+→ coherent implementation
+→ self-review
+→ push
+→ inspect CI
+```
+
+If CI reveals a genuine issue, diagnose and fix it normally.
+
+### Validation evidence in remote mode
+
+Never claim that a command ran when it did not. Keep executed validation, inspection, and GitHub CI/check evidence distinct.
+
+When local commands cannot run, report the GitHub checks actually observed and explicitly state any required validation that could not be verified. A successful GitHub check is CI evidence; it is not evidence that the agent personally ran the corresponding local command.
+
+### Draft PR as durable handoff
+
+For remote work, the Draft PR is the durable handoff artifact. It should preserve enough branch/diff/CI context for a later session without requiring the original chat.
 
 ## Hybrid mode
 
