@@ -97,6 +97,7 @@ test('PR G heavy acceptance routing excludes non-behavior changes and retains ma
   for (const materialPath of [
     'drizzle/0025_learner_fsrs_admin_analytics_deletion.sql',
     'src/hooks.server.js',
+    'src/lib/server/db/index.js',
     'src/lib/server/db/learner-account-deletion.ts',
     'src/routes/admin/learner-analytics/+page.server.js',
   ]) {
@@ -104,7 +105,7 @@ test('PR G heavy acceptance routing excludes non-behavior changes and retains ma
   }
 });
 
-test('FSRS authority docs retain cheap ordinary Draft source-contract coverage', () => {
+test('FSRS authority docs retain cheap ordinary Draft validation while PR G regressions stay in the fast suite', () => {
   const authorityDoc = 'docs/LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md';
   const plan = ciValidationPlan({ mode: 'fast', changedFiles: [authorityDoc] });
 
@@ -120,6 +121,7 @@ test('PR G workflow keeps unique specialized acceptance commands without duplica
   const ordinaryCi = source('.github/workflows/ci.yml');
 
   for (const required of [
+    'npm run db:check',
     'npm run fsrs:account-deletion-benchmark',
     'npm run fsrs:account-deletion-d1-smoke',
     'npm run fsrs:pr-g-acceptance-d1',
