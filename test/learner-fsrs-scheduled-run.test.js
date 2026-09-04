@@ -11,7 +11,7 @@ import {
 
 function descriptor(overrides = {}) {
   return {
-    version: 1,
+    version: 2,
     kind: 'scheduled',
     scheduledOrder: 'due_first',
     capturedDue: [
@@ -25,6 +25,7 @@ function descriptor(overrides = {}) {
     ],
     newPosition: 0,
     membershipProofs: {
+      version: 2,
       due: ['due-proof'],
       new: ['new-proof']
     },
