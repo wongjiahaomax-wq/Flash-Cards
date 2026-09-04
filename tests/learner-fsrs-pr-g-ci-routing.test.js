@@ -86,12 +86,13 @@ function workflowSelectsPath(patterns, path) {
   return patterns.some((pattern) => githubPathMatches(pattern, path));
 }
 
-test('PR G heavy acceptance routing excludes authority-doc-only changes and retains material runtime/schema paths', () => {
+test('PR G heavy acceptance routing excludes non-behavior changes and retains material runtime/schema paths', () => {
   const paths = pullRequestPaths(source(PR_G_WORKFLOW));
 
   for (const document of PR_G_AUTHORITY_DOCS) {
     assert.equal(workflowSelectsPath(paths, document), false, document);
   }
+  assert.equal(workflowSelectsPath(paths, 'src/routes/admin/+layout.svelte'), false);
 
   for (const materialPath of [
     'drizzle/0025_learner_fsrs_admin_analytics_deletion.sql',
@@ -127,9 +128,7 @@ test('PR G workflow keeps unique specialized acceptance commands without duplica
     assert.equal(workflow.includes(required), true, required);
   }
 
-  for (const ordinaryRegression of PR_G_REGRESSION_TESTS) {
-    assert.equal(workflow.includes(`node --test ${ordinaryRegression}`), false, ordinaryRegression);
-  }
+  assert.doesNotMatch(workflow, /node --test .*learner-fsrs-pr-g/);
   assert.equal(workflow.includes('npm run validate:full'), false);
   assert.match(ordinaryCi, /VALIDATION_MODE: \$\{\{ github\.event\.pull_request\.draft && 'fast' \|\| 'full' \}\}/);
   assert.match(ordinaryCi, /node scripts\/validate-ci\.mjs --mode/);
