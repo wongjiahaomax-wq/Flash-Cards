@@ -17,17 +17,17 @@ Use this order when sources disagree:
 
 ## Reconciliation baseline
 
-This reconciliation was prepared from `main` at `602b2ab` after merged PR #142. Use Git/GitHub for the exact current head after this documentation PR changes the branch.
+This reconciliation includes the repository implementation on Draft PR #147 for the Multi-System Runtime v2 foundation. Use Git/GitHub for the exact current head after later branch changes.
 
-The implemented repository migration boundary is:
+The implemented repository migration boundary on this branch is:
 
 ```text
-0025_learner_fsrs_admin_analytics_deletion.sql
+0026_multi_system_active_review_scope_v2.sql
 ```
 
-`V1_DATA_MODEL.md` and the committed migration tree own the exact ledger.
+`V1_DATA_MODEL.md`, `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md`, and the committed migration tree own the exact current ledger/contract. A committed migration is not evidence that Production D1 has applied it.
 
-Merged repository work represented by the living docs includes PR #137 (learner FSRS runtime cutover), PR #139 / PR F (Reset/Fresh, retention, learner Progress), PR #141 / PR G (Admin analytics and mature-account deletion readiness), and PR #142 (dependency-install speedups).
+Merged repository work represented by the living docs includes PR #137 (learner FSRS runtime cutover), PR #139 / PR F (Reset/Fresh, retention, learner Progress), PR #141 / PR G (Admin analytics and mature-account deletion readiness), and PR #142 (dependency-install speedups). Draft PR #147 is repository implementation only until separately reviewed/merged/deployed.
 
 Repository merge state is not Production deployment evidence.
 
@@ -38,6 +38,7 @@ The GitHub repository is public. The application remains closed-enrollment/priva
 - `CURRENT_PRODUCT_ROADMAP.md` — shortest status/priorities map.
 - `V1_DATA_MODEL.md` — primary implemented data-model/schema authority.
 - `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` — current learner-runtime implementation companion.
+- `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` — current branch implementation/cutover evidence for descriptor/proof v2, migration `0026`, exact-zero gate, write fence, focused acceptance, and UX deferrals.
 - `CURRENT_DESIGN.md` — concise current product/design mental model.
 - `V1_SPEC.md` — concise current V1 repository behavior.
 - `AUTHORING_MODEL.md` — administrator mental model.
@@ -70,12 +71,13 @@ Product/design chain:
 
 - `LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md` — locked product authority;
 - `LEARNER_FSRS_RUN_SIZE_PRODUCT_AMENDMENT.md` — 5/10/20/All and continuous-run amendment;
-- `MULTI_SYSTEM_STUDY_PLAN.md` — proposed future-intent plan for mixed multi-System study, including a fenced zero-data v2 cutover, mandatory v2 Active Review migration, active-primary-Topic eligibility preservation, and non-mutating fenced Production verification; split into `Multi-System Runtime` and `Multi-System UX`; not current implemented behavior;
+- `MULTI_SYSTEM_STUDY_PLAN.md` — design authority for mixed multi-System study, including the fenced zero-data v2 cutover, mandatory v2 Active Review migration, active-primary-Topic eligibility preservation, and non-mutating fenced Production verification; split into `Multi-System Runtime` and `Multi-System UX`;
+- `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` — executable-implementation companion for the Runtime tranche on PR #147; the learner multi-select chooser remains deferred to Multi-System UX;
 - `LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md` — technical design/history;
 - `LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md` — readiness/safety requirements;
 - `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md` — focused tranche ownership where older assignments conflict.
 
-Current-state facts come from current code, `V1_DATA_MODEL.md`, and `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`.
+Current-state facts come from current code, committed migrations, `V1_DATA_MODEL.md`, `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`, and the Runtime v2 implementation companion. Production deployment state must still be established separately.
 
 `LEARNER_FSRS_PR_A_EVIDENCE.md` through `LEARNER_FSRS_PR_G_EVIDENCE.md` are implementation evidence records, not living status documents. PR #141 / PR G is merged; branch-era wording inside older evidence revisions is historical context.
 
@@ -122,7 +124,7 @@ Executable validators/schemas outrank old extraction-prompt examples. Import Pac
 
 - `PREVIEW_ADMIN_WORKSPACE.md` — retained Preview Admin ownership/safety model.
 - `PREVIEW_DEPLOYMENT.md` — optional remote Preview deployment workflow.
-- `CLOUDFLARE.md` — Production release/migration runbook.
+- `CLOUDFLARE.md` — Production release/migration runbook; for the first Runtime v2 release it must follow the mechanically fenced migration path in `.github/workflows/deploy-production.yml` rather than any historical optional-migration command.
 - `DEVELOPMENT_EXECUTION_WORKFLOW.md` — Local / Remote GitHub / Hybrid workflow.
 - `LOCAL_DEVELOPMENT_REPLICA.md` — local production-content replica.
 - `R2_COST_GUARDRAILS.md` and `IMAGE_PROVENANCE.md` — media/storage safety.
