@@ -3,7 +3,7 @@ name: Multi-System Runtime v2
 on:
   pull_request:
     paths:
-      - 'drizzle/0026_multi_system_active_review_scope_v2.sql'
+      - 'drizzle/**'
       - 'src/lib/free-study-run.js'
       - 'src/lib/scheduled-study-run.js'
       - 'src/lib/learner-study-run-storage.js'
@@ -12,6 +12,9 @@ on:
       - 'src/lib/server/db/study-navigation.ts'
       - 'src/lib/server/db/study-run-planning.js'
       - 'src/lib/server/learning/multi-system-study-scope.ts'
+      - 'src/lib/server/learning/system-study-routes.ts'
+      - 'src/lib/server/learning/taxonomy-graph.ts'
+      - 'src/lib/server/learning/study-routes.js'
       - 'src/lib/server/learning/study-run-envelope.js'
       - 'src/lib/server/learning/study-run-planner.js'
       - 'src/lib/server/learning/study-run-proof.js'
