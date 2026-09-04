@@ -1,0 +1,93 @@
+name: Learner FSRS PR G analytics and deletion
+
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'package-lock.json'
+      - 'wrangler.jsonc'
+      - 'drizzle/0025_learner_fsrs_admin_analytics_deletion.sql'
+      - 'drizzle.config.js'
+      - 'scripts/local-replica-lib.mjs'
+      - 'scripts/learner-fsrs-account-deletion-benchmark.mjs'
+      - 'scripts/learner-fsrs-account-deletion-d1-smoke.mjs'
+      - 'scripts/learner-fsrs-account-deletion-d1-smoke-worker.js'
+      - 'scripts/learner-fsrs-pr-g-acceptance-d1.mjs'
+      - 'scripts/learner-fsrs-pr-g-acceptance-d1-worker.js'
+      - 'src/lib/server/auth.js'
+      - 'src/lib/server/auth-config.js'
+      - 'src/lib/server/db/fsrs-admin-analytics.ts'
+      - 'src/lib/server/db/fsrs-analytics-schema.js'
+      - 'src/lib/server/db/fsrs-system-provenance.ts'
+      - 'src/lib/server/db/learner-account-deletion.ts'
+      - 'src/routes/admin/+layout.svelte'
+      - 'src/routes/admin/learner-analytics/**'
+      - 'test/learner-fsrs-pr-g.test.js'
+      - 'test/learner-fsrs-pr-g-source-contract.test.js'
+      - 'test/learner-fsrs-pr-g-verification-guard.test.js'
+      - 'docs/DOCUMENTATION_INDEX.md'
+      - 'docs/V1_DATA_MODEL.md'
+      - 'docs/LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md'
+      - 'docs/LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md'
+      - 'docs/LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md'
+      - 'docs/LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md'
+      - 'docs/LEARNER_FSRS_PR_G_EVIDENCE.md'
+      - '.github/workflows/learner-fsrs-pr-g-analytics-deletion.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  analytics-and-deletion:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository with validation base
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install repository dependencies
+        run: npm ci
+
+      - name: Report required repository checks
+        run: npm run agent:checks -- --compact
+
+      - name: Validate migration history
+        run: npm run db:check
+
+      - name: Run PR G unit, integration, verification-race, and source-contract regressions
+        run: node --test test/learner-fsrs-pr-g.test.js test/learner-fsrs-pr-g-verification-guard.test.js test/learner-fsrs-pr-g-source-contract.test.js
+
+      - name: Benchmark large mature learner staged deletion
+        run: npm run fsrs:account-deletion-benchmark
+
+      - name: Prove staged deletion through local workerd and D1
+        run: npm run fsrs:account-deletion-d1-smoke
+
+      - name: Prove verification indexing, Better Auth identity removal, and monthly analytics cost through local D1
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run fsrs:pr-g-acceptance-d1 2>&1 | tee pr-g-acceptance.log
+
+      - name: Upload PR G acceptance failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-g-acceptance-failure
+          path: pr-g-acceptance.log
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Run full repository validation
+        run: npm run validate:full -- --compact
+
+      - name: Run repository runtime smoke
+        run: npm run runtime:smoke

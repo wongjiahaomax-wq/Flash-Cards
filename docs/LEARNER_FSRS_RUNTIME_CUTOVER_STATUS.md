@@ -2,7 +2,7 @@
 
 Status: **Current repository runtime authority after PR #137 and merged PR #139 (PR F), including Reset Progress / Fresh FSRS Start, detailed-history retention/control, and learner Progress.**
 
-Date: 3 September 2026
+Date: 4 September 2026
 
 This document records the repository architecture established by the FSRS learner runtime cutover and the current post-cutover FSRS tranches. It is an implementation-status companion to:
 
@@ -157,3 +157,74 @@ PR #139 merged from exact source head `9356ccb3ac65ccab5831bf9f2ba14c79f50ca65b`
 - review of the complete PR #137 merge base → exact PR F head diff for scope and concurrency invariants.
 
 Production deployment, Production D1 migration application, optimizer execution, account deletion, and PR G Admin/cohort/time-series analytics remain outside the merged PR F scope unless separately authorized.
+
+## PR G branch implementation status
+
+PR #141 implements the focused PR G repository tranche after merged PR #139. This section describes the PR G branch implementation and does **not** claim Production migration application, Worker deployment, feature enablement, or Production verification. Focused implementation and benchmark evidence is recorded in `LEARNER_FSRS_PR_G_EVIDENCE.md`.
+
+### Durable monthly Admin analytics
+
+Migration `0025_learner_fsrs_admin_analytics_deletion.sql` adds `learner_system_monthly_buckets`, keyed by:
+
+```text
+(user_id, system_id, month_start)
+```
+
+`month_start` is a UTC calendar-month boundary. Each row retains compact Scheduled completion and Again/Hard/Good/Easy counts plus first/last completion timestamps for the learner and the historical System captured by the Scheduled event.
+
+The migration backfills only from `scheduled_review_events` that still exist when `0025` is applied. It does not manufacture already-expired months from `learner_system_aggregates` or optimizer evidence. An `AFTER INSERT` trigger on `scheduled_review_events` transactionally maintains the monthly bucket for newly committed Scheduled completions. Detailed-history expiry may delete the event while leaving the compact monthly bucket intact.
+
+`/admin/learner-analytics` adds Production-Admin-only read models for:
+
+- learner-wide lifetime aggregate totals;
+- per-System lifetime aggregate totals;
+- newest retained detailed Scheduled events;
+- per-learner historical-System monthly trends;
+- cross-learner historical-System monthly trends;
+- a stable account-created-UTC-month cohort time series measured by activity month.
+
+Long-range System/cohort time series read the durable monthly buckets directly. Optimizer-only evidence is not an Admin analytics/history source, and lifetime aggregates are not used to reconstruct an expired time axis.
+
+### PR G historical System provenance extension
+
+PR G extends centralized durable System attribution from `scheduled_review_events` and `learner_system_aggregates` to include `learner_system_monthly_buckets`. `src/lib/server/db/fsrs-system-provenance.ts` includes the new durable owner, and migration `0025` adds defensive System kind-change/delete guards for retained monthly rows.
+
+A historical System therefore remains protected while any detailed event, lifetime System aggregate, or durable monthly bucket still attributes learner activity to it.
+
+### Mature learner account deletion scale gate
+
+PR G chooses **retry-safe staged deletion**, not direct mature-account cascade. Scheduled history and current-generation optimizer evidence have no finite supported lifetime row cap, so there is no finite worst-supported learner size for which one unbounded cascade can be certified safe.
+
+`learner_account_deletions` stores the durable deletion phase. The supported flow:
+
+1. verifies that the target is a normal learner;
+2. creates/resumes the durable deletion marker;
+3. bans the learner and commits the durable deletion marker as the immediate access-disabled authority;
+4. the request hook rejects any already-issued learner session while the marker exists, and database guards reject new sessions, linked accounts, and active Reviews;
+5. drains Better Auth sessions, learner-owned verification rows, and linked accounts as staged ownership classes at at most 1,000 rows per step;
+6. removes at most 1,000 rows from every subsequent application deletion class per staged step;
+7. removes Free receipts, Scheduled events, active Reviews/children, optimizer evidence, learner×Case state, encounters, durable monthly buckets, System aggregates, learner aggregates, preferences and profile state;
+8. rescans every staged auth/application ownership class before declaring the identity ready;
+9. calls pinned Better Auth Admin `removeUser` only after the staged-data gate is clear, leaving no unbounded auth-owned collection for the final one-row identity operation.
+
+A database user-delete guard fails closed if any learner-owned session, account, verification, or application row remains or reappears before identity deletion, so an interrupted/racing deletion is safe to retry rather than partially bypassing the staged contract.
+
+### Better Auth verification ownership
+
+Better Auth remains pinned to `1.6.25`. Its `verification` table has no user foreign key. In the pinned password-reset flow, reset verification rows store the learner user ID in `verification.value`.
+
+PR G therefore treats matching verification rows as a staged learner-owned deletion class and prevents new learner-owned verification rows from being created while staged deletion is active. A defensive reset-password verification guard also rejects creation against an already-removed user identity. Unrelated verification rows remain untouched.
+
+### Local replica boundary
+
+PR G keeps both `learner_system_monthly_buckets` and `learner_account_deletions` outside the Production-to-local content allowlist and places both on `FORBIDDEN_PRODUCTION_TABLES`. Production-derived local refresh therefore remains teaching-content-only and cannot import learner analytics or deletion state.
+
+### PR G migration boundary and exclusions
+
+The PR G branch extends repository migration history through:
+
+```text
+0025_learner_fsrs_admin_analytics_deletion.sql
+```
+
+PR G does not implement automatic optimizer execution, automatic parameter replacement, learner Scheduled/Free UX redesign, legacy `reviews` / `review_questions` / `review_assets` resurrection, Production D1/R2 mutation, or Production Worker deployment.
