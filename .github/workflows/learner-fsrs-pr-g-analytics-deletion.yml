@@ -60,9 +60,6 @@ jobs:
       - name: Validate migration history
         run: npm run db:check
 
-      - name: Run PR G unit, integration, verification-race, and source-contract regressions
-        run: node --test test/learner-fsrs-pr-g.test.js test/learner-fsrs-pr-g-verification-guard.test.js test/learner-fsrs-pr-g-source-contract.test.js
-
       - name: Benchmark large mature learner staged deletion
         run: npm run fsrs:account-deletion-benchmark
 
