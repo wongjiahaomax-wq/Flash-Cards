@@ -68,8 +68,13 @@ async function buildWorstSupportedDescriptor() {
 
   return buildScheduledStudyRunDescriptor({
     userId: syntheticUuid(4, 0),
-    systemId: syntheticUuid(3, 0),
-    routes,
+    runScope: {
+      systems: [{
+        systemId: syntheticUuid(3, 0),
+        mode: 'routes',
+        routes
+      }]
+    },
     candidates,
     profile,
     preferences: { scheduledOrder: 'due_first', expandedLearning: false },
@@ -82,7 +87,7 @@ async function buildWorstSupportedDescriptor() {
   });
 }
 
-test('Scheduled descriptors fit the supported Chromium localStorage envelope', async ({ browser, page }) => {
+test('Scheduled v2 descriptors fit the supported Chromium localStorage envelope', async ({ browser, page }) => {
   await page.route('http://fsrs-benchmark.test/**', async (route) => {
     await route.fulfill({
       contentType: 'text/html',
@@ -135,6 +140,7 @@ test('Scheduled descriptors fit the supported Chromium localStorage envelope', a
       }
 
       localStorage.removeItem(key);
+      const selectedSystems = parsed?.selectedScope?.systems ?? [];
       return {
         writeTimes,
         readTimes,
@@ -143,7 +149,11 @@ test('Scheduled descriptors fit the supported Chromium localStorage envelope', a
         newPosition: parsed?.newPosition,
         capturedDueCount: parsed?.capturedDue?.length,
         capturedNewCount: parsed?.capturedNew?.length,
-        selectedRouteCount: parsed?.selectedScope?.routes?.length
+        selectedSystemCount: selectedSystems.length,
+        selectedRouteCount: selectedSystems.reduce(
+          (total, system) => total + (system?.mode === 'routes' && Array.isArray(system.routes) ? system.routes.length : 0),
+          0
+        )
       };
     }, { key: `fsrs-${workload.name}`, value: serialized });
 
@@ -151,12 +161,14 @@ test('Scheduled descriptors fit the supported Chromium localStorage envelope', a
     expect(measurement.newPosition).toBe(0);
     expect(measurement.capturedDueCount).toBe(workload.dueCount);
     expect(measurement.capturedNewCount).toBe(workload.newCount);
+    expect(measurement.selectedSystemCount).toBeGreaterThan(0);
     expect(measurement.selectedRouteCount).toBe(workload.routeCount);
 
     measurements.push({
       name: workload.name,
       dueCount: workload.dueCount,
       newCount: workload.newCount,
+      systemCount: measurement.selectedSystemCount,
       routeCount: workload.routeCount,
       responsePayloadUtf8Bytes: encoder.encode(serialized).byteLength,
       serializedCharacters: serialized.length,
@@ -204,6 +216,6 @@ test('Scheduled descriptors fit the supported Chromium localStorage envelope', a
       ...quota,
       approximateStoredUtf16BytesBeforeFailure: quota.storedCharacters * 2
     },
-    interpretation: 'The application boundary is 20,000 selected Scheduled Cases plus at most 512 normalized Topic/Tag routes. Chromium successfully persisted/restored the combined worst-supported descriptor using UUID-length Case and route identifiers. 20,001 Cases or 513 normalized routes are rejected before learner bootstrap/state reads. The quota probe records this runner/browser storage behavior and is not a cross-browser universal quota promise.'
+    interpretation: 'The application boundary is 20,000 selected Scheduled Cases plus at most 512 normalized Topic/Tag routes in the canonical v2 run scope. Chromium successfully persisted/restored the combined worst-supported descriptor using UUID-length Case and route identifiers. 20,001 Cases or 513 normalized routes are rejected before learner bootstrap/state reads. The quota probe records this runner/browser storage behavior and is not a cross-browser universal quota promise.'
   })}`);
 });
