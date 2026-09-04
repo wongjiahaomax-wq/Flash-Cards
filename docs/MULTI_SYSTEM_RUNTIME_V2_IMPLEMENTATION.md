@@ -219,6 +219,36 @@ The migrated-D1 acceptance explicitly covers:
 - missing Primary Topic;
 - attribution System not selected.
 
+### Supported-envelope benchmark evidence
+
+The focused v2 workflow was measured against the supported maximum envelope of **64 Systems, 512 normalized explicit routes, and 20,000 unique Cases** after eliminating repeated native-System scans for multi-Topic selections.
+
+Measured GitHub Actions result:
+
+```text
+scope normalization:                  69.97 ms
+union / dedupe / System attribution: 1271.98 ms
+Scheduled descriptor + proofs:        97.46 ms
+Free Study bag:                        6.89 ms
+
+Scheduled descriptor:             1,387,180 bytes
+Free descriptor:                    307,680 bytes
+Scheduled membership proofs:             313
+proof bytes total:                  524,844 bytes
+largest proof:                        1,679 bytes
+```
+
+The enforced limits remain:
+
+```text
+scope resolution:             < 5,000 ms
+Scheduled planning:           < 5,000 ms
+Free planning:                < 5,000 ms
+browser descriptor size:      < 4,500,000 bytes
+```
+
+The measured resolver therefore has substantial headroom relative to the executable 5-second supported-envelope gate; the earlier repeated per-Topic native-System scans are not part of the final implementation.
+
 Existing specialized FSRS workflows continue to cover Active Review lifecycle, Scheduled completion including Due/Repeat, Free completion, Reset/Fresh races, workerd compatibility, browser descriptor storage, and analytics/deletion regressions.
 
 ## Deferred to Multi-System UX
