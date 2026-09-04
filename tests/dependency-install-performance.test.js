@@ -144,6 +144,7 @@ test('deps:ensure skips matching installs and force mode uses the optimized npm 
 
 test('deps:ensure argument and npm invocation parsing are deterministic', () => {
   assert.deepEqual(parseDepsEnsureArgs([]), { force: false });
+  assert.deepEqual(parseDepsEnsureArgs(['--force']), { force: true });
   assert.throws(() => parseDepsEnsureArgs(['--refresh']), /Unknown argument: --refresh/);
 
   assert.deepEqual(resolveNpmCiInvocation({ npm_execpath: '/npm/npm-cli.js' }, 'linux'), {
