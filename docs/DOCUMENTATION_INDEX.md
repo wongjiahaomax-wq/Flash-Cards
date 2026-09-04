@@ -25,6 +25,8 @@ The implemented repository migration boundary on this branch is:
 0026_multi_system_active_review_scope_v2.sql
 ```
 
+The immediately preceding learner-runtime migration remains `0025_learner_fsrs_admin_analytics_deletion.sql`, which owns the merged PR G durable monthly analytics and staged learner-account deletion schema/guards. Migration `0026` changes the Active Review scope/content guard for Runtime v2; it does not replace or obsolete the PR G migration.
+
 `V1_DATA_MODEL.md`, `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md`, and the committed migration tree own the exact current ledger/contract. A committed migration is not evidence that Production D1 has applied it.
 
 Merged repository work represented by the living docs includes PR #137 (learner FSRS runtime cutover), PR #139 / PR F (Reset/Fresh, retention, learner Progress), PR #141 / PR G (Admin analytics and mature-account deletion readiness), and PR #142 (dependency-install speedups). Draft PR #147 is repository implementation only until separately reviewed/merged/deployed.
