@@ -2,12 +2,6 @@ name: Deploy production
 
 on:
   workflow_dispatch:
-    inputs:
-      apply_migrations:
-        description: Apply pending production D1 migrations before deploying
-        required: true
-        default: false
-        type: boolean
 
 permissions:
   contents: read
@@ -19,9 +13,10 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       CLOUDFLARE_ACCOUNT_ID: 0ada6bfd273d96d92682a853c4dd6fd2
+      PRODUCTION_WORKER_URL: https://flash-cards.mmed-fm-flashcardstest.workers.dev
 
     steps:
       - name: Require main branch
@@ -51,18 +46,12 @@ jobs:
           CLOUDFLARE_D1_WRITE_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
         run: |
           set -euo pipefail
-          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
-            echo "::error::GitHub repository secret CLOUDFLARE_API_TOKEN is not configured."
-            exit 1
-          fi
-          if [ -z "${CLOUDFLARE_D1_READ_TOKEN:-}" ]; then
-            echo "::error::CLOUDFLARE_D1_READ_TOKEN is required for the FSRS legacy-Review cutover gate."
-            exit 1
-          fi
-          if [ "${{ inputs.apply_migrations }}" = "true" ] && [ -z "${CLOUDFLARE_D1_WRITE_TOKEN:-}" ]; then
-            echo "::error::CLOUDFLARE_D1_WRITE_TOKEN is required when apply_migrations is enabled."
-            exit 1
-          fi
+          for secret_name in CLOUDFLARE_API_TOKEN CLOUDFLARE_D1_READ_TOKEN CLOUDFLARE_D1_WRITE_TOKEN; do
+            if [ -z "${!secret_name:-}" ]; then
+              echo "::error::GitHub repository secret ${secret_name} is required."
+              exit 1
+            fi
+          done
 
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
@@ -82,21 +71,121 @@ jobs:
       - name: Smoke test local D1 and Better Auth
         run: node scripts/local-auth-smoke.mjs
 
-      - name: Require zero Production legacy learner Review rows
+      - name: Run multi-System v2 migrated-D1 acceptance
+        run: npm run multi-system:d1-acceptance
+
+      - name: Run multi-System v2 supported-envelope benchmark
+        run: npm run multi-system:benchmark
+
+      - name: Detect whether the one-time v2 cutover is still required
+        id: cutover
+        shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
-        run: node scripts/learner-fsrs-preflight.mjs --remote
+        run: |
+          set -euo pipefail
+          if node scripts/multi-system-v2-guard-verify.mjs --remote >/tmp/v2-guard.txt 2>&1; then
+            echo "required=false" >> "$GITHUB_OUTPUT"
+            echo "Existing Production D1 already has the v2 Active Review guard."
+          else
+            echo "required=true" >> "$GITHUB_OUTPUT"
+            echo "Production D1 does not yet have the v2 guard; the fenced zero-data cutover is mandatory."
+            cat /tmp/v2-guard.txt
+          fi
 
-      - name: Apply production D1 migrations
-        if: ${{ inputs.apply_migrations == true }}
+      - name: Install temporary learner write fence Worker
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p .cutover-fence
+          cat > .cutover-fence/worker.mjs <<'EOF'
+          export default {
+            fetch() {
+              return new Response('Learner runtime temporarily closed for the multi-System v2 cutover.', {
+                status: 503,
+                headers: {
+                  'Cache-Control': 'no-store',
+                  'X-Learner-Runtime-Fence': 'active'
+                }
+              });
+            }
+          };
+          EOF
+          cat > .cutover-fence/wrangler.json <<'EOF'
+          {
+            "name": "flash-cards",
+            "main": "./worker.mjs",
+            "compatibility_date": "2026-08-14",
+            "workers_dev": true
+          }
+          EOF
+          ./node_modules/.bin/wrangler deploy --config .cutover-fence/wrangler.json
+
+      - name: Verify temporary write fence
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          headers="$(mktemp)"
+          status="$(curl --silent --show-error --output /tmp/fence-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"
+          test "$status" = "503"
+          grep -qi '^X-Learner-Runtime-Fence: active' "$headers"
+
+      - name: Require exact zero Production learner runtime data
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+        run: npm run multi-system:cutover-gate -- --remote
+
+      - name: Apply all pending production D1 migrations
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_WRITE_TOKEN }}
         run: ./node_modules/.bin/wrangler d1 migrations apply DB --remote
 
+      - name: Verify v2 Active Review D1 guard
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+        run: npm run multi-system:guard-verify -- --remote
+
+      - name: Deploy v2 Worker while learner writes remain fenced
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: ./node_modules/.bin/wrangler deploy --var LEARNER_RUNTIME_WRITE_FENCE:true
+
       - name: Deploy Worker
+        if: ${{ steps.cutover.outputs.required != 'true' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: ./node_modules/.bin/wrangler deploy
+
+      - name: Non-mutating verification while v2 Worker is fenced
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          status_json="$(curl --fail --silent --show-error "$PRODUCTION_WORKER_URL/api/runtime-cutover-status")"
+          node -e 'const value=JSON.parse(process.argv[1]); if(value.learnerRuntimeScopeVersion!==2 || value.learnerRuntimeWriteFence!==true) process.exit(1);' "$status_json"
+          npm run multi-system:guard-verify -- --remote
+          npm run multi-system:cutover-gate -- --remote
+
+      - name: Reopen learner runtime with v2 Worker
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: ./node_modules/.bin/wrangler deploy
+
+      - name: Verify deployed v2 runtime is open
+        shell: bash
+        run: |
+          set -euo pipefail
+          status_json="$(curl --fail --silent --show-error "$PRODUCTION_WORKER_URL/api/runtime-cutover-status")"
+          node -e 'const value=JSON.parse(process.argv[1]); if(value.learnerRuntimeScopeVersion!==2 || value.learnerRuntimeWriteFence!==false) process.exit(1);' "$status_json"
 
       - name: Write deployment summary
         shell: bash
@@ -106,7 +195,9 @@ jobs:
             echo ""
             echo "- Ref: `${GITHUB_REF}`"
             echo "- Commit: `${GITHUB_SHA}`"
-            echo "- Worker: https://flash-cards.mmed-fm-flashcardstest.workers.dev"
-            echo "- Legacy learner Review zero-data gate: `passed`"
-            echo "- D1 migrations applied: `${{ inputs.apply_migrations }}`"
+            echo "- Worker: ${PRODUCTION_WORKER_URL}"
+            echo "- Multi-System v2 one-time cutover required: `${{ steps.cutover.outputs.required }}`"
+            echo "- Pending D1 migrations: `always applied before Worker deployment`"
+            echo "- v2 Active Review guard: `verified`"
+            echo "- Learner runtime write fence after verification: `open`"
           } >> "$GITHUB_STEP_SUMMARY"
