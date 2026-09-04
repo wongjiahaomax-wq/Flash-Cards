@@ -8,7 +8,10 @@ import {
   learnerCaseEncounters,
   learnerCaseFsrs
 } from './fsrs-schema.js';
-import { resolveSystemStudySelection } from './study-navigation.ts';
+import {
+  resolveMultiSystemStudySelection,
+  singleSystemRoutesScope
+} from './study-navigation.ts';
 import {
   StudyRunPlanningError,
   assertScheduledStudySelectionSize,
@@ -16,13 +19,9 @@ import {
   buildScheduledStudyRunDescriptor
 } from '../learning/study-run-planner.js';
 import { assertScheduledStudyRouteCount } from '../learning/study-run-envelope.js';
+import { totalNormalizedMultiSystemRouteCount } from '../learning/multi-system-study-scope.ts';
 
 /**
- * PR B intentionally reads learner-owned state in bounded table reads rather
- * than constructing a candidate-sized SQL IN list or issuing one query per Case.
- * The browser/run benchmark measures descriptor cost separately; later D1
- * evidence may justify a different indexed read shape.
- *
  * @param {import('./index.js').LearningDb} db
  * @param {string} userId
  */
@@ -33,39 +32,25 @@ async function loadLearnerRunPlanningState(db, userId) {
   ]);
 }
 
-/**
- * @param {{
- *   db:import('./index.js').LearningDb,
- *   userId:string,
- *   systemId:string,
- *   routes:readonly import('../learning/system-study-routes.ts').SystemStudySelectionRoute[],
- *   proofSecret:string,
- *   now?:Date|number|string,
- *   rng?:()=>number,
- *   runId?:string,
- *   membershipChunkSize?:number
- * }} input
- */
-export async function planScheduledSystemStudyRun(input) {
-  const requestNow = input.now ?? new Date();
-  const selection = await resolveSystemStudySelection(input.db, {
-    systemId: input.systemId,
-    routes: input.routes
-  });
-
-  // Both descriptor-envelope guards intentionally run on the normalized server
-  // selection before lazy FSRS/preference bootstrap or any learner-state read.
-  // Route count is independent of unique Case count because overlapping valid
-  // Topic/Tag routes can add scope metadata without adding captured work.
-  assertScheduledStudyRouteCount(selection.routes.length);
+function assertResolvedSelection(selection) {
+  assertScheduledStudyRouteCount(totalNormalizedMultiSystemRouteCount(selection.runScope));
   if (selection.candidates.length === 0) {
-    throw new StudyRunPlanningError(
-      'empty-selection',
-      'No active study Cases are available for this selection.'
-    );
+    throw new StudyRunPlanningError('empty-selection', 'No active study Cases are available for this selection.');
   }
   assertScheduledStudySelectionSize(selection.candidates.length);
+}
 
+/**
+ * Canonical v2 Scheduled planner. Raw scope validation runs inside
+ * resolveMultiSystemStudySelection before taxonomy/state work.
+ */
+export async function planScheduledMultiSystemStudyRun(input) {
+  const requestNow = input.now ?? new Date();
+  const selection = await resolveMultiSystemStudySelection(input.db, { systems: input.systems });
+  assertResolvedSelection(selection);
+
+  // Bootstrap/state reads remain after the scope/candidate envelope gates so a
+  // rejected request cannot create learner runtime rows.
   const [profile, preferences] = await Promise.all([
     ensureLearnerFsrsProfile(input.db, input.userId),
     ensureLearnerPreferences(input.db, input.userId)
@@ -74,8 +59,7 @@ export async function planScheduledSystemStudyRun(input) {
 
   return buildScheduledStudyRunDescriptor({
     userId: input.userId,
-    systemId: selection.systemId,
-    routes: selection.routes,
+    runScope: selection.runScope,
     candidates: selection.candidates,
     profile,
     preferences,
@@ -89,42 +73,42 @@ export async function planScheduledSystemStudyRun(input) {
   });
 }
 
-/**
- * Free Study uses the same normalized systems-first scope and global Expanded
- * Learning preference, but it does not initialize/read FSRS profile/state.
- *
- * @param {{
- *   db:import('./index.js').LearningDb,
- *   userId:string,
- *   systemId:string,
- *   routes:readonly import('../learning/system-study-routes.ts').SystemStudySelectionRoute[],
- *   now?:Date|number|string,
- *   rng?:()=>number,
- *   runId?:string
- * }} input
- */
-export async function planFreeSystemStudyRun(input) {
+/** Canonical v2 Free planner. */
+export async function planFreeMultiSystemStudyRun(input) {
   const requestNow = input.now ?? new Date();
-  const selection = await resolveSystemStudySelection(input.db, {
-    systemId: input.systemId,
-    routes: input.routes
-  });
+  const selection = await resolveMultiSystemStudySelection(input.db, { systems: input.systems });
   if (selection.candidates.length === 0) {
-    throw new StudyRunPlanningError(
-      'empty-selection',
-      'No active study Cases are available for this selection.'
-    );
+    throw new StudyRunPlanningError('empty-selection', 'No active study Cases are available for this selection.');
   }
+  assertScheduledStudySelectionSize(selection.candidates.length);
 
   const preferences = await ensureLearnerPreferences(input.db, input.userId);
   return buildFreeStudyRunDescriptor({
     userId: input.userId,
-    systemId: selection.systemId,
-    routes: selection.routes,
+    runScope: selection.runScope,
     candidates: selection.candidates,
     preferences,
     now: requestNow,
     rng: input.rng,
     runId: input.runId
+  });
+}
+
+/**
+ * Existing single-System /study entry point. It is intentionally retained as a
+ * valid special case, but now delegates to and emits the v2 multi-System runtime.
+ */
+export async function planScheduledSystemStudyRun(input) {
+  return planScheduledMultiSystemStudyRun({
+    ...input,
+    systems: singleSystemRoutesScope(input.systemId, input.routes)
+  });
+}
+
+/** Existing single-System Free Study entry point, emitting v2 state. */
+export async function planFreeSystemStudyRun(input) {
+  return planFreeMultiSystemStudyRun({
+    ...input,
+    systems: singleSystemRoutesScope(input.systemId, input.routes)
   });
 }
