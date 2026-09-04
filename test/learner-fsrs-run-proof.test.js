@@ -34,7 +34,7 @@ test('scope fingerprint is deterministic for the canonical normalized v2 selecti
   const scope = {
     systems: [{
       systemId: 'cardio',
-      mode: 'routes',
+      mode: /** @type {const} */ ('routes'),
       routes: [
         { routeType: /** @type {const} */ ('topic'), routeId: 'rhythm' },
         { routeType: /** @type {const} */ ('tag'), routeId: 'ecg' }
