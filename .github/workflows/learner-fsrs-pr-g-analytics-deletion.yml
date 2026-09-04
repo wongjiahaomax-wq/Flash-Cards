@@ -72,7 +72,19 @@ jobs:
         run: npm run fsrs:account-deletion-d1-smoke
 
       - name: Prove verification indexing, Better Auth identity removal, and monthly analytics cost through local D1
-        run: npm run fsrs:pr-g-acceptance-d1
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run fsrs:pr-g-acceptance-d1 2>&1 | tee pr-g-acceptance.log
+
+      - name: Upload PR G acceptance failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr-g-acceptance-failure
+          path: pr-g-acceptance.log
+          if-no-files-found: ignore
+          retention-days: 1
 
       - name: Run full repository validation
         run: npm run validate:full -- --compact
