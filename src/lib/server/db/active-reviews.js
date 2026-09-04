@@ -21,6 +21,8 @@ import {
 
 /** @typedef {typeof activeReviews.$inferInsert} ActiveReviewInsert */
 /** @typedef {Awaited<ReturnType<typeof resolveMultiSystemStudySelection>>} StudySelection */
+/** @typedef {import('../learning/multi-system-study-scope.ts').MultiSystemStudyRunScope} MultiSystemStudyRunScope */
+/** @typedef {import('../learning/system-study-routes.ts').SystemStudySelectionRoute} SystemStudySelectionRoute */
 
 const DATABASE_NOW_MS = sql`cast((julianday('now') - 2440587.5) * 86400000 as integer)`;
 
@@ -82,6 +84,10 @@ const INSERT_ACTIVE_REVIEW_ASSETS_JSON_SQL = `
 `;
 
 export class ActiveReviewError extends Error {
+  /**
+   * @param {'invalid-input'|'stale-run'|'stale-case-state'|'ineligible-scope'|'content-unavailable'} code
+   * @param {string} message
+   */
   constructor(code, message) {
     super(message);
     this.name = 'ActiveReviewError';
@@ -89,12 +95,14 @@ export class ActiveReviewError extends Error {
   }
 }
 
+/** @param {unknown} value @param {string} label */
 function requiredString(value, label) {
   const normalized = typeof value === 'string' ? value.trim() : '';
   if (!normalized) throw new ActiveReviewError('invalid-input', `${label} is required.`);
   return normalized;
 }
 
+/** @param {Date|number|string|null|undefined} value */
 function timestampMs(value) {
   if (value == null) return null;
   if (value instanceof Date) return value.getTime();
@@ -103,11 +111,13 @@ function timestampMs(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+/** @param {unknown} value */
 function databaseErrorMessage(value) {
   if (value instanceof Error) return value.message;
   return String(value ?? '');
 }
 
+/** @param {any} profile @param {import('../learning/study-run-proof.js').ScheduledRunBoundary} boundary */
 function profileMatchesBoundary(profile, boundary) {
   return Boolean(profile)
     && Number(profile.generation) === boundary.generation
@@ -117,6 +127,7 @@ function profileMatchesBoundary(profile, boundary) {
     && String(profile.schedulerLibraryVersion) === boundary.schedulerLibraryVersion;
 }
 
+/** @param {any} state @param {import('../learning/study-run-proof.js').ScheduledRunBoundary} boundary */
 function stateMatchesBoundary(state, boundary) {
   return Boolean(state)
     && Number(state.generation) === boundary.generation
@@ -126,12 +137,19 @@ function stateMatchesBoundary(state, boundary) {
     && String(state.schedulerLibraryVersion) === boundary.schedulerLibraryVersion;
 }
 
+/** @param {string} userId @param {string|null} reviewId */
 function activeReviewIdentityFilter(userId, reviewId) {
   return reviewId == null
     ? eq(activeReviews.userId, userId)
     : and(eq(activeReviews.userId, userId), eq(activeReviews.id, reviewId));
 }
 
+/**
+ * Read the visible parent and its frozen children in one D1 transactional batch.
+ * @param {import('./index.js').LearningDb} db
+ * @param {string} userId
+ * @param {string|null} reviewId
+ */
 async function readActiveReviewSnapshot(db, userId, reviewId) {
   const identityFilter = activeReviewIdentityFilter(userId, reviewId);
   const ownedReviewIds = db.select({ id: activeReviews.id }).from(activeReviews).where(identityFilter).limit(1);
@@ -151,14 +169,17 @@ async function readActiveReviewSnapshot(db, userId, reviewId) {
   return { ...review, selectedScope, questions, assets };
 }
 
+/** @param {import('./index.js').LearningDb} db @param {string} userId */
 export async function getActiveReview(db, userId) {
   return readActiveReviewSnapshot(db, requiredString(userId, 'Learner'), null);
 }
 
+/** @param {import('./index.js').LearningDb} db @param {string} userId @param {string} reviewId */
 export async function getActiveReviewById(db, userId, reviewId) {
   return readActiveReviewSnapshot(db, requiredString(userId, 'Learner'), requiredString(reviewId, 'Active Review'));
 }
 
+/** @param {unknown} cause */
 function mappedCreateError(cause) {
   if (cause instanceof ActiveReviewError || cause instanceof ActiveReviewContentError) return cause;
   const message = databaseErrorMessage(cause);
@@ -180,6 +201,7 @@ function mappedCreateError(cause) {
   return cause;
 }
 
+/** @param {ActiveReviewInsert} parent @param {D1Database} client */
 function dbInsertActiveReview(parent, client) {
   return client.prepare(INSERT_ACTIVE_REVIEW_SQL).bind(
     parent.id, parent.userId, parent.caseId, parent.systemId, parent.studyMode, parent.contentMode,
@@ -192,6 +214,7 @@ function dbInsertActiveReview(parent, client) {
   );
 }
 
+/** @param {D1Database} client @param {string} userId */
 function dbDeleteExpired(client, userId) {
   return client.prepare(`
     DELETE FROM active_reviews
@@ -200,6 +223,9 @@ function dbDeleteExpired(client, userId) {
   `).bind(userId);
 }
 
+/**
+ * @param {{db:import('./index.js').LearningDb,userId:string,parent:ActiveReviewInsert,snapshot:Awaited<ReturnType<typeof buildActiveReviewSnapshot>>}} input
+ */
 async function persistActiveReview(input) {
   const activeReviewId = input.parent.id;
   const questionRows = input.snapshot.questions.map((question) => ({ id: globalThis.crypto.randomUUID(), activeReviewId, ...question }));
@@ -208,6 +234,7 @@ async function persistActiveReview(input) {
   if (!client || typeof client.prepare !== 'function' || typeof client.batch !== 'function') {
     throw new Error('Active Review creation requires a Cloudflare D1 client with atomic batch support.');
   }
+  /** @type {D1PreparedStatement[]} */
   const writes = [dbDeleteExpired(client, input.userId), dbInsertActiveReview(input.parent, client)];
   if (questionRows.length > 0) writes.push(client.prepare(INSERT_ACTIVE_REVIEW_QUESTIONS_JSON_SQL).bind(JSON.stringify(questionRows)));
   if (assetRows.length > 0) writes.push(client.prepare(INSERT_ACTIVE_REVIEW_ASSETS_JSON_SQL).bind(JSON.stringify(assetRows)));
@@ -223,10 +250,12 @@ async function persistActiveReview(input) {
   return { status: 'created', review: created };
 }
 
+/** @param {{expandedLearning:boolean}} preferences */
 function contentModeForPreferences(preferences) {
   return preferences.expandedLearning ? 'expanded' : 'original';
 }
 
+/** @param {StudySelection} selection @param {string} caseId */
 function selectedCandidate(selection, caseId) {
   const candidate = selection.candidates.find((item) => item.id === caseId);
   if (!candidate) {
@@ -235,6 +264,7 @@ function selectedCandidate(selection, caseId) {
   return candidate;
 }
 
+/** @param {{runScope?:MultiSystemStudyRunScope,systemId?:string,routes?:readonly SystemStudySelectionRoute[]}} input @returns {MultiSystemStudyRunScope} */
 function canonicalInputRunScope(input) {
   if (input.runScope?.systems?.length) return input.runScope;
   // Repository-internal single-System callers are retained as v2 wrappers for
@@ -246,15 +276,33 @@ function canonicalInputRunScope(input) {
   throw new ActiveReviewError('invalid-input', 'A canonical v2 study run scope is required.');
 }
 
+/** @param {import('./index.js').LearningDb} db @param {{runScope?:MultiSystemStudyRunScope,systemId?:string,routes?:readonly SystemStudySelectionRoute[]}} input */
 async function resolveV2Selection(db, input) {
   const runScope = canonicalInputRunScope(input);
   return resolveMultiSystemStudySelection(db, { systems: runScope.systems });
 }
 
+/** @param {MultiSystemStudyRunScope} runScope @param {string} attributionSystemId */
 function persistedScope(runScope, attributionSystemId) {
   return { version: 2, systemId: attributionSystemId, runScope };
 }
 
+/**
+ * @param {{
+ *   db:import('./index.js').LearningDb,
+ *   userId:string,
+ *   runScope?:MultiSystemStudyRunScope,
+ *   systemId?:string,
+ *   routes?:readonly SystemStudySelectionRoute[],
+ *   caseId:string,
+ *   queueClass:'due'|'new'|'repeat',
+ *   runBoundaryToken:string,
+ *   workProof:string,
+ *   proofSecret:string,
+ *   now?:Date|number|string,
+ *   rng?:()=>number
+ * }} input
+ */
 export async function createScheduledActiveReview(input) {
   const userId = requiredString(input.userId, 'Learner');
   const caseId = requiredString(input.caseId, 'Case');
@@ -340,6 +388,18 @@ export async function createScheduledActiveReview(input) {
   });
 }
 
+/**
+ * @param {{
+ *   db:import('./index.js').LearningDb,
+ *   userId:string,
+ *   runScope?:MultiSystemStudyRunScope,
+ *   systemId?:string,
+ *   routes?:readonly SystemStudySelectionRoute[],
+ *   caseId:string,
+ *   runId?:string,
+ *   rng?:()=>number
+ * }} input
+ */
 export async function createFreeActiveReview(input) {
   const userId = requiredString(input.userId, 'Learner');
   const caseId = requiredString(input.caseId, 'Case');
@@ -375,6 +435,7 @@ export async function createFreeActiveReview(input) {
   });
 }
 
+/** @param {{db:import('./index.js').LearningDb,userId:string,reviewId:string}} input */
 export async function revealActiveReview(input) {
   const userId = requiredString(input.userId, 'Learner');
   const reviewId = requiredString(input.reviewId, 'Active Review');
@@ -385,6 +446,7 @@ export async function revealActiveReview(input) {
   return getActiveReviewById(input.db, userId, reviewId);
 }
 
+/** @param {{db:import('./index.js').LearningDb,userId:string,reviewId:string}} input */
 export async function discardActiveReview(input) {
   const userId = requiredString(input.userId, 'Learner');
   const reviewId = requiredString(input.reviewId, 'Active Review');
@@ -394,6 +456,7 @@ export async function discardActiveReview(input) {
   return deleted.length > 0;
 }
 
+/** @param {import('./index.js').LearningDb} db */
 export async function cleanupExpiredActiveReviews(db) {
   return db.delete(activeReviews)
     .where(sql`${activeReviews.expiresAt} <= ${DATABASE_NOW_MS}`)
