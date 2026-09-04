@@ -29,7 +29,7 @@ Root `AGENTS.md` and `docs/AGENT_TASK_MAP.md` own coding-agent routing/safety. T
 
 ## Production release boundary
 
-This file does **not** authorize or duplicate Production deployment/migration commands. `docs/CLOUDFLFLARE.md` is the Production release authority.
+This file does **not** authorize or duplicate Production deployment/migration commands. `docs/CLOUDFLARE.md` is the Production release authority.
 
 Development/validation state is separate from:
 
