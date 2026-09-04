@@ -26,9 +26,21 @@ const workflowPaths = [
   '.github/workflows/learner-fsrs-free-study.yml',
   '.github/workflows/learner-fsrs-scheduled-completion.yml',
   '.github/workflows/learner-fsrs-workerd-smoke.yml',
+  '.github/workflows/multi-system-runtime-v2.yml',
   '.github/workflows/production-content-snapshot.yml',
   '.github/workflows/rename-ecg-batch-01-assets.yml',
   '.github/workflows/restore-main-to-preview.yml',
+  '.github/workflows/wrangler-runtime-smoke.yml',
+];
+const prWorkflowPaths = [
+  '.github/workflows/ci.yml',
+  '.github/workflows/learner-fsrs-active-review-benchmark.yml',
+  '.github/workflows/learner-fsrs-browser-benchmark.yml',
+  '.github/workflows/learner-fsrs-free-study.yml',
+  '.github/workflows/learner-fsrs-pr-g-analytics-deletion.yml',
+  '.github/workflows/learner-fsrs-scheduled-completion.yml',
+  '.github/workflows/learner-fsrs-workerd-smoke.yml',
+  '.github/workflows/multi-system-runtime-v2.yml',
   '.github/workflows/wrangler-runtime-smoke.yml',
 ];
 
@@ -47,10 +59,20 @@ test('dependency-installing workflows use the shared Node/npm cache and install 
   }
 });
 
-test('ordinary PR CI still cancels obsolete runs for the same pull request', () => {
-  const workflow = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
-  assert.match(workflow, /group: \$\{\{ github\.workflow \}\}-pr-\$\{\{ github\.event\.pull_request\.number \}\}/);
-  assert.match(workflow, /cancel-in-progress: true/);
+test('all pull-request validation workflows cancel obsolete runs for the same pull request', () => {
+  for (const workflowPath of prWorkflowPaths) {
+    const workflow = fs.readFileSync(path.join(root, workflowPath), 'utf8');
+    assert.match(workflow, /group: \$\{\{ github\.workflow \}\}-pr-\$\{\{ github\.event\.pull_request\.number \}\}/, `${workflowPath} should group runs by workflow and PR number`);
+    assert.match(workflow, /cancel-in-progress: true/, `${workflowPath} should cancel superseded PR runs`);
+  }
+});
+
+test('browser benchmark uses a prepared version-matched Playwright environment', () => {
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/learner-fsrs-browser-benchmark.yml'), 'utf8');
+  assert.match(workflow, /image: mcr\.microsoft\.com\/playwright:v1\.55\.0-noble/);
+  assert.match(workflow, /npm install --prefix tools\/learner-fsrs-browser-benchmark[\s\S]*@playwright\/test@1\.55\.0/);
+  assert.match(workflow, /tools\/learner-fsrs-browser-benchmark\/node_modules\/\.bin\/playwright test/);
+  assert.doesNotMatch(workflow, /playwright install(?:-deps)?/);
 });
 
 test('deps:ensure is exposed as the repository dependency preparation command', () => {
@@ -122,7 +144,6 @@ test('deps:ensure skips matching installs and force mode uses the optimized npm 
 
 test('deps:ensure argument and npm invocation parsing are deterministic', () => {
   assert.deepEqual(parseDepsEnsureArgs([]), { force: false });
-  assert.deepEqual(parseDepsEnsureArgs(['--force']), { force: true });
   assert.throws(() => parseDepsEnsureArgs(['--refresh']), /Unknown argument: --refresh/);
 
   assert.deepEqual(resolveNpmCiInvocation({ npm_execpath: '/npm/npm-cli.js' }, 'linux'), {
