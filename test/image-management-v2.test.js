@@ -125,7 +125,7 @@ test('Image Library derives current, active-Review-retained, historical-only, an
       'lifecycle-system',
       'lifecycle-run',
       'lifecycle-scope',
-      JSON.stringify({ systemId: 'lifecycle-system', routes: [{ routeType: 'topic', routeId: 'lifecycle-topic' }] }),
+      JSON.stringify({ systems: [{ systemId: 'lifecycle-system', mode: 'routes', routes: [{ routeType: 'topic', routeId: 'lifecycle-topic' }] }] }),
       'Lifecycle Case',
       12_003
     );
