@@ -1,56 +1,54 @@
 # Flash-Cards
 
-Private, case-based medical learning application built on SvelteKit and Cloudflare.
+Flash-Cards is a case-based medical learning application built with SvelteKit, Cloudflare Workers, D1, private R2 media, Better Auth, and a Case-level FSRS learner scheduler.
 
-_Last project-wide documentation refresh: 28 August 2026._
+**Repository visibility and application access are different things:** this GitHub repository is public; the deployed application is closed-enrollment/private and does not expose public self-registration.
 
-## Current status
+_Last project-wide documentation reconciliation: 4 September 2026._
 
-Flash-Cards is a working private application whose repository can be ahead of the last explicitly verified production deployment. The project has **not yet been made available to learners**.
+## Current repository baseline
 
-Established repository capabilities include:
+Current `main` includes:
 
-- D1-backed Study and durable Review flows;
-- Better Auth with private access and server-side role enforcement;
-- private Cloudflare R2 teaching-image storage and authenticated serving;
-- Production Admin CMS for Cases, Questions, Shared Questions, Images, Systems/Topics, Tags, and reviewed imports;
-- exactly one canonical Primary Topic per current Case plus zero or more Case Tags;
-- contextual System → Topic / exposed Tag / All learner navigation behind rollout control;
-- fixed images plus independent Alternative Sets with exact-option/set-wide questions;
-- Original/Core versus Expanded Learning question-pool selection;
-- Automatic / All / Fixed Case question-count selection;
-- tag-scoped Shared Questions and exact-Asset Reusable Image Questions;
-- Image Management V2, Collections, lifecycle views, and same-image higher-resolution replacement;
-- visual Systems & Topics taxonomy/Case-classification workspace;
-- Production Case Active/Inactive lifecycle with preserved deactivation and validated restore;
-- inline/bulk Case Tag curation and bulk Primary Topic assignment;
-- strict reviewed Import Package v1 plus resumable/chunked execution;
-- local slide-review/deterministic-finalizer tooling;
-- local-first production-like D1/R2 development workflow;
-- repository-owned coding-agent validation, including Draft-fast / Ready-full PR CI;
-- first real ECG Anki corpus represented in production: **66/66 source notes**.
+- Production/Admin content management for Cases, Questions, Shared Questions, Images, Systems/Topics, Tags, reviewed imports, learner retention controls, and learner analytics;
+- one canonical Primary Topic per current Case plus zero or more Case Tags;
+- System → Topic / exposed Tag / All learner navigation semantics;
+- fixed images plus optional Alternative Sets with explicit Original semantics;
+- Case-, stimulus-, Topic-, Tag-, and exact-Asset-scoped question sources;
+- strict Import Package v1 and local slide-review/finalizer tooling;
+- a local production-like D1/R2 development replica;
+- the learner FSRS runtime cutover with Scheduled Study, Free Study, Again/Hard/Good/Easy ratings, 5/10/20/All run sizes, active Review snapshots, Reset Progress, Fresh FSRS Start, learner Progress, detailed-history retention, durable monthly Admin analytics, and retry-safe mature-account deletion;
+- repository migrations through `0025_learner_fsrs_admin_analytics_deletion.sql`;
+- repository-owned coding-agent routing, Draft-fast / Ready-full validation, specialized FSRS checks, and dependency reuse via `npm run deps:ensure`.
 
-Do not infer deployment from repository state. Merge state, production D1 migration application, Worker deployment, taxonomy/content curation, learner-feature enablement, and explicit production verification are separate facts.
+The repository baseline is **not** a production deployment ledger. Keep these facts separate:
 
-## Start with the documentation index
+```text
+merged on main
+!= migration applied to Production D1
+!= Worker deployed
+!= feature enabled
+!= learner rollout completed
+!= behavior explicitly verified in Production
+```
 
-Read [`docs/DOCUMENTATION_INDEX.md`](docs/DOCUMENTATION_INDEX.md) before using older plans or implementation prompts.
+No current repository document should claim that FSRS migrations `0019`-`0025` are applied to Production merely because they are committed.
 
-For orientation:
+## Start here
 
-1. [`docs/CURRENT_PRODUCT_ROADMAP.md`](docs/CURRENT_PRODUCT_ROADMAP.md)
-2. [`docs/HANDOVER.md`](docs/HANDOVER.md)
-3. [`docs/CURRENT_DESIGN.md`](docs/CURRENT_DESIGN.md)
-4. [`docs/V1_SPEC.md`](docs/V1_SPEC.md)
-5. [`docs/V1_DATA_MODEL.md`](docs/V1_DATA_MODEL.md)
-6. [`docs/AUTHORING_MODEL.md`](docs/AUTHORING_MODEL.md)
-7. [`docs/CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md`](docs/CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md)
+Read [`docs/DOCUMENTATION_INDEX.md`](docs/DOCUMENTATION_INDEX.md) before relying on older plans, implementation prompts, or evidence files.
 
-Coding agents should also read root [`AGENTS.md`](AGENTS.md) and [`docs/AGENT_TASK_MAP.md`](docs/AGENT_TASK_MAP.md).
+For most project-wide work, the living authority chain is:
 
-## Product mental model
+1. [`docs/CURRENT_PRODUCT_ROADMAP.md`](docs/CURRENT_PRODUCT_ROADMAP.md) — current repository/Production status and next work;
+2. [`docs/V1_DATA_MODEL.md`](docs/V1_DATA_MODEL.md) — exact implemented domain/schema semantics;
+3. the relevant subsystem authority listed in the documentation index;
+4. [`docs/CURRENT_DESIGN.md`](docs/CURRENT_DESIGN.md) and [`docs/V1_SPEC.md`](docs/V1_SPEC.md) — concise product mental model/behavior summary;
+5. historical plans/evidence only for decision history.
 
-The learner-facing unit is a **Case**, not a permanently fixed front/back card.
+Coding agents should also read root [`AGENTS.md`](AGENTS.md) and use [`docs/AGENT_TASK_MAP.md`](docs/AGENT_TASK_MAP.md) for minimum-context routing.
+
+## Current content model
 
 ```text
 System
@@ -63,88 +61,59 @@ Case
 ├── vignette
 ├── fixed Assets
 ├── zero or more Alternative Sets
-│   └── one selected active, non-removed option per active group
+│   └── one selected eligible option per active family
 └── contextual Questions
 ```
 
 Terminology:
 
-- **System** = top-level learner-navigation grouping.
-- **Primary Topic** = what the Case fundamentally teaches and its direct reusable Topic-question context.
-- **Case** = one coherent clinical presentation.
-- **Tag** = flat cross-cutting clinical metadata; an exposed Tag may provide contextual learner discovery inside a System.
-- **System↔Tag exposure** = global learner-navigation curation; it does not make the Tag belong to that System.
-- **Asset** = reusable teaching media, currently images.
-- **Collection** = Image Library organisation only.
-- **Question Prompt** = reusable wording only.
-- **Shared Question** = reusable medical meaning whose eligibility is controlled by one matching Case Reuse Scope Tag.
-- **Reusable Image Question** = canonical question/answer intrinsic to one exact Asset and explicitly opted into each exact stimulus usage.
+- **System** — top-level learner navigation grouping.
+- **Topic** — canonical educational home and direct Topic-question context for a Case.
+- **Tag** — flat cross-cutting classification/discovery metadata.
+- **System↔Tag exposure** — global learner-navigation curation; it does not make a Tag belong to a System.
+- **Asset** — exact teaching-media identity, currently image-based.
+- **Collection** — Image Library organisation only.
+- **Question Prompt** — wording only; answers live where they remain semantically correct.
+- **Shared Question** — reusable meaning gated by one explicit Case Reuse Scope Tag.
+- **Reusable Image Question** — reusable meaning intrinsic to one exact Asset and explicitly opted into each exact stimulus usage.
 
-### Legacy secondary Topic rows
+Additional Study Topics are retired from current product behavior. Historical `case_concepts.role = 'secondary'` rows may remain physically stored as compatibility data but are not current authoring or learner classification.
 
-The historical schema still permits:
+## Learner Study / FSRS
 
-```text
-case_concepts.role = primary | secondary
-```
+Normal learner Study is owned by the FSRS/Free runtime, not the historical persisted `reviews` model.
 
-Current product behavior uses only `primary`.
-
-Stored `secondary` rows are legacy compatibility data: current authoring/read models hide them, current learner routing ignores them, and current Admin/Preview/import paths do not create them. No cleanup migration is required merely to retire Additional Study Topics.
-
-## Question authoring and resolution
-
-Author questions at the broadest scope where the answer remains reliably correct:
+Current repository behavior includes:
 
 ```text
-Topic Question
-Case Question
-Stimulus Group Question
-Case-specific exact-image Question
-Tag-scoped Shared Question
-Reusable Image Question for one exact Asset
+Choose System
+→ Scheduled Study or Free Study
+→ choose 5 / 10 / 20 / All available Cases (default 10)
+→ active Review snapshot freezes the presented Case/questions/media
+→ reveal answers
+→ Again / Hard / Good / Easy for Scheduled Study
+→ completion advances FSRS state and durable Scheduled history
 ```
 
-When the same Prompt is eligible from several sources, current precedence is:
+Free Study records exposure without advancing scheduled FSRS state.
+
+Unfinished learner work is owned by:
 
 ```text
-selected exact stimulus-option question
-> explicitly reused Asset Question for the selected option
-> stimulus group
-> Case
-> exact canonical Primary Topic
-> tag-shared Question
-> nearest eligible inheritable ancestor Topic
-> more distant eligible ancestors
+active_reviews
+active_review_questions
+active_review_assets
 ```
 
-The final pool is deduplicated by `question_prompt_id`.
+The physical legacy tables `reviews`, `review_questions`, and `review_assets` remain only as migration-history/cutover-sentinel structures. Current application schema/runtime code does not use them as the normal learner Review owner.
 
-A Tag route does not substitute a second direct Topic bank: the Case's canonical Primary Topic remains direct Topic-question context for current Reviews.
+Reset Progress and Fresh FSRS Start invalidate stale active/browser work through generation/review-sequence boundaries. Learner Progress and Admin analytics read the durable FSRS model. Long-range monthly trends come from `learner_system_monthly_buckets`; they are not reconstructed from lifetime aggregates or optimizer evidence.
 
-## Question-pool versus count modes
-
-These are separate decisions:
-
-```text
-Original/Core
-→ Case + stimulus-owned question sources
-
-Expanded Learning
-→ Original/Core + Topic/ancestor + tag-shared + opted-in reusable Asset sources
-```
-
-Then the Case applies:
-
-```text
-Automatic | All | Fixed N
-```
-
-to the already eligible/deduplicated pool.
+See [`docs/LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`](docs/LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md) for the current runtime boundary and [`docs/LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md`](docs/LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md) for the locked product plan.
 
 ## Administrator surfaces
 
-Production Admin includes:
+Current repository Admin navigation includes:
 
 ```text
 Dashboard
@@ -154,110 +123,64 @@ Shared Questions
 Images
 Systems & Topics
 Tags
+Learner analytics
+Learner retention
 Import package
+Admin Study Preview
 ```
 
-Routine Case authoring is:
+Account Management v1 remains separate: PR #96 (password recovery/email foundation) and PR #97 (Admin account management) are still open draft PRs and are not part of current `main` merely because their design documents exist.
+
+## Imports and source reconstruction
+
+The Production application does not directly ingest arbitrary `.apkg`, PowerPoint, or PDF teaching sources.
 
 ```text
-choose/confirm Primary Topic
-→ add clinically useful Case Tags
-→ Case details
-→ Images / Alternative Sets
-→ contextual Questions
-→ Preview
+source material
+→ semantic reconstruction outside Production
+→ reviewable import bundle
+→ local human review/finalization
+→ strict Import Package v1
+→ Production Admin importer
 ```
 
-The Case Library also provides Active/Inactive lifecycle views, validated deactivate/restore, inline/bulk Case Tag curation, bulk Primary Topic assignment, and bounded filtering/pagination.
+The executable Import Package validator and strict slide-review `review-map-v1.schema.json` own their respective formats. Do not copy obsolete fields from old extraction prompts.
 
-The Systems & Topics page is a visual tree/inspector workspace for taxonomy and Case classification. Topic hierarchy, Case Primary Topic, and Case Tag changes can coexist in one staged review and are submitted through one unified workspace apply action. All requested stale-state/preflight checks complete before the first canonical write; the underlying domain writers still run separately, so this is not one cross-domain serializable/rollback transaction. System↔Tag exposure remains a separate global System workflow.
+## Development
 
-The shared Case editor is implemented as focused components under `src/lib/components/case-editor/`; Preview Admin reuses that editor rather than maintaining a copy.
+Node 22 is the repository runtime contract.
 
-## Learner routing
+Normal dependency preparation after switching/syncing branches is:
 
-Where System navigation is enabled:
-
-```text
-System → Topic
-→ Cases whose canonical Primary Topic lies in that Topic/subtree
-
-System → Tag
-→ Cases carrying that explicitly exposed Tag
-→ canonical Primary Topic remains direct Topic-question context
-
-System → All
-→ deduplicated union of native Topic and exposed-Tag reachability
+```sh
+npm run deps:ensure
 ```
 
-Review snapshots preserve both effective route provenance and the learner-selected navigation route where applicable.
+Use `npm run deps:ensure -- --force` only for known dependency damage/drift. The committed lockfile is authoritative.
 
-Historical/development Reviews created under the retired multi-Topic design may retain `study_concept_id != primary_concept_id`; those rows remain readable historical provenance and are not rewritten.
+Common local commands:
 
-## Images and media
-
-Learner images are served from private R2. External URLs are attribution/reference metadata, not runtime image sources.
-
-Keep separate:
-
-```text
-Case stimulus relationship  → learner presentation semantics
-Tag                         → clinical/educational metadata
-Image Collection            → Admin organisation
-Asset status                → Active / Inactive
-Derived usage               → Current / Historical only / Unused
+```sh
+npm run dev
+npm run preview
+npm run local:stop
+npm run agent:doctor
+npm run agent:checks -- --compact
+npm run validate:fast -- --compact
+npm run validate:full -- --compact
 ```
 
-`Remove from Case` archives an alternative-option relationship; it is not Asset deletion. Higher-resolution replacement is restricted to a better-quality copy of the same underlying image and preserves historical bytes/provenance.
+`npm run dev` / `npm run preview` use local bindings/state. Production deployment and remote D1 migration remain explicit operator operations governed by `docs/CLOUDFLARE.md`.
 
-Permanent Asset/R2 deletion remains deliberately conservative and separate.
+## Public-repository safety
 
-## Reviewed imports and source reconstruction
+Because this repository is public, never commit:
 
-The Production application does not ingest arbitrary `.apkg`, PowerPoint, or PDF sources directly.
+- Cloudflare API tokens or other credentials;
+- Better Auth secrets;
+- passwords or reset tokens;
+- `.dev.vars`, `.wrangler/`, `.env*` secrets;
+- Production D1 exports containing user/session/learner data;
+- mirrored private R2 teaching-media bytes unless deliberately licensed and approved for publication.
 
-```text
-source
-→ external extraction / semantic reconstruction
-→ human review
-→ Flash-Cards Import Package v1
-→ Admin validation + resumable import
-→ post-import curation
-```
-
-Import Package v1 keeps the historical `secondaryTopicIds` Case field only as an empty compatibility array. Non-empty values are rejected.
-
-For slide review, the machine-consumed review-map shape is owned by `tools/slide-import-review/schemas/review-map-v1.schema.json`; copied prose examples must not override that strict schema.
-
-## Preview Admin
-
-The Preview Worker uses the same Production D1/R2 resources, so safety comes from explicit ownership and route/data boundaries rather than a rollback model.
-
-Preview follows **clone then mutate**. It copies the canonical Primary Topic and Case Tags but not legacy secondary Topic rows.
-
-Since the local-first workflow decision, remote Preview is retained as an optional/safety-sensitive capability rather than the normal development integration gate. Further staged Preview backend decomposition is paused unless a concrete maintenance need reopens it.
-
-## Developer validation
-
-Repository-owned validation is the authority; do not maintain independent hard-coded test lists in each task prompt.
-
-```text
-Draft PR            → fast ordinary CI
-Ready-for-Review PR → full ordinary CI
-Draft → Ready       → full validation on the same PR head
-same-PR newer run   → cancel superseded run
-different PRs       → independent
-```
-
-Use root `AGENTS.md` and `docs/AGENT_TASK_MAP.md` for the current execution/validation contract.
-
-## Technical stack
-
-```text
-SvelteKit
-└── Cloudflare Workers
-    ├── Better Auth
-    ├── Drizzle ORM
-    │   └── Cloudflare D1
-    └── Cloudflare R2
-```
+See [`docs/OPEN_SOURCE_READINESS.md`](docs/OPEN_SOURCE_READINESS.md) for the current public-repository safety posture and [`docs/DOCUMENTATION_MAINTENANCE.md`](docs/DOCUMENTATION_MAINTENANCE.md) for documentation-lifecycle rules.

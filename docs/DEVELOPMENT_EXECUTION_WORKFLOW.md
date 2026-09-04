@@ -1,129 +1,51 @@
-# Development execution workflow: capability-based local, remote, and hybrid operation
-
-> **INTERNAL OPERATIONAL DOCUMENTATION**
->
-> This runbook is intended for the private Flash-Cards repository. Never commit credentials, `.dev.vars`, `.wrangler/` state, production-derived exports, or mirrored media.
+# Development execution workflow
 
 _Status: current development/operator workflow._
 
-_Last reviewed: 31 August 2026._
+_Last reconciled: 4 September 2026._
+
+The GitHub repository is public. The application, Production credentials, auth/user/learner data, and private teaching media remain private operational concerns. Never commit credentials, `.dev.vars`, `.wrangler/` state, Production exports, learner data, or mirrored private media.
 
 ## Purpose
 
-This document defines how development work should use the execution surfaces actually available to the coding workflow. Those surfaces may be directly available to the agent, or may include a user-operated local terminal/checkout that the user explicitly confirms is available. Do not infer terminal access merely from whether the user is on a laptop, phone, web client, or another device.
+Choose the development workflow from the execution capabilities actually available, not from the user's device/client name.
 
-The goals are:
-
-- keep the normal UX/code feedback loop fast when local execution exists;
-- avoid spending GitHub Actions minutes on work that can be performed locally;
-- support useful repository/PR work when only GitHub integration is available;
-- combine local execution and GitHub collaboration efficiently when both are available;
-- preserve CI and production safety gates, plus Preview safety invariants whenever the retained remote Preview capability is used;
-- avoid inventing temporary workflows or unsafe deployment shortcuts merely because a capability is unavailable.
-
-This document complements:
+The three supported modes are:
 
 ```text
-docs/LOCAL_DEVELOPMENT_REPLICA.md
-docs/PREVIEW_DEPLOYMENT.md
-docs/CLOUDFLARE.md
-```
-
-Coding agents should begin with the root `AGENTS.md` safety contract and `docs/AGENT_TASK_MAP.md` before using this runbook.
-
-### Production release authority
-
-This document intentionally does **not** duplicate production deployment or production D1 migration commands.
-
-`docs/CLOUDFLARE.md` is the authoritative production release runbook. It contains both:
-
-- the normal GitHub Actions production release path; and
-- the authenticated local/terminal equivalent for releasing from a command-capable environment.
-
-Use this document to choose the execution mode, then follow `CLOUDFLARE.md` for the exact current production release procedure. If release commands, Wrangler versions, migration handling or production safety rules change, update `CLOUDFLARE.md` rather than copying the changed commands here.
-
-## Core decision rule
-
-**Detect available execution surfaces first. Then select the best supported workflow automatically.**
-
-The user's device or physical location is not the execution-mode authority. A user on a phone may still be working with an agent that has shell access; a user at a laptop may still be using GitHub-only web chat. However, an explicit statement that a usable local checkout/terminal is available and the user can operate it is real capability information and should be used.
-
-For GitHub-connected web-chat work, use **Remote GitHub mode by default** unless either:
-
-- the agent itself has a usable local checkout and command execution; or
-- the user explicitly states that a usable local checkout/terminal is available for them to operate.
-
-The user does not need to repeatedly state that no terminal is available. When the user explicitly says terminal/local-clone access is available, use the user-assisted Hybrid path where local execution reduces Actions usage or improves the feedback loop.
-
-Relevant capabilities include:
-
-- usable command/shell execution directly available to the agent;
-- an actual repository working tree and functional Git access;
-- ability to execute repository-owned commands;
-- an explicitly confirmed user-operated local checkout/terminal;
-- GitHub repository/API/integration access;
-- ability to inspect PRs and GitHub CI/check results.
-
-Choose among three conceptual modes:
-
-```text
-agent has usable checkout + command execution + repository workflow
+usable checkout + command execution
 → Local checkout mode
 
-GitHub access without any confirmed usable local execution surface
+GitHub repository/PR access without usable local execution
 → Remote GitHub mode
 
-GitHub access + either agent-operated or explicitly confirmed user-operated local execution
+both local execution and GitHub access
 → Hybrid mode
 ```
 
-Execution mode and work state are separate decisions. Before creating or selecting a branch, identify whether the task explicitly targets existing work. If an existing PR or branch is targeted, inspect and continue its current head against its intended base. Only when no existing work state is targeted should the agent resolve a new intended base, normally the latest `main`, and create a feature branch from it.
+Before creating/selecting a branch, first determine whether the task targets an existing PR/branch. If not, resolve the actual intended base, normally latest `main`, then create the feature branch from that exact base.
 
-All three modes keep the same minimum-context routing from `AGENT_TASK_MAP.md`; execution capability changes where work and validation happen, not which architectural/safety guidance is authoritative.
+Root `AGENTS.md` and `docs/AGENT_TASK_MAP.md` own coding-agent routing/safety. This runbook owns execution-mode mechanics.
 
-For a production release after merge, follow `docs/CLOUDFLARE.md`; do not infer production release steps from development/Preview flow.
+## Production release boundary
 
-## Do not confuse the two meanings of “Preview”
+This file does **not** authorize or duplicate Production deployment/migration commands. `docs/CLOUDFLARE.md` is the Production release authority.
 
-### Local production-style preview
-
-```sh
-npm run preview
-```
-
-This requires a usable local/command execution environment. It builds the application and starts the repository-pinned local Wrangler Workers runtime against local development bindings/state.
-
-It:
-
-- does **not** deploy a Cloudflare Worker;
-- does **not** use GitHub Actions;
-- does **not** consume GitHub Actions minutes;
-- is useful for checking production-style Worker/runtime behavior before pushing or deploying remotely.
-
-### Production-backed Preview deployment
+Development/validation state is separate from:
 
 ```text
-.github/workflows/deploy-pr-to-preview.yml
+Production migration
+Production Worker deployment
+Production data mutation
+feature enablement
+live verification
 ```
 
-This is a retained GitHub Actions workflow that deploys the exact open PR head SHA to the `flash-cards-preview` Cloudflare Worker.
+## Local checkout mode
 
-It:
+### Sync / dependency preparation
 
-- runs remotely on GitHub Actions;
-- consumes GitHub Actions runtime;
-- uses the production-backed Preview environment;
-- is an **optional** remote verification capability, not a required integration checkpoint;
-- should be used only when explicitly requested or when production-backed Preview adds concrete value beyond local development, local `npm run preview`, repository validation, and normal PR CI;
-- never applies remote D1 migrations.
-
-## Mode A — local checkout
-
-Use this mode when the agent itself genuinely has a usable repository checkout, command execution, and the ability to execute the repository workflow.
-
-### 1. Sync the branch
-
-For work already created remotely or by another agent:
+For existing remote work:
 
 ```sh
 git fetch origin
@@ -132,195 +54,109 @@ git pull --ff-only origin <branch>
 npm run deps:ensure
 ```
 
-Use `npm run deps:ensure` as the normal dependency-preparation command after switching or syncing branches. It reuses the existing `node_modules` only when its `package.json`, `package-lock.json`, Node ABI, platform and architecture fingerprint still matches; otherwise it performs the repository's clean `npm ci` refresh and records the new fingerprint. The committed lockfile remains authoritative; do not use `npm install` as an implicit lockfile repair step.
+For a new local branch, start from the resolved current intended base.
 
-Use `npm run deps:ensure -- --force` when the installation is known to be damaged or drifted, or when `agent:doctor` reports dependency/Wrangler mismatch and a clean refresh is required.
+`npm run deps:ensure` is the normal dependency-preparation command. It reuses `node_modules` only when the `package.json`/`package-lock.json`/Node ABI/platform/architecture fingerprint still matches; otherwise it performs the repository clean install and records the fingerprint.
 
-On Windows, if a repository Vite/Wrangler server may still be running and holding native Node modules open, run `npm run local:stop` before a forced or fingerprint-required clean refresh. The command is repository-scoped and must be preferred over broad `node.exe` termination.
+Use:
 
-### 2. Use the local replica only when realistic production-derived content is useful
+```sh
+npm run deps:ensure -- --force
+```
 
-First setup:
+only for known dependency damage/drift or when the environment tooling indicates a forced clean refresh is required.
+
+Do not use `npm install` as an implicit lockfile repair step. The committed lockfile is authoritative.
+
+On Windows, use `npm run local:stop` before a required clean dependency refresh when this checkout's Vite/Wrangler process may hold native modules open. Do not kill all machine-wide Node processes.
+
+### Local content replica
+
+Use the production-like local content replica only when realistic content is useful:
 
 ```sh
 npm run local:setup
 npm run local:admin
 ```
 
-Refresh only when the production content copy actually needs updating:
+Refresh deliberately when production content needs updating:
 
 ```sh
 npm run local:refresh
 ```
 
-Do **not** refresh D1/R2 before every CSS, Svelte or UX edit. The existing local replica can be reused across ordinary iterations.
+Do not refresh D1/R2 before every code/CSS edit.
 
-### 3. Use Vite for the normal fast UX loop
+### Fast development loop
 
 ```sh
 npm run dev
 ```
 
-Use this for repeated component, layout, CSS, routing and authoring UX changes because it provides the fastest hot-reload loop.
+Use Vite/HMR for normal UX iteration against local bindings/state. Reuse a healthy existing dev server rather than restarting after each edit.
 
-### 4. Use local Wrangler preview at a checkpoint
-
-When the change looks correct under Vite and production-style runtime behavior is relevant, stop the Vite server before starting Wrangler Preview:
+### Production-style local runtime checkpoint
 
 ```sh
 npm run local:stop
 npm run preview
 ```
 
-`npm run local:stop` matches only this checkout's repository-installed Vite `dev` and Wrangler `dev` process trees. It is safe when nothing is running and must not be replaced with broad machine-wide Node termination.
+`npm run preview` builds and runs the checked-out Worker locally against local D1/R2/auth state. It does not deploy anything.
 
-This is the preferred local check for Worker/runtime behavior and does not spend GitHub Actions minutes. When Preview is finished, run `npm run local:stop` again before returning to the Vite loop or when you want to release local runtime file locks.
+Use `npm run local:stop` when switching back to Vite or when local runtime file locks need clearing.
 
-When the change touches `package.json`, `package-lock.json`, `wrangler.jsonc`, Svelte/Worker runtime configuration, or the runtime-smoke tooling itself, also run the narrow binding-free compatibility check:
+### Validation
 
-```sh
-npm run runtime:smoke
-```
+Run `npm run agent:doctor` when environment/Git conclusions are not already trustworthy for the current local session.
 
-The smoke starts only a temporary local Worker. It does not load production D1/R2 bindings or require production secrets.
-
-### 5. Let the repository-owned validation policy choose the checks
-
-After syncing a checkout, or whenever the local environment may have drifted, run:
+After a coherent change:
 
 ```sh
-npm run agent:doctor
+npm run agent:checks -- --compact
 ```
 
-Before a meaningful handoff or PR review checkpoint, ask the repository which validation applies to the current feature change:
+Then run the focused/checkpoint/final commands it requires. Common ordinary contracts are:
 
 ```sh
-npm run agent:checks
+npm run validate:fast -- --compact
+npm run validate:full -- --compact
 ```
 
-`agent:checks` is read-only and advisory. It classifies the current branch diff plus working-tree changes and reports:
+Specialized checks reported by `agent:checks` remain additional requirements. Compact mode changes presentation only, not check selection.
 
-- affected repository areas;
-- required automated checks;
-- recommended manual or credential-dependent follow-up;
-- specialized checks that are not required for the current change.
+Do not claim a command passed unless it actually ran.
 
-It prefers the locally available `origin/main` remote-tracking ref as the normal branch base, with local `main` as fallback. It does not fetch, mutate refs, switch branches or otherwise modify Git state.
+## Remote GitHub mode
 
-Use the repository-owned validation runners instead of maintaining another manual command list in this runbook:
+Use when GitHub access exists but no usable local execution surface exists.
 
-```sh
-npm run validate:fast
-npm run validate:full
-```
-
-Use `validate:fast` for an ordinary iteration checkpoint when the focused contract is sufficient. Use `validate:full` before handoff when `agent:checks` calls for the ordinary full contract, and run any additional specialized commands that `agent:checks` reports, such as runtime or slide-review validation.
-
-Local `validate:*` resolves the same feature-branch base used by `agent:checks`. Its whitespace check compares that merge-base with the current tracked working tree, so committed feature changes, staged changes and unstaged tracked changes are all included. Ordinary PR CI consumes the same repository-owned `fast`/`full` mode definitions while keeping PR-checkout-specific diff semantics and GitHub annotations explicit. GitHub selects `fast` when the pull-request event reports `draft: true` and `full` otherwise; the `ready_for_review` event therefore runs full validation of the current PR revision without requiring another source commit.
-
-The Node-test stage has a separate presentation contract but not a separate test-selection contract. `npm test` remains exactly the canonical complete `node --test` suite. Ordinary CI passes `--test-reporter=./scripts/ci-test-reporter.mjs` through `scripts/validate-ci.mjs`; the reporter consumes structured `node:test` events, emits compact progress for successful tests and one final summary, then prints real failures together at the end with test name, file/line, failure type, error/code, operator, expected/actual values, useful stack frames, and GitHub file/line annotations. Future CI work must preserve this structured reporter path. Do not restore buffered TAP/spec/dot parsing or hundreds of successful per-test records in ordinary CI logs.
-
-You do not need to rerun every command after every small edit. Run focused checks during iteration and the repository-selected full/specialized set before handing the branch back for final PR review.
-
-Opening or updating a Draft PR triggers fast ordinary CI. Opening or updating a Ready-for-Review PR triggers full ordinary CI, and marking a Draft PR Ready for Review starts a full run even without a new source commit. Newer runs cancel obsolete runs for the same PR; different PR numbers remain independent. The ordinary required status context remains the single `check` job.
-
-### 6. Use the production-backed Preview only when explicitly requested or concretely useful
-
-Remote Preview is not part of the normal local development/testing sequence.
-
-The ordinary path ends at:
+Normal flow:
 
 ```text
-Vite local UX loop
-→ npm run local:stop
-→ local production-style preview
-→ npm run local:stop when leaving Preview
-→ local validation
-→ PR / CI
-```
-
-Only when the user explicitly requests remote Preview, or when production-backed manual review would add concrete value, continue with:
-
-```text
-PR / CI
-→ production-backed Preview
-→ exact-SHA verification / manual Preview review
-→ restore main to Preview when finished
-```
-
-If an authorized workflow-dispatch surface is available, dispatch the permanent workflow as documented in `PREVIEW_DEPLOYMENT.md`.
-
-After a PR is merged and a production release is intended, stop following this development sequence and use the exact current release procedure in `CLOUDFLARE.md`.
-
-## Mode B — remote GitHub
-
-Use this mode when the agent has useful GitHub repository/API/integration access but no usable local execution surface is available to the agent and the user has not explicitly confirmed a user-operated local checkout/terminal.
-
-For GitHub-connected web chat, this is the default mode unless local terminal/clone access is explicitly available. The absence of local execution changes where validation can happen; it does not change the repository's architecture, safety rules, minimum-context routing, or the current work state the user asked the agent to continue.
-
-### Current web-chat GitHub capability baseline
-
-As of this document's review date, the GitHub integration used from web chat can support substantial remote repository work without a local checkout. Depending on repository permissions and the exact actions exposed in the active session, it can:
-
-- inspect repository files, branches and commits;
-- inspect PRs, issues, diffs, reviews, inline review threads and comments;
-- create or update feature branches and repository files/commits;
-- open and update draft PRs and PR metadata;
-- inspect PR CI/workflow runs, jobs, steps, logs and artifacts;
-- rerun failed workflow jobs/runs when the connected GitHub permission allows it.
-
-Treat this as a capability baseline, not a permanent exhaustive API contract. Check the active integration before relying on a specific mutation. In particular, generic `workflow_dispatch` is **not guaranteed to be exposed** by the web-chat GitHub integration; if it is unavailable, use another authorized GitHub/terminal surface rather than inventing a repository workaround.
-
-The GitHub integration does not by itself make local repository commands such as `npm run validate:full`, Vite, local Wrangler Preview, or the local D1/R2 replica available. Those require a real execution surface. If the user explicitly confirms that they have the local clone/terminal available and can run commands, switch to the user-assisted Hybrid path for suitable local work.
-
-### Remote GitHub flow
-
-A normal high-level flow is:
-
-```text
-identify requested work state
-→ existing PR/branch explicitly targeted?
-   ├─ yes → inspect/use that PR head and intended base
-   └─ no  → resolve current intended base, normally latest main,
-            then create feature branch
+resolve existing work or exact latest base
 → read root AGENTS.md
-→ consult AGENT_TASK_MAP.md
-→ read nearest scoped AGENTS.md
-→ load only relevant authoritative context
-→ inspect directly related implementation/tests
-→ form a coherent implementation
+→ route through AGENT_TASK_MAP.md
+→ retrieve minimum sufficient current context
+→ form coherent change
 → self-review intended changes
-→ make one coherent GitHub branch update where the active capabilities support it
-→ review the complete resulting branch/PR diff
-→ inspect GitHub CI and specialized checks
-→ make coherent follow-up fixes if required
-→ leave draft PR as durable handover state
+→ update branch coherently
+→ inspect complete base→head diff at final checkpoint
+→ inspect GitHub CI/check evidence
+→ leave Draft PR as durable handoff unless user requests Ready
 ```
 
-This is guidance rather than a rigid algorithm.
+### Retrieval discipline
 
-### Remote GitHub retrieval and review discipline
+Prefer the smallest sufficient GitHub surface:
 
-Use the smallest sufficient retrieval surface that answers the current question. This is an escalation model, not a mandatory sequence: enter at the smallest level already sufficient from information in hand, reuse sufficient results already returned, and do not make another call solely to rediscover the same fact.
+- metadata for PR/base/head/state;
+- targeted search for discovery;
+- exact file/bounded context once the path is known;
+- individual patches during active work;
+- complete intended-base → head diff at final review/handoff.
 
-For PR inspection, prefer the available equivalent of:
-
-```text
-PR metadata
-→ changed filenames
-→ relevant individual patches or file content
-→ complete PR diff when whole-PR inspection is actually required
-```
-
-Use metadata or another smaller GitHub surface for head/base SHA, Draft/state, mergeability, changed-file scope, or check state when that surface establishes the needed fact. Do not assume every fact is present in one metadata response. For PR-specific file reads, anchor to the established exact head SHA where practical; use bounded/ranged reads once a relevant location is known, otherwise read the relevant individual file. Use repository search for discovery when paths or symbols are unknown, not when the relevant files are already known.
-
-During active implementation, prefer targeted changed files, implicated patches, directly related tests, scoped guidance, and focused correction deltas. Do not repeatedly retrieve the complete PR diff after every small change. If a PR has a known previously reviewed head, a correction review may first inspect that reviewed head → current head to understand the new delta efficiently. That correction delta does not establish final review completeness.
-
-At deliberate principal/final review or handoff checkpoints, inspect the complete intended base → current head change. Use that whole-change review to check task scope, behavioral and safety invariants, unrelated changes, accidental scope expansion, stale references/imports, missing or inappropriate tests, and documentation accuracy. A correction-only delta review must never be presented as a substitute for this complete review.
-
-Do not repeatedly retrieve unchanged large evidence while the PR head is unchanged unless new information is genuinely required. Independent small reads already known to be necessary may be parallelized; do not parallel-fetch speculative large outputs. Prefer active/unresolved review threads and implicated patches over repeatedly loading complete historical review discussion.
-
-CI-specific retrieval semantics remain owned by `docs/CI_AGENT_DIAGNOSTICS.md`; follow its connector-first escalation rather than duplicating a competing Actions-log procedure here.
+Reuse information already retrieved. Do not repeatedly load unchanged large files/diffs merely for completeness.
 
 ### Remote GitHub write discipline
 
@@ -389,149 +225,44 @@ If CI reveals a genuine issue, diagnose and fix it normally.
 
 ### Validation evidence in remote mode
 
-Never claim that a command ran when it did not. In particular, do not say `npm run validate:full passed` merely because GitHub CI passed.
+Never claim that a command ran when it did not. Keep executed validation, inspection, and GitHub CI/check evidence distinct.
 
-Keep three kinds of evidence distinct:
-
-- **executed validation:** commands actually run in an execution environment controlled by the agent or explicitly run by the user at the agent's request;
-- **inspection:** conclusions based on reviewing files/diffs without executing the command;
-- **GitHub CI/check evidence:** validation executed by configured GitHub workflows/check providers.
-
-When local commands cannot run, say so and report the GitHub CI/check evidence actually available. If the affected subsystem requires specialized validation such as `npm run runtime:smoke`, `npm run slide-review:test`, or `npm run slide-review:build`, inspect the equivalent configured GitHub check/workflow evidence where it exists and explicitly report anything that could not be verified. Do not make specialized checks universal CI merely to support remote agents.
-
-For ordinary PR Node tests, the expected CI evidence is intentionally compact: successful tests appear only as progress symbols plus the aggregate summary, while structured failures are collected at the end with actionable diagnostic detail and GitHub annotations. A future change that restores large successful TAP/spec output is a regression in the CI observability contract even if the tests still pass.
+When local commands cannot run, report the GitHub checks actually observed and explicitly state any required validation that could not be verified. A successful GitHub check is CI evidence; it is not evidence that the agent personally ran the corresponding local command.
 
 ### Draft PR as durable handoff
 
-For remote work, the current draft PR is an important persistent handover artifact. A later coding-agent session should normally be able to reconstruct current work from:
+For remote work, the Draft PR is the durable handoff artifact. It should preserve enough branch/diff/CI context for a later session without requiring the original chat.
 
-- PR title/body;
-- current branch diff;
-- commits;
-- PR conversation;
-- inline review threads;
-- CI/check state;
-- repository agent guidance.
+## Hybrid mode
 
-The original chat should not be required. Keep the PR body concise and useful. Sections such as Goal, Behavioral invariants / constraints, Implementation, Validation, Remaining review points, and Explicitly out of scope are useful when the task is non-trivial; do not require a verbose template for trivial changes.
+Use local execution for targeted exploration, implementation, focused tests, and repository validation; use GitHub for branch/PR state, collaboration, review, and CI.
 
-### Optional Preview deployment from remote GitHub mode
+Avoid expensive duplicate reads/validation across both surfaces when one already establishes the fact.
 
-The retained Preview workflow remains:
+## Draft / Ready CI lifecycle
+
+Ordinary PR validation remains:
 
 ```text
-.github/workflows/deploy-pr-to-preview.yml
+Draft PR            → fast ordinary CI
+Ready-for-Review PR → full ordinary CI
+Draft → Ready       → full validation on current head
+same-PR newer run   → supersedes/cancels older same-PR work where configured
+different PRs       → independent
 ```
 
-Do not dispatch it as a routine checkpoint. Use it when the user explicitly requests remote Preview or when production-backed Preview adds concrete review value.
+The repository's validation scripts/workflows own exact check composition. Do not copy a hard-coded test list into task prompts when `agent:checks` can derive it.
 
-If the active GitHub integration exposes an authorized workflow-dispatch action, it may invoke that existing permanent workflow.
+## Remote Preview
 
-If workflow dispatch is **not** exposed by the active integration/session, use another authorized GitHub/terminal surface. Do not create a temporary workflow, source-code trigger, empty deployment commit, or unsafe bypass merely to compensate for missing workflow-dispatch capability.
+The production-backed Preview Worker remains an optional/safety-sensitive capability, not the normal development path.
 
-After deployment, inspect/report the exact PR head SHA that was deployed and keep Preview deployment status separate from merge/production status.
+Use local `npm run dev` / `npm run preview` first when local execution exists. Use remote Preview only when explicitly requested or when it adds concrete value beyond local validation/ordinary PR CI.
 
-For an actual production release, use the permanent production release path documented in `CLOUDFLARE.md`. This document does not reproduce its commands or migration options.
+Remote Preview does not authorize Production D1 migration.
 
-## Mode C — hybrid
+## Production release
 
-Use this mode when GitHub access is available together with a usable local execution surface. That local surface may be either:
+After merge, if a Production release is intended, stop following the development sequence and follow the exact current `docs/CLOUDFLARE.md` runbook.
 
-- directly available to the agent; or
-- explicitly confirmed by the user as a local checkout/terminal they can operate on the agent's instructions.
-
-For the user-assisted Hybrid path, the agent may continue repository/PR work through GitHub while giving the user exact local commands for validation, Vite/Preview, local replica work, or other tasks that are cheaper or only possible locally. Do not claim a user-run command passed until the user supplies its result.
-
-Prefer each capability for what it does best:
-
-```text
-local execution surface
-→ repository exploration when available there
-→ implementation when appropriate
-→ focused testing
-→ repository validation
-GitHub
-→ branch collaboration
-→ PR
-→ review discussion
-→ GitHub CI/check state
-→ handover
-```
-
-Do not force expensive remote repository reads when the same information is already available cheaply in a directly accessible local checkout. Likewise, do not ignore GitHub PR/check state merely because local validation exists.
-
-The local validation contract remains authoritative for work that can actually be executed locally. GitHub CI remains an independent remote gate/evidence source; report user-run or agent-run local command results and CI results separately rather than conflating them.
-
-## GitHub Actions minute policy
-
-GitHub-hosted CI is a shared/limited resource. Prefer spending it on checks that require the repository's remote gate or a deliberately selected Cloudflare deployment rather than on every development iteration.
-
-### Prefer local execution when available for
-
-- repeated `npm run check` while editing;
-- repeated unit-test runs;
-- repeated builds;
-- local Better Auth/D1 smoke tests;
-- local Wrangler runtime checks;
-- visual/UX iteration with real production-derived local content.
-
-### Use GitHub Actions for
-
-- the configured PR CI gate;
-- executable validation when no usable local execution environment is available;
-- the retained production-backed Preview deployment when explicitly requested or when it adds concrete review value;
-- repository workflows that require GitHub secrets or an explicitly remote environment.
-
-Avoid rerunning already-successful jobs unless the candidate changed or the run was genuinely transient/flaky.
-
-The configured PR gate should also remain log-efficient: compact successful Node-test progress is the normal contract, while verbose diagnostic material is reserved for failures. Do not trade away that signal-to-noise improvement by restoring per-test success records.
-
-The dedicated Wrangler runtime smoke workflow is intentionally path-filtered to runtime/toolchain files instead of charging every unrelated UX/content PR. If its scope changes later, preserve that principle unless a broader gate is required for reliability.
-
-## Wrangler / compatibility-date maintenance
-
-Wrangler/workerd and `wrangler.jsonc` compatibility dates are one runtime contract.
-
-The exact `wrangler` devDependency recorded by `package.json` and `package-lock.json` is the repository authority. Normal package scripts and deployment workflows use that installed copy; do not add an alternate `npx wrangler@...` version for one command or environment.
-
-When changing `compatibility_date` or Wrangler-related tooling:
-
-1. update the exact repository pin and lockfile together when the runtime version changes;
-2. ensure the selected Wrangler/workerd runtime supports the requested date;
-3. run `npm run runtime:smoke` when command execution is available;
-4. test `npm run preview` locally when a usable local execution environment is available and the full application runtime is relevant;
-5. inspect/run the relevant CI/toolchain validation according to the selected execution mode;
-6. do not lower a compatibility date merely to hide an outdated local runtime unless that rollback is itself an intentional reviewed change.
-
-Release-critical procedures remain documented in `CLOUDFLARE.md`; do not duplicate them here.
-
-## Agent instruction
-
-At task start, determine whether the agent itself has:
-
-- usable shell/command execution;
-- a usable repository checkout and Git working tree;
-- ability to run repository-owned commands;
-- GitHub repository/PR/check access.
-
-For GitHub-connected web chat, default to Remote GitHub mode when no local execution surface is directly available. Do not ask the user to reconfirm that they lack terminal access on each task. If the user explicitly states that a usable local checkout/terminal is available for them to operate, treat that as an available user-operated execution surface and use Hybrid mode where appropriate. Merely saying that they are on a laptop or phone does not establish terminal availability.
-
-Also identify the requested work state before selecting or creating a branch. Continue an explicitly targeted existing PR/branch at its current head and intended base; otherwise resolve a new intended base, normally the latest `main`.
-
-In every mode:
-
-- use the minimum-context routing in root `AGENTS.md` and `AGENT_TASK_MAP.md`;
-- preserve subsystem-specific validation requirements;
-- distinguish agent-run commands, user-run commands, inspection, and GitHub CI evidence;
-- review the complete diff before principal handoff;
-- preserve focused PR scope and leave unrelated cleanup out unless required for safe completion.
-
-## Safety boundaries common to all modes
-
-- Local replica refresh remains **read production / write local** only.
-- Ordinary local app development must not use writable production bindings.
-- Preview deployment must not apply D1 migrations.
-- A migration merged to `main` is not proof that it is applied to production D1.
-- Preview Worker deployment is not production Worker deployment.
-- Production release/migration operations remain separate explicit operator actions whose exact procedure is authoritative in `CLOUDFLARE.md`.
-- Never add temporary workflows or broaden credentials simply to compensate for a missing execution capability.
+Never infer Production release steps from an old PR body, historical plan, or this development guide.

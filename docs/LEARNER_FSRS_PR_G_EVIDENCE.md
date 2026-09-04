@@ -1,133 +1,136 @@
 # Learner FSRS PR G — Admin analytics/history and account deletion evidence
 
-_Status: implementation evidence for the focused PR G branch; not Production deployment evidence._
+_Status: historical implementation/validation evidence for merged PR #141; not Production deployment evidence._
 
-PR G follows merged PR #139 / PR F and implements the remaining V1 Admin analytics/history and mature-account deletion scale gate from the locked learner FSRS authority chain.
+PR #141 / PR G is merged on current `main`. This file records the focused tranche's implementation decisions and validation contract; use `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` and `V1_DATA_MODEL.md` for current repository status/semantics.
 
 ## Scope implemented
 
-PR G adds:
+PR G added:
 
 - durable learner × historical-System × UTC-calendar-month Scheduled analytics buckets;
-- migration-time backfill only from detailed `scheduled_review_events` that still exist when migration `0025` is applied;
-- transactional bucket maintenance for every newly committed Scheduled Review event;
-- Production Admin read-only learner history, learner-wide lifetime totals, per-System lifetime totals, per-System monthly trends and cross-learner System monthly trends;
-- a stable cohort trend whose cohort key is the learner account-created UTC month and whose activity axis uses the same durable monthly buckets;
-- registration of monthly System attribution with the existing centralized taxonomy deletion/provenance authority and defensive database guards;
-- the mature learner account-deletion scale gate and retry-safe staged deletion path;
-- bounded deletion benchmarks plus local workerd/D1 deletion proof.
+- migration-time backfill only from detailed `scheduled_review_events` still retained when migration `0025` is applied;
+- transactional bucket maintenance for newly committed Scheduled Reviews;
+- Production Admin learner lifetime/history/System/cohort trend read models;
+- stable cohort membership based on learner account-created UTC month;
+- registration of monthly System attribution with the centralized taxonomy provenance authority;
+- the mature learner account-deletion scale gate;
+- retry-safe staged account deletion with bounded phases;
+- bounded synthetic benchmark and local workerd/D1 proof.
 
-PR G does not implement optimizer execution, automatic parameter replacement, learner Scheduled/Free UX changes, or any resurrection of `reviews`, `review_questions`, or `review_assets`.
+PR G explicitly did **not** implement optimizer execution, automatic parameter replacement, learner Scheduled/Free UX redesign, or resurrection of the legacy persisted Review model.
 
-## Durable monthly analytics semantics
+## Durable monthly analytics
 
 Physical table:
 
-`learner_system_monthly_buckets`
+```text
+learner_system_monthly_buckets
+```
 
 Primary key:
 
-`(user_id, system_id, month_start)`
+```text
+(user_id, system_id, month_start)
+```
 
-`month_start` is the UTC first instant of the calendar month. Each row stores compact Scheduled completion/rating counts plus first/last completion timestamps for that learner, historical System, and month.
+`month_start` is the first instant of the UTC calendar month. Each row stores compact Scheduled completion/rating counts plus first/last completion timestamps for that learner and historical System.
 
-The bucket is written by an `AFTER INSERT` trigger on `scheduled_review_events`. The event insert and bucket update therefore share the same database transaction as Scheduled completion. A lost-response retry that reuses the already committed Scheduled event cannot increment the bucket again.
+The bucket is maintained by an `AFTER INSERT` trigger on `scheduled_review_events`, so the Scheduled event and monthly increment share the completion transaction. Exactly-once event insertion therefore prevents response retries from double-counting the monthly bucket.
 
-Detailed-history cleanup does not delete monthly buckets. Long-range Admin trend queries read these buckets directly; they do not scan optimizer evidence and they do not reconstruct expired months from `learner_system_aggregates`.
+Detailed-history cleanup does not delete monthly buckets. Long-range trends read the durable buckets directly.
 
-Migration `0025` backfills buckets from the detailed Scheduled events retained at migration time. It deliberately does not manufacture months that had already expired before PR G existed. Consequently the durable long-range time series is truthful from retained migration history forward, rather than pretending lifetime totals contain a historical time axis.
+Migration `0025` deliberately does **not** manufacture months already lost to retention. Its backfill reads only Scheduled events retained when the migration is applied; it does not infer a time axis from lifetime aggregates or optimizer evidence.
 
 ## Stable cohort definition
 
 V1 cohort membership is:
 
-**learner Better Auth account-created UTC month**.
+```text
+learner Better Auth account-created UTC month
+```
 
-Cohort trend measures are aggregated from `learner_system_monthly_buckets` by activity month. Account deletion removes that learner's bucket rows, so the deleted learner's contribution is removed from later cohort/System reads as required by the readiness contract.
+Activity is aggregated from monthly buckets by activity month. Account deletion removes the learner's monthly bucket rows, removing that learner's contribution from subsequent cohort/System reads.
 
 ## Historical System attribution
 
-Monthly rows persist the `system_id` captured by the Scheduled event at study time. They do not reclassify activity using the Case's current taxonomy.
+Monthly rows retain the `system_id` captured by the Scheduled event at study time. They do not reclassify historical activity using current Case taxonomy.
 
-`fsrs-system-provenance.ts` now centrally checks all three durable V1 System-history owners:
+The centralized durable System-history authority covers:
 
 - `scheduled_review_events`;
 - `learner_system_aggregates`;
 - `learner_system_monthly_buckets`.
 
-Migration `0025` adds defensive kind-change and delete guards for the monthly table. A System identity cannot be reclassified away or permanently deleted while any retained monthly contribution depends on it.
+Application checks plus migration `0025` database guards prevent System deletion/reclassification while retained monthly history depends on the identity.
 
 ## Account deletion scale-gate decision
 
 Decision: **retry-safe staged deletion**.
 
-Direct cascade is not the supported mature-account path because Scheduled history and current-generation optimizer evidence are not bounded by a finite lifetime row maximum. Therefore there is no universal finite worst-supported learner size for which a one-shot cascade can be certified safe.
+A universal one-shot cascade could not be certified for the mature supported account shape because Scheduled history/current-generation optimizer evidence are not lifetime-bounded by a finite maximum row count.
 
 The staged path:
 
-1. creates a durable `learner_account_deletions` marker;
-2. bans the learner and commits that access-disabled state with the durable deletion marker;
-3. the request hook treats that marker as immediate access denial even while old session/account rows remain; database guards reject new sessions, linked accounts, and active Reviews;
-4. drains existing Better Auth sessions as the first retry-safe phase, deleting at most 1,000 rows per step;
-5. stages learner-owned Better Auth verification rows and linked accounts under the same 1,000-row bound before FSRS/runtime cleanup;
-6. is retry-safe if a delete commits but the phase update does not;
-7. performs a full residual rescan before declaring the identity ready for deletion;
-8. keeps a database guard on learner `user` deletion so any surviving session/account/verification/application row forces final identity deletion to fail closed and be retried;
-9. calls pinned Better Auth Admin `removeUser` only after the staged data gate is clear, where the auth-owned collection deletes are already zero-row operations.
+1. persists a durable deletion marker;
+2. bans/denies access immediately with application/database guards respecting the marker;
+3. drains Better Auth sessions in bounded phases;
+4. drains learner-owned verification/account rows in bounded phases;
+5. drains FSRS/runtime ownership in bounded retry-safe phases;
+6. tolerates a delete committing before the phase marker advances;
+7. performs a residual rescan before final identity deletion;
+8. keeps final user deletion fail-closed when any owned row survives;
+9. invokes pinned Better Auth user removal only after the staged gate is clear.
 
-Receipt/history rows are deleted before active Reviews so the existing completion-expiry deletion guards cannot obstruct account erasure in an abnormal partially-consumed Review state.
+Receipt/history cleanup precedes active Review cleanup where required so existing completion-expiry guards cannot strand account erasure in an abnormal partially-consumed state.
 
 ## Better Auth 1.6.25 boundary
 
 The repository remains pinned to Better Auth `1.6.25`.
 
-The pinned Admin `removeUser` implementation deletes user sessions and then delegates user deletion; the pinned internal adapter deletes sessions/accounts and finally the user identity. The Better Auth `verification` table has no user foreign key. In the pinned password-reset flow, reset verification rows store the learner user id in `verification.value`.
+PR G accounts for the pinned reset-verification ownership behavior: learner-owned reset verification rows use the learner user id in the relevant `verification.value` flow and must be removed before final identity deletion without deleting unrelated verification records.
 
-PR G therefore stages `verification` rows with `value = learner user id` before FSRS/runtime child deletion and includes that condition in the final user-delete guard. This prevents a retained password-reset verification row from surviving account deletion while leaving unrelated verification records untouched.
+## Mature-account benchmark fixture
 
-## Mature-account benchmark contract
+The synthetic benchmark contract includes at least:
 
-Commands:
+- 5,000 learner×Case FSRS states;
+- 5,000 learner×Case encounters;
+- 20,000 Scheduled Review events;
+- 20,000 optimizer-evidence rows;
+- 2,000 Free completion receipts;
+- 60 months of monthly System attribution across representative Systems;
+- learner/System and learner-wide aggregates;
+- an active Review with 256 frozen questions and 64 assets;
+- 5,000 Better Auth sessions;
+- 2,500 Better Auth linked/credential accounts;
+- a learner-owned password-reset verification row.
+
+The local workerd/D1 smoke uses a smaller multi-batch fixture while proving the same state-machine semantics through the actual D1 binding. Timing measurements are environment-specific evidence, not Production latency promises.
+
+Repository commands:
 
 ```text
 npm run fsrs:account-deletion-benchmark
 npm run fsrs:account-deletion-d1-smoke
+npm run fsrs:pr-g-acceptance-d1
 ```
-
-The synthetic mature learner benchmark includes, at minimum:
-
-- 5,000 learner×Case FSRS states;
-- 5,000 learner×Case encounter rows;
-- 20,000 Scheduled Review events;
-- 20,000 optimizer-evidence rows;
-- 2,000 Free completion receipts;
-- 60 months of generated monthly System attribution across representative Systems;
-- learner/System and learner-wide aggregates;
-- an active Review with 256 frozen questions and 64 assets;
-- 5,000 Better Auth sessions, 2,500 Better Auth linked/credential accounts, and a learner-owned password-reset verification row.
-
-The local workerd/D1 smoke uses a smaller but multi-batch fixture with 2,500 sessions, 1,500 linked/credential accounts, and the same verification ownership class, and proves the same state machine through the actual D1 binding. Benchmark timings are environment-specific evidence, not Production latency promises; the merge handoff records the exact-head CI measurements.
 
 ## Regression coverage
 
-PR G tests cover:
+PR G coverage includes:
 
-- monthly bucket population and rating counts;
-- bucket survival after detailed Scheduled events are deleted;
-- Admin trend reads remaining available without reconstructing expired detailed history;
+- monthly bucket creation/rating counts;
+- bucket survival after detailed Scheduled events expire/delete;
+- Admin trend reads without reconstruction from lifetime/optimizer state;
 - account-created-month cohort semantics;
-- monthly System attribution blocking raw System reclassification/deletion;
-- access revocation before staged cleanup;
-- database blocking of mature direct user cascade;
-- per-step deletion row bound;
-- retry progression to identity-ready;
-- deletion of Scheduled events, optimizer evidence, Case state, encounters, aggregates, monthly buckets, active Review children, Free receipts, preferences and profile state;
-- Better Auth reset-verification cleanup without deleting unrelated verification rows;
-- immediate marker-authoritative access denial, bounded multi-batch session/account purge, and new-session/new-account guards during deletion;
-- final auth account cascade at identity-root deletion;
-- Drizzle schema registration and production-to-local replica exclusion contract;
-- no legacy Review persistence resurrection.
+- historical monthly System provenance guards;
+- immediate access revocation before staged cleanup completes;
+- bounded/retry-safe auth/application deletion phases;
+- residual-data fail-closed identity deletion;
+- removal of monthly/cohort contribution on account deletion;
+- no resurrection of legacy Review tables.
 
-## Operational boundary
+## Production boundary
 
-This PR changes repository schema/code/tests/docs only. It does not apply migration `0025` to Production, mutate Production D1/R2, run an optimizer, replace learner FSRS parameters, or deploy a Worker.
+PR #141 merge proves repository implementation/validation only. It does not establish that migration `0025` is applied to Production, that the Worker is deployed, that analytics/deletion are enabled, or that live Production behavior has been verified.

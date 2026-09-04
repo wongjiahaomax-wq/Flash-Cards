@@ -1,62 +1,63 @@
 # Flash-Cards — Current Product Roadmap
 
-_Last updated: 3 September 2026_
+_Last reconciled: 4 September 2026._
 
-This is the short status map for what is **explicitly verified in Production**, what the **current repository architecture** owns, and what remains product/engineering work. Detailed semantics live in `HANDOVER.md`, `V1_DATA_MODEL.md`, `AUTHORING_MODEL.md`, and the relevant subsystem contracts.
-
-For the learner FSRS cutover, also read `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md`. That document records the post-cutover runtime ownership and supersedes the readiness contract's pre-cutover observation that then-current `main` still used persisted legacy Reviews.
+This is the shortest current status map. It separates verified Production facts from repository state and future work.
 
 ## Status boundary
 
-Keep these facts separate:
+Always keep these facts distinct:
 
 ```text
 merged on main
-≠ migration applied to Production D1
-≠ Worker deployed
-≠ learner feature enabled
-≠ behavior explicitly verified in Production
+!= migration applied to Production D1
+!= Worker deployed
+!= feature enabled
+!= learner rollout completed
+!= behavior explicitly verified in Production
 ```
 
-A repository change may be correct and merged without being deployed or enabled. Do not infer Production state from merge state.
+This reconciliation was prepared from `main` after merged PR #142. The implemented repository migration boundary is `0025_learner_fsrs_admin_analytics_deletion.sql`.
+
+The GitHub repository is public. The application remains closed-enrollment/private; public self-registration is disabled on current repository code.
 
 ## Explicitly verified Production baseline
 
-The recorded verified Production baseline includes:
+The durable project record verifies a Production baseline that predates the FSRS rollout and includes:
 
-- D1-backed learner Study/Review flow from the pre-FSRS Production runtime;
-- protected private R2 teaching images;
-- Better Auth Production Admin and Preview Admin boundaries;
-- Admin CMS for Cases, Questions, Shared Questions, Images, Topics, Tags, and reviewed imports;
-- optional stimulus groups/options with exact-option and set-wide contextual questions;
+- authenticated D1-backed learner Study/Review from the pre-FSRS runtime;
+- private R2 teaching-image delivery;
+- Better Auth Production/Preview role boundaries;
+- Production Admin CMS for Cases, Questions, Shared Questions, Images, Systems/Topics, Tags, and reviewed imports;
+- Image Management V2 and Collections;
 - Tagging Stage A/B;
-- Production-backed Preview Admin workspace;
-- Image Management V2 with Collections and bounded operations;
-- wide responsive Admin workspace;
-- first ECG/Anki source deck fully represented and verified in Production: **66/66 source notes**.
+- Production-backed Preview Admin;
+- the first ECG/Anki corpus represented and verified in Production: 66/66 source notes.
 
-The repository contains later FSRS code and migrations beyond this verified Production baseline. Treat those as repository behavior until separate deployment evidence exists.
-
-The Production-backed Preview Admin still exists, but local clone + local production-like D1/R2 remains the primary development/integration verification path.
+The repository now contains substantially newer FSRS code/migrations. Do **not** relabel those as Production-deployed without separate release/migration evidence.
 
 ## Current repository learner architecture
 
-The learner repository architecture is now Systems-first and FSRS-owned:
+Normal `/study` is FSRS/Free owned:
 
-- learner Study selects a System and contributing Topic/Tag routes;
-- Scheduled Study and Free Study are explicit run modes;
-- run-size choices are **5 / 10 / 20 / All**;
-- Expanded Learning is a learner preference rather than a legacy per-Review continuation runtime;
-- unfinished learner work is owned by `active_reviews`, `active_review_questions`, and `active_review_assets`;
-- Scheduled completion writes durable FSRS state/events through the Scheduled completion owner;
-- Free completion remains non-scheduling learner exposure with its own completion receipt/state owner;
-- active Review media, not legacy `review_assets`, owns frozen unfinished learner media;
+- learner entry is Systems-first;
+- modes are Scheduled Study and Free Study;
+- run sizes are 5 / 10 / 20 / All available Cases, default 10;
+- Scheduled ratings are Again / Hard / Good / Easy;
+- Expanded Learning is a learner preference/content-mode choice, not the old persisted-Review continuation architecture;
+- unfinished learner work is `active_reviews` / `active_review_questions` / `active_review_assets`;
+- Scheduled completion advances FSRS state and writes durable Scheduled events/aggregates;
+- Free completion records non-scheduling exposure with its own receipt/aggregate ownership;
 - browser run state is convenience state only and cannot mint scheduler authority;
-- server-authenticated run/scope/work proofs protect Scheduled captured-work membership and repeat origin.
+- server-authenticated run/scope/work proofs protect captured run membership;
+- Reset Progress and Fresh FSRS Start invalidate stale active/browser work through generation/review-sequence boundaries;
+- learner Progress is implemented;
+- detailed Scheduled-history retention supports 24m / 36m / 60m / indefinite;
+- Admin learner retention controls are implemented;
+- durable monthly Admin analytics and stable account-created-month cohort trends are implemented;
+- mature learner account deletion uses retry-safe staged deletion rather than an unbounded one-shot cascade.
 
-The physical legacy tables `reviews`, `review_questions`, and `review_assets` remain migration-history / zero-data cutover sentinels only. They are not exported by the current application Drizzle schema and are not a supported learner runtime mode.
-
-Production rollout is guarded by the zero-legacy-Review preflight. Unexpected Production legacy rows stop the cutover; the gate is not a deletion mechanism.
+Legacy `reviews`, `review_questions`, and `review_assets` remain only as physical migration-history/cutover-sentinel tables. They are not the current learner runtime owner.
 
 ## Current Admin/content model
 
@@ -68,12 +69,14 @@ System
         ├── zero or more Case Tags
         ├── fixed Assets
         ├── zero or more Alternative Sets
-        └── contextual questions
+        └── contextual Questions
 ```
 
-Systems are top-level learner-navigation groupings. Cases attach to Topics, never Systems. Tags remain flat cross-cutting metadata; System↔Tag exposure is a separate global learner-navigation curation operation.
+Systems are top-level learner navigation. Cases attach to Topics, never directly to Systems. Tags are flat cross-cutting classification; System↔Tag exposure is separate global navigation curation.
 
-Current Admin surfaces include:
+Additional Study Topics are retired from current behavior. Historical `case_concepts.role = 'secondary'` rows may remain as inert compatibility data.
+
+Current repository Admin navigation includes:
 
 ```text
 Dashboard
@@ -83,129 +86,95 @@ Shared Questions
 Images
 Systems & Topics
 Tags
+Learner analytics
+Learner retention
 Import package
 Admin Study Preview
 ```
 
-Admin Study Preview resolves current learner content without writing learner preferences, FSRS state, active Reviews, completion receipts, or legacy Review rows. The retained local FSRS regression preview remains a separate local-only engineering surface.
+Admin Study Preview must remain outside learner persistence.
 
-Additional Study Topics remain retired from current product behavior. Historical `case_concepts.role = 'secondary'` rows may remain as compatibility data, but current authoring/read/import/Preview/learner paths do not create or use them as active Case classification.
+## FSRS programme state
 
-## Repository migration boundary
+Completed repository tranches:
 
-The repository now contains the FSRS foundation, active Review, Scheduled completion, Free Study, and subsequent learner FSRS migrations. D1 trigger migrations must remain compatible with the repository remote-statement splitter contract; the current parser-safe trigger form is part of that migration contract.
+- Parts A–E — foundation, run/proof, active Review, Scheduled completion, Free Study;
+- PR #137 — real `/study` runtime cutover and legacy Review retirement;
+- PR #139 / PR F — Reset Progress, Fresh FSRS Start, detailed-history retention/control, learner Progress;
+- PR #141 / PR G — durable monthly Admin analytics, stable cohort trends, System provenance extension, mature-account-deletion scale gate and staged deletion path.
 
-Historical migrations are immutable history. Their existence does not make the old learner Review model a current application schema owner.
+Still outside the implemented PR G scope:
 
-## Durable learner history and taxonomy safety
+- automatic FSRS optimizer execution;
+- automatic parameter replacement/rescheduling from optimizer results.
 
-Durable learner-history System attribution is centrally protected. Current durable attribution includes Scheduled Review events and learner System aggregates. Application taxonomy writers and defensive database triggers prevent permanent System deletion/reclassification while that durable attribution exists.
+Those are not implicitly authorized by the presence of optimizer evidence/storage.
 
-Any future durable System-attribution table must be registered with the same provenance authority.
+## Current product/engineering priorities
 
-## Real ECG/Anki migration
+### 1. Production FSRS rollout and verification
 
-Production verification on 18 August 2026 recorded:
+The next operational FSRS step is not more repository cutover implementation. It is controlled Production rollout when separately authorized:
 
-```text
-Batch 01 imported Cases/ECGs:      13
-Batch 02 imported Cases/ECGs:      51
-Pre-existing mapped calcium Cases:  2
-                         ----
-Source notes represented:          66 / 66
-```
+- establish the exact reviewed release commit;
+- run the Production zero-legacy-Review preflight;
+- apply the required Production D1 migrations in order through the intended boundary;
+- deploy the reviewed Worker;
+- explicitly verify Scheduled Study, Free Study, active Review resume/media, run continuation, Reset/Fresh, Progress, Admin retention, Admin analytics, and Admin Study Preview isolation;
+- preserve stop/fail-closed decisions when any preflight invariant fails.
 
-Initial ingestion is complete. Remaining ECG work is curation/enrichment, not re-ingestion.
+No documentation-only PR authorizes those Production operations.
 
-## Current product work
+### 2. Account Management v1
 
-### 1. Complete FSRS cutover validation and rollout
+Account Management design is committed, but implementation is not on the reconciliation base:
 
-Before normal Production rollout:
+- PR #96 — open draft: password recovery and transactional-email foundation;
+- PR #97 — open draft: Production Admin account management, stacked on #96.
 
-- keep the runtime-cutover PR on current `main`;
-- obtain green exact-head repository validation plus specialized FSRS runtime/D1 checks;
-- run the Production zero-legacy-Review preflight before any deployment/migration step;
-- deploy/migrate only through a separately executed Production operation;
-- explicitly verify learner Scheduled, Free, resume/discard, run continuation, active media, and Admin Preview isolation after rollout.
+Do not call those features merged until the PRs actually merge.
 
-### 2. Curate the real corpus and learner taxonomy
+### 3. Real-corpus taxonomy and content curation
 
-Use real Cases to refine canonical Primary Topics, Case Tags, System↔Tag exposure, Shared Questions, Reusable Image Questions, and stimulus variants. Promote reusable knowledge only when Prompt/answer semantics remain reliably correct across the intended scope.
+Continue refining:
 
-### 3. Validate newer Admin workflows with real use
+- canonical Primary Topics;
+- Case Tags;
+- System↔Tag exposure;
+- Shared Questions;
+- Reusable Image Questions;
+- curated Original/Alternative stimulus families.
 
-The taxonomy workspace, Case lifecycle/recovery surfaces, bulk Topic assignment, inline/bulk Tag editing, Case Library search changes, and Admin Study Preview should continue to be exercised with normal local/manual UX testing before adding another classification model or broad redesign.
+Use real content evidence rather than introducing another classification model prematurely.
 
-### 4. Account Management v1 implementation
+### 4. Measurement-driven performance work
 
-`ACCOUNT_MANAGEMENT_PLAN.md` is merged design context. Password-recovery/email foundation and routine Production account administration remain separate implementation work until their implementation PRs merge and are deployed.
+Continue only from measured bottlenecks. Candidate areas include:
 
-Public self-registration remains disabled unless a separately reviewed product decision changes that contract.
+- Better Auth short-lived session/cookie behavior;
+- FSRS Study/run-planning read paths;
+- Case-editor server read/lazy-loading boundaries;
+- image thumbnail delivery;
+- query/index tuning backed by measurements/EXPLAIN.
 
-### 5. Learner-progress administration
+Do not add caches/indexes solely because they are conventional.
 
-Build learner progress/admin reporting on the durable FSRS model rather than the retired persisted Review model. Start with useful learner/state/recent-event views and only add sophisticated analytics when real usage establishes requirements.
+### 5. Documentation and agent-context hygiene
 
-### 6. Continue measurement-driven performance work
-
-Completed work includes bounded Admin read models and targeted Case Library search/read-path improvements.
-
-Remaining work should stay evidence-driven:
-
-```text
-Better Auth short-lived session cookie-cache investigation
-learner FSRS Study/run-planning/read-model optimisation
-Case-editor server read/lazy-loading boundaries
-image thumbnails and measured EXPLAIN/index tuning
-```
-
-Do not add caches or indexes merely because they are common performance techniques; measure the active bottleneck first.
+Keep living authorities concise and current. Historical plans/evidence should remain historical rather than competing with current docs. Use `DOCUMENTATION_MAINTENANCE.md` to prevent future status/migration/runtime drift and reduce coding-agent context load.
 
 ## Developer/tooling baseline
 
-The repository provides:
+Current repository tooling includes:
 
-- capability-based Local / Remote GitHub / Hybrid agent execution guidance;
-- scoped `AGENTS.md` files plus `AGENT_TASK_MAP.md`;
-- Node 22 contract;
+- Node 22;
+- `npm run deps:ensure` for dependency reuse after branch sync;
 - `agent:doctor`, `agent:checks`, `validate:fast`, `validate:full`;
-- repository-owned ordinary CI/local validation definitions;
-- Draft PR fast validation and Ready PR full validation through the same shared contract;
-- same-PR CI concurrency cancellation without cross-PR cancellation;
-- repository-pinned Wrangler/workerd runtime with dedicated runtime smoke;
-- FSRS-specific D1/runtime/benchmark workflows;
-- deterministic local `npm run dev` / `npm run preview` launchers using repository-local Wrangler/XDG state;
-- Production-like read-production/write-local development replica;
+- Draft-fast / Ready-full ordinary CI;
+- same-PR concurrency cancellation;
+- pinned Wrangler/workerd runtime smoke;
+- specialized FSRS D1/runtime/benchmark workflows;
+- local production-like content replica;
 - local slide-review/finalizer tooling.
 
-Normal development remains local-first:
-
-```text
-npm run local:refresh   # when fresh production-derived content is needed
-npm run dev             # fast iteration / hot reload
-npm run local:stop
-npm run preview         # production-style local verification
-repository validation / GitHub CI
-```
-
-Remote Preview deployment is retained as an optional capability, not a required integration gate.
-
-## Deliberately deferred / separated
-
-Unless concrete evidence creates a need, keep separate or deferred:
-
-- revival of Additional Study Topics;
-- further Preview backend decomposition merely to finish an old sequence;
-- remote Preview Admin decommissioning without a dedicated assessment;
-- compound Shared Question reuse scopes;
-- Tag hierarchy/aliases;
-- automatic/AI clinical classification without reviewed workflow;
-- generic Asset-family/version systems;
-- permanent Asset/R2 deletion without conservative safety design;
-- broad non-image media types;
-- rich WYSIWYG authoring.
-
-## Implementation principle
-
-Prefer real-content curation, observed learner/Admin friction, focused maintainability work in actively changed paths, and measured performance evidence over speculative schema expansion or preservation of obsolete runtime compatibility layers.
+The repository-installed dependencies and committed lockfile are authoritative. Production deployment remains governed by `CLOUDFLARE.md`.
