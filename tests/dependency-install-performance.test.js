@@ -32,6 +32,7 @@ const workflowPaths = [
   '.github/workflows/wrangler-runtime-smoke.yml',
 ];
 
+/** @param {string} fixture @param {string} [suffix] */
 function writeFixturePackage(fixture, suffix = '') {
   fs.writeFileSync(path.join(fixture, 'package.json'), JSON.stringify({ name: `fixture${suffix}` }));
   fs.writeFileSync(path.join(fixture, 'package-lock.json'), JSON.stringify({ name: 'fixture', lockfileVersion: 3 }));

@@ -9,6 +9,13 @@ import { findRepositoryRoot } from './agent-doctor-lib.mjs';
 export const DEPENDENCY_STAMP_FILENAME = '.flash-cards-deps-fingerprint';
 export const NPM_CI_ARGS = ['ci', '--prefer-offline', '--no-audit', '--no-fund'];
 
+/** @typedef {Record<string, string | undefined>} StringEnvironment */
+/** @typedef {{ status: number | null, error?: Error }} SpawnResult */
+/** @typedef {(executable: string, args: string[], options: { cwd: string, stdio: 'inherit', env: StringEnvironment }) => SpawnResult} SpawnCommand */
+
+/** @type {SpawnCommand} */
+const defaultSpawn = (executable, args, options) => spawnSync(executable, args, options);
+
 /** @param {string[]} argv */
 export function parseDepsEnsureArgs(argv) {
   let force = false;
@@ -79,7 +86,7 @@ export function writeDependencyStamp(root, fingerprint = dependencyFingerprint(r
   return stampPath;
 }
 
-/** @param {NodeJS.ProcessEnv} [env] @param {NodeJS.Platform} [platform] */
+/** @param {StringEnvironment} [env] @param {NodeJS.Platform} [platform] */
 export function resolveNpmCiInvocation(env = process.env, platform = process.platform) {
   if (env.npm_execpath) {
     return {
@@ -95,15 +102,13 @@ export function resolveNpmCiInvocation(env = process.env, platform = process.pla
 
 /**
  * @param {string} root
- * @param {{ force?: boolean, spawn?: typeof spawnSync, env?: NodeJS.ProcessEnv, platform?: NodeJS.Platform }} [options]
+ * @param {{ force?: boolean, spawn?: SpawnCommand, env?: StringEnvironment, platform?: NodeJS.Platform }} [options]
  */
 export function ensureDependencies(root, options = {}) {
-  const {
-    force = false,
-    spawn = spawnSync,
-    env = process.env,
-    platform = process.platform,
-  } = options;
+  const force = options.force ?? false;
+  const spawn = options.spawn ?? defaultSpawn;
+  const env = options.env ?? process.env;
+  const platform = options.platform ?? process.platform;
   const fingerprint = dependencyFingerprint(root);
   const status = dependencyReuseStatus(root, fingerprint);
 
