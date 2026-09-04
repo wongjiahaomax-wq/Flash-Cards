@@ -5,20 +5,23 @@ import {
 
 /** @typedef {{getItem:(key:string)=>string|null,setItem:(key:string,value:string)=>void,removeItem:(key:string)=>void}} LearnerRunStorage */
 
-export const LEARNER_STUDY_RUN_STORAGE_KEY = 'flash-cards:learner-study-run:v1';
+export const LEARNER_STUDY_RUN_STORAGE_KEY = 'flash-cards:learner-study-run:v2';
+export const LEGACY_LEARNER_STUDY_RUN_STORAGE_KEY = 'flash-cards:learner-study-run:v1';
 
-/** @param {unknown} descriptor */
 export function isLearnerStudyRunDescriptor(descriptor) {
   return isFsrsPreviewRunDescriptor(descriptor);
 }
-
-/** @param {unknown} descriptor @param {unknown} userId */
 export function isLearnerStudyRunOwnedBy(descriptor, userId) {
   return isFsrsPreviewRunOwnedBy(descriptor, userId);
 }
 
-/** @param {LearnerRunStorage} storage */
+function retireLegacyState(storage) {
+  storage.removeItem(LEGACY_LEARNER_STUDY_RUN_STORAGE_KEY);
+}
+
 export function readLearnerStudyRun(storage) {
+  // The one-time fenced zero-data cutover explicitly retires v1 browser state.
+  retireLegacyState(storage);
   const raw = storage.getItem(LEARNER_STUDY_RUN_STORAGE_KEY);
   if (!raw) return null;
   try {
@@ -30,8 +33,6 @@ export function readLearnerStudyRun(storage) {
   storage.removeItem(LEARNER_STUDY_RUN_STORAGE_KEY);
   return null;
 }
-
-/** @param {LearnerRunStorage} storage @param {string} userId */
 export function readLearnerStudyRunForUser(storage, userId) {
   const descriptor = readLearnerStudyRun(storage);
   if (!descriptor) return null;
@@ -39,17 +40,13 @@ export function readLearnerStudyRunForUser(storage, userId) {
   storage.removeItem(LEARNER_STUDY_RUN_STORAGE_KEY);
   return null;
 }
-
-/** @param {LearnerRunStorage} storage @param {any} descriptor */
 export function writeLearnerStudyRun(storage, descriptor) {
-  if (!isLearnerStudyRunDescriptor(descriptor)) {
-    throw new TypeError('Learner Study run descriptor is invalid.');
-  }
+  if (!isLearnerStudyRunDescriptor(descriptor)) throw new TypeError('Learner Study run descriptor is invalid.');
+  retireLegacyState(storage);
   storage.setItem(LEARNER_STUDY_RUN_STORAGE_KEY, JSON.stringify(descriptor));
   return descriptor;
 }
-
-/** @param {LearnerRunStorage} storage */
 export function clearLearnerStudyRun(storage) {
   storage.removeItem(LEARNER_STUDY_RUN_STORAGE_KEY);
+  retireLegacyState(storage);
 }
