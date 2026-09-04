@@ -20,7 +20,6 @@ on:
       - 'src/lib/server/db/fsrs-analytics-schema.js'
       - 'src/lib/server/db/fsrs-system-provenance.ts'
       - 'src/lib/server/db/learner-account-deletion.ts'
-      - 'src/routes/admin/+layout.svelte'
       - 'src/routes/admin/learner-analytics/**'
       - 'test/learner-fsrs-pr-g.test.js'
       - 'test/learner-fsrs-pr-g-source-contract.test.js'
