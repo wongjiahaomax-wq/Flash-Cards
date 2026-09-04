@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+/** @param {string} path */
 function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
+/** @param {string} text @param {readonly string[]} markers */
 function assertOrdered(text, markers) {
   let previous = -1;
   for (const marker of markers) {
