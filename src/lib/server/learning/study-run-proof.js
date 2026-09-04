@@ -5,6 +5,10 @@ export const STUDY_RUN_PROOF_VERSION = 2;
 export const CAPTURED_MEMBERSHIP_CHUNK_SIZE = 64;
 
 export class StudyRunProofError extends Error {
+  /**
+   * @param {'invalid-secret'|'invalid-token'|'unsupported-version'|'invalid-signature'|'wrong-owner'|'wrong-run'|'wrong-scope'|'wrong-boundary'|'wrong-queue'|'not-member'|'wrong-case'} code
+   * @param {string} message
+   */
   constructor(code, message) {
     super(message);
     this.name = 'StudyRunProofError';
@@ -12,6 +16,7 @@ export class StudyRunProofError extends Error {
   }
 }
 
+/** @param {unknown} value */
 function requireSecret(value) {
   if (typeof value !== 'string' || value.length < 32) {
     throw new StudyRunProofError('invalid-secret', 'Study run proof signing requires a server secret of at least 32 characters.');
@@ -19,6 +24,7 @@ function requireSecret(value) {
   return value;
 }
 
+/** @param {Uint8Array} bytes */
 function base64UrlEncode(bytes) {
   let binary = '';
   const chunkSize = 0x8000;
@@ -28,6 +34,7 @@ function base64UrlEncode(bytes) {
   return btoa(binary).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/u, '');
 }
 
+/** @param {string} value */
 function base64UrlDecode(value) {
   if (!value || !/^[A-Za-z0-9_-]+$/u.test(value)) {
     throw new StudyRunProofError('invalid-token', 'Study run proof contains invalid base64url data.');
@@ -42,6 +49,7 @@ function base64UrlDecode(value) {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
+/** @param {string} secret */
 async function hmacKey(secret) {
   const keyMaterial = await globalThis.crypto.subtle.digest(
     'SHA-256',
@@ -50,17 +58,20 @@ async function hmacKey(secret) {
   return globalThis.crypto.subtle.importKey('raw', keyMaterial, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']);
 }
 
+/** @param {string} value */
 async function sha256Base64Url(value) {
   const digest = await globalThis.crypto.subtle.digest('SHA-256', textEncoder.encode(value));
   return base64UrlEncode(new Uint8Array(digest));
 }
 
+/** @param {Record<string, unknown>} payload @param {string} secret */
 async function signPayload(payload, secret) {
   const payloadBytes = textEncoder.encode(JSON.stringify(payload));
   const signature = await globalThis.crypto.subtle.sign('HMAC', await hmacKey(secret), payloadBytes);
   return `${base64UrlEncode(payloadBytes)}.${base64UrlEncode(new Uint8Array(signature))}`;
 }
 
+/** @param {string} token @param {string} secret */
 async function verifyPayload(token, secret) {
   if (typeof token !== 'string') throw new StudyRunProofError('invalid-token', 'Study run proof must be a string.');
   const parts = token.split('.');
@@ -72,13 +83,22 @@ async function verifyPayload(token, secret) {
   try {
     const payload = JSON.parse(textDecoder.decode(payloadBytes));
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('not an object');
-    return payload;
+    return /** @type {Record<string, any>} */ (payload);
   } catch {
     throw new StudyRunProofError('invalid-token', 'Study run proof payload is invalid.');
   }
 }
 
-/** Fingerprint the complete already-normalized canonical v2 runScope. */
+/**
+ * @typedef {{routeType:'topic'|'tag',routeId:string}} V2StudyRoute
+ * @typedef {{systemId:string,mode:'all'}|{systemId:string,mode:'routes',routes:readonly V2StudyRoute[]}} V2SystemScope
+ * @typedef {{systems:readonly V2SystemScope[]}} V2RunScope
+ */
+
+/**
+ * Fingerprint the complete already-normalized canonical v2 runScope.
+ * @param {V2RunScope} scope
+ */
 export async function fingerprintStudyScope(scope) {
   if (!scope || !Array.isArray(scope.systems) || scope.systems.length === 0) {
     throw new StudyRunProofError('invalid-token', 'Study run scope is invalid.');
@@ -91,6 +111,20 @@ export async function fingerprintStudyScope(scope) {
   }));
 }
 
+/**
+ * @typedef {object} ScheduledRunBoundary
+ * @property {string} userId
+ * @property {string} runId
+ * @property {number} runStartedAt
+ * @property {string} scopeFingerprint
+ * @property {number} generation
+ * @property {number} reviewSequenceEpoch
+ * @property {number} parameterRevision
+ * @property {number} schedulerRevision
+ * @property {string} schedulerLibraryVersion
+ */
+
+/** @param {{secret:string,boundary:ScheduledRunBoundary}} input */
 export async function issueScheduledRunBoundaryToken(input) {
   const boundary = input.boundary;
   return signPayload({
@@ -108,6 +142,11 @@ export async function issueScheduledRunBoundaryToken(input) {
   }, input.secret);
 }
 
+/**
+ * @param {string} token
+ * @param {{secret:string,userId:string}} input
+ * @returns {Promise<ScheduledRunBoundary>}
+ */
 export async function verifyScheduledRunBoundaryToken(token, input) {
   const payload = await verifyPayload(token, input.secret);
   if (payload.v !== STUDY_RUN_PROOF_VERSION || payload.t !== 'run') {
@@ -135,6 +174,14 @@ export async function verifyScheduledRunBoundaryToken(token, input) {
   };
 }
 
+/**
+ * @typedef {{caseId:string,stateRevision:number,dueAt:number}} CapturedDueMembership
+ * @typedef {{caseId:string}} CapturedNewMembership
+ */
+
+/**
+ * @param {{secret:string,runToken:string,boundary:ScheduledRunBoundary,queueClass:'due'|'new',entries:readonly (CapturedDueMembership|CapturedNewMembership)[],chunkSize?:number}} input
+ */
 export async function issueCapturedMembershipProofs(input) {
   const chunkSize = input.chunkSize ?? CAPTURED_MEMBERSHIP_CHUNK_SIZE;
   if (!Number.isInteger(chunkSize) || chunkSize < 1) throw new TypeError('Captured membership chunk size must be a positive integer.');
@@ -143,7 +190,10 @@ export async function issueCapturedMembershipProofs(input) {
   for (let offset = 0; offset < input.entries.length; offset += chunkSize) {
     const chunk = input.entries.slice(offset, offset + chunkSize);
     const encodedEntries = input.queueClass === 'due'
-      ? chunk.map((entry) => [entry.caseId, entry.stateRevision, entry.dueAt])
+      ? chunk.map((entry) => {
+        const due = /** @type {CapturedDueMembership} */ (entry);
+        return [due.caseId, due.stateRevision, due.dueAt];
+      })
       : chunk.map((entry) => [entry.caseId]);
     tokens.push(await signPayload({
       v: STUDY_RUN_PROOF_VERSION,
@@ -159,6 +209,7 @@ export async function issueCapturedMembershipProofs(input) {
   return tokens;
 }
 
+/** @param {{secret:string,userId:string,runToken:string,membershipToken:string,queueClass:'due'|'new',caseId:string}} input */
 export async function verifyCapturedMembership(input) {
   const boundary = await verifyScheduledRunBoundaryToken(input.runToken, { secret: input.secret, userId: input.userId });
   const payload = await verifyPayload(input.membershipToken, input.secret);
@@ -183,6 +234,11 @@ export async function verifyCapturedMembership(input) {
   return { queueClass: 'new', caseId: input.caseId, boundary };
 }
 
+/**
+ * PR C defines the server-verifiable repeat-origin primitive; PR D is the only
+ * normal learner flow that may issue one, after a Scheduled completion commits.
+ * @param {{secret:string,runToken:string,boundary:ScheduledRunBoundary,caseId:string,stateRevision:number,dueAt:number}} input
+ */
 export async function issueScheduledRepeatOriginProof(input) {
   if (!input.caseId || !Number.isInteger(input.stateRevision) || input.stateRevision < 1 || !Number.isFinite(input.dueAt)) {
     throw new StudyRunProofError('invalid-token', 'Repeat origin metadata is invalid.');
@@ -200,6 +256,7 @@ export async function issueScheduledRepeatOriginProof(input) {
   }, input.secret);
 }
 
+/** @param {{secret:string,userId:string,runToken:string,repeatToken:string,caseId:string}} input */
 export async function verifyScheduledRepeatOriginProof(input) {
   const boundary = await verifyScheduledRunBoundaryToken(input.runToken, { secret: input.secret, userId: input.userId });
   const payload = await verifyPayload(input.repeatToken, input.secret);
