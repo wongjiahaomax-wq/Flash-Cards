@@ -30,19 +30,28 @@ function boundary(overrides = {}) {
   };
 }
 
-test('scope fingerprint is deterministic for the canonical normalized selection', async () => {
+test('scope fingerprint is deterministic for the canonical normalized v2 selection', async () => {
   const scope = {
-    systemId: 'cardio',
-    routes: [
-      { routeType: /** @type {const} */ ('topic'), routeId: 'rhythm' },
-      { routeType: /** @type {const} */ ('tag'), routeId: 'ecg' }
-    ]
+    systems: [{
+      systemId: 'cardio',
+      mode: 'routes',
+      routes: [
+        { routeType: /** @type {const} */ ('topic'), routeId: 'rhythm' },
+        { routeType: /** @type {const} */ ('tag'), routeId: 'ecg' }
+      ]
+    }]
   };
-  assert.equal(await fingerprintStudyScope(scope), await fingerprintStudyScope({ ...scope, routes: [...scope.routes] }));
+  assert.equal(
+    await fingerprintStudyScope(scope),
+    await fingerprintStudyScope({ systems: scope.systems.map((system) => ({ ...system, routes: [...system.routes] })) })
+  );
+  const reversed = {
+    systems: [{ ...scope.systems[0], routes: [...scope.systems[0].routes].reverse() }]
+  };
   assert.notEqual(
     await fingerprintStudyScope(scope),
-    await fingerprintStudyScope({ ...scope, routes: [...scope.routes].reverse() }),
-    'route normalization owns canonical order before fingerprinting'
+    await fingerprintStudyScope(reversed),
+    'v2 scope normalization owns canonical route order before fingerprinting'
   );
 });
 
