@@ -70,11 +70,15 @@ async function ensureSmokeUser(binding, userId) {
 async function createActiveFixture(binding, db, fixture) {
   await ensureSmokeUser(binding, fixture.userId);
   const profile = await ensureLearnerFsrsProfile(db, fixture.userId);
-  const scope = {
-    systemId,
-    routes: [{ routeType: 'topic', routeId: topicId }]
+  const runScope = {
+    systems: [{
+      systemId,
+      mode: 'routes',
+      routes: [{ routeType: 'topic', routeId: topicId }]
+    }]
   };
-  const scopeFingerprint = await fingerprintStudyScope(scope);
+  const scopeFingerprint = await fingerprintStudyScope(runScope);
+  const persistedScope = { version: 2, systemId, runScope };
   const runStartedAt = Date.now() - 1_000;
   const boundary = {
     userId: fixture.userId,
@@ -108,7 +112,7 @@ async function createActiveFixture(binding, db, fixture) {
     systemId,
     fixture.runId,
     scopeFingerprint,
-    JSON.stringify(scope),
+    JSON.stringify(persistedScope),
     boundary.generation,
     boundary.reviewSequenceEpoch,
     boundary.parameterRevision,
