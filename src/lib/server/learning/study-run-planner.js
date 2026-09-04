@@ -9,14 +9,10 @@ import {
   issueScheduledRunBoundaryToken
 } from './study-run-proof.js';
 
-export const STUDY_RUN_DESCRIPTOR_VERSION = 1;
+export const STUDY_RUN_DESCRIPTOR_VERSION = 2;
 export const MAX_SCHEDULED_STUDY_CASES = 20_000;
 
 export class StudyRunPlanningError extends Error {
-  /**
-   * @param {'invalid-input'|'empty-selection'|'selection-too-large'|'state-boundary-mismatch'} code
-   * @param {string} message
-   */
   constructor(code, message) {
     super(message);
     this.name = 'StudyRunPlanningError';
@@ -24,14 +20,12 @@ export class StudyRunPlanningError extends Error {
   }
 }
 
-/** @param {Date|number|string|null|undefined} value */
 function timestampMs(value) {
   if (value == null) return null;
   const timestamp = value instanceof Date ? value.getTime() : new Date(value).getTime();
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-/** @param {() => number} rng */
 function randomUnit(rng) {
   const value = rng();
   if (!Number.isFinite(value) || value < 0 || value >= 1) {
@@ -40,7 +34,6 @@ function randomUnit(rng) {
   return value;
 }
 
-/** @template T @param {readonly T[]} values @param {() => number} rng */
 export function shuffleStudyBag(values, rng = Math.random) {
   const shuffled = [...values];
   for (let index = shuffled.length - 1; index > 0; index -= 1) {
@@ -50,7 +43,6 @@ export function shuffleStudyBag(values, rng = Math.random) {
   return shuffled;
 }
 
-/** @param {any} encounter */
 export function hasPriorLearnerEncounter(encounter) {
   if (!encounter) return false;
   return Boolean(
@@ -61,7 +53,6 @@ export function hasPriorLearnerEncounter(encounter) {
   );
 }
 
-/** @param {number} candidateCount */
 export function assertScheduledStudySelectionSize(candidateCount) {
   if (!Number.isInteger(candidateCount) || candidateCount < 0) {
     throw new StudyRunPlanningError('invalid-input', 'Scheduled Study candidate count must be a non-negative integer.');
@@ -74,12 +65,9 @@ export function assertScheduledStudySelectionSize(candidateCount) {
   }
 }
 
-/** @param {any} row */
 function persistedCard(row) {
   const dueAt = timestampMs(row.dueAt);
-  if (dueAt == null) {
-    throw new StudyRunPlanningError('invalid-input', 'Persisted learner FSRS state has an invalid due time.');
-  }
+  if (dueAt == null) throw new StudyRunPlanningError('invalid-input', 'Persisted learner FSRS state has an invalid due time.');
   return {
     dueAt,
     stability: Number(row.stability),
@@ -94,7 +82,6 @@ function persistedCard(row) {
   };
 }
 
-/** @param {any} row @param {any} profile */
 function assertCurrentStateBoundary(row, profile) {
   if (
     Number(row.generation) !== Number(profile.generation)
@@ -112,62 +99,35 @@ function assertCurrentStateBoundary(row, profile) {
   }
 }
 
-/**
- * @param {readonly {id:string}[]} candidates
- */
 function uniqueCandidates(candidates) {
   const byId = new Map();
   for (const candidate of candidates) {
-    if (!candidate?.id) {
-      throw new StudyRunPlanningError('invalid-input', 'Study candidates require Case identifiers.');
-    }
+    if (!candidate?.id) throw new StudyRunPlanningError('invalid-input', 'Study candidates require Case identifiers.');
     if (!byId.has(candidate.id)) byId.set(candidate.id, candidate);
   }
   return [...byId.values()];
 }
 
-/**
- * Pure planning core after the selected systems-first scope has been normalized
- * and resolved by the server-side selection owner.
- *
- * @param {{
- *   userId:string,
- *   systemId:string,
- *   routes:readonly {routeType:'topic'|'tag',routeId:string}[],
- *   candidates:readonly {id:string}[],
- *   profile:any,
- *   preferences:{scheduledOrder:'due_first'|'new_first',expandedLearning:boolean},
- *   states:readonly any[],
- *   encounters:readonly any[],
- *   proofSecret:string,
- *   now?:Date|number|string,
- *   rng?:()=>number,
- *   runId?:string,
- *   membershipChunkSize?:number
- * }} input
- */
+function canonicalRunScope(input) {
+  if (input.runScope?.systems?.length) return input.runScope;
+  // Internal single-System compatibility only: still emits/authenticates v2.
+  if (input.systemId && Array.isArray(input.routes) && input.routes.length > 0) {
+    return { systems: [{ systemId: input.systemId, mode: 'routes', routes: input.routes }] };
+  }
+  throw new StudyRunPlanningError('invalid-input', 'Study requires a normalized non-empty v2 run scope.');
+}
+
 export async function buildScheduledStudyRunDescriptor(input) {
-  if (!input.userId || !input.systemId || input.routes.length === 0) {
-    throw new StudyRunPlanningError('invalid-input', 'Scheduled Study requires a learner and normalized non-empty scope.');
-  }
+  if (!input.userId) throw new StudyRunPlanningError('invalid-input', 'Scheduled Study requires a learner.');
+  const runScope = canonicalRunScope(input);
   const runStartedAt = timestampMs(input.now ?? new Date());
-  if (runStartedAt == null) {
-    throw new StudyRunPlanningError('invalid-input', 'Scheduled Study requires a valid server start time.');
-  }
+  if (runStartedAt == null) throw new StudyRunPlanningError('invalid-input', 'Scheduled Study requires a valid server start time.');
   const runId = input.runId ?? globalThis.crypto.randomUUID();
   const candidates = uniqueCandidates(input.candidates);
   assertScheduledStudySelectionSize(candidates.length);
   const candidateIds = new Set(candidates.map((candidate) => candidate.id));
-  const states = new Map(
-    input.states
-      .filter((row) => candidateIds.has(row.caseId))
-      .map((row) => [row.caseId, row])
-  );
-  const encounters = new Map(
-    input.encounters
-      .filter((row) => candidateIds.has(row.caseId))
-      .map((row) => [row.caseId, row])
-  );
+  const states = new Map(input.states.filter((row) => candidateIds.has(row.caseId)).map((row) => [row.caseId, row]));
+  const encounters = new Map(input.encounters.filter((row) => candidateIds.has(row.caseId)).map((row) => [row.caseId, row]));
 
   for (const state of states.values()) assertCurrentStateBoundary(state, input.profile);
 
@@ -183,17 +143,9 @@ export async function buildScheduledStudyRunDescriptor(input) {
       if (card.dueAt <= runStartedAt) {
         const retrievability = getFsrsRetrievability(card, runStartedAt, parameters);
         if (!Number.isFinite(retrievability)) {
-          throw new StudyRunPlanningError(
-            'invalid-input',
-            `FSRS retrievability for Case ${candidate.id} is not finite.`
-          );
+          throw new StudyRunPlanningError('invalid-input', `FSRS retrievability for Case ${candidate.id} is not finite.`);
         }
-        dueWithRisk.push({
-          caseId: candidate.id,
-          stateRevision: Number(state.stateRevision),
-          dueAt: card.dueAt,
-          retrievability
-        });
+        dueWithRisk.push({ caseId: candidate.id, stateRevision: Number(state.stateRevision), dueAt: card.dueAt, retrievability });
       }
       continue;
     }
@@ -206,18 +158,13 @@ export async function buildScheduledStudyRunDescriptor(input) {
     || left.dueAt - right.dueAt
     || left.caseId.localeCompare(right.caseId)
   );
-  const dueMembership = dueWithRisk.map(({ caseId, stateRevision, dueAt }) => ({
-    caseId,
-    stateRevision,
-    dueAt
-  }));
+  const dueMembership = dueWithRisk.map(({ caseId, stateRevision, dueAt }) => ({ caseId, stateRevision, dueAt }));
   const newMembership = [
     ...shuffleStudyBag(unseen, input.rng ?? Math.random),
     ...shuffleStudyBag(seen, input.rng ?? Math.random)
   ].map((caseId) => ({ caseId }));
 
-  const scope = { systemId: input.systemId, routes: input.routes };
-  const scopeFingerprint = await fingerprintStudyScope(scope);
+  const scopeFingerprint = await fingerprintStudyScope(runScope);
   const boundary = {
     userId: input.userId,
     runId,
@@ -229,28 +176,11 @@ export async function buildScheduledStudyRunDescriptor(input) {
     schedulerRevision: Number(input.profile.schedulerRevision),
     schedulerLibraryVersion: String(input.profile.schedulerLibraryVersion)
   };
-  const runToken = await issueScheduledRunBoundaryToken({
-    secret: input.proofSecret,
-    boundary
-  });
+  const runToken = await issueScheduledRunBoundaryToken({ secret: input.proofSecret, boundary });
   const chunkSize = input.membershipChunkSize ?? CAPTURED_MEMBERSHIP_CHUNK_SIZE;
   const [dueProofs, newProofs] = await Promise.all([
-    issueCapturedMembershipProofs({
-      secret: input.proofSecret,
-      runToken,
-      boundary,
-      queueClass: 'due',
-      entries: dueMembership,
-      chunkSize
-    }),
-    issueCapturedMembershipProofs({
-      secret: input.proofSecret,
-      runToken,
-      boundary,
-      queueClass: 'new',
-      entries: newMembership,
-      chunkSize
-    })
+    issueCapturedMembershipProofs({ secret: input.proofSecret, runToken, boundary, queueClass: 'due', entries: dueMembership, chunkSize }),
+    issueCapturedMembershipProofs({ secret: input.proofSecret, runToken, boundary, queueClass: 'new', entries: newMembership, chunkSize })
   ]);
 
   return {
@@ -259,7 +189,7 @@ export async function buildScheduledStudyRunDescriptor(input) {
     userId: input.userId,
     runId,
     runStartedAt,
-    selectedScope: scope,
+    selectedScope: runScope,
     scopeFingerprint,
     runBoundaryToken: runToken,
     schedulerBoundary: {
@@ -271,15 +201,9 @@ export async function buildScheduledStudyRunDescriptor(input) {
     },
     scheduledOrder: input.preferences.scheduledOrder,
     expandedLearning: Boolean(input.preferences.expandedLearning),
-    capturedDue: dueMembership.map((entry, index) => ({
-      ...entry,
-      proofIndex: Math.floor(index / chunkSize)
-    })),
+    capturedDue: dueMembership.map((entry, index) => ({ ...entry, proofIndex: Math.floor(index / chunkSize) })),
     duePosition: 0,
-    capturedNew: newMembership.map((entry, index) => ({
-      ...entry,
-      proofIndex: Math.floor(index / chunkSize)
-    })),
+    capturedNew: newMembership.map((entry, index) => ({ ...entry, proofIndex: Math.floor(index / chunkSize) })),
     newPosition: 0,
     membershipProofs: {
       version: STUDY_RUN_DESCRIPTOR_VERSION,
@@ -295,26 +219,11 @@ export async function buildScheduledStudyRunDescriptor(input) {
   };
 }
 
-/**
- * @param {{
- *   userId:string,
- *   systemId:string,
- *   routes:readonly {routeType:'topic'|'tag',routeId:string}[],
- *   candidates:readonly {id:string}[],
- *   preferences:{expandedLearning:boolean},
- *   now?:Date|number|string,
- *   rng?:()=>number,
- *   runId?:string
- * }} input
- */
 export function buildFreeStudyRunDescriptor(input) {
-  if (!input.userId || !input.systemId || input.routes.length === 0) {
-    throw new StudyRunPlanningError('invalid-input', 'Free Study requires a learner and normalized non-empty scope.');
-  }
+  if (!input.userId) throw new StudyRunPlanningError('invalid-input', 'Free Study requires a learner.');
+  const runScope = canonicalRunScope(input);
   const runStartedAt = timestampMs(input.now ?? new Date());
-  if (runStartedAt == null) {
-    throw new StudyRunPlanningError('invalid-input', 'Free Study requires a valid server start time.');
-  }
+  if (runStartedAt == null) throw new StudyRunPlanningError('invalid-input', 'Free Study requires a valid server start time.');
   const candidates = uniqueCandidates(input.candidates);
   return {
     version: STUDY_RUN_DESCRIPTOR_VERSION,
@@ -322,10 +231,7 @@ export function buildFreeStudyRunDescriptor(input) {
     userId: input.userId,
     runId: input.runId ?? globalThis.crypto.randomUUID(),
     runStartedAt,
-    selectedScope: {
-      systemId: input.systemId,
-      routes: input.routes
-    },
+    selectedScope: runScope,
     expandedLearning: Boolean(input.preferences.expandedLearning),
     bag: shuffleStudyBag(candidates.map((candidate) => candidate.id), input.rng ?? Math.random),
     position: 0,
