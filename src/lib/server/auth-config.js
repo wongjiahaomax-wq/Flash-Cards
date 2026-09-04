@@ -23,7 +23,7 @@ export function getBetterAuthBaseOptions(env) {
     },
     advanced: {
       database: {
-        generateId: 'uuid'
+        generateId: /** @type {const} */ ('uuid')
       }
     }
   };
