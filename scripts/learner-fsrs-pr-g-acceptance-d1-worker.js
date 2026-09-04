@@ -224,6 +224,10 @@ async function analyticsBenchmark(env) {
     LIMIT 1
   `).first();
 
+  // Keep the write-overhead fixture out of the long-running Admin read benchmark.
+  await env.DB.prepare("DELETE FROM scheduled_review_events WHERE user_id = 'analytics-write-user'").run();
+  await env.DB.prepare("DELETE FROM learner_system_monthly_buckets WHERE user_id = 'analytics-write-user'").run();
+
   const longRunningBucketRows = await count(
     env,
     "SELECT COUNT(*) AS n FROM learner_system_monthly_buckets WHERE user_id LIKE 'analytics-user-%'"
