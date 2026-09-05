@@ -2,7 +2,7 @@
 
 _Status: current development/operator workflow._
 
-_Last reconciled: 4 September 2026._
+_Last reconciled: 5 September 2026._
 
 The GitHub repository is public. The application, Production credentials, auth/user/learner data, and private teaching media remain private operational concerns. Never commit credentials, `.dev.vars`, `.wrangler/` state, Production exports, learner data, or mirrored private media.
 
@@ -116,14 +116,29 @@ After a coherent change:
 npm run agent:checks -- --compact
 ```
 
-Then run the focused/checkpoint/final commands it requires. Common ordinary contracts are:
+Then run the focused/checkpoint/final commands it requires. Common ordinary contracts are compact by default:
 
 ```sh
-npm run validate:fast -- --compact
-npm run validate:full -- --compact
+npm test -- <test-file>
+npm run check
+npm run validate:fast
+npm run validate:full
 ```
 
-Specialized checks reported by `agent:checks` remain additional requirements. Compact mode changes presentation only, not check selection.
+Specialized checks reported by `agent:checks` remain additional requirements. Compact presentation changes output only, not check selection, ordering, or exit-status authority.
+
+When compact diagnostics are insufficient, use the explicit diagnostic form instead of adding `--compact` or rerunning a clean pass verbosely:
+
+```sh
+npm run test:verbose -- <test-file>
+npm run test:fast:verbose
+npm run check:verbose
+npm run build:verbose
+npm run validate:fast -- --verbose
+npm run validate:full -- --verbose
+```
+
+Local defaults do not determine automation presentation. Ordinary CI, Production, Preview, deployment, and operator callers must deliberately select their intended reporter/presentation. `CI_NODE_TEST_CHECK_ID` and `CI_NODE_TEST_REPRO_COMMAND` are reporter metadata only, not CI detection.
 
 Do not claim a command passed unless it actually ran.
 

@@ -2,7 +2,7 @@
 
 _Status: implemented local developer workflow and primary application testing path._
 
-_Last reconciled: 4 September 2026._
+_Last reconciled: 5 September 2026._
 
 The GitHub repository is public. This runbook may still describe private operational boundaries because Production credentials, auth/user/learner data, and private teaching media are not public repository content.
 
@@ -162,12 +162,12 @@ Use the normal repository flow:
 ```sh
 npm run agent:doctor
 npm run agent:checks -- --compact
-npm run validate:fast -- --compact
+npm run validate:fast
 ```
 
-Run `npm run validate:full -- --compact` and any specialized commands when `agent:checks` requires them for final handoff. Run only the checks required for the current risk during iteration, then all final required/specialized checks before handoff.
+Routine local validation is compact by default. Run `npm run validate:full` and any specialized commands when `agent:checks` requires them for final handoff. For focused maintained Node tests use `npm test -- <test-file>`. Use explicit verbose variants only when compact diagnostics are insufficient; for example `npm run test:verbose -- <test-file>`, `npm run check:verbose`, or `npm run validate:full -- --verbose`.
 
-Local replica success is not Production deployment evidence.
+Run only the checks required for the current risk during iteration, then all final required/specialized checks before handoff. Local replica success is not Production deployment evidence, and Production/Preview/CI workflows own their presentation explicitly rather than inheriting the local compact default.
 
 ## Safety invariants
 

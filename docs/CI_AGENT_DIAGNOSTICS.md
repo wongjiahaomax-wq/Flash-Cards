@@ -6,6 +6,16 @@ _Status: current CI observability contract._
 
 Ordinary PR CI is consumed both by humans in GitHub Actions and by coding agents that inspect runs through the GitHub connector. CI output must therefore remain useful as plain text without requiring the annotation UI or a complete read of a large log.
 
+Local validation presentation and CI presentation are deliberately separate. Routine local repository commands are compact by default; ordinary CI explicitly selects its existing structured presentation. The precedence contract is:
+
+```text
+explicit caller-selected presentation
+    > CI / automation / deployment presentation
+    > local compact default
+```
+
+`CI_NODE_TEST_CHECK_ID` and `CI_NODE_TEST_REPRO_COMMAND` are reporter metadata only. Their presence is not authoritative evidence that a Node test is running under CI, because local `test:fast` also supplies this metadata.
+
 ## Agent-facing failure records
 
 Failed repository-owned validation emits stable, searchable records:
@@ -18,9 +28,9 @@ CI_STATUS|check=<check-id>|status=failed|...
 
 Values that would break the pipe-delimited format are percent-escaped. These records supplement normal command output and GitHub `::error` annotations; they do not replace either source of detail.
 
-For Node tests, `scripts/ci-test-reporter.mjs` remains the structured `node:test` presentation layer. It ignores suite-level aggregate pass/fail events, emits one `CI_ERROR` record per real non-suite test failure, emits deduplicated file-level `CI_REPRO` commands, and reports the failed-test count from Node's final summary after the existing detailed failure section. Todo failures are not promoted to real failures.
+For Node tests, `scripts/ci-test-reporter.mjs` remains the structured `node:test` CI presentation layer. `npm test` is the canonical complete maintained Node suite through the repository test runner; ordinary CI explicitly injects/selects the CI reporter, and that explicit reporter must outrank the local compact reporter without duplicate reporter configuration. The reporter ignores suite-level aggregate pass/fail events, emits one `CI_ERROR` record per real non-suite test failure, emits deduplicated file-level `CI_REPRO` commands, and reports the failed-test count from Node's final summary after the existing detailed failure section. Todo failures are not promoted to real failures.
 
-For the logical `svelte` check, ordinary CI keeps `npm run check` as the canonical local command and validation-contract owner. The CI wrapper appends `--output machine-verbose` through npm argument forwarding, so the existing `svelte-kit sync && svelte-check --tsconfig ./jsconfig.json` sequence is preserved while the pinned `svelte-check` emits its supported timestamp-prefixed machine protocol. `scripts/ci-svelte-diagnostics.mjs` parses only that protocol: diagnostic rows are timestamp-prefixed JSON, while `START`, `COMPLETED`, and `FAILURE` remain lifecycle records.
+For the logical `svelte` check, ordinary CI keeps `npm run check` as the canonical local command and validation-contract owner. The local command is compact by default, but the CI wrapper appends `--output machine-verbose` through npm argument forwarding. `scripts/check-local.mjs` recognizes that explicit machine-output request and delegates to the CI-oriented full-project check instead of applying local compact presentation, so the existing `svelte-kit sync && svelte-check --tsconfig ./jsconfig.json --output machine-verbose` semantics remain available to CI. `scripts/ci-svelte-diagnostics.mjs` parses only that pinned timestamp-prefixed machine protocol: diagnostic rows are timestamp-prefixed JSON, while `START`, `COMPLETED`, and `FAILURE` remain lifecycle records.
 
 Svelte machine positions are LSP-style zero-based line/character coordinates. CI normalizes start and end positions to one-based human/GitHub coordinates before emitting records or annotations. A real error is exposed as one connector-readable `CI_ERROR|check=svelte|` record carrying the relative file, normalized line/column, optional normalized end position, severity, diagnostic source, code when present, and escaped message. Codes are preserved as strings or numbers exactly as the protocol supplies them. GitHub `::error` annotations use the same normalized start location and are supplemental to the plain-text record.
 
@@ -29,6 +39,8 @@ The outer CI wrapper is the single owner of detailed Svelte failure status. When
 Presentation never overrides validation authority. If `svelte-kit sync` or command setup fails before machine diagnostics begin, or if a non-zero run yields no parsed real error, CI falls back to the existing generic stage-level failure while preserving the original captured stdout/stderr and `npm run check` reproduction command. If some real errors parse but the structured stream is incomplete—because one or more diagnostic records are malformed, or because a valid `COMPLETED` record reports a different error count from the number successfully parsed—CI preserves the parsed per-error records but adds an explicit `CI_ERROR|check=svelte|message=Structured Svelte diagnostics are incomplete ...` record and marks the final status with `diagnostics=incomplete`. This incompleteness record is intentionally not suppressed by the anti-duplication rule because it communicates missing diagnostic coverage rather than restating an already reported error. Conversely, warning-only machine output with a zero command exit remains successful. A parser failure cannot turn a failing Svelte check green.
 
 `scripts/validate-ci.mjs` emits the final stage-level failure surface. For Node-test stages it does not add a generic `CI_ERROR` because the structured reporter already emitted the real errors; it only adds the canonical reproduction command and final stage status. For Svelte, the wrapper itself owns the parsed per-error records and detailed final status. Validation stages without a structured detailed owner continue to emit generic `CI_ERROR`, `CI_REPRO`, and `CI_STATUS` records directly from the wrapper.
+
+Path-filtered CI workflows that run focused Node tests outside ordinary `validate-ci` should deliberately select the repository CI test presentation (`npm run test:ci -- ...`) while preserving their exact selected files. Production/Preview/deployment workflows likewise own their presentation explicitly; they must not become compact merely because local package defaults are compact.
 
 The diff validation itself intentionally continues to use `HEAD^1` → `HEAD` on GitHub's synthetic PR merge checkout. That checkout-specific expression is never advertised as a local reproduction. The workflow supplies the actual PR base/head SHAs separately, so a diff failure advertises `git diff --check <base-sha> <head-sha>`. If those SHAs are unavailable outside ordinary PR CI, the fallback reproduction is `npm run agent:checks`, which resolves the repository's normal feature-branch base locally.
 
@@ -62,10 +74,12 @@ Reuse sufficient CI information already returned by a smaller retrieval. While t
 
 ## Invariants
 
-- `npm test` remains the canonical complete `node --test` suite.
-- Ordinary CI may change Node-test presentation only through the existing CI wrapper and structured reporter.
+- `npm test` remains the canonical complete maintained Node suite; its local compact wrapper must not change discovery or selection.
+- Ordinary CI explicitly selects the existing structured Node reporter; that choice outranks local compact defaults and must not be double-injected.
+- `CI_NODE_TEST_CHECK_ID` and `CI_NODE_TEST_REPRO_COMMAND` remain metadata rather than CI detection.
 - Passing tests stay compact; do not restore per-test success records or TAP/spec parsing.
 - Suite aggregate events must not inflate real test-failure records or failed-test counts.
+- Ordinary Svelte CI explicitly requests the supported machine protocol; local compact Svelte presentation must not intercept or rewrite that CI stream.
 - CI-only synthetic merge references must not be presented as portable local reproduction commands.
 - GitHub annotations remain supplemental. Plain-text records are the connector-readable contract.
 - Do not create a second validation command list in workflow YAML or another runner.

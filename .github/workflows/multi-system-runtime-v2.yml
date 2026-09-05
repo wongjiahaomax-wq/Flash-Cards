@@ -67,7 +67,7 @@ jobs:
 
       - name: Run focused v2 source, runtime, and learner UX tests
         run: >-
-          node --test
+          npm run test:ci --
           test/multi-system-runtime-v2.test.js
           test/multi-system-runtime-v2-source-contract.test.js
           test/multi-system-learner-ux.test.js
