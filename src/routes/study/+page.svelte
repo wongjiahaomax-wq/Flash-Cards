@@ -20,7 +20,13 @@
   } from '$lib/study-topic-hierarchy.js';
   import { effectiveStudyRunDistinctCaseTarget } from '$lib/study-run-size.js';
 
+  /** @typedef {{id:string,name:string,kind?:string}} StudyBreadcrumbItem */
+  /** @typedef {{id:string,name:string,caseCount:number,subtreeCaseCount:number,breadcrumb:StudyBreadcrumbItem[]}} StudyTopic */
+  /** @typedef {{id:string,name:string,caseCount:number,displayOrder?:number}} StudyTag */
+  /** @typedef {{id:string,name:string,allCaseCount:number,topics:StudyTopic[],tags:StudyTag[]}} StudySystem */
+
   let { data, form } = $props();
+  const studySystems = /** @type {StudySystem[]} */ (data.systems);
   /** @type {any} */
   let browserRun = $state(null);
   let runMessage = $state('');
@@ -86,17 +92,47 @@
       : null;
   }
 
+  /** @type {Set<string>} */
+  let selectedSystemIds = $state(new Set(
+    studySystems.filter((system) => Boolean(submittedSystem(system.id))).map((system) => system.id)
+  ));
+  /** @type {Set<string>} */
+  let narrowedSystemIds = $state(new Set(
+    studySystems.filter((system) => submittedSystem(system.id)?.mode === 'routes').map((system) => system.id)
+  ));
+
   /** @param {string} systemId */
   function systemSelected(systemId) {
-    return Boolean(submittedSystem(systemId));
+    return selectedSystemIds.has(systemId);
   }
 
   /** @param {string} systemId */
   function systemNarrowed(systemId) {
-    return submittedSystem(systemId)?.mode === 'routes';
+    return narrowedSystemIds.has(systemId);
   }
 
-  /** @param {any} system */
+  /** @param {string} systemId @param {boolean} checked */
+  function setSystemSelected(systemId, checked) {
+    const next = new Set(selectedSystemIds);
+    if (checked) next.add(systemId);
+    else next.delete(systemId);
+    selectedSystemIds = next;
+  }
+
+  /** @param {string} systemId @param {boolean} checked */
+  function setSystemNarrowed(systemId, checked) {
+    const next = new Set(narrowedSystemIds);
+    if (checked) next.add(systemId);
+    else next.delete(systemId);
+    narrowedSystemIds = next;
+  }
+
+  /** @param {string} systemId */
+  function routesAreSubmitted(systemId) {
+    return systemSelected(systemId) && systemNarrowed(systemId);
+  }
+
+  /** @param {StudySystem} system */
   function initialRoutesForSystem(system) {
     const submitted = submittedSystem(system.id);
     return submitted?.mode === 'routes' && Array.isArray(submitted.selectedRoutes)
@@ -106,7 +142,7 @@
 
   /** @type {Record<string,string[]>} */
   let routeSelections = $state(Object.fromEntries(
-    data.systems.map((system) => [system.id, initialRoutesForSystem(system)])
+    studySystems.map((system) => [system.id, initialRoutesForSystem(system)])
   ));
 
   /** @param {string} systemId */
@@ -128,14 +164,14 @@
       : current.filter((value) => !affected.has(value));
   }
 
-  /** @param {any} system @param {any} topic */
+  /** @param {StudySystem} system @param {StudyTopic} topic */
   function topicChecked(system, topic) {
     if (Number(topic.caseCount) > 0) return isRouteSelected(system.id, `topic:${topic.id}`);
     const subtree = studyTopicSubtreeRouteValues(system.topics, topic.id);
     return subtree.length > 0 && subtree.every((value) => isRouteSelected(system.id, value));
   }
 
-  /** @param {any} system @param {any} topic */
+  /** @param {StudySystem} system @param {StudyTopic} topic */
   function topicIndeterminate(system, topic) {
     const subtree = studyTopicSubtreeRouteValues(system.topics, topic.id);
     if (subtree.length < 2) return false;
@@ -159,12 +195,12 @@
     return /** @type {HTMLInputElement} */ (event.currentTarget).checked;
   }
 
-  /** @param {any} system @param {any} topic @param {boolean} checked */
+  /** @param {StudySystem} system @param {StudyTopic} topic @param {boolean} checked */
   function toggleTopicSubtree(system, topic, checked) {
     setRoutes(system.id, studyTopicSubtreeRouteValues(system.topics, topic.id), checked);
   }
 
-  /** @param {any} system @param {'topic'|'tag'} routeType @param {boolean} checked */
+  /** @param {StudySystem} system @param {'topic'|'tag'} routeType @param {boolean} checked */
   function toggleGroup(system, routeType, checked) {
     const values = routeType === 'topic'
       ? system.topics
@@ -184,9 +220,9 @@
     return (form?.runSize || '10') === value;
   }
 
-  async function refreshEligibleCount() {
+  /** @param {number} [requestId] */
+  async function refreshEligibleCount(requestId = ++countRequest) {
     if (!planForm) return;
-    const requestId = ++countRequest;
     counting = true;
     try {
       const response = await fetch('/study/api/count', {
@@ -215,10 +251,13 @@
   }
 
   function scheduleEligibleCount() {
+    const requestId = ++countRequest;
     eligibleCount = null;
+    selectedSystemCount = selectedSystemIds.size;
+    counting = false;
     countMessage = 'Updating combined count…';
     if (countTimer) clearTimeout(countTimer);
-    countTimer = setTimeout(() => refreshEligibleCount(), 120);
+    countTimer = setTimeout(() => refreshEligibleCount(requestId), 120);
   }
 
   function clearBrowserRun() {
@@ -460,10 +499,16 @@
     </section>
 
     <div class="system-grid">
-      {#each data.systems as system}
+      {#each studySystems as system}
         <section class="system-card">
           <label class="system-select">
-            <input type="checkbox" name="system" value={system.id} checked={systemSelected(system.id)} />
+            <input
+              type="checkbox"
+              name="system"
+              value={system.id}
+              checked={systemSelected(system.id)}
+              onchange={(event) => setSystemSelected(system.id, eventChecked(event))}
+            />
             <span>
               <strong>{system.name}</strong>
               <small>{system.allCaseCount} eligible {system.allCaseCount === 1 ? 'Case' : 'Cases'} when the whole System is selected</small>
@@ -474,7 +519,12 @@
             <summary>Configure Topics / Tags</summary>
             <p class="field-help">Leave “Narrow this System” unchecked to submit canonical <code>mode: "all"</code>. Turn it on only when you want explicit routes.</p>
             <label class="narrow-option">
-              <input type="checkbox" name={`narrow:${system.id}`} checked={systemNarrowed(system.id)} />
+              <input
+                type="checkbox"
+                name={systemSelected(system.id) ? `narrow:${system.id}` : undefined}
+                checked={systemNarrowed(system.id)}
+                onchange={(event) => setSystemNarrowed(system.id, eventChecked(event))}
+              />
               <span><strong>Narrow this System</strong><small>Use only the checked exact-Topic/curated Tag routes below.</small></span>
             </label>
 
@@ -496,7 +546,7 @@
                   <input
                     id={`study-${system.id}-topic-${topic.id}`}
                     type="checkbox"
-                    name={Number(topic.caseCount) > 0 ? `route:${system.id}` : undefined}
+                    name={Number(topic.caseCount) > 0 && routesAreSubmitted(system.id) ? `route:${system.id}` : undefined}
                     value={value}
                     checked={topicChecked(system, topic)}
                     aria-controls={descendants.length > 0 ? descendants.map((id) => `study-${system.id}-topic-${id}`).join(' ') : undefined}
@@ -531,7 +581,7 @@
                   <label class="route-option tag-route">
                     <input
                       type="checkbox"
-                      name={`route:${system.id}`}
+                      name={routesAreSubmitted(system.id) ? `route:${system.id}` : undefined}
                       value={value}
                       checked={isRouteSelected(system.id, value)}
                       onchange={(event) => setRoutes(system.id, [value], eventChecked(event))}
