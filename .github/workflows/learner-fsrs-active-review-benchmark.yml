@@ -66,10 +66,10 @@ jobs:
         run: npm run db:check
 
       - name: Run active Review Resume race regression
-        run: node --test test/learner-fsrs-active-review-resume-race.test.js
+        run: npm run test:ci -- test/learner-fsrs-active-review-resume-race.test.js
 
       - name: Run PR F Reset/Fresh and retention contracts
-        run: node --test test/learner-fsrs-reset-fresh.test.js test/learner-fsrs-retention-admin.test.js test/learner-fsrs-pr-f-acceptance.test.js
+        run: npm run test:ci -- test/learner-fsrs-reset-fresh.test.js test/learner-fsrs-retention-admin.test.js test/learner-fsrs-pr-f-acceptance.test.js
 
       - name: Run active Review snapshot benchmark
         run: npm run fsrs:active-review-benchmark
