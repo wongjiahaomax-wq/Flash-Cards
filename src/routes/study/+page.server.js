@@ -60,7 +60,10 @@ async function advanceDeletionForSelf(db, userId, begin) {
 /** @param {unknown} cause */
 function deletionFailure(cause) {
   if (cause instanceof StudyDataDeletionError) {
-    return fail(cause.code === 'user-not-found' ? 404 : 400, { message: cause.message });
+    const status = cause.code === 'user-not-found'
+      ? 404
+      : cause.code === 'account-deletion-in-progress' ? 409 : 400;
+    return fail(status, { message: cause.message });
   }
   console.error('Self-service study data deletion failed; the durable fence remains safe to retry.', cause);
   return fail(500, {
