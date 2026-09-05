@@ -68,6 +68,18 @@ function collectCutoverSchemaState(value, tables, appliedMigrations) {
   for (const child of Object.values(record)) collectCutoverSchemaState(child, tables, appliedMigrations);
 }
 
+/** @param {unknown} value @param {Set<string>} tables */
+function collectExistingSentinelTableNames(value, tables) {
+  if (Array.isArray(value)) {
+    for (const item of value) collectExistingSentinelTableNames(item, tables);
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  const record = /** @type {Record<string, unknown>} */ (value);
+  if (typeof record.name === 'string' && SENTINEL_SET.has(record.name)) tables.add(record.name);
+  for (const child of Object.values(record)) collectExistingSentinelTableNames(child, tables);
+}
+
 /** @param {unknown} payload */
 export function extractMultiSystemV2CutoverSchemaState(payload) {
   const tables = new Set();
@@ -81,7 +93,9 @@ export function extractMultiSystemV2CutoverSchemaState(payload) {
 
 /** @param {unknown} payload @returns {string[]} */
 export function extractMultiSystemV2ExistingSentinelTables(payload) {
-  return extractMultiSystemV2CutoverSchemaState(payload).tables;
+  const tables = new Set();
+  collectExistingSentinelTableNames(payload, tables);
+  return MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS.filter((table) => tables.has(table));
 }
 
 /**
