@@ -2,7 +2,7 @@
 
 Status: **planning contract only**. This document intentionally does not implement the feature. The next coding agent should implement this plan in the same PR/branch.
 
-This plan is intentionally detailed. It exists so the implementation agent can spend its effort validating and coding the design rather than rediscovering the product semantics, deletion boundary, concurrency requirements, or UX from scratch.
+This plan is intentionally detailed. It exists so implementation agents can validate and code the design without rediscovering the product semantics, deletion boundary, concurrency requirements, or UX from scratch.
 
 ## 1. Goal
 
@@ -13,12 +13,13 @@ The feature is for both:
 - normal learners; and
 - administrators who have generated learner/runtime data by using the real study surface.
 
-The required end state is:
+Required end state:
 
 ```text
 same authentication identity
 same role
 same login/account links
+same current session
 same unrelated preferences
 same shared Flash-Cards content
 
@@ -60,14 +61,14 @@ Fresh FSRS Start remains the scheduler-generation restart option:
 
 - clears current Case scheduling state and active Review;
 - starts a new FSRS generation/review-sequence boundary;
-- restores the current default FSRS parameters as already implemented;
+- restores current default FSRS parameters as already implemented;
 - retains historical Scheduled/Free activity and durable analytics according to the current contract.
 
 Do not repurpose Fresh FSRS Start as full deletion.
 
 ### 2.3 New learner action — Delete all my study data
 
-Learner-facing wording should make the destructive semantics explicit:
+Learner-facing semantics:
 
 > Permanently delete your Reviews, ratings, FSRS progress, study history, and associated learning analytics. Your account remains active.
 
@@ -82,7 +83,7 @@ Required effects:
 - delete all learner-owned study/runtime/history/analytics rows;
 - leave the account in the same **study-state class** as an account that has never studied;
 - allow a later `/study` visit to initialize fresh learner scheduling state normally;
-- be safe to invoke again after the user later accumulates new study data.
+- allow the user to request another full deletion after accumulating new study data later.
 
 Require strong typed confirmation:
 
@@ -90,34 +91,32 @@ Require strong typed confirmation:
 DELETE MY STUDY DATA
 ```
 
-The server must validate the exact semantic confirmation. Client-side confirmation alone is insufficient.
+The server must validate the confirmation. Client-side confirmation alone is insufficient.
 
 ### 2.4 New administrator self-action — Clear my study data
 
-Administrators should receive the same backend study-data semantics for **their own** account.
+Administrators receive the same backend study-data semantics for **their own** account.
 
-Suggested Admin wording:
+Suggested copy:
 
 > Clear my study data
 >
 > Permanently removes Reviews, FSRS progress, study history, and learning analytics associated with this administrator account. Your administrator account, role, login, and Flash-Cards content are not affected.
 
-Use the same strong confirmation phrase unless UX review identifies a compelling reason to vary it.
+Use the same typed confirmation unless UX review identifies a compelling reason to vary it.
 
-The initial tranche is **self-service only**.
+The initial feature is **self-service only**.
 
 Do not add:
 
-- a global "clear everyone" control;
+- a global clear-all-users control;
 - arbitrary Admin deletion of another learner's study data;
 - a userId picker for this operation;
-- a way to use the feature as a Production deployment/cutover bypass.
+- a mechanism to bypass Production deployment/cutover safety.
 
 ---
 
-## 3. User-visible distinction between the three restart/delete operations
-
-The UX must make the following distinction understandable before confirmation:
+## 3. User-visible distinction
 
 | Action | Scheduling state | FSRS parameters/generation | Historical activity | Analytics | Account |
 | --- | --- | --- | --- | --- | --- |
@@ -125,29 +124,17 @@ The UX must make the following distinction understandable before confirmation:
 | Fresh FSRS Start | reset | fresh generation/defaults | kept | kept | kept |
 | Delete all my study data | deleted | deleted | deleted | deleted | kept |
 
-Do not use wording such as "reset everything" for more than one action.
-
-A learner should be able to answer, from the UI alone:
-
-- "I want Cases to become New but keep my history" -> Reset Progress;
-- "I want a new default-parameter FSRS generation but keep my history" -> Fresh FSRS Start;
-- "I want the application to forget my study activity while keeping my account" -> Delete all my study data.
+The UI must make these choices understandable before confirmation.
 
 ---
 
-## 4. Why this must not be implemented as `DELETE FROM reviews`
+## 4. Study-data ownership baseline
 
-Current learner state is spread across the active-Review, FSRS, Free Study, retained-history, aggregate, and durable monthly analytics models. The old `reviews` tables are retired runtime tables but still physically exist as historical migration/cutover sentinels.
+Do not implement this as `DELETE FROM reviews`.
 
-A correct wipe must therefore delete the whole user-owned study footprint rather than one table.
+Current study data spans active Review, FSRS, Free Study, retained history, aggregates, durable monthly analytics, and retired legacy Review sentinel tables.
 
-The coding agent must not infer "all Reviews" from a table name. The product meaning is **all learner-owned study state/history/analytics**, not merely rows whose table name contains `review`.
-
----
-
-## 5. Current study-data ownership baseline
-
-The coding agent must re-read current `main` before implementation and treat executable schema/runtime as authoritative. At the planning baseline, the operation must account for at least:
+The coding agent must re-read current executable schema/runtime before implementation. At the planning baseline, the deletion must account for at least:
 
 ```text
 active_reviews
@@ -172,34 +159,15 @@ review_questions
 review_assets
 ```
 
-### 5.1 Active Review ownership
+### 4.1 Active Reviews
 
-`active_reviews` is user-owned and currently has at most one active Review per user. Its children:
+`active_review_questions` and `active_review_assets` are children of `active_reviews` and currently follow the active Review FK/cascade contract. Prefer deleting the parent using the current contract rather than duplicating child cleanup unless current schema requires otherwise.
 
-```text
-active_review_questions
-active_review_assets
-```
+### 4.2 Legacy Reviews
 
-are owned through `active_review_id` and currently use `ON DELETE CASCADE` from the active Review.
+The historical physical `reviews`, `review_questions`, and `review_assets` tables are not the supported runtime but remain relevant to migration/cutover safety.
 
-The deletion implementation should therefore delete the active Review parent using the current FK/cascade contract rather than independently deleting its children unless a current-schema change makes that necessary.
-
-The final verification scan should still verify that no child rows linked to the user's former active Review remain.
-
-### 5.2 Legacy Review ownership
-
-The historical physical tables:
-
-```text
-reviews
-review_questions
-review_assets
-```
-
-are not the current supported learner runtime. They remain relevant because historical migrations are immutable and current deployment/cutover safety treats them as zero-data sentinels.
-
-Legacy child relationships are restrictive rather than active-Review-style cascades. If rows exist for the current user, deletion must be child-before-parent:
+If rows exist for the target user, delete legacy children before the parent:
 
 ```text
 review_questions for reviews owned by user
@@ -207,36 +175,23 @@ review_assets for reviews owned by user
 reviews owned by user
 ```
 
-Do not assume these tables are globally empty merely because current application writers are retired.
+Do not assume these tables are globally empty.
 
-### 5.3 Durable monthly analytics
+### 4.3 Durable monthly analytics
 
-`learner_system_monthly_buckets` is intentionally durable across detailed-history expiry. Deleting `scheduled_review_events` does not mean the monthly history is gone.
+`learner_system_monthly_buckets` survives detailed-history expiry and must be deleted explicitly. Deleting `scheduled_review_events` does not remove historical monthly buckets.
 
-Full study-data deletion must explicitly remove the user's monthly buckets.
+### 4.4 Re-scan for schema drift
 
-### 5.4 Preferences are not study history
+Before coding, search current schema, migrations, `/study`, account deletion, analytics, local reset tooling, and cutover sentinels for any additional user-owned study table or writer introduced after this plan.
 
-At the planning baseline, `learner_preferences` contains persistent study-display/planning preferences such as:
-
-- Expanded Learning choice; and
-- Scheduled ordering choice.
-
-These are preferences, not historical evidence. They should survive full study-data deletion.
-
-If current `main` has added a preference field that is actually a derived study-progress value, the coding agent must document and test any field-level reset. Do not delete the preference row wholesale without a separately justified product reason.
-
-### 5.5 Re-scan for drift
-
-Before coding, search current schema, migrations, write paths, local reset tooling, account deletion, analytics, `/study`, and cutover sentinels for any user-owned study table added after this plan.
-
-The implementation must not freeze the planning list as permanently authoritative.
+Executable code/migrations outrank the planning list.
 
 ---
 
-## 6. Data that must survive
+## 5. Data that must survive
 
-Do **not** delete merely because the user requested a study-data wipe:
+Do **not** delete:
 
 ```text
 user
@@ -246,40 +201,36 @@ verification
 learner_preferences
 learner_account_deletions
 content/domain tables
-assets/R2 objects owned by content rather than learner history
+shared content Assets/R2 objects
 ```
 
 Specifically preserve:
 
 - Better Auth identity;
-- current role (`user` or Admin role);
-- banned/disabled state unless another account-management workflow changes it;
-- password/provider account links;
-- current session(s);
-- user name/email;
+- role;
+- password/provider links;
+- current session;
+- name/email;
 - account-created date/cohort identity;
+- banned/disabled state unless another account workflow changes it;
 - unrelated preferences;
-- content and taxonomy;
-- source/provenance data;
-- shared learner-independent Assets.
+- shared content/taxonomy/provenance.
 
-The deletion must not demote an administrator or convert an Admin identity into a learner identity.
+At the planning baseline, `learner_preferences` is preference state rather than historical evidence and must survive unchanged unless current schema contains a field that is demonstrably derived study progress. Any field-level exception must be documented and tested.
 
 ---
 
-## 7. Recommended durable state machine
+## 6. Recommended durable state machine
 
-### 7.1 Add a dedicated study-data deletion marker
+### 6.1 Dedicated marker
 
-Preferred design: add a new table similar in operational shape to the mature account-deletion marker but with account-preserving semantics.
-
-Recommended conceptual table:
+Preferred design: add an account-preserving operational marker such as:
 
 ```text
 learner_study_data_deletions
 ```
 
-Recommended fields:
+Recommended conceptual fields:
 
 ```text
 user_id              PRIMARY KEY / FK user(id) ON DELETE CASCADE
@@ -290,11 +241,9 @@ batches_completed    NOT NULL DEFAULT 0
 completed_at         NULL
 ```
 
-Use the next available migration number after reconciling current `main`; do not hard-code a migration number from this planning document.
+Use the next migration number after reconciling current `main`; do not hard-code a migration number from this planning document.
 
-### 7.2 Recommended phases
-
-Use bounded phases with names that correspond to deletion ownership rather than UI concepts. A recommended starting sequence is:
+### 6.2 Recommended phases
 
 ```text
 active_reviews
@@ -314,79 +263,42 @@ verify_empty
 complete
 ```
 
-The implementation agent may adjust ordering if current FK/trigger/runtime authority requires it, but every adjustment must preserve the same end-state and be covered by tests.
+Adjust ordering only if current FK/trigger/runtime authority requires it, with tests proving the revised ordering.
 
-### 7.3 Why active Reviews should be early
+### 6.3 Bounded work
 
-Once the fence is durable, remove the user's active Review early so:
+Reuse the mature account-deletion principle: each advancement request performs bounded work, deleting at most a fixed chunk from one phase. Do not introduce an unbounded mature-history delete just because typical accounts are small.
 
-- unfinished state does not remain visible longer than necessary;
-- active Review Asset lifecycle ownership is released promptly;
-- stale browser attempts have no current Review to resume;
-- the user does not see a resumable attempt while deletion is in progress.
+### 6.4 Completed state
 
-The durable fence, not the delete ordering alone, is the race-safety mechanism.
+Preferred behavior is to retain the marker in a non-fencing `complete` state with `completed_at` so reload/retry/status remain deterministic.
 
-### 7.4 Bounded batch size
+Only non-complete markers act as the study-write fence.
 
-Reuse the mature-account-deletion principle: each advancement request deletes at most a bounded number of rows from one phase.
+### 6.5 Repeat deletion later
 
-Prefer a shared constant/primitive where practical rather than inventing a materially different scale contract.
-
-Do not perform an unbounded mature-history delete simply because the common case is small.
-
-### 7.5 Completed marker semantics
-
-Preferred behavior is to retain the marker row in a non-fencing `complete` state with `completed_at`, rather than deleting it immediately.
-
-Benefits:
-
-- reliable completion status after redirect/reload;
-- an auditable operational fact without retaining deleted study history;
-- easy idempotent retries;
-- clearer testability.
-
-The marker is operational state, not learner study history.
-
-Database writer guards must treat only **non-complete** rows as an active fence.
-
-### 7.6 Repeating deletion later
-
-The feature must support:
+The design must support:
 
 ```text
-user deletes study data
--> deletion reaches complete
--> user studies again later
--> user requests deletion again
+first deletion -> complete
+user studies again
+second deletion requested
 ```
 
-A new request should atomically reactivate/reset the existing marker, for example by updating:
-
-```text
-phase = active_reviews
-requested_at = now
-updated_at = now
-batches_completed = 0
-completed_at = NULL
-```
-
-Do not make the operation permanently one-shot merely because the marker uses `user_id` as its primary key.
+A new explicit deletion request may reactivate/reset the completed marker atomically. Repeated `begin` calls while a deletion is already active must not rewind progress.
 
 ---
 
-## 8. Canonical ownership descriptors and reuse
+## 7. Canonical ownership/reuse
 
-Do not build an unrelated second hard-coded deletion universe.
+Do not create an unrelated second deletion universe.
 
-The repository already chose a retry-safe staged deletion architecture for mature learner-account deletion because learner history can be large.
-
-Prefer refactoring toward a canonical study-data ownership definition shared by:
+The repository already has retry-safe staged mature learner-account deletion. Prefer sharing/refactoring the **study-data ownership definition** between:
 
 - self-service study-data deletion; and
-- the study-data portion of permanent learner-account deletion.
+- the study-data portion of permanent account deletion.
 
-A reasonable implementation shape would be a shared server module that defines descriptors such as:
+A shared descriptor may define:
 
 ```text
 phase
@@ -396,59 +308,31 @@ bounded delete builder
 next phase
 ```
 
-The permanent account deletion flow can then compose:
+Permanent account deletion can compose auth/identity phases around the canonical study-data phases, while self-service deletion executes only study-data phases and preserves auth/preferences.
 
-```text
-auth/session deletion phases
-+
-canonical study-data deletion phases
-+
-preference deletion
-+
-profile/identity completion
-```
+Do not over-generalize if that makes the code less auditable. The goal is one authoritative ownership boundary.
 
-while self-service deletion composes only:
-
-```text
-canonical study-data deletion phases
-```
-
-with preferences/auth/identity preserved.
-
-Do not force an over-general abstraction if it makes the code harder to audit. The priority is **one authoritative ownership boundary**, not abstraction for its own sake.
-
-### 8.1 Legacy rows and permanent account deletion
-
-Current permanent account deletion should be re-checked for legacy `reviews` ownership. If the shared study-data ownership definition reveals that account deletion currently omits user-owned legacy Review rows, fix that compatibility gap only if required to keep the shared ownership contract correct, and add focused regression coverage.
-
-Do not broaden the PR into unrelated account-management redesign.
+Re-check whether current permanent account deletion covers retired legacy Review rows; if a shared ownership definition exposes a real compatibility gap, fix only what is required to keep deletion ownership correct and add focused regression coverage.
 
 ---
 
-## 9. Concurrency and write fencing
-
-A staged deletion that leaves study writers active can race with new Reviews/completions and can finish with rows recreated behind it. The implementation must be fail-closed against this.
+## 8. Concurrency and write fencing
 
 Required invariant:
 
-> Once self-service study-data deletion begins, no new learner study mutation for that user may commit until the deletion reaches a verified empty study-data state and the deletion fence is released by entering `complete`.
+> Once self-service study-data deletion begins, no new learner study mutation for that user may commit until deletion reaches a verified empty state and the marker transitions to non-fencing `complete`.
 
-### 9.1 Fence must be durable before cleanup proceeds
+### 8.1 Fence first
 
-Starting deletion must first create/reactivate the durable study-data deletion marker.
+Starting deletion must durably create/reactivate the marker before cleanup proceeds.
 
-Do not rely on a browser flag, cookie, in-memory state, or a form-submission lifecycle as the fence.
+Do not rely on browser state, cookies, in-memory flags, or form lifecycle.
 
-### 9.2 Database boundary is authoritative
+### 8.2 Database boundary is authoritative
 
-Application-level checks are useful for clean UX, but they are not sufficient for the concurrency contract.
+Application checks provide UX, but critical write protection must survive concurrent requests. Reconcile current D1/SQLite writers and guard the state-producing writes while an active marker exists.
 
-Use D1/SQLite guards so a concurrent mutation cannot commit merely because it entered application code before another request noticed the marker.
-
-At minimum, reconcile all current state-producing tables/write paths and guard the relevant `INSERT`/`UPDATE` mutations while an active study-data deletion marker exists.
-
-Planning-baseline tables that require explicit consideration include:
+Planning-baseline paths/tables requiring explicit review include:
 
 ```text
 active_reviews
@@ -461,76 +345,52 @@ learner_aggregates
 learner_system_aggregates
 learner_system_monthly_buckets
 learner_fsrs_profiles
-reviews   # defensive legacy protection if physical writer access remains possible
+reviews (defensive legacy consideration)
 ```
 
-Do not guard the `DELETE` operations needed by the deletion state machine itself.
+Deletion's own `DELETE` statements must remain permitted.
 
-### 9.3 Why guarding only `active_reviews` is insufficient
+### 8.3 Operations that must be blocked during deletion
 
-The existing account-deletion migration has an active-Review creation guard, but an account-preserving wipe requires a stronger boundary because:
+At minimum:
 
-- a completion transaction may already have an active Review and attempt to write state/history;
-- Reset Progress updates the FSRS profile boundary;
-- Fresh FSRS Start inserts/updates the FSRS profile;
-- Free completion writes encounter/receipt state;
-- derived aggregate writes must not recreate data during staged deletion.
-
-The implementation must prove the complete mutation surface, not assume active Review creation is the only writer.
-
-### 9.4 Required blocked operations while deletion is active
-
-The following must fail closed or return a deliberate "study data deletion in progress" product response:
-
-- open/create active Scheduled Review;
-- open/create active Free Review;
+- open/create Scheduled active Review;
+- open/create Free active Review;
 - Scheduled completion;
 - Free completion;
 - Reset Progress;
 - Fresh FSRS Start;
-- scheduler/profile bootstrap that would recreate an FSRS profile;
-- direct current-runtime aggregate/encounter updates;
+- profile/bootstrap creation that would recreate FSRS state;
+- encounter/aggregate/optimizer writes;
 - stale browser completion retries;
-- stale run/proof-based writes;
-- any other current study writer found during implementation review.
+- stale runtime v2 run/proof writes;
+- every other current study writer found during implementation inventory.
 
-### 9.5 Reads during deletion
+### 8.4 Reads during deletion
 
-While deletion is active, do not present normal study/progress state as though it were stable.
-
-Prefer a dedicated maintenance state:
+Do not present normal study/progress as stable while cleanup is active. Prefer a maintenance state such as:
 
 > Study data deletion is in progress. Study is temporarily unavailable until deletion completes.
 
-Read-only account/navigation surfaces may remain available.
+Account/navigation access remains available.
 
-### 9.6 Final rescan
+### 8.5 Final rescan
 
-Before entering `complete`, perform a full user-scoped rescan of all study-owned tables.
+Before `complete`, run a full user-scoped zero-data verification over the canonical ownership set.
 
-The rescan must verify zero user-owned rows for the complete ownership set, including legacy Review children linked through user-owned legacy parents.
-
-If any rows remain:
+If rows remain:
 
 - do not mark complete;
-- return/reposition to the earliest relevant deletion phase;
-- continue bounded cleanup safely.
+- reposition to the earliest relevant phase;
+- continue bounded cleanup.
 
-This protects against a pre-fence/in-flight mutation or phase drift.
-
-### 9.7 Release of the fence
-
-The writer fence is released only by transitioning the durable marker to `complete` after the final rescan succeeds.
-
-Do not release the fence merely because the nominal last phase was attempted.
+The final rescan protects against pre-fence in-flight writes and implementation drift.
 
 ---
 
-## 10. Recommended server API/service contract
+## 9. Recommended server service
 
-Prefer one backend service used by both learner and Admin surfaces.
-
-Suggested conceptual functions:
+Use one backend service for learner and Admin surfaces, conceptually:
 
 ```text
 beginStudyDataDeletion({ db, userId })
@@ -539,7 +399,7 @@ getStudyDataDeletionStatus(db, userId)
 isStudyDataDeletionActive(db, userId)
 ```
 
-Possible result contract:
+Possible result fields:
 
 ```text
 userId
@@ -551,82 +411,42 @@ batchesCompleted
 completedAt
 ```
 
-The exact names may vary, but do not duplicate separate learner/Admin deletion engines.
+Expected states/errors should be explicit and testable, including invalid confirmation, unauthenticated access, account deletion already authoritative, active study deletion, and corrupted/unsupported phase.
 
-### 10.1 Error taxonomy
+Unexpected failures must remain retry-safe and must never silently release the fence.
 
-Use explicit, testable errors rather than generic 500s for expected states. At minimum distinguish:
-
-```text
-invalid confirmation
-not authenticated
-unsupported identity/role if any
-account deletion already in progress / superseded
-study deletion in progress
-study deletion state corruption / unsupported phase
-```
-
-Unexpected database failures should remain retry-safe and must not silently clear the fence.
-
-### 10.2 Maximum advancement per request
-
-As with current Admin account deletion, it is acceptable to advance several bounded phases/batches within one HTTP request up to a fixed cap.
-
-The cap must not convert the operation into an effectively unbounded request.
-
-If work remains, return `inProgress` and render a safe continuation state.
+It is acceptable for one HTTP request to advance several bounded steps up to a fixed cap, as long as the request remains bounded and returns `inProgress` when work remains.
 
 ---
 
-## 11. Authorization contract
+## 10. Authorization
 
 Server authority is mandatory.
 
-### 11.1 Learner self-service
+### Learner
 
-- derive the target user from the authenticated session;
+- derive target from authenticated session;
 - do not trust a submitted `userId`;
-- do not include a hidden target user field merely for convenience;
-- a crafted request must never delete another learner's data.
+- crafted requests must not target another user.
 
-### 11.2 Administrator self-service
+### Administrator
 
-- derive the target from the authenticated Admin session;
-- require the ordinary Production Admin authorization boundary for the Admin portal surface;
-- do not accept an arbitrary learner target ID;
-- do not reuse the existing selected learner on `/admin/learner-analytics` as the deletion target.
+- derive target from the authenticated Admin session;
+- apply current Production Admin/Preview Worker boundaries;
+- do not use the selected learner in `/admin/learner-analytics` as the target;
+- do not accept arbitrary learner IDs.
 
-### 11.3 Role handling
+The backend primitive must support both ordinary learner identities and administrators that legitimately accumulated real study state.
 
-The backend study-data deletion primitive should support at least the identities that can legitimately accumulate real learner study state:
-
-```text
-normal learner
-administrator using the real study runtime
-```
-
-Do not copy the existing permanent learner-account-deletion restriction that rejects Admin identities; that restriction is appropriate for account deletion, not for clearing an Admin's own study state.
-
-### 11.4 Preview Worker
-
-Preserve the current Preview/Production boundary. Production study-data deletion should not become an accidental Preview Worker mutation path.
-
-If Admin self-service is exposed under `/admin`, apply the current Production Admin/Preview Worker restrictions consistently.
+Do not copy the permanent account-deletion restriction that rejects Admin identities.
 
 ---
 
-## 12. Learner UX plan
+## 11. Learner UX
 
-### 12.1 Placement
+Keep full deletion visually separate from Reset/Fresh.
 
-The current learner Progress component already owns the distinction between:
-
-- Reset Progress; and
-- Fresh FSRS Start.
-
-Add a separate **Manage study data** destructive section near, but visually distinct from, those reset controls.
-
-Recommended hierarchy:
+Recommended structure:
 
 ```text
 Learner Progress
@@ -639,137 +459,61 @@ Manage study data
   Delete all my study data
 ```
 
-Do not place full deletion as a third visually equivalent reset button.
+Suggested destructive copy:
 
-### 12.2 Initial destructive panel
-
-Recommended copy:
-
-> Delete all my study data
->
 > Permanently removes your completed Reviews, ratings, FSRS scheduling state, Free Study history, and associated learning analytics. Your account and preferences remain active. This cannot be undone.
 
-Use a destructive button that opens/reveals the typed-confirmation form.
-
-### 12.3 Confirmation
-
-Require the learner to type:
+Require:
 
 ```text
 DELETE MY STUDY DATA
 ```
 
-Server validation is mandatory.
+If bounded cleanup remains:
 
-The confirmation UI should restate what survives:
+- show `Deletion in progress`;
+- provide safe `Continue deletion` behavior;
+- keep the session/account usable;
+- block study;
+- never claim success before final verification.
 
-```text
-Your account, login and preferences will remain.
-```
-
-and what is deleted:
-
-```text
-Study progress, history and learning analytics will be permanently removed.
-```
-
-### 12.4 In-progress state
-
-If the deletion does not complete within the bounded per-request work cap:
-
-- replace normal study controls with an in-progress state;
-- do not claim success;
-- provide **Continue deletion**;
-- make continuation idempotent;
-- preserve navigation/account access;
-- prevent starting study while the fence is active.
-
-Suggested copy:
-
-> Study data deletion is in progress. Study is temporarily unavailable until cleanup finishes.
-
-### 12.5 Completion state
-
-After final verification:
+Completion copy may state:
 
 > Study data deleted. Your account remains active. Your next study session will start from fresh study state.
 
-The subsequent Progress view should naturally show the fresh/no-history state rather than special-casing deleted counts forever.
-
-### 12.6 No raw implementation details
-
-Do not expose:
-
-- table names;
-- phase names such as `optimizer_evidence`;
-- D1 batch counts;
-- trigger errors;
-
-to ordinary learners.
-
-A simple in-progress/success/error product state is sufficient.
+Do not expose raw table names, phase names, D1 details, or trigger errors to learners.
 
 ---
 
-## 13. Administrator UX plan
+## 12. Administrator UX
 
-### 13.1 Do not attach self-wipe to the selected learner card
+Do not attach self-wipe to the selected learner's Permanent account deletion form in `/admin/learner-analytics`; that creates dangerous target ambiguity.
 
-The current `/admin/learner-analytics` page allows selecting a normal learner and contains **Permanent learner account deletion** for that selected learner.
-
-Do not add the Admin's self-wipe inside that selected-learner destructive form. That creates dangerous target ambiguity.
-
-### 13.2 Preferred placement
-
-Create or use a clearly self-scoped Admin maintenance/account surface, labelled for example:
-
-```text
-Admin
-  My study data
-```
-
-or:
-
-```text
-Admin Maintenance
-  My study data
-```
-
-The page must make it visually obvious that the operation affects **the signed-in administrator only**.
-
-If the smallest coherent implementation is a dedicated route, prefer something explicit such as:
+Prefer a self-scoped Admin maintenance surface such as:
 
 ```text
 /admin/my-study-data
 ```
 
-and add it to Admin navigation.
+with navigation label:
 
-The coding agent should inspect current Admin routing/navigation before locking the exact path.
+```text
+My study data
+```
 
-### 13.3 Admin copy
-
-Recommended:
+Suggested copy:
 
 > Clear my study data
 >
 > Use this if this administrator account has been used on the real study surface for testing. This permanently removes study progress, Reviews, history and learning analytics belonging to this administrator account. It does not remove your administrator account or change your role.
 
-Require the same typed confirmation.
-
-### 13.4 Admin in-progress/completion
-
-Use the same backend status model as learner deletion.
-
-Do not show a normal "study data cleared" success message until the final user-scoped rescan is zero.
+Use the same backend state machine and typed confirmation as learner self-service.
 
 ---
 
-## 14. Interaction with permanent account deletion
+## 13. Interaction with permanent account deletion
 
-Permanent account deletion remains a separate feature.
-
-Expected relationship:
+Permanent account deletion remains separate:
 
 ```text
 Delete all my study data
@@ -781,136 +525,78 @@ preferences -> retained
 Permanent account deletion
 study data -> deleted
 auth identity -> deleted
-access -> revoked as already designed
+access -> revoked
 preferences -> deleted with account lifecycle
 ```
 
-### 14.1 If permanent account deletion starts during study-data deletion
+For normal learners, permanent account deletion should supersede/absorb an in-progress study-data wipe rather than allowing conflicting deletion state machines.
 
-For a normal learner, permanent account deletion should supersede/absorb the study-data wipe rather than creating two competing writers.
+Starting study-data deletion after account deletion becomes authoritative should return a deliberate `Account deletion is already in progress` state.
 
-Recommended behavior:
-
-- `beginLearnerAccountDeletion` remains authoritative for account removal;
-- the study-data deletion service detects `learner_account_deletions` and stops trying to present itself as the controlling workflow;
-- permanent deletion may reuse the same canonical study-data phases/ownership descriptors;
-- the study-data marker ultimately disappears with `user` via FK cascade when identity deletion completes, or is otherwise left harmless while account deletion owns the process.
-
-### 14.2 Starting study-data deletion after account deletion begins
-
-Reject it with a deliberate state such as:
-
-> Account deletion is already in progress.
-
-Do not reactivate study access or change the account-deletion fence.
-
-### 14.3 Administrator identity
-
-Current permanent learner-account deletion intentionally rejects Admin identities. Self-service Admin study-data deletion must not change that account-management policy.
+Admin self-study deletion must not change the existing policy that permanent learner-account deletion does not delete Admin identities.
 
 ---
 
-## 15. Interaction with stale browser state and runtime v2 proofs
+## 14. Stale browser/runtime proof behavior
 
-Deletion must invalidate practical reuse of browser-held study work without introducing a second proof system.
+While the fence is active:
 
-While the deletion fence is active:
+- all server-authoritative study writers reject mutations;
+- active Review rows are removed early;
+- stale descriptors/proofs cannot recreate state.
 
-- all server-authoritative study writers reject mutations for that user;
-- active Review rows are deleted;
-- profile/state boundaries are eventually deleted;
-- stale descriptors/proofs cannot recreate study state because writer guards reject them.
-
-After deletion completes:
+After completion:
 
 - old active Review IDs no longer resolve;
-- old Scheduled boundary/proof material no longer matches a current profile/state;
+- old Scheduled boundary/proof material no longer corresponds to current FSRS profile/state;
 - ordinary new study initialization establishes fresh authority.
 
-Add explicit tests for lost-response/retry material created before deletion begins.
+Explicitly test lost-response/retry material created before deletion begins.
 
 ---
 
-## 16. Interaction with analytics/cohorts
+## 15. Analytics/cohort semantics
 
-### 16.1 Per-user analytics
-
-After deletion completes, the user's study contribution must be absent from:
+After deletion completes, the user's contribution must disappear from:
 
 - learner-wide aggregates;
 - per-System aggregates;
 - durable monthly System buckets;
-- retained detailed Scheduled history;
-- compact case encounters;
+- retained Scheduled history;
+- case encounters;
 - optimizer evidence.
 
-### 16.2 Cross-learner trend recomputation semantics
+Cross-learner queries should naturally stop counting deleted rows; do not invent negative/tombstone analytics unless current query architecture proves it necessary.
 
-Current cross-learner trend queries read durable learner rows. Once the selected user's monthly/aggregate rows are deleted, subsequent queries should naturally no longer count that study activity.
-
-Do not introduce a separate negative/tombstone analytics adjustment unless current query architecture proves it necessary.
-
-### 16.3 Cohort identity
-
-The user's Better Auth account creation date survives. Therefore the user's **identity cohort membership** survives, but with zero post-deletion study contribution until they study again.
-
-Do not rewrite account-created time as part of study-data deletion.
+The Better Auth account-created date survives, so cohort identity remains while study contribution becomes zero until the user studies again.
 
 ---
 
-## 17. Failure and retry behavior
+## 16. Failure/retry contract
 
-### 17.1 Expected failure contract
+If cleanup fails after fencing begins:
 
-If a bounded delete request fails after the fence has started:
-
-- the fence remains active;
+- fence remains active;
 - account/login remains active;
-- study mutations remain blocked;
-- the user can retry/continue;
-- no success state is shown.
+- study remains blocked;
+- operation is resumable;
+- no success is shown.
 
-Suggested learner-facing message:
+Browser close/reload must not clear the fence.
 
-> Study data deletion did not finish. Your account is unchanged and study remains temporarily paused. Try continuing the deletion.
-
-### 17.2 Do not auto-clear fence on error
-
-Never clear the marker/fence merely because an HTTP request failed, timed out, or the browser closed.
-
-Durability is the point of the state machine.
-
-### 17.3 Browser closes mid-deletion
-
-On the user's next authenticated visit:
-
-- read deletion status;
-- show deletion in progress;
-- allow safe continuation;
-- do not permit study mutations until completion.
-
-### 17.4 Idempotency
-
-Calling `begin` repeatedly while already active must not reset progress backward in a way that can loop forever.
-
-Calling `advance` repeatedly after a phase is empty should move forward safely.
-
-Calling `advance` after `complete` should return a stable complete result rather than erroring or recreating deletion.
-
-Starting a **new deletion request after new study activity** is the only operation that should reactivate a completed marker.
+Repeated `advance` calls must be idempotent. `advance` after `complete` returns stable completion. Only a new explicit delete request after later study can reactivate a completed marker.
 
 ---
 
-## 18. Final empty-state verification contract
+## 17. Final empty-state verification
 
-The `verify_empty` phase must be explicit and testable.
+`verify_empty` is mandatory and must prove no target-user study rows remain in the complete current ownership set.
 
-At the planning baseline, verify no user-owned rows remain in:
+At the planning baseline that includes:
 
 ```text
 active_reviews
-active_review_questions linked through owned active Reviews, if any
-active_review_assets linked through owned active Reviews, if any
+active Review children linked through owned active Reviews
 scheduled_review_events
 free_review_completion_receipts
 learner_case_fsrs
@@ -921,281 +607,204 @@ learner_system_aggregates
 learner_system_monthly_buckets
 learner_fsrs_profiles
 reviews
-review_questions linked through owned legacy Reviews
-review_assets linked through owned legacy Reviews
+legacy review_questions/review_assets linked through owned reviews
 ```
 
-If current schema adds another owned table, add it to the verifier.
-
-The verifier should share the same canonical ownership source used by deletion where practical.
+Share the verifier's ownership source with deletion where practical.
 
 A completed result without this verification is not acceptable.
 
 ---
 
-## 19. Deployment/cutover relationship
+## 18. Deployment/cutover relationship
 
-This feature is useful for removing accidental test/Admin study contamination, but it must **not** become a deployment bypass.
+This feature must **not** become a deployment bypass.
 
-Do not add a global Production "clear all learner data" button.
+Do not add a global Production clear-all button.
 
-The multi-System v2 exact-zero cutover/deployment gate remains authoritative whenever that gate is required.
-
-This feature may help an individual user intentionally remove their own data; it does not:
+The multi-System v2 exact-zero deployment/cutover gate remains authoritative whenever required. An individual self-wipe does not:
 
 - clear other users;
 - override the gate;
-- reinterpret non-zero counts as acceptable;
-- authorize Production mutation outside normal application behavior;
+- reinterpret non-zero counts;
+- authorize manual Production mutation;
 - remove the need to inspect the deployment workflow.
 
-### 19.1 New deletion marker and cutover sentinel logic
-
-A completed `learner_study_data_deletions` operational marker should not itself be treated as learner study history.
-
-Do not add the marker to a zero-study-data cutover gate merely because the table exists, unless the current cutover contract has a separately reviewed reason to require zero operational markers.
-
-An **active** deletion marker also must not be used to pretend underlying study tables are zero; the actual gate counts remain authoritative.
+A completed `learner_study_data_deletions` marker is operational state, not learner study history, and should not automatically be added as a zero-study sentinel. An active marker also must not be used to pretend underlying study tables are zero.
 
 ---
 
-## 20. Migration and schema requirements
+## 19. Migration/schema requirements
 
-The coding agent should expect a migration if using the recommended durable marker/guards.
+Expect a migration if using the recommended marker/guards.
 
-Migration responsibilities likely include:
+Likely responsibilities:
 
 1. create `learner_study_data_deletions`;
 2. add phase/batch/completion constraints;
-3. add FK to `user` with `ON DELETE CASCADE`;
-4. add study-writer guard triggers for active deletion;
-5. update schema exports/Drizzle configuration as required;
+3. FK to `user` with `ON DELETE CASCADE`;
+4. add writer-fence triggers for active deletion;
+5. update schema exports/Drizzle configuration;
 6. preserve existing account-deletion triggers/guards;
-7. prove migration works on a current production-shaped D1 schema;
-8. ensure no migration rewrites/deletes existing learner data merely by being applied.
+7. prove migration against a production-shaped D1 schema;
+8. ensure migration itself does not delete existing learner data.
 
-### 20.1 Trigger error string
-
-Use one stable machine-recognizable error for study-data deletion fencing, for example:
+Use one stable machine-recognizable fencing error, for example:
 
 ```text
 learner_study_data_deletion_in_progress
 ```
 
-Map it at the application layer to a friendly product response.
+Map it to friendly product responses.
 
-Do not expose the raw SQLite error to users.
-
-### 20.2 Trigger coverage source contract
-
-Add source-contract tests that enumerate the state-producing tables/pathways expected to be fenced so a future new writer cannot be added silently without updating the deletion boundary.
+Add source-contract coverage so future writers cannot silently escape the deletion fence.
 
 ---
 
-## 21. Recommended implementation modules
+## 20. Required tests
 
-Exact filenames may change after current-main inspection, but a coherent implementation could look like:
+At minimum cover the following categories.
 
-```text
-src/lib/server/db/learner-study-data-deletion.ts
-src/lib/server/db/learner-data-ownership.ts       # optional shared descriptors
-src/lib/server/db/...schema...                    # marker schema if project conventions require
-```
+### Authorization/targeting
 
-Learner route integration:
+1. learner deletes only self;
+2. Admin deletes only self;
+3. crafted `userId` cannot target another account;
+4. unauthenticated calls fail;
+5. Preview Worker does not become a Production deletion surface.
 
-```text
-src/routes/study/+page.server.js
-src/lib/components/LearnerFsrsProgress.svelte
-```
+### Preserved state
 
-Admin route integration, preferably self-scoped:
+6. `user` survives;
+7. account/login links survive;
+8. intended session survives;
+9. role survives exactly;
+10. account-created time survives;
+11. banned/disabled state is unchanged;
+12. `learner_preferences` survives unchanged;
+13. shared Cases/Questions/Topics/Tags/Assets/R2 content is untouched.
 
-```text
-src/routes/admin/my-study-data/+page.server.js
-src/routes/admin/my-study-data/+page.svelte
-src/routes/admin/+layout.svelte
-```
+### Deleted state
 
-These paths are recommendations, not authority. Follow current repository conventions.
+14. active Review and children removed;
+15. Scheduled events removed;
+16. Free receipts removed;
+17. case FSRS state removed;
+18. encounters removed;
+19. optimizer evidence removed;
+20. learner aggregates removed;
+21. System aggregates removed;
+22. monthly System buckets removed;
+23. FSRS profile removed;
+24. legacy Review parent/children removed safely;
+25. another user's rows remain untouched.
 
----
+### State machine/retry
 
-## 22. Required tests
+26. begin is idempotent while active;
+27. mature account larger than one batch completes through bounded work;
+28. phases cannot skip non-empty data;
+29. interruption leaves fence active/resumable;
+30. complete is stable;
+31. user can study again after completion;
+32. a second deletion after new study works.
 
-At minimum add regression/acceptance coverage for all of the following.
+### Concurrency/fence
 
-### 22.1 Authorization and targeting
+33. Scheduled active Review creation blocked;
+34. Free active Review creation blocked;
+35. Scheduled completion blocked;
+36. Free completion blocked;
+37. case-state write blocked;
+38. encounter write blocked;
+39. optimizer write blocked;
+40. aggregate write blocked;
+41. profile/bootstrap creation blocked;
+42. Reset Progress blocked;
+43. Fresh FSRS Start blocked;
+44. stale run/proof retry blocked;
+45. lost-response pre-deletion completion cannot recreate rows;
+46. final rescan catches residual rows.
 
-1. learner can delete only their own study data;
-2. administrator can delete their own study data;
-3. crafted `userId`/request cannot target another account;
-4. learner action derives target from session;
-5. Admin self-action derives target from session;
-6. Preview Worker cannot become an unintended Production deletion surface;
-7. unauthenticated requests cannot start/advance deletion.
+### Analytics
 
-### 22.2 Preserved identity/preferences/content
+47. learner analytics are empty/zero after deletion;
+48. System lifetime contribution disappears;
+49. monthly contribution disappears;
+50. cross-learner trends no longer count deleted rows;
+51. cohort identity remains while study contribution is zero;
+52. new post-delete activity appears normally.
 
-8. Better Auth `user` survives;
-9. Better Auth `account`/login links survive;
-10. intended session survives;
-11. user role survives exactly;
-12. user banned/disabled state is not changed by study deletion;
-13. account-created time survives;
-14. `learner_preferences` survives with values unchanged;
-15. shared Cases/Questions/Topics/Tags/Assets/content are untouched;
-16. R2/content Asset lifecycle is not incorrectly deleted merely because active Review ownership is removed.
+### Account deletion compatibility
 
-### 22.3 Deleted study state
+53. self-wipe refuses to start after permanent account deletion is authoritative;
+54. permanent account deletion safely supersedes in-progress self-wipe for a learner;
+55. existing account deletion remains bounded/retry-safe;
+56. Admin self-wipe does not enable permanent Admin deletion;
+57. shared ownership refactor does not weaken existing account-deletion guards.
 
-17. active Review is removed;
-18. active Review question/asset children are removed through the intended FK contract;
-19. Scheduled events are removed;
-20. Free completion receipts are removed;
-21. case FSRS state is removed;
-22. case encounters are removed;
-23. optimizer evidence is removed;
-24. learner aggregates are removed;
-25. System aggregates are removed;
-26. durable monthly System buckets are removed;
-27. FSRS profile is removed;
-28. any legacy Review parent/child rows owned by that user are removed safely;
-29. another user's rows in every same table remain untouched.
+### UX
 
-### 22.4 State-machine behavior
+58. learner exact confirmation required;
+59. Admin exact confirmation required;
+60. Reset/Fresh controls remain distinct;
+61. in-progress UX never claims success;
+62. completion only after verified empty state;
+63. raw DB errors/tables/phases are not exposed.
 
-30. deletion is idempotent and safe to retry;
-31. a mature account larger than one deletion batch completes through bounded staged work;
-32. phase advancement never skips a non-empty phase;
-33. browser/request interruption leaves the fence active and progress resumable;
-34. `complete` is stable on repeated status/advance calls;
-35. user can study after completion and accumulate fresh data;
-36. user can request a second full deletion after later studying again;
-37. second deletion resets/reactivates the completed operational marker correctly.
-
-### 22.5 Concurrency/write-fence behavior
-
-38. active Scheduled Review creation cannot race the deletion fence;
-39. active Free Review creation cannot race the deletion fence;
-40. Scheduled completion cannot race the deletion fence;
-41. Free completion cannot race the deletion fence;
-42. FSRS case-state insert/update cannot recreate state during deletion;
-43. encounter insert/update cannot recreate state during deletion;
-44. optimizer evidence cannot recreate state during deletion;
-45. aggregate writes cannot recreate state during deletion;
-46. profile/bootstrap creation cannot recreate state during deletion;
-47. Reset Progress cannot mutate/recreate state during deletion;
-48. Fresh FSRS Start cannot mutate/recreate state during deletion;
-49. stale browser run/proof retries fail after deletion begins;
-50. lost-response completion retry from pre-deletion state cannot recreate rows;
-51. final rescan catches/repositions for any residual user-owned row before completion.
-
-### 22.6 Analytics behavior
-
-52. learner analytics show zero/no history after deletion;
-53. per-System lifetime contribution disappears;
-54. monthly System contribution disappears;
-55. cross-learner System trend no longer counts the deleted user's historical rows;
-56. stable cohort identity remains based on account creation while study contribution becomes zero;
-57. new post-deletion study activity appears normally as fresh analytics.
-
-### 22.7 Permanent account deletion compatibility
-
-58. study-data deletion refuses to start if permanent account deletion is already authoritative;
-59. permanent account deletion can safely supersede an in-progress study-data deletion for a normal learner;
-60. permanent account deletion remains bounded/retry-safe;
-61. Admin self-study deletion does not accidentally enable permanent Admin identity deletion;
-62. shared ownership refactor does not weaken existing learner-account-deletion guards.
-
-### 22.8 UX confirmation
-
-63. learner deletion cannot start without the exact destructive confirmation;
-64. Admin deletion cannot start without the exact destructive confirmation;
-65. Reset/Fresh controls remain distinct and unchanged;
-66. in-progress UX does not claim success;
-67. completion UX appears only after final verified empty state;
-68. ordinary users never see raw database phase/table names or trigger errors.
+Add further tests discovered by current-main inventory.
 
 ---
 
-## 23. D1 acceptance and benchmark requirements
+## 21. D1 acceptance and scale
 
-Use lightweight unit/source tests where adequate, but add migrated-D1 acceptance for behavior that depends on real SQLite/D1 semantics.
+Use migrated-D1 acceptance for behaviors that depend on real trigger/FK semantics.
 
-At minimum D1 acceptance should prove:
+At minimum prove:
 
-- migration applies cleanly to current schema;
-- guard triggers abort relevant writes while fence is active;
-- deletion's own `DELETE` operations remain permitted;
-- active Review cascade behaves as expected;
+- migration applies cleanly;
+- writer guards abort relevant writes while active;
+- deletion's own deletes remain permitted;
+- active Review cascade is correct;
 - legacy child-before-parent cleanup works;
 - final verifier is correct;
-- fence transition to complete permits fresh study writes afterward;
-- account-deletion interaction does not deadlock either state machine.
+- transition to `complete` allows fresh study writes;
+- interaction with account deletion does not deadlock.
 
-### 23.1 Scale gate
+Seed a mature account exceeding one batch in high-volume tables and prove:
 
-Reuse the mature-account deletion envelope philosophy.
+- each advance call is bounded;
+- deletion converges;
+- no unreviewed unbounded mature-history delete is introduced;
+- common small accounts still finish efficiently.
 
-Seed a realistically mature supported account exceeding one batch in high-volume tables and prove:
-
-- each advance call stays bounded;
-- total deletion converges;
-- no unbounded `DELETE WHERE user_id = ?` is introduced for potentially mature high-volume history unless current benchmark evidence explicitly proves it safe;
-- common small accounts can still complete in a small number of requests.
-
-If the shared deletion primitive changes existing account-deletion performance, rerun/update the existing benchmark evidence rather than assuming no regression.
+If shared primitives change existing account-deletion performance, rerun/update its benchmark evidence.
 
 ---
 
-## 24. Observability and operational behavior
+## 22. Observability/security
 
-Do not log deleted clinical/study content unnecessarily.
+Safe logs may include operation type, user internal identifier, phase, bounded rows deleted, completion-verification status, and error class.
 
-Safe server logs may include:
+Do not log clinical/study payloads, answers, ratings/history payloads, auth tokens, confirmation text, or secrets.
 
-```text
-operation type
-user id or appropriately existing internal identifier
-phase
-rows deleted this bounded step
-whether completion verification succeeded
-unexpected error class
-```
+Security properties:
 
-Avoid logging:
-
-- answers;
-- case snapshots;
-- ratings/history payloads;
-- auth tokens;
-- confirmation phrase submissions;
-- secrets.
-
-The UI should not require an operator to inspect logs for ordinary continuation/retry.
+1. self-targeting only;
+2. no confused-deputy target through Admin selected learner state;
+3. strong typed confirmation;
+4. server-side authorization;
+5. fail-closed durable writer fence;
+6. auth identity preservation;
+7. complete study-history minimization after success;
+8. no shared-content collateral deletion;
+9. retry safety.
 
 ---
 
-## 25. Security/privacy properties
+## 23. Documentation to update during implementation
 
-The implementation should be reviewed against these explicit properties:
-
-1. **Self-targeting only** — target comes from authenticated identity.
-2. **No confused deputy** — Admin selected-learner UI cannot redirect this operation at another user.
-3. **Strong confirmation** — destructive request requires explicit typed confirmation.
-4. **Server-side enforcement** — no client-only security assumptions.
-5. **Fail-closed mutation fence** — deletion cannot race with new study state.
-6. **Identity preservation** — no auth/account deletion in self-wipe flow.
-7. **Data minimization after completion** — all defined study history/analytics are actually gone.
-8. **No content collateral damage** — shared learning content remains intact.
-9. **Retry safety** — errors do not create a half-open state where study resumes before cleanup verifies empty.
-
----
-
-## 26. Documentation to update when implementing
-
-Reconcile the feature with the current authority chain, especially:
+Reconcile at least:
 
 ```text
 docs/DOCUMENTATION_INDEX.md
@@ -1205,22 +814,14 @@ docs/V1_SPEC.md
 docs/LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md
 docs/LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md
 docs/LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md
+docs/SELF_SERVICE_STUDY_DATA_DELETION_PLAN.md
 ```
 
-Also update:
-
-- learner Progress/reset UX documentation;
-- Admin navigation/maintenance documentation;
-- mature account deletion documentation if ownership descriptors are shared/refactored;
-- migration index/current migration authority;
-- source-contract tests that enumerate learner-owned tables/writers;
-- any local replica/reset tooling whose ownership list is intended to mirror production learner/runtime ownership.
-
-Do not represent this planning document as implementation evidence.
+Also update learner/Admin UX documentation, migration authority, account-deletion docs if ownership is shared, source-contract tests, and local reset tooling where relevant.
 
 ---
 
-## 27. Explicit non-goals for this PR
+## 24. Explicit non-goals
 
 Unless required for correctness, do not expand this PR into:
 
@@ -1229,41 +830,41 @@ Unless required for correctness, do not expand this PR into:
 - content deletion;
 - account/identity deletion redesign;
 - public account self-deletion;
-- optimizer execution or automatic parameter replacement;
-- changes to the meaning of Reset Progress;
-- changes to the meaning of Fresh FSRS Start;
-- new retention-policy product semantics;
-- anonymized historical analytics retention after a user asks for full study-data deletion;
+- optimizer execution/automatic parameter replacement;
+- changes to Reset Progress semantics;
+- changes to Fresh FSRS Start semantics;
+- new retention-policy semantics;
+- anonymized retention after an explicit full study-data deletion;
 - weakening deployment/cutover zero-data gates;
 - automatic Production cleanup during deployment;
-- Production D1 mutation performed manually as part of implementation.
+- manual Production D1 mutation as part of implementation.
 
 ---
 
-## 28. Acceptance criteria
+## 25. Acceptance criteria
 
-The feature is ready for review only when all of the following are true:
+The feature is review-ready only when:
 
 ### Product
 
 - learner has a clearly separate full-study-data deletion action;
 - Admin has a clearly self-scoped equivalent;
-- both require strong typed confirmation;
-- account/role/login/preferences survive;
-- user-facing wording accurately distinguishes Reset, Fresh, and Delete.
+- both require typed confirmation;
+- account/role/login/session/preferences survive;
+- Reset, Fresh, and Delete semantics are clear.
 
 ### Data
 
-- all current user-owned study/runtime/history/analytics rows are removed;
-- legacy Review rows for that user are removed if present;
-- another user's study rows are unaffected;
-- shared content is unaffected;
-- final zero-user-study-data verification is authoritative.
+- all current target-user study/runtime/history/analytics rows are removed;
+- legacy rows are removed if present;
+- other users are untouched;
+- shared content is untouched;
+- final zero-data verification is authoritative.
 
 ### Concurrency
 
-- a durable fence becomes authoritative before cleanup proceeds;
-- all current study writers are fail-closed while the fence is active;
+- fence is durable before cleanup;
+- all current study writers fail closed while active;
 - retries/interruption are safe;
 - completion releases the fence only after verified empty state;
 - stale browser work cannot recreate deleted data.
@@ -1271,57 +872,499 @@ The feature is ready for review only when all of the following are true:
 ### Scale
 
 - mature history is deleted in bounded chunks;
-- benchmark/acceptance demonstrates convergence within supported envelopes;
-- no unreviewed unbounded D1 delete path is introduced.
+- D1 acceptance/benchmark demonstrates convergence;
+- no unreviewed unbounded mature-history path is added.
 
 ### Compatibility
 
-- existing Reset Progress behavior remains correct;
-- existing Fresh FSRS Start behavior remains correct;
+- Reset Progress remains correct;
+- Fresh FSRS Start remains correct;
 - permanent learner account deletion remains correct;
-- Admin identity deletion policy remains unchanged;
-- Runtime v2 scope/proof behavior remains correct;
+- Admin permanent-deletion policy remains unchanged;
+- Runtime v2 proof/scope behavior remains correct;
 - deployment/cutover gates are not weakened.
 
 ### Quality
 
-- migration/schema/source contracts are updated;
+- migration/schema/source contracts updated;
 - required unit/regression/D1 tests pass;
-- authoritative documentation is updated;
-- PR remains free of Production data mutation/deployment side effects.
+- authoritative docs updated;
+- no Production deployment/data mutation occurs in the PR.
 
 ---
 
-## 29. Suggested implementation sequence for the next coding agent
+# 26. Luna/Codex implementation tranches
 
-Work **inside this existing PR/branch**.
+This section is the **execution sequence for Luna agents in Codex**.
 
-Recommended order:
+Do not give one Luna agent the whole implementation at once. Run these tranches sequentially in the **same existing PR #154 / branch**:
 
-1. re-read latest `main` authority and exact executable schema/runtime;
-2. inventory every current user-owned study table and every writer;
-3. compare that inventory with permanent account deletion, local reset tooling, and cutover sentinels;
-4. design/refactor canonical study-data ownership descriptors;
-5. add the durable study-data deletion marker migration;
-6. add database write-fence triggers;
-7. implement `begin` / `advance` / `status` / `verify` server primitives;
-8. add focused unit/source tests for ownership, phase order, authorization, and confirmation;
-9. add migrated-D1 trigger/concurrency/legacy cleanup acceptance;
-10. integrate `/study` learner UX and in-progress blocking state;
-11. add the self-scoped Admin maintenance UX;
-12. test repeat deletion after fresh post-delete study;
-13. test permanent account deletion interaction;
-14. run/update mature deletion benchmarks if shared primitives changed;
-15. update authoritative documentation and source contracts;
-16. run all affected repository validation/CI suites;
-17. independently review the exact base-to-head diff for data-loss scope, races, and authorization;
-18. leave Production mutation/deployment outside the PR.
+```text
+feature/self-service-study-data-deletion
+```
+
+For every tranche:
+
+- work from the current PR head;
+- reconcile with latest `main` if required;
+- re-read this plan before editing;
+- current executable code/migrations outrank stale planning text;
+- implement only the assigned tranche;
+- add focused tests for that tranche;
+- commit the completed tranche;
+- do not deploy or mutate Production;
+- stop after the tranche and hand back concrete evidence/results.
+
+## Tranche 1 — Durable study-data deletion state/fence
+
+### Goal
+
+Create the durable database representation for an account-preserving study-data deletion operation.
+
+### Implement
+
+Add the per-user marker/fence, preferably equivalent to:
+
+```text
+learner_study_data_deletions
+```
+
+It must support:
+
+- one row per user;
+- phase/state;
+- requested/updated timestamps;
+- bounded-work progress metadata;
+- active/in-progress fencing;
+- a completed non-fencing state;
+- repeat deletion after later study.
+
+Preserve:
+
+```text
+user
+session
+account
+verification
+role
+learner_preferences
+```
+
+Add migration/schema exports/registration as required.
+
+Add the database-level guard required to prevent creation of a new `active_reviews` row while the study-data fence is active.
+
+Do **not** implement the full deletion engine or UX yet.
+
+### Focused tests
+
+- marker creation;
+- idempotent begin while active;
+- active Review insert rejected while fenced;
+- complete state no longer fences fresh study;
+- learner identity can own marker;
+- Admin identity can own marker;
+- migration does not mutate existing study data.
+
+### Stop when
+
+The migration/schema/fence primitive exists and focused tests pass.
 
 ---
 
-## 30. Questions the implementation must answer explicitly in its evidence/handoff
+## Tranche 2 — Bounded study-data deletion engine
 
-Before marking the PR Ready, the coding agent should state concrete answers to:
+### Goal
+
+Implement staged server-side cleanup while preserving authentication/preferences.
+
+### Implement
+
+Create/refactor the canonical study-data deletion service.
+
+Reuse mature-account deletion ownership/batching design where practical.
+
+Account for all current study-owned data, including at least:
+
+- active Review and children;
+- Scheduled events;
+- Free completion receipts;
+- Case FSRS state;
+- Case encounters;
+- optimizer evidence;
+- learner aggregates;
+- System aggregates;
+- durable monthly buckets;
+- FSRS profile;
+- retired legacy Review/question/asset rows.
+
+Respect FK ordering/cascades.
+
+Implement:
+
+```text
+begin
+advance one bounded chunk
+status
+phase progression
+final user-scoped rescan
+complete only after verified empty
+```
+
+Do not add UI yet.
+
+### Focused tests
+
+- each owned table cleared;
+- authentication survives;
+- preferences survive;
+- shared content survives;
+- other user's rows survive;
+- retry/idempotency;
+- >1 batch converges;
+- final rescan catches leftovers;
+- complete state permits fresh study.
+
+### Stop when
+
+The backend cleanup engine is complete and independently testable without UI.
+
+---
+
+## Tranche 3 — Fence every current study writer
+
+### Goal
+
+Make the deletion fence authoritative across every mutation capable of recreating study state.
+
+### Inventory first
+
+Find every current writer for:
+
+- active Reviews;
+- Scheduled FSRS state/completion;
+- Free completion;
+- FSRS profile/bootstrap;
+- Reset Progress;
+- Fresh FSRS Start;
+- encounters;
+- optimizer evidence;
+- aggregates/monthly analytics;
+- any current runtime writer added since this plan.
+
+### Implement
+
+While deletion is active, fail closed for:
+
+- Scheduled Review creation;
+- Free Review creation;
+- Scheduled completion;
+- Free completion;
+- FSRS state recreation;
+- Reset Progress;
+- Fresh FSRS Start;
+- profile/bootstrap recreation;
+- encounter/aggregate/optimizer writes;
+- stale browser/run/proof retries.
+
+Prefer DB-enforced invariants/triggers for critical writes, with application mapping for friendly errors.
+
+Normal behavior for unfenced users must remain unchanged.
+
+### Focused tests
+
+Race/regression coverage for:
+
+- deletion vs Scheduled Review creation;
+- deletion vs Free Review creation;
+- deletion vs Scheduled completion;
+- deletion vs Free completion;
+- deletion vs Reset Progress;
+- deletion vs Fresh FSRS Start;
+- stale proof/run completion after deletion starts;
+- lost-response completion retry;
+- write begun before fence but attempting to commit after fence.
+
+Add migrated-D1 acceptance where lightweight SQLite cannot faithfully prove behavior.
+
+### Review checkpoint
+
+**Stop for independent architecture review after Tranche 3.**
+
+Do not proceed to UX until the deletion engine + complete writer fence are judged sound.
+
+---
+
+## Tranche 4 — Learner self-service UX
+
+### Goal
+
+Expose the safe backend operation to ordinary learners.
+
+### Implement
+
+Place full deletion near learner Progress/reset controls but in a separate destructive section.
+
+Keep these distinct:
+
+```text
+Reset Progress
+Fresh FSRS Start
+Delete all my study data
+```
+
+Require exact typed confirmation:
+
+```text
+DELETE MY STUDY DATA
+```
+
+Validate confirmation server-side.
+
+Derive the target exclusively from the authenticated session. Do not trust or require a submitted target `userId`.
+
+If bounded work remains:
+
+- show deletion-in-progress state;
+- provide safe continuation/retry;
+- keep account/session available;
+- block study;
+- never claim success early.
+
+After verified completion, show a fresh/no-history Progress state.
+
+### Focused tests
+
+- confirmation required;
+- crafted target cannot delete another user;
+- account/session survives;
+- progress/in-progress state correct;
+- success only after verified completion;
+- learner can study again;
+- second deletion after later study works.
+
+### Stop when
+
+Learner UX is complete without adding Admin UX.
+
+---
+
+## Tranche 5 — Administrator self-service UX
+
+### Goal
+
+Allow an administrator to clear only their own study data.
+
+### Implement
+
+Add a clearly self-scoped Admin maintenance surface, preferably:
+
+```text
+/admin/my-study-data
+```
+
+with navigation label such as:
+
+```text
+My study data
+```
+
+Use the exact same backend deletion service/state machine as learner self-service.
+
+The Admin:
+
+- stays logged in;
+- stays Admin;
+- keeps identity/account links;
+- keeps ordinary preferences;
+- loses only their own study/runtime/history/analytics data.
+
+Target must come from the authenticated Admin session.
+
+Do **not** add:
+
+- global clear all;
+- selected-learner wipe;
+- arbitrary learner ID input.
+
+### Focused tests
+
+- Admin can clear self;
+- role survives;
+- current session survives;
+- another account cannot be targeted;
+- existing learner analytics/permanent deletion UI remains unchanged;
+- Preview Worker boundary remains correct.
+
+### Stop when
+
+Admin self-service works using the shared backend and no cross-user capability was introduced.
+
+---
+
+## Tranche 6 — Permanent account deletion interoperability
+
+### Goal
+
+Ensure account deletion and self-wipe cannot conflict.
+
+### Implement
+
+Define and implement authoritative behavior for:
+
+1. self-wipe active, then permanent learner account deletion begins;
+2. completed self-wipe, then permanent deletion begins;
+3. permanent deletion already active, then self-wipe requested.
+
+Preferred semantics:
+
+- permanent learner account deletion supersedes/absorbs study cleanup;
+- self-wipe refuses to become authoritative once account deletion has started;
+- two competing state machines do not independently churn the same user forever.
+
+Refactor shared ownership descriptors if needed to prevent table-list drift.
+
+Do not weaken current account-deletion safety or make Admin identities permanently deletable.
+
+### Focused tests
+
+Cover all state transitions, retries, ownership reuse, and existing permanent deletion invariants.
+
+### Stop when
+
+Both deletion systems have one deterministic interoperability contract.
+
+---
+
+## Tranche 7 — Mature-account D1 acceptance and scale gate
+
+### Goal
+
+Prove the design works against production-shaped D1 semantics and mature histories.
+
+### Implement/tests
+
+Build a migrated-D1 acceptance/smoke case with:
+
+- active Review children;
+- Scheduled history;
+- Free history;
+- multiple Systems;
+- monthly buckets;
+- optimizer evidence;
+- aggregates;
+- FSRS state/profile;
+- legacy sentinel rows where relevant;
+- enough high-volume rows to exceed one deletion batch.
+
+Prove:
+
+- each request is bounded;
+- retries resume safely;
+- no table is skipped;
+- fence prevents concurrent recreation;
+- final user-scoped rescan reaches zero;
+- auth/preferences survive;
+- fresh study works after completion;
+- account-deletion interoperability does not deadlock.
+
+Reuse/update existing mature account-deletion benchmark infrastructure where sensible.
+
+### Review checkpoint
+
+**Stop for independent D1/scale review after Tranche 7.**
+
+The feature should not be finalized until this evidence is satisfactory.
+
+---
+
+## Tranche 8 — Documentation, source contracts, and final integration
+
+### Goal
+
+Finish PR #154 as a coherent review-ready feature.
+
+### Update authoritative docs
+
+At minimum:
+
+```text
+docs/DOCUMENTATION_INDEX.md
+docs/CURRENT_DESIGN.md
+docs/V1_DATA_MODEL.md
+docs/V1_SPEC.md
+docs/LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md
+docs/LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md
+docs/LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md
+docs/SELF_SERVICE_STUDY_DATA_DELETION_PLAN.md
+```
+
+Mark this planning contract implemented/superseded appropriately once code is complete.
+
+### Source-contract protection
+
+Prevent future contributors from silently:
+
+- dropping a study-owned table from deletion;
+- adding an unfenced study writer;
+- deleting authentication/preferences;
+- accepting arbitrary target IDs;
+- conflating Reset/Fresh with full deletion.
+
+### Final validation
+
+Run all affected:
+
+- unit/regression suites;
+- migration checks;
+- migrated-D1 smoke/acceptance;
+- account deletion tests;
+- Scheduled/Free FSRS tests;
+- build/check;
+- repository-specialized CI commands.
+
+Review the complete intended-base → exact-head diff.
+
+Do not deploy Production.
+
+Only after this tranche should PR #154 be considered ready for independent final review.
+
+---
+
+## 27. Recommended Luna operating pattern
+
+Give Luna **one tranche at a time** rather than the entire feature.
+
+For each Luna run, use a concise instruction of the form:
+
+```text
+MODE: IMPLEMENT
+
+Work in existing PR #154 / branch feature/self-service-study-data-deletion.
+Read docs/SELF_SERVICE_STUDY_DATA_DELETION_PLAN.md.
+Implement Tranche N only.
+Reconcile with current executable main/PR-head authority.
+Add focused tests, run the required checks for this tranche, commit the work, and stop.
+Do not implement later tranches. Do not deploy or mutate Production.
+```
+
+This keeps each run auditable and prevents scope creep.
+
+Recommended independent review points:
+
+```text
+after Tranche 3 -> backend deletion + concurrency/fence architecture review
+after Tranche 7 -> migrated-D1 + mature-account scale review
+after Tranche 8 -> complete PR final review
+```
+
+Learner UX and Admin UX intentionally remain separate tranches so authorization/targeting mistakes are easier to detect.
+
+---
+
+## 28. Questions the final implementation handoff must answer
+
+Before marking PR #154 Ready, the coding agent must state concrete answers to:
 
 1. What exact table/module is the durable study-data deletion fence?
 2. What exact state means the fence is active?
@@ -1335,23 +1378,23 @@ Before marking the PR Ready, the coding agent should state concrete answers to:
 10. What survives deletion, specifically auth/session/role/preferences?
 11. How is self-targeting enforced for learner and Admin surfaces?
 12. What happens if permanent account deletion begins concurrently?
-13. Which D1 acceptance proves the race/fence behavior?
+13. Which D1 acceptance proves race/fence behavior?
 14. Which scale test proves mature history remains bounded?
 15. Why does the implementation not weaken the Production exact-zero/cutover contract?
 
-If any of these cannot be answered from code/tests, the implementation is not yet review-ready.
+If any answer cannot be demonstrated from code/tests, the PR is not review-ready.
 
 ---
 
-## 31. Implementation handoff
+## 29. Final implementation handoff
 
-The next coding agent should work **inside this existing PR/branch**, starting from this plan.
+The next coding agent should work **inside existing PR #154 / branch `feature/self-service-study-data-deletion`**.
 
-Current executable code/migrations on the implementation base outrank stale planning text. If repository authority has materially changed since this document was written:
+Current executable code/migrations on the implementation base outrank stale planning text. If repository authority materially changes:
 
 - preserve the locked product semantics;
-- reconcile the implementation details to current authority;
-- document the drift and why the implementation differs;
-- do not silently weaken the deletion, authorization, concurrency, or bounded-work contracts.
+- reconcile implementation details to current authority;
+- document the drift and reason;
+- do not weaken deletion completeness, authorization, concurrency, bounded-work, identity-preservation, or deployment safety.
 
-Do not treat this planning commit itself as implementation evidence.
+Do not treat planning commits as implementation evidence.
