@@ -14,6 +14,9 @@ import {
 } from '../scripts/test-presentation.mjs';
 
 const SVELTE_START = '1 START "/workspace"';
+const TEST_ENV = /** @type {NodeJS.ProcessEnv} */ ({
+  BETTER_AUTH_URL: 'http://localhost',
+});
 
 /** @param {any[]} events */
 async function collectReporter(events) {
@@ -231,7 +234,7 @@ test('local Svelte orchestration reports warnings-only success from a complete m
   const stdout = svelteMachineOutput(0, 2);
   const { value: status, output } = captureConsole(() => runLocalSvelteCheck({
     argv: [],
-    env: {},
+    env: TEST_ENV,
     spawn: /** @type {any} */ (() => ({ status: 0, stdout, stderr: '' })),
   }));
   assert.equal(status, 0);
@@ -242,7 +245,7 @@ test('local Svelte orchestration renders an ordinary structured failure and verb
   const stdout = svelteMachineOutput(1, 0);
   const { value: status, output } = captureConsole(() => runLocalSvelteCheck({
     argv: [],
-    env: {},
+    env: TEST_ENV,
     spawn: /** @type {any} */ (() => ({ status: 1, stdout, stderr: '' })),
   }));
   assert.equal(status, 1);
@@ -256,7 +259,7 @@ test('local Svelte orchestration bounds cascading failures at ten parsed errors'
   const stdout = svelteMachineOutput(12, 0);
   const { output } = captureConsole(() => runLocalSvelteCheck({
     argv: [],
-    env: {},
+    env: TEST_ENV,
     spawn: /** @type {any} */ (() => ({ status: 1, stdout, stderr: '' })),
   }));
   assert.match(output, /✗ Svelte — 12 errors, 0 warnings/);
@@ -269,7 +272,7 @@ test('local Svelte orchestration uses parsed counts when completion reports more
   const stdout = svelteMachineOutput(5, 0, 12, 0);
   const { output } = captureConsole(() => runLocalSvelteCheck({
     argv: [],
-    env: {},
+    env: TEST_ENV,
     spawn: /** @type {any} */ (() => ({ status: 1, stdout, stderr: '' })),
   }));
   assert.match(output, /✗ Svelte — 5 parsed errors, 0 parsed warnings/);
@@ -281,7 +284,7 @@ test('local Svelte orchestration uses parsed counts and parsed omission bounds w
   const stdout = svelteMachineOutput(12, 0, 5, 0);
   const { output } = captureConsole(() => runLocalSvelteCheck({
     argv: [],
-    env: {},
+    env: TEST_ENV,
     spawn: /** @type {any} */ (() => ({ status: 1, stdout, stderr: '' })),
   }));
   assert.match(output, /✗ Svelte — 12 parsed errors, 0 parsed warnings/);
@@ -298,7 +301,7 @@ test('local Svelte orchestration reports malformed records without trusting comp
   ].join('\n');
   const { output } = captureConsole(() => runLocalSvelteCheck({
     argv: [],
-    env: {},
+    env: TEST_ENV,
     spawn: /** @type {any} */ (() => ({ status: 1, stdout, stderr: '' })),
   }));
   assert.match(output, /✗ Svelte — 1 parsed error, 0 parsed warnings/);
@@ -310,7 +313,7 @@ test('local Svelte orchestration fails safely when START and COMPLETED are absen
   const stdout = 'svelte-kit sync prelude\nchecker terminated before protocol';
   const { value: status, output } = captureConsole(() => runLocalSvelteCheck({
     argv: [],
-    env: {},
+    env: TEST_ENV,
     spawn: /** @type {any} */ (() => ({ status: 2, stdout, stderr: '' })),
   }));
   assert.equal(status, 2);
@@ -321,7 +324,7 @@ test('local Svelte orchestration fails safely when START and COMPLETED are absen
 test('local Svelte orchestration surfaces setup failure output and preserves its exit status', () => {
   const { value: status, output } = captureConsole(() => runLocalSvelteCheck({
     argv: [],
-    env: {},
+    env: TEST_ENV,
     spawn: /** @type {any} */ (() => ({ status: 6, stdout: '', stderr: 'svelte-kit sync setup failed' })),
   }));
   assert.equal(status, 6);
@@ -332,13 +335,15 @@ test('local Svelte orchestration surfaces setup failure output and preserves its
 test('explicit machine-verbose Svelte presentation bypasses compact capture and preserves child status', () => {
   /** @type {Array<{ executable: string, args: string[], options: any }>} */
   const calls = [];
+  /** @param {string} executable @param {string[]} args @param {any} options */
+  function machineVerboseSpawn(executable, args, options) {
+    calls.push({ executable, args, options });
+    return { status: 3 };
+  }
   const { value: status, output } = captureConsole(() => runLocalSvelteCheck({
     argv: ['--output', 'machine-verbose'],
-    env: {},
-    spawn: /** @type {any} */ ((executable, args, options) => {
-      calls.push({ executable, args, options });
-      return { status: 3 };
-    }),
+    env: TEST_ENV,
+    spawn: /** @type {any} */ (machineVerboseSpawn),
   }));
   assert.equal(status, 3);
   assert.equal(output, '');
@@ -352,7 +357,7 @@ test('compact local Svelte presentation preserves a nonstandard child failure st
   const stdout = svelteMachineOutput(1, 0);
   const { value: status } = captureConsole(() => runLocalSvelteCheck({
     argv: [],
-    env: {},
+    env: TEST_ENV,
     spawn: /** @type {any} */ (() => ({ status: 7, stdout, stderr: '' })),
   }));
   assert.equal(status, 7);
@@ -361,13 +366,15 @@ test('compact local Svelte presentation preserves a nonstandard child failure st
 test('local build forwards appended Vite arguments through the quiet presentation wrapper', () => {
   /** @type {Array<{ executable: string, args: string[], options: any }>} */
   const calls = [];
+  /** @param {string} executable @param {string[]} args @param {any} options */
+  function buildSpawn(executable, args, options) {
+    calls.push({ executable, args, options });
+    return { status: 0, stdout: '', stderr: '' };
+  }
   const { value: status } = captureConsole(() => runLocalBuild({
     argv: ['--mode', 'staging'],
-    env: {},
-    spawn: /** @type {any} */ ((executable, args, options) => {
-      calls.push({ executable, args, options });
-      return { status: 0, stdout: '', stderr: '' };
-    }),
+    env: TEST_ENV,
+    spawn: /** @type {any} */ (buildSpawn),
   }));
   assert.equal(status, 0);
   assert.equal(calls.length, 1);
@@ -378,7 +385,7 @@ test('local build forwards appended Vite arguments through the quiet presentatio
 test('local build failure repro preserves appended Vite arguments', () => {
   const { value: status, output } = captureConsole(() => runLocalBuild({
     argv: ['--mode', 'staging'],
-    env: {},
+    env: TEST_ENV,
     spawn: /** @type {any} */ (() => ({ status: 4, stdout: '', stderr: 'build failed' })),
   }));
   assert.equal(status, 4);
