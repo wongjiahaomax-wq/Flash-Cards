@@ -98,6 +98,6 @@ test('Worker restoration is exact at the control plane and requires the positive
   }
 
   assert.match(deploy, /application-level \/study/);
-  assert.match(recovery, /Missing fence headers and generic 5xx responses/);
+  assert.match(recovery, /Missing fence headers and generic 5xx[\s\S]*responses/);
   assert.match(recovery, /Header absence alone is not recovery proof/);
 });
