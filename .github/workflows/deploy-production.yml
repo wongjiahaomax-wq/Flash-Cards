@@ -150,7 +150,24 @@ jobs:
             exit 1
           fi
 
+      - name: Capture pre-fence Worker version
+        id: pre_fence
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          status_json="$(./node_modules/.bin/wrangler deployments status --name flash-cards --json)"
+          version_id="$(
+            printf '%s' "$status_json" |
+              node scripts/production-worker-deployment.mjs current-version
+          )"
+          echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
+          echo "Captured pre-fence Worker version ${version_id}."
+
       - name: Install temporary learner write fence Worker
+        id: install_fence
         if: ${{ steps.cutover.outputs.required == 'true' }}
         shell: bash
         env:
@@ -182,6 +199,7 @@ jobs:
           ./node_modules/.bin/wrangler deploy --config .cutover-fence/wrangler.json
 
       - name: Verify temporary write fence
+        id: verify_fence
         if: ${{ steps.cutover.outputs.required == 'true' }}
         shell: bash
         run: |
@@ -190,6 +208,33 @@ jobs:
           status="$(curl --silent --show-error --output /tmp/fence-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"
           test "$status" = "503"
           grep -qi '^X-Learner-Runtime-Fence: active' "$headers"
+
+      - name: Restore pre-fence Worker after fence failure
+        if: ${{ always() && steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' && (steps.install_fence.outcome == 'failure' || steps.verify_fence.outcome == 'failure') }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          rollback_version="${{ steps.pre_fence.outputs.version_id }}"
+          ./node_modules/.bin/wrangler rollback "$rollback_version" \
+            --name flash-cards \
+            --message "Automatic pre-migration rollback after failed temporary learner fence for ${GITHUB_SHA}" \
+            --yes
+
+      - name: Verify pre-fence Worker restoration
+        if: ${{ always() && steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' && (steps.install_fence.outcome == 'failure' || steps.verify_fence.outcome == 'failure') }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          rollback_version="${{ steps.pre_fence.outputs.version_id }}"
+          status_json="$(./node_modules/.bin/wrangler deployments status --name flash-cards --json)"
+          printf '%s' "$status_json" |
+            node scripts/production-worker-deployment.mjs verify-version "$rollback_version"
+          echo
+          echo "Verified Production Worker restored to ${rollback_version}."
 
       - name: Require exact zero Production learner runtime data
         if: ${{ steps.cutover.outputs.required == 'true' }}
