@@ -19,7 +19,7 @@ test('Production fence recovery is positively verified before fencing and surviv
   assert.match(deploy, /version-after "\$version_after"/);
   assert.match(deploy, /pre-fence-recovery\.json/);
   assert.doesNotMatch(deploy, /pre-fence-version\.txt/);
-  assert.match(deploy, /name:\s*production-cutover-pre-fence/);
+  assert.match(deploy, /name:\s*production-cutover-pre-fence-\$\{\{\s*github\.run_attempt\s*\}\}/);
   assert.match(deploy, /steps\.install_fence\.outcome != 'skipped'/);
   assert.match(deploy, /cancelled\(\)/);
   assert.match(deploy, /steps\.install_fence\.outcome == 'cancelled'/);
@@ -72,6 +72,17 @@ test('Interrupted-run recovery accepts only structured positively verified prove
   assert.doesNotMatch(recovery, /pre-fence-version\.txt/);
 });
 
+test('Recovery artifact selection is bound to the triggering workflow run attempt', () => {
+  const deploy = source('.github/workflows/deploy-production.yml');
+  const recovery = source('.github/workflows/recover-production-fence.yml');
+
+  assert.match(deploy, /name:\s*production-cutover-pre-fence-\$\{\{\s*github\.run_attempt\s*\}\}/);
+  assert.match(recovery, /SOURCE_RUN_ATTEMPT:\s*\$\{\{\s*github\.event\.workflow_run\.run_attempt\s*\}\}/);
+  assert.match(recovery, /expectedArtifactName = `production-cutover-pre-fence-\$\{process\.env\.SOURCE_RUN_ATTEMPT\}`/);
+  assert.match(recovery, /artifact\?\.name === expectedArtifactName/);
+  assert.match(recovery, /name:\s*production-cutover-pre-fence-\$\{\{\s*github\.event\.workflow_run\.run_attempt\s*\}\}/);
+});
+
 test('Interrupted-run recovery rolls back only when GitHub proves D1 migration never started', () => {
   const recovery = source('.github/workflows/recover-production-fence.yml');
 
@@ -85,7 +96,25 @@ test('Interrupted-run recovery rolls back only when GitHub proves D1 migration n
   assert.match(recovery, /wrangler rollback "\$rollback_version"/);
 });
 
-test('Worker restoration is exact at the control plane and requires the positive /study edge contract', () => {
+test('Healthy stale edge cannot suppress rollback while the control plane mismatches the recorded target', () => {
+  const recovery = source('.github/workflows/recover-production-fence.yml');
+  const download = recovery.indexOf('- name: Download verified pre-fence recovery record');
+  const validate = recovery.indexOf('- name: Validate rollback target provenance');
+  const inspect = recovery.indexOf('- name: Inspect current Production control plane');
+  const rollback = recovery.indexOf('- name: Restore pre-fence Worker after interrupted pre-migration cutover');
+
+  assert.ok(download >= 0 && download < validate && validate < inspect && inspect < rollback);
+
+  const decision = recovery.slice(inspect, rollback);
+  assert.match(decision, /production-worker-deployment\.mjs current-version/);
+  assert.match(decision, /if \[ "\$current_version" = "\$rollback_version" \]; then/);
+  assert.match(decision, /needs_recovery=false/);
+  assert.match(decision, /needs_recovery=true/);
+  assert.match(decision, /healthy \/study response can be a stale edge/i);
+  assert.doesNotMatch(decision, /production-fence-recovery\.mjs probe(?:\s|\\)/);
+});
+
+test('Worker restoration is exact at the control plane and requires the positive /study edge contract plus Worker identity', () => {
   const deploy = source('.github/workflows/deploy-production.yml');
   const recovery = source('.github/workflows/recover-production-fence.yml');
 
@@ -93,11 +122,11 @@ test('Worker restoration is exact at the control plane and requires the positive
     assert.match(workflow, /production-worker-deployment\.mjs verify-version "\$rollback_version"/);
     assert.match(workflow, /for attempt in \$\(seq 1 60\); do/);
     assert.match(workflow, /production-fence-recovery\.mjs probe/);
+    assert.match(workflow, /production-fence-recovery\.mjs probe-identity[\s\S]*--expected-version "\$rollback_version"/);
     assert.match(workflow, /sleep 5/);
     assert.match(workflow, /five minutes/i);
   }
 
   assert.match(deploy, /application-level \/study/);
-  assert.match(recovery, /Missing fence headers and generic 5xx[\s\S]*responses/);
-  assert.match(recovery, /Header absence alone is not recovery proof/);
+  assert.match(recovery, /healthy stale edge[\s\S]*not sufficient evidence of recovery/i);
 });
