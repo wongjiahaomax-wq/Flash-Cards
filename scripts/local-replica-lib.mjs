@@ -87,6 +87,7 @@ export const FORBIDDEN_PRODUCTION_TABLES = Object.freeze([
   'learner_system_aggregates',
   'learner_system_monthly_buckets',
   'learner_account_deletions',
+  'learner_study_data_deletions',
   'active_reviews',
   'active_review_questions',
   'active_review_assets',
