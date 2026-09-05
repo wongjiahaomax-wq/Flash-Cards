@@ -152,6 +152,12 @@ jobs:
             exit 1
           fi
 
+      - name: Preflight exact zero learner runtime data before downtime
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+        run: npm run multi-system:cutover-gate -- --remote
+
       - name: Capture pre-fence Worker version
         id: pre_fence
         if: ${{ steps.cutover.outputs.required == 'true' }}
@@ -165,6 +171,20 @@ jobs:
             printf '%s' "$status_json" |
               node scripts/production-worker-deployment.mjs current-version
           )"
+          # A previous failed cutover may have left a maintenance Worker active.
+          # Never persist that Worker as the application recovery target.
+          headers="$(mktemp)"
+          status="$(curl --silent --show-error --max-time 30 --output /tmp/pre-fence-study.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"
+          if grep -qi '^X-Learner-Runtime-Fence: active' "$headers" || { [ "$status" != "200" ] && [ "$status" != "303" ]; }; then
+            rm -f "$headers"
+            echo "::error::Current Worker is not a healthy application recovery target (HTTP ${status}). Recover the known-good application before retrying cutover."
+            exit 1
+          fi
+          rm -f "$headers"
+          # Ensure the control-plane version did not change during the HTTP probe.
+          ./node_modules/.bin/wrangler deployments status --name flash-cards --json |
+            node scripts/production-worker-deployment.mjs verify-version "$version_id"
+          echo
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
           echo "Captured pre-fence Worker version ${version_id}."
 

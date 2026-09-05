@@ -69,3 +69,22 @@ test('rollback verification tolerates observed Cloudflare edge propagation lag i
   assert.match(recovery, /migrationConclusion === 'skipped'/);
   assert.match(recovery, /safeToRestore = preFencePresent && migrationConclusion === 'skipped'/);
 });
+
+test('cutover rejects nonzero data before downtime and rechecks after fencing', () => {
+  const deploy = source('.github/workflows/deploy-production.yml');
+  const preflight = deploy.indexOf('- name: Preflight exact zero learner runtime data before downtime');
+  const capture = deploy.indexOf('- name: Capture pre-fence Worker version');
+  const install = deploy.indexOf('- name: Install temporary learner write fence Worker');
+  const fencedGate = deploy.indexOf('- name: Require exact zero Production learner runtime data');
+  const migrate = deploy.indexOf('- name: Apply all pending production D1 migrations');
+  assert.ok(preflight > 0 && preflight < capture && capture < install && install < fencedGate && fencedGate < migrate);
+  assert.match(deploy.slice(preflight, capture), /run: npm run multi-system:cutover-gate -- --remote/);
+  assert.match(deploy.slice(fencedGate, migrate), /run: npm run multi-system:cutover-gate -- --remote/);
+  const recovery = deploy.slice(capture, install);
+  const healthCheck = recovery.indexOf('Current Worker is not a healthy application recovery target');
+  const record = recovery.indexOf('echo "version_id=${version_id}"');
+  assert.ok(healthCheck > 0 && healthCheck < record);
+  assert.match(recovery.slice(0, record), /X-Learner-Runtime-Fence: active/);
+  assert.match(recovery.slice(0, record), /\[ "\$status" != "200" \] && \[ "\$status" != "303" \]/);
+  assert.match(recovery.slice(0, record), /verify-version "\$version_id"/);
+});
