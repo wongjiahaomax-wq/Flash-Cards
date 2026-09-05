@@ -15,9 +15,11 @@ permissions:
 concurrency:
   group: production-deploy
   cancel-in-progress: false
+  queue: max
 
 jobs:
   deploy:
+    if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -166,6 +168,23 @@ jobs:
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
           echo "Captured pre-fence Worker version ${version_id}."
 
+      - name: Write pre-fence recovery record
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p .cutover-recovery
+          printf '%s\n' "${{ steps.pre_fence.outputs.version_id }}" > .cutover-recovery/pre-fence-version.txt
+
+      - name: Upload pre-fence recovery record
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-cutover-pre-fence
+          path: .cutover-recovery/pre-fence-version.txt
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Install temporary learner write fence Worker
         id: install_fence
         if: ${{ steps.cutover.outputs.required == 'true' }}
@@ -230,8 +249,8 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
         run: npm run multi-system:cutover-gate -- --remote
 
-      - name: Restore pre-fence Worker after pre-migration cutover failure
-        if: ${{ always() && steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' && (steps.install_fence.outcome == 'failure' || steps.verify_fence.outcome == 'failure' || steps.zero_runtime_data.outcome == 'failure') }}
+      - name: Restore pre-fence Worker after pre-migration cutover failure or cancellation
+        if: ${{ always() && steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' && steps.install_fence.outcome != 'skipped' && (cancelled() || steps.install_fence.outcome == 'failure' || steps.install_fence.outcome == 'cancelled' || steps.verify_fence.outcome == 'failure' || steps.verify_fence.outcome == 'cancelled' || steps.zero_runtime_data.outcome == 'failure' || steps.zero_runtime_data.outcome == 'cancelled') }}
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -240,10 +259,10 @@ jobs:
           rollback_version="${{ steps.pre_fence.outputs.version_id }}"
           ./node_modules/.bin/wrangler rollback "$rollback_version" \
             --name flash-cards \
-            --message "Automatic pre-migration rollback after failed temporary learner cutover fence for ${GITHUB_SHA}"
+            --message "Automatic pre-migration rollback after failed or cancelled temporary learner cutover fence for ${GITHUB_SHA}"
 
       - name: Verify pre-fence Worker restoration
-        if: ${{ always() && steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' && (steps.install_fence.outcome == 'failure' || steps.verify_fence.outcome == 'failure' || steps.zero_runtime_data.outcome == 'failure') }}
+        if: ${{ always() && steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' && steps.install_fence.outcome != 'skipped' && (cancelled() || steps.install_fence.outcome == 'failure' || steps.install_fence.outcome == 'cancelled' || steps.verify_fence.outcome == 'failure' || steps.verify_fence.outcome == 'cancelled' || steps.zero_runtime_data.outcome == 'failure' || steps.zero_runtime_data.outcome == 'cancelled') }}
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -254,7 +273,26 @@ jobs:
           printf '%s' "$status_json" |
             node scripts/production-worker-deployment.mjs verify-version "$rollback_version"
           echo
-          echo "Verified Production Worker restored to ${rollback_version}."
+          echo "Verified Production Worker control plane restored to ${rollback_version}."
+
+          for attempt in $(seq 1 10); do
+            headers="$(mktemp)"
+            status=""
+            if status="$(curl --silent --show-error --output /tmp/restored-worker-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"; then
+              if ! grep -qi '^X-Learner-Runtime-Fence: active' "$headers"; then
+                rm -f "$headers"
+                echo "Verified temporary learner fence disappeared from the public Worker endpoint on attempt ${attempt}."
+                exit 0
+              fi
+            fi
+            rm -f "$headers"
+            echo "Pre-fence Worker not visible at the public endpoint yet (attempt ${attempt}/10, status=${status:-curl-error})."
+            if [ "$attempt" -lt 10 ]; then
+              sleep 2
+            fi
+          done
+          echo "::error::Control-plane rollback succeeded but the public Worker endpoint still exposes the temporary learner fence."
+          exit 1
 
       - name: Apply all pending production D1 migrations
         if: ${{ steps.cutover.outputs.required == 'true' || inputs.apply_migrations == true }}
