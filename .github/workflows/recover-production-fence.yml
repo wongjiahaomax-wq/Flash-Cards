@@ -30,6 +30,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100" > "$RUNNER_TEMP/source-artifacts.json"
@@ -39,11 +40,12 @@ jobs:
           const fs = require('node:fs');
           const artifactsPayload = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/source-artifacts.json`, 'utf8'));
           const jobsPayload = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/source-jobs.json`, 'utf8'));
+          const expectedArtifactName = `production-cutover-pre-fence-${process.env.SOURCE_RUN_ATTEMPT}`;
           const recoveryArtifacts = (artifactsPayload.artifacts ?? []).filter(
-            (artifact) => artifact?.name === 'production-cutover-pre-fence' && artifact?.expired !== true
+            (artifact) => artifact?.name === expectedArtifactName && artifact?.expired !== true
           );
           if (recoveryArtifacts.length > 1) {
-            console.error(`Expected at most one pre-fence recovery artifact, found ${recoveryArtifacts.length}.`);
+            console.error(`Expected at most one ${expectedArtifactName} recovery artifact, found ${recoveryArtifacts.length}.`);
             process.exit(1);
           }
 
@@ -63,7 +65,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `pre_fence_present=${preFencePresent}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `migration_conclusion=${migrationConclusion}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `safe_to_restore=${safeToRestore}\n`);
-          console.log(`Recovery state: preFencePresent=${preFencePresent}, migrationConclusion=${migrationConclusion}, safeToRestore=${safeToRestore}`);
+          console.log(`Recovery state: artifact=${expectedArtifactName}, preFencePresent=${preFencePresent}, migrationConclusion=${migrationConclusion}, safeToRestore=${safeToRestore}`);
           NODE
 
       - name: Check out interrupted deployment revision
@@ -78,62 +80,18 @@ jobs:
         with:
           node-version: 22
 
-      - name: Inspect public Worker application state
-        id: edge_state
-        if: ${{ steps.recovery_state.outputs.pre_fence_present == 'true' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          for attempt in $(seq 1 5); do
-            probe_file="$RUNNER_TEMP/recovery-edge-probe.json"
-            rm -f "$probe_file"
-            if node scripts/production-fence-recovery.mjs probe \
-              --base-url "$PRODUCTION_WORKER_URL" \
-              > "$probe_file"; then
-              echo "needs_recovery=false" >> "$GITHUB_OUTPUT"
-              echo "fence_active=false" >> "$GITHUB_OUTPUT"
-              echo "Public Worker already proves the unfenced /study application contract."
-              exit 0
-            fi
-
-            if [ -s "$probe_file" ] && node -e '
-              const fs=require("node:fs");
-              const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-              process.exit(String(value.fence_header ?? "").toLowerCase() === "active" ? 0 : 1);
-            ' "$probe_file"; then
-              echo "needs_recovery=true" >> "$GITHUB_OUTPUT"
-              echo "fence_active=true" >> "$GITHUB_OUTPUT"
-              echo "Temporary learner fence is still active at the public Worker endpoint."
-              exit 0
-            fi
-
-            echo "Public Worker is neither the verified application nor the explicit temporary fence (attempt ${attempt}/5)."
-            if [ "$attempt" -lt 5 ]; then
-              sleep 2
-            fi
-          done
-          echo "::error::Public Worker state is indeterminate. Header absence alone is not recovery proof; refusing automatic rollback."
-          exit 1
-
-      - name: Refuse unsafe application rollback after D1 migration may have started
-        if: ${{ steps.edge_state.outputs.needs_recovery == 'true' && steps.recovery_state.outputs.safe_to_restore != 'true' }}
-        shell: bash
-        run: |
-          echo "::error::Temporary learner fence is still active, but automatic Worker rollback is unsafe because the D1 migration step conclusion is '${{ steps.recovery_state.outputs.migration_conclusion }}'. Manual recovery is required."
-          exit 1
-
       - name: Download verified pre-fence recovery record
-        if: ${{ steps.edge_state.outputs.needs_recovery == 'true' && steps.recovery_state.outputs.safe_to_restore == 'true' }}
+        if: ${{ steps.recovery_state.outputs.pre_fence_present == 'true' }}
         uses: actions/download-artifact@v5
         with:
-          name: production-cutover-pre-fence
+          name: production-cutover-pre-fence-${{ github.event.workflow_run.run_attempt }}
           path: ${{ runner.temp }}/production-cutover-recovery
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
 
       - name: Validate rollback target provenance
         id: rollback_target
-        if: ${{ steps.edge_state.outputs.needs_recovery == 'true' && steps.recovery_state.outputs.safe_to_restore == 'true' }}
+        if: ${{ steps.recovery_state.outputs.pre_fence_present == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -168,8 +126,42 @@ jobs:
             exit 1
           fi
 
-      - name: Restore pre-fence Worker after interrupted pre-migration cutover
+      - name: Inspect current Production control plane
+        id: control_plane
         if: ${{ steps.rollback_target.outputs.version_id != '' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          rollback_version="${{ steps.rollback_target.outputs.version_id }}"
+          status_json="$(./node_modules/.bin/wrangler deployments status --name flash-cards --json)"
+          current_version="$(
+            printf '%s' "$status_json" |
+              node scripts/production-worker-deployment.mjs current-version
+          )"
+          echo "current_version=${current_version}" >> "$GITHUB_OUTPUT"
+
+          # The Cloudflare control plane is authoritative for the recovery decision.
+          # A healthy /study response can be a stale edge and must never suppress
+          # rollback while the control plane still points at another Worker.
+          if [ "$current_version" = "$rollback_version" ]; then
+            echo "needs_recovery=false" >> "$GITHUB_OUTPUT"
+            echo "Production control plane already points at the recorded pre-fence Worker ${rollback_version}; rollback is unnecessary."
+          else
+            echo "needs_recovery=true" >> "$GITHUB_OUTPUT"
+            echo "Production control plane is ${current_version}, not recorded pre-fence Worker ${rollback_version}; recovery is required."
+          fi
+
+      - name: Refuse unsafe application rollback after D1 migration may have started
+        if: ${{ steps.control_plane.outputs.needs_recovery == 'true' && steps.recovery_state.outputs.safe_to_restore != 'true' }}
+        shell: bash
+        run: |
+          echo "::error::Production control plane does not match the recorded pre-fence Worker, but automatic Worker rollback is unsafe because the D1 migration step conclusion is '${{ steps.recovery_state.outputs.migration_conclusion }}'. Manual recovery is required."
+          exit 1
+
+      - name: Restore pre-fence Worker after interrupted pre-migration cutover
+        if: ${{ steps.control_plane.outputs.needs_recovery == 'true' && steps.recovery_state.outputs.safe_to_restore == 'true' }}
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -178,7 +170,7 @@ jobs:
           rollback_version="${{ steps.rollback_target.outputs.version_id }}"
           ./node_modules/.bin/wrangler rollback "$rollback_version" \
             --name flash-cards \
-            --message "Automatic recovery after interrupted pre-migration learner cutover fence from run ${{ github.event.workflow_run.id }}"
+            --message "Automatic recovery after interrupted pre-migration learner cutover fence from run ${{ github.event.workflow_run.id }} attempt ${{ github.event.workflow_run.run_attempt }}"
 
       - name: Verify recovered Worker control plane and public edge
         if: ${{ steps.rollback_target.outputs.version_id != '' }}
@@ -195,21 +187,28 @@ jobs:
           echo "Verified recovered Worker control plane at ${rollback_version}."
 
           # Control-plane restoration can precede workers.dev edge propagation.
-          # Recovery is complete only when the positive /study application
-          # redirect contract is visible. Missing fence headers and generic 5xx
-          # responses are not sufficient evidence of recovery.
+          # Recovery is complete only when the positive /study application contract
+          # and exact serving-Worker identity are visible from the same bounded loop.
+          # Missing fence headers, generic 5xx responses, and a healthy stale edge
+          # serving another Worker are not sufficient evidence of recovery.
           for attempt in $(seq 1 60); do
+            rm -f /tmp/recovered-study-probe.json /tmp/recovered-worker-identity.json
             if node scripts/production-fence-recovery.mjs probe \
               --base-url "$PRODUCTION_WORKER_URL" \
-              > /tmp/recovered-study-probe.json; then
-              echo "Verified recovered application response at the public Worker endpoint on attempt ${attempt}."
+              > /tmp/recovered-study-probe.json \
+              && node scripts/production-fence-recovery.mjs probe-identity \
+                --base-url "$PRODUCTION_WORKER_URL" \
+                --expected-version "$rollback_version" \
+                > /tmp/recovered-worker-identity.json; then
+              echo "Verified recovered application response and Worker identity at the public endpoint on attempt ${attempt}."
               cat /tmp/recovered-study-probe.json
+              cat /tmp/recovered-worker-identity.json
               exit 0
             fi
-            echo "Recovered Worker application response not visible yet (attempt ${attempt}/60)."
+            echo "Recovered Worker application response and exact edge identity not both visible yet (attempt ${attempt}/60)."
             if [ "$attempt" -lt 60 ]; then
               sleep 5
             fi
           done
-          echo "::error::Recovered Worker is recorded at 100% traffic, but the public endpoint did not prove the recovered application contract after five minutes."
+          echo "::error::Recovered Worker is recorded at 100% traffic, but the public endpoint did not prove both the recovered application contract and exact Worker identity after five minutes."
           exit 1
