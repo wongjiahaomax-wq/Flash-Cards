@@ -14,9 +14,7 @@ import {
 } from '../scripts/test-presentation.mjs';
 
 const SVELTE_START = '1 START "/workspace"';
-const TEST_ENV = /** @type {NodeJS.ProcessEnv} */ ({
-  BETTER_AUTH_URL: 'http://localhost',
-});
+const TEST_ENV = /** @type {NodeJS.ProcessEnv} */ (/** @type {unknown} */ ({}));
 
 /** @param {any[]} events */
 async function collectReporter(events) {
