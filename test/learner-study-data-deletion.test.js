@@ -40,7 +40,9 @@ class SqliteD1Statement {
   }
 
   async first() {
-    return this.client.database.prepare(this.sql).get(...this.params) ?? null;
+    const row = this.client.database.prepare(this.sql).get(...this.params) ?? null;
+    if (this.client.onFirst) await this.client.onFirst(this.sql, row);
+    return row;
   }
 
   async run() {
@@ -50,8 +52,9 @@ class SqliteD1Statement {
 }
 
 class SqliteD1Client {
-  constructor(database) {
+  constructor(database, { onFirst } = {}) {
     this.database = database;
+    this.onFirst = onFirst;
   }
 
   prepare(sql) {
@@ -75,22 +78,21 @@ class SqliteD1Client {
   }
 }
 
-function fixture({ preTranche = false } = {}) {
+function fixture({ preTranche = false, onFirst } = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   if (preTranche) {
     const files = readdirSync(new URL('../drizzle/', import.meta.url))
       .filter((name) => /^\d{4}_.+\.sql$/.test(name))
       .filter((name) => ![
-        '0027_self_service_study_data_deletion.sql',
-        '0028_self_service_study_data_writer_fence.sql'
+        '0027_self_service_study_data_deletion.sql'
       ].includes(name))
       .sort();
     sqlite.exec(files.map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8')).join('\n').replaceAll('--> statement-breakpoint', ''));
   } else {
     applyCurrentSchema(sqlite);
   }
-  const client = new SqliteD1Client(sqlite);
+  const client = new SqliteD1Client(sqlite, { onFirst });
   return { sqlite, db: { $client: client } };
 }
 
@@ -439,7 +441,7 @@ test('bounded backend cleanup removes every study-owned row while preserving ide
   }
 });
 
-test('advance is retry-safe, bounded, and a complete marker rescans before releasing a recreated residual', async () => {
+test('advance is retry-safe, bounded, and a complete marker leaves later study data untouched', async () => {
   const { sqlite, db } = fixture();
   try {
     seedIdentities(sqlite);
@@ -460,11 +462,57 @@ test('advance is retry-safe, bounded, and a complete marker rescans before relea
     await advanceToCompletion(db, 'learner-1');
 
     sqlite.exec("INSERT INTO learner_aggregates (user_id) VALUES ('learner-1');");
-    const repaired = await advanceStudyDataDeletion({ db, userId: 'learner-1' });
-    assert.equal(repaired.phase, 'learner_aggregates');
-    assert.equal(await isStudyDataDeletionActive(db, 'learner-1'), true);
-    await advanceToCompletion(db, 'learner-1');
-    assert.equal(Number(sqlite.prepare("SELECT count(*) AS n FROM learner_aggregates WHERE user_id = 'learner-1'").get().n), 0);
+    const terminal = await advanceStudyDataDeletion({ db, userId: 'learner-1' });
+    assert.deepEqual(terminal, {
+      userId: 'learner-1',
+      phase: 'complete',
+      rowsDeleted: 0,
+      complete: true
+    });
+    assert.equal(await isStudyDataDeletionActive(db, 'learner-1'), false);
+    assert.equal(Number(sqlite.prepare("SELECT count(*) AS n FROM learner_aggregates WHERE user_id = 'learner-1'").get().n), 1);
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('stale concurrent advancement cannot move the marker backwards or delete data after completion', async () => {
+  let pauseMarkerRead;
+  let releaseMarkerRead;
+  const markerReadPaused = new Promise((resolve) => { pauseMarkerRead = resolve; });
+  const markerReadRelease = new Promise((resolve) => { releaseMarkerRead = resolve; });
+  let armed = false;
+  let paused = false;
+  const { sqlite, db } = fixture({
+    onFirst: async (sql) => {
+      if (armed && !paused && sql.includes('FROM learner_study_data_deletions')) {
+        paused = true;
+        pauseMarkerRead();
+        await markerReadRelease;
+      }
+    }
+  });
+  try {
+    seedIdentities(sqlite);
+    seedActiveReviewContent(sqlite);
+    seedStudyData(sqlite, 'learner-1', { scheduledEvents: 2 });
+    await beginStudyDataDeletion({ db, userId: 'learner-1' });
+    armed = true;
+
+    const staleWorker = advanceStudyDataDeletion({ db, userId: 'learner-1', batchSize: 1 });
+    await markerReadPaused;
+
+    const freshClient = new SqliteD1Client(sqlite);
+    const freshDb = { $client: freshClient };
+    await advanceToCompletion(freshDb, 'learner-1', 1);
+    assert.equal(marker(sqlite, 'learner-1').phase, 'complete');
+    sqlite.exec("INSERT INTO learner_aggregates (user_id) VALUES ('learner-1');");
+    releaseMarkerRead();
+    const staleResult = await staleWorker;
+    assert.equal(staleResult.phase, 'complete');
+    assert.equal(staleResult.complete, true);
+    assert.equal(sqlite.prepare("SELECT count(*) AS n FROM learner_aggregates WHERE user_id = 'learner-1'").get().n, 1);
+    assert.equal(marker(sqlite, 'learner-1').phase, 'complete');
   } finally {
     sqlite.close();
   }
@@ -543,6 +591,7 @@ test('Tranche 4 exposes only self-scoped learner deletion with typed confirmatio
   const open = readFileSync(new URL('../src/routes/study/api/open/+server.js', import.meta.url), 'utf8');
   const complete = readFileSync(new URL('../src/routes/study/api/complete/[reviewId]/+server.js', import.meta.url), 'utf8');
   const media = readFileSync(new URL('../src/routes/study/media/[reviewId]/[assetId]/+server.js', import.meta.url), 'utf8');
+  const study = chooserServer;
 
   assert.match(chooserServer, /deleteStudyData:/);
   assert.match(chooserServer, /continueStudyDataDeletion:/);
@@ -564,4 +613,9 @@ test('Tranche 4 exposes only self-scoped learner deletion with typed confirmatio
     assert.match(source, /isStudyDataDeletionActive/);
     assert.match(source, /Study data deletion is in progress/);
   }
+  assert.match(review, /isStudyDataDeletionFenceError/);
+  assert.match(open, /isStudyDataDeletionFenceError/);
+  assert.match(complete, /isStudyDataDeletionFenceError/);
+  assert.match(study, /isStudyDataDeletionFenceError/);
+  assert.match(study, /deletionInProgress: true/);
 });

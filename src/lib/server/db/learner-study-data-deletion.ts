@@ -105,16 +105,6 @@ function requiredBatchSize(value: number | undefined) {
   return batchSize;
 }
 
-async function firstRemainingPhase(client: D1Database, userId: string): Promise<StudyDataDeletionPhase> {
-  for (const descriptor of STUDY_DATA_DELETION_DESCRIPTORS) {
-    const remaining = await client.prepare(`
-      SELECT 1 AS present FROM ${descriptor.table} WHERE ${descriptor.predicate} LIMIT 1
-    `).bind(userId).first();
-    if (remaining) return descriptor.phase;
-  }
-  return STUDY_DATA_DELETION_COMPLETE_PHASE;
-}
-
 async function accountDeletionIsActive(client: D1Database, userId: string) {
   const row = await client.prepare(`
     SELECT 1 AS present
@@ -218,59 +208,80 @@ export async function advanceStudyDataDeletion(input: {
   }
   if (!marker) throw new Error('Study-data deletion started without a durable marker.');
 
-  let phase = marker.phase;
+  const phase = marker.phase;
   if (phase === STUDY_DATA_DELETION_COMPLETE_PHASE) {
-    const remainingPhase = await firstRemainingPhase(client, userId);
-    if (remainingPhase === STUDY_DATA_DELETION_COMPLETE_PHASE) {
-      return { userId, phase, rowsDeleted: 0, complete: true };
-    }
-    await client.prepare(`
-      UPDATE learner_study_data_deletions
-      SET phase = ?, completed_at = NULL, updated_at = ${DATABASE_NOW_MS_SQL}
-      WHERE user_id = ?
-    `).bind(remainingPhase, userId).run();
-    return { userId, phase: remainingPhase, rowsDeleted: 0, complete: false };
+    return { userId, phase, rowsDeleted: 0, complete: true };
   }
 
   if (phase === 'verify_empty') {
-    const remainingPhase = await firstRemainingPhase(client, userId);
-    if (remainingPhase === STUDY_DATA_DELETION_COMPLETE_PHASE) {
-      await client.prepare(`
+    const remainingPhaseSql = STUDY_DATA_DELETION_DESCRIPTORS
+      .map((descriptor) => `WHEN EXISTS (SELECT 1 FROM ${descriptor.table} WHERE ${descriptor.predicate}) THEN '${descriptor.phase}'`)
+      .join('\n          ');
+    const emptySql = STUDY_DATA_DELETION_DESCRIPTORS
+      .map((descriptor) => `NOT EXISTS (SELECT 1 FROM ${descriptor.table} WHERE ${descriptor.predicate})`)
+      .join('\n          AND ');
+    const verificationParameters = [
+      ...STUDY_DATA_DELETION_DESCRIPTORS.map(() => userId),
+      ...STUDY_DATA_DELETION_DESCRIPTORS.map(() => userId),
+      userId
+    ];
+    await client.batch([
+      client.prepare(`
         UPDATE learner_study_data_deletions
-        SET phase = 'complete', completed_at = ${DATABASE_NOW_MS_SQL},
-            batches_completed = batches_completed + 1, updated_at = ${DATABASE_NOW_MS_SQL}
-        WHERE user_id = ?
-      `).bind(userId).run();
-      return { userId, phase: STUDY_DATA_DELETION_COMPLETE_PHASE, rowsDeleted: 0, complete: true };
-    }
-    await client.prepare(`
-      UPDATE learner_study_data_deletions
-      SET phase = ?, batches_completed = batches_completed + 1, updated_at = ${DATABASE_NOW_MS_SQL}
-      WHERE user_id = ?
-    `).bind(remainingPhase, userId).run();
-    return { userId, phase: remainingPhase, rowsDeleted: 0, complete: false };
+        SET phase = CASE
+          ${remainingPhaseSql}
+          ELSE 'complete'
+        END,
+        completed_at = CASE
+          WHEN ${emptySql} THEN ${DATABASE_NOW_MS_SQL}
+          ELSE NULL
+        END,
+        batches_completed = batches_completed + 1,
+        updated_at = ${DATABASE_NOW_MS_SQL}
+        WHERE user_id = ? AND phase = 'verify_empty'
+      `).bind(...verificationParameters)
+    ]);
+    const current = await readMarker(client, userId);
+    if (!current) throw new Error('Study-data deletion marker disappeared during verification.');
+    return {
+      userId,
+      phase: current.phase,
+      rowsDeleted: 0,
+      complete: current.phase === STUDY_DATA_DELETION_COMPLETE_PHASE
+    };
   }
 
   const descriptor = STUDY_DATA_DELETION_DESCRIPTORS.find((candidate) => candidate.phase === phase);
   if (!descriptor) throw new Error(`Unsupported study-data deletion phase: ${phase}`);
 
-  const deleted = await client.prepare(`
-    DELETE FROM ${descriptor.table}
-    WHERE rowid IN (
-      SELECT rowid FROM ${descriptor.table} WHERE ${descriptor.predicate} LIMIT ?
-    )
-  `).bind(userId, batchSize).run();
-  const rowsDeleted = changes(deleted);
-  const remaining = await client.prepare(`
-    SELECT 1 AS present FROM ${descriptor.table} WHERE ${descriptor.predicate} LIMIT 1
-  `).bind(userId).first();
-  phase = remaining ? descriptor.phase : descriptor.next;
-
-  await client.prepare(`
-    UPDATE learner_study_data_deletions
-    SET phase = ?, batches_completed = batches_completed + 1, updated_at = ${DATABASE_NOW_MS_SQL}
-    WHERE user_id = ?
-  `).bind(phase, userId).run();
-
-  return { userId, phase, rowsDeleted, complete: false };
+  const [deleted] = await client.batch([
+    client.prepare(`
+      DELETE FROM ${descriptor.table}
+      WHERE rowid IN (
+        SELECT rowid FROM ${descriptor.table} WHERE ${descriptor.predicate} LIMIT ?
+      )
+        AND EXISTS (
+          SELECT 1 FROM learner_study_data_deletions current_marker
+          WHERE current_marker.user_id = ? AND current_marker.phase = ?
+        )
+    `).bind(userId, batchSize, userId, phase),
+    client.prepare(`
+      UPDATE learner_study_data_deletions
+      SET phase = CASE
+        WHEN EXISTS (SELECT 1 FROM ${descriptor.table} WHERE ${descriptor.predicate}) THEN ?
+        ELSE ?
+      END,
+      batches_completed = batches_completed + 1,
+      updated_at = ${DATABASE_NOW_MS_SQL}
+      WHERE user_id = ? AND phase = ?
+    `).bind(userId, phase, descriptor.next, userId, phase)
+  ]);
+  const current = await readMarker(client, userId);
+  if (!current) throw new Error('Study-data deletion marker disappeared during advancement.');
+  return {
+    userId,
+    phase: current.phase,
+    rowsDeleted: changes(deleted),
+    complete: current.phase === STUDY_DATA_DELETION_COMPLETE_PHASE
+  };
 }

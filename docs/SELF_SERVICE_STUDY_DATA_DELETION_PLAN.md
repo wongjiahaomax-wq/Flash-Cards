@@ -1,8 +1,8 @@
 # Self-Service Study Data Deletion Plan
 
-Status: **planning contract only**. This document intentionally does not implement the feature. The next coding agent should implement this plan in the same PR/branch.
+Status: **implemented in PR #154**. This document records the implemented behavior, acceptance contract, and safety boundaries for the feature.
 
-This plan is intentionally detailed. It exists so implementation agents can validate and code the design without rediscovering the product semantics, deletion boundary, concurrency requirements, or UX from scratch.
+This document is intentionally detailed. It lets reviewers validate the implementation against the product semantics, deletion boundary, concurrency requirements, and UX without rediscovering them from scratch.
 
 ## 1. Goal
 

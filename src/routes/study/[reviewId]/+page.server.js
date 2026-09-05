@@ -3,6 +3,10 @@ import { error } from '@sveltejs/kit';
 import { createDb } from '$lib/server/db/index.js';
 import { getActiveReviewById, revealActiveReview } from '$lib/server/db/active-reviews.js';
 import { isStudyDataDeletionActive } from '$lib/server/db/learner-study-data-deletion.ts';
+import {
+  isStudyDataDeletionFenceError,
+  STUDY_DATA_DELETION_FENCE_MESSAGE
+} from '$lib/server/db/study-data-deletion-fence.js';
 import { learnerStudyAccessError } from '$lib/server/learning/learner-study-runtime.js';
 
 const STUDY_DATA_DELETION_IN_PROGRESS_MESSAGE =
@@ -58,7 +62,15 @@ export const actions = {
   reveal: async ({ locals, params, platform }) => {
     const { user, db } = context(locals, platform);
     await requireStudyDataDeletionInactive(db, user.id);
-    const review = await revealActiveReview({ db, userId: user.id, reviewId: params.reviewId });
+    let review;
+    try {
+      review = await revealActiveReview({ db, userId: user.id, reviewId: params.reviewId });
+    } catch (cause) {
+      if (isStudyDataDeletionFenceError(cause)) {
+        error(409, STUDY_DATA_DELETION_FENCE_MESSAGE);
+      }
+      throw cause;
+    }
     if (!review) error(404, 'Active Review not found or expired.');
   }
 };

@@ -1,8 +1,8 @@
 import { initialLearnerFsrsProfile } from './fsrs-bootstrap.js';
 import { buildDetailedHistoryCleanupStatements } from './fsrs-retention.js';
 import {
+  createStudyDataDeletionFenceError,
   isStudyDataDeletionFenceError,
-  STUDY_DATA_DELETION_FENCE_MESSAGE
 } from './study-data-deletion-fence.js';
 
 const DATABASE_NOW_MS_SQL = "cast((julianday('now') - 2440587.5) * 86400000 as integer)";
@@ -106,7 +106,7 @@ export async function resetLearnerFsrsProgress(input) {
     `).bind(userId)
     ]);
   } catch (cause) {
-    if (isStudyDataDeletionFenceError(cause)) throw new Error(STUDY_DATA_DELETION_FENCE_MESSAGE);
+    if (isStudyDataDeletionFenceError(cause)) throw createStudyDataDeletionFenceError();
     throw cause;
   }
 
@@ -177,7 +177,7 @@ export async function freshLearnerFsrsStart(input) {
       pruneOldGenerationOptimizerEvidence(client, userId)
     ]);
   } catch (cause) {
-    if (isStudyDataDeletionFenceError(cause)) throw new Error(STUDY_DATA_DELETION_FENCE_MESSAGE);
+    if (isStudyDataDeletionFenceError(cause)) throw createStudyDataDeletionFenceError();
     throw cause;
   }
 

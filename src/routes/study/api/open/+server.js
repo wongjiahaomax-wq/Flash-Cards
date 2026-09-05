@@ -14,6 +14,7 @@ import {
   validateLearnerStudyRunOwner
 } from '$lib/server/learning/learner-study-runtime.js';
 import { isStudyDataDeletionActive } from '$lib/server/db/learner-study-data-deletion.ts';
+import { isStudyDataDeletionFenceError } from '$lib/server/db/study-data-deletion-fence.js';
 
 const STUDY_DATA_DELETION_IN_PROGRESS_MESSAGE =
   'Study data deletion is in progress. Continue it from the Study page before studying again.';
@@ -132,6 +133,9 @@ export async function POST({ locals, platform, request }) {
 
     return json({ message: 'Unsupported Study run descriptor.' }, 400);
   } catch (cause) {
+    if (isStudyDataDeletionFenceError(cause)) {
+      return json({ message: STUDY_DATA_DELETION_IN_PROGRESS_MESSAGE }, 409);
+    }
     return json({ message: cause instanceof Error ? cause.message : String(cause) }, 400);
   }
 }

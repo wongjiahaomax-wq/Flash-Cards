@@ -4,6 +4,10 @@ import { completeFreeReview } from '$lib/server/db/free-review-completion.js';
 import { completeScheduledReview } from '$lib/server/db/scheduled-review-completion.js';
 import { isStudyDataDeletionActive } from '$lib/server/db/learner-study-data-deletion.ts';
 import {
+  isStudyDataDeletionFenceError,
+  STUDY_DATA_DELETION_FENCE_MESSAGE
+} from '$lib/server/db/study-data-deletion-fence.js';
+import {
   learnerStudyAccessError,
   learnerStudyProofSecret
 } from '$lib/server/learning/learner-study-runtime.js';
@@ -55,6 +59,9 @@ export async function POST({ locals, params, platform, request }) {
     }
     return json(result);
   } catch (cause) {
+    if (isStudyDataDeletionFenceError(cause)) {
+      return json({ message: STUDY_DATA_DELETION_FENCE_MESSAGE }, 409);
+    }
     return json({ message: cause instanceof Error ? cause.message : String(cause) }, 400);
   }
 }

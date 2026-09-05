@@ -18,6 +18,10 @@ import {
 import { setExpandedLearningPreference } from '$lib/server/db/learner-preferences.js';
 import { listSystemStudySelectionSystems } from '$lib/server/db/study-navigation.ts';
 import {
+  isStudyDataDeletionFenceError,
+  STUDY_DATA_DELETION_FENCE_MESSAGE
+} from '$lib/server/db/study-data-deletion-fence.js';
+import {
   learnerStudyAccessError,
   learnerStudyProofSecret
 } from '$lib/server/learning/learner-study-runtime.js';
@@ -139,12 +143,20 @@ export const actions = {
     const deletion = await requireStudyDataDeletionInactive(db, user.id);
     if (deletion) return deletion;
     const formData = await request.formData();
-    const result = await planSystemStudyRunFromForm({
-      db,
-      userId: user.id,
-      formData,
-      proofSecret: learnerStudyProofSecret(env)
-    });
+    let result;
+    try {
+      result = await planSystemStudyRunFromForm({
+        db,
+        userId: user.id,
+        formData,
+        proofSecret: learnerStudyProofSecret(env)
+      });
+    } catch (cause) {
+      if (isStudyDataDeletionFenceError(cause)) {
+        return fail(409, { message: STUDY_DATA_DELETION_FENCE_MESSAGE, deletionInProgress: true });
+      }
+      throw cause;
+    }
     if (!result.ok) return fail(result.status, result.form);
     return { descriptor: result.descriptor, message: 'Study run planned. Opening the first Review…' };
   },
@@ -179,7 +191,15 @@ export const actions = {
     if (formData.get('confirmation') !== 'reset-progress') {
       return fail(400, { message: 'Reset Progress confirmation is required.' });
     }
-    const result = await resetLearnerFsrsProgress({ db, userId: user.id });
+    let result;
+    try {
+      result = await resetLearnerFsrsProgress({ db, userId: user.id });
+    } catch (cause) {
+      if (isStudyDataDeletionFenceError(cause)) {
+        return fail(409, { message: STUDY_DATA_DELETION_FENCE_MESSAGE, deletionInProgress: true });
+      }
+      throw cause;
+    }
     return {
       browserRunInvalidated: true,
       boundaryAction: result.operation,
@@ -197,7 +217,14 @@ export const actions = {
     if (formData.get('confirmation') !== 'fresh-fsrs-start') {
       return fail(400, { message: 'Fresh FSRS Start confirmation is required.' });
     }
-    await freshLearnerFsrsStart({ db, userId: user.id });
+    try {
+      await freshLearnerFsrsStart({ db, userId: user.id });
+    } catch (cause) {
+      if (isStudyDataDeletionFenceError(cause)) {
+        return fail(409, { message: STUDY_DATA_DELETION_FENCE_MESSAGE, deletionInProgress: true });
+      }
+      throw cause;
+    }
     return {
       browserRunInvalidated: true,
       boundaryAction: 'fresh-fsrs-start',
