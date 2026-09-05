@@ -67,7 +67,8 @@ validate repository + both migrated-D1 acceptances + both envelope benchmarks
 → inspect D1 guard and deployed runtime completion state
 → require the D1 write credential before taking learner runtime down
 → preflight exact-zero data before downtime (repeat under the fence to close the write race)
-→ capture a stable Worker version and require unfenced Study HTTP 200/303 before recording it for recovery
+→ prove exact unauthenticated /study 303 application behavior while the control-plane Worker version remains stable
+→ persist a structured recovery record bound to that Worker, run ID, run attempt, commit SHA, Production origin, and edge proof
 → deploy temporary learner write-fence Worker
 → verify the temporary fence
 → run exact-zero remote cutover gate
@@ -166,7 +167,7 @@ Re-run the schema-aware exact-zero gate and confirm authored-content/account cou
 
 Runs 21–23 never reached migrations. Run 21 installed maintenance; runs 22–23 then captured that version `b0eb8a02-60fb-4292-8a6c-52792151aa76` is the maintenance Worker itself, not a valid recovery target. Once current migration state confirms rollback remains compatible, restore the run-20 application version `0ac08060-18ae-4809-87ec-a5f14defd8ae` using the installed Wrangler `rollback <version> --name flash-cards`; verify control-plane identity and unfenced Study behavior. Do not start new test Reviews before the cutover. Then dispatch the reviewed deployment workflow from `main`, retaining its fenced recheck, migration, and exact-build verification sequence.
 
-The preflight prevents known nonzero data from causing downtime. Recovery capture refuses a maintenance/error response and rechecks the active version after the HTTP probe, so retries cannot silently record the previous maintenance Worker as an application rollback target.
+The preflight prevents known nonzero data from causing downtime. Recovery capture now fails closed unless `/study` proves the exact unauthenticated `303 → /sign-in?redirect=%2Fstudy` application contract and the Cloudflare control-plane Worker version is unchanged across that edge probe. The uploaded `pre-fence-recovery.json` also binds the target to the source run ID, run attempt, commit SHA, Production origin, and stored edge evidence. Interrupted-run recovery rejects legacy bare Worker IDs and any mismatched or unverified record before rollback.
 
 ## Release evidence
 
