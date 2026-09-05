@@ -2,7 +2,7 @@
 
 _Status: current repository operational runbook. Production migration, Worker deployment, and live verification state must be established separately._
 
-_Last updated: 24 August 2026._
+_Last updated: 6 September 2026._
 
 The SvelteKit application deploys to Cloudflare Workers with private runtime bindings:
 
@@ -260,7 +260,7 @@ A successful run summary is evidence for the exact commit deployed and whether t
 
 ### Local/terminal equivalent
 
-When deliberately releasing from an authenticated terminal, first confirm the intended `main` SHA and run the standard validation:
+When deliberately releasing from an authenticated terminal, first confirm the intended `main` SHA and run the standard validation. Release/operator validation deliberately selects the verbose presentation aliases so terminal evidence retains the same observability expected from deployment automation:
 
 ```sh
 git fetch origin
@@ -269,9 +269,9 @@ git pull --ff-only origin main
 git rev-parse HEAD
 npm ci
 npm run db:check
-npm test
-npm run check
-npm run build
+npm run test:verbose
+npm run check:verbose
+npm run build:verbose
 node scripts/local-auth-smoke.mjs
 git diff --check
 ```
