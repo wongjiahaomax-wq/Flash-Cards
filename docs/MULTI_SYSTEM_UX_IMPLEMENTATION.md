@@ -41,6 +41,21 @@ A narrowed System is submitted as:
 
 The existing local `/fsrs-preview` single-System form remains accepted by the shared parser and is translated into one v2 routes-mode System entry. This preserves the valid single-System flow as a special case without introducing descriptor/proof compatibility machinery.
 
+### Topic hierarchy semantics
+
+The multi-System learner chooser preserves the pre-existing exact-Topic hierarchy contract rather than flattening structural Topics into routes.
+
+`src/lib/study-topic-hierarchy.js` centralizes the hierarchy primitives used by the learner surface:
+
+- exact-Topic route enumeration excludes Topics whose exact `caseCount` is zero;
+- a structural parent with zero exact Cases is a UI control only and never receives a submitted `route:<systemId>` form name;
+- checking or clearing a parent toggles the contributing exact-Topic routes in its descendant subtree;
+- partial descendant selection produces the indeterminate parent state;
+- Topic display order and indentation follow the existing breadcrumb hierarchy;
+- curated Tags remain independent routes and may add Cases outside checked Topics.
+
+This is the same semantic model that the earlier single-System chooser enforced: structural parents help navigate/select the tree but do not change exact Topic membership into descendant-inclusive server routes.
+
 ## Server-authoritative request wiring
 
 The learner form is only a request boundary.
@@ -108,6 +123,30 @@ After completion, `/study/[reviewId]` applies the returned descriptor update and
 
 No System-specific navigation branch or synthetic `Mixed` System was added.
 
+### Real A → B next-open acceptance
+
+The specialized Runtime v2 CI now includes `scripts/multi-system-v2-cross-navigation-d1.mjs` and its workerd Worker fixture. The fixture seeds two real Cases with distinct concrete attribution:
+
+```text
+Case A → System A Primary Topic
+Case B → System B Primary Topic
+```
+
+For both Scheduled and Free Study the acceptance performs the actual sequence:
+
+```text
+canonical multi-System plan
+→ select/open Case A through the real Active Review creator
+→ reveal + commit the real server completion
+→ apply the returned durable completion receipt/event to descriptor v2
+→ select the next descriptor item
+→ open Case B through the real Active Review creator
+→ verify concrete System B attribution and preserved two-System runScope
+→ complete Case B
+```
+
+This complements the original Runtime v2 overlapping-Case lifecycle fixture. The original fixture continues to prove deterministic attribution/deduplication for one Case reachable through more than one System; the new fixture specifically proves completion → next-open across a genuine System boundary.
+
 ## Regression and CI ownership
 
 Learner UX regression coverage locks:
@@ -116,18 +155,26 @@ Learner UX regression coverage locks:
 - whole-System `mode: 'all'` without route materialization;
 - explicit per-System narrowing;
 - single-System form preservation;
+- structural Topic parents remaining non-submitting descendant controls;
+- subtree toggle, hierarchy ordering and indeterminate-state source contracts on the actual `/study` learner surface;
 - union/deduplicated count semantics with an overlapping Case;
-- Scheduled and Free continuous browser-run advancement across Cases contributed by different Systems;
+- Scheduled and Free browser-descriptor advancement across Cases contributed by different Systems;
+- migrated-D1 Scheduled and Free Case-A → completion → real Case-B next-open acceptance;
 - source contracts requiring the learner chooser, server count owner, canonical multi-System planners, and existing continuous-navigation owner.
 
-The dedicated Multi-System Runtime v2 workflow now also owns:
+The dedicated Multi-System Runtime v2 workflow owns the learner hierarchy/request surfaces and their focused regressions, including:
 
 ```text
+src/lib/study-topic-hierarchy.js
 src/lib/server/learning/plan-system-study.ts
+src/routes/study/**
 test/multi-system-learner-ux.test.js
+test/system-study-chooser-pr-b.test.js
+scripts/multi-system-v2-*.mjs
+scripts/multi-system-v2-*.js
 ```
 
-and runs the learner UX regression alongside the existing Runtime v2 source/runtime tests plus migrated-D1 scope/lifecycle acceptance and supported-envelope benchmarks.
+It runs the learner UX regressions alongside the existing Runtime v2 source/runtime tests, migrated-D1 scope/lifecycle acceptance, the real cross-System next-open acceptance, and supported-envelope benchmarks.
 
 The normal repository CI and existing Scheduled/Free/browser workflows remain additional owners for their respective runtime surfaces.
 
