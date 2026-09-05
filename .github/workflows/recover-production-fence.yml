@@ -1,0 +1,201 @@
+name: Recover interrupted production fence
+
+on:
+  workflow_run:
+    workflows: [Deploy production]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+  queue: max
+
+jobs:
+  recover:
+    if: ${{ always() && github.event.workflow_run.event == 'workflow_dispatch' && github.event.workflow_run.head_branch == 'main' && github.event.workflow_run.head_repository.full_name == github.repository && github.event.workflow_run.conclusion != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_ACCOUNT_ID: 0ada6bfd273d96d92682a853c4dd6fd2
+      PRODUCTION_WORKER_URL: https://flash-cards.mmed-fm-flashcardstest.workers.dev
+
+    steps:
+      - name: Inspect interrupted deployment recovery state
+        id: recovery_state
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100" > "$RUNNER_TEMP/source-artifacts.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/jobs?filter=latest&per_page=100" > "$RUNNER_TEMP/source-jobs.json"
+
+          node <<'NODE'
+          const fs = require('node:fs');
+          const artifactsPayload = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/source-artifacts.json`, 'utf8'));
+          const jobsPayload = JSON.parse(fs.readFileSync(`${process.env.RUNNER_TEMP}/source-jobs.json`, 'utf8'));
+          const recoveryArtifacts = (artifactsPayload.artifacts ?? []).filter(
+            (artifact) => artifact?.name === 'production-cutover-pre-fence' && artifact?.expired !== true
+          );
+          if (recoveryArtifacts.length > 1) {
+            console.error(`Expected at most one pre-fence recovery artifact, found ${recoveryArtifacts.length}.`);
+            process.exit(1);
+          }
+
+          const preFencePresent = recoveryArtifacts.length === 1;
+          const deployJobs = (jobsPayload.jobs ?? []).filter((job) => job?.name === 'deploy');
+          let migrationConclusion = 'unknown';
+          if (deployJobs.length === 1) {
+            const migrationStep = (deployJobs[0].steps ?? []).find(
+              (step) => step?.name === 'Apply all pending production D1 migrations'
+            );
+            if (typeof migrationStep?.conclusion === 'string' && migrationStep.conclusion.length > 0) {
+              migrationConclusion = migrationStep.conclusion;
+            }
+          }
+
+          const safeToRestore = preFencePresent && migrationConclusion === 'skipped';
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `pre_fence_present=${preFencePresent}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `migration_conclusion=${migrationConclusion}\n`);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `safe_to_restore=${safeToRestore}\n`);
+          console.log(`Recovery state: preFencePresent=${preFencePresent}, migrationConclusion=${migrationConclusion}, safeToRestore=${safeToRestore}`);
+          NODE
+
+      - name: Inspect public Worker fence state
+        id: edge_state
+        if: ${{ steps.recovery_state.outputs.pre_fence_present == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 5); do
+            headers="$(mktemp)"
+            status=""
+            if status="$(curl --silent --show-error --output /tmp/recovery-edge-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"; then
+              if grep -qi '^X-Learner-Runtime-Fence: active' "$headers"; then
+                rm -f "$headers"
+                echo "fence_active=true" >> "$GITHUB_OUTPUT"
+                echo "Temporary learner fence is still active at the public Worker endpoint."
+                exit 0
+              fi
+              rm -f "$headers"
+              echo "fence_active=false" >> "$GITHUB_OUTPUT"
+              echo "Temporary learner fence is not active at the public Worker endpoint."
+              exit 0
+            fi
+            rm -f "$headers"
+            echo "Unable to inspect public Worker endpoint (attempt ${attempt}/5, status=${status:-curl-error})."
+            if [ "$attempt" -lt 5 ]; then
+              sleep 2
+            fi
+          done
+          echo "::error::Unable to determine whether the temporary learner fence is still active."
+          exit 1
+
+      - name: Refuse unsafe application rollback after D1 migration may have started
+        if: ${{ steps.edge_state.outputs.fence_active == 'true' && steps.recovery_state.outputs.safe_to_restore != 'true' }}
+        shell: bash
+        run: |
+          echo "::error::Temporary learner fence is still active, but automatic Worker rollback is unsafe because the D1 migration step conclusion is '${{ steps.recovery_state.outputs.migration_conclusion }}'. Manual recovery is required."
+          exit 1
+
+      - name: Download pre-fence recovery record
+        if: ${{ steps.edge_state.outputs.fence_active == 'true' && steps.recovery_state.outputs.safe_to_restore == 'true' }}
+        uses: actions/download-artifact@v5
+        with:
+          name: production-cutover-pre-fence
+          path: ${{ runner.temp }}/production-cutover-recovery
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Read rollback target
+        id: rollback_target
+        if: ${{ steps.edge_state.outputs.fence_active == 'true' && steps.recovery_state.outputs.safe_to_restore == 'true' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          rollback_version="$(tr -d '\r\n' < "$RUNNER_TEMP/production-cutover-recovery/pre-fence-version.txt")"
+          if [ -z "$rollback_version" ] || [[ "$rollback_version" == *[!A-Za-z0-9-]* ]]; then
+            echo "::error::Invalid pre-fence Worker version in recovery artifact."
+            exit 1
+          fi
+          echo "version_id=${rollback_version}" >> "$GITHUB_OUTPUT"
+
+      - name: Check out interrupted deployment revision
+        if: ${{ steps.rollback_target.outputs.version_id != '' }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Node.js
+        if: ${{ steps.rollback_target.outputs.version_id != '' }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install deployment dependencies
+        if: ${{ steps.rollback_target.outputs.version_id != '' }}
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Verify Cloudflare deploy credential
+        if: ${{ steps.rollback_target.outputs.version_id != '' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ]; then
+            echo "::error::GitHub repository secret CLOUDFLARE_API_TOKEN is required for Production fence recovery."
+            exit 1
+          fi
+
+      - name: Restore pre-fence Worker after interrupted pre-migration cutover
+        if: ${{ steps.rollback_target.outputs.version_id != '' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          rollback_version="${{ steps.rollback_target.outputs.version_id }}"
+          ./node_modules/.bin/wrangler rollback "$rollback_version" \
+            --name flash-cards \
+            --message "Automatic recovery after interrupted pre-migration learner cutover fence from run ${{ github.event.workflow_run.id }}"
+
+      - name: Verify recovered Worker control plane and public edge
+        if: ${{ steps.rollback_target.outputs.version_id != '' }}
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          rollback_version="${{ steps.rollback_target.outputs.version_id }}"
+          status_json="$(./node_modules/.bin/wrangler deployments status --name flash-cards --json)"
+          printf '%s' "$status_json" |
+            node scripts/production-worker-deployment.mjs verify-version "$rollback_version"
+          echo
+          echo "Verified recovered Worker control plane at ${rollback_version}."
+
+          for attempt in $(seq 1 10); do
+            headers="$(mktemp)"
+            status=""
+            if status="$(curl --silent --show-error --output /tmp/recovered-worker-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"; then
+              if ! grep -qi '^X-Learner-Runtime-Fence: active' "$headers"; then
+                rm -f "$headers"
+                echo "Verified interrupted temporary learner fence disappeared from the public Worker endpoint on attempt ${attempt}."
+                exit 0
+              fi
+            fi
+            rm -f "$headers"
+            echo "Recovered Worker not visible at the public endpoint yet (attempt ${attempt}/10, status=${status:-curl-error})."
+            if [ "$attempt" -lt 10 ]; then
+              sleep 2
+            fi
+          done
+          echo "::error::Recovered Worker is recorded at 100% traffic, but the public endpoint still exposes the temporary learner fence."
+          exit 1
