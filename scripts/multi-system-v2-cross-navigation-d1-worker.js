@@ -53,7 +53,7 @@ function deterministicNoShuffle() {
 }
 
 function ownedDescriptor(descriptor, userId) {
-  const withTarget = { ...descriptor, distinctCaseTarget: 2 };
+  const withTarget = { ...descriptor, distinctCaseTarget: null };
   const ownership = validateLearnerStudyRunOwner(withTarget, userId);
   if (!ownership.ok) throw new Error(`Descriptor ownership validation failed: ${ownership.message}`);
   return ownership.descriptor;
