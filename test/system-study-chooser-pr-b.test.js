@@ -46,12 +46,13 @@ test('zero-exact structural Topic parents control descendants without becoming s
   assert.match(chooserSource, /0 exact-Topic Cases · \{topic\.subtreeCaseCount\}/);
 });
 
-test('PR B removes per-run Original/Expanded choice and plans explicit Scheduled or Free descriptors', () => {
+test('PR B removes per-run Original/Expanded choice and the shared owner plans explicit Scheduled or Free v2 descriptors', () => {
   assert.doesNotMatch(chooserSource, /questionPoolMode|Original questions|Expanded Learning/);
   assert.match(chooserSource, /name="studyMode"/);
-  assert.match(formOwnerSource, /studyMode !== 'scheduled' && studyMode !== 'free'/);
-  assert.match(formOwnerSource, /planScheduledSystemStudyRun/);
-  assert.match(formOwnerSource, /planFreeSystemStudyRun/);
+  assert.match(formOwnerSource, /state\.studyMode !== 'scheduled' && state\.studyMode !== 'free'/);
+  assert.match(formOwnerSource, /planScheduledMultiSystemStudyRun/);
+  assert.match(formOwnerSource, /planFreeMultiSystemStudyRun/);
+  assert.match(formOwnerSource, /parseMultiSystemStudyScopeFromForm/);
   assert.doesNotMatch(formOwnerSource, /questionPoolMode/);
 });
 
