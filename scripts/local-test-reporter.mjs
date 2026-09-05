@@ -195,7 +195,16 @@ export default async function* localTestReporter(source) {
     if (unlisted) yield `${unlisted} additional identities not listed.\n`;
   }
 
-  const reproFiles = [...new Set(detailed.map((failure) => failureIdentity(failure).file).filter(Boolean))];
+  /** @type {string[]} */
+  const reproFiles = [];
+  const seenReproFiles = new Set();
+  for (const failure of detailed) {
+    const file = failureIdentity(failure).file;
+    if (typeof file !== 'string' || !file || seenReproFiles.has(file)) continue;
+    seenReproFiles.add(file);
+    reproFiles.push(file);
+  }
+
   yield '\nFocused reproduction:\n';
   if (reproFiles.length) {
     for (const file of reproFiles) yield `npm test -- ${commandArgument(file)}\n`;
