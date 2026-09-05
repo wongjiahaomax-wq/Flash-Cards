@@ -11,6 +11,7 @@ import {
   parseTestPresentationArgs,
 } from '../scripts/test-presentation.mjs';
 
+/** @param {any[]} events */
 async function collectReporter(events) {
   async function* source() {
     for (const event of events) yield event;
@@ -20,6 +21,10 @@ async function collectReporter(events) {
   return output;
 }
 
+/**
+ * @param {number} index
+ * @param {{ message?: string, expected?: unknown, actual?: unknown, name?: string }} [overrides]
+ */
 function failureData(index, overrides = {}) {
   const cause = /** @type {Error & { code: string, expected: unknown, actual: unknown, operator: string }} */ (
     new Error(overrides.message ?? `failure ${index}`)
@@ -62,44 +67,51 @@ test('local presentation does not confuse CI reporter metadata with CI context',
 
 test('explicit caller and CI presentation outrank the local compact default without double reporter injection', () => {
   assert.deepEqual(
-    nodeTestArgsForPresentation(['tests/example.test.js'], 'ci', {}),
+    nodeTestArgsForPresentation(['tests/example.test.js'], 'ci', { ...process.env }),
     [`--test-reporter=${CI_TEST_REPORTER}`, 'tests/example.test.js'],
   );
   assert.deepEqual(
-    nodeTestArgsForPresentation([`--test-reporter=${CI_TEST_REPORTER}`, 'tests/example.test.js'], 'local', {}),
+    nodeTestArgsForPresentation([`--test-reporter=${CI_TEST_REPORTER}`, 'tests/example.test.js'], 'local', { ...process.env }),
     [`--test-reporter=${CI_TEST_REPORTER}`, 'tests/example.test.js'],
   );
   assert.deepEqual(
     nodeTestArgsForPresentation(['tests/example.test.js'], 'local', {
+      ...process.env,
       NODE_OPTIONS: `--trace-warnings --test-reporter=${CI_TEST_REPORTER}`,
     }),
     ['tests/example.test.js'],
   );
-  assert.deepEqual(nodeTestArgsForPresentation(['tests/example.test.js'], 'verbose', {}), ['tests/example.test.js']);
+  assert.deepEqual(nodeTestArgsForPresentation(['tests/example.test.js'], 'verbose', { ...process.env }), ['tests/example.test.js']);
 });
 
 test('test runner preserves focused arguments and selects one presentation owner', () => {
+  /** @type {Array<{ executable: string, args: string[], options: any }>} */
   const calls = [];
+  /** @param {string} executable @param {string[]} args @param {any} options */
+  function mockSpawn(executable, args, options) {
+    calls.push({ executable, args, options });
+    return { status: 0 };
+  }
   const status = runNodeTests({
     argv: ['tests/example.test.js'],
-    env: { CI_NODE_TEST_CHECK_ID: 'local-metadata-only' },
-    spawn(executable, args, options) {
-      calls.push({ executable, args, options });
-      return { status: 0 };
-    },
+    env: { ...process.env, CI_NODE_TEST_CHECK_ID: 'local-metadata-only' },
+    spawn: /** @type {any} */ (mockSpawn),
   });
   assert.equal(status, 0);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].args, ['--test', `--test-reporter=${LOCAL_TEST_REPORTER}`, 'tests/example.test.js']);
 
+  /** @type {Array<{ executable: string, args: string[] }>} */
   const ciCalls = [];
+  /** @param {string} executable @param {string[]} args */
+  function mockCiSpawn(executable, args) {
+    ciCalls.push({ executable, args });
+    return { status: 0 };
+  }
   runNodeTests({
     argv: ['--presentation=ci', 'tests/example.test.js'],
-    env: {},
-    spawn(executable, args) {
-      ciCalls.push({ executable, args });
-      return { status: 0 };
-    },
+    env: { ...process.env },
+    spawn: /** @type {any} */ (mockCiSpawn),
   });
   assert.deepEqual(ciCalls[0].args, ['--test', `--test-reporter=${CI_TEST_REPORTER}`, 'tests/example.test.js']);
 });
@@ -128,6 +140,7 @@ test('local reporter is nearly silent on success', async () => {
 
 test('local reporter bounds cascading failures and large assertion payloads while preserving exact aggregate count', async () => {
   const failures = Array.from({ length: 37 }, (_, index) => failureData(index + 1));
+  /** @type {any[]} */
   const events = failures.map((data) => ({ type: 'test:fail', data }));
   events.push({
     type: 'test:summary',
