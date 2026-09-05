@@ -12,6 +12,7 @@ on:
       - 'src/lib/server/db/study-navigation.ts'
       - 'src/lib/server/db/study-run-planning.js'
       - 'src/lib/server/learning/multi-system-study-scope.ts'
+      - 'src/lib/server/learning/plan-system-study.ts'
       - 'src/lib/server/learning/system-study-routes.ts'
       - 'src/lib/server/learning/taxonomy-graph.ts'
       - 'src/lib/server/learning/study-routes.js'
@@ -24,6 +25,7 @@ on:
       - 'scripts/multi-system-v2-*.mjs'
       - 'scripts/multi-system-v2-*.js'
       - 'test/multi-system-runtime-v2*.test.js'
+      - 'test/multi-system-learner-ux.test.js'
       - 'test/learner-fsrs-run-envelope.test.js'
       - 'test/learner-fsrs-run-proof.test.js'
       - 'test/local-fsrs-preview.test.js'
@@ -61,11 +63,12 @@ jobs:
       - name: Check migrations
         run: npm run db:check
 
-      - name: Run focused v2 source and runtime tests
+      - name: Run focused v2 source, runtime, and learner UX tests
         run: >-
           node --test
           test/multi-system-runtime-v2.test.js
           test/multi-system-runtime-v2-source-contract.test.js
+          test/multi-system-learner-ux.test.js
           test/learner-fsrs-run-envelope.test.js
           test/learner-fsrs-run-proof.test.js
           test/local-fsrs-preview.test.js
