@@ -66,45 +66,64 @@ jobs:
           console.log(`Recovery state: preFencePresent=${preFencePresent}, migrationConclusion=${migrationConclusion}, safeToRestore=${safeToRestore}`);
           NODE
 
-      - name: Inspect public Worker fence state
+      - name: Check out interrupted deployment revision
+        if: ${{ steps.recovery_state.outputs.pre_fence_present == 'true' }}
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Node.js for recovery verification
+        if: ${{ steps.recovery_state.outputs.pre_fence_present == 'true' }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Inspect public Worker application state
         id: edge_state
         if: ${{ steps.recovery_state.outputs.pre_fence_present == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
           for attempt in $(seq 1 5); do
-            headers="$(mktemp)"
-            status=""
-            if status="$(curl --silent --show-error --output /tmp/recovery-edge-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"; then
-              if grep -qi '^X-Learner-Runtime-Fence: active' "$headers"; then
-                rm -f "$headers"
-                echo "fence_active=true" >> "$GITHUB_OUTPUT"
-                echo "Temporary learner fence is still active at the public Worker endpoint."
-                exit 0
-              fi
-              rm -f "$headers"
+            probe_file="$RUNNER_TEMP/recovery-edge-probe.json"
+            rm -f "$probe_file"
+            if node scripts/production-fence-recovery.mjs probe \
+              --base-url "$PRODUCTION_WORKER_URL" \
+              > "$probe_file"; then
+              echo "needs_recovery=false" >> "$GITHUB_OUTPUT"
               echo "fence_active=false" >> "$GITHUB_OUTPUT"
-              echo "Temporary learner fence is not active at the public Worker endpoint."
+              echo "Public Worker already proves the unfenced /study application contract."
               exit 0
             fi
-            rm -f "$headers"
-            echo "Unable to inspect public Worker endpoint (attempt ${attempt}/5, status=${status:-curl-error})."
+
+            if [ -s "$probe_file" ] && node -e '
+              const fs=require("node:fs");
+              const value=JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              process.exit(String(value.fence_header ?? "").toLowerCase() === "active" ? 0 : 1);
+            ' "$probe_file"; then
+              echo "needs_recovery=true" >> "$GITHUB_OUTPUT"
+              echo "fence_active=true" >> "$GITHUB_OUTPUT"
+              echo "Temporary learner fence is still active at the public Worker endpoint."
+              exit 0
+            fi
+
+            echo "Public Worker is neither the verified application nor the explicit temporary fence (attempt ${attempt}/5)."
             if [ "$attempt" -lt 5 ]; then
               sleep 2
             fi
           done
-          echo "::error::Unable to determine whether the temporary learner fence is still active."
+          echo "::error::Public Worker state is indeterminate. Header absence alone is not recovery proof; refusing automatic rollback."
           exit 1
 
       - name: Refuse unsafe application rollback after D1 migration may have started
-        if: ${{ steps.edge_state.outputs.fence_active == 'true' && steps.recovery_state.outputs.safe_to_restore != 'true' }}
+        if: ${{ steps.edge_state.outputs.needs_recovery == 'true' && steps.recovery_state.outputs.safe_to_restore != 'true' }}
         shell: bash
         run: |
           echo "::error::Temporary learner fence is still active, but automatic Worker rollback is unsafe because the D1 migration step conclusion is '${{ steps.recovery_state.outputs.migration_conclusion }}'. Manual recovery is required."
           exit 1
 
-      - name: Download pre-fence recovery record
-        if: ${{ steps.edge_state.outputs.fence_active == 'true' && steps.recovery_state.outputs.safe_to_restore == 'true' }}
+      - name: Download verified pre-fence recovery record
+        if: ${{ steps.edge_state.outputs.needs_recovery == 'true' && steps.recovery_state.outputs.safe_to_restore == 'true' }}
         uses: actions/download-artifact@v5
         with:
           name: production-cutover-pre-fence
@@ -112,32 +131,26 @@ jobs:
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
 
-      - name: Read rollback target
+      - name: Validate rollback target provenance
         id: rollback_target
-        if: ${{ steps.edge_state.outputs.fence_active == 'true' && steps.recovery_state.outputs.safe_to_restore == 'true' }}
+        if: ${{ steps.edge_state.outputs.needs_recovery == 'true' && steps.recovery_state.outputs.safe_to_restore == 'true' }}
         shell: bash
         run: |
           set -euo pipefail
-          rollback_version="$(tr -d '\r\n' < "$RUNNER_TEMP/production-cutover-recovery/pre-fence-version.txt")"
-          if [ -z "$rollback_version" ] || [[ "$rollback_version" == *[!A-Za-z0-9-]* ]]; then
-            echo "::error::Invalid pre-fence Worker version in recovery artifact."
+          record="$RUNNER_TEMP/production-cutover-recovery/pre-fence-recovery.json"
+          if [ ! -f "$record" ]; then
+            echo "::error::Verified structured pre-fence recovery record is missing. Legacy bare Worker-ID artifacts are not accepted."
             exit 1
           fi
+
+          rollback_version="$(node scripts/production-fence-recovery.mjs verify-record \
+            --file "$record" \
+            --base-url "$PRODUCTION_WORKER_URL" \
+            --run-id "${{ github.event.workflow_run.id }}" \
+            --run-attempt "${{ github.event.workflow_run.run_attempt }}" \
+            --sha "${{ github.event.workflow_run.head_sha }}")"
           echo "version_id=${rollback_version}" >> "$GITHUB_OUTPUT"
-
-      - name: Check out interrupted deployment revision
-        if: ${{ steps.rollback_target.outputs.version_id != '' }}
-        uses: actions/checkout@v5
-        with:
-          ref: ${{ github.event.workflow_run.head_sha }}
-
-      - name: Set up Node.js
-        if: ${{ steps.rollback_target.outputs.version_id != '' }}
-        uses: actions/setup-node@v5
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: package-lock.json
+          echo "Validated positively verified recovery target ${rollback_version}."
 
       - name: Install deployment dependencies
         if: ${{ steps.rollback_target.outputs.version_id != '' }}
@@ -181,25 +194,22 @@ jobs:
           echo
           echo "Verified recovered Worker control plane at ${rollback_version}."
 
-          # The incident that motivated this hotfix showed the public workers.dev
-          # edge can continue serving the temporary fence after the control plane
-          # already reports the restored version at 100%. Allow up to five minutes
-          # for propagation before declaring recovery failed.
+          # Control-plane restoration can precede workers.dev edge propagation.
+          # Recovery is complete only when the positive /study application
+          # redirect contract is visible. Missing fence headers and generic 5xx
+          # responses are not sufficient evidence of recovery.
           for attempt in $(seq 1 60); do
-            headers="$(mktemp)"
-            status=""
-            if status="$(curl --silent --show-error --output /tmp/recovered-worker-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"; then
-              if ! grep -qi '^X-Learner-Runtime-Fence: active' "$headers"; then
-                rm -f "$headers"
-                echo "Verified interrupted temporary learner fence disappeared from the public Worker endpoint on attempt ${attempt}."
-                exit 0
-              fi
+            if node scripts/production-fence-recovery.mjs probe \
+              --base-url "$PRODUCTION_WORKER_URL" \
+              > /tmp/recovered-study-probe.json; then
+              echo "Verified recovered application response at the public Worker endpoint on attempt ${attempt}."
+              cat /tmp/recovered-study-probe.json
+              exit 0
             fi
-            rm -f "$headers"
-            echo "Recovered Worker not visible at the public endpoint yet (attempt ${attempt}/60, status=${status:-curl-error})."
+            echo "Recovered Worker application response not visible yet (attempt ${attempt}/60)."
             if [ "$attempt" -lt 60 ]; then
               sleep 5
             fi
           done
-          echo "::error::Recovered Worker is recorded at 100% traffic, but the public endpoint still exposes the temporary learner fence after five minutes."
+          echo "::error::Recovered Worker is recorded at 100% traffic, but the public endpoint did not prove the recovered application contract after five minutes."
           exit 1
