@@ -178,20 +178,20 @@ export default async function* localTestReporter(source) {
   }
 
   const remaining = failures.slice(DETAIL_FAILURE_LIMIT);
-  const identities = [];
+  const allIdentities = [];
   const identityKeys = new Set();
   for (const failure of remaining) {
     const identity = failureIdentity(failure);
     const key = `${identity.location}\0${identity.name}`;
     if (identityKeys.has(key)) continue;
     identityKeys.add(key);
-    identities.push(identity);
-    if (identities.length >= EXTRA_IDENTITY_LIMIT) break;
+    allIdentities.push(identity);
   }
+  const identities = allIdentities.slice(0, EXTRA_IDENTITY_LIMIT);
   if (identities.length) {
     yield `Additional failing identities (up to ${EXTRA_IDENTITY_LIMIT}):\n`;
     for (const identity of identities) yield `- ${identity.location} — ${identity.name}\n`;
-    const unlisted = Math.max(0, remaining.length - identities.length);
+    const unlisted = Math.max(0, allIdentities.length - identities.length);
     if (unlisted) yield `${unlisted} additional identities not listed.\n`;
   }
 
