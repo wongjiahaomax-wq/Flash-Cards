@@ -267,7 +267,7 @@ test('Scheduled browser run advances continuously across captured Cases from dif
   assert.notEqual(systemByCase.get(first.work.caseId), systemByCase.get(second.work.caseId));
 });
 
-test('learner chooser/count/navigation source contract stays multi-System, hierarchical and server-authoritative', async () => {
+test('learner chooser/count/navigation source contract stays multi-System, hierarchical, compact and server-authoritative', async () => {
   const [chooser, planner, countRoute, review, hierarchy] = await Promise.all([
     readFile(new URL('../src/routes/study/+page.svelte', import.meta.url), 'utf8'),
     readFile(new URL('../src/lib/server/learning/plan-system-study.ts', import.meta.url), 'utf8'),
@@ -277,10 +277,16 @@ test('learner chooser/count/navigation source contract stays multi-System, hiera
   ]);
 
   assert.match(chooser, /name="system"/);
-  assert.match(chooser, /name={`narrow:\${system\.id}`}/);
-  assert.match(chooser, /name=\{Number\(topic\.caseCount\) > 0 \? `route:\$\{system\.id\}` : undefined\}/);
+  assert.match(chooser, /function routesAreSubmitted\(systemId\)/);
+  assert.match(chooser, /return systemSelected\(systemId\) && systemNarrowed\(systemId\)/);
+  assert.match(chooser, /name=\{systemSelected\(system\.id\) \? `narrow:\$\{system\.id\}` : undefined\}/);
+  assert.match(chooser, /name=\{Number\(topic\.caseCount\) > 0 && routesAreSubmitted\(system\.id\) \? `route:\$\{system\.id\}` : undefined\}/);
+  assert.match(chooser, /name=\{routesAreSubmitted\(system\.id\) \? `route:\$\{system\.id\}` : undefined\}/);
   assert.match(chooser, /use:indeterminate=\{topicIndeterminate\(system, topic\)\}/);
   assert.match(chooser, /toggleTopicSubtree\(system, topic/);
+  assert.match(chooser, /function scheduleEligibleCount\(\) \{\s*const requestId = \+\+countRequest;/);
+  assert.match(chooser, /setTimeout\(\(\) => refreshEligibleCount\(requestId\), 120\)/);
+  assert.match(chooser, /if \(requestId !== countRequest\) return;/);
   assert.match(chooser, /\/study\/api\/count/);
   assert.match(chooser, /Start combined Study run/);
   assert.doesNotMatch(chooser, /<input type="hidden" name="systemId"/);
