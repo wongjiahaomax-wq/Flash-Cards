@@ -43,6 +43,7 @@ test('validation rejects contradictory presentation flags in either order', () =
 
 test('local reporter counts omitted unique identities rather than repeated failures', async () => {
   const failures = Array.from({ length: 25 }, () => repeatedFailureData());
+  /** @type {any[]} */
   const events = failures.map((data) => ({ type: 'test:fail', data }));
   events.push({
     type: 'test:summary',
