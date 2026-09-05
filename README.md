@@ -4,7 +4,7 @@ Flash-Cards is a case-based medical learning application built with SvelteKit, C
 
 **Repository visibility and application access are different things:** this GitHub repository is public; the deployed application is closed-enrollment/private and does not expose public self-registration.
 
-_Last project-wide documentation reconciliation: 4 September 2026._
+_Last project-wide documentation reconciliation: 5 September 2026._
 
 ## Current repository baseline
 
@@ -19,7 +19,7 @@ Current `main` includes:
 - a local production-like D1/R2 development replica;
 - the learner FSRS runtime cutover with Scheduled Study, Free Study, Again/Hard/Good/Easy ratings, 5/10/20/All run sizes, active Review snapshots, Reset Progress, Fresh FSRS Start, learner Progress, detailed-history retention, durable monthly Admin analytics, and retry-safe mature-account deletion;
 - repository migrations through `0025_learner_fsrs_admin_analytics_deletion.sql`;
-- repository-owned coding-agent routing, Draft-fast / Ready-full validation, specialized FSRS checks, and dependency reuse via `npm run deps:ensure`.
+- repository-owned coding-agent routing, Draft-fast / Ready-full validation, specialized FSRS checks, dependency reuse via `npm run deps:ensure`, and compact-by-default local validation presentation.
 
 The repository baseline is **not** a production deployment ledger. Keep these facts separate:
 
@@ -166,11 +166,13 @@ npm run preview
 npm run local:stop
 npm run agent:doctor
 npm run agent:checks -- --compact
-npm run validate:fast -- --compact
-npm run validate:full -- --compact
+npm run validate:fast
+npm run validate:full
 ```
 
-`npm run dev` / `npm run preview` use local bindings/state. Production deployment and remote D1 migration remain explicit operator operations governed by `docs/CLOUDFLARE.md`.
+Routine local repository validation is compact by default. Use explicit verbose variants only when compact failure evidence is insufficient; for example `npm run test:verbose -- <test-file>`, `npm run check:verbose`, `npm run build:verbose`, or `npm run validate:full -- --verbose`.
+
+`npm run dev` / `npm run preview` use local bindings/state. Production deployment and remote D1 migration remain explicit operator operations governed by `docs/CLOUDFLARE.md`. CI, Preview, Production and deployment workflows deliberately select their own presentation rather than inheriting local compact defaults.
 
 ## Public-repository safety
 
