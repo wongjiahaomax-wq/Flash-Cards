@@ -1,0 +1,62 @@
+name: PR 149 review fix
+
+on:
+  push:
+    branches:
+      - feat/multi-system-learner-ux
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/multi-system-learner-ux
+          fetch-depth: 0
+
+      - name: Apply reviewed fixes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              text = file.read_text()
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f'{path}: expected exactly one match, found {count}')
+              file.write_text(text.replace(old, new, 1))
+
+          replace_once(
+              'src/routes/study/+page.svelte',
+              "    setRoutes(system.id, values, checked);\n  }\n\n  /** @param {'scheduled'|'free'} mode */",
+              "    setRoutes(system.id, values, checked);\n    scheduleEligibleCount();\n  }\n\n  /** @param {'scheduled'|'free'} mode */",
+          )
+
+          replace_once(
+              'test/multi-system-learner-ux.test.js',
+              "  assert.match(chooser, /function scheduleEligibleCount\\(\\) \\{\\s*const requestId = \\+\\+countRequest;/);\n",
+              "  assert.match(chooser, /function scheduleEligibleCount\\(\\) \\{\\s*const requestId = \\+\\+countRequest;/);\n  assert.match(chooser, /setRoutes\\(system\\.id, values, checked\\);\\s*scheduleEligibleCount\\(\\);/);\n",
+          )
+
+          replace_once(
+              'docs/V1_DATA_MODEL.md',
+              '→ increment generation + review_sequence_epoch + parameter_revision\n',
+              '→ increment generation + review_sequence_epoch + parameter_revision for an initialized learner\n',
+          )
+
+      - name: Verify patch shape
+        run: |
+          git diff --check
+          git diff -- src/routes/study/+page.svelte test/multi-system-learner-ux.test.js docs/V1_DATA_MODEL.md
+
+      - name: Commit reviewed fixes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/routes/study/+page.svelte test/multi-system-learner-ux.test.js docs/V1_DATA_MODEL.md
+          git commit -m "Fix learner count refresh and FSRS wording"
+          git push origin HEAD:feat/multi-system-learner-ux
