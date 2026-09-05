@@ -117,7 +117,7 @@ Learner UX regression coverage locks:
 - explicit per-System narrowing;
 - single-System form preservation;
 - union/deduplicated count semantics with an overlapping Case;
-- continuous browser-run advancement across Cases contributed by different Systems;
+- Scheduled and Free continuous browser-run advancement across Cases contributed by different Systems;
 - source contracts requiring the learner chooser, server count owner, canonical multi-System planners, and existing continuous-navigation owner.
 
 The dedicated Multi-System Runtime v2 workflow now also owns:
@@ -148,14 +148,14 @@ Any future balanced/interleaved sampling mode remains a separate product decisio
 
 ## Release status
 
-At implementation handoff, repository merge and Production operations are separate explicit steps.
+Repository merge and Production operations are separate explicit steps. Establish the current branch/PR merge state from GitHub rather than relying on a status sentence in this document.
 
 ```text
 Base Runtime v2: merged PR #147
-UX PR: reviewable, not merged
-Production D1 mutation: not performed
-Production Worker deployment: not performed
-Production cutover workflow dispatch: not performed
+UX implementation: repository branch/PR represented by this document
+Production D1 mutation by this tranche: not performed
+Production Worker deployment by this tranche: not performed
+Production cutover workflow dispatch by this tranche: not performed
 ```
 
 A repository implementation or merged PR is not evidence that Production is deployed.
