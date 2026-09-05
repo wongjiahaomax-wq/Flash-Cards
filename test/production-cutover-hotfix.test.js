@@ -55,17 +55,67 @@ test('missing migration-0025 table is accepted only while migration 0025 is genu
   assert.deepEqual(state.appliedMigrations, [migration]);
 });
 
-test('rollback verification tolerates observed Cloudflare edge propagation lag in both recovery paths', () => {
+test('rollback verification tolerates observed Cloudflare edge propagation lag while requiring exact Worker identity', () => {
   const deploy = source('.github/workflows/deploy-production.yml');
   const recovery = source('.github/workflows/recover-production-fence.yml');
 
   for (const workflow of [deploy, recovery]) {
     assert.match(workflow, /for attempt in \$\(seq 1 60\); do/);
     assert.match(workflow, /sleep 5/);
-    assert.match(workflow, /X-Learner-Runtime-Fence: active/);
+    assert.match(workflow, /production-fence-recovery\.mjs probe/);
+    assert.match(workflow, /production-fence-recovery\.mjs probe-identity[\s\S]*--expected-version "\$rollback_version"/);
     assert.match(workflow, /five minutes/i);
   }
 
   assert.match(recovery, /migrationConclusion === 'skipped'/);
   assert.match(recovery, /safeToRestore = preFencePresent && migrationConclusion === 'skipped'/);
+});
+
+test('cutover rejects nonzero data before downtime and rechecks after fencing', () => {
+  const deploy = source('.github/workflows/deploy-production.yml');
+  const preflight = deploy.indexOf('- name: Preflight exact zero learner runtime data before downtime');
+  const capture = deploy.indexOf('- name: Verify current Production is unfenced and capture recovery target');
+  const install = deploy.indexOf('- name: Install temporary learner write fence Worker');
+  const fencedGate = deploy.indexOf('- name: Require exact zero Production learner runtime data');
+  const migrate = deploy.indexOf('- name: Apply all pending production D1 migrations');
+
+  assert.ok(preflight > 0 && preflight < capture && capture < install && install < fencedGate && fencedGate < migrate);
+  assert.match(deploy.slice(preflight, capture), /run: npm run multi-system:cutover-gate -- --remote/);
+  assert.match(deploy.slice(fencedGate, migrate), /run: npm run multi-system:cutover-gate -- --remote/);
+});
+
+test('pre-fence recovery target requires exact application proof and structured provenance', () => {
+  const deploy = source('.github/workflows/deploy-production.yml');
+  const capture = deploy.indexOf('- name: Verify current Production is unfenced and capture recovery target');
+  const install = deploy.indexOf('- name: Install temporary learner write fence Worker');
+  const recoveryCapture = deploy.slice(capture, install);
+
+  assert.match(recoveryCapture, /production-fence-recovery\.mjs probe/);
+  assert.match(recoveryCapture, /version-before "\$version_before"/);
+  assert.match(recoveryCapture, /version-after "\$version_after"/);
+  assert.match(recoveryCapture, /--run-id "\$GITHUB_RUN_ID"/);
+  assert.match(recoveryCapture, /--run-attempt "\$GITHUB_RUN_ATTEMPT"/);
+  assert.match(recoveryCapture, /--sha "\$GITHUB_SHA"/);
+  assert.match(recoveryCapture, /pre-fence-recovery\.json/);
+  assert.match(recoveryCapture, /production-cutover-pre-fence-\$\{\{\s*github\.run_attempt\s*\}\}/);
+  assert.doesNotMatch(recoveryCapture, /pre-fence-version\.txt/);
+});
+
+test('interrupted recovery accepts only matching structured provenance before rollback', () => {
+  const recovery = source('.github/workflows/recover-production-fence.yml');
+  const download = recovery.indexOf('- name: Download verified pre-fence recovery record');
+  const validate = recovery.indexOf('- name: Validate rollback target provenance');
+  const inspect = recovery.indexOf('- name: Inspect current Production control plane');
+  const rollback = recovery.indexOf('- name: Restore pre-fence Worker after interrupted pre-migration cutover');
+
+  assert.match(recovery, /pre-fence-recovery\.json/);
+  assert.match(recovery, /production-fence-recovery\.mjs verify-record/);
+  assert.match(recovery, /workflow_run\.id/);
+  assert.match(recovery, /workflow_run\.run_attempt/);
+  assert.match(recovery, /workflow_run\.head_sha/);
+  assert.match(recovery, /Legacy bare Worker-ID artifacts are not accepted/);
+  assert.match(recovery, /production-cutover-pre-fence-\$\{\{\s*github\.event\.workflow_run\.run_attempt\s*\}\}/);
+  assert.ok(download >= 0 && download < validate && validate < inspect && inspect < rollback);
+  assert.doesNotMatch(recovery.slice(inspect, rollback), /production-fence-recovery\.mjs probe(?:\s|\\)/);
+  assert.doesNotMatch(recovery, /pre-fence-version\.txt/);
 });

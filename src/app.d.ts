@@ -21,6 +21,11 @@ declare global {
         SYSTEM_STUDY_NAVIGATION_ENABLED?: string;
         LEARNER_RUNTIME_WRITE_FENCE?: string;
         APP_BUILD_SHA?: string;
+        CF_VERSION_METADATA?: {
+          id?: string;
+          tag?: string;
+          timestamp?: string;
+        };
       };
       cf?: CfProperties;
       ctx?: ExecutionContext;

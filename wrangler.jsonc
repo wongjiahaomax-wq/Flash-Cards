@@ -6,6 +6,9 @@
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "preview_urls": false,
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA"
+  },
   "vars": {
     "BETTER_AUTH_URL": "https://flash-cards.mmed-fm-flashcardstest.workers.dev"
   },
@@ -36,6 +39,9 @@
   "env": {
     "preview": {
       "name": "flash-cards-preview",
+      "version_metadata": {
+        "binding": "CF_VERSION_METADATA"
+      },
       "vars": {
         "BETTER_AUTH_URL": "https://flash-cards-preview.mmed-fm-flashcardstest.workers.dev",
         "PREVIEW_MODE": "true"

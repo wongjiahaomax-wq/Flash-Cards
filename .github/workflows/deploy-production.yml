@@ -152,7 +152,13 @@ jobs:
             exit 1
           fi
 
-      - name: Capture pre-fence Worker version
+      - name: Preflight exact zero learner runtime data before downtime
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+        run: npm run multi-system:cutover-gate -- --remote
+
+      - name: Verify current Production is unfenced and capture recovery target
         id: pre_fence
         if: ${{ steps.cutover.outputs.required == 'true' }}
         shell: bash
@@ -160,28 +166,46 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: |
           set -euo pipefail
-          status_json="$(./node_modules/.bin/wrangler deployments status --name flash-cards --json)"
-          version_id="$(
-            printf '%s' "$status_json" |
+          mkdir -p .cutover-recovery
+
+          status_before="$(./node_modules/.bin/wrangler deployments status --name flash-cards --json)"
+          version_before="$(
+            printf '%s' "$status_before" |
               node scripts/production-worker-deployment.mjs current-version
           )"
+
+          # This probe is deliberately before recovery-record creation and before
+          # any Production mutation. A previously stranded fence, generic 5xx,
+          # unrelated redirect, or arbitrary 200 response fails closed here.
+          node scripts/production-fence-recovery.mjs probe \
+            --base-url "$PRODUCTION_WORKER_URL" \
+            > .cutover-recovery/study-probe.json
+
+          status_after="$(./node_modules/.bin/wrangler deployments status --name flash-cards --json)"
+          version_after="$(
+            printf '%s' "$status_after" |
+              node scripts/production-worker-deployment.mjs current-version
+          )"
+
+          version_id="$(node scripts/production-fence-recovery.mjs write-record \
+            --base-url "$PRODUCTION_WORKER_URL" \
+            --version-before "$version_before" \
+            --version-after "$version_after" \
+            --probe-file .cutover-recovery/study-probe.json \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --sha "$GITHUB_SHA" \
+            --output .cutover-recovery/pre-fence-recovery.json)"
+
           echo "version_id=${version_id}" >> "$GITHUB_OUTPUT"
-          echo "Captured pre-fence Worker version ${version_id}."
+          echo "Captured positively verified unfenced Worker ${version_id}."
 
-      - name: Write pre-fence recovery record
-        if: ${{ steps.cutover.outputs.required == 'true' }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p .cutover-recovery
-          printf '%s\n' "${{ steps.pre_fence.outputs.version_id }}" > .cutover-recovery/pre-fence-version.txt
-
-      - name: Upload pre-fence recovery record
-        if: ${{ steps.cutover.outputs.required == 'true' }}
+      - name: Upload verified pre-fence recovery record
+        if: ${{ steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: production-cutover-pre-fence
-          path: .cutover-recovery/pre-fence-version.txt
+          name: production-cutover-pre-fence-${{ github.run_attempt }}
+          path: .cutover-recovery/pre-fence-recovery.json
           if-no-files-found: error
           retention-days: 7
 
@@ -276,25 +300,28 @@ jobs:
           echo "Verified Production Worker control plane restored to ${rollback_version}."
 
           # Control-plane restoration can precede workers.dev edge propagation.
-          # Give the public endpoint up to five minutes to shed the temporary fence
-          # before declaring rollback recovery failed.
+          # Recovery is complete only when the exact application-level /study
+          # redirect contract and exact serving-Worker identity are visible.
           for attempt in $(seq 1 60); do
-            headers="$(mktemp)"
-            status=""
-            if status="$(curl --silent --show-error --output /tmp/restored-worker-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"; then
-              if ! grep -qi '^X-Learner-Runtime-Fence: active' "$headers"; then
-                rm -f "$headers"
-                echo "Verified temporary learner fence disappeared from the public Worker endpoint on attempt ${attempt}."
-                exit 0
-              fi
+            rm -f /tmp/restored-study-probe.json /tmp/restored-worker-identity.json
+            if node scripts/production-fence-recovery.mjs probe \
+              --base-url "$PRODUCTION_WORKER_URL" \
+              > /tmp/restored-study-probe.json \
+              && node scripts/production-fence-recovery.mjs probe-identity \
+                --base-url "$PRODUCTION_WORKER_URL" \
+                --expected-version "$rollback_version" \
+                > /tmp/restored-worker-identity.json; then
+              echo "Verified recovered application response and Worker identity at the public Worker endpoint on attempt ${attempt}."
+              cat /tmp/restored-study-probe.json
+              cat /tmp/restored-worker-identity.json
+              exit 0
             fi
-            rm -f "$headers"
-            echo "Pre-fence Worker not visible at the public endpoint yet (attempt ${attempt}/60, status=${status:-curl-error})."
+            echo "Pre-fence Worker application response and exact edge identity not both visible yet (attempt ${attempt}/60)."
             if [ "$attempt" -lt 60 ]; then
               sleep 5
             fi
           done
-          echo "::error::Control-plane rollback succeeded but the public Worker endpoint still exposes the temporary learner fence after five minutes."
+          echo "::error::Control-plane rollback succeeded but the public Worker endpoint did not prove both the restored application contract and exact Worker identity after five minutes."
           exit 1
 
       - name: Apply all pending production D1 migrations
