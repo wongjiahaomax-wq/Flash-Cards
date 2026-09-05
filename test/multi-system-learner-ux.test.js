@@ -14,6 +14,12 @@ import {
 import { resolveSystemStudyCandidates } from '../src/lib/server/learning/system-study-routes.ts';
 import { buildFreeStudyRunDescriptor } from '../src/lib/server/learning/study-run-planner.js';
 import {
+  contributingStudyRouteValues,
+  orderedStudyTopics,
+  studyTopicDescendantIds,
+  studyTopicSubtreeRouteValues
+} from '../src/lib/study-topic-hierarchy.js';
+import {
   applyFreeCompletion,
   beginFreeWork,
   selectNextFreeWork
@@ -103,6 +109,61 @@ test('narrowed learner System requires at least one explicit Topic or curated Ta
     () => parseMultiSystemStudyScopeFromForm(form),
     (error) => error instanceof StudyRunFormInputError && /at least one Topic or curated Tag/i.test(error.message)
   );
+});
+
+test('multi-System Topic hierarchy keeps structural parents as descendant controls only', () => {
+  const system = {
+    id: 'system-a',
+    topics: [
+      {
+        id: 'parent',
+        name: 'Parent',
+        caseCount: 0,
+        subtreeCaseCount: 2,
+        breadcrumb: [{ id: 'system-a', name: 'System A' }, { id: 'parent', name: 'Parent' }]
+      },
+      {
+        id: 'child-b',
+        name: 'Child B',
+        caseCount: 1,
+        subtreeCaseCount: 1,
+        breadcrumb: [
+          { id: 'system-a', name: 'System A' },
+          { id: 'parent', name: 'Parent' },
+          { id: 'child-b', name: 'Child B' }
+        ]
+      },
+      {
+        id: 'child-a',
+        name: 'Child A',
+        caseCount: 1,
+        subtreeCaseCount: 1,
+        breadcrumb: [
+          { id: 'system-a', name: 'System A' },
+          { id: 'parent', name: 'Parent' },
+          { id: 'child-a', name: 'Child A' }
+        ]
+      }
+    ],
+    tags: [{ id: 'tag-a' }]
+  };
+
+  assert.deepEqual(studyTopicSubtreeRouteValues(system.topics, 'parent'), [
+    'topic:child-b',
+    'topic:child-a'
+  ]);
+  assert.deepEqual(studyTopicDescendantIds(system.topics, 'parent'), ['child-b', 'child-a']);
+  assert.deepEqual(contributingStudyRouteValues(system), [
+    'topic:child-b',
+    'topic:child-a',
+    'tag:tag-a'
+  ]);
+  assert.ok(!contributingStudyRouteValues(system).includes('topic:parent'));
+  assert.deepEqual(orderedStudyTopics(system.topics).map((topic) => topic.id), [
+    'parent',
+    'child-a',
+    'child-b'
+  ]);
 });
 
 test('combined eligible count follows authoritative union semantics instead of additive per-System counts', () => {
@@ -206,20 +267,25 @@ test('Scheduled browser run advances continuously across captured Cases from dif
   assert.notEqual(systemByCase.get(first.work.caseId), systemByCase.get(second.work.caseId));
 });
 
-test('learner chooser/count/navigation source contract stays multi-System and server-authoritative', async () => {
-  const [chooser, planner, countRoute, review] = await Promise.all([
+test('learner chooser/count/navigation source contract stays multi-System, hierarchical and server-authoritative', async () => {
+  const [chooser, planner, countRoute, review, hierarchy] = await Promise.all([
     readFile(new URL('../src/routes/study/+page.svelte', import.meta.url), 'utf8'),
     readFile(new URL('../src/lib/server/learning/plan-system-study.ts', import.meta.url), 'utf8'),
     readFile(new URL('../src/routes/study/api/count/+server.js', import.meta.url), 'utf8'),
-    readFile(new URL('../src/routes/study/[reviewId]/+page.svelte', import.meta.url), 'utf8')
+    readFile(new URL('../src/routes/study/[reviewId]/+page.svelte', import.meta.url), 'utf8'),
+    readFile(new URL('../src/lib/study-topic-hierarchy.js', import.meta.url), 'utf8')
   ]);
 
   assert.match(chooser, /name="system"/);
   assert.match(chooser, /name={`narrow:\${system\.id}`}/);
-  assert.match(chooser, /name={`route:\${system\.id}`}/);
+  assert.match(chooser, /name=\{Number\(topic\.caseCount\) > 0 \? `route:\$\{system\.id\}` : undefined\}/);
+  assert.match(chooser, /use:indeterminate=\{topicIndeterminate\(system, topic\)\}/);
+  assert.match(chooser, /toggleTopicSubtree\(system, topic/);
   assert.match(chooser, /\/study\/api\/count/);
   assert.match(chooser, /Start combined Study run/);
   assert.doesNotMatch(chooser, /<input type="hidden" name="systemId"/);
+  assert.match(hierarchy, /Structural parents with zero/);
+  assert.match(hierarchy, /Number\(current\.caseCount\) > 0/);
   assert.match(planner, /planScheduledMultiSystemStudyRun/);
   assert.match(planner, /planFreeMultiSystemStudyRun/);
   assert.match(planner, /parseMultiSystemStudyScopeFromForm/);
