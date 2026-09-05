@@ -13,6 +13,10 @@ import {
   learnerStudyProofSecret,
   validateLearnerStudyRunOwner
 } from '$lib/server/learning/learner-study-runtime.js';
+import { isStudyDataDeletionActive } from '$lib/server/db/learner-study-data-deletion.ts';
+
+const STUDY_DATA_DELETION_IN_PROGRESS_MESSAGE =
+  'Study data deletion is in progress. Continue it from the Study page before studying again.';
 
 /** @param {unknown} body @param {number} [status] */
 function json(body, status = 200) {
@@ -33,6 +37,11 @@ export async function POST({ locals, platform, request }) {
   if (access) return json({ message: access.message }, access.status);
   if (!locals.user || !platform?.env?.DB) return json({ message: 'Study database is not configured.' }, 503);
 
+  const db = createDb(platform.env.DB);
+  if (await isStudyDataDeletionActive(db, locals.user.id)) {
+    return json({ message: STUDY_DATA_DELETION_IN_PROGRESS_MESSAGE }, 409);
+  }
+
   let descriptor;
   try {
     descriptor = (await request.json())?.descriptor;
@@ -43,7 +52,6 @@ export async function POST({ locals, platform, request }) {
   if (!ownership.ok) return json({ message: ownership.message }, ownership.status);
   descriptor = ownership.descriptor;
 
-  const db = createDb(platform.env.DB);
   const existing = await getActiveReview(db, locals.user.id);
   if (existing) {
     return json({

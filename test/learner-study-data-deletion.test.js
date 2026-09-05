@@ -465,3 +465,33 @@ test('advance is retry-safe, bounded, and a complete marker rescans before relea
     sqlite.close();
   }
 });
+
+test('Tranche 4 exposes only self-scoped learner deletion with typed confirmation and resumable blocked-study UX', () => {
+  const chooserServer = readFileSync(new URL('../src/routes/study/+page.server.js', import.meta.url), 'utf8');
+  const chooser = readFileSync(new URL('../src/routes/study/+page.svelte', import.meta.url), 'utf8');
+  const review = readFileSync(new URL('../src/routes/study/[reviewId]/+page.server.js', import.meta.url), 'utf8');
+  const open = readFileSync(new URL('../src/routes/study/api/open/+server.js', import.meta.url), 'utf8');
+  const complete = readFileSync(new URL('../src/routes/study/api/complete/[reviewId]/+server.js', import.meta.url), 'utf8');
+  const media = readFileSync(new URL('../src/routes/study/media/[reviewId]/[assetId]/+server.js', import.meta.url), 'utf8');
+
+  assert.match(chooserServer, /deleteStudyData:/);
+  assert.match(chooserServer, /continueStudyDataDeletion:/);
+  assert.match(chooserServer, /DELETE MY STUDY DATA/);
+  assert.match(chooserServer, /MAX_DELETION_STEPS_PER_REQUEST = 4/);
+  assert.match(chooserServer, /user\.id/);
+  assert.doesNotMatch(chooserServer, /formData\.get\(['"]userId['"]\)/);
+  assert.match(chooserServer, /studyDataDeleted: true/);
+  assert.match(chooserServer, /deletionInProgress: true/);
+
+  assert.match(chooser, /Delete all my study data/);
+  assert.match(chooser, /name="confirmation"/);
+  assert.match(chooser, /DELETE MY STUDY DATA/);
+  assert.match(chooser, /Continue deletion/);
+  assert.match(chooser, /Study is temporarily blocked/);
+  assert.match(chooser, /!data\.studyDataDeletion\?\.inProgress/);
+
+  for (const source of [review, open, complete, media]) {
+    assert.match(source, /isStudyDataDeletionActive/);
+    assert.match(source, /Study data deletion is in progress/);
+  }
+});
