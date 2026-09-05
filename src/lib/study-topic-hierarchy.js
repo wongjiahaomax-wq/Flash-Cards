@@ -19,7 +19,7 @@ export function studyTopicDepth(topic) {
 }
 
 /**
- * @template T extends {id:string,name:string,breadcrumb?:Array<{id:string}>}
+ * @template {{id:string,name:string,breadcrumb?:Array<{id:string}>}} T
  * @param {readonly T[]} topics
  * @returns {T[]}
  */
@@ -54,6 +54,7 @@ export function orderedStudyTopics(topics) {
 /**
  * @param {readonly {id:string,breadcrumb?:Array<{id:string}>}[]} topics
  * @param {string} topicId
+ * @returns {string[]}
  */
 export function studyTopicDescendantIds(topics, topicId) {
   /** @type {string[]} */
@@ -74,6 +75,7 @@ export function studyTopicDescendantIds(topics, topicId) {
  * exact Cases intentionally contribute no route of their own.
  * @param {readonly {id:string,caseCount:number,breadcrumb?:Array<{id:string}>}[]} topics
  * @param {string} topicId
+ * @returns {string[]}
  */
 export function studyTopicSubtreeRouteValues(topics, topicId) {
   /** @type {string[]} */
@@ -90,7 +92,10 @@ export function studyTopicSubtreeRouteValues(topics, topicId) {
   return routes;
 }
 
-/** @param {{topics:readonly {id:string,caseCount:number}[],tags:readonly {id:string}[]}} system */
+/**
+ * @param {{topics:readonly {id:string,caseCount:number}[],tags:readonly {id:string}[]}} system
+ * @returns {string[]}
+ */
 export function contributingStudyRouteValues(system) {
   return [
     ...system.topics
