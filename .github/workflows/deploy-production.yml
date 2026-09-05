@@ -209,8 +209,15 @@ jobs:
           test "$status" = "503"
           grep -qi '^X-Learner-Runtime-Fence: active' "$headers"
 
-      - name: Restore pre-fence Worker after fence failure
-        if: ${{ always() && steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' && (steps.install_fence.outcome == 'failure' || steps.verify_fence.outcome == 'failure') }}
+      - name: Require exact zero Production learner runtime data
+        id: zero_runtime_data
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
+        run: npm run multi-system:cutover-gate -- --remote
+
+      - name: Restore pre-fence Worker after pre-migration cutover failure
+        if: ${{ always() && steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' && (steps.install_fence.outcome == 'failure' || steps.verify_fence.outcome == 'failure' || steps.zero_runtime_data.outcome == 'failure') }}
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -219,10 +226,10 @@ jobs:
           rollback_version="${{ steps.pre_fence.outputs.version_id }}"
           ./node_modules/.bin/wrangler rollback "$rollback_version" \
             --name flash-cards \
-            --message "Automatic pre-migration rollback after failed temporary learner fence for ${GITHUB_SHA}"
+            --message "Automatic pre-migration rollback after failed temporary learner cutover fence for ${GITHUB_SHA}"
 
       - name: Verify pre-fence Worker restoration
-        if: ${{ always() && steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' && (steps.install_fence.outcome == 'failure' || steps.verify_fence.outcome == 'failure') }}
+        if: ${{ always() && steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' && (steps.install_fence.outcome == 'failure' || steps.verify_fence.outcome == 'failure' || steps.zero_runtime_data.outcome == 'failure') }}
         shell: bash
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -234,12 +241,6 @@ jobs:
             node scripts/production-worker-deployment.mjs verify-version "$rollback_version"
           echo
           echo "Verified Production Worker restored to ${rollback_version}."
-
-      - name: Require exact zero Production learner runtime data
-        if: ${{ steps.cutover.outputs.required == 'true' }}
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
-        run: npm run multi-system:cutover-gate -- --remote
 
       - name: Apply all pending production D1 migrations
         if: ${{ steps.cutover.outputs.required == 'true' || inputs.apply_migrations == true }}
