@@ -5,9 +5,12 @@ import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import {
+  advanceStudyDataDeletion,
   beginStudyDataDeletion,
   getStudyDataDeletionStatus,
-  isStudyDataDeletionActive
+  isStudyDataDeletionActive,
+  STUDY_DATA_DELETION_BATCH_SIZE,
+  STUDY_DATA_DELETION_DESCRIPTORS
 } from '../src/lib/server/db/learner-study-data-deletion.ts';
 import { STUDY_DATA_DELETION_PHASES } from '../src/lib/server/db/study-data-deletion-schema.js';
 import { applyCurrentSchema } from './current-schema.js';
@@ -134,6 +137,74 @@ function marker(sqlite, userId) {
   `).get(userId);
 }
 
+function seedStudyData(sqlite, userId, { scheduledEvents = 1 } = {}) {
+  // The engine is tested against current-schema rows, including legacy records.
+  // These deliberately constructed historical rows do not exercise writer
+  // triggers, which are covered by their own runtime tests.
+  sqlite.exec(`
+    PRAGMA foreign_keys = OFF;
+    DROP TRIGGER IF EXISTS scheduled_review_events_active_guard;
+    DROP TRIGGER IF EXISTS free_review_completion_receipts_active_guard;
+    DROP TRIGGER IF EXISTS scheduled_review_events_monthly_bucket_insert;
+    INSERT INTO learner_preferences (user_id, expanded_learning, scheduled_order)
+    VALUES ('${userId}', 1, 'new_first');
+    INSERT INTO learner_fsrs_profiles (
+      user_id, scheduler_library_version, parameters_json
+    ) VALUES ('${userId}', 'test', '[]');
+    INSERT INTO learner_case_fsrs (
+      user_id, case_id, due_at, generation, review_sequence_epoch,
+      parameter_revision, scheduler_revision, scheduler_library_version
+    ) VALUES ('${userId}', 'case-1', 10, 1, 1, 1, 1, 'test');
+    INSERT INTO learner_case_encounters (user_id, case_id, free_times_studied)
+    VALUES ('${userId}', 'case-1', 1);
+    INSERT INTO learner_optimizer_evidence (
+      event_id, user_id, case_id, completed_at, rating, generation,
+      review_sequence_epoch, sequence_no
+    ) VALUES ('optimizer-${userId}', '${userId}', 'case-1', 10, 'good', 1, 1, 1);
+    INSERT INTO learner_aggregates (user_id, scheduled_completed, scheduled_good, free_completed)
+    VALUES ('${userId}', 1, 1, 1);
+    INSERT INTO learner_system_aggregates (user_id, system_id, scheduled_completed, scheduled_good)
+    VALUES ('${userId}', 'system-1', 1, 1);
+    INSERT INTO learner_system_monthly_buckets (
+      user_id, system_id, month_start, scheduled_completed, scheduled_good,
+      first_completed_at, last_completed_at
+    ) VALUES ('${userId}', 'system-1', 0, 1, 1, 10, 10);
+    INSERT INTO reviews (id, user_id, case_id, primary_concept_id, study_concept_id, case_title_snapshot)
+    VALUES ('legacy-${userId}', '${userId}', 'case-1', 'topic-1', 'topic-1', 'Case 1');
+    INSERT INTO review_questions (
+      id, review_id, question_prompt_id, source_type, display_order, prompt_snapshot_md, answer_snapshot_md
+    ) VALUES ('legacy-question-${userId}', 'legacy-${userId}', 'question-1', 'case', 0, 'Prompt', 'Answer');
+    INSERT INTO review_assets (id, review_id, asset_id, display_order, storage_key_snapshot)
+    VALUES ('legacy-asset-${userId}', 'legacy-${userId}', 'asset-1', 0, 'asset.png');
+  `);
+  insertActiveReview(sqlite, userId);
+  for (let index = 0; index < scheduledEvents; index += 1) {
+    sqlite.prepare(`
+      INSERT INTO scheduled_review_events (
+        id, user_id, case_id, case_title_snapshot, system_id, completed_at, rating,
+        content_mode, generation, review_sequence_epoch, sequence_no,
+        parameter_revision, scheduler_revision, scheduler_library_version,
+        resulting_state_revision, next_due_at
+      ) VALUES (?, ?, 'case-1', 'Case 1', 'system-1', 10, 'good', 'original', 1, 1, ?, 1, 1, 'test', 1, 10)
+    `).run(`event-${userId}-${index}`, userId, index + 1);
+  }
+  sqlite.prepare(`
+    INSERT INTO free_review_completion_receipts (
+      id, user_id, case_id, completed_at, resulting_free_times_studied, expires_at
+    ) VALUES (?, ?, 'case-1', 10, 1, 20)
+  `).run(`free-${userId}`, userId);
+  sqlite.exec('PRAGMA foreign_keys = ON;');
+}
+
+async function advanceToCompletion(db, userId, batchSize = 1) {
+  let result;
+  for (let index = 0; index < 100; index += 1) {
+    result = await advanceStudyDataDeletion({ db, userId, batchSize });
+    if (result.complete) return result;
+  }
+  throw new Error(`Study-data deletion did not complete; last phase=${result?.phase}`);
+}
+
 test('study-data marker exposes the complete staged phase vocabulary and is registered with Drizzle', () => {
   const source = readFileSync(new URL('../drizzle.config.js', import.meta.url), 'utf8');
   assert.match(source, /study-data-deletion-schema\.js/);
@@ -237,6 +308,67 @@ test('applying the marker migration does not mutate existing learner study data'
     assert.deepEqual(sqlite.prepare("SELECT * FROM learner_preferences WHERE user_id = 'learner-1'").get(), before.preferences);
     assert.deepEqual(sqlite.prepare("SELECT * FROM learner_system_monthly_buckets WHERE user_id = 'learner-1'").get(), before.monthly);
     assert.equal(marker(sqlite, 'learner-1'), undefined);
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('bounded backend cleanup removes every study-owned row while preserving identity, preferences, shared content, and another learner', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    seedIdentities(sqlite);
+    seedActiveReviewContent(sqlite);
+    seedStudyData(sqlite, 'learner-1', { scheduledEvents: 3 });
+    seedStudyData(sqlite, 'admin-1');
+    const beforePreference = sqlite.prepare("SELECT * FROM learner_preferences WHERE user_id = 'learner-1'").get();
+
+    await beginStudyDataDeletion({ db, userId: 'learner-1' });
+    const completed = await advanceToCompletion(db, 'learner-1', 1);
+    assert.equal(completed.phase, 'complete');
+    assert.equal(completed.complete, true);
+    assert.equal(await isStudyDataDeletionActive(db, 'learner-1'), false);
+    assert.equal((await getStudyDataDeletionStatus(db, 'learner-1')).completedAt != null, true);
+
+    for (const descriptor of STUDY_DATA_DELETION_DESCRIPTORS) {
+      const predicate = descriptor.predicate.replaceAll('?', "'learner-1'");
+      assert.equal(Number(sqlite.prepare(`SELECT count(*) AS n FROM ${descriptor.table} WHERE ${predicate}`).get().n), 0, descriptor.phase);
+    }
+    assert.deepEqual(sqlite.prepare("SELECT * FROM learner_preferences WHERE user_id = 'learner-1'").get(), beforePreference);
+    assert.equal(sqlite.prepare("SELECT role FROM user WHERE id = 'learner-1'").get().role, 'user');
+    assert.equal(sqlite.prepare("SELECT count(*) AS n FROM cases WHERE id = 'case-1'").get().n, 1);
+    assert.equal(sqlite.prepare("SELECT count(*) AS n FROM learner_fsrs_profiles WHERE user_id = 'admin-1'").get().n, 1);
+    assert.equal(sqlite.prepare("SELECT count(*) AS n FROM reviews WHERE user_id = 'admin-1'").get().n, 1);
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('advance is retry-safe, bounded, and a complete marker rescans before releasing a recreated residual', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    seedIdentities(sqlite);
+    seedActiveReviewContent(sqlite);
+    seedStudyData(sqlite, 'learner-1', { scheduledEvents: STUDY_DATA_DELETION_BATCH_SIZE + 1 });
+    await beginStudyDataDeletion({ db, userId: 'learner-1' });
+
+    const first = await advanceStudyDataDeletion({ db, userId: 'learner-1' });
+    assert.equal(first.phase, 'free_receipts');
+    assert.equal(first.rowsDeleted, 1);
+    let scheduled;
+    do {
+      scheduled = await advanceStudyDataDeletion({ db, userId: 'learner-1' });
+    } while (scheduled.phase !== 'scheduled_events');
+    const chunk = await advanceStudyDataDeletion({ db, userId: 'learner-1' });
+    assert.equal(chunk.rowsDeleted, STUDY_DATA_DELETION_BATCH_SIZE);
+    assert.equal(chunk.phase, 'scheduled_events');
+    await advanceToCompletion(db, 'learner-1');
+
+    sqlite.exec("INSERT INTO learner_aggregates (user_id) VALUES ('learner-1');");
+    const repaired = await advanceStudyDataDeletion({ db, userId: 'learner-1' });
+    assert.equal(repaired.phase, 'learner_aggregates');
+    assert.equal(await isStudyDataDeletionActive(db, 'learner-1'), true);
+    await advanceToCompletion(db, 'learner-1');
+    assert.equal(Number(sqlite.prepare("SELECT count(*) AS n FROM learner_aggregates WHERE user_id = 'learner-1'").get().n), 0);
   } finally {
     sqlite.close();
   }
