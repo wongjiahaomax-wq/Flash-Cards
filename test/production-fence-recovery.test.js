@@ -7,13 +7,18 @@ function source(path) {
   return readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 }
 
-test('Production fence recovery is armed before fencing and survives ordinary cancellation', () => {
+test('Production fence recovery is positively verified before fencing and survives ordinary cancellation', () => {
   const deploy = source('.github/workflows/deploy-production.yml');
   const recovery = source('.github/workflows/recover-production-fence.yml');
 
   assert.match(deploy, /concurrency:\s*[\s\S]*group:\s*production-deploy[\s\S]*cancel-in-progress:\s*false[\s\S]*queue:\s*max/);
   assert.match(deploy, /deploy:\s*\n\s*if:\s*\$\{\{ always\(\) \}\}/);
-  assert.match(deploy, /Upload pre-fence recovery record/);
+  assert.match(deploy, /Verify current Production is unfenced and capture recovery target/);
+  assert.match(deploy, /production-fence-recovery\.mjs probe/);
+  assert.match(deploy, /version-before "\$version_before"/);
+  assert.match(deploy, /version-after "\$version_after"/);
+  assert.match(deploy, /pre-fence-recovery\.json/);
+  assert.doesNotMatch(deploy, /pre-fence-version\.txt/);
   assert.match(deploy, /name:\s*production-cutover-pre-fence/);
   assert.match(deploy, /steps\.install_fence\.outcome != 'skipped'/);
   assert.match(deploy, /cancelled\(\)/);
@@ -22,8 +27,8 @@ test('Production fence recovery is armed before fencing and survives ordinary ca
   assert.match(deploy, /steps\.zero_runtime_data\.outcome == 'cancelled'/);
 
   const order = [
-    'Capture pre-fence Worker version',
-    'Upload pre-fence recovery record',
+    'Verify current Production is unfenced and capture recovery target',
+    'Upload verified pre-fence recovery record',
     'Install temporary learner write fence Worker',
     'Require exact zero Production learner runtime data',
     'Restore pre-fence Worker after pre-migration cutover failure or cancellation',
@@ -41,6 +46,32 @@ test('Production fence recovery is armed before fencing and survives ordinary ca
   assert.match(recovery, /production-cutover-pre-fence/);
 });
 
+test('Already-fenced or indeterminate Production fails before a new recovery record, fence, or migration', () => {
+  const deploy = source('.github/workflows/deploy-production.yml');
+  const capture = deploy.indexOf('production-fence-recovery.mjs probe');
+  const writeRecord = deploy.indexOf('production-fence-recovery.mjs write-record');
+  const installFence = deploy.indexOf('Install temporary learner write fence Worker');
+  const migration = deploy.indexOf('Apply all pending production D1 migrations');
+
+  assert.equal(capture >= 0, true);
+  assert.equal(writeRecord > capture, true);
+  assert.equal(installFence > writeRecord, true);
+  assert.equal(migration > installFence, true);
+  assert.match(deploy, /previously stranded fence, generic 5xx/);
+});
+
+test('Interrupted-run recovery accepts only structured positively verified provenance', () => {
+  const recovery = source('.github/workflows/recover-production-fence.yml');
+
+  assert.match(recovery, /pre-fence-recovery\.json/);
+  assert.match(recovery, /verify-record/);
+  assert.match(recovery, /workflow_run\.id/);
+  assert.match(recovery, /workflow_run\.run_attempt/);
+  assert.match(recovery, /workflow_run\.head_sha/);
+  assert.match(recovery, /Legacy bare Worker-ID artifacts are not accepted/);
+  assert.doesNotMatch(recovery, /pre-fence-version\.txt/);
+});
+
 test('Interrupted-run recovery rolls back only when GitHub proves D1 migration never started', () => {
   const recovery = source('.github/workflows/recover-production-fence.yml');
 
@@ -54,18 +85,19 @@ test('Interrupted-run recovery rolls back only when GitHub proves D1 migration n
   assert.match(recovery, /wrangler rollback "\$rollback_version"/);
 });
 
-test('Worker restoration is verified at both Cloudflare control plane and public edge', () => {
+test('Worker restoration is exact at the control plane and requires the positive /study edge contract', () => {
   const deploy = source('.github/workflows/deploy-production.yml');
   const recovery = source('.github/workflows/recover-production-fence.yml');
 
   for (const workflow of [deploy, recovery]) {
     assert.match(workflow, /production-worker-deployment\.mjs verify-version "\$rollback_version"/);
     assert.match(workflow, /for attempt in \$\(seq 1 60\); do/);
-    assert.match(workflow, /X-Learner-Runtime-Fence: active/);
+    assert.match(workflow, /production-fence-recovery\.mjs probe/);
     assert.match(workflow, /sleep 5/);
     assert.match(workflow, /five minutes/i);
   }
 
-  assert.match(deploy, /public Worker endpoint still exposes the temporary learner fence/);
-  assert.match(recovery, /public endpoint still exposes the temporary learner fence/);
+  assert.match(deploy, /application-level \/study/);
+  assert.match(recovery, /Missing fence headers and generic 5xx responses/);
+  assert.match(recovery, /Header absence alone is not recovery proof/);
 });
