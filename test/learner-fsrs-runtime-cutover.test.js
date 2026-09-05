@@ -140,11 +140,15 @@ test('multi-System v2 cutover retries unless both schema and an open identified 
   assert.deepEqual(order, [...order].sort((a, b) => a - b));
 });
 
-test('Production cutover restores the pre-fence Worker when a fenced pre-migration gate fails', () => {
+test('Production cutover restores only a positively verified pre-fence Worker when a fenced pre-migration gate fails', () => {
   const workflow = source('.github/workflows/deploy-production.yml');
 
-  assert.match(workflow, /Capture pre-fence Worker version/);
+  assert.match(workflow, /Verify current Production is unfenced and capture recovery target/);
   assert.match(workflow, /production-worker-deployment\.mjs current-version/);
+  assert.match(workflow, /production-fence-recovery\.mjs probe/);
+  assert.match(workflow, /production-fence-recovery\.mjs write-record/);
+  assert.match(workflow, /pre-fence-recovery\.json/);
+  assert.doesNotMatch(workflow, /pre-fence-version\.txt/);
   assert.match(workflow, /for attempt in \$\(seq 1 10\); do/);
   assert.match(workflow, /sleep 2/);
   assert.match(workflow, /always\(\)/);
@@ -155,11 +159,13 @@ test('Production cutover restores the pre-fence Worker when a fenced pre-migrati
   assert.match(workflow, /production-worker-deployment\.mjs verify-version "\$rollback_version"/);
 
   const order = [
-    'Capture pre-fence Worker version',
+    'Preflight exact zero learner runtime data before downtime',
+    'Verify current Production is unfenced and capture recovery target',
+    'Upload verified pre-fence recovery record',
     'Install temporary learner write fence Worker',
     'Verify temporary write fence',
     'Require exact zero Production learner runtime data',
-    'Restore pre-fence Worker after pre-migration cutover failure',
+    'Restore pre-fence Worker after pre-migration cutover failure or cancellation',
     'Verify pre-fence Worker restoration',
     'Apply all pending production D1 migrations'
   ].map((label) => workflow.indexOf(label));
