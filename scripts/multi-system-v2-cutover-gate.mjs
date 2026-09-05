@@ -24,6 +24,7 @@ export const MULTI_SYSTEM_V2_PRE_MIGRATION_OPTIONAL_SENTINELS = [
   'learner_system_monthly_buckets'
 ];
 
+/** @type {Record<string, string>} */
 export const MULTI_SYSTEM_V2_OPTIONAL_SENTINEL_MIGRATIONS = {
   learner_system_monthly_buckets: '0025_learner_fsrs_admin_analytics_deletion.sql'
 };
