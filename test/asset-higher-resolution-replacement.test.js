@@ -51,6 +51,9 @@ function d1Fixture(sqlite) {
         /** @param {...any} params */
         bind(...params) {
           return {
+            async first() {
+              return sqlite.prepare(sql).get(...params) ?? null;
+            },
             async all() {
               return { results: sqlite.prepare(sql).all(...params) };
             },

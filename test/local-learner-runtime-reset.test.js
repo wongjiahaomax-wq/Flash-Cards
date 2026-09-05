@@ -12,6 +12,7 @@ import { applyCurrentSchema } from './current-schema.js';
 test('local learner runtime reset removes active FSRS and retired legacy Review FK/provenance blockers before content replacement', () => {
   for (const table of [
     'scheduled_review_events',
+    'learner_study_data_deletions',
     'learner_system_monthly_buckets',
     'free_review_completion_receipts',
     'active_review_questions',
@@ -61,6 +62,9 @@ test('combined local learner/content reset clears retained monthly System histor
         \`user_id\`, \`system_id\`, \`month_start\`, \`scheduled_completed\`,
         \`scheduled_good\`, \`first_completed_at\`, \`last_completed_at\`
       ) VALUES ('local-learner', 'local-system-old', 0, 1, 1, 0, 0);
+
+      INSERT INTO \`learner_study_data_deletions\` (\`user_id\`)
+      VALUES ('local-learner');
     `);
 
     const bucketBeforeReset = sqlite
@@ -85,6 +89,11 @@ test('combined local learner/content reset clears retained monthly System histor
       .get();
     assert.ok(bucketAfterRuntimeReset);
     assert.equal(bucketAfterRuntimeReset.count, 0);
+    const markerAfterRuntimeReset = sqlite
+      .prepare('SELECT count(*) AS count FROM learner_study_data_deletions')
+      .get();
+    assert.ok(markerAfterRuntimeReset);
+    assert.equal(markerAfterRuntimeReset.count, 0);
 
     sqlite.exec(buildLocalResetSql());
     const conceptsAfterRefresh = sqlite.prepare('SELECT count(*) AS count FROM concepts').get();

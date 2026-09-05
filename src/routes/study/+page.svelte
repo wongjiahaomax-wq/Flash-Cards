@@ -415,9 +415,50 @@
     </form>
   </section>
 
-  <LearnerFsrsProgress progress={data.progress} />
+  {#if !data.studyDataDeletion?.inProgress}
+    <LearnerFsrsProgress progress={data.progress} />
+  {/if}
 
-  {#if browserRun && summary}
+  {#if data.studyDataDeletion?.inProgress}
+    <section class="deletion-card" aria-labelledby="study-data-deletion-title">
+      <div>
+        <p class="eyebrow">Manage study data</p>
+        <h2 id="study-data-deletion-title">Deletion in progress</h2>
+        <p class="muted">
+          Your study data is being removed in safe, bounded steps. Your account, session, and preferences remain available, but Study is temporarily blocked until the final empty-state check completes.
+        </p>
+      </div>
+      <form method="POST" action="?/continueStudyDataDeletion">
+        <button class="button danger" type="submit">Continue deletion</button>
+        <small>Nothing is reported as deleted until the server verifies completion.</small>
+      </form>
+    </section>
+  {:else}
+    <section class="deletion-card" aria-labelledby="study-data-deletion-title">
+      <div>
+        <p class="eyebrow">Manage study data</p>
+        <h2 id="study-data-deletion-title">Delete all my study data</h2>
+        <p class="muted">
+          Permanently removes your completed Reviews, ratings, FSRS scheduling state, Free Study history, and associated learning analytics. Your account and preferences remain active. This cannot be undone.
+        </p>
+      </div>
+      <form method="POST" action="?/deleteStudyData">
+        <label for="study-data-deletion-confirmation">Type <strong>DELETE MY STUDY DATA</strong> to confirm</label>
+        <input
+          id="study-data-deletion-confirmation"
+          name="confirmation"
+          type="text"
+          required
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="DELETE MY STUDY DATA"
+        />
+        <button class="button danger" type="submit">Delete my study data</button>
+      </form>
+    </section>
+  {/if}
+
+  {#if !data.studyDataDeletion?.inProgress && browserRun && summary}
     <section class="run-card" aria-label="Browser Study run">
       <div>
         <p class="eyebrow">Current browser run</p>
@@ -449,6 +490,7 @@
     <p class="status-message" role="status">{runMessage || form?.message}</p>
   {/if}
 
+  {#if !data.studyDataDeletion?.inProgress}
   <section class="chooser-heading">
     <div>
       <p class="eyebrow">Start a new run</p>
@@ -605,17 +647,25 @@
       </button>
     </div>
   </form>
+  {/if}
 </main>
 
 <style>
   .study-shell { display:grid; gap:1.5rem; max-width:1100px; }
   .study-header { display:flex; align-items:flex-start; justify-content:space-between; gap:1.5rem; }
-  .study-header h1,.chooser-heading h2,.active-card h2,.preference-card h2,.run-card h2 { margin:.2rem 0 0; }
+  .study-header h1,.chooser-heading h2,.active-card h2,.preference-card h2,.run-card h2,.deletion-card h2 { margin:.2rem 0 0; }
   .intro { max-width:760px; margin-bottom:0; line-height:1.6; }
   .eyebrow { margin:0; color:#667085; font-size:.76rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
   .account-actions,.active-actions,.run-actions,.preference-form { display:flex; align-items:center; justify-content:flex-end; gap:.65rem; flex-wrap:wrap; }
-  .active-card,.preference-card,.run-card,.run-options-card { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1.1rem 1.2rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
+  .active-card,.preference-card,.run-card,.run-options-card,.deletion-card { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1.1rem 1.2rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
   .active-card p,.preference-card p,.run-card p { margin:.35rem 0 0; }
+  .deletion-card { border-color:#f2c7c2; background:#fff9f8; }
+  .deletion-card > div { max-width:720px; }
+  .deletion-card p { margin:.35rem 0 0; line-height:1.5; }
+  .deletion-card form { display:grid; gap:.45rem; min-width:280px; }
+  .deletion-card label { color:#344054; font-size:.85rem; }
+  .deletion-card input { min-width:0; padding:.62rem .7rem; border:1px solid #d0d5dd; border-radius:8px; font:inherit; }
+  .deletion-card small { color:#667085; line-height:1.4; }
   .toggle-row { display:flex; gap:.5rem; align-items:center; font-weight:700; }
   .metrics { display:flex; gap:.55rem; flex-wrap:wrap; margin-top:.75rem; }
   .metrics span { padding:.4rem .6rem; border-radius:999px; background:#eef2f6; color:#475467; font-size:.85rem; }
@@ -659,7 +709,7 @@
   .start-row p { margin:0; max-width:700px; }
   code { font-size:.88em; }
   @media (max-width:820px) {
-    .study-header,.chooser-heading,.active-card,.preference-card,.run-card,.start-row,.combined-count { display:grid; align-items:stretch; }
+    .study-header,.chooser-heading,.active-card,.preference-card,.run-card,.deletion-card,.start-row,.combined-count { display:grid; align-items:stretch; }
     .account-actions,.active-actions,.run-actions,.preference-form { justify-content:flex-start; }
     .chooser-heading > p,.count-detail { text-align:left; justify-items:start; }
     .run-options-card,.system-grid { grid-template-columns:1fr; }

@@ -1,4 +1,6 @@
 import { getOwnedActiveReviewMediaSnapshot } from '$lib/server/db/active-review-media.js';
+import { createDb } from '$lib/server/db/index.js';
+import { isStudyDataDeletionActive } from '$lib/server/db/learner-study-data-deletion.ts';
 import { learnerStudyAccessError } from '$lib/server/learning/learner-study-runtime.js';
 import { serveReviewImage } from '$lib/server/storage/serve.js';
 
@@ -8,6 +10,9 @@ export async function GET({ locals, params, platform, request }) {
   if (access) return new Response(access.message, { status: access.status, headers: noStore });
   if (!locals.user || !platform?.env?.DB || !platform?.env?.MEDIA) {
     return new Response('Study media storage is not configured.', { status: 503, headers: noStore });
+  }
+  if (await isStudyDataDeletionActive(createDb(platform.env.DB), locals.user.id)) {
+    return new Response('Study data deletion is in progress. Continue it from the Study page before studying again.', { status: 409, headers: noStore });
   }
 
   const asset = await getOwnedActiveReviewMediaSnapshot(

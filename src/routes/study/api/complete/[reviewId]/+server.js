@@ -2,6 +2,7 @@ import { createDb } from '$lib/server/db/index.js';
 import { getActiveReviewById } from '$lib/server/db/active-reviews.js';
 import { completeFreeReview } from '$lib/server/db/free-review-completion.js';
 import { completeScheduledReview } from '$lib/server/db/scheduled-review-completion.js';
+import { isStudyDataDeletionActive } from '$lib/server/db/learner-study-data-deletion.ts';
 import {
   learnerStudyAccessError,
   learnerStudyProofSecret
@@ -22,6 +23,11 @@ export async function POST({ locals, params, platform, request }) {
   if (access) return json({ message: access.message }, access.status);
   if (!locals.user || !platform?.env?.DB) return json({ message: 'Study database is not configured.' }, 503);
 
+  const db = createDb(platform.env.DB);
+  if (await isStudyDataDeletionActive(db, locals.user.id)) {
+    return json({ message: 'Study data deletion is in progress. Continue it from the Study page before studying again.' }, 409);
+  }
+
   /** @type {any} */
   let payload;
   try {
@@ -32,7 +38,7 @@ export async function POST({ locals, params, platform, request }) {
 
   try {
     const result = await completeStudyRunRequest({
-      db: createDb(platform.env.DB),
+      db,
       userId: locals.user.id,
       reviewId: params.reviewId,
       payload,
