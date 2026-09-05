@@ -20,6 +20,10 @@ import {
   issueScheduledRepeatOriginProof,
   verifyScheduledRunBoundaryToken
 } from '../learning/study-run-proof.js';
+import {
+  isStudyDataDeletionFenceError,
+  STUDY_DATA_DELETION_FENCE_MESSAGE
+} from './study-data-deletion-fence.js';
 
 const DATABASE_NOW_MS = sql`cast((julianday('now') - 2440587.5) * 86400000 as integer)`;
 const SCHEDULED_RATINGS = new Set(['again', 'hard', 'good', 'easy']);
@@ -27,7 +31,7 @@ const SHORT_TERM_FSRS_STATES = new Set([1, 3]);
 
 export class ScheduledReviewCompletionError extends Error {
   /**
-   * @param {'invalid-input'|'unavailable'|'unrevealed'|'stale-run'|'stale-case-state'|'expired'} code
+   * @param {'invalid-input'|'unavailable'|'unrevealed'|'stale-run'|'stale-case-state'|'expired'|'study-data-deletion-in-progress'} code
    * @param {string} message
    */
   constructor(code, message) {
@@ -273,6 +277,9 @@ async function completionResponse(input) {
 /** @param {unknown} cause */
 function mappedWriteError(cause) {
   if (cause instanceof ScheduledReviewCompletionError) return cause;
+  if (isStudyDataDeletionFenceError(cause)) {
+    return new ScheduledReviewCompletionError('study-data-deletion-in-progress', STUDY_DATA_DELETION_FENCE_MESSAGE);
+  }
   const message = databaseErrorMessage(cause);
   if (message.includes('scheduled_completion_unrevealed')) {
     return new ScheduledReviewCompletionError('unrevealed', 'Reveal the answers before rating this Review.');

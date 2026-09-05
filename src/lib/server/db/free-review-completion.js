@@ -6,6 +6,10 @@ import {
   freeReviewCompletionReceipts
 } from './free-study-schema.js';
 import { learnerAggregates, learnerCaseEncounters } from './fsrs-schema.js';
+import {
+  isStudyDataDeletionFenceError,
+  STUDY_DATA_DELETION_FENCE_MESSAGE
+} from './study-data-deletion-fence.js';
 
 const DATABASE_NOW_MS = sql`cast((julianday('now') - 2440587.5) * 86400000 as integer)`;
 const DEFAULT_RECEIPT_CLEANUP_LIMIT = 100;
@@ -13,7 +17,7 @@ const MAX_RECEIPT_CLEANUP_LIMIT = 500;
 
 export class FreeReviewCompletionError extends Error {
   /**
-   * @param {'invalid-input'|'unavailable'|'unrevealed'|'expired'} code
+   * @param {'invalid-input'|'unavailable'|'unrevealed'|'expired'|'study-data-deletion-in-progress'} code
    * @param {string} message
    */
   constructor(code, message) {
@@ -89,6 +93,9 @@ function completionResponse(receipt) {
 /** @param {unknown} cause */
 function mappedWriteError(cause) {
   if (cause instanceof FreeReviewCompletionError) return cause;
+  if (isStudyDataDeletionFenceError(cause)) {
+    return new FreeReviewCompletionError('study-data-deletion-in-progress', STUDY_DATA_DELETION_FENCE_MESSAGE);
+  }
   const message = databaseErrorMessage(cause);
   if (message.includes('free_completion_unrevealed')) {
     return new FreeReviewCompletionError('unrevealed', 'Reveal the answers before completing this Free Review.');
