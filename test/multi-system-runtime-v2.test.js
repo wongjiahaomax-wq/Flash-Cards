@@ -20,8 +20,12 @@ import {
 } from '../src/lib/learner-study-run-storage.js';
 import { learnerStudyWriteFenceActive } from '../src/lib/server/learning/learner-study-runtime.js';
 import {
+  MULTI_SYSTEM_V2_PRE_MIGRATION_OPTIONAL_SENTINELS,
   MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS,
-  assertMultiSystemV2ZeroData
+  assertMultiSystemV2PreMigrationSchema,
+  assertMultiSystemV2ZeroData,
+  buildMultiSystemV2ZeroDataSql,
+  extractMultiSystemV2ExistingSentinelTables
 } from '../scripts/multi-system-v2-cutover-gate.mjs';
 
 function fixture() {
@@ -191,5 +195,31 @@ test('zero-data gate has no pristine-profile exception', () => {
   assert.throws(
     () => assertMultiSystemV2ZeroData({ ...zero, learner_fsrs_profiles: 1 }),
     /learner_fsrs_profiles=1.*no pristine-profile exception/i
+  );
+});
+
+test('pre-migration zero-data gate permits only the known migration-0025 table to be absent', () => {
+  assert.deepEqual(MULTI_SYSTEM_V2_PRE_MIGRATION_OPTIONAL_SENTINELS, ['learner_system_monthly_buckets']);
+  const preMigrationTables = MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS.filter(
+    (table) => table !== 'learner_system_monthly_buckets'
+  );
+
+  assert.doesNotThrow(() => assertMultiSystemV2PreMigrationSchema(preMigrationTables));
+  const sql = buildMultiSystemV2ZeroDataSql(preMigrationTables);
+  assert.match(sql, /0 AS learner_system_monthly_buckets_count/);
+  assert.match(sql, /SELECT COUNT\(\*\) FROM learner_fsrs_profiles/);
+  assert.doesNotMatch(sql, /SELECT COUNT\(\*\) FROM learner_system_monthly_buckets/);
+
+  assert.throws(
+    () => assertMultiSystemV2PreMigrationSchema(preMigrationTables.filter((table) => table !== 'active_reviews')),
+    /required pre-migration table\(s\): active_reviews/i
+  );
+
+  assert.deepEqual(
+    extractMultiSystemV2ExistingSentinelTables([
+      { results: preMigrationTables.map((name) => ({ name })) },
+      { meta: { name: 'not-a-sentinel' } }
+    ]),
+    preMigrationTables
   );
 });
