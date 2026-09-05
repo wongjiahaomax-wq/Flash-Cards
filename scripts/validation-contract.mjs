@@ -56,13 +56,13 @@ export const VALIDATION_CHECKS = Object.freeze({
   }),
   ecgAssetRenameOperatorTest: Object.freeze({
     label: 'Run ECG Batch 01 Asset rename operator tests',
-    command: 'node',
-    args: Object.freeze(['--test', 'test/ecg-batch-01-asset-rename.test.js']),
+    command: 'npm',
+    args: Object.freeze(['test', '--', 'test/ecg-batch-01-asset-rename.test.js']),
   }),
   productionTaxonomyOperatorTest: Object.freeze({
     label: 'Run production taxonomy operator tests',
-    command: 'node',
-    args: Object.freeze(['--test', 'test/production-taxonomy-operator.test.js']),
+    command: 'npm',
+    args: Object.freeze(['test', '--', 'test/production-taxonomy-operator.test.js']),
   }),
   slideReviewTest: Object.freeze({
     label: 'Run slide-review tooling tests',
