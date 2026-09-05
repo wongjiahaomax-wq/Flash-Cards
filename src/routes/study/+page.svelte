@@ -208,6 +208,7 @@
         .map((topic) => `topic:${topic.id}`)
       : system.tags.map((tag) => `tag:${tag.id}`);
     setRoutes(system.id, values, checked);
+    scheduleEligibleCount();
   }
 
   /** @param {'scheduled'|'free'} mode */

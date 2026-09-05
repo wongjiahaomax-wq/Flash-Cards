@@ -285,6 +285,7 @@ test('learner chooser/count/navigation source contract stays multi-System, hiera
   assert.match(chooser, /use:indeterminate=\{topicIndeterminate\(system, topic\)\}/);
   assert.match(chooser, /toggleTopicSubtree\(system, topic/);
   assert.match(chooser, /function scheduleEligibleCount\(\) \{\s*const requestId = \+\+countRequest;/);
+  assert.match(chooser, /setRoutes\(system\.id, values, checked\);\s*scheduleEligibleCount\(\);/);
   assert.match(chooser, /setTimeout\(\(\) => refreshEligibleCount\(requestId\), 120\)/);
   assert.match(chooser, /if \(requestId !== countRequest\) return;/);
   assert.match(chooser, /\/study\/api\/count/);

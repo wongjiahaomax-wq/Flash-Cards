@@ -713,7 +713,7 @@ Reset Progress
 Fresh FSRS Start
 → delete active Review + current learner_case_fsrs state atomically
 → restore canonical default parameters (90% desired retention)
-→ increment generation + review_sequence_epoch + parameter_revision
+→ increment generation + review_sequence_epoch + parameter_revision for an initialized learner
 → clear optimizer metadata without executing an optimizer
 → preserve the learner's detailed-history retention override, retained history, encounters and aggregates
 → prune optimizer-only evidence from generations made permanently ineligible by the new generation
