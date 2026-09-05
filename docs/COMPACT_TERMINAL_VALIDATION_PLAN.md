@@ -1,6 +1,6 @@
 # Compact-by-default terminal validation plan
 
-_Status: implementation plan for the Draft PR on branch `compact-terminal-validation`._
+_Status: implemented in PR #155 on branch `compact-terminal-validation`; retained as design/implementation record._
 
 ## Goal
 
