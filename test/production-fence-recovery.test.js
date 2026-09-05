@@ -60,9 +60,10 @@ test('Worker restoration is verified at both Cloudflare control plane and public
 
   for (const workflow of [deploy, recovery]) {
     assert.match(workflow, /production-worker-deployment\.mjs verify-version "\$rollback_version"/);
-    assert.match(workflow, /for attempt in \$\(seq 1 10\); do/);
+    assert.match(workflow, /for attempt in \$\(seq 1 60\); do/);
     assert.match(workflow, /X-Learner-Runtime-Fence: active/);
-    assert.match(workflow, /sleep 2/);
+    assert.match(workflow, /sleep 5/);
+    assert.match(workflow, /five minutes/i);
   }
 
   assert.match(deploy, /public Worker endpoint still exposes the temporary learner fence/);
