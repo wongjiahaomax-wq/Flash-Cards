@@ -1,7 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { resolveFastNodeTestSelection } from './test-selection.mjs';
-import { nodeTestArgsForPresentation, parseTestPresentationArgs } from './test-presentation.mjs';
+import {
+  hasExplicitTestReporter,
+  nodeTestArgsForPresentation,
+  parseTestPresentationArgs,
+} from './test-presentation.mjs';
 
 /**
  * @param {{ argv?: string[], root?: string, spawn?: typeof spawnSync, env?: NodeJS.ProcessEnv }} [options]
@@ -13,8 +17,9 @@ export async function runFastNodeTests(options = {}) {
   const env = options.env ?? process.env;
   const selection = await resolveFastNodeTestSelection(root);
   const { presentation, nodeArgs } = parseTestPresentationArgs(argv);
+  const detailedSelection = presentation !== 'local' || hasExplicitTestReporter(nodeArgs, env);
 
-  if (presentation === 'local') {
+  if (!detailedSelection) {
     console.log(
       `Fast Node test selection: ${selection.selected.length} selected, ${selection.excluded.length} excluded from ${selection.complete.length} maintained tests.`,
     );

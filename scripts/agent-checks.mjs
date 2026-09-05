@@ -147,6 +147,17 @@ export function contextualizeAgentChecksReport(report, mergeBase = null) {
   };
 }
 
+/**
+ * Convert internal raw `node --test <file>` ownership to the repository-owned
+ * compact local test entry point when instructions are presented to agents.
+ * CI keeps the raw command identity and injects its structured reporter itself.
+ * @param {string} command
+ */
+export function localPresentationCommand(command) {
+  const match = /^node --test (.+)$/.exec(command);
+  return match ? `npm test -- ${match[1]}` : command;
+}
+
 /** @param {string} title @param {string[]} values @param {string} [emptyText] */
 function printSection(title, values, emptyText = '(none)') {
   console.log(`\n${title}`);
@@ -164,13 +175,15 @@ function printSection(title, values, emptyText = '(none)') {
  * @param {{ checkedFiles: string[], diagnostics: string[] } | null} [untrackedWhitespace]
  */
 export function printAgentChecksReport(report, baseDescription, untrackedWhitespace = null) {
+  const requiredCommands = report.requiredCommands.map(localPresentationCommand);
+  const notRequiredCommands = report.notRequiredCommands.map(localPresentationCommand);
   console.log(`Diff base: ${baseDescription}`);
   printSection('Changed files', report.files, '(no changed files detected)');
   printSection('Affected areas', report.areas, '(none)');
   printSection('Iteration guidance', report.iterationGuidance, '(none)');
   printSection('Checkpoint guidance', report.checkpointGuidance, '(none)');
   console.log('\nHandoff: run every command under Required automated checks before final handoff/review.');
-  printSection('Required automated checks', report.requiredCommands, '(none)');
+  printSection('Required automated checks', requiredCommands, '(none)');
   if (untrackedWhitespace?.checkedFiles.length) {
     console.log('\nUntracked whitespace validation');
     console.log('-------------------------------');
@@ -179,7 +192,7 @@ export function printAgentChecksReport(report, baseDescription, untrackedWhitesp
     for (const diagnostic of untrackedWhitespace.diagnostics) console.log(`- ${diagnostic}`);
   }
   printSection('Recommended follow-up', report.recommendations, '(none)');
-  printSection('Not required', report.notRequiredCommands, '(none)');
+  printSection('Not required', notRequiredCommands, '(none)');
   if (report.unclassifiedImportant.length) {
     console.warn(`\nWARNING: fail-safe full validation applied to ${report.unclassifiedImportant.length} unclassified code/tooling path(s).`);
   }
@@ -194,13 +207,15 @@ export function printAgentChecksReport(report, baseDescription, untrackedWhitesp
  * @param {{ checkedFiles: string[], diagnostics: string[] } | null} [untrackedWhitespace]
  */
 export function printCompactAgentChecksReport(report, baseDescription, untrackedWhitespace = null) {
-  const specialized = new Set(report.specializedRequiredCommands);
-  const ordinaryRequired = report.requiredCommands.filter((command) => !specialized.has(command));
+  const requiredCommands = report.requiredCommands.map(localPresentationCommand);
+  const specializedCommands = report.specializedRequiredCommands.map(localPresentationCommand);
+  const specialized = new Set(specializedCommands);
+  const ordinaryRequired = requiredCommands.filter((command) => !specialized.has(command));
   /** @param {string} value */
-  const duplicatesSpecializedCommand = (value) => report.specializedRequiredCommands.some((command) => value.includes(command));
+  const duplicatesSpecializedCommand = (value) => specializedCommands.some((command) => value.includes(command));
   const compactIterationGuidance = report.iterationGuidance.filter((value) => !duplicatesSpecializedCommand(value));
   const compactCheckpointGuidance = report.checkpointGuidance.filter((value) => !duplicatesSpecializedCommand(value));
-  const handoffSections = report.specializedRequiredCommands.length
+  const handoffSections = specializedCommands.length
     ? 'Required automated checks and Specialized required checks'
     : 'Required automated checks';
 
@@ -211,8 +226,8 @@ export function printCompactAgentChecksReport(report, baseDescription, untracked
   printSection('Checkpoint guidance', compactCheckpointGuidance, '(none)');
   console.log(`\nHandoff: run every command under ${handoffSections} before final handoff/review.`);
   printSection('Required automated checks', ordinaryRequired, '(none)');
-  if (report.specializedRequiredCommands.length) {
-    printSection('Specialized required checks', report.specializedRequiredCommands);
+  if (specializedCommands.length) {
+    printSection('Specialized required checks', specializedCommands);
   }
   if (untrackedWhitespace?.checkedFiles.length) {
     console.log('\nUntracked whitespace validation');
