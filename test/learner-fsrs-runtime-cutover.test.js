@@ -145,6 +145,8 @@ test('Production cutover restores the pre-fence Worker when a fenced pre-migrati
 
   assert.match(workflow, /Capture pre-fence Worker version/);
   assert.match(workflow, /production-worker-deployment\.mjs current-version/);
+  assert.match(workflow, /for attempt in \$\(seq 1 10\); do/);
+  assert.match(workflow, /sleep 2/);
   assert.match(workflow, /always\(\)/);
   assert.match(workflow, /steps\.install_fence\.outcome == 'failure'/);
   assert.match(workflow, /steps\.verify_fence\.outcome == 'failure'/);

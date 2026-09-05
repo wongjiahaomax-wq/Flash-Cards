@@ -204,10 +204,24 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          headers="$(mktemp)"
-          status="$(curl --silent --show-error --output /tmp/fence-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"
-          test "$status" = "503"
-          grep -qi '^X-Learner-Runtime-Fence: active' "$headers"
+          for attempt in $(seq 1 10); do
+            headers="$(mktemp)"
+            status=""
+            if status="$(curl --silent --show-error --output /tmp/fence-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")" \
+              && [ "$status" = "503" ] \
+              && grep -qi '^X-Learner-Runtime-Fence: active' "$headers"; then
+              rm -f "$headers"
+              echo "Verified temporary write fence on attempt ${attempt}."
+              exit 0
+            fi
+            rm -f "$headers"
+            echo "Temporary write fence not visible yet (attempt ${attempt}/10, status=${status:-curl-error})."
+            if [ "$attempt" -lt 10 ]; then
+              sleep 2
+            fi
+          done
+          echo "::error::Temporary learner write fence did not become observable after 10 attempts."
+          exit 1
 
       - name: Require exact zero Production learner runtime data
         id: zero_runtime_data
