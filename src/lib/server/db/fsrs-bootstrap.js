@@ -7,6 +7,10 @@ import {
   serializeFsrsParameters
 } from '../learning/fsrs-scheduler.js';
 import { learnerFsrsProfiles, learnerPreferences } from './fsrs-schema.js';
+import {
+  isStudyDataDeletionFenceError,
+  STUDY_DATA_DELETION_FENCE_MESSAGE
+} from './study-data-deletion-fence.js';
 
 export const DEFAULT_DETAILED_HISTORY_RETENTION = '24m';
 
@@ -98,7 +102,14 @@ export async function ensureLearnerPreferences(db, userId) {
 export async function ensureLearnerFsrsProfile(db, userId) {
   const defaults = initialLearnerFsrsProfile(userId);
   return ensureDeterministicBootstrapRow(
-    () => db.insert(learnerFsrsProfiles).values(defaults).onConflictDoNothing(),
+    async () => {
+      try {
+        await db.insert(learnerFsrsProfiles).values(defaults).onConflictDoNothing();
+      } catch (cause) {
+        if (isStudyDataDeletionFenceError(cause)) throw new Error(STUDY_DATA_DELETION_FENCE_MESSAGE);
+        throw cause;
+      }
+    },
     async () => {
       const rows = await db
         .select()

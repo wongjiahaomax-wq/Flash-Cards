@@ -13,6 +13,10 @@ import {
   STUDY_DATA_DELETION_DESCRIPTORS
 } from '../src/lib/server/db/learner-study-data-deletion.ts';
 import { STUDY_DATA_DELETION_PHASES } from '../src/lib/server/db/study-data-deletion-schema.js';
+import {
+  freshLearnerFsrsStart,
+  resetLearnerFsrsProgress
+} from '../src/lib/server/db/fsrs-reset-fresh.js';
 import { applyCurrentSchema } from './current-schema.js';
 
 const migrationSql = readFileSync(
@@ -73,7 +77,10 @@ function fixture({ preTranche = false } = {}) {
   if (preTranche) {
     const files = readdirSync(new URL('../drizzle/', import.meta.url))
       .filter((name) => /^\d{4}_.+\.sql$/.test(name))
-      .filter((name) => name !== '0027_self_service_study_data_deletion.sql')
+      .filter((name) => ![
+        '0027_self_service_study_data_deletion.sql',
+        '0028_self_service_study_data_writer_fence.sql'
+      ].includes(name))
       .sort();
     sqlite.exec(files.map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8')).join('\n').replaceAll('--> statement-breakpoint', ''));
   } else {
@@ -255,6 +262,91 @@ test('the database rejects a new Active Review while fenced and permits deletion
     await beginStudyDataDeletion({ db, userId: 'admin-1' });
     assert.equal(marker(sqlite, 'learner-1').phase, 'active_reviews');
     assert.equal(marker(sqlite, 'admin-1').phase, 'active_reviews');
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('the database rejects every current study-state mutation for the fenced user while leaving another user writable', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    seedIdentities(sqlite);
+    seedActiveReviewContent(sqlite);
+    seedStudyData(sqlite, 'learner-1');
+    seedStudyData(sqlite, 'admin-1');
+    await beginStudyDataDeletion({ db, userId: 'learner-1' });
+
+    const blockedUpdates = [
+      ['active review', "UPDATE active_reviews SET revealed_at = 10 WHERE user_id = 'learner-1'"],
+      ['free receipt', "UPDATE free_review_completion_receipts SET resulting_free_times_studied = 2 WHERE user_id = 'learner-1'"],
+      ['scheduled event', "UPDATE scheduled_review_events SET completed_at = 11 WHERE user_id = 'learner-1'"],
+      ['FSRS profile', "UPDATE learner_fsrs_profiles SET detailed_history_retention = '24m' WHERE user_id = 'learner-1'"],
+      ['FSRS case state', "UPDATE learner_case_fsrs SET due_at = due_at + 1 WHERE user_id = 'learner-1'"],
+      ['encounter', "UPDATE learner_case_encounters SET free_times_studied = free_times_studied + 1 WHERE user_id = 'learner-1'"],
+      ['optimizer evidence', "UPDATE learner_optimizer_evidence SET rating = 'good' WHERE user_id = 'learner-1'"],
+      ['learner aggregate', "UPDATE learner_aggregates SET free_completed = free_completed + 1 WHERE user_id = 'learner-1'"],
+      ['system aggregate', "UPDATE learner_system_aggregates SET scheduled_good = scheduled_good + 1 WHERE user_id = 'learner-1'"],
+      ['monthly bucket', "UPDATE learner_system_monthly_buckets SET scheduled_good = scheduled_good + 1 WHERE user_id = 'learner-1'"]
+    ];
+    for (const [label, statement] of blockedUpdates) {
+      assert.throws(
+        () => sqlite.exec(statement),
+        /learner_study_data_deletion_in_progress/,
+        `${label} must remain fenced`
+      );
+    }
+
+    assert.throws(
+      () => sqlite.exec(`
+        INSERT INTO active_review_questions (
+          id, active_review_id, question_prompt_id, source_type, display_order,
+          prompt_snapshot_md, answer_snapshot_md
+        ) VALUES ('blocked-question', 'active-learner-1', 'question-1', 'case', 1, 'Prompt', 'Answer')
+      `),
+      /learner_study_data_deletion_in_progress/,
+      'active Review child creation must remain fenced'
+    );
+
+    sqlite.exec("UPDATE learner_aggregates SET free_completed = free_completed + 1 WHERE user_id = 'admin-1'");
+    assert.equal(
+      sqlite.prepare("SELECT free_completed FROM learner_aggregates WHERE user_id = 'admin-1'").get().free_completed,
+      2
+    );
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('Reset Progress and Fresh FSRS Start fail closed without partially mutating a fenced learner', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    seedIdentities(sqlite);
+    seedActiveReviewContent(sqlite);
+    seedStudyData(sqlite, 'learner-1');
+    const beforeProfile = sqlite.prepare(
+      "SELECT generation, review_sequence_epoch, parameter_revision FROM learner_fsrs_profiles WHERE user_id = 'learner-1'"
+    ).get();
+    await beginStudyDataDeletion({ db, userId: 'learner-1' });
+
+    await assert.rejects(
+      resetLearnerFsrsProgress({ db, userId: 'learner-1' }),
+      /Study data deletion is in progress/
+    );
+    assert.equal(sqlite.prepare("SELECT count(*) AS n FROM active_reviews WHERE user_id = 'learner-1'").get().n, 1);
+    assert.deepEqual(
+      sqlite.prepare("SELECT generation, review_sequence_epoch, parameter_revision FROM learner_fsrs_profiles WHERE user_id = 'learner-1'").get(),
+      beforeProfile
+    );
+
+    await assert.rejects(
+      freshLearnerFsrsStart({ db, userId: 'learner-1' }),
+      /Study data deletion is in progress/
+    );
+    assert.equal(sqlite.prepare("SELECT count(*) AS n FROM active_reviews WHERE user_id = 'learner-1'").get().n, 1);
+    assert.deepEqual(
+      sqlite.prepare("SELECT generation, review_sequence_epoch, parameter_revision FROM learner_fsrs_profiles WHERE user_id = 'learner-1'").get(),
+      beforeProfile
+    );
   } finally {
     sqlite.close();
   }

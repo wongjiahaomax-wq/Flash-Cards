@@ -1,5 +1,9 @@
 import { initialLearnerFsrsProfile } from './fsrs-bootstrap.js';
 import { buildDetailedHistoryCleanupStatements } from './fsrs-retention.js';
+import {
+  isStudyDataDeletionFenceError,
+  STUDY_DATA_DELETION_FENCE_MESSAGE
+} from './study-data-deletion-fence.js';
 
 const DATABASE_NOW_MS_SQL = "cast((julianday('now') - 2440587.5) * 86400000 as integer)";
 
@@ -88,18 +92,23 @@ export async function resetLearnerFsrsProgress(input) {
   const client = requireD1Client(input.db);
   const cleanup = buildDetailedHistoryCleanupStatements(client, userId, { force: true });
 
-  await client.batch([
-    deleteActiveReview(client, userId),
-    deleteCurrentCaseState(client, userId),
-    ...cleanup,
-    pruneOldGenerationOptimizerEvidence(client, userId),
-    client.prepare(`
+  try {
+    await client.batch([
+      deleteActiveReview(client, userId),
+      deleteCurrentCaseState(client, userId),
+      ...cleanup,
+      pruneOldGenerationOptimizerEvidence(client, userId),
+      client.prepare(`
       UPDATE learner_fsrs_profiles
       SET review_sequence_epoch = review_sequence_epoch + 1,
           updated_at = ${DATABASE_NOW_MS_SQL}
       WHERE user_id = ?
     `).bind(userId)
-  ]);
+    ]);
+  } catch (cause) {
+    if (isStudyDataDeletionFenceError(cause)) throw new Error(STUDY_DATA_DELETION_FENCE_MESSAGE);
+    throw cause;
+  }
 
   const profile = await readProfile(client, userId);
   return {
@@ -127,10 +136,11 @@ export async function freshLearnerFsrsStart(input) {
   const defaults = initialLearnerFsrsProfile(userId);
   const cleanup = buildDetailedHistoryCleanupStatements(client, userId, { force: true });
 
-  await client.batch([
-    deleteActiveReview(client, userId),
-    deleteCurrentCaseState(client, userId),
-    client.prepare(`
+  try {
+    await client.batch([
+      deleteActiveReview(client, userId),
+      deleteCurrentCaseState(client, userId),
+      client.prepare(`
       INSERT INTO learner_fsrs_profiles (
         user_id,
         generation,
@@ -163,9 +173,13 @@ export async function freshLearnerFsrsStart(input) {
       defaults.parametersJson,
       defaults.detailedHistoryRetention
     ),
-    ...cleanup,
-    pruneOldGenerationOptimizerEvidence(client, userId)
-  ]);
+      ...cleanup,
+      pruneOldGenerationOptimizerEvidence(client, userId)
+    ]);
+  } catch (cause) {
+    if (isStudyDataDeletionFenceError(cause)) throw new Error(STUDY_DATA_DELETION_FENCE_MESSAGE);
+    throw cause;
+  }
 
   const profile = await readProfile(client, userId);
   if (!profile) throw new Error('Fresh FSRS Start committed without a learner FSRS profile.');

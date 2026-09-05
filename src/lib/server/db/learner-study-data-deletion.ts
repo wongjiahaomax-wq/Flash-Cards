@@ -1,6 +1,6 @@
 import { STUDY_DATA_DELETION_PHASES } from './study-data-deletion-schema.js';
 
-export const STUDY_DATA_DELETION_FENCE_ERROR = 'learner_study_data_deletion_in_progress';
+export { STUDY_DATA_DELETION_FENCE_ERROR } from './study-data-deletion-fence.js';
 export const STUDY_DATA_DELETION_COMPLETE_PHASE = 'complete';
 export const STUDY_DATA_DELETION_BATCH_SIZE = 1_000;
 
