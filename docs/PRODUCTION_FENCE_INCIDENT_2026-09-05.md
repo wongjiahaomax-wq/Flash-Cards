@@ -53,6 +53,18 @@ The deployment workflow captured the current Worker version before installing a 
 
 A second validation weakness exists in rollback/recovery edge checks: absence of `X-Learner-Runtime-Fence: active` alone is not sufficient proof of a healthy application. A generic Cloudflare 5xx without that header must also fail recovery verification.
 
+## Positive public application identity
+
+The application itself supplies a stronger health signal than merely observing that the temporary fence header disappeared. `src/routes/study/+layout.server.js` redirects an unauthenticated request for `/study` with HTTP `303` to `/sign-in?redirect=%2Fstudy`.
+
+Production deploy/recovery probes are unauthenticated and use manual redirect handling. Therefore a verified unfenced `/study` response must satisfy all of the following:
+
+1. HTTP status is exactly `303`.
+2. `Location` resolves to `/sign-in?redirect=%2Fstudy` on the Production origin.
+3. `X-Learner-Runtime-Fence` is not `active`.
+
+A generic Cloudflare `5xx`, a different redirect, a success page from an unrelated service, or any response carrying the active fence header is not proof of a recovered application and must fail closed.
+
 ## Required fix properties
 
 The hardened flow must:
@@ -61,7 +73,7 @@ The hardened flow must:
 2. Bind a captured Worker version to positive unfenced public-edge evidence, with control-plane stability across the probe.
 3. Persist structured, provenance-bearing recovery metadata rather than a bare version-ID file.
 4. Reject legacy, unverified, mismatched, or fenced recovery metadata.
-5. Restore exactly the verified Worker version and verify both Cloudflare control-plane state and a plausible unfenced public `/study` application response.
+5. Restore exactly the verified Worker version and verify both Cloudflare control-plane state and the positive public `/study` application contract above.
 6. Treat generic 5xx responses as recovery failure even when the fence header is absent.
 7. Preserve pre-migration failure/cancellation rollback behavior.
 8. Refuse automatic old-application rollback after migration may have started.
@@ -83,4 +95,5 @@ No Production recovery should be initiated from this document until that evidenc
 ## Validation log
 
 - Branch created from current `main` commit `d39b0e9b7b5bc89f08a2efe124113f3a9ce24d62`: `fix/production-fence-lkg-hardening`.
-- Current `main` already contains PR #151 cutover-gate recovery logic and `test/production-fence-recovery.test.js`; implementation will be based on this revision rather than earlier workflow snapshots.
+- Current `main` already contains PR #151 cutover-gate recovery logic and `test/production-fence-recovery.test.js`; implementation is based on this revision rather than earlier workflow snapshots.
+- Positive edge identity selected from the application route contract: unauthenticated `/study` must produce `303` to `/sign-in?redirect=%2Fstudy`; header absence by itself is deliberately insufficient.
