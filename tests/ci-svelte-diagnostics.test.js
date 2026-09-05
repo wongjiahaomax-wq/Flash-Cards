@@ -130,7 +130,7 @@ test('machine parser handles multiple files, lifecycle failure, malformed diagno
   assert.equal(parsed.completion, null);
 });
 
-test('CI requests machine-verbose output only for the existing logical svelte command', () => {
+test('CI explicitly selects automation presentation for Svelte and build checks', () => {
   assert.deepEqual(ciCommandArgs('svelte', ['run', 'check']), [
     'run',
     'check',
@@ -138,7 +138,7 @@ test('CI requests machine-verbose output only for the existing logical svelte co
     '--output',
     'machine-verbose',
   ]);
-  assert.deepEqual(ciCommandArgs('build', ['run', 'build']), ['run', 'build']);
+  assert.deepEqual(ciCommandArgs('build', ['run', 'build']), ['run', 'build:verbose']);
 });
 
 test('connector and GitHub records share normalized positions and escape unsafe values', () => {

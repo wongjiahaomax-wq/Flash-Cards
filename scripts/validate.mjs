@@ -9,33 +9,19 @@ import { localDiffCheck } from './validation-git.mjs';
 /** @typedef {{ status: number | null, error?: Error }} ValidationResult */
 /** @typedef {(command: string, args: string[], options: { stdio: 'inherit', shell: false }) => ValidationResult} ValidationSpawn */
 /** @typedef {{ npm_execpath?: string, [key: string]: string | undefined }} NpmExecutionEnv */
-/** @typedef {{ root?: string, base?: string | null, diffArgs?: string[], compact?: boolean }} ValidationRunOptions */
-
-export const LOCAL_COMPACT_TEST_REPORTER = './scripts/ci-test-reporter.mjs';
+/** @typedef {{ root?: string, base?: string | null, diffArgs?: string[], verbose?: boolean }} ValidationRunOptions */
 
 /** @param {ValidationMode} mode @returns {ValidationCommand[]} */
 function commandView(mode) {
   return validationCommandsForMode(mode).map(({ command, args }) => [command, args]);
 }
 
-/**
- * Backward-compatible derived command view. The manually maintained authority is
- * VALIDATION_MODE_CHECK_IDS in validation-contract.mjs.
- * @type {Readonly<Record<ValidationMode, ValidationCommand[]>>}
- */
 export const VALIDATION_MODES = Object.freeze({
   fast: commandView('fast'),
   full: commandView('full'),
 });
 
-/**
- * Resolve logical commands without relying on Windows `.cmd` child-process wrappers.
- * npm exposes its CLI entrypoint through `npm_execpath` for npm-run scripts.
- * @param {string} command
- * @param {string[]} args
- * @param {NpmExecutionEnv} [env]
- * @returns {{ executable: string, args: string[] }}
- */
+/** @param {string} command @param {string[]} args @param {NpmExecutionEnv} [env] */
 export function resolveInvocation(command, args, env = process.env) {
   if (command === 'node') return { executable: process.execPath, args };
   if (command === 'npm' && env.npm_execpath) {
@@ -47,29 +33,45 @@ export function resolveInvocation(command, args, env = process.env) {
 /** @param {string[]} argv */
 export function parseValidationArgs(argv) {
   const mode = argv[0] ?? '';
-  let compact = false;
+  let verbose = false;
+  /** @type {'verbose' | 'compact' | null} */
+  let presentation = null;
   for (const arg of argv.slice(1)) {
-    if (arg === '--compact') compact = true;
-    else throw new Error(`Unknown validation argument: ${arg}`);
+    if (arg === '--verbose') {
+      if (presentation === 'compact') {
+        throw new Error('Contradictory validation presentation flags: --compact and --verbose.');
+      }
+      presentation = 'verbose';
+      verbose = true;
+    } else if (arg === '--compact') {
+      if (presentation === 'verbose') {
+        throw new Error('Contradictory validation presentation flags: --compact and --verbose.');
+      }
+      presentation = 'compact';
+      verbose = false; // backward-compatible no-op: compact is now the default.
+    } else throw new Error(`Unknown validation argument: ${arg}`);
   }
-  return { mode, compact };
+  return { mode, verbose };
 }
 
 /**
- * Compact mode changes presentation only. It keeps the shared validation check
- * selection intact while reducing successful Node-test and Vite build chatter.
- * Canonical npm commands remain unchanged for normal developer use and repro.
+ * Map shared logical checks onto explicit verbose aliases without changing
+ * validation selection or ordering.
  * @param {string} id
  * @param {string[]} args
- * @param {boolean} compact
+ * @param {boolean} verbose
  */
-export function localValidationCommandArgs(id, args, compact) {
-  if (!compact) return [...args];
-  if (id === 'test' || id === 'testFast') {
-    return [...args, '--', `--test-reporter=${LOCAL_COMPACT_TEST_REPORTER}`];
-  }
-  if (id === 'build') {
-    return [...args, '--', '--logLevel', 'warn'];
+export function localValidationCommandArgs(id, args, verbose) {
+  if (!verbose) return [...args];
+  if (id === 'test') return ['run', 'test:verbose'];
+  if (id === 'testFast') return ['run', 'test:fast:verbose'];
+  if (id === 'svelte') return ['run', 'check:verbose'];
+  if (id === 'build') return ['run', 'build:verbose'];
+  if (id === 'slideReviewTest') return ['run', 'slide-review:test:verbose'];
+  if (args[0] === 'test') {
+    const separator = args.indexOf('--');
+    const focused = separator >= 0 ? args.slice(separator + 1) : args.slice(1);
+    return ['run', 'test:verbose', '--', ...focused];
   }
   return [...args];
 }
@@ -102,11 +104,12 @@ export function runValidation(mode, spawn = defaultSpawn, options = {}) {
   }
 
   const commands = validationCommandsForMode(mode, { diffArgs });
-  const compact = options.compact ?? false;
+  const verbose = options.verbose ?? false;
 
   for (const { id, command, args } of commands) {
-    console.log(`\n> ${command} ${args.join(' ')}${compact ? '  [compact output]' : ''}`);
-    const invocation = resolveInvocation(command, localValidationCommandArgs(id, args, compact));
+    const selectedArgs = localValidationCommandArgs(id, args, verbose);
+    console.log(`\n> ${command} ${selectedArgs.join(' ')}${verbose ? '  [verbose output]' : ''}`);
+    const invocation = resolveInvocation(command, selectedArgs);
     const result = spawn(invocation.executable, invocation.args, { stdio: 'inherit', shell: false });
     if (result.error) {
       console.error(`Failed to start ${command}: ${result.error.message}`);
@@ -114,20 +117,23 @@ export function runValidation(mode, spawn = defaultSpawn, options = {}) {
     }
     if (result.status !== 0) {
       console.error(`Validation stopped: ${command} exited with ${result.status}.`);
-      if (compact) console.error(`Verbose reproduction: ${command} ${args.join(' ')}`);
+      if (!verbose) {
+        const verboseArgs = localValidationCommandArgs(id, args, true);
+        console.error(`Verbose reproduction: ${command} ${verboseArgs.join(' ')}`);
+      }
       return result.status ?? 1;
     }
   }
 
-  console.log(`\nvalidate:${mode}${compact ? ' --compact' : ''} passed.`);
+  console.log(`\nvalidate:${mode}${verbose ? ' --verbose' : ''} passed.`);
   return 0;
 }
 
 const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
 if (invokedDirectly) {
   try {
-    const { mode, compact } = parseValidationArgs(process.argv.slice(2));
-    process.exitCode = runValidation(mode, defaultSpawn, { compact });
+    const { mode, verbose } = parseValidationArgs(process.argv.slice(2));
+    process.exitCode = runValidation(mode, defaultSpawn, { verbose });
   } catch (error) {
     console.error(`ERROR: ${error instanceof Error ? error.message : error}`);
     process.exitCode = 2;

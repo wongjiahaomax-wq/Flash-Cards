@@ -57,7 +57,7 @@ jobs:
         run: npm run db:check
 
       - name: Run focused Scheduled completion contracts
-        run: node --test test/learner-fsrs-scheduled-completion.test.js test/learner-fsrs-scheduled-run.test.js
+        run: npm run test:ci -- test/learner-fsrs-scheduled-completion.test.js test/learner-fsrs-scheduled-run.test.js
 
       - name: Run New completion and lifecycle races through local workerd and D1
         run: node scripts/learner-fsrs-scheduled-completion-d1-smoke.mjs

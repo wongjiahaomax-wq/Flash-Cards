@@ -12,11 +12,12 @@ For execution mode and command cadence, also follow root `AGENTS.md`, `docs/AGEN
 
 ```text
 npm test
-= node --test
-= canonical complete maintained Node suite
+→ scripts/test-runner.mjs
+→ node --test with repository-selected presentation
+→ canonical complete maintained Node suite
 ```
 
-Do not redefine `npm test` as a subset. Full/Ready validation retains the complete suite.
+The local presentation layer does not redefine selection. Do not redefine `npm test` as a subset. Full/Ready validation retains the complete suite.
 
 ### Ordinary new tests enter Draft fast validation automatically
 
@@ -45,6 +46,41 @@ Future exclusion proposals require separate measured cost evidence, explicit own
 
 Execution mode is capability-based, not product-name-based. Do not decide validation cadence from labels such as ChatGPT, Codex, VS Code, web, or mobile. A usable checkout plus command execution means the local side is available; GitHub access in addition makes the workflow Hybrid.
 
+Routine repository-owned local validation is **compact by default**. Compactness is presentation only; it must not alter test discovery, fast exclusions, Svelte project scope, build target, validation ordering, exit-status authority, or specialized-check ownership.
+
+The local presentation contract is:
+
+```text
+normal local command
+→ compact success summary
+→ focused bounded failure evidence
+→ explicit verbose reproduction only when needed
+```
+
+Canonical local commands include:
+
+```sh
+npm test
+npm run test:fast
+npm run check
+npm run build
+npm run validate:fast
+npm run validate:full
+```
+
+Explicit diagnostic reproductions include:
+
+```sh
+npm run test:verbose -- <test-file>
+npm run test:fast:verbose
+npm run check:verbose
+npm run build:verbose
+npm run validate:fast -- --verbose
+npm run validate:full -- --verbose
+```
+
+`--compact` may remain accepted by validation tooling for compatibility, but coding-agent guidance must not require it for normal local validation.
+
 Local coding-agent validation has three distinct phases:
 
 ### Iteration
@@ -52,10 +88,12 @@ Local coding-agent validation has three distinct phases:
 Use the cheapest feedback that directly exercises the risk introduced by the current edit.
 
 - presentation-only Svelte/UX changes: batch copy, spacing, class and layout edits under `npm run dev` / Vite HMR; do not run repository validation after every edit;
-- component logic, form/action wiring, server behavior or domain logic: run the nearest directly related test file(s) first, normally with `node --test <test-file>` when the owner is a maintained Node test;
+- component logic, form/action wiring, server behavior or domain logic: run the nearest directly related test file(s) first, normally with `npm test -- <test-file>` when the owner is a maintained Node test;
 - schema/migration changes: run `npm run db:check` plus the directly related migration/schema test(s) after a coherent schema edit;
 - after a focused failure and correction: rerun the focused failing check first rather than immediately rerunning the complete validation contract;
 - do not rerun an already-passing focused command unless subsequent edits could invalidate what it proved.
+
+Raw `node --test <file>` is not the normal coding-agent reproduction when the repository-owned compact path can run the same maintained test. Use raw runner invocation only when explicitly debugging the test presentation infrastructure itself or another narrowly justified runner-level issue.
 
 `agent:checks` may report deterministic `iterationGuidance` for the changed paths, including exact direct commands for changed test files. This guidance is advisory. It narrows local feedback during implementation; it does not alter final validation ownership.
 
@@ -63,9 +101,8 @@ Use the cheapest feedback that directly exercises the risk introduced by the cur
 
 Use broader validation after a coherent batch when cross-file or cross-layer confidence is useful.
 
-- `npm run check` is an appropriate checkpoint for coherent Svelte/component changes;
-- `npm run validate:fast` is repository checkpoint validation, not an every-edit loop;
-- when stdout/stderr is entering a coding model's context, prefer `npm run validate:fast -- --compact` to reduce successful test output while selecting exactly the same shared fast checks;
+- `npm run check` is an appropriate checkpoint for coherent Svelte/component changes and is compact locally by default;
+- `npm run validate:fast` is repository checkpoint validation, not an every-edit loop, and is compact locally by default;
 - subsystem-specific checkpoint checks such as `npm run runtime:smoke`, auth smoke or slide-review build/test should run when the affected rule or subsystem requires them, not universally after every edit.
 
 `agent:checks` may report deterministic `checkpointGuidance`. Like iteration guidance, this is advisory and cannot remove final handoff requirements.
@@ -74,9 +111,24 @@ Use broader validation after a coherent batch when cross-file or cross-layer con
 
 Before final handoff or principal review, run every final required check reported by `agent:checks` plus required specialized checks. Focused iteration/checkpoint success never substitutes for this set.
 
-When the ordinary full contract is required, `npm run validate:full -- --compact` is the preferred local coding-agent presentation. Compact mode is presentation-only: `scripts/validation-contract.mjs` still owns which checks run and their order; the existing structured Node reporter may be reused for successful-test compaction; successful Vite build chatter may be reduced; canonical `npm test`, `npm run check`, `npm run build`, `npm run validate:fast`, and `npm run validate:full` remain unchanged for verbose reproduction.
+When the ordinary full contract is required, `npm run validate:full` is the preferred local coding-agent command. Its default compact presentation is sufficient evidence for a clean pass. `scripts/validation-contract.mjs` still owns which checks run and their order.
 
-If compact failure evidence is insufficient, rerun the canonical focused/verbose reproduction rather than making compact mode increasingly verbose by default.
+If compact failure evidence is insufficient, rerun the explicit focused/verbose reproduction. Do not make the normal compact command increasingly verbose and do not rerun a clean compact pass merely to collect richer logs.
+
+### Local bounded-failure contract
+
+Local Node test presentation is structured and semantically bounded:
+
+- show detailed compact diagnostics for at most the first **5** real failures;
+- preserve the exact aggregate failure count;
+- summarize omitted detailed failures and list up to **10** additional unique failure identities;
+- bound primary messages to approximately **600 characters**;
+- bound expected/actual and captured stdout/stderr previews to approximately **1,200 characters** each;
+- show at most **3 useful stack frames** per detailed failure;
+- mark truncation explicitly;
+- provide compact focused reproduction (`npm test -- <file>`) and explicit verbose reproduction (`npm run test:verbose -- <file>`).
+
+Local Svelte presentation remains whole-project and uses the existing machine parser. On failure it shows at most the first **10** structured errors, then reports the exact additional-error count and provides `npm run check:verbose`. Setup failures, malformed/incomplete machine output, and non-zero exit status remain fail-safe; compact parsing cannot turn a failing command green.
 
 ## 3. Schema-fixture rules
 
@@ -125,9 +177,19 @@ Source-reading is not itself a defect. Source/configuration tests are legitimate
 
 When retaining a source assertion, be able to state what invariant it uniquely owns and why a stronger cheap owner is not available.
 
-## 5. CI and compact-presentation diagnostics contract
+## 5. CI and presentation diagnostics contract
 
-`npm test` remains the canonical complete suite. CI and local coding-agent wrappers may change presentation without redefining the suite.
+Presentation precedence is explicit:
+
+```text
+explicit caller-selected presentation
+    > CI / automation / deployment presentation
+    > local compact default
+```
+
+`npm test` remains the canonical complete maintained Node suite through `scripts/test-runner.mjs`. Local use selects the compact reporter by default. Ordinary CI explicitly injects/selects the existing CI structured reporter, and that explicit choice must win without double reporter injection. Production/Preview/deployment callers must deliberately select their intended presentation rather than inheriting local compactness accidentally.
+
+`CI_NODE_TEST_CHECK_ID` and `CI_NODE_TEST_REPRO_COMMAND` are reporter metadata, not authoritative CI-context signals. Ordinary local `test:fast` may carry those variables and must still use local compact presentation unless a real caller explicitly selects the CI reporter/presentation.
 
 Ordinary Node CI diagnostics must preserve the current structured-event architecture:
 
@@ -139,7 +201,9 @@ Ordinary Node CI diagnostics must preserve the current structured-event architec
 - do not parse unstable human TAP/spec/dot output as the machine contract;
 - do not restore hundreds of ordinary successful-test records to CI logs.
 
-Local `validate:* -- --compact` may reuse the same structured Node reporter strictly as a presentation layer. It must not create another test-selection contract. Build compaction must preserve Vite's command exit status and actionable warnings/errors; the canonical verbose `npm run build` remains the reproduction command when more output is needed.
+Ordinary Svelte CI explicitly requests machine output through the existing CI wrapper. That explicit machine request must bypass the local compact Svelte presentation and retain the connector-readable structured diagnostics. Local `npm run check` remains whole-project and compact by default.
+
+Build presentation is also caller-owned. Local `npm run build` uses the compact build wrapper and preserves warnings/errors/exit status; `npm run build:verbose` is the explicit richer reproduction. Deployment/composed scripts that require verbose/operator-oriented build output must call that presentation deliberately.
 
 Detailed CI reporter/wrapper behavior and remote retrieval procedure are owned by `docs/CI_AGENT_DIAGNOSTICS.md`. Update that authority when CI diagnostics semantics change instead of cloning its implementation details here.
 
@@ -210,6 +274,7 @@ Before adding or rewriting a test, confirm:
 - whether any proposed specialized exclusion satisfies every conditional-ownership requirement above;
 - whether ordinary-CI changed-path ownership and validation satisfaction live in the repository's central authorities;
 - whether any separately path-filtered workflow being touched is an intentional exception with its own execution contract;
-- whether CI/local compact diagnostic changes preserve the structured, compact-success, prominent-failure contract and canonical verbose reproduction.
+- whether local compact diagnostics preserve exact aggregate failure counts, bounded actionable evidence, explicit verbose reproduction, and non-zero status authority;
+- whether CI/deployment presentation is explicitly selected and cannot be confused with local compact defaults or `CI_NODE_TEST_*` metadata.
 
 When implementation and prose disagree, current executable implementation remains higher authority. Report the discrepancy and correct the appropriate living guidance rather than changing executable behavior merely to make documentation easier to state.

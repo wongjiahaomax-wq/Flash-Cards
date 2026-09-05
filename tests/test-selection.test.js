@@ -186,11 +186,17 @@ test('Checkpoint 2D excludes exactly the six approved specialized tests while co
   }
 });
 
-test('package scripts keep npm test complete, keep selector-owned fast execution, and keep slide-review ownership of all four tooling tests', () => {
+test('package scripts keep complete/fast/slide-review selection while routing presentation through repository runners', () => {
   const packageJson = JSON.parse(fs.readFileSync(path.join(repositoryRoot, 'package.json'), 'utf8'));
-  assert.equal(packageJson.scripts.test, 'node --test');
+  assert.equal(packageJson.scripts.test, 'node scripts/test-runner.mjs');
+  assert.equal(packageJson.scripts['test:ci'], 'node scripts/test-runner.mjs --presentation=ci');
+  assert.equal(packageJson.scripts['test:verbose'], 'node scripts/test-runner.mjs --presentation=verbose');
   assert.equal(packageJson.scripts['test:fast'], 'node scripts/test-fast.mjs');
-  assert.equal(packageJson.scripts['slide-review:test'], 'node --test tools/slide-import-review/tests/*.test.js');
+  assert.equal(packageJson.scripts['test:fast:ci'], 'node scripts/test-fast.mjs --presentation=ci');
+  assert.equal(packageJson.scripts['test:fast:verbose'], 'node scripts/test-fast.mjs --presentation=verbose');
+  assert.equal(packageJson.scripts['slide-review:test'], 'node scripts/test-runner.mjs tools/slide-import-review/tests/*.test.js');
+  assert.equal(packageJson.scripts['slide-review:test:ci'], 'node scripts/test-runner.mjs --presentation=ci tools/slide-import-review/tests/*.test.js');
+  assert.equal(packageJson.scripts['slide-review:test:verbose'], 'node scripts/test-runner.mjs --presentation=verbose tools/slide-import-review/tests/*.test.js');
 });
 
 test('workflow remains orchestration-only and does not own Node test paths or fast selection', () => {

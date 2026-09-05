@@ -12,7 +12,7 @@ const ORDINARY_FULL_CHECKS = VALIDATION_MODE_CHECK_IDS.full;
 /** @typedef {{ id: string, area: string, patterns: readonly RegExp[], excludePatterns?: readonly RegExp[], required: readonly string[], specializedRequired?: readonly string[], recommendations?: readonly string[], iteration?: readonly string[], checkpoint?: readonly string[] }} ValidationRule */
 
 const FOCUSED_LOGIC_ITERATION = 'Iteration: run the nearest directly related test file(s) first; do not rerun the broad handoff suite after every small edit.';
-const COMPACT_CHECKPOINT = 'Checkpoint: after a coherent batch, use npm run validate:fast -- --compact when broader repository confidence is useful.';
+const COMPACT_CHECKPOINT = 'Checkpoint: after a coherent batch, use npm run validate:fast when broader repository confidence is useful.';
 const SPECIFIC_APPLICATION_RULE_IDS = Object.freeze([
   'admin-svelte',
   'schema-migrations',
@@ -32,7 +32,7 @@ export const VALIDATION_RULES = Object.freeze([
       'Iteration: when component logic, action wiring, or data flow changes, run the nearest directly related test file(s) first.',
     ]),
     checkpoint: Object.freeze([
-      'Checkpoint: after a coherent Svelte/logic batch, run npm run check; use npm run validate:fast -- --compact only when broader repository confidence is useful.',
+      'Checkpoint: after a coherent Svelte/logic batch, run npm run check; use npm run validate:fast only when broader repository confidence is useful.',
     ]),
     recommendations: Object.freeze(['Manual: run npm run dev and inspect the affected Admin or Svelte flow locally.']),
   }),
@@ -171,11 +171,8 @@ export const VALIDATION_RULES = Object.freeze([
     area: 'Coding-agent / validation tooling',
     patterns: Object.freeze([
       /^scripts\/agent-(?:checks|doctor)(?:-lib)?\.mjs$/,
-      /^scripts\/ci-test-reporter\.mjs$/,
-      /^scripts\/test-(?:fast|selection)\.mjs$/,
-      /^scripts\/validate(?:-ci)?\.mjs$/,
-      /^scripts\/validation-(?:contract|git)\.mjs$/,
-      /^tests\/agent-tooling\.test\.js$/,
+      /^scripts\/(?:build-local|check-local|ci-test-reporter|local-test-reporter|test-(?:fast|presentation|runner|selection)|validate(?:-ci)?|validation-(?:contract|git))\.mjs$/,
+      /^tests\/(?:agent-tooling|compact-terminal-validation)\.test\.js$/,
     ]),
     required: Object.freeze([...ORDINARY_FULL_CHECKS]),
     specializedRequired: Object.freeze([...CI_SPECIALIZED_CHECK_IDS]),
@@ -265,8 +262,8 @@ function uniqueInCheckOrder(values) {
 function changedTestIterationGuidance(files) {
   const tests = files.filter(isMaintainedNodeTestPath);
   if (tests.length === 0) return [];
-  if (tests.length <= 3) return tests.map((file) => `Iteration: run changed test directly: node --test ${file}`);
-  return [`Iteration: run the ${tests.length} changed test files directly before broad Node-suite validation.`];
+  if (tests.length <= 3) return tests.map((file) => `Iteration: run changed test directly: npm test -- ${file}`);
+  return [`Iteration: run the ${tests.length} changed test files directly with npm test before broad Node-suite validation.`];
 }
 
 /**

@@ -59,7 +59,7 @@ jobs:
         run: npm run db:check
 
       - name: Run focused Free Study contracts
-        run: node --test test/learner-fsrs-bootstrap.test.js test/learner-fsrs-run-planner.test.js test/learner-fsrs-free-study.test.js test/learner-fsrs-free-study-benchmark.test.js
+        run: npm run test:ci -- test/learner-fsrs-bootstrap.test.js test/learner-fsrs-run-planner.test.js test/learner-fsrs-free-study.test.js test/learner-fsrs-free-study-benchmark.test.js
 
       - name: Measure Free completion and receipt cleanup cost
         run: npm run fsrs:free-study-benchmark -- --completions=1000 --cleanup-limit=100

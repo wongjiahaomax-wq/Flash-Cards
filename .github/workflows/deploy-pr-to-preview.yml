@@ -110,13 +110,13 @@ jobs:
         run: npm run db:check
 
       - name: Run tests
-        run: npm test
+        run: npm test -- --presentation=verbose
 
       - name: Run Svelte checks
-        run: npm run check
+        run: npm run check:verbose
 
       - name: Build application
-        run: npm run build
+        run: npm run build:verbose
 
       - name: Smoke test local D1 and Better Auth
         run: node scripts/local-auth-smoke.mjs

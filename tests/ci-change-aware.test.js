@@ -372,11 +372,11 @@ test('actual CI feature-diff helper excludes unrelated base-branch advancement',
   }
 });
 
-test('all specialized Node checks keep structured reporter identity without altering base Node-check environments', () => {
+test('all specialized Node checks keep structured reporter identity with compact agent-facing repros', () => {
   /** @type {Array<[string, string[], string]>} */
   const specialized = [
-    [ECG_CHECK, ['--test', ECG_TEST], `node --test ${ECG_TEST}`],
-    [TAXONOMY_CHECK, ['--test', TAXONOMY_TEST], `node --test ${TAXONOMY_TEST}`],
+    [ECG_CHECK, ['--test', ECG_TEST], `npm test -- ${ECG_TEST}`],
+    [TAXONOMY_CHECK, ['--test', TAXONOMY_TEST], `npm test -- ${TAXONOMY_TEST}`],
     ['slideReviewTest', ['run', 'slide-review:test'], 'npm run slide-review:test'],
   ];
   for (const [checkId, args, repro] of specialized) {

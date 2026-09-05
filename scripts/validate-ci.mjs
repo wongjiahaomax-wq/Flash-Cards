@@ -65,6 +65,19 @@ function commandText(command, args) {
 }
 
 /**
+ * Convert internal raw `node --test <file>` ownership to the repository-owned
+ * compact local test entry point when CI presents a reproduction command to an
+ * agent. The validation contract itself remains unchanged and CI still executes
+ * the original owned command with its structured reporter.
+ * @param {string} id
+ */
+export function ciNodeTestReproCommand(id) {
+  const raw = formatValidationCommand(id);
+  const match = /^node --test (.+)$/.exec(raw);
+  return match ? `npm test -- ${match[1]}` : raw;
+}
+
+/**
  * Produce a command that is meaningful in a normal local feature checkout.
  * The CI diff itself runs against the synthetic merge checkout, but the repro
  * uses the actual PR base/head SHAs supplied by the workflow when available.
@@ -74,11 +87,14 @@ function commandText(command, args) {
  * @param {{ diffBaseSha?: string | null, diffHeadSha?: string | null }} [options]
  */
 export function ciReproCommand(id, command, args, options = {}) {
-  if (id !== 'diff') return commandText(command, args);
-  if (options.diffBaseSha && options.diffHeadSha) {
-    return commandText('git', ['diff', '--check', options.diffBaseSha, options.diffHeadSha]);
+  if (id === 'diff') {
+    if (options.diffBaseSha && options.diffHeadSha) {
+      return commandText('git', ['diff', '--check', options.diffBaseSha, options.diffHeadSha]);
+    }
+    return 'npm run agent:checks';
   }
-  return 'npm run agent:checks';
+  if (ENV_REPORTED_NODE_TEST_CHECK_IDS.has(id)) return ciNodeTestReproCommand(id);
+  return commandText(command, args);
 }
 
 /**
@@ -293,6 +309,9 @@ export function isCiNodeTestCheck(id) {
 
 /** @param {string} id @param {string[]} args */
 export function ciCommandArgs(id, args) {
+  if (id === 'build') {
+    return ['run', 'build:verbose'];
+  }
   if (id === 'svelte') {
     return [...args, '--', '--output', 'machine-verbose'];
   }
@@ -304,8 +323,9 @@ export function ciCommandArgs(id, args) {
  * Named specialized Node checks put explicit test files after `node --test`
  * directly or through an npm script. NODE_OPTIONS applies the CI-only reporter
  * before those positional arguments while preserving the named command. The
- * reporter identity and repro command are derived from validation-contract.mjs.
- * Base test/testFast reporter behavior remains unchanged.
+ * reporter identity comes from the shared validation contract while the
+ * agent-facing repro command deliberately uses the repository-owned local
+ * presentation entry point. Base test/testFast reporter behavior is unchanged.
  * @param {string} id
  * @param {NodeJS.ProcessEnv} [env]
  */
@@ -315,7 +335,7 @@ export function ciCommandEnvironment(id, env = process.env) {
   return {
     ...env,
     CI_NODE_TEST_CHECK_ID: id,
-    CI_NODE_TEST_REPRO_COMMAND: formatValidationCommand(id),
+    CI_NODE_TEST_REPRO_COMMAND: ciNodeTestReproCommand(id),
     NODE_OPTIONS: [existing, `--test-reporter=${CI_TEST_REPORTER}`].filter(Boolean).join(' '),
   };
 }
