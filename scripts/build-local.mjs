@@ -16,11 +16,24 @@ function bounded(value) {
   return `${text.slice(0, OUTPUT_LIMIT)}\n… ${text.length - OUTPUT_LIMIT} characters omitted`;
 }
 
-/** @param {{ env?: NodeJS.ProcessEnv, spawn?: typeof spawnSync }} [options] */
+/** @param {string} value */
+function commandArgument(value) {
+  return /^[A-Za-z0-9_./:@+^=-]+$/.test(value) ? value : JSON.stringify(value);
+}
+
+/** @param {string[]} argv */
+function verboseReproduction(argv) {
+  return ['npm', 'run', 'build:verbose', ...(argv.length ? ['--', ...argv] : [])]
+    .map(commandArgument)
+    .join(' ');
+}
+
+/** @param {{ argv?: string[], env?: NodeJS.ProcessEnv, spawn?: typeof spawnSync }} [options] */
 export function runLocalBuild(options = {}) {
+  const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const spawn = options.spawn ?? spawnSync;
-  const invocation = npmInvocation(['run', 'build:quiet'], env);
+  const invocation = npmInvocation(['run', 'build:quiet', ...(argv.length ? ['--', ...argv] : [])], env);
   const result = spawn(invocation.executable, invocation.args, {
     cwd: process.cwd(),
     stdio: ['inherit', 'pipe', 'pipe'],
@@ -38,7 +51,7 @@ export function runLocalBuild(options = {}) {
   }
   console.error('✗ Build — failed');
   if (output) console.error(bounded(output));
-  console.error('\nVerbose reproduction: npm run build:verbose');
+  console.error(`\nVerbose reproduction: ${verboseReproduction(argv)}`);
   return Number.isInteger(result.status) ? result.status : 1;
 }
 
