@@ -19,6 +19,14 @@ function npmInvocation(args, env) {
   return { executable: 'npm', args };
 }
 
+/** @param {string[]} argv */
+export function requestsMachineVerbose(argv) {
+  return argv.some((arg, index) => (
+    arg === '--output=machine-verbose'
+    || (arg === '--output' && argv[index + 1] === 'machine-verbose')
+  ));
+}
+
 /** @param {any} diagnostic */
 export function formatLocalSvelteDiagnostic(diagnostic) {
   const identity = [diagnostic.source, diagnostic.code]
@@ -29,12 +37,33 @@ export function formatLocalSvelteDiagnostic(diagnostic) {
 }
 
 /**
- * @param {{ env?: NodeJS.ProcessEnv, spawn?: typeof spawnSync }} [options]
+ * The existing CI wrapper explicitly requests svelte-check machine output by
+ * forwarding --output machine-verbose to the logical `npm run check` command.
+ * Preserve that caller-selected presentation instead of letting the new local
+ * default intercept it.
+ * @param {{ argv?: string[], env?: NodeJS.ProcessEnv, spawn?: typeof spawnSync }} [options]
  */
 export function runLocalSvelteCheck(options = {}) {
+  const argv = options.argv ?? process.argv.slice(2);
   const env = options.env ?? process.env;
   const spawn = options.spawn ?? spawnSync;
   const invocation = npmInvocation(['run', 'check:ci'], env);
+
+  if (requestsMachineVerbose(argv)) {
+    const result = spawn(invocation.executable, invocation.args, {
+      cwd: process.cwd(),
+      stdio: 'inherit',
+      shell: false,
+      env,
+    });
+    if (result.error) throw result.error;
+    return Number.isInteger(result.status) ? result.status : 1;
+  }
+
+  if (argv.length > 0) {
+    throw new Error(`Unknown local Svelte check argument: ${argv[0]}`);
+  }
+
   const result = spawn(invocation.executable, invocation.args, {
     cwd: process.cwd(),
     stdio: ['inherit', 'pipe', 'pipe'],
