@@ -34,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/artifacts?per_page=100" > "$RUNNER_TEMP/source-artifacts.json"
-          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/jobs?filter=latest&per_page=100" > "$RUNNER_TEMP/source-jobs.json"
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SOURCE_RUN_ID}/attempts/${SOURCE_RUN_ATTEMPT}/jobs?per_page=100" > "$RUNNER_TEMP/source-jobs.json"
 
           node <<'NODE'
           const fs = require('node:fs');
@@ -65,7 +65,7 @@ jobs:
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `pre_fence_present=${preFencePresent}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `migration_conclusion=${migrationConclusion}\n`);
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `safe_to_restore=${safeToRestore}\n`);
-          console.log(`Recovery state: artifact=${expectedArtifactName}, preFencePresent=${preFencePresent}, migrationConclusion=${migrationConclusion}, safeToRestore=${safeToRestore}`);
+          console.log(`Recovery state: artifact=${expectedArtifactName}, runAttempt=${process.env.SOURCE_RUN_ATTEMPT}, preFencePresent=${preFencePresent}, migrationConclusion=${migrationConclusion}, safeToRestore=${safeToRestore}`);
           NODE
 
       - name: Check out interrupted deployment revision
