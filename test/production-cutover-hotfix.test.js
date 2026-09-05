@@ -55,17 +55,18 @@ test('missing migration-0025 table is accepted only while migration 0025 is genu
   assert.deepEqual(state.appliedMigrations, [migration]);
 });
 
-test('rollback verification tolerates observed Cloudflare edge propagation lag in both recovery paths', () => {
+test('rollback verification tolerates edge propagation lag but requires positive application proof', () => {
   const deploy = source('.github/workflows/deploy-production.yml');
   const recovery = source('.github/workflows/recover-production-fence.yml');
 
   for (const workflow of [deploy, recovery]) {
     assert.match(workflow, /for attempt in \$\(seq 1 60\); do/);
     assert.match(workflow, /sleep 5/);
-    assert.match(workflow, /X-Learner-Runtime-Fence: active/);
+    assert.match(workflow, /production-fence-recovery\.mjs probe/);
     assert.match(workflow, /five minutes/i);
   }
 
+  assert.match(recovery, /Missing fence headers and generic 5xx responses/);
   assert.match(recovery, /migrationConclusion === 'skipped'/);
   assert.match(recovery, /safeToRestore = preFencePresent && migrationConclusion === 'skipped'/);
 });
