@@ -55,7 +55,7 @@ test('missing migration-0025 table is accepted only while migration 0025 is genu
   assert.deepEqual(state.appliedMigrations, [migration]);
 });
 
-test('rollback verification tolerates observed Cloudflare edge propagation lag in both recovery paths', () => {
+test('rollback verification tolerates observed Cloudflare edge propagation lag while requiring exact Worker identity', () => {
   const deploy = source('.github/workflows/deploy-production.yml');
   const recovery = source('.github/workflows/recover-production-fence.yml');
 
@@ -63,6 +63,7 @@ test('rollback verification tolerates observed Cloudflare edge propagation lag i
     assert.match(workflow, /for attempt in \$\(seq 1 60\); do/);
     assert.match(workflow, /sleep 5/);
     assert.match(workflow, /production-fence-recovery\.mjs probe/);
+    assert.match(workflow, /production-fence-recovery\.mjs probe-identity[\s\S]*--expected-version "\$rollback_version"/);
     assert.match(workflow, /five minutes/i);
   }
 
@@ -96,11 +97,16 @@ test('pre-fence recovery target requires exact application proof and structured 
   assert.match(recoveryCapture, /--run-attempt "\$GITHUB_RUN_ATTEMPT"/);
   assert.match(recoveryCapture, /--sha "\$GITHUB_SHA"/);
   assert.match(recoveryCapture, /pre-fence-recovery\.json/);
+  assert.match(recoveryCapture, /production-cutover-pre-fence-\$\{\{\s*github\.run_attempt\s*\}\}/);
   assert.doesNotMatch(recoveryCapture, /pre-fence-version\.txt/);
 });
 
 test('interrupted recovery accepts only matching structured provenance before rollback', () => {
   const recovery = source('.github/workflows/recover-production-fence.yml');
+  const download = recovery.indexOf('- name: Download verified pre-fence recovery record');
+  const validate = recovery.indexOf('- name: Validate rollback target provenance');
+  const inspect = recovery.indexOf('- name: Inspect current Production control plane');
+  const rollback = recovery.indexOf('- name: Restore pre-fence Worker after interrupted pre-migration cutover');
 
   assert.match(recovery, /pre-fence-recovery\.json/);
   assert.match(recovery, /production-fence-recovery\.mjs verify-record/);
@@ -108,6 +114,8 @@ test('interrupted recovery accepts only matching structured provenance before ro
   assert.match(recovery, /workflow_run\.run_attempt/);
   assert.match(recovery, /workflow_run\.head_sha/);
   assert.match(recovery, /Legacy bare Worker-ID artifacts are not accepted/);
-  assert.match(recovery, /Header absence alone is not recovery proof/);
+  assert.match(recovery, /production-cutover-pre-fence-\$\{\{\s*github\.event\.workflow_run\.run_attempt\s*\}\}/);
+  assert.ok(download >= 0 && download < validate && validate < inspect && inspect < rollback);
+  assert.doesNotMatch(recovery.slice(inspect, rollback), /production-fence-recovery\.mjs probe(?:\s|\\)/);
   assert.doesNotMatch(recovery, /pre-fence-version\.txt/);
 });
