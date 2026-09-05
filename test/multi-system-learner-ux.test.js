@@ -18,6 +18,11 @@ import {
   beginFreeWork,
   selectNextFreeWork
 } from '../src/lib/free-study-run.js';
+import {
+  applyScheduledCompletion,
+  beginScheduledWork,
+  selectNextScheduledWork
+} from '../src/lib/scheduled-study-run.js';
 
 function navigationFixture() {
   return {
@@ -153,6 +158,54 @@ test('Free browser run advances continuously across Cases contributed by differe
   assert.notEqual(systemByCase.get(first.caseId), systemByCase.get(second.caseId));
 });
 
+test('Scheduled browser run advances continuously across captured Cases from different Systems', () => {
+  const systemByCase = new Map([
+    ['case-a', 'system-a'],
+    ['case-b', 'system-b']
+  ]);
+  let descriptor = {
+    version: 2,
+    kind: 'scheduled',
+    userId: 'learner',
+    runId: 'mixed-scheduled-run',
+    runStartedAt: 1,
+    selectedScope: {
+      systems: [
+        { systemId: 'system-a', mode: 'all' },
+        { systemId: 'system-b', mode: 'all' }
+      ]
+    },
+    distinctCaseTarget: 10,
+    scheduledOrder: 'new_first',
+    capturedDue: [],
+    duePosition: 0,
+    capturedNew: [
+      { caseId: 'case-a', proofIndex: 0 },
+      { caseId: 'case-b', proofIndex: 1 }
+    ],
+    newPosition: 0,
+    membershipProofs: { version: 2, chunkSize: 1, due: [], new: ['proof-a', 'proof-b'] },
+    repeatEntries: [],
+    completedCaseIds: [],
+    consecutiveNewCompleted: 0,
+    currentReviewId: null,
+    currentWork: null
+  };
+
+  const first = selectNextScheduledWork(descriptor, { serverNow: 1 });
+  assert.equal(first.status, 'ready');
+  descriptor = beginScheduledWork(descriptor, first.work, 'event-1');
+  descriptor = applyScheduledCompletion(descriptor, {
+    eventId: 'event-1',
+    caseId: first.work.caseId,
+    queueClass: first.work.queueClass,
+    repeatEntry: null
+  });
+  const second = selectNextScheduledWork(descriptor, { serverNow: 2 });
+  assert.equal(second.status, 'ready');
+  assert.notEqual(systemByCase.get(first.work.caseId), systemByCase.get(second.work.caseId));
+});
+
 test('learner chooser/count/navigation source contract stays multi-System and server-authoritative', async () => {
   const [chooser, planner, countRoute, review] = await Promise.all([
     readFile(new URL('../src/routes/study/+page.svelte', import.meta.url), 'utf8'),
@@ -172,6 +225,7 @@ test('learner chooser/count/navigation source contract stays multi-System and se
   assert.match(planner, /parseMultiSystemStudyScopeFromForm/);
   assert.match(countRoute, /resolveMultiSystemStudySelection/);
   assert.match(countRoute, /selection\.candidates\.length/);
+  assert.doesNotMatch(countRoute, /allCaseCount|reduce\s*\([^)]*\+|candidateCount\s*\+=/);
   assert.match(review, /openFollowingReview/);
   assert.match(review, /requestNextLearnerStudyWork\(descriptor\)/);
 });

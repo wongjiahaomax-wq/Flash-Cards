@@ -149,14 +149,17 @@ test('migrated-D1 validation owns both full lifecycle acceptance and trigger-env
   assert.match(workflow, /cancel-in-progress: true/);
 });
 
-test('Runtime v2 specialized CI owns direct taxonomy, route, and migration dependencies', () => {
+test('Runtime v2 specialized CI owns direct taxonomy, route, learner request, and migration dependencies', () => {
   const workflow = source('.github/workflows/multi-system-runtime-v2.yml');
 
   for (const ownedPath of [
     "- 'drizzle/**'",
+    "- 'src/lib/server/learning/plan-system-study.ts'",
     "- 'src/lib/server/learning/system-study-routes.ts'",
     "- 'src/lib/server/learning/taxonomy-graph.ts'",
-    "- 'src/lib/server/learning/study-routes.js'"
+    "- 'src/lib/server/learning/study-routes.js'",
+    "- 'src/routes/study/**'",
+    "- 'test/multi-system-learner-ux.test.js'"
   ]) {
     assert.ok(workflow.includes(ownedPath), `Runtime v2 workflow must own ${ownedPath}`);
   }
