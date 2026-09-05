@@ -140,6 +140,30 @@ test('multi-System v2 cutover retries unless both schema and an open identified 
   assert.deepEqual(order, [...order].sort((a, b) => a - b));
 });
 
+test('Production cutover restores the pre-fence Worker when fence setup fails before D1 mutation', () => {
+  const workflow = source('.github/workflows/deploy-production.yml');
+
+  assert.match(workflow, /Capture pre-fence Worker version/);
+  assert.match(workflow, /production-worker-deployment\.mjs current-version/);
+  assert.match(workflow, /always\(\)/);
+  assert.match(workflow, /steps\.install_fence\.outcome == 'failure'/);
+  assert.match(workflow, /steps\.verify_fence\.outcome == 'failure'/);
+  assert.match(workflow, /wrangler rollback "\$rollback_version"/);
+  assert.match(workflow, /production-worker-deployment\.mjs verify-version "\$rollback_version"/);
+
+  const order = [
+    'Capture pre-fence Worker version',
+    'Install temporary learner write fence Worker',
+    'Verify temporary write fence',
+    'Restore pre-fence Worker after fence failure',
+    'Verify pre-fence Worker restoration',
+    'Require exact zero Production learner runtime data',
+    'Apply all pending production D1 migrations'
+  ].map((label) => workflow.indexOf(label));
+  assert.equal(order.every((position) => position >= 0), true);
+  assert.deepEqual(order, [...order].sort((a, b) => a - b));
+});
+
 test('legacy Review persistence has no current Drizzle export or learner writer', () => {
   const schema = source('src/lib/server/db/schema.js');
   const learning = source('src/lib/server/db/learning.js');
