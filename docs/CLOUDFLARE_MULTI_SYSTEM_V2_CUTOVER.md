@@ -58,6 +58,27 @@ npm run multi-system:d1-trigger-benchmark
 
 The first command is the direct migration-`0026` scope/guard acceptance. The second is the real workerd + fully migrated-D1 Scheduled/Free lifecycle acceptance. The third validates the JS/browser supported envelope. The fourth measures valid Active Review INSERT cost through the strict v2 D1 trigger itself at the supported scope envelope.
 
+### Verified pre-fence recovery baseline
+
+Before a temporary fence may be installed, the workflow must establish that the current Production Worker is an unfenced application and bind that fact to one stable Cloudflare Worker version.
+
+The baseline capture is:
+
+```text
+read current 100%-traffic Worker version A
+→ probe unauthenticated /study with redirects disabled
+→ require HTTP 303 to /sign-in?redirect=%2Fstudy
+→ require X-Learner-Runtime-Fence is not active
+→ read current 100%-traffic Worker version B
+→ require A == B
+→ write structured recovery metadata
+→ upload recovery metadata
+```
+
+The recovery record is written **only after** this proof succeeds. A currently fenced Worker, a generic Cloudflare 5xx without the fence header, an unrelated redirect, an arbitrary success response, or a Worker version change during the probe all fail before a recovery record, new fence, exact-zero gate, or migration can be reached.
+
+The recovery artifact is `production-cutover-pre-fence` and contains `pre-fence-recovery.json`, not a bare Worker-ID text file. It records the exact Worker version, triggering run ID/attempt/SHA, Production origin, `/study` application response evidence, and the matching pre/post-probe Worker versions. Legacy bare-ID artifacts are intentionally not recovery authorization.
+
 ### Mechanically owned cutover sequence
 
 For a first or incomplete cutover:
@@ -66,6 +87,7 @@ For a first or incomplete cutover:
 validate repository + both migrated-D1 acceptances + both envelope benchmarks
 → inspect D1 guard and deployed runtime completion state
 → require the D1 write credential before taking learner runtime down
+→ positively verify and persist a stable unfenced pre-fence Worker baseline
 → deploy temporary learner write-fence Worker
 → verify the temporary fence
 → run exact-zero remote cutover gate
@@ -95,6 +117,23 @@ npm run multi-system:guard-verify -- --remote
 The first cutover must not be decomposed into a manual migration followed by a later unfenced Worker deployment. If somebody nevertheless applies `0026` manually or a prior workflow stops after migration, the next workflow does not infer success from the schema: without a proven open identified v2 runtime, it re-enters the fenced exact-zero path.
 
 During fenced v2 verification, checks are non-mutating. Do not bypass `LEARNER_RUNTIME_WRITE_FENCE` to create synthetic learner data in Production.
+
+## Interrupted-fence recovery
+
+`.github/workflows/recover-production-fence.yml` exists only to recover an interrupted **pre-migration** temporary fence. It is not a database recovery mechanism.
+
+Automatic recovery requires all of the following:
+
+1. the failed deployment produced exactly one unexpired `production-cutover-pre-fence` artifact;
+2. GitHub job evidence says `Apply all pending production D1 migrations` was `skipped`;
+3. the public Worker still exposes the explicit temporary learner fence;
+4. `pre-fence-recovery.json` validates against the failed run ID, run attempt, commit SHA, Production origin, exact `/study` application contract, and stable Worker version evidence.
+
+Recovery restores exactly the recorded Worker version, verifies the Cloudflare control plane at that exact version, then waits for the public edge to prove the same unauthenticated `/study` application contract used at capture time.
+
+**Header absence is not success.** A generic Cloudflare 5xx without `X-Learner-Runtime-Fence: active` is indeterminate and fails closed.
+
+Recovery does **not** apply D1 migrations and does **not** delete, reset, backfill, or otherwise mutate learner data. If the migration step may have started, automatic rollback to the older application is refused because the old Worker/schema contract may no longer be safe. That state requires a separately reviewed forward-recovery decision.
 
 ## Immutable deployed build identity
 
@@ -140,9 +179,11 @@ Never commit or print credential values.
 
 ## Failure rule
 
-If the exact-zero gate, guard verification, expected-build verification, or fenced runtime verification fails during the cutover, stop. Do not reinterpret v1 browser/proof/persisted state, delete learner data to make the gate pass, or introduce an unreviewed compatibility path.
+If pre-fence application identity cannot be proved, stop before fencing. If the exact-zero gate, guard verification, expected-build verification, or fenced runtime verification fails during the cutover, stop and follow the workflow-owned rollback boundary.
 
-Unexpected live learner runtime data invalidates the clean-cutover assumption and requires a separately reviewed compatibility/migration design.
+Before D1 migration starts, the exact verified pre-fence Worker may be restored. After D1 migration may have started, do **not** automatically restore an old application build.
+
+Do not reinterpret v1 browser/proof/persisted state, delete learner data to make the gate pass, or introduce an unreviewed compatibility path. Unexpected live learner runtime data invalidates the clean-cutover assumption and requires a separately reviewed compatibility/migration design.
 
 ## Release evidence
 
@@ -150,6 +191,7 @@ Record separately:
 
 ```text
 repository PR merged
+verified unfenced pre-fence Worker version + recovery provenance captured
 migration 0026 applied to Production D1
 v2 guard verified
 expected Worker GITHUB_SHA deployed while fenced
@@ -159,4 +201,4 @@ final exact-build/open verification passed
 post-release behavior verified
 ```
 
-Do not infer any of these facts from repository presence or migration presence alone.
+Do not infer any of these facts from repository presence, artifact naming, or migration presence alone.
