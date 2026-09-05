@@ -204,7 +204,7 @@ jobs:
         if: ${{ steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' }}
         uses: actions/upload-artifact@v4
         with:
-          name: production-cutover-pre-fence
+          name: production-cutover-pre-fence-${{ github.run_attempt }}
           path: .cutover-recovery/pre-fence-recovery.json
           if-no-files-found: error
           retention-days: 7
@@ -301,21 +301,27 @@ jobs:
 
           # Control-plane restoration can precede workers.dev edge propagation.
           # Recovery is complete only when the exact application-level /study
-          # redirect contract is visible; header absence alone is insufficient.
+          # redirect contract and exact serving-Worker identity are visible.
           for attempt in $(seq 1 60); do
+            rm -f /tmp/restored-study-probe.json /tmp/restored-worker-identity.json
             if node scripts/production-fence-recovery.mjs probe \
               --base-url "$PRODUCTION_WORKER_URL" \
-              > /tmp/restored-study-probe.json; then
-              echo "Verified recovered application response at the public Worker endpoint on attempt ${attempt}."
+              > /tmp/restored-study-probe.json \
+              && node scripts/production-fence-recovery.mjs probe-identity \
+                --base-url "$PRODUCTION_WORKER_URL" \
+                --expected-version "$rollback_version" \
+                > /tmp/restored-worker-identity.json; then
+              echo "Verified recovered application response and Worker identity at the public Worker endpoint on attempt ${attempt}."
               cat /tmp/restored-study-probe.json
+              cat /tmp/restored-worker-identity.json
               exit 0
             fi
-            echo "Pre-fence Worker application response not visible yet (attempt ${attempt}/60)."
+            echo "Pre-fence Worker application response and exact edge identity not both visible yet (attempt ${attempt}/60)."
             if [ "$attempt" -lt 60 ]; then
               sleep 5
             fi
           done
-          echo "::error::Control-plane rollback succeeded but the public Worker endpoint did not prove the restored application contract after five minutes."
+          echo "::error::Control-plane rollback succeeded but the public Worker endpoint did not prove both the restored application contract and exact Worker identity after five minutes."
           exit 1
 
       - name: Apply all pending production D1 migrations
