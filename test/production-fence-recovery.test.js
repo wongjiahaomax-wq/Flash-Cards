@@ -86,7 +86,8 @@ test('Recovery artifact selection is bound to the triggering workflow run attemp
 test('Interrupted-run recovery rolls back only when GitHub proves D1 migration never started', () => {
   const recovery = source('.github/workflows/recover-production-fence.yml');
 
-  assert.match(recovery, /actions\/runs\/\$\{SOURCE_RUN_ID\}\/jobs\?filter=latest/);
+  assert.match(recovery, /actions\/runs\/\$\{SOURCE_RUN_ID\}\/attempts\/\$\{SOURCE_RUN_ATTEMPT\}\/jobs\?per_page=100/);
+  assert.doesNotMatch(recovery, /actions\/runs\/\$\{SOURCE_RUN_ID\}\/jobs\?filter=latest/);
   assert.match(recovery, /Apply all pending production D1 migrations/);
   assert.match(recovery, /migrationConclusion === 'skipped'/);
   assert.match(recovery, /safe_to_restore=/);
