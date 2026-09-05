@@ -181,7 +181,11 @@ jobs:
           echo
           echo "Verified recovered Worker control plane at ${rollback_version}."
 
-          for attempt in $(seq 1 10); do
+          # The incident that motivated this hotfix showed the public workers.dev
+          # edge can continue serving the temporary fence after the control plane
+          # already reports the restored version at 100%. Allow up to five minutes
+          # for propagation before declaring recovery failed.
+          for attempt in $(seq 1 60); do
             headers="$(mktemp)"
             status=""
             if status="$(curl --silent --show-error --output /tmp/recovered-worker-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"; then
@@ -192,10 +196,10 @@ jobs:
               fi
             fi
             rm -f "$headers"
-            echo "Recovered Worker not visible at the public endpoint yet (attempt ${attempt}/10, status=${status:-curl-error})."
-            if [ "$attempt" -lt 10 ]; then
-              sleep 2
+            echo "Recovered Worker not visible at the public endpoint yet (attempt ${attempt}/60, status=${status:-curl-error})."
+            if [ "$attempt" -lt 60 ]; then
+              sleep 5
             fi
           done
-          echo "::error::Recovered Worker is recorded at 100% traffic, but the public endpoint still exposes the temporary learner fence."
+          echo "::error::Recovered Worker is recorded at 100% traffic, but the public endpoint still exposes the temporary learner fence after five minutes."
           exit 1

@@ -275,7 +275,10 @@ jobs:
           echo
           echo "Verified Production Worker control plane restored to ${rollback_version}."
 
-          for attempt in $(seq 1 10); do
+          # Control-plane restoration can precede workers.dev edge propagation.
+          # Give the public endpoint up to five minutes to shed the temporary fence
+          # before declaring rollback recovery failed.
+          for attempt in $(seq 1 60); do
             headers="$(mktemp)"
             status=""
             if status="$(curl --silent --show-error --output /tmp/restored-worker-body.txt --dump-header "$headers" --write-out '%{http_code}' "$PRODUCTION_WORKER_URL/study")"; then
@@ -286,12 +289,12 @@ jobs:
               fi
             fi
             rm -f "$headers"
-            echo "Pre-fence Worker not visible at the public endpoint yet (attempt ${attempt}/10, status=${status:-curl-error})."
-            if [ "$attempt" -lt 10 ]; then
-              sleep 2
+            echo "Pre-fence Worker not visible at the public endpoint yet (attempt ${attempt}/60, status=${status:-curl-error})."
+            if [ "$attempt" -lt 60 ]; then
+              sleep 5
             fi
           done
-          echo "::error::Control-plane rollback succeeded but the public Worker endpoint still exposes the temporary learner fence."
+          echo "::error::Control-plane rollback succeeded but the public Worker endpoint still exposes the temporary learner fence after five minutes."
           exit 1
 
       - name: Apply all pending production D1 migrations
