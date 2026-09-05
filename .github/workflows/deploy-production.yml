@@ -219,8 +219,7 @@ jobs:
           rollback_version="${{ steps.pre_fence.outputs.version_id }}"
           ./node_modules/.bin/wrangler rollback "$rollback_version" \
             --name flash-cards \
-            --message "Automatic pre-migration rollback after failed temporary learner fence for ${GITHUB_SHA}" \
-            --yes
+            --message "Automatic pre-migration rollback after failed temporary learner fence for ${GITHUB_SHA}"
 
       - name: Verify pre-fence Worker restoration
         if: ${{ always() && steps.cutover.outputs.required == 'true' && steps.pre_fence.outputs.version_id != '' && (steps.install_fence.outcome == 'failure' || steps.verify_fence.outcome == 'failure') }}
