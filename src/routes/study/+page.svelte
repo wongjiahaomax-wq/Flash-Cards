@@ -11,6 +11,13 @@
     readLearnerStudyRunForUser,
     writeLearnerStudyRun
   } from '$lib/learner-study-run-storage.js';
+  import {
+    contributingStudyRouteValues,
+    orderedStudyTopics,
+    studyTopicDepth,
+    studyTopicDescendantIds,
+    studyTopicSubtreeRouteValues
+  } from '$lib/study-topic-hierarchy.js';
   import { effectiveStudyRunDistinctCaseTarget } from '$lib/study-run-size.js';
 
   let { data, form } = $props();
@@ -89,11 +96,82 @@
     return submittedSystem(systemId)?.mode === 'routes';
   }
 
+  /** @param {any} system */
+  function initialRoutesForSystem(system) {
+    const submitted = submittedSystem(system.id);
+    return submitted?.mode === 'routes' && Array.isArray(submitted.selectedRoutes)
+      ? [...new Set(submitted.selectedRoutes)]
+      : contributingStudyRouteValues(system);
+  }
+
+  /** @type {Record<string,string[]>} */
+  let routeSelections = $state(Object.fromEntries(
+    data.systems.map((system) => [system.id, initialRoutesForSystem(system)])
+  ));
+
+  /** @param {string} systemId */
+  function selectedRoutesForSystem(systemId) {
+    return routeSelections[systemId] ?? [];
+  }
+
   /** @param {string} systemId @param {string} value */
-  function routeChecked(systemId, value) {
-    const submitted = submittedSystem(systemId);
-    if (!submitted || submitted.mode !== 'routes' || !Array.isArray(submitted.selectedRoutes)) return true;
-    return submitted.selectedRoutes.includes(value);
+  function isRouteSelected(systemId, value) {
+    return selectedRoutesForSystem(systemId).includes(value);
+  }
+
+  /** @param {string} systemId @param {string[]} values @param {boolean} checked */
+  function setRoutes(systemId, values, checked) {
+    const current = selectedRoutesForSystem(systemId);
+    const affected = new Set(values);
+    routeSelections[systemId] = checked
+      ? [...new Set([...current, ...values])]
+      : current.filter((value) => !affected.has(value));
+  }
+
+  /** @param {any} system @param {any} topic */
+  function topicChecked(system, topic) {
+    if (Number(topic.caseCount) > 0) return isRouteSelected(system.id, `topic:${topic.id}`);
+    const subtree = studyTopicSubtreeRouteValues(system.topics, topic.id);
+    return subtree.length > 0 && subtree.every((value) => isRouteSelected(system.id, value));
+  }
+
+  /** @param {any} system @param {any} topic */
+  function topicIndeterminate(system, topic) {
+    const subtree = studyTopicSubtreeRouteValues(system.topics, topic.id);
+    if (subtree.length < 2) return false;
+    const count = subtree.filter((value) => isRouteSelected(system.id, value)).length;
+    return count > 0 && count < subtree.length;
+  }
+
+  /** @param {HTMLInputElement} node @param {boolean} value */
+  function indeterminate(node, value) {
+    node.indeterminate = Boolean(value);
+    return {
+      /** @param {boolean} next */
+      update(next) {
+        node.indeterminate = Boolean(next);
+      }
+    };
+  }
+
+  /** @param {Event} event */
+  function eventChecked(event) {
+    return /** @type {HTMLInputElement} */ (event.currentTarget).checked;
+  }
+
+  /** @param {any} system @param {any} topic @param {boolean} checked */
+  function toggleTopicSubtree(system, topic, checked) {
+    setRoutes(system.id, studyTopicSubtreeRouteValues(system.topics, topic.id), checked);
+  }
+
+  /** @param {any} system @param {'topic'|'tag'} routeType @param {boolean} checked */
+  function toggleGroup(system, routeType, checked) {
+    const values = routeType === 'topic'
+      ? system.topics
+        .filter((topic) => Number(topic.caseCount) > 0)
+        .map((topic) => `topic:${topic.id}`)
+      : system.tags.map((tag) => `tag:${tag.id}`);
+    setRoutes(system.id, values, checked);
   }
 
   /** @param {'scheduled'|'free'} mode */
@@ -397,27 +475,72 @@
             <p class="field-help">Leave “Narrow this System” unchecked to submit canonical <code>mode: "all"</code>. Turn it on only when you want explicit routes.</p>
             <label class="narrow-option">
               <input type="checkbox" name={`narrow:${system.id}`} checked={systemNarrowed(system.id)} />
-              <span><strong>Narrow this System</strong><small>Use only the checked Topic/curated Tag routes below.</small></span>
+              <span><strong>Narrow this System</strong><small>Use only the checked exact-Topic/curated Tag routes below.</small></span>
             </label>
 
-            <fieldset class="route-set">
-              <legend>Available routes</legend>
-              {#each system.topics as topic}
-                <label class="route-option">
-                  <input type="checkbox" name={`route:${system.id}`} value={`topic:${topic.id}`} checked={routeChecked(system.id, `topic:${topic.id}`)} />
+            <fieldset class="route-set topic-set">
+              <legend>Topics</legend>
+              <div class="group-toolbar">
+                <p class="field-help">Topic routes use exact Topic membership. Structural parents toggle descendant Topic routes without becoming routes themselves.</p>
+                <div class="group-actions" aria-label={`${system.name} Topic selection controls`}>
+                  <button type="button" onclick={() => toggleGroup(system, 'topic', true)}>Select all</button>
+                  <span aria-hidden="true">·</span>
+                  <button type="button" onclick={() => toggleGroup(system, 'topic', false)}>Clear all</button>
+                </div>
+              </div>
+              {#each orderedStudyTopics(system.topics) as topic}
+                {@const value = `topic:${topic.id}`}
+                {@const descendants = studyTopicDescendantIds(system.topics, topic.id)}
+                {@const breadcrumbText = topic.breadcrumb.map((item) => item.name).join(' → ')}
+                <label class="route-option topic-route" style={`--topic-depth:${studyTopicDepth(topic)}`}>
+                  <input
+                    id={`study-${system.id}-topic-${topic.id}`}
+                    type="checkbox"
+                    name={Number(topic.caseCount) > 0 ? `route:${system.id}` : undefined}
+                    value={value}
+                    checked={topicChecked(system, topic)}
+                    aria-controls={descendants.length > 0 ? descendants.map((id) => `study-${system.id}-topic-${id}`).join(' ') : undefined}
+                    use:indeterminate={topicIndeterminate(system, topic)}
+                    onchange={(event) => toggleTopicSubtree(system, topic, eventChecked(event))}
+                  />
                   <span>
                     <strong>{topic.name}</strong>
-                    <small>Topic · {topic.caseCount} exact {topic.caseCount === 1 ? 'Case' : 'Cases'}{#if topic.breadcrumb.length > 1} · {topic.breadcrumb.map((item) => item.name).join(' → ')}{/if}</small>
+                    {#if Number(topic.caseCount) > 0}
+                      <small>Topic · {topic.caseCount} exact {topic.caseCount === 1 ? 'Case' : 'Cases'}{#if topic.breadcrumb.length > 1} · {breadcrumbText}{/if}</small>
+                    {:else}
+                      <small>Structural Topic · 0 exact Cases · {topic.subtreeCaseCount} {topic.subtreeCaseCount === 1 ? 'Case' : 'Cases'} in descendant Topics{#if topic.breadcrumb.length > 1} · {breadcrumbText}{/if}</small>
+                    {/if}
                   </span>
                 </label>
               {/each}
-              {#each system.tags as tag}
-                <label class="route-option tag-route">
-                  <input type="checkbox" name={`route:${system.id}`} value={`tag:${tag.id}`} checked={routeChecked(system.id, `tag:${tag.id}`)} />
-                  <span><strong>{tag.name}</strong><small>Curated Tag · {tag.caseCount} {tag.caseCount === 1 ? 'Case' : 'Cases'}</small></span>
-                </label>
-              {/each}
             </fieldset>
+
+            {#if system.tags.length > 0}
+              <fieldset class="route-set tag-set">
+                <legend>Curated Tags</legend>
+                <div class="group-toolbar">
+                  <p class="field-help">Curated Tags can add relevant Cases across Topics, including Cases from Topics you unchecked.</p>
+                  <div class="group-actions" aria-label={`${system.name} curated Tag selection controls`}>
+                    <button type="button" onclick={() => toggleGroup(system, 'tag', true)}>Select all</button>
+                    <span aria-hidden="true">·</span>
+                    <button type="button" onclick={() => toggleGroup(system, 'tag', false)}>Clear all</button>
+                  </div>
+                </div>
+                {#each system.tags as tag}
+                  {@const value = `tag:${tag.id}`}
+                  <label class="route-option tag-route">
+                    <input
+                      type="checkbox"
+                      name={`route:${system.id}`}
+                      value={value}
+                      checked={isRouteSelected(system.id, value)}
+                      onchange={(event) => setRoutes(system.id, [value], eventChecked(event))}
+                    />
+                    <span><strong>{tag.name}</strong><small>Curated Tag · {tag.caseCount} {tag.caseCount === 1 ? 'Case' : 'Cases'}</small></span>
+                  </label>
+                {/each}
+              </fieldset>
+            {/if}
           </details>
         </section>
       {/each}
@@ -472,6 +595,12 @@
   .scope-details > .field-help { margin:.7rem 0; }
   .narrow-option { margin-bottom:.7rem; }
   .field-help { margin:0; color:#667085; font-size:.82rem; line-height:1.45; }
+  .group-toolbar { display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; margin-bottom:.1rem; }
+  .group-toolbar .field-help { max-width:390px; }
+  .group-actions { display:flex; align-items:center; gap:.35rem; flex-wrap:wrap; white-space:nowrap; }
+  .group-actions button { padding:0; border:0; background:transparent; color:#475467; font:inherit; font-size:.8rem; text-decoration:underline; cursor:pointer; }
+  .route-set + .route-set { margin-top:1rem; padding-top:.85rem; border-top:1px solid #eef2f6; }
+  .topic-route { margin-left:calc(var(--topic-depth, 0) * .8rem); }
   .tag-route { border-style:dashed; }
   .mode-option input,.route-option input,.narrow-option input,.system-select input { margin-top:.18rem; }
   .form-error { margin:0; color:#b42318; font-size:.88rem; }
@@ -483,6 +612,7 @@
     .account-actions,.active-actions,.run-actions,.preference-form { justify-content:flex-start; }
     .chooser-heading > p,.count-detail { text-align:left; justify-items:start; }
     .run-options-card,.system-grid { grid-template-columns:1fr; }
+    .group-toolbar { display:grid; }
   }
   @media (max-width:520px) {
     .size-set { grid-template-columns:repeat(2,minmax(0,1fr)); }
