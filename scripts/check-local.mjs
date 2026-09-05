@@ -78,32 +78,49 @@ export function runLocalSvelteCheck(options = {}) {
   const stderr = String(result.stderr ?? '');
   const parsed = parseSvelteMachineOutput(stdout);
   const errors = parsed.diagnostics.filter((diagnostic) => diagnostic.severity === 'error');
-  const reportedErrors = parsed.completion?.errors ?? errors.length;
-  const warnings = parsed.completion?.warnings ?? parsed.diagnostics.filter((diagnostic) => diagnostic.severity === 'warning').length;
+  const warningDiagnostics = parsed.diagnostics.filter((diagnostic) => diagnostic.severity === 'warning');
+  const completionErrorMismatch = Boolean(parsed.completion && parsed.completion.errors !== errors.length);
+  const completionWarningMismatch = Boolean(parsed.completion && parsed.completion.warnings !== warningDiagnostics.length);
+  const incomplete = !parsed.protocolStarted
+    || !parsed.completion
+    || parsed.malformedDiagnosticRecords > 0
+    || completionErrorMismatch
+    || completionWarningMismatch;
+  const displayErrors = incomplete ? errors.length : (parsed.completion?.errors ?? errors.length);
+  const displayWarnings = incomplete ? warningDiagnostics.length : (parsed.completion?.warnings ?? warningDiagnostics.length);
 
   if (result.status === 0) {
-    if (parsed.protocolStarted && parsed.completion) {
-      console.log(`✓ Svelte — ${reportedErrors} errors, ${warnings} warnings`);
+    if (!incomplete && parsed.protocolStarted && parsed.completion) {
+      console.log(`✓ Svelte — ${displayErrors} errors, ${displayWarnings} warnings`);
     } else {
       console.log('✓ Svelte — passed (structured summary unavailable)');
     }
     return 0;
   }
 
-  console.error(`✗ Svelte — ${reportedErrors || errors.length} error${reportedErrors === 1 ? '' : 's'}, ${warnings} warnings`);
+  const countQualifier = incomplete ? ' parsed' : '';
+  console.error(`✗ Svelte — ${displayErrors}${countQualifier} error${displayErrors === 1 ? '' : 's'}, ${displayWarnings}${countQualifier} warning${displayWarnings === 1 ? '' : 's'}`);
   const visible = errors.slice(0, ERROR_LIMIT);
   for (let index = 0; index < visible.length; index += 1) {
     console.error(`\n${index + 1}. ${formatLocalSvelteDiagnostic(visible[index])}`);
   }
-  const omitted = Math.max(0, reportedErrors - visible.length);
+  const omitted = Math.max(0, errors.length - visible.length);
   if (omitted) console.error(`\n${omitted} additional Svelte error${omitted === 1 ? '' : 's'} omitted.`);
 
-  const incomplete = !parsed.protocolStarted
-    || !parsed.completion
-    || parsed.malformedDiagnosticRecords > 0
-    || (parsed.completion && parsed.completion.errors !== errors.length);
   if (incomplete) {
-    console.error('\nCompact Svelte diagnostics were incomplete; bounded original output follows.');
+    const reasons = [];
+    if (!parsed.protocolStarted) reasons.push('START missing');
+    if (!parsed.completion) reasons.push('COMPLETED missing');
+    if (parsed.malformedDiagnosticRecords > 0) reasons.push(`malformedRecords=${parsed.malformedDiagnosticRecords}`);
+    if (completionErrorMismatch && parsed.completion) {
+      reasons.push(`parsedErrors=${errors.length}`);
+      reasons.push(`reportedErrors=${parsed.completion.errors}`);
+    }
+    if (completionWarningMismatch && parsed.completion) {
+      reasons.push(`parsedWarnings=${warningDiagnostics.length}`);
+      reasons.push(`reportedWarnings=${parsed.completion.warnings}`);
+    }
+    console.error(`\nCompact Svelte diagnostics were incomplete (${reasons.join(', ')}); bounded original output follows.`);
     const fallback = [stderr, stdout].filter(Boolean).join('\n').trim();
     if (fallback) console.error(bounded(fallback, OUTPUT_LIMIT));
   }
