@@ -20,46 +20,78 @@ export const MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS = [
   'review_assets'
 ];
 
-// Migration 0025 creates this table. The first v2 Production cutover deliberately
-// runs the zero-data gate before applying pending migrations, so this one sentinel
-// may be absent at that point. Missing required/core sentinels still fail closed.
 export const MULTI_SYSTEM_V2_PRE_MIGRATION_OPTIONAL_SENTINELS = [
   'learner_system_monthly_buckets'
 ];
 
+export const MULTI_SYSTEM_V2_OPTIONAL_SENTINEL_MIGRATIONS = {
+  learner_system_monthly_buckets: '0025_learner_fsrs_admin_analytics_deletion.sql'
+};
+
 const OPTIONAL_PRE_MIGRATION_SENTINELS = new Set(MULTI_SYSTEM_V2_PRE_MIGRATION_OPTIONAL_SENTINELS);
 const SENTINEL_SET = new Set(MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS);
+const OPTIONAL_MIGRATION_SET = new Set(Object.values(MULTI_SYSTEM_V2_OPTIONAL_SENTINEL_MIGRATIONS));
 
+// The first v2 Production cutover deliberately runs this read-only gate before
+// applying pending migrations. Migration 0025 creates learner_system_monthly_buckets,
+// so that table may be absent only while 0025 is genuinely still unapplied.
 export const MULTI_SYSTEM_V2_SENTINEL_SCHEMA_SQL = `
-SELECT name
+SELECT 'table' AS kind, name
 FROM sqlite_schema
 WHERE type = 'table'
-  AND name IN (${MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS.map((table) => `'${table}'`).join(', ')} )
-ORDER BY name;
+  AND name IN (${MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS.map((table) => `'${table}'`).join(', ')})
+UNION ALL
+SELECT 'migration' AS kind, name
+FROM d1_migrations
+WHERE name IN (${[...OPTIONAL_MIGRATION_SET].map((migration) => `'${migration}'`).join(', ')})
+ORDER BY kind, name;
 `.trim();
 
-/** @param {unknown} value @param {Set<string>} found */
-function collectSentinelTableNames(value, found) {
+/**
+ * @param {unknown} value
+ * @param {Set<string>} tables
+ * @param {Set<string>} appliedMigrations
+ */
+function collectCutoverSchemaState(value, tables, appliedMigrations) {
   if (Array.isArray(value)) {
-    for (const item of value) collectSentinelTableNames(item, found);
+    for (const item of value) collectCutoverSchemaState(item, tables, appliedMigrations);
     return;
   }
   if (!value || typeof value !== 'object') return;
   const record = /** @type {Record<string, unknown>} */ (value);
-  if (typeof record.name === 'string' && SENTINEL_SET.has(record.name)) found.add(record.name);
-  for (const child of Object.values(record)) collectSentinelTableNames(child, found);
+  if (record.kind === 'table' && typeof record.name === 'string' && SENTINEL_SET.has(record.name)) {
+    tables.add(record.name);
+  }
+  if (record.kind === 'migration' && typeof record.name === 'string' && OPTIONAL_MIGRATION_SET.has(record.name)) {
+    appliedMigrations.add(record.name);
+  }
+  for (const child of Object.values(record)) collectCutoverSchemaState(child, tables, appliedMigrations);
+}
+
+/** @param {unknown} payload */
+export function extractMultiSystemV2CutoverSchemaState(payload) {
+  const tables = new Set();
+  const appliedMigrations = new Set();
+  collectCutoverSchemaState(payload, tables, appliedMigrations);
+  return {
+    tables: MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS.filter((table) => tables.has(table)),
+    appliedMigrations: [...OPTIONAL_MIGRATION_SET].filter((migration) => appliedMigrations.has(migration))
+  };
 }
 
 /** @param {unknown} payload @returns {string[]} */
 export function extractMultiSystemV2ExistingSentinelTables(payload) {
-  const found = new Set();
-  collectSentinelTableNames(payload, found);
-  return MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS.filter((table) => found.has(table));
+  return extractMultiSystemV2CutoverSchemaState(payload).tables;
 }
 
-/** @param {Iterable<string>} existingTables @returns {Set<string>} */
-export function assertMultiSystemV2PreMigrationSchema(existingTables) {
+/**
+ * @param {Iterable<string>} existingTables
+ * @param {Iterable<string>} [appliedMigrations]
+ * @returns {Set<string>}
+ */
+export function assertMultiSystemV2PreMigrationSchema(existingTables, appliedMigrations = []) {
   const existing = new Set(existingTables);
+  const applied = new Set(appliedMigrations);
   const missingRequired = MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS.filter(
     (table) => !existing.has(table) && !OPTIONAL_PRE_MIGRATION_SENTINELS.has(table)
   );
@@ -68,12 +100,26 @@ export function assertMultiSystemV2PreMigrationSchema(existingTables) {
       `Multi-System v2 cutover gate cannot verify required pre-migration table(s): ${missingRequired.join(', ')}.`
     );
   }
+
+  const inconsistentMissing = MULTI_SYSTEM_V2_PRE_MIGRATION_OPTIONAL_SENTINELS.filter((table) => {
+    if (existing.has(table)) return false;
+    const migration = MULTI_SYSTEM_V2_OPTIONAL_SENTINEL_MIGRATIONS[table];
+    return applied.has(migration);
+  });
+  if (inconsistentMissing.length) {
+    throw new Error(
+      `Multi-System v2 cutover gate found missing table(s) whose creating migration is already recorded as applied: ${inconsistentMissing.join(', ')}.`
+    );
+  }
   return existing;
 }
 
-/** @param {Iterable<string>} existingTables */
-export function buildMultiSystemV2ZeroDataSql(existingTables) {
-  const existing = assertMultiSystemV2PreMigrationSchema(existingTables);
+/**
+ * @param {Iterable<string>} existingTables
+ * @param {Iterable<string>} [appliedMigrations]
+ */
+export function buildMultiSystemV2ZeroDataSql(existingTables, appliedMigrations = []) {
+  const existing = assertMultiSystemV2PreMigrationSchema(existingTables, appliedMigrations);
   return `
 SELECT
 ${MULTI_SYSTEM_V2_ZERO_DATA_SENTINELS.map((table) => (
@@ -149,8 +195,8 @@ export function runMultiSystemV2ZeroDataGate(options = {}) {
     'd1', 'execute', 'DB', target,
     '--command', MULTI_SYSTEM_V2_SENTINEL_SCHEMA_SQL, '--json'
   ]);
-  const existingTables = extractMultiSystemV2ExistingSentinelTables(schemaPayload);
-  const zeroDataSql = buildMultiSystemV2ZeroDataSql(existingTables);
+  const schemaState = extractMultiSystemV2CutoverSchemaState(schemaPayload);
+  const zeroDataSql = buildMultiSystemV2ZeroDataSql(schemaState.tables, schemaState.appliedMigrations);
   const countPayload = runWranglerJson(wrangler, [
     'd1', 'execute', 'DB', target,
     '--command', zeroDataSql, '--json'
@@ -170,7 +216,7 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
       console.log(JSON.stringify({
         ok: true,
         target: remote ? 'remote' : 'local',
-        note: 'Read-only fail-closed multi-System v2 cutover gate; this command performs no mutation. A missing learner_system_monthly_buckets table is treated as zero only before migration 0025 creates it.',
+        note: 'Read-only fail-closed multi-System v2 cutover gate; this command performs no mutation. learner_system_monthly_buckets is treated as zero only while migration 0025 is genuinely unapplied.',
         counts
       }, null, 2));
     } catch (error) {
