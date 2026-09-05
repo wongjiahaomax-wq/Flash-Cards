@@ -1,6 +1,6 @@
 # Production learner-runtime fence incident — 2026-09-05
 
-Status: **active investigation / recovery not yet authorized**
+Status: **LKG identified; implementation and recovery verification in progress**
 
 This document is updated alongside the incident fix. It records evidence and safety decisions so recovery does not depend on an ambiguous variable name or stale artifact.
 
@@ -15,14 +15,14 @@ This document is updated alongside the incident fix. It records evidence and saf
 
 ## Observed incident sequence
 
-### Last clearly successful normal deploy run
+### Last successful normal deploy
 
 - Deploy-production run: `33749984574` (run #20)
 - Job: `100631086758`
 - Source commit: `a4f481f95b6b4c487c0b8eeafa9c205c44aba599`
 - Result: successful normal Production Worker deployment.
-- This run predates installation of the temporary learner-runtime fence logic.
-- **Exact Worker version ID still requires independent extraction/verification before it can be used as a recovery target.**
+- Wrangler recorded `Current Version ID: 0ac08060-18ae-4809-87ec-a5f14defd8ae` immediately after the Worker upload and trigger deployment.
+- This deployment predates the temporary learner-runtime fence deployment introduced in the next incident run.
 
 ### First failed fenced run
 
@@ -30,9 +30,11 @@ This document is updated alongside the incident fix. It records evidence and saf
 - Job: `101244869099`
 - Source commit: `276309848515545c6d10f5fe721e80c206ef5e22`
 - The temporary learner-runtime fence deployment step succeeded.
-- Fence verification then failed.
+- Wrangler recorded `Current Version ID: b0eb8a02-60fb-4292-8a6c-52792151aa76` for that fence deployment.
+- The very next verification step expected `/study` to return HTTP `503` and then failed while validating the fence response.
 - Migration and v2 cutover steps did not run.
-- This is the earliest identified event capable of leaving the public Worker fenced.
+
+This establishes an independent control-plane provenance chain: run #20 deployed `0ac08060-…` as the normal application, and run #21 replaced it with `b0eb8a02-…` as the temporary learner-runtime fence.
 
 ### Unsafe rollback target captured after Production was already fenced
 
@@ -45,9 +47,9 @@ The recovery workflow for the later run restored that exact version in the Cloud
 
 Therefore:
 
-> `b0eb8a02-60fb-4292-8a6c-52792151aa76` is **rejected as a last-known-good recovery target**. It must not be restored again merely because an artifact calls it `pre_fence`.
+> `b0eb8a02-60fb-4292-8a6c-52792151aa76` is the temporary fence Worker and is **rejected as a last-known-good recovery target**. It must not be restored again merely because an artifact calls it `pre_fence`.
 
-## Root cause identified so far
+## Root cause
 
 The deployment workflow captured the current Worker version before installing a new fence, but did not first establish that the already-running public Worker was a healthy, unfenced application. After run #21 left Production fenced, later runs treated that already-fenced Worker as a valid rollback baseline. The recovery workflow then trusted the artifact's syntactic version ID and migration-state check, so it could faithfully restore a bad baseline.
 
@@ -55,7 +57,7 @@ A second validation weakness exists in rollback/recovery edge checks: absence of
 
 ## Positive public application identity
 
-The application itself supplies a stronger health signal than merely observing that the temporary fence header disappeared. `src/routes/study/+layout.server.js` redirects an unauthenticated request for `/study` with HTTP `303` to `/sign-in?redirect=%2Fstudy`.
+The application supplies a stronger health signal than merely observing that the temporary fence header disappeared. `src/routes/study/+layout.server.js` redirects an unauthenticated request for `/study` with HTTP `303` to `/sign-in?redirect=%2Fstudy`.
 
 Production deploy/recovery probes are unauthenticated and use manual redirect handling. Therefore a verified unfenced `/study` response must satisfy all of the following:
 
@@ -78,22 +80,21 @@ The hardened flow must:
 7. Preserve pre-migration failure/cancellation rollback behavior.
 8. Refuse automatic old-application rollback after migration may have started.
 
-## Recovery target investigation
+## Verified LKG Worker version
 
-Current candidate source of truth: the successful normal deploy in run #20. The exact Worker version ID is **not yet recorded here as LKG** because it still needs independent evidence connecting the Cloudflare Worker version to that unfenced deployment.
+- Worker version ID: `0ac08060-18ae-4809-87ec-a5f14defd8ae`
+- Direct deployment evidence: successful run #20 Wrangler output records this exact version immediately after upload/deploy.
+- Independent fence evidence: run #21 Wrangler output records a different exact version, `b0eb8a02-60fb-4292-8a6c-52792151aa76`, for the temporary fence deployment.
+- Migration boundary: run #21 did not execute D1 migration or v2 cutover steps.
+- Public unfenced identity after restore: **PENDING supported recovery execution**.
+- Restore action/run: **PENDING supported recovery execution**.
 
-No Production recovery should be initiated from this document until that evidence is recorded below.
-
-### Verified LKG Worker version
-
-- Worker version ID: **PENDING**
-- Evidence that version is the run #20 normal deployment: **PENDING**
-- Evidence that it is unfenced: **PENDING**
-- Restore action/run: **PENDING**
-- Post-restore `/study` status: **PENDING**
+The Worker UUID is now independently established as the correct pre-fence target. It is not derived from the later `pre_fence` artifacts.
 
 ## Validation log
 
 - Branch created from current `main` commit `d39b0e9b7b5bc89f08a2efe124113f3a9ce24d62`: `fix/production-fence-lkg-hardening`.
 - Current `main` already contains PR #151 cutover-gate recovery logic and `test/production-fence-recovery.test.js`; implementation is based on this revision rather than earlier workflow snapshots.
 - Positive edge identity selected from the application route contract: unauthenticated `/study` must produce `303` to `/sign-in?redirect=%2Fstudy`; header absence by itself is deliberately insufficient.
+- Independently identified normal Worker: `0ac08060-18ae-4809-87ec-a5f14defd8ae` from successful run #20.
+- Independently identified temporary fence Worker: `b0eb8a02-60fb-4292-8a6c-52792151aa76` from run #21.
