@@ -34,10 +34,22 @@ export function resolveInvocation(command, args, env = process.env) {
 export function parseValidationArgs(argv) {
   const mode = argv[0] ?? '';
   let verbose = false;
+  /** @type {'verbose' | 'compact' | null} */
+  let presentation = null;
   for (const arg of argv.slice(1)) {
-    if (arg === '--verbose') verbose = true;
-    else if (arg === '--compact') verbose = false; // backward-compatible no-op: compact is now the default.
-    else throw new Error(`Unknown validation argument: ${arg}`);
+    if (arg === '--verbose') {
+      if (presentation === 'compact') {
+        throw new Error('Contradictory validation presentation flags: --compact and --verbose.');
+      }
+      presentation = 'verbose';
+      verbose = true;
+    } else if (arg === '--compact') {
+      if (presentation === 'verbose') {
+        throw new Error('Contradictory validation presentation flags: --compact and --verbose.');
+      }
+      presentation = 'compact';
+      verbose = false; // backward-compatible no-op: compact is now the default.
+    } else throw new Error(`Unknown validation argument: ${arg}`);
   }
   return { mode, verbose };
 }
