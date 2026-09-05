@@ -40,7 +40,7 @@ test('missing migration-0025 table is accepted only while migration 0025 is genu
 
   assert.throws(
     () => assertMultiSystemV2PreMigrationSchema(preMigrationTables, [migration]),
-    /learner_system_monthly_buckets.*already recorded as applied/i
+    /already recorded as applied: learner_system_monthly_buckets/i
   );
 
   const state = extractMultiSystemV2CutoverSchemaState([
