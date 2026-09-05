@@ -1,14 +1,14 @@
 # Multi-System Learner Study Plan
 
-_Status: proposed future-intent design. Not implemented on current `main`._
+_Status: **implemented in repository tranches** — Multi-System Runtime v2 merged via PR #147; learner multi-System UX implemented on PR #149. Production deployment remains a separate operational state._
 
-_Last reviewed against `main` at `ca56f915` on 4 September 2026._
+_Last reconciled on 5 September 2026._
 
 ## 1. Goal
 
 Allow a learner to build one Scheduled Study or Free Study run from more than one System while preserving the existing FSRS, Active Review, run-proof, idempotency, D1 eligibility, continuous-navigation, and per-System analytics invariants.
 
-Intended learner flow:
+Current learner flow:
 
 ```text
 Choose one or more Systems
@@ -20,28 +20,35 @@ Choose one or more Systems
 
 This enables integrated revision across a sufficiently large content library instead of forcing every learner run to remain inside one System.
 
-## 2. Current baseline and clean-cutover assumption
+## 2. Current implementation baseline and deployment boundary
 
-Current `/study` is deliberately single-System:
+The repository implementation is now split cleanly across the two tranches defined later in this plan.
 
-- the chooser holds one selected System;
-- the form submits one `systemId`;
-- `resolveSystemStudySelection(...)` validates one System plus Topic/Tag routes;
-- Scheduled and Free planners receive one `systemId`;
-- browser run descriptors currently require `version === 1` and persist `selectedScope: { systemId, routes }`;
-- Scheduled descriptors carry v1 captured-membership proof metadata;
-- the cryptographic proof layer has its own independent `STUDY_RUN_PROOF_VERSION = 1` boundary;
-- `active_reviews.system_id` stores one System attribution;
-- `active_reviews_scope_system_check` currently uses `json_extract(scope_json, '$.systemId') = system_id`;
-- the current D1 `active_reviews_content_scope_guard` understands top-level `scope_json.routes` and requires the Case to retain an active primary Topic before either Topic-route or Tag-route eligibility can succeed.
+**Merged Runtime v2 (PR #147)** owns the canonical server/runtime boundary:
 
-This plan is intentionally based on the current project state that there is **no learner runtime data or in-flight learner work that must be preserved**.
+- descriptor/scope version 2 and Scheduled proof version 2;
+- bounded normalized `systems[]` scope with per-System `mode: "all"` or explicit `mode: "routes"`;
+- server-owned taxonomy validation, candidate union/deduplication, and deterministic concrete System attribution;
+- canonical Scheduled and Free multi-System planners/open paths;
+- strict migration `0026` Active Review v2 scope/content guard;
+- fail-closed clean-cutover/write-fence mechanics and supported-envelope validation;
+- intentional rejection/retirement of v1 learner browser/proof state rather than a long-lived compatibility layer.
 
-That assumption changes the rollout design materially. Multi-System Runtime should use a **clean v2 cutover**, not a long-lived dual v1/v2 compatibility regime.
+**Learner multi-System UX (PR #149)** wires normal `/study` directly to those existing Runtime v2 owners:
 
-The repository already uses fail-closed zero-data cutover gates for major learner-runtime transitions. Multi-System Runtime should follow the same philosophy.
+- one learner form can select one or more Systems;
+- selecting a System defaults to canonical `mode: "all"`;
+- whole-System/unselected Systems do not submit/materialize Topic/Tag route fields merely to express `all`;
+- a selected System may be narrowed with the existing exact-Topic hierarchy and curated Tags;
+- zero-exact structural Topics remain hierarchy controls and do not become exact submitted routes;
+- `/study/api/count` uses the same authoritative multi-System resolver and global Case deduplication as planning;
+- 5 / 10 / 20 / All remain global across the combined unique Case pool, default 10;
+- Scheduled and Free preserve immediate plan → first-open and completion → next-open navigation across System boundaries;
+- migrated-D1 acceptance covers a real System-A Case → completion → next-open System-B Case lifecycle for Scheduled and Free.
 
-If the zero-data assumption is no longer true at implementation/deployment time, stop the clean cutover. Do not silently deploy the v2-only contract over live v1 learner state.
+Single-System Study remains a valid special case of the same v2 contract. No second learner runtime, duplicate candidate resolver, client-authoritative candidate list, or v1 compatibility machinery is introduced by the UX tranche.
+
+The clean-cutover assumptions and Production mechanics in this plan remain operationally important, but repository implementation is not proof that the Production v2 cutover or learner UX deployment has occurred. Production D1 migration state, Worker deployment, write-fence state, and release verification remain separate facts.
 
 ## 3. Product behavior
 
@@ -113,7 +120,7 @@ Conceptual v2 run-scope shape:
 }
 ```
 
-The exact serialized contract may differ during implementation, but it must be normalized, deterministic, bounded, and server-validated.
+The serialized contract is normalized, deterministic, bounded, and server-validated by Runtime v2.
 
 ### 3.3 Run size
 
@@ -141,9 +148,7 @@ Free Study must continue to write no Scheduled FSRS state, Scheduled rating, Sch
 
 ## 4. Multi-System scope resolution
 
-Keep the current single-System resolver as a reusable primitive where practical and add a multi-System owner above it.
-
-The multi-System resolver must:
+The implemented multi-System owner sits above the existing single-System routing primitives and must continue to:
 
 1. validate that every selected System exists and is active;
 2. normalize each System scope;
@@ -160,13 +165,13 @@ Current whole-System semantics include both:
 - native Cases whose primary Topic is under that System; and
 - Cases reachable through Tags curated to that System.
 
-The v2 resolver and D1 guard must preserve those semantics for `mode: 'all'` **without weakening the current learner-content baseline that every eligible Case has a valid active primary Topic**.
+The v2 resolver and D1 guard preserve those semantics for `mode: 'all'` **without weakening the current learner-content baseline that every eligible Case has a valid active primary Topic**.
 
 ## 5. Case deduplication and System attribution
 
 A Case reachable through more than one selected scope appears only once in one run.
 
-The union step must retain the contributing Systems/routes for that Case so attribution does not depend on checkbox order or incidental iteration order.
+The union step retains the contributing Systems/routes for that Case so attribution does not depend on checkbox order or incidental iteration order.
 
 ### 5.1 Attribution invariant
 
@@ -174,10 +179,10 @@ A mixed run does **not** create a synthetic `Mixed` System.
 
 Every individual Active Review and completion still has one concrete `system_id` for historical attribution, matching the existing analytics model.
 
-The implementation must define and test a deterministic attribution rule for multiply-contributed Cases. Recommended precedence:
+The implemented deterministic attribution precedence is:
 
 1. prefer a native Topic contribution from the Case's primary-topic System when that contribution is part of the selected run scope;
-2. otherwise choose a stable normalized contributing System using an identifier-based deterministic order;
+2. otherwise choose a stable normalized contributing System using identifier-based deterministic order;
 3. freeze that chosen attribution when the Review is created.
 
 A Case reached only through a curated Tag preserves the existing curated-System study semantics rather than silently rewriting attribution to another System.
@@ -188,26 +193,24 @@ The chosen attribution System must itself be selected in the authenticated `runS
 
 Multi-System study changes both the browser descriptor shape and the meaning of the authenticated scope.
 
-Do not reinterpret descriptor version 1.
+Descriptor version 1 is not reinterpreted.
 
-For the clean cutover, Multi-System Runtime should introduce:
+Runtime v2 implements:
 
 - **descriptor/scope version 2** for learner Scheduled and Free run descriptors;
 - **study-run proof version 2** for newly issued Scheduled run-boundary, captured-membership, and repeat-origin proofs.
 
-The v2 proof implementation should authenticate the same boundary concepts as today, but against the complete canonical v2 mixed run scope.
+The v2 proof implementation authenticates the same boundary concepts as before, but against the complete canonical v2 mixed run scope.
 
-Equivalent v2 selections must produce equivalent normalized scope bytes regardless of learner checkbox order.
+Equivalent v2 selections produce equivalent normalized scope bytes regardless of learner checkbox order.
 
-The complete normalized `runScope` is the material whose fingerprint is authenticated. A browser-edited System, route, Case, or attribution System must never become valid merely because the browser supplied it.
+The complete normalized `runScope` is the material whose fingerprint is authenticated. A browser-edited System, route, Case, or attribution System never becomes valid merely because the browser supplied it.
 
 ### 6.1 Mandatory zero-data deployment gate
 
 The clean cutover is permitted only when a fail-closed Production gate proves there is no learner runtime state that requires v1 compatibility.
 
-The gate must be executable and committed as part of Multi-System Runtime. It must not rely on memory or manual inspection alone.
-
-At minimum it must inspect the learner-owned runtime/history tables that can prove prior or in-flight study, including the current equivalents of:
+The committed gate inspects the learner-owned runtime/history tables that can prove prior or in-flight study, including:
 
 ```text
 active_reviews
@@ -230,7 +233,7 @@ There is no pristine/default-profile exception. Under the current runtime, Sched
 
 `learner_preferences` do **not** need to be zero. Normal `/study` page loading can create preferences without starting a learner run, so preferences are not a reliable clean-cutover sentinel.
 
-Legacy `reviews`, `review_questions`, and `review_assets` remain relevant zero-data sentinels under the existing runtime-cutover philosophy and should remain fail-closed where the current Production preflight already treats them that way.
+Legacy `reviews`, `review_questions`, and `review_assets` remain relevant zero-data sentinels under the existing runtime-cutover philosophy and remain fail-closed where the current Production preflight treats them that way.
 
 Any nonzero count in a required sentinel causes the gate to fail. Do not classify a row as harmless merely to keep the clean cutover available.
 
@@ -285,13 +288,13 @@ Do **not** use normal learner planning/open/completion as the default Production
 
 A future Production write smoke is a separate operational design. If one is ever adopted, it must explicitly define the bypass mechanism, dedicated synthetic identity, complete cleanup of every learner-owned runtime/history/analytics row it can create, failure-halfway cleanup, and retry semantics. This plan does not require such a smoke.
 
-Multi-System Runtime must update the Production deployment workflow so this ordering is mechanically enforced. Merely documenting the sequence in a runbook is insufficient if the deployed v1 Worker can still accept learner study writes during the migration window.
+Multi-System Runtime updates the Production deployment workflow so this ordering is mechanically enforced. Merely documenting the sequence in a runbook is insufficient if the deployed v1 Worker can still accept learner study writes during the migration window.
 
-If the application is operationally guaranteed to have `/study` unavailable to all learners for the entire deployment window, that outage itself may serve as the write fence, but the workflow/runbook must make that guarantee explicit and verifiable. Otherwise implement an actual temporary learner-runtime maintenance/fence mechanism.
+If the application is operationally guaranteed to have `/study` unavailable to all learners for the entire deployment window, that outage itself may serve as the write fence, but the workflow/runbook must make that guarantee explicit and verifiable. Otherwise use the implemented temporary learner-runtime maintenance/fence mechanism.
 
 The full zero-data gate must run **after** the fence is active and immediately before the v2 migration. If the gate fails, do not apply the migration or deploy the v2-only runtime.
 
-For this one-time v2 cutover, the required Active Review migration is **not optional**. The existing Production workflow's `apply_migrations=false` path must not be allowed to deploy the v2 cutover Worker against the old v1 D1 guard. The cutover workflow must fail closed unless the required migration has been successfully applied and its expected trigger/guard is present before Worker activation. After the v2 cutover is complete, ordinary later deployments may return to the normal repository migration policy.
+For this one-time v2 cutover, the required Active Review migration is **not optional**. The Production workflow's normal `apply_migrations=false` input cannot bypass an incomplete v2 cutover. The cutover fails closed unless the required migration has been successfully applied and its expected trigger/guard is present before Worker activation. After the v2 cutover is complete, ordinary later deployments may return to the normal repository migration policy.
 
 ### 6.3 Browser-local v1 state
 
@@ -299,17 +302,17 @@ A server-side D1 gate cannot inspect every browser's localStorage.
 
 The clean-cutover assumption therefore also requires an explicit operational statement that no learner v1 browser run needs preservation. The strict zero-profile rule closes the main Scheduled server-side blind spot; the write fence closes the post-gate race.
 
-Under that verified condition, the v2 client may intentionally reject/clear the old learner v1 run descriptor and write only v2 state.
+Under that verified condition, the v2 client intentionally rejects/clears the old learner v1 run descriptor and writes only v2 state.
 
-Local-only preview state may be reset as disposable test state, but `/fsrs-preview` must remain a thin regression/reference surface around the authoritative services.
+Local-only preview state may be reset as disposable test state, but `/fsrs-preview` remains a thin regression/reference surface around the authoritative services.
 
 If learner rollout occurs before this cutover and a v1 browser run may correspond to real learner work, the clean-cutover assumption is invalid and deployment must stop for a compatibility design.
 
 ### 6.4 No default dual-version machinery
 
-Under a successful fenced zero-data cutover, Multi-System Runtime should **not** add dual v1/v2 Production compatibility merely as precautionary complexity.
+Under a successful fenced zero-data cutover, Multi-System Runtime does **not** add dual v1/v2 Production compatibility merely as precautionary complexity.
 
-The default implementation therefore does not require:
+The implementation therefore does not require:
 
 - dual v1/v2 descriptor validation;
 - dual v1/v2 proof verification;
@@ -326,11 +329,11 @@ If the zero-data gate fails, stop and redesign the rollout. Do not weaken the ga
 
 A run may span several Systems, but one presented Case still creates one Active Review with one concrete System attribution.
 
-Avoid introducing a many-to-many Active Review/System model unless implementation evidence proves it necessary.
+No many-to-many Active Review/System model is introduced.
 
-### 7.1 Why the current trigger is insufficient for v2
+### 7.1 Why the pre-v2 trigger was insufficient
 
-The current D1 `active_reviews_content_scope_guard` validates a Case/System relationship using top-level `scope_json.routes`.
+The pre-v2 D1 `active_reviews_content_scope_guard` validated a Case/System relationship using top-level `scope_json.routes`.
 
 A compatibility projection such as:
 
@@ -349,15 +352,15 @@ A compatibility projection such as:
 }
 ```
 
-could prove that the Case is genuinely reachable through `system-b`, but the old trigger cannot prove that `system-b` was actually selected in `runScope`.
+could prove that the Case is genuinely reachable through `system-b`, but the old trigger could not prove that `system-b` was actually selected in `runScope`.
 
-That is a correctness/integrity gap for future v2 data even when there is no existing learner data to migrate.
+That was a correctness/integrity gap for v2 data even when there was no existing learner data to migrate.
 
-Therefore the normal implementation path is a **new immutable D1 migration that replaces/updates the Active Review scope/content guard for v2**.
+Migration `0026` replaces/updates the Active Review scope/content guard for v2.
 
-### 7.2 Preferred v2 Active Review scope shape
+### 7.2 v2 Active Review scope shape
 
-Keep one top-level Review attribution System so the existing scalar ownership model remains clear:
+One top-level Review attribution System keeps the existing scalar ownership model clear:
 
 ```js
 {
@@ -383,36 +386,17 @@ Keep one top-level Review attribution System so the existing scalar ownership mo
 
 `runScope` is the complete authenticated v2 selection.
 
-The old top-level `routes` compatibility projection is no longer the preferred contract.
+The old top-level `routes` compatibility projection is not the current contract.
 
 ### 7.3 Strict v2 JSON-shape guard
 
-The v2 migration must validate JSON shape as well as semantic eligibility. Do not rely only on the current scalar CHECK:
+Migration `0026` validates JSON shape as well as semantic eligibility. It does not rely only on the old scalar CHECK because SQLite `CHECK` expressions that evaluate to `NULL` do not fail merely because a required JSON field is missing.
 
-```sql
-json_extract(scope_json, '$.systemId') = system_id
-```
-
-because SQLite `CHECK` expressions that evaluate to `NULL` do not fail merely because a required JSON field is missing.
-
-The migrated database boundary must explicitly require at least:
-
-- `scope_json` is valid JSON of the expected object shape;
-- `version` exists, is an integer, and equals `2`;
-- top-level `systemId` exists, is a non-empty JSON string, and equals `NEW.system_id`;
-- `runScope` exists and is an object;
-- `runScope.systems` exists, is an array, and contains at least one System entry;
-- each System entry is an object with a non-empty string `systemId`;
-- each System entry has a string `mode` and only `all` or `routes` is accepted;
-- `routes` mode has the expected non-empty route-array shape;
-- each route has only a known route type (`topic` or `tag`) and a non-empty string route ID;
-- malformed, missing, `null`, or wrong-typed required fields fail closed.
-
-Application normalization should also reject duplicate/ambiguous System entries and malformed routes before insertion. D1 remains the final integrity boundary.
+The migrated database boundary explicitly requires the canonical v2 shape, including required version, attribution `systemId`, non-empty `runScope.systems`, valid `all`/`routes` entries, and valid route objects; malformed, missing, null, duplicate, contradictory, or wrong-typed fields fail closed.
 
 ### 7.4 Required v2 D1 semantic proof
 
-After shape validation, the migrated D1 guard must independently prove all three relationships:
+After shape validation, the migrated D1 guard independently proves all three relationships:
 
 ```text
 1. attribution System is selected in runScope
@@ -420,9 +404,9 @@ After shape validation, the migrated D1 guard must independently prove all three
 3. persisted system_id equals that validated attribution System
 ```
 
-Conceptually, before inserting an Active Review, the database must find the `runScope.systems[]` entry whose `systemId` equals `NEW.system_id` and validate the Case against that entry.
+Conceptually, before inserting an Active Review, the database finds the `runScope.systems[]` entry whose `systemId` equals `NEW.system_id` and validates the Case against that entry.
 
-**Baseline learner-content invariant:** regardless of whether eligibility is proved through `routes/topic`, `routes/tag`, `all/native`, or `all/curated-tag`, the Case must retain a valid **active primary Topic concept** under the same learner-content rules enforced by the current resolver and current Active Review guard. An active Case with a valid curated Tag is still ineligible if its primary Topic is missing or inactive. This baseline is evaluated before the route-specific proof below.
+**Baseline learner-content invariant:** regardless of whether eligibility is proved through `routes/topic`, `routes/tag`, `all/native`, or `all/curated-tag`, the Case must retain a valid **active primary Topic concept** under the same learner-content rules enforced by the current resolver and Active Review guard. An active Case with a valid curated Tag is still ineligible if its primary Topic is missing or inactive. This baseline is evaluated before the route-specific proof below.
 
 For `mode: 'routes'`:
 
@@ -434,13 +418,13 @@ For `mode: 'all'`:
 - a native Case qualifies when its active primary Topic belongs under the selected System; or
 - a curated-Tag Case qualifies only when the Case already satisfies the active-primary-Topic baseline and has an active Tag curated to the selected System.
 
-The guard must continue to require an active, non-preview Case and an active System, matching the existing integrity intent.
+The guard continues to require an active, non-preview Case and an active System, matching the existing integrity intent.
 
-Application code should perform the same validation for useful errors, but application validation does not replace the D1 guard.
+Application code performs the same validation for useful errors, but application validation does not replace the D1 guard.
 
-### 7.5 Required forged-attribution rejection
+### 7.5 Forged-attribution rejection
 
-A particularly important regression is:
+An important regression remains:
 
 ```text
 Case is genuinely reachable through System B
@@ -450,11 +434,11 @@ but the authenticated runScope selected only Systems A and C
 
 This proves the D1 boundary protects selected-scope attribution, not merely taxonomy reachability.
 
-Likewise, if System B is selected only through explicit routes that do not include a route reaching the Case, `system_id = B` must fail even though the Case might be reachable through B under some other non-selected route.
+Likewise, if System B is selected only through explicit routes that do not include a route reaching the Case, `system_id = B` fails even though the Case might be reachable through B under some other non-selected route.
 
 ## 8. FSRS and analytics invariants
 
-Multi-System study changes selection only. It must not change scheduler ownership.
+Multi-System study changes selection only. It does not change scheduler ownership.
 
 Keep:
 
@@ -477,7 +461,7 @@ Because those durable records inherit the Active Review System attribution, the 
 
 ## 9. Existing run-level safety and continuous-navigation behavior
 
-Multi-System study must preserve the locked run-size/continuous-run amendment. These are not new product decisions.
+Multi-System study preserves the locked run-size/continuous-run amendment. These are not new product decisions.
 
 ### 9.1 50-consecutive-New guard remains global and unchanged
 
@@ -486,7 +470,7 @@ Scheduled Study retains the existing 50-consecutive-New guardrail.
 For a mixed run:
 
 - `consecutiveNewCompleted` remains one counter for the **entire combined run**;
-- crossing from one System to another must not reset the counter;
+- crossing from one System to another does not reset the counter;
 - a Due completion continues to reset the counter according to the current run semantics;
 - matured required repeats retain their existing priority/behavior;
 - in `All available`, reaching the 50-New guard may stop further New introductions while Due work and required repeats remain eligible exactly as today;
@@ -505,7 +489,7 @@ plan succeeds
 → navigate directly to the first eligible Review
 ```
 
-The learner must not need a second `Continue run` click merely because the scope spans multiple Systems.
+The learner does not need a second `Continue run` click merely because the scope spans multiple Systems.
 
 After each successful Scheduled or Free completion:
 
@@ -515,11 +499,11 @@ advance browser descriptor
 → if another Review opens, navigate directly to it
 ```
 
-Do not return to System selection merely because the next Case belongs to another System.
+The learner does not return to System selection merely because the next Case belongs to another System.
 
 Return to the study/run screen only for the existing terminal/recovery reasons: complete, waiting for a required repeat, stopped by the 50-New guard, blocked by resumable/recoverable state, or deliberately left/stopped.
 
-The client may automate navigation, but server-side open/revalidation, Active Review creation, scheduler authority, and completion owners remain authoritative.
+The client automates navigation, but server-side open/revalidation, Active Review creation, scheduler authority, and completion owners remain authoritative.
 
 ### 9.3 Exactly-once completion remains unchanged for v2
 
@@ -527,35 +511,37 @@ The clean v2 cutover removes cross-version replay complexity; it does **not** re
 
 For v2 runs:
 
-- matching learner-owned run state must still reach the receipt-owning Scheduled/Free completion owner in the ordering required for lost-response retries;
-- an identical retry after a committed completion must still replay safely;
+- matching learner-owned run state still reaches the receipt-owning Scheduled/Free completion owner in the ordering required for lost-response retries;
+- an identical retry after a committed completion still replays safely;
 - advancing to the next Review occurs only after successful completion response processing;
-- failure to open the next Review must not manufacture a second completion.
+- failure to open the next Review does not manufacture a second completion.
 
 ## 10. Learner UX
 
-Refactor the current Systems-first chooser into a multi-select study-scope builder while reusing its existing Topic/Tag configuration controls.
+The current Systems-first chooser is a multi-select study-scope builder reusing the existing Topic/Tag hierarchy semantics.
 
-Recommended interaction:
+Current interaction:
 
-- checkbox or equivalent selection control on each System;
-- `Configure` expansion for Topics / curated Tags;
-- selecting a System initially selects `all`;
-- changing one Topic/Tag converts that System to an explicit custom scope;
-- `Select all Systems` and `Clear all` controls;
+- checkbox selection on each System;
+- `Configure Topics / Tags` expansion per System;
+- selecting a System initially means `all`;
+- explicit `Narrow this System` switches that selected System to route mode;
+- exact Topic and curated Tag routes are successful form controls only while that System is selected and narrowed;
+- structural zero-exact Topic parents toggle descendant exact Topic routes and can be indeterminate without submitting themselves;
 - visible selected-System count;
-- visible unique eligible-Case count;
+- server-resolved unique eligible-Case count;
+- stale count responses are invalidated on selection change before the debounced replacement request starts;
 - existing 5 / 10 / 20 / All run-size choice;
 - **default run size remains 10 Cases**;
 - clear Scheduled Study / Free Study start actions.
 
-The learner should not need to enter and leave separate System pages to build one integrated run.
+The learner does not need to enter and leave separate System pages to build one integrated run.
 
 ## 11. Performance, raw-input hardening, and supported envelopes
 
-Retain the current bounded-planning philosophy.
+The implementation retains the bounded-planning philosophy.
 
-Implementation must explicitly verify:
+It verifies:
 
 - normalized mixed-scope size;
 - Scheduled candidate envelope;
@@ -566,52 +552,31 @@ Implementation must explicitly verify:
 - Free Study bag size for the largest supported mixed selection;
 - D1 trigger cost for strict v2 shape plus selected-scope eligibility checks.
 
-Whole-System `mode: all` prevents run-scope route-count growth from scaling with every Topic/Tag under every selected System.
+Whole-System `mode: all` prevents run-scope route-count growth from scaling with every Topic/Tag under every selected System. The learner UX also avoids serializing those route fields in the HTML form unless the System is both selected and explicitly narrowed.
 
-### 11.1 Raw input must be bounded before expensive normalization
+### 11.1 Raw input is bounded before expensive normalization
 
 The learner form/request is untrusted input.
 
-Do not rely only on the final normalized route count. Multi-System Runtime should impose reasonable raw limits before expensive taxonomy traversal, candidate resolution, JSON serialization, or proof construction.
+Runtime v2 imposes raw limits before expensive taxonomy traversal, candidate resolution, JSON serialization, or proof construction, including bounds on submitted System entries, total raw routes, and identifier lengths within the existing platform/application request envelope.
 
-At minimum bound:
-
-- number of submitted System entries;
-- total raw route entries;
-- identifier/string lengths where appropriate;
-- request/form body size through the existing platform/application envelope.
-
-Duplicate inputs may normalize away, but an attacker must not be able to submit an arbitrarily large duplicate payload merely because the final normalized scope is small.
-
-Exact limits should be derived from the real taxonomy and benchmarked supported envelope rather than guessed upward.
+Duplicate inputs may normalize away, but an attacker cannot rely on normalization to make an arbitrarily large raw duplicate payload acceptable.
 
 Do not increase existing safety limits merely to make the feature pass without measured evidence.
 
 ## 12. Required regression coverage
 
-At minimum prove all of the following.
+The Runtime v2 and learner UX validation owners collectively prove the following categories.
 
 ### 12.1 Zero-data clean cutover and deployment fence
 
-- the committed cutover gate passes on the verified empty learner-runtime state;
-- any Active Review causes the gate to fail;
-- any Scheduled completion event/receipt causes the gate to fail;
-- any Free completion receipt causes the gate to fail;
-- any Case FSRS state, learner encounter, optimizer evidence, lifetime aggregate, per-System aggregate, or monthly bucket causes the gate to fail;
-- **any `learner_fsrs_profiles` row causes the gate to fail, including a default/pristine-looking profile**;
-- `learner_preferences` alone do not cause the gate to fail;
-- legacy Review sentinel rows continue to fail closed where required by the existing Production preflight;
+- the committed cutover gate passes on verified empty learner-runtime state;
+- required learner runtime/history/profile/legacy sentinel rows fail the gate closed;
+- `learner_preferences` alone do not fail the gate;
 - failed gate means no v2 Production migration/deploy;
-- the learner-runtime write fence is active before the full gate runs;
-- v1 planning/open/completion cannot occur between the gate and v2 Worker activation;
-- the v2 D1 migration cannot be applied while the old learner runtime remains writable;
-- the one-time v2 cutover cannot deploy the v2 Worker through an `apply_migrations=false` path;
-- the workflow fails closed unless the required v2 migration has been applied and the expected v2 Active Review guard is present;
-- the fence remains active through migration, v2 Worker deployment, and non-mutating Production verification;
-- normal Production learner planning/open/completion remains blocked while the fence is active;
-- Production verification while fenced creates no learner FSRS/runtime/history/analytics rows;
-- learner runtime reopens only after the v2 Worker is live and non-mutating verification has passed;
-- successful clean cutover emits/accepts learner v2 descriptors and does not create new learner v1 runs.
+- learner-runtime write fence is active before the full gate;
+- the required v2 migration cannot be bypassed on an incomplete cutover;
+- fenced Production verification remains non-mutating and the runtime reopens only after verified v2 deployment.
 
 ### 12.2 Selection / normalization
 
@@ -660,8 +625,7 @@ At minimum prove all of the following.
 - the 50-New counter is global across the combined mixed run;
 - moving from one System to another does not reset it;
 - the 51st consecutive New introduction is blocked under the existing rule;
-- Due work remains available at the guard boundary;
-- matured required repeats remain available at the guard boundary;
+- Due work and matured repeats remain available at the guard boundary as required;
 - a Due completion resets the counter according to current semantics;
 - `All available` stops further New introductions at the guard while allowing Due/repeat work as required.
 
@@ -680,49 +644,21 @@ For both Scheduled and Free mixed runs:
 - successful planning immediately opens/navigates to the first eligible Review;
 - no second `Continue run` click is required for a new run;
 - successful completion immediately opens/navigates to the next eligible Review when available;
+- a real migrated-D1 fixture proves Case/System A → completion → next-open → Case/System B;
 - changing Systems between adjacent Cases does not return the learner to System selection;
 - waiting/complete/guard/recovery states still return to the appropriate run surface rather than manufacturing another Review.
 
 ### 12.9 Active Review / strict v2 D1 guard / analytics
 
-Using real migrated D1/SQLite trigger behavior, prove at minimum:
-
-- a native-Topic Active Review from a selected System passes;
-- a curated-Tag cross-System Active Review from a selected System passes when the Case retains a valid active primary Topic;
-- a whole-System `mode: 'all'` native Case passes;
-- a whole-System `mode: 'all'` curated-Tag Case passes when the Case retains a valid active primary Topic;
-- **curated Tag + inactive primary Topic fails**;
-- **whole-System `mode: 'all'` curated Tag + inactive primary Topic fails**;
-- **curated Tag + missing primary Topic fails**;
-- a Case genuinely reachable through System B is rejected when System B is not selected in `runScope`;
-- a selected System B is rejected when its explicit selected routes do not reach the Case;
-- forged/non-contributing `system_id` attribution fails at the D1 guard;
-- top-level `scope_json.systemId` is a required non-empty string and matches persisted `system_id`;
-- missing/null/wrong-type `version` fails;
-- any version other than `2` fails for the v2 Active Review path;
-- missing/null/wrong-type top-level `systemId` fails;
-- missing/null/wrong-type `runScope` or `runScope.systems` fails;
-- empty `runScope.systems` fails;
-- missing/null/wrong-type System entry `systemId` fails;
-- missing/null/wrong-type/unknown `mode` fails;
-- malformed `routes` mode or malformed route entries fail;
-- inactive/non-production Case, inactive System, inactive primary Topic, or missing primary Topic still fails;
-- every Review has one concrete System attribution;
-- Scheduled completion writes the intended validated System attribution;
-- monthly/per-System analytics remain correct after mixed runs;
-- curated-Tag-only attribution preserves current semantics;
-- repeated access to the same mixed run cannot change attribution nondeterministically.
+Migrated D1/SQLite trigger validation covers native Topic, curated Tag, whole-System `all`, active-primary-Topic baseline, unselected/wrong-route attribution, malformed scope, forged attribution, and concrete System persistence. Scheduled completion continues to write the validated historical System attribution and existing per-System/monthly analytics.
 
 ### 12.10 Production release verification
 
 - full v2 planning/open/completion acceptance runs before Production against local/ephemeral D1 with the real migration applied;
 - Production verification while fenced is non-mutating;
-- the deployed Worker version is verifiable;
-- the required v2 migration/trigger is verifiably present before learner runtime reopen;
-- the fence is verifiably active during Production checks;
-- health/read-only checks succeed without creating learner runtime/history data;
-- required zero-data sentinels remain zero through the fenced verification window;
-- the release fails closed if the migration was skipped, is missing, or the expected guard is not present.
+- the deployed Worker version and required v2 guard are verifiable before runtime reopen;
+- health/read-only checks create no learner runtime/history data;
+- the release fails closed if the required migration/guard is skipped or missing.
 
 ### 12.11 Browser / envelope
 
@@ -734,15 +670,7 @@ Using real migrated D1/SQLite trigger behavior, prove at minimum:
 
 ## 13. Documentation cutover
 
-When implementation ships, update living learner-study authorities that currently describe:
-
-```text
-Choose System
-→ Scheduled Study or Free Study
-→ 5 / 10 / 20 / All
-```
-
-to describe:
+Living learner-study authorities now describe:
 
 ```text
 Choose one or more Systems
@@ -751,17 +679,22 @@ Choose one or more Systems
 → 5 / 10 / 20 / All unique Cases
 ```
 
-Document the actual migration number, zero-data preflight command, write-fence mechanism, Production workflow ordering, non-mutating Production verification, and v2 descriptor/proof contract after implementation chooses their concrete names.
+The current companion authorities are:
 
-Do not rewrite historical PR evidence as if multi-System study already existed at the time it was authored.
+- `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` for the Runtime v2 tranche/cutover evidence;
+- `MULTI_SYSTEM_UX_IMPLEMENTATION.md` for the learner chooser/count/navigation cutover;
+- `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` for the current repository runtime boundary;
+- `V1_DATA_MODEL.md` for current schema/data semantics.
 
-## 14. Proposed implementation split
+Historical PR evidence remains historical and must not be rewritten as if multi-System learner UX existed when it was authored.
 
-Use names that cannot be confused with the existing FSRS programme's historical PR A / PR B terminology.
+## 14. Implemented tranche split
 
-### Multi-System Runtime — scope/runtime foundation
+The names remain distinct from the historical FSRS programme's PR A / PR B terminology.
 
-Own:
+### Multi-System Runtime — scope/runtime foundation — implemented/merged via PR #147
+
+Owns:
 
 - executable fail-closed zero-data cutover gate;
 - strict `learner_fsrs_profiles = 0` cutover sentinel;
@@ -777,33 +710,30 @@ Own:
 - clean v1 learner-browser-state retirement under the verified fenced zero-data assumption;
 - Scheduled and Free planner/open support;
 - Active Review creation/revalidation support;
-- immutable migration replacing/updating `active_reviews_content_scope_guard` for strict v2 JSON shape and `runScope` semantics;
-- preservation of the current active-primary-Topic baseline for Topic, Tag, `all/native`, and `all/curated-tag` eligibility;
-- D1 proof that attribution System is selected and the Case is reachable under that exact selected sub-scope;
-- native-Topic, curated-Tag cross-System, whole-System `all`, inactive/missing-primary-Topic, unselected-System, wrong-route, malformed-scope, and forged-attribution D1 regressions;
+- migration `0026` strict v2 Active Review content/scope guard;
+- preservation of the active-primary-Topic baseline;
 - global 50-New regressions;
 - exactly-once/lost-response v2 completion regressions;
 - plan→first and completion→next continuous-navigation runtime support;
 - browser descriptor validation/storage cutover;
 - maximum-envelope benchmarks.
 
-This tranche keeps current learner behavior available until runtime, D1, cutover, and performance invariants are proven.
+Production deployment is a separate explicit step. Runtime v2 repository implementation does not prove that Production cutover has been performed.
 
-Production deployment is a separate explicit step. Multi-System Runtime must modify the deployment workflow so the learner-runtime fence begins before the full Production zero-data gate and remains in force through mandatory migration application, v2 Worker deployment, and non-mutating Production verification. The v2 cutover Worker must not become live if the required migration was skipped or failed.
+### Multi-System UX — learner cutover — implemented on PR #149
 
-### Multi-System UX — learner cutover
-
-Own:
+Owns:
 
 - multi-select System chooser;
-- expandable per-System Topic/Tag configuration;
-- whole-System `all` representation;
-- unique combined candidate count;
+- expandable per-System Topic/Tag configuration with structural Topic hierarchy semantics;
+- whole-System `all` representation without route materialization in the browser request;
+- unique combined candidate count from the server resolver, with stale-response protection;
 - `/study` form/action wiring;
 - 5/10/20/All mixed-run start behavior;
 - **default run size of 10 Cases**;
 - immediate plan→first-open UX;
 - completion→next-open navigation across System boundaries;
+- migrated-D1 real A→B next-open acceptance for Scheduled and Free;
 - learner-facing regression coverage;
 - living documentation cutover.
 
@@ -833,11 +763,11 @@ Do not include in this feature:
 - relying on nullable `json_extract(...) = system_id` alone as proof of required v2 scope shape;
 - weakening or bypassing independent D1 validation of selected-scope attribution;
 - changes to Scheduled/Free completion semantics unrelated to the mixed-scope/v2 cutover;
-- Production mutation/deployment as part of this planning documentation PR.
+- Production mutation/deployment as part of the learner UX PR.
 
 ## 16. Acceptance criteria
 
-Multi-System learner study is ready for learner cutover when all of the following are true:
+Multi-System learner study is repository-ready for learner cutover when all of the following are true:
 
 1. a learner can select more than one System in one study run;
 2. each System can independently mean `all` or an explicit Topic/Tag subset;
@@ -864,4 +794,7 @@ Multi-System learner study is ready for learner cutover when all of the followin
 23. raw input and normalized scope are both bounded before expensive work;
 24. browser/Worker/D1 performance stays inside measured supported envelopes;
 25. current single-System study remains a valid special case of the new v2 contract;
-26. living learner-study documentation is updated only when the implementation actually ships.
+26. whole-System browser requests do not materialize Topic/Tag routes;
+27. combined count responses cannot overwrite newer chooser state after selection changes;
+28. structural zero-exact Topic parents remain hierarchy controls rather than submitted exact routes;
+29. living learner-study documentation reflects the implemented repository state while keeping Production deployment status separate.

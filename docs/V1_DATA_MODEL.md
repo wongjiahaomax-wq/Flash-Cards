@@ -1,8 +1,8 @@
 # Flash-Cards — V1 Data Model
 
-_Last updated: 4 September 2026_
+_Last updated: 5 September 2026_
 
-This document records the implemented V1 application data model through the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, Original/Alternative stimulus changes, merged PR #139 (PR F), the PR G Admin analytics/account-deletion repository implementation, and the Multi-System Runtime v2 scope/runtime foundation through migration `0026`. It should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the current learner-runtime boundary and explicitly distinguishes repository state from Production deployment state. `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` records the focused Runtime v2 implementation/cutover evidence; learner-facing multi-select configuration remains a later UX tranche.
+This document records the implemented V1 application data model through the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, Original/Alternative stimulus changes, merged PR #139 (PR F), the PR G Admin analytics/account-deletion repository implementation, the Multi-System Runtime v2 scope/runtime foundation through migration `0026`, and the learner multi-System `/study` UX implementation. It should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the current learner-runtime boundary and explicitly distinguishes repository state from Production deployment state. `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` records the focused Runtime v2 implementation/cutover evidence; `MULTI_SYSTEM_UX_IMPLEMENTATION.md` records the current learner chooser/count/navigation cutover on top of that runtime.
 
 A migration file being committed is not proof that it has been applied to production D1. Merge status, production migration application, Worker deployment, taxonomy/stimulus curation, learner feature enablement, and behavior verification remain separate operational facts.
 
@@ -904,7 +904,7 @@ Runtime v2 combines one or more such System sub-scopes in one canonical authenti
 
 The combined candidate pool is globally deduplicated by Case. Contributor information is retained long enough to choose one concrete historical System deterministically: prefer a selected native Primary-Topic System contribution, otherwise use stable contributing System-ID order. Checkbox/input order is not attribution authority. The chosen System is frozen on the Active Review; there is no synthetic `Mixed` System.
 
-A Tag can be exposed by more than one System. The current `/study` chooser remains single-System until the Multi-System UX tranche, but that single-System choice is already a valid special case of the v2 runtime. While work is unfinished, `active_reviews.system_id` plus strict v2 `scope_json` / `scope_fingerprint` and the Scheduled proof fields own the exact active scope/attribution boundary; the retired legacy `reviews.route_type`, `study_*`, and `navigation_route_*` fields are not current runtime provenance.
+A Tag can be exposed by more than one System. The current `/study` chooser may select one or more Systems; selecting a whole System expresses compact v2 `mode: "all"`, while a selected narrowed System submits only its explicit exact-Topic/curated-Tag routes. Structural Topics with zero exact Cases remain hierarchy controls rather than submitted exact routes. Whole-System and unselected Systems do not materialize Topic/Tag route fields in the learner form request. The server remains authoritative for normalization, candidate union/deduplication, and deterministic attribution; single-System Study remains a valid special case of the same v2 runtime. While work is unfinished, `active_reviews.system_id` plus strict v2 `scope_json` / `scope_fingerprint` and the Scheduled proof fields own the exact active scope/attribution boundary; the retired legacy `reviews.route_type`, `study_*`, and `navigation_route_*` fields are not current runtime provenance.
 
 Durable FSRS System attribution is registered centrally in:
 
@@ -918,7 +918,7 @@ Application deletion/reclassification checks must consult this durable registry.
 
 Free Study completion does not write `learner_system_aggregates`, `learner_system_monthly_buckets`, or a durable System event. Its unfinished System ownership exists only on the active Review until that Review is consumed.
 
-See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for content reachability semantics, `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` for the v2 runtime/cutover evidence, and `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` for the current learner-runtime boundary.
+See `CONTEXTUAL_SYSTEM_TOPIC_TAG_NAVIGATION.md` for content reachability semantics, `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` for the v2 runtime/cutover evidence, `MULTI_SYSTEM_UX_IMPLEMENTATION.md` for the current learner chooser/count/navigation cutover, and `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` for the current learner-runtime boundary.
 
 ## 24. Non-goals encoded by the current model
 

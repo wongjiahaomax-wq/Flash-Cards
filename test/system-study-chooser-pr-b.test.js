@@ -6,6 +6,14 @@ const chooserSource = readFileSync(
   new URL('../src/lib/components/study/SystemStudyChooser.svelte', import.meta.url),
   'utf8'
 );
+const learnerStudySource = readFileSync(
+  new URL('../src/routes/study/+page.svelte', import.meta.url),
+  'utf8'
+);
+const hierarchySource = readFileSync(
+  new URL('../src/lib/study-topic-hierarchy.js', import.meta.url),
+  'utf8'
+);
 const formOwnerSource = readFileSync(
   new URL('../src/lib/server/learning/plan-system-study.ts', import.meta.url),
   'utf8'
@@ -46,12 +54,33 @@ test('zero-exact structural Topic parents control descendants without becoming s
   assert.match(chooserSource, /0 exact-Topic Cases · \{topic\.subtreeCaseCount\}/);
 });
 
-test('PR B removes per-run Original/Expanded choice and plans explicit Scheduled or Free descriptors', () => {
+test('multi-System learner /study preserves structural Topic hierarchy and compact route submission', () => {
+  assert.match(learnerStudySource, /from '\$lib\/study-topic-hierarchy\.js'/);
+  assert.match(learnerStudySource, /orderedStudyTopics\(system\.topics\)/);
+  assert.match(learnerStudySource, /studyTopicSubtreeRouteValues\(system\.topics, topic\.id\)/);
+  assert.match(learnerStudySource, /use:indeterminate=\{topicIndeterminate\(system, topic\)\}/);
+  assert.match(learnerStudySource, /toggleTopicSubtree\(system, topic, eventChecked\(event\)\)/);
+  assert.match(
+    learnerStudySource,
+    /name=\{Number\(topic\.caseCount\) > 0 && routesAreSubmitted\(system\.id\) \? `route:\$\{system\.id\}` : undefined\}/,
+    'the actual learner surface must submit only exact Topics for a selected narrowed System'
+  );
+  assert.match(
+    learnerStudySource,
+    /return systemSelected\(systemId\) && systemNarrowed\(systemId\)/,
+    'whole-System and unselected Systems must not materialize Topic/Tag route fields'
+  );
+  assert.match(learnerStudySource, /Structural Topic · 0 exact Cases/);
+  assert.match(hierarchySource, /if \(current && Number\(current\.caseCount\) > 0\) routes\.push\(`topic:\$\{currentId\}`\)/);
+});
+
+test('PR B removes per-run Original/Expanded choice and the shared owner plans explicit Scheduled or Free v2 descriptors', () => {
   assert.doesNotMatch(chooserSource, /questionPoolMode|Original questions|Expanded Learning/);
   assert.match(chooserSource, /name="studyMode"/);
-  assert.match(formOwnerSource, /studyMode !== 'scheduled' && studyMode !== 'free'/);
-  assert.match(formOwnerSource, /planScheduledSystemStudyRun/);
-  assert.match(formOwnerSource, /planFreeSystemStudyRun/);
+  assert.match(formOwnerSource, /state\.studyMode !== 'scheduled' && state\.studyMode !== 'free'/);
+  assert.match(formOwnerSource, /planScheduledMultiSystemStudyRun/);
+  assert.match(formOwnerSource, /planFreeMultiSystemStudyRun/);
+  assert.match(formOwnerSource, /parseMultiSystemStudyScopeFromForm/);
   assert.doesNotMatch(formOwnerSource, /questionPoolMode/);
 });
 

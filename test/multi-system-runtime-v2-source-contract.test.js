@@ -119,9 +119,11 @@ test('Production workflow mechanically enforces the retry-safe fenced v2 cutover
   assert.match(workflow, /multi-system:guard-verify -- --remote/);
 });
 
-test('migrated-D1 validation owns both full lifecycle acceptance and trigger-envelope timing', () => {
+test('migrated-D1 validation owns lifecycle, real cross-System next-open, and trigger-envelope timing', () => {
   const pkg = JSON.parse(source('package.json'));
   const lifecycle = source('scripts/multi-system-v2-lifecycle-d1-worker.js');
+  const crossNavigation = source('scripts/multi-system-v2-cross-navigation-d1-worker.js');
+  const crossNavigationRunner = source('scripts/multi-system-v2-cross-navigation-d1.mjs');
   const workflow = source('.github/workflows/multi-system-runtime-v2.yml');
 
   assert.equal(pkg.scripts['multi-system:d1-acceptance'], 'node scripts/multi-system-v2-d1-acceptance.mjs');
@@ -143,20 +145,43 @@ test('migrated-D1 validation owns both full lifecycle acceptance and trigger-env
   assert.match(lifecycle, /BENCHMARK_ROUTES_PER_SYSTEM = 8/);
   assert.match(lifecycle, /measureTriggerScope/);
 
+  assert.match(crossNavigation, /planScheduledMultiSystemStudyRun/);
+  assert.match(crossNavigation, /selectNextScheduledWork/);
+  assert.match(crossNavigation, /createScheduledActiveReview/);
+  assert.match(crossNavigation, /completeScheduledReview/);
+  assert.match(crossNavigation, /applyScheduledCompletion/);
+  assert.match(crossNavigation, /Scheduled completion did not advance to the System B Case/);
+  assert.match(crossNavigation, /Scheduled next-open was not concretely attributed to System B/);
+  assert.match(crossNavigation, /planFreeMultiSystemStudyRun/);
+  assert.match(crossNavigation, /selectNextFreeWork/);
+  assert.match(crossNavigation, /completeFreeReview/);
+  assert.match(crossNavigation, /applyFreeCompletion/);
+  assert.match(crossNavigation, /Free completion did not advance to the System B Case/);
+  assert.match(crossNavigation, /Free next-open was not concretely attributed to System B/);
+  assert.match(crossNavigationRunner, /workerd \+ local D1 after all repository migrations/);
+  assert.match(crossNavigationRunner, /multi-v2-nav-case-a/);
+  assert.match(crossNavigationRunner, /multi-v2-nav-case-b/);
+
   assert.match(workflow, /multi-system:d1-lifecycle-acceptance/);
+  assert.match(workflow, /multi-system-v2-cross-navigation-d1\.mjs/);
   assert.match(workflow, /multi-system:d1-trigger-benchmark/);
   assert.match(workflow, /group: \$\{\{ github\.workflow \}\}-pr-\$\{\{ github\.event\.pull_request\.number \}\}/);
   assert.match(workflow, /cancel-in-progress: true/);
 });
 
-test('Runtime v2 specialized CI owns direct taxonomy, route, and migration dependencies', () => {
+test('Runtime v2 specialized CI owns direct taxonomy, hierarchy, route, learner request, and migration dependencies', () => {
   const workflow = source('.github/workflows/multi-system-runtime-v2.yml');
 
   for (const ownedPath of [
     "- 'drizzle/**'",
+    "- 'src/lib/study-topic-hierarchy.js'",
+    "- 'src/lib/server/learning/plan-system-study.ts'",
     "- 'src/lib/server/learning/system-study-routes.ts'",
     "- 'src/lib/server/learning/taxonomy-graph.ts'",
-    "- 'src/lib/server/learning/study-routes.js'"
+    "- 'src/lib/server/learning/study-routes.js'",
+    "- 'src/routes/study/**'",
+    "- 'test/multi-system-learner-ux.test.js'",
+    "- 'test/system-study-chooser-pr-b.test.js'"
   ]) {
     assert.ok(workflow.includes(ownedPath), `Runtime v2 workflow must own ${ownedPath}`);
   }

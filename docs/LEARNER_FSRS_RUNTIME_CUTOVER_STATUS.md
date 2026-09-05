@@ -1,6 +1,6 @@
 # Learner FSRS Runtime Cutover Status
 
-Status: **current repository runtime authority, including the Multi-System Runtime v2 foundation on Draft PR #147. The learner multi-select UX is not yet implemented.**
+Status: **current repository runtime authority, including merged Multi-System Runtime v2 and the learner multi-System UX implementation on PR #149. Production deployment remains a separate operational state.**
 
 Date: 5 September 2026
 
@@ -8,12 +8,13 @@ This document records the current repository learner-runtime boundary. It comple
 
 - `LEARNER_FSRS_STUDY_AND_RETENTION_PLAN.md` — locked product authority;
 - `LEARNER_FSRS_RUN_SIZE_PRODUCT_AMENDMENT.md` — 5/10/20/All and continuous-run amendment;
-- `MULTI_SYSTEM_STUDY_PLAN.md` — multi-System product/technical plan;
-- `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` — current Runtime v2 implementation/cutover evidence;
+- `MULTI_SYSTEM_STUDY_PLAN.md` — multi-System product/technical plan and tranche status;
+- `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` — Runtime v2 implementation/cutover evidence for the runtime tranche;
+- `MULTI_SYSTEM_UX_IMPLEMENTATION.md` — current learner multi-System chooser/count/navigation implementation authority;
 - `LEARNER_FSRS_TECHNICAL_DESIGN_AND_PR119_REUSE_PLAN.md` — technical design/history;
 - `LEARNER_FSRS_IMPLEMENTATION_READINESS_CONTRACT.md` — safety/readiness requirements;
 - `LEARNER_FSRS_TRANCHE_OWNERSHIP_AMENDMENT.md` — tranche ownership where older assignments conflict;
-- `V1_DATA_MODEL.md` — implemented schema/data semantics, with migration `0026` and this Runtime v2 companion governing the branch delta beyond its last reconciliation.
+- `V1_DATA_MODEL.md` — implemented schema/data semantics through migration `0026` and the current learner multi-System runtime/UX boundary.
 
 Repository merge state is not Production deployment evidence. Nothing here establishes that migrations `0019`-`0026` have been applied to Production D1 or that the current Worker has been deployed/enabled/verified there.
 
@@ -22,13 +23,17 @@ Repository merge state is not Production deployment evidence. Nothing here estab
 Normal `/study` is owned by the FSRS/Free runtime:
 
 - Systems-first run planning;
+- one learner form may select one or more Systems;
+- selecting a System defaults to canonical v2 `mode: "all"` without submitting/materializing its Topic/Tag route list;
+- a selected System may be expanded and explicitly narrowed by existing exact Topics and curated Tags, with structural zero-exact Topics acting only as descendant controls;
 - Scheduled Study and Free Study;
 - descriptor/scope version 2 and Scheduled proof version 2;
-- canonical bounded multi-System runtime scope, while the current learner chooser still submits one System as a valid v2 special case;
+- canonical bounded multi-System runtime scope reused directly by learner `/study`;
+- server-authoritative combined eligible counts using the same normalized candidate union/deduplication semantics as planning;
 - deterministic multi-System candidate union/deduplication and concrete per-Case System attribution;
 - 5 / 10 / 20 / All available distinct-Case targets, default 10, across the combined unique Case pool;
 - global 50-consecutive-New Scheduled guardrail;
-- continuous between-Case navigation when the next eligible Case can open immediately;
+- continuous between-Case navigation when the next eligible Case can open immediately, including across System boundaries;
 - required FSRS short-term repeats honored without consuming another distinct-Case slot;
 - active Review snapshots in `active_reviews`, `active_review_questions`, and `active_review_assets`;
 - server-authenticated run/scope/work proof boundaries;
@@ -40,7 +45,7 @@ Normal `/study` is owned by the FSRS/Free runtime:
 
 The old persisted learner Review model is not a supported runtime mode.
 
-The new learner multi-select System chooser and learner-facing per-System configuration remain deferred to Multi-System UX. Balanced/equal System sampling, per-System FSRS state/parameters, a synthetic `Mixed` System, and FSRS algorithm/optimizer changes are not part of the Runtime v2 tranche.
+The learner multi-select System chooser and per-System narrowing UX are now part of the current repository implementation. Balanced/equal System sampling, per-System FSRS state/parameters, a synthetic `Mixed` System, and FSRS algorithm/optimizer changes remain deliberately out of scope.
 
 ## Multi-System Runtime v2 scope and attribution
 
@@ -134,6 +139,7 @@ The focused repository validation owners are:
 ```sh
 npm run multi-system:d1-acceptance
 npm run multi-system:d1-lifecycle-acceptance
+node scripts/multi-system-v2-cross-navigation-d1.mjs
 npm run multi-system:benchmark
 npm run multi-system:d1-trigger-benchmark
 npm run multi-system:cutover-gate
@@ -144,25 +150,13 @@ npm run multi-system:guard-verify
 
 `multi-system:d1-lifecycle-acceptance` bundles the real runtime into workerd after applying all repository migrations to isolated local D1. Its two-System fixture makes one Case reachable by a curated Tag under System A and by its active native Primary Topic under System B. It proves Scheduled planning → authenticated open → concrete System B attribution → persisted v2 envelope → reveal → rating completion → lost-response replay, including one Scheduled event, learner×System aggregate, UTC-month System bucket, learner aggregate, optimizer evidence and learner×Case FSRS state. It also proves Free planning → open → System B attribution → reveal → completion → replay with exactly one Free receipt/encounter/aggregate and no Scheduled/FSRS provenance, plus invalid cross-System scope rejection.
 
-The supported JS/browser envelope remains 64 Systems, 512 explicit routes and 20,000 unique Cases. The current green code-validation run measured approximately 68.35 ms normalization, 1,312.74 ms union/deduplication/attribution, 93.41 ms Scheduled descriptor/proof construction and 25.86 ms Free bag construction; Scheduled and Free descriptors were 1,387,180 and 307,680 bytes respectively.
+`multi-system-v2-cross-navigation-d1.mjs` adds the learner-UX tranche acceptance that uses two distinct Cases with concrete System A and System B attribution. For Scheduled and Free it proves real plan/open of Case A, completion, descriptor advancement, and actual next-open of Case B through migrated workerd+D1 rather than only a pure descriptor state machine.
 
-`multi-system:d1-trigger-benchmark` separately measures valid Active Review INSERT cost through migration `0026` on workerd + fully migrated D1. After two warmups and twelve measured inserts per shape, the current green run measured:
+The supported JS/browser envelope remains 64 Systems, 512 explicit routes and 20,000 unique Cases. The executable benchmark gates remain the authority; individual timing examples are validation evidence, not product semantics.
 
-```text
-64 Systems / 512 explicit Topic routes:
-  median 16.84 ms
-  p95    20.40 ms
-  max    20.40 ms
+`multi-system:d1-trigger-benchmark` separately measures valid Active Review INSERT cost through migration `0026` on workerd + fully migrated D1. The executable D1 trigger gates are p95 < 750 ms and single valid insert < 1,500 ms.
 
-64 Systems / all:
-  median 13.77 ms
-  p95    17.04 ms
-  max    17.04 ms
-```
-
-The executable D1 trigger gates are p95 < 750 ms and single valid insert < 1,500 ms.
-
-The dedicated `.github/workflows/multi-system-runtime-v2.yml` also follows the current PR validation cancellation policy: runs for the same PR use the workflow/PR-number concurrency group with `cancel-in-progress: true`.
+The dedicated `.github/workflows/multi-system-runtime-v2.yml` follows the current PR validation cancellation policy: runs for the same PR use the workflow/PR-number concurrency group with `cancel-in-progress: true`. It owns the learner hierarchy/compact-request source regressions and the migrated-D1 cross-System next-open acceptance in addition to the existing Runtime v2 acceptance and benchmark stages.
 
 ## Legacy Review table status
 
@@ -357,16 +351,17 @@ Presence of `0026` in the repository or D1 trigger text is not proof that the cl
 
 ## Explicit exclusions
 
-The current Runtime v2 tranche does not implement:
+The current repository implementation deliberately does **not** add:
 
-- the learner multi-select System chooser;
-- learner-facing per-System configuration UX;
-- balanced/equal System sampling;
+- balanced/equal System sampling or per-System run quotas;
 - per-System FSRS state or parameters;
 - a synthetic `Mixed` System;
 - automatic FSRS optimizer execution;
 - automatic parameter replacement/rescheduling from optimizer results;
+- descriptor/proof version 3 or another compatibility layer;
 - long-lived v1/v2 browser/proof/persistence compatibility;
+- a new Active Review attribution model;
+- Production deployment mechanics specific to the learner UX;
 - resurrection of `reviews`, `review_questions`, or `review_assets` as current runtime state.
 
-Those remain outside this tranche unless separately designed/reviewed.
+Those remain outside this implementation unless separately designed/reviewed.
