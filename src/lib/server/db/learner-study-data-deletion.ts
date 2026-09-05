@@ -9,7 +9,7 @@ const DATABASE_NOW_MS_SQL = "cast((julianday('now') - 2440587.5) * 86400000 as i
 export type StudyDataDeletionPhase = (typeof STUDY_DATA_DELETION_PHASES)[number];
 
 export class StudyDataDeletionError extends Error {
-  code: 'invalid-input' | 'user-not-found';
+  code: 'invalid-input' | 'user-not-found' | 'account-deletion-in-progress';
 
   constructor(code: StudyDataDeletionError['code'], message: string) {
     super(message);
@@ -115,6 +115,23 @@ async function firstRemainingPhase(client: D1Database, userId: string): Promise<
   return STUDY_DATA_DELETION_COMPLETE_PHASE;
 }
 
+async function accountDeletionIsActive(client: D1Database, userId: string) {
+  const row = await client.prepare(`
+    SELECT 1 AS present
+    FROM learner_account_deletions
+    WHERE user_id = ?
+    LIMIT 1
+  `).bind(userId).first();
+  return Boolean(row);
+}
+
+function rejectAccountDeletionInProgress() {
+  throw new StudyDataDeletionError(
+    'account-deletion-in-progress',
+    'Permanent account deletion is already in progress for this account.'
+  );
+}
+
 /**
  * Create the durable self-service fence. An active marker is deliberately a
  * no-op so retries cannot rewind bounded progress. A completed marker is
@@ -130,6 +147,7 @@ export async function beginStudyDataDeletion(input: {
   if (!user) {
     throw new StudyDataDeletionError('user-not-found', 'The account no longer exists.');
   }
+  if (await accountDeletionIsActive(client, userId)) rejectAccountDeletionInProgress();
 
   await client.batch([
     client.prepare(`
@@ -145,6 +163,10 @@ export async function beginStudyDataDeletion(input: {
       WHERE learner_study_data_deletions.phase = 'complete'
     `).bind(userId)
   ]);
+
+  // Account deletion may have become authoritative immediately after the
+  // preflight read. Its durable marker wins over self-service cleanup.
+  if (await accountDeletionIsActive(client, userId)) rejectAccountDeletionInProgress();
 
   const marker = await readMarker(client, userId);
   if (!marker) throw new Error('Study-data deletion started without a durable marker.');
@@ -188,6 +210,7 @@ export async function advanceStudyDataDeletion(input: {
   const userId = requiredUserId(input.userId);
   const batchSize = requiredBatchSize(input.batchSize);
   const client = requireD1Client(input.db);
+  if (await accountDeletionIsActive(client, userId)) rejectAccountDeletionInProgress();
   let marker = await readMarker(client, userId);
   if (!marker) {
     await beginStudyDataDeletion({ db: input.db, userId });

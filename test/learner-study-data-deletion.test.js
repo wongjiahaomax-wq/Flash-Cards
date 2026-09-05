@@ -12,6 +12,10 @@ import {
   STUDY_DATA_DELETION_BATCH_SIZE,
   STUDY_DATA_DELETION_DESCRIPTORS
 } from '../src/lib/server/db/learner-study-data-deletion.ts';
+import {
+  advanceLearnerAccountDeletion,
+  beginLearnerAccountDeletion
+} from '../src/lib/server/db/learner-account-deletion.ts';
 import { STUDY_DATA_DELETION_PHASES } from '../src/lib/server/db/study-data-deletion-schema.js';
 import {
   freshLearnerFsrsStart,
@@ -461,6 +465,72 @@ test('advance is retry-safe, bounded, and a complete marker rescans before relea
     assert.equal(await isStudyDataDeletionActive(db, 'learner-1'), true);
     await advanceToCompletion(db, 'learner-1');
     assert.equal(Number(sqlite.prepare("SELECT count(*) AS n FROM learner_aggregates WHERE user_id = 'learner-1'").get().n), 0);
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('permanent learner deletion supersedes self-wipe, reuses its fence, and clears legacy Review rows', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    seedIdentities(sqlite);
+    seedActiveReviewContent(sqlite);
+    seedStudyData(sqlite, 'learner-1');
+
+    await beginStudyDataDeletion({ db, userId: 'learner-1' });
+    await beginLearnerAccountDeletion({ db, userId: 'learner-1' });
+
+    assert.equal(
+      sqlite.prepare("SELECT COUNT(*) AS n FROM learner_account_deletions WHERE user_id = 'learner-1'").get().n,
+      1
+    );
+    assert.equal(marker(sqlite, 'learner-1').phase, 'active_reviews');
+    await assert.rejects(
+      beginStudyDataDeletion({ db, userId: 'learner-1' }),
+      (cause) => cause?.code === 'account-deletion-in-progress'
+    );
+    await assert.rejects(
+      advanceStudyDataDeletion({ db, userId: 'learner-1' }),
+      (cause) => cause?.code === 'account-deletion-in-progress'
+    );
+
+    let progress;
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      progress = await advanceLearnerAccountDeletion({ db, userId: 'learner-1', batchSize: 1 });
+      if (progress.readyForIdentityDelete) break;
+    }
+    assert.equal(progress.readyForIdentityDelete, true);
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM reviews WHERE user_id = 'learner-1'").get().n, 0);
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM review_questions").get().n, 0);
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM review_assets").get().n, 0);
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM learner_fsrs_profiles WHERE user_id = 'learner-1'").get().n, 0);
+    assert.equal(sqlite.prepare("SELECT COUNT(*) AS n FROM user WHERE id = 'learner-1'").get().n, 1);
+  } finally {
+    sqlite.close();
+  }
+});
+
+test('self-wipe completion is reactivated and absorbed when permanent account deletion begins', async () => {
+  const { sqlite, db } = fixture();
+  try {
+    seedIdentities(sqlite);
+    await beginStudyDataDeletion({ db, userId: 'learner-1' });
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      const result = await advanceStudyDataDeletion({ db, userId: 'learner-1', batchSize: 1 });
+      if (result.complete) break;
+    }
+    assert.equal(marker(sqlite, 'learner-1').phase, 'complete');
+
+    await beginLearnerAccountDeletion({ db, userId: 'learner-1' });
+    assert.equal(marker(sqlite, 'learner-1').phase, 'active_reviews');
+    assert.equal(
+      sqlite.prepare("SELECT banned FROM user WHERE id = 'learner-1'").get().banned,
+      1
+    );
+    await assert.rejects(
+      beginStudyDataDeletion({ db, userId: 'learner-1' }),
+      (cause) => cause?.code === 'account-deletion-in-progress'
+    );
   } finally {
     sqlite.close();
   }
