@@ -1,5 +1,18 @@
 import { pathToFileURL } from 'node:url';
 
+/**
+ * @typedef {{
+ *   versions?: Array<{
+ *     version_id?: unknown;
+ *     percentage?: unknown;
+ *   }>;
+ * }} WorkerDeploymentStatus
+ */
+
+/**
+ * @param {WorkerDeploymentStatus | null | undefined} deployment
+ * @returns {string}
+ */
 export function getSingleFullTrafficVersionId(deployment) {
   if (!deployment || typeof deployment !== 'object') {
     throw new Error('Worker deployment status must be a JSON object.');
@@ -21,6 +34,11 @@ export function getSingleFullTrafficVersionId(deployment) {
   return versionId;
 }
 
+/**
+ * @param {WorkerDeploymentStatus | null | undefined} deployment
+ * @param {string} expectedVersionId
+ * @returns {string}
+ */
 export function assertSingleFullTrafficVersion(deployment, expectedVersionId) {
   const actualVersionId = getSingleFullTrafficVersionId(deployment);
   if (actualVersionId !== expectedVersionId) {
