@@ -2,7 +2,7 @@
 
 _Status: current development/operator workflow._
 
-_Last reconciled: 6 September 2026._
+_Last reconciled: 7 September 2026._
 
 The GitHub repository is public. The application, Production credentials, auth/user/learner data, and private teaching media remain private operational concerns. Never commit credentials, `.dev.vars`, `.wrangler/` state, Production exports, learner data, or mirrored private media.
 
@@ -41,9 +41,9 @@ feature enablement
 live verification
 ```
 
-## Session lifecycle and context compaction
+## Session lifecycle and retained-context checkpoints
 
-Use semantic milestones rather than token percentages, turn counts, or command quotas:
+Use semantic milestones rather than token percentages, turn counts, command quotas, or context-size thresholds:
 
 ```text
 Discovery
@@ -52,13 +52,20 @@ Discovery
 → Handoff
 ```
 
-Discovery ends when the exact current work state, implementation surface, directly related owners/tests, and any protected/cross-cutting routing are established. After that point, continue with targeted reads and broaden only when evidence exposes a new material question.
+Discovery ends when the exact current work state, implementation surface, directly related owners/tests, and any protected/cross-cutting routing are established. After that point, continue with targeted reads and broaden only for a concrete unresolved question. Already-retrieved unchanged authority remains usable evidence; a new model turn is not a reason to rediscover it.
 
-During Implementation, reuse unchanged authorities already retrieved, inspect changed-file/scoped diffs rather than repeatedly loading the complete branch diff, and use the cheapest directly related feedback. After a focused failure, inspect the failing block and directly implicated source before rerunning broad validation.
+During Implementation, reuse unchanged authorities already retrieved, inspect changed-file/scoped diffs rather than repeatedly loading the complete branch diff, and use the cheapest directly related feedback. Form related corrections as a coherent batch where they share the same cause or invariant, then run the nearest meaningful feedback. After a focused failure, inspect the failing block and directly implicated source before rerunning broader validation.
 
-At a coherent Checkpoint, inspect the scoped change, run the validation appropriate to the risk, and resolve failures while implementation context is still useful. When the active coding client exposes context compaction and the session has accumulated substantial file/tool output, compact after that coherent checkpoint and before a series of final handoff/Git/GitHub turns. Do not compact after every small edit.
+At a coherent Checkpoint, inspect the scoped change, run validation appropriate to the risk, resolve failures while implementation context is still useful, and retain a concise operational index containing only the facts needed for subsequent decisions:
 
-Context compaction is a client/host capability, not an npm or repository feature. If it is unavailable, continue with bounded retrieval. After compaction, rely on the retained task/checkpoint summary and reread only facts that are missing, ambiguous, changed, or drift-prone; unchanged repository authorities do not need to be reloaded merely because the conversation was compacted.
+- task and acceptance criteria;
+- relevant branch/base/head or worktree state;
+- changed files and implemented invariants;
+- validation already completed and what it established;
+- unresolved failures or remaining operations;
+- exact drift-prone facts that must be refreshed before mutation/final handoff.
+
+The checkpoint index does not replace or discard the retained conversation. Full session context remains available. The repository does not require context compaction or a fresh continuation thread as an efficiency mechanism. Use the checkpoint index to avoid rereading unchanged pre-checkpoint evidence; refresh a fact only when an operation could have invalidated it, it is known to have changed, it is missing/ambiguous, or correctness requires an exact current value before mutation/handoff.
 
 Related read-only state may be retrieved together when the result remains attributable and every constituent command/request preserves its own success/failure authority. Batching reads reduces avoidable model round trips; it does not merge the underlying evidence claims. Commit, push/ref update, PR mutation, merge, migration, deployment, Production mutation, and live verification remain explicit separate operations.
 

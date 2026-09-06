@@ -90,6 +90,7 @@ Use the cheapest feedback that directly exercises the risk introduced by the cur
 - presentation-only Svelte/UX changes: batch copy, spacing, class and layout edits under `npm run dev` / Vite HMR; do not run repository validation after every edit;
 - component logic, form/action wiring, server behavior or domain logic: run the nearest directly related test file(s) first, normally with `npm test -- <test-file>` when the owner is a maintained Node test;
 - schema/migration changes: run `npm run db:check` plus the directly related migration/schema test(s) after a coherent schema edit;
+- when compiler/type/test feedback exposes multiple related failures with a common cause, correct that related set as one coherent batch before rerunning the same check; unrelated failures must still be surfaced and handled according to their own owner/scope;
 - after a focused failure and correction: rerun the focused failing check first rather than immediately rerunning the complete validation contract;
 - do not rerun an already-passing focused command unless subsequent edits could invalidate what it proved.
 

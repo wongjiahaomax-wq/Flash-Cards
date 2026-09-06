@@ -2,7 +2,7 @@
 
 Purpose: route a coding task to the **minimum current context** needed before editing. This file is a routing authority/lookup, not default cover-to-cover reading. `docs/DOCUMENTATION_INDEX.md` remains the documentation authority/index; historical plans and completed agent-task prompts are not default context.
 
-Always read the root `AGENTS.md`. Then read the nearest scoped `AGENTS.md` for the implementation surface. Use the relevant row/section of this task map to identify additional authoritative documents and checks. When the task boundary is already obvious, do not load unrelated task-map sections or documentation merely for completeness.
+Ensure the root `AGENTS.md` is in context. Then ensure the nearest scoped `AGENTS.md` for the implementation surface is in context. When an unchanged required authority is already host-injected or already retrieved, reuse that copy rather than retrieving it again; “required” means it must be available in context, not that every task needs a fresh read. Use the relevant row/section of this task map to identify additional authoritative documents and checks. When the task boundary is already obvious, do not load unrelated task-map sections or documentation merely for completeness.
 
 ## Progressive retrieval and escalation
 
@@ -87,9 +87,9 @@ identify requested work state
         ↓
 establish exact PR/branch head + intended base
         ↓
-read root AGENTS.md
+ensure root AGENTS.md is in context
         ↓
-read nearest scoped AGENTS.md
+ensure nearest scoped AGENTS.md is in context
         ↓
 use the relevant task-map routing only as needed
         ↓

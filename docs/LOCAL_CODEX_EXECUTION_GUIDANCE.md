@@ -18,6 +18,8 @@ For a clearly bounded task, start from the directly affected symbol/path and the
 
 Prefer bounded semantic reads once the relevant region is known. Avoid full substantial files, broad documentation batches, or repeated overlapping reads merely for completeness when a smaller semantic excerpt answers the question. Read the complete artifact when whole-file semantics are materially required.
 
+Once a scoped authority has been read and its applicable conclusions retained, reuse them while that authority remains unchanged. Host-injected repository authority already present in the coding context counts as retrieved evidence; do not shell-read it again merely because another turn began.
+
 ### Retrieval-correctness invariant
 
 Bounded or truncated output is evidence only for what it actually contains.
@@ -33,11 +35,36 @@ When correctness depends on completeness, run an appropriately scoped **exhausti
 
 Do not make a search incomplete merely to reduce model-context output. Separate search completeness from presentation size.
 
+### Oversized/truncated retrieval recovery
+
+If a retrieval result is unexpectedly large or truncated, do not repeat the same broad read as a default recovery. Treat the strategy as insufficient for completeness and use this sequence:
+
+```text
+identify the exact unresolved question
+-> narrow by symbol, file, line range, diagnostic, or smallest valid domain
+-> retrieve only the evidence needed for that question
+-> decide whether the question is resolved
+```
+
+A truncated result supports only the content actually returned. Unexpected truncation should trigger strategy correction rather than another overlapping broad discovery pass. Preserve exhaustive search semantics where correctness depends on absence, uniqueness, or complete coverage, but separate that exhaustive search from the amount of result text presented to the model.
+
+Do not combine full authorities, broad history/memory lookup, repository-wide search, Git state, and PR metadata into one oversized retrieval merely to save a tool call. Batch retrieval only when all items answer the same immediate question, remain bounded, and preserve clear attribution.
+
 ### Shape shell/tool output before it enters context
 
 Prefer path-scoped searches, exact files/fields, bounded semantic excerpts, compact structured summaries, and repository-owned compact reporters. Avoid large multi-file concatenations, full logs when only a failure region is needed, and repeated unchanged retrieval.
 
 Batch outputs only when they answer the same immediate question, remain reasonably bounded, and preserve clear success/failure attribution. One extra targeted command is preferable to one oversized batch that pollutes later turns.
+
+### Process waiting and polling
+
+Choose an initial yield that is reasonable for the known or expected command runtime. Ordinary multi-second checks should not begin with repeated one-second polling merely to keep the agent responsive.
+
+When a process is still running, use a meaningful follow-up wait rather than a stream of undersized polls. Keep user/commentary updates consistent with the host communication requirement, but do not substitute repeated polling for communication.
+
+Never terminate, skip, or weaken validation to save context. Independent final checks may run concurrently only when they do not contend for shared mutable state and their output plus exit status remain independently attributable; otherwise run them separately.
+
+There is no universal fixed yield duration. The invariant is to avoid obviously undersized polling intervals while preserving reliable process completion and evidence.
 
 ### Local browser/UX verification
 
@@ -45,4 +72,4 @@ Reuse the repository's existing local development process and any existing brows
 
 ## Existing authorities still own the rest
 
-Continue to use root `AGENTS.md` and `docs/AGENT_TASK_MAP.md` for progressive escalation, evidence reuse, prompt shape, validation cadence, protected boundaries, and final handoff requirements. Bounded retrieval never means reduced final validation or an incomplete final intended-base-to-head review.
+Continue to use root `AGENTS.md` and `docs/AGENT_TASK_MAP.md` for progressive escalation, evidence reuse, prompt shape, coherent implementation batching, validation cadence, retained-context checkpoint state, protected boundaries, and final handoff requirements. `docs/TESTING_AND_VALIDATION_GUIDANCE.md` owns detailed focused/checkpoint/final validation semantics. Bounded retrieval never means reduced final validation or an incomplete final intended-base-to-head review.
