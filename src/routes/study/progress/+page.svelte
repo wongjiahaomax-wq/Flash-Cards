@@ -9,7 +9,7 @@
     <div>
       <p class="eyebrow">Study</p>
       <h1>Progress</h1>
-      <p class="muted">Detailed scheduling coverage, activity, ratings, and retained review history.</p>
+      <p class="muted">See your scheduling coverage, activity, ratings, and Review history.</p>
     </div>
     <a class="button" href="/study">← Back to Study</a>
   </header>
@@ -26,7 +26,7 @@
         <div>
           <p class="eyebrow">Learner Progress</p>
           <h2 id="learner-progress-title">Scheduling and activity</h2>
-          <p class="muted">Coverage shows how much of your eligible content has entered Scheduled Study.</p>
+      <p class="muted">Coverage shows how much of your eligible content you have started in Scheduled Study.</p>
         </div>
         <p class="retention-note muted">Detailed Scheduled history: {data.progress.profile?.detailedHistoryRetention ?? '24 months'}</p>
       </div>
@@ -50,7 +50,7 @@
         <h2 id="history-title">Recent Scheduled activity</h2>
         {#if data.progress.recentHistory.length}
           <ol class="history-list">{#each data.progress.recentHistory as event}<li><div><strong>{event.caseTitle}</strong><span class="muted">{event.systemName} · {event.contentMode === 'expanded' ? 'Expanded' : 'Original'}</span></div><div><span class="rating">{event.rating}</span><time datetime={new Date(event.completedAt).toISOString()}>{new Date(event.completedAt).toLocaleString()}</time></div></li>{/each}</ol>
-        {:else}<p class="muted">No retained Scheduled Review history yet.</p>{/if}
+        {:else}<p class="muted">No Scheduled Review history yet.</p>{/if}
       </section>
     </section>
   {/if}
@@ -81,6 +81,7 @@
   .history-list li { display:flex; justify-content:space-between; gap:1rem; padding:.65rem .75rem; border:1px solid #eaecf0; border-radius:10px; }
   .history-list li > div { display:grid; gap:.18rem; }
   time { color:#667085; font-size:.8rem; }
+  a:focus-visible { outline:3px solid rgba(52,64,84,.25); outline-offset:2px; }
   @media (max-width:900px) { .metrics { grid-template-columns:repeat(2,minmax(0,1fr)); } }
   @media (max-width:620px) { .page-header,.progress-heading,.history-list li { display:grid; } .retention-note { text-align:left; } .metrics { grid-template-columns:1fr; } }
 </style>

@@ -8,8 +8,8 @@
   } from '$lib/learner-study-open.js';
   import {
     clearLearnerStudyRun,
-    readLearnerStudyRun,
-    writeLearnerStudyRun
+    persistLearnerStudyRunReplacement,
+    readLearnerStudyRun
   } from '$lib/learner-study-run-storage.js';
 
   let { data } = $props();
@@ -17,15 +17,17 @@
   let browserRun = $state(null);
   let completionError = $state('');
   let completing = $state(false);
+  let storageRecovery = $state(false);
 
   onMount(() => {
     browserRun = readLearnerStudyRun(localStorage);
+    storageRecovery = new URLSearchParams(window.location.search).get('storageRecovery') === '1';
   });
 
   /** @param {string} mode */
   function contentModeLabel(mode) {
     return mode === 'expanded'
-      ? 'Expanded Learning · more relevant questions'
+      ? 'Expanded Learning · includes related questions'
       : 'Original questions · curated for this Case';
   }
 
@@ -34,9 +36,18 @@
     try {
       const next = await requestNextLearnerStudyWork(descriptor);
       if (next.payload.descriptor) {
-        browserRun = writeLearnerStudyRun(localStorage, next.payload.descriptor);
+        const persisted = persistLearnerStudyRunReplacement(localStorage, next.payload.descriptor, descriptor);
+        browserRun = persisted.descriptor;
+        if (!persisted.ok) {
+          if (['review', 'resume'].includes(next.payload.status) && next.payload.reviewId) {
+            await goto(`/study/${next.payload.reviewId}?storageRecovery=1`);
+            return;
+          }
+          await goto(learnerStudyRunReturnHref({ status: 'run-lost' }));
+          return;
+        }
       }
-      if (next.payload.status === 'review' && next.payload.reviewId) {
+      if (['review', 'resume'].includes(next.payload.status) && next.payload.reviewId) {
         await goto(`/study/${next.payload.reviewId}`);
         return;
       }
@@ -67,7 +78,13 @@
         return;
       }
       if (payload.descriptor) {
-        browserRun = writeLearnerStudyRun(localStorage, payload.descriptor);
+        const persisted = persistLearnerStudyRunReplacement(localStorage, payload.descriptor, browserRun);
+        browserRun = persisted.descriptor;
+        if (!persisted.ok) {
+          completionError = 'Review completed, but browser storage could not save the updated session. Start a new Study session to continue.';
+          await goto(learnerStudyRunReturnHref({ status: 'run-lost' }));
+          return;
+        }
         await openFollowingReview(browserRun);
         return;
       }
@@ -93,7 +110,7 @@
 <main class="shell review-shell">
   <nav class="review-nav" aria-label="Study navigation">
     <a href="/study">← Back to Study</a>
-    <span class="muted">Active Review · resumable</span>
+    <span class="muted">Review in progress</span>
   </nav>
 
   <header class="case-header">
@@ -104,6 +121,10 @@
     <h1>Case review</h1>
     {#if data.review.vignette}<p>{data.review.vignette}</p>{/if}
   </header>
+
+  {#if storageRecovery}
+    <p class="recovery-notice" role="status">This Review is saved. Browser storage is unavailable, so you can finish it here. You may need to start a new Study session afterward.</p>
+  {/if}
 
   {#if data.review.assets.length > 0}
     <section class="review-section" aria-labelledby="assets-heading">
@@ -131,7 +152,7 @@
         <p class="eyebrow">Question set</p>
         <h2 id="questions-heading">Questions</h2>
       </div>
-      <span class="muted">Rate the Case only after revealing every answer.</span>
+      <span class="muted">Reveal every answer, then rate the Case.</span>
     </div>
     <div class="question-list">
       {#each data.review.questions as question, index}
@@ -190,13 +211,14 @@
 <style>
   .review-shell { display:grid; gap:1.5rem; max-width:920px; }
   .review-nav { display:flex; align-items:center; justify-content:space-between; gap:1rem; font-size:.9rem; }
-  .review-nav a { text-decoration:none; } .review-nav a:hover { text-decoration:underline; }
+  .review-nav a { text-decoration:none; } .review-nav a:hover,.review-nav a:focus-visible { text-decoration:underline; }
   .case-header { display:grid; gap:.75rem; padding-bottom:.5rem; }
   .case-header h1,.case-header p { margin:0; }
   .case-header h1 { font-size:clamp(1.8rem,4vw,2.5rem); line-height:1.12; }
   .case-header > p { max-width:760px; color:#475467; line-height:1.65; }
   .case-meta { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; color:#667085; font-size:.9rem; font-weight:600; }
   .badge { padding:.2rem .5rem; border-radius:999px; background:#eef2f6; color:#344054; font-size:.78rem; text-transform:capitalize; }
+  .recovery-notice { margin:0; padding:.85rem 1rem; border:1px solid #f0b7b1; border-radius:10px; background:#fff9f8; color:#7a271a; line-height:1.5; }
   .review-section { display:grid; gap:1rem; }
   .section-heading { display:flex; align-items:end; justify-content:space-between; gap:1rem; }
   .section-heading h2 { margin:.15rem 0 0; }
@@ -220,6 +242,8 @@
   .review-actions p { margin:.25rem 0 0; font-size:.9rem; }
   .rating-buttons { display:flex; gap:.55rem; align-items:center; flex-wrap:wrap; justify-content:flex-end; }
   .rating-button,.action-button { min-width:105px; text-align:center; }
+  button:disabled { cursor:default; }
+  button:focus-visible, a:focus-visible { outline:3px solid rgba(52,64,84,.25); outline-offset:2px; }
   .action-error { color:#b42318; }
   @media (max-width:700px) {
     .section-heading,.review-actions { display:grid; align-items:stretch; }

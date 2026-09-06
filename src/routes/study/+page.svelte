@@ -461,11 +461,9 @@
         if (!persisted.ok) {
           browserRun = persisted.descriptor;
           browserRunState = browserRun ? 'resumable' : 'none';
-          runMessage = browserRun
-            ? 'Study could not save the updated session. Your previous session is still available. Check browser storage permissions and try again.'
-            : 'Study session could not be saved in this browser. Check browser storage permissions and try again.';
-          if (payload.status === 'review' && payload.reviewId) {
-            await goto(`/study/${payload.reviewId}`);
+          runMessage = 'This Review was saved, but browser storage could not save the updated session. You can continue the Review here; you may need to start a new Study session afterward.';
+          if (['review', 'resume'].includes(payload.status) && payload.reviewId) {
+            await goto(`/study/${payload.reviewId}?storageRecovery=1`);
           }
           return;
         }
@@ -575,7 +573,7 @@
       </div>
       <div class="active-actions">
         <a class="button primary" href={`/study/${data.activeReview.id}`}>Resume Review →</a>
-        <form method="POST" action="?/discard" onsubmit={(event) => { if (!window.confirm('Discard this active Review? Your learning progress will not be reset.')) event.preventDefault(); }}>
+        <form method="POST" action="?/discard" onsubmit={(event) => { if (!window.confirm('Discard this active Review? You will lose this in-progress Review, but your learning history will stay intact.')) event.preventDefault(); }}>
           <input type="hidden" name="reviewId" value={data.activeReview.id} />
           <button class="button danger" type="submit">Discard Review</button>
         </form>
@@ -791,7 +789,7 @@
 
     <section class="run-options-card">
       <fieldset class="mode-set">
-        <legend>Study mode</legend>
+        <legend>1. Study mode</legend>
         <label class="mode-option">
           <input type="radio" name="studyMode" value="scheduled" checked={selectedMode('scheduled')} />
           <span><strong>Scheduled Study</strong><small>Work through Cases in the order they are due and ready to learn.</small></span>
@@ -803,7 +801,7 @@
       </fieldset>
 
       <fieldset class="size-set">
-        <legend>Session size</legend>
+        <legend>2. Session size</legend>
         <label class="size-option"><input type="radio" name="runSize" value="5" checked={selectedRunSize('5')} /><span>5</span></label>
         <label class="size-option"><input type="radio" name="runSize" value="10" checked={selectedRunSize('10')} /><span>10</span></label>
         <label class="size-option"><input type="radio" name="runSize" value="20" checked={selectedRunSize('20')} /><span>20</span></label>
@@ -813,8 +811,8 @@
 
       <div class="combined-count" aria-live="polite">
         <div>
-          <p class="eyebrow">Your selection</p>
-          <strong>{eligibleCount == null ? '—' : eligibleCount} eligible {eligibleCount === 1 ? 'Case' : 'Cases'}</strong>
+          <p class="eyebrow">Availability</p>
+          <strong>{eligibleCount == null ? '—' : eligibleCount} eligible {eligibleCount === 1 ? 'Case' : 'Cases'} available</strong>
         </div>
         <div class="count-detail">
           <span>{selectedSystemCount} {selectedSystemCount === 1 ? 'System' : 'Systems'} selected</span>
@@ -825,7 +823,7 @@
 
     {#if form?.message}<p class="form-error" role="alert">{form.message}</p>{/if}
     <div class="start-row">
-      <p class="muted">Your selected Systems and routes are checked again before the session starts.</p>
+      <p class="muted">{hasAppliedSystemSelection() ? 'Your selected Systems and routes are checked again before the session starts.' : 'Select at least one System to enable Start Study.'}</p>
       <button class="button primary" type="submit" disabled={Boolean(data.activeReview) || deletionBlocked || planning || opening || !hasAppliedSystemSelection()}>
         {planning ? 'Starting…' : 'Start Study'}
       </button>
@@ -855,6 +853,7 @@
   .eyebrow { margin:0; color:#667085; font-size:.76rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
   .account-actions,.active-actions,.run-actions { display:flex; align-items:center; justify-content:flex-end; gap:.65rem; flex-wrap:wrap; }
   .active-card,.run-card,.run-options-card,.deletion-card,.ownership-card { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1.1rem 1.2rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
+  .active-card { border-color:#b7c4d5; box-shadow:0 4px 14px rgba(23,32,51,.06); }
   .active-card p,.run-card p { margin:.35rem 0 0; }
   .deletion-card { border-color:#f2c7c2; background:#fff9f8; }
   .deletion-card > div { max-width:720px; }
@@ -872,21 +871,23 @@
   .secondary-links a:hover,.secondary-links a:focus-visible { border-color:#98a2b3; background:#f8fafc; }
   .secondary-links small { color:#667085; line-height:1.35; }
   .multi-plan-form { display:grid; gap:1rem; }
-  .run-options-card { align-items:stretch; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
+  .run-options-card { align-items:stretch; display:grid; gap:1.1rem; background:#fbfcfe; }
   .mode-set,.size-set,.route-set { display:grid; gap:.55rem; margin:0; padding:0; border:0; }
+  .mode-set { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .mode-set legend { grid-column:1 / -1; }
   .mode-set legend,.size-set legend,.route-set legend { margin-bottom:.1rem; color:#344054; font-size:.88rem; font-weight:700; }
   .mode-option,.route-option,.system-select { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.65rem; align-items:start; padding:.72rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; }
-  .mode-option:has(input:checked),.route-option:has(input:checked),.system-select:has(input:checked) { border-color:#667085; background:#f2f4f7; box-shadow:0 0 0 1px #d0d5dd inset; }
+  .mode-option:has(input:checked),.route-option:has(input:checked),.system-select:has(input:checked) { border-color:#344054; background:#edf2f8; box-shadow:0 0 0 1px #98a2b3 inset; }
   .size-set { grid-template-columns:repeat(4,minmax(0,1fr)); }
   .size-set legend,.size-set .field-help { grid-column:1 / -1; }
   .size-option { display:flex; gap:.4rem; align-items:center; justify-content:center; padding:.6rem .45rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; font-weight:700; text-align:center; }
-  .size-option:has(input:checked) { border-color:#667085; background:#f2f4f7; box-shadow:0 0 0 1px #d0d5dd inset; }
+  .size-option:has(input:checked) { border-color:#344054; background:#edf2f8; box-shadow:0 0 0 1px #98a2b3 inset; }
   .combined-count { grid-column:1 / -1; display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.9rem 1rem; border-radius:12px; background:#f8fafc; }
   .combined-count strong { display:block; margin-top:.2rem; font-size:1.05rem; }
   .count-detail { display:grid; justify-items:end; gap:.15rem; font-size:.88rem; text-align:right; }
   .system-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
   .system-card { display:grid; gap:.8rem; align-content:start; padding:1rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
-  .system-card:has(.system-select input:checked) { border-color:#667085; background:#fbfcfe; box-shadow:0 0 0 2px #e4e7ec inset; }
+  .system-card:has(.system-select input:checked) { border-color:#344054; background:#fbfcfe; box-shadow:0 0 0 2px #98a2b3 inset; }
   .system-select { border:0; padding:.25rem; }
   .system-select span,.mode-option span,.route-option span { display:grid; gap:.18rem; }
   .system-select small,.mode-option small,.route-option small { color:#667085; line-height:1.4; }
@@ -896,11 +897,13 @@
   .scope-mode { display:grid; gap:.55rem; margin:.8rem 0 0; padding:0; border:0; }
   .scope-mode legend { margin-bottom:.1rem; color:#344054; font-size:.88rem; font-weight:700; }
   .scope-mode-option { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.65rem; align-items:start; padding:.65rem .72rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; }
-  .scope-mode-option:has(input:checked) { border-color:#667085; background:#f2f4f7; box-shadow:0 0 0 1px #d0d5dd inset; }
+  .scope-mode-option:has(input:checked) { border-color:#344054; background:#edf2f8; box-shadow:0 0 0 1px #98a2b3 inset; }
   .scope-mode-option span { display:grid; gap:.18rem; }
   .scope-mode-option small { color:#667085; line-height:1.4; }
   .scope-actions { display:flex; justify-content:flex-end; gap:.55rem; margin-top:.9rem; }
-  .route-option:has(input:disabled) { cursor:default; opacity:.62; }
+  .mode-option:has(input:disabled),.size-option:has(input:disabled),.route-option:has(input:disabled) { cursor:default; opacity:.62; }
+  .mode-option:has(input:focus-visible),.size-option:has(input:focus-visible),.route-option:has(input:focus-visible),.system-select:has(input:focus-visible),.scope-mode-option:has(input:focus-visible) { outline:3px solid rgba(52,64,84,.25); outline-offset:2px; }
+  .button:disabled { cursor:default; }
   .system-select strong,.mode-option strong,.route-option strong,.scope-mode-option strong { overflow-wrap:anywhere; }
   .field-help { margin:0; color:#667085; font-size:.82rem; line-height:1.45; }
   .group-toolbar { display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; margin-bottom:.1rem; }
@@ -921,6 +924,7 @@
     .chooser-heading-actions p,.count-detail { text-align:left; justify-items:start; }
     .scope-actions { justify-content:flex-start; }
     .run-options-card,.system-grid,.secondary-links { grid-template-columns:1fr; }
+    .mode-set { grid-template-columns:1fr; }
     .group-toolbar { display:grid; }
   }
   @media (max-width:520px) {

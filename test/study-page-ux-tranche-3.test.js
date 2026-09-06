@@ -7,6 +7,7 @@ import {
   persistLearnerStudyRunReplacement,
   readLearnerStudyRun
 } from '../src/lib/learner-study-run-storage.js';
+import { completeStudyRunRequest } from '../src/lib/study-run-completion.js';
 import { createStudyCountController } from '../src/lib/study-count-controller.js';
 
 /** @param {string} path */
@@ -145,13 +146,56 @@ test('a successful Study open stays reachable when updated descriptor storage fa
   const persistenceFailure = openRun.match(/if \(!persisted\.ok\) \{[\s\S]*?\n        \}/);
   assert.ok(persistenceFailure, 'Study openRun should retain an explicit persistence-failure branch');
   assert.match(persistenceFailure[0], /browserRun = persisted\.descriptor/);
-  assert.match(persistenceFailure[0], /previous session is still available/);
+  assert.match(persistenceFailure[0], /This Review was saved, but browser storage could not save the updated session/);
   assert.match(
     persistenceFailure[0],
-    /if \(payload\.status === 'review' && payload\.reviewId\) \{[\s\S]*?await goto\(`\/study\/\$\{payload\.reviewId\}`\);/
+    /if \(\['review', 'resume'\]\.(?:includes\(payload\.status\)) && payload\.reviewId\) \{[\s\S]*?await goto\(`\/study\/\$\{payload\.reviewId\}\?storageRecovery=1`\);/
   );
   assert.match(persistenceFailure[0], /return;/);
   assert.doesNotMatch(persistenceFailure[0], /requestNextLearnerStudyWork\(/);
+});
+
+test('completion open keeps a newly created Review reachable when descriptor storage fails', () => {
+  const review = source('src/routes/study/[reviewId]/+page.svelte');
+  const openFollowingReview = review.slice(review.indexOf('async function openFollowingReview'), review.indexOf('  /** @param', review.indexOf('async function openFollowingReview')));
+  assert.match(openFollowingReview, /persistLearnerStudyRunReplacement\(localStorage, next\.payload\.descriptor, descriptor\)/);
+  assert.match(openFollowingReview, /if \(\['review', 'resume'\]\.(?:includes\(next\.payload\.status\)) && next\.payload\.reviewId\) \{[\s\S]*?await goto\(`\/study\/\$\{next\.payload\.reviewId\}\?storageRecovery=1`\);/);
+});
+
+test('server-owned Active Review remains completable after successful open and browser storage failure', async () => {
+  const previous = studyRunDescriptor('previous');
+  const storage = {
+    value: JSON.stringify(previous),
+    /** @param {string} key */
+    getItem(key) { return key === LEARNER_STUDY_RUN_STORAGE_KEY ? this.value : null; },
+    setItem() { throw new Error('Storage quota exceeded'); },
+    removeItem() {}
+  };
+  const opened = { ...previous, runId: 'opened', currentReviewId: 'review-new' };
+  const persisted = persistLearnerStudyRunReplacement(storage, opened, previous);
+  assert.equal(persisted.ok, false);
+
+  let completedReviewId = null;
+  const result = await completeStudyRunRequest({
+    db: {},
+    userId: 'learner-1',
+    reviewId: 'review-new',
+    payload: { descriptor: null },
+    proofSecret: 'test-secret',
+    now: 1
+  }, {
+    getActiveReviewById: async () => ({ studyMode: 'free' }),
+    completeScheduledReview: async () => { throw new Error('scheduled completion should not run'); },
+    completeFreeReview: async (input) => {
+      completedReviewId = input.reviewId;
+      return { status: 'completed' };
+    },
+    issueScheduledRunBoundaryToken: async () => 'unused'
+  });
+
+  assert.equal(completedReviewId, 'review-new');
+  assert.equal(result.status, 'completed');
+  assert.equal(result.runLost, true);
 });
 
 test('Study launcher follows the learner sequence and gates Start on applied Systems', () => {
