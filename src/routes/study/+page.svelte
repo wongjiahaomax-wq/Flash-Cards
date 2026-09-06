@@ -29,6 +29,9 @@
   const studySystems = /** @type {StudySystem[]} */ (data.systems);
   /** @type {any} */
   let browserRun = $state(null);
+  /** @type {'unknown'|'none'|'resumable'} */
+  let browserRunState = $state('unknown');
+  let showAlternateLauncher = $state(false);
   let runMessage = $state('');
   let opening = $state(false);
   let planning = $state(false);
@@ -68,12 +71,16 @@
     if (form?.browserRunInvalidated) {
       clearLearnerStudyRun(localStorage);
       browserRun = null;
+      browserRunState = 'none';
       runMessage = form.message ?? 'Scheduling changed. The stale browser run was cleared.';
     } else {
       browserRun = readLearnerStudyRunForUser(localStorage, data.user.id);
+      browserRunState = browserRun ? 'resumable' : 'none';
       runMessage = runStatusMessage(window.location.search);
     }
-    queueMicrotask(() => refreshEligibleCount());
+    queueMicrotask(() => {
+      if (browserRunState === 'none') refreshEligibleCount();
+    });
   });
 
   $effect(() => {
@@ -81,6 +88,7 @@
     if (form?.discardedReviewId && browserRun?.currentReviewId === form.discardedReviewId) {
       clearLearnerStudyRun(localStorage);
       browserRun = null;
+      browserRunState = 'none';
       runMessage = 'The discarded Review belonged to this browser run, so that run was cleared. Learner progress was not reset.';
     }
   });
@@ -264,7 +272,27 @@
   function clearBrowserRun() {
     clearLearnerStudyRun(localStorage);
     browserRun = null;
+    browserRunState = 'none';
+    showAlternateLauncher = false;
     runMessage = 'Browser run cleared. Learner scheduling/history was not reset.';
+  }
+
+  function openAlternateLauncher() {
+    showAlternateLauncher = true;
+    runMessage = '';
+    scheduleEligibleCount();
+  }
+
+  function closeAlternateLauncher() {
+    showAlternateLauncher = false;
+    runMessage = '';
+  }
+
+  function canShowNewRunLauncher() {
+    return browserRunState !== 'unknown'
+      && !data.activeReview
+      && !data.studyDataDeletion?.inProgress
+      && (!browserRun || showAlternateLauncher);
   }
 
   /** @param {any} descriptor */
@@ -347,6 +375,8 @@
 
         const plannedRun = writeLearnerStudyRun(localStorage, descriptor);
         browserRun = plannedRun;
+        browserRunState = 'resumable';
+        showAlternateLauncher = false;
         runMessage = 'Run planned. Opening the first Review…';
         await openRun(plannedRun);
       } finally {
@@ -387,7 +417,7 @@
         <p class="eyebrow">Resume</p>
         <h2>Active {data.activeReview.studyMode === 'scheduled' ? 'Scheduled' : 'Free'} Review</h2>
         <p class="muted">
-          {data.activeReview.queueClass ? `${data.activeReview.queueClass} · ` : ''}{data.activeReview.contentMode === 'expanded' ? 'Expanded Learning' : 'Original questions'}{data.activeReview.revealed ? ' · answers revealed' : ''}
+          {data.activeReview.queueClass ? `${data.activeReview.queueClass} · ` : ''}{data.activeReview.contentMode === 'expanded' ? 'Expanded Learning' : 'Original questions'} · {data.activeReview.revealed ? 'Answers revealed' : 'Review in progress'}
         </p>
       </div>
       <div class="active-actions">
@@ -398,25 +428,6 @@
         </form>
       </div>
     </section>
-  {/if}
-
-  <section class="preference-card">
-    <div>
-      <p class="eyebrow">Global learner preference</p>
-      <h2>Expanded Learning</h2>
-      <p class="muted">Applied when the next Scheduled or Free active Review is frozen. Default is off.</p>
-    </div>
-    <form method="POST" action="?/preference" class="preference-form">
-      <label class="toggle-row">
-        <input type="checkbox" name="expandedLearning" checked={data.preferences.expandedLearning} />
-        <span>{data.preferences.expandedLearning ? 'Enabled' : 'Disabled'}</span>
-      </label>
-      <button class="button" type="submit">Save preference</button>
-    </form>
-  </section>
-
-  {#if !data.studyDataDeletion?.inProgress}
-    <LearnerFsrsProgress progress={data.progress} />
   {/if}
 
   {#if data.studyDataDeletion?.inProgress}
@@ -433,32 +444,19 @@
         <small>Nothing is reported as deleted until the server verifies completion.</small>
       </form>
     </section>
-  {:else}
-    <section class="deletion-card" aria-labelledby="study-data-deletion-title">
+  {/if}
+
+  {#if !data.activeReview && !data.studyDataDeletion?.inProgress && browserRunState === 'unknown'}
+    <section class="ownership-card" aria-live="polite">
       <div>
-        <p class="eyebrow">Manage study data</p>
-        <h2 id="study-data-deletion-title">Delete all my study data</h2>
-        <p class="muted">
-          Permanently removes your completed Reviews, ratings, FSRS scheduling state, Free Study history, and associated learning analytics. Your account and preferences remain active. This cannot be undone.
-        </p>
+        <p class="eyebrow">Current Study state</p>
+        <h2>Checking for an existing run…</h2>
+        <p class="muted">Your browser-owned Study run is being resolved before the launcher is shown.</p>
       </div>
-      <form method="POST" action="?/deleteStudyData">
-        <label for="study-data-deletion-confirmation">Type <strong>DELETE MY STUDY DATA</strong> to confirm</label>
-        <input
-          id="study-data-deletion-confirmation"
-          name="confirmation"
-          type="text"
-          required
-          autocomplete="off"
-          spellcheck="false"
-          placeholder="DELETE MY STUDY DATA"
-        />
-        <button class="button danger" type="submit">Delete my study data</button>
-      </form>
     </section>
   {/if}
 
-  {#if !data.studyDataDeletion?.inProgress && browserRun && summary}
+  {#if !data.activeReview && !data.studyDataDeletion?.inProgress && browserRunState !== 'unknown' && browserRun && summary}
     <section class="run-card" aria-label="Browser Study run">
       <div>
         <p class="eyebrow">Current browser run</p>
@@ -481,6 +479,9 @@
         <button class="button primary" type="button" onclick={continueRun} disabled={opening || planning || Boolean(data.activeReview)}>
           {opening ? 'Opening…' : 'Continue run →'}
         </button>
+        <button class="button" type="button" onclick={openAlternateLauncher} disabled={opening || planning || showAlternateLauncher}>
+          Start a different run
+        </button>
         <button class="button" type="button" onclick={clearBrowserRun}>Clear browser run</button>
       </div>
     </section>
@@ -490,13 +491,18 @@
     <p class="status-message" role="status">{runMessage || form?.message}</p>
   {/if}
 
-  {#if !data.studyDataDeletion?.inProgress}
+  {#if canShowNewRunLauncher()}
   <section class="chooser-heading">
     <div>
-      <p class="eyebrow">Start a new run</p>
-      <h2>Choose Systems and scope</h2>
+      <p class="eyebrow">{browserRun ? 'Alternate launcher' : 'Start a study session'}</p>
+      <h2>{browserRun ? 'Start a different run' : 'Choose Systems and scope'}</h2>
     </div>
-    <p class="muted">Selecting a System means all eligible content in that System unless you explicitly narrow it.</p>
+    <div class="chooser-heading-actions">
+      <p class="muted">Selecting a System means all eligible content in that System unless you explicitly narrow it.</p>
+      {#if browserRun}
+        <button class="button" type="button" onclick={closeAlternateLauncher}>Cancel</button>
+      {/if}
+    </div>
   </section>
 
   <form
@@ -648,16 +654,65 @@
     </div>
   </form>
   {/if}
+
+  {#if !data.studyDataDeletion?.inProgress}
+    <details class="secondary-tools">
+      <summary>Progress, Study settings, and data management</summary>
+      <div class="secondary-tools-body">
+        <section class="preference-card">
+          <div>
+            <p class="eyebrow">Study settings</p>
+            <h2>Expanded Learning</h2>
+            <p class="muted">Applied when the next Scheduled or Free active Review is frozen. Default is off.</p>
+          </div>
+          <form method="POST" action="?/preference" class="preference-form">
+            <label class="toggle-row">
+              <input type="checkbox" name="expandedLearning" checked={data.preferences.expandedLearning} />
+              <span>{data.preferences.expandedLearning ? 'Enabled' : 'Disabled'}</span>
+            </label>
+            <button class="button" type="submit">Save preference</button>
+          </form>
+        </section>
+
+        <section aria-label="Learner Progress">
+          <LearnerFsrsProgress progress={data.progress} />
+        </section>
+
+        <section class="deletion-card" aria-labelledby="study-data-deletion-title">
+          <div>
+            <p class="eyebrow">Manage study data</p>
+            <h2 id="study-data-deletion-title">Delete all my study data</h2>
+            <p class="muted">
+              Permanently removes your completed Reviews, ratings, FSRS scheduling state, Free Study history, and associated learning analytics. Your account and preferences remain active. This cannot be undone.
+            </p>
+          </div>
+          <form method="POST" action="?/deleteStudyData">
+            <label for="study-data-deletion-confirmation">Type <strong>DELETE MY STUDY DATA</strong> to confirm</label>
+            <input
+              id="study-data-deletion-confirmation"
+              name="confirmation"
+              type="text"
+              required
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="DELETE MY STUDY DATA"
+            />
+            <button class="button danger" type="submit">Delete my study data</button>
+          </form>
+        </section>
+      </div>
+    </details>
+  {/if}
 </main>
 
 <style>
   .study-shell { display:grid; gap:1.5rem; max-width:1100px; }
   .study-header { display:flex; align-items:flex-start; justify-content:space-between; gap:1.5rem; }
-  .study-header h1,.chooser-heading h2,.active-card h2,.preference-card h2,.run-card h2,.deletion-card h2 { margin:.2rem 0 0; }
+  .study-header h1,.chooser-heading h2,.active-card h2,.preference-card h2,.run-card h2,.deletion-card h2,.ownership-card h2 { margin:.2rem 0 0; }
   .intro { max-width:760px; margin-bottom:0; line-height:1.6; }
   .eyebrow { margin:0; color:#667085; font-size:.76rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
   .account-actions,.active-actions,.run-actions,.preference-form { display:flex; align-items:center; justify-content:flex-end; gap:.65rem; flex-wrap:wrap; }
-  .active-card,.preference-card,.run-card,.run-options-card,.deletion-card { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1.1rem 1.2rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
+  .active-card,.preference-card,.run-card,.run-options-card,.deletion-card,.ownership-card { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1.1rem 1.2rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
   .active-card p,.preference-card p,.run-card p { margin:.35rem 0 0; }
   .deletion-card { border-color:#f2c7c2; background:#fff9f8; }
   .deletion-card > div { max-width:720px; }
@@ -669,9 +724,16 @@
   .toggle-row { display:flex; gap:.5rem; align-items:center; font-weight:700; }
   .metrics { display:flex; gap:.55rem; flex-wrap:wrap; margin-top:.75rem; }
   .metrics span { padding:.4rem .6rem; border-radius:999px; background:#eef2f6; color:#475467; font-size:.85rem; }
+  .ownership-card { border-style:dashed; background:#f8fafc; }
   .status-message { margin:0; padding:.8rem 1rem; border-radius:10px; background:#f8fafc; color:#344054; }
   .chooser-heading { display:flex; align-items:end; justify-content:space-between; gap:1rem; }
-  .chooser-heading > p { max-width:520px; margin:0; text-align:right; }
+  .chooser-heading-actions { display:flex; align-items:end; justify-content:flex-end; gap:.75rem; }
+  .chooser-heading-actions p { max-width:520px; margin:0; text-align:right; }
+  .secondary-tools { border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
+  .secondary-tools summary { padding:1rem 1.2rem; color:#344054; font-weight:700; cursor:pointer; }
+  .secondary-tools-body { display:grid; gap:1rem; padding:0 1rem 1rem; }
+  .secondary-tools-body > section[aria-label="Learner Progress"] { min-width:0; }
+  .secondary-tools-body .progress-card { border-color:#eaecf0; }
   .multi-plan-form { display:grid; gap:1rem; }
   .run-options-card { align-items:stretch; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
   .mode-set,.size-set,.route-set { display:grid; gap:.55rem; margin:0; padding:0; border:0; }
@@ -709,9 +771,10 @@
   .start-row p { margin:0; max-width:700px; }
   code { font-size:.88em; }
   @media (max-width:820px) {
-    .study-header,.chooser-heading,.active-card,.preference-card,.run-card,.deletion-card,.start-row,.combined-count { display:grid; align-items:stretch; }
+    .study-header,.chooser-heading,.active-card,.preference-card,.run-card,.deletion-card,.ownership-card,.start-row,.combined-count { display:grid; align-items:stretch; }
     .account-actions,.active-actions,.run-actions,.preference-form { justify-content:flex-start; }
-    .chooser-heading > p,.count-detail { text-align:left; justify-items:start; }
+    .chooser-heading-actions { display:grid; justify-items:start; }
+    .chooser-heading-actions p,.count-detail { text-align:left; justify-items:start; }
     .run-options-card,.system-grid { grid-template-columns:1fr; }
     .group-toolbar { display:grid; }
   }
