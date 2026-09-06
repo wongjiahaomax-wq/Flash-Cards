@@ -1,3 +1,5 @@
+import { pathToFileURL } from 'node:url';
+
 const SHA_PATTERN = /^[0-9a-f]{40}$/;
 
 /**
@@ -6,12 +8,15 @@ const SHA_PATTERN = /^[0-9a-f]{40}$/;
  * @param {boolean} expectedFence
  */
 export function evaluateRuntimeStatus(value, expectedSha, expectedFence) {
+  const record = value && typeof value === 'object'
+    ? /** @type {Record<string, unknown>} */ (value)
+    : {};
   const actual = {
-    learnerRuntimeCutoverVersion: value && typeof value === 'object' ? value.learnerRuntimeCutoverVersion : undefined,
-    learnerRuntimeScopeVersion: value && typeof value === 'object' ? value.learnerRuntimeScopeVersion : undefined,
-    learnerRuntimeWriteFence: value && typeof value === 'object' ? value.learnerRuntimeWriteFence : undefined,
-    learnerRuntimeBuildSha: value && typeof value === 'object' ? value.learnerRuntimeBuildSha : undefined,
-    learnerRuntimeWorkerVersion: value && typeof value === 'object' ? value.learnerRuntimeWorkerVersion : undefined
+    learnerRuntimeCutoverVersion: record.learnerRuntimeCutoverVersion,
+    learnerRuntimeScopeVersion: record.learnerRuntimeScopeVersion,
+    learnerRuntimeWriteFence: record.learnerRuntimeWriteFence,
+    learnerRuntimeBuildSha: record.learnerRuntimeBuildSha,
+    learnerRuntimeWorkerVersion: record.learnerRuntimeWorkerVersion
   };
 
   return {
@@ -132,6 +137,6 @@ async function main() {
   }
 }
 
-if (process.argv[1] && new URL(import.meta.url).pathname === new URL(`file://${process.argv[1]}`).pathname) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   await main();
 }
