@@ -8,6 +8,10 @@ const executionWorkflow = fs.readFileSync(
 );
 const rootAgents = fs.readFileSync(new URL('../AGENTS.md', import.meta.url), 'utf8');
 const taskMap = fs.readFileSync(new URL('../docs/AGENT_TASK_MAP.md', import.meta.url), 'utf8');
+const localCodexGuidance = fs.readFileSync(
+  new URL('../docs/LOCAL_CODEX_EXECUTION_GUIDANCE.md', import.meta.url),
+  'utf8',
+);
 
 function remoteWriteSection() {
   const start = executionWorkflow.indexOf('### Remote GitHub write discipline');
@@ -15,6 +19,14 @@ function remoteWriteSection() {
   assert.notEqual(start, -1, 'Remote GitHub write discipline section must exist');
   assert.notEqual(end, -1, 'write discipline must remain inside the Remote GitHub authority');
   return executionWorkflow.slice(start, end);
+}
+
+function localTaskMapSection() {
+  const start = taskMap.indexOf('### Local checkout mode');
+  const end = taskMap.indexOf('### Remote GitHub mode', start);
+  assert.notEqual(start, -1, 'Local checkout routing section must exist');
+  assert.notEqual(end, -1, 'Local checkout routing must remain bounded from Remote GitHub mode');
+  return taskMap.slice(start, end);
 }
 
 function remoteTaskMapSection() {
@@ -89,4 +101,41 @@ test('Detailed Git-data write procedure has one execution authority and Remote G
     assert.equal(routingDocument.includes('create changed-file blobs'), false);
     assert.equal(routingDocument.includes("tree based on that exact head's tree"), false);
   }
+});
+
+test('Local Codex efficiency overlay is routed only from Local checkout guidance and excluded from ChatGPT GitHub-plugin Remote mode', () => {
+  const localSection = localTaskMapSection();
+  const remoteSection = remoteTaskMapSection();
+
+  assert.match(localSection, /active coding client is \*\*Codex\*\*/i);
+  assert.match(localSection, /docs\/LOCAL_CODEX_EXECUTION_GUIDANCE\.md/);
+  assert.match(localSection, /ChatGPT chat using the GitHub plugin\/Remote GitHub mode/i);
+  assert.equal(remoteSection.includes('LOCAL_CODEX_EXECUTION_GUIDANCE.md'), false);
+
+  assert.match(localCodexGuidance, /Use this overlay only when the active coding client is \*\*Codex\*\*/i);
+  assert.match(localCodexGuidance, /Do \*\*not\*\* load or apply this overlay when ChatGPT chat is working through the GitHub plugin/i);
+  assert.match(localCodexGuidance, /Remote GitHub execution\/write discipline/i);
+  assert.match(localCodexGuidance, /does not weaken or replace/i);
+});
+
+test('Local Codex bounded retrieval preserves completeness-sensitive search correctness', () => {
+  assert.match(localCodexGuidance, /Bounded or truncated output is evidence only for what it actually contains/i);
+  assert.match(localCodexGuidance, /may establish \*\*presence\*\* or inspect representative evidence/i);
+  assert.match(localCodexGuidance, /must \*\*not\*\* be used to prove/i);
+  assert.match(localCodexGuidance, /absence/);
+  assert.match(localCodexGuidance, /uniqueness/);
+  assert.match(localCodexGuidance, /exhaustive references or call sites/i);
+  assert.match(localCodexGuidance, /complete coverage/i);
+  assert.match(localCodexGuidance, /appropriately scoped \*\*exhaustive\*\* search/i);
+  assert.match(localCodexGuidance, /Separate search completeness from presentation size/i);
+});
+
+test('Local Codex overlay narrows first-pass retrieval without changing final validation ownership', () => {
+  assert.match(localCodexGuidance, /start from the directly affected symbol\/path/i);
+  assert.match(localCodexGuidance, /smallest semantic unit needed/i);
+  assert.match(localCodexGuidance, /Broaden only for a concrete unresolved dependency/i);
+  assert.match(localCodexGuidance, /repository-owned compact reporters/i);
+  assert.match(localCodexGuidance, /Bounded retrieval never means reduced final validation/i);
+  assert.match(localCodexGuidance, /complete final intended-base-to-head review/i);
+  assert.doesNotMatch(localCodexGuidance, /50\s*[–-]\s*150/);
 });

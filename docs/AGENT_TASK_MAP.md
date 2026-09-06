@@ -52,6 +52,8 @@ both local execution and GitHub access
 
 ### Local checkout mode
 
+When the active coding client is **Codex** working against the local checkout, also read `docs/LOCAL_CODEX_EXECUTION_GUIDANCE.md` for the small local retrieval/shell-output overlay. Do not load that overlay for ChatGPT chat using the GitHub plugin/Remote GitHub mode; the Remote GitHub guidance below remains authoritative for that workflow.
+
 Use the repository-owned iteration → checkpoint → handoff flow. Treat `agent:doctor` as session/environment setup rather than a mandatory first step of every small task:
 
 ```text
