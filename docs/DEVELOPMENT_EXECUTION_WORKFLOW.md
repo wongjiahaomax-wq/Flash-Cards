@@ -2,7 +2,7 @@
 
 _Status: current development/operator workflow._
 
-_Last reconciled: 5 September 2026._
+_Last reconciled: 6 September 2026._
 
 The GitHub repository is public. The application, Production credentials, auth/user/learner data, and private teaching media remain private operational concerns. Never commit credentials, `.dev.vars`, `.wrangler/` state, Production exports, learner data, or mirrored private media.
 
@@ -40,6 +40,27 @@ Production data mutation
 feature enablement
 live verification
 ```
+
+## Session lifecycle and context compaction
+
+Use semantic milestones rather than token percentages, turn counts, or command quotas:
+
+```text
+Discovery
+→ Implementation
+→ Checkpoint
+→ Handoff
+```
+
+Discovery ends when the exact current work state, implementation surface, directly related owners/tests, and any protected/cross-cutting routing are established. After that point, continue with targeted reads and broaden only when evidence exposes a new material question.
+
+During Implementation, reuse unchanged authorities already retrieved, inspect changed-file/scoped diffs rather than repeatedly loading the complete branch diff, and use the cheapest directly related feedback. After a focused failure, inspect the failing block and directly implicated source before rerunning broad validation.
+
+At a coherent Checkpoint, inspect the scoped change, run the validation appropriate to the risk, and resolve failures while implementation context is still useful. When the active coding client exposes context compaction and the session has accumulated substantial file/tool output, compact after that coherent checkpoint and before a series of final handoff/Git/GitHub turns. Do not compact after every small edit.
+
+Context compaction is a client/host capability, not an npm or repository feature. If it is unavailable, continue with bounded retrieval. After compaction, rely on the retained task/checkpoint summary and reread only facts that are missing, ambiguous, changed, or drift-prone; unchanged repository authorities do not need to be reloaded merely because the conversation was compacted.
+
+Related read-only state may be retrieved together when the result remains attributable and every constituent command/request preserves its own success/failure authority. Batching reads reduces avoidable model round trips; it does not merge the underlying evidence claims. Commit, push/ref update, PR mutation, merge, migration, deployment, Production mutation, and live verification remain explicit separate operations.
 
 ## Local checkout mode
 
@@ -127,6 +148,10 @@ npm run validate:full
 
 Specialized checks reported by `agent:checks` remain additional requirements. Compact presentation changes output only, not check selection, ordering, or exit-status authority.
 
+A checkpoint/handoff read may combine closely related read-only local facts such as compact `agent:checks`, current branch/worktree status, and a concise diff statistic, but only when each constituent result remains visible. Do not use a compound shell form whose final successful command can hide an earlier failure. Do not require a globally clean worktree when unrelated pre-existing tracked or untracked work must be preserved and reported accurately.
+
+Do not replace repository-owned diff/whitespace authority with a plain `git diff --check` shortcut. `agent:checks` deliberately owns merge-base-aware tracked-change validation plus separate untracked-file whitespace handling.
+
 When compact diagnostics are insufficient, use the explicit diagnostic form instead of adding `--compact` or rerunning a clean pass verbosely:
 
 ```sh
@@ -171,7 +196,13 @@ Prefer the smallest sufficient GitHub surface:
 - individual patches during active work;
 - complete intended-base → head diff at final review/handoff.
 
+For an existing PR, related read-only identity/check facts may be retrieved together where the available GitHub capability permits: PR number/URL, open/closed and Draft/Ready state, head branch and exact head SHA, base branch/base SHA, mergeability, and current CI/check rollup. Treat each fact as an independent evidence claim even when retrieved in one request.
+
+Retrieve ordinary PR identity/head/base once at task start and reuse it while valid. Refresh after an event capable of invalidating it, such as push, rebase/update from `main`, known external branch movement, Draft/Ready state change, CI completion when fresh check state is needed, or final handoff verification. Do not refetch ordinary read-only metadata merely because another model turn occurred.
+
 Reuse information already retrieved. Do not repeatedly load unchanged large files/diffs merely for completeness.
+
+The event-driven rule above applies only to ordinary read-only reasoning. Immediately before constructing any Remote GitHub Git-data commit/ref mutation, establish the exact current feature-branch head again even if no invalidating event was observed; external movement can occur without a model-visible event.
 
 ### Remote GitHub write discipline
 
@@ -206,9 +237,11 @@ Exact-head safety is mandatory. Establish the feature-branch head immediately be
 
 After the branch update, inspect the current PR/head state, inspect the complete intended base → current head change, verify that every intended file landed correctly, and apply the existing final-review and validation requirements normally. An atomic write is not evidence that the implementation is correct, and it does not replace GitHub CI/check inspection.
 
+At final handoff, retrieve enough related read-only evidence to establish that the exact head reviewed/validated is the exact head GitHub is showing and checking. At minimum reconcile the intended/current head SHA, PR head SHA/state, and CI/check state for that exact SHA. A stale statement that “CI passed” is not sufficient if it cannot be tied to the final reviewed head.
+
 This runbook owns the detailed Remote GitHub write procedure. Keep root agent guidance and task-routing documentation at the concise policy/routing level rather than duplicating these Git-data steps into another competing execution workflow.
 
-GitHub API/integration access has a higher round-trip cost than a local filesystem. Inspect sufficient context before editing, avoid repeatedly fetching the same files unnecessarily, form the implementation before speculative writes, batch related changes where practical, and use logical commits rather than one commit per file. Multiple logical commits are appropriate when they genuinely improve reviewability.
+GitHub API/integration access has a higher round-trip cost than a local filesystem. Inspect sufficient context before editing, avoid repeatedly fetching the same files unnecessarily, form the implementation before speculative writes, batch related read-only retrieval where attribution remains clear, batch related changes where practical, and use logical commits rather than one commit per file. Multiple logical commits are appropriate when they genuinely improve reviewability.
 
 Before the principal implementation handoff/push, inspect the complete proposed change against:
 
