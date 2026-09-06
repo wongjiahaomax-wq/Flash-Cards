@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
-import { getLearnerFsrsProgress } from '../src/lib/server/db/fsrs-progress.js';
+import {
+  getLearnerFsrsProgress,
+  getLearnerFsrsProgressSummary
+} from '../src/lib/server/db/fsrs-progress.js';
 import {
   freshLearnerFsrsStart,
   resetLearnerFsrsProgress
@@ -402,12 +405,20 @@ test('learner Progress separates coverage/memory, uses retained history and repo
     const recent = seedHistoryAndAggregates(sqlite);
 
     const progress = await getLearnerFsrsProgress({ db: learningDb(sqlite), userId: 'learner' });
+    const summary = await getLearnerFsrsProgressSummary({ db: learningDb(sqlite), userId: 'learner' });
     assert.deepEqual(progress.coverage, { enteredSrs: 2, eligibleCases: 2 });
     assert.deepEqual(progress.memory, { due: 1, notDue: 1 });
     assert.equal(progress.activity.scheduledCompleted, 2);
     assert.equal(progress.activity.recentScheduled30d, 1);
     assert.equal(progress.activity.uniqueScheduledCases, 2);
     assert.equal(progress.activity.freeCompleted, 3);
+    assert.deepEqual(summary.coverage, progress.coverage);
+    assert.deepEqual(summary.memory, progress.memory);
+    assert.deepEqual(summary.activity, {
+      scheduledCompleted: progress.activity.scheduledCompleted,
+      recentScheduled30d: progress.activity.recentScheduled30d,
+      freeCompleted: progress.activity.freeCompleted
+    });
     assert.deepEqual(progress.ratings, { again: 1, hard: 0, good: 1, easy: 0 });
     assert.equal(progress.recentHistory.length, 1, 'expired detailed history must be hidden before physical cleanup is required');
     assert.equal(progress.recentHistory[0].id, 'recent-event');

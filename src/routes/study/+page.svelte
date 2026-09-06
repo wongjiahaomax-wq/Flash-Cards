@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
 
-  import LearnerFsrsProgress from '$lib/components/LearnerFsrsProgress.svelte';
+  import LearnerFsrsProgressSummary from '$lib/components/LearnerFsrsProgressSummary.svelte';
   import SignOutButton from '$lib/components/SignOutButton.svelte';
   import { requestNextLearnerStudyWork } from '$lib/learner-study-open.js';
   import {
@@ -70,16 +70,9 @@
   }
 
   onMount(() => {
-    if (form?.browserRunInvalidated) {
-      clearLearnerStudyRun(localStorage);
-      browserRun = null;
-      browserRunState = 'none';
-      runMessage = form.message ?? 'Scheduling changed. The stale browser run was cleared.';
-    } else {
-      browserRun = readLearnerStudyRunForUser(localStorage, data.user.id);
-      browserRunState = browserRun ? 'resumable' : 'none';
-      runMessage = runStatusMessage(window.location.search);
-    }
+    browserRun = readLearnerStudyRunForUser(localStorage, data.user.id);
+    browserRunState = browserRun ? 'resumable' : 'none';
+    runMessage = runStatusMessage(window.location.search);
     queueMicrotask(() => {
       if (browserRunState === 'none') refreshEligibleCount();
     });
@@ -126,7 +119,7 @@
 
   /** @type {Record<string,ScopeState>} */
   let scopeStates = $state(/** @type {Record<string,ScopeState>} */ (Object.fromEntries(
-    studySystems.map((system) => [system.id, initialScopeState(system)])
+    data.systems.map((system) => [system.id, initialScopeState(system)])
   )));
   let customizingSystemId = $state(/** @type {string|null} */ (null));
   let customizationMessage = $state('');
@@ -571,10 +564,8 @@
           Your study data is being removed in safe, bounded steps. Your account, session, and preferences remain available, but Study is temporarily blocked until the final empty-state check completes.
         </p>
       </div>
-      <form method="POST" action="?/continueStudyDataDeletion">
-        <button class="button danger" type="submit">Continue deletion</button>
-        <small>Nothing is reported as deleted until the server verifies completion.</small>
-      </form>
+      <a class="button danger" href="/study/settings/data">Continue deletion</a>
+      <small>Nothing is reported as deleted until the server verifies completion.</small>
     </section>
   {/if}
 
@@ -815,72 +806,28 @@
   {/if}
 
   {#if !data.studyDataDeletion?.inProgress}
-    <details class="secondary-tools">
-      <summary>Progress, Study settings, and data management</summary>
-      <div class="secondary-tools-body">
-        <section class="preference-card">
-          <div>
-            <p class="eyebrow">Study settings</p>
-            <h2>Expanded Learning</h2>
-            <p class="muted">Applied when the next Scheduled or Free active Review is frozen. Default is off.</p>
-          </div>
-          <form method="POST" action="?/preference" class="preference-form">
-            <label class="toggle-row">
-              <input type="checkbox" name="expandedLearning" checked={data.preferences.expandedLearning} />
-              <span>{data.preferences.expandedLearning ? 'Enabled' : 'Disabled'}</span>
-            </label>
-            <button class="button" type="submit">Save preference</button>
-          </form>
-        </section>
-
-        <section aria-label="Learner Progress">
-          <LearnerFsrsProgress progress={data.progress} />
-        </section>
-
-        <section class="deletion-card" aria-labelledby="study-data-deletion-title">
-          <div>
-            <p class="eyebrow">Manage study data</p>
-            <h2 id="study-data-deletion-title">Delete all my study data</h2>
-            <p class="muted">
-              Permanently removes your completed Reviews, ratings, FSRS scheduling state, Free Study history, and associated learning analytics. Your account and preferences remain active. This cannot be undone.
-            </p>
-          </div>
-          <form method="POST" action="?/deleteStudyData">
-            <label for="study-data-deletion-confirmation">Type <strong>DELETE MY STUDY DATA</strong> to confirm</label>
-            <input
-              id="study-data-deletion-confirmation"
-              name="confirmation"
-              type="text"
-              required
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="DELETE MY STUDY DATA"
-            />
-            <button class="button danger" type="submit">Delete my study data</button>
-          </form>
-        </section>
-      </div>
-    </details>
+    <LearnerFsrsProgressSummary progress={data.progressSummary} />
+    <nav class="secondary-links" aria-label="Study details and settings">
+      <a href="/study/progress">Progress <span aria-hidden="true">→</span><small>View detailed history and scheduling</small></a>
+      <a href="/study/settings">Study settings <span aria-hidden="true">→</span><small>Expanded Learning: {data.preferences.expandedLearning ? 'On' : 'Off'}</small></a>
+      <a href="/study/settings/data">Manage Study data <span aria-hidden="true">→</span><small>Reset, fresh start, or delete</small></a>
+    </nav>
   {/if}
 </main>
 
 <style>
   .study-shell { display:grid; gap:1.5rem; max-width:1100px; }
   .study-header { display:flex; align-items:flex-start; justify-content:space-between; gap:1.5rem; }
-  .study-header h1,.chooser-heading h2,.active-card h2,.preference-card h2,.run-card h2,.deletion-card h2,.ownership-card h2 { margin:.2rem 0 0; }
+  .study-header h1,.chooser-heading h2,.active-card h2,.run-card h2,.deletion-card h2,.ownership-card h2 { margin:.2rem 0 0; }
   .intro { max-width:760px; margin-bottom:0; line-height:1.6; }
   .eyebrow { margin:0; color:#667085; font-size:.76rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
-  .account-actions,.active-actions,.run-actions,.preference-form { display:flex; align-items:center; justify-content:flex-end; gap:.65rem; flex-wrap:wrap; }
-  .active-card,.preference-card,.run-card,.run-options-card,.deletion-card,.ownership-card { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1.1rem 1.2rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
-  .active-card p,.preference-card p,.run-card p { margin:.35rem 0 0; }
+  .account-actions,.active-actions,.run-actions { display:flex; align-items:center; justify-content:flex-end; gap:.65rem; flex-wrap:wrap; }
+  .active-card,.run-card,.run-options-card,.deletion-card,.ownership-card { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:1.1rem 1.2rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
+  .active-card p,.run-card p { margin:.35rem 0 0; }
   .deletion-card { border-color:#f2c7c2; background:#fff9f8; }
   .deletion-card > div { max-width:720px; }
   .deletion-card p { margin:.35rem 0 0; line-height:1.5; }
-  .deletion-card form { display:grid; gap:.45rem; min-width:280px; }
-  .deletion-card label { color:#344054; font-size:.85rem; }
-  .deletion-card input { min-width:0; padding:.62rem .7rem; border:1px solid #d0d5dd; border-radius:8px; font:inherit; }
   .deletion-card small { color:#667085; line-height:1.4; }
-  .toggle-row { display:flex; gap:.5rem; align-items:center; font-weight:700; }
   .metrics { display:flex; gap:.55rem; flex-wrap:wrap; margin-top:.75rem; }
   .metrics span { padding:.4rem .6rem; border-radius:999px; background:#eef2f6; color:#475467; font-size:.85rem; }
   .ownership-card { border-style:dashed; background:#f8fafc; }
@@ -888,17 +835,16 @@
   .chooser-heading { display:flex; align-items:end; justify-content:space-between; gap:1rem; }
   .chooser-heading-actions { display:flex; align-items:end; justify-content:flex-end; gap:.75rem; }
   .chooser-heading-actions p { max-width:520px; margin:0; text-align:right; }
-  .secondary-tools { border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
-  .secondary-tools summary { padding:1rem 1.2rem; color:#344054; font-weight:700; cursor:pointer; }
-  .secondary-tools-body { display:grid; gap:1rem; padding:0 1rem 1rem; }
-  .secondary-tools-body > section[aria-label="Learner Progress"] { min-width:0; }
-  .secondary-tools-body .progress-card { border-color:#eaecf0; }
+  .secondary-links { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.7rem; }
+  .secondary-links a { display:grid; gap:.25rem; padding:.85rem 1rem; border:1px solid #dfe5ee; border-radius:12px; color:#344054; text-decoration:none; background:#fff; }
+  .secondary-links a:hover,.secondary-links a:focus-visible { border-color:#98a2b3; background:#f8fafc; }
+  .secondary-links small { color:#667085; line-height:1.35; }
   .multi-plan-form { display:grid; gap:1rem; }
   .run-options-card { align-items:stretch; display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); }
   .mode-set,.size-set,.route-set { display:grid; gap:.55rem; margin:0; padding:0; border:0; }
   .mode-set legend,.size-set legend,.route-set legend { margin-bottom:.1rem; color:#344054; font-size:.88rem; font-weight:700; }
-  .mode-option,.route-option,.narrow-option,.system-select { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.65rem; align-items:start; padding:.72rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; }
-  .mode-option:has(input:checked),.route-option:has(input:checked),.narrow-option:has(input:checked),.system-select:has(input:checked) { border-color:#98a2b3; background:#f8fafc; }
+  .mode-option,.route-option,.system-select { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.65rem; align-items:start; padding:.72rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; }
+  .mode-option:has(input:checked),.route-option:has(input:checked),.system-select:has(input:checked) { border-color:#98a2b3; background:#f8fafc; }
   .size-set { grid-template-columns:repeat(4,minmax(0,1fr)); }
   .size-set legend,.size-set .field-help { grid-column:1 / -1; }
   .size-option { display:flex; gap:.4rem; align-items:center; justify-content:center; padding:.6rem .45rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; font-weight:700; text-align:center; }
@@ -910,8 +856,8 @@
   .system-card { display:grid; gap:.8rem; align-content:start; padding:1rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
   .system-card:has(.system-select input:checked) { border-color:#98a2b3; box-shadow:0 0 0 1px #eef2f6 inset; }
   .system-select { border:0; padding:.25rem; }
-  .system-select span,.mode-option span,.route-option span,.narrow-option span { display:grid; gap:.18rem; }
-  .system-select small,.mode-option small,.route-option small,.narrow-option small { color:#667085; line-height:1.4; }
+  .system-select span,.mode-option span,.route-option span { display:grid; gap:.18rem; }
+  .system-select small,.mode-option small,.route-option small { color:#667085; line-height:1.4; }
   .scope-details { border-top:1px solid #eef2f6; padding-top:.7rem; }
   .scope-details summary { cursor:pointer; color:#344054; font-weight:700; }
   .scope-details > .field-help { margin:.7rem 0; }
@@ -922,7 +868,6 @@
   .scope-mode-option span { display:grid; gap:.18rem; }
   .scope-mode-option small { color:#667085; line-height:1.4; }
   .scope-actions { display:flex; justify-content:flex-end; gap:.55rem; margin-top:.9rem; }
-  .narrow-option { margin-bottom:.7rem; }
   .route-option:has(input:disabled) { cursor:default; opacity:.62; }
   .field-help { margin:0; color:#667085; font-size:.82rem; line-height:1.45; }
   .group-toolbar { display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; margin-bottom:.1rem; }
@@ -932,18 +877,18 @@
   .route-set + .route-set { margin-top:1rem; padding-top:.85rem; border-top:1px solid #eef2f6; }
   .topic-route { margin-left:calc(var(--topic-depth, 0) * .8rem); }
   .tag-route { border-style:dashed; }
-  .mode-option input,.route-option input,.narrow-option input,.system-select input { margin-top:.18rem; }
+  .mode-option input,.route-option input,.system-select input { margin-top:.18rem; }
   .form-error { margin:0; color:#b42318; font-size:.88rem; }
   .start-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
   .start-row p { margin:0; max-width:700px; }
   code { font-size:.88em; }
   @media (max-width:820px) {
-    .study-header,.chooser-heading,.active-card,.preference-card,.run-card,.deletion-card,.ownership-card,.start-row,.combined-count { display:grid; align-items:stretch; }
-    .account-actions,.active-actions,.run-actions,.preference-form { justify-content:flex-start; }
+    .study-header,.chooser-heading,.active-card,.run-card,.deletion-card,.ownership-card,.start-row,.combined-count { display:grid; align-items:stretch; }
+    .account-actions,.active-actions,.run-actions { justify-content:flex-start; }
     .chooser-heading-actions { display:grid; justify-items:start; }
     .chooser-heading-actions p,.count-detail { text-align:left; justify-items:start; }
     .scope-actions { justify-content:flex-start; }
-    .run-options-card,.system-grid { grid-template-columns:1fr; }
+    .run-options-card,.system-grid,.secondary-links { grid-template-columns:1fr; }
     .group-toolbar { display:grid; }
   }
   @media (max-width:520px) {

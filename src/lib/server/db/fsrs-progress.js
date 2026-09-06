@@ -295,3 +295,73 @@ export async function getLearnerFsrsProgress(input) {
     }))
   };
 }
+
+/**
+ * Focused launcher read model. Keep detailed System/history rows on
+ * /study/progress so the Study launcher does not eagerly load them.
+ *
+ * @param {{db:import('./index.js').LearningDb,userId:string}} input
+ */
+export async function getLearnerFsrsProgressSummary(input) {
+  const userId = requiredString(input.userId, 'Learner');
+  const client = requireD1Client(input.db);
+  const retainedHistory = retainedDetailedHistorySql('e', 'p');
+  const result = await client.batch([
+    client.prepare(`
+      ${ELIGIBLE_SYSTEM_CASES_CTE}
+      SELECT
+        (SELECT COUNT(*) FROM eligible_cases) AS eligible_cases,
+        COALESCE(SUM(CASE WHEN state.case_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS entered_srs,
+        COALESCE(SUM(CASE
+          WHEN state.case_id IS NOT NULL AND state.due_at <= ${DATABASE_NOW_MS_SQL} THEN 1
+          ELSE 0
+        END), 0) AS due_cases,
+        COALESCE(SUM(CASE
+          WHEN state.case_id IS NOT NULL AND state.due_at > ${DATABASE_NOW_MS_SQL} THEN 1
+          ELSE 0
+        END), 0) AS not_due_cases
+      FROM eligible_cases ec
+      LEFT JOIN learner_fsrs_profiles p ON p.user_id = ?
+      LEFT JOIN learner_case_fsrs state
+        ON state.user_id = ?
+       AND state.case_id = ec.case_id
+       AND state.generation = p.generation
+       AND state.review_sequence_epoch = p.review_sequence_epoch
+       AND state.parameter_revision = p.parameter_revision
+       AND state.scheduler_revision = p.scheduler_revision
+       AND state.scheduler_library_version = p.scheduler_library_version
+    `).bind(userId, userId),
+    client.prepare(`
+      SELECT
+        COALESCE(a.scheduled_completed, 0) AS scheduled_completed,
+        COALESCE(a.free_completed, 0) AS free_completed,
+        (
+          SELECT COUNT(*)
+          FROM scheduled_review_events e
+          INNER JOIN learner_fsrs_profiles p ON p.user_id = e.user_id
+          WHERE e.user_id = identity.user_id
+            AND e.completed_at >= ${DATABASE_NOW_MS_SQL} - ${THIRTY_DAYS_MS}
+            AND ${retainedHistory}
+        ) AS recent_scheduled_30d
+      FROM (SELECT ? AS user_id) identity
+      LEFT JOIN learner_aggregates a ON a.user_id = identity.user_id
+    `).bind(userId)
+  ]);
+  const overview = rows(result[0])[0] ?? {};
+  const aggregate = rows(result[1])[0] ?? {};
+  return {
+    coverage: {
+      enteredSrs: integer(overview.entered_srs),
+      eligibleCases: integer(overview.eligible_cases)
+    },
+    memory: {
+      due: integer(overview.due_cases),
+      notDue: integer(overview.not_due_cases)
+    },
+    activity: {
+      scheduledCompleted: integer(aggregate.scheduled_completed),
+      recentScheduled30d: integer(aggregate.recent_scheduled_30d),
+      freeCompleted: integer(aggregate.free_completed)
+    }
+  };
+}

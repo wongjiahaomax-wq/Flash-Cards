@@ -31,10 +31,9 @@ test('Study keeps server-owned blockers dominant and offers a non-destructive al
 });
 
 test('Study demotes secondary controls without removing their inline actions', () => {
-  assert.match(studyPage, /<details class="secondary-tools">/);
-  assert.match(studyPage, /Progress, Study settings, and data management/);
-  assert.match(studyPage, /action="\?\/preference"/);
-  assert.match(studyPage, /action="\?\/deleteStudyData"/);
-  assert.match(progressComponent, /action="\?\/resetProgress"/);
-  assert.match(progressComponent, /action="\?\/freshFsrsStart"/);
+  assert.match(studyPage, /href="\/study\/progress"/);
+  assert.match(studyPage, /href="\/study\/settings"/);
+  assert.match(studyPage, /href="\/study\/settings\/data"/);
+  assert.match(progressComponent, /Reset Progress/);
+  assert.match(progressComponent, /Fresh FSRS Start/);
 });
