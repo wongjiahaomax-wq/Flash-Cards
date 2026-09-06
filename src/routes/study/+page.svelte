@@ -183,6 +183,16 @@
     return scopeStateForSystem(systemId).status === 'SELECTED_ROUTES';
   }
 
+  /** @param {string} systemId */
+  function appliedScopeSummary(systemId) {
+    const routes = appliedRoutesForSystem(systemId);
+    const topicCount = routes.filter((route) => route.startsWith('topic:')).length;
+    const tagCount = routes.filter((route) => route.startsWith('tag:')).length;
+    const topicLabel = `${topicCount} Topic${topicCount === 1 ? '' : 's'}`;
+    const tagLabel = `${tagCount} Tag${tagCount === 1 ? '' : 's'}`;
+    return `${topicLabel} · ${tagLabel}`;
+  }
+
   /** @param {string} systemId @param {boolean} checked */
   function setSystemSelected(systemId, checked) {
     const system = studySystems.find((candidate) => candidate.id === systemId);
@@ -469,12 +479,8 @@
         }
         browserRun = persisted.descriptor;
       }
-      if (payload.status === 'review' && payload.reviewId) {
+      if (['review', 'resume'].includes(payload.status) && payload.reviewId) {
         await goto(`/study/${payload.reviewId}`);
-        return;
-      }
-      if (payload.status === 'resume' && payload.reviewId) {
-        runMessage = payload.message ?? 'Resume the active Review before continuing this session.';
         return;
       }
       if (payload.status === 'waiting') {
@@ -505,6 +511,7 @@
     return async ({ result, update }) => {
       try {
         if (result.type !== 'success') {
+          runMessage = '';
           await update({ invalidateAll: true });
           return;
         }
@@ -637,7 +644,7 @@
   {/if}
 
   {#if runMessage || form?.message}
-    <p class="status-message" role="status">{runMessage || form?.message}</p>
+    <p class:form-error={Boolean(form?.message)} class="status-message" role={form?.message ? 'alert' : 'status'}>{form?.message || runMessage}</p>
   {/if}
 
   {#if canShowNewRunLauncher()}
@@ -663,7 +670,7 @@
   >
     <div class="system-grid">
       {#each studySystems as system}
-        <section class="system-card">
+        <section class:customizer-open={customizingSystemId === system.id} class="system-card">
           {#if systemSelected(system.id)}
             <input type="hidden" name="system" value={system.id} />
             {#if routesAreSubmitted(system.id)}
@@ -682,7 +689,7 @@
             />
             <span>
               <strong>{system.name}</strong>
-              <small>{systemNarrowed(system.id) ? 'Specific Topics / Tags applied' : `${system.allCaseCount} eligible ${system.allCaseCount === 1 ? 'Case' : 'Cases'} in Whole System`}</small>
+              <small>{systemNarrowed(system.id) ? appliedScopeSummary(system.id) : `${system.allCaseCount} eligible ${system.allCaseCount === 1 ? 'Case' : 'Cases'} in Whole System`}</small>
             </span>
           </label>
 
@@ -821,7 +828,6 @@
       </div>
     </section>
 
-    {#if form?.message}<p class="form-error" role="alert">{form.message}</p>{/if}
     <div class="start-row">
       <p class="muted">{hasAppliedSystemSelection() ? 'Your selected Systems and routes are checked again before the session starts.' : 'Select at least one System to enable Start Study.'}</p>
       <button class="button primary" type="submit" disabled={Boolean(data.activeReview) || deletionBlocked || planning || opening || !hasAppliedSystemSelection()}>
@@ -887,6 +893,7 @@
   .count-detail { display:grid; justify-items:end; gap:.15rem; font-size:.88rem; text-align:right; }
   .system-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
   .system-card { display:grid; gap:.8rem; align-content:start; padding:1rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
+  .system-card.customizer-open { grid-column:1 / -1; }
   .system-card:has(.system-select input:checked) { border-color:#344054; background:#fbfcfe; box-shadow:0 0 0 2px #98a2b3 inset; }
   .system-select { border:0; padding:.25rem; }
   .system-select span,.mode-option span,.route-option span { display:grid; gap:.18rem; }

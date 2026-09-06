@@ -155,6 +155,26 @@ test('a successful Study open stays reachable when updated descriptor storage fa
   assert.doesNotMatch(persistenceFailure[0], /requestNextLearnerStudyWork\(/);
 });
 
+test('a normal resume response opens its existing Active Review', () => {
+  const page = source('src/routes/study/+page.svelte');
+  const openRunStart = page.indexOf('async function openRun(descriptor) {');
+  const openRunEnd = page.indexOf('  /** @type', openRunStart);
+  const openRun = page.slice(openRunStart, openRunEnd);
+  assert.match(openRun, /if \(\['review', 'resume'\]\.includes\(payload\.status\) && payload\.reviewId\) \{\s*await goto\(`\/study\/\$\{payload\.reviewId\}`\);/);
+  assert.doesNotMatch(openRun, /payload\.status === 'resume'[\s\S]*?runMessage =/);
+});
+
+test('failed Study planning clears its temporary status and renders the action message once', () => {
+  const page = source('src/routes/study/+page.svelte');
+  const planningStart = page.indexOf('const startPlannedRun = () => {');
+  const planningEnd = page.indexOf('\n  async function continueRun()', planningStart);
+  const planning = page.slice(planningStart, planningEnd);
+  assert.match(planning, /if \(result\.type !== 'success'\) \{\s*runMessage = '';\s*await update\(\{ invalidateAll: true \}\);/);
+  assert.match(page, /\{#if runMessage \|\| form\?\.message\}[\s\S]*?form\?\.message \|\| runMessage/);
+  assert.equal((page.match(/form\?\.message/g) ?? []).length, 4, 'Study should use one status owner while retaining the form message checks');
+  assert.doesNotMatch(page, /\{#if form\?\.message\}<p class="form-error"/);
+});
+
 test('completion open keeps a newly created Review reachable when descriptor storage fails', () => {
   const review = source('src/routes/study/[reviewId]/+page.svelte');
   const openFollowingReview = review.slice(review.indexOf('async function openFollowingReview'), review.indexOf('  /** @param', review.indexOf('async function openFollowingReview')));
@@ -208,6 +228,23 @@ test('Study launcher follows the learner sequence and gates Start on applied Sys
   assert.match(page, /disabled=\{Boolean\(data\.activeReview\) \|\| deletionBlocked \|\| planning \|\| opening \|\| !hasAppliedSystemSelection\(\)\}/);
   assert.match(page, /\{planning \? 'Starting…' : 'Start Study'\}/);
   assert.doesNotMatch(page, /disabled=\{[^}]*eligibleCount/);
+});
+
+test('narrowed System summaries use applied routes rather than customization drafts', () => {
+  const page = source('src/routes/study/+page.svelte');
+  const summaryStart = page.indexOf('function appliedScopeSummary(systemId) {');
+  const summaryEnd = page.indexOf('function setSystemSelected(systemId, checked)', summaryStart);
+  const summary = page.slice(summaryStart, summaryEnd);
+  assert.match(summary, /const routes = appliedRoutesForSystem\(systemId\);/);
+  assert.match(summary, /route\.startsWith\('topic:'\)/);
+  assert.match(summary, /route\.startsWith\('tag:'\)/);
+  assert.doesNotMatch(summary, /selectedRoutesForSystem|draftRoutes/);
+  assert.match(page, /systemNarrowed\(system\.id\) \? appliedScopeSummary\(system\.id\) :/);
+  assert.match(page, /status: 'SELECTED_ROUTES',[\s\S]*?appliedRoutes: routes,[\s\S]*?draftRoutes: routes/);
+  assert.match(page, /function cancelCustomize\(systemId\)/);
+  assert.match(page, /draftRoutes: current\.status === 'SELECTED_ROUTES'[\s\S]*?current\.appliedRoutes/);
+  assert.match(page, /class:customizer-open=\{customizingSystemId === system\.id\}/);
+  assert.match(page, /\.system-card\.customizer-open \{ grid-column:1 \/ -1; \}/);
 });
 
 test('Study learner copy keeps implementation details out of the primary flow', () => {
