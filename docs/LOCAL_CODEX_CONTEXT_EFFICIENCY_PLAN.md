@@ -10,7 +10,7 @@ The new efficiency guidance proposed here is intended for Codex sessions that ar
 
 ### Explicit ChatGPT GitHub-plugin exclusion
 
-**Do not apply the new local-Codex efficiency guidance from this PR when ChatGPT is working on the repository through the GitHub plugin/connector in ChatGPT chat.**
+**Do not apply the new local-Codex efficiency guidance from this PR when ChatGPT is working on the repository through the GitHub plugin in ChatGPT chat.**
 
 That ChatGPT + GitHub-plugin workflow is a separate execution surface. It should continue to use the repository's existing universal guidance plus the applicable Remote GitHub execution/write discipline. The new local-Codex retrieval and shell-output rules are not intended to govern that workflow.
 
@@ -25,7 +25,7 @@ real checkout + local shell
 and explicitly not about:
 
 ```text
-ChatGPT chat + GitHub plugin/connector
+ChatGPT chat + GitHub plugin
 remote repository / PR operations
 → use existing Remote GitHub guidance
 → do not load or apply the local-Codex efficiency overlay
@@ -124,7 +124,7 @@ Do not use this PR to:
 
 - prescribe when a user or agent must start a new Codex conversation;
 - require fresh threads for later corrections;
-- change how ChatGPT uses the GitHub plugin/connector;
+- change how ChatGPT uses the GitHub plugin;
 - impose local shell-retrieval rules on Remote GitHub work;
 - add token counters, token-budget enforcement, context-window telemetry, or session-log parsers;
 - add fixed command-count limits;
@@ -155,7 +155,7 @@ The living guidance should begin with an applicability block equivalent to:
 
 ```text
 Applies: local Codex coding against a real checkout with local command execution.
-Does not apply: ChatGPT chat operating through the GitHub plugin/connector.
+Does not apply: ChatGPT chat operating through the GitHub plugin.
 Does not replace: universal AGENTS.md safety/routing/validation rules.
 ```
 
@@ -494,7 +494,7 @@ Useful assertions include:
 
 - the local Codex overlay exists and is conditionally routed;
 - the routing text clearly identifies local Codex as the intended surface;
-- ChatGPT + GitHub-plugin/connector operation is explicitly excluded from the overlay;
+- ChatGPT + GitHub-plugin operation is explicitly excluded from the overlay;
 - the exclusion is specific to the new efficiency overlay, not universal safety/validation;
 - existing Remote GitHub exact-head/write guidance remains referenced/unchanged where appropriate;
 - no mandatory token/command quota is introduced.
@@ -611,7 +611,7 @@ Record the decision and rationale in the PR/handoff so the reviewer knows the au
 The PR implementation is complete only when all of the following are true:
 
 1. A local Codex coding session can discover concise local-only context-efficiency guidance without speculative broad search.
-2. ChatGPT chat using the GitHub plugin/connector is explicitly outside the overlay.
+2. ChatGPT chat using the GitHub plugin is explicitly outside the overlay.
 3. ChatGPT + GitHub continues to use existing Remote GitHub execution/write guidance.
 4. No text incorrectly identifies GitHub Copilot as the user-requested excluded workflow.
 5. Existing universal safety, protected-boundary, validation, Git/GitHub, Production/Preview, deployment, and data-integrity authority remains intact.
