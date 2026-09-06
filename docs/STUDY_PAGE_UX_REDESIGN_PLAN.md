@@ -137,6 +137,14 @@ Progressive disclosure must preserve keyboard access, semantic labels, focus beh
 
 Decluttering must not be purely visual. If detailed information moves to a secondary route, the detailed server query should move with it unless the launcher genuinely needs that data.
 
+### 5.8 Browser-local ownership must be resolved before primary action is shown
+
+A resumable browser run is localStorage-owned and is only known after client hydration. The redesign must not render the new-run launcher as the primary action during that unresolved interval and then switch to Continue after `onMount()`.
+
+### 5.9 Existing browser state is replaced only at a successful replacement commit point
+
+Opening, editing, cancelling, or unsuccessfully submitting `Start a different run` must not destroy the current resumable browser run. Replacement occurs only after the server returns a valid new descriptor and that descriptor is successfully persisted as the new browser run.
+
 ## 6. Target `/study` information architecture
 
 A no-active-run desktop target may approximate:
@@ -171,22 +179,70 @@ Study settings Expanded Learning: Off      Manage ›
 
 This is an information-architecture target, not a locked pixel specification.
 
-## 7. Continue-state ownership and acceptance matrix
+Do not show a per-System customized Case count such as `Arrhythmias + ECG — 43 Cases` unless that number is obtained through an authoritative server-side union resolver for that exact System scope. Topic and Tag counts overlap and must not be arithmetically added in the browser. A safe compact summary is simply:
+
+```text
+☑ Cardiology
+   Arrhythmias + ECG                     Edit
+```
+
+## 7. Continue-state ownership, hydration and acceptance matrix
 
 The redesign must make current ownership/resume behavior explicit rather than allowing visual changes to alter it accidentally.
 
-### 7.1 Acceptance-state matrix
+### 7.1 Server-authoritative states first
+
+Two server-known states outrank browser-local state immediately:
+
+- an Active Review exists;
+- study-data deletion is in progress.
+
+If either exists, the browser does not need to wait for localStorage hydration to decide the primary surface.
+
+### 7.2 Pre-hydration browser-run state
+
+When there is no server-known Active Review and no deletion fence, browser-run ownership is initially unresolved until localStorage has been read for the authenticated learner.
+
+Model this explicitly, for example:
+
+```text
+BROWSER_RUN_UNKNOWN
+NO_BROWSER_RUN
+RESUMABLE_BROWSER_RUN
+```
+
+Equivalent internal names are acceptable.
+
+While browser-run state is `UNKNOWN`:
+
+- do not present the new-run launcher as the established primary action;
+- do not render a misleading `Start a study session` state that will immediately flip to Continue;
+- render a compact neutral loading/skeleton/resolving state or defer the ownership-sensitive portion of the launcher until hydration completes;
+- avoid layout shift where practical;
+- once localStorage is resolved, render either Continue or new-run primary according to the acceptance matrix below.
+
+This is an ownership correctness requirement, not merely animation polish.
+
+### 7.3 Acceptance-state matrix
 
 | Server/browser state | Primary surface | New-run launcher | Required behavior |
 | --- | --- | --- | --- |
-| Active Review exists | Resume Active Review | Hidden/unavailable until the Active Review is resumed or explicitly discarded | Active Review remains authoritative. Do not plan a replacement run behind an unresolved Active Review. Existing discard behavior remains explicit. |
-| No Active Review; resumable browser run exists | Continue browser run | Available only as a visually secondary `Start a different run` path | Continuing remains primary. Starting a different run may replace browser-local run state according to existing behavior, but must not invent learner-progress reset/abandonment semantics. |
+| Study-data deletion in progress | Continue deletion | Hidden/unavailable | Study stays fenced. Do not load/enable study planning. |
+| Active Review exists | Resume Active Review | Hidden/unavailable until the Active Review is resumed or explicitly discarded | Active Review remains authoritative. Do not plan a replacement run behind it. |
+| No Active Review/deletion; browser state unresolved | Neutral ownership-loading state | Not yet primary | Resolve current-user localStorage state before deciding Continue vs Start. |
+| No Active Review; resumable browser run exists | Continue browser run | Available only as visually secondary `Start a different run` | Existing run remains intact unless replacement planning reaches the successful commit point. |
 | No Active Review; no resumable browser run | Start a study session | Primary and available | Normal chooser behavior. |
-| Study-data deletion in progress | Continue deletion | Hidden/unavailable | Study stays blocked. Do not load/enable study planning merely because the launcher was visually reorganized. |
 
-Status/error/recovery states must still surface the existing actionable message without changing the underlying ownership rules.
+Status/error/recovery states must still surface the existing actionable message without changing underlying ownership rules.
 
-### 7.2 Active Review
+### 7.4 Active Review presentation must respect revealed state
+
+Do not hard-code `Answers not yet revealed`.
+
+The compact card must either:
+
+- render state-aware copy from `activeReview.revealed`, e.g. `Answers revealed` vs `Answers not yet revealed`; or
+- use neutral copy such as `Review in progress` that remains correct in both states.
 
 Target shape:
 
@@ -194,14 +250,12 @@ Target shape:
 Continue studying
 
 Scheduled Study
-Answers not yet revealed
+Review in progress
 
 [ Resume Review ]
 ```
 
-Only information useful for the immediate decision should be shown by default.
-
-### 7.3 Resumable browser run
+### 7.5 Resumable browser run
 
 Target shape:
 
@@ -215,9 +269,37 @@ Scheduled Study · 4 of 10 completed
 
 Retain necessary run state and existing recovery/clear behavior. Stale-run invalidation, Active Review precedence and browser-run ownership must remain unchanged.
 
-## 8. System selector redesign
+## 8. `Start a different run` replacement semantics
 
-### 8.1 Compact default rows
+When a resumable browser run exists and the learner chooses the secondary `Start a different run` path:
+
+- opening the alternate launcher does not clear or mutate the existing browser run;
+- editing Systems/routes/mode/run size does not clear or mutate it;
+- cancelling/closing the alternate launcher leaves it unchanged;
+- eligible-count requests leave it unchanged;
+- expected or unexpected planning failure leaves it unchanged;
+- server validation failure leaves it unchanged;
+- an invalid/missing descriptor leaves it unchanged.
+
+The replacement commit point is:
+
+```text
+server planning succeeds
+→ valid replacement descriptor returned
+→ replacement descriptor successfully persisted to browser-run storage
+→ browserRun becomes the replacement
+→ open first Review
+```
+
+Do not clear the old run before this point.
+
+If browser persistence of the replacement descriptor fails, the implementation must not intentionally discard the previous resumable run. Handle/report the storage failure while preserving recoverability as far as the storage API permits.
+
+This does not add a new learner-progress abandonment semantic. It only protects browser-local run continuity while a replacement is being prepared.
+
+## 9. System selector redesign
+
+### 9.1 Compact default rows
 
 Replace large always-prominent System cards with a denser selectable representation.
 
@@ -239,13 +321,12 @@ Selected customized:
 
 ```text
 ☑ Cardiology
-   Arrhythmias + ECG                  43 Cases
-                                      Edit
+   Arrhythmias + ECG                   Edit
 ```
 
 Exact visual form may be list rows, compact cards or another accessible pattern, but the default learner scan should remain compact.
 
-### 8.2 Canonical System scope state machine
+### 9.2 Canonical System scope state machine
 
 The browser UI must model each System with an explicit **applied scope state**. Hidden checkbox state must never determine submission implicitly.
 
@@ -275,61 +356,57 @@ SELECTED_ROUTES
 
 The implementation may use different internal names, but this three-state distinction must remain explicit.
 
-### 8.3 Selection/deselection behavior
+### 9.3 Selection/deselection behavior
 
 Required behavior:
 
 - selecting an unselected System enters `SELECTED_ALL`;
 - deselecting a System enters `UNSELECTED` and clears its applied customization for the current launcher state;
-- reselecting that System therefore returns to `SELECTED_ALL`, not a hidden stale narrowed scope;
+- reselecting therefore returns to `SELECTED_ALL`, not a hidden stale narrowed scope;
 - while `UNSELECTED`, no Topic/Tag values for that System may be submitted;
 - while `SELECTED_ALL`, no hidden/stale Topic/Tag values for that System may be submitted.
 
-This deliberately favors predictable canonical state over preserving hidden customization after deselection.
+### 9.4 Customization draft vs applied state
 
-### 8.4 Customization draft vs applied state
+Opening `Customize` / `Edit` creates an editable **draft**. The draft must not alter submitted scope until the learner applies it.
 
-Opening `Customize` / `Edit` creates an editable **draft**. The draft must not alter the submitted scope until the learner applies it.
-
-Required behavior:
-
-**Open customization from `SELECTED_ALL`:**
+**Open from `SELECTED_ALL`:**
 
 - draft starts in `Whole System` mode;
-- Topic/Tag route controls become relevant only if the learner explicitly switches the draft to `Specific Topics / Tags`;
-- reopening without applying must not silently convert the System to routes mode.
+- Topic/Tag route controls become relevant only after explicit switch to `Specific Topics / Tags`;
+- opening/closing without Apply cannot silently convert the System to routes mode.
 
-**Open customization from `SELECTED_ROUTES`:**
+**Open from `SELECTED_ROUTES`:**
 
-- draft is initialized from the currently applied route set;
-- reopening shows exactly the applied customization, not stale abandoned edits.
+- draft initializes from the currently applied route set;
+- reopening shows applied customization, not abandoned edits.
 
 **Cancel / close without Apply:**
 
-- discard all draft edits;
+- discard draft edits;
 - leave applied System state unchanged;
 - leave submitted scope unchanged.
 
 **Apply `Whole System`:**
 
 - commit `SELECTED_ALL`;
-- clear/ignore previous applied route selections;
+- clear/ignore prior applied route selections;
 - ensure route controls are non-submitting;
 - row summary returns to whole-System presentation.
 
 **Apply `Specific Topics / Tags`:**
 
-- require at least one valid explicit contributing route according to current server/client validation rules;
-- commit `SELECTED_ROUTES` with the exact chosen routes;
+- require at least one valid explicit contributing route according to current validation rules;
+- commit `SELECTED_ROUTES` with exactly those routes;
 - row summary reflects the applied narrowed scope.
 
 The server remains authoritative and must still reject invalid or stale routes.
 
-### 8.5 Whole-System vs “Select all” must remain distinct
+### 9.5 Whole-System vs “Select all” must remain distinct
 
 Do not use a generic `Select all` action that can be confused with canonical whole-System selection.
 
-The customization surface should instead make scope mode explicit:
+Make scope mode explicit:
 
 ```text
 Scope
@@ -337,7 +414,7 @@ Scope
 ( ) Specific Topics / Tags
 ```
 
-When `Specific Topics / Tags` is selected, group actions may be offered with explicit names such as:
+When `Specific Topics / Tags` is selected, group actions may be offered with explicit names:
 
 ```text
 Select all Topics
@@ -346,22 +423,42 @@ Select all Tags
 Clear Tags
 ```
 
-Selecting every currently visible Topic/Tag route is still **routes mode**. It must never be rewritten by the browser as canonical `mode: 'all'` merely because every visible route happens to be checked.
+Selecting every currently visible Topic/Tag route is still **routes mode**. The browser must never collapse this to canonical `mode: 'all'` merely because every visible route is checked.
 
 Only the explicit `Whole System` choice restores canonical `mode: 'all'`.
 
-### 8.6 Preserve Topic hierarchy semantics
+### 9.6 Preserve Topic hierarchy semantics
 
-The redesign must preserve current semantics:
+The redesign must preserve:
 
 - exact-Topic routes only where exact `caseCount > 0`;
-- structural zero-exact-Case Topics remain UI controls rather than submitted routes;
-- parent toggles affect contributing descendant exact-Topic routes;
-- partially selected descendants produce indeterminate parent state;
-- hierarchy ordering/breadcrumb depth remains correct;
-- curated Tags remain independent routes.
+- structural zero-exact-Case Topics as UI controls rather than submitted routes;
+- parent toggles affecting contributing descendant exact-Topic routes;
+- indeterminate parent state for partial descendants;
+- hierarchy ordering/breadcrumb depth;
+- curated Tags as independent routes.
 
-## 9. Study-mode redesign
+## 10. Failed-plan rehydration contract
+
+Expected planning validation failures must preserve still-valid learner choices rather than resetting the launcher or resurrecting hidden stale inputs.
+
+On expected server validation failure:
+
+- preserve the submitted Scheduled/Free choice when still valid;
+- preserve submitted run size when still valid;
+- preserve selected Systems that still exist and remain selectable;
+- preserve `SELECTED_ALL` for still-valid whole-System selections;
+- preserve only still-valid explicit Topic/curated-Tag routes for `SELECTED_ROUTES` Systems;
+- remove/reject routes that are stale, inactive, no longer contributing, or no longer part of the current server-provided System metadata;
+- never retain removed invalid routes in hidden controls that could be resubmitted later;
+- surface an actionable validation message when any submitted scope is rejected or normalized;
+- if a narrowed System loses every valid route after stale-route filtering, do not silently convert it to whole-System. Keep the error explicit or require the learner to choose a new valid scope.
+
+The server remains authoritative. Client rehydration is for preserving valid intent, not bypassing server validation.
+
+Unexpected failures may keep the current applied client state, but must not clear the existing resumable browser run or manufacture a successful scope.
+
+## 11. Study-mode redesign
 
 Present Scheduled vs Free as one concise decision rather than two permanently explanatory blocks.
 
@@ -379,7 +476,7 @@ When Free is selected, contextual help should describe Free Study instead.
 
 Exact copy can be refined but must not misrepresent current runtime behavior.
 
-## 10. Run-size redesign
+## 12. Run-size redesign
 
 Preserve:
 
@@ -399,13 +496,15 @@ Session size
 
 Detailed repeat-slot semantics do not need permanent primary-page space. They may be available through concise help where useful.
 
-## 11. Combined eligible Case count
+## 13. Eligible Case counts
 
-Preserve the server-authoritative count path and canonical union/deduplication semantics.
+### 13.1 Combined launcher count
+
+Preserve the server-authoritative combined count path and canonical union/deduplication semantics.
 
 Do not calculate the combined count by summing per-System counts.
 
-Default presentation should be concise:
+Default presentation:
 
 ```text
 142 unique Cases available
@@ -421,11 +520,20 @@ Unable to calculate available Cases. Try again.
 
 The count remains informational; the planner/server resolver remains authoritative.
 
-## 12. Start CTA
+### 13.2 Customized per-System count
 
-The form should culminate in one obvious action.
+Do **not** derive a customized System count by adding Topic and Tag counts. Topic and Tag routes can overlap.
 
-Example:
+For a customized System row, either:
+
+- omit a count and show the applied scope summary only; or
+- request an authoritative union count for that exact per-System applied scope through a server resolver that shares canonical eligibility/deduplication semantics.
+
+Do not introduce a second divergent counting algorithm for presentation convenience.
+
+## 14. Start CTA
+
+The form should culminate in one obvious action:
 
 ```text
 [ Start 10-Case session ]
@@ -439,7 +547,9 @@ or:
 
 The CTA must be disabled or safely rejected for invalid/empty scope according to existing server-side rules. Client state must not become an authorization or validity authority.
 
-## 13. Progress presentation and data-loading ownership
+When an existing resumable browser run is being replaced, the CTA follows the replacement commit-point contract in section 8.
+
+## 15. Progress presentation and data-loading ownership
 
 The primary `/study` page should show only enough progress information to orient the learner.
 
@@ -464,26 +574,40 @@ Detailed information can move to `/study/progress`, including:
 - recent Scheduled history;
 - detailed-history retention information.
 
-### 13.1 Loading requirement
+### 15.1 Loading requirement
 
-If detailed Progress is moved to `/study/progress`, the main `/study` loader must not continue eagerly fetching the complete detailed Progress/history payload merely to render the compact summary.
+If detailed Progress is moved to `/study/progress`, `/study` must not continue eagerly fetching the complete detailed Progress/history payload merely to render the compact summary.
 
-Current Progress calculations/semantics remain authoritative, but route ownership should become:
+Route ownership should become:
 
 ```text
 /study
 → load only launcher-required Progress summary data
-→ e.g. Due now + SRS coverage if those remain in the compact summary
 
 /study/progress
-→ load the full detailed learner Progress/history model
+→ load full detailed learner Progress/history model
 ```
 
-If the current `getLearnerFsrsProgress(...)` query computes/fetches substantially more than the launcher needs, introduce/reuse a focused summary query rather than calling the full query and discarding most of its result.
+If current `getLearnerFsrsProgress(...)` computes/fetches substantially more than the launcher needs, introduce/reuse a focused summary query rather than calling the full query and discarding most of it.
 
-Do not duplicate calculation semantics. Shared lower-level calculation helpers are preferable if needed.
+Do not duplicate calculation semantics. Shared lower-level calculation helpers are preferable.
 
-## 14. Study settings and loading ownership
+### 15.2 `/study/progress` deletion fence
+
+A direct Progress route must not display partially deleted study state while staged study-data deletion is active.
+
+Before loading detailed Progress/history, `/study/progress` must check the learner study-data deletion status.
+
+If deletion is in progress:
+
+- do not execute the detailed Progress/history query;
+- do not render partially deleted analytics/history;
+- render/redirect to the appropriate deletion-in-progress recovery surface according to the route design;
+- preserve the same Study fence semantics as `/study`.
+
+The deletion-status check therefore precedes detailed Progress retrieval.
+
+## 16. Study settings and loading ownership
 
 Expanded Learning is a persistent preference, not normally a per-run decision.
 
@@ -496,13 +620,13 @@ Expanded Learning: Off                 Manage ›
 
 A secondary `/study/settings` surface may own the full preference control.
 
-The launcher may load the minimal preference value required to display this summary, but it should not eagerly load unrelated detailed settings simply because the previous combined page did so.
+The launcher may load the minimal preference value required for its summary but should not eagerly load unrelated settings.
 
 Preserve the existing rule that the preference is applied when the next Scheduled/Free Active Review is frozen.
 
-## 15. Manage Study data / danger zone and loading ownership
+## 17. Manage Study data / danger zone
 
-Reset Progress, Fresh FSRS Start and deletion of learner study data should be visually separated from ordinary Study initiation.
+Reset Progress, Fresh FSRS Start and learner study-data deletion should be visually separated from ordinary Study initiation.
 
 Preferred hierarchy:
 
@@ -519,14 +643,52 @@ The redesign must not weaken:
 - confirmation requirements;
 - generation/review-sequence boundary changes;
 - stale browser-run invalidation;
-- active-Review invalidation/deletion behavior;
+- Active Review invalidation/deletion behavior;
 - staged deletion behavior;
 - deletion-in-progress blocking behavior;
 - final empty-state verification.
 
-Deletion status needed to enforce the Study fence remains launcher-critical and must still be loaded before presenting study actions. Detailed Reset/Fresh/history information does not need to be eagerly loaded on `/study` merely because destructive actions used to live there.
+### 17.1 Browser-local invalidation must survive route extraction
 
-## 16. Frozen runtime contracts
+Today boundary actions can return `browserRunInvalidated`, which `/study` consumes to clear the learner's localStorage run. Moving Reset/Fresh/delete actions to another route must not break that browser-local invalidation.
+
+Required behavior after successful boundary actions:
+
+```text
+Reset Progress success
+→ clear learner browser run immediately
+
+Fresh FSRS Start success
+→ clear learner browser run immediately
+
+Delete Study Data begins/advances successfully with browserRunInvalidated
+→ clear learner browser run immediately
+```
+
+This must happen on the route/component that receives the action result; it must **not** depend on later navigation back to `/study` to consume the flag.
+
+Use a shared browser-run invalidation helper/action-result handler if useful, but preserve the existing current-user storage ownership rules.
+
+Clearing is idempotent. A staged deletion continuation may return the invalidation signal again without harm.
+
+### 17.2 Per-action deletion guard matrix
+
+Route splitting must preserve current action-level fence behavior deliberately:
+
+| Action | During study-data deletion | Required ownership |
+| --- | --- | --- |
+| Plan Study run | Blocked/fenced | Must continue checking deletion before planning. |
+| Discard Active Review | Blocked/fenced | Preserve current guard behavior. |
+| Reset Progress | Blocked/fenced | Preserve current guard behavior. |
+| Fresh FSRS Start | Blocked/fenced | Preserve current guard behavior. |
+| Expanded Learning preference | Remains available | Do not accidentally add the Study-deletion fence merely because settings moved routes; current behavior permits preference update. |
+| Delete Study Data | Owns transition into deletion | Begins the staged deletion state machine after confirmation. |
+| Continue Study Data Deletion | Owns active deletion progression | Advances/retries the staged state machine; no separate inactivity guard. |
+| Detailed Progress load | Blocked before query | Do not load partially deleted Progress/history. |
+
+Do not generalize one route-wide guard across every action if that changes these established distinctions.
+
+## 18. Frozen runtime contracts
 
 Unless separately reviewed, this PR must preserve all of the following:
 
@@ -547,232 +709,271 @@ Unless separately reviewed, this PR must preserve all of the following:
 - descriptor/proof versions and signed run boundaries;
 - Active Review v2 attribution/scope guards;
 - browser-run ownership and stale-run invalidation;
+- browser-local invalidation after Reset/Fresh/delete;
+- successful-replacement-only browser-run overwrite;
 - plan → first Review immediate opening;
 - completion → next Review continuous navigation;
 - cross-System next-open behavior;
 - Reset/Fresh concurrency safety;
 - staged learner study-data deletion safety;
 - deletion-in-progress Study fence;
+- current action-specific deletion guard distinctions;
 - server authority over all submitted scope/routes.
 
 UI-state invariant:
 
-> Only the explicit applied System state may determine submitted scope. Hidden, cancelled, stale, or disabled Topic/Tag controls must never leak into the request.
+> Only explicit applied System state may determine submitted scope. Hidden, cancelled, stale, invalid, or disabled Topic/Tag controls must never leak into the request.
+
+Browser-run invariant:
+
+> Existing resumable browser state is not destroyed by merely opening/editing/cancelling or failing a replacement plan. It is replaced only after a valid returned descriptor is successfully committed to browser storage.
 
 No schema migration is expected for this UX redesign. If implementation discovers that a migration or runtime-contract change is required, stop that part of the tranche and amend/re-review the plan rather than silently expanding scope.
 
-## 17. Implementation tranches — all within this PR
+## 19. Implementation tranches — all within this PR
 
-### Tranche 1 — Page hierarchy, resume-first ownership and declutter
+### Tranche 1 — Page hierarchy, ownership hydration and resume-first declutter
 
 Goal: establish the new information hierarchy without changing multi-System selector semantics yet.
 
 Implement:
 
-- encode the acceptance-state matrix in the learner surface;
+- encode the acceptance-state matrix;
+- add explicit pre-hydration browser-run ownership state;
+- avoid presenting new-run primary before localStorage ownership is resolved;
 - make Active Review/current browser run the dominant applicable continue state;
-- hide the new-run launcher during Active Review and deletion-in-progress states;
+- make Active Review compact copy respect `revealed` or use neutral in-progress copy;
+- hide new-run launcher during Active Review and deletion-in-progress states;
 - keep `Start a different run` secondary when only a resumable browser run exists;
-- simplify the page header/intro where possible;
+- preserve existing browser run while the alternate launcher is merely opened/edited/cancelled;
+- simplify header/intro;
 - establish a clearly bounded `Start a study session` area;
-- reduce Expanded Learning on the primary page to compact settings/status presentation;
-- reduce learner Progress on the primary page to a compact summary/entry point;
-- move or progressively hide study-data management so it no longer competes with normal Study initiation;
-- remove learner-visible backend implementation jargon where not necessary.
+- reduce Expanded Learning and Progress to compact primary-page summaries/entry points;
+- move/progressively hide study-data management;
+- remove learner-visible backend jargon where unnecessary.
 
 Validation:
 
-- Active Review remains resumable/discardable under current rules;
-- no replacement run is planned behind an unresolved Active Review;
+- no primary-action flash from Start → Continue during hydration;
+- Active Review remains resumable/discardable and revealed-state copy is correct;
+- no replacement run is planned behind unresolved Active Review;
 - browser run remains resumable/clearable under current rules;
-- a different run remains possible only through the intended secondary path when no Active Review exists;
-- deletion-in-progress still blocks Study and exposes only deletion continuation/recovery behavior;
-- Expanded Learning preference still persists/applies correctly;
-- Reset/Fresh/delete actions remain reachable and protected;
-- existing runtime tests continue to pass.
+- alternate-launcher open/edit/cancel preserves existing run;
+- deletion-in-progress blocks Study and exposes deletion continuation/recovery;
+- preference behavior remains intact;
+- existing runtime tests pass.
 
 Commit this tranche separately before proceeding.
 
-### Tranche 2 — Compact Systems and explicit customization state machine
+### Tranche 2 — Compact Systems, explicit customization state machine and failed-plan rehydration
 
-Goal: make whole-System selection visually simple while preserving all current scope semantics.
+Goal: make whole-System selection visually simple while preserving current scope semantics and valid learner input after expected validation failures.
 
 Implement:
 
 - compact System selection rows/cards;
-- explicit `UNSELECTED` / `SELECTED_ALL` / `SELECTED_ROUTES` applied-state behavior;
-- whole-System as the default on selection/reselection;
+- explicit `UNSELECTED` / `SELECTED_ALL` / `SELECTED_ROUTES` applied state;
+- whole-System default on selection/reselection;
 - `Customize` / `Edit` only for selected Systems;
-- customization draft state separate from applied state;
-- deterministic Cancel / Apply / deselect / reselect / reopen behavior from section 8;
-- explicit `Whole System` vs `Specific Topics / Tags` choice;
-- no ambiguous generic `Select all` control;
-- scoped `Select all Topics` / `Select all Tags` actions if useful;
-- hide Topic/Tag hierarchy until explicit specific-route customization is requested;
-- concise applied customized-scope summary on the System row;
-- checked/unchecked/indeterminate hierarchy semantics;
-- strict prevention of hidden/stale route submission in `UNSELECTED` and `SELECTED_ALL` states;
-- existing form parsing and canonical server resolution.
+- separate customization draft state;
+- deterministic Cancel / Apply / deselect / reselect / reopen behavior;
+- explicit `Whole System` vs `Specific Topics / Tags`;
+- no ambiguous generic `Select all`;
+- scoped group actions if useful;
+- strict prevention of hidden/stale route submission;
+- failed-plan rehydration that preserves still-valid mode/run-size/System/routes while rejecting stale routes;
+- no silent narrowed→whole conversion after all narrowed routes become invalid;
+- existing form parsing/canonical server resolution.
 
 Validation:
 
-- one-System whole-System selection submits `mode: 'all'` only;
-- deselect removes the System and all of its routes from submission;
-- reselect returns to whole-System mode;
-- Cancel preserves prior applied state exactly;
-- reopen customization reflects prior applied state exactly;
+- whole-System submits `mode: 'all'` only;
+- deselect removes System/routes;
+- reselect returns to whole-System;
+- Cancel preserves prior applied state;
+- reopen reflects prior applied state;
 - customized → Whole System clears route submission;
-- selecting every visible Topic/Tag remains `mode: 'routes'`, never browser-collapsed to `mode: 'all'`;
-- multiple whole-System selection;
-- mixed whole-System + narrowed-System selection;
-- Topic-only narrowing;
-- Tag-only narrowing;
-- Topic + Tag narrowing;
-- structural parent behavior;
-- indeterminate state;
-- invalid/empty narrowed scope handling;
-- overlapping cross-System Cases still deduplicate;
-- existing specialized Multi-System learner UX tests remain green.
+- all visible routes selected remains `mode: 'routes'`;
+- expected failed plan preserves valid inputs;
+- stale invalid route is not hidden/re-submitted;
+- narrowed scope with no remaining valid route produces explicit correction/error state;
+- multiple/mixed System selections remain correct;
+- Topic hierarchy/indeterminate behavior remains correct;
+- overlapping Cases still deduplicate;
+- specialized Multi-System tests remain green.
 
 Commit this tranche separately before proceeding.
 
-### Tranche 3 — Session controls, count and CTA simplification
+### Tranche 3 — Session controls, authoritative count and replacement commit point
 
-Goal: finish the core Study launcher.
+Goal: finish the core Study launcher without weakening browser-run continuity or count semantics.
 
 Implement:
 
 - concise Scheduled/Free control;
 - concise 5/10/20/All control;
-- contextual help rather than simultaneous long explanations;
-- compact combined eligible-Case count states;
+- contextual help;
+- compact combined eligible-count states;
+- omit customized per-System counts unless backed by authoritative union resolver;
 - one clear Start CTA;
-- loading/error/zero-candidate states that do not cause layout churn or ambiguity.
+- explicit successful-replacement commit point for `Start a different run`;
+- loading/error/zero-candidate states without ambiguity.
 
 Validation:
 
-- Scheduled and Free planning preserve current request shape;
+- Scheduled/Free request shape unchanged;
 - default remains Scheduled + 10 unless current authority says otherwise;
-- `All` remains null/unbounded distinct-case target according to current contract;
-- count endpoint stays read-only/server authoritative;
+- `All` remains current null/unbounded distinct-case target;
+- count endpoint remains read-only/server authoritative;
+- no Topic+Tag arithmetic count appears;
+- failed replacement planning preserves existing browser run;
+- successful replacement persists new descriptor before treating old run as replaced;
 - planning still immediately opens first Review;
-- current validation/error messages remain actionable;
+- validation messages remain actionable;
 - keyboard operation works without pointer input.
 
 Commit this tranche separately before proceeding.
 
-### Tranche 4 — Secondary surfaces, route-level data loading, responsive/accessibility polish and reconciliation
+### Tranche 4 — Secondary routes, deletion/invalidation safety, responsive/accessibility polish and reconciliation
 
-Goal: complete the decluttering without retaining hidden server-side cost or losing discoverability/safety.
+Goal: complete decluttering without retaining hidden server-side cost or losing browser-local/runtime safety.
 
 Implement as supported by preceding tranches:
 
 - `/study/progress` or equivalent detailed Progress surface;
 - `/study/settings` or equivalent preference surface;
-- clearly separated Manage Study Data/danger-zone surface;
-- move full detailed data queries to the routes that actually render them;
-- keep `/study` limited to launcher-required data plus mandatory ownership/fence state;
-- avoid duplicating FSRS/progress calculations while introducing focused summary loading;
-- responsive behavior for narrow/mobile screens;
-- keyboard/focus behavior for customization disclosures/dialogs;
-- screen-reader labels and live-region behavior for count/status changes;
+- separated Manage Study Data/danger-zone surface;
+- full detailed queries on routes that actually render them;
+- `/study` limited to launcher-required data plus mandatory ownership/fence state;
+- deletion check before detailed `/study/progress` query;
+- browser-run invalidation handling on whichever secondary route receives Reset/Fresh/delete action results;
+- preserve action-specific deletion guards from section 17.2;
+- avoid duplicated FSRS/progress calculation semantics;
+- responsive narrow/mobile behavior;
+- keyboard/focus behavior;
+- screen-reader labels/live regions;
 - long System/Topic/Tag-name handling;
-- visual state clarity for selected/customized/disabled/error states;
-- final documentation updates describing implemented behavior rather than planned behavior.
+- visual selected/customized/disabled/error clarity;
+- final documentation reconciliation.
 
 Validation:
 
-- `/study` no longer eagerly loads full detailed history/Progress when only the compact summary is rendered;
-- `/study/progress` owns detailed Progress/history retrieval;
-- settings/data routes load only their required detailed state;
-- deletion fence status remains available early enough to block Study correctly;
-- moving forms/actions does not alter Reset/Fresh/delete semantics;
-- mobile/narrow layout does not merely produce a long stack of full-size cards;
-- no hidden control becomes inaccessible by keyboard;
-- focus returns predictably after closing any modal/dialog/drawer;
-- Topic parent indeterminate state is perceivable;
-- destructive actions remain clearly differentiated and confirmed;
+- `/study` does not eagerly load full detailed Progress/history;
+- `/study/progress` owns detailed retrieval and refuses to query/render it during active deletion;
+- settings/data routes load only required detailed state;
+- Reset/Fresh/delete action success clears current-user browser run even when action occurs away from `/study`;
+- preference update remains available during deletion as before;
+- plan/discard/Reset/Fresh remain fenced;
+- delete/continue own deletion state machine;
+- moving forms/actions does not alter confirmations or boundary semantics;
+- mobile layout materially reduces density;
+- all hidden controls remain keyboard accessible where applicable;
+- focus restoration and indeterminate state are perceivable;
 - all relevant general and specialized learner/runtime tests pass.
 
 Commit this tranche separately.
 
-## 18. Testing and regression expectations
+## 20. Testing and regression expectations
 
 The implementation agent should inspect current test/CI ownership rather than inventing a new broad workflow by default.
 
-At minimum, preserve/extend coverage for:
+At minimum preserve/extend coverage for:
 
-- the four-state acceptance matrix;
+- server-known Active Review and deletion ownership;
+- pre-hydration browser-run `UNKNOWN` state;
+- no Start→Continue ownership flash;
+- Active Review revealed/unrevealed compact presentation;
+- resumable browser run and `Start a different run`;
+- existing run preservation across alternate-launcher open/edit/cancel/count/failure;
+- successful replacement commit point;
 - `/study` source/interaction contracts;
 - learner runtime cutover regressions;
-- Scheduled and Free run planning;
+- Scheduled and Free planning;
 - run-size behavior;
 - browser run storage/open/completion;
-- Active Review behavior;
-- Multi-System form parsing and scope resolution;
-- the applied-vs-draft customization state machine;
+- Multi-System form parsing/scope resolution;
+- applied-vs-draft customization state machine;
 - no stale/hidden route submission;
-- whole-System vs all-visible-routes distinction;
+- Whole-System vs all-visible-routes distinction;
+- failed-plan rehydration with stale-route filtering;
 - combined eligible count;
+- no client arithmetic customized Topic+Tag count;
 - Topic hierarchy semantics;
 - cross-System continuous navigation;
 - Reset/Fresh actions;
 - learner study-data deletion;
-- Expanded Learning preference behavior;
-- route-level detailed-data ownership after secondary-surface extraction.
+- browser-local invalidation from secondary routes;
+- Expanded Learning preference behavior during and outside deletion;
+- `/study/progress` deletion fence before detailed query;
+- route-level detailed-data ownership.
 
-Add focused component/browser-level tests where progressive-disclosure interaction has meaningful behavior not covered by existing source-contract tests.
+Add focused component/browser-level tests where progressive-disclosure or hydration behavior is not covered by existing source-contract tests.
 
 Do not weaken specialized tests merely to make the redesign easier to land.
 
-## 19. UX acceptance scenarios
+## 21. UX acceptance scenarios
 
 Before marking the PR Ready, manually or automatically verify:
 
-1. Active Review exists → Resume primary, new-run launcher unavailable;
-2. resumable browser run without Active Review → Continue primary, new-run secondary;
-3. neither Active Review nor browser run → new-run launcher primary;
-4. deletion in progress → Study launcher unavailable, deletion continuation primary;
-5. status/error/recovery message;
-6. one System selected whole;
-7. deselect selected whole System;
-8. reselect returns to whole-System;
-9. open customization from whole, edit, Cancel;
-10. open customization from whole, choose explicit routes, Apply;
-11. reopen customized System and see applied routes;
-12. customized System switched back to Whole System;
-13. all visible Topics/Tags selected but still explicit routes mode;
-14. several Systems selected whole;
-15. one System customized by Topic;
-16. one System customized by Tag;
-17. mixed whole + customized Systems;
-18. zero eligible Cases;
-19. count loading and count failure;
-20. Free Study + All;
-21. Scheduled Study + fixed run size;
-22. many Systems;
-23. System with deep Topic hierarchy;
-24. System with many curated Tags;
-25. long labels;
-26. Reset/Fresh/manage-data navigation;
-27. `/study` launcher data load without full detailed Progress/history load;
-28. direct `/study/progress` detailed load;
-29. mobile/narrow viewport;
-30. keyboard-only operation;
-31. screen-reader semantics for dynamic count/status/customization state.
+1. deletion in progress at initial load → deletion continuation primary, no Study launcher;
+2. Active Review exists → Resume primary, no new-run launcher;
+3. Active Review unrevealed → correct state-aware/neutral copy;
+4. Active Review revealed → correct state-aware/neutral copy;
+5. no Active Review/deletion before hydration → neutral ownership state, not Start primary;
+6. hydration resolves resumable browser run → Continue primary, new-run secondary;
+7. hydration resolves no browser run → new-run primary;
+8. open `Start a different run`, then cancel → old browser run unchanged;
+9. edit alternate run and trigger count requests → old browser run unchanged;
+10. alternate planning validation failure → old browser run unchanged;
+11. alternate planning success → new descriptor replaces old only at successful persistence commit point;
+12. one System selected whole;
+13. deselect/reselect returns to whole-System;
+14. customize then Cancel;
+15. customize explicit routes then Apply;
+16. reopen customized System and see applied routes;
+17. customized → Whole System;
+18. all visible Topics/Tags selected but still routes mode;
+19. failed plan preserves valid Scheduled/Free + run size + valid scope;
+20. failed plan with stale route removes/rejects stale route visibly;
+21. failed narrowed scope with zero remaining valid routes does not silently become whole-System;
+22. mixed whole + customized Systems;
+23. combined count loading/zero/error;
+24. customized Topic+Tag summary does not show an arithmetic count;
+25. Free Study + All;
+26. Scheduled Study + fixed run size;
+27. many Systems/deep hierarchy/many Tags/long labels;
+28. Reset on secondary data route clears browser run;
+29. Fresh Start on secondary data route clears browser run;
+30. begin/continue study-data deletion clears browser run idempotently;
+31. preference update remains available during active deletion;
+32. plan/discard/Reset/Fresh remain fenced during active deletion;
+33. direct `/study/progress` during deletion does not load/render detailed partial state;
+34. `/study` launcher load avoids full detailed Progress/history query;
+35. direct `/study/progress` outside deletion loads detailed model;
+36. mobile/narrow viewport;
+37. keyboard-only operation;
+38. screen-reader semantics for dynamic count/status/customization/hydration state.
 
-## 20. Review clarifications locked before implementation
+## 22. Review clarifications locked before implementation
 
-The following decisions were added after plan review and are not optional implementation details:
+The following review decisions are not optional implementation details:
 
-1. **System customization state is explicit.** `UNSELECTED`, `SELECTED_ALL`, and `SELECTED_ROUTES` are distinct applied states; customization uses a separate draft. Cancel never mutates the applied state. Deselect clears customization for the current launcher state. Reselect returns to canonical whole-System. Hidden/stale routes never submit in `UNSELECTED` or `SELECTED_ALL`.
-2. **Whole System is not “all visible routes”.** A distinct `Whole System` choice owns canonical `mode: 'all'`. Group-level actions such as `Select all Topics` remain explicit routes mode even when every currently visible route is checked.
-3. **Secondary surfaces own detailed loading.** `/study` loads only launcher-required summary/preference/ownership/fence data. Full Progress/history/settings data moves to the route that renders it; do not retain eager detailed loads behind a visually compact launcher.
-4. **Resume/deletion ownership is explicit.** Active Review hides the new-run launcher; resumable browser run makes it secondary; neither makes it primary; deletion-in-progress hides it and keeps Study fenced.
+1. **System customization state is explicit.** `UNSELECTED`, `SELECTED_ALL`, and `SELECTED_ROUTES` are distinct applied states with separate draft state. Cancel never mutates applied state. Deselect clears customization. Reselect returns to whole-System. Hidden/stale routes never submit in unselected/whole mode.
+2. **Whole System is not “all visible routes”.** Only explicit `Whole System` owns canonical `mode: 'all'`; selecting every visible route remains routes mode.
+3. **Secondary surfaces own detailed loading.** `/study` does not retain full detailed Progress/history/settings loads after those surfaces move out.
+4. **Resume/deletion ownership is explicit.** Active Review hides new-run; browser run makes it secondary; neither makes it primary; deletion hides it and keeps Study fenced.
+5. **Browser-run ownership has a pre-hydration state.** The UI must not briefly promote Start before localStorage is resolved.
+6. **Replacement planning is non-destructive until success.** Existing browser run survives alternate-launcher open/edit/cancel/count/failure and is replaced only after valid returned descriptor persistence succeeds.
+7. **Boundary-action localStorage invalidation follows the action.** Reset/Fresh/delete must clear the browser run even when moved off `/study`; returning to `/study` is not required.
+8. **Progress is deletion-fenced before detailed load.** Direct `/study/progress` must not query/render partially deleted state.
+9. **Customized counts remain authoritative.** Never add Topic/Tag counts; omit the per-System number unless resolved as a union by the server.
+10. **Failed-plan rehydration preserves valid intent only.** Valid selections/mode/run size survive expected failure; stale routes are removed/rejected and never hidden for resubmission.
+11. **Active Review copy respects revealed state.** No hard-coded unrevealed wording.
+12. **Deletion guards remain action-specific.** Plan/discard/Reset/Fresh are fenced; preference remains available; delete/continue own deletion progression.
 
-These clarifications must be covered by focused tests/source contracts before the PR is marked Ready.
+These clarifications require focused tests/source contracts before the PR is marked Ready.
 
-## 21. Out of scope
+## 23. Out of scope
 
 Do not use this PR to add:
 
@@ -782,28 +983,34 @@ Do not use this PR to add:
 - new descriptor/scope/proof versions;
 - new Topic/Tag taxonomy semantics;
 - automatic tag inference;
-- a synthetic `Mixed` System;
+- synthetic `Mixed` System;
 - changes to Case eligibility;
 - migration/schema changes unless an explicit blocker is discovered and the plan is re-reviewed;
 - Production deployment or Production D1 mutation.
 
-## 22. Success criteria
+## 24. Success criteria
 
 The redesign is successful when:
 
-1. the page's dominant action is obvious within one scan;
-2. Active Review/browser-run/deletion ownership is explicit and unchanged;
-3. starting a normal whole-System run requires no exposure to Topic/Tag details;
-4. customization has deterministic draft/apply/cancel/deselect/reselect/reopen behavior;
-5. hidden or stale Topic/Tag selections can never leak into whole-System or unselected submission;
-6. `Whole System` is explicitly distinct from selecting every visible route;
-7. advanced scope customization remains fully available when requested;
-8. Scheduled/Free and run-size decisions are concise;
-9. the learner can see the unique available Case count without reading backend semantics;
-10. progress/settings/data management remain discoverable but secondary;
-11. detailed secondary data is loaded by the route that renders it rather than eagerly by the launcher;
-12. destructive actions no longer visually compete with Study initiation;
-13. mobile density is materially reduced rather than merely stacked;
-14. accessibility is preserved or improved;
-15. current runtime, FSRS, scope, Active Review, reset/deletion and continuous-navigation contracts remain unchanged;
-16. the full implementation is delivered as sequential tranches within this single PR.
+1. the page's dominant action is obvious and ownership-correct within one scan;
+2. no browser-run ownership flash occurs during hydration;
+3. Active Review/browser-run/deletion ownership remains unchanged;
+4. existing resumable browser runs survive incomplete/failed replacement attempts;
+5. Active Review compact copy is valid in both revealed states;
+6. normal whole-System study does not expose Topic/Tag complexity;
+7. customization has deterministic draft/apply/cancel/deselect/reselect/reopen behavior;
+8. hidden/stale/invalid routes cannot leak into submission;
+9. Whole System is explicitly distinct from selecting every visible route;
+10. failed-plan rehydration preserves valid learner intent without retaining stale routes;
+11. Scheduled/Free and run-size decisions are concise;
+12. combined and optional customized counts use authoritative union semantics only;
+13. Progress/settings/data management remain discoverable but secondary;
+14. detailed secondary data is loaded by the route that renders it;
+15. `/study/progress` cannot expose partially deleted state;
+16. Reset/Fresh/delete browser-local invalidation still works after route extraction;
+17. current per-action deletion fence distinctions are preserved;
+18. destructive actions no longer visually compete with Study initiation;
+19. mobile density is materially reduced rather than merely stacked;
+20. accessibility is preserved or improved;
+21. current runtime, FSRS, scope, Active Review, reset/deletion and continuous-navigation contracts remain unchanged;
+22. the full implementation is delivered as sequential tranches within this single PR.
