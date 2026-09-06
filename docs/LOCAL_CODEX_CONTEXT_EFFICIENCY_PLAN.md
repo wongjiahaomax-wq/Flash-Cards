@@ -2,367 +2,616 @@
 
 _Status: proposed focused implementation plan. This document is a planning record, not living operational authority._
 
-## Scope boundary
+## 1. Scope boundary
 
-This PR is deliberately **local-coding specific**.
+This PR is deliberately **specific to local Codex coding**.
 
-The new efficiency rules proposed here are intended for local Codex-style coding sessions where the coding agent has a usable repository checkout and command execution, including local implementation performed in a Hybrid session.
+The new efficiency guidance proposed here is intended for Codex sessions that are actively coding against a usable local Flash-Cards checkout with shell/command execution. It may also apply to the local-execution side of a Hybrid Codex session.
 
 ### Explicit GitHub Copilot exclusion
 
-**Do not apply the new client/session-efficiency rules from this PR when coding through the GitHub Copilot plugin.**
+**Do not apply the new efficiency guidance from this PR when coding through the GitHub Copilot plugin.**
 
-That exclusion applies even if the Copilot plugin can see a local checkout or invoke local tools. GitHub Copilot should continue to follow the repository's existing universal safety/routing/validation guidance and whatever existing execution-mode guidance is already applicable to it; it must not inherit the new Codex-specific thread-lifecycle or retrieval-shaping rules merely because it happens to have local capabilities.
+This exclusion applies even if GitHub Copilot can see the same local checkout, run terminal commands, inspect files, or otherwise has capabilities that resemble Local/Hybrid Codex execution.
 
-This is a narrow client-specific exception for context-efficiency behavior only. It must not weaken or replace the repository-wide safety, protected-boundary, validation, Git, GitHub, Production/Preview, deployment, or data-integrity rules.
-
-Remote GitHub operation is also out of scope for these new efficiency rules. Existing Remote GitHub exact-head/write discipline remains unchanged.
-
-## Why this follow-up exists
-
-PR #156 added the correct repository-wide principles: progressive retrieval, bounded discovery, coherent checkpoints, context compaction when available, reuse of already-retrieved evidence, and efficient handoff retrieval.
-
-A subsequent real local Codex implementation session still showed a material execution gap between those principles and actual agent behavior:
-
-- a narrowly scoped task still expanded immediately into a large discovery batch;
-- substantial files and documentation were repeatedly read in broad ranges or in full;
-- multiple large reads were sometimes combined into one tool-output update;
-- browser verification repeatedly regenerated long ad-hoc DevTools/CDP commands;
-- broad validation was sometimes repeated even after focused checks and known baseline failures had already established the relevant state;
-- the same long conversation continued across multiple separately coherent implementation/correction tranches, causing later small tasks to inherit a very large historical context.
-
-The observed session's dominant cost was accumulated input context, not assistant prose. The problem is therefore primarily:
+The routing decision for this new guidance therefore cannot be based only on capabilities such as:
 
 ```text
-many model calls
-×
-large retained local-session context
+has local checkout
++
+has shell
 ```
 
-rather than insufficiently short user prompts.
+because that would incorrectly capture GitHub Copilot plugin sessions.
 
-The repository should tighten local Codex operating behavior without turning context management into a new framework or weakening validation.
+GitHub Copilot should continue to use the repository guidance that already applies to it. Nothing in this PR should require Copilot to adopt the new Codex-specific retrieval/output-shaping behavior.
 
-## Governing design
+This exception is limited to the new context-efficiency overlay. It does **not** exempt Copilot from universal repository safety, protected-boundary, validation, Git/GitHub, Production/Preview, deployment, or data-integrity rules.
 
-For local Codex work:
+Remote GitHub execution is also outside the scope of the new local-Codex efficiency overlay. Existing Remote GitHub exact-head/write discipline remains unchanged.
+
+## 2. Why this follow-up exists
+
+PR #156 established the correct repository-wide principles: progressive retrieval, bounded discovery, reuse of already-retrieved evidence, coherent checkpoints, compact validation output, and efficient handoff retrieval.
+
+A later real local Codex implementation session showed that those principles were still not strong enough to shape actual command behavior.
+
+The measured session used approximately:
 
 ```text
-PR / branch / repository state = durable work memory
-Codex conversation            = short-lived working memory
+197 model calls
+28.54M recorded tokens
+28.46M input tokens
+99.71% of recorded tokens as input
+~98% of input reported as cached
+~25k input tokens near the start
+~245k input tokens near the end
 ```
 
-The local conversation should contain only the evidence needed to complete the current coherent implementation tranche. Durable facts that must survive between tranches should live in the PR, branch, commits, tests, repository documentation, or a compact handoff summary rather than relying on a single indefinitely growing Codex thread.
+These figures are diagnostic of context growth; they should not be treated as a direct billing calculation because cached-input accounting may differ from fresh-input cost.
 
-## Goals
+The important operational signal is that the dominant load came from repeatedly carrying a very large accumulated context, not from assistant prose.
 
-1. Reduce unnecessary local Codex model calls and retained context growth.
-2. Make progressive retrieval observable in actual command behavior, not only prompt wording.
-3. Preserve enough context to avoid wasteful re-discovery inside one coherent tranche.
-4. Reset working context between separately coherent implementation/correction tranches.
-5. Reduce oversized textual tool outputs.
-6. Reduce repeated generation of browser-control boilerplate where repository-owned local tooling can safely replace it.
-7. Avoid duplicate broad validation while preserving the repository's full handoff contract.
-8. Keep all new rules explicitly out of GitHub Copilot plugin workflows.
-9. Avoid token telemetry, hard command quotas, retrieval caches, opaque orchestration wrappers, or a second validation DSL.
+The same session showed several concrete behaviors that created that context:
 
-## Non-goals
+- a narrowly scoped task immediately expanded into a large discovery batch;
+- substantial source and documentation files were read in broad ranges or in full before a concrete dependency required them;
+- the same large files were revisited with overlapping reads;
+- several large reads were combined into single commands, reducing command count but increasing one model-context update substantially;
+- browser verification repeatedly regenerated long ad-hoc Edge/DevTools/CDP programs for common local operations;
+- broad validation commands were sometimes run in overlapping sequences even after the relevant focused state and known unrelated baseline failures were established;
+- small follow-up changes inherited the accumulated context of much larger earlier work.
+
+The last observation is useful evidence about context growth, but **this PR will not impose a rule about when the user or agent must start a new Codex thread**. Thread choice remains a workflow decision outside this PR.
+
+The optimization target here is therefore narrower:
+
+> Reduce unnecessary context creation inside local Codex coding sessions by making retrieval, command output, browser verification, and validation orchestration more disciplined.
+
+## 3. Governing design
+
+The repository already contains most of the semantic rules needed for safe work. This PR should not create another agent framework.
+
+The desired model is:
+
+```text
+existing universal repository guidance
+        +
+small conditional local-Codex efficiency overlay
+        ↓
+question-driven retrieval
+bounded command output
+reuse of current evidence
+focused iteration
+repository-owned final validation
+```
+
+The overlay should improve execution behavior without changing the meaning or authority of existing repository contracts.
+
+## 4. Goals
+
+1. Make the new guidance apply to local Codex coding and **not** GitHub Copilot plugin coding.
+2. Reduce broad/speculative retrieval before the implementation surface is established.
+3. Reduce full-file, repeated, overlapping, and unnecessarily batched textual reads.
+4. Encourage each retrieval to answer a concrete unresolved implementation question.
+5. Shape shell/tool output before it enters model context.
+6. Reuse facts already established in the current session while they remain valid.
+7. Reduce repeated browser-control boilerplate for local UX checks where a smaller reusable owner is justified.
+8. Reduce duplicated validation orchestration while preserving every repository-required final check.
+9. Keep task prompts concise; do not compensate for execution inefficiency by preloading more instructions.
+10. Leave application behavior, runtime behavior, CI semantics, Production/Preview boundaries, migrations, deployment, and data ownership unchanged.
+
+## 5. Non-goals
 
 Do not use this PR to:
 
-- change application/product behavior;
-- change schema, migrations, Production/Preview ownership, deployment, Cloudflare, D1, or R2 behavior;
-- weaken repository-required final validation;
-- alter Remote GitHub commit/ref mutation discipline;
-- impose the new rules on GitHub Copilot plugin sessions;
-- add model-token accounting or context-window telemetry;
-- add fixed token-per-task limits or fixed command-count quotas;
-- add a generic shell proxy;
+- prescribe when a user or agent must start a new Codex conversation;
+- require fresh threads for later corrections;
+- add token counters, token-budget enforcement, context-window telemetry, or session-log parsers;
+- add fixed command-count limits;
+- turn an illustrative line-range heuristic into a failing quota;
 - add file-read tracking or retrieval caches;
+- add a generic shell proxy;
+- add a second retrieval DSL;
 - add another changed-path classifier or validation-selection language;
-- replace `agent:checks`, the validation contracts, or existing CI ownership;
-- require a fresh thread between discovery, implementation, and validation when they are still part of one coherent tranche.
+- replace `agent:checks`, validation contracts, or current CI ownership;
+- weaken or skip repository-required final validation;
+- change Remote GitHub commit/ref mutation discipline;
+- change application/product behavior;
+- change schema, migrations, Cloudflare, D1, R2, deployment, Production, or Preview behavior;
+- make GitHub Copilot plugin sessions load or obey this new local-Codex overlay.
 
-## Proposed implementation
+## 6. Proposed implementation workstreams
 
-### 1. Add a local-Codex-only living guidance layer
+### Workstream A — client-specific routing and authority
 
-Create a concise living document for local Codex execution, for example:
+Create a concise living authority for this overlay, for example:
 
 ```text
 docs/LOCAL_CODEX_EXECUTION_GUIDANCE.md
 ```
 
-Its first section must state the applicability rule unambiguously:
+The exact name may change if the repository already has a better owner. Do not create a parallel document if an existing Codex-specific local authority already exists at the actual PR head.
+
+The living guidance should begin with an unambiguous applicability block equivalent to:
 
 ```text
-Applies: local Codex/local coding-agent sessions using a real checkout + shell.
+Applies: local Codex coding with a usable checkout + shell.
 Does not apply: GitHub Copilot plugin sessions.
 Does not replace: universal AGENTS.md safety/routing/validation rules.
 ```
 
-Keep the document short enough that loading it saves context overall. It should contain only the local execution rules that are not already sufficiently enforced by the universal authorities.
+Add only the smallest routing pointer needed for a local Codex agent to discover it. Likely candidate owners are root `AGENTS.md` and/or `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`, but the implementer must inspect the actual current head and use the minimum authoritative surface.
 
-Update the minimum necessary routing authority so a local Codex agent can discover this document at session start. Prefer a very small conditional pointer in root `AGENTS.md` and/or `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md` rather than copying the full rules into universal guidance.
+Do **not** copy the entire local overlay into root `AGENTS.md`. That would increase preload cost for every agent and defeat the purpose of the PR.
 
-The pointer must preserve the existing capability-based Local / Remote GitHub / Hybrid model while also honoring the explicit user-requested GitHub Copilot exclusion for these new efficiency rules.
+#### Routing invariants
 
-Do not make every agent load the new document.
+A reviewer should be able to prove all of the following:
 
-### 2. Define one-thread-per-coherent-tranche lifecycle guidance
+- local Codex can discover the overlay;
+- GitHub Copilot is explicitly told not to use it;
+- capability-based Local/Remote/Hybrid routing remains intact for universal behavior;
+- the Copilot exclusion affects only this new efficiency overlay;
+- universal safety and validation rules remain applicable to all relevant clients;
+- Remote GitHub write safeguards are untouched.
 
-The local Codex guidance should distinguish **coherent tranche boundaries** from ordinary model turns.
+#### Important failure mode
 
-Keep one thread through:
+Reject an implementation that says only:
 
 ```text
-bounded discovery
-→ implementation
-→ focused iteration
-→ checkpoint validation
-→ browser/UX verification when required
-→ commit/push/handoff
+if local checkout + shell -> load local efficiency guidance
 ```
 
-Do not create a fresh thread merely because discovery ended or validation began when the same implementation tranche is still active.
+without the explicit Copilot exception. That is insufficient because Copilot may also satisfy those capability conditions.
 
-After the tranche has reached a durable handoff boundary, normally end the thread. Examples:
+### Workstream B — question-driven progressive retrieval
 
-- implementation committed and pushed;
-- a PR correction tranche completed and handed off;
-- an investigation produced a durable conclusion and the next task is a separate implementation;
-- a later reviewer reports a new bounded correction after the prior tranche is already complete.
+The current universal guidance already says to retrieve the minimum evidence necessary. The local Codex overlay should make that principle more operational.
 
-A subsequent bounded correction should normally start a fresh local Codex thread rather than inheriting the complete history of the previous implementation.
+For a clearly bounded task, the first retrieval should normally establish only:
 
-The fresh-thread handoff should be compact and durable. Normally it needs only:
+1. the minimum applicable routing/scoped authority;
+2. the directly affected symbol/file or bounded implementation region;
+3. the nearest directly related test/helper when needed to answer the next implementation question.
 
-- PR/branch identity;
-- instruction to inspect the actual current head;
-- the specific remaining finding/objective;
-- protected invariants/non-goals;
-- any validation caveat that materially changes the next step.
+Broadening should require a reason that can be stated concretely, for example:
 
-Do not paste the previous conversation or complete prior implementation history.
+```text
+Need to inspect helper X because target function delegates persistence to X.
+Need scoped DB authority because the proposed change crosses a migration boundary.
+Need server route Y because client behavior depends on its returned status contract.
+```
 
-### 3. Tighten first-pass retrieval behavior
+Avoid broadening merely because more related files exist.
 
-For clearly bounded local Codex work, the first retrieval pass should normally be limited to:
+#### Preferred retrieval pattern
 
-1. root/scoped routing needed for the target;
-2. the directly affected symbol/file or bounded section;
-3. the nearest directly related test/helper when needed.
-
-Only broaden after a concrete unresolved dependency or protected boundary is discovered.
-
-Use targeted commands such as:
+Use targeted search first, then bounded reads around the relevant result. Examples include:
 
 ```text
 rg -n <symbol/pattern> <target paths>
-Get-Content <file> | Select-Object -Skip <n> -First <bounded count>
+Get-Content <file> | Select-Object -Skip <n> -First <bounded range>
 ```
 
-or equivalent bounded reads.
+or equivalent commands on the active shell/platform.
 
-Avoid by default:
+For substantial text files, a small relevant section is normally preferable to the complete file. Roughly 50–150 lines may be a useful **heuristic** for many source reads, but it is not a quota and must not prevent complete reads when full-file semantics genuinely matter.
 
-- `Get-Content -Raw` on substantial source/documentation files;
-- full-file reads when one relevant section is sufficient;
-- speculative large documentation lists;
-- repeated overlapping reads of the same unchanged file;
+#### Avoid by default
+
+- `Get-Content -Raw` on a substantial source or documentation file when one section answers the question;
+- reading an entire long Svelte/server/test file before locating the relevant symbol;
+- speculative lists of documentation read “for completeness”;
+- overlapping reads of unchanged content without a reason;
 - broad repository searches after the implementation surface is already established;
-- reading several large files in one combined command merely to reduce the visible command count.
+- reading implementation history before current code unless history is materially needed;
+- combining several large file reads into one command merely to reduce visible command count.
 
-This is an output-shaping rule, not a fixed command quota. One extra small targeted read is preferable to one huge batched output.
+#### Legitimate reasons to broaden
 
-As a soft default for substantial text files, prefer a single relevant section or roughly 50–150 lines at a time. Exceed that when the complete artifact is genuinely required. Do not introduce token counters or fail tasks for crossing an arbitrary numeric threshold.
+The overlay must not discourage necessary retrieval for:
 
-### 4. Shape tool output before it enters model context
+- schema/migrations;
+- auth/security;
+- Production/Preview ownership;
+- Cloudflare/runtime/deployment;
+- persistent storage/R2 lifecycle;
+- cross-subsystem behavior;
+- substantial architecture/refactoring;
+- exploratory audits where broad investigation is the task;
+- full-file contracts where relationships across the whole file are materially relevant.
 
-Local commands should return the smallest output that answers the current question.
+Universal protected-boundary escalation remains authoritative.
+
+### Workstream C — tool-output shaping
+
+Before executing a local command, prefer an output form that answers the current question without dumping unrelated material into model context.
 
 Prefer:
 
-- `rg -n -m ...` or path-scoped `rg`;
+- path-scoped `rg`;
+- `rg -m` / bounded matches where exhaustive results are unnecessary;
 - selected line ranges;
-- compact structured summaries;
-- `Select-Object -First` where exhaustive output is unnecessary;
-- repository-owned compact validation/reporting modes.
+- compact structured output containing only needed fields;
+- `Select-Object -First` or equivalent when only representative/current results are required;
+- repository-owned compact validation reporters;
+- summary commands that preserve individual failure authority.
 
-Avoid returning tens of thousands of characters when a short excerpt or summary establishes the same fact.
+Avoid:
 
-Do not combine unrelated reads into one tool call simply to appear efficient. Batching is useful only when the combined output remains bounded and every result is needed for the same decision.
+- tens of thousands of characters when a small excerpt proves the same point;
+- recursive listings with no path or result bound;
+- full logs when only the failing section is needed;
+- large multi-file concatenations that create one oversized context update;
+- rerunning the same unchanged query solely because another model turn occurred.
 
-### 5. Prevent browser-verification boilerplate from dominating local sessions
+#### Batching rule
 
-The observed local UX work repeatedly regenerated long browser launch/DevTools/CDP programs for common operations such as:
+Batching is not automatically efficient.
 
-- attach to the local browser;
+Batch related reads only when:
+
+- all outputs are required for the same immediate decision;
+- the combined output remains reasonably bounded;
+- each constituent result retains clear success/failure attribution.
+
+One extra small command is preferable to one enormous batch that pollutes every later model call.
+
+### Workstream D — reuse already-established local evidence
+
+The new overlay should reinforce the existing rule that facts do not need to be re-read simply because the agent advanced to another model turn.
+
+Examples of reusable evidence while unchanged:
+
+- current target file content already inspected;
+- current PR number/base/head/Draft state after it has been established;
+- scoped guidance already loaded;
+- a focused test result after no relevant code changed;
+- known unrelated baseline failures after no relevant dependency changed.
+
+Refresh evidence after an invalidating event, not reflexively.
+
+Examples of invalidating events include:
+
+- source edit affecting the previous test result;
+- push/rebase/update from `main` affecting head/base facts;
+- known external branch movement;
+- entering final exact-head verification;
+- changes to the file/authority previously inspected.
+
+This workstream should reuse the current universal semantics rather than duplicate them in detail.
+
+### Workstream E — browser/UX verification audit
+
+The observed session repeatedly generated long bespoke DevTools/CDP scripts for common local operations:
+
+- connect to an already-running browser;
 - navigate to a local route;
-- set desktop/mobile viewport;
-- read a small set of DOM state;
-- capture a screenshot.
+- set viewport dimensions;
+- read a few DOM/computed-style values;
+- capture screenshots.
 
-Audit the current repository for an existing owner before adding anything new.
+That boilerplate is a strong candidate for repository-owned reuse, but **adding a new browser helper is not mandatory**.
 
-If no existing tool already owns these mechanics and the repeated pattern remains material, add the **smallest reusable local-only helper** that removes boilerplate without becoming a new browser-testing framework or validation DSL.
+The implementation agent must first search narrowly for an existing owner.
 
-The helper, if justified, should own only generic local browser mechanics. Task-specific assertions should stay near the task/test that needs them.
+#### Decision test for adding a helper
 
-Requirements:
+Add a helper only if all are true:
 
-- local-only;
-- no production credentials/session extraction;
-- no hidden mutation of Production/Preview data;
-- compact textual output;
-- explicit failure status;
-- optional screenshots for human UX review;
-- no replacement for existing automated application tests.
+1. the same generic mechanics are already repeated materially in local Codex UX work;
+2. no existing repository helper owns them adequately;
+3. the helper can be substantially smaller than the repeated ad-hoc scripts it replaces;
+4. it can stay local-only and generic;
+5. it does not become a second browser-testing framework;
+6. it does not weaken or replace application tests;
+7. its output can be concise and machine-readable enough for agent use.
 
-If a repository-owned helper is not justified after audit, document the preferred existing method instead of adding machinery for its own sake.
+If these conditions are not met, document/reuse the best existing method and make no new helper.
 
-### 6. Consolidate local validation sequencing around repository ownership
+#### If a helper is justified
 
-Do not reduce validation. Reduce duplicate orchestration.
-
-During implementation:
+Keep its responsibilities narrow, e.g. generic mechanics such as:
 
 ```text
-nearest focused tests / Vite feedback
+connect
+navigate
+viewport
+small DOM query
+screenshot
 ```
 
-At a coherent checkpoint/handoff:
+Task-specific product assertions should remain in the relevant test or task logic, not accumulate inside a universal browser script.
+
+Safety requirements:
+
+- local-only targets;
+- no Production/Preview mutation;
+- no credential/cookie/session-secret dumping;
+- no broad browser-profile inspection;
+- explicit failure exit/status;
+- compact output;
+- screenshots only where useful for human UX verification.
+
+### Workstream F — validation sequencing without duplication
+
+This PR must not reduce validation coverage.
+
+The desired local sequence remains:
 
 ```text
-agent:checks
-→ run the current repository-required validation it reports
-→ run specialized checks only when required
+while editing
+→ nearest focused test / Vite feedback appropriate to the risk
+
+coherent checkpoint/handoff
+→ agent:checks
+→ repository-required validation reported by current tooling
+→ required specialized checks
+→ final intended-base -> current-head review
 ```
 
-Avoid manually running a broad sequence and then immediately running a repository validator that substantially repeats the same work unless the first run was needed for diagnosis.
+The efficiency change is to avoid manually assembling a broad validation sequence and then immediately invoking repository-owned validation that substantially repeats it without a diagnostic reason.
 
-If a broad check exposes known unrelated baseline failures:
+#### Known baseline failures
 
-- record the exact failures once;
-- prove the focused task area remains green;
-- do not repeatedly rerun the same unchanged broad failing command unless later changes could affect it or final repository guidance explicitly requires another execution.
+If a required broad validation exposes unrelated pre-existing failures:
 
-Preserve the existing rule that a clean compact pass is sufficient evidence and does not need an immediate verbose duplicate run.
+- record the exact failures and command once;
+- establish focused evidence that the current task area remains green;
+- preserve the failure in the final report;
+- do not repeatedly rerun an unchanged failing broad command unless later edits could affect it or current repository guidance explicitly requires another run.
 
-### 7. Keep prompt optimization subordinate to execution optimization
+A compact clean pass remains sufficient evidence; do not immediately reproduce it verbosely unless diagnostics are needed.
 
-Do not respond to the observed problem by substantially lengthening or over-specifying local implementation prompts.
+#### Reviewer requirement
 
-The existing prompt model remains correct:
+A reviewer must distinguish:
+
+```text
+less duplicated validation orchestration
+```
+
+from:
+
+```text
+less validation
+```
+
+Only the former is acceptable.
+
+### Workstream G — prompt discipline
+
+Do not respond to the token/context problem by making local implementation prompts much longer.
+
+The existing local-agent prompt model remains:
 
 ```text
 goal
-+ key invariants
++ important invariants
 + scope/non-goals
 + work state
 + acceptance criteria
 ```
 
-The repository should discover implementation details progressively.
+Repository state and routing should supply implementation detail progressively.
 
-The main optimization target is agent retrieval/tool behavior and session lifecycle, not shaving small amounts from already concise task prompts.
+This PR should optimize execution behavior, not force ChatGPT planning prompts to preload more source paths, documentation, tests, or history.
 
-### 8. Add explicit Copilot non-inheritance checks
+### Workstream H — regression/contract coverage
 
-The implementation must make it difficult to accidentally broaden these rules to GitHub Copilot later.
+Where the repository already has an appropriate source/contract-test owner, add focused coverage for the new routing behavior.
 
-At minimum, the living local guidance and its routing pointer should both make the exclusion visible.
+Useful assertions include:
 
-Where the repository already has source/contract tests for agent guidance, add a focused assertion that:
+- the local Codex overlay exists and is conditionally routed;
+- the routing text explicitly excludes GitHub Copilot plugin sessions;
+- the exclusion is specific to the new efficiency overlay, not universal safety/validation;
+- Remote GitHub exact-head/write guidance remains referenced/unchanged where appropriate;
+- no new mandatory token/command quota is introduced.
 
-- the new local Codex guidance is conditionally routed;
-- GitHub Copilot plugin is explicitly excluded from the new rules;
-- universal safety/validation guidance remains applicable.
+Do not create a brittle full-document snapshot merely to test prose. Prefer narrow semantic/contract assertions consistent with existing repository test patterns.
 
-Do not add a brittle prose snapshot test if the repository has no appropriate existing contract-test pattern.
+If a browser helper is added, give it focused tests for its generic contract and failure behavior. Do not invent browser-helper tests if no helper is added.
 
-## Suggested implementation sequence for the next local coding agent
+## 7. Likely implementation surfaces — not a mandatory preload list
 
-Keep the implementation small and checkpointed.
+The next implementation agent should inspect the actual current PR head and use progressive retrieval. Based on current ownership, likely surfaces include:
 
-### Step 1 — routing and authority
+```text
+AGENTS.md
+docs/DEVELOPMENT_EXECUTION_WORKFLOW.md
+docs/LOCAL_CODEX_EXECUTION_GUIDANCE.md      # new only if needed
+relevant existing agent-guidance contract tests
+scripts/                                    # only if browser-helper audit justifies code
+```
 
-- Inspect current root `AGENTS.md` and `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md` at the actual PR head.
-- Add the smallest conditional route for the local Codex-only guidance.
-- Encode the GitHub Copilot plugin exclusion explicitly.
+`docs/AGENT_TASK_MAP.md`, `docs/DOCUMENTATION_INDEX.md`, or testing guidance should be changed only if the new living authority actually requires routing/index reconciliation.
 
-Checkpoint: confirm Remote GitHub/Hybrid write rules and universal safety rules are unchanged.
+This section is a map for the vetting agent, not an instruction to preload every file.
 
-### Step 2 — local Codex guidance
+## 8. Suggested implementation sequence
 
-Create the living local guidance with only:
+### Step 1 — establish the minimal authority change
+
+- Inspect current root execution/routing language at the actual PR head.
+- Decide where the smallest conditional pointer belongs.
+- Confirm how the repository currently distinguishes universal Local/Remote/Hybrid execution from client-specific instructions.
+- Implement the explicit local-Codex applicability and GitHub Copilot exclusion without altering universal execution semantics.
+
+Checkpoint questions:
+
+- Can local Codex find the overlay?
+- Can Copilot see that it must not apply it?
+- Did the implementation accidentally make client identity override universal safety?
+
+### Step 2 — add the concise living local-Codex overlay
+
+Include only rules not already adequately enforced elsewhere:
 
 - applicability/exclusion;
-- coherent-tranche thread lifecycle;
-- bounded first-pass retrieval;
-- output shaping;
-- validation sequencing;
-- browser-tool reuse guidance.
+- question-driven bounded retrieval;
+- command-output shaping;
+- reuse of still-valid evidence;
+- browser-tool reuse/audit guidance;
+- validation de-duplication guidance.
 
-Do not copy large sections of existing universal documents.
+Do not copy large sections of root `AGENTS.md` or testing guidance.
 
-Checkpoint: read the combined guidance as a local Codex agent and as a GitHub Copilot agent; the former should discover it, the latter should be told not to use it.
+Checkpoint question:
+
+> Is loading this document likely to save more context than it adds?
+
+If not, reduce duplication.
 
 ### Step 3 — browser-helper audit
 
-- Search narrowly for existing local browser/DevTools helpers.
-- If an existing owner can be reused, document/use it.
-- Only if repeated boilerplate has no owner and a small helper is clearly justified, implement the minimal local-only helper and its focused tests.
+- Search only the relevant local tooling/scripts for an existing browser owner.
+- Compare existing tooling with the repeated mechanics observed in the motivating session.
+- Reuse an existing owner where possible.
+- Add a minimal helper only if the decision test in Workstream E is satisfied.
 
-This step may legitimately result in **no new helper**.
+Document the decision either way so the reviewer can tell that this was evaluated rather than forgotten.
 
-### Step 4 — tests/documentation reconciliation
+### Step 4 — focused contract coverage
 
-- Update only the relevant documentation index/task routing if needed.
-- Add focused source/contract coverage only where an existing test owner makes sense.
-- Mark this planning document historical/implemented when the PR implementation is complete, following the precedent used by `docs/AGENT_CONTEXT_EFFICIENCY_PLAN.md`.
+- Locate the nearest existing test owner for agent/routing documentation if one exists.
+- Add narrow assertions for local-Codex routing and Copilot non-inheritance.
+- Add helper tests only if helper code exists.
 
-### Step 5 — validation and handoff
+Do not broaden into generic documentation snapshot testing.
 
-- Use focused checks during editing.
-- Follow current repository-owned checkpoint/handoff validation.
-- Review the complete intended-base → current-head diff before handoff.
-- Keep the PR Draft unless explicitly asked to mark it Ready.
+### Step 5 — reconciliation
+
+- Update indexes/task routing only where required by the final authority structure.
+- Ensure this planning document is converted to a historical record or clearly marked implemented when the PR is complete, following the pattern used by `docs/AGENT_CONTEXT_EFFICIENCY_PLAN.md`.
+- Ensure no stale wording still claims a mandatory new-thread lifecycle rule.
+
+### Step 6 — validation and final review
+
+- Use focused checks while editing.
+- Follow the actual repository-owned checkpoint/handoff requirements from the current head.
+- Inspect the complete intended-base → current-head diff.
+- Verify PR remains Draft unless explicitly instructed otherwise.
 - Do not merge.
 
-## Acceptance criteria
+## 9. Acceptance criteria
 
-The PR is complete when all of the following are true:
+The PR is complete only when all of the following are true:
 
-1. A local Codex agent can discover concise local-only context-efficiency guidance without every repository agent loading it.
-2. The guidance explicitly says it does **not** apply to GitHub Copilot plugin sessions.
-3. Existing universal safety, protected-boundary, validation, Git/GitHub, Production/Preview, deployment, and data-integrity rules remain unchanged in authority.
-4. Local Codex guidance says one thread should cover one coherent implementation tranche, while later separate corrections normally start fresh with a compact handoff.
-5. Clearly bounded local tasks start with scoped routing + target implementation + nearest relevant test/helper, broadening only for a concrete unresolved dependency.
-6. Local retrieval guidance prefers bounded ranges and compact command output over full-file/raw/batched large reads.
-7. The implementation introduces no token telemetry, fixed command quota, retrieval cache, shell proxy, or second validation DSL.
-8. Local validation remains repository-owned and complete at handoff, while duplicate broad reruns are discouraged.
-9. Repeated browser-control boilerplate is either routed to an existing owner or reduced with a narrowly justified local-only helper; no broad new browser framework is introduced.
-10. Final documentation is reconciled so the planning record is not mistaken for living authority.
+1. The new efficiency overlay is clearly specific to local Codex coding.
+2. GitHub Copilot plugin sessions are explicitly excluded even when they have local checkout/shell capabilities.
+3. The exclusion applies only to the new efficiency overlay and does not weaken universal repository rules.
+4. Local Codex can discover the overlay without forcing every coding client to preload the full document.
+5. Clearly bounded local tasks are guided toward target-first, question-driven retrieval and concrete escalation reasons.
+6. Retrieval guidance favors bounded relevant excerpts over unnecessary full-file/raw/overlapping reads while allowing full reads when genuinely required.
+7. Tool-output guidance discourages oversized multi-file batches and favors compact output that preserves evidence/failure authority.
+8. Still-valid local evidence is reused rather than reflexively re-read after every model turn.
+9. Validation remains complete and repository-owned; only unnecessary duplicated orchestration is reduced.
+10. Browser-control boilerplate is either routed to an existing owner or, if strongly justified, reduced through a minimal local-only helper.
+11. Any new browser helper cannot inspect/dump secrets or mutate Production/Preview state and does not replace application tests.
+12. No token telemetry, hard token budget, fixed command quota, retrieval cache, shell proxy, or second validation DSL is introduced.
+13. No rule is added requiring fresh Codex threads or prescribing conversation boundaries.
+14. Remote GitHub exact-head/write safeguards remain unchanged.
+15. Application/runtime/schema/deployment/data behavior is unchanged.
+16. Focused regression/contract coverage protects the Codex-only/Copilot-excluded routing where an appropriate test owner exists.
+17. Final documentation clearly distinguishes living authority from this planning/history record.
 
-## Review checklist
+## 10. Final vetting checklist
 
-A final reviewer should specifically verify:
+The next principal/final reviewer should review the **entire intended-base → current-head PR**, not only the final correction delta.
 
-- the new rules cannot be interpreted as mandatory for GitHub Copilot plugin workflows;
-- the local-only routing does not accidentally weaken universal rules;
-- Remote GitHub exact-head/write safeguards are untouched;
-- the guidance reduces output/context creation rather than merely adding more prose to preload;
-- any browser helper is genuinely smaller than the repeated ad-hoc code it replaces;
-- validation remains complete and repository-owned;
-- no application/runtime behavior changed.
+### Applicability
+
+- Is the new guidance unmistakably local-Codex-specific?
+- Is GitHub Copilot explicitly excluded by client/workflow identity rather than accidentally included by capability detection?
+- Could a reasonable Copilot agent read the routing text and mistakenly conclude that it must load/apply the overlay? If yes, request changes.
+
+### Authority
+
+- Are universal `AGENTS.md` safety/protected-boundary/validation rules still authoritative?
+- Are Remote GitHub write rules unchanged?
+- Does the new document duplicate so much universal guidance that it increases context rather than reducing it?
+
+### Retrieval behavior
+
+- Does the guidance actually change command/retrieval behavior, or merely restate “be efficient”?
+- Does it require a concrete reason to broaden after the target surface is established?
+- Does it avoid rigid quotas that could suppress necessary safety/architecture retrieval?
+- Does it prefer small targeted reads over giant batched output?
+
+### Evidence reuse
+
+- Does the implementation discourage repeated unchanged retrieval without making stale evidence permanent?
+- Are invalidating events still respected?
+
+### Browser tooling
+
+- Was existing tooling audited before new machinery was added?
+- If a helper was added, is it materially smaller than the repeated ad-hoc scripts it replaces?
+- Is it local-only, compact, explicit on failure, and non-secret-bearing?
+- Did the PR accidentally create a second browser framework? If yes, request changes.
+
+### Validation
+
+- Is final validation coverage unchanged?
+- Does the guidance reduce duplicate command orchestration rather than skipping checks?
+- Are known baseline failures handled transparently rather than suppressed?
+
+### Scope
+
+- Did the PR avoid application/runtime/schema/deployment behavior changes?
+- Did it avoid token counters, telemetry, wrappers, caches, command quotas, or a new DSL?
+- Did it remove all mandatory thread-lifecycle/new-thread language?
+
+### Documentation state
+
+- Is the final living authority concise?
+- Are routing/index references accurate?
+- Is this planning document reconciled to historical/implemented status at completion?
+
+## 11. Reasons a reviewer should block the PR
+
+Treat the following as merge-blocking for this PR:
+
+- GitHub Copilot can reasonably be interpreted as subject to the new overlay;
+- the implementation routes by local capability only and forgets the Copilot exception;
+- universal safety/validation rules are weakened or bypassed;
+- retrieval reduction is implemented through hard token/command quotas;
+- a new generic shell/retrieval orchestration layer is introduced;
+- validation is skipped rather than de-duplicated;
+- browser helper code exposes credentials/session material or can touch non-local targets unsafely;
+- a browser helper becomes a second product-testing framework without clear need;
+- the change materially alters application/runtime/deployment behavior;
+- the final living guidance is so large/duplicative that loading it likely worsens the original context problem;
+- mandatory fresh-thread or conversation-boundary rules remain.
+
+## 12. Expected final handoff
+
+The implementing agent should report:
+
+```text
+final PR head SHA
+files changed
+where the local-Codex overlay is routed from
+how GitHub Copilot is explicitly excluded
+whether browser-helper work reused existing tooling / added a helper / intentionally added nothing
+focused tests run
+repository-required final validation run
+any unrelated baseline failures
+confirmation that application/runtime behavior did not change
+confirmation PR remains Draft unless otherwise requested
+```
+
+Do not merge or mark Ready unless explicitly requested.
 
 ## Final principle
 
-For local Codex coding:
+For this PR:
 
-> Keep the repository and PR as durable memory; keep the conversation as bounded working memory.
+> Make local Codex retrieve less unnecessary context while preserving enough evidence to make the next correct decision.
 
-For GitHub Copilot plugin coding:
+And equally important:
 
-> Do not apply the new local Codex context-efficiency rules from this PR. Continue using the existing applicable repository guidance.
+> Do not apply this new efficiency overlay to GitHub Copilot plugin coding.
