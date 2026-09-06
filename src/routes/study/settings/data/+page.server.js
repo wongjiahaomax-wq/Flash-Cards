@@ -47,8 +47,8 @@ export const actions = {
         browserRunInvalidated: true,
         boundaryAction: result.operation,
         message: result.initialized
-          ? 'Progress reset. Every Case is New to scheduling again; retained history and encounter records were preserved.'
-          : 'There was no initialized FSRS progress to reset. Any active Review and browser run were cleared.'
+          ? 'Progress reset. Every Case is New again; past activity and encounter records were preserved.'
+          : 'There was no scheduling progress to reset. Any active Review and saved Study session were cleared.'
       };
     } catch (cause) {
       if (isStudyDataDeletionFenceError(cause)) {
@@ -64,14 +64,14 @@ export const actions = {
     if (deletion) return fail(deletion.status, deletion.data);
     const formData = await request.formData();
     if (formData.get('confirmation') !== 'fresh-fsrs-start') {
-      return fail(400, { message: 'Fresh FSRS Start confirmation is required.' });
+      return fail(400, { message: 'Fresh scheduling start confirmation is required.' });
     }
     try {
       await freshLearnerFsrsStart({ db, userId: user.id });
       return {
         browserRunInvalidated: true,
         boundaryAction: 'fresh-fsrs-start',
-        message: 'Fresh FSRS Start complete. Scheduling state and personalized parameters were reset; retained history and encounter records were preserved.'
+        message: 'Fresh scheduling start complete. Scheduling and personalized learning settings were reset; past activity and encounter records were preserved.'
       };
     } catch (cause) {
       if (isStudyDataDeletionFenceError(cause)) {

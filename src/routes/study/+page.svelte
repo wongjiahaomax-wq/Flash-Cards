@@ -69,17 +69,17 @@
     if (status === 'waiting') {
       const nextRepeatDueAt = Number(params.get('nextRepeatDueAt'));
       return Number.isFinite(nextRepeatDueAt)
-        ? `No distinct Case can be introduced now. The next required in-run repeat matures at ${new Date(nextRepeatDueAt).toLocaleTimeString()}.`
-        : 'The run is waiting for a required in-run repeat.';
+        ? `No new Case can be added right now. The next repeat needed for this session is ready at ${new Date(nextRepeatDueAt).toLocaleTimeString()}.`
+        : 'This session is waiting for a repeat needed to continue.';
     }
     if (status === 'new-limit-reached') {
       const limit = Number(params.get('limit'));
-      return `The safety limit of ${Number.isFinite(limit) ? limit : 50} consecutive New completions was reached. Start a new Scheduled run to continue.`;
+      return `You reached the limit of ${Number.isFinite(limit) ? limit : 50} new Cases in a row. Start a new Scheduled Study to continue.`;
     }
-    if (status === 'complete') return 'This Study run is complete. Start another run when you are ready.';
-    if (status === 'resume') return 'Another active Review must be resumed or discarded before this browser run can continue.';
-    if (status === 'run-lost') return 'The Review completed, but the browser-local run could not be recovered. Start a new run to continue.';
-    if (status === 'open-failed') return 'The previous Review completed, but the next Review could not be opened. Continue the browser run when ready.';
+    if (status === 'complete') return 'This Study session is complete. Start another session when you are ready.';
+    if (status === 'resume') return 'Resume or discard the active Review before starting more Study.';
+    if (status === 'run-lost') return 'The Review was saved, but this Study session could not be restored. Start a new session to continue.';
+    if (status === 'open-failed') return 'The previous Review was saved, but the next Review could not be opened. Continue your Study session when ready.';
     return '';
   }
 
@@ -98,7 +98,7 @@
       clearLearnerStudyRun(localStorage);
       browserRun = null;
       browserRunState = 'none';
-      runMessage = 'The discarded Review belonged to this browser run, so that run was cleared. Learner progress was not reset.';
+      runMessage = 'The discarded Review belonged to this Study session, so its saved session was cleared. Your learning progress was not reset.';
     }
   });
 
@@ -387,20 +387,24 @@
   }
 
   function scheduleEligibleCount() {
-    const selectedCount = Object.values(scopeStates)
-      .filter((scope) => scope.status !== 'UNSELECTED').length;
+    const selectedCount = Object.values(scopeStates).filter((scope) => scope.status !== 'UNSELECTED').length;
     const requestId = countController.begin(selectedCount);
     syncCountState(countController.snapshot());
     if (countTimer) clearTimeout(countTimer);
     countTimer = setTimeout(() => refreshEligibleCount(requestId), 120);
   }
 
+  function hasAppliedSystemSelection() {
+    return Object.values(scopeStates).some((scope) => scope.status !== 'UNSELECTED');
+  }
+
   function clearBrowserRun() {
+    if (!window.confirm('Clear this saved Study session? Your scheduling and learning history will not be reset.')) return;
     clearLearnerStudyRun(localStorage);
     browserRun = null;
     browserRunState = 'none';
     showAlternateLauncher = false;
-    runMessage = 'Browser run cleared. Learner scheduling/history was not reset.';
+    runMessage = 'Saved Study session cleared. Your scheduling and learning history were not reset.';
   }
 
   function openAlternateLauncher() {
@@ -458,8 +462,11 @@
           browserRun = persisted.descriptor;
           browserRunState = browserRun ? 'resumable' : 'none';
           runMessage = browserRun
-            ? 'Study could not save the updated browser run. Your previous resumable run was kept. Check browser storage permissions and try again.'
-            : 'Study run could not be saved in this browser. Check browser storage permissions and try again.';
+            ? 'Study could not save the updated session. Your previous session is still available. Check browser storage permissions and try again.'
+            : 'Study session could not be saved in this browser. Check browser storage permissions and try again.';
+          if (payload.status === 'review' && payload.reviewId) {
+            await goto(`/study/${payload.reviewId}`);
+          }
           return;
         }
         browserRun = persisted.descriptor;
@@ -469,19 +476,19 @@
         return;
       }
       if (payload.status === 'resume' && payload.reviewId) {
-        runMessage = payload.message ?? 'Resume the active Review before continuing this run.';
+        runMessage = payload.message ?? 'Resume the active Review before continuing this session.';
         return;
       }
       if (payload.status === 'waiting') {
-        runMessage = `No new distinct Case can be introduced yet. The next in-run repeat matures at ${new Date(payload.nextRepeatDueAt).toLocaleTimeString()}.`;
+        runMessage = `No new Case can be added yet. The next repeat needed for this session is ready at ${new Date(payload.nextRepeatDueAt).toLocaleTimeString()}.`;
         return;
       }
       if (payload.status === 'new-limit-reached') {
-        runMessage = `The safety limit of ${payload.limit} consecutive New completions was reached. Start a new Scheduled run to continue.`;
+        runMessage = `The safety limit of ${payload.limit} consecutive New completions was reached. Start a new Scheduled Study session to continue.`;
         return;
       }
       if (payload.status === 'complete') {
-        runMessage = 'This Study run is complete. Start another run when you are ready.';
+        runMessage = 'This Study session is complete. Start another session when you are ready.';
         return;
       }
       if (!ok) runMessage = payload.message ?? 'Unable to open the next Review.';
@@ -495,7 +502,7 @@
   /** @type {NonNullable<Parameters<typeof enhance>[1]>} */
   const startPlannedRun = () => {
     planning = true;
-    runMessage = 'Planning run…';
+    runMessage = 'Planning your Study session…';
 
     return async ({ result, update }) => {
       try {
@@ -506,7 +513,7 @@
 
         const descriptor = result.data?.descriptor;
         if (!descriptor) {
-          runMessage = 'Run planning completed without a browser run descriptor.';
+          runMessage = 'Study planning finished without a session to open.';
           return;
         }
 
@@ -515,15 +522,15 @@
           browserRun = persisted.descriptor;
           browserRunState = browserRun ? 'resumable' : 'none';
           runMessage = browserRun
-            ? 'Study could not save the replacement browser run. Your previous resumable run was kept. Check browser storage permissions and try again.'
-            : 'Study run could not be saved in this browser. Check browser storage permissions and try again.';
+            ? 'Study could not save the replacement session. Your previous session is still available. Check browser storage permissions and try again.'
+            : 'Study session could not be saved in this browser. Check browser storage permissions and try again.';
           return;
         }
         const plannedRun = persisted.descriptor;
         browserRun = plannedRun;
         browserRunState = 'resumable';
         showAlternateLauncher = false;
-        runMessage = 'Run planned. Opening the first Review…';
+        runMessage = 'Study session planned. Opening the first Review…';
         await openRun(plannedRun);
       } finally {
         planning = false;
@@ -548,7 +555,7 @@
       <p class="eyebrow">Learner Study</p>
       <h1>Study</h1>
       <p class="muted intro">
-        Choose one or more Systems, optionally narrow each System by Topic or curated Tag, then start one combined Scheduled or Free run.
+        Choose one or more Systems, optionally narrow each System by Topic or curated Tag, then start one combined Scheduled or Free Study session.
       </p>
     </div>
     <div class="account-actions">
@@ -563,14 +570,14 @@
         <p class="eyebrow">Resume</p>
         <h2>Active {data.activeReview.studyMode === 'scheduled' ? 'Scheduled' : 'Free'} Review</h2>
         <p class="muted">
-          {data.activeReview.queueClass ? `${data.activeReview.queueClass} · ` : ''}{data.activeReview.contentMode === 'expanded' ? 'Expanded Learning' : 'Original questions'} · {data.activeReview.revealed ? 'Answers revealed' : 'Review in progress'}
+          {data.activeReview.contentMode === 'expanded' ? 'Expanded Learning · more relevant questions' : 'Original questions · curated for this Case'} · {data.activeReview.revealed ? 'Answers revealed' : 'Review in progress'}
         </p>
       </div>
       <div class="active-actions">
         <a class="button primary" href={`/study/${data.activeReview.id}`}>Resume Review →</a>
-        <form method="POST" action="?/discard">
+        <form method="POST" action="?/discard" onsubmit={(event) => { if (!window.confirm('Discard this active Review? Your learning progress will not be reset.')) event.preventDefault(); }}>
           <input type="hidden" name="reviewId" value={data.activeReview.id} />
-          <button class="button" type="submit">Discard Review</button>
+          <button class="button danger" type="submit">Discard Review</button>
         </form>
       </div>
     </section>
@@ -582,11 +589,11 @@
         <p class="eyebrow">Manage study data</p>
         <h2 id="study-data-deletion-title">Deletion in progress</h2>
         <p class="muted">
-          Your study data is being removed in safe, bounded steps. Your account, session, and preferences remain available, but Study is temporarily blocked until the final empty-state check completes.
+          Your study data is being removed in several safe steps. Your account, sign-in, and preferences remain available, but Study is temporarily unavailable until removal finishes.
         </p>
       </div>
       <a class="button danger" href="/study/settings/data">Continue deletion</a>
-      <small>Nothing is reported as deleted until the server verifies completion.</small>
+      <small>We’ll confirm when all study data has been removed.</small>
     </section>
   {/if}
 
@@ -594,39 +601,39 @@
     <section class="ownership-card" aria-live="polite">
       <div>
         <p class="eyebrow">Current Study state</p>
-        <h2>Checking for an existing run…</h2>
-        <p class="muted">Your browser-owned Study run is being resolved before the launcher is shown.</p>
+        <h2>Checking for an existing Study session…</h2>
+        <p class="muted">Restoring your previous Study session before showing the launcher.</p>
       </div>
     </section>
   {/if}
 
   {#if !data.activeReview && !deletionBlocked && browserRunState !== 'unknown' && browserRun && summary}
-    <section class="run-card" aria-label="Browser Study run">
+    <section class="run-card" aria-label="Study session">
       <div>
-        <p class="eyebrow">Current browser run</p>
+      <p class="eyebrow">Continue your Study session</p>
         <h2>{summary.mode}</h2>
         {#if browserRun.kind === 'scheduled'}
           <div class="metrics">
             <span><strong>{summary.completed}</strong> / {summary.target} distinct Cases</span>
-            <span><strong>{summary.due}</strong> Due queued</span>
-            <span><strong>{summary.newCount}</strong> New queued</span>
-            <span><strong>{summary.repeats}</strong> repeats queued</span>
+            <span><strong>{summary.due}</strong> Due</span>
+            <span><strong>{summary.newCount}</strong> New</span>
+            <span><strong>{summary.repeats}</strong> Repeats</span>
           </div>
         {:else}
           <div class="metrics">
             <span><strong>{summary.remaining}</strong> of {summary.total} distinct Cases left</span>
           </div>
         {/if}
-        <p class="muted">Run size: {summary.allAvailable ? 'All available' : summary.total ?? summary.target}. Run id: <code>{browserRun.runId}</code></p>
+        <p class="muted">Session size: {summary.allAvailable ? 'All available' : summary.total ?? summary.target} Cases.</p>
       </div>
       <div class="run-actions">
         <button class="button primary" type="button" onclick={continueRun} disabled={opening || planning || Boolean(data.activeReview)}>
-          {opening ? 'Opening…' : 'Continue run →'}
+          {opening ? 'Opening…' : 'Continue session →'}
         </button>
         <button class="button" type="button" onclick={openAlternateLauncher} disabled={opening || planning || showAlternateLauncher}>
-          Start a different run
+          Start a different session
         </button>
-        <button class="button" type="button" onclick={clearBrowserRun}>Clear browser run</button>
+        <button class="button danger" type="button" onclick={clearBrowserRun}>Clear saved session</button>
       </div>
     </section>
   {/if}
@@ -639,7 +646,7 @@
   <section class="chooser-heading">
     <div>
       <p class="eyebrow">{browserRun ? 'Alternate launcher' : 'Start a study session'}</p>
-      <h2>{browserRun ? 'Start a different run' : 'Choose Systems and scope'}</h2>
+      <h2>{browserRun ? 'Start a different Study session' : 'Choose Systems and scope'}</h2>
     </div>
     <div class="chooser-heading-actions">
       <p class="muted">Selecting a System means all eligible content in that System unless you explicitly narrow it.</p>
@@ -656,40 +663,6 @@
     use:enhance={startPlannedRun}
     class="multi-plan-form"
   >
-    <section class="run-options-card">
-      <fieldset class="mode-set">
-        <legend>Study mode</legend>
-        <label class="mode-option">
-          <input type="radio" name="studyMode" value="scheduled" checked={selectedMode('scheduled')} />
-          <span><strong>Scheduled Study</strong><small>One combined FSRS queue across all selected Systems.</small></span>
-        </label>
-        <label class="mode-option">
-          <input type="radio" name="studyMode" value="free" checked={selectedMode('free')} />
-          <span><strong>Free Study</strong><small>One shuffled combined eligible Case bag; no Scheduled FSRS transition.</small></span>
-        </label>
-      </fieldset>
-
-      <fieldset class="size-set">
-        <legend>Run size</legend>
-        <label class="size-option"><input type="radio" name="runSize" value="5" checked={selectedRunSize('5')} /><span>5</span></label>
-        <label class="size-option"><input type="radio" name="runSize" value="10" checked={selectedRunSize('10')} /><span>10</span></label>
-        <label class="size-option"><input type="radio" name="runSize" value="20" checked={selectedRunSize('20')} /><span>20</span></label>
-        <label class="size-option"><input type="radio" name="runSize" value="all" checked={selectedRunSize('all')} /><span>All available</span></label>
-        <p class="field-help">Applies to the combined unique Case pool. Default is 10. Required Scheduled repeats do not consume another distinct-Case slot.</p>
-      </fieldset>
-
-      <div class="combined-count" aria-live="polite">
-        <div>
-          <p class="eyebrow">Combined scope</p>
-          <strong>{eligibleCount == null ? '—' : eligibleCount} unique eligible {eligibleCount === 1 ? 'Case' : 'Cases'}</strong>
-        </div>
-        <div class="count-detail">
-          <span>{selectedSystemCount} {selectedSystemCount === 1 ? 'System' : 'Systems'} selected</span>
-          <small class="muted">{counting ? 'Updating from server…' : countMessage}</small>
-        </div>
-      </div>
-    </section>
-
     <div class="system-grid">
       {#each studySystems as system}
         <section class="system-card">
@@ -722,7 +695,7 @@
             ontoggle={(event) => toggleCustomizer(system.id, event)}
           >
             <summary bind:this={customizerTriggers[system.id]}>{systemNarrowed(system.id) ? 'Edit Topics / Tags' : 'Customize'}</summary>
-            <p class="field-help">Choose Whole System or explicitly apply Specific Topics / Tags. Draft changes do not affect the Study scope until you Apply them.</p>
+            <p class="field-help">Choose the whole System or apply specific Topics / Tags. Changes take effect when you choose Apply.</p>
 
             <fieldset class="scope-mode">
               <legend>Scope</legend>
@@ -740,8 +713,8 @@
 
             <fieldset class="route-set topic-set">
               <legend>Topics</legend>
-              <div class="group-toolbar">
-                <p class="field-help">Topic routes use exact Topic membership. Structural parents toggle descendant Topic routes without becoming routes themselves.</p>
+                <div class="group-toolbar">
+                <p class="field-help">Choose Topics directly. Parent Topics select their subtopics without adding the parent itself.</p>
                 <div class="group-actions" aria-label={`${system.name} Topic selection controls`}>
                   <button type="button" onclick={() => toggleGroup(system, 'topic', true)}>Select all</button>
                   <span aria-hidden="true">·</span>
@@ -766,9 +739,9 @@
                   <span>
                     <strong>{topic.name}</strong>
                     {#if Number(topic.caseCount) > 0}
-                      <small>Topic · {topic.caseCount} exact {topic.caseCount === 1 ? 'Case' : 'Cases'}{#if topic.breadcrumb.length > 1} · {breadcrumbText}{/if}</small>
-                    {:else}
-                      <small>Structural Topic · 0 exact Cases · {topic.subtreeCaseCount} {topic.subtreeCaseCount === 1 ? 'Case' : 'Cases'} in descendant Topics{#if topic.breadcrumb.length > 1} · {breadcrumbText}{/if}</small>
+                    <small>{topic.caseCount} {topic.caseCount === 1 ? 'Case' : 'Cases'} in this Topic{#if topic.breadcrumb.length > 1} · {breadcrumbText}{/if}</small>
+                  {:else}
+                      <small>Topic group · {topic.subtreeCaseCount} {topic.subtreeCaseCount === 1 ? 'Case' : 'Cases'} in subtopics{#if topic.breadcrumb.length > 1} · {breadcrumbText}{/if}</small>
                     {/if}
                   </span>
                 </label>
@@ -779,7 +752,7 @@
               <fieldset class="route-set tag-set">
                 <legend>Curated Tags</legend>
                 <div class="group-toolbar">
-                  <p class="field-help">Curated Tags can add relevant Cases across Topics, including Cases from Topics you unchecked.</p>
+                  <p class="field-help">Tags can add relevant Cases across Topics, including Cases from Topics you unchecked.</p>
                   <div class="group-actions" aria-label={`${system.name} curated Tag selection controls`}>
                     <button type="button" onclick={() => toggleGroup(system, 'tag', true)}>Select all</button>
                     <span aria-hidden="true">·</span>
@@ -816,11 +789,45 @@
       {/each}
     </div>
 
+    <section class="run-options-card">
+      <fieldset class="mode-set">
+        <legend>Study mode</legend>
+        <label class="mode-option">
+          <input type="radio" name="studyMode" value="scheduled" checked={selectedMode('scheduled')} />
+          <span><strong>Scheduled Study</strong><small>Work through Cases in the order they are due and ready to learn.</small></span>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="studyMode" value="free" checked={selectedMode('free')} />
+          <span><strong>Free Study</strong><small>Choose from eligible Cases in a shuffled order.</small></span>
+        </label>
+      </fieldset>
+
+      <fieldset class="size-set">
+        <legend>Session size</legend>
+        <label class="size-option"><input type="radio" name="runSize" value="5" checked={selectedRunSize('5')} /><span>5</span></label>
+        <label class="size-option"><input type="radio" name="runSize" value="10" checked={selectedRunSize('10')} /><span>10</span></label>
+        <label class="size-option"><input type="radio" name="runSize" value="20" checked={selectedRunSize('20')} /><span>20</span></label>
+        <label class="size-option"><input type="radio" name="runSize" value="all" checked={selectedRunSize('all')} /><span>All available</span></label>
+        <p class="field-help">Choose how many Cases to include. Default is 10. Scheduled repeats are added as needed.</p>
+      </fieldset>
+
+      <div class="combined-count" aria-live="polite">
+        <div>
+          <p class="eyebrow">Your selection</p>
+          <strong>{eligibleCount == null ? '—' : eligibleCount} eligible {eligibleCount === 1 ? 'Case' : 'Cases'}</strong>
+        </div>
+        <div class="count-detail">
+          <span>{selectedSystemCount} {selectedSystemCount === 1 ? 'System' : 'Systems'} selected</span>
+          <small class="muted">{counting ? 'Updating the count…' : countMessage}</small>
+        </div>
+      </div>
+    </section>
+
     {#if form?.message}<p class="form-error" role="alert">{form.message}</p>{/if}
     <div class="start-row">
-      <p class="muted">The server revalidates every selected System/route and resolves the real deduplicated candidate union before planning.</p>
-      <button class="button primary" type="submit" disabled={Boolean(data.activeReview) || deletionBlocked || planning || opening}>
-        {planning ? 'Starting…' : 'Start combined Study run'}
+      <p class="muted">Your selected Systems and routes are checked again before the session starts.</p>
+      <button class="button primary" type="submit" disabled={Boolean(data.activeReview) || deletionBlocked || planning || opening || !hasAppliedSystemSelection()}>
+        {planning ? 'Starting…' : 'Start Study'}
       </button>
     </div>
   </form>
@@ -869,17 +876,17 @@
   .mode-set,.size-set,.route-set { display:grid; gap:.55rem; margin:0; padding:0; border:0; }
   .mode-set legend,.size-set legend,.route-set legend { margin-bottom:.1rem; color:#344054; font-size:.88rem; font-weight:700; }
   .mode-option,.route-option,.system-select { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.65rem; align-items:start; padding:.72rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; }
-  .mode-option:has(input:checked),.route-option:has(input:checked),.system-select:has(input:checked) { border-color:#98a2b3; background:#f8fafc; }
+  .mode-option:has(input:checked),.route-option:has(input:checked),.system-select:has(input:checked) { border-color:#667085; background:#f2f4f7; box-shadow:0 0 0 1px #d0d5dd inset; }
   .size-set { grid-template-columns:repeat(4,minmax(0,1fr)); }
   .size-set legend,.size-set .field-help { grid-column:1 / -1; }
   .size-option { display:flex; gap:.4rem; align-items:center; justify-content:center; padding:.6rem .45rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; font-weight:700; text-align:center; }
-  .size-option:has(input:checked) { border-color:#98a2b3; background:#f8fafc; }
+  .size-option:has(input:checked) { border-color:#667085; background:#f2f4f7; box-shadow:0 0 0 1px #d0d5dd inset; }
   .combined-count { grid-column:1 / -1; display:flex; align-items:center; justify-content:space-between; gap:1rem; padding:.9rem 1rem; border-radius:12px; background:#f8fafc; }
   .combined-count strong { display:block; margin-top:.2rem; font-size:1.05rem; }
   .count-detail { display:grid; justify-items:end; gap:.15rem; font-size:.88rem; text-align:right; }
   .system-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1rem; }
   .system-card { display:grid; gap:.8rem; align-content:start; padding:1rem; border:1px solid #dfe5ee; border-radius:14px; background:#fff; }
-  .system-card:has(.system-select input:checked) { border-color:#98a2b3; box-shadow:0 0 0 1px #eef2f6 inset; }
+  .system-card:has(.system-select input:checked) { border-color:#667085; background:#fbfcfe; box-shadow:0 0 0 2px #e4e7ec inset; }
   .system-select { border:0; padding:.25rem; }
   .system-select span,.mode-option span,.route-option span { display:grid; gap:.18rem; }
   .system-select small,.mode-option small,.route-option small { color:#667085; line-height:1.4; }
@@ -889,11 +896,12 @@
   .scope-mode { display:grid; gap:.55rem; margin:.8rem 0 0; padding:0; border:0; }
   .scope-mode legend { margin-bottom:.1rem; color:#344054; font-size:.88rem; font-weight:700; }
   .scope-mode-option { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.65rem; align-items:start; padding:.65rem .72rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; }
-  .scope-mode-option:has(input:checked) { border-color:#98a2b3; background:#f8fafc; }
+  .scope-mode-option:has(input:checked) { border-color:#667085; background:#f2f4f7; box-shadow:0 0 0 1px #d0d5dd inset; }
   .scope-mode-option span { display:grid; gap:.18rem; }
   .scope-mode-option small { color:#667085; line-height:1.4; }
   .scope-actions { display:flex; justify-content:flex-end; gap:.55rem; margin-top:.9rem; }
   .route-option:has(input:disabled) { cursor:default; opacity:.62; }
+  .system-select strong,.mode-option strong,.route-option strong,.scope-mode-option strong { overflow-wrap:anywhere; }
   .field-help { margin:0; color:#667085; font-size:.82rem; line-height:1.45; }
   .group-toolbar { display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; margin-bottom:.1rem; }
   .group-toolbar .field-help { max-width:390px; }
@@ -906,7 +914,6 @@
   .form-error { margin:0; color:#b42318; font-size:.88rem; }
   .start-row { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
   .start-row p { margin:0; max-width:700px; }
-  code { font-size:.88em; }
   @media (max-width:820px) {
     .study-header,.chooser-heading,.active-card,.run-card,.deletion-card,.ownership-card,.start-row,.combined-count { display:grid; align-items:stretch; }
     .account-actions,.active-actions,.run-actions { justify-content:flex-start; }

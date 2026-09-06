@@ -609,7 +609,7 @@ test('Tranche 4 exposes only self-scoped learner deletion with typed confirmatio
   assert.match(dataPage, /name="confirmation"/);
   assert.match(dataPage, /DELETE MY STUDY DATA/);
   assert.match(chooser, /Continue deletion/);
-  assert.match(chooser, /Study is temporarily blocked/);
+  assert.match(chooser, /Study is temporarily unavailable/);
   assert.match(chooser, /!deletionBlocked/);
   assert.match(chooser, /href="\/study\/settings"/);
 

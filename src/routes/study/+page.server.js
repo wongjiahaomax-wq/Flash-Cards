@@ -96,7 +96,7 @@ export const actions = {
         freshSystems: await listSystemStudySelectionSystems(db)
       });
     }
-    return { descriptor: result.descriptor, message: 'Study run planned. Opening the first Review…' };
+    return { descriptor: result.descriptor, message: 'Study session planned. Opening the first Review…' };
   },
 
   discard: async ({ locals, platform, request }) => {
@@ -107,6 +107,6 @@ export const actions = {
     const reviewId = String(formData.get('reviewId') ?? '').trim();
     if (!reviewId) return fail(400, { message: 'Active Review id is required.' });
     await discardActiveReview({ db, userId: user.id, reviewId });
-    return { discardedReviewId: reviewId, message: 'Active Review discarded. Browser run state was not reset.' };
+    return { discardedReviewId: reviewId, message: 'Active Review discarded. You can start or resume Study.' };
   }
 };

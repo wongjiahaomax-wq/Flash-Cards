@@ -5,9 +5,9 @@
 <svelte:head><title>Study settings | Flash-Cards</title></svelte:head>
 
 <main class="shell settings-shell">
-  <header class="page-header"><div><p class="eyebrow">Study</p><h1>Study settings</h1><p class="muted">Preferences used when the next active Review is frozen.</p></div><a class="button" href="/study">← Back to Study</a></header>
+  <header class="page-header"><div><p class="eyebrow">Study</p><h1>Study settings</h1><p class="muted">Preferences used when your next Review is created.</p></div><a class="button" href="/study">← Back to Study</a></header>
   <section class="settings-card">
-    <div><p class="eyebrow">Global learner preference</p><h2>Expanded Learning</h2><p class="muted">Default is off. The preference applies to both Scheduled and Free Study.</p></div>
+    <div><p class="eyebrow">Global learner preference</p><h2>Expanded Learning</h2><p class="muted">When enabled, Reviews can include reusable questions relevant to the Case as well as questions curated for it. The default is off for Scheduled and Free Study.</p></div>
     <form method="POST" action="?/preference">
       <label><input type="checkbox" name="expandedLearning" checked={data.preferences.expandedLearning} /> <strong>{data.preferences.expandedLearning ? 'Enabled' : 'Disabled'}</strong></label>
       <button class="button primary" type="submit">Save preference</button>

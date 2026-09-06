@@ -68,7 +68,7 @@ test('multi-System learner /study preserves structural Topic hierarchy and compa
     /status === 'SELECTED_ROUTES'/,
     'only the applied routes state may materialize narrowed scope fields'
   );
-  assert.match(learnerStudySource, /Structural Topic · 0 exact Cases/);
+  assert.match(learnerStudySource, /Topic group · \{topic\.subtreeCaseCount\}/);
   assert.match(hierarchySource, /if \(current && Number\(current\.caseCount\) > 0\) routes\.push\(`topic:\$\{currentId\}`\)/);
 });
 

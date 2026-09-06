@@ -31,7 +31,7 @@ test('Study count failures remain informational and request sequencing suppresse
   assert.match(page, /createStudyCountController/);
   assert.match(page, /countController\.refresh/);
   assert.match(page, /await update\(\{ invalidateAll: true \}\)/);
-  assert.match(page, /disabled=\{Boolean\(data\.activeReview\) \|\| deletionBlocked \|\| planning \|\| opening\}/);
+  assert.match(page, /disabled=\{Boolean\(data\.activeReview\) \|\| deletionBlocked \|\| planning \|\| opening \|\| !hasAppliedSystemSelection\(\)\}/);
 });
 
 /** @param {any} payload @param {number} [status] */
@@ -67,7 +67,7 @@ test('latest applied-scope count remains visible when an older response resolves
   assert.deepEqual(latestState, {
     eligibleCount: 7,
     selectedSystemCount: 2,
-    countMessage: 'Server-resolved union; overlapping Cases are counted once.',
+    countMessage: 'Overlapping Cases are counted once across your selection.',
     counting: false
   });
 
@@ -132,6 +132,47 @@ test('replacement browser run is committed only after a successful descriptor re
   assert.match(page, successPath);
   assert.match(page, /if \(result\.type !== 'success'\) \{[\s\S]*?await update\(\{ invalidateAll: true \}\);[\s\S]*?return;/);
   assert.match(page, /persistLearnerStudyRunReplacement\(localStorage, descriptor, browserRun\)/);
-  assert.match(page, /previous resumable run was kept/);
+  assert.match(page, /previous session is still available/);
   assert.doesNotMatch(page, /startPlannedRun[\s\S]*?clearLearnerStudyRun\(localStorage\)/);
+});
+
+test('a successful Study open stays reachable when updated descriptor storage fails', () => {
+  const page = source('src/routes/study/+page.svelte');
+  const openRunStart = page.indexOf('async function openRun(descriptor) {');
+  const openRunEnd = page.indexOf('  /** @type', openRunStart);
+  assert.ok(openRunStart >= 0 && openRunEnd > openRunStart, 'Study openRun implementation should remain present');
+  const openRun = page.slice(openRunStart, openRunEnd);
+  const persistenceFailure = openRun.match(/if \(!persisted\.ok\) \{[\s\S]*?\n        \}/);
+  assert.ok(persistenceFailure, 'Study openRun should retain an explicit persistence-failure branch');
+  assert.match(persistenceFailure[0], /browserRun = persisted\.descriptor/);
+  assert.match(persistenceFailure[0], /previous session is still available/);
+  assert.match(
+    persistenceFailure[0],
+    /if \(payload\.status === 'review' && payload\.reviewId\) \{[\s\S]*?await goto\(`\/study\/\$\{payload\.reviewId\}`\);/
+  );
+  assert.match(persistenceFailure[0], /return;/);
+  assert.doesNotMatch(persistenceFailure[0], /requestNextLearnerStudyWork\(/);
+});
+
+test('Study launcher follows the learner sequence and gates Start on applied Systems', () => {
+  const page = source('src/routes/study/+page.svelte');
+  const systems = page.indexOf('<div class="system-grid">');
+  const options = page.indexOf('<section class="run-options-card">');
+  assert.ok(systems >= 0 && options > systems, 'System selection should appear before mode and size options');
+  assert.match(page, /function hasAppliedSystemSelection\(\)/);
+  assert.match(page, /Object\.values\(scopeStates\)\.some\(\(scope\) => scope\.status !== 'UNSELECTED'\)/);
+  assert.match(page, /disabled=\{Boolean\(data\.activeReview\) \|\| deletionBlocked \|\| planning \|\| opening \|\| !hasAppliedSystemSelection\(\)\}/);
+  assert.match(page, /\{planning \? 'Starting…' : 'Start Study'\}/);
+  assert.doesNotMatch(page, /disabled=\{[^}]*eligibleCount/);
+});
+
+test('Study learner copy keeps implementation details out of the primary flow', () => {
+  const page = source('src/routes/study/+page.svelte');
+  const settings = source('src/routes/study/settings/+page.svelte');
+  const data = source('src/routes/study/settings/data/+page.svelte');
+  const review = source('src/routes/study/[reviewId]/+page.svelte');
+  assert.match(page, /Expanded Learning · more relevant questions/);
+  assert.match(settings, /reusable questions relevant to the Case/);
+  assert.match(data, /Start fresh scheduling/);
+  assert.doesNotMatch(`${page}\n${settings}\n${data}\n${review}`, /browser-owned|Run id:|FSRS queue|FSRS transition|FSRS generation|server-resolved union|deduplicated candidate union|bounded deletion|empty-state check|next active Review is frozen/);
 });

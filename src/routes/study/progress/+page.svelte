@@ -17,7 +17,7 @@
   {#if data.blockedByDeletion}
     <section class="blocked-card" aria-live="polite">
       <h2>Progress is temporarily unavailable</h2>
-      <p class="muted">Study data deletion is in progress. Detailed progress stays hidden until the final empty-state check completes.</p>
+      <p class="muted">Study data deletion is in progress. Detailed progress stays hidden until removal finishes.</p>
       <a class="button danger" href="/study/settings/data">Continue deletion</a>
     </section>
   {:else if data.progress}
@@ -26,13 +26,13 @@
         <div>
           <p class="eyebrow">Learner Progress</p>
           <h2 id="learner-progress-title">Scheduling and activity</h2>
-          <p class="muted">Coverage is separate from memory status. Raw FSRS stability and difficulty are not shown.</p>
+          <p class="muted">Coverage shows how much of your eligible content has entered Scheduled Study.</p>
         </div>
         <p class="retention-note muted">Detailed Scheduled history: {data.progress.profile?.detailedHistoryRetention ?? '24 months'}</p>
       </div>
       <div class="metrics">
         <article><span>Due now</span><strong>{data.progress.memory.due}</strong><small>scheduled Cases</small></article>
-        <article><span>SRS coverage</span><strong>{data.progress.coverage.eligibleCases ? Math.round((data.progress.coverage.enteredSrs / data.progress.coverage.eligibleCases) * 100) : 0}%</strong><small>{data.progress.coverage.enteredSrs} / {data.progress.coverage.eligibleCases} eligible Cases</small></article>
+        <article><span>Scheduling coverage</span><strong>{data.progress.coverage.eligibleCases ? Math.round((data.progress.coverage.enteredSrs / data.progress.coverage.eligibleCases) * 100) : 0}%</strong><small>{data.progress.coverage.enteredSrs} / {data.progress.coverage.eligibleCases} eligible Cases</small></article>
         <article><span>Not due</span><strong>{data.progress.memory.notDue}</strong><small>scheduled Cases</small></article>
         <article><span>Scheduled activity</span><strong>{data.progress.activity.scheduledCompleted}</strong><small>{data.progress.activity.recentScheduled30d} in the last 30 days</small></article>
         <article><span>Free Study</span><strong>{data.progress.activity.freeCompleted}</strong><small>completed encounters</small></article>

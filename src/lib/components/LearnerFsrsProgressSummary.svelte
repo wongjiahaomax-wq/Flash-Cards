@@ -19,7 +19,7 @@
     </div>
     <div class="progress-summary-metrics">
       <span><strong>{progress.memory.due}</strong> Due now</span>
-      <span><strong>{percent(progress.coverage.enteredSrs, progress.coverage.eligibleCases)}%</strong> coverage</span>
+      <span><strong>{percent(progress.coverage.enteredSrs, progress.coverage.eligibleCases)}%</strong> scheduling coverage</span>
       <span><strong>{progress.activity.scheduledCompleted}</strong> scheduled</span>
       <span><strong>{progress.activity.freeCompleted}</strong> Free Study</span>
     </div>

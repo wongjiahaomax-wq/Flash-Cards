@@ -11,11 +11,11 @@ const progressComponent = readFileSync(
   'utf8'
 );
 
-test('Study launcher resolves browser ownership before presenting a primary action', () => {
+test('Study launcher restores the prior session before presenting a primary action', () => {
   assert.match(studyPage, /let browserRunState = \$state\('unknown'\)/);
   assert.match(studyPage, /browserRunState = browserRun \? 'resumable' : 'none'/);
-  assert.match(studyPage, /Checking for an existing run/);
-  assert.match(studyPage, /Your browser-owned Study run is being resolved before the launcher is shown/);
+  assert.match(studyPage, /Checking for an existing Study session/);
+  assert.match(studyPage, /Restoring your previous Study session before showing the launcher/);
   assert.match(studyPage, /function canShowNewRunLauncher\(\)/);
   assert.match(studyPage, /browserRunState !== 'unknown'/);
 });
@@ -23,7 +23,7 @@ test('Study launcher resolves browser ownership before presenting a primary acti
 test('Study keeps server-owned blockers dominant and offers a non-destructive alternate launcher', () => {
   assert.match(studyPage, /!data\.activeReview && !deletionBlocked && browserRunState !== 'unknown'/);
   assert.match(studyPage, /data\.studyDataDeletion\?\.inProgress \|\| form\?\.deletionInProgress/);
-  assert.match(studyPage, /Start a different run/);
+  assert.match(studyPage, /Start a different session/);
   assert.match(studyPage, /function openAlternateLauncher\(\)/);
   assert.match(studyPage, /function closeAlternateLauncher\(\)/);
   assert.match(studyPage, /clearLearnerStudyRun\(localStorage\);\s*browserRun = null;\s*browserRunState = 'none';/);

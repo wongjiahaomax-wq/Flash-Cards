@@ -66,7 +66,7 @@ export function createStudyCountController(request) {
       state = {
         eligibleCount: Number(payload.candidateCount),
         selectedSystemCount: Number(payload.selectedSystemCount),
-        countMessage: 'Server-resolved union; overlapping Cases are counted once.',
+        countMessage: 'Overlapping Cases are counted once across your selection.',
         counting: false
       };
       return snapshot();

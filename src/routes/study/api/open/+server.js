@@ -47,7 +47,7 @@ export async function POST({ locals, platform, request }) {
   try {
     descriptor = (await request.json())?.descriptor;
   } catch {
-    return json({ message: 'Invalid Study run payload.' }, 400);
+    return json({ message: 'Invalid Study session.' }, 400);
   }
   const ownership = validateLearnerStudyRunOwner(descriptor, locals.user.id);
   if (!ownership.ok) return json({ message: ownership.message }, ownership.status);
@@ -131,7 +131,7 @@ export async function POST({ locals, platform, request }) {
       }
     }
 
-    return json({ message: 'Unsupported Study run descriptor.' }, 400);
+    return json({ message: 'Unsupported Study session.' }, 400);
   } catch (cause) {
     if (isStudyDataDeletionFenceError(cause)) {
       return json({ message: STUDY_DATA_DELETION_IN_PROGRESS_MESSAGE }, 409);

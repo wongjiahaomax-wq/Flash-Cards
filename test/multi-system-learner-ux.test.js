@@ -289,7 +289,7 @@ test('learner chooser/count/navigation source contract stays multi-System, hiera
   assert.match(chooser, /setTimeout\(\(\) => refreshEligibleCount\(requestId\), 120\)/);
   assert.match(chooser, /countController\.refresh/);
   assert.match(chooser, /\/study\/api\/count/);
-  assert.match(chooser, /Start combined Study run/);
+  assert.match(chooser, /Start Study/);
   assert.doesNotMatch(chooser, /<input type="hidden" name="systemId"/);
   assert.match(hierarchy, /Structural parents with zero/);
   assert.match(hierarchy, /Number\(current\.caseCount\) > 0/);

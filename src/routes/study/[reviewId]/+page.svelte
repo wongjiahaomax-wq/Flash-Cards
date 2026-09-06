@@ -24,7 +24,9 @@
 
   /** @param {string} mode */
   function contentModeLabel(mode) {
-    return mode === 'expanded' ? 'Expanded Learning' : 'Original questions';
+    return mode === 'expanded'
+      ? 'Expanded Learning · more relevant questions'
+      : 'Original questions · curated for this Case';
   }
 
   /** @param {any} descriptor */
@@ -97,7 +99,6 @@
   <header class="case-header">
     <div class="case-meta">
       <span>{data.review.studyMode === 'scheduled' ? 'Scheduled Study' : 'Free Study'}</span>
-      {#if data.review.queueClass}<span class="badge">{data.review.queueClass}</span>{/if}
       <span class="badge">{contentModeLabel(data.review.contentMode)}</span>
     </div>
     <h1>Case review</h1>
@@ -164,7 +165,7 @@
     {:else if data.review.studyMode === 'scheduled'}
       <div>
         <strong>How did you do overall?</strong>
-        <p class="muted">One Case-level rating drives the FSRS transition.</p>
+        <p class="muted">Your rating helps schedule this Case.</p>
         {#if completionError}<p class="action-error" role="alert">{completionError}</p>{/if}
       </div>
       <div class="rating-buttons">
@@ -176,7 +177,7 @@
     {:else}
       <div>
         <strong>Free Study completion</strong>
-        <p class="muted">Records the Free encounter only. No FSRS rating or transition is written.</p>
+        <p class="muted">This records the Free Study session without changing Scheduled Study.</p>
         {#if completionError}<p class="action-error" role="alert">{completionError}</p>{/if}
       </div>
       <button class="button primary action-button" type="button" onclick={() => completeReview()} disabled={completing}>
