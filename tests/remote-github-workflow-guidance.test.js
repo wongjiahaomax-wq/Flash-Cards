@@ -8,6 +8,10 @@ const executionWorkflow = fs.readFileSync(
 );
 const rootAgents = fs.readFileSync(new URL('../AGENTS.md', import.meta.url), 'utf8');
 const taskMap = fs.readFileSync(new URL('../docs/AGENT_TASK_MAP.md', import.meta.url), 'utf8');
+const testingGuidance = fs.readFileSync(
+  new URL('../docs/TESTING_AND_VALIDATION_GUIDANCE.md', import.meta.url),
+  'utf8',
+);
 const localCodexGuidance = fs.readFileSync(
   new URL('../docs/LOCAL_CODEX_EXECUTION_GUIDANCE.md', import.meta.url),
   'utf8',
@@ -164,6 +168,31 @@ test('Root guidance terminates discovery and reuses retained unchanged evidence'
   assert.match(rootAgents, /Complete intended-base-to-head diff inspection belongs at the deliberate final review\/handoff checkpoint/i);
   assert.match(rootAgents, /make the coherent cross-file correction/i);
   assert.match(rootAgents, /common cause, correct that related set as one coherent batch/i);
+});
+
+test('Startup routing keeps required authorities in context without redundant rereads', () => {
+  assert.match(rootAgents, /Required repository authorities must be present in context before changing the repository/i);
+  assert.match(rootAgents, /Root `AGENTS\.md` is always required/i);
+  assert.match(rootAgents, /host-injected or already retrieved, reuse it rather than rereading it/i);
+  assert.match(rootAgents, /nearest scoped `AGENTS\.md`.*is in context/i);
+  assert.doesNotMatch(rootAgents, /Always read this file before changing the repository/i);
+
+  assert.match(taskMap, /Ensure the root `AGENTS\.md` is in context/i);
+  assert.match(taskMap, /ensure the nearest scoped `AGENTS\.md`.*is in context/i);
+  assert.match(taskMap, /unchanged required authority is already host-injected or already retrieved, reuse that copy rather than retrieving it again/i);
+  assert.doesNotMatch(taskMap, /Always read the root `AGENTS\.md`/i);
+
+  const remoteSection = remoteTaskMapSection();
+  assert.match(remoteSection, /ensure root AGENTS\.md is in context/i);
+  assert.match(remoteSection, /ensure nearest scoped AGENTS\.md is in context/i);
+});
+
+test('Validation rerun semantics batch related common-cause failures before the same check reruns', () => {
+  assert.match(testingGuidance, /compiler\/type\/test feedback exposes multiple related failures with a common cause/i);
+  assert.match(testingGuidance, /correct that related set as one coherent batch before rerunning the same check/i);
+  assert.match(testingGuidance, /unrelated failures must still be surfaced/i);
+  assert.match(testingGuidance, /rerun the focused failing check first/i);
+  assert.match(testingGuidance, /do not rerun an already-passing focused command unless subsequent edits could invalidate what it proved/i);
 });
 
 test('Retained-context checkpoints preserve full context without requiring compaction or fresh threads', () => {

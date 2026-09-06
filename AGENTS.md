@@ -4,11 +4,11 @@ This is the short universal machine-facing entry point for coding agents working
 
 ## Start here
 
-Always read this file before changing the repository.
+Required repository authorities must be present in context before changing the repository. Root `AGENTS.md` is always required. If the current unchanged copy was host-injected or already retrieved, reuse it rather than rereading it; otherwise read it now.
 
 Then load only the context needed for the task:
 
-1. read the nearest scoped `AGENTS.md` for the files/subsystem being changed;
+1. ensure the nearest scoped `AGENTS.md` for the files/subsystem being changed is in context, reusing an unchanged host-injected or already-retrieved copy when available;
 2. use `docs/AGENT_TASK_MAP.md` as the routing authority/lookup for additional task-specific documents and checks;
 3. read directly related implementation and tests;
 4. use `docs/DOCUMENTATION_INDEX.md` when the relevant authority is unclear or the task map directs you there;
