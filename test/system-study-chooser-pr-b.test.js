@@ -60,15 +60,13 @@ test('multi-System learner /study preserves structural Topic hierarchy and compa
   assert.match(learnerStudySource, /studyTopicSubtreeRouteValues\(system\.topics, topic\.id\)/);
   assert.match(learnerStudySource, /use:indeterminate=\{topicIndeterminate\(system, topic\)\}/);
   assert.match(learnerStudySource, /toggleTopicSubtree\(system, topic, eventChecked\(event\)\)/);
+  assert.match(learnerStudySource, /<input type="hidden" name="system" value=\{system\.id\} \/>/);
+  assert.match(learnerStudySource, /name=\{`route:\$\{system\.id\}`\}/);
+  assert.match(learnerStudySource, /name=\{`narrow:\$\{system\.id\}`\}/);
   assert.match(
     learnerStudySource,
-    /name=\{Number\(topic\.caseCount\) > 0 && routesAreSubmitted\(system\.id\) \? `route:\$\{system\.id\}` : undefined\}/,
-    'the actual learner surface must submit only exact Topics for a selected narrowed System'
-  );
-  assert.match(
-    learnerStudySource,
-    /return systemSelected\(systemId\) && systemNarrowed\(systemId\)/,
-    'whole-System and unselected Systems must not materialize Topic/Tag route fields'
+    /status === 'SELECTED_ROUTES'/,
+    'only the applied routes state may materialize narrowed scope fields'
   );
   assert.match(learnerStudySource, /Structural Topic · 0 exact Cases/);
   assert.match(hierarchySource, /if \(current && Number\(current\.caseCount\) > 0\) routes\.push\(`topic:\$\{currentId\}`\)/);

@@ -276,16 +276,16 @@ test('learner chooser/count/navigation source contract stays multi-System, hiera
     readFile(new URL('../src/lib/study-topic-hierarchy.js', import.meta.url), 'utf8')
   ]);
 
-  assert.match(chooser, /name="system"/);
+  assert.match(chooser, /<input type="hidden" name="system" value=\{system\.id\} \/>/);
+  assert.match(chooser, /status:'UNSELECTED'\|'SELECTED_ALL'\|'SELECTED_ROUTES'/);
   assert.match(chooser, /function routesAreSubmitted\(systemId\)/);
-  assert.match(chooser, /return systemSelected\(systemId\) && systemNarrowed\(systemId\)/);
-  assert.match(chooser, /name=\{systemSelected\(system\.id\) \? `narrow:\$\{system\.id\}` : undefined\}/);
-  assert.match(chooser, /name=\{Number\(topic\.caseCount\) > 0 && routesAreSubmitted\(system\.id\) \? `route:\$\{system\.id\}` : undefined\}/);
-  assert.match(chooser, /name=\{routesAreSubmitted\(system\.id\) \? `route:\$\{system\.id\}` : undefined\}/);
+  assert.match(chooser, /name=\{`narrow:\$\{system\.id\}`\}/);
+  assert.match(chooser, /name=\{`route:\$\{system\.id\}`\}/);
   assert.match(chooser, /use:indeterminate=\{topicIndeterminate\(system, topic\)\}/);
   assert.match(chooser, /toggleTopicSubtree\(system, topic/);
   assert.match(chooser, /function scheduleEligibleCount\(\) \{\s*const requestId = \+\+countRequest;/);
-  assert.match(chooser, /setRoutes\(system\.id, values, checked\);\s*scheduleEligibleCount\(\);/);
+  assert.match(chooser, /function applyCustomize\(system\)/);
+  assert.doesNotMatch(chooser, /setRoutes\(system\.id, values, checked\);\s*scheduleEligibleCount\(\);/);
   assert.match(chooser, /setTimeout\(\(\) => refreshEligibleCount\(requestId\), 120\)/);
   assert.match(chooser, /if \(requestId !== countRequest\) return;/);
   assert.match(chooser, /\/study\/api\/count/);

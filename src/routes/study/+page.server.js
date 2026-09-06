@@ -157,7 +157,12 @@ export const actions = {
       }
       throw cause;
     }
-    if (!result.ok) return fail(result.status, result.form);
+    if (!result.ok) {
+      return fail(result.status, {
+        ...result.form,
+        freshSystems: await listSystemStudySelectionSystems(db)
+      });
+    }
     return { descriptor: result.descriptor, message: 'Study run planned. Opening the first Review…' };
   },
 

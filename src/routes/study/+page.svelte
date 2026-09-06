@@ -26,7 +26,9 @@
   /** @typedef {{id:string,name:string,allCaseCount:number,topics:StudyTopic[],tags:StudyTag[]}} StudySystem */
 
   let { data, form } = $props();
-  const studySystems = /** @type {StudySystem[]} */ (data.systems);
+  let studySystems = $derived(/** @type {StudySystem[]} */ (
+    Array.isArray(form?.freshSystems) ? form.freshSystems : data.systems
+  ));
   /** @type {any} */
   let browserRun = $state(null);
   /** @type {'unknown'|'none'|'resumable'} */
@@ -100,62 +102,107 @@
       : null;
   }
 
-  /** @type {Set<string>} */
-  let selectedSystemIds = $state(new Set(
-    studySystems.filter((system) => Boolean(submittedSystem(system.id))).map((system) => system.id)
-  ));
-  /** @type {Set<string>} */
-  let narrowedSystemIds = $state(new Set(
-    studySystems.filter((system) => submittedSystem(system.id)?.mode === 'routes').map((system) => system.id)
-  ));
+  /** @typedef {{status:'UNSELECTED'|'SELECTED_ALL'|'SELECTED_ROUTES',appliedRoutes:string[],draftMode:'all'|'routes',draftRoutes:string[]}} ScopeState */
+
+  /** @param {StudySystem} system @returns {ScopeState} */
+  function initialScopeState(system) {
+    const submitted = submittedSystem(system.id);
+    const availableRoutes = new Set(contributingStudyRouteValues(system));
+    const submittedRoutes = submitted?.mode === 'routes' && Array.isArray(submitted.selectedRoutes)
+      ? [...new Set(submitted.selectedRoutes)].filter((route) => availableRoutes.has(route))
+      : [];
+    const status = !submitted
+      ? 'UNSELECTED'
+      : submitted.mode === 'routes' && submittedRoutes.length > 0
+        ? 'SELECTED_ROUTES'
+        : submitted.mode === 'routes' ? 'UNSELECTED' : 'SELECTED_ALL';
+    return {
+      status,
+      appliedRoutes: status === 'SELECTED_ROUTES' ? submittedRoutes : [],
+      draftMode: status === 'SELECTED_ROUTES' ? 'routes' : 'all',
+      draftRoutes: status === 'SELECTED_ROUTES' ? submittedRoutes : contributingStudyRouteValues(system)
+    };
+  }
+
+  /** @type {Record<string,ScopeState>} */
+  let scopeStates = $state(/** @type {Record<string,ScopeState>} */ (Object.fromEntries(
+    studySystems.map((system) => [system.id, initialScopeState(system)])
+  )));
+  let customizingSystemId = $state(/** @type {string|null} */ (null));
+  let customizationMessage = $state('');
+
+  $effect(() => {
+    if (!Array.isArray(form?.freshSystems)) return;
+    scopeStates = /** @type {Record<string,ScopeState>} */ (Object.fromEntries(
+      studySystems.map((system) => [system.id, initialScopeState(system)])
+    ));
+    customizingSystemId = null;
+    customizationMessage = '';
+  });
+
+  /** @param {string} systemId */
+  function scopeStateForSystem(systemId) {
+    return scopeStates[systemId] ?? {
+      status: 'UNSELECTED',
+      appliedRoutes: [],
+      draftMode: 'all',
+      draftRoutes: []
+    };
+  }
+
+  /** @param {string} systemId @param {Partial<ScopeState>} update */
+  function updateScopeState(systemId, update) {
+    scopeStates = {
+      ...scopeStates,
+      [systemId]: { ...scopeStateForSystem(systemId), ...update }
+    };
+  }
 
   /** @param {string} systemId */
   function systemSelected(systemId) {
-    return selectedSystemIds.has(systemId);
+    return scopeStateForSystem(systemId).status !== 'UNSELECTED';
   }
 
   /** @param {string} systemId */
   function systemNarrowed(systemId) {
-    return narrowedSystemIds.has(systemId);
+    return scopeStateForSystem(systemId).status === 'SELECTED_ROUTES';
   }
 
   /** @param {string} systemId @param {boolean} checked */
   function setSystemSelected(systemId, checked) {
-    const next = new Set(selectedSystemIds);
-    if (checked) next.add(systemId);
-    else next.delete(systemId);
-    selectedSystemIds = next;
+    const system = studySystems.find((candidate) => candidate.id === systemId);
+    if (!system) return;
+    updateScopeState(systemId, checked
+      ? {
+          status: 'SELECTED_ALL',
+          appliedRoutes: [],
+          draftMode: 'all',
+          draftRoutes: contributingStudyRouteValues(system)
+        }
+      : {
+          status: 'UNSELECTED',
+          appliedRoutes: [],
+          draftMode: 'all',
+          draftRoutes: []
+        });
+    customizingSystemId = null;
+    customizationMessage = '';
+    scheduleEligibleCount();
   }
 
-  /** @param {string} systemId @param {boolean} checked */
-  function setSystemNarrowed(systemId, checked) {
-    const next = new Set(narrowedSystemIds);
-    if (checked) next.add(systemId);
-    else next.delete(systemId);
-    narrowedSystemIds = next;
+  /** @param {string} systemId */
+  function appliedRoutesForSystem(systemId) {
+    return scopeStateForSystem(systemId).appliedRoutes;
   }
 
   /** @param {string} systemId */
   function routesAreSubmitted(systemId) {
-    return systemSelected(systemId) && systemNarrowed(systemId);
+    return scopeStateForSystem(systemId).status === 'SELECTED_ROUTES';
   }
-
-  /** @param {StudySystem} system */
-  function initialRoutesForSystem(system) {
-    const submitted = submittedSystem(system.id);
-    return submitted?.mode === 'routes' && Array.isArray(submitted.selectedRoutes)
-      ? [...new Set(submitted.selectedRoutes)]
-      : contributingStudyRouteValues(system);
-  }
-
-  /** @type {Record<string,string[]>} */
-  let routeSelections = $state(Object.fromEntries(
-    studySystems.map((system) => [system.id, initialRoutesForSystem(system)])
-  ));
 
   /** @param {string} systemId */
   function selectedRoutesForSystem(systemId) {
-    return routeSelections[systemId] ?? [];
+    return scopeStateForSystem(systemId).draftRoutes;
   }
 
   /** @param {string} systemId @param {string} value */
@@ -167,9 +214,94 @@
   function setRoutes(systemId, values, checked) {
     const current = selectedRoutesForSystem(systemId);
     const affected = new Set(values);
-    routeSelections[systemId] = checked
+    const nextRoutes = checked
       ? [...new Set([...current, ...values])]
       : current.filter((value) => !affected.has(value));
+    updateScopeState(systemId, { draftRoutes: nextRoutes });
+  }
+
+  /** @param {string} systemId */
+  function draftScopeMode(systemId) {
+    return scopeStateForSystem(systemId).draftMode;
+  }
+
+  /** @param {string} systemId @param {'all'|'routes'} mode */
+  function setDraftScopeMode(systemId, mode) {
+    const system = studySystems.find((candidate) => candidate.id === systemId);
+    const current = scopeStateForSystem(systemId);
+    updateScopeState(systemId, {
+      draftMode: mode,
+      draftRoutes: mode === 'routes' && current.draftRoutes.length === 0 && system
+        ? contributingStudyRouteValues(system)
+        : current.draftRoutes
+    });
+    customizationMessage = '';
+  }
+
+  /** @param {string} systemId */
+  function openCustomize(systemId) {
+    const current = scopeStateForSystem(systemId);
+    const system = studySystems.find((candidate) => candidate.id === systemId);
+    updateScopeState(systemId, {
+      draftMode: current.status === 'SELECTED_ROUTES' ? 'routes' : 'all',
+      draftRoutes: current.status === 'SELECTED_ROUTES'
+        ? [...current.appliedRoutes]
+        : system ? contributingStudyRouteValues(system) : []
+    });
+    customizingSystemId = systemId;
+    customizationMessage = '';
+  }
+
+  /** @param {string} systemId @param {Event} event */
+  function toggleCustomizer(systemId, event) {
+    const open = /** @type {HTMLDetailsElement} */ (event.currentTarget).open;
+    if (open) openCustomize(systemId);
+    else if (customizingSystemId === systemId) cancelCustomize(systemId);
+  }
+
+  /** @param {string} systemId */
+  function cancelCustomize(systemId) {
+    const current = scopeStateForSystem(systemId);
+    const system = studySystems.find((candidate) => candidate.id === systemId);
+    updateScopeState(systemId, {
+      draftMode: current.status === 'SELECTED_ROUTES' ? 'routes' : 'all',
+      draftRoutes: current.status === 'SELECTED_ROUTES'
+        ? [...current.appliedRoutes]
+        : system ? contributingStudyRouteValues(system) : []
+    });
+    customizingSystemId = null;
+    customizationMessage = '';
+  }
+
+  /** @param {StudySystem} system */
+  function applyCustomize(system) {
+    const current = scopeStateForSystem(system.id);
+    if (current.draftMode === 'all') {
+      updateScopeState(system.id, {
+        status: 'SELECTED_ALL',
+        appliedRoutes: [],
+        draftRoutes: contributingStudyRouteValues(system)
+      });
+      customizingSystemId = null;
+      customizationMessage = '';
+      scheduleEligibleCount();
+      return;
+    }
+
+    const contributingRoutes = new Set(contributingStudyRouteValues(system));
+    const routes = [...new Set(current.draftRoutes)].filter((route) => contributingRoutes.has(route));
+    if (routes.length === 0) {
+      customizationMessage = 'Select at least one Topic or curated Tag, or choose Whole System.';
+      return;
+    }
+    updateScopeState(system.id, {
+      status: 'SELECTED_ROUTES',
+      appliedRoutes: routes,
+      draftRoutes: routes
+    });
+    customizingSystemId = null;
+    customizationMessage = '';
+    scheduleEligibleCount();
   }
 
   /** @param {StudySystem} system @param {StudyTopic} topic */
@@ -216,7 +348,6 @@
         .map((topic) => `topic:${topic.id}`)
       : system.tags.map((tag) => `tag:${tag.id}`);
     setRoutes(system.id, values, checked);
-    scheduleEligibleCount();
   }
 
   /** @param {'scheduled'|'free'} mode */
@@ -243,7 +374,7 @@
       if (!response.ok) {
         eligibleCount = null;
         selectedSystemCount = 0;
-        countMessage = payload.message ?? 'Unable to calculate the combined eligible Case count.';
+        countMessage = `${payload.message ?? 'Unable to calculate the combined eligible Case count.'} You can still start Study.`;
         return;
       }
       eligibleCount = Number(payload.candidateCount);
@@ -253,7 +384,7 @@
       if (requestId !== countRequest) return;
       eligibleCount = null;
       selectedSystemCount = 0;
-      countMessage = cause instanceof Error ? cause.message : String(cause);
+      countMessage = `${cause instanceof Error ? cause.message : String(cause)} You can still start Study.`;
     } finally {
       if (requestId === countRequest) counting = false;
     }
@@ -262,7 +393,8 @@
   function scheduleEligibleCount() {
     const requestId = ++countRequest;
     eligibleCount = null;
-    selectedSystemCount = selectedSystemIds.size;
+    selectedSystemCount = Object.values(scopeStates)
+      .filter((scope) => scope.status !== 'UNSELECTED').length;
     counting = false;
     countMessage = 'Updating combined count…';
     if (countTimer) clearTimeout(countTimer);
@@ -510,7 +642,6 @@
     method="POST"
     action="?/plan"
     use:enhance={startPlannedRun}
-    onchange={scheduleEligibleCount}
     class="multi-plan-form"
   >
     <section class="run-options-card">
@@ -550,32 +681,50 @@
     <div class="system-grid">
       {#each studySystems as system}
         <section class="system-card">
+          {#if systemSelected(system.id)}
+            <input type="hidden" name="system" value={system.id} />
+            {#if routesAreSubmitted(system.id)}
+              <input type="hidden" name={`narrow:${system.id}`} value="on" />
+              {#each appliedRoutesForSystem(system.id) as route}
+                <input type="hidden" name={`route:${system.id}`} value={route} />
+              {/each}
+            {/if}
+          {/if}
           <label class="system-select">
             <input
               type="checkbox"
-              name="system"
               value={system.id}
               checked={systemSelected(system.id)}
               onchange={(event) => setSystemSelected(system.id, eventChecked(event))}
             />
             <span>
               <strong>{system.name}</strong>
-              <small>{system.allCaseCount} eligible {system.allCaseCount === 1 ? 'Case' : 'Cases'} when the whole System is selected</small>
+              <small>{systemNarrowed(system.id) ? 'Specific Topics / Tags applied' : `${system.allCaseCount} eligible ${system.allCaseCount === 1 ? 'Case' : 'Cases'} in Whole System`}</small>
             </span>
           </label>
 
-          <details class="scope-details">
-            <summary>Configure Topics / Tags</summary>
-            <p class="field-help">Leave “Narrow this System” unchecked to submit canonical <code>mode: "all"</code>. Turn it on only when you want explicit routes.</p>
-            <label class="narrow-option">
-              <input
-                type="checkbox"
-                name={systemSelected(system.id) ? `narrow:${system.id}` : undefined}
-                checked={systemNarrowed(system.id)}
-                onchange={(event) => setSystemNarrowed(system.id, eventChecked(event))}
-              />
-              <span><strong>Narrow this System</strong><small>Use only the checked exact-Topic/curated Tag routes below.</small></span>
-            </label>
+          {#if systemSelected(system.id)}
+          <details
+            class="scope-details"
+            open={customizingSystemId === system.id}
+            ontoggle={(event) => toggleCustomizer(system.id, event)}
+          >
+            <summary>{systemNarrowed(system.id) ? 'Edit Topics / Tags' : 'Customize'}</summary>
+            <p class="field-help">Choose Whole System or explicitly apply Specific Topics / Tags. Draft changes do not affect the Study scope until you Apply them.</p>
+
+            <fieldset class="scope-mode">
+              <legend>Scope</legend>
+              <label class="scope-mode-option">
+                <input type="radio" checked={draftScopeMode(system.id) === 'all'} onchange={() => setDraftScopeMode(system.id, 'all')} />
+                <span><strong>Whole System</strong><small>All eligible Cases in {system.name}.</small></span>
+              </label>
+              <label class="scope-mode-option">
+                <input type="radio" checked={draftScopeMode(system.id) === 'routes'} onchange={() => setDraftScopeMode(system.id, 'routes')} />
+                <span><strong>Specific Topics / Tags</strong><small>Use only the applied exact-Topic and curated Tag routes below.</small></span>
+              </label>
+            </fieldset>
+
+            {#if draftScopeMode(system.id) === 'routes'}
 
             <fieldset class="route-set topic-set">
               <legend>Topics</legend>
@@ -595,9 +744,9 @@
                   <input
                     id={`study-${system.id}-topic-${topic.id}`}
                     type="checkbox"
-                    name={Number(topic.caseCount) > 0 && routesAreSubmitted(system.id) ? `route:${system.id}` : undefined}
                     value={value}
                     checked={topicChecked(system, topic)}
+                    disabled={draftScopeMode(system.id) !== 'routes'}
                     aria-controls={descendants.length > 0 ? descendants.map((id) => `study-${system.id}-topic-${id}`).join(' ') : undefined}
                     use:indeterminate={topicIndeterminate(system, topic)}
                     onchange={(event) => toggleTopicSubtree(system, topic, eventChecked(event))}
@@ -630,9 +779,9 @@
                   <label class="route-option tag-route">
                     <input
                       type="checkbox"
-                      name={routesAreSubmitted(system.id) ? `route:${system.id}` : undefined}
                       value={value}
                       checked={isRouteSelected(system.id, value)}
+                      disabled={draftScopeMode(system.id) !== 'routes'}
                       onchange={(event) => setRoutes(system.id, [value], eventChecked(event))}
                     />
                     <span><strong>{tag.name}</strong><small>Curated Tag · {tag.caseCount} {tag.caseCount === 1 ? 'Case' : 'Cases'}</small></span>
@@ -640,7 +789,17 @@
                 {/each}
               </fieldset>
             {/if}
+            {/if}
+
+            {#if customizationMessage && customizingSystemId === system.id}
+              <p class="form-error" role="alert">{customizationMessage}</p>
+            {/if}
+            <div class="scope-actions">
+              <button class="button" type="button" onclick={() => cancelCustomize(system.id)}>Cancel</button>
+              <button class="button primary" type="button" onclick={() => applyCustomize(system)}>Apply</button>
+            </div>
           </details>
+          {/if}
         </section>
       {/each}
     </div>
@@ -756,7 +915,15 @@
   .scope-details { border-top:1px solid #eef2f6; padding-top:.7rem; }
   .scope-details summary { cursor:pointer; color:#344054; font-weight:700; }
   .scope-details > .field-help { margin:.7rem 0; }
+  .scope-mode { display:grid; gap:.55rem; margin:.8rem 0 0; padding:0; border:0; }
+  .scope-mode legend { margin-bottom:.1rem; color:#344054; font-size:.88rem; font-weight:700; }
+  .scope-mode-option { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.65rem; align-items:start; padding:.65rem .72rem; border:1px solid #dfe5ee; border-radius:10px; cursor:pointer; }
+  .scope-mode-option:has(input:checked) { border-color:#98a2b3; background:#f8fafc; }
+  .scope-mode-option span { display:grid; gap:.18rem; }
+  .scope-mode-option small { color:#667085; line-height:1.4; }
+  .scope-actions { display:flex; justify-content:flex-end; gap:.55rem; margin-top:.9rem; }
   .narrow-option { margin-bottom:.7rem; }
+  .route-option:has(input:disabled) { cursor:default; opacity:.62; }
   .field-help { margin:0; color:#667085; font-size:.82rem; line-height:1.45; }
   .group-toolbar { display:flex; align-items:flex-start; justify-content:space-between; gap:.75rem; margin-bottom:.1rem; }
   .group-toolbar .field-help { max-width:390px; }
@@ -775,6 +942,7 @@
     .account-actions,.active-actions,.run-actions,.preference-form { justify-content:flex-start; }
     .chooser-heading-actions { display:grid; justify-items:start; }
     .chooser-heading-actions p,.count-detail { text-align:left; justify-items:start; }
+    .scope-actions { justify-content:flex-start; }
     .run-options-card,.system-grid { grid-template-columns:1fr; }
     .group-toolbar { display:grid; }
   }
