@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
+import {
+  LEARNER_STUDY_RUN_STORAGE_KEY,
+  persistLearnerStudyRunReplacement,
+  readLearnerStudyRun
+} from '../src/lib/learner-study-run-storage.js';
 import { createStudyCountController } from '../src/lib/study-count-controller.js';
 
 /** @param {string} path */
@@ -79,10 +84,54 @@ test('invalid count scope errors do not claim Study can still start', async () =
   assert.doesNotMatch(state.countMessage, /You can still start Study/);
 });
 
+test('count outages clear only unavailable count data and preserve applied System count', async () => {
+  const controller = createStudyCountController(async () => response({ message: 'Count service unavailable' }, 503));
+  controller.begin(3);
+  const state = await controller.refresh(new FormData(), 1);
+  assert.equal(state.eligibleCount, null);
+  assert.equal(state.selectedSystemCount, 3);
+  assert.match(state.countMessage, /You can still start Study/);
+});
+
+/** @param {string} runId @returns {any} */
+function studyRunDescriptor(runId) {
+  return {
+    version: 2,
+    kind: 'free',
+    userId: 'learner-1',
+    runId,
+    runStartedAt: 1,
+    selectedScope: { systems: [{ systemId: 'system-1', mode: 'all' }] },
+    currentReviewId: null,
+    distinctCaseTarget: null,
+    bag: ['case-1'],
+    position: 0
+  };
+}
+
+test('replacement persistence failure keeps the prior resumable descriptor recoverable', () => {
+  const previous = studyRunDescriptor('previous');
+  const storage = {
+    value: JSON.stringify(previous),
+    /** @param {string} key */
+    getItem(key) { return key === LEARNER_STUDY_RUN_STORAGE_KEY ? this.value : null; },
+    setItem() { throw new Error('Storage quota exceeded'); },
+    removeItem() {}
+  };
+  const result = persistLearnerStudyRunReplacement(storage, studyRunDescriptor('replacement'), previous);
+  assert.equal(result.ok, false);
+  assert.equal(result.descriptor, previous);
+  const persistenceError = /** @type {Error} */ (result.error);
+  assert.match(persistenceError.message, /Storage quota exceeded/);
+  assert.deepEqual(readLearnerStudyRun(storage), previous);
+});
+
 test('replacement browser run is committed only after a successful descriptor response', () => {
   const page = source('src/routes/study/+page.svelte');
-  const successPath = /const descriptor = result\.data\?\.descriptor;[\s\S]*?const plannedRun = writeLearnerStudyRun\(localStorage, descriptor\);[\s\S]*?await openRun\(plannedRun\);/;
+  const successPath = /const descriptor = result\.data\?\.descriptor;[\s\S]*?const persisted = persistLearnerStudyRunReplacement\(localStorage, descriptor, browserRun\);[\s\S]*?const plannedRun = persisted\.descriptor;[\s\S]*?await openRun\(plannedRun\);/;
   assert.match(page, successPath);
   assert.match(page, /if \(result\.type !== 'success'\) \{[\s\S]*?await update\(\{ invalidateAll: true \}\);[\s\S]*?return;/);
+  assert.match(page, /persistLearnerStudyRunReplacement\(localStorage, descriptor, browserRun\)/);
+  assert.match(page, /previous resumable run was kept/);
   assert.doesNotMatch(page, /startPlannedRun[\s\S]*?clearLearnerStudyRun\(localStorage\)/);
 });

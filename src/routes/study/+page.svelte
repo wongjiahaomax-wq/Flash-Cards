@@ -1,15 +1,15 @@
 <script>
   import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
-  import { onMount } from 'svelte';
+  import { tick, onMount } from 'svelte';
 
   import LearnerFsrsProgressSummary from '$lib/components/LearnerFsrsProgressSummary.svelte';
   import SignOutButton from '$lib/components/SignOutButton.svelte';
   import { requestNextLearnerStudyWork } from '$lib/learner-study-open.js';
   import {
     clearLearnerStudyRun,
-    readLearnerStudyRunForUser,
-    writeLearnerStudyRun
+    persistLearnerStudyRunReplacement,
+    readLearnerStudyRunForUser
   } from '$lib/learner-study-run-storage.js';
   import {
     contributingStudyRouteValues,
@@ -137,6 +137,14 @@
   )));
   let customizingSystemId = $state(/** @type {string|null} */ (null));
   let customizationMessage = $state('');
+  /** @type {Record<string, HTMLElement|undefined>} */
+  let customizerTriggers = $state({});
+
+  /** @param {string} systemId */
+  async function restoreCustomizerFocus(systemId) {
+    await tick();
+    customizerTriggers[systemId]?.focus();
+  }
 
   $effect(() => {
     if (!Array.isArray(form?.freshSystems)) return;
@@ -278,6 +286,7 @@
     });
     customizingSystemId = null;
     customizationMessage = '';
+    restoreCustomizerFocus(systemId);
   }
 
   /** @param {StudySystem} system */
@@ -291,6 +300,7 @@
       });
       customizingSystemId = null;
       customizationMessage = '';
+      restoreCustomizerFocus(system.id);
       scheduleEligibleCount();
       return;
     }
@@ -308,6 +318,7 @@
     });
     customizingSystemId = null;
     customizationMessage = '';
+    restoreCustomizerFocus(system.id);
     scheduleEligibleCount();
   }
 
@@ -441,7 +452,18 @@
     runMessage = '';
     try {
       const { ok, payload } = await requestNextLearnerStudyWork(descriptor);
-      if (payload.descriptor) browserRun = writeLearnerStudyRun(localStorage, payload.descriptor);
+      if (payload.descriptor) {
+        const persisted = persistLearnerStudyRunReplacement(localStorage, payload.descriptor, descriptor);
+        if (!persisted.ok) {
+          browserRun = persisted.descriptor;
+          browserRunState = browserRun ? 'resumable' : 'none';
+          runMessage = browserRun
+            ? 'Study could not save the updated browser run. Your previous resumable run was kept. Check browser storage permissions and try again.'
+            : 'Study run could not be saved in this browser. Check browser storage permissions and try again.';
+          return;
+        }
+        browserRun = persisted.descriptor;
+      }
       if (payload.status === 'review' && payload.reviewId) {
         await goto(`/study/${payload.reviewId}`);
         return;
@@ -488,7 +510,16 @@
           return;
         }
 
-        const plannedRun = writeLearnerStudyRun(localStorage, descriptor);
+        const persisted = persistLearnerStudyRunReplacement(localStorage, descriptor, browserRun);
+        if (!persisted.ok) {
+          browserRun = persisted.descriptor;
+          browserRunState = browserRun ? 'resumable' : 'none';
+          runMessage = browserRun
+            ? 'Study could not save the replacement browser run. Your previous resumable run was kept. Check browser storage permissions and try again.'
+            : 'Study run could not be saved in this browser. Check browser storage permissions and try again.';
+          return;
+        }
+        const plannedRun = persisted.descriptor;
         browserRun = plannedRun;
         browserRunState = 'resumable';
         showAlternateLauncher = false;
@@ -690,7 +721,7 @@
             open={customizingSystemId === system.id}
             ontoggle={(event) => toggleCustomizer(system.id, event)}
           >
-            <summary>{systemNarrowed(system.id) ? 'Edit Topics / Tags' : 'Customize'}</summary>
+            <summary bind:this={customizerTriggers[system.id]}>{systemNarrowed(system.id) ? 'Edit Topics / Tags' : 'Customize'}</summary>
             <p class="field-help">Choose Whole System or explicitly apply Specific Topics / Tags. Draft changes do not affect the Study scope until you Apply them.</p>
 
             <fieldset class="scope-mode">

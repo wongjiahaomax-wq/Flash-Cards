@@ -53,6 +53,29 @@ export function writeLearnerStudyRun(storage, descriptor) {
   storage.setItem(LEARNER_STUDY_RUN_STORAGE_KEY, JSON.stringify(descriptor));
   return descriptor;
 }
+
+/**
+ * Persist a replacement without intentionally losing the prior resumable run
+ * when the browser storage write fails.
+ * @param {LearnerRunStorage} storage
+ * @param {unknown} descriptor
+ * @param {LearnerStudyRunDescriptor|null|undefined} previousDescriptor
+ */
+export function persistLearnerStudyRunReplacement(storage, descriptor, previousDescriptor) {
+  try {
+    return { ok: true, descriptor: writeLearnerStudyRun(storage, descriptor) };
+  } catch (error) {
+    if (previousDescriptor) {
+      try {
+        writeLearnerStudyRun(storage, previousDescriptor);
+      } catch {
+        // Keep the previous descriptor in memory when storage cannot be restored.
+      }
+    }
+    return { ok: false, descriptor: previousDescriptor ?? null, error };
+  }
+}
+
 /** @param {LearnerRunStorage} storage */
 export function clearLearnerStudyRun(storage) {
   storage.removeItem(LEARNER_STUDY_RUN_STORAGE_KEY);

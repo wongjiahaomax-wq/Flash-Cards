@@ -54,11 +54,10 @@ export function createStudyCountController(request) {
       if (requestId !== latestRequestId) return snapshot();
 
       if (!response.ok) {
-        const isInvalidScope = response.status >= 400 && response.status < 500;
         state = {
           ...state,
           eligibleCount: null,
-          selectedSystemCount: isInvalidScope ? state.selectedSystemCount : 0,
+          selectedSystemCount: state.selectedSystemCount,
           countMessage: countFailureMessage(payload, response)
         };
         return snapshot();
@@ -76,7 +75,7 @@ export function createStudyCountController(request) {
       state = {
         ...state,
         eligibleCount: null,
-        selectedSystemCount: 0,
+        selectedSystemCount: state.selectedSystemCount,
         countMessage: `${cause instanceof Error ? cause.message : String(cause)}${COUNT_OUTAGE_SUFFIX}`
       };
       return snapshot();

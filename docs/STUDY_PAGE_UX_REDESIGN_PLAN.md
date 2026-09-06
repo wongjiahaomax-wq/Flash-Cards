@@ -1,6 +1,6 @@
 # Study Page UX Redesign Plan
 
-_Status: implementation-ready plan for Draft PR #159. All implementation remains in this single PR and is delivered in sequential, reviewable tranches. This document does not itself change learner runtime semantics, Production data, migrations, or deployment._
+_Status: implementation is present on the PR #159 branch and pending review. This document remains the planning authority and does not itself change learner runtime semantics, Production data, migrations, or deployment._
 
 _Date: 6 September 2026._
 

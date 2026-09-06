@@ -44,3 +44,13 @@ test('data-management actions preserve action-specific fences and clear browser-
   assert.match(page, /result\.data\?\.browserRunInvalidated/);
   assert.match(page, /clearLearnerStudyRun\(localStorage\)/);
 });
+
+test('System customizer restores focus to its relevant trigger after closing', () => {
+  const page = source('src/routes/study/+page.svelte');
+  assert.match(page, /import \{ tick, onMount \} from 'svelte'/);
+  assert.match(page, /customizerTriggers\[system\.id\]/);
+  assert.match(page, /async function restoreCustomizerFocus\(systemId\)[\s\S]*await tick\(\)[\s\S]*customizerTriggers\[systemId\]\?\.focus\(\)/);
+  assert.match(page, /function cancelCustomize\(systemId\)[\s\S]*restoreCustomizerFocus\(systemId\)/);
+  assert.match(page, /function applyCustomize\(system\)[\s\S]*restoreCustomizerFocus\(system\.id\)/);
+  assert.match(page, /<summary bind:this=\{customizerTriggers\[system\.id\]\}/);
+});
