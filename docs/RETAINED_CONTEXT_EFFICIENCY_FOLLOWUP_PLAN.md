@@ -1,6 +1,6 @@
 # Retained-context coding-agent efficiency follow-up plan
 
-_Status: proposed focused implementation plan. Planning only; no operational guidance has been changed by this document._
+_Status: implementation complete in PR #162. Retained implementation/evaluation record only; living operational authority is in root `AGENTS.md`, `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`, `docs/LOCAL_CODEX_EXECUTION_GUIDANCE.md`, and `docs/TESTING_AND_VALIDATION_GUIDANCE.md`. The planned three-thread external efficiency evaluation remains pending future evidence._
 
 ## Purpose
 
