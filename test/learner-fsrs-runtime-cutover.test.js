@@ -13,12 +13,14 @@ test('learner Study routes are cut over to active Review and FSRS run services',
   const open = source('src/routes/study/api/open/+server.js');
   const complete = source('src/routes/study/api/complete/[reviewId]/+server.js');
   const media = source('src/routes/study/media/[reviewId]/[assetId]/+server.js');
+  const dataManagement = source('src/routes/study/settings/data/+page.server.js');
 
   assert.match(chooser, /planSystemStudyRunFromForm/);
   assert.match(chooser, /getActiveReview/);
-  assert.match(chooser, /getLearnerFsrsProgress/);
-  assert.match(chooser, /resetLearnerFsrsProgress/);
-  assert.match(chooser, /freshLearnerFsrsStart/);
+  assert.match(chooser, /getLearnerFsrsProgressSummary/);
+  assert.doesNotMatch(chooser, /getLearnerFsrsProgress\(/);
+  assert.match(dataManagement, /resetLearnerFsrsProgress/);
+  assert.match(dataManagement, /freshLearnerFsrsStart/);
   assert.doesNotMatch(chooser, /startReview|startSystemReview|server\/db\/learning\.js/);
 
   assert.match(review, /getActiveReviewById/);
@@ -37,11 +39,13 @@ test('learner Study routes are cut over to active Review and FSRS run services',
 test('Reset/Fresh is learner-facing, invalidates browser run state and keeps the active-Review boundary defensive', () => {
   const chooser = source('src/routes/study/+page.svelte');
   const progress = source('src/lib/components/LearnerFsrsProgress.svelte');
+  const dataManagement = source('src/routes/study/settings/data/+page.svelte');
   const resetFresh = source('src/lib/server/db/fsrs-reset-fresh.js');
   const migration = source('drizzle/0024_learner_fsrs_reset_fresh.sql');
 
-  assert.match(chooser, /LearnerFsrsProgress/);
-  assert.match(chooser, /form\?\.browserRunInvalidated/);
+  assert.match(chooser, /LearnerFsrsProgressSummary/);
+  assert.match(dataManagement, /form\?\.browserRunInvalidated/);
+  assert.match(dataManagement, /clearLearnerStudyRun\(localStorage\)/);
   assert.match(chooser, /clearLearnerStudyRun\(localStorage\)/);
   assert.match(progress, /Reset Progress/);
   assert.match(progress, /Fresh FSRS Start/);

@@ -2,13 +2,13 @@
 
 _Status: repository implementation authority for the Multi-System UX learner cutover. This document does not claim Production deployment or Production D1 mutation._
 
-_Date: 5 September 2026._
+_Date: 6 September 2026._
 
 This document records the learner-facing tranche assigned by `MULTI_SYSTEM_STUDY_PLAN.md`, built on the already-merged Runtime v2 foundation from PR #147. Current executable code remains authoritative where this companion and implementation differ.
 
-## Learner chooser
+## Learner chooser and applied scope editor
 
-Normal `/study` now presents one combined chooser rather than one independent form per System.
+Normal `/study` now presents one combined launcher rather than one independent form per System. A resumable browser-owned run is shown first; the chooser is available for a different run only after the learner explicitly opens it.
 
 The learner may:
 
@@ -17,6 +17,8 @@ The learner may:
 - expand a System and turn on narrowing when only specific existing Topics and/or curated Tags should be included;
 - choose Scheduled Study or Free Study once for the combined run;
 - choose `5`, `10`, `20`, or `All available` distinct Cases once for the combined run, with `10` as the default.
+
+Each selected System has an explicit applied scope and an independent draft editor. Selecting a System applies Whole System immediately. Opening Customize or changing Topic/Tag checkboxes changes only the draft; Cancel restores the applied scope, while Apply commits either Whole System or the validated exact Topic/curated Tag routes. Only applied scope is serialized into the plan form and sent to the count endpoint.
 
 A selected System that is not narrowed is submitted to the v2 runtime as:
 
@@ -97,6 +99,22 @@ The UI never sums per-System counts. A Case reachable through more than one sele
 
 Per-System card counts remain informational whole-System counts only; they are not added to derive the combined count.
 
+The count is informational and never gates a valid plan submission. A 4xx response caused by an invalid submitted scope is shown as validation feedback without outage guidance. A 5xx response or request failure is shown as a transient count-service failure with the explicit message that Study can still start; the planner remains the final authority in either case.
+
+Every count request is tied to the applied-scope request generation. A newer Apply or System selection supersedes all older in-flight requests, including their count, message, and loading completion state. Late responses from an older generation cannot overwrite the latest applied-scope display. Draft-only edits do not create a new count generation.
+
+The count controller is covered behaviorally by `test/study-page-ux-tranche-3.test.js`, including a newer response resolving before an older response and invalid-scope messaging.
+
+## Secondary Study routes and deletion state
+
+The launcher keeps the detailed surfaces separate:
+
+- `/study/progress` owns the full history/scheduling query and remains fenced while study-data deletion is active;
+- `/study/settings` owns the Expanded Learning preference and remains reachable during deletion;
+- `/study/settings/data` owns Reset Progress, Fresh FSRS Start, and self-service study-data deletion.
+
+Deletion hides planning, resume, and progress content on `/study`, but leaves a visible Study settings route because preference management remains available. The data-management route also links directly to Study settings. Enhanced state-changing actions invalidate the page data after applying their result, so completion of a bounded deletion immediately clears the in-progress UI without requiring a reload. If a deletion fence activates while `/study` is open, a failed plan action revalidates the page and its returned fence state immediately suppresses the launcher.
+
 ## Scheduled and Free Study behavior
 
 Scheduled Study applies the existing FSRS ordering policy to the combined unique candidate pool. There is no equal/balanced System quota and no per-System scheduler state.
@@ -161,6 +179,7 @@ Learner UX regression coverage locks:
 - Scheduled and Free browser-descriptor advancement across Cases contributed by different Systems;
 - migrated-D1 Scheduled and Free Case-A → completion → real Case-B next-open acceptance;
 - source contracts requiring the learner chooser, server count owner, canonical multi-System planners, and existing continuous-navigation owner.
+- applied/draft scope behavior, latest-request-wins count state, invalid-scope versus outage messaging, deletion-time Study settings reachability, and enhanced-action invalidation.
 
 The dedicated Multi-System Runtime v2 workflow owns the learner hierarchy/request surfaces and their focused regressions, including:
 
