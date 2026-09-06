@@ -587,27 +587,31 @@ test('self-wipe completion is reactivated and absorbed when permanent account de
 test('Tranche 4 exposes only self-scoped learner deletion with typed confirmation and resumable blocked-study UX', () => {
   const chooserServer = readFileSync(new URL('../src/routes/study/+page.server.js', import.meta.url), 'utf8');
   const chooser = readFileSync(new URL('../src/routes/study/+page.svelte', import.meta.url), 'utf8');
+  const dataServer = readFileSync(new URL('../src/routes/study/settings/data/+page.server.js', import.meta.url), 'utf8');
+  const dataPage = readFileSync(new URL('../src/routes/study/settings/data/+page.svelte', import.meta.url), 'utf8');
+  const deletionActions = readFileSync(new URL('../src/lib/server/learning/learner-study-secondary-actions.js', import.meta.url), 'utf8');
   const review = readFileSync(new URL('../src/routes/study/[reviewId]/+page.server.js', import.meta.url), 'utf8');
   const open = readFileSync(new URL('../src/routes/study/api/open/+server.js', import.meta.url), 'utf8');
   const complete = readFileSync(new URL('../src/routes/study/api/complete/[reviewId]/+server.js', import.meta.url), 'utf8');
   const media = readFileSync(new URL('../src/routes/study/media/[reviewId]/[assetId]/+server.js', import.meta.url), 'utf8');
-  const study = chooserServer;
+  const study = dataServer;
 
-  assert.match(chooserServer, /deleteStudyData:/);
-  assert.match(chooserServer, /continueStudyDataDeletion:/);
-  assert.match(chooserServer, /DELETE MY STUDY DATA/);
-  assert.match(chooserServer, /MAX_DELETION_STEPS_PER_REQUEST = 4/);
-  assert.match(chooserServer, /user\.id/);
-  assert.doesNotMatch(chooserServer, /formData\.get\(['"]userId['"]\)/);
-  assert.match(chooserServer, /studyDataDeleted: true/);
-  assert.match(chooserServer, /deletionInProgress: true/);
+  assert.match(dataServer, /deleteStudyData:/);
+  assert.match(dataServer, /continueStudyDataDeletion:/);
+  assert.match(deletionActions, /DELETE MY STUDY DATA/);
+  assert.match(deletionActions, /MAX_DELETION_STEPS_PER_REQUEST = 4/);
+  assert.match(dataServer, /user\.id/);
+  assert.doesNotMatch(dataServer, /formData\.get\(['"]userId['"]\)/);
+  assert.match(deletionActions, /studyDataDeleted: true/);
+  assert.match(deletionActions, /deletionInProgress: true/);
 
-  assert.match(chooser, /Delete all my study data/);
-  assert.match(chooser, /name="confirmation"/);
-  assert.match(chooser, /DELETE MY STUDY DATA/);
+  assert.match(dataPage, /Delete all my study data/);
+  assert.match(dataPage, /name="confirmation"/);
+  assert.match(dataPage, /DELETE MY STUDY DATA/);
   assert.match(chooser, /Continue deletion/);
-  assert.match(chooser, /Study is temporarily blocked/);
-  assert.match(chooser, /!data\.studyDataDeletion\?\.inProgress/);
+  assert.match(chooser, /Study is temporarily unavailable/);
+  assert.match(chooser, /!deletionBlocked/);
+  assert.match(chooser, /href="\/study\/settings"/);
 
   for (const source of [review, open, complete, media]) {
     assert.match(source, /isStudyDataDeletionActive/);

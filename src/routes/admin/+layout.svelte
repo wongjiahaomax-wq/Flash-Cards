@@ -12,7 +12,7 @@
   <header class="admin-header">
     <a class="admin-brand" href="/admin">Flash-Cards <span>Admin</span></a>
     <nav class="admin-header-actions" aria-label="Global navigation">
-      <a href={data.learnerStudyPreviewHref ?? '/study'}>Study</a>
+      <a href="/study">Study</a>
       <SignOutButton />
     </nav>
   </header>
