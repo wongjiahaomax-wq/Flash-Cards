@@ -27,6 +27,10 @@ For a clearly bounded task in an existing subsystem, normally:
 
 Reuse sufficient information already retrieved. Do not load unrelated documentation “for completeness”, read complete large files when bounded ranges are sufficient, inspect history before current implementation without a material reason, repeatedly retrieve unchanged files/metadata, keep searching broadly after the implementation surface is established, or repeatedly inspect the complete PR diff during active implementation.
 
+Treat the coding session as `Discovery -> Implementation -> Checkpoint -> Handoff`. Discovery ends once the current work state, implementation surface, directly related owners/tests, and any protected-boundary routing are established. After a coherent implementation batch, inspect the scoped change and run the appropriate checkpoint validation before entering handoff work.
+
+When the active coding client exposes context compaction and the session has accumulated substantial file/tool output, compact at that coherent checkpoint-to-handoff boundary when useful. Context compaction is a host capability, not a repository command. After compaction, rely on the retained task/checkpoint summary and reread only evidence that is missing, ambiguous, changed, or otherwise drift-prone; do not reload unchanged authorities merely because the conversation was compacted.
+
 ### Retrieval escalation
 
 Constrained retrieval is appropriate when the work is clearly scoped to an existing subsystem and current evidence is sufficient. Automatically broaden context when evidence shows that the task materially touches any protected or cross-cutting boundary, including:
@@ -53,7 +57,11 @@ Before creating or selecting a branch, identify the requested work state:
 - if the task explicitly targets an existing PR/branch, continue its current head against its intended base;
 - otherwise resolve the intended base, normally the actual latest `main`, and create the feature branch from that resolved base.
 
-For an existing PR, normally establish the PR number, exact head SHA, intended base, and Draft/Ready state once at task start. Retrieve those facts again only after something capable of changing them, such as a push, rebase/update from `main`, external branch movement, or final handoff verification.
+For an existing PR, normally establish the PR number, exact head SHA, intended base, and Draft/Ready state once at task start. Reuse those facts for ordinary read-only reasoning while they remain valid, and refresh them after an event capable of invalidating them, such as a push, rebase/update from `main`, known external branch movement, Draft/Ready state change, CI completion when fresh check state is needed, or final handoff verification. Do not refetch ordinary PR identity/head/base merely because another model turn occurred.
+
+Related read-only local or remote handoff facts may be retrieved together when attribution remains clear and every constituent command/request keeps its own success/failure authority. A later successful read must never mask an earlier failing validation, Git, or GitHub operation. This batching permission does not merge the underlying evidence claims.
+
+Immediately before any Remote GitHub Git-data commit/ref mutation, refresh the exact current feature-branch head regardless of whether an invalidating event was observed, then follow the fast-forward write discipline in `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`.
 
 A successful `npm run agent:doctor` establishes that the local-execution side is available. If GitHub access is also available, use Hybrid strengths rather than falling back to product-name heuristics.
 
@@ -97,7 +105,7 @@ Preserve the repository's iteration → checkpoint → handoff validation archit
 - `agent:checks` intentionally includes legitimate untracked files. Do not change it or local practice to ignore arbitrary untracked implementation files. Persistent checkout-local machine/tool artifacts belong in `.git/info/exclude`; universally inappropriate repository artifacts belong in `.gitignore`. Never add broad ignore patterns that could hide legitimate source, assets, or configuration.
 - Use `npm run validate:fast` at a coherent checkpoint when the repository guidance calls for it; focused iteration success is not handoff completion. Local validation is compact by default.
 - Before final handoff/review, execute every final required check reported by `agent:checks` plus required specialized checks. `npm run validate:full` remains the ordinary local pre-handoff contract when applicable; its default compact presentation changes output only, never check selection or semantics.
-- Use explicit verbose reproduction only when compact diagnostics are insufficient: `npm run test:verbose -- <test-file>`, `npm run test:fast:verbose`, `npm run check:verbose`, `npm run build:verbose`, or `npm run validate:<mode> -- --verbose` as appropriate. A clean compact pass does not need a second verbose rerun.
+- Use explicit verbose reproduction only when compact diagnostics are insufficient: `npm run test:verbose -- <test-file>`, `npm run test:fast:verbose`, `npm run check:verbose`, `npm run build:verbose`, or `npm run validate:<mode> -- --verbose` as appropriate. A clean compact pass is sufficient evidence for that command and does not need a second verbose rerun.
 - Do not rerun an unchanged validation command unless later changes could invalidate what it checked.
 - When command execution is unavailable, inspect equivalent GitHub CI/check evidence where it exists and report separately what could not be executed. “GitHub CI passed” is not the same claim as “the local command passed”.
 - Low-level validation selection, reporter, specialized-check, and CI ownership rules live in `scripts/AGENTS.md`, `.github/AGENTS.md`, `docs/TESTING_AND_VALIDATION_GUIDANCE.md`, and `docs/CI_AGENT_DIAGNOSTICS.md`; load them only when that machinery is being changed.
@@ -109,6 +117,8 @@ Do not introduce arbitrary command-count limits, token budgets, context counters
 During active implementation, prefer targeted implementation reads, changed-file/scoped diff inspection, directly relevant tests, and focused correction deltas. Do not repeatedly retrieve the complete PR diff after each small edit.
 
 At a deliberate final review/handoff checkpoint, inspect the complete intended-base → current-head branch/PR diff. Check task fit, behavioral and safety invariants, accidental scope expansion, unrelated changes, stale references/imports, missing or inappropriate tests, and documentation accuracy. A correction-only delta review never substitutes for this complete final review.
+
+Commit, push/ref update, PR mutation, merge, migration, deployment, Production mutation, and live verification remain explicit separate operations and separate evidence claims. Do not hide them behind an opaque handoff/finish wrapper.
 
 A Draft PR is a durable handoff artifact for remote work. Keep its title/body, current diff, commits, review discussion, and CI/check state sufficient for a later agent to reconstruct the work without the original chat. Do not mark a Draft Ready for Review unless the task explicitly calls for it.
 
