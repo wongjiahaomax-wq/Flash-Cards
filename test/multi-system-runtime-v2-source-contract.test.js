@@ -69,6 +69,7 @@ test('clean-cutover gate is exact-zero, includes learner_fsrs_profiles, and excl
 test('Production cutover completion requires both the v2 guard and an open identified v2 runtime', () => {
   const workflow = source('.github/workflows/deploy-production.yml');
   const statusRoute = source('src/routes/api/runtime-cutover-status/+server.js');
+  const verifier = source('scripts/verify-production-runtime.mjs');
 
   assert.match(statusRoute, /learnerRuntimeCutoverVersion:\s*2/);
   assert.match(statusRoute, /learnerRuntimeScopeVersion:\s*2/);
@@ -81,7 +82,16 @@ test('Production cutover completion requires both the v2 guard and an open ident
   assert.match(workflow, /learnerRuntimeWriteFence === false/);
   assert.match(workflow, /\^\[0-9a-f\]\{40\}\$/);
   assert.match(workflow, /APP_BUILD_SHA:\$\{GITHUB_SHA\}/);
-  assert.match(workflow, /learnerRuntimeBuildSha!==expected/);
+  assert.match(workflow, /verify-production-runtime\.mjs/);
+  assert.match(workflow, /--expected-fence true/);
+  assert.match(workflow, /--expected-fence false/);
+  assert.match(workflow, /--attempts 60/);
+  assert.match(verifier, /actual\.learnerRuntimeCutoverVersion === 2/);
+  assert.match(verifier, /actual\.learnerRuntimeScopeVersion === 2/);
+  assert.match(verifier, /actual\.learnerRuntimeWriteFence === expectedFence/);
+  assert.match(verifier, /actual\.learnerRuntimeBuildSha === expectedSha/);
+  assert.match(verifier, /runtime mismatch:/);
+  assert.match(verifier, /last observation:/);
   assert.match(workflow, /Unable to inspect the currently deployed Production runtime\. No cutover action was taken\./);
 });
 

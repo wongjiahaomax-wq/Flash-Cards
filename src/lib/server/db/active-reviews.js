@@ -18,6 +18,10 @@ import {
   verifyCapturedMembership,
   verifyScheduledRepeatOriginProof
 } from '../learning/study-run-proof.js';
+import {
+  isStudyDataDeletionFenceError,
+  STUDY_DATA_DELETION_FENCE_MESSAGE
+} from './study-data-deletion-fence.js';
 
 /** @typedef {typeof activeReviews.$inferInsert} ActiveReviewInsert */
 /** @typedef {Awaited<ReturnType<typeof resolveMultiSystemStudySelection>>} StudySelection */
@@ -85,7 +89,7 @@ const INSERT_ACTIVE_REVIEW_ASSETS_JSON_SQL = `
 
 export class ActiveReviewError extends Error {
   /**
-   * @param {'invalid-input'|'stale-run'|'stale-case-state'|'ineligible-scope'|'content-unavailable'} code
+   * @param {'invalid-input'|'stale-run'|'stale-case-state'|'ineligible-scope'|'content-unavailable'|'study-data-deletion-in-progress'} code
    * @param {string} message
    */
   constructor(code, message) {
@@ -182,6 +186,9 @@ export async function getActiveReviewById(db, userId, reviewId) {
 /** @param {unknown} cause */
 function mappedCreateError(cause) {
   if (cause instanceof ActiveReviewError || cause instanceof ActiveReviewContentError) return cause;
+  if (isStudyDataDeletionFenceError(cause)) {
+    return new ActiveReviewError('study-data-deletion-in-progress', STUDY_DATA_DELETION_FENCE_MESSAGE);
+  }
   const message = databaseErrorMessage(cause);
   if (message.includes('active_review_stale_boundary')) {
     return new ActiveReviewError('stale-run', 'This Scheduled run is stale. Start a fresh run.');
@@ -241,6 +248,7 @@ async function persistActiveReview(input) {
   try {
     await client.batch(writes);
   } catch (cause) {
+    if (isStudyDataDeletionFenceError(cause)) throw mappedCreateError(cause);
     const existing = await getActiveReview(input.db, input.userId);
     if (existing) return { status: 'resume', review: existing };
     throw mappedCreateError(cause);
@@ -439,10 +447,14 @@ export async function createFreeActiveReview(input) {
 export async function revealActiveReview(input) {
   const userId = requiredString(input.userId, 'Learner');
   const reviewId = requiredString(input.reviewId, 'Active Review');
-  await input.db.update(activeReviews).set({ revealedAt: DATABASE_NOW_MS }).where(and(
-    eq(activeReviews.userId, userId), eq(activeReviews.id, reviewId),
-    isNull(activeReviews.revealedAt), sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`
-  ));
+  try {
+    await input.db.update(activeReviews).set({ revealedAt: DATABASE_NOW_MS }).where(and(
+      eq(activeReviews.userId, userId), eq(activeReviews.id, reviewId),
+      isNull(activeReviews.revealedAt), sql`${activeReviews.expiresAt} > ${DATABASE_NOW_MS}`
+    ));
+  } catch (cause) {
+    throw mappedCreateError(cause);
+  }
   return getActiveReviewById(input.db, userId, reviewId);
 }
 

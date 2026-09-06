@@ -28,6 +28,7 @@
       <a href="/admin/tags">Tags</a>
       <a href="/admin/learner-analytics">Learner analytics</a>
       <a href="/admin/learner-retention">Learner retention</a>
+      <a href="/admin/my-study-data">My study data</a>
       <a href="/admin/import">Import package</a>
     </aside>
 

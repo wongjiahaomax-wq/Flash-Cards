@@ -1,8 +1,18 @@
+import { STUDY_DATA_DELETION_DESCRIPTORS } from './learner-study-data-deletion.ts';
+
 export const LEARNER_ACCOUNT_DELETION_BATCH_SIZE = 1_000;
 
 const DATABASE_NOW_MS_SQL = "cast((julianday('now') - 2440587.5) * 86400000 as integer)";
 
-const PHASES = [
+type AccountDeletionDescriptor = {
+  phase: string;
+  table: string;
+  userColumn?: string;
+  predicate?: string;
+  next: string;
+};
+
+const PHASES: readonly AccountDeletionDescriptor[] = [
   { phase: 'auth_sessions', table: 'session', userColumn: 'userId', next: 'auth_verifications' },
   { phase: 'auth_verifications', table: 'verification', userColumn: 'value', next: 'auth_accounts' },
   { phase: 'auth_accounts', table: 'account', userColumn: 'userId', next: 'free_receipts' },
@@ -18,6 +28,12 @@ const PHASES = [
   { phase: 'preferences', table: 'learner_preferences', userColumn: 'user_id', next: 'profile' },
   { phase: 'profile', table: 'learner_fsrs_profiles', userColumn: 'user_id', next: 'identity_ready' }
 ] as const;
+
+const LEGACY_STUDY_DATA_DESCRIPTORS = STUDY_DATA_DELETION_DESCRIPTORS.filter((descriptor) =>
+  descriptor.phase === 'legacy_review_questions'
+  || descriptor.phase === 'legacy_review_assets'
+  || descriptor.phase === 'legacy_reviews'
+);
 
 export type LearnerAccountDeletionPhase = (typeof PHASES)[number]['phase'] | 'identity_ready';
 
@@ -67,6 +83,16 @@ async function readDeletion(client: D1Database, userId: string) {
   `).bind(userId).first<Record<string, unknown>>();
 }
 
+async function readLegacyStudyDataDescriptor(client: D1Database, userId: string) {
+  for (const descriptor of LEGACY_STUDY_DATA_DESCRIPTORS) {
+    const row = await client.prepare(`
+      SELECT 1 AS present FROM ${descriptor.table} WHERE ${descriptor.predicate} LIMIT 1
+    `).bind(userId).first();
+    if (row) return descriptor;
+  }
+  return null;
+}
+
 async function revokeAccess(client: D1Database, userId: string) {
   await client.prepare(`
     UPDATE user
@@ -103,6 +129,21 @@ export async function beginLearnerAccountDeletion(input: {
       VALUES (?, 'auth_sessions')
       ON CONFLICT(user_id) DO NOTHING
     `).bind(userId),
+    // Permanent account deletion supersedes self-service cleanup. Keep the
+    // shared study marker active so every current study writer remains fenced;
+    // the account-deletion worker owns the cleanup from this point onward.
+    client.prepare(`
+      INSERT INTO learner_study_data_deletions (
+        user_id, phase, requested_at, updated_at, batches_completed, completed_at
+      ) VALUES (?, 'active_reviews', (unixepoch() * 1000), (unixepoch() * 1000), 0, NULL)
+      ON CONFLICT(user_id) DO UPDATE SET
+        phase = 'active_reviews',
+        requested_at = excluded.requested_at,
+        updated_at = excluded.updated_at,
+        batches_completed = 0,
+        completed_at = NULL
+      WHERE learner_study_data_deletions.phase = 'complete'
+    `).bind(userId),
     client.prepare(`
       UPDATE user
       SET banned = 1,
@@ -138,6 +179,9 @@ const FIRST_REMAINING_PHASE_SQL = `
     WHEN EXISTS (SELECT 1 FROM learner_system_aggregates WHERE user_id = ? LIMIT 1) THEN 'system_aggregates'
     WHEN EXISTS (SELECT 1 FROM learner_aggregates WHERE user_id = ? LIMIT 1) THEN 'learner_aggregates'
     WHEN EXISTS (SELECT 1 FROM learner_preferences WHERE user_id = ? LIMIT 1) THEN 'preferences'
+    WHEN EXISTS (SELECT 1 FROM review_questions WHERE review_id IN (SELECT id FROM reviews WHERE user_id = ?) LIMIT 1) THEN 'profile'
+    WHEN EXISTS (SELECT 1 FROM review_assets WHERE review_id IN (SELECT id FROM reviews WHERE user_id = ?) LIMIT 1) THEN 'profile'
+    WHEN EXISTS (SELECT 1 FROM reviews WHERE user_id = ? LIMIT 1) THEN 'profile'
     WHEN EXISTS (SELECT 1 FROM learner_fsrs_profiles WHERE user_id = ? LIMIT 1) THEN 'profile'
     ELSE 'identity_ready'
   END AS phase
@@ -145,7 +189,7 @@ const FIRST_REMAINING_PHASE_SQL = `
 
 async function firstRemainingPhase(client: D1Database, userId: string): Promise<LearnerAccountDeletionPhase> {
   const row = await client.prepare(FIRST_REMAINING_PHASE_SQL)
-    .bind(...Array(14).fill(userId))
+    .bind(...Array(17).fill(userId))
     .first<{ phase: LearnerAccountDeletionPhase }>();
   return row?.phase ?? 'identity_ready';
 }
@@ -204,22 +248,40 @@ export async function advanceLearnerAccountDeletion(input: {
     return { userId, deleted: false, readyForIdentityDelete: true, rowsDeleted: 0, phase };
   }
 
-  const descriptor = PHASES.find((candidate) => candidate.phase === phase);
+  let descriptor = PHASES.find((candidate) => candidate.phase === phase);
   if (!descriptor) throw new Error(`Unsupported learner deletion phase: ${phase}`);
+
+  if (phase === 'profile') {
+    const legacyDescriptor = await readLegacyStudyDataDescriptor(client, userId);
+    if (legacyDescriptor) {
+      descriptor = {
+        phase,
+        table: legacyDescriptor.table,
+        predicate: legacyDescriptor.predicate,
+        next: 'profile'
+      };
+    }
+  }
+
+  const predicate = descriptor.predicate
+    ?? (descriptor.userColumn ? `${descriptor.userColumn} = ?` : null);
+  if (!predicate) throw new Error(`Unsupported learner deletion table descriptor: ${descriptor.table}`);
 
   const deleteResult = await client.prepare(`
     DELETE FROM ${descriptor.table}
     WHERE rowid IN (
-      SELECT rowid FROM ${descriptor.table} WHERE ${descriptor.userColumn} = ? LIMIT ?
+      SELECT rowid FROM ${descriptor.table} WHERE ${predicate} LIMIT ?
     )
   `).bind(userId, batchSize).run();
   const rowsDeleted = changes(deleteResult);
   const remaining = await client.prepare(`
-    SELECT 1 AS present FROM ${descriptor.table} WHERE ${descriptor.userColumn} = ? LIMIT 1
+    SELECT 1 AS present FROM ${descriptor.table} WHERE ${predicate} LIMIT 1
   `).bind(userId).first();
 
   if (!remaining) {
-    phase = descriptor.next;
+    phase = (phase === 'profile'
+      ? await firstRemainingPhase(client, userId)
+      : descriptor.next) as LearnerAccountDeletionPhase;
     await client.prepare(`
       UPDATE learner_account_deletions
       SET phase = ?,

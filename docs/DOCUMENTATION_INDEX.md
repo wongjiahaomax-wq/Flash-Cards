@@ -129,7 +129,8 @@ Executable validators/schemas outrank old extraction-prompt examples. Import Pac
 - `PREVIEW_ADMIN_WORKSPACE.md` — retained Preview Admin ownership/safety model.
 - `PREVIEW_DEPLOYMENT.md` — optional remote Preview deployment workflow.
 - `CLOUDFLARE.md` — Production release/migration runbook; for the first Runtime v2 release it must follow the mechanically fenced migration path in `.github/workflows/deploy-production.yml` rather than any historical optional-migration command.
-- `DEVELOPMENT_EXECUTION_WORKFLOW.md` — Local / Remote GitHub / Hybrid workflow.
+- `DEVELOPMENT_EXECUTION_WORKFLOW.md` — Local / Remote GitHub / Hybrid workflow and living authority for coding-agent execution mechanics/context lifecycle.
+- `AGENT_CONTEXT_EFFICIENCY_PLAN.md` — historical PR #156 planning/audit record only; current authority lives in root `AGENTS.md`, `DEVELOPMENT_EXECUTION_WORKFLOW.md`, and repository-owned validation/CI contracts.
 - `LOCAL_DEVELOPMENT_REPLICA.md` — local production-content replica.
 - `R2_COST_GUARDRAILS.md` and `IMAGE_PROVENANCE.md` — media/storage safety.
 - `OPEN_SOURCE_READINESS.md` — current public-repository safety posture.
