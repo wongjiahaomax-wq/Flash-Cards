@@ -370,6 +370,24 @@ Example safe row:
 
 Only show a customized per-System Case count if an authoritative server-side union resolver supplies it for that exact applied System scope.
 
+### 9.4 Preserve stale/out-of-order response suppression
+
+The current `/study` count flow uses request sequencing so an older response cannot overwrite a newer selection's count. Preserve that invariant after the applied/draft redesign.
+
+Required behavior:
+
+- every authoritative count request is associated with the applied-scope version/snapshot that triggered it;
+- when a newer applied scope triggers another request, all older in-flight count responses become stale for presentation purposes;
+- only the latest still-current request may update displayed count, count error/message, or count-loading completion state;
+- an older success must not overwrite a newer success or newer error;
+- an older error must not overwrite a newer success or newer error;
+- draft-only edits do not create a new applied-scope count version because they do not affect the displayed count;
+- Apply creates the new applied scope, invalidates the previously displayed count, and starts a request that supersedes any older in-flight request.
+
+Equivalent implementation mechanisms are acceptable: monotonically increasing request IDs, an applied-scope generation token, an applied-scope fingerprint plus request sequence, or another explicit stale-response guard. The important contract is that the displayed count always corresponds to the **latest applied scope**, regardless of network response order.
+
+Add a focused regression that performs rapid successive applied-scope changes, resolves the newer count request first and an older request afterward, and proves the late stale response cannot change the displayed latest-scope count/status.
+
 ## 10. Failed-plan rehydration and freshness
 
 Expected validation failures should preserve still-valid learner intent while rejecting stale scope.
@@ -534,6 +552,7 @@ Implement:
 - applied-state-only count requests;
 - draft edits do not affect count until Apply;
 - Apply triggers fresh authoritative count;
+- preserve request sequencing/stale-response suppression across rapid successive applied-scope changes;
 - count failure remains non-blocking for planning;
 - no arithmetic Topic+Tag counts;
 - one Start CTA;
@@ -544,6 +563,7 @@ Validate:
 - planner request shape unchanged;
 - count endpoint read-only and informational;
 - count outage does not independently block valid plan submission;
+- rapid successive applied-scope count requests cannot be overwritten by late stale responses;
 - failed replacement planning preserves prior browser run;
 - successful replacement persists new run and opens first Review.
 
@@ -598,6 +618,7 @@ Preserve/extend focused coverage for:
 - Whole System vs all-visible-routes distinction;
 - exact Topic hierarchy;
 - applied-state-only combined count;
+- stale/out-of-order count response suppression so only the latest applied scope can update count UI;
 - count failure not becoming a plan gate;
 - authoritative union/deduplication;
 - failed-plan rehydration from fresh validity information;
@@ -633,27 +654,28 @@ Before marking PR #159 Ready, verify at least:
 15. all visible routes remain routes mode;
 16. draft route edits leave count unchanged;
 17. Apply changes scope and triggers fresh count;
-18. count request fails but valid plan can still submit;
-19. zero-count feedback;
-20. stale route rejected with fresh metadata/server-sanitized rehydration;
-21. narrowed System loses every valid route and is not silently widened;
-22. multi-System overlapping Cases remain deduplicated;
-23. Scheduled + fixed run size;
-24. Free + All;
-25. Tranches 1–3 retain inline Progress/settings/data reachability;
-26. Tranche 4 secondary routes enforce `learnerStudyAccessError`;
-27. direct `/study/progress` during deletion does not load/display partial Progress;
-28. Reset from secondary route clears browser run;
-29. Fresh from secondary route clears browser run;
-30. delete/continue deletion from secondary route preserve browser invalidation;
-31. preference remains available according to current deletion behavior;
-32. another learner identity cannot be supplied by the client;
-33. Preview-only Admin exclusion remains enforced;
-34. mobile/narrow layout;
-35. keyboard-only operation;
-36. focus restoration;
-37. screen-reader semantics for count/status/customization states;
-38. long System/Topic/Tag labels and large System lists.
+18. rapid successive applied-scope changes return count responses out of order and only the latest applied scope remains displayed;
+19. count request fails but valid plan can still submit;
+20. zero-count feedback;
+21. stale route rejected with fresh metadata/server-sanitized rehydration;
+22. narrowed System loses every valid route and is not silently widened;
+23. multi-System overlapping Cases remain deduplicated;
+24. Scheduled + fixed run size;
+25. Free + All;
+26. Tranches 1–3 retain inline Progress/settings/data reachability;
+27. Tranche 4 secondary routes enforce `learnerStudyAccessError`;
+28. direct `/study/progress` during deletion does not load/display partial Progress;
+29. Reset from secondary route clears browser run;
+30. Fresh from secondary route clears browser run;
+31. delete/continue deletion from secondary route preserve browser invalidation;
+32. preference remains available according to current deletion behavior;
+33. another learner identity cannot be supplied by the client;
+34. Preview-only Admin exclusion remains enforced;
+35. mobile/narrow layout;
+36. keyboard-only operation;
+37. focus restoration;
+38. screen-reader semantics for count/status/customization states;
+39. long System/Topic/Tag labels and large System lists.
 
 ## 18. Out of scope
 
@@ -680,7 +702,7 @@ The redesign is complete when:
 4. whole-System study remains the simple default;
 5. customization has deterministic applied/draft semantics;
 6. hidden/cancelled/stale routes never submit;
-7. count reflects applied scope only and remains informational;
+7. count reflects the latest applied scope only, remains informational, and cannot be overwritten by stale/out-of-order responses;
 8. stale-route rehydration uses fresh authority, not stale browser metadata alone;
 9. alternate planning never destroys the prior browser run before successful replacement persistence;
 10. detailed secondary data is loaded only by the route that renders it;
