@@ -606,6 +606,26 @@ confirmation PR remains Draft unless otherwise requested
 
 Do not merge or mark Ready unless explicitly requested.
 
+## 13. Guidance for the next vetting agent
+
+The plan is intentionally detailed so review can be outcome-based rather than prose-based. The next vetting agent should not assume every suggested file or implementation technique is required. It should inspect the actual current PR head and ask whether the final change satisfies the invariants with the smallest durable implementation.
+
+The strongest review question is:
+
+> Does this PR measurably reduce the likelihood of local Codex creating large unnecessary context while leaving GitHub Copilot and universal repository behavior unchanged?
+
+A documentation-only implementation can be acceptable if it creates clear, discoverable, enforceable-enough routing and no existing tooling gap justifies code. Conversely, adding scripts is not automatically better; any new helper must earn its maintenance/context cost by replacing repeated boilerplate with a smaller stable interface.
+
+The reviewer should separate three claims:
+
+```text
+1. routing correctness
+2. context-efficiency behavior
+3. validation/safety preservation
+```
+
+All three must hold. A strong result in one does not compensate for a failure in another.
+
 ## Final principle
 
 For this PR:
