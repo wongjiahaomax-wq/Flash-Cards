@@ -57,6 +57,7 @@ The implementation must preserve all of the following:
 8. Unrelated tracked and untracked work must be preserved.
 9. Do not add arbitrary token budgets, command quotas, context counters, caches, retrieval wrappers, file-read tracking, or a second validation/retrieval DSL.
 10. Client context compaction is an optional host capability. The repository must not pretend an npm command can compact a model conversation.
+11. Existing Remote GitHub exact-head write discipline remains authoritative: immediately before constructing a remote Git-data commit/ref mutation, establish the current feature-branch head and use that exact head as the intended parent/base.
 
 ## Audit against current `main`
 
@@ -189,6 +190,8 @@ The purpose is to reduce avoidable model round trips, especially late in long se
 
 Batching retrieval does **not** merge the underlying evidence claims. Each fact must still be interpreted independently.
 
+Batching must also preserve each constituent command or request's individual success/failure result. A later successful read must never mask an earlier failing `agent:checks`, Git command, or other evidence-producing operation. If a compound shell form is used, it must retain per-command status or stop safely rather than reporting only the final command's exit status.
+
 ### Local checkout state
 
 A useful checkpoint/handoff read may combine closely related local state such as:
@@ -221,18 +224,20 @@ For an existing PR, closely related remote facts may be obtained in one read-onl
 - mergeability where available;
 - current check/CI rollup for that head.
 
-Retrieve these facts once at task start, then reuse them.
+Retrieve these facts once at task start, then reuse them for ordinary read-only reasoning while they remain valid.
 
-Refresh only after an event capable of invalidating them, such as:
+Refresh ordinary read-only PR metadata after an event capable of invalidating it, such as:
 
 - push;
 - rebase/update from `main`;
-- external branch movement;
+- known external branch movement;
 - Draft/Ready state change;
 - CI completion when fresh check state is needed;
 - final handoff verification.
 
 Do not refetch PR identity/head/base simply because another model turn occurred.
+
+**Mandatory pre-write exception:** event-driven reuse does not replace the existing Remote GitHub exact-head safety rule. External branch movement may occur without an event visible to the coding agent. Immediately before constructing any remote Git-data commit/ref mutation, establish the current feature-branch head again, use that exact head as the intended parent/base, and move the branch only through the existing normal fast-forward discipline. `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md` remains authoritative for those write mechanics.
 
 ### Final exact-head verification
 
@@ -276,6 +281,7 @@ several related READS
 -> retrieved together
 -> fewer model turns
 -> facts still interpreted independently
+-> individual success/failure remains visible
 ```
 
 not:
@@ -291,8 +297,9 @@ many mutations
 - Client compaction is capability-aware and occurs at the coherent checkpoint-to-handoff boundary when useful.
 - No fake repository compaction command is introduced.
 - After compaction, unchanged authorities are reused rather than reread by default.
-- Related read-only evidence may be batched while preserving independent evidence interpretation.
-- PR metadata refresh is event-driven rather than turn-driven.
+- Related read-only evidence may be batched while preserving independent evidence interpretation and individual success/failure results.
+- Ordinary PR metadata refresh is event-driven rather than turn-driven.
+- Mandatory exact-head refresh immediately before remote Git-data commit/ref mutation is preserved and remains governed by the existing Remote GitHub write discipline.
 - Existing merge-base/untracked whitespace authority is preserved.
 - A globally clean worktree is not required when unrelated pre-existing work must be preserved.
 - Mutations and Production/Preview operational boundaries remain separate.
@@ -325,11 +332,12 @@ The final living guidance should establish, without excessive duplication:
 3. checkpoint validation occurs after a coherent batch rather than after every edit;
 4. when client context compaction exists and the session is tool/file heavy, compact after the coherent checkpoint and before handoff;
 5. after compaction, reread only missing/ambiguous/drift-prone evidence;
-6. related read-only local/remote state may be retrieved together when attribution remains clear;
-7. PR metadata is refreshed after invalidating events rather than after ordinary model turns;
-8. compact validation output is sufficient evidence for a passing command; verbose reproduction is diagnostic only;
-9. the complete intended-base-to-head diff is still inspected deliberately at final review;
-10. mutations, deployment, migration, and live verification remain separate evidence claims.
+6. related read-only local/remote state may be retrieved together when attribution remains clear and each constituent result retains independent success/failure authority;
+7. ordinary read-only PR metadata is refreshed after invalidating events rather than after ordinary model turns;
+8. immediately before remote Git-data commit/ref mutation, refresh the exact current feature-branch head regardless of whether an invalidating event was observed;
+9. compact validation output is sufficient evidence for a passing command; verbose reproduction is diagnostic only;
+10. the complete intended-base-to-head diff is still inspected deliberately at final review;
+11. mutations, deployment, migration, and live verification remain separate evidence claims.
 
 ## Forbidden implementation
 
@@ -363,14 +371,17 @@ Before handing off PR #156 implementation:
 3. run `npm run agent:checks -- --compact` after the complete coherent change;
 4. execute every final required and specialized check it reports;
 5. inspect the complete intended-base-to-head diff once at deliberate final review;
-6. verify the exact pushed head and current GitHub checks separately.
+6. verify the exact pushed head and current GitHub checks separately;
+7. for any Remote GitHub write, confirm the feature-branch head was refreshed immediately before constructing the Git-data commit/ref mutation.
 
 Confirm:
 
 - validation selection was not weakened;
 - no second retrieval/validation authority was introduced;
 - no agent-session parsing, token estimation, cache, or persisted retrieval state was added;
+- batched read-only evidence cannot hide a constituent failure behind a later successful command;
 - Production/Preview, CI, deployment, migration, and mutation boundaries are unchanged;
+- Remote GitHub exact-head write safety remains intact;
 - documentation matches executable current behavior;
 - unrelated worktree state was preserved;
 - the final implementation is as small as the audited gaps permit.
@@ -387,6 +398,7 @@ retrieve only enough to establish the implementation surface
 -> reuse retained evidence
 -> retrieve related read-only handoff state efficiently
 -> run required final validation
+-> refresh exact branch head immediately before any remote Git-data write
 -> perform explicit authorized mutations
 -> verify exact-head remote state
 ```
