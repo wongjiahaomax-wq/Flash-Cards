@@ -563,7 +563,7 @@ The next principal/final reviewer should review the **entire intended-base → c
 
 - Did the PR avoid application/runtime/schema/deployment behavior changes?
 - Did it avoid token counters, telemetry, wrappers, caches, command quotas, or a new DSL?
-- Did it remove all mandatory thread-lifecycle/new-thread language?
+- Did it avoid prescribing new-thread or conversation-boundary behavior?
 
 ### Documentation state
 
@@ -585,7 +585,7 @@ Treat the following as merge-blocking for this PR:
 - a browser helper becomes a second product-testing framework without clear need;
 - the change materially alters application/runtime/deployment behavior;
 - the final living guidance is so large/duplicative that loading it likely worsens the original context problem;
-- mandatory fresh-thread or conversation-boundary rules remain.
+- new-thread or conversation-boundary behavior is made mandatory.
 
 ## 12. Expected final handoff
 
