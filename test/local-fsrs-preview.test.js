@@ -415,7 +415,7 @@ test('local preview requires both loopback request and loopback Better Auth bind
   assert.equal(isLocalFsrsPreviewRequest(new URL('http://localhost:5173/fsrs-preview'), { BETTER_AUTH_URL: 'https://flash-cards.example' }), false);
 });
 
-test('Admin learner-study links use FSRS preview only behind the strict local preview guard', async () => {
+test('Admin Study opens learner Study while dedicated local FSRS preview links stay guarded', async () => {
   const localEnv = { BETTER_AUTH_URL: 'http://localhost:5173' };
   assert.equal(getLearnerStudyPreviewHref(new URL('http://localhost:5173/admin'), localEnv), '/fsrs-preview');
   assert.equal(getLearnerStudyPreviewHref(new URL('https://flash-cards.example/admin'), localEnv), '/study');
@@ -433,7 +433,7 @@ test('Admin learner-study links use FSRS preview only behind the strict local pr
 
   assert.match(adminLayoutServer, /getLearnerStudyPreviewHref/);
   assert.match(adminLayoutServer, /learnerStudyPreviewHref:/);
-  assert.match(adminLayout, /href=\{data\.learnerStudyPreviewHref \?\? '\/study'\}/);
+  assert.match(adminLayout, /<a href="\/study">Study<\/a>/);
   assert.match(adminDashboard, /href=\{data\.learnerStudyPreviewHref \?\? '\/study'\}/);
   assert.match(casePage, /let studyPreviewHref = \$derived\.by/);
   assert.match(casePage, /const \{ learnerStudyPreviewHref = '\/study' \} = data/);
