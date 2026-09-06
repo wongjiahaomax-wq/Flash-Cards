@@ -37,6 +37,7 @@ import {
 } from '$lib/server/db/preview-workspace.js';
 import { requirePreviewAdmin } from '$lib/server/preview-auth.js';
 import { MediaStorageLimitError } from '$lib/server/storage/media.js';
+import { normalizeCaseLibraryReturnQuery } from '$lib/admin-case-library-state.ts';
 
 /** @param {FormData} formData @param {string} name */
 function formText(formData, name) {
@@ -90,6 +91,7 @@ async function contextOrFailure(event) {
 
 export async function load({ parent, params, platform, url }) {
   const parentData = await parent();
+  const caseLibraryReturnQuery = normalizeCaseLibraryReturnQuery(url.searchParams.get('return_query'));
   const env = platform?.env;
   if (!env?.DB || parentData.workspace.status !== 'active' || parentData.workspaceError) {
     return {
@@ -102,6 +104,7 @@ export async function load({ parent, params, platform, url }) {
       questionCount: 0,
       selectedCase: null,
       previewMode: true,
+      caseLibraryReturnQuery,
       workspaceBlocked: true
     };
   }
@@ -114,6 +117,7 @@ export async function load({ parent, params, platform, url }) {
     systems: [],
     status: url.searchParams.get('status'),
     removedQuestionPromptId: url.searchParams.get('removed_question'),
+    caseLibraryReturnQuery,
     workspaceBlocked: false
   };
 }

@@ -5,6 +5,8 @@ import test from 'node:test';
 import {
   CASE_LIBRARY_STATE_KEY,
   CASE_LIBRARY_STATE_VERSION,
+  caseEditorHref,
+  caseLibraryReturnHref,
   caseLibraryNamedActionHref,
   caseLibraryReturnQuery,
   caseLibraryStateHref,
@@ -13,7 +15,8 @@ import {
   parseCaseLibraryStoredState,
   readCaseLibraryStoredState,
   shouldRestoreCaseLibraryState,
-  writeCaseLibraryStoredState
+  writeCaseLibraryStoredState,
+  normalizeCaseLibraryReturnQuery
 } from '../src/lib/admin-case-library-state.ts';
 
 function memoryStorage(initial = null) {
@@ -120,4 +123,13 @@ test('named action targets preserve Case Library query context and failed action
   assert.equal(retryQuery, 'q=uveitis&system=system-eye&page=2');
   assert.equal(caseLibraryNamedActionHref('bulkRemoveCaseTag', retryQuery), '?q=uveitis&system=system-eye&page=2&/bulkRemoveCaseTag');
   assert.equal(caseLibraryReturnQuery(new URLSearchParams('lifecycle=active&page=1&/bulkRestoreCases')), 'lifecycle=active&page=1');
+});
+
+test('editor return context is canonical, bounded to Case Library state, and round-trips active/inactive filters', () => {
+  const raw = 'q=uveitis&topic=topic-retina&system=system-eye&tag=tag-1&sort=topic-desc&lifecycle=inactive&page=4&return_to=https%3A%2F%2Fevil.example';
+  const normalized = normalizeCaseLibraryReturnQuery(raw);
+  assert.equal(normalized, 'q=uveitis&topic=topic-retina&system=system-eye&tag=tag-1&sort=topic-desc&lifecycle=inactive&page=4');
+  assert.equal(caseLibraryReturnHref(normalized), '/admin/cases?q=uveitis&topic=topic-retina&system=system-eye&tag=tag-1&sort=topic-desc&lifecycle=inactive&page=4');
+  assert.equal(caseEditorHref('/admin/cases/case-1/recovery', normalized), '/admin/cases/case-1/recovery?return_query=q%3Duveitis%26topic%3Dtopic-retina%26system%3Dsystem-eye%26tag%3Dtag-1%26sort%3Dtopic-desc%26lifecycle%3Dinactive%26page%3D4');
+  assert.equal(caseLibraryReturnHref('https://evil.example/path'), '/admin/cases');
 });

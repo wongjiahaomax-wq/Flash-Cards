@@ -9,6 +9,7 @@
   import { applyCaseSelection, reconcileVisibleCaseSelection } from '$lib/admin-case-selection.js';
   import {
     CASE_LIBRARY_STATE_VERSION,
+    caseEditorHref,
     caseLibraryNamedActionHref,
     caseLibraryStateHref,
     clearCaseLibraryStoredState,
@@ -210,7 +211,10 @@
 
   /** @param {{ id: string }} item */
   function caseHref(item) {
-    return inactiveView ? `/admin/cases/${item.id}/recovery` : `/admin/cases/${item.id}`;
+    const returnQuery = currentQuery();
+    return inactiveView
+      ? caseEditorHref(`/admin/cases/${item.id}/recovery`, returnQuery)
+      : caseEditorHref(`/admin/cases/${item.id}`, returnQuery);
   }
 </script>
 

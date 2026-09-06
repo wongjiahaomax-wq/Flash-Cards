@@ -1,5 +1,7 @@
 <script>
   import { onMount } from 'svelte';
+  import { beforeNavigate } from '$app/navigation';
+  import { createCaseEditorCoordinator } from '$lib/case-editor-coordinator.js';
   import { getCaseEditorStorage, readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
   import { buildCaseFastReviewSummary, buildCaseQuestionAudit } from '$lib/admin-case-question-audit.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
@@ -31,9 +33,34 @@
   let editorLayout = $state('compact');
   /** @type {{ src: string, alt: string, title: string, subtitle: string } | null} */
   let viewerImage = $state(null);
+  const draftCoordinator = createCaseEditorCoordinator();
+  let draftRevision = $state(0);
 
   onMount(() => {
     editorLayout = readCaseEditorLayout(getCaseEditorStorage(window));
+    const unsubscribe = draftCoordinator.subscribe(() => { draftRevision += 1; });
+    /** @param {BeforeUnloadEvent} event */
+    const beforeUnload = (event) => {
+      if (!hasEditorUnsavedWork()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    /** @param {SubmitEvent} event */
+    const submitGuard = (event) => {
+      const submittedForm = event.target;
+      if (!(submittedForm instanceof HTMLFormElement) || !hasEditorUnsavedWork()) return;
+      const otherPartialForm = [...document.querySelectorAll('.case-editor form')].some((form) => form instanceof HTMLFormElement && form !== submittedForm && formHasMeaningfulUnsubmittedInput(form));
+      const isDraftableSave = submittedForm.id === 'case-details-form' || submittedForm.classList.contains('question-edit-form');
+      const unrelatedDirtyDraft = draftCoordinator.dirtyCount() > 0 && !isDraftableSave;
+      if ((otherPartialForm || unrelatedDirtyDraft) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) event.preventDefault();
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    document.addEventListener('submit', submitGuard, true);
+    return () => {
+      unsubscribe();
+      window.removeEventListener('beforeunload', beforeUnload);
+      document.removeEventListener('submit', submitGuard, true);
+    };
   });
 
   /** @param {CaseEditorLayout} layout */
@@ -53,6 +80,28 @@
       event.preventDefault();
     }
   }
+
+  /** @param {HTMLFormElement} form */
+  function formHasMeaningfulUnsubmittedInput(form) {
+    if (form.id === 'case-details-form' || form.classList.contains('question-edit-form')) return false;
+    return [...form.elements].some((element) => {
+      if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
+      if (element instanceof HTMLInputElement && element.type === 'hidden') return false;
+      if (element instanceof HTMLInputElement && element.type === 'file') return Boolean(element.files?.length);
+      if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) return element.checked !== element.defaultChecked;
+      if (element instanceof HTMLSelectElement) return [...element.options].some((option) => option.selected !== option.defaultSelected);
+      return element.value.trim() !== element.defaultValue.trim();
+    });
+  }
+
+  function hasEditorUnsavedWork() {
+    if (draftCoordinator.dirtyCount() > 0) return true;
+    return [...document.querySelectorAll('.case-editor form')].some((form) => form instanceof HTMLFormElement && formHasMeaningfulUnsubmittedInput(form));
+  }
+
+  beforeNavigate(({ cancel }) => {
+    if (hasEditorUnsavedWork() && !window.confirm('You have unsaved Case-editor work. Leave this page and lose it?')) cancel();
+  });
 </script>
 
 <svelte:head><title>{selectedCase?.case.title ?? 'Case'} | Admin | Flash-Cards</title></svelte:head>
@@ -60,17 +109,17 @@
 {#if !selectedCase}
   <section class="panel"><h1>Case not found</h1><p class="muted">This Case may be inactive or no longer available.</p><a class="button" href="/admin/cases">Back to Cases</a></section>
 {:else}
-  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} {studyPreviewHref} />
+  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} {studyPreviewHref} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} coordinator={draftCoordinator} {draftRevision} />
 
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if !data.previewMode && data.status === 'case-restored'}<p class="success-message" role="status">Case restored. It is active and available to normal Admin and learner flows.</p>{/if}
   <div class="case-editor" data-editor-layout={editorLayout}>
     <CaseEditorNavigation {selectedCase} {primaryTopic} {editorLayout} {fastReviewSummary} auditCount={caseQuestionAudit.length} onlayoutchange={setEditorLayout} />
     <CaseTopicsSection {selectedCase} concepts={data.concepts} systems={data.systems} tagOptions={selectedCase.tagOptions ?? []} {primaryTopic} previewMode={data.previewMode} {editorLayout} />
-    <CaseDetailsSection {selectedCase} {primaryTopic} {editorLayout} />
+    <CaseDetailsSection {selectedCase} {primaryTopic} {editorLayout} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
     <CaseImagesSection {selectedCase} previewMode={data.previewMode} {editorLayout} {editorBase} onimageopen={showImage} />
     {#if !data.previewMode}<StimulusOriginalsPanel {selectedCase} />{/if}
-    <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} status={data.status} removedQuestionPromptId={data.removedQuestionPromptId} {editorLayout} />
+    <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} status={data.status} removedQuestionPromptId={data.removedQuestionPromptId} {editorLayout} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
     {#if editorLayout === 'compact'}<CaseQuestionAudit rows={caseQuestionAudit} onimageopen={showImage} />{/if}
     <CasePreviewSection previewMode={data.previewMode} {studyPreviewHref} />
     {#if !data.previewMode}
@@ -78,6 +127,7 @@
         <div><p class="eyebrow">Case lifecycle</p><h2 id="case-lifecycle-heading">Active</h2><p class="muted">Deactivate this Case to remove it from learner study and the active Case library. Questions, images, Topics, Tags, and review history are retained for recovery.</p></div>
         <form method="POST" action={`/admin/cases/${encodeURIComponent(selectedCase.case.id)}/deactivate`} onsubmit={confirmCaseDeactivation}>
           <input type="hidden" name="case_id" value={selectedCase.case.id} />
+          <input type="hidden" name="return_query" value={data['caseLibraryReturnQuery']} />
           <button class="button danger" type="submit">Deactivate Case</button>
         </form>
       </section>

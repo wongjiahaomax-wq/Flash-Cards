@@ -116,6 +116,40 @@ export function caseLibraryReturnQuery(params: URLSearchParams) {
   return returnParams.toString();
 }
 
+/**
+ * Normalize a Case Library query before carrying it through an editor URL.
+ * Only the Case Library state keys are retained; the value can never become
+ * an arbitrary destination URL.
+ */
+export function normalizeCaseLibraryReturnQuery(value: string | URLSearchParams | null | undefined) {
+  const params = value instanceof URLSearchParams
+    ? value
+    : new URLSearchParams(typeof value === 'string' ? value : '');
+  const state = normalizeCaseLibraryStoredState({
+    version: CASE_LIBRARY_STATE_VERSION,
+    q: params.get('q') ?? '',
+    topic: params.get('topic') ?? '',
+    system: params.get('system') ?? '',
+    tag: params.get('tag') ?? '',
+    sort: params.get('sort') ?? 'case-asc',
+    lifecycle: params.get('lifecycle') ?? 'active',
+    page: params.get('page') ?? '1'
+  });
+  if (!state) return '';
+  const href = caseLibraryStateHref(state);
+  return href.includes('?') ? href.slice(href.indexOf('?') + 1) : '';
+}
+
+export function caseLibraryReturnHref(value: string | URLSearchParams | null | undefined) {
+  const query = normalizeCaseLibraryReturnQuery(value);
+  return query ? `/admin/cases?${query}` : '/admin/cases';
+}
+
+export function caseEditorHref(path: string, returnQuery: string | URLSearchParams | null | undefined) {
+  const query = normalizeCaseLibraryReturnQuery(returnQuery);
+  return query ? `${path}?return_query=${encodeURIComponent(query)}` : path;
+}
+
 export function caseLibraryNamedActionHref(actionName: string, returnQuery = '') {
   const cleanActionName = actionName.trim().replace(/^\/+/, '');
   if (!cleanActionName) throw new Error('Case Library action name is required.');
