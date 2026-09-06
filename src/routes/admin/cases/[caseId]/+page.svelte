@@ -1,7 +1,9 @@
 <script>
   import { onMount } from 'svelte';
+  import { enhance } from '$app/forms';
   import { beforeNavigate } from '$app/navigation';
   import { createCaseEditorCoordinator } from '$lib/case-editor-coordinator.js';
+  import { captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { getCaseEditorStorage, readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
   import { buildCaseFastReviewSummary, buildCaseQuestionAudit } from '$lib/admin-case-question-audit.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
@@ -56,10 +58,19 @@
     };
     window.addEventListener('beforeunload', beforeUnload);
     document.addEventListener('submit', submitGuard, true);
+    const stableFormActions = [...document.querySelectorAll('.case-editor form[method="POST"]')]
+      .filter((form) => {
+        if (!(form instanceof HTMLFormElement)) return false;
+        if (form.id === 'case-details-form' || form.classList.contains('question-edit-form')) return false;
+        const action = form.getAttribute('action') ?? '';
+        return (action.startsWith('?/') || action.includes('/cases/')) && !action.includes('/deactivate') && !action.includes('/reorderQuestion');
+      })
+      .map((form) => enhance(/** @type {HTMLFormElement} */ (form), /** @type {any} */ (() => stableCaseEditorEnhance(captureCaseEditorView()))));
     return () => {
       unsubscribe();
       window.removeEventListener('beforeunload', beforeUnload);
       document.removeEventListener('submit', submitGuard, true);
+      for (const action of stableFormActions) action?.destroy?.();
     };
   });
 
