@@ -21,7 +21,8 @@ test('Study launcher resolves browser ownership before presenting a primary acti
 });
 
 test('Study keeps server-owned blockers dominant and offers a non-destructive alternate launcher', () => {
-  assert.match(studyPage, /!data\.activeReview && !data\.studyDataDeletion\?\.inProgress && browserRunState !== 'unknown'/);
+  assert.match(studyPage, /!data\.activeReview && !deletionBlocked && browserRunState !== 'unknown'/);
+  assert.match(studyPage, /data\.studyDataDeletion\?\.inProgress \|\| form\?\.deletionInProgress/);
   assert.match(studyPage, /Start a different run/);
   assert.match(studyPage, /function openAlternateLauncher\(\)/);
   assert.match(studyPage, /function closeAlternateLauncher\(\)/);

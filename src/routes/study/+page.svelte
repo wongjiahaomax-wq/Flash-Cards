@@ -1,5 +1,5 @@
 <script>
-  import { applyAction, enhance } from '$app/forms';
+  import { enhance } from '$app/forms';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
 
@@ -19,6 +19,7 @@
     studyTopicSubtreeRouteValues
   } from '$lib/study-topic-hierarchy.js';
   import { effectiveStudyRunDistinctCaseTarget } from '$lib/study-run-size.js';
+  import { createStudyCountController } from '$lib/study-count-controller.js';
 
   /** @typedef {{id:string,name:string,kind?:string}} StudyBreadcrumbItem */
   /** @typedef {{id:string,name:string,caseCount:number,subtreeCaseCount:number,breadcrumb:StudyBreadcrumbItem[]}} StudyTopic */
@@ -44,9 +45,22 @@
   let countMessage = $state('Select one or more Systems to calculate the combined unique Case count.');
   /** @type {HTMLFormElement|undefined} */
   let planForm = $state();
-  let countRequest = 0;
   /** @type {ReturnType<typeof setTimeout>|undefined} */
   let countTimer;
+  const countController = createStudyCountController((formData) => fetch('/study/api/count', {
+    method: 'POST',
+    body: formData
+  }));
+
+  let deletionBlocked = $derived(Boolean(data.studyDataDeletion?.inProgress || form?.deletionInProgress));
+
+  /** @param {{eligibleCount:number|null,selectedSystemCount:number,countMessage:string,counting:boolean}} state */
+  function syncCountState(state) {
+    eligibleCount = state.eligibleCount;
+    selectedSystemCount = state.selectedSystemCount;
+    countMessage = state.countMessage;
+    counting = state.counting;
+  }
 
   /** @param {string} search */
   function runStatusMessage(search) {
@@ -354,42 +368,18 @@
   }
 
   /** @param {number} [requestId] */
-  async function refreshEligibleCount(requestId = ++countRequest) {
+  async function refreshEligibleCount(requestId) {
     if (!planForm) return;
-    counting = true;
-    try {
-      const response = await fetch('/study/api/count', {
-        method: 'POST',
-        body: new FormData(planForm)
-      });
-      const payload = await response.json();
-      if (requestId !== countRequest) return;
-      if (!response.ok) {
-        eligibleCount = null;
-        selectedSystemCount = 0;
-        countMessage = `${payload.message ?? 'Unable to calculate the combined eligible Case count.'} You can still start Study.`;
-        return;
-      }
-      eligibleCount = Number(payload.candidateCount);
-      selectedSystemCount = Number(payload.selectedSystemCount);
-      countMessage = 'Server-resolved union; overlapping Cases are counted once.';
-    } catch (cause) {
-      if (requestId !== countRequest) return;
-      eligibleCount = null;
-      selectedSystemCount = 0;
-      countMessage = `${cause instanceof Error ? cause.message : String(cause)} You can still start Study.`;
-    } finally {
-      if (requestId === countRequest) counting = false;
-    }
+    const pending = countController.refresh(new FormData(planForm), requestId);
+    syncCountState(countController.snapshot());
+    syncCountState(await pending);
   }
 
   function scheduleEligibleCount() {
-    const requestId = ++countRequest;
-    eligibleCount = null;
-    selectedSystemCount = Object.values(scopeStates)
+    const selectedCount = Object.values(scopeStates)
       .filter((scope) => scope.status !== 'UNSELECTED').length;
-    counting = false;
-    countMessage = 'Updating combined count…';
+    const requestId = countController.begin(selectedCount);
+    syncCountState(countController.snapshot());
     if (countTimer) clearTimeout(countTimer);
     countTimer = setTimeout(() => refreshEligibleCount(requestId), 120);
   }
@@ -416,7 +406,7 @@
   function canShowNewRunLauncher() {
     return browserRunState !== 'unknown'
       && !data.activeReview
-      && !data.studyDataDeletion?.inProgress
+      && !deletionBlocked
       && (!browserRun || showAlternateLauncher);
   }
 
@@ -485,10 +475,10 @@
     planning = true;
     runMessage = 'Planning run…';
 
-    return async ({ result }) => {
+    return async ({ result, update }) => {
       try {
         if (result.type !== 'success') {
-          await applyAction(result);
+          await update({ invalidateAll: true });
           return;
         }
 
@@ -555,7 +545,7 @@
     </section>
   {/if}
 
-  {#if data.studyDataDeletion?.inProgress}
+  {#if deletionBlocked}
     <section class="deletion-card" aria-labelledby="study-data-deletion-title">
       <div>
         <p class="eyebrow">Manage study data</p>
@@ -569,7 +559,7 @@
     </section>
   {/if}
 
-  {#if !data.activeReview && !data.studyDataDeletion?.inProgress && browserRunState === 'unknown'}
+  {#if !data.activeReview && !deletionBlocked && browserRunState === 'unknown'}
     <section class="ownership-card" aria-live="polite">
       <div>
         <p class="eyebrow">Current Study state</p>
@@ -579,7 +569,7 @@
     </section>
   {/if}
 
-  {#if !data.activeReview && !data.studyDataDeletion?.inProgress && browserRunState !== 'unknown' && browserRun && summary}
+  {#if !data.activeReview && !deletionBlocked && browserRunState !== 'unknown' && browserRun && summary}
     <section class="run-card" aria-label="Browser Study run">
       <div>
         <p class="eyebrow">Current browser run</p>
@@ -798,19 +788,23 @@
     {#if form?.message}<p class="form-error" role="alert">{form.message}</p>{/if}
     <div class="start-row">
       <p class="muted">The server revalidates every selected System/route and resolves the real deduplicated candidate union before planning.</p>
-      <button class="button primary" type="submit" disabled={Boolean(data.activeReview) || planning || opening}>
+      <button class="button primary" type="submit" disabled={Boolean(data.activeReview) || deletionBlocked || planning || opening}>
         {planning ? 'Starting…' : 'Start combined Study run'}
       </button>
     </div>
   </form>
   {/if}
 
-  {#if !data.studyDataDeletion?.inProgress}
+  {#if !deletionBlocked}
     <LearnerFsrsProgressSummary progress={data.progressSummary} />
     <nav class="secondary-links" aria-label="Study details and settings">
       <a href="/study/progress">Progress <span aria-hidden="true">→</span><small>View detailed history and scheduling</small></a>
       <a href="/study/settings">Study settings <span aria-hidden="true">→</span><small>Expanded Learning: {data.preferences.expandedLearning ? 'On' : 'Off'}</small></a>
       <a href="/study/settings/data">Manage Study data <span aria-hidden="true">→</span><small>Reset, fresh start, or delete</small></a>
+    </nav>
+  {:else}
+    <nav class="secondary-links deletion-links" aria-label="Study settings during deletion">
+      <a href="/study/settings">Study settings <span aria-hidden="true">→</span><small>Expanded Learning remains available during deletion</small></a>
     </nav>
   {/if}
 </main>

@@ -40,6 +40,7 @@ test('data-management actions preserve action-specific fences and clear browser-
   assert.match(server, /continueStudyDataDeletion:/);
   assert.match(server, /locals\.user/);
   assert.match(page, /use:enhance=\{handleAction\}/);
+  assert.match(page, /await update\(\{ invalidateAll: true \}\)/);
   assert.match(page, /result\.data\?\.browserRunInvalidated/);
   assert.match(page, /clearLearnerStudyRun\(localStorage\)/);
 });

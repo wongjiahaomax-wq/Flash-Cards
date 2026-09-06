@@ -33,7 +33,8 @@ test('stale plan failures rehydrate the chooser from a fresh server navigation s
 test('eligible count remains informational and latest-request-wins', () => {
   const page = source('src/routes/study/+page.svelte');
   assert.match(page, /setTimeout\(\(\) => refreshEligibleCount\(requestId\), 120\)/);
-  assert.match(page, /if \(requestId !== countRequest\) return;/);
-  assert.match(page, /You can still start Study/);
+  assert.match(page, /createStudyCountController/);
+  assert.match(page, /countController\.begin/);
+  assert.match(page, /countController\.refresh/);
   assert.doesNotMatch(page, /disabled=\{[^}]*eligibleCount/);
 });

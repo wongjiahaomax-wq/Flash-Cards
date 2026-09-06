@@ -1,5 +1,5 @@
 <script>
-  import { applyAction, enhance } from '$app/forms';
+  import { enhance } from '$app/forms';
   import { onMount } from 'svelte';
 
   import { clearLearnerStudyRun } from '$lib/learner-study-run-storage.js';
@@ -15,19 +15,19 @@
   });
 
   /** @type {NonNullable<Parameters<typeof enhance>[1]>} */
-  const handleAction = () => async ({ result }) => {
+  const handleAction = () => async ({ result, update }) => {
     if (result.type === 'success' && result.data?.browserRunInvalidated) {
       clearLearnerStudyRun(localStorage);
       message = String(result.data.message ?? 'Your browser Study run was cleared.');
     }
-    await applyAction(result);
+    await update({ invalidateAll: true });
   };
 </script>
 
 <svelte:head><title>Study data | Flash-Cards</title></svelte:head>
 
 <main class="shell data-shell">
-  <header class="page-header"><div><p class="eyebrow">Study</p><h1>Manage Study data</h1><p class="muted">Reset or remove learner study state. These actions are deliberately fenced and invalidate the browser-owned run when successful.</p></div><a class="button" href="/study">← Back to Study</a></header>
+  <header class="page-header"><div><p class="eyebrow">Study</p><h1>Manage Study data</h1><p class="muted">Reset or remove learner study state. These actions are deliberately fenced and invalidate the browser-owned run when successful.</p></div><div class="page-actions"><a class="button" href="/study/settings">Study settings</a><a class="button" href="/study">← Back to Study</a></div></header>
 
   {#if data.studyDataDeletion?.inProgress || form?.deletionInProgress}
     <section class="deletion-card" aria-live="polite">
@@ -68,6 +68,7 @@
 <style>
   .data-shell { display:grid; gap:1rem; max-width:1000px; }
   .page-header,.settings-card { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; }
+  .page-actions { display:flex; gap:.55rem; flex-wrap:wrap; justify-content:flex-end; }
   .page-header { margin-bottom:.5rem; } h1,h2 { margin:.2rem 0 0; }
   .eyebrow { margin:0; color:#667085; font-size:.76rem; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
   p { margin:.35rem 0 0; line-height:1.5; }
