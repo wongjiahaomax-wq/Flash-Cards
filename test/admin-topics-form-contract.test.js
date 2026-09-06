@@ -2,19 +2,14 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-/** @param {URL} file */
-function readText(file) {
-  return readFileSync(file, 'utf8').replace(/\r\n?/g, '\n');
-}
-
-const topicsPage = readText(new URL('../src/routes/admin/topics/+page.svelte', import.meta.url));
-const topicDetailPage = readText(new URL('../src/routes/admin/topics/[conceptId]/+page.svelte', import.meta.url));
-const organizer = readText(new URL('../src/lib/components/taxonomy-workspace/TaxonomyOrganizer.svelte', import.meta.url));
-const topicsAction = readText(new URL('../src/routes/admin/topics/+page.server.js', import.meta.url));
-const topicDetailAction = readText(new URL('../src/routes/admin/topics/[conceptId]/+page.server.js', import.meta.url));
-const taxonomyWrite = readText(new URL('../src/lib/server/db/taxonomy-admin-write.ts', import.meta.url));
-const caseTopics = readText(new URL('../src/lib/components/case-editor/CaseTopicsSection.svelte', import.meta.url));
-const caseAction = readText(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url));
+const topicsPage = readFileSync(new URL('../src/routes/admin/topics/+page.svelte', import.meta.url), 'utf8');
+const topicDetailPage = readFileSync(new URL('../src/routes/admin/topics/[conceptId]/+page.svelte', import.meta.url), 'utf8');
+const organizer = readFileSync(new URL('../src/lib/components/taxonomy-workspace/TaxonomyOrganizer.svelte', import.meta.url), 'utf8');
+const topicsAction = readFileSync(new URL('../src/routes/admin/topics/+page.server.js', import.meta.url), 'utf8');
+const topicDetailAction = readFileSync(new URL('../src/routes/admin/topics/[conceptId]/+page.server.js', import.meta.url), 'utf8');
+const taxonomyWrite = readFileSync(new URL('../src/lib/server/db/taxonomy-admin-write.ts', import.meta.url), 'utf8');
+const caseTopics = readFileSync(new URL('../src/lib/components/case-editor/CaseTopicsSection.svelte', import.meta.url), 'utf8');
+const caseAction = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 
 test('Topic creation supports searchable active System or Topic parents while System creation remains top-level', () => {
   assert.match(organizer, /onclick=\{\(\) => openCreate\('system'\)\}>\+ New System/);

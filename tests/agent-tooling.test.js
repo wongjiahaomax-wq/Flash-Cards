@@ -128,7 +128,7 @@ test('CI validation selects fast/full from the shared contract while overriding 
 });
 
 test('PR CI delegates ordinary checks to the shared CI runner with PR-state mode selection and concurrency', () => {
-  const workflow = fs.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8').replace(/\r\n?/g, '\n');
+  const workflow = fs.readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8');
   assert.match(workflow, /^  pull_request:\n    types: \[opened, synchronize, reopened, ready_for_review\]$/m);
   assert.equal(workflow.includes('group: ${{ github.workflow }}-pr-${{ github.event.pull_request.number }}'), true);
   assert.equal(workflow.includes('cancel-in-progress: true'), true);
