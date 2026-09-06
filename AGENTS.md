@@ -18,6 +18,14 @@ The governing retrieval principle is:
 
 > Read the minimum evidence necessary to make the next correct decision, then broaden only when the evidence requires it.
 
+Use the decision pattern:
+
+```text
+Search -> bounded read -> decide
+```
+
+Search should locate the smallest relevant evidence surface, the bounded read should answer the current question, and the next step should be a decision. Retrieval is not an end in itself.
+
 For a clearly bounded task in an existing subsystem, normally:
 
 1. locate the relevant symbol/file with targeted search;
@@ -25,11 +33,13 @@ For a clearly bounded task in an existing subsystem, normally:
 3. inspect directly related helpers/tests when needed to answer an implementation question;
 4. broaden to additional subsystems, architecture documents, history, or commits only while a material question remains unresolved.
 
-Reuse sufficient information already retrieved. Do not load unrelated documentation “for completeness”, read complete large files when bounded ranges are sufficient, inspect history before current implementation without a material reason, repeatedly retrieve unchanged files/metadata, keep searching broadly after the implementation surface is established, or repeatedly inspect the complete PR diff during active implementation.
+Discovery formally ends once the current work state, directly affected implementation surface, relevant owners/tests, and any protected-boundary routing are established. After that point, broad discovery requires a concrete unresolved question. Reuse sufficient evidence already retrieved while it remains unchanged and adequate; host-injected repository authority counts as already retrieved evidence and must not be reread merely because a new model turn began. Do not load unrelated documentation “for completeness”, read complete large files when bounded ranges are sufficient, inspect history before current implementation without a material reason, repeatedly retrieve unchanged files/metadata, keep searching broadly after the implementation surface is established, or repeatedly inspect the complete PR diff during active implementation.
 
-Treat the coding session as `Discovery -> Implementation -> Checkpoint -> Handoff`. Discovery ends once the current work state, implementation surface, directly related owners/tests, and any protected-boundary routing are established. After a coherent implementation batch, inspect the scoped change and run the appropriate checkpoint validation before entering handoff work.
+An unchanged authority may be reread only for a stated reason such as missing evidence, ambiguity, detected state change, or a new completeness-sensitive question. Complete intended-base-to-head diff inspection belongs at the deliberate final review/handoff checkpoint, not repeated active implementation turns.
 
-When the active coding client exposes context compaction and the session has accumulated substantial file/tool output, compact at that coherent checkpoint-to-handoff boundary when useful. Context compaction is a host capability, not a repository command. After compaction, rely on the retained task/checkpoint summary and reread only evidence that is missing, ambiguous, changed, or otherwise drift-prone; do not reload unchanged authorities merely because the conversation was compacted.
+Treat the coding session as `Discovery -> Implementation -> Checkpoint -> Handoff`. After a coherent implementation batch, inspect the scoped change and run the appropriate checkpoint validation before entering handoff work.
+
+At a coherent checkpoint, retain a concise operational index into the full session context: task/acceptance criteria, relevant work state, changed files and implemented invariants, validation already completed and what it established, unresolved failures/remaining operations, and drift-prone facts that must be refreshed before mutation or final handoff. This checkpoint state is not context compaction and does not authorize forgetting earlier context. Do not require compaction or a fresh continuation thread for efficiency; instead, use the checkpoint index to avoid rediscovering unchanged pre-checkpoint evidence. Refresh facts only when an operation could have invalidated them, they are known to have changed, they are missing/ambiguous, or correctness requires an exact current value.
 
 ### Retrieval escalation
 
@@ -70,6 +80,8 @@ A successful `npm run agent:doctor` establishes that the local-execution side is
 - Preserve product behavior in refactor-only work.
 - Keep the change focused; do not broaden a task into unrelated cleanup, formatting, schema, UX, or architecture work.
 - Prefer existing helpers/patterns and directly related tests before adding a new abstraction.
+- Before editing, identify the related files and invariants, make the coherent cross-file correction, inspect the resulting scoped delta, then run the nearest meaningful feedback check. Do not alternate one tiny patch with one whole-project check when several known related corrections can safely be made together.
+- When compiler/type/test feedback exposes several related errors with a common cause, correct that related set as one coherent batch before rerunning the same broad check. A passing check is not rerun unless subsequent changes could invalidate what it established. Independent unrelated failures must still be surfaced rather than hidden to reduce turns.
 - For capable coding agents, task prompts should normally state the goal, important behavioral/safety invariants, scope constraints, acceptance criteria, and any explicit existing-PR/branch requirement. Do not force broad hard-coded file, documentation, test, or exploration lists when current repository routing can discover the needed context; exact artifacts remain appropriate when they are genuinely part of the task contract, and prompt instructions must not force unrelated context to be loaded “for completeness”.
 - Treat Production/Preview scope and ownership checks as data-integrity boundaries, not incidental filters.
 - Never mutate production D1/R2 merely to test, debug, seed, or preview a change.
@@ -77,6 +89,8 @@ A successful `npm run agent:doctor` establishes that the local-execution side is
 - Never commit credentials, API tokens, private keys, `.dev.vars`, `.wrangler/`, production-derived exports/snapshots/media, or deliberately excluded local replica state.
 - For SvelteKit actions, remember that `redirect()` throws; do not let a broad catch convert a successful redirect into an error response.
 - If you notice an unrelated issue, change it only when required for safe completion; otherwise keep it out of the focused PR and record a useful follow-up when appropriate.
+
+Detailed focused/checkpoint/final validation ownership and rerun semantics remain in `docs/TESTING_AND_VALIDATION_GUIDANCE.md`; coherent batching never weakens the repository-required final validation set.
 
 ## Protected-boundary routing
 

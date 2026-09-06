@@ -155,3 +155,33 @@ test('Local Codex overlay narrows first-pass retrieval without changing final va
   assert.match(localCodexGuidance, /complete final intended-base-to-head review/i);
   assert.doesNotMatch(localCodexGuidance, /50\s*[–-]\s*150/);
 });
+
+test('Root guidance terminates discovery and reuses retained unchanged evidence', () => {
+  assert.match(rootAgents, /Search -> bounded read -> decide/i);
+  assert.match(rootAgents, /Discovery formally ends once the current work state/i);
+  assert.match(rootAgents, /broad discovery requires a concrete unresolved question/i);
+  assert.match(rootAgents, /host-injected repository authority counts as already retrieved evidence/i);
+  assert.match(rootAgents, /Complete intended-base-to-head diff inspection belongs at the deliberate final review\/handoff checkpoint/i);
+  assert.match(rootAgents, /make the coherent cross-file correction/i);
+  assert.match(rootAgents, /common cause, correct that related set as one coherent batch/i);
+});
+
+test('Retained-context checkpoints preserve full context without requiring compaction or fresh threads', () => {
+  assert.match(rootAgents, /concise operational index into the full session context/i);
+  assert.match(rootAgents, /not context compaction/i);
+  assert.match(rootAgents, /Do not require compaction or a fresh continuation thread/i);
+  assert.match(executionWorkflow, /Full session context remains available/i);
+  assert.match(executionWorkflow, /does not require context compaction or a fresh continuation thread/i);
+  assert.match(executionWorkflow, /avoid rereading unchanged pre-checkpoint evidence/i);
+});
+
+test('Local Codex recovery corrects oversized retrieval and avoids undersized process polling', () => {
+  assert.match(localCodexGuidance, /If a retrieval result is unexpectedly large or truncated/i);
+  assert.match(localCodexGuidance, /do not repeat the same broad read as a default recovery/i);
+  assert.match(localCodexGuidance, /identify the exact unresolved question/i);
+  assert.match(localCodexGuidance, /narrow by symbol, file, line range, diagnostic, or smallest valid domain/i);
+  assert.match(localCodexGuidance, /should not begin with repeated one-second polling/i);
+  assert.match(localCodexGuidance, /use a meaningful follow-up wait/i);
+  assert.match(localCodexGuidance, /Never terminate, skip, or weaken validation to save context/i);
+  assert.match(localCodexGuidance, /output plus exit status remain independently attributable/i);
+});

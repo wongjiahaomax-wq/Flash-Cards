@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reconciled: 6 September 2026._
+_Last reconciled: 7 September 2026._
 
 This index defines document authority. Historical plans/evidence may preserve old branch-era facts; they do not override current executable implementation or the living authorities below.
 
@@ -133,6 +133,7 @@ Executable validators/schemas outrank old extraction-prompt examples. Import Pac
 - `DEVELOPMENT_EXECUTION_WORKFLOW.md` — Local / Remote GitHub / Hybrid workflow and living authority for coding-agent execution mechanics/context lifecycle.
 - `AGENT_CONTEXT_EFFICIENCY_PLAN.md` — historical PR #156 planning/audit record only; current authority lives in root `AGENTS.md`, `DEVELOPMENT_EXECUTION_WORKFLOW.md`, and repository-owned validation/CI contracts.
 - `LOCAL_CODEX_CONTEXT_EFFICIENCY_PLAN.md` — historical PR #160 planning record only; current local-Codex behavior lives in `LOCAL_CODEX_EXECUTION_GUIDANCE.md` plus the applicable `AGENT_TASK_MAP.md` routing.
+- `RETAINED_CONTEXT_EFFICIENCY_FOLLOWUP_PLAN.md` — retained PR #162 implementation/evaluation plan and evidence target; operational behavior lives in root `AGENTS.md`, `DEVELOPMENT_EXECUTION_WORKFLOW.md`, `LOCAL_CODEX_EXECUTION_GUIDANCE.md`, and `TESTING_AND_VALIDATION_GUIDANCE.md`.
 - `LOCAL_DEVELOPMENT_REPLICA.md` — local production-content replica.
 - `R2_COST_GUARDRAILS.md` and `IMAGE_PROVENANCE.md` — media/storage safety.
 - `OPEN_SOURCE_READINESS.md` — current public-repository safety posture.

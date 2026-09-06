@@ -48,6 +48,24 @@ The audit concluded that several broader ideas were already substantially satisf
 
 The remaining gap was therefore limited to context lifecycle and handoff retrieval guidance.
 
+## Later empirical evidence — PR #161 (7 September 2026)
+
+The conclusions above describe what PR #156 reasonably believed at the time. They are intentionally preserved rather than rewritten after later evidence.
+
+PR #160 subsequently tightened local/Hybrid Codex retrieval and compact tool-output behavior. The external audit of the later PR #161 coding session then showed that compact presentation was useful but insufficient as a whole-session efficiency strategy:
+
+- tool-output volume fell materially, but overall input/context replay increased materially;
+- the audited session reached approximately 14.29M input tokens versus approximately 42K output tokens, with about 98% of input reported as cached/replayed context;
+- roughly 103 execution calls were observed, including about 30 patch operations;
+- 21 process-poll turns used one-second yields;
+- nine tool outputs were explicitly truncated;
+- semantic checkpoint guidance did not reliably terminate discovery or prevent later rediscovery;
+- excessive small turns became a material efficiency cost.
+
+Accordingly, the PR #156 statement that repeated-retrieval prevention was “substantially present” was too optimistic as an execution claim. The remaining gap was not limited to lifecycle/handoff guidance: PR #161 demonstrated additional problems in retrieval-failure recovery, formal discovery termination, coherent implementation batching, process waiting/polling, and operational reuse of retained checkpoint evidence.
+
+PR #162 addresses those later findings in the living authorities while preserving full session context. This historical record does not duplicate those operational rules; use root `AGENTS.md`, `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`, `docs/LOCAL_CODEX_EXECUTION_GUIDANCE.md`, and the current validation authority for current behavior.
+
 ## Implemented PR #156 decisions
 
 PR #156 moved the following rules into the living authorities:
@@ -67,6 +85,8 @@ PR #156 moved the following rules into the living authorities:
 13. Do not require a globally clean worktree when unrelated pre-existing tracked or untracked work must be preserved and accurately reported.
 14. Treat a clean compact validation pass as sufficient evidence for that command; verbose reproduction remains diagnostic only.
 15. Continue to inspect the complete intended-base-to-head diff deliberately at final review.
+
+These numbered items remain the historical PR #156 decisions, including its then-current compaction guidance. Current living guidance supersedes that historical mechanism where PR #162 later changed it.
 
 ## Non-goals preserved
 
