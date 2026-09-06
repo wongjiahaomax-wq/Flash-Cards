@@ -8,6 +8,15 @@ export function sameCaseEditorSnapshot(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+export function reconcileSubmittedCaseEditorDraft(draft, submitted, authoritative) {
+  return {
+    baseline: cloneCaseEditorSnapshot(authoritative),
+    draft: sameCaseEditorSnapshot(draft, submitted)
+      ? cloneCaseEditorSnapshot(authoritative)
+      : cloneCaseEditorSnapshot(draft)
+  };
+}
+
 export function createCaseEditorCoordinator() {
   const entries = new Map();
   const listeners = new Set();
