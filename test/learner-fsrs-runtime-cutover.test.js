@@ -96,6 +96,7 @@ test('multi-System v2 cutover retries unless both schema and an open identified 
   const runtime = source('src/lib/server/learning/learner-study-runtime.js');
   const workflow = source('.github/workflows/deploy-production.yml');
   const statusRoute = source('src/routes/api/runtime-cutover-status/+server.js');
+  const verifier = source('scripts/verify-production-runtime.mjs');
   const gate = source('scripts/multi-system-v2-cutover-gate.mjs');
   const guard = source('scripts/multi-system-v2-guard-verify.mjs');
 
@@ -116,7 +117,11 @@ test('multi-System v2 cutover retries unless both schema and an open identified 
   assert.match(workflow, /steps\.cutover\.outputs\.required == 'true' \|\| inputs\.apply_migrations == true/);
   assert.match(workflow, /Verify v2 Active Review D1 guard/);
   assert.match(workflow, /APP_BUILD_SHA:\$\{GITHUB_SHA\}/);
-  assert.match(workflow, /learnerRuntimeBuildSha!==expected/);
+  assert.match(workflow, /verify-production-runtime\.mjs/);
+  assert.match(workflow, /--expected-fence true/);
+  assert.match(workflow, /--expected-fence false/);
+  assert.match(verifier, /actual\.learnerRuntimeBuildSha === expectedSha/);
+  assert.match(verifier, /actual\.learnerRuntimeWriteFence === expectedFence/);
   assert.match(workflow, /Non-mutating verification while v2 Worker is fenced/);
   assert.match(workflow, /Reopen learner runtime with v2 Worker/);
   assert.match(gate, /learner_fsrs_profiles/);
