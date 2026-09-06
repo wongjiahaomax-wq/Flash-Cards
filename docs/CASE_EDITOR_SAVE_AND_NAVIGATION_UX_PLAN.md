@@ -1,6 +1,6 @@
 # Case Editor — Stable Saving, Draft Preservation, and Case Library Return Plan
 
-_Status: implementation in progress on Draft PR #161. Return-context plumbing, stable Case/Case-question drafts, Save All coordination, and leave-loss protection are implemented; image/stimulus draft coverage and final handoff verification remain._
+_Status: completed on Draft PR #161 at the implementation handoff. This file is retained as the historical PR #161 planning/decision record; current behavior is defined by the executable implementation and validation evidence. No merge, deployment, or Production/Preview verification is implied._
 
 _Base used for planning: `main` at `a1fd0098d83c2e0e619322a41a9cb713908ded22`._
 
@@ -504,4 +504,4 @@ This PR is implementation-complete only when all of the following are true:
 
 Keep this PR **Draft** throughout planning and implementation unless the user explicitly asks to mark it Ready.
 
-The branch remains Draft. Implementation is proceeding against this plan in focused checkpoints; it must not be marked Ready, merged, deployed, or used for Production/Preview data mutation without explicit user direction.
+The branch remains Draft. The implementation is complete on this PR for review, but it must not be marked Ready, merged, deployed, or used for Production/Preview data mutation without explicit user direction.

@@ -3,7 +3,7 @@
   import { enhance } from '$app/forms';
   import { beforeNavigate } from '$app/navigation';
   import { createCaseEditorCoordinator } from '$lib/case-editor-coordinator.js';
-  import { captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { getCaseEditorStorage, readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
   import { buildCaseFastReviewSummary, buildCaseQuestionAudit } from '$lib/admin-case-question-audit.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
@@ -51,10 +51,8 @@
     const submitGuard = (event) => {
       const submittedForm = event.target;
       if (!(submittedForm instanceof HTMLFormElement) || !hasEditorUnsavedWork()) return;
-      const otherPartialForm = [...document.querySelectorAll('.case-editor form')].some((form) => form instanceof HTMLFormElement && form !== submittedForm && formHasMeaningfulUnsubmittedInput(form));
-      const isDraftableSave = submittedForm.id === 'case-details-form' || submittedForm.classList.contains('question-edit-form');
-      const unrelatedDirtyDraft = draftCoordinator.dirtyCount() > 0 && !isDraftableSave;
-      if ((otherPartialForm || unrelatedDirtyDraft) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) event.preventDefault();
+      if (submittedForm.hasAttribute('data-case-editor-enhanced')) return;
+      if (caseEditorHasConflictingUnsavedWork(submittedForm, draftCoordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) event.preventDefault();
     };
     window.addEventListener('beforeunload', beforeUnload);
     document.addEventListener('submit', submitGuard, true);
@@ -70,13 +68,23 @@
           && !action.includes('/reorderQuestion');
       });
     /** @param {any} submitContext */
-    const enhanceStableForm = (submitContext) => stableCaseEditorEnhance(captureCaseEditorView(), submitContext.formElement);
+    const enhanceStableForm = ({ formElement, cancel }) => {
+      if (caseEditorHasConflictingUnsavedWork(formElement, draftCoordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+        cancel();
+        return;
+      }
+      return stableCaseEditorEnhance(captureCaseEditorView(), formElement);
+    };
+    for (const form of stableFormActions) /** @type {HTMLFormElement} */ (form).dataset.caseEditorEnhanced = 'true';
     const enhancedForms = stableFormActions.map((form) => enhance(/** @type {HTMLFormElement} */ (form), /** @type {any} */ (enhanceStableForm)));
     return () => {
       unsubscribe();
       window.removeEventListener('beforeunload', beforeUnload);
       document.removeEventListener('submit', submitGuard, true);
-      for (const action of enhancedForms) action?.destroy?.();
+      for (const [index, action] of enhancedForms.entries()) {
+        action?.destroy?.();
+        delete /** @type {HTMLFormElement} */ (stableFormActions[index]).dataset.caseEditorEnhanced;
+      }
     };
   });
 
@@ -100,7 +108,7 @@
 
   /** @param {HTMLFormElement} form */
   function formHasMeaningfulUnsubmittedInput(form) {
-    if (form.id === 'case-details-form' || form.classList.contains('question-edit-form')) return false;
+    if (form.id === 'case-details-form' || form.classList.contains('question-edit-form') || form.hasAttribute('data-case-editor-coordinated')) return false;
     return [...form.elements].some((element) => {
       if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
       if (element instanceof HTMLInputElement && element.type === 'hidden') return false;

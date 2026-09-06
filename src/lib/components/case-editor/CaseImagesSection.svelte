@@ -44,6 +44,12 @@
     onimageopen?.(asset, subtitle);
   }
 
+  function imagePickerHref() {
+    const params = new URLSearchParams({ picker: '1' });
+    if (caseLibraryReturnQuery) params.set('return_query', caseLibraryReturnQuery);
+    return `?${params.toString()}#images`;
+  }
+
   /** @param {CaseAsset | StimulusOption} image @param {StimulusGroup | null} [group] */
   function questionsForImage(image, group = null) {
     /** @type {ImageQuestionPreview[]} */
@@ -106,7 +112,7 @@
         <h2 id="case-images-heading">Images <span class="count">{imageCount}</span></h2>
         <p class="muted">Review each learner-visible image and its linked Q&A here. Use <strong>Image roles</strong> directly below to choose the Original and Alternatives.</p>
       </div>
-      <a class="button primary" href="?picker=1#images">Add images from library</a>
+      <a class="button primary" href={imagePickerHref()}>Add images from library</a>
     </div>
 
     {#if imageCount === 0}

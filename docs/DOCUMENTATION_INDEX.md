@@ -97,6 +97,7 @@ Relevant current authorities/records include:
 - `REUSABLE_IMAGE_QUESTIONS.md`
 - `ASSET_HIGHER_RESOLUTION_REPLACEMENT.md`
 - `PERFORMANCE_AND_READ_MODEL_PLAN.md`
+- `CASE_EDITOR_SAVE_AND_NAVIGATION_UX_PLAN.md` — historical PR #161 planning/decision record; current implementation and validation state live in the executable code and PR handoff.
 
 Additional Study Topic authoring is retired. Historical Case Library PR #104 plans may still say `draft PR #104`; PR #104 is merged, so those files are implementation records rather than current status authorities.
 
