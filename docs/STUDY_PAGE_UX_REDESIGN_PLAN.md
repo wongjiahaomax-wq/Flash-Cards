@@ -761,7 +761,18 @@ Before marking the PR Ready, manually or automatically verify:
 30. keyboard-only operation;
 31. screen-reader semantics for dynamic count/status/customization state.
 
-## 20. Out of scope
+## 20. Review clarifications locked before implementation
+
+The following decisions were added after plan review and are not optional implementation details:
+
+1. **System customization state is explicit.** `UNSELECTED`, `SELECTED_ALL`, and `SELECTED_ROUTES` are distinct applied states; customization uses a separate draft. Cancel never mutates the applied state. Deselect clears customization for the current launcher state. Reselect returns to canonical whole-System. Hidden/stale routes never submit in `UNSELECTED` or `SELECTED_ALL`.
+2. **Whole System is not “all visible routes”.** A distinct `Whole System` choice owns canonical `mode: 'all'`. Group-level actions such as `Select all Topics` remain explicit routes mode even when every currently visible route is checked.
+3. **Secondary surfaces own detailed loading.** `/study` loads only launcher-required summary/preference/ownership/fence data. Full Progress/history/settings data moves to the route that renders it; do not retain eager detailed loads behind a visually compact launcher.
+4. **Resume/deletion ownership is explicit.** Active Review hides the new-run launcher; resumable browser run makes it secondary; neither makes it primary; deletion-in-progress hides it and keeps Study fenced.
+
+These clarifications must be covered by focused tests/source contracts before the PR is marked Ready.
+
+## 21. Out of scope
 
 Do not use this PR to add:
 
@@ -776,7 +787,7 @@ Do not use this PR to add:
 - migration/schema changes unless an explicit blocker is discovered and the plan is re-reviewed;
 - Production deployment or Production D1 mutation.
 
-## 21. Success criteria
+## 22. Success criteria
 
 The redesign is successful when:
 
