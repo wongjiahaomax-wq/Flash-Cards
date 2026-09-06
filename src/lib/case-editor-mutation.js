@@ -41,11 +41,52 @@ function restoreEditorFormDrafts(drafts) {
   }
 }
 
-function resetSubmittedEditorForm(form, key) {
-  const candidate = form?.isConnected
+function findSubmittedEditorForm(form, key) {
+  return form?.isConnected
     ? form
     : [...document.querySelectorAll('.case-editor form[method="POST"]')].find((item) => editorFormKey(item) === key);
-  candidate?.reset?.();
+}
+
+function captureEditableFormSnapshot(form) {
+  return [...form.elements]
+    .filter((element) => {
+      if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
+      if (element instanceof HTMLInputElement && ['hidden', 'file', 'submit', 'button', 'reset'].includes(element.type)) return false;
+      return true;
+    })
+    .map((element) => {
+      if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) return { name: element.name, type: element.type, checked: element.checked };
+      return { name: element.name, type: element.type, value: element.value };
+    });
+}
+
+function sameEditableFormSnapshot(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function restoreEditableFormSnapshot(form, snapshot) {
+  const elements = [...form.elements].filter((element) => {
+    if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
+    if (element instanceof HTMLInputElement && ['hidden', 'file', 'submit', 'button', 'reset'].includes(element.type)) return false;
+    return true;
+  });
+  elements.forEach((element, index) => {
+    const value = snapshot[index];
+    if (!value) return;
+    if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) element.checked = value.checked;
+    else element.value = value.value;
+  });
+}
+
+function resetSubmittedEditorForm(form, key) {
+  findSubmittedEditorForm(form, key)?.reset?.();
+}
+
+function reconcileSubmittedEditorForm(form, key, submittedSnapshot, currentSnapshot) {
+  const candidate = findSubmittedEditorForm(form, key);
+  if (!candidate) return;
+  if (sameEditableFormSnapshot(currentSnapshot, submittedSnapshot)) candidate.reset?.();
+  else restoreEditableFormSnapshot(candidate, currentSnapshot);
 }
 
 export function formHasMeaningfulUnsubmittedInput(form) {
@@ -59,17 +100,22 @@ export function formHasMeaningfulUnsubmittedInput(form) {
   });
 }
 
-/** @param {{ scrollX: number, scrollY: number, activeElement: Element | null, selectionStart: number | null, selectionEnd: number | null }} view @param {HTMLFormElement | null} [submittedForm] */
-export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selectionStart, selectionEnd }, submittedForm = null) {
+/** @param {{ scrollX: number, scrollY: number, activeElement: Element | null, selectionStart: number | null, selectionEnd: number | null }} view @param {HTMLFormElement | null} [submittedForm] @param {{ reconcileSubmittedDraft?: boolean }} [options] */
+export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selectionStart, selectionEnd }, submittedForm = null, { reconcileSubmittedDraft = false } = {}) {
+  const submittedSnapshot = submittedForm ? captureEditableFormSnapshot(submittedForm) : null;
   return async ({ result }) => {
     const successful = result.type === 'redirect' || result.type === 'success';
     const submittedKey = submittedForm ? editorFormKey(submittedForm) : '';
+    const currentSubmittedSnapshot = submittedForm ? captureEditableFormSnapshot(submittedForm) : null;
     const formDrafts = captureEditorFormDrafts(successful ? submittedForm : null);
     if (result.type !== 'redirect') {
       await applyAction(result);
       await tick();
       restoreEditorFormDrafts(formDrafts);
-      if (successful) resetSubmittedEditorForm(submittedForm, submittedKey);
+      if (successful) {
+        if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedSnapshot, currentSubmittedSnapshot);
+        else resetSubmittedEditorForm(submittedForm, submittedKey);
+      }
       return { ok: result.type === 'success' };
     }
 
@@ -79,7 +125,8 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
     await invalidateAll();
     await tick();
     restoreEditorFormDrafts(formDrafts);
-    resetSubmittedEditorForm(submittedForm, submittedKey);
+    if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedSnapshot, currentSubmittedSnapshot);
+    else resetSubmittedEditorForm(submittedForm, submittedKey);
     window.scrollTo(scrollX, scrollY);
     if (activeElement?.isConnected && typeof activeElement.focus === 'function') {
       activeElement.focus({ preventScroll: true });
@@ -89,6 +136,25 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
     }
     return { ok: true };
   };
+}
+
+export function isOrdinaryCaseEditorDraftForm(form) {
+  return form?.id === 'case-details-form'
+    || form?.classList?.contains('question-edit-form')
+    || form?.hasAttribute?.('data-case-editor-coordinated');
+}
+
+export function caseEditorHasConflictingUnsavedWork(submittedForm, coordinator) {
+  const otherPartialForm = [...document.querySelectorAll('.case-editor form')].some((form) => {
+    if (!(form instanceof HTMLFormElement) || form === submittedForm || isOrdinaryCaseEditorDraftForm(form)) return false;
+    return formHasMeaningfulUnsubmittedInput(form);
+  });
+  const submittedCoordinatorKey = submittedForm?.hasAttribute?.('data-case-editor-coordinated')
+    ? `form:${editorFormKey(submittedForm)}`
+    : null;
+  const unrelatedDirtyDraft = !isOrdinaryCaseEditorDraftForm(submittedForm)
+    && (coordinator?.dirtyCount?.(submittedCoordinatorKey) ?? 0) > 0;
+  return otherPartialForm || unrelatedDirtyDraft;
 }
 
 /**
@@ -107,10 +173,8 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       save: () => {
         if (pending) return pending;
         if (!node.reportValidity()) return Promise.resolve(false);
-        pending = new Promise((resolve) => { resolvePending = resolve; });
         node.requestSubmit();
-        if (!pending) return Promise.resolve(false);
-        return pending;
+        return pending ?? Promise.resolve(false);
       }
     });
   }
@@ -119,8 +183,23 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
   node.addEventListener('input', refresh);
   node.addEventListener('change', refresh);
 
-  const enhanced = enhance(node, ({ formElement }) => {
-    const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement);
+  node.dataset.caseEditorEnhanced = 'true';
+  const enhanced = enhance(node, ({ formElement, cancel }) => {
+    if (pending) {
+      cancel();
+      return;
+    }
+    pending = new Promise((resolve) => { resolvePending = resolve; });
+    if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+      cancel();
+      const resolve = resolvePending;
+      pending = null;
+      resolvePending = null;
+      coordinator?.refresh();
+      resolve?.(false);
+      return;
+    }
+    const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { reconcileSubmittedDraft: true });
     return async ({ result }) => {
       let ok = false;
       try {
@@ -144,6 +223,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
     },
     destroy() {
       enhanced?.destroy?.();
+      delete node.dataset.caseEditorEnhanced;
       node.removeEventListener('input', refresh);
       node.removeEventListener('change', refresh);
       unregister?.();

@@ -78,3 +78,15 @@ test('newly registered Case question drafts participate in Save All after revali
   assert.deepEqual(await coordinator.saveAll(), { attempted: 1, succeeded: 1, failed: 0 });
   assert.equal(saves, 1);
 });
+
+test('coordinator excludes the submitted logical form when checking unrelated dirty drafts', () => {
+  const coordinator = createCaseEditorCoordinator();
+  let captionDirty = true;
+  let questionDirty = true;
+  coordinator.register('form:caption:asset-1', { isDirty: () => captionDirty, save: async () => true });
+  coordinator.register('question:prompt-1', { isDirty: () => questionDirty, save: async () => true });
+
+  assert.equal(coordinator.dirtyCount('form:caption:asset-1'), 1);
+  captionDirty = false;
+  assert.equal(coordinator.dirtyCount(), 1);
+});

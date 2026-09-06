@@ -42,8 +42,10 @@ export function createCaseEditorCoordinator() {
     refresh() {
       notify();
     },
-    dirtyCount() {
-      return [...entries.values()].filter((entry) => entry.isDirty()).length;
+    dirtyCount(excludedKey = null) {
+      return [...entries.entries()]
+        .filter(([key]) => key !== excludedKey)
+        .filter(([, entry]) => entry.isDirty()).length;
     },
     isSavingAll() {
       return savingAll;

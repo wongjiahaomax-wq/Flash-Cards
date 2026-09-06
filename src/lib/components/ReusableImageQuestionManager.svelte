@@ -1,11 +1,18 @@
 <script>
+  import { registerCaseEditorForm } from '$lib/case-editor-mutation.js';
+
   /** @typedef {{ id: string, assetId: string, promptMd: string, answerMd: string, usedInCase: boolean }} ReusableImageQuestion */
   /** @typedef {{ assetId: string, stimulusOptionId: string | null, total: number, used: number, available: number, questions: ReusableImageQuestion[] }} ReusableImageQuestionSummary */
-  /** @type {{ summary?: ReusableImageQuestionSummary, caseId: string, assetId: string, optionId?: string | null, previewMode?: boolean }} */
-  let { summary, caseId, assetId, optionId = null, previewMode = false } = $props();
+  /** @type {{ summary?: ReusableImageQuestionSummary, caseId: string, assetId: string, optionId?: string | null, previewMode?: boolean, coordinator?: any }} */
+  let { summary, caseId, assetId, optionId = null, previewMode = false, coordinator = null } = $props();
   let questions = $derived(summary?.questions ?? []);
   let usedQuestions = $derived(questions.filter((question) => question.usedInCase));
   let availableQuestions = $derived(questions.filter((question) => !question.usedInCase));
+
+  /** @param {HTMLFormElement} node @param {string} key */
+  function coordinateForm(node, key) {
+    return registerCaseEditorForm(node, { coordinator, key });
+  }
 </script>
 
 <section class="reusable-manager" aria-label="Reusable Image Questions">
@@ -75,7 +82,7 @@
         <summary>Edit canonical answers</summary>
         <div class="edit-list">
           {#each questions as question}
-            <form method="POST" action="?/saveReusableImageAnswer" class="answer-form">
+            <form method="POST" action="?/saveReusableImageAnswer" class="answer-form" data-case-editor-coordinated use:coordinateForm={`reusable-answer:${assetId}:${question.id}`}>
               <input type="hidden" name="case_id" value={caseId} />
               <input type="hidden" name="asset_question_id" value={question.id} />
               <strong>{question.promptMd}</strong>
