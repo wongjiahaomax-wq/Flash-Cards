@@ -84,6 +84,13 @@ function buildSeedSql() {
     "INSERT INTO learner_fsrs_profiles (user_id, scheduler_library_version, parameters_json) VALUES ('d1-deletion-user', '5.4.2', '{}');",
     `INSERT INTO learner_aggregates (user_id, scheduled_completed, scheduled_good, first_activity_at, last_activity_at) VALUES ('d1-deletion-user', ${eventCount}, ${eventCount}, ${now - 5 * 365 * 86_400_000}, ${now});`
   );
+  lines.push(
+    "INSERT INTO question_prompts (id, prompt_md) VALUES ('legacy-prompt', 'Legacy prompt');",
+    "INSERT INTO assets (id, type, storage_key, mime_type, is_active) VALUES ('legacy-review-asset', 'image', 'benchmark/legacy.png', 'image/png', 1);",
+    "INSERT INTO reviews (id, user_id, case_id, primary_concept_id, study_concept_id, case_title_snapshot, status, rating, completed_at) VALUES ('legacy-review', 'd1-deletion-user', 'case-00000', 'system-0', 'system-0', 'Legacy Case', 'completed', 'good', 1234567890);",
+    "INSERT INTO review_questions (id, review_id, question_prompt_id, source_type, display_order, prompt_snapshot_md, answer_snapshot_md) VALUES ('legacy-question', 'legacy-review', 'legacy-prompt', 'case', 0, 'Legacy prompt', 'Legacy answer');",
+    "INSERT INTO review_assets (id, review_id, asset_id, display_order, storage_key_snapshot) VALUES ('legacy-asset', 'legacy-review', 'legacy-review-asset', 0, 'benchmark/legacy.png');"
+  );
   appendMultiRow(
     lines,
     'INSERT INTO learner_system_aggregates (user_id, system_id, scheduled_completed, scheduled_good, first_completed_at, last_completed_at)',
@@ -219,7 +226,10 @@ async function main() {
   const seedPath = join(workDir, 'seed.sql');
   const port = await reservePort();
   const baseUrl = `http://127.0.0.1:${port}`;
-  const env = sanitizedEnvironment();
+  const env = {
+    ...sanitizedEnvironment(),
+    XDG_CONFIG_HOME: join(workDir, 'wrangler-config')
+  };
   let child;
   let stdout = '';
   let stderr = '';
@@ -275,6 +285,16 @@ async function main() {
 
     const direct = await fetchJson(baseUrl, '/direct-delete');
     assert.equal(direct.blocked, true, 'mature direct user cascade must be blocked');
+
+    const studyDataDeletion = await fetchJson(baseUrl, '/study-proof');
+    assert.ok(studyDataDeletion.initial.scheduledEvents > deletionBatchSize);
+    assert.ok(studyDataDeletion.initial.legacyReviews > 0);
+    assert.ok(studyDataDeletion.maximumRowsDeletedPerStep <= deletionBatchSize);
+    assert.equal(studyDataDeletion.completed.userExists, true);
+    assert.equal(studyDataDeletion.completed.preferences, 1);
+    assert.equal(studyDataDeletion.completed.studyDeletion.phase, 'complete');
+    assert.equal(studyDataDeletion.freshStudyAllowed, true);
+    assert.equal(studyDataDeletion.accountDeletionTookOver, true);
 
     const begun = await fetchJson(baseUrl, '/begin');
     assert.equal(begun.status.banned, true);
@@ -333,6 +353,7 @@ async function main() {
         authAccounts: accountCount,
         authVerifications: initial.verifications
       },
+      studyDataDeletion,
       directCascadeBlocked: direct.blocked,
       accessRevokedBeforeCleanup: begun.status.banned && begun.status.phase === 'auth_sessions' && begun.status.sessions === sessionCount,
       stagedSteps: steps.length,
@@ -350,7 +371,11 @@ async function main() {
     throw error;
   } finally {
     if (child) await stopProcessTree(child);
-    await rm(workDir, { recursive: true, force: true });
+    try {
+      await rm(workDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 250 });
+    } catch (cleanupError) {
+      console.warn(`Temporary D1 smoke cleanup deferred: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`);
+    }
   }
 }
 

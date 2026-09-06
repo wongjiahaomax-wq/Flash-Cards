@@ -1,5 +1,8 @@
 export const LOCAL_LEARNER_RUNTIME_RESET_TABLES = Object.freeze([
   'scheduled_review_events',
+  // A local self-service deletion fence must not survive the destructive
+  // learner/content replica reset and block subsequent local study.
+  'learner_study_data_deletions',
   // Durable monthly analytics preserve historical System attribution after
   // detailed Scheduled history expires. Local content refresh is intentionally
   // destructive to learner runtime/progress state, so these buckets must be
