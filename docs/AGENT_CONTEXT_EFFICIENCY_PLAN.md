@@ -1,10 +1,10 @@
 # Coding-agent context-efficiency plan
 
-_Status: proposed multi-tranche implementation plan. PR #155 is the completed compact-terminal foundation; do not reimplement it here._
+_Status: proposed focused implementation plan. PR #155 is the completed compact-terminal foundation; do not reimplement it here._
 
 ## Goal
 
-Reduce the amount of repository and tool output repeatedly carried through long coding-agent sessions without weakening validation, review, Git, CI, deployment, or Production/Preview safeguards.
+Reduce coding-agent context growth and unnecessary repeated retrieval during long implementation sessions without weakening validation, review, Git, CI, deployment, migration, or Production/Preview safeguards.
 
 The desired workflow is:
 
@@ -13,498 +13,382 @@ bounded discovery
 -> focused implementation
 -> coherent checkpoint
 -> context compaction when the client supports it
--> batched read-only handoff evidence
+-> efficient read-only handoff retrieval
 -> explicit mutations and exact-head verification
 ```
 
-This is a context-management and workflow improvement. It is not permission to reduce required checks, hide failures, skip final review, or replace engineering judgment with token or command quotas.
+This is a context-lifecycle improvement, not a new orchestration system.
 
-## Evidence and problem statement
+## Why this work exists
 
-A representative PR implementation session produced the following recorded usage:
+A representative implementation session accumulated very large repeated input because broad repository/tool output remained in context while many small late-stage validation, Git, GitHub, and status turns continued replaying it.
 
-| Measure | Observed value |
-| --- | ---: |
-| Model responses | 55 |
-| Input tokens | 8,788,543 |
-| Cached input tokens | 8,494,336 |
-| Uncached input tokens | 294,207 |
-| Output tokens | 45,737 |
-| Reasoning output tokens | 16,602 |
-| Accumulated tool-output characters | about 756,000 |
-| Largest individual tool outputs | about 42,000 characters |
-| Peak pre-compaction input | about 245,000 tokens |
-| Calls above 200,000 input tokens | 19, accounting for about 4.36 million input tokens |
+PR #155 already addressed terminal-output volume by making routine local validation compact by default and bounding failure diagnostics. The remaining problem is different: the lifetime of retrieved information across the agent session itself.
 
-The main amplification mechanism was repeated model turns after broad file reads and command output had accumulated. Reasoning output was not the material source of usage. Late Git, validation, GitHub, and status operations were individually small, but each replayed a context above 200,000 tokens.
-
-The implementation agent does not need the original session log. The table above is the baseline evidence for this plan.
+The goal of this PR is therefore to reduce avoidable model turns and repeated retrieval after the implementation surface is already known.
 
 ## Completed foundation: PR #155
 
-PR #155 (`compact-terminal-validation`) is merged into `main` and already owns routine validation presentation. It implemented:
+PR #155 is merged into `main` and already owns routine validation presentation, including:
 
 - compact-by-default local Node tests;
-- bounded local Node failure details, expected/actual previews, captured output, stacks, and cascading-failure identities;
-- compact whole-project Svelte checking with bounded structured errors;
+- bounded Node failure details and exact omitted counts;
+- compact whole-project Svelte checking;
 - compact local builds;
 - compact-by-default `validate:fast` and `validate:full`;
 - explicit verbose reproduction commands;
 - compact specialized/operator/slide-review test paths;
-- CI, Preview, Production, and deployment presentation precedence;
+- CI/automation/deployment presentation precedence;
 - focused presentation regression tests and updated agent guidance.
 
-Relevant current owners include:
+Do not recreate those presentation changes in this PR.
 
-- `scripts/local-test-reporter.mjs`;
-- `scripts/test-presentation.mjs`;
-- `scripts/test-runner.mjs`;
-- `scripts/check-local.mjs`;
-- `scripts/build-local.mjs`;
-- `scripts/validate.mjs`;
-- `docs/COMPACT_TERMINAL_VALIDATION_PLAN.md`.
+## Repository invariants
 
-Do not recreate the earlier proposed reporter work in `scripts/ci-test-reporter.mjs`. CI and local presentation are deliberately separate. Any future diagnostic change must preserve the precedence and structured-event contracts established by PR #155.
+The implementation must preserve all of the following:
 
-## Repository constraints
-
-Every tranche must preserve these invariants:
-
-1. `scripts/validation-contract.mjs` remains the validation selection and ordering authority.
+1. `scripts/validation-contract.mjs` remains the validation selection/ordering authority.
 2. `scripts/agent-checks-lib.mjs` remains the ordinary-CI changed-path classification authority.
 3. `npm test` remains the complete maintained Node suite.
-4. Focused and compact checks never substitute for final required checks.
-5. A complete intended-base-to-head diff is still required at final review.
-6. GitHub CI, local validation, commit, push, merge, deployment, migrations, and live behavior remain separate evidence claims.
+4. Focused/checkpoint validation never substitutes for required handoff validation.
+5. A complete intended-base-to-head diff is still required at deliberate final review.
+6. Local validation, GitHub CI, commit, push, PR mutation, merge, migration, deployment, and live behavior remain separate evidence claims.
 7. Production D1/R2 must never be mutated for testing or measurement.
 8. Unrelated tracked and untracked work must be preserved.
-9. Do not add arbitrary command-count limits, token budgets, context counters, caches, retrieval wrappers, or a second validation/retrieval DSL.
-10. Client context compaction is an optional host capability. The repository must not pretend that an npm command can compact a model conversation.
+9. Do not add arbitrary token budgets, command quotas, context counters, caches, retrieval wrappers, file-read tracking, or a second validation/retrieval DSL.
+10. Client context compaction is an optional host capability. The repository must not pretend an npm command can compact a model conversation.
 
-## Scope
+## Audit against current `main`
 
-This plan covers the remaining work after PR #155:
+This audit was completed before implementation so later coding agents do not rediscover or reimplement behavior that current `main` already owns.
 
-- clearer context-phase and compaction guidance;
-- deterministic, concise handoff-state presentation using existing authorities;
-- safe batching guidance for related read-only checks;
-- prevention of repeated unchanged retrieval;
-- output-volume regression evidence for repository-owned presentation, without model-token telemetry;
-- documentation and executable contracts that allow a later coding agent to implement the work without access to prior logs.
+### Context lifecycle / client compaction
 
-## Explicit non-goals
+**Status: narrowed; still needed.**
 
-Do not use this work to:
+Current living guidance already covers:
 
-- alter application, authentication, database, migration, storage, Worker, or deployment behavior;
-- reduce validation coverage or create test exclusions;
-- add a model-token meter to the repository;
-- parse Codex session files or depend on a particular coding-agent vendor;
-- persist prompts, model conversations, tool outputs, production-derived data, or credentials;
-- automatically commit, push, edit PRs, merge, deploy, or mutate GitHub state;
-- create an opaque command that claims all handoff obligations passed without executing their authoritative checks;
-- add a general shell-command proxy or terminal-output cache;
-- replace targeted `rg`, Git, or GitHub retrieval with a repository-specific query language.
+- minimum-sufficient retrieval;
+- targeted/bounded reads;
+- reuse of unchanged information;
+- avoiding repeated complete-diff retrieval during implementation;
+- iteration -> checkpoint -> handoff validation;
+- compact local validation;
+- focused verbose reproduction only when needed;
+- event-driven refresh of PR metadata.
 
-## Design decisions
+The material remaining gap is the coding-client context lifecycle itself:
 
-### 1. Use semantic milestones, not quotas
+- when the active coding client exposes context compaction and the session has accumulated substantial file/tool output, compact after a coherent implementation checkpoint and before final handoff work;
+- compaction is a host capability, not a repository command;
+- after compaction, rely on the retained task summary and reread only facts that are missing, ambiguous, changed, or otherwise drift-prone.
 
-The workflow should identify four phases:
+### `agent:checks` presentation
 
-```text
-Discovery -> Implementation -> Checkpoint -> Handoff
-```
+**Status: already satisfied by current `main`. No implementation required.**
 
-Transitions are based on completed work, not token percentages or a fixed command count.
-
-- **Discovery:** establish work state, route through scoped authority, locate the implementation surface, and inspect directly related tests.
-- **Implementation:** edit coherent units and run the cheapest directly related feedback.
-- **Checkpoint:** run broader validation only after a coherent batch, then resolve failures before continuing.
-- **Handoff:** compact context when available, execute final required checks, review the complete diff, perform authorized Git/GitHub mutations, and verify exact-head remote state.
-
-### 2. Compaction guidance must be capability-aware
-
-At the boundary between checkpoint and handoff, agent guidance should say:
-
-> When the active coding-agent client exposes context compaction and the session has accumulated substantial tool/file output, compact after the implementation checkpoint and before final validation, Git, and GitHub handoff work. If compaction is unavailable, continue with bounded retrieval and reuse existing evidence; do not invent a repository command that claims to compact context.
-
-Compaction should normally occur after a major tool-heavy phase, not after every turn. A later code change that invalidates the checkpoint may require returning to implementation, but it does not automatically require rereading unchanged authorities.
-
-### 3. Batch only related read-only evidence
-
-Batching reduces model turns only when the combined result remains easy to attribute. Safe candidates include:
-
-- `git status --short --branch`, `git diff --stat`, and `git diff --check` at one checkpoint;
-- PR identity, head/base SHA, Draft/Ready state, and check rollup in one read-only GitHub request;
-- final clean-worktree and exact-head verification after push.
-
-Do not batch actions whose evidence must remain operationally distinct, or mutations that have separate authorization/failure boundaries. Commit, push, PR editing, merge, migration, deployment, and live verification remain explicit operations.
-
-### 4. Prefer an existing-authority summary over a new wrapper
-
-`agent:checks` already owns changed-file classification and required handoff commands. If a concise handoff summary is added, extend the existing `agent:checks` report rather than creating `agent:handoff`, a command proxy, or a second classifier.
-
-The summary may report deterministic local facts that `agent:checks` already resolves, such as:
+Current compact `agent:checks` already provides the facts needed to choose the next local command without dumping the complete changed-file list:
 
 - base reference and merge base;
-- changed-file count and areas;
-- required checks and specialized checks;
-- iteration/checkpoint guidance;
-- untracked whitespace diagnostics.
+- changed-file count;
+- affected areas;
+- iteration guidance;
+- checkpoint guidance;
+- final required checks;
+- specialized required checks without duplicate presentation;
+- fail-safe unclassified-path warnings;
+- untracked-file whitespace diagnostics.
 
-It must not claim checks ran, passed, or remain current. Execution evidence belongs to the commands themselves and, remotely, to exact-head GitHub check state.
+Existing focused tests protect those contracts.
 
-### 5. Measure repository output, not model internals
+Do not modify `agent:checks` unless implementation of another item reveals a concrete missing deterministic field.
 
-Executable regression tests may assert semantic character/record bounds for repository-owned reporters. Do not introduce token estimation, context-window thresholds, session parsing, or user-specific telemetry.
+### Repeated-retrieval prevention
 
-The useful durable measures are:
+**Status: substantially satisfied by current `main`. No standalone implementation required.**
 
-- number of detailed failures shown;
-- number of additional identities shown;
-- maximum diagnostic preview characters;
-- exact omitted failure/error counts;
-- presence of focused and verbose reproduction commands;
-- preservation of exit status and validation selection.
+Current guidance already requires agents to reuse sufficient information already retrieved and avoid repeatedly loading unchanged files, metadata, large files, or the complete branch diff during active implementation.
 
-PR #155 already covers most validation-presentation bounds. New tests should be added only for a newly introduced or corrected contract.
+The only remaining retrieval behavior specific to context compaction belongs in the focused context-lifecycle work below.
 
-## Tranche 1 - Baseline audit against current `main`
+### Output-volume regression work
 
-### Objective
+**Status: substantially satisfied by PR #155. No new executable work by default.**
 
-Establish precisely which proposed improvements remain after PR #155 and prevent duplicate implementation.
+PR #155 regression coverage already protects bounded Node failure output, large assertion payloads, cascading failures, exact omitted counts, bounded Svelte diagnostics, malformed/incomplete parser failures, compact/verbose reproduction, presentation precedence, and preservation of canonical validation selection.
 
-### Required reads
+Add new output-volume regression tests only if this PR introduces new executable presentation behavior. If the implementation remains documentation-only, no synthetic output-volume matrix is required.
 
-Read only:
+## Remaining implementation
 
-- root `AGENTS.md`;
-- `scripts/AGENTS.md`;
-- the validation-tooling row in `docs/AGENT_TASK_MAP.md`;
-- relevant sections of `docs/TESTING_AND_VALIDATION_GUIDANCE.md`;
-- `docs/CI_AGENT_DIAGNOSTICS.md`;
-- `docs/COMPACT_TERMINAL_VALIDATION_PLAN.md`;
-- current `scripts/agent-checks.mjs` and `scripts/agent-checks-lib.mjs`;
-- directly related tests in `tests/agent-tooling.test.js` and `tests/local-agent-validation.test.js`.
+After the audit, the remaining work is intentionally small. The previous seven-tranche shape is replaced by two focused implementation areas plus final review.
 
-Do not reread every reporter and workflow unless the current implementation leaves a material question unresolved.
+# Tranche A - Context lifecycle and read-only retrieval efficiency
 
-### Deliverable
+## Objective
 
-Add a short implementation-status section to this plan recording each remaining tranche as:
+Make the session lifecycle explicit so a coding agent stops accumulating and replaying unnecessary context once implementation is coherent.
 
-- needed;
-- already satisfied by current `main`;
-- narrowed;
-- rejected by repository constraints.
-
-### Acceptance criteria
-
-- No PR #155 behavior is duplicated.
-- Every proposed code change has a current owner and an identified missing contract.
-- Any tranche with no remaining executable gap is converted to documentation-only or marked complete.
-
-## Tranche 2 - Context lifecycle and compaction guidance
-
-### Objective
-
-Make the four-phase workflow and checkpoint-to-handoff compaction boundary discoverable without bloating every agent prompt.
-
-### Files
-
-Expected documentation-only surface:
-
-- `AGENTS.md`;
-- `scripts/AGENTS.md`;
-- `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`;
-- `docs/TESTING_AND_VALIDATION_GUIDANCE.md`.
-
-Update `docs/AGENT_TASK_MAP.md` only if routing ownership changes. Do not edit historical plan/audit documents merely to normalize wording.
-
-### Required wording contracts
-
-The living guidance must state:
-
-1. Discovery ends when the implementation surface and directly related owners/tests are established.
-2. Implementation uses targeted reads and focused checks; unchanged authority is reused.
-3. Checkpoint validation happens after a coherent batch rather than after each edit.
-4. When client compaction exists and context is tool-heavy, compact after checkpoint and before handoff.
-5. Handoff uses fresh exact-head/branch evidence where state can drift, but does not reread unchanged source or documentation.
-6. Compact validation output is sufficient evidence when it passes; do not rerun verbose solely for richer logs.
-7. If compact failure evidence is insufficient, reproduce only the focused failing command in verbose mode.
-
-### Tests
-
-Documentation-only changes normally require direct inspection and `git diff --check`. Add a source contract only if a phrase encodes an operational invariant that is otherwise likely to regress; do not lock prose gratuitously.
-
-### Acceptance criteria
-
-- The guidance is capability-based and does not name a fake compaction command.
-- No token thresholds or command quotas are introduced.
-- Validation and final-review requirements remain unchanged.
-
-## Tranche 3 - Consolidate existing `agent:checks` presentation
-
-### Objective
-
-Ensure one `npm run agent:checks -- --compact` invocation gives the smallest sufficient planning/checkpoint view without follow-up reads for facts it already owns.
-
-### Primary files
-
-- `scripts/agent-checks.mjs`;
-- `scripts/agent-checks-lib.mjs` only if an already-owned report field is missing;
-- `tests/agent-tooling.test.js`;
-- `tests/agent-checks-report.test.js` when real Git-backed behavior changes.
-
-### Required audit before editing
-
-Inspect current compact output and answer:
-
-- Does it already show base reference and merge base once?
-- Does it show changed-file count without dumping all files?
-- Does it deduplicate required and specialized commands?
-- Does it separate iteration, checkpoint, and handoff guidance?
-- Does it expose fail-safe/unclassified and untracked-whitespace conditions?
-
-If all answers are yes, mark this tranche satisfied and do not change code.
-
-### Permitted change
-
-Only add or reorganize deterministic fields already derived by `agent:checks`. A suitable compact shape is:
+The intended flow is:
 
 ```text
-Base: origin/main (merge-base abc123...)
-Changes: 7 files; Database, Tests
-Iteration: node --test ...
-Checkpoint: npm run validate:fast
-Handoff: npm run validate:full; npm run <specialized-check>
-Warnings: none
+Discovery
+-> Implementation
+-> Checkpoint
+-> compact client context when supported
+-> Handoff
 ```
 
-Exact wording is not prescribed. Preserve all current fail-safe details.
+Transitions are semantic milestones, not token percentages or fixed command counts.
 
-### Forbidden change
+## Discovery
 
-Do not:
+Discovery ends when the agent has established:
 
-- run the reported checks;
-- persist their status;
-- add a second classifier;
-- infer GitHub state;
-- hide untracked files;
-- claim handoff readiness;
-- turn advisory guidance into proof.
+- the exact current work state;
+- the implementation surface;
+- directly related owners/tests;
+- any protected/cross-cutting boundaries that require broader authority.
 
-### Tests
+After that point, do not continue broad repository exploration merely for completeness.
 
-Cover, as applicable:
+## Implementation
 
-- documentation-only changes;
-- application plus schema changes;
-- specialized checks without duplicated commands;
-- unclassified important files;
-- untracked whitespace failures;
-- stable section ordering and concise output.
+During active implementation:
 
-### Acceptance criteria
+- use targeted implementation reads;
+- reuse unchanged authorities already retrieved;
+- inspect changed-file/scoped diffs rather than repeatedly loading the complete branch diff;
+- run the cheapest directly related feedback;
+- after a focused failure, inspect the failing block and directly implicated source instead of rerunning or rereading the complete broad suite.
 
-- One compact report contains every fact `agent:checks` owns that is needed to choose the next local command.
-- It remains advisory.
-- Output stays semantic rather than a changed-file or command dump.
+## Checkpoint and client compaction
 
-## Tranche 4 - Read-only handoff batching guidance
+After a coherent implementation batch:
 
-### Objective
+1. inspect the scoped change;
+2. run the appropriate checkpoint validation for its risk;
+3. resolve failures while implementation context is still useful;
+4. when the active coding client exposes context compaction and the session has accumulated substantial tool/file output, compact before final handoff work.
 
-Reduce separate high-context model turns during final local and GitHub verification while preserving evidence boundaries.
+Do not compact after every small edit. The useful boundary is after the main tool-heavy implementation phase and before a series of small final validation/Git/GitHub turns.
 
-### Implementation preference
+If compaction is unavailable, continue with bounded retrieval and reuse existing evidence. Do not invent a repository command that claims to compact context.
 
-This is documentation-first. Do not add a new script unless the tranche audit proves a repeated, repository-specific calculation cannot be expressed safely with existing Git/GitHub commands.
+After compaction:
 
-### Local checkpoint bundle
+- rely on the retained task/checkpoint summary;
+- reread only facts that are missing, ambiguous, changed, or drift-prone;
+- do not reload unchanged authorities simply because the conversation was compacted.
 
-Guidance may recommend retrieving these together after the final edit:
+## Read-only handoff batching
 
-```powershell
-git status --short --branch
-git diff --stat
-git diff --check
+Related read-only facts may be retrieved together when the combined result remains easy to attribute and reason about.
+
+The purpose is to reduce avoidable model round trips, especially late in long sessions where every additional turn may replay a large accumulated context.
+
+Batching retrieval does **not** merge the underlying evidence claims. Each fact must still be interpreted independently.
+
+### Local checkout state
+
+A useful checkpoint/handoff read may combine closely related local state such as:
+
+```text
+npm run agent:checks -- --compact
++ current branch/worktree status
++ a concise diff statistic
 ```
 
-This is read-only evidence. The complete intended-base-to-head diff remains a separate deliberate final review because its content can be large.
+These answer different questions:
 
-### Remote identity bundle
+- `agent:checks` owns current validation/diff requirements;
+- branch/worktree status shows current local state and unrelated/pre-existing changes;
+- the diff statistic gives a compact scope/size overview.
 
-For an existing PR, retrieve in one request where the available GitHub capability permits:
+Do not replace repository-owned diff/whitespace authority with a plain `git diff --check` shortcut. Current `agent:checks` deliberately uses merge-base-aware tracked-change validation plus separate untracked-file whitespace handling.
+
+Do not require a globally clean worktree. A correct handoff may preserve unrelated pre-existing tracked or untracked work. The requirement is that task-owned changes and branch state are understood and reported accurately.
+
+### Remote PR identity and checks
+
+For an existing PR, closely related remote facts may be obtained in one read-only retrieval where the available GitHub capability permits, including:
 
 - PR number and URL;
-- state and Draft/Ready state;
+- open/closed state;
+- Draft/Ready state;
 - head branch and exact head SHA;
 - base branch and base SHA;
-- current check rollup.
+- mergeability where available;
+- current check/CI rollup for that head.
 
-Retrieve it at task start, then again only after push, branch movement, state change, or at final handoff when current evidence is required.
+Retrieve these facts once at task start, then reuse them.
 
-### Mutation boundaries
+Refresh only after an event capable of invalidating them, such as:
 
-The following must remain separate actions with separate outcome reporting:
+- push;
+- rebase/update from `main`;
+- external branch movement;
+- Draft/Ready state change;
+- CI completion when fresh check state is needed;
+- final handoff verification.
+
+Do not refetch PR identity/head/base simply because another model turn occurred.
+
+### Final exact-head verification
+
+After the final push, retrieve enough related read-only evidence together to answer:
+
+> Is the exact head that was reviewed/validated the exact head GitHub is showing and checking?
+
+Useful facts include:
+
+- local/current intended head SHA;
+- remote PR head SHA;
+- PR state;
+- CI/check state for that exact SHA.
+
+Exact-head verification is stronger than separate stale statements such as "CI passed" and "a push occurred".
+
+## What must remain separate
+
+Read-only retrieval may be batched. Mutations and operational boundaries remain explicit.
+
+Do not batch the following into an opaque combined operation:
 
 - commit;
 - push;
 - PR title/body mutation;
-- marking Draft ready;
+- marking Draft Ready;
 - merge;
 - database migration;
 - Worker deployment;
+- Production data mutation;
 - live HTTP/behavior verification.
 
-### Acceptance criteria
+Each has a distinct authorization boundary, failure mode, and evidence claim.
 
-- Living guidance includes examples of safe read-only batching.
-- It explicitly prohibits treating a batched command as one undifferentiated success claim.
-- It does not authorize any new mutation.
-- It does not introduce a Git or GitHub wrapper.
+In particular, do not introduce an `agent:finish`, `agent:handoff`, generic shell proxy, or Git/GitHub wrapper that validates, commits, pushes, edits the PR, waits for CI, merges, or deploys as one opaque action.
 
-## Tranche 5 - Repeated-retrieval prevention
+The desired optimization is:
 
-### Objective
+```text
+several related READS
+-> retrieved together
+-> fewer model turns
+-> facts still interpreted independently
+```
 
-Translate the existing constrained-retrieval principle into concrete behavior for long tasks.
+not:
 
-### Documentation contract
+```text
+many mutations
+-> hidden behind one command
+```
 
-Add or refine guidance stating:
+## Acceptance criteria
 
-- retrieve a repository authority once and reuse it while unchanged;
-- retrieve PR head/base/Draft facts once at task start and refresh only after an event capable of changing them;
-- use `rg -n` and bounded ranges before full-file reads;
-- do not combine several full files in a parallel tool call merely to reduce latency;
-- after a focused failure, read the failing block and directly implicated source instead of rerunning or retrieving the complete broad suite;
-- during implementation inspect changed-file diffs; reserve the complete branch diff for final review;
-- after compaction, rely on the retained task summary and reread only facts that are missing, ambiguous, or drift-prone.
+- Living guidance defines the Discovery -> Implementation -> Checkpoint -> Handoff lifecycle.
+- Client compaction is capability-aware and occurs at the coherent checkpoint-to-handoff boundary when useful.
+- No fake repository compaction command is introduced.
+- After compaction, unchanged authorities are reused rather than reread by default.
+- Related read-only evidence may be batched while preserving independent evidence interpretation.
+- PR metadata refresh is event-driven rather than turn-driven.
+- Existing merge-base/untracked whitespace authority is preserved.
+- A globally clean worktree is not required when unrelated pre-existing work must be preserved.
+- Mutations and Production/Preview operational boundaries remain separate.
 
-### Optional executable change
+# Tranche B - Small living-guidance updates
 
-None by default. Do not build file-read tracking, session state, or a retrieval cache. If the agent audit discovers duplicated output produced by a repository-owned command, fix that command's semantic presentation at its existing owner and add a focused regression test.
+## Objective
 
-### Acceptance criteria
+Make the narrowed lifecycle discoverable from the repository's existing authorities without creating another subsystem or bloating every task prompt.
 
-- Guidance is specific enough to act on but remains judgment-based.
-- No repository state records which files an agent has read.
-- No vendor/session dependency is added.
+## Expected files
 
-## Tranche 6 - Output-volume regression matrix
+Prefer the smallest necessary documentation surface, likely:
 
-### Objective
+- root `AGENTS.md`;
+- `docs/DEVELOPMENT_EXECUTION_WORKFLOW.md`;
+- `scripts/AGENTS.md` only where script/tooling guidance genuinely needs the rule;
+- `docs/TESTING_AND_VALIDATION_GUIDANCE.md` only if validation-phase wording would otherwise become incomplete.
 
-Demonstrate that repository-owned compact presentation remains bounded without introducing model-token telemetry.
+Update `docs/AGENT_TASK_MAP.md` only if routing ownership changes.
 
-### Primary files
+Do not edit historical plans merely to normalize wording.
 
-Reuse the PR #155 test surface:
+## Required living guidance
 
-- `tests/compact-terminal-validation.test.js`;
-- `tests/compact-terminal-validation-regressions.test.js`;
-- `tests/local-agent-validation.test.js`;
-- `tests/ci-test-reporter.test.js` only for CI-specific behavior.
+The final living guidance should establish, without excessive duplication:
 
-### Required audit
+1. discovery ends when the implementation surface and required owners/tests are established;
+2. unchanged repository authority is reused while still valid;
+3. checkpoint validation occurs after a coherent batch rather than after every edit;
+4. when client context compaction exists and the session is tool/file heavy, compact after the coherent checkpoint and before handoff;
+5. after compaction, reread only missing/ambiguous/drift-prone evidence;
+6. related read-only local/remote state may be retrieved together when attribution remains clear;
+7. PR metadata is refreshed after invalidating events rather than after ordinary model turns;
+8. compact validation output is sufficient evidence for a passing command; verbose reproduction is diagnostic only;
+9. the complete intended-base-to-head diff is still inspected deliberately at final review;
+10. mutations, deployment, migration, and live verification remain separate evidence claims.
 
-Confirm current tests already cover:
+## Forbidden implementation
 
-- a very large Node assertion value;
-- many simultaneous Node failures;
-- exact omitted-failure counts;
-- bounded captured stdout/stderr;
-- bounded Svelte messages and more than ten errors;
-- malformed/incomplete parser failure staying non-zero;
-- focused and verbose reproduction commands;
-- local/CI reporter precedence;
-- compact and verbose validation selecting identical logical checks.
+Do not add:
 
-Add tests only for missing cases. Prefer generated in-memory fixtures over large committed fixture files.
+- model-token telemetry;
+- context-window thresholds;
+- session-file parsing;
+- conversation/tool-output persistence;
+- file-read tracking;
+- retrieval caches;
+- a new `agent:handoff`/`agent:finish` command;
+- a Git/GitHub command wrapper;
+- another changed-path classifier;
+- another validation-selection DSL.
 
-### Evidence format
+## Tests
 
-The PR description or final handoff should include a small before/after table for representative repository-owned commands, measured as terminal characters or lines:
+This tranche should remain documentation-only unless implementation uncovers a concrete executable contract gap.
 
-| Scenario | Before/current-main output | New output | Semantic evidence preserved |
-| --- | ---: | ---: | --- |
-| Green focused Node test | measured | measured | count, status |
-| Large assertion failure | measured | measured | identity, location, bounded expected/actual, repro |
-| Cascading Node failures | measured | measured | exact total, bounded details, repro |
-| Green Svelte check | measured | measured | errors/warnings, status |
-| Cascading Svelte errors | measured | measured | exact total, first ten, repro |
-| Full validation | measured | measured | each selected check and final status |
+Use direct inspection and repository-selected documentation validation. Add source-contract tests only when a specific operational invariant genuinely needs an executable owner; do not lock prose gratuitously.
 
-Do not compare model tokens or parse a coding-agent rollout. The measurements must be reproducible from repository commands and fixtures.
+# Final integration and handoff review
 
-### Acceptance criteria
+This is a review checklist, not a separate implementation tranche.
 
-- Every new presentation behavior has a deterministic regression owner.
-- Measurements are reproducible without credentials or production data.
-- Exit status, selection, and exact aggregate failure counts remain authoritative.
+Before handing off PR #156 implementation:
 
-## Tranche 7 - Final integration and handoff review
+1. run `npm run agent:doctor` once when local environment state needs establishing;
+2. use directly related focused checks during any executable change;
+3. run `npm run agent:checks -- --compact` after the complete coherent change;
+4. execute every final required and specialized check it reports;
+5. inspect the complete intended-base-to-head diff once at deliberate final review;
+6. verify the exact pushed head and current GitHub checks separately.
 
-### Objective
+Confirm:
 
-Verify that the combined giant PR improves agent workflow without broadening into a new orchestration system.
+- validation selection was not weakened;
+- no second retrieval/validation authority was introduced;
+- no agent-session parsing, token estimation, cache, or persisted retrieval state was added;
+- Production/Preview, CI, deployment, migration, and mutation boundaries are unchanged;
+- documentation matches executable current behavior;
+- unrelated worktree state was preserved;
+- the final implementation is as small as the audited gaps permit.
 
-### Required process
+## Success criteria
 
-1. Run `npm run agent:doctor` once for the local session.
-2. During each code tranche, run the directly related focused tests.
-3. After each coherent tranche, inspect its scoped diff and run only checkpoint validation that its risk requires.
-4. Do not rerun an unchanged passing command unless later edits can invalidate its evidence.
-5. Run `npm run agent:checks -- --compact` after the complete coherent change.
-6. Execute every final required and specialized check it reports.
-7. Inspect the complete `origin/main...HEAD` diff once at deliberate final review.
-8. Verify the exact pushed head and current GitHub checks separately.
+This work succeeds when future coding agents naturally follow this pattern:
 
-### Final review questions
+```text
+retrieve only enough to establish the implementation surface
+-> implement with targeted reads
+-> validate at a coherent checkpoint
+-> compact client context when available and useful
+-> reuse retained evidence
+-> retrieve related read-only handoff state efficiently
+-> run required final validation
+-> perform explicit authorized mutations
+-> verify exact-head remote state
+```
 
-- Did the PR change validation selection, or presentation/guidance only?
-- Did any code begin parsing agent sessions, estimating tokens, or persisting retrieval state?
-- Did any new command duplicate `agent:checks`, validation-contract, or GitHub ownership?
-- Can a compact parser failure incorrectly produce success?
-- Are Production/Preview, CI, deployment, and mutation boundaries unchanged?
-- Does every documentation statement match executable current behavior?
-- Were unrelated worktree files excluded from the commit?
-
-### Acceptance criteria
-
-- All repository-selected checks pass, or unrelated baseline failures are identified with separate evidence and are not silently absorbed into this PR.
-- Complete diff review shows no application/runtime/schema/deployment behavior change.
-- The PR remains reconstructible from its plan, commits, tests, and description without access to the originating conversation.
-
-## Suggested commit boundaries inside one giant PR
-
-Keep the work in one Draft PR but make each tranche independently reviewable:
-
-1. `docs: add coding-agent context lifecycle guidance`
-2. `refactor: tighten compact agent-checks presentation` — only if Tranche 3 finds a real gap
-3. `docs: define read-only handoff batching boundaries`
-4. `docs: clarify repeated-retrieval discipline`
-5. `test: complete compact output regression matrix` — only for missing coverage
-6. `docs: record context-efficiency implementation status`
-
-Do not create empty or cosmetic commits for tranches already satisfied by PR #155. Record them as satisfied in the plan instead.
-
-## Definition of done
-
-The giant implementation PR is ready only when:
-
-- PR #155 remains the sole owner of compact terminal validation presentation;
-- living guidance defines Discovery, Implementation, Checkpoint, and Handoff phases;
-- capability-aware compaction is recommended at the checkpoint-to-handoff boundary for tool-heavy sessions;
-- existing `agent:checks` compact output has either been proven sufficient or narrowly improved without new authority;
-- safe read-only batching and mutation boundaries are explicit;
-- repeated unchanged retrieval guidance is concrete;
-- no token counter, session parser, cache, command proxy, or retrieval DSL is introduced;
-- any new output behavior has deterministic repository tests;
-- all required validation and exact-head remote evidence are reported separately;
-- the PR and this document are sufficient for a future coding agent that cannot access the original logs.
+The repository should gain clearer context-lifecycle guidance, not another context-management subsystem.
