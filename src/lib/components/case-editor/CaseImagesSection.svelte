@@ -12,8 +12,8 @@
   /** @typedef {{ case: { id: string }, attached: CaseAsset[], questions: CaseQuestion[], stimulusGroups: StimulusGroup[], reusableImageQuestions?: any[] }} ImagesCase */
   /** @typedef {{ imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, assetId?: string, id?: string }} ViewableAsset */
   /** @typedef {{ key: string, scope: 'Image-specific' | 'Reusable' | 'Shared across this image set', promptMd: string, answerMd: string }} ImageQuestionPreview */
-  /** @type {{ selectedCase: ImagesCase, previewMode: boolean, editorLayout: CaseEditorLayout, editorBase: string, onimageopen?: (asset: ViewableAsset, subtitle?: string) => void }} */
-  let { selectedCase, previewMode, editorLayout, editorBase, onimageopen } = $props();
+  /** @type {{ selectedCase: ImagesCase, previewMode: boolean, editorLayout: CaseEditorLayout, editorBase: string, onimageopen?: (asset: ViewableAsset, subtitle?: string) => void, coordinator?: any, caseLibraryReturnQuery?: string }} */
+  let { selectedCase, previewMode, editorLayout, editorBase, onimageopen, coordinator = null, caseLibraryReturnQuery = '' } = $props();
 
   let advancedOpen = $state(false);
   let activeGroups = $derived((selectedCase?.stimulusGroups ?? []).filter((group) => group.isActive));
@@ -97,7 +97,7 @@
 </script>
 
 {#if previewMode}
-  <CaseImagesAdvanced {selectedCase} {previewMode} {editorLayout} {editorBase} {onimageopen} />
+  <CaseImagesAdvanced {selectedCase} {previewMode} {editorLayout} {editorBase} {onimageopen} {coordinator} {caseLibraryReturnQuery} />
 {:else}
   <section id={advancedOpen ? undefined : 'images'} class="panel image-overview" aria-labelledby="case-images-heading">
     <div class="panel-heading">
@@ -193,7 +193,7 @@
       <!-- The delegated editor retains the established updateStimulusOptionCaption action and its identity-preserving mutation flow. -->
       {#if advancedOpen}
         <div class="advanced-editor">
-          <CaseImagesAdvanced {selectedCase} {previewMode} {editorLayout} {editorBase} {onimageopen} />
+          <CaseImagesAdvanced {selectedCase} {previewMode} {editorLayout} {editorBase} {onimageopen} {coordinator} {caseLibraryReturnQuery} />
         </div>
       {/if}
     </details>

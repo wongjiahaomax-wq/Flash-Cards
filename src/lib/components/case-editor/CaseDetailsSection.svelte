@@ -3,7 +3,7 @@
   import { onDestroy, onMount } from 'svelte';
   import { enhance } from '$app/forms';
   import { captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
-  import { cloneCaseEditorSnapshot, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
+  import { cloneCaseEditorSnapshot, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
 
   let { selectedCase, primaryTopic, editorLayout, coordinator = null, caseLibraryReturnQuery = '' } = $props();
@@ -53,15 +53,16 @@
     return pending ?? Promise.resolve(false);
   }
 
-  function enhanceDetails() {
+  function enhanceDetails({ formElement }) {
     const view = captureCaseEditorView();
-    const stable = stableCaseEditorEnhance(view);
+    const stable = stableCaseEditorEnhance(view, formElement);
     return async ({ result }) => {
       const outcome = await stable({ result });
       if (outcome.ok) {
         const current = serverSnapshot(selectedCase);
-        baseline = current;
-        if (sameCaseEditorSnapshot(draft, submittedSnapshot)) draft = cloneCaseEditorSnapshot(current);
+        const reconciled = reconcileSubmittedCaseEditorDraft(draft, submittedSnapshot, current);
+        baseline = reconciled.baseline;
+        draft = reconciled.draft;
         saveState = 'saved';
       } else {
         saveState = 'error';

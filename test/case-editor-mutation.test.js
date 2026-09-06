@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createCaseEditorCoordinator, sameCaseEditorSnapshot } from '../src/lib/case-editor-coordinator.js';
+import { createCaseEditorCoordinator, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '../src/lib/case-editor-coordinator.js';
 
 test('Case editor coordinator serializes Save All and only attempts current dirty drafts', async () => {
   const coordinator = createCaseEditorCoordinator();
@@ -30,4 +30,51 @@ test('Case editor snapshot equality distinguishes a newer in-flight edit', () =>
   const submitted = { title: 'A', vignetteMd: 'Original' };
   assert.equal(sameCaseEditorSnapshot(submitted, { title: 'A', vignetteMd: 'Original' }), true);
   assert.equal(sameCaseEditorSnapshot(submitted, { title: 'B', vignetteMd: 'Original' }), false);
+});
+
+test('Case editor reconciliation keeps an in-flight A to B edit dirty after A succeeds', () => {
+  const submittedA = { title: 'A', vignetteMd: 'Original' };
+  const newerB = { title: 'B', vignetteMd: 'Original' };
+  const reconciled = reconcileSubmittedCaseEditorDraft(newerB, submittedA, submittedA);
+
+  assert.deepEqual(reconciled.baseline, submittedA);
+  assert.deepEqual(reconciled.draft, newerB);
+  assert.notDeepEqual(reconciled.draft, reconciled.baseline);
+});
+
+test('Case editor reconciliation resets a submitted draft when no newer edit exists', () => {
+  const submitted = { title: 'A', vignetteMd: 'Updated' };
+  const authoritative = { title: 'A', vignetteMd: 'Updated by server' };
+  const reconciled = reconcileSubmittedCaseEditorDraft(submitted, submitted, authoritative);
+
+  assert.deepEqual(reconciled.baseline, authoritative);
+  assert.deepEqual(reconciled.draft, authoritative);
+});
+
+test('Save All continues after a partial failure and reports each outcome', async () => {
+  const coordinator = createCaseEditorCoordinator();
+  const events = [];
+  let firstDirty = true;
+  let secondDirty = true;
+  coordinator.register('first', { isDirty: () => firstDirty, save: async () => { events.push('first'); return false; } });
+  coordinator.register('second', { isDirty: () => secondDirty, save: async () => { events.push('second'); secondDirty = false; return true; } });
+
+  assert.deepEqual(await coordinator.saveAll(), { attempted: 2, succeeded: 1, failed: 1 });
+  assert.deepEqual(events, ['first', 'second']);
+  assert.equal(coordinator.dirtyCount(), 1);
+});
+
+test('newly registered Case question drafts participate in Save All after revalidation', async () => {
+  const coordinator = createCaseEditorCoordinator();
+  let dirty = false;
+  let saves = 0;
+  coordinator.register('question:new-prompt', {
+    isDirty: () => dirty,
+    save: async () => { saves += 1; dirty = false; return true; }
+  });
+  dirty = true;
+
+  assert.equal(coordinator.dirtyCount(), 1);
+  assert.deepEqual(await coordinator.saveAll(), { attempted: 1, succeeded: 1, failed: 0 });
+  assert.equal(saves, 1);
 });

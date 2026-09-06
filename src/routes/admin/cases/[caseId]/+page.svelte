@@ -62,15 +62,21 @@
       .filter((form) => {
         if (!(form instanceof HTMLFormElement)) return false;
         if (form.id === 'case-details-form' || form.classList.contains('question-edit-form')) return false;
+        if (form.hasAttribute('data-case-editor-coordinated')) return false;
         const action = form.getAttribute('action') ?? '';
-        return (action.startsWith('?/') || action.includes('/cases/')) && !action.includes('/deactivate') && !action.includes('/reorderQuestion');
-      })
-      .map((form) => enhance(/** @type {HTMLFormElement} */ (form), /** @type {any} */ (() => stableCaseEditorEnhance(captureCaseEditorView()))));
+        return (action.startsWith('?/') || action.includes('/cases/'))
+          && !action.includes('/question-scope')
+          && !action.includes('/deactivate')
+          && !action.includes('/reorderQuestion');
+      });
+    /** @param {any} submitContext */
+    const enhanceStableForm = (submitContext) => stableCaseEditorEnhance(captureCaseEditorView(), submitContext.formElement);
+    const enhancedForms = stableFormActions.map((form) => enhance(/** @type {HTMLFormElement} */ (form), /** @type {any} */ (enhanceStableForm)));
     return () => {
       unsubscribe();
       window.removeEventListener('beforeunload', beforeUnload);
       document.removeEventListener('submit', submitGuard, true);
-      for (const action of stableFormActions) action?.destroy?.();
+      for (const action of enhancedForms) action?.destroy?.();
     };
   });
 
@@ -128,7 +134,7 @@
     <CaseEditorNavigation {selectedCase} {primaryTopic} {editorLayout} {fastReviewSummary} auditCount={caseQuestionAudit.length} onlayoutchange={setEditorLayout} />
     <CaseTopicsSection {selectedCase} concepts={data.concepts} systems={data.systems} tagOptions={selectedCase.tagOptions ?? []} {primaryTopic} previewMode={data.previewMode} {editorLayout} />
     <CaseDetailsSection {selectedCase} {primaryTopic} {editorLayout} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
-    <CaseImagesSection {selectedCase} previewMode={data.previewMode} {editorLayout} {editorBase} onimageopen={showImage} />
+    <CaseImagesSection {selectedCase} previewMode={data.previewMode} {editorLayout} {editorBase} onimageopen={showImage} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
     {#if !data.previewMode}<StimulusOriginalsPanel {selectedCase} />{/if}
     <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} status={data.status} removedQuestionPromptId={data.removedQuestionPromptId} {editorLayout} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
     {#if editorLayout === 'compact'}<CaseQuestionAudit rows={caseQuestionAudit} onimageopen={showImage} />{/if}
