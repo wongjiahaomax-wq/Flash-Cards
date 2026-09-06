@@ -715,11 +715,11 @@
             <fieldset class="scope-mode">
               <legend>Scope</legend>
               <label class="scope-mode-option">
-                <input type="radio" checked={draftScopeMode(system.id) === 'all'} onchange={() => setDraftScopeMode(system.id, 'all')} />
+                <input type="radio" name={`draftScope:${system.id}`} value="all" checked={draftScopeMode(system.id) === 'all'} onchange={() => setDraftScopeMode(system.id, 'all')} />
                 <span><strong>Whole System</strong><small>All eligible Cases in {system.name}.</small></span>
               </label>
               <label class="scope-mode-option">
-                <input type="radio" checked={draftScopeMode(system.id) === 'routes'} onchange={() => setDraftScopeMode(system.id, 'routes')} />
+                <input type="radio" name={`draftScope:${system.id}`} value="routes" checked={draftScopeMode(system.id) === 'routes'} onchange={() => setDraftScopeMode(system.id, 'routes')} />
                 <span><strong>Specific Topics / Tags</strong><small>Use only the applied exact-Topic and curated Tag routes below.</small></span>
               </label>
             </fieldset>
