@@ -37,6 +37,14 @@ function remoteTaskMapSection() {
   return taskMap.slice(start, end);
 }
 
+function hybridTaskMapSection() {
+  const start = taskMap.indexOf('### Hybrid mode');
+  const end = taskMap.indexOf('## Local agent commands', start);
+  assert.notEqual(start, -1, 'Hybrid routing section must exist');
+  assert.notEqual(end, -1, 'Hybrid routing must remain bounded from local command guidance');
+  return taskMap.slice(start, end);
+}
+
 test('Remote GitHub write guidance prefers one coherent branch update when capabilities exist while keeping simple writes simple', () => {
   const section = remoteWriteSection();
 
@@ -103,16 +111,24 @@ test('Detailed Git-data write procedure has one execution authority and Remote G
   }
 });
 
-test('Local Codex efficiency overlay is routed only from Local checkout guidance and excluded from ChatGPT GitHub-plugin Remote mode', () => {
+test('Local Codex efficiency overlay is routed from Local and Hybrid Codex modes while ChatGPT GitHub-plugin Remote mode stays excluded', () => {
   const localSection = localTaskMapSection();
   const remoteSection = remoteTaskMapSection();
+  const hybridSection = hybridTaskMapSection();
 
   assert.match(localSection, /active coding client is \*\*Codex\*\*/i);
   assert.match(localSection, /docs\/LOCAL_CODEX_EXECUTION_GUIDANCE\.md/);
   assert.match(localSection, /ChatGPT chat using the GitHub plugin\/Remote GitHub mode/i);
+
+  assert.match(hybridSection, /active coding client is \*\*Codex\*\*/i);
+  assert.match(hybridSection, /usable local execution/i);
+  assert.match(hybridSection, /docs\/LOCAL_CODEX_EXECUTION_GUIDANCE\.md/);
+  assert.match(hybridSection, /ChatGPT chat using the GitHub plugin without usable local execution remains on Remote GitHub mode/i);
+
   assert.equal(remoteSection.includes('LOCAL_CODEX_EXECUTION_GUIDANCE.md'), false);
 
   assert.match(localCodexGuidance, /Use this overlay only when the active coding client is \*\*Codex\*\*/i);
+  assert.match(localCodexGuidance, /local-execution side of a Hybrid Codex session/i);
   assert.match(localCodexGuidance, /Do \*\*not\*\* load or apply this overlay when ChatGPT chat is working through the GitHub plugin/i);
   assert.match(localCodexGuidance, /Remote GitHub execution\/write discipline/i);
   assert.match(localCodexGuidance, /does not weaken or replace/i);

@@ -116,6 +116,8 @@ Distinguish inspection from execution. Do not report local commands as passed un
 
 ### Hybrid mode
 
+When the active coding client is **Codex** and Hybrid mode includes usable local execution, also read `docs/LOCAL_CODEX_EXECUTION_GUIDANCE.md` for that local-execution side. ChatGPT chat using the GitHub plugin without usable local execution remains on Remote GitHub mode and must not load the overlay.
+
 Use each capability where it is strongest:
 
 ```text

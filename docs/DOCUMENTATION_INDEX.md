@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reconciled: 5 September 2026._
+_Last reconciled: 6 September 2026._
 
 This index defines document authority. Historical plans/evidence may preserve old branch-era facts; they do not override current executable implementation or the living authorities below.
 
@@ -46,6 +46,7 @@ The GitHub repository is public. The application remains closed-enrollment/priva
 - `V1_SPEC.md` — concise current V1 repository behavior.
 - `AUTHORING_MODEL.md` — administrator mental model.
 - `AGENT_TASK_MAP.md` — minimum-context coding-agent routing authority; root `AGENTS.md` remains the universal safety contract.
+- `LOCAL_CODEX_EXECUTION_GUIDANCE.md` — living local-Codex retrieval/shell-output overlay for Codex with usable local execution, including the local-execution side of Hybrid mode; it does not apply to ChatGPT chat using the GitHub plugin/Remote GitHub mode.
 - `TESTING_AND_VALIDATION_GUIDANCE.md` — current test/validation authority; `CI_AGENT_DIAGNOSTICS.md` owns CI presentation/retrieval details.
 - `ENGINEERING_ARCHITECTURE_GUIDELINES.md` — structural guidance for substantial refactors/new module boundaries.
 - `DOCUMENTATION_MAINTENANCE.md` — living documentation-lifecycle and drift-prevention guidance.
@@ -131,6 +132,7 @@ Executable validators/schemas outrank old extraction-prompt examples. Import Pac
 - `CLOUDFLARE.md` — Production release/migration runbook; for the first Runtime v2 release it must follow the mechanically fenced migration path in `.github/workflows/deploy-production.yml` rather than any historical optional-migration command.
 - `DEVELOPMENT_EXECUTION_WORKFLOW.md` — Local / Remote GitHub / Hybrid workflow and living authority for coding-agent execution mechanics/context lifecycle.
 - `AGENT_CONTEXT_EFFICIENCY_PLAN.md` — historical PR #156 planning/audit record only; current authority lives in root `AGENTS.md`, `DEVELOPMENT_EXECUTION_WORKFLOW.md`, and repository-owned validation/CI contracts.
+- `LOCAL_CODEX_CONTEXT_EFFICIENCY_PLAN.md` — historical PR #160 planning record only; current local-Codex behavior lives in `LOCAL_CODEX_EXECUTION_GUIDANCE.md` plus the applicable `AGENT_TASK_MAP.md` routing.
 - `LOCAL_DEVELOPMENT_REPLICA.md` — local production-content replica.
 - `R2_COST_GUARDRAILS.md` and `IMAGE_PROVENANCE.md` — media/storage safety.
 - `OPEN_SOURCE_READINESS.md` — current public-repository safety posture.

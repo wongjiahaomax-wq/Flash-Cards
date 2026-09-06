@@ -1,6 +1,6 @@
 # Local Codex context-efficiency plan
 
-_Status: proposed focused implementation plan. This document is a planning record, not living operational authority._
+_Status: historical PR #160 planning record. Implementation is present on this PR branch. This document is not living operational authority; current local-Codex behavior lives in `docs/LOCAL_CODEX_EXECUTION_GUIDANCE.md` plus the applicable routing in `docs/AGENT_TASK_MAP.md`._
 
 ## 1. Scope boundary
 
