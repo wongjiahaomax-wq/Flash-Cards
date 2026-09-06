@@ -52,7 +52,7 @@ function writeFixturePackage(fixture, suffix = '') {
 
 test('dependency-installing workflows use the shared Node/npm cache and install contract', () => {
   for (const workflowPath of workflowPaths) {
-    const workflow = fs.readFileSync(path.join(root, workflowPath), 'utf8');
+    const workflow = fs.readFileSync(path.join(root, workflowPath), 'utf8').replace(/\r\n?/g, '\n');
     assert.match(workflow, /uses: actions\/setup-node@v5[\s\S]*?with:\n\s+node-version: 22\n\s+cache: npm\n\s+cache-dependency-path: package-lock\.json/, `${workflowPath} should use the shared setup-node cache contract`);
     assert.match(workflow, /run: npm ci --prefer-offline --no-audit --no-fund/, `${workflowPath} should use the optimized clean install command`);
     assert.doesNotMatch(workflow, /cache:\s*node_modules/, `${workflowPath} must not cache node_modules`);
@@ -61,14 +61,14 @@ test('dependency-installing workflows use the shared Node/npm cache and install 
 
 test('all pull-request validation workflows cancel obsolete runs for the same pull request', () => {
   for (const workflowPath of prWorkflowPaths) {
-    const workflow = fs.readFileSync(path.join(root, workflowPath), 'utf8');
+    const workflow = fs.readFileSync(path.join(root, workflowPath), 'utf8').replace(/\r\n?/g, '\n');
     assert.match(workflow, /group: \$\{\{ github\.workflow \}\}-pr-\$\{\{ github\.event\.pull_request\.number \}\}/, `${workflowPath} should group runs by workflow and PR number`);
     assert.match(workflow, /cancel-in-progress: true/, `${workflowPath} should cancel superseded PR runs`);
   }
 });
 
 test('browser benchmark uses a prepared version-matched Playwright environment', () => {
-  const workflow = fs.readFileSync(path.join(root, '.github/workflows/learner-fsrs-browser-benchmark.yml'), 'utf8');
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/learner-fsrs-browser-benchmark.yml'), 'utf8').replace(/\r\n?/g, '\n');
   assert.match(workflow, /image: mcr\.microsoft\.com\/playwright:v1\.55\.0-noble/);
   assert.match(workflow, /npm install --prefix tools\/learner-fsrs-browser-benchmark[\s\S]*@playwright\/test@1\.55\.0/);
   assert.match(workflow, /tools\/learner-fsrs-browser-benchmark\/node_modules\/\.bin\/playwright test/);
