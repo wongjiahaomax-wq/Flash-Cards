@@ -1,0 +1,68 @@
+name: PR 166 finalize reviewer artifacts
+
+on:
+  push:
+    branches:
+      - plan/slide-reviewer-compact-qa-ux
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    if: ${{ !contains(github.event.head_commit.message, 'Finalize PR 166 generated reviewer') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: plan/slide-reviewer-compact-qa-ux
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tighten source and focused coverage
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const appPath = 'tools/slide-import-review/src/app.js';
+          let app = fs.readFileSync(appPath, 'utf8');
+          app = app.replace(
+            "  // Compatibility contract: sourceFingerprint=await sha256Hex(raw)\n  // Compatibility contract: persistedStateMatches(saved,loaded.reviewMap.bundleId,sourceFingerprint)\n",
+            ''
+          );
+          app = app.replace("document.querySelectorAll('textarea').forEach", "document.querySelectorAll('.auto-grow').forEach");
+          fs.writeFileSync(appPath, app);
+
+          const fixesPath = 'tools/slide-import-review/tests/review-fixes.test.js';
+          let fixes = fs.readFileSync(fixesPath, 'utf8');
+          fixes = fixes.replace(
+            "  assert.match(source, /sourceFingerprint=await sha256Hex\\(raw\\)/);\n  assert.match(source, /persistedStateMatches\\(saved,loaded\\.reviewMap\\.bundleId,sourceFingerprint\\)/);",
+            "  assert.match(source, /async function fingerprintFile\\(input\\)/);\n  assert.match(source, /sha256Hex\\(new Uint8Array\\(await input\\.arrayBuffer\\(\\)\\)\\)/);\n  assert.match(source, /persistedStateMatches\\(saved, bundle\\.reviewMap\\.bundleId, bundleFingerprint\\)/);"
+          );
+          fixes = fixes.replace(
+            "  assert.match(source, /target => finalizeBundle\\(target\\)\\.then/);\n});",
+            `  assert.match(source, /target => finalizeBundle\\(target\\)\\.then/);\n  assert.match(source, /revealAnswers = true/);\n  assert.match(source, /function fitTextarea\\(element\\)/);\n  assert.match(source, /document\\.querySelectorAll\\('\\.auto-grow'\\)/);\n  assert.match(source, /function bulkEligibleQuestions\\(caseId\\)/);\n  assert.match(source, /review\\?\\.reviewStatus === 'pending'/);\n  assert.match(source, /includeReconciledWarning: true/);\n  assert.match(source, /id="accept-qa"/);\n  assert.match(source, /confirmWarningOverride/);\n  assert.match(source, /window\\.confirm/);\n  const bulkAction = source.match(/async function approveEligibleQuestions\\(meta\\) \\{([\\s\\S]*?)\\n\\}/)?.[1] ?? '';\n  assert.match(bulkAction, /reviewStatus = 'approved'/);\n  assert.match(bulkAction, /await persist\\(\\)/);\n  assert.doesNotMatch(bulkAction, /meta\\.reviewStatus/);\n});`
+          );
+          fs.writeFileSync(fixesPath, fixes);
+
+          const planPath = 'docs/SLIDE_REVIEWER_COMPACT_QA_UX_PLAN.md';
+          let plan = fs.readFileSync(planPath, 'utf8');
+          plan = plan.replace('_Status: focused implementation plan for this Draft PR._', '_Status: implemented on Draft PR #166; pending final review._');
+          fs.writeFileSync(planPath, plan);
+          NODE
+      - run: CI=false npm run slide-review:build
+      - run: npm run slide-review:test
+      - name: Commit finalized source, tests, plan, and generated reviewer
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/SLIDE_REVIEWER_COMPACT_QA_UX_PLAN.md tools/slide-import-review/src/app.js tools/slide-import-review/tests/review-fixes.test.js tools/slide-import-review/reviewer.html
+          if git diff --cached --quiet; then
+            echo "PR 166 reviewer artifacts already finalized."
+            exit 0
+          fi
+          git commit -m "Finalize PR 166 generated reviewer"
+          git push origin HEAD:plan/slide-reviewer-compact-qa-ux
