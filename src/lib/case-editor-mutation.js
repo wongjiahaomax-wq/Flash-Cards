@@ -41,10 +41,12 @@ function restoreEditorFormDrafts(drafts) {
   }
 }
 
-function findSubmittedEditorForm(form, key) {
+function findSubmittedEditorForm(form, key, logicalKey = '') {
   return form?.isConnected
     ? form
-    : [...document.querySelectorAll('.case-editor form[method="POST"]')].find((item) => editorFormKey(item) === key);
+    : [...document.querySelectorAll('.case-editor form[method="POST"]')].find((item) =>
+      (logicalKey && item.dataset.caseEditorLogicalKey === logicalKey) || editorFormKey(item) === key
+    );
 }
 
 function captureEditableFormSnapshot(form) {
@@ -78,12 +80,12 @@ function restoreEditableFormSnapshot(form, snapshot) {
   });
 }
 
-function resetSubmittedEditorForm(form, key) {
-  findSubmittedEditorForm(form, key)?.reset?.();
+function resetSubmittedEditorForm(form, key, logicalKey = '') {
+  findSubmittedEditorForm(form, key, logicalKey)?.reset?.();
 }
 
-function reconcileSubmittedEditorForm(form, key, submittedSnapshot, currentSnapshot) {
-  const candidate = findSubmittedEditorForm(form, key);
+function reconcileSubmittedEditorForm(form, key, logicalKey, submittedSnapshot, currentSnapshot) {
+  const candidate = findSubmittedEditorForm(form, key, logicalKey);
   if (!candidate) return;
   if (sameEditableFormSnapshot(currentSnapshot, submittedSnapshot)) candidate.reset?.();
   else restoreEditableFormSnapshot(candidate, currentSnapshot);
@@ -100,9 +102,10 @@ export function formHasMeaningfulUnsubmittedInput(form) {
   });
 }
 
-/** @param {{ scrollX: number, scrollY: number, activeElement: Element | null, selectionStart: number | null, selectionEnd: number | null }} view @param {HTMLFormElement | null} [submittedForm] @param {{ reconcileSubmittedDraft?: boolean }} [options] */
-export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selectionStart, selectionEnd }, submittedForm = null, { reconcileSubmittedDraft = false } = {}) {
+/** @param {{ scrollX: number, scrollY: number, activeElement: Element | null, selectionStart: number | null, selectionEnd: number | null }} view @param {HTMLFormElement | null} [submittedForm] @param {{ reconcileSubmittedDraft?: boolean, logicalKey?: string }} [options] */
+export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selectionStart, selectionEnd }, submittedForm = null, { reconcileSubmittedDraft = false, logicalKey = '' } = {}) {
   const submittedSnapshot = submittedForm ? captureEditableFormSnapshot(submittedForm) : null;
+  const submittedLogicalKey = logicalKey || submittedForm?.dataset.caseEditorLogicalKey || '';
   return async ({ result }) => {
     const successful = result.type === 'redirect' || result.type === 'success';
     const submittedKey = submittedForm ? editorFormKey(submittedForm) : '';
@@ -113,8 +116,8 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
       await tick();
       restoreEditorFormDrafts(formDrafts);
       if (successful) {
-        if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedSnapshot, currentSubmittedSnapshot);
-        else resetSubmittedEditorForm(submittedForm, submittedKey);
+        if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot);
+        else resetSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
       }
       return { ok: result.type === 'success' };
     }
@@ -125,8 +128,8 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
     await invalidateAll();
     await tick();
     restoreEditorFormDrafts(formDrafts);
-    if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedSnapshot, currentSubmittedSnapshot);
-    else resetSubmittedEditorForm(submittedForm, submittedKey);
+    if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot);
+    else resetSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
     window.scrollTo(scrollX, scrollY);
     if (activeElement?.isConnected && typeof activeElement.focus === 'function') {
       activeElement.focus({ preventScroll: true });
@@ -184,6 +187,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
   node.addEventListener('change', refresh);
 
   node.dataset.caseEditorEnhanced = 'true';
+  node.dataset.caseEditorLogicalKey = currentKey;
   const enhanced = enhance(node, ({ formElement, cancel }) => {
     if (pending) {
       cancel();
@@ -199,7 +203,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       resolve?.(false);
       return;
     }
-    const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { reconcileSubmittedDraft: true });
+    const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { reconcileSubmittedDraft: true, logicalKey: currentKey });
     return async ({ result }) => {
       let ok = false;
       try {
@@ -219,11 +223,13 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       if (nextKey === currentKey) return;
       unregister?.();
       currentKey = nextKey;
+      node.dataset.caseEditorLogicalKey = currentKey;
       unregister = register();
     },
     destroy() {
       enhanced?.destroy?.();
       delete node.dataset.caseEditorEnhanced;
+      delete node.dataset.caseEditorLogicalKey;
       node.removeEventListener('input', refresh);
       node.removeEventListener('change', refresh);
       unregister?.();

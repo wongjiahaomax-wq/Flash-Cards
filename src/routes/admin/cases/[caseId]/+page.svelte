@@ -157,9 +157,9 @@
         </form>
       </section>
     {/if}
+    <CaseImagePickerDialog {selectedCase} imagePicker={data.imagePicker} {editorBase} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
   </div>
 
-  <CaseImagePickerDialog {selectedCase} imagePicker={data.imagePicker} {editorBase} />
   <AdminImageViewer image={viewerImage} onclose={() => (viewerImage = null)} />
 {/if}
 

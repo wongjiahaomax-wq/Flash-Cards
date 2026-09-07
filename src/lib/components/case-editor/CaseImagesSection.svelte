@@ -4,7 +4,7 @@
   import CaseImagesAdvanced from '$lib/components/case-editor/CaseImagesAdvanced.svelte';
 
   /** @typedef {'classic' | 'compact'} CaseEditorLayout */
-  /** @typedef {{ questionPromptId: string, promptMd: string, answerMd: string, isActive: boolean, stimulusGroupOptionId?: string | null }} ScopedQuestion */
+  /** @typedef {{ id: string, questionPromptId: string, promptMd: string, answerMd: string, isActive: boolean, stimulusGroupOptionId?: string | null }} ScopedQuestion */
   /** @typedef {{ questionPromptId: string, promptMd: string, answerMd?: string, isActive?: boolean }} CaseQuestion */
   /** @typedef {{ assetId: string, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, captionMd?: string | null, isActive: boolean, sourceLabel?: string | null, sourceUrl?: string | null, licence?: string | null }} CaseAsset */
   /** @typedef {{ id: string, assetId: string, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, captionMd?: string | null, isActive: boolean, assetIsActive: boolean, removedFromCase?: boolean }} StimulusOption */
