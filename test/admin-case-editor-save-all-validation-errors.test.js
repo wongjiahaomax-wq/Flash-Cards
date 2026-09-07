@@ -1,22 +1,118 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
+import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
-const caseServer = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
-const saveAllMatch = caseServer.match(/saveAll: async \(\{ request, locals, platform, params \}\) => \{[\s\S]*?\n    return \{ ok: true \};\n  \},/);
-const saveAll = saveAllMatch?.[0] ?? '';
+import { buildSeedSql } from '../scripts/seed-content.mjs';
+import { applyCurrentSchema } from './current-schema.js';
 
-test('Save All returns client validation failures from stimulus and Case-asset writers as 400', () => {
-  assert.ok(saveAll, 'Save All action body should be present');
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier.startsWith('$lib/')) {
+      return { url: new URL(`../src/lib/${specifier.slice('$lib/'.length)}`, import.meta.url).href, shortCircuit: true };
+    }
+    return nextResolve(specifier, context);
+  }
+});
 
-  assert.match(caseServer, /import \{[^\n]*CaseAssetInputError[^\n]*\} from '\$lib\/server\/db\/case-assets\.js';/);
-  assert.match(saveAll, /updateCaseAssetCaption\(/, 'Case caption writer participates in Save All');
-  assert.match(saveAll, /updateStimulusGroup\(/, 'stimulus-group writer participates in Save All');
-  assert.match(saveAll, /saveStimulusOptionQuestion\(/, 'stimulus option-question writer participates in Save All');
-  assert.match(saveAll, /saveStimulusGroupQuestion\(/, 'stimulus group-question writer participates in Save All');
+function createD1Fixture() {
+  const sqlite = new DatabaseSync(':memory:');
+  sqlite.exec('PRAGMA foreign_keys = ON');
+  applyCurrentSchema(sqlite);
+  sqlite.exec(buildSeedSql());
+  const d1 = {
+    /** @param {string} sql */
+    prepare(sql) {
+      return {
+        /** @param {...any} params */
+        bind(...params) {
+          return {
+            async all() { return { results: sqlite.prepare(sql).all(...params) }; },
+            async raw() { return sqlite.prepare(sql).all(...params).map((row) => Object.values(row)); },
+            async run() {
+              const result = sqlite.prepare(sql).run(...params);
+              return { success: true, results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
+            }
+          };
+        }
+      };
+    },
+    /** @param {any[]} statements */
+    async batch(statements) { return Promise.all(statements.map((statement) => statement.run())); }
+  };
+  return { d1, sqlite };
+}
 
-  assert.match(saveAll, /errorValue instanceof StimulusGroupInputError/);
-  assert.match(saveAll, /errorValue instanceof CaseAssetInputError/);
-  assert.match(saveAll, /return fail\(clientError \? 400 : 500,/);
-  assert.match(saveAll, /if \(!clientError\) console\.error\('Case Save All failed\.'/);
+/** @param {string} name @param {string} value */
+function field(name, value) { return { name, type: 'text', value }; }
+
+/** @param {any} draft @param {D1Database} d1 */
+async function invokeSaveAll(draft, d1) {
+  const { actions } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
+  return actions.saveAll(/** @type {any} */ ({
+    request: new Request('http://localhost/admin/cases/seed-anterior-a?/saveAll', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ drafts: [draft] })
+    }),
+    locals: { user: { role: 'admin' } },
+    params: { caseId: 'seed-anterior-a' },
+    platform: { env: { DB: d1 } }
+  }));
+}
+
+/** @param {() => Promise<any>} operation */
+async function captureUnexpectedSaveAllLogs(operation) {
+  const original = console.error;
+  const calls = [];
+  console.error = (...args) => { calls.push(args); };
+  try {
+    return { result: await operation(), calls };
+  } finally {
+    console.error = original;
+  }
+}
+
+test('Save All returns StimulusGroupInputError validation as 400 without internal-error logging', async () => {
+  const fixture = createD1Fixture();
+  try {
+    const draft = {
+      kind: 'form',
+      action: '?/updateStimulusGroup',
+      fields: [
+        field('case_id', 'seed-anterior-a'),
+        field('group_id', ''),
+        field('name', 'Invalid set'),
+        field('specific_question_mode', 'none'),
+        field('minimum_specific_questions', '')
+      ]
+    };
+    const { result, calls } = await captureUnexpectedSaveAllLogs(() => invokeSaveAll(draft, /** @type {any} */ (fixture.d1)));
+    assert.equal(result.status, 400);
+    assert.match(result.data.error, /Stimulus Group is required/);
+    assert.deepEqual(calls, []);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Save All returns CaseAssetInputError caption validation as 400 without internal-error logging', async () => {
+  const fixture = createD1Fixture();
+  try {
+    const draft = {
+      kind: 'form',
+      action: '?/caption',
+      fields: [
+        field('case_id', 'seed-anterior-a'),
+        field('asset_id', 'missing-save-all-asset'),
+        field('caption', 'Invalid caption target')
+      ]
+    };
+    const { result, calls } = await captureUnexpectedSaveAllLogs(() => invokeSaveAll(draft, /** @type {any} */ (fixture.d1)));
+    assert.equal(result.status, 400);
+    assert.match(result.data.error, /missing or inactive/);
+    assert.deepEqual(calls, []);
+  } finally {
+    fixture.sqlite.close();
+  }
 });
