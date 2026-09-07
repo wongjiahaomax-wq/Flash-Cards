@@ -2,7 +2,7 @@
 
 _Status: local review/finalization layer implemented and merged in PR #53; semantic PPTX/PDF source reconstruction remains a separate ChatGPT workflow._
 
-_Last updated: 20 August 2026._
+_Last updated: 7 September 2026._
 
 ## 1. Purpose and boundary
 
@@ -254,7 +254,7 @@ warning
 info
 ```
 
-Blocking warnings prevent readiness/finalization.
+Blocking warnings remain fail-closed until the human reviewer reconciles the exact manifest-backed record. An explicitly human-approved Case, Asset, or emitted Question may retain its own blocking warning; `approved` plus the retained warning is the durable record-level reconciliation signal. Batch-level blocking warnings and unresolved/structural/integrity failures have no such override path and remain fail-closed.
 
 ### Source references
 
@@ -400,7 +400,7 @@ The primary view is side-by-side:
 │ selected source page        │ vignette                    │
 │ evidence / warnings         │ fixed learner images        │
 │                             │ Case Questions              │
-│                             │ reveal answers              │
+│                             │ answers shown by default    │
 └─────────────────────────────┴─────────────────────────────┘
 ```
 
@@ -419,7 +419,7 @@ Space         reveal/hide answers
 
 Shortcuts are ignored while focus is inside an input, textarea, select or contenteditable element.
 
-Answers are hidden by default and the Case title is clearly identified as Admin-only.
+Answers are revealed by default, can still be hidden/revealed with the existing control, and the Case title is clearly identified as Admin-only.
 
 ## 10. Direct manifest editing
 
@@ -477,6 +477,8 @@ unresolved Questions
 ```
 
 A clean Case approval may approve clean child Asset/Question records, but blocking warnings are never overridden automatically.
+
+A human reviewer may explicitly approve a manifest-backed Case, Asset, or emitted Question despite that exact record's own blocking warning. The warning remains unchanged in `review-map.json`; deterministic readiness/finalization treats the resulting `approved` state as durable reconciliation of that record only. Case-level approval never waives a warned child, and bulk Q&A approval never overrides warnings. Batch-level blocking warnings, unresolved questions, missing metadata/content, invalid media, broken relationships, source-coverage failures, and package/schema integrity failures remain non-overridable.
 
 A rejected Case remains represented in `review-map.json` editorial history but is excluded from the production output.
 
@@ -654,7 +656,7 @@ unresolved Question pending / needs_review
 approved Case missing required production fields
 blank created Prompt or answer
 unapproved required Asset or Question
-blocking warning
+unreconciled record-level blocking warning or batch-level blocking warning
 missing learner media
 SHA-256 mismatch
 MIME/magic-byte mismatch
@@ -703,7 +705,7 @@ rejected-Case dependency pruning
 pending/needs-review blockers
 blank Prompt/answer
 unapproved Asset
-blocking warnings
+record-scoped blocking-warning reconciliation plus unreconciled/batch blockers
 missing media
 hash mismatch
 MIME mismatch
@@ -715,6 +717,7 @@ undeclared media
 manifest/package limit failure
 reviewed-bundle round trip
 production parseImportPackage compatibility
+browser bulk-Q&A and explicit override state transitions
 ```
 
 The normal repository commands remain part of the acceptance boundary:
