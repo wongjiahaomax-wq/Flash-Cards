@@ -444,8 +444,14 @@ export async function sha256Hex(bytes) {
   return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, '0')).join('');
 }
 
-function u16(bytes, offset) { return bytes[offset] | (bytes[offset + 1] << 8); }
-function u32(bytes, offset) { return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0; }
+function u16(bytes, offset) {
+  if (offset < 0 || offset + 2 > bytes.length) throw new ReviewBundleError('ZIP metadata is truncated.');
+  return bytes[offset] | (bytes[offset + 1] << 8);
+}
+function u32(bytes, offset) {
+  if (offset < 0 || offset + 4 > bytes.length) throw new ReviewBundleError('ZIP metadata is truncated.');
+  return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
+}
 function safeReviewZipPath(path) {
   if (!path || path.includes('\\') || path.includes('\0') || path.startsWith('/') || /^[A-Za-z]:/.test(path) || path.split('/').some(part => !part || part === '.' || part === '..')) throw new ReviewBundleError(`Unsafe ZIP path: ${path}.`);
 }
@@ -458,39 +464,9 @@ async function inflateRaw(bytes) {
   const stream = new Blob([bytes.slice().buffer]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
-export async function readZip(input) {
-  const bytes = input instanceof Uint8Array ? input : input instanceof ArrayBuffer ? new Uint8Array(input) : new Uint8Array(await input.arrayBuffer());
-  const eocd = endOfCentralDirectory(bytes);
-  const disk = u16(bytes, eocd + 4), centralDisk = u16(bytes, eocd + 6), entriesOnDisk = u16(bytes, eocd + 8), count = u16(bytes, eocd + 10);
-  if (disk !== 0 || centralDisk !== 0 || entriesOnDisk !== count) throw new ReviewBundleError('Multi-disk ZIP archives are not supported.');
-  if (count > 4096) throw new ReviewBundleError('Review ZIP contains too many entries.');
-  const centralSize = u32(bytes, eocd + 12), centralOffset = u32(bytes, eocd + 16), commentLength = u16(bytes, eocd + 20);
-  if (eocd + 22 + commentLength !== bytes.length || centralOffset + centralSize !== eocd) throw new ReviewBundleError('ZIP central directory length is inconsistent.');
-  const files = new Map();
-  let cursor = centralOffset;
-  for (let i = 0; i < count; i += 1) {
-    if (u32(bytes, cursor) !== 0x02014b50) throw new ReviewBundleError('ZIP central directory entry is invalid.');
-    const flags = u16(bytes, cursor + 8), method = u16(bytes, cursor + 10), compressed = u32(bytes, cursor + 20), uncompressed = u32(bytes, cursor + 24);
-    const nameLen = u16(bytes, cursor + 28), extraLen = u16(bytes, cursor + 30), commentLen = u16(bytes, cursor + 32), localOffset = u32(bytes, cursor + 42);
-    const path = dec.decode(bytes.slice(cursor + 46, cursor + 46 + nameLen));
-    safeReviewZipPath(path);
-    if (files.has(path)) throw new ReviewBundleError(`Duplicate ZIP entry: ${path}.`);
-    if (flags & 1) throw new ReviewBundleError(`Encrypted ZIP entry is not supported: ${path}.`);
-    if (method !== 0 && method !== 8) throw new ReviewBundleError(`ZIP compression method ${method} is not supported.`);
-    if (u32(bytes, localOffset) !== 0x04034b50) throw new ReviewBundleError(`Invalid local ZIP header for ${path}.`);
-    const localNameLen = u16(bytes, localOffset + 26), localExtraLen = u16(bytes, localOffset + 28);
-    const localPath = dec.decode(bytes.slice(localOffset + 30, localOffset + 30 + localNameLen));
-    if (localPath !== path) throw new ReviewBundleError(`ZIP local and central filenames differ for ${path}.`);
-    const dataStart = localOffset + 30 + localNameLen + localExtraLen;
-    const compressedBytes = bytes.slice(dataStart, dataStart + compressed);
-    const data = method === 0 ? compressedBytes : await inflateRaw(compressedBytes);
-    if (data.byteLength !== uncompressed) throw new ReviewBundleError(`ZIP entry size mismatch: ${path}.`);
-    files.set(path, data);
-    cursor += 46 + nameLen + extraLen + commentLen;
-  }
-  if (cursor !== eocd) throw new ReviewBundleError('ZIP central directory length is inconsistent.');
-  return files;
-}
+const REVIEW_ZIP_MAX_ENTRIES = 4096;
+const REVIEW_ZIP_MAX_DECLARED_BYTES = 512 * 1024 * 1024;
+const REVIEW_CACHE_BYTES = 64 * 1024 * 1024;
 
 function crc32(bytes) {
   let crc = 0xffffffff;
@@ -500,6 +476,147 @@ function crc32(bytes) {
   }
   return (crc ^ 0xffffffff) >>> 0;
 }
+
+function sourceBlob(input) {
+  if (input instanceof Blob) return { blob: input, raw: null };
+  if (input instanceof Uint8Array) return { blob: new Blob([input]), raw: input };
+  if (input instanceof ArrayBuffer) return { blob: new Blob([input]), raw: new Uint8Array(input) };
+  if (input && typeof input.slice === 'function' && typeof input.size === 'number') return { blob: input, raw: null };
+  throw new ReviewBundleError('Review ZIP input must be a File, Blob, ArrayBuffer, or Uint8Array.');
+}
+
+async function blobRange(blob, start, end) {
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start || end > blob.size) {
+    throw new ReviewBundleError('ZIP entry range is outside the source archive.');
+  }
+  return new Uint8Array(await blob.slice(start, end).arrayBuffer());
+}
+
+function parseZipIndex(blob, raw, tail) {
+  const eocd = endOfCentralDirectory(tail);
+  const eocdAbsolute = blob.size - tail.length + eocd;
+  const disk = u16(tail, eocd + 4), centralDisk = u16(tail, eocd + 6), entriesOnDisk = u16(tail, eocd + 8), count = u16(tail, eocd + 10);
+  if (disk !== 0 || centralDisk !== 0 || entriesOnDisk !== count) throw new ReviewBundleError('Multi-disk ZIP archives are not supported.');
+  if (count > REVIEW_ZIP_MAX_ENTRIES) throw new ReviewBundleError(`Review ZIP contains too many entries (maximum ${REVIEW_ZIP_MAX_ENTRIES}).`);
+  const centralSize = u32(tail, eocd + 12), centralOffset = u32(tail, eocd + 16), commentLength = u16(tail, eocd + 20);
+  if (eocdAbsolute + 22 + commentLength !== blob.size || centralOffset + centralSize !== eocdAbsolute || centralOffset > blob.size) throw new ReviewBundleError('ZIP central directory length is inconsistent.');
+  if (centralSize > blob.size || centralOffset + centralSize > blob.size) throw new ReviewBundleError('ZIP central directory range is outside the source archive.');
+  if (!raw) return { eocdAbsolute, centralOffset, centralSize, count };
+  return { eocdAbsolute, centralOffset, centralSize, count };
+}
+
+async function readZipIndex(input) {
+  const { blob, raw } = sourceBlob(input);
+  if (blob.size > 0xffffffff) throw new ReviewBundleError('ZIP archives larger than 4 GiB are not supported.');
+  const tailLength = Math.min(blob.size, 65557);
+  const tail = await blobRange(blob, blob.size - tailLength, blob.size);
+  const header = parseZipIndex(blob, raw, tail);
+  const central = await blobRange(blob, header.centralOffset, header.centralOffset + header.centralSize);
+  const entries = new Map();
+  let cursor = 0;
+  let declaredBytes = 0;
+  for (let i = 0; i < header.count; i += 1) {
+    if (cursor + 46 > central.length || u32(central, cursor) !== 0x02014b50) throw new ReviewBundleError('ZIP central directory entry is invalid.');
+    const flags = u16(central, cursor + 8), method = u16(central, cursor + 10), crc = u32(central, cursor + 16), compressed = u32(central, cursor + 20), uncompressed = u32(central, cursor + 24);
+    const nameLen = u16(central, cursor + 28), extraLen = u16(central, cursor + 30), commentLen = u16(central, cursor + 32), localOffset = u32(central, cursor + 42);
+    if (cursor + 46 + nameLen + extraLen + commentLen > central.length) throw new ReviewBundleError('ZIP central directory entry is truncated.');
+    let path;
+    try { path = dec.decode(central.slice(cursor + 46, cursor + 46 + nameLen)); } catch { throw new ReviewBundleError('ZIP entry filename is not valid UTF-8.'); }
+    safeReviewZipPath(path);
+    if (entries.has(path)) throw new ReviewBundleError(`Duplicate ZIP entry: ${path}.`);
+    if (flags & 1) throw new ReviewBundleError(`Encrypted ZIP entry is not supported: ${path}.`);
+    if (method !== 0 && method !== 8) throw new ReviewBundleError(`ZIP compression method ${method} is not supported.`);
+    if (localOffset >= header.centralOffset || localOffset + 30 > blob.size) throw new ReviewBundleError(`ZIP local header range is invalid for ${path}.`);
+    const local = await blobRange(blob, localOffset, localOffset + 30);
+    if (u32(local, 0) !== 0x04034b50) throw new ReviewBundleError(`Invalid local ZIP header for ${path}.`);
+    const localFlags = u16(local, 6), localMethod = u16(local, 8), localCrc = u32(local, 14), localCompressed = u32(local, 18), localUncompressed = u32(local, 22), localNameLen = u16(local, 26), localExtraLen = u16(local, 28);
+    if (localFlags !== flags || localMethod !== method || (!(flags & 8) && (localCrc !== crc || localCompressed !== compressed || localUncompressed !== uncompressed))) throw new ReviewBundleError(`ZIP local and central metadata differ for ${path}.`);
+    const localName = await blobRange(blob, localOffset + 30, localOffset + 30 + localNameLen);
+    let localPath;
+    try { localPath = dec.decode(localName); } catch { throw new ReviewBundleError(`ZIP local filename is not valid UTF-8 for ${path}.`); }
+    if (localPath !== path || localNameLen !== nameLen) throw new ReviewBundleError(`ZIP local and central filenames differ for ${path}.`);
+    const dataStart = localOffset + 30 + localNameLen + localExtraLen;
+    if (dataStart > blob.size || compressed > blob.size - dataStart) throw new ReviewBundleError(`ZIP compressed data range is invalid for ${path}.`);
+    if (uncompressed > REVIEW_ZIP_MAX_DECLARED_BYTES || declaredBytes > REVIEW_ZIP_MAX_DECLARED_BYTES - uncompressed) throw new ReviewBundleError('Review ZIP declares a pathological total expansion.');
+    declaredBytes += uncompressed;
+    entries.set(path, { path, flags, method, crc, compressed, uncompressed, localOffset, dataStart });
+    cursor += 46 + nameLen + extraLen + commentLen;
+  }
+  if (cursor !== central.length) throw new ReviewBundleError('ZIP central directory length is inconsistent.');
+  return new LazyZipArchive(blob, raw, entries);
+}
+
+export class LazyZipArchive {
+  constructor(blob, raw, entries) {
+    this.blob = blob;
+    this.raw = raw;
+    this.entries = entries;
+    this.overrides = new Map();
+    this.cache = new Map();
+    this.cacheBytes = 0;
+    this.cacheLimit = REVIEW_CACHE_BYTES;
+  }
+  get size() { return this.entries.size; }
+  get materializedBytes() { return this.cacheBytes; }
+  has(path) { return this.entries.has(path); }
+  keys() { return this.entries.keys(); }
+  get(path) { return this.overrides.get(path) ?? this.cache.get(path)?.bytes; }
+  set(path, bytes) {
+    safeReviewZipPath(path);
+    const data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    this.invalidate(path);
+    this.overrides.set(path, data);
+    if (!this.entries.has(path)) this.entries.set(path, { path, method: 0, compressed: data.byteLength, uncompressed: data.byteLength, crc: crc32(data), dataStart: 0, synthetic: true });
+    this.cache.set(path, { bytes: data, used: Date.now(), pinned: true });
+    this.cacheBytes += data.byteLength;
+  }
+  delete(path) { this.overrides.delete(path); this.invalidate(path); return this.entries.delete(path); }
+  [Symbol.iterator]() { return [...this.cache.entries()].map(([path, item]) => [path, item.bytes])[Symbol.iterator](); }
+  async getFile(path, { pin = false } = {}) {
+    if (!this.entries.has(path)) return undefined;
+    if (this.overrides.has(path)) return this.overrides.get(path);
+    const cached = this.cache.get(path);
+    if (cached) { cached.used = Date.now(); cached.pinned ||= pin; return cached.bytes; }
+    const entry = this.entries.get(path);
+    if (entry.synthetic) return this.overrides.get(path);
+    const compressed = await blobRange(this.blob, entry.dataStart, entry.dataStart + entry.compressed);
+    const bytes = entry.method === 0 ? compressed : await inflateRaw(compressed);
+    if (bytes.byteLength !== entry.uncompressed) throw new ReviewBundleError(`ZIP entry size mismatch: ${path}.`);
+    if (crc32(bytes) !== entry.crc) throw new ReviewBundleError(`ZIP entry CRC mismatch: ${path}.`);
+    this.cache.set(path, { bytes, used: Date.now(), pinned: pin });
+    this.cacheBytes += bytes.byteLength;
+    this.evict();
+    return bytes;
+  }
+  invalidate(path) {
+    const item = this.cache.get(path);
+    if (item) { this.cacheBytes -= item.bytes.byteLength; this.cache.delete(path); }
+  }
+  clear() { this.cache.clear(); this.overrides.clear(); this.cacheBytes = 0; }
+  evict() {
+    for (const [path, item] of [...this.cache.entries()].sort((a, b) => (a[1].used ?? 0) - (b[1].used ?? 0))) {
+      if (this.cacheBytes <= this.cacheLimit) break;
+      if (item.pinned) continue;
+      this.cacheBytes -= item.bytes.byteLength;
+      this.cache.delete(path);
+    }
+  }
+  async materializeAll(paths) { const result = []; for (const path of paths) result.push([path, await this.getFile(path)]); return result; }
+  syncBytes(path) {
+    if (this.overrides.has(path)) return this.overrides.get(path);
+    const cached = this.cache.get(path)?.bytes;
+    if (cached) return cached;
+    if (!this.raw || !this.entries.has(path)) return undefined;
+    const entry = this.entries.get(path);
+    if (entry.method !== 0) return undefined;
+    const bytes = this.raw.slice(entry.dataStart, entry.dataStart + entry.compressed);
+    this.cache.set(path, { bytes, used: Date.now(), pinned: true });
+    this.cacheBytes += bytes.byteLength;
+    return bytes;
+  }
+}
+
+export async function readZip(input) { return readZipIndex(input); }
 function push16(out, value) { out.push(value & 255, (value >>> 8) & 255); }
 function push32(out, value) { out.push(value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255); }
 export function writeStoredZip(entries) {
@@ -525,8 +642,8 @@ export function writeStoredZip(entries) {
   for (const chunk of chunks) { result.set(chunk, cursor); cursor += chunk.length; }
   return result;
 }
-function parseJsonFile(files, path) {
-  const bytes = files.get(path);
+async function parseJsonFile(files, path) {
+  const bytes = await files.getFile(path, { pin: true });
   if (!bytes) throw new ReviewBundleError(`Review bundle is missing ${path}.`);
   try { return JSON.parse(dec.decode(bytes)); } catch { throw new ReviewBundleError(`${path} is malformed JSON.`); }
 }
@@ -534,14 +651,14 @@ export async function loadReviewBundle(input) {
   const files = await readZip(input);
   if (!files.has('manifest.json') || !files.has('review-map.json')) throw new ReviewBundleError('Review ZIP must contain manifest.json and review-map.json.');
   for (const path of files.keys()) if (path !== 'manifest.json' && path !== 'review-map.json' && !path.startsWith('media/') && !path.startsWith('source-previews/')) throw new ReviewBundleError(`Unexpected review ZIP path: ${path}.`);
-  const manifest = parseJsonFile(files, 'manifest.json');
+  const manifest = await parseJsonFile(files, 'manifest.json');
   // Parse the manifest using the production-shaped browser-safe validator. This
   // intentionally does not change or weaken the server validator.
   validateProductionManifest(manifest);
   const declaredOriginalMedia = new Set(manifest.assets.filter(item => item.operation === 'create').map(item => item.path));
   for (const path of files.keys()) if (path.startsWith('media/') && !declaredOriginalMedia.has(path)) throw new ReviewBundleError(`Review bundle contains undeclared media: ${path}.`);
-  const reviewMap = validateReviewMap(parseJsonFile(files, 'review-map.json'), manifest, new Set(files.keys()));
-  return { manifest, reviewMap, files };
+  const reviewMap = validateReviewMap(await parseJsonFile(files, 'review-map.json'), manifest, new Set(files.keys()));
+  return { manifest, reviewMap, files, archive: files };
 }
 
 export function readinessErrors(manifest, reviewMap) {
@@ -618,7 +735,7 @@ async function validateSelectedMedia(manifest, reviewMap, files) {
     if (asset.operation !== 'create') continue;
     if (declared.has(asset.path)) errors.push(`Media path declared more than once: ${asset.path}.`);
     declared.add(asset.path);
-    const bytes = files.get(asset.path);
+    const bytes = await (files.getFile ? files.getFile(asset.path, { pin: true }) : files.get(asset.path));
     if (!bytes) { errors.push(`Asset ${asset.id}: missing media ${asset.path}.`); continue; }
     if (bytes.byteLength > PRODUCTION_LIMITS.maxImageBytes) errors.push(`Asset ${asset.id}: image exceeds ${PRODUCTION_LIMITS.maxImageBytes}-byte limit.`);
     const actual = detectImageType(bytes);
@@ -646,7 +763,10 @@ export async function finalizeBundle(bundle) {
   const manifestBytes = enc.encode(JSON.stringify(selected, null, 2) + '\n');
   if (manifestBytes.byteLength > PRODUCTION_LIMITS.maxManifestBytes) errors.push(`Final manifest exceeds the current ${PRODUCTION_LIMITS.maxManifestBytes}-byte limit.`);
   const entries = [{ path: 'manifest.json', bytes: manifestBytes }];
-  for (const asset of selected.assets) if (asset.operation === 'create' && bundle.files.has(asset.path)) entries.push({ path: asset.path, bytes: bundle.files.get(asset.path) });
+  for (const asset of selected.assets) if (asset.operation === 'create' && bundle.files.has(asset.path)) {
+    const bytes = await (bundle.files.getFile ? bundle.files.getFile(asset.path, { pin: true }) : bundle.files.get(asset.path));
+    if (bytes) entries.push({ path: asset.path, bytes });
+  }
   if (entries.length > PRODUCTION_LIMITS.maxArchiveEntries) errors.push(`Final package exceeds the current ${PRODUCTION_LIMITS.maxArchiveEntries}-entry limit.`);
   const decompressedBytes = entries.reduce((sum, entry) => sum + entry.bytes.byteLength, 0);
   if (decompressedBytes > PRODUCTION_LIMITS.maxUncompressedBytes) errors.push(`Final package exceeds the current ${PRODUCTION_LIMITS.maxUncompressedBytes}-byte decompressed limit.`);
@@ -663,6 +783,17 @@ export function exportReviewedBundle(bundle) {
     { path: 'manifest.json', bytes: enc.encode(JSON.stringify(bundle.manifest, null, 2) + '\n') },
     { path: 'review-map.json', bytes: enc.encode(JSON.stringify(bundle.reviewMap, null, 2) + '\n') }
   ];
-  for (const [path, bytes] of bundle.files) if (path.startsWith('media/') || path.startsWith('source-previews/')) entries.push({ path, bytes });
-  return writeStoredZip(entries);
+  const paths = [...bundle.files.keys()].filter(path => path.startsWith('media/') || path.startsWith('source-previews/'));
+  const immediate = paths.map(path => [path, bundle.files.syncBytes ? bundle.files.syncBytes(path) : bundle.files.get(path)]);
+  if (immediate.every(([, bytes]) => bytes)) {
+    for (const [path, bytes] of immediate) entries.push({ path, bytes });
+    return writeStoredZip(entries);
+  }
+  return (async () => {
+    for (const path of paths) {
+      const bytes = await (bundle.files.getFile ? bundle.files.getFile(path) : bundle.files.get(path));
+      if (bytes) entries.push({ path, bytes });
+    }
+    return writeStoredZip(entries);
+  })();
 }
