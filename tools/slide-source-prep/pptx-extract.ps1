@@ -188,8 +188,10 @@ try {
     })
   }
 
-  # ppSaveAsPDF = 32. PowerPoint's own renderer is the visual authority for PPTX preparation.
-  $presentation.SaveAs($resolvedPdf, 32)
+  # ExportAsFixedFormat(Path, PDF=2, screen intent=1, no frame, handout order,
+  # slides output=1, print hidden slides=true, PrintRange=$null). Explicitly including
+  # hidden slides preserves the invariant that rendered PDF page N is source slide N.
+  $presentation.ExportAsFixedFormat($resolvedPdf, 2, 1, 0, 1, 1, -1, $null)
   if (-not (Test-Path -LiteralPath $resolvedPdf)) {
     throw "PowerPoint returned from PDF export but no PDF exists at $resolvedPdf"
   }
