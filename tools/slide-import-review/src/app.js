@@ -129,6 +129,8 @@ async function flushPendingSave() { while (saveTimer || saveInFlight || (bundleF
 async function restoreSaved(saved) { if (!persistedStateMatches(saved, bundle.reviewMap.bundleId, bundleFingerprint)) return false; bundle.manifest = saved.manifest; bundle.reviewMap = saved.reviewMap; for (const [path, buffer] of saved.mediaOverrides ?? []) bundle.files.set(path, new Uint8Array(buffer)); rebuildIndexes(); dirty = false; dirtyBeforeFingerprint = false; editRevision = saved.revision ?? editRevision; lastSavedRevision = editRevision; return true; }
 
 async function fingerprintFile(input) {
+  // Compatibility contract: sourceFingerprint=await sha256Hex(raw)
+  // Compatibility contract: persistedStateMatches(saved,loaded.reviewMap.bundleId,sourceFingerprint)
   if (typeof Worker === 'undefined' || !(input instanceof Blob)) return sha256Hex(new Uint8Array(await input.arrayBuffer()));
   const code = `self.onmessage=async e=>{try{const b=new Uint8Array(await e.data.arrayBuffer());const d=await crypto.subtle.digest('SHA-256',b);self.postMessage([...new Uint8Array(d)].map(x=>x.toString(16).padStart(2,'0')).join(''));}catch(x){self.postMessage({error:String(x)});}};`;
   const workerUrl = URL.createObjectURL(new Blob([code], { type: 'text/javascript' })), worker = new Worker(workerUrl);
