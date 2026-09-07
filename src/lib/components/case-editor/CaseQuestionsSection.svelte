@@ -121,6 +121,14 @@
       if (questionRegistrations.has(caseQuestionId)) continue;
       const state = questionState(question);
       const unregister = coordinator?.register(`question:${caseQuestionId}`, {
+        label: () => `Question ${selectedCase.questions.findIndex((candidate) => candidate.id === caseQuestionId) + 1}`,
+        dirtyFields: () => [
+          state.draft.promptMd !== state.baseline.promptMd ? 'Prompt' : null,
+          state.draft.answerMd !== state.baseline.answerMd ? 'Answer' : null,
+          state.draft.reusableForTopic !== state.baseline.reusableForTopic ? 'Share with Topic' : null
+        ].filter(Boolean),
+        isSaving: () => Boolean(state.pending),
+        status: () => state.pending ? 'Saving…' : state.saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
         isDirty: () => questionDirty(state),
         save: () => submitQuestion(state)
       });
@@ -330,7 +338,7 @@
           <label class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" bind:value={questionDraft.draft.answerMd} oninput={() => coordinator?.refresh()} rows="3" maxlength="5000" required></textarea></label>
           <div class="question-footer">
             <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" bind:checked={questionDraft.draft.reusableForTopic} onchange={() => coordinator?.refresh()} /> Share this question with the Topic</label>
-            <span class="save-state" class:error={questionDraft.saveState === 'error'}>{questionDraft.saveState === 'saving' ? 'Saving…' : questionDraft.saveState === 'error' ? 'Save failed — try again' : questionDirty(questionDraft) ? 'Unsaved changes' : 'Saved'}</span>
+            <span class="save-state" class:error={questionDraft.saveState === 'error'}>{questionDraft.saveState === 'saving' ? 'Saving…' : questionDraft.saveState === 'error' ? 'Save failed — changes remain unsaved' : questionDirty(questionDraft) ? `Unsaved changes — ${[questionDraft.draft.promptMd !== questionDraft.baseline.promptMd ? 'Prompt' : null, questionDraft.draft.answerMd !== questionDraft.baseline.answerMd ? 'Answer' : null, questionDraft.draft.reusableForTopic !== questionDraft.baseline.reusableForTopic ? 'Share with Topic' : null].filter(Boolean).join(', ')}` : 'Saved'}</span>
             <button class="button primary save-question-action" type="submit" disabled={Boolean(questionDraft.pending)}>Save question</button>
           </div>
         </form>

@@ -1,5 +1,6 @@
 <script>
   // @ts-nocheck
+  import { onMount } from 'svelte';
   import { enhance } from '$app/forms';
   import { beginCasePickerAttach, pickerAttachAssetIds, pickerSelectionIsDirty, reconcileCasePickerAttachSelection, reconcileCasePickerSelection } from '$lib/admin-image-selection.js';
   import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
@@ -18,6 +19,17 @@
   let pickerContextKey = $state(null);
   let attachPending = $state(false);
 
+  onMount(() => {
+    const unregister = coordinator?.register('picker-selection', {
+      saveable: false,
+      label: () => imagePicker?.targetGroupName ? `Image picker — ${imagePicker.targetGroupName}` : 'Image picker',
+      dirtyFields: () => [`${pickerSelected.size} images selected`],
+      isDirty: () => pickerSelectionIsDirty(pickerSelected),
+      status: () => 'Not attached yet — use Attach'
+    });
+    return () => unregister?.();
+  });
+
   $effect(() => {
     const nextContextKey = `${selectedCase?.case.id ?? ''}:${imagePicker?.targetGroupId ?? 'fixed'}`;
     if (pickerContextKey === null) pickerSelected = new Set(imagePicker?.selectedAssetIds ?? []);
@@ -28,6 +40,7 @@
       pickerSelected = reconciled.selectedIds;
     }
     pickerContextKey = nextContextKey;
+    coordinator?.refresh();
     if (imagePicker?.open && pickerDialog && !pickerDialog.open) {
       pickerDialog.showModal();
       requestAnimationFrame(() => pickerCloseButton?.focus());
@@ -41,6 +54,7 @@
     if (next.has(assetId)) next.delete(assetId);
     else next.add(assetId);
     pickerSelected = next;
+    coordinator?.refresh();
   }
 
   const enhancePickerAttach = ({ formElement, cancel }) => {
@@ -68,6 +82,7 @@
         if (outcome.ok) pickerSelected = reconcileCasePickerAttachSelection({ selectedIds: pickerSelected, submittedIds: submittedSelection, ok: true });
       } finally {
         attachPending = false;
+        coordinator?.refresh();
       }
     };
   };

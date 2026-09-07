@@ -49,7 +49,7 @@ function findSubmittedEditorForm(form, key, logicalKey = '') {
     );
 }
 
-function captureEditableFormSnapshot(form) {
+export function captureEditableFormSnapshot(form) {
   return [...form.elements]
     .filter((element) => {
       if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
@@ -62,7 +62,7 @@ function captureEditableFormSnapshot(form) {
     });
 }
 
-function sameEditableFormSnapshot(left, right) {
+export function sameEditableFormSnapshot(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
@@ -92,6 +92,11 @@ function reconcileSubmittedEditorForm(form, key, logicalKey, submittedSnapshot, 
 }
 
 export function formHasMeaningfulUnsubmittedInput(form) {
+  return formHasMeaningfulUnsubmittedInputAgainst(form, null);
+}
+
+function formHasMeaningfulUnsubmittedInputAgainst(form, baseline) {
+  if (baseline) return !sameEditableFormSnapshot(captureEditableFormSnapshot(form), baseline);
   return [...form.elements].some((element) => {
     if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
     if (element instanceof HTMLInputElement && element.type === 'hidden') return false;
@@ -100,6 +105,120 @@ export function formHasMeaningfulUnsubmittedInput(form) {
     if (element instanceof HTMLSelectElement) return [...element.options].some((option) => option.selected !== option.defaultSelected);
     return element.value.trim() !== element.defaultValue.trim();
   });
+}
+
+function changedFormFieldLabels(form, baseline) {
+  if (!baseline) return [];
+  const current = captureEditableFormSnapshot(form);
+  const labels = [];
+  current.forEach((value, index) => {
+    const previous = baseline[index];
+    if (JSON.stringify(value) === JSON.stringify(previous)) return;
+    const name = value.name;
+    labels.push({
+      title: 'Internal title',
+      vignette_md: 'Vignette',
+      prompt_md: 'Prompt',
+      answer_md: 'Answer',
+      reusable_for_topic: 'Share with Topic',
+      caption: 'Caption',
+      name: 'Image-set name',
+      set_name: 'Image-set name',
+      specific_question_mode: 'Coverage',
+      minimum_specific_questions: 'Minimum questions',
+      target: 'Target',
+      prompt_id: 'Question',
+      group_id: 'Image set'
+    }[name] ?? name);
+  });
+  return [...new Set(labels)];
+}
+
+function structuralFormLabel(form) {
+  const action = form.getAttribute('action') ?? '';
+  if (action.includes('question-scope')) return 'Question scope change';
+  if (action.includes('createStimulusGroup') || action.includes('startAlternativeSet')) return 'Create image set';
+  if (action.includes('saveStimulusOptionQuestion')) return 'Image-specific question';
+  if (action.includes('createReusableImageQuestion')) return 'Create reusable image question';
+  if (action.includes('uploadAndAttach')) return 'Image upload';
+  if (action.includes('attachMany')) return 'Image picker';
+  if (form.querySelector('[name="prompt_md"]') && form.querySelector('[name="answer_md"]')) return 'Add Case question';
+  return 'Case-editor form';
+}
+
+/**
+ * Register non-saveable forms with an explicit initial baseline. A MutationObserver
+ * keeps conditionally mounted editor forms in the same inventory as the header and guard.
+ */
+export function registerCaseEditorStructuralForms(coordinator) {
+  if (!coordinator || typeof document === 'undefined') return () => {};
+  const registrations = new Map();
+  const isStructural = (form) => form instanceof HTMLFormElement
+    && form.matches('.case-editor form')
+    && !form.classList.contains('question-edit-form')
+    && form.id !== 'case-details-form'
+    && !form.hasAttribute('data-case-editor-coordinated')
+    && !form.hasAttribute('data-case-editor-picker')
+    && !form.hasAttribute('data-case-editor-picker-search');
+
+  const sync = () => {
+    const forms = new Set([...document.querySelectorAll('.case-editor form')].filter(isStructural));
+    for (const [form, registration] of registrations) {
+      if (forms.has(form) && form.isConnected) continue;
+      registration.unregister?.();
+      registration.status?.remove();
+      form.removeEventListener('input', registration.refresh);
+      form.removeEventListener('change', registration.refresh);
+      registrations.delete(form);
+      delete form.dataset.caseEditorStructuralKey;
+    }
+    for (const form of forms) {
+      if (registrations.has(form)) continue;
+      const baseline = captureEditableFormSnapshot(form);
+      const key = `structural:${editorFormKey(form)}`;
+      const label = structuralFormLabel(form);
+      const entry = {
+        saveable: false,
+        label,
+        isDirty: () => form.isConnected && formHasMeaningfulUnsubmittedInputAgainst(form, baseline),
+        dirtyFields: () => changedFormFieldLabels(form, baseline),
+        status: () => 'Not submitted — use this form\'s action',
+        target: () => form.id || null
+      };
+      const status = document.createElement('span');
+      status.className = 'case-editor-inline-save-state';
+      status.setAttribute('role', 'status');
+      status.hidden = true;
+      form.append(status);
+      const refresh = () => {
+        const dirty = entry.isDirty();
+        status.hidden = !dirty;
+        status.textContent = dirty ? `${label} — Not submitted` : '';
+        coordinator.refresh();
+      };
+      form.addEventListener('input', refresh);
+      form.addEventListener('change', refresh);
+      registrations.set(form, { unregister: coordinator.register(key, entry), status, refresh });
+      form.dataset.caseEditorStructuralKey = key;
+    }
+    coordinator.refresh();
+  };
+
+  sync();
+  const root = document.querySelector('.case-editor') ?? document.body;
+  const observer = new MutationObserver(sync);
+  observer.observe(root, { childList: true, subtree: true });
+  return () => {
+    observer.disconnect();
+    for (const [form, registration] of registrations) {
+      registration.unregister?.();
+      registration.status?.remove();
+      form.removeEventListener('input', registration.refresh);
+      form.removeEventListener('change', registration.refresh);
+      delete form.dataset.caseEditorStructuralKey;
+    }
+    registrations.clear();
+  };
 }
 
 /** @param {{ scrollX: number, scrollY: number, activeElement: Element | null, selectionStart: number | null, selectionEnd: number | null }} view @param {HTMLFormElement | null} [submittedForm] @param {{ reconcileSubmittedDraft?: boolean, logicalKey?: string }} [options] */
@@ -119,7 +238,7 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
         if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot);
         else resetSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
       }
-      return { ok: result.type === 'success' };
+      return { ok: result.type === 'success', submittedSnapshot, currentSubmittedSnapshot };
     }
 
     const location = new URL(result.location, document.baseURI);
@@ -137,7 +256,7 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
         activeElement.setSelectionRange(selectionStart, selectionEnd);
       }
     }
-    return { ok: true };
+    return { ok: true, submittedSnapshot, currentSubmittedSnapshot };
   };
 }
 
@@ -149,14 +268,20 @@ export function isOrdinaryCaseEditorDraftForm(form) {
 
 export function caseEditorHasConflictingUnsavedWork(submittedForm, coordinator) {
   const otherPartialForm = [...document.querySelectorAll('.case-editor form')].some((form) => {
-    if (!(form instanceof HTMLFormElement) || form === submittedForm || isOrdinaryCaseEditorDraftForm(form)) return false;
+    if (!(form instanceof HTMLFormElement) || form === submittedForm || isOrdinaryCaseEditorDraftForm(form) || form.hasAttribute('data-case-editor-structural-key')) return false;
     return formHasMeaningfulUnsubmittedInput(form);
   });
   const submittedCoordinatorKey = submittedForm?.hasAttribute?.('data-case-editor-coordinated')
     ? `form:${editorFormKey(submittedForm)}`
     : null;
+  const submittedStructuralKey = submittedForm?.dataset?.caseEditorStructuralKey ?? null;
+  const submittedPickerKey = submittedForm?.id === 'case-image-picker-attach' ? 'picker-selection' : null;
   const unrelatedDirtyDraft = !isOrdinaryCaseEditorDraftForm(submittedForm)
-    && (coordinator?.dirtyCount?.(submittedCoordinatorKey) ?? 0) > 0;
+    && (submittedPickerKey
+      ? (coordinator?.dirtyItems?.({ excludeKey: submittedPickerKey }).length ?? 0) > 0
+      : submittedStructuralKey
+      ? (coordinator?.dirtyItems?.().some((item) => item.key !== submittedStructuralKey) ?? false)
+      : (coordinator?.dirtyCount?.(submittedCoordinatorKey) ?? 0) > 0);
   const pickerSelectionDirty = submittedForm?.id !== 'case-image-picker-attach'
     && Boolean(document.querySelector('.case-editor [data-case-editor-picker-dirty="true"]'));
   return otherPartialForm || unrelatedDirtyDraft || pickerSelectionDirty;
@@ -172,6 +297,7 @@ export function hasCaseEditorPickerSelection() {
  */
 export function registerCaseEditorForm(node, { coordinator, key }) {
   let currentKey = key;
+  let baseline = captureEditableFormSnapshot(node);
   let unregister = register();
   let pending = null;
   let resolvePending = null;
@@ -180,11 +306,15 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
   status.setAttribute('role', 'status');
   status.hidden = true;
   node.append(status);
-  const saveState = createCoordinatedFormSaveState(() => formHasMeaningfulUnsubmittedInput(node));
+  const saveState = createCoordinatedFormSaveState(() => !sameEditableFormSnapshot(captureEditableFormSnapshot(node), baseline));
 
   function register() {
     return coordinator?.register(`form:${currentKey}`, {
-      isDirty: () => node.isConnected && formHasMeaningfulUnsubmittedInput(node),
+      label: () => coordinatedFormLabel(node, currentKey),
+      dirtyFields: () => changedFormFieldLabels(node, baseline),
+      isSaving: () => saveState.isPending(),
+      status: () => saveState.isPending() ? 'Saving…' : saveState.hasFailed() ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
+      isDirty: () => node.isConnected && !sameEditableFormSnapshot(captureEditableFormSnapshot(node), baseline),
       save: () => {
         if (pending) return pending;
         if (!node.reportValidity()) return Promise.resolve(false);
@@ -197,7 +327,8 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
   const refresh = () => {
     if (saveState.refresh() === 'Unsaved changes') {
       status.hidden = false;
-      status.textContent = 'Unsaved changes';
+      const fields = changedFormFieldLabels(node, baseline);
+      status.textContent = fields.length ? `Unsaved changes — ${fields.join(', ')}` : 'Unsaved changes';
       status.classList.remove('error');
     }
     coordinator?.refresh();
@@ -212,6 +343,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       cancel();
       return;
     }
+    const submittedSnapshot = captureEditableFormSnapshot(formElement);
     pending = new Promise((resolve) => { resolvePending = resolve; });
     status.hidden = false;
     status.textContent = saveState.begin();
@@ -231,13 +363,17 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       let ok = false;
       try {
         ok = (await stable({ result })).ok;
+        if (ok && sameEditableFormSnapshot(outcome.currentSubmittedSnapshot, outcome.submittedSnapshot)) {
+          const candidate = findSubmittedEditorForm(formElement, editorFormKey(formElement), currentKey);
+          if (candidate) baseline = captureEditableFormSnapshot(candidate);
+        }
       } finally {
         const resolve = resolvePending;
         pending = null;
         resolvePending = null;
-        coordinator?.refresh();
         status.textContent = saveState.complete(ok);
         status.classList.toggle('error', !ok);
+        coordinator?.refresh();
         resolve?.(ok);
       }
     };
@@ -248,6 +384,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       if (nextKey === currentKey) return;
       unregister?.();
       currentKey = nextKey;
+      baseline = captureEditableFormSnapshot(node);
       node.dataset.caseEditorLogicalKey = currentKey;
       unregister = register();
     },
@@ -261,6 +398,20 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       unregister?.();
     }
   };
+}
+
+function coordinatedFormLabel(node, key) {
+  const text = (selector, root = node) => root.querySelector(selector)?.textContent?.trim().replace(/\s+/g, ' ') || '';
+  const fixedImage = text('.asset-title strong', node.closest('.fixed-asset-card') ?? node);
+  const optionImage = text('.option-editor-heading h4', node.closest('.option-editor') ?? node);
+  const imageSet = text('h3', node.closest('.alternative-set') ?? node);
+  if (key.startsWith('caption:')) return fixedImage ? `Always-shown image “${fixedImage}”` : 'Always-shown image';
+  if (key.startsWith('option-caption:')) return optionImage ? `Image “${optionImage}”` : 'Image-specific caption';
+  const title = node.querySelector('textarea[name="answer_md"], input[name="answer_md"]')
+    ? (key.startsWith('reusable-answer:') ? (optionImage ? `Reusable image question “${optionImage}”` : 'Reusable image question') : key.startsWith('group-') ? (imageSet ? `Image set “${imageSet}”` : 'Image set') : key.startsWith('option-') ? (optionImage ? `Image-specific question “${optionImage}”` : 'Image-specific question') : 'Question')
+    : key.startsWith('group-settings:') ? (imageSet ? `Image set “${imageSet}”` : 'Image set')
+        : 'Case-editor form';
+  return title;
 }
 
 export function captureCaseEditorView() {

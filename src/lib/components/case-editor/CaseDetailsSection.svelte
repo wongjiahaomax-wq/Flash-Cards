@@ -22,6 +22,14 @@
   let saveState = $state('saved');
   let resolvePending = null;
   let dirty = $derived(!sameCaseEditorSnapshot(draft, baseline));
+  function dirtyFields() {
+    return [
+      draft.title !== baseline.title ? 'Internal title' : null,
+      draft.vignetteMd !== baseline.vignetteMd ? 'Vignette' : null,
+      draft.questionSelectionMode !== baseline.questionSelectionMode ? 'Question selection' : null,
+      draft.questionCount !== baseline.questionCount ? 'Question count' : null
+    ].filter(Boolean);
+  }
 
   $effect(() => {
     const current = serverSnapshot(selectedCase);
@@ -81,7 +89,14 @@
     };
   }
 
-  onMount(() => coordinator?.register('case-details', { isDirty: () => dirty, save: submitDraft }));
+  onMount(() => coordinator?.register('case-details', {
+    label: 'Case details',
+    dirtyFields,
+    isSaving: () => Boolean(pending),
+    status: () => pending ? 'Saving…' : saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
+    isDirty: () => dirty,
+    save: submitDraft
+  }));
   onDestroy(() => coordinator?.refresh());
 </script>
 
@@ -97,7 +112,7 @@
       </h2>
       <p class="muted compact-hide-explainer">Cases under the same Topic can have different stems, causes, findings, or educational intent. The internal title is not shown to learners.</p>
     </div>
-    <span class="save-state" class:error={saveState === 'error'}>{saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed — try again' : dirty ? 'Unsaved changes' : 'Saved'}</span><button class="button primary" type="submit" form="case-details-form" disabled={Boolean(pending)}>Save Case</button>
+    <span class="save-state" class:error={saveState === 'error'}>{saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed — changes remain unsaved' : dirty ? `Unsaved changes — ${dirtyFields().join(', ')}` : 'Saved'}</span><button class="button primary" type="submit" form="case-details-form" disabled={Boolean(pending)}>Save Case</button>
   </div>
 
   <form bind:this={detailsForm} id="case-details-form" method="POST" action="?/updateCase" class="case-form" data-case-editor-internal use:enhance={enhanceDetails}>

@@ -4,7 +4,7 @@
   import { beforeNavigate } from '$app/navigation';
   import { createCaseEditorCoordinator } from '$lib/case-editor-coordinator.js';
   import { isSafeCasePickerSearchNavigation } from '$lib/admin-image-selection.js';
-  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, hasCaseEditorPickerSelection, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, hasCaseEditorPickerSelection, registerCaseEditorStructuralForms, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { getCaseEditorStorage, readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
   import { buildCaseFastReviewSummary, buildCaseQuestionAudit } from '$lib/admin-case-question-audit.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
@@ -43,15 +43,13 @@
   let pendingPickerSearchNavigation = null;
 
   function hasNonPickerUnsavedWork() {
-    if (draftCoordinator.dirtyCount() > 0) return true;
-    return [...document.querySelectorAll('.case-editor form')].some((form) => form instanceof HTMLFormElement
-      && !form.matches('[data-case-editor-picker], [data-case-editor-picker-search]')
-      && formHasMeaningfulUnsubmittedInput(form));
+    return draftCoordinator.dirtyItems().some((item) => item.key !== 'picker-selection');
   }
 
   onMount(() => {
     editorLayout = readCaseEditorLayout(getCaseEditorStorage(window));
     const unsubscribe = draftCoordinator.subscribe(() => { draftRevision += 1; });
+    const unregisterStructuralForms = registerCaseEditorStructuralForms(draftCoordinator);
     /** @param {BeforeUnloadEvent} event */
     const beforeUnload = (event) => {
       if (suppressNextBeforeUnload) {
@@ -115,6 +113,7 @@
     const enhancedForms = stableFormActions.map((form) => enhance(/** @type {HTMLFormElement} */ (form), /** @type {any} */ (enhanceStableForm)));
     return () => {
       unsubscribe();
+      unregisterStructuralForms();
       window.removeEventListener('beforeunload', beforeUnload);
       document.removeEventListener('submit', submitGuard, true);
       document.removeEventListener('submit', acceptedNativeSubmit);
@@ -143,23 +142,15 @@
     }
   }
 
-  /** @param {HTMLFormElement} form */
-  function formHasMeaningfulUnsubmittedInput(form) {
-    if (form.id === 'case-details-form' || form.classList.contains('question-edit-form') || form.hasAttribute('data-case-editor-coordinated')) return false;
-    return [...form.elements].some((element) => {
-      if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
-      if (element instanceof HTMLInputElement && element.type === 'hidden') return false;
-      if (element instanceof HTMLInputElement && element.type === 'file') return Boolean(element.files?.length);
-      if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) return element.checked !== element.defaultChecked;
-      if (element instanceof HTMLSelectElement) return [...element.options].some((option) => option.selected !== option.defaultSelected);
-      return element.value.trim() !== element.defaultValue.trim();
-    });
+  function hasEditorUnsavedWork() {
+    const inventory = draftCoordinator.dirtyItems();
+    // Keep a defensive picker fallback until a dialog has mounted its registration.
+    return inventory.length > 0 || (hasCaseEditorPickerSelection() && !inventory.some((item) => item.key === 'picker-selection'));
   }
 
-  function hasEditorUnsavedWork() {
-    if (draftCoordinator.dirtyCount() > 0) return true;
-    if (hasCaseEditorPickerSelection()) return true;
-    return [...document.querySelectorAll('.case-editor form')].some((form) => form instanceof HTMLFormElement && formHasMeaningfulUnsubmittedInput(form));
+  function leaveWarning() {
+    const summary = draftCoordinator.describeUnsavedWork();
+    return `Unsaved Case-editor work: ${summary || 'changes'} Leave and lose these changes?`;
   }
 
   beforeNavigate(({ cancel }) => {
@@ -168,7 +159,7 @@
       pendingPickerSearchNavigation = null;
       if (isSafeCasePickerSearchNavigation({ currentUrl: window.location.href, targetUrl: pending.targetUrl, targetGroupId: pending.targetGroupId, selectedIds: pending.selectedIds })) return;
     }
-    if (hasEditorUnsavedWork() && !window.confirm('You have unsaved Case-editor work. Leave this page and lose it?')) cancel();
+    if (hasEditorUnsavedWork() && !window.confirm(leaveWarning())) cancel();
   });
 </script>
 

@@ -20,6 +20,15 @@ export function coordinatedFormStatus({ pending = false, dirty = false, succeede
   return succeeded ? 'Saved' : 'Save failed — try again';
 }
 
+function valueOrCall(value, fallback) {
+  return typeof value === 'function' ? value() : value ?? fallback;
+}
+
+function normalizeDirtyFields(value) {
+  const fields = valueOrCall(value, []);
+  return Array.isArray(fields) ? fields.filter(Boolean) : [];
+}
+
 export function createCoordinatedFormSaveState(isDirty) {
   let pending = false;
   let succeeded = true;
@@ -45,7 +54,8 @@ export function createCoordinatedFormSaveState(isDirty) {
       return refresh();
     },
     refresh,
-    isPending() { return pending; }
+    isPending() { return pending; },
+    hasFailed() { return !succeeded; }
   };
 }
 
@@ -88,10 +98,38 @@ export function createCaseEditorCoordinator() {
     refresh() {
       notify();
     },
-    dirtyCount(excludedKey = null) {
+    dirtyItems({ excludeKey = null } = {}) {
       return [...entries.entries()]
-        .filter(([key]) => key !== excludedKey)
-        .filter(([, entry]) => entry.isDirty()).length;
+        .filter(([key]) => key !== excludeKey)
+        .filter(([, entry]) => entry.isDirty())
+        .map(([key, entry]) => {
+          const fields = normalizeDirtyFields(entry.dirtyFields ?? entry.fields);
+          const label = valueOrCall(entry.label, key);
+          const status = valueOrCall(entry.status, entry.saveable === false ? 'Not submitted' : entry.isSaving?.() ? 'Saving…' : 'Unsaved — included in Save all');
+          return {
+            key,
+            label,
+            fields,
+            status,
+            saveable: entry.saveable !== false,
+            target: valueOrCall(entry.target, null)
+          };
+        });
+    },
+    hasUnsavedWork() {
+      return this.dirtyItems().length > 0;
+    },
+    saveableDirtyCount() {
+      return this.dirtyItems().filter((item) => item.saveable).length;
+    },
+    describeUnsavedWork(limit = 4) {
+      const items = this.dirtyItems();
+      const visible = items.slice(0, limit).map((item) => item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label);
+      const remaining = items.length - visible.length;
+      return `${visible.join('; ')}${remaining > 0 ? `; and ${remaining} more` : ''}`;
+    },
+    dirtyCount(excludedKey = null) {
+      return this.dirtyItems({ excludeKey: excludedKey }).length;
     },
     isSavingAll() {
       return savingAll;
@@ -105,6 +143,7 @@ export function createCaseEditorCoordinator() {
       let failed = 0;
       try {
         for (const entry of [...entries.values()]) {
+          if (entry.saveable === false) continue;
           if (!entry.isDirty()) continue;
           attempted += 1;
           try {

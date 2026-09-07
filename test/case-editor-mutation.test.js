@@ -64,6 +64,43 @@ test('Save All continues after a partial failure and reports each outcome', asyn
   assert.equal(coordinator.dirtyCount(), 1);
 });
 
+test('coordinator exposes descriptive dirty inventory and keeps structural work out of Save All', async () => {
+  const coordinator = createCaseEditorCoordinator();
+  let detailsDirty = true;
+  let structuralDirty = true;
+  let saves = 0;
+  coordinator.register('case-details', {
+    label: 'Case details',
+    dirtyFields: () => ['Vignette'],
+    isDirty: () => detailsDirty,
+    save: async () => { saves += 1; detailsDirty = false; return true; }
+  });
+  coordinator.register('question-create', {
+    saveable: false,
+    label: 'Add Case question',
+    dirtyFields: () => ['Prompt and answer entered'],
+    isDirty: () => structuralDirty,
+    status: () => 'Not submitted — use this form\'s action'
+  });
+
+  assert.deepEqual(coordinator.dirtyItems(), [
+    { key: 'case-details', label: 'Case details', fields: ['Vignette'], status: 'Unsaved — included in Save all', saveable: true, target: null },
+    { key: 'question-create', label: 'Add Case question', fields: ['Prompt and answer entered'], status: 'Not submitted — use this form\'s action', saveable: false, target: null }
+  ]);
+  assert.equal(coordinator.describeUnsavedWork(), 'Case details — Vignette; Add Case question — Prompt and answer entered');
+  assert.deepEqual(await coordinator.saveAll(), { attempted: 1, succeeded: 1, failed: 0 });
+  assert.equal(saves, 1);
+  assert.equal(coordinator.dirtyItems()[0].key, 'question-create');
+});
+
+test('coordinator bounds the in-app leave summary', () => {
+  const coordinator = createCaseEditorCoordinator();
+  for (let index = 1; index <= 5; index += 1) {
+    coordinator.register(`draft-${index}`, { label: `Draft ${index}`, isDirty: () => true, save: async () => true });
+  }
+  assert.equal(coordinator.describeUnsavedWork(3), 'Draft 1; Draft 2; Draft 3; and 2 more');
+});
+
 test('newly registered Case question drafts participate in Save All after revalidation', async () => {
   const coordinator = createCaseEditorCoordinator();
   let dirty = false;
