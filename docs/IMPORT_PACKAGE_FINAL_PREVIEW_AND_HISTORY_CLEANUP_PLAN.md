@@ -22,6 +22,7 @@ Improve **Admin → Import package** in one focused PR:
 - `use` preview is reference-only; normalized defaults never become authored/current Production state.
 - Create-Asset images are described as **package media declared for that create Asset**.
 - Topic Question preview includes owner context but is not a complete learner-pool simulation.
+- Package-controlled vignette/prompt/answer/caption/Topic/package text is rendered only through normal escaped Svelte text binding; never use unsanitized `{@html}` or an ad-hoc Markdown-to-HTML path, and do not add a Markdown/sanitizer dependency solely for this preview.
 - Server preview validity, local exact-file binding, and per-image display state remain separate.
 - Step-1 file changes fence stale generations and revoke old Blob URLs.
 - History mutation state stays separate from package preview/start state and the active processing loop.
@@ -62,6 +63,8 @@ Q&A rendering is operation-aware. For every Case Question and Topic Question:
 - show prompt text only when the referenced Prompt operation is `create`;
 - when the Prompt operation is `use`, show only `Existing Production Question Prompt · <applicationId>` and do not present package/defaulted prompt text as authoritative;
 - all authoritative prompt and answer text is expanded and visible by default, with no per-question click/accordion required for the one-pass review.
+
+All package-controlled text shown by this preview — including vignette, prompt, answer, caption, Topic names/descriptions and package-facing labels sourced from the manifest — must use normal escaped Svelte text rendering. Preserve line breaks with styling such as `white-space: pre-wrap` where useful. Never render package text through unsanitized `{@html}` or an ad-hoc Markdown-to-HTML conversion path, and do not add a Markdown/sanitizer dependency solely for this preview.
 
 For `use`, always show reference-only (`Existing Production <type> · <applicationId>`). Do not show optional package source notes or normalized/defaulted behavior.
 
@@ -182,7 +185,7 @@ Implement the pure model and return model + successful digest from Step 1 withou
 
 Implement enhanced submission, generation fencing, digest binding, stored/deflated exact-path extraction, Blob lifecycle, and compact preview UI.
 
-**Done when executable tests prove:** A→select B before A response cannot restore A; overlap prevention; digest mismatch blocks Step 2; stored+deflated display; stale URL revocation; media-display failure is warning-only; Step-2 selection preserves preview; start consumes client authorization; `Automatic selection` has no duplicated count logic; `All eligible questions` copy is used for `all`; package-media wording is accurate; server SHA gate unchanged.
+**Done when executable tests prove:** A→select B before A response cannot restore A; overlap prevention; digest mismatch blocks Step 2; stored+deflated display; stale URL revocation; media-display failure is warning-only; Step-2 selection preserves preview; start consumes client authorization; `Automatic selection` has no duplicated count logic; `All eligible questions` copy is used for `all`; package-media wording is accurate; server SHA gate unchanged; HTML-like/event-handler-looking package text is displayed literally via escaped Svelte text and cannot become executable markup.
 
 ### 3. Strict single/bulk history backend
 
@@ -221,17 +224,18 @@ This supplements automated tests and `runtime:smoke`; it does not replace them.
 2. `use` is reference-only; normalized defaults never appear as authored/current Production state.
 3. Create behavior shows applicable active state, Case selection (`All eligible questions` for `all`; `Automatic selection` without duplicated runtime count), and Topic Question owner/inheritance context.
 4. Q&A is operation-aware: authoritative create answers are shown; Prompt text is shown only for create Prompts, while `use` Prompts render as Production references; all authoritative Q&A is visible by default in one pass.
-5. Case→Topic preview uses current primary-Topic authority only; no invented CaseTopic operation; current empty-secondary reviewed contract remains intact.
-6. Create-Asset images come from the exact locally bound package and are labelled package-declared media; image display failure is not package validation failure.
-7. Step-1 generation races are fenced; Step 2 requires current server success + digest match; server SHA gate remains authoritative.
-8. History state is isolated from package preview and active processing; Clear old imports requires explicit non-destructive confirmation.
-9. History responses provide authoritative newest-10 rows + global eligibility with off-screen eligibility/backfill.
-10. Single removal requires terminal status, canonical identity, complete paginated prefix enumeration, strict bounded ZIP+plan+media deletion, post-delete verification, then status-qualified D1 deletion.
-11. Bulk removal scans at most 10 server-selected candidates with stable `(created_at,id)` traversal, continues past failures, and reaches later safe rows.
-12. Partial results visibly report removed and safely retained failures with sanitized messages; raw storage exceptions are not exposed.
-13. Cleanup never deletes imported domain content, Reviews, learner progress, teaching Assets, or learner-served media; failed/active jobs remain recoverable.
-14. Executable route/runtime/helper/client tests, repository/runtime/storage validation, and the final manual local Admin smoke are green at exact implemented head.
-15. No schema/package-version/Preview-authority/resumable-execution/slide-review redesign; PR remains Draft until deliberate implemented base→head review.
+5. All package-controlled text is rendered as escaped text (with line-break-preserving styling if needed); HTML-like/event-handler-looking content displays literally and cannot become executable markup; no preview-only Markdown/sanitizer dependency is added.
+6. Case→Topic preview uses current primary-Topic authority only; no invented CaseTopic operation; current empty-secondary reviewed contract remains intact.
+7. Create-Asset images come from the exact locally bound package and are labelled package-declared media; image display failure is not package validation failure.
+8. Step-1 generation races are fenced; Step 2 requires current server success + digest match; server SHA gate remains authoritative.
+9. History state is isolated from package preview and active processing; Clear old imports requires explicit non-destructive confirmation.
+10. History responses provide authoritative newest-10 rows + global eligibility with off-screen eligibility/backfill.
+11. Single removal requires terminal status, canonical identity, complete paginated prefix enumeration, strict bounded ZIP+plan+media deletion, post-delete verification, then status-qualified D1 deletion.
+12. Bulk removal scans at most 10 server-selected candidates with stable `(created_at,id)` traversal, continues past failures, and reaches later safe rows.
+13. Partial results visibly report removed and safely retained failures with sanitized messages; raw storage exceptions are not exposed.
+14. Cleanup never deletes imported domain content, Reviews, learner progress, teaching Assets, or learner-served media; failed/active jobs remain recoverable.
+15. Executable route/runtime/helper/client tests, repository/runtime/storage validation, and the final manual local Admin smoke are green at exact implemented head.
+16. No schema/package-version/Preview-authority/resumable-execution/slide-review redesign; PR remains Draft until deliberate implemented base→head review.
 
 ## Execution
 
