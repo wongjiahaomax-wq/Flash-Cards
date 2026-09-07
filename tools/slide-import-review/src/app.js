@@ -83,6 +83,11 @@ function confirmWarningOverride(label, warnings) {
   const summary = items.map(item => `• ${item.message}`).join('\n');
   return window.confirm(`Approve ${label} despite ${items.length} blocking warning${items.length === 1 ? '' : 's'}?\n\n${summary}\n\nThe warning will remain visible. This approval records your explicit reconciliation of this record only.`);
 }
+function invalidateApproved(review) {
+  if (review?.reviewStatus !== 'approved') return false;
+  review.reviewStatus = 'needs_review';
+  return true;
+}
 
 function releaseUrl(path) { const item = urlCache.get(path); if (item) { URL.revokeObjectURL(item.url); urlCache.delete(path); } }
 function releaseResources() { for (const path of [...urlCache.keys()]) releaseUrl(path); fileStore()?.clear?.(); selectedSourcePath = null; }
@@ -186,10 +191,44 @@ function wireCurrent(meta) {
   document.querySelectorAll('.source-ref').forEach(element => element.addEventListener('click', event => { event.preventDefault(); sourceSelect(element.dataset.sourcePath); }));
   $('source-fullscreen')?.addEventListener('click', () => $('source-large img')?.requestFullscreen?.());
   document.querySelectorAll('[data-queue-index]').forEach(element => element.addEventListener('click', () => { index = Number(element.dataset.queueIndex); selectedSourcePath = null; renderCurrent(); }));
-  document.querySelectorAll('[data-edit]').forEach(element => element.addEventListener('change', async () => { const item = manifestCase(meta.caseId); if (element.dataset.edit === 'case.title') item.title = element.value; else item.vignetteMd = element.value || null; await persist(); }));
+  document.querySelectorAll('[data-edit]').forEach(element => element.addEventListener('change', async () => {
+    const item = manifestCase(meta.caseId), isTitle = element.dataset.edit === 'case.title', nextValue = isTitle ? element.value : element.value || null, previousValue = isTitle ? item.title : item.vignetteMd;
+    if (previousValue === nextValue) return;
+    if (isTitle) item.title = nextValue; else item.vignetteMd = nextValue;
+    const invalidated = invalidateApproved(meta);
+    if (invalidated) refreshQueue(meta.caseId);
+    await persist();
+    if (invalidated) await renderCurrent();
+  }));
   document.querySelectorAll('.auto-grow').forEach(element => { fitTextarea(element); element.addEventListener('input', () => fitTextarea(element)); });
-  document.querySelectorAll('[data-asset]').forEach(card => { const id = card.dataset.asset, item = asset(id), rel = indexes.caseAssetRelationByKey.get(`${meta.caseId}\u0000${id}`); card.querySelectorAll('[data-asset-field]').forEach(element => element.addEventListener('change', async () => { item[element.dataset.assetField] = element.value || null; await persist(); })); card.querySelectorAll('[data-rel-field]').forEach(element => element.addEventListener('change', async () => { rel[element.dataset.relField] = element.dataset.relField === 'displayOrder' ? Number(element.value) : element.value || null; rebuildIndexes(); await persist(); await renderCurrent(); })); const input = card.querySelector('[data-replace]'); card.querySelector('.replace-image')?.addEventListener('click', () => input.click()); input?.addEventListener('change', () => replaceImage(id, input.files?.[0])); });
-  document.querySelectorAll('[data-question]').forEach(card => { const item = caseQuestion(card.dataset.question), questionPrompt = prompt(item.questionPromptId); card.querySelectorAll('[data-question-field]').forEach(element => element.addEventListener('change', async () => { if (element.dataset.questionField === 'promptMd') questionPrompt.promptMd = element.value; else item.answerMd = element.value; await persist(); })); });
+  document.querySelectorAll('[data-asset]').forEach(card => {
+    const id = card.dataset.asset, item = asset(id), rel = indexes.caseAssetRelationByKey.get(`${meta.caseId}\u0000${id}`), review = indexes.reviewAssets.get(meta.caseId)?.get(id);
+    card.querySelectorAll('[data-asset-field]').forEach(element => element.addEventListener('change', async () => {
+      const field = element.dataset.assetField, nextValue = element.value || null;
+      if (item[field] === nextValue) return;
+      item[field] = nextValue;
+      const invalidated = invalidateApproved(review);
+      if (invalidated) refreshQueue(meta.caseId);
+      await persist();
+      if (invalidated) await renderCurrent();
+    }));
+    card.querySelectorAll('[data-rel-field]').forEach(element => element.addEventListener('change', async () => { rel[element.dataset.relField] = element.dataset.relField === 'displayOrder' ? Number(element.value) : element.value || null; rebuildIndexes(); await persist(); await renderCurrent(); }));
+    const input = card.querySelector('[data-replace]');
+    card.querySelector('.replace-image')?.addEventListener('click', () => input.click());
+    input?.addEventListener('change', () => replaceImage(id, input.files?.[0]));
+  });
+  document.querySelectorAll('[data-question]').forEach(card => {
+    const item = caseQuestion(card.dataset.question), questionPrompt = prompt(item.questionPromptId), review = indexes.reviewQuestions.get(meta.caseId)?.get(item.id);
+    card.querySelectorAll('[data-question-field]').forEach(element => element.addEventListener('change', async () => {
+      const isPrompt = element.dataset.questionField === 'promptMd', previousValue = isPrompt ? questionPrompt.promptMd : item.answerMd;
+      if (previousValue === element.value) return;
+      if (isPrompt) questionPrompt.promptMd = element.value; else item.answerMd = element.value;
+      const invalidated = invalidateApproved(review);
+      if (invalidated) refreshQueue(meta.caseId);
+      await persist();
+      if (invalidated) await renderCurrent();
+    }));
+  });
   document.querySelectorAll('[data-status-kind]').forEach(element => element.addEventListener('change', async () => {
     const target = element.dataset.statusKind === 'asset' ? indexes.reviewAssets.get(meta.caseId)?.get(element.dataset.statusId) : indexes.reviewQuestions.get(meta.caseId)?.get(element.dataset.statusId);
     if (!target) return;
