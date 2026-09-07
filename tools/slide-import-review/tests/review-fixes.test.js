@@ -110,4 +110,9 @@ test('browser reviewer skips rejected children during Case approval and fingerpr
   assert.equal((source.match(/review\.reviewStatus==='rejected'\)continue;/g) ?? []).length, 2);
   assert.match(source, /sourceFingerprint=await sha256Hex\(raw\)/);
   assert.match(source, /persistedStateMatches\(saved,loaded\.reviewMap\.bundleId,sourceFingerprint\)/);
+  assert.equal((source.match(/blocking\(review\.warnings\)/g) ?? []).length, 5);
+  assert.match(source, /Saving before opening next bundle/);
+  assert.match(source, /dirtyBeforeFingerprint/);
+  assert.match(source, /beforeunload/);
+  assert.match(source, /Math\.min\(3, queue\.length\)/);
 });

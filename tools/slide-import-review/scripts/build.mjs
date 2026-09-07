@@ -23,6 +23,14 @@ const bundledApp = app.replace("'./core.js'", JSON.stringify(coreFacadeUrl));
 const marker = '<script type="module" src="./src/app.js"></script>';
 if (!template.includes(marker)) throw new Error('Standalone reviewer template script marker is missing.');
 const html = template.replace(marker, `<script type="module">\n${bundledApp}\n</script>`);
-await mkdir(resolve(root, 'dist'), { recursive: true });
-await writeFile(resolve(root, 'dist/index.html'), html);
-console.log(`Built ${resolve(root, 'dist/index.html')}`);
+const output = resolve(root, 'reviewer.html');
+if (process.argv.includes('--check') || process.env.CI === 'true') {
+  let committed;
+  try { committed = await readFile(output, 'utf8'); } catch { throw new Error(`Generated reviewer is missing: ${output}`); }
+  if (committed !== html) throw new Error(`Generated reviewer is stale: ${output}. Run npm run slide-review:build locally and commit the updated reviewer.html.`);
+  console.log(`Verified ${output}`);
+} else {
+  await mkdir(resolve(root), { recursive: true });
+  await writeFile(output, html);
+  console.log(`Built ${output}`);
+}

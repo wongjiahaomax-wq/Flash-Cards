@@ -553,6 +553,8 @@ export class LazyZipArchive {
     this.entries = entries;
     this.overrides = new Map();
     this.cache = new Map();
+    this.inflight = new Map();
+    this.generation = 0;
     this.cacheBytes = 0;
     this.cacheLimit = REVIEW_CACHE_BYTES;
   }
@@ -567,36 +569,41 @@ export class LazyZipArchive {
     this.invalidate(path);
     this.overrides.set(path, data);
     if (!this.entries.has(path)) this.entries.set(path, { path, method: 0, compressed: data.byteLength, uncompressed: data.byteLength, crc: crc32(data), dataStart: 0, synthetic: true });
-    this.cache.set(path, { bytes: data, used: Date.now(), pinned: true });
-    this.cacheBytes += data.byteLength;
   }
   delete(path) { this.overrides.delete(path); this.invalidate(path); return this.entries.delete(path); }
   [Symbol.iterator]() { return [...this.cache.entries()].map(([path, item]) => [path, item.bytes])[Symbol.iterator](); }
-  async getFile(path, { pin = false } = {}) {
+  async getFile(path, _options = {}) {
     if (!this.entries.has(path)) return undefined;
     if (this.overrides.has(path)) return this.overrides.get(path);
     const cached = this.cache.get(path);
-    if (cached) { cached.used = Date.now(); cached.pinned ||= pin; return cached.bytes; }
-    const entry = this.entries.get(path);
-    if (entry.synthetic) return this.overrides.get(path);
-    const compressed = await blobRange(this.blob, entry.dataStart, entry.dataStart + entry.compressed);
-    const bytes = entry.method === 0 ? compressed : await inflateRaw(compressed);
-    if (bytes.byteLength !== entry.uncompressed) throw new ReviewBundleError(`ZIP entry size mismatch: ${path}.`);
-    if (crc32(bytes) !== entry.crc) throw new ReviewBundleError(`ZIP entry CRC mismatch: ${path}.`);
-    this.cache.set(path, { bytes, used: Date.now(), pinned: pin });
-    this.cacheBytes += bytes.byteLength;
-    this.evict();
-    return bytes;
+    if (cached) { cached.used = Date.now(); return cached.bytes; }
+    if (this.inflight.has(path)) return this.inflight.get(path);
+    const generation = this.generation;
+    const pending = (async () => {
+      const entry = this.entries.get(path);
+      if (entry.synthetic) return this.overrides.get(path);
+      const compressed = await blobRange(this.blob, entry.dataStart, entry.dataStart + entry.compressed);
+      const bytes = entry.method === 0 ? compressed : await inflateRaw(compressed);
+      if (bytes.byteLength !== entry.uncompressed) throw new ReviewBundleError(`ZIP entry size mismatch: ${path}.`);
+      if (crc32(bytes) !== entry.crc) throw new ReviewBundleError(`ZIP entry CRC mismatch: ${path}.`);
+      if (generation === this.generation) {
+        this.cache.set(path, { bytes, used: Date.now() });
+        this.cacheBytes += bytes.byteLength;
+        this.evict();
+      }
+      return bytes;
+    })();
+    this.inflight.set(path, pending);
+    try { return await pending; } finally { if (this.inflight.get(path) === pending) this.inflight.delete(path); }
   }
   invalidate(path) {
     const item = this.cache.get(path);
     if (item) { this.cacheBytes -= item.bytes.byteLength; this.cache.delete(path); }
   }
-  clear() { this.cache.clear(); this.overrides.clear(); this.cacheBytes = 0; }
+  clear() { this.generation += 1; this.inflight.clear(); this.cache.clear(); this.overrides.clear(); this.cacheBytes = 0; }
   evict() {
     for (const [path, item] of [...this.cache.entries()].sort((a, b) => (a[1].used ?? 0) - (b[1].used ?? 0))) {
       if (this.cacheBytes <= this.cacheLimit) break;
-      if (item.pinned) continue;
       this.cacheBytes -= item.bytes.byteLength;
       this.cache.delete(path);
     }
@@ -609,10 +616,7 @@ export class LazyZipArchive {
     if (!this.raw || !this.entries.has(path)) return undefined;
     const entry = this.entries.get(path);
     if (entry.method !== 0) return undefined;
-    const bytes = this.raw.slice(entry.dataStart, entry.dataStart + entry.compressed);
-    this.cache.set(path, { bytes, used: Date.now(), pinned: true });
-    this.cacheBytes += bytes.byteLength;
-    return bytes;
+    return this.raw.slice(entry.dataStart, entry.dataStart + entry.compressed);
   }
 }
 

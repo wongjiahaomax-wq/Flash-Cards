@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  LazyZipArchive, loadReviewBundle, writeStoredZip, exportReviewedBundle
+  LazyZipArchive, loadReviewBundle, writeStoredZip, exportReviewedBundle, finalizeBundle, readZip
 } from '../src/core.js';
 
 const preview = new Uint8Array([0xff, 0xd8, 0xff, 0xd9]);
@@ -69,4 +69,29 @@ test('indexing rejects out-of-file local offsets before any binary entry is read
   assert.ok(central > 0);
   bytes[central + 42] = 0xff; bytes[central + 43] = 0xff; bytes[central + 44] = 0xff; bytes[central + 45] = 0xff;
   await assert.rejects(() => loadReviewBundle(bytes), /local header range is invalid|Invalid local ZIP header/);
+});
+
+test('sequential materialization remains within the configured byte budget', async () => {
+  const base = fixture();
+  const entries = [];
+  for (let i = 0; i < 40; i += 1) entries.push({ path: `source-previews/extra-${i}.jpg`, bytes: preview });
+  const original = await loadReviewBundle(base);
+  const expanded = writeStoredZip([
+    { path: 'manifest.json', bytes: new TextEncoder().encode(JSON.stringify(original.manifest)) },
+    { path: 'review-map.json', bytes: new TextEncoder().encode(JSON.stringify(original.reviewMap)) },
+    { path: 'source-previews/page-1.jpg', bytes: preview },
+    ...entries
+  ]);
+  const bundle = await loadReviewBundle(expanded);
+  bundle.files.cacheLimit = preview.byteLength * 2;
+  for (const entry of entries) await bundle.files.getFile(entry.path);
+  assert.ok(bundle.files.materializedBytes <= bundle.files.cacheLimit);
+});
+
+test('production finalization does not materialize review-only source previews', async () => {
+  const bundle = await loadReviewBundle(fixture());
+  const output = await finalizeBundle(bundle);
+  const files = await readZip(output.zip);
+  assert.deepEqual([...files.keys()], ['manifest.json']);
+  assert.equal(bundle.files.get('source-previews/page-1.jpg'), undefined);
 });
