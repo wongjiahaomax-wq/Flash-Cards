@@ -155,6 +155,39 @@ test('successful save does not reconstruct an unrelated form', async () => {
   assert.equal(unrelatedControl.value, 'Server-rendered prompt');
 });
 
+test('two captured generic saves defer invalidation and retain a newer edit after partial completion', async () => {
+  const { stableCaseEditorEnhance } = await import('../src/lib/case-editor-mutation.js');
+  const makeForm = (key, value) => {
+    const control = new FakeTextarea('caption', value);
+    return {
+      elements: [control], isConnected: true, dataset: { caseEditorLogicalKey: key },
+      getAttribute: () => '?/saveCaption', querySelectorAll: () => []
+    };
+  };
+  const first = makeForm('caption:one', 'First submitted');
+  const second = makeForm('caption:two', 'Second submitted');
+  globalThis.document = { baseURI: 'https://example.test/admin/cases/case-1', querySelectorAll: () => [first, second] };
+  globalThis.window = { scrollTo() {} };
+  let invalidations = 0;
+  globalThis.__caseEditorInvalidateAll = async () => { invalidations += 1; };
+  const firstSnapshot = [{ name: 'caption', type: 'textarea', value: 'First submitted' }];
+  const secondSnapshot = [{ name: 'caption', type: 'textarea', value: 'Second submitted' }];
+  const firstSave = stableCaseEditorEnhance({}, first, { reconcileSubmittedDraft: true, logicalKey: 'caption:one', deferInvalidation: true, submittedSnapshot: firstSnapshot });
+  const secondSave = stableCaseEditorEnhance({}, second, { reconcileSubmittedDraft: true, logicalKey: 'caption:two', deferInvalidation: true, submittedSnapshot: secondSnapshot });
+
+  second.elements[0].value = 'Second newer edit';
+  const [firstOutcome, secondOutcome] = await Promise.all([
+    firstSave({ result: { type: 'redirect', location: '/admin/cases/case-1?status=saved' } }),
+    secondSave({ result: { type: 'redirect', location: '/admin/cases/case-1?status=saved' } })
+  ]);
+
+  assert.equal(firstOutcome.deferred, true);
+  assert.equal(secondOutcome.deferred, true);
+  assert.equal(invalidations, 0, 'a partial batch must not remount either generic form');
+  assert.deepEqual(secondOutcome.submittedSnapshot, secondSnapshot);
+  assert.equal(second.elements[0].value, 'Second newer edit');
+});
+
 test('individual save names other saveable and structural work instead of preserving it', async () => {
   const { caseEditorUnsavedWorkMessage } = await import('../src/lib/case-editor-mutation.js');
   globalThis.document = { querySelectorAll: () => [], querySelector: () => null };

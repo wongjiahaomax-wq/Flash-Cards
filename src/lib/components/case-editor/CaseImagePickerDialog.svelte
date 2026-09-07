@@ -71,7 +71,7 @@
       cancel();
       return;
     }
-    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: true });
     if (conflictMessage) {
       window.alert(conflictMessage);
       cancel();
@@ -81,7 +81,7 @@
     const submittedSelection = transaction.submittedIds;
     let stable;
     try {
-      stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement);
+      stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { deferInvalidation: () => coordinator?.saveableDirtyCount?.() > 0 });
     } catch (error) {
       attachPending = false;
       throw error;

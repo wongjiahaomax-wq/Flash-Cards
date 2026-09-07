@@ -171,9 +171,9 @@ export function registerCaseEditorStructuralForms(coordinator) {
   };
 }
 
-/** @param {{ scrollX: number, scrollY: number, activeElement: Element | null, selectionStart: number | null, selectionEnd: number | null }} view @param {HTMLFormElement | null} [submittedForm] @param {{ reconcileSubmittedDraft?: boolean, logicalKey?: string, deferInvalidation?: boolean | (() => boolean) }} [options] */
-export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selectionStart, selectionEnd }, submittedForm = null, { reconcileSubmittedDraft = false, logicalKey = '', deferInvalidation = false } = {}) {
-  const submittedSnapshot = submittedForm ? captureEditableFormSnapshot(submittedForm) : null;
+/** @param {{ scrollX: number, scrollY: number, activeElement: Element | null, selectionStart: number | null, selectionEnd: number | null }} view @param {HTMLFormElement | null} [submittedForm] @param {{ reconcileSubmittedDraft?: boolean, logicalKey?: string, deferInvalidation?: boolean | (() => boolean), submittedSnapshot?: any[] | null }} [options] */
+export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selectionStart, selectionEnd }, submittedForm = null, { reconcileSubmittedDraft = false, logicalKey = '', deferInvalidation = false, submittedSnapshot: plannedSnapshot = null } = {}) {
+  const submittedSnapshot = plannedSnapshot ?? (submittedForm ? captureEditableFormSnapshot(submittedForm) : null);
   const submittedLogicalKey = logicalKey || submittedForm?.dataset.caseEditorLogicalKey || '';
   return async ({ result }) => {
     const successful = result.type === 'redirect' || result.type === 'success';
@@ -299,6 +299,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
   let unregister = register();
   let pending = null;
   let resolvePending = null;
+  let preparedSnapshot = null;
   const status = document.createElement('span');
   status.className = 'case-editor-inline-save-state';
   status.setAttribute('role', 'status');
@@ -325,9 +326,18 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       isSaving: () => saveState.isPending(),
       status: () => saveState.isPending() ? 'Saving…' : saveState.hasFailed() ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
       isDirty: () => node.isConnected && cachedDirty,
-      save: () => {
+      prepareSave: () => node.reportValidity() ? captureEditableFormSnapshot(node) : null,
+      saveAllPayload: (snapshot) => ({ kind: 'form', action: node.getAttribute('action') ?? '', fields: snapshot }),
+      commitSaveAll: (snapshot) => {
+        baseline = snapshot;
+        saveState.complete(true);
+        updateCachedState();
+        coordinator?.refresh();
+      },
+      save: (snapshot = null) => {
         if (pending) return pending;
-        if (!node.reportValidity()) return Promise.resolve(false);
+        if (!snapshot && !node.reportValidity()) return Promise.resolve(false);
+        preparedSnapshot = snapshot;
         node.requestSubmit();
         return pending ?? Promise.resolve(false);
       }
@@ -358,11 +368,12 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       cancel();
       return;
     }
-    const submittedSnapshot = captureEditableFormSnapshot(formElement);
+    const submittedSnapshot = preparedSnapshot ?? captureEditableFormSnapshot(formElement);
+    preparedSnapshot = null;
     pending = new Promise((resolve) => { resolvePending = resolve; });
     status.hidden = false;
     status.textContent = saveState.begin();
-    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: coordinator?.isSavingAll?.() });
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
     if (conflictMessage) {
       window.alert(conflictMessage);
       cancel();
@@ -375,14 +386,14 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       resolve?.(false);
       return;
     }
-    const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { reconcileSubmittedDraft: true, logicalKey: currentKey });
+    const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { reconcileSubmittedDraft: true, logicalKey: currentKey, submittedSnapshot });
     return async ({ result }) => {
       let ok = false;
       let outcome = null;
       try {
         outcome = await stable({ result });
         ok = outcome.ok;
-        if (ok) baseline = outcome.authoritativeSnapshot ?? outcome.submittedSnapshot ?? baseline;
+        if (ok) baseline = outcome.deferred ? outcome.submittedSnapshot : outcome.authoritativeSnapshot ?? outcome.submittedSnapshot ?? baseline;
         updateCachedState();
       } finally {
         const resolve = resolvePending;

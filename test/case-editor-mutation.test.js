@@ -10,17 +10,17 @@ test('Case editor coordinator serializes Save All and only attempts current dirt
   const events = [];
   let firstDirty = true;
   let secondDirty = false;
-  coordinator.register('first', { isDirty: () => firstDirty, save: async () => { events.push('first'); firstDirty = false; return true; } });
-  coordinator.register('second', { isDirty: () => secondDirty, save: async () => { events.push('second'); secondDirty = false; return true; } });
+  coordinator.register('first', { isDirty: () => firstDirty, prepareSave: () => 'first', saveAllPayload: () => ({}), commitSaveAll: () => { events.push('first'); firstDirty = false; } });
+  coordinator.register('second', { isDirty: () => secondDirty, prepareSave: () => 'second', saveAllPayload: () => ({}), commitSaveAll: () => { events.push('second'); secondDirty = false; } });
 
-  const firstRun = await coordinator.saveAll();
+  const firstRun = await coordinator.saveAll(async () => true);
   assert.deepEqual(firstRun, { attempted: 1, succeeded: 1, failed: 0 });
   assert.deepEqual(events, ['first']);
   assert.equal(coordinator.dirtyCount(), 0);
 
   firstDirty = true;
   secondDirty = true;
-  const [runA, runB] = await Promise.all([coordinator.saveAll(), coordinator.saveAll()]);
+  const [runA, runB] = await Promise.all([coordinator.saveAll(async () => true), coordinator.saveAll(async () => true)]);
   assert.deepEqual(runA, { attempted: 2, succeeded: 2, failed: 0 });
   assert.deepEqual(runB, { attempted: 0, succeeded: 0, failed: 0 });
   assert.deepEqual(events, ['first', 'first', 'second']);
@@ -51,17 +51,42 @@ test('Case editor reconciliation resets a submitted draft when no newer edit exi
   assert.deepEqual(reconciled.draft, authoritative);
 });
 
-test('Save All continues after a partial failure and reports each outcome', async () => {
+test('Save All failure keeps every captured draft dirty', async () => {
   const coordinator = createCaseEditorCoordinator();
   const events = [];
   let firstDirty = true;
   let secondDirty = true;
-  coordinator.register('first', { isDirty: () => firstDirty, save: async () => { events.push('first'); return false; } });
-  coordinator.register('second', { isDirty: () => secondDirty, save: async () => { events.push('second'); secondDirty = false; return true; } });
+  coordinator.register('first', { isDirty: () => firstDirty, prepareSave: () => 'first', saveAllPayload: () => ({}), commitSaveAll: () => { events.push('first'); firstDirty = false; } });
+  coordinator.register('second', { isDirty: () => secondDirty, prepareSave: () => 'second', saveAllPayload: () => ({}), commitSaveAll: () => { events.push('second'); secondDirty = false; } });
 
-  assert.deepEqual(await coordinator.saveAll(), { attempted: 2, succeeded: 1, failed: 1 });
-  assert.deepEqual(events, ['first', 'second']);
-  assert.equal(coordinator.dirtyCount(), 1);
+  assert.deepEqual(await coordinator.saveAll(async () => false), { attempted: 2, succeeded: 0, failed: 2 });
+  assert.deepEqual(events, []);
+  assert.equal(coordinator.dirtyCount(), 2);
+});
+
+test('one Save All request carries Case details, Question, and generic drafts and only commits after success', async () => {
+  const coordinator = createCaseEditorCoordinator();
+  let detailsDirty = true;
+  let questionDirty = true;
+  let captionDirty = true;
+  const committed = [];
+  const entry = (kind, clear) => ({
+    isDirty: () => clear.dirty,
+    prepareSave: () => ({ kind }),
+    saveAllPayload: (snapshot) => snapshot,
+    commitSaveAll: () => { clear.dirty = false; committed.push(kind); }
+  });
+  coordinator.register('case-details', entry('case-details', { get dirty() { return detailsDirty; }, set dirty(value) { detailsDirty = value; } }));
+  coordinator.register('question:q1', entry('question', { get dirty() { return questionDirty; }, set dirty(value) { questionDirty = value; } }));
+  coordinator.register('form:caption', entry('form', { get dirty() { return captionDirty; }, set dirty(value) { captionDirty = value; } }));
+  let requestCount = 0;
+  let payload = null;
+  const result = await coordinator.saveAll(async (drafts) => { requestCount += 1; payload = drafts; return true; });
+  assert.deepEqual(result, { attempted: 3, succeeded: 3, failed: 0 });
+  assert.equal(requestCount, 1);
+  assert.deepEqual(payload.map((draft) => draft.kind), ['case-details', 'question', 'form']);
+  assert.deepEqual(committed, ['case-details', 'question', 'form']);
+  assert.equal(coordinator.hasUnsavedWork(), false);
 });
 
 test('coordinator exposes descriptive dirty inventory and keeps structural work out of Save All', async () => {
@@ -73,7 +98,7 @@ test('coordinator exposes descriptive dirty inventory and keeps structural work 
     label: 'Case details',
     dirtyFields: () => ['Vignette'],
     isDirty: () => detailsDirty,
-    save: async () => { saves += 1; detailsDirty = false; return true; }
+    prepareSave: () => 'details', saveAllPayload: () => ({}), commitSaveAll: () => { saves += 1; detailsDirty = false; }
   });
   coordinator.register('question-create', {
     saveable: false,
@@ -88,7 +113,7 @@ test('coordinator exposes descriptive dirty inventory and keeps structural work 
     { key: 'question-create', label: 'Add Case question', fields: ['Prompt and answer entered'], status: 'Not submitted — use this form\'s action', saveable: false, target: null }
   ]);
   assert.equal(coordinator.describeUnsavedWork(), 'Case details — Vignette; Add Case question — Prompt and answer entered');
-  assert.deepEqual(await coordinator.saveAll(), { attempted: 1, succeeded: 1, failed: 0 });
+  assert.deepEqual(await coordinator.saveAll(async () => true), { attempted: 1, succeeded: 1, failed: 0 });
   assert.equal(saves, 1);
   assert.equal(coordinator.dirtyItems()[0].key, 'question-create');
 });
@@ -96,7 +121,7 @@ test('coordinator exposes descriptive dirty inventory and keeps structural work 
 test('coordinator bounds the in-app leave summary', () => {
   const coordinator = createCaseEditorCoordinator();
   for (let index = 1; index <= 5; index += 1) {
-    coordinator.register(`draft-${index}`, { label: `Draft ${index}`, isDirty: () => true, save: async () => true });
+    coordinator.register(`draft-${index}`, { label: `Draft ${index}`, isDirty: () => true, prepareSave: () => index, saveAllPayload: () => ({}), commitSaveAll: () => {} });
   }
   assert.equal(coordinator.describeUnsavedWork(3), 'Draft 1; Draft 2; Draft 3; and 2 more');
 });
@@ -107,12 +132,12 @@ test('newly registered Case question drafts participate in Save All after revali
   let saves = 0;
   coordinator.register('question:new-prompt', {
     isDirty: () => dirty,
-    save: async () => { saves += 1; dirty = false; return true; }
+    prepareSave: () => 'question', saveAllPayload: () => ({}), commitSaveAll: () => { saves += 1; dirty = false; }
   });
   dirty = true;
 
   assert.equal(coordinator.dirtyCount(), 1);
-  assert.deepEqual(await coordinator.saveAll(), { attempted: 1, succeeded: 1, failed: 0 });
+  assert.deepEqual(await coordinator.saveAll(async () => true), { attempted: 1, succeeded: 1, failed: 0 });
   assert.equal(saves, 1);
 });
 

@@ -81,7 +81,7 @@
         }
         return;
       }
-      const conflictMessage = caseEditorUnsavedWorkMessage(submittedForm, draftCoordinator);
+      const conflictMessage = caseEditorUnsavedWorkMessage(submittedForm, draftCoordinator, { allowSaveableWork: true });
       if (conflictMessage) {
         event.preventDefault();
         window.alert(conflictMessage);
@@ -101,8 +101,7 @@
         if (!(form instanceof HTMLFormElement)) return false;
         if (form.id === 'case-details-form' || form.classList.contains('question-edit-form')) return false;
         if (form.hasAttribute('data-case-editor-coordinated')) return false;
-        const action = form.getAttribute('action') ?? '';
-        return action.startsWith('?/') && !form.hasAttribute('data-case-editor-internal') && !form.hasAttribute('data-case-editor-enhanced') && !form.hasAttribute('data-case-editor-coordinated');
+        return !form.hasAttribute('data-case-editor-internal') && !form.hasAttribute('data-case-editor-enhanced') && !form.hasAttribute('data-case-editor-coordinated');
       });
     /** @param {any} submitContext */
     const enhanceStableForm = ({ formElement, cancel }) => {

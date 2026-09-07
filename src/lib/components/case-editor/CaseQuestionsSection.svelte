@@ -77,6 +77,11 @@
     const form = document.getElementById(`question-edit-${state.caseQuestionId}`);
     return form instanceof HTMLFormElement && form.reportValidity() ? cloneCaseEditorSnapshot(state.draft) : null;
   }
+  function commitQuestionSave(state, snapshot) {
+    state.baseline = cloneCaseEditorSnapshot(snapshot);
+    state.saveState = 'saved';
+    coordinator?.refresh();
+  }
 
   function submitQuestion(state, snapshot = null) {
     if (state.pending) return state.pending;
@@ -93,14 +98,14 @@
         cancel();
         return;
       }
-      const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: coordinator?.isSavingAll?.() });
+      const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
       if (conflictMessage) {
         window.alert(conflictMessage);
         cancel();
         return;
       }
       beginQuestionSubmit(state, state.submitted ?? state.draft);
-      const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { reconcileSubmittedDraft: true, deferInvalidation: () => coordinator?.isSavingAll?.() });
+      const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { reconcileSubmittedDraft: true });
       return async ({ result }) => {
         const outcome = await stable({ result });
         if (outcome.ok) {
@@ -152,6 +157,8 @@
         status: () => state.pending ? 'Saving…' : !questionDirty(state) ? 'Saved' : state.saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
         isDirty: () => questionDirty(state),
         prepareSave: () => prepareQuestionSave(state),
+        saveAllPayload: (snapshot) => ({ kind: 'question', fields: { caseQuestionId: state.caseQuestionId, originalPromptId: state.authoritativeId, ...snapshot } }),
+        commitSaveAll: (snapshot) => commitQuestionSave(state, snapshot),
         save: (snapshot) => submitQuestion(state, snapshot)
       });
       if (unregister) {

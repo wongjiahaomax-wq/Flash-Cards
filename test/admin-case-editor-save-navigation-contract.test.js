@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 const page = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
+const caseServer = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
 const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
 const details = readFileSync(new URL('../src/lib/components/case-editor/CaseDetailsSection.svelte', import.meta.url), 'utf8');
 const header = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorHeader.svelte', import.meta.url), 'utf8');
@@ -25,8 +26,7 @@ const stimulusRoles = readFileSync(new URL('../src/routes/admin/stimulus-roles/+
 const stimulusSupporting = readFileSync(new URL('../src/routes/admin/stimulus-supporting/+server.js', import.meta.url), 'utf8');
 
 test('question-scope uses native endpoint submission and carries bounded return context', () => {
-  assert.match(page, /action\.startsWith\('\?\/'\)/);
-  assert.doesNotMatch(page, /action\.includes\('\/cases\/'\)/);
+  assert.doesNotMatch(page, /action\.startsWith\('\?\/'\)/);
   assert.match(questionScope, /normalizeCaseLibraryReturnQuery/);
   assert.match(questionScope, /request\.headers\.get\('referer'\)/);
   assert.match(questionScope, /const returnQuery = editorReturnQuery\(request, formData\)/);
@@ -77,8 +77,8 @@ test('successful enhanced submissions reconcile only the submitted form', () => 
   assert.match(mutation, /pending = new Promise\(\(resolve\) => \{ resolvePending = resolve; \}\)/);
   assert.match(mutation, /if \(pending\) \{\s*cancel\(\);/);
   assert.doesNotMatch(mutation, /dispatchEvent\(new Event\('(input|change)'/);
-  assert.match(details, /stableCaseEditorEnhance\(view, formElement, \{ reconcileSubmittedDraft: true, deferInvalidation:/);
-  assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement, \{ reconcileSubmittedDraft: true, deferInvalidation:/);
+  assert.match(details, /stableCaseEditorEnhance\(view, formElement, \{ reconcileSubmittedDraft: true \}\)/);
+  assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement, \{ reconcileSubmittedDraft: true \}\)/);
   assert.match(mutation, /postSuccessSnapshot/);
   assert.match(page, /rebaseline\(structuralKey, [\s\S]{0,120}postSuccessSnapshot/);
 });
@@ -104,9 +104,9 @@ test('individual saves block with a named conflict and enhanced cancellation blo
   assert.match(page, /window\.alert\(conflictMessage\)/);
   assert.match(page, /cancel\(\);/);
   assert.match(page, /hasAttribute\('data-case-editor-coordinated'\)/);
-  assert.match(details, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: coordinator\?\.isSavingAll\?\.\(\) \}\)/);
+  assert.match(details, /caseEditorUnsavedWorkMessage\(formElement, coordinator\)/);
   assert.match(details, /cancel\(\);/);
-  assert.match(questions, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: coordinator\?\.isSavingAll\?\.\(\) \}\)/);
+  assert.match(questions, /caseEditorUnsavedWorkMessage\(formElement, coordinator\)/);
   assert.match(questions, /cancel\(\);/);
   assert.match(mutation, /isOrdinaryCaseEditorDraftForm/);
   assert.match(mutation, /Save all changes instead/);
@@ -167,12 +167,22 @@ test('cross-form reconstruction is not part of normal save handling', () => {
   assert.match(mutation, /data-case-editor-controlled/);
 });
 
-test('Save All captures every saveable draft, defers intermediate invalidation, and structural work has a safe first step', () => {
+test('Save All posts one captured server batch and structural work has a safe first step', () => {
   assert.match(coordinator, /const plans = \[\];/);
   assert.match(coordinator, /const prepared = entry\.prepareSave \? entry\.prepareSave\(\) : true;/);
-  assert.match(coordinator, /Promise\.allSettled\(plans\.map/);
-  assert.match(mutation, /deferInvalidation/);
-  assert.match(mutation, /allowSaveableWork: coordinator\?\.isSavingAll\?\.\(\)/);
+  assert.match(coordinator, /const ok = await submit\?\.\(plans\.map/);
+  assert.doesNotMatch(coordinator, /Promise\.allSettled/);
+  assert.match(mutation, /prepareSave: \(\) => node\.reportValidity\(\) \? captureEditableFormSnapshot\(node\) : null/);
+  assert.match(mutation, /saveAllPayload: \(snapshot\) => \(\{ kind: 'form'/);
+  assert.match(header, /result\.succeeded && !coordinator\.hasUnsavedWork\(\)/);
+  assert.match(header, /fetch\('\?\/saveAll'/);
+  assert.match(caseServer, /saveAll: async/);
+  assert.match(caseServer, /await request\.json\(\)/);
+  assert.match(caseServer, /draft\?\.kind === 'case-details'/);
+  assert.match(caseServer, /draft\?\.kind === 'question'/);
+  assert.match(caseServer, /draft\?\.kind === 'form'/);
+  assert.match(picker, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: true \}\)/);
+  assert.match(page, /caseEditorUnsavedWorkMessage\(submittedForm, draftCoordinator, \{ allowSaveableWork: true \}\)/);
   assert.match(details, /prepareSave: prepareDraftSave/);
   assert.match(questions, /prepareSave: \(\) => prepareQuestionSave\(state\)/);
   assert.match(details, /!dirty \? 'Saved' : saveState === 'error'/);

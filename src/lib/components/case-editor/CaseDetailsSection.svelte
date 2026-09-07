@@ -53,6 +53,11 @@
   function prepareDraftSave() {
     return detailsForm?.reportValidity() ? cloneCaseEditorSnapshot(draft) : null;
   }
+  function commitDraftSave(snapshot) {
+    baseline = cloneCaseEditorSnapshot(snapshot);
+    saveState = 'saved';
+    coordinator?.refresh();
+  }
 
   function submitDraft(snapshot = null) {
     if (pending) return pending;
@@ -67,7 +72,7 @@
       cancel();
       return;
     }
-    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: coordinator?.isSavingAll?.() });
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
     if (conflictMessage) {
       window.alert(conflictMessage);
       cancel();
@@ -75,7 +80,7 @@
     }
     beginSubmit(submittedSnapshot ?? draft);
     const view = captureCaseEditorView();
-    const stable = stableCaseEditorEnhance(view, formElement, { reconcileSubmittedDraft: true, deferInvalidation: () => coordinator?.isSavingAll?.() });
+    const stable = stableCaseEditorEnhance(view, formElement, { reconcileSubmittedDraft: true });
     return async ({ result }) => {
       const outcome = await stable({ result });
       if (outcome.ok) {
@@ -103,6 +108,8 @@
     status: () => pending ? 'Saving…' : !dirty ? 'Saved' : saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
     isDirty: () => dirty,
     prepareSave: prepareDraftSave,
+    saveAllPayload: (snapshot) => ({ kind: 'case-details', fields: snapshot }),
+    commitSaveAll: commitDraftSave,
     save: submitDraft
   }));
   onDestroy(() => coordinator?.refresh());

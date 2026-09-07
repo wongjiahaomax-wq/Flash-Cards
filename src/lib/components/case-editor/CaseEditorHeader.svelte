@@ -30,8 +30,17 @@
       return;
     }
     saveAllMessage = '';
-    const result = await coordinator.saveAll();
-    if (result.succeeded) await invalidateAll();
+    /** @param {any[]} drafts */
+    const submitSaveAll = async (drafts) => {
+      const response = await fetch('?/saveAll', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ drafts })
+      });
+      return response.ok;
+    };
+    const result = await coordinator.saveAll(submitSaveAll);
+    if (result.succeeded && !coordinator.hasUnsavedWork()) await invalidateAll();
     saveAllResult = result;
     saveAllResultRevision = draftRevision;
   }
