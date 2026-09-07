@@ -55,6 +55,18 @@ test('reviewed export can materialize a Blob-backed archive only when backup is 
   assert.deepEqual([...await roundTrip.files.getFile('source-previews/unrelated.jpg')], [...preview]);
 });
 
+test('Blob-backed backup copies unchanged previews without inflating them into the archive cache', async () => {
+  const bundle = await loadReviewBundle(new Blob([fixture()]));
+  const reads = [];
+  const originalGetFile = bundle.files.getFile.bind(bundle.files);
+  bundle.files.getFile = async (path, options) => { reads.push(path); return originalGetFile(path, options); };
+  const cachedBefore = bundle.files.materializedBytes;
+  const output = await exportReviewedBundle(bundle);
+  assert.ok(output instanceof Blob);
+  assert.equal(reads.some(path => path.startsWith('source-previews/')), false);
+  assert.equal(bundle.files.materializedBytes, cachedBefore);
+});
+
 test('copying an unchanged stored entry for backup does not turn it into a persisted override', async () => {
   const bundle = await loadReviewBundle(fixture());
   const output = exportReviewedBundle(bundle);

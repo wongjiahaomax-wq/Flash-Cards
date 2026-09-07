@@ -3,6 +3,8 @@ import {
   resolveUnresolvedQuestion, rejectUnresolvedQuestion, detectImageType,
   sha256Hex, PRODUCTION_LIMITS, persistedStateMatches
 } from './core.js';
+import { createAutosaveCoordinator } from './autosave.js';
+import { trimResourceUrlCache } from './resource-cache.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -10,7 +12,7 @@ const blocking = (warnings = []) => warnings.filter(item => item.severity === 'b
 const inputSelector = 'input,textarea,select,[contenteditable="true"]';
 let bundle = null, bundleFingerprint = null, visibleCases = [], index = 0, filter = 'all', coverageMode = false, revealAnswers = false, selectedSourcePath = null, loadGeneration = 0;
 let indexes = null, urlCache = new Map(), saveTimer = null, saveChain = Promise.resolve(), saveVersion = 0, pendingSaveResolvers = [], saveInFlight = false;
-let dirty = false, dirtyBeforeFingerprint = false, editRevision = 0, lastSavedRevision = 0, saveGeneration = 0, activeFlush = null;
+let dirty = false, dirtyBeforeFingerprint = false, editRevision = 0, lastSavedRevision = 0, saveGeneration = 0;
 
 function rebuildIndexes() {
   if (!bundle) { indexes = null; return; }
@@ -64,7 +66,7 @@ function download(bytes, name, type = 'application/zip') { const url = URL.creat
 
 function releaseUrl(path) { const item = urlCache.get(path); if (item) { URL.revokeObjectURL(item.url); urlCache.delete(path); } }
 function releaseResources() { for (const path of [...urlCache.keys()]) releaseUrl(path); fileStore()?.clear?.(); selectedSourcePath = null; }
-function trimUrls(protectedPaths = new Set()) { let total = [...urlCache.values()].reduce((sum, item) => sum + item.bytes, 0); for (const [path, item] of [...urlCache.entries()].sort((a, b) => a[1].used - b[1].used)) { if (total <= 32 * 1024 * 1024) break; if (protectedPaths.has(path)) continue; total -= item.bytes; releaseUrl(path); } }
+function trimUrls(protectedPaths = new Set()) { trimResourceUrlCache(urlCache, protectedPaths, undefined, path => releaseUrl(path)); }
 async function resourceUrl(path, mime, generation, protectedPaths) {
   if (!fileStore()?.has(path)) return null;
   const existing = urlCache.get(path); if (existing) { existing.used = Date.now(); protectedPaths.add(path); return existing.url; }
@@ -72,8 +74,8 @@ async function resourceUrl(path, mime, generation, protectedPaths) {
   const url = URL.createObjectURL(new Blob([bytes], { type: mime || detectImageType(bytes) || 'application/octet-stream' })); urlCache.set(path, { url, bytes: bytes.byteLength, used: Date.now() }); protectedPaths.add(path); trimUrls(protectedPaths); return url;
 }
 async function loadResources(paths, generation) {
-  const resources = new Map(), queue = [...paths]; let cursor = 0;
-  const worker = async () => { while (cursor < queue.length && generation === loadGeneration) { const path = queue[cursor++], item = indexes.byPath.get(path); const url = await resourceUrl(path, item?.mimeType, generation, new Set()); if (url) resources.set(path, url); } };
+  const resources = new Map(), queue = [...paths], protectedPaths = new Set(paths); let cursor = 0;
+  const worker = async () => { while (cursor < queue.length && generation === loadGeneration) { const path = queue[cursor++], item = indexes.byPath.get(path); const url = await resourceUrl(path, item?.mimeType, generation, protectedPaths); if (url) resources.set(path, url); } };
   const workers = Array.from({ length: Math.min(3, queue.length) }, () => worker());
   await Promise.all(workers); return resources;
 }
@@ -91,9 +93,7 @@ function persist() {
   const target = editRevision, promise = new Promise((resolve, reject) => pendingSaveResolvers.push({ target, resolve, reject })); saveTimer = setTimeout(flushSave, 120); statusText('Saving…'); return promise;
 }
 async function flushSave() {
-  if (activeFlush) return activeFlush;
-  activeFlush = flushSaveNow();
-  try { return await activeFlush; } finally { activeFlush = null; }
+  return autosave.flush();
 }
 async function flushSaveNow() {
   clearTimeout(saveTimer); saveTimer = null;
@@ -102,7 +102,12 @@ async function flushSaveNow() {
   try { await saveChain; saveInFlight = false; const current = generation === loadGeneration && target === editRevision; if (current) { lastSavedRevision = target; dirty = false; } resolveSaveWaiters(target, current); if (current) statusText(`Saved locally · ${new Date(value.updatedAt).toLocaleTimeString()}`); return current; }
   catch (error) { saveInFlight = false; rejectSaveWaiters(target, error); if (generation === loadGeneration) statusText('Local save failed'); throw error; }
 }
-async function flushPendingSave() { while (saveTimer || saveInFlight || (bundleFingerprint && dirty && lastSavedRevision < editRevision)) { if (saveTimer) await flushSave(); else await saveChain; } return !dirty; }
+const autosave = createAutosaveCoordinator({
+  hasPending: () => Boolean(bundle && bundleFingerprint && saveGeneration === loadGeneration && dirty && lastSavedRevision < editRevision),
+  write: flushSaveNow,
+  schedule: () => { if (!saveTimer) saveTimer = setTimeout(flushSave, 0); }
+});
+async function flushPendingSave() { while (saveTimer || saveInFlight || (bundleFingerprint && dirty && lastSavedRevision < editRevision)) { if (saveTimer || !saveInFlight) await flushSave(); else if (autosave.active) await autosave.active; else await saveChain; } return !dirty; }
 async function restoreSaved(saved) { if (!persistedStateMatches(saved, bundle.reviewMap.bundleId, bundleFingerprint)) return false; bundle.manifest = saved.manifest; bundle.reviewMap = saved.reviewMap; for (const [path, buffer] of saved.mediaOverrides ?? []) bundle.files.set(path, new Uint8Array(buffer)); rebuildIndexes(); dirty = false; dirtyBeforeFingerprint = false; editRevision = saved.revision ?? editRevision; lastSavedRevision = editRevision; return true; }
 
 async function fingerprintFile(input) {
@@ -129,7 +134,7 @@ function assetCard(rel, meta, resources) { const item = asset(rel.assetId); if (
 function questionCard(item, meta) { const questionPrompt = prompt(item.questionPromptId); return `<article class="card question-card" data-question="${esc(item.id)}"><div class="row between"><b>${esc(item.id)}</b>${meta ? statusSelect('question', item.id, meta.reviewStatus) : '<span class="danger">Missing review metadata</span>'}</div><div class="small">Prompt source: ${refsHtml(meta?.promptSourceRefs)}<br>Answer source: ${refsHtml(meta?.answerSourceRefs)}<br>Confidence: ${esc(meta?.confidence || '—')}</div>${warningHtml(meta?.warnings)}${notesHtml(meta?.reviewNotes)}<label>Prompt<textarea data-question-field="promptMd">${esc(questionPrompt?.promptMd || '')}</textarea></label><label class="answer ${revealAnswers ? '' : 'hidden'}">Answer<textarea data-question-field="answerMd">${esc(item.answerMd || '')}</textarea></label></article>`; }
 function unresolvedCard(candidate) { return `<article class="card unresolved" data-unresolved="${esc(candidate.candidateId)}"><div class="row between"><b>${esc(candidate.candidateId)}</b><span class="badge ${esc(candidate.reviewStatus)}">${esc(candidate.reviewStatus)}</span></div><div class="small">Prompt source: ${refsHtml(candidate.promptSourceRefs)}<br>Answer source: ${refsHtml(candidate.answerSourceRefs)} · confidence: ${esc(candidate.confidence)}</div>${warningHtml(candidate.warnings)}${notesHtml(candidate.reviewNotes)}<label>Prompt<textarea data-u-prompt>${esc(candidate.proposedPrompt)}</textarea></label><label>Answer<textarea data-u-answer placeholder="Required to include"></textarea></label><div class="row"><button class="resolve-u">Create Prompt + Case Question</button><button class="secondary reject-u">Reject unresolved question</button></div></article>`; }
 function proposedPanel(meta, resources) { const item = manifestCase(meta.caseId), unresolved = indexes.unresolvedPending.get(meta.caseId) ?? []; return `<section class="panel"><div class="panel-heading"><h2>Proposed import</h2><span class="badge ${esc(meta.reviewStatus)}">${esc(meta.reviewStatus)}</span></div><label>Admin-only title<input data-edit="case.title" value="${esc(item.title || '')}"></label><label>Vignette<textarea data-edit="case.vignetteMd" rows="6">${esc(item.vignetteMd || '')}</textarea></label><h3>Fixed learner images</h3><div class="asset-grid">${caseAssets(meta.caseId).map(rel => assetCard(rel, indexes.reviewAssets.get(meta.caseId)?.get(rel.assetId), resources)).join('') || '<p class="muted">No learner images.</p>'}</div><div class="row between"><h3>Case questions</h3><button id="toggle-answers" class="secondary">${revealAnswers ? 'Hide answers' : 'Reveal answers'}</button></div>${caseQuestions(meta.caseId).map(item => questionCard(item, indexes.reviewQuestions.get(meta.caseId)?.get(item.id))).join('') || '<p class="muted">No emitted questions.</p>'}${notesHtml(meta.reviewNotes)}${unresolved.length ? `<h3>Unresolved source questions</h3>${unresolved.map(unresolvedCard).join('')}` : ''}</section>`; }
-function queueHtml() { return `<div class="queue-heading"><b>Cases</b><span class="small">${visibleCases.length} in queue</span></div>${visibleCases.map((item, i) => `<button class="queue-item ${i === index ? 'selected' : ''}" data-queue-index="${i}"><span>${esc(item.caseId)}</span><span class="queue-state ${esc(item.reviewStatus)}">${item.reviewStatus === 'needs_review' ? '!' : item.reviewStatus[0].toUpperCase()}</span></button>`).join('')}`; }
+function queueHtml() { return `<div class="queue-heading"><b>Cases</b><span class="small">${visibleCases.length} in queue</span></div>${visibleCases.map((item, i) => { const title = manifestCase(item.caseId)?.title?.trim() || 'Untitled Case'; const flags = indexes.caseFlags.get(item.caseId); const problem = flags?.blocking ? ' · blocking' : flags?.missing ? ' · missing answer' : flags?.image ? ' · image warning' : ''; return `<button class="queue-item ${i === index ? 'selected' : ''}" data-queue-index="${i}"><span><b>${esc(title)}</b><small>Case ${i + 1} · ${esc(item.caseId)}</small></span><span class="queue-state ${esc(item.reviewStatus)}" title="${esc(item.reviewStatus + problem)}">${item.reviewStatus === 'needs_review' ? '!' : item.reviewStatus[0].toUpperCase()}${problem ? ' ·' : ''}</span></button>`; }).join('')}`; }
 function updateNavigation() { $('prev').disabled = index <= 0; $('next').disabled = index >= visibleCases.length - 1 || !visibleCases.length; $('position').textContent = visibleCases.length ? `Case ${index + 1} of ${visibleCases.length}` : 'No Cases'; }
 async function renderCurrent() { if (!bundle || coverageMode) return renderCoverage(); updateCounts(); if (!visibleCases.length) { $('workspace').innerHTML = '<div class="empty">No Cases match this filter.</div>'; updateNavigation(); return; } const meta = visibleCases[index], generation = loadGeneration, paths = []; for (const ref of meta.sourceRefs) for (const page of ref.pages) { const coverage = indexes.coverage.get(`${ref.sourceId}:${page}`); if (coverage?.previewPath) paths.push(coverage.previewPath); } for (const rel of caseAssets(meta.caseId)) { const item = asset(rel.assetId); if (item?.path) paths.push(item.path); } const resources = await loadResources([...new Set(paths)], generation); if (generation !== loadGeneration || !bundle || visibleCases[index]?.caseId !== meta.caseId) return; $('workspace').innerHTML = `<div class="review-layout"><aside class="queue" id="queue">${queueHtml()}</aside><div class="review-grid">${sourcePanel(meta, resources)}${proposedPanel(meta, resources)}</div></div>`; wireCurrent(meta); prefetchAdjacent(generation); updateNavigation(); }
 async function prefetchAdjacent(generation) { const candidates = [visibleCases[index - 1], visibleCases[index + 1]].filter(Boolean), paths = []; for (const meta of candidates) for (const rel of caseAssets(meta.caseId)) { const item = asset(rel.assetId); if (item?.path) paths.push(item.path); } let count = 0; for (const path of [...new Set(paths)]) { if (count++ >= 4 || generation !== loadGeneration) break; await resourceUrl(path, indexes.byPath.get(path)?.mimeType, generation, new Set()); } }

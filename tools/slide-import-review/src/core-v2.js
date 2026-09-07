@@ -539,7 +539,7 @@ async function readZipIndex(input) {
     if (dataStart > blob.size || compressed > blob.size - dataStart) throw new ReviewBundleError(`ZIP compressed data range is invalid for ${path}.`);
     if (uncompressed > REVIEW_ZIP_MAX_DECLARED_BYTES || declaredBytes > REVIEW_ZIP_MAX_DECLARED_BYTES - uncompressed) throw new ReviewBundleError('Review ZIP declares a pathological total expansion.');
     declaredBytes += uncompressed;
-    entries.set(path, { path, flags, method, crc, compressed, uncompressed, localOffset, dataStart });
+    entries.set(path, { path, flags, method, crc, compressed, uncompressed, localOffset, dataStart, centralHeader: central.slice(cursor, cursor + 46 + nameLen + extraLen + commentLen) });
     cursor += 46 + nameLen + extraLen + commentLen;
   }
   if (cursor !== central.length) throw new ReviewBundleError('ZIP central directory length is inconsistent.');
@@ -572,6 +572,26 @@ export class LazyZipArchive {
   }
   delete(path) { this.overrides.delete(path); this.invalidate(path); return this.entries.delete(path); }
   [Symbol.iterator]() { return [...this.cache.entries()].map(([path, item]) => [path, item.bytes])[Symbol.iterator](); }
+  copyEntrySync(path) {
+    if (!this.raw || this.overrides.has(path)) return undefined;
+    const entry = this.entries.get(path);
+    if (!entry || entry.synthetic || (entry.flags & 8)) return undefined;
+    return {
+      localHeader: this.raw.slice(entry.localOffset, entry.dataStart),
+      data: this.raw.slice(entry.dataStart, entry.dataStart + entry.compressed),
+      centralHeader: entry.centralHeader
+    };
+  }
+  async copyEntry(path) {
+    if (this.overrides.has(path)) return undefined;
+    const entry = this.entries.get(path);
+    if (!entry || entry.synthetic || (entry.flags & 8)) return undefined;
+    return {
+      localHeader: await blobRange(this.blob, entry.localOffset, entry.dataStart),
+      data: await blobRange(this.blob, entry.dataStart, entry.dataStart + entry.compressed),
+      centralHeader: entry.centralHeader
+    };
+  }
   async getFile(path, _options = {}) {
     if (!this.entries.has(path)) return undefined;
     if (this.overrides.has(path)) return this.overrides.get(path);
@@ -623,29 +643,49 @@ export class LazyZipArchive {
 export async function readZip(input) { return readZipIndex(input); }
 function push16(out, value) { out.push(value & 255, (value >>> 8) & 255); }
 function push32(out, value) { out.push(value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255); }
-export function writeStoredZip(entries) {
-  if (entries.length > 0xffff) throw new ReviewBundleError('ZIP64 output is not supported.');
-  const local = [], central = [];
-  const seen = new Set();
-  let offset = 0;
-  for (const entry of entries) {
-    safeReviewZipPath(entry.path);
-    if (seen.has(entry.path)) throw new ReviewBundleError(`Duplicate ZIP entry: ${entry.path}.`);
-    seen.add(entry.path);
-    const name = enc.encode(entry.path), data = entry.bytes instanceof Uint8Array ? entry.bytes : new Uint8Array(entry.bytes), crc = crc32(data);
-    const lh = []; push32(lh, 0x04034b50); push16(lh, 20); push16(lh, 0); push16(lh, 0); push16(lh, 0); push16(lh, 0); push32(lh, crc); push32(lh, data.length); push32(lh, data.length); push16(lh, name.length); push16(lh, 0);
-    local.push(new Uint8Array(lh), name, data);
-    const ch = []; push32(ch, 0x02014b50); push16(ch, 20); push16(ch, 20); push16(ch, 0); push16(ch, 0); push16(ch, 0); push16(ch, 0); push32(ch, crc); push32(ch, data.length); push32(ch, data.length); push16(ch, name.length); push16(ch, 0); push16(ch, 0); push16(ch, 0); push16(ch, 0); push32(ch, 0); push32(ch, offset);
-    central.push(new Uint8Array(ch), name);
-    offset += lh.length + name.length + data.length;
+function setU32(bytes, offset, value) { bytes[offset] = value & 255; bytes[offset + 1] = (value >>> 8) & 255; bytes[offset + 2] = (value >>> 16) & 255; bytes[offset + 3] = (value >>> 24) & 255; }
+function createZipWriter() { return { parts: [], central: [], seen: new Set(), offset: 0, count: 0 }; }
+function appendZipEntry(writer, entry) {
+  safeReviewZipPath(entry.path);
+  if (writer.seen.has(entry.path)) throw new ReviewBundleError(`Duplicate ZIP entry: ${entry.path}.`);
+  writer.seen.add(entry.path);
+  if (entry.copy) {
+    writer.parts.push(entry.copy.localHeader, entry.copy.data);
+    const copiedCentral = entry.copy.centralHeader.slice();
+    setU32(copiedCentral, 42, writer.offset);
+    writer.central.push(copiedCentral);
+    writer.offset += entry.copy.localHeader.length + entry.copy.data.length;
+    writer.count += 1;
+    return;
   }
-  const centralSize = central.reduce((sum, item) => sum + item.length, 0);
-  const end = []; push32(end, 0x06054b50); push16(end, 0); push16(end, 0); push16(end, entries.length); push16(end, entries.length); push32(end, centralSize); push32(end, offset); push16(end, 0);
-  const chunks = [...local, ...central, new Uint8Array(end)], size = chunks.reduce((sum, item) => sum + item.length, 0), result = new Uint8Array(size);
+  const name = enc.encode(entry.path), data = entry.bytes instanceof Uint8Array ? entry.bytes : new Uint8Array(entry.bytes), crc = crc32(data);
+  const lh = []; push32(lh, 0x04034b50); push16(lh, 20); push16(lh, 0); push16(lh, 0); push16(lh, 0); push16(lh, 0); push32(lh, crc); push32(lh, data.length); push32(lh, data.length); push16(lh, name.length); push16(lh, 0);
+  writer.parts.push(new Uint8Array(lh), name, data);
+  const ch = []; push32(ch, 0x02014b50); push16(ch, 20); push16(ch, 20); push16(ch, 0); push16(ch, 0); push16(ch, 0); push16(ch, 0); push32(ch, crc); push32(ch, data.length); push32(ch, data.length); push16(ch, name.length); push16(ch, 0); push16(ch, 0); push16(ch, 0); push16(ch, 0); push32(ch, 0); push32(ch, writer.offset);
+  writer.central.push(new Uint8Array(ch), name);
+  writer.offset += lh.length + name.length + data.length;
+  writer.count += 1;
+}
+function finishZip(writer) {
+  const centralSize = writer.central.reduce((sum, item) => sum + item.length, 0);
+  const end = []; push32(end, 0x06054b50); push16(end, 0); push16(end, 0); push16(end, writer.count); push16(end, writer.count); push32(end, centralSize); push32(end, writer.offset); push16(end, 0);
+  const chunks = [...writer.parts, ...writer.central, new Uint8Array(end)], size = chunks.reduce((sum, item) => sum + item.length, 0), result = new Uint8Array(size);
   let cursor = 0;
   for (const chunk of chunks) { result.set(chunk, cursor); cursor += chunk.length; }
   return result;
 }
+function finishZipBlob(writer) {
+  const centralSize = writer.central.reduce((sum, item) => sum + item.length, 0);
+  const end = []; push32(end, 0x06054b50); push16(end, 0); push16(end, 0); push16(end, writer.count); push16(end, writer.count); push32(end, centralSize); push32(end, writer.offset); push16(end, 0);
+  return new Blob([...writer.parts, ...writer.central, new Uint8Array(end)], { type: 'application/zip' });
+}
+function writeMixedZip(entries) {
+  if (entries.length > 0xffff) throw new ReviewBundleError('ZIP64 output is not supported.');
+  const writer = createZipWriter();
+  for (const entry of entries) appendZipEntry(writer, entry);
+  return finishZip(writer);
+}
+export function writeStoredZip(entries) { return writeMixedZip(entries); }
 async function parseJsonFile(files, path) {
   const bytes = await files.getFile(path, { pin: true });
   if (!bytes) throw new ReviewBundleError(`Review bundle is missing ${path}.`);
@@ -788,16 +828,48 @@ export function exportReviewedBundle(bundle) {
     { path: 'review-map.json', bytes: enc.encode(JSON.stringify(bundle.reviewMap, null, 2) + '\n') }
   ];
   const paths = [...bundle.files.keys()].filter(path => path.startsWith('media/') || path.startsWith('source-previews/'));
-  const immediate = paths.map(path => [path, bundle.files.syncBytes ? bundle.files.syncBytes(path) : bundle.files.get(path)]);
-  if (immediate.every(([, bytes]) => bytes)) {
-    for (const [path, bytes] of immediate) entries.push({ path, bytes });
-    return writeStoredZip(entries);
+  if (bundle.files.copyEntrySync) {
+    const records = [...entries];
+    let needsAsync = false;
+    for (const path of paths) {
+      const copy = bundle.files.copyEntrySync(path);
+      if (copy) records.push({ path, copy });
+      else {
+        const bytes = bundle.files.syncBytes?.(path);
+        if (!bytes) { needsAsync = true; break; }
+        records.push({ path, bytes });
+      }
+    }
+    if (!needsAsync) return writeMixedZip(records);
+  } else {
+    const immediate = paths.map(path => [path, bundle.files.syncBytes ? bundle.files.syncBytes(path) : bundle.files.get(path)]);
+    if (immediate.every(([, bytes]) => bytes)) {
+      for (const [path, bytes] of immediate) entries.push({ path, bytes });
+      return writeMixedZip(entries);
+    }
   }
+  if (bundle.files.copyEntry) return (async () => {
+    const writer = createZipWriter();
+    for (const entry of entries) appendZipEntry(writer, entry);
+    for (const path of paths) {
+      const copy = await bundle.files.copyEntry(path);
+      if (copy) appendZipEntry(writer, { path, copy });
+      else {
+        const bytes = await bundle.files.getFile(path);
+        if (bytes) appendZipEntry(writer, { path, bytes });
+      }
+    }
+    return finishZipBlob(writer);
+  })();
   return (async () => {
     for (const path of paths) {
-      const bytes = await (bundle.files.getFile ? bundle.files.getFile(path) : bundle.files.get(path));
-      if (bytes) entries.push({ path, bytes });
+      const copy = bundle.files.copyEntry ? await bundle.files.copyEntry(path) : undefined;
+      if (copy) entries.push({ path, copy });
+      else {
+        const bytes = await (bundle.files.getFile ? bundle.files.getFile(path) : bundle.files.get(path));
+        if (bytes) entries.push({ path, bytes });
+      }
     }
-    return writeStoredZip(entries);
+    return writeMixedZip(entries);
   })();
 }
