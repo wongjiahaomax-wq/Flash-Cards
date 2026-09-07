@@ -32,7 +32,7 @@ export async function POST({ request, locals, platform, params }) {
       listCaseQuestions(db, params.caseId),
       getAdminStimulusData(db, params.caseId)
     ]);
-    if (!manager) missing('Case');
+    if (!manager) throw new Error('Unable to read authoritative Case after Save All.');
 
     const contexts = [
       ...manager.attached.map((asset) => ({ assetId: asset.assetId, stimulusOptionId: null })),
