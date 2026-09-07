@@ -32,7 +32,10 @@
       if (!response.ok) return false;
       const dirtyItems = /** @type {any[]} */ (coordinator.dirtyItems());
       const hasStructuralWork = dirtyItems.some((item) => !item.saveable);
-      if (!hasStructuralWork) return true;
+      // Every successful batch must reconcile against canonical persisted values
+      // before coordinator commit. This covers structural work and newer edits
+      // made while Save All is in flight, either of which can prevent immediate
+      // authoritative invalidation after the commit.
       const readback = await fetch(`/admin/cases/${encodeURIComponent(selectedCase.case.id)}/save-all-authoritative`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', accept: 'application/json' },
@@ -40,7 +43,7 @@
       });
       if (!readback.ok) return false;
       const body = await readback.json();
-      return { ok: true, authoritative: body.authoritative };
+      return { ok: true, authoritative: body.authoritative, hasStructuralWork };
     };
     const result = await coordinator.saveAll(submitSaveAll);
     if (result.succeeded && !coordinator.hasUnsavedWork()) await invalidateAll();
