@@ -77,8 +77,10 @@
     const form = document.getElementById(`question-edit-${state.caseQuestionId}`);
     return form instanceof HTMLFormElement && form.reportValidity() ? cloneCaseEditorSnapshot(state.draft) : null;
   }
-  function commitQuestionSave(state, snapshot) {
-    state.baseline = cloneCaseEditorSnapshot(snapshot);
+  function commitQuestionSave(state, snapshot, authoritative = null) {
+    const reconciled = reconcileSubmittedCaseEditorDraft(state.draft, snapshot, authoritative ?? snapshot);
+    state.baseline = reconciled.baseline;
+    state.draft = reconciled.draft;
     state.saveState = 'saved';
     coordinator?.refresh();
   }
@@ -158,7 +160,7 @@
         isDirty: () => questionDirty(state),
         prepareSave: () => prepareQuestionSave(state),
         saveAllPayload: (snapshot) => ({ kind: 'question', fields: { caseQuestionId: state.caseQuestionId, originalPromptId: state.authoritativeId, ...snapshot } }),
-        commitSaveAll: (snapshot) => commitQuestionSave(state, snapshot),
+        commitSaveAll: (snapshot, authoritative) => commitQuestionSave(state, snapshot, authoritative),
         save: (snapshot) => submitQuestion(state, snapshot)
       });
       if (unregister) {
