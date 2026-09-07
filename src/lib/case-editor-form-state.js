@@ -28,7 +28,12 @@ export function sameEditableFormSnapshot(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function isCaseEditorNonAuthoringForm(form) {
+  return Boolean(form?.hasAttribute?.('data-case-editor-picker-search') || form?.hasAttribute?.('data-case-editor-picker'));
+}
+
 export function formHasMeaningfulUnsubmittedInput(form) {
+  if (isCaseEditorNonAuthoringForm(form)) return false;
   return [...form.elements].some((element) => {
     if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
     if (element instanceof HTMLInputElement && element.type === 'hidden') return false;
@@ -40,6 +45,7 @@ export function formHasMeaningfulUnsubmittedInput(form) {
 }
 
 export function formHasSelectedFile(form) {
+  if (isCaseEditorNonAuthoringForm(form)) return false;
   return [...form.elements].some((element) => element instanceof HTMLInputElement
     && element.type === 'file'
     && Boolean(element.files?.length));
@@ -50,6 +56,7 @@ export function formHasMeaningfulUnsubmittedInputAgainst(form, baseline) {
 }
 
 export function formCanHoldMeaningfulStructuralInput(form) {
+  if (isCaseEditorNonAuthoringForm(form)) return false;
   return [...form.elements].some((element) => element instanceof HTMLInputElement
     ? !['hidden', 'submit', 'button', 'reset'].includes(element.type)
     : element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement);
