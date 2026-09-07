@@ -8,6 +8,18 @@ export function sameCaseEditorSnapshot(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+/** @param {{ promptId?: string, questions?: Array<{ id: string, questionPromptId?: string }>, pendingQuestionIds?: Iterable<string> }} input */
+export function canReorderCaseQuestion({ promptId = '', questions = [], pendingQuestionIds = [] }) {
+  const question = questions.find((candidate) => candidate.questionPromptId === promptId);
+  return Boolean(question && !new Set(pendingQuestionIds).has(question.id));
+}
+
+export function coordinatedFormStatus({ pending = false, dirty = false, succeeded = true } = {}) {
+  if (pending) return 'Saving…';
+  if (dirty) return 'Unsaved changes';
+  return succeeded ? 'Saved' : 'Save failed — try again';
+}
+
 export function reconcileSubmittedCaseEditorDraft(draft, submitted, authoritative) {
   return {
     baseline: cloneCaseEditorSnapshot(authoritative),

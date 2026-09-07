@@ -61,8 +61,17 @@ export function reconcileLibrarySelection(input) {
 export function reconcileCasePickerSelection(input) {
   const previousContextKey = input.previousContextKey ?? null;
   if (previousContextKey && previousContextKey !== input.nextContextKey) return { selectedIds: new Set(), contextKey: input.nextContextKey };
-  const pruned = pruneAssetSelection({ selectedIds: input.selectedIds, orderedIds: input.orderedIds });
-  return { selectedIds: pruned.selectedIds, contextKey: input.nextContextKey };
+  return { selectedIds: new Set(input.selectedIds ?? []), contextKey: input.nextContextKey };
+}
+
+/** @param {Iterable<unknown>} selectedIds */
+export function pickerAttachAssetIds(selectedIds) {
+  return [...new Set([...selectedIds].map((value) => String(value ?? '').trim()).filter(Boolean))];
+}
+
+/** @param {Iterable<unknown>} selectedIds */
+export function pickerSelectionIsDirty(selectedIds) {
+  return pickerAttachAssetIds(selectedIds).length > 0;
 }
 
 export function clearAssetSelection() { return { selectedIds: new Set(), anchorId: null }; }

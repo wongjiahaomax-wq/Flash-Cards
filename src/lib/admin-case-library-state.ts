@@ -146,6 +146,14 @@ export function caseLibraryReturnHref(value: string | URLSearchParams | null | u
   return query ? `/admin/cases?${query}` : '/admin/cases';
 }
 
+export function caseEditorReturnQuery(value: string | URLSearchParams | null | undefined, lifecycle: 'active' | 'inactive') {
+  const params = value instanceof URLSearchParams
+    ? new URLSearchParams(value)
+    : new URLSearchParams(typeof value === 'string' ? value : '');
+  params.set('lifecycle', lifecycle);
+  return normalizeCaseLibraryReturnQuery(params);
+}
+
 export function caseEditorHref(path: string, returnQuery: string | URLSearchParams | null | undefined) {
   const query = normalizeCaseLibraryReturnQuery(returnQuery);
   return query ? `${path}?return_query=${encodeURIComponent(query)}` : path;

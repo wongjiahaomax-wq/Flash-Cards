@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { createCaseEditorCoordinator, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '../src/lib/case-editor-coordinator.js';
+import { canReorderCaseQuestion, coordinatedFormStatus, createCaseEditorCoordinator, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '../src/lib/case-editor-coordinator.js';
 
 test('Case editor coordinator serializes Save All and only attempts current dirty drafts', async () => {
   const coordinator = createCaseEditorCoordinator();
@@ -89,4 +89,18 @@ test('coordinator excludes the submitted logical form when checking unrelated di
   assert.equal(coordinator.dirtyCount('form:caption:asset-1'), 1);
   captionDirty = false;
   assert.equal(coordinator.dirtyCount(), 1);
+});
+
+test('question reorder blocks stale and in-flight identities', () => {
+  const questions = [{ id: 'row-1', questionPromptId: 'prompt-1' }, { id: 'row-2', questionPromptId: 'prompt-2' }];
+  assert.equal(canReorderCaseQuestion({ promptId: 'prompt-1', questions }), true);
+  assert.equal(canReorderCaseQuestion({ promptId: 'prompt-1', questions, pendingQuestionIds: ['row-1'] }), false);
+  assert.equal(canReorderCaseQuestion({ promptId: 'stale-prompt', questions }), false);
+});
+
+test('coordinated form status returns to Unsaved after a saved form is edited', () => {
+  assert.equal(coordinatedFormStatus({ succeeded: true }), 'Saved');
+  assert.equal(coordinatedFormStatus({ dirty: true, succeeded: true }), 'Unsaved changes');
+  assert.equal(coordinatedFormStatus({ pending: true, dirty: true }), 'Saving…');
+  assert.equal(coordinatedFormStatus({ dirty: true, succeeded: false }), 'Unsaved changes');
 });

@@ -10,6 +10,7 @@
   import {
     CASE_LIBRARY_STATE_VERSION,
     caseEditorHref,
+    caseEditorReturnQuery,
     caseLibraryNamedActionHref,
     caseLibraryStateHref,
     clearCaseLibraryStoredState,
@@ -211,7 +212,7 @@
 
   /** @param {{ id: string }} item */
   function caseHref(item) {
-    const returnQuery = currentQuery();
+    const returnQuery = caseEditorReturnQuery(currentQuery(), inactiveView ? 'inactive' : 'active');
     return inactiveView
       ? caseEditorHref(`/admin/cases/${item.id}/recovery`, returnQuery)
       : caseEditorHref(`/admin/cases/${item.id}`, returnQuery);

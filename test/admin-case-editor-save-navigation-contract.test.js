@@ -11,6 +11,8 @@ const imagesSection = readFileSync(new URL('../src/lib/components/case-editor/Ca
 const picker = readFileSync(new URL('../src/lib/components/case-editor/CaseImagePickerDialog.svelte', import.meta.url), 'utf8');
 const reusable = readFileSync(new URL('../src/lib/components/ReusableImageQuestionManager.svelte', import.meta.url), 'utf8');
 const mutation = readFileSync(new URL('../src/lib/case-editor-mutation.js', import.meta.url), 'utf8');
+const coordinator = readFileSync(new URL('../src/lib/case-editor-coordinator.js', import.meta.url), 'utf8');
+const imageSelection = readFileSync(new URL('../src/lib/admin-image-selection.js', import.meta.url), 'utf8');
 const questionScope = readFileSync(new URL('../src/routes/admin/cases/[caseId]/question-scope/+server.js', import.meta.url), 'utf8');
 const recoveryServer = readFileSync(new URL('../src/routes/admin/cases/[caseId]/recovery/+page.server.js', import.meta.url), 'utf8');
 const recoveryPage = readFileSync(new URL('../src/routes/admin/cases/[caseId]/recovery/+page.svelte', import.meta.url), 'utf8');
@@ -93,11 +95,11 @@ test('picker links and reusable canonical answers retain coordinator and return 
   assert.match(images, /function imagePickerHref\(targetGroupId = ''\)/);
   assert.match(images, /params\.set\('target_group', targetGroupId\)/);
   assert.match(images, /name="return_query" value=\{caseLibraryReturnQuery\}.*name="intent" value="move"/);
-  assert.match(page, /<CaseImagePickerDialog \{selectedCase\} imagePicker=\{data\.imagePicker\} \{editorBase\} caseLibraryReturnQuery=\{data\['caseLibraryReturnQuery'\]\} \/>/);
-  assert.match(picker, /let \{ selectedCase, imagePicker, editorBase, caseLibraryReturnQuery = '' \}/);
+  assert.match(page, /<CaseImagePickerDialog \{selectedCase\} imagePicker=\{data\.imagePicker\} \{editorBase\} coordinator=\{draftCoordinator\} caseLibraryReturnQuery=\{data\['caseLibraryReturnQuery'\]\} \/>/);
+  assert.match(picker, /let \{ selectedCase, imagePicker, editorBase, coordinator = null, caseLibraryReturnQuery = '' \}/);
   assert.equal((picker.match(/name="return_query" value=\{caseLibraryReturnQuery\}/g) ?? []).length, 3);
   assert.match(picker, /id="case-image-picker-attach"/);
-  assert.match(picker, /name="asset_id" value=\{asset\.id\} type="checkbox"/);
+  assert.match(picker, /pickerAttachAssetIds\(pickerSelected\)/);
   assert.match(picker, /name="picker_selected"/);
   assert.match(reusable, /registerCaseEditorForm/);
   assert.match(reusable, /data-case-editor-coordinated use:coordinateForm=\{`reusable-answer:/);
@@ -138,4 +140,36 @@ test('grouped checkbox and radio drafts restore by captured control index', () =
   assert.match(mutation, /map\(\(element, index\)/);
   assert.match(mutation, /index, name: element\.name, type: element\.type, checked/);
   assert.match(mutation, /form\.elements\[value\.index\]/);
+});
+
+test('reorder uses shared conflict cancellation and rejects stale or in-flight question identity', () => {
+  assert.match(questions, /caseEditorHasConflictingUnsavedWork\(formElement, coordinator\)/);
+  assert.match(questions, /canReorderCaseQuestion\(/);
+  assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement\)/);
+  assert.match(questions, /if \(!canReorderCaseQuestion/);
+  assert.match(coordinator, /export function canReorderCaseQuestion/);
+});
+
+test('picker attach uses canonical staged IDs and participates in leave protection', () => {
+  assert.match(picker, /data-case-editor-picker-dirty/);
+  assert.match(picker, /pickerAttachAssetIds\(pickerSelected\)/);
+  assert.match(picker, /use:enhance=\{enhancePickerAttach\}/);
+  assert.match(picker, /if \(outcome\.ok\) pickerSelected = new Set\(\)/);
+  assert.doesNotMatch(picker, /form="case-image-picker-attach" name="asset_id"/);
+  assert.match(mutation, /data-case-editor-picker-dirty="true"/);
+  assert.match(page, /hasCaseEditorPickerSelection\(\)/);
+  assert.match(imageSelection, /export function pickerAttachAssetIds/);
+});
+
+test('default active Case Library editor links carry explicit lifecycle context', () => {
+  const library = readFileSync(new URL('../src/routes/admin/cases/+page.svelte', import.meta.url), 'utf8');
+  const state = readFileSync(new URL('../src/lib/admin-case-library-state.ts', import.meta.url), 'utf8');
+  assert.match(library, /caseEditorReturnQuery\(currentQuery\(\), inactiveView \? 'inactive' : 'active'\)/);
+  assert.match(state, /params\.set\('lifecycle', lifecycle\)/);
+});
+
+test('coordinated saved forms become visibly unsaved after a later edit and stale Save All results clear', () => {
+  assert.match(mutation, /if \(!pending && formHasMeaningfulUnsubmittedInput\(node\)/);
+  const header = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorHeader.svelte', import.meta.url), 'utf8');
+  assert.match(header, /saveAllResult && !coordinator\?\.isSavingAll/);
 });

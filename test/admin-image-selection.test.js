@@ -5,6 +5,8 @@ import {
   applyAssetSelection,
   chunkAssetIds,
   clearAssetSelection,
+  pickerAttachAssetIds,
+  pickerSelectionIsDirty,
   pruneAssetSelection,
   reconcileCasePickerSelection,
   reconcileLibrarySelection,
@@ -63,10 +65,17 @@ test('bounded Case picker still prunes hidden selected Assets', () => {
   assert.equal(pruned.anchorId, null);
 });
 
-test('Case picker prunes selection when results change but keeps still-visible Assets', () => {
+test('Case picker preserves selection when Search changes within the same Case target', () => {
   const reconciled = reconcileCasePickerSelection({ selectedIds: ['asset-c', 'asset-a'], previousContextKey: 'case-1:fixed', nextContextKey: 'case-1:fixed', orderedIds: ['asset-a', 'asset-b'] });
-  assert.deepEqual([...reconciled.selectedIds], ['asset-a']);
+  assert.deepEqual([...reconciled.selectedIds], ['asset-c', 'asset-a']);
   assert.equal(reconciled.contextKey, 'case-1:fixed');
+});
+
+test('Case picker builds a complete cross-search Attach payload and exposes staged dirty state', () => {
+  const selected = new Set(['asset-a', 'asset-b', 'asset-a']);
+  assert.deepEqual(pickerAttachAssetIds(selected), ['asset-a', 'asset-b']);
+  assert.equal(pickerSelectionIsDirty(selected), true);
+  assert.equal(pickerSelectionIsDirty([]), false);
 });
 
 test('Case picker resets selection when Case or attachment target changes', () => {

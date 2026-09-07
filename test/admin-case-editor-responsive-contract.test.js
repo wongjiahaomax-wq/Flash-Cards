@@ -347,14 +347,10 @@ test('Compact Case questions keep scope and reorder controls together while pres
   assert.equal(callbacks.has(null), false, 'Reorder controls must remain progressively enhanced.');
   assert.equal(callbacks.size, 1, 'Both reorder directions must share viewport-preserving behavior.');
 
-  const behavior = callableBody(questions, requiredText([...callbacks][0], 'Reorder controls must reach a viewport-preserving callback.'));
-  assert.match(behavior, /const\s+scrollX\s*=\s*window\.scrollX/);
-  assert.match(behavior, /const\s+scrollY\s*=\s*window\.scrollY/);
-  assert.match(behavior, /replaceState\s*\(/);
-  assert.match(behavior, /await\s+invalidateAll\s*\(/);
-  assert.match(behavior, /overflowAnchor\s*=\s*['"]none['"]/);
-  assert.match(behavior, /window\.scrollTo\(\s*scrollX\s*,\s*scrollY\s*\)/);
-  assert.doesNotMatch(behavior, /window\.scrollBy\s*\(|\bgoto\s*\(|\.reload\s*\(|window\.location/);
+  assert.match(questions, /const\s+preserveQuestionScroll\s*=\s*\(\{\s*formElement,\s*cancel\s*\}\)/);
+  assert.match(questions, /caseEditorHasConflictingUnsavedWork\(formElement, coordinator\)/);
+  assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement\)/);
+  assert.doesNotMatch(questions, /window\.scrollBy\s*\(|\bgoto\s*\(|\.reload\s*\(|window\.location/);
 });
 
 test('Case question Prompt and Answer fields start comparably and long Answers expand without becoming unbounded', () => {

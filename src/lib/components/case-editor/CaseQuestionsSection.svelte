@@ -1,11 +1,9 @@
 <script>
   // @ts-nocheck
-  import { applyAction, enhance } from '$app/forms';
-  import { invalidateAll, replaceState } from '$app/navigation';
-  import { tick } from 'svelte';
+  import { enhance } from '$app/forms';
   import { onDestroy } from 'svelte';
   import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
-  import { cloneCaseEditorSnapshot, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
+  import { canReorderCaseQuestion, cloneCaseEditorSnapshot, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
 
   /** @typedef {'classic' | 'compact'} CaseEditorLayout */
@@ -194,30 +192,20 @@
   };
 
   /** @type {NonNullable<Parameters<typeof enhance>[1]>} */
-  const preserveQuestionScroll = () => {
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-
-    return async ({ result }) => {
-      if (result.type !== 'redirect') {
-        await applyAction(result);
-        return;
-      }
-
-      const root = document.documentElement;
-      const previousOverflowAnchor = root.style.overflowAnchor;
-      root.style.overflowAnchor = 'none';
-      try {
-        const location = new URL(result.location, document.baseURI);
-        location.hash = '';
-        replaceState(`${location.pathname}${location.search}`, {});
-        await invalidateAll();
-        await tick();
-        window.scrollTo(scrollX, scrollY);
-      } finally {
-        root.style.overflowAnchor = previousOverflowAnchor;
-      }
-    };
+  const preserveQuestionScroll = ({ formElement, cancel }) => {
+    const promptId = formElement.elements.namedItem('prompt_id')?.value ?? '';
+    const pendingQuestionIds = Object.values(questionDrafts)
+      .filter((state) => state.pending)
+      .map((state) => state.caseQuestionId);
+    if (!canReorderCaseQuestion({ promptId, questions: selectedCase.questions, pendingQuestionIds })) {
+      cancel();
+      return;
+    }
+    if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+      cancel();
+      return;
+    }
+    return stableCaseEditorEnhance(captureCaseEditorView(), formElement);
   };
 </script>
 

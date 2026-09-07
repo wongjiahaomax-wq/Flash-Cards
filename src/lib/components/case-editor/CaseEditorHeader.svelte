@@ -7,6 +7,10 @@
   });
   /** @type {{ attempted: number, succeeded: number, failed: number } | null} */
   let saveAllResult = $state(null);
+  $effect(() => {
+    draftRevision;
+    if (saveAllResult && !coordinator?.isSavingAll?.() && (coordinator?.dirtyCount?.() ?? 0) > 0) saveAllResult = null;
+  });
   async function saveAll() {
     saveAllResult = await coordinator.saveAll();
   }

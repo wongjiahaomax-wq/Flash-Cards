@@ -156,7 +156,13 @@ export function caseEditorHasConflictingUnsavedWork(submittedForm, coordinator) 
     : null;
   const unrelatedDirtyDraft = !isOrdinaryCaseEditorDraftForm(submittedForm)
     && (coordinator?.dirtyCount?.(submittedCoordinatorKey) ?? 0) > 0;
-  return otherPartialForm || unrelatedDirtyDraft;
+  const pickerSelectionDirty = submittedForm?.id !== 'case-image-picker-attach'
+    && Boolean(document.querySelector('.case-editor [data-case-editor-picker-dirty="true"]'));
+  return otherPartialForm || unrelatedDirtyDraft || pickerSelectionDirty;
+}
+
+export function hasCaseEditorPickerSelection() {
+  return Boolean(document.querySelector('.case-editor [data-case-editor-picker-dirty="true"]'));
 }
 
 /**
@@ -186,7 +192,14 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
     });
   }
 
-  const refresh = () => coordinator?.refresh();
+  const refresh = () => {
+    if (!pending && formHasMeaningfulUnsubmittedInput(node)) {
+      status.hidden = false;
+      status.textContent = 'Unsaved changes';
+      status.classList.remove('error');
+    }
+    coordinator?.refresh();
+  };
   node.addEventListener('input', refresh);
   node.addEventListener('change', refresh);
 

@@ -3,7 +3,7 @@
   import { enhance } from '$app/forms';
   import { beforeNavigate } from '$app/navigation';
   import { createCaseEditorCoordinator } from '$lib/case-editor-coordinator.js';
-  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, hasCaseEditorPickerSelection, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { getCaseEditorStorage, readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
   import { buildCaseFastReviewSummary, buildCaseQuestionAudit } from '$lib/admin-case-question-audit.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
@@ -131,6 +131,7 @@
 
   function hasEditorUnsavedWork() {
     if (draftCoordinator.dirtyCount() > 0) return true;
+    if (hasCaseEditorPickerSelection()) return true;
     return [...document.querySelectorAll('.case-editor form')].some((form) => form instanceof HTMLFormElement && formHasMeaningfulUnsubmittedInput(form));
   }
 
@@ -167,7 +168,7 @@
         </form>
       </section>
     {/if}
-    <CaseImagePickerDialog {selectedCase} imagePicker={data.imagePicker} {editorBase} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
+    <CaseImagePickerDialog {selectedCase} imagePicker={data.imagePicker} {editorBase} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
   </div>
 
   <AdminImageViewer image={viewerImage} onclose={() => (viewerImage = null)} />
