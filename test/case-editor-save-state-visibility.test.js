@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { createCaseEditorCoordinator, reconcileSubmittedCaseEditorDraft } from '../src/lib/case-editor-coordinator.js';
-import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInputAgainst, formHasSelectedFile, mutationMayChangeEditorFormTopology } from '../src/lib/case-editor-form-state.js';
+import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, formHasMeaningfulUnsubmittedInputAgainst, formHasSelectedFile, mutationMayChangeEditorFormTopology } from '../src/lib/case-editor-form-state.js';
 
 class FakeInput {
   constructor(name, type = 'text', value = '') {
@@ -52,6 +52,20 @@ test('structural tracking only admits forms with meaningful editable controls', 
   assert.equal(formCanHoldMeaningfulStructuralInput(fakeForm(new FakeInput('case_id', 'hidden'))), false);
   assert.equal(formCanHoldMeaningfulStructuralInput(fakeForm(new FakeInput('submit', 'submit'))), false);
   assert.equal(formCanHoldMeaningfulStructuralInput(fakeForm(new FakeTextarea('prompt_md'))), true);
+});
+
+test('picker search and picker UI never become structural unsaved work', () => {
+  const pickerSearch = fakeForm(new FakeInput('', 'search', 'initial'));
+  pickerSearch.hasAttribute = (name) => name === 'data-case-editor-picker-search';
+  pickerSearch.elements[0].value = 'typed query';
+  assert.equal(formHasMeaningfulUnsubmittedInput(pickerSearch), false);
+  assert.equal(formCanHoldMeaningfulStructuralInput(pickerSearch), false);
+
+  const picker = fakeForm(new FakeInput('image', 'file'));
+  picker.hasAttribute = (name) => name === 'data-case-editor-picker';
+  picker.elements[0].files = [{ name: 'preview.png', size: 1, lastModified: 1, type: 'image/png' }];
+  assert.equal(formHasMeaningfulUnsubmittedInput(picker), false);
+  assert.equal(formHasSelectedFile(picker), false);
 });
 
 test('selected upload file is part of the dirty snapshot', () => {
@@ -123,6 +137,56 @@ test('failed coordinated save leaves the draft dirty', async () => {
   assert.equal(coordinator.dirtyItems()[0].label, 'Always-shown image');
 });
 
+test('rejected Save All request reports failure and leaves captured drafts dirty', async () => {
+  const coordinator = createCaseEditorCoordinator();
+  let draft = 'Changed';
+  const baseline = 'Original';
+  coordinator.register('caption', {
+    label: 'Always-shown image',
+    isDirty: () => draft !== baseline,
+    prepareSave: () => draft,
+    saveAllPayload: (snapshot) => ({ snapshot }),
+    commitSaveAll: () => { draft = baseline; }
+  });
+
+  const result = await coordinator.saveAll(async () => {
+    throw new TypeError('network failed');
+  });
+
+  assert.deepEqual(result, { attempted: 1, succeeded: 0, failed: 1 });
+  assert.equal(coordinator.isSavingAll(), false);
+  assert.equal(coordinator.dirtyItems()[0].label, 'Always-shown image');
+});
+
+test('Save All skips structural work and saves every saveable snapshot', async () => {
+  const coordinator = createCaseEditorCoordinator();
+  let structuralDirty = true;
+  let detailsDirty = true;
+  coordinator.register('structural:add-question', {
+    label: 'Add Case question',
+    saveable: false,
+    isDirty: () => structuralDirty
+  });
+  coordinator.register('case-details', {
+    label: 'Case details',
+    isDirty: () => detailsDirty,
+    prepareSave: () => 'Updated vignette',
+    saveAllPayload: (snapshot) => ({ snapshot }),
+    commitSaveAll: () => { detailsDirty = false; }
+  });
+
+  const result = await coordinator.saveAll(async (drafts) => {
+    assert.deepEqual(drafts, [{ snapshot: 'Updated vignette' }]);
+    return true;
+  });
+
+  assert.deepEqual(result, { attempted: 1, succeeded: 1, failed: 0 });
+  assert.deepEqual(coordinator.dirtyItems().map((item) => ({ label: item.label, saveable: item.saveable })), [
+    { label: 'Add Case question', saveable: false }
+  ]);
+  structuralDirty = false;
+});
+
 test('Save All captures Case details and Question before either save begins', async () => {
   const coordinator = createCaseEditorCoordinator();
   const events = [];
@@ -182,6 +246,13 @@ test('structural topology filter ignores status-node mutations', () => {
   assert.equal(mutationMayChangeEditorFormTopology([{ addedNodes: [statusNode], removedNodes: [] }]), false);
   assert.equal(mutationMayChangeEditorFormTopology([{ addedNodes: [formNode], removedNodes: [] }]), true);
   assert.equal(mutationMayChangeEditorFormTopology([{ addedNodes: [], removedNodes: [controlNode] }]), true);
+});
+
+test('Save All header remains available when structural items are also dirty', () => {
+  const header = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorHeader.svelte', import.meta.url), 'utf8');
+  assert.match(header, /\{#if saveableCount\}<button class="button primary save-all-button"/);
+  assert.doesNotMatch(header, /saveableCount && !structuralItems\.length/);
+  assert.doesNotMatch(header, /caseEditorUnsavedWorkMessage/);
 });
 
 test('coordinated enhancer captures the stable result before reading reconciliation snapshots', () => {
