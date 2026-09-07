@@ -1,0 +1,53 @@
+name: PR166 regenerate slide reviewer
+
+on:
+  push:
+    branches:
+      - plan/slide-reviewer-compact-qa-ux
+    paths:
+      - .github/workflows/pr166-regenerate-reviewer.yml
+
+permissions:
+  contents: write
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out PR branch
+        uses: actions/checkout@v5
+        with:
+          ref: plan/slide-reviewer-compact-qa-ux
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Restore temporary diagnostic edits
+        run: |
+          git checkout b6313c99e0cdd987f8d97b24e5c6cb1e0db8bcd4 -- \
+            tools/slide-import-review/scripts/build.mjs \
+            tools/slide-import-review/tests/build.test.js
+
+      - name: Regenerate standalone reviewer
+        run: CI=false node tools/slide-import-review/scripts/build.mjs
+
+      - name: Run focused slide-review tests
+        run: npm run slide-review:test
+
+      - name: Commit generated reviewer and restored diagnostics
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            tools/slide-import-review/reviewer.html \
+            tools/slide-import-review/scripts/build.mjs \
+            tools/slide-import-review/tests/build.test.js
+          if git diff --cached --quiet; then
+            echo "No regeneration changes needed."
+            exit 0
+          fi
+          git commit -m "Sync reviewer after approval invalidation fix"
+          git push origin HEAD:plan/slide-reviewer-compact-qa-ux
