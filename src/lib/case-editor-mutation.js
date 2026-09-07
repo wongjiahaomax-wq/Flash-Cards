@@ -178,7 +178,6 @@ function isStableCaseEditorForm(form) {
     && !form.classList.contains('question-edit-form')
     && !form.hasAttribute('data-case-editor-coordinated')
     && !form.hasAttribute('data-case-editor-internal')
-    && !form.hasAttribute('data-case-editor-enhanced')
     && !form.hasAttribute('data-case-editor-picker')
     && !form.hasAttribute('data-case-editor-picker-search');
 }
