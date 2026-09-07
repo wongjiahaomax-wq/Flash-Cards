@@ -74,7 +74,7 @@
       cancel();
       return;
     }
-    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: true, allowStructuralWork: true });
     if (conflictMessage) {
       window.alert(conflictMessage);
       cancel();
@@ -82,7 +82,10 @@
     }
     beginSubmit(submittedSnapshot ?? draft);
     const view = captureCaseEditorView();
-    const stable = stableCaseEditorEnhance(view, formElement, { reconcileSubmittedDraft: true });
+    const stable = stableCaseEditorEnhance(view, formElement, {
+      reconcileSubmittedDraft: true,
+      deferInvalidation: () => coordinator?.dirtyCount?.('case-details') > 0
+    });
     return async ({ result }) => {
       const outcome = await stable({ result });
       if (outcome.ok) {

@@ -34,6 +34,7 @@ class FakeForm {
     this.dataset = {};
     this.classList = { contains: () => false };
   }
+  getAttribute(name) { return name === 'action' ? '?/saveQuestion' : null; }
   matches(selector) { return selector.includes('form'); }
   hasAttribute(name) {
     if (name === 'data-case-editor-enhanced') return this.dataset.caseEditorEnhanced === 'true';
@@ -98,4 +99,36 @@ test('stable structural enhancements survive repeated topology syncs and clean u
 
   dispose();
   assert.equal(destroyCounts.get(second), 1, 'dispose should clean up the remaining registration');
+});
+
+test('standalone endpoint forms remain native while named page actions are enhanced', async () => {
+  const { registerCaseEditorStableForms } = await import('../src/lib/case-editor-mutation.js');
+  globalThis.HTMLFormElement = FakeForm;
+  const endpoint = new FakeForm('endpoint');
+  endpoint.getAttribute = (name) => name === 'action' ? '/admin/cases/case-1/question-scope' : null;
+  const pageAction = new FakeForm('page-action');
+  let forms = [endpoint];
+  let observerCallback;
+  const enhanced = [];
+  globalThis.__stableFormEnhance = (form) => {
+    enhanced.push(form);
+    return { destroy() {} };
+  };
+  globalThis.MutationObserver = class {
+    constructor(callback) { observerCallback = callback; }
+    observe() {}
+    disconnect() {}
+  };
+  globalThis.document = {
+    body: {},
+    querySelector: () => ({}),
+    querySelectorAll: () => forms
+  };
+
+  const dispose = registerCaseEditorStableForms(() => {});
+  assert.deepEqual(enhanced, []);
+  forms = [endpoint, pageAction];
+  observerCallback([{ addedNodes: [pageAction], removedNodes: [] }]);
+  assert.deepEqual(enhanced, [pageAction]);
+  dispose();
 });

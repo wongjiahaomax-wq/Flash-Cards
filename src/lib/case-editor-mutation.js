@@ -174,6 +174,12 @@ export function registerCaseEditorStructuralForms(coordinator) {
 function isStableCaseEditorForm(form) {
   return form instanceof HTMLFormElement
     && form.matches('.case-editor form[method="POST"]')
+    // SvelteKit's enhance protocol only applies to named page actions. The
+    // editor also contains standalone endpoint forms such as /question-scope;
+    // those return ordinary HTML redirects and must stay native, otherwise
+    // enhance follows the redirect and tries to deserialize <!doctype html>
+    // as an ActionResult JSON response.
+    && (form.getAttribute('action') ?? '').startsWith('?/')
     && form.id !== 'case-details-form'
     && !form.classList.contains('question-edit-form')
     && !form.hasAttribute('data-case-editor-coordinated')
@@ -297,8 +303,13 @@ function structuralFormConflictLabels(submittedForm, knownKeys) {
   const labels = [];
   for (const form of [...document.querySelectorAll('.case-editor form')]) {
     if (!(form instanceof HTMLFormElement) || form === submittedForm || isOrdinaryCaseEditorDraftForm(form)) continue;
+    // Registered structural forms compare against a live baseline captured
+    // after Svelte has initialized their controls. Do not fall back to the
+    // browser's defaultSelected/defaultValue comparison for those forms;
+    // Svelte-controlled selects and inputs can otherwise look dirty before
+    // the user has touched them.
     const key = form.dataset?.caseEditorStructuralKey;
-    if (key && knownKeys.has(key)) continue;
+    if (key) continue;
     if (formHasMeaningfulUnsubmittedInput(form) || formHasSelectedFile(form)) labels.push(structuralFormLabel(form));
   }
   if (submittedForm?.id !== 'case-image-picker-attach' && document.querySelector('.case-editor [data-case-editor-picker-dirty="true"]')) {
@@ -311,15 +322,18 @@ function structuralFormConflictLabels(submittedForm, knownKeys) {
  * Return the blocking explanation for an individual save or Save All, if any.
  * @param {HTMLFormElement | null} [submittedForm]
  * @param {any} coordinator
+ * @param {{ allowSaveableWork?: boolean, allowStructuralWork?: boolean }} [options]
  */
-export function caseEditorUnsavedWorkMessage(submittedForm = null, coordinator, { allowSaveableWork = false } = {}) {
+export function caseEditorUnsavedWorkMessage(submittedForm = null, coordinator, { allowSaveableWork = false, allowStructuralWork = false } = {}) {
   const submittedKey = submittedCaseEditorKey(submittedForm);
   const items = coordinator?.dirtyItems?.() ?? [];
   const otherItems = items.filter((item) => item.key !== submittedKey);
-  const structuralItems = otherItems.filter((item) => !item.saveable);
+  const structuralItems = allowStructuralWork ? [] : otherItems.filter((item) => !item.saveable);
   const saveableItems = submittedForm && !allowSaveableWork ? otherItems.filter((item) => item.saveable) : [];
   const knownStructuralKeys = new Set(structuralItems.map((item) => item.key));
-  const structuralLabels = [...new Set([...structuralItems.map(conflictItemLabel), ...structuralFormConflictLabels(submittedForm, knownStructuralKeys)])];
+  const structuralLabels = allowStructuralWork
+    ? []
+    : [...new Set([...structuralItems.map(conflictItemLabel), ...structuralFormConflictLabels(submittedForm, knownStructuralKeys)])];
   const messages = [];
   if (structuralLabels.length) {
     const verb = structuralLabels.length === 1 ? 'has' : 'have';
@@ -426,7 +440,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
     pending = new Promise((resolve) => { resolvePending = resolve; });
     status.hidden = false;
     status.textContent = saveState.begin();
-    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: true, allowStructuralWork: true });
     if (conflictMessage) {
       window.alert(conflictMessage);
       cancel();
@@ -439,7 +453,12 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       resolve?.(false);
       return;
     }
-    const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { reconcileSubmittedDraft: true, logicalKey: currentKey, submittedSnapshot });
+    const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, {
+      reconcileSubmittedDraft: true,
+      logicalKey: currentKey,
+      submittedSnapshot,
+      deferInvalidation: () => coordinator?.dirtyCount?.(`form:${currentKey}`) > 0
+    });
     return async ({ result }) => {
       let ok = false;
       let outcome = null;

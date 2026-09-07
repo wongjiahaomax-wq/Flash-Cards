@@ -24,10 +24,12 @@
   async function saveAll() {
     /** @param {any[]} drafts */
     const submitSaveAll = async (drafts) => {
+      const formData = new URLSearchParams();
+      formData.set('drafts', JSON.stringify({ drafts }));
       const response = await fetch('?/saveAll', {
         method: 'POST',
-        headers: { 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ drafts })
+        headers: { accept: 'application/json', 'x-sveltekit-action': 'true' },
+        body: formData
       });
       if (!response.ok) return false;
       const dirtyItems = /** @type {any[]} */ (coordinator.dirtyItems());

@@ -39,6 +39,8 @@ test('question-scope uses native endpoint submission and carries bounded return 
 
 test('live Case-question registration follows creation, Prompt identity changes, and removals', () => {
   assert.doesNotMatch(questions, /onMount\(/);
+  assert.match(questions, /function liveQuestionState\(state\)/);
+  assert.match(questions, /function updateQuestionDraft\(state, field, value\)/);
   assert.match(questions, /\$effect\(\(\) => \{\s*let changed = syncQuestionDrafts\(\)/);
   assert.match(questions, /questionRegistrations\.delete\(caseQuestionId\)/);
   assert.match(questions, /coordinator\?\.register\(`question:\$\{caseQuestionId\}`/);
@@ -78,8 +80,8 @@ test('successful enhanced submissions reconcile only the submitted form', () => 
   assert.match(mutation, /pending = new Promise\(\(resolve\) => \{ resolvePending = resolve; \}\)/);
   assert.match(mutation, /if \(pending\) \{\s*cancel\(\);/);
   assert.doesNotMatch(mutation, /dispatchEvent\(new Event\('(input|change)'/);
-  assert.match(details, /stableCaseEditorEnhance\(view, formElement, \{ reconcileSubmittedDraft: true \}\)/);
-  assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement, \{ reconcileSubmittedDraft: true \}\)/);
+  assert.match(details, /stableCaseEditorEnhance\(view, formElement, \{[\s\S]{0,180}reconcileSubmittedDraft: true,[\s\S]{0,180}deferInvalidation/);
+  assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement, \{[\s\S]{0,180}reconcileSubmittedDraft: true,[\s\S]{0,180}deferInvalidation/);
   assert.match(mutation, /postSuccessSnapshot/);
   assert.match(page, /rebaseline\(structuralKey, [\s\S]{0,120}postSuccessSnapshot/);
 });
@@ -99,19 +101,29 @@ test('Case-question controls update the reactive draft explicitly', () => {
   assert.match(questions, /checked=\{questionDraft\.draft\.reusableForTopic\}/);
 });
 
-test('individual saves block with a named conflict and enhanced cancellation blocks the post', () => {
+test('individual saves permit other saveable work while enhanced cancellation still blocks structural conflicts', () => {
   assert.match(page, /data-case-editor-enhanced/);
   assert.match(page, /caseEditorUnsavedWorkMessage\(formElement, draftCoordinator, \{ allowSaveableWork: true \}\)/);
   assert.match(page, /window\.alert\(conflictMessage\)/);
   assert.match(page, /cancel\(\);/);
   assert.match(page, /hasAttribute\('data-case-editor-coordinated'\)/);
-  assert.match(details, /caseEditorUnsavedWorkMessage\(formElement, coordinator\)/);
+  assert.match(details, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: true, allowStructuralWork: true \}\)/);
   assert.match(details, /cancel\(\);/);
-  assert.match(questions, /caseEditorUnsavedWorkMessage\(formElement, coordinator\)/);
+  assert.match(questions, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: true, allowStructuralWork: true \}\)/);
   assert.match(questions, /cancel\(\);/);
+  assert.match(details, /deferInvalidation: \(\) => coordinator\?\.dirtyCount\?\.\('case-details'\) > 0/);
+  assert.match(questions, /deferInvalidation: \(\) => coordinator\?\.dirtyCount\?\.\(`question:\$\{currentState\.caseQuestionId\}`\) > 0/);
+  assert.match(mutation, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: true, allowStructuralWork: true \}\)/);
+  assert.match(mutation, /deferInvalidation: \(\) => coordinator\?\.dirtyCount\?\.\(`form:\$\{currentKey\}`\) > 0/);
   assert.match(mutation, /isOrdinaryCaseEditorDraftForm/);
   assert.match(mutation, /Save all changes instead/);
   assert.match(mutation, /Submit or discard it first/);
+});
+
+test('structural conflict detection uses registered live baselines', () => {
+  assert.match(mutation, /Registered structural forms compare against a live baseline/);
+  assert.match(mutation, /const key = form\.dataset\?\.caseEditorStructuralKey;\s*if \(key\) continue;/);
+  assert.doesNotMatch(mutation, /const key = form\.dataset\?\.caseEditorStructuralKey;\s*if \(key && knownKeys\.has\(key\)\) continue;/);
 });
 
 test('picker links and reusable canonical answers retain coordinator and return context', () => {
@@ -180,11 +192,15 @@ test('Save All posts one captured server batch and reconciles canonically withou
   assert.match(mutation, /reconcileEditableFormSaveSnapshot/);
   assert.match(header, /result\.succeeded && !coordinator\.hasUnsavedWork\(\)/);
   assert.match(header, /fetch\('\?\/saveAll'/);
+  assert.match(header, /new URLSearchParams\(\)/);
+  assert.match(header, /formData\.set\('drafts', JSON\.stringify\(\{ drafts \}\)\)/);
+  assert.match(header, /'x-sveltekit-action': 'true'/);
   assert.match(header, /save-all-authoritative/);
   assert.match(header, /const dirtyItems = [^\n]*coordinator\.dirtyItems\(\)/);
   assert.match(header, /dirtyItems\.some\(\(item\) => !item\.saveable\)/);
   assert.match(caseServer, /saveAll: async/);
-  assert.match(caseServer, /await request\.json\(\)/);
+  assert.match(caseServer, /await request\.formData\(\)/);
+  assert.doesNotMatch(caseServer, /await request\.json\(\)/);
   assert.match(caseServer, /draft\?\.kind === 'case-details'/);
   assert.match(caseServer, /draft\?\.kind === 'question'/);
   assert.match(caseServer, /draft\?\.kind === 'form'/);
@@ -210,6 +226,7 @@ test('Save All posts one captured server batch and reconciles canonically withou
 test('later-mounted structural forms use the stable enhanced submission path', () => {
   assert.match(mutation, /export function registerCaseEditorStableForms\(enhanceForm\)/);
   assert.match(mutation, /MutationObserver/);
+  assert.match(mutation, /getAttribute\('action'\) \?\? ''\)\.startsWith\('\?\/'\)/);
   assert.match(page, /registerCaseEditorStableForms/);
   assert.doesNotMatch(page, /const stableFormActions =/);
 });

@@ -188,7 +188,7 @@ test('two captured generic saves defer invalidation and retain a newer edit afte
   assert.equal(second.elements[0].value, 'Second newer edit');
 });
 
-test('individual save names other saveable and structural work instead of preserving it', async () => {
+test('individual save permits other saveable work but still blocks structural work', async () => {
   const { caseEditorUnsavedWorkMessage } = await import('../src/lib/case-editor-mutation.js');
   globalThis.document = { querySelectorAll: () => [], querySelector: () => null };
   const detailsForm = { id: 'case-details-form', classList: { contains: () => false }, hasAttribute: () => false };
@@ -198,11 +198,53 @@ test('individual save names other saveable and structural work instead of preser
       { key: 'question:2', label: 'Question 2', fields: ['Answer'], saveable: true },
       { key: 'structural:topic', label: 'Primary Topic replacement', fields: ['Topic search'], saveable: false }
     ]
-  });
-  assert.match(message, /Question 2 — Answer/);
-  assert.match(message, /Save all changes instead/);
+  }, { allowSaveableWork: true });
+  assert.doesNotMatch(message, /Question 2 — Answer/);
+  assert.doesNotMatch(message, /Save all changes instead/);
   assert.match(message, /Primary Topic replacement/);
   assert.match(message, /Submit or discard it first/);
+});
+
+test('registered structural baselines ignore Svelte-initialized default mismatches', async () => {
+  const { caseEditorUnsavedWorkMessage } = await import('../src/lib/case-editor-mutation.js');
+  const previousForm = globalThis.HTMLFormElement;
+  const previousSelect = globalThis.HTMLSelectElement;
+  class FakeForm {}
+  class FakeSelect {}
+  globalThis.HTMLFormElement = FakeForm;
+  globalThis.HTMLSelectElement = FakeSelect;
+  const initializedSelect = Object.assign(new FakeSelect(), {
+    options: [{ selected: true, defaultSelected: false }, { selected: false, defaultSelected: false }]
+  });
+  const registeredStructuralForm = Object.assign(new FakeForm(), {
+    id: '',
+    dataset: { caseEditorStructuralKey: 'structural:question-scope' },
+    elements: [initializedSelect],
+    classList: { contains: () => false },
+    hasAttribute: () => false
+  });
+  try {
+    globalThis.document = {
+      querySelectorAll: () => [registeredStructuralForm],
+      querySelector: () => null
+    };
+    const message = caseEditorUnsavedWorkMessage({ id: 'case-details-form', classList: { contains: () => false }, hasAttribute: () => false }, {
+      dirtyItems: () => []
+    }, { allowSaveableWork: true });
+    assert.equal(message, '');
+  } finally {
+    globalThis.HTMLFormElement = previousForm;
+    globalThis.HTMLSelectElement = previousSelect;
+  }
+});
+
+test('individual save can preserve another structural draft', async () => {
+  const { caseEditorUnsavedWorkMessage } = await import('../src/lib/case-editor-mutation.js');
+  globalThis.document = { querySelectorAll: () => [], querySelector: () => null };
+  const message = caseEditorUnsavedWorkMessage({ id: 'case-details-form', classList: { contains: () => false }, hasAttribute: () => false }, {
+    dirtyItems: () => [{ key: 'structural:new-question', label: 'Add Case question', fields: ['Prompt'], saveable: false }]
+  }, { allowSaveableWork: true, allowStructuralWork: true });
+  assert.equal(message, '');
 });
 
 test('Save All is blocked by named structural work', async () => {

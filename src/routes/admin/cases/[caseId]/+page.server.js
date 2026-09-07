@@ -87,7 +87,10 @@ export const actions = {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     let body;
-    try { body = await request.json(); } catch { return fail(400, { error: 'Save All requires valid draft data.' }); }
+    try {
+      const formData = await request.formData();
+      body = JSON.parse(String(formData.get('drafts') ?? ''));
+    } catch { return fail(400, { error: 'Save All requires valid form-encoded draft data.' }); }
     const drafts = saveAllDrafts(body?.drafts);
     if (!drafts) return fail(400, { error: 'Save All requires one to 60 valid drafts.' });
     const db = createDb(platform.env.DB);

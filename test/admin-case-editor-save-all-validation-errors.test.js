@@ -49,11 +49,12 @@ function field(name, value) { return { name, type: 'text', value }; }
 /** @param {any} draft @param {D1Database} d1 */
 async function invokeSaveAll(draft, d1) {
   const { actions } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
+  const formData = new URLSearchParams();
+  formData.set('drafts', JSON.stringify({ drafts: [draft] }));
   return actions.saveAll(/** @type {any} */ ({
     request: new Request('http://localhost/admin/cases/seed-anterior-a?/saveAll', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ drafts: [draft] })
+      body: formData
     }),
     locals: { user: { role: 'admin' } },
     params: { caseId: 'seed-anterior-a' },
