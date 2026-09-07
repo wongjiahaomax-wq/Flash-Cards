@@ -4,6 +4,7 @@ import test from 'node:test';
 
 const page = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
 const caseServer = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
+const saveAllAuthoritative = readFileSync(new URL('../src/routes/admin/cases/[caseId]/save-all-authoritative/+server.js', import.meta.url), 'utf8');
 const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
 const details = readFileSync(new URL('../src/lib/components/case-editor/CaseDetailsSection.svelte', import.meta.url), 'utf8');
 const header = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorHeader.svelte', import.meta.url), 'utf8');
@@ -167,31 +168,42 @@ test('cross-form reconstruction is not part of normal save handling', () => {
   assert.match(mutation, /data-case-editor-controlled/);
 });
 
-test('Save All posts one captured server batch and structural work has a safe first step', () => {
+test('Save All posts one captured server batch and reconciles canonically without dropping structural work', () => {
   assert.match(coordinator, /const plans = \[\];/);
   assert.match(coordinator, /const prepared = entry\.prepareSave \? entry\.prepareSave\(\) : true;/);
-  assert.match(coordinator, /const ok = await submit\?\.\(plans\.map/);
+  assert.match(coordinator, /const outcome = await submit\?\.\(plans\.map/);
+  assert.match(coordinator, /entry\.commitSaveAll\(prepared, authoritative\[index\] \?\? null\)/);
   assert.doesNotMatch(coordinator, /Promise\.allSettled/);
   assert.match(mutation, /prepareSave: \(\) => node\.reportValidity\(\) \? captureEditableFormSnapshot\(node\) : null/);
   assert.match(mutation, /captureFormSubmissionSnapshot/);
   assert.match(mutation, /saveAllPayload: \(\) => \(\{ kind: 'form'/);
+  assert.match(mutation, /reconcileEditableFormSaveSnapshot/);
   assert.match(header, /result\.succeeded && !coordinator\.hasUnsavedWork\(\)/);
   assert.match(header, /fetch\('\?\/saveAll'/);
+  assert.match(header, /save-all-authoritative/);
+  assert.match(header, /coordinator\.dirtyItems\(\)\.some\(\(item\) => !item\.saveable\)/);
   assert.match(caseServer, /saveAll: async/);
   assert.match(caseServer, /await request\.json\(\)/);
   assert.match(caseServer, /draft\?\.kind === 'case-details'/);
   assert.match(caseServer, /draft\?\.kind === 'question'/);
   assert.match(caseServer, /draft\?\.kind === 'form'/);
+  assert.match(saveAllAuthoritative, /getAdminCaseData/);
+  assert.match(saveAllAuthoritative, /listCaseQuestions/);
+  assert.match(saveAllAuthoritative, /getAdminStimulusData/);
+  assert.match(saveAllAuthoritative, /listCaseImageQuestionSummaries/);
   assert.match(picker, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: true \}\)/);
   assert.match(page, /caseEditorUnsavedWorkMessage\(submittedForm, draftCoordinator, \{ allowSaveableWork: true \}\)/);
   assert.match(details, /prepareSave: prepareDraftSave/);
+  assert.match(details, /commitDraftSave\(snapshot, authoritative = null\)/);
   assert.match(questions, /prepareSave: \(\) => prepareQuestionSave\(state\)/);
+  assert.match(questions, /commitSaveAll: \(snapshot, authoritative\) => commitQuestionSave\(state, snapshot, authoritative\)/);
   assert.match(details, /!dirty \? 'Saved' : saveState === 'error'/);
   assert.match(questions, /!questionDirty\(state\) \? 'Saved' : state\.saveState === 'error'/);
   assert.match(page, /allowSaveableWork: true/);
   assert.match(page, /deferInvalidation: \(\) => draftCoordinator\.saveableDirtyCount\(\) > 0/);
-  assert.match(header, /Submit structural work first; then Save All is available\./);
+  assert.match(header, /Structural work remains Not submitted and is not included in Save All\./);
   assert.match(caseServer, /not an all-or-nothing D1 transaction/);
+  assert.match(header, /Some changes may already have been saved/);
 });
 
 test('later-mounted structural forms use the stable enhanced submission path', () => {
@@ -218,11 +230,12 @@ test('Primary Topic promotion reconciles local picker state to the authoritative
   assert.match(topics, /action="\?\/promoteTopic" class="topic-primary-form form-row" data-case-editor-controlled/);
 });
 
-test('header separates Save All work from structural work and blocks Save All when needed', () => {
+test('header separates Save All work from structural work without blocking Save All', () => {
   assert.match(header, /Can be saved with Save All/);
   assert.match(header, /Needs individual action/);
-  assert.match(header, /caseEditorUnsavedWorkMessage\(null, coordinator\)/);
-  assert.match(header, /Submit structural work first; then Save All is available/);
+  assert.match(header, /\{#if saveableCount\}<button class="button primary save-all-button"/);
+  assert.doesNotMatch(header, /caseEditorUnsavedWorkMessage\(null, coordinator\)/);
+  assert.match(header, /Structural work remains Not submitted and is not included in Save All/);
 });
 
 test('reorder uses shared conflict cancellation and rejects stale or in-flight question identity', () => {
