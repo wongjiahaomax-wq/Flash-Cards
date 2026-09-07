@@ -37,7 +37,7 @@ jobs:
           const coreTestPath = 'tools/slide-import-review/tests/core.test.js';
           let coreTest = fs.readFileSync(coreTestPath, 'utf8');
           const oldBlocking = "['blocking warning',b=>b.reviewMap.cases[0].warnings.push({code:'x',severity:'blocking',message:'blocked'}),'blocked'],";
-          const newBlocking = "['unreconciled blocking warning',b=>{b.reviewMap.cases[0].reviewStatus='needs_review';b.reviewMap.cases[0].warnings.push({code:'x',severity:'blocking',message:'blocked'});},'blocked'],";
+          const newBlocking = "['unreconciled blocking warning',b=>{b.reviewMap.cases[0].reviewStatus='needs_review';b.reviewMap.cases[0].warnings.push({code:'x',severity:'blocking',message:'blocked'});},'review state is needs_review'],";
           if (!coreTest.includes(oldBlocking)) throw new Error('Expected core fail-closed blocking-warning fixture was not found.');
           coreTest = coreTest.replace(oldBlocking, newBlocking);
           fs.writeFileSync(coreTestPath, coreTest);
