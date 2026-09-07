@@ -65,7 +65,7 @@ test('finalizer fail-closed representative failures',async()=>{
     ['blank answer',b=>b.manifest.caseQuestions[0].answerMd='','answerMd must be a non-empty string'],
     ['blank prompt',b=>b.manifest.questionPrompts[0].promptMd='','promptMd must be a non-empty string'],
     ['unapproved Asset',b=>b.reviewMap.cases[0].assets[0].reviewStatus='needs_review','Asset asset-1'],
-    ['blocking warning',b=>b.reviewMap.cases[0].warnings.push({code:'x',severity:'blocking',message:'blocked'}),'blocked'],
+    ['unreconciled blocking warning',b=>{b.reviewMap.cases[0].reviewStatus='needs_review';b.reviewMap.cases[0].warnings.push({code:'x',severity:'blocking',message:'blocked'});},'review state is needs_review'],
     ['missing media',b=>b.files.delete('media/a1.png'),'missing media'],
     ['hash mismatch',b=>b.reviewMap.cases[0].assets[0].sha256='00','SHA-256 mismatch'],
     ['MIME mismatch',b=>b.manifest.assets[0].mimeType='image/jpeg','MIME mismatch'],
