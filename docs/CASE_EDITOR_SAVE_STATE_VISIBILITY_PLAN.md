@@ -13,7 +13,7 @@ Follow-up correction review also established these final invariants:
 - Save All saves every saveable captured snapshot even when non-saveable structural work remains; structural work stays dirty/`Not submitted`.
 - Picker search and other non-authoring picker UI do not become structural unsaved work.
 - Network/rejected Save All requests keep captured drafts dirty and surface failure.
-- When structural work prevents normal invalidation, successful Save All performs read-only authoritative persistence readback so canonical trimming/normalization becomes the saved baseline/value without discarding structural drafts; edit-during-save still wins locally.
+- Every successful Save All batch performs read-only authoritative persistence readback before coordinator commit, so canonical trimming/normalization becomes the saved baseline/value even when structural work or a newer saveable edit prevents immediate invalidation; edit-during-save still wins locally.
 - Because the current Save All writer batch is non-transactional, failed batches use uncertainty-aware messaging and do not claim that zero writes persisted.
 
 Preview Mode compatibility is not a review gate for this PR because Preview is being retired. No Preview-specific compatibility work is required by this plan.
@@ -172,7 +172,7 @@ For each ordinary save class, tests should prove the full contract:
 
 `edit -> click/submit visible Save action -> server success -> editor clean -> reload/read authoritative data -> saved value remains`
 
-The normal path may use authoritative invalidation/reload. When unsaved structural work must remain mounted, use a read-only authoritative readback rather than discarding that work or treating the raw submitted snapshot as canonical. The regression suite must prove both paths remain tied to the existing canonical writers.
+Every successful Save All batch performs read-only authoritative readback before coordinator commit. If no unsaved work remains after canonical reconciliation, normal invalidation/reload may then follow. This prevents a raw submitted snapshot from becoming the baseline when either structural work or an edit made during Save All keeps the editor dirty. The regression suite must prove this path remains tied to the existing canonical writers.
 
 ## 4. Required unsaved-item model
 
