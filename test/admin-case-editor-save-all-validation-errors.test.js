@@ -64,6 +64,7 @@ async function invokeSaveAll(draft, d1) {
 /** @param {() => Promise<any>} operation */
 async function captureUnexpectedSaveAllLogs(operation) {
   const original = console.error;
+  /** @type {any[][]} */
   const calls = [];
   console.error = (...args) => { calls.push(args); };
   try {
