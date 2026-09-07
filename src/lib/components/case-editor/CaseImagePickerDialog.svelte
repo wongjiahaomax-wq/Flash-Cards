@@ -1,7 +1,7 @@
 <script>
   // @ts-nocheck
   import { enhance } from '$app/forms';
-  import { pickerAttachAssetIds, pickerSelectionIsDirty, reconcileCasePickerSelection } from '$lib/admin-image-selection.js';
+  import { beginCasePickerAttach, pickerAttachAssetIds, pickerSelectionIsDirty, reconcileCasePickerAttachSelection, reconcileCasePickerSelection } from '$lib/admin-image-selection.js';
   import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
 
   /** @typedef {{ id: string, imageUrl: string, altText?: string | null, originalFilename?: string | null, sourceLabel?: string | null }} PickerAsset */
@@ -16,7 +16,7 @@
   let pickerSelected = $state(new Set());
   /** @type {string | null} */
   let pickerContextKey = $state(null);
-  let attachPending = false;
+  let attachPending = $state(false);
 
   $effect(() => {
     const nextContextKey = `${selectedCase?.case.id ?? ''}:${imagePicker?.targetGroupId ?? 'fixed'}`;
@@ -36,6 +36,7 @@
 
   /** @param {string} assetId */
   function togglePickerAsset(assetId) {
+    if (attachPending) return;
     const next = new Set(pickerSelected);
     if (next.has(assetId)) next.delete(assetId);
     else next.add(assetId);
@@ -43,7 +44,8 @@
   }
 
   const enhancePickerAttach = ({ formElement, cancel }) => {
-    if (attachPending) {
+    const transaction = beginCasePickerAttach(pickerSelected, attachPending);
+    if (!transaction.accepted) {
       cancel();
       return;
     }
@@ -52,28 +54,38 @@
       return;
     }
     attachPending = true;
-    const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement);
-    return async ({ result }) => {
-      const outcome = await stable({ result });
-      if (outcome.ok) pickerSelected = new Set();
+    const submittedSelection = transaction.submittedIds;
+    let stable;
+    try {
+      stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement);
+    } catch (error) {
       attachPending = false;
+      throw error;
+    }
+    return async ({ result }) => {
+      try {
+        const outcome = await stable({ result });
+        if (outcome.ok) pickerSelected = reconcileCasePickerAttachSelection({ selectedIds: pickerSelected, submittedIds: submittedSelection, ok: true });
+      } finally {
+        attachPending = false;
+      }
     };
   };
 </script>
 
 {#if imagePicker?.open}
-  <dialog bind:this={pickerDialog} class="image-picker" aria-labelledby="image-picker-heading">
+  <dialog bind:this={pickerDialog} class="image-picker" aria-labelledby="image-picker-heading" oncancel={(event) => attachPending && event.preventDefault()}>
     <div class="picker-shell">
-      <div class="picker-heading"><div><p class="eyebrow">Asset Library</p><h2 id="image-picker-heading">{imagePicker.targetGroupName ? `Add images to ${imagePicker.targetGroupName}` : 'Add images from library'}</h2><p class="muted">Search is server-backed and limited to Assets not already used by this Case.</p></div><button bind:this={pickerCloseButton} class="button" type="button" onclick={() => pickerDialog?.close()}>Close</button></div>
-      <form method="GET" action={`${editorBase}/cases/${selectedCase.case.id}`} class="picker-search">
+      <div class="picker-heading"><div><p class="eyebrow">Asset Library</p><h2 id="image-picker-heading">{imagePicker.targetGroupName ? `Add images to ${imagePicker.targetGroupName}` : 'Add images from library'}</h2><p class="muted">Search is server-backed and limited to Assets not already used by this Case.</p></div><button bind:this={pickerCloseButton} class="button" type="button" disabled={attachPending} onclick={() => pickerDialog?.close()}>Close</button></div>
+      <form method="GET" action={`${editorBase}/cases/${selectedCase.case.id}`} class="picker-search" data-case-editor-picker-search="true">
         <input type="hidden" name="picker" value="1" /><input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
         {#each [...pickerSelected] as assetId}<input type="hidden" name="picker_selected" value={assetId} />{/each}
         {#if imagePicker.targetGroupId}<input type="hidden" name="target_group" value={imagePicker.targetGroupId} />{/if}
-        <label>Search filename, alt text, or source<input name="image_q" value={imagePicker.search} placeholder="e.g. prolonged QTc" /></label><button class="button" type="submit">Search</button>
+        <label>Search filename, alt text, or source<input name="image_q" value={imagePicker.search} placeholder="e.g. prolonged QTc" disabled={attachPending} /></label><button class="button" type="submit" disabled={attachPending}>Search</button>
       </form>
-      {#if imagePicker.assets.length === 0}<p class="empty-state">No unused active images match this search.</p>{:else}<div class="picker-grid">{#each imagePicker.assets as asset}<label class:selected={pickerSelected.has(asset.id)} class="picker-card"><input type="checkbox" checked={pickerSelected.has(asset.id)} onchange={() => togglePickerAsset(asset.id)} /><img src={asset.imageUrl} alt={asset.altText ?? ''} loading="lazy" /><span><strong>{asset.originalFilename ?? asset.id}</strong><small>{asset.altText || 'No alt text'}</small>{#if asset.sourceLabel}<small>Source: {asset.sourceLabel}</small>{/if}</span></label>{/each}</div>{#if imagePicker.hasMore}<p class="picker-note">Showing the first {imagePicker.limit} matches. Refine the search to narrow the result set.</p>{/if}{/if}
-      <form id="case-image-picker-attach" method="POST" action="?/attachMany" class="picker-actions" data-case-editor-internal data-case-editor-picker data-case-editor-picker-dirty={pickerSelectionIsDirty(pickerSelected) ? 'true' : 'false'} use:enhance={enhancePickerAttach}><input type="hidden" name="return_query" value={caseLibraryReturnQuery} /><input type="hidden" name="case_id" value={selectedCase.case.id} />{#if imagePicker.targetGroupId}<input type="hidden" name="target_group_id" value={imagePicker.targetGroupId} />{/if}{#each pickerAttachAssetIds(pickerSelected) as assetId}<input type="hidden" name="asset_id" value={assetId} />{/each}<strong>{pickerSelected.size} selected</strong><button class="button primary" type="submit" disabled={pickerSelected.size === 0 || pickerSelected.size > 30}>{imagePicker.targetGroupName ? `Add ${pickerSelected.size} to set` : `Attach ${pickerSelected.size} images`}</button></form>
-      <details class="upload-disclosure"><summary>Upload new image</summary><div class="advanced-body"><p class="muted">JPEG or PNG, up to the existing storage limit. The new Asset remains reusable elsewhere.</p><form method="POST" action="?/uploadAndAttach" enctype="multipart/form-data" class="form-grid"><input type="hidden" name="return_query" value={caseLibraryReturnQuery} /><input type="hidden" name="case_id" value={selectedCase.case.id} />{#if imagePicker.targetGroupId}<input type="hidden" name="target_group_id" value={imagePicker.targetGroupId} />{/if}<label class="wide">Image file<input name="image" type="file" accept="image/jpeg,image/png" required /></label><label>Admin image name <span class="muted">(optional)</span><input name="image_name" maxlength="500" /></label><label>Alt text<input name="alt_text" maxlength="500" required /></label><label>Source label <span class="muted">(optional)</span><input name="source_label" maxlength="300" /></label><label>Source URL <span class="muted">(optional)</span><input name="source_url" type="url" maxlength="2000" /></label><label>Licence / permission <span class="muted">(optional)</span><input name="licence" maxlength="500" /></label><div class="wide"><button class="button primary" type="submit">Upload and {imagePicker.targetGroupName ? 'add to set' : 'attach'}</button></div></form></div></details>
+      {#if imagePicker.assets.length === 0}<p class="empty-state">No unused active images match this search.</p>{:else}<div class="picker-grid">{#each imagePicker.assets as asset}<label class:selected={pickerSelected.has(asset.id)} class="picker-card"><input type="checkbox" checked={pickerSelected.has(asset.id)} disabled={attachPending} onchange={() => togglePickerAsset(asset.id)} /><img src={asset.imageUrl} alt={asset.altText ?? ''} loading="lazy" /><span><strong>{asset.originalFilename ?? asset.id}</strong><small>{asset.altText || 'No alt text'}</small>{#if asset.sourceLabel}<small>Source: {asset.sourceLabel}</small>{/if}</span></label>{/each}</div>{#if imagePicker.hasMore}<p class="picker-note">Showing the first {imagePicker.limit} matches. Refine the search to narrow the result set.</p>{/if}{/if}
+      <form id="case-image-picker-attach" method="POST" action="?/attachMany" class="picker-actions" data-case-editor-internal data-case-editor-picker data-case-editor-picker-dirty={pickerSelectionIsDirty(pickerSelected) ? 'true' : 'false'} use:enhance={enhancePickerAttach}><input type="hidden" name="return_query" value={caseLibraryReturnQuery} /><input type="hidden" name="case_id" value={selectedCase.case.id} />{#if imagePicker.targetGroupId}<input type="hidden" name="target_group_id" value={imagePicker.targetGroupId} />{/if}{#each pickerAttachAssetIds(pickerSelected) as assetId}<input type="hidden" name="asset_id" value={assetId} />{/each}<strong>{pickerSelected.size} selected</strong><button class="button primary" type="submit" disabled={attachPending || pickerSelected.size === 0 || pickerSelected.size > 30}>{imagePicker.targetGroupName ? `Add ${pickerSelected.size} to set` : `Attach ${pickerSelected.size} images`}</button></form>
+      <details class="upload-disclosure"><summary>Upload new image</summary><div class="advanced-body"><p class="muted">JPEG or PNG, up to the existing storage limit. The new Asset remains reusable elsewhere.</p><form method="POST" action="?/uploadAndAttach" enctype="multipart/form-data" class="form-grid"><input type="hidden" name="return_query" value={caseLibraryReturnQuery} /><input type="hidden" name="case_id" value={selectedCase.case.id} />{#if imagePicker.targetGroupId}<input type="hidden" name="target_group_id" value={imagePicker.targetGroupId} />{/if}<label class="wide">Image file<input name="image" type="file" accept="image/jpeg,image/png" required disabled={attachPending} /></label><label>Admin image name <span class="muted">(optional)</span><input name="image_name" maxlength="500" disabled={attachPending} /></label><label>Alt text<input name="alt_text" maxlength="500" required disabled={attachPending} /></label><label>Source label <span class="muted">(optional)</span><input name="source_label" maxlength="300" disabled={attachPending} /></label><label>Source URL <span class="muted">(optional)</span><input name="source_url" type="url" maxlength="2000" disabled={attachPending} /></label><label>Licence / permission <span class="muted">(optional)</span><input name="licence" maxlength="500" disabled={attachPending} /></label><div class="wide"><button class="button primary" type="submit" disabled={attachPending}>Upload and {imagePicker.targetGroupName ? 'add to set' : 'attach'}</button></div></form></div></details>
     </div>
   </dialog>
 {/if}

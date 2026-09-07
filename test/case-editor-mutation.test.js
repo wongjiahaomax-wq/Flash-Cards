@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { canReorderCaseQuestion, coordinatedFormStatus, createCaseEditorCoordinator, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '../src/lib/case-editor-coordinator.js';
+import { canReorderCaseQuestion, coordinatedFormStatus, createCaseEditorCoordinator, createCoordinatedFormSaveState, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot, shouldClearSaveAllResult } from '../src/lib/case-editor-coordinator.js';
 
 test('Case editor coordinator serializes Save All and only attempts current dirty drafts', async () => {
   const coordinator = createCaseEditorCoordinator();
@@ -103,4 +103,22 @@ test('coordinated form status returns to Unsaved after a saved form is edited', 
   assert.equal(coordinatedFormStatus({ dirty: true, succeeded: true }), 'Unsaved changes');
   assert.equal(coordinatedFormStatus({ pending: true, dirty: true }), 'Saving…');
   assert.equal(coordinatedFormStatus({ dirty: true, succeeded: false }), 'Unsaved changes');
+});
+
+test('coordinated A to B save reports B as unsaved after A completes', () => {
+  let draft = 'A';
+  let baseline = 'A';
+  const status = createCoordinatedFormSaveState(() => draft !== baseline);
+
+  assert.equal(status.begin(), 'Saving…');
+  draft = 'B';
+  assert.equal(status.refresh(), 'Saving…');
+  baseline = 'A';
+  assert.equal(status.complete(true), 'Unsaved changes');
+});
+
+test('Save All result clearing waits for a later dirty revision', () => {
+  assert.equal(shouldClearSaveAllResult({ resultRevision: 4, currentRevision: 4, dirtyCount: 1 }), false);
+  assert.equal(shouldClearSaveAllResult({ resultRevision: 4, currentRevision: 5, dirtyCount: 1 }), true);
+  assert.equal(shouldClearSaveAllResult({ resultRevision: 4, currentRevision: 5, dirtyCount: 0 }), false);
 });

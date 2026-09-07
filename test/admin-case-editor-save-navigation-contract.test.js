@@ -154,7 +154,7 @@ test('picker attach uses canonical staged IDs and participates in leave protecti
   assert.match(picker, /data-case-editor-picker-dirty/);
   assert.match(picker, /pickerAttachAssetIds\(pickerSelected\)/);
   assert.match(picker, /use:enhance=\{enhancePickerAttach\}/);
-  assert.match(picker, /if \(outcome\.ok\) pickerSelected = new Set\(\)/);
+  assert.match(picker, /if \(outcome\.ok\) pickerSelected = reconcileCasePickerAttachSelection/);
   assert.doesNotMatch(picker, /form="case-image-picker-attach" name="asset_id"/);
   assert.match(mutation, /data-case-editor-picker-dirty="true"/);
   assert.match(page, /hasCaseEditorPickerSelection\(\)/);
@@ -169,7 +169,20 @@ test('default active Case Library editor links carry explicit lifecycle context'
 });
 
 test('coordinated saved forms become visibly unsaved after a later edit and stale Save All results clear', () => {
-  assert.match(mutation, /if \(!pending && formHasMeaningfulUnsubmittedInput\(node\)/);
+  assert.match(mutation, /createCoordinatedFormSaveState/);
+  assert.match(mutation, /status\.textContent = saveState\.complete\(ok\)/);
   const header = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorHeader.svelte', import.meta.url), 'utf8');
-  assert.match(header, /saveAllResult && !coordinator\?\.isSavingAll/);
+  assert.match(header, /saveAllResultRevision/);
+  assert.match(header, /shouldClearSaveAllResult/);
+});
+
+test('picker Attach locks competing controls and Search has one same-context navigation exemption', () => {
+  assert.match(picker, /let attachPending = \$state\(false\)/);
+  assert.match(picker, /disabled=\{attachPending\}/);
+  assert.match(picker, /try \{/);
+  assert.match(picker, /finally \{/);
+  assert.match(page, /data-case-editor-picker-search/);
+  assert.match(page, /pendingPickerSearchNavigation/);
+  assert.match(page, /isSafeCasePickerSearchNavigation/);
+  assert.match(page, /hasNonPickerUnsavedWork/);
 });

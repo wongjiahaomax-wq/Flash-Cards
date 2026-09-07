@@ -3,10 +3,13 @@ import test from 'node:test';
 
 import {
   applyAssetSelection,
+  beginCasePickerAttach,
   chunkAssetIds,
   clearAssetSelection,
   pickerAttachAssetIds,
   pickerSelectionIsDirty,
+  isSafeCasePickerSearchNavigation,
+  reconcileCasePickerAttachSelection,
   pruneAssetSelection,
   reconcileCasePickerSelection,
   reconcileLibrarySelection,
@@ -76,6 +79,44 @@ test('Case picker builds a complete cross-search Attach payload and exposes stag
   assert.deepEqual(pickerAttachAssetIds(selected), ['asset-a', 'asset-b']);
   assert.equal(pickerSelectionIsDirty(selected), true);
   assert.equal(pickerSelectionIsDirty([]), false);
+});
+
+test('Case picker freezes a single Attach transaction and reconciles only its submitted selection', () => {
+  const first = beginCasePickerAttach(new Set(['asset-a']), false);
+  const blocked = beginCasePickerAttach(new Set(['asset-a', 'asset-b']), true);
+
+  assert.deepEqual(first, { accepted: true, submittedIds: ['asset-a'] });
+  assert.deepEqual(blocked, { accepted: false, submittedIds: [] });
+  assert.deepEqual([...reconcileCasePickerAttachSelection({ selectedIds: ['asset-a', 'asset-b'], submittedIds: first.submittedIds, ok: true })], ['asset-b']);
+  assert.deepEqual([...reconcileCasePickerAttachSelection({ selectedIds: ['asset-a'], submittedIds: first.submittedIds, ok: false })], ['asset-a']);
+});
+
+test('Case picker Search is safe only for the same Case target with the staged IDs', () => {
+  const currentUrl = 'https://app.test/admin/cases/case-1?picker=1&target_group=group-1';
+  assert.equal(isSafeCasePickerSearchNavigation({
+    currentUrl,
+    targetUrl: 'https://app.test/admin/cases/case-1?picker=1&target_group=group-1&image_q=ecg&picker_selected=asset-a',
+    targetGroupId: 'group-1',
+    selectedIds: ['asset-a']
+  }), true);
+  assert.equal(isSafeCasePickerSearchNavigation({
+    currentUrl,
+    targetUrl: 'https://app.test/admin/cases/case-2?picker=1&target_group=group-1&picker_selected=asset-a',
+    targetGroupId: 'group-1',
+    selectedIds: ['asset-a']
+  }), false);
+  assert.equal(isSafeCasePickerSearchNavigation({
+    currentUrl,
+    targetUrl: 'https://app.test/admin/cases/case-1?picker=1&target_group=group-2&picker_selected=asset-a',
+    targetGroupId: 'group-1',
+    selectedIds: ['asset-a']
+  }), false);
+  assert.equal(isSafeCasePickerSearchNavigation({
+    currentUrl,
+    targetUrl: 'https://app.test/admin/cases/case-1?picker=1&target_group=group-1',
+    targetGroupId: 'group-1',
+    selectedIds: ['asset-a']
+  }), false);
 });
 
 test('Case picker resets selection when Case or attachment target changes', () => {

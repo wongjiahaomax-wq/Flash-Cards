@@ -1,5 +1,6 @@
 <script>
   import { caseLibraryReturnHref } from '$lib/admin-case-library-state.ts';
+  import { shouldClearSaveAllResult } from '$lib/case-editor-coordinator.js';
   let { selectedCase, previewMode, studyPreviewHref = null, caseLibraryReturnQuery = '', coordinator = null, draftRevision = 0 } = $props();
   let unsavedCount = $derived.by(() => {
     draftRevision;
@@ -7,12 +8,19 @@
   });
   /** @type {{ attempted: number, succeeded: number, failed: number } | null} */
   let saveAllResult = $state(null);
+  /** @type {number | null} */
+  let saveAllResultRevision = $state(null);
   $effect(() => {
     draftRevision;
-    if (saveAllResult && !coordinator?.isSavingAll?.() && (coordinator?.dirtyCount?.() ?? 0) > 0) saveAllResult = null;
+    if (saveAllResult && shouldClearSaveAllResult({ resultRevision: saveAllResultRevision, currentRevision: draftRevision, saving: coordinator?.isSavingAll?.(), dirtyCount: coordinator?.dirtyCount?.() ?? 0 })) {
+      saveAllResult = null;
+      saveAllResultRevision = null;
+    }
   });
   async function saveAll() {
-    saveAllResult = await coordinator.saveAll();
+    const result = await coordinator.saveAll();
+    saveAllResult = result;
+    saveAllResultRevision = draftRevision;
   }
 </script>
 

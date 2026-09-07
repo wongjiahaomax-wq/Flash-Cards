@@ -3,6 +3,7 @@
 import { applyAction, enhance } from '$app/forms';
 import { invalidateAll, replaceState } from '$app/navigation';
 import { tick } from 'svelte';
+import { createCoordinatedFormSaveState } from '$lib/case-editor-coordinator.js';
 
 export function editorFormKey(form) {
   const action = form.getAttribute('action') ?? '';
@@ -179,6 +180,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
   status.setAttribute('role', 'status');
   status.hidden = true;
   node.append(status);
+  const saveState = createCoordinatedFormSaveState(() => formHasMeaningfulUnsubmittedInput(node));
 
   function register() {
     return coordinator?.register(`form:${currentKey}`, {
@@ -193,7 +195,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
   }
 
   const refresh = () => {
-    if (!pending && formHasMeaningfulUnsubmittedInput(node)) {
+    if (saveState.refresh() === 'Unsaved changes') {
       status.hidden = false;
       status.textContent = 'Unsaved changes';
       status.classList.remove('error');
@@ -212,12 +214,13 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
     }
     pending = new Promise((resolve) => { resolvePending = resolve; });
     status.hidden = false;
-    status.textContent = 'Saving…';
+    status.textContent = saveState.begin();
     if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
       cancel();
       const resolve = resolvePending;
       pending = null;
       resolvePending = null;
+      saveState.cancel();
       status.hidden = true;
       coordinator?.refresh();
       resolve?.(false);
@@ -233,7 +236,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
         pending = null;
         resolvePending = null;
         coordinator?.refresh();
-        status.textContent = ok ? 'Saved' : 'Save failed — try again';
+        status.textContent = saveState.complete(ok);
         status.classList.toggle('error', !ok);
         resolve?.(ok);
       }

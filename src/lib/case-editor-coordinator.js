@@ -20,6 +20,40 @@ export function coordinatedFormStatus({ pending = false, dirty = false, succeede
   return succeeded ? 'Saved' : 'Save failed — try again';
 }
 
+export function createCoordinatedFormSaveState(isDirty) {
+  let pending = false;
+  let succeeded = true;
+
+  function refresh() {
+    if (pending) return coordinatedFormStatus({ pending: true });
+    if (isDirty()) return coordinatedFormStatus({ dirty: true, succeeded: true });
+    return coordinatedFormStatus({ succeeded });
+  }
+
+  return {
+    begin() {
+      pending = true;
+      return refresh();
+    },
+    complete(ok) {
+      pending = false;
+      succeeded = ok;
+      return ok ? refresh() : coordinatedFormStatus({ succeeded: false });
+    },
+    cancel() {
+      pending = false;
+      return refresh();
+    },
+    refresh,
+    isPending() { return pending; }
+  };
+}
+
+/** @param {{ resultRevision?: number | null, currentRevision?: number, dirtyCount?: number, saving?: boolean }} [input] */
+export function shouldClearSaveAllResult({ resultRevision = null, currentRevision = 0, dirtyCount = 0, saving = false } = {}) {
+  return resultRevision !== null && currentRevision > resultRevision && !saving && dirtyCount > 0;
+}
+
 export function reconcileSubmittedCaseEditorDraft(draft, submitted, authoritative) {
   return {
     baseline: cloneCaseEditorSnapshot(authoritative),
