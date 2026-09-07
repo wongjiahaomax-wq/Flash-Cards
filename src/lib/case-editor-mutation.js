@@ -4,6 +4,9 @@ import { applyAction, enhance } from '$app/forms';
 import { invalidateAll, replaceState } from '$app/navigation';
 import { tick } from 'svelte';
 import { createCoordinatedFormSaveState } from '$lib/case-editor-coordinator.js';
+import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, formHasMeaningfulUnsubmittedInputAgainst, mutationMayChangeEditorFormTopology, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
+
+export { captureEditableFormSnapshot, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
 
 export function editorFormKey(form) {
   const action = form.getAttribute('action') ?? '';
@@ -49,32 +52,16 @@ function findSubmittedEditorForm(form, key, logicalKey = '') {
     );
 }
 
-export function captureEditableFormSnapshot(form) {
-  return [...form.elements]
-    .filter((element) => {
-      if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
-      if (element instanceof HTMLInputElement && ['hidden', 'file', 'submit', 'button', 'reset'].includes(element.type)) return false;
-      return true;
-    })
-    .map((element) => {
-      if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) return { name: element.name, type: element.type, checked: element.checked };
-      return { name: element.name, type: element.type, value: element.value };
-    });
-}
-
-export function sameEditableFormSnapshot(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
 function restoreEditableFormSnapshot(form, snapshot) {
   const elements = [...form.elements].filter((element) => {
     if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
-    if (element instanceof HTMLInputElement && ['hidden', 'file', 'submit', 'button', 'reset'].includes(element.type)) return false;
+    if (element instanceof HTMLInputElement && ['hidden', 'submit', 'button', 'reset'].includes(element.type)) return false;
     return true;
   });
   elements.forEach((element, index) => {
     const value = snapshot[index];
     if (!value) return;
+    if (element instanceof HTMLInputElement && element.type === 'file') return;
     if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) element.checked = value.checked;
     else element.value = value.value;
   });
@@ -89,49 +76,6 @@ function reconcileSubmittedEditorForm(form, key, logicalKey, submittedSnapshot, 
   if (!candidate) return;
   if (sameEditableFormSnapshot(currentSnapshot, submittedSnapshot)) candidate.reset?.();
   else restoreEditableFormSnapshot(candidate, currentSnapshot);
-}
-
-export function formHasMeaningfulUnsubmittedInput(form) {
-  return formHasMeaningfulUnsubmittedInputAgainst(form, null);
-}
-
-function formHasMeaningfulUnsubmittedInputAgainst(form, baseline) {
-  if (baseline) return !sameEditableFormSnapshot(captureEditableFormSnapshot(form), baseline);
-  return [...form.elements].some((element) => {
-    if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
-    if (element instanceof HTMLInputElement && element.type === 'hidden') return false;
-    if (element instanceof HTMLInputElement && element.type === 'file') return Boolean(element.files?.length);
-    if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) return element.checked !== element.defaultChecked;
-    if (element instanceof HTMLSelectElement) return [...element.options].some((option) => option.selected !== option.defaultSelected);
-    return element.value.trim() !== element.defaultValue.trim();
-  });
-}
-
-function changedFormFieldLabels(form, baseline) {
-  if (!baseline) return [];
-  const current = captureEditableFormSnapshot(form);
-  const labels = [];
-  current.forEach((value, index) => {
-    const previous = baseline[index];
-    if (JSON.stringify(value) === JSON.stringify(previous)) return;
-    const name = value.name;
-    labels.push({
-      title: 'Internal title',
-      vignette_md: 'Vignette',
-      prompt_md: 'Prompt',
-      answer_md: 'Answer',
-      reusable_for_topic: 'Share with Topic',
-      caption: 'Caption',
-      name: 'Image-set name',
-      set_name: 'Image-set name',
-      specific_question_mode: 'Coverage',
-      minimum_specific_questions: 'Minimum questions',
-      target: 'Target',
-      prompt_id: 'Question',
-      group_id: 'Image set'
-    }[name] ?? name);
-  });
-  return [...new Set(labels)];
 }
 
 function structuralFormLabel(form) {
@@ -159,7 +103,8 @@ export function registerCaseEditorStructuralForms(coordinator) {
     && form.id !== 'case-details-form'
     && !form.hasAttribute('data-case-editor-coordinated')
     && !form.hasAttribute('data-case-editor-picker')
-    && !form.hasAttribute('data-case-editor-picker-search');
+    && !form.hasAttribute('data-case-editor-picker-search')
+    && formCanHoldMeaningfulStructuralInput(form);
 
   const sync = () => {
     const forms = new Set([...document.querySelectorAll('.case-editor form')].filter(isStructural));
@@ -201,12 +146,13 @@ export function registerCaseEditorStructuralForms(coordinator) {
       registrations.set(form, { unregister: coordinator.register(key, entry), status, refresh });
       form.dataset.caseEditorStructuralKey = key;
     }
-    coordinator.refresh();
   };
 
   sync();
   const root = document.querySelector('.case-editor') ?? document.body;
-  const observer = new MutationObserver(sync);
+  const observer = new MutationObserver((records) => {
+    if (mutationMayChangeEditorFormTopology(records)) sync();
+  });
   observer.observe(root, { childList: true, subtree: true });
   return () => {
     observer.disconnect();
@@ -362,7 +308,8 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
     return async ({ result }) => {
       let ok = false;
       try {
-        ok = (await stable({ result })).ok;
+        const outcome = await stable({ result });
+        ok = outcome.ok;
         if (ok && sameEditableFormSnapshot(outcome.currentSubmittedSnapshot, outcome.submittedSnapshot)) {
           const candidate = findSubmittedEditorForm(formElement, editorFormKey(formElement), currentKey);
           if (candidate) baseline = captureEditableFormSnapshot(candidate);
