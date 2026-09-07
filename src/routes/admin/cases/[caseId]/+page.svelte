@@ -106,14 +106,17 @@
       });
     /** @param {any} submitContext */
     const enhanceStableForm = ({ formElement, cancel }) => {
-      const conflictMessage = caseEditorUnsavedWorkMessage(formElement, draftCoordinator);
+      // Structural actions may be submitted while saveable drafts are present.
+      // Their response deliberately does not invalidate those drafts; the user
+      // can immediately finish with the captured Save All batch.
+      const conflictMessage = caseEditorUnsavedWorkMessage(formElement, draftCoordinator, { allowSaveableWork: true });
       if (conflictMessage) {
         window.alert(conflictMessage);
         cancel();
         return;
       }
       const structuralKey = formElement.dataset.caseEditorStructuralKey;
-      const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement);
+      const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { deferInvalidation: () => draftCoordinator.saveableDirtyCount() > 0 });
       /** @param {any} context */
       const handleStableForm = async (context) => {
         const outcome = await stable(context);

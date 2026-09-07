@@ -143,22 +143,29 @@ export function createCaseEditorCoordinator() {
     },
     async saveAll() {
       if (savingAll) return { attempted: 0, succeeded: 0, failed: 0 };
+      // Capture every valid draft before starting a mutation.  The individual
+      // enhanced forms can then all post before any response reconciles the
+      // page, rather than letting the first redirect invalidate another form.
+      const plans = [];
+      for (const [key, entry] of entries) {
+        if (entry.saveable === false || !entry.isDirty()) continue;
+        const prepared = entry.prepareSave ? entry.prepareSave() : true;
+        if (!prepared) return { attempted: 0, succeeded: 0, failed: 1 };
+        plans.push({ key, entry, prepared });
+      }
+      if (!plans.length) return { attempted: 0, succeeded: 0, failed: 0 };
       savingAll = true;
       notify();
-      let attempted = 0;
+      const attempted = plans.length;
       let succeeded = 0;
       let failed = 0;
       try {
-        for (const entry of [...entries.values()]) {
-          if (entry.saveable === false) continue;
-          if (!entry.isDirty()) continue;
-          attempted += 1;
-          try {
-            if (await entry.save()) succeeded += 1;
-            else failed += 1;
-          } catch {
-            failed += 1;
-          }
+        // Do not await here: initiating all posts in this turn is the safety
+        // boundary that keeps later drafts out of an intermediate invalidation.
+        const outcomes = await Promise.allSettled(plans.map(({ entry, prepared }) => entry.save(prepared)));
+        for (const outcome of outcomes) {
+          if (outcome.status === 'fulfilled' && outcome.value) succeeded += 1;
+          else failed += 1;
         }
       } finally {
         savingAll = false;

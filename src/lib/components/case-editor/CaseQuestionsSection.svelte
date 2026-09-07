@@ -66,17 +66,23 @@
     return changed;
   }
 
-  function beginQuestionSubmit(state) {
-    state.submitted = cloneCaseEditorSnapshot(state.draft);
+  function beginQuestionSubmit(state, snapshot = state.draft) {
+    state.submitted = cloneCaseEditorSnapshot(snapshot);
     state.pending = new Promise((resolve) => { state.resolve = resolve; });
     state.saveState = 'saving';
     coordinator?.refresh();
   }
 
-  function submitQuestion(state) {
+  function prepareQuestionSave(state) {
+    const form = document.getElementById(`question-edit-${state.caseQuestionId}`);
+    return form instanceof HTMLFormElement && form.reportValidity() ? cloneCaseEditorSnapshot(state.draft) : null;
+  }
+
+  function submitQuestion(state, snapshot = null) {
     if (state.pending) return state.pending;
     const form = document.getElementById(`question-edit-${state.caseQuestionId}`);
-    if (!(form instanceof HTMLFormElement) || !form.reportValidity()) return Promise.resolve(false);
+    if (!(form instanceof HTMLFormElement) || (!snapshot && !form.reportValidity())) return Promise.resolve(false);
+    if (snapshot) state.submitted = cloneCaseEditorSnapshot(snapshot);
     form.requestSubmit();
     return state.pending ?? Promise.resolve(false);
   }
@@ -87,21 +93,21 @@
         cancel();
         return;
       }
-      const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
+      const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: coordinator?.isSavingAll?.() });
       if (conflictMessage) {
         window.alert(conflictMessage);
         cancel();
         return;
       }
-      beginQuestionSubmit(state);
-      const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { reconcileSubmittedDraft: true });
+      beginQuestionSubmit(state, state.submitted ?? state.draft);
+      const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { reconcileSubmittedDraft: true, deferInvalidation: () => coordinator?.isSavingAll?.() });
       return async ({ result }) => {
         const outcome = await stable({ result });
         if (outcome.ok) {
           const submitted = state.submitted;
           const authoritative = selectedCase.questions.find((question) => question.id === state.caseQuestionId);
           if (authoritative) {
-            const snapshot = questionSnapshot(authoritative);
+            const snapshot = outcome.deferred ? submitted : questionSnapshot(authoritative);
             state.authoritativeId = authoritative.questionPromptId;
             const reconciled = reconcileSubmittedCaseEditorDraft(state.draft, submitted, snapshot);
             state.baseline = reconciled.baseline;
@@ -143,9 +149,10 @@
           state.draft.reusableForTopic !== state.baseline.reusableForTopic ? 'Share with Topic' : null
         ].filter(Boolean),
         isSaving: () => Boolean(state.pending),
-        status: () => state.pending ? 'Saving…' : state.saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
+        status: () => state.pending ? 'Saving…' : !questionDirty(state) ? 'Saved' : state.saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
         isDirty: () => questionDirty(state),
-        save: () => submitQuestion(state)
+        prepareSave: () => prepareQuestionSave(state),
+        save: (snapshot) => submitQuestion(state, snapshot)
       });
       if (unregister) {
         questionRegistrations.set(caseQuestionId, unregister);
@@ -358,7 +365,7 @@
           <label class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" value={questionDraft.draft.answerMd} oninput={(event) => { questionDraft.draft.answerMd = event.currentTarget.value; coordinator?.refresh(); }} rows="3" maxlength="5000" required></textarea></label>
           <div class="question-footer">
             <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" checked={questionDraft.draft.reusableForTopic} onchange={(event) => { questionDraft.draft.reusableForTopic = event.currentTarget.checked; coordinator?.refresh(); }} /> Share this question with the Topic</label>
-            <span class="save-state" class:error={questionDraft.saveState === 'error'}>{questionDraft.saveState === 'saving' ? 'Saving…' : questionDraft.saveState === 'error' ? 'Save failed — changes remain unsaved' : questionDirty(questionDraft) ? `Unsaved changes — ${[questionDraft.draft.promptMd !== questionDraft.baseline.promptMd ? 'Prompt' : null, questionDraft.draft.answerMd !== questionDraft.baseline.answerMd ? 'Answer' : null, questionDraft.draft.reusableForTopic !== questionDraft.baseline.reusableForTopic ? 'Share with Topic' : null].filter(Boolean).join(', ')}` : 'Saved'}</span>
+            <span class="save-state" class:error={questionDraft.saveState === 'error' && questionDirty(questionDraft)}>{questionDraft.saveState === 'saving' ? 'Saving…' : questionDirty(questionDraft) && questionDraft.saveState === 'error' ? 'Save failed — changes remain unsaved' : questionDirty(questionDraft) ? `Unsaved changes — ${[questionDraft.draft.promptMd !== questionDraft.baseline.promptMd ? 'Prompt' : null, questionDraft.draft.answerMd !== questionDraft.baseline.answerMd ? 'Answer' : null, questionDraft.draft.reusableForTopic !== questionDraft.baseline.reusableForTopic ? 'Share with Topic' : null].filter(Boolean).join(', ')}` : 'Saved'}</span>
             <button class="button primary save-question-action" type="submit" disabled={Boolean(questionDraft.pending)}>Save question</button>
           </div>
         </form>

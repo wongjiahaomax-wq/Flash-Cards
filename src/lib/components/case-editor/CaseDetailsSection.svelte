@@ -43,16 +43,21 @@
     }
   });
 
-  function beginSubmit() {
-    submittedSnapshot = cloneCaseEditorSnapshot(draft);
+  function beginSubmit(snapshot = draft) {
+    submittedSnapshot = cloneCaseEditorSnapshot(snapshot);
     pending = new Promise((resolve) => { resolvePending = resolve; });
     saveState = 'saving';
     coordinator?.refresh();
   }
 
-  function submitDraft() {
+  function prepareDraftSave() {
+    return detailsForm?.reportValidity() ? cloneCaseEditorSnapshot(draft) : null;
+  }
+
+  function submitDraft(snapshot = null) {
     if (pending) return pending;
-    if (!detailsForm?.reportValidity()) return Promise.resolve(false);
+    if (!snapshot && !detailsForm?.reportValidity()) return Promise.resolve(false);
+    if (snapshot) submittedSnapshot = cloneCaseEditorSnapshot(snapshot);
     detailsForm.requestSubmit();
     return pending ?? Promise.resolve(false);
   }
@@ -62,19 +67,19 @@
       cancel();
       return;
     }
-    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: coordinator?.isSavingAll?.() });
     if (conflictMessage) {
       window.alert(conflictMessage);
       cancel();
       return;
     }
-    beginSubmit();
+    beginSubmit(submittedSnapshot ?? draft);
     const view = captureCaseEditorView();
-    const stable = stableCaseEditorEnhance(view, formElement, { reconcileSubmittedDraft: true });
+    const stable = stableCaseEditorEnhance(view, formElement, { reconcileSubmittedDraft: true, deferInvalidation: () => coordinator?.isSavingAll?.() });
     return async ({ result }) => {
       const outcome = await stable({ result });
       if (outcome.ok) {
-        const current = serverSnapshot(selectedCase);
+        const current = outcome.deferred ? submittedSnapshot : serverSnapshot(selectedCase);
         const reconciled = reconcileSubmittedCaseEditorDraft(draft, submittedSnapshot, current);
         baseline = reconciled.baseline;
         draft = reconciled.draft;
@@ -95,8 +100,9 @@
     label: 'Case details',
     dirtyFields,
     isSaving: () => Boolean(pending),
-    status: () => pending ? 'Saving…' : saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
+    status: () => pending ? 'Saving…' : !dirty ? 'Saved' : saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
     isDirty: () => dirty,
+    prepareSave: prepareDraftSave,
     save: submitDraft
   }));
   onDestroy(() => coordinator?.refresh());
@@ -114,7 +120,7 @@
       </h2>
       <p class="muted compact-hide-explainer">Cases under the same Topic can have different stems, causes, findings, or educational intent. The internal title is not shown to learners.</p>
     </div>
-    <span class="save-state" class:error={saveState === 'error'}>{saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed — changes remain unsaved' : dirty ? `Unsaved changes — ${dirtyFields().join(', ')}` : 'Saved'}</span><button class="button primary" type="submit" form="case-details-form" disabled={Boolean(pending)}>Save Case</button>
+    <span class="save-state" class:error={saveState === 'error' && dirty}>{saveState === 'saving' ? 'Saving…' : dirty && saveState === 'error' ? 'Save failed — changes remain unsaved' : dirty ? `Unsaved changes — ${dirtyFields().join(', ')}` : 'Saved'}</span><button class="button primary" type="submit" form="case-details-form" disabled={Boolean(pending)}>Save Case</button>
   </div>
 
   <form bind:this={detailsForm} id="case-details-form" method="POST" action="?/updateCase" class="case-form" data-case-editor-internal use:enhance={enhanceDetails}>

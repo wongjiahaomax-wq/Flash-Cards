@@ -1,4 +1,5 @@
 <script>
+  import { invalidateAll } from '$app/navigation';
   import { caseLibraryReturnHref } from '$lib/admin-case-library-state.ts';
   import { caseEditorUnsavedWorkMessage } from '$lib/case-editor-mutation.js';
   import { shouldClearSaveAllResult } from '$lib/case-editor-coordinator.js';
@@ -30,6 +31,7 @@
     }
     saveAllMessage = '';
     const result = await coordinator.saveAll();
+    if (result.succeeded) await invalidateAll();
     saveAllResult = result;
     saveAllResultRevision = draftRevision;
   }
@@ -39,8 +41,8 @@
   <div><p class="eyebrow">Case editor</p><h1>{selectedCase.case.title}</h1><p class="muted">Topic: {#if selectedCase.case.conceptId}<a class="topic-link" href={'/admin/topics/' + selectedCase.case.conceptId}>{selectedCase.case.conceptName}</a>{:else}No primary Topic assigned{/if}</p></div>
   <div class="actions"><a class="button" href={caseLibraryReturnHref(caseLibraryReturnQuery)}>All Cases</a>{#if unsavedItems.length}<details class="unsaved-work"><summary class="unsaved-count" aria-live="polite">{unsavedItems.length} unsaved changes</summary><div class="unsaved-popover">
     {#if saveableItems.length}<strong>Can be saved with Save All</strong><ul>{#each saveableItems as item}<li><span>{item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label}</span><small>{item.status}</small></li>{/each}</ul>{/if}
-    {#if structuralItems.length}<strong>Needs individual action</strong><p class="popover-guidance">Submit or discard this work before another mutation.</p><ul>{#each structuralItems as item}<li><span>{item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label}</span><small>Submit this form or discard its changes</small></li>{/each}</ul>{/if}
-  </div></details>{#if saveableCount}<button class="button primary save-all-button" type="button" onclick={saveAll} disabled={coordinator.isSavingAll()} aria-label="Save all saveable Case-editor changes">{coordinator.isSavingAll() ? 'Saving…' : 'Save all changes'}</button>{/if}{/if}{#if structuralItems.length}<span class="save-all-guidance">Save All waits for structural work to be submitted or discarded.</span>{/if}{#if saveAllMessage}<span class="save-all-result error" role="alert">{saveAllMessage}</span>{:else if saveAllResult?.failed}<span class="save-all-result error" role="alert">{saveAllResult.succeeded} saved, {saveAllResult.failed} failed — unsaved changes remain</span>{:else if saveAllResult?.attempted}<span class="save-all-result" role="status">{saveAllResult.succeeded} saved</span>{/if}{#if previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href={studyPreviewHref ?? '/study'}>Preview in Study</a>{/if}</div>
+    {#if structuralItems.length}<strong>Needs individual action</strong><p class="popover-guidance">Submit this valid structural work first; your saveable drafts stay in place, then use Save All.</p><ul>{#each structuralItems as item}<li><span>{item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label}</span><small>Submit this form, then save the remaining drafts</small></li>{/each}</ul>{/if}
+  </div></details>{#if saveableCount && !structuralItems.length}<button class="button primary save-all-button" type="button" onclick={saveAll} disabled={coordinator.isSavingAll()} aria-label="Save all saveable Case-editor changes">{coordinator.isSavingAll() ? 'Saving…' : 'Save all changes'}</button>{/if}{/if}{#if structuralItems.length}<span class="save-all-guidance">Submit structural work first; then Save All is available.</span>{/if}{#if saveAllMessage}<span class="save-all-result error" role="alert">{saveAllMessage}</span>{:else if saveAllResult?.failed}<span class="save-all-result error" role="alert">{saveAllResult.succeeded} saved, {saveAllResult.failed} failed — unsaved changes remain</span>{:else if saveAllResult?.attempted}<span class="save-all-result" role="status">{saveAllResult.succeeded} saved</span>{/if}{#if previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href={studyPreviewHref ?? '/study'}>Preview in Study</a>{/if}</div>
 </section>
 
 <style>

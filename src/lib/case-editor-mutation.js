@@ -171,8 +171,8 @@ export function registerCaseEditorStructuralForms(coordinator) {
   };
 }
 
-/** @param {{ scrollX: number, scrollY: number, activeElement: Element | null, selectionStart: number | null, selectionEnd: number | null }} view @param {HTMLFormElement | null} [submittedForm] @param {{ reconcileSubmittedDraft?: boolean, logicalKey?: string }} [options] */
-export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selectionStart, selectionEnd }, submittedForm = null, { reconcileSubmittedDraft = false, logicalKey = '' } = {}) {
+/** @param {{ scrollX: number, scrollY: number, activeElement: Element | null, selectionStart: number | null, selectionEnd: number | null }} view @param {HTMLFormElement | null} [submittedForm] @param {{ reconcileSubmittedDraft?: boolean, logicalKey?: string, deferInvalidation?: boolean | (() => boolean) }} [options] */
+export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selectionStart, selectionEnd }, submittedForm = null, { reconcileSubmittedDraft = false, logicalKey = '', deferInvalidation = false } = {}) {
   const submittedSnapshot = submittedForm ? captureEditableFormSnapshot(submittedForm) : null;
   const submittedLogicalKey = logicalKey || submittedForm?.dataset.caseEditorLogicalKey || '';
   return async ({ result }) => {
@@ -198,7 +198,8 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
     const location = new URL(result.location, document.baseURI);
     location.hash = '';
     replaceState(`${location.pathname}${location.search}`, {});
-    await invalidateAll();
+    const deferred = typeof deferInvalidation === 'function' ? deferInvalidation() : deferInvalidation;
+    if (!deferred) await invalidateAll();
     await tick();
     const authoritativeCandidate = findSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
     const authoritativeSnapshot = authoritativeCandidate ? captureEditableFormSnapshot(authoritativeCandidate) : null;
@@ -213,7 +214,7 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
         activeElement.setSelectionRange(selectionStart, selectionEnd);
       }
     }
-    return { ok: true, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot, postSuccessSnapshot };
+    return { ok: true, deferred, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot, postSuccessSnapshot };
   };
 }
 
@@ -261,12 +262,12 @@ function structuralFormConflictLabels(submittedForm, knownKeys) {
  * @param {HTMLFormElement | null} [submittedForm]
  * @param {any} coordinator
  */
-export function caseEditorUnsavedWorkMessage(submittedForm = null, coordinator) {
+export function caseEditorUnsavedWorkMessage(submittedForm = null, coordinator, { allowSaveableWork = false } = {}) {
   const submittedKey = submittedCaseEditorKey(submittedForm);
   const items = coordinator?.dirtyItems?.() ?? [];
   const otherItems = items.filter((item) => item.key !== submittedKey);
   const structuralItems = otherItems.filter((item) => !item.saveable);
-  const saveableItems = submittedForm ? otherItems.filter((item) => item.saveable) : [];
+  const saveableItems = submittedForm && !allowSaveableWork ? otherItems.filter((item) => item.saveable) : [];
   const knownStructuralKeys = new Set(structuralItems.map((item) => item.key));
   const structuralLabels = [...new Set([...structuralItems.map(conflictItemLabel), ...structuralFormConflictLabels(submittedForm, knownStructuralKeys)])];
   const messages = [];
@@ -361,7 +362,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
     pending = new Promise((resolve) => { resolvePending = resolve; });
     status.hidden = false;
     status.textContent = saveState.begin();
-    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: coordinator?.isSavingAll?.() });
     if (conflictMessage) {
       window.alert(conflictMessage);
       cancel();

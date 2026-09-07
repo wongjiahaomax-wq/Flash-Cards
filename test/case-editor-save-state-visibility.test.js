@@ -122,6 +122,33 @@ test('failed coordinated save leaves the draft dirty', async () => {
   assert.equal(coordinator.dirtyItems()[0].label, 'Always-shown image');
 });
 
+test('Save All captures Case details and Question before either save begins', async () => {
+  const coordinator = createCaseEditorCoordinator();
+  const events = [];
+  let detailsDraft = 'Updated title';
+  let questionDraft = 'Updated prompt';
+  coordinator.register('case-details', {
+    label: 'Case details',
+    isDirty: () => Boolean(detailsDraft),
+    prepareSave: () => { events.push(`prepare:details:${detailsDraft}`); return detailsDraft; },
+    save: async (snapshot) => { events.push(`save:details:${snapshot}`); detailsDraft = ''; return true; }
+  });
+  coordinator.register('question:q1', {
+    label: 'Question 1',
+    isDirty: () => Boolean(questionDraft),
+    prepareSave: () => { events.push(`prepare:question:${questionDraft}`); return questionDraft; },
+    save: async (snapshot) => { events.push(`save:question:${snapshot}`); questionDraft = ''; return true; }
+  });
+
+  assert.deepEqual(await coordinator.saveAll(), { attempted: 2, succeeded: 2, failed: 0 });
+  assert.deepEqual(events, [
+    'prepare:details:Updated title',
+    'prepare:question:Updated prompt',
+    'save:details:Updated title',
+    'save:question:Updated prompt'
+  ]);
+});
+
 test('structural successful submit rebaselines the submitted form', () => {
   const coordinator = createCaseEditorCoordinator();
   let baseline = { value: 'Old System' };

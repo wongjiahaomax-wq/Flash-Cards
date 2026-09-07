@@ -77,8 +77,8 @@ test('successful enhanced submissions reconcile only the submitted form', () => 
   assert.match(mutation, /pending = new Promise\(\(resolve\) => \{ resolvePending = resolve; \}\)/);
   assert.match(mutation, /if \(pending\) \{\s*cancel\(\);/);
   assert.doesNotMatch(mutation, /dispatchEvent\(new Event\('(input|change)'/);
-  assert.match(details, /stableCaseEditorEnhance\(view, formElement, \{ reconcileSubmittedDraft: true \}\)/);
-  assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement, \{ reconcileSubmittedDraft: true \}\)/);
+  assert.match(details, /stableCaseEditorEnhance\(view, formElement, \{ reconcileSubmittedDraft: true, deferInvalidation:/);
+  assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement, \{ reconcileSubmittedDraft: true, deferInvalidation:/);
   assert.match(mutation, /postSuccessSnapshot/);
   assert.match(page, /rebaseline\(structuralKey, [\s\S]{0,120}postSuccessSnapshot/);
 });
@@ -100,13 +100,13 @@ test('Case-question controls update the reactive draft explicitly', () => {
 
 test('individual saves block with a named conflict and enhanced cancellation blocks the post', () => {
   assert.match(page, /data-case-editor-enhanced/);
-  assert.match(page, /caseEditorUnsavedWorkMessage\(formElement, draftCoordinator\)/);
+  assert.match(page, /caseEditorUnsavedWorkMessage\(formElement, draftCoordinator, \{ allowSaveableWork: true \}\)/);
   assert.match(page, /window\.alert\(conflictMessage\)/);
   assert.match(page, /cancel\(\);/);
   assert.match(page, /hasAttribute\('data-case-editor-coordinated'\)/);
-  assert.match(details, /caseEditorUnsavedWorkMessage\(formElement, coordinator\)/);
+  assert.match(details, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: coordinator\?\.isSavingAll\?\.\(\) \}\)/);
   assert.match(details, /cancel\(\);/);
-  assert.match(questions, /caseEditorUnsavedWorkMessage\(formElement, coordinator\)/);
+  assert.match(questions, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: coordinator\?\.isSavingAll\?\.\(\) \}\)/);
   assert.match(questions, /cancel\(\);/);
   assert.match(mutation, /isOrdinaryCaseEditorDraftForm/);
   assert.match(mutation, /Save all changes instead/);
@@ -167,6 +167,21 @@ test('cross-form reconstruction is not part of normal save handling', () => {
   assert.match(mutation, /data-case-editor-controlled/);
 });
 
+test('Save All captures every saveable draft, defers intermediate invalidation, and structural work has a safe first step', () => {
+  assert.match(coordinator, /const plans = \[\];/);
+  assert.match(coordinator, /const prepared = entry\.prepareSave \? entry\.prepareSave\(\) : true;/);
+  assert.match(coordinator, /Promise\.allSettled\(plans\.map/);
+  assert.match(mutation, /deferInvalidation/);
+  assert.match(mutation, /allowSaveableWork: coordinator\?\.isSavingAll\?\.\(\)/);
+  assert.match(details, /prepareSave: prepareDraftSave/);
+  assert.match(questions, /prepareSave: \(\) => prepareQuestionSave\(state\)/);
+  assert.match(details, /!dirty \? 'Saved' : saveState === 'error'/);
+  assert.match(questions, /!questionDirty\(state\) \? 'Saved' : state\.saveState === 'error'/);
+  assert.match(page, /allowSaveableWork: true/);
+  assert.match(page, /deferInvalidation: \(\) => draftCoordinator\.saveableDirtyCount\(\) > 0/);
+  assert.match(header, /Submit structural work first; then Save All is available\./);
+});
+
 test('selected structural upload files warn before an unrelated mutation can discard them', () => {
   assert.match(mutation, /formHasSelectedFile/);
   assert.match(mutation, /caseEditorUnsavedWorkMessage/);
@@ -188,7 +203,7 @@ test('header separates Save All work from structural work and blocks Save All wh
   assert.match(header, /Can be saved with Save All/);
   assert.match(header, /Needs individual action/);
   assert.match(header, /caseEditorUnsavedWorkMessage\(null, coordinator\)/);
-  assert.match(header, /Save All waits for structural work to be submitted or discarded/);
+  assert.match(header, /Submit structural work first; then Save All is available/);
 });
 
 test('reorder uses shared conflict cancellation and rejects stale or in-flight question identity', () => {
