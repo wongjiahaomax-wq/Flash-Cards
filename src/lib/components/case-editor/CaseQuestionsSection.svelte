@@ -40,18 +40,30 @@
   }
 
   function syncQuestionDrafts() {
+    let changed = false;
     for (const question of selectedCase.questions) {
       let state = questionDrafts[question.id];
       if (!state) {
         const snapshot = questionSnapshot(question);
         questionDrafts[question.id] = { caseQuestionId: question.id, authoritativeId: question.questionPromptId, draft: snapshot, baseline: cloneCaseEditorSnapshot(snapshot), pending: null, submitted: null, saveState: 'saved', resolve: null };
+        changed = true;
       } else if (!state.pending && !questionDirty(state)) {
         const snapshot = questionSnapshot(question);
-        state.authoritativeId = question.questionPromptId;
-        state.baseline = snapshot;
-        state.draft = cloneCaseEditorSnapshot(snapshot);
+        if (state.authoritativeId !== question.questionPromptId) {
+          state.authoritativeId = question.questionPromptId;
+          changed = true;
+        }
+        if (!sameCaseEditorSnapshot(state.baseline, snapshot)) {
+          state.baseline = snapshot;
+          changed = true;
+        }
+        if (!sameCaseEditorSnapshot(state.draft, snapshot)) {
+          state.draft = cloneCaseEditorSnapshot(snapshot);
+          changed = true;
+        }
       }
     }
+    return changed;
   }
 
   function beginQuestionSubmit(state) {
@@ -108,13 +120,14 @@
   }
 
   $effect(() => {
-    syncQuestionDrafts();
+    let changed = syncQuestionDrafts();
     const liveIds = new Set(selectedCase.questions.map((question) => question.id));
     for (const [caseQuestionId, unregister] of questionRegistrations) {
       if (liveIds.has(caseQuestionId)) continue;
       unregister?.();
       questionRegistrations.delete(caseQuestionId);
       delete questionDrafts[caseQuestionId];
+      changed = true;
     }
     for (const question of selectedCase.questions) {
       const caseQuestionId = question.id;
@@ -132,9 +145,12 @@
         isDirty: () => questionDirty(state),
         save: () => submitQuestion(state)
       });
-      if (unregister) questionRegistrations.set(caseQuestionId, unregister);
+      if (unregister) {
+        questionRegistrations.set(caseQuestionId, unregister);
+        changed = true;
+      }
     }
-    coordinator?.refresh();
+    if (changed) coordinator?.refresh();
   });
 
   onDestroy(() => {

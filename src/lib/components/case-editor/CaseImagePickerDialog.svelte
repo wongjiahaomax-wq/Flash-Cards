@@ -32,15 +32,23 @@
 
   $effect(() => {
     const nextContextKey = `${selectedCase?.case.id ?? ''}:${imagePicker?.targetGroupId ?? 'fixed'}`;
-    if (pickerContextKey === null) pickerSelected = new Set(imagePicker?.selectedAssetIds ?? []);
+    let changed = false;
+    if (pickerContextKey === null) {
+      pickerSelected = new Set(imagePicker?.selectedAssetIds ?? []);
+      changed = true;
+    }
     const orderedIds = imagePicker?.assets?.map((asset) => asset.id) ?? [];
     const contextChanged = Boolean(pickerContextKey && pickerContextKey !== nextContextKey);
     if (contextChanged) {
       const reconciled = reconcileCasePickerSelection({ selectedIds: pickerSelected, previousContextKey: pickerContextKey, nextContextKey, orderedIds });
       pickerSelected = reconciled.selectedIds;
+      changed = true;
     }
-    pickerContextKey = nextContextKey;
-    coordinator?.refresh();
+    if (pickerContextKey !== nextContextKey) {
+      pickerContextKey = nextContextKey;
+      changed = true;
+    }
+    if (changed) coordinator?.refresh();
     if (imagePicker?.open && pickerDialog && !pickerDialog.open) {
       pickerDialog.showModal();
       requestAnimationFrame(() => pickerCloseButton?.focus());

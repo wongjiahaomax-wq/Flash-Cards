@@ -38,8 +38,8 @@
       draft = cloneCaseEditorSnapshot(current);
       initialized = true;
     } else if (!pending && !dirty) {
-      baseline = current;
-      draft = cloneCaseEditorSnapshot(current);
+      if (!sameCaseEditorSnapshot(baseline, current)) baseline = current;
+      if (!sameCaseEditorSnapshot(draft, current)) draft = cloneCaseEditorSnapshot(current);
     }
   });
 

@@ -37,7 +37,7 @@ test('question-scope uses native endpoint submission and carries bounded return 
 
 test('live Case-question registration follows creation, Prompt identity changes, and removals', () => {
   assert.doesNotMatch(questions, /onMount\(/);
-  assert.match(questions, /\$effect\(\(\) => \{\s*syncQuestionDrafts\(\)/);
+  assert.match(questions, /\$effect\(\(\) => \{\s*let changed = syncQuestionDrafts\(\)/);
   assert.match(questions, /questionRegistrations\.delete\(caseQuestionId\)/);
   assert.match(questions, /coordinator\?\.register\(`question:\$\{caseQuestionId\}`/);
   assert.match(questions, /name="case_question_id" value=\{question\.id\}/);
@@ -80,6 +80,15 @@ test('successful enhanced submissions preserve unrelated drafts and reconcile th
   assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement, \{ reconcileSubmittedDraft: true \}\)/);
   assert.match(mutation, /postSuccessSnapshot/);
   assert.match(page, /rebaseline\(structuralKey, [\s\S]{0,120}postSuccessSnapshot/);
+});
+
+test('Case-editor synchronization effects are idempotent and do not self-notify forever', () => {
+  assert.match(questions, /if \(!sameCaseEditorSnapshot\(state\.baseline, snapshot\)\)/);
+  assert.match(questions, /if \(!sameCaseEditorSnapshot\(state\.draft, snapshot\)\)/);
+  assert.match(questions, /if \(changed\) coordinator\?\.refresh\(\)/);
+  assert.match(details, /if \(!sameCaseEditorSnapshot\(baseline, current\)\)/);
+  assert.match(details, /if \(!sameCaseEditorSnapshot\(draft, current\)\)/);
+  assert.match(picker, /if \(changed\) coordinator\?\.refresh\(\)/);
 });
 
 test('coordinated ordinary saves do not warn about themselves and enhanced cancellation blocks the post', () => {
