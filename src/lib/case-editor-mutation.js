@@ -4,7 +4,7 @@ import { applyAction, enhance } from '$app/forms';
 import { invalidateAll, replaceState } from '$app/navigation';
 import { tick } from 'svelte';
 import { createCoordinatedFormSaveState } from '$lib/case-editor-coordinator.js';
-import { captureEditableFormSnapshot, captureFormSubmissionSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, formHasSelectedFile, mutationMayChangeEditorFormTopology, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
+import { captureEditableFormSnapshot, captureFormSubmissionSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, formHasSelectedFile, mutationMayChangeEditorFormTopology, reconcileEditableFormSaveSnapshot, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
 
 export { captureEditableFormSnapshot, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
 
@@ -378,8 +378,11 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       isDirty: () => node.isConnected && cachedDirty,
       prepareSave: () => node.reportValidity() ? captureEditableFormSnapshot(node) : null,
       saveAllPayload: () => ({ kind: 'form', action: node.getAttribute('action') ?? '', fields: captureFormSubmissionSnapshot(node) }),
-      commitSaveAll: (snapshot) => {
-        baseline = snapshot;
+      commitSaveAll: (snapshot, authoritativeFields = null) => {
+        const current = captureEditableFormSnapshot(node);
+        const reconciled = reconcileEditableFormSaveSnapshot(current, snapshot, authoritativeFields ?? {});
+        baseline = reconciled.baseline;
+        if (authoritativeFields !== null && sameEditableFormSnapshot(current, snapshot)) restoreEditableFormSnapshot(node, reconciled.draft);
         saveState.complete(true);
         updateCachedState();
         coordinator?.refresh();
