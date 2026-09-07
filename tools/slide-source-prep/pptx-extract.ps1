@@ -22,6 +22,17 @@ function Convert-OleRgbToHex {
   }
 }
 
+function Convert-MsoTriStateToBoolean {
+  param($Value)
+  try {
+    $state = [int]$Value
+    if ($state -eq -1) { return $true }
+    if ($state -eq 0) { return $false }
+  } catch {}
+  # Mixed/unknown formatting is not safely representable as one boolean.
+  return $null
+}
+
 function Get-ShapeText {
   param($Shape)
   try {
@@ -63,8 +74,8 @@ function Get-ShapeStyle {
     if ($Shape.HasTextFrame -ne 0 -and $Shape.TextFrame.HasText -ne 0) {
       $font = $Shape.TextFrame.TextRange.Font
       try { $fontSize = [double]$font.Size } catch {}
-      try { $bold = ([int]$font.Bold -ne 0) } catch {}
-      try { $italic = ([int]$font.Italic -ne 0) } catch {}
+      try { $bold = Convert-MsoTriStateToBoolean $font.Bold } catch {}
+      try { $italic = Convert-MsoTriStateToBoolean $font.Italic } catch {}
       try { $color = Convert-OleRgbToHex $font.Color.RGB } catch {}
     }
   } catch {}
@@ -159,6 +170,7 @@ function Get-SpeakerNotes {
 
 $powerPoint = $null
 $presentation = $null
+$printRange = $null
 try {
   $resolvedInput = (Resolve-Path -LiteralPath $InputPath).Path
   $resolvedPdf = [System.IO.Path]::GetFullPath($RenderedPdfPath)
@@ -188,10 +200,13 @@ try {
     })
   }
 
-  # ExportAsFixedFormat(Path, PDF=2, screen intent=1, no frame, handout order,
-  # slides output=1, print hidden slides=true, PrintRange=$null). Explicitly including
-  # hidden slides preserves the invariant that rendered PDF page N is source slide N.
-  $presentation.ExportAsFixedFormat($resolvedPdf, 2, 1, 0, 1, 1, -1, $null)
+  # PowerShell COM binding is more reliable with an explicit PrintRange object.
+  # Values: PDF=2, screen intent=1, frame=false, output slides=1,
+  # hidden slides=true, range type all=1. Including hidden slides preserves the
+  # invariant that rendered PDF page N is source slide N.
+  $presentation.PrintOptions.Ranges.ClearAll()
+  $printRange = $presentation.PrintOptions.Ranges.Add(1, $presentation.Slides.Count)
+  $presentation.ExportAsFixedFormat($resolvedPdf, 2, 1, 0, 1, 1, -1, $printRange, 1)
   if (-not (Test-Path -LiteralPath $resolvedPdf)) {
     throw "PowerPoint returned from PDF export but no PDF exists at $resolvedPdf"
   }
@@ -204,6 +219,9 @@ try {
   $json = $raw | ConvertTo-Json -Depth 10
   [System.IO.File]::WriteAllText($resolvedJson, $json, (New-Object System.Text.UTF8Encoding($false)))
 } finally {
+  if ($null -ne $printRange) {
+    try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($printRange) } catch {}
+  }
   if ($null -ne $presentation) {
     try { $presentation.Close() } catch {}
     try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation) } catch {}
