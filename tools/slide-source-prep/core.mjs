@@ -15,6 +15,7 @@ const FORBIDDEN_SEMANTIC_KEYS = new Set([
 ]);
 
 function finiteNumber(value) {
+  if (value == null || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
 }
@@ -66,7 +67,8 @@ function normalizeGeometry(block, pageWidth, pageHeight) {
 }
 
 function normalizeStyle(block) {
-  const fontSize = finiteNumber(block.fontSize);
+  const rawFontSize = finiteNumber(block.fontSize);
+  const fontSize = rawFontSize != null && rawFontSize > 0 ? rawFontSize : null;
   const color = normalizeColor(block.color);
   const bold = typeof block.bold === 'boolean' ? block.bold : null;
   const italic = typeof block.italic === 'boolean' ? block.italic : null;
@@ -162,7 +164,6 @@ export function normalizeSourceMap({ filename, type, pages }) {
 export function sourceMapToMarkdown(sourceMap) {
   assertSourceMapShape(sourceMap);
   const isPptx = sourceMap.source.type === 'pptx';
-  const noun = isPptx ? 'Slide' : 'Page';
   const countLabel = isPptx ? 'Slides' : 'Pages';
   const lines = [
     `# Source: ${sourceMap.source.filename}`,
@@ -229,9 +230,12 @@ export function assertSourceMapShape(sourceMap) {
   if (!Array.isArray(sourceMap.pages) || sourceMap.pages.length !== sourceMap.pageCount) {
     throw new Error('source-map pageCount does not match pages.');
   }
+
+  const range = sourceMap.source?.range;
   sourceMap.pages.forEach((page, index) => {
-    if (page.page !== index + 1 && sourceMap.source?.range == null) {
-      throw new Error(`source-map page order mismatch at index ${index}.`);
+    const expectedPage = range ? range.start + index : index + 1;
+    if (page.page !== expectedPage) {
+      throw new Error(`source-map page order mismatch at index ${index}; expected ${expectedPage}, got ${page.page}.`);
     }
     if (!Array.isArray(page.blocks)) throw new Error(`source-map ${page.id} blocks must be an array.`);
     page.blocks.forEach((block, blockIndex) => {
