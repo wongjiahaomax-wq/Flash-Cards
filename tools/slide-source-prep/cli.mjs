@@ -23,6 +23,10 @@ export function usage() {
     `  --chunk-size N  Chunk size for sources over ${DEFAULT_CHUNK_THRESHOLD} pages/slides (default ${DEFAULT_CHUNK_SIZE}).\n`;
 }
 
+export function formatFailure(error) {
+  return `Slide preparation failed: ${error instanceof Error ? error.message : String(error)}`;
+}
+
 export function parseArgs(argv) {
   let sourcePath = null;
   let force = false;
@@ -38,7 +42,7 @@ export function parseArgs(argv) {
     }
     if (arg === '--help' || arg === '-h') return { help: true };
     if (arg.startsWith('-')) throw new Error(`Unknown option: ${arg}`);
-    if (sourcePath) throw new Error(Provide exactly one source path.);
+    if (sourcePath) throw new Error('Provide exactly one source path.');
     sourcePath = arg;
   }
   if (!sourcePath) throw new Error('A .pptx or .pdf source path is required.');
