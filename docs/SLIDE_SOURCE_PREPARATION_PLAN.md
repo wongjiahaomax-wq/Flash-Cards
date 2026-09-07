@@ -2,8 +2,6 @@
 
 _Status: historical PR #164 implementation plan. The implemented executable behavior is authoritative in `tools/slide-source-prep/`, with the living workflow documented in `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md`._
 
-_Status: Draft implementation plan for the current PR. This PR is the implementation vehicle; continue coding in this PR rather than creating a follow-up PR. Do not treat this plan as living implementation authority after the PR is complete._
-
 ## Objective
 
 Add a deliberately small local/offline preparation step before ChatGPT slide extraction so PPTX/PDF teaching decks are easier and more reliable for ChatGPT to reconstruct without introducing another semantic transformation.
