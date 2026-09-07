@@ -26,7 +26,7 @@ test('reviewer source modules parse and standalone build has no external script 
   assert.equal(typeof facadeModule.persistedStateMatches, 'function');
   assert.equal(typeof facadeModule.finalizeBundle, 'function');
 
-  if (process.env.CI !== 'true') execFileSync(process.execPath, [resolve(root, 'scripts/build.mjs')], { stdio: 'pipe' });
+  execFileSync(process.execPath, [resolve(root, 'scripts/build.mjs')], { stdio: 'pipe' });
   const html = await readFile(resolve(root, 'reviewer.html'), 'utf8');
   assert.match(html, /Flash-Cards Slide Import Reviewer/);
   assert.match(html, /Finalize Import ZIP/);

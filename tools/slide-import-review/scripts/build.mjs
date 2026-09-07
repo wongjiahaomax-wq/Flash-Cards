@@ -35,10 +35,7 @@ const output = resolve(root, 'reviewer.html');
 if (process.argv.includes('--check') || process.env.CI === 'true') {
   let committed;
   try { committed = await readFile(output, 'utf8'); } catch { throw new Error(`Generated reviewer is missing: ${output}`); }
-  if (committed !== html) {
-    console.log(`PR166_GENERATED_REVIEWER_BASE64:${Buffer.from(html, 'utf8').toString('base64')}`);
-    throw new Error(`Generated reviewer is stale: ${output}. Run npm run slide-review:build locally and commit the updated reviewer.html.`);
-  }
+  if (committed !== html) throw new Error(`Generated reviewer is stale: ${output}. Run npm run slide-review:build locally and commit the updated reviewer.html.`);
   console.log(`Verified ${output}`);
 } else {
   await mkdir(resolve(root), { recursive: true });
