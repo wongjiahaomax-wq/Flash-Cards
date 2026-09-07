@@ -6,6 +6,7 @@ const page = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svel
 const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
 const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url), 'utf8');
 const imagesSection = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
+const picker = readFileSync(new URL('../src/lib/components/case-editor/CaseImagePickerDialog.svelte', import.meta.url), 'utf8');
 const reusable = readFileSync(new URL('../src/lib/components/ReusableImageQuestionManager.svelte', import.meta.url), 'utf8');
 const mutation = readFileSync(new URL('../src/lib/case-editor-mutation.js', import.meta.url), 'utf8');
 const questionScope = readFileSync(new URL('../src/routes/admin/cases/[caseId]/question-scope/+server.js', import.meta.url), 'utf8');
@@ -43,11 +44,21 @@ test('advanced image forms register with the shared coordinator after conditiona
   }
   assert.match(page, /form\.hasAttribute\('data-case-editor-coordinated'\)/);
   assert.match(images, /data-case-editor-coordinated/);
+  assert.match(images, /use:coordinateForm=\{`option-question:\$\{option\.id\}:\$\{question\.id\}`\}/);
+  assert.match(images, /use:coordinateForm=\{`group-question:\$\{group\.id\}:\$\{question\.id\}`\}/);
+  assert.match(images, /group\.questions\.filter\(\(question\) => question\.isActive\) as question \(question\.id\)/);
+  assert.match(images, /name="stimulus_question_id" value=\{question\.id\}/);
+});
+
+test('stimulus question coordinator keys survive prompt identity changes', () => {
+  assert.match(mutation, /dataset\.caseEditorLogicalKey/);
+  assert.match(mutation, /findSubmittedEditorForm\(form, key, logicalKey\)/);
+  assert.match(mutation, /logicalKey = ''/);
 });
 
 test('successful enhanced submissions preserve unrelated drafts but reset the submitted form', () => {
   assert.match(mutation, /captureEditorFormDrafts\(successful \? submittedForm : null\)/);
-  assert.match(mutation, /reconcileSubmittedEditorForm\(submittedForm, submittedKey, submittedSnapshot, currentSubmittedSnapshot\)/);
+  assert.match(mutation, /reconcileSubmittedEditorForm\(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot\)/);
   assert.match(mutation, /sameEditableFormSnapshot\(currentSnapshot, submittedSnapshot\)/);
   assert.match(mutation, /pending = new Promise\(\(resolve\) => \{ resolvePending = resolve; \}\)/);
   assert.match(mutation, /if \(pending\) \{\s*cancel\(\);/);
@@ -69,6 +80,9 @@ test('picker links and reusable canonical answers retain coordinator and return 
   assert.match(images, /function imagePickerHref\(targetGroupId = ''\)/);
   assert.match(images, /params\.set\('target_group', targetGroupId\)/);
   assert.match(images, /name="return_query" value=\{caseLibraryReturnQuery\}.*name="intent" value="move"/);
+  assert.match(page, /<CaseImagePickerDialog \{selectedCase\} imagePicker=\{data\.imagePicker\} \{editorBase\} caseLibraryReturnQuery=\{data\['caseLibraryReturnQuery'\]\} \/>/);
+  assert.match(picker, /let \{ selectedCase, imagePicker, editorBase, caseLibraryReturnQuery = '' \}/);
+  assert.equal((picker.match(/name="return_query" value=\{caseLibraryReturnQuery\}/g) ?? []).length, 3);
   assert.match(reusable, /registerCaseEditorForm/);
   assert.match(reusable, /data-case-editor-coordinated use:coordinateForm=\{`reusable-answer:/);
 });

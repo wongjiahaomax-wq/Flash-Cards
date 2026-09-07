@@ -402,7 +402,7 @@ export const actions = {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData(); const caseId = formText(formData, 'case_id');
-    try { await saveStimulusGroupQuestion(createDb(platform.env.DB), formText(formData, 'group_id'), { originalPromptId: formText(formData, 'original_prompt_id') || null, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') }); }
+    try { await saveStimulusGroupQuestion(createDb(platform.env.DB), formText(formData, 'group_id'), { relationshipId: formText(formData, 'stimulus_question_id') || null, originalPromptId: formText(formData, 'original_prompt_id') || null, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') }); }
     catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
     redirect(303, selectedCaseRedirect(caseId, 'stimulus-question-saved', '', editorReturnQuery(request, formData)));
   },
@@ -411,7 +411,7 @@ export const actions = {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData(); const caseId = formText(formData, 'case_id');
-    try { await saveStimulusOptionQuestion(createDb(platform.env.DB), formText(formData, 'option_id'), { originalPromptId: formText(formData, 'original_prompt_id') || null, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') }); }
+    try { await saveStimulusOptionQuestion(createDb(platform.env.DB), formText(formData, 'option_id'), { relationshipId: formText(formData, 'stimulus_question_id') || null, originalPromptId: formText(formData, 'original_prompt_id') || null, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') }); }
     catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
     redirect(303, selectedCaseRedirect(caseId, 'stimulus-question-saved', '', editorReturnQuery(request, formData)));
   },
