@@ -91,6 +91,12 @@ test('Case-editor synchronization effects are idempotent and do not self-notify 
   assert.match(picker, /if \(changed\) coordinator\?\.refresh\(\)/);
 });
 
+test('Case-question controls update the reactive draft explicitly', () => {
+  assert.doesNotMatch(questions, /bind:(?:value|checked)=\{questionDraft\.draft\./);
+  assert.match(questions, /value=\{questionDraft\.draft\.promptMd\}/);
+  assert.match(questions, /checked=\{questionDraft\.draft\.reusableForTopic\}/);
+});
+
 test('coordinated ordinary saves do not warn about themselves and enhanced cancellation blocks the post', () => {
   assert.match(page, /data-case-editor-enhanced/);
   assert.match(page, /caseEditorHasConflictingUnsavedWork\(formElement, draftCoordinator\)/);

@@ -350,10 +350,10 @@
           <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
           <input type="hidden" name="case_question_id" value={question.id} />
           <input type="hidden" name="original_prompt_id" value={questionDraft.authoritativeId} />
-          <label class="question-prompt-field">Prompt<textarea name="prompt_md" bind:value={questionDraft.draft.promptMd} oninput={() => coordinator?.refresh()} rows="3" maxlength="2000" required></textarea></label>
-          <label class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" bind:value={questionDraft.draft.answerMd} oninput={() => coordinator?.refresh()} rows="3" maxlength="5000" required></textarea></label>
+          <label class="question-prompt-field">Prompt<textarea name="prompt_md" value={questionDraft.draft.promptMd} oninput={(event) => { questionDraft.draft.promptMd = event.currentTarget.value; coordinator?.refresh(); }} rows="3" maxlength="2000" required></textarea></label>
+          <label class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" value={questionDraft.draft.answerMd} oninput={(event) => { questionDraft.draft.answerMd = event.currentTarget.value; coordinator?.refresh(); }} rows="3" maxlength="5000" required></textarea></label>
           <div class="question-footer">
-            <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" bind:checked={questionDraft.draft.reusableForTopic} onchange={() => coordinator?.refresh()} /> Share this question with the Topic</label>
+            <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" checked={questionDraft.draft.reusableForTopic} onchange={(event) => { questionDraft.draft.reusableForTopic = event.currentTarget.checked; coordinator?.refresh(); }} /> Share this question with the Topic</label>
             <span class="save-state" class:error={questionDraft.saveState === 'error'}>{questionDraft.saveState === 'saving' ? 'Saving…' : questionDraft.saveState === 'error' ? 'Save failed — changes remain unsaved' : questionDirty(questionDraft) ? `Unsaved changes — ${[questionDraft.draft.promptMd !== questionDraft.baseline.promptMd ? 'Prompt' : null, questionDraft.draft.answerMd !== questionDraft.baseline.answerMd ? 'Answer' : null, questionDraft.draft.reusableForTopic !== questionDraft.baseline.reusableForTopic ? 'Share with Topic' : null].filter(Boolean).join(', ')}` : 'Saved'}</span>
             <button class="button primary save-question-action" type="submit" disabled={Boolean(questionDraft.pending)}>Save question</button>
           </div>
