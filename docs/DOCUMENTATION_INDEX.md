@@ -120,6 +120,7 @@ Use:
 - `ANKI_APKG_EXTRACTION.md` and `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` — source-recovery/migration guidance;
 - `ECG_ANKI_INGESTION_RULES.md` — ECG package-preparation convention;
 - `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md` — reviewed slide workflow;
+- `SLIDE_SOURCE_PREPARATION_PLAN.md` — current PR implementation plan for a deterministic local PPTX/PDF preparation layer before ChatGPT; it is not yet implemented authority;
 - `tools/slide-import-review/README.md` — executable reviewer/finalizer workflow;
 - `tools/slide-import-review/schemas/review-map-v1.schema.json` — authoritative strict review-map v1 schema.
 
