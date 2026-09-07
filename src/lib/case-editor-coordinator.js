@@ -163,6 +163,8 @@ export function createCaseEditorCoordinator() {
           for (const { entry, prepared } of plans) entry.commitSaveAll(prepared);
           succeeded = attempted;
         } else failed = attempted;
+      } catch {
+        failed = attempted;
       } finally {
         savingAll = false;
         notify();
