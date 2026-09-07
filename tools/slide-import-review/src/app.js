@@ -88,6 +88,34 @@ function invalidateApproved(review) {
   review.reviewStatus = 'needs_review';
   return true;
 }
+function invalidateCaseAssetReview(caseId, assetId) {
+  return invalidateApproved(indexes.reviewAssets.get(caseId)?.get(assetId));
+}
+function invalidateAssetReviews(assetId) {
+  let invalidated = false;
+  const linkedCaseIds = new Set(bundle.manifest.caseAssets.filter(relation => relation.assetId === assetId).map(relation => relation.caseId));
+  for (const caseId of linkedCaseIds) invalidated = invalidateCaseAssetReview(caseId, assetId) || invalidated;
+  return invalidated;
+}
+function invalidatePromptReviews(promptId) {
+  let invalidated = false;
+  for (const relation of bundle.manifest.caseQuestions) {
+    if (relation.questionPromptId !== promptId) continue;
+    invalidated = invalidateApproved(indexes.reviewQuestions.get(relation.caseId)?.get(relation.id)) || invalidated;
+  }
+  return invalidated;
+}
+function linkedAssetReviews(assetId) {
+  const result = [];
+  const seen = new Set();
+  for (const relation of bundle.manifest.caseAssets) {
+    if (relation.assetId !== assetId || seen.has(relation.caseId)) continue;
+    seen.add(relation.caseId);
+    const review = indexes.reviewAssets.get(relation.caseId)?.get(assetId);
+    if (review) result.push(review);
+  }
+  return result;
+}
 
 function releaseUrl(path) { const item = urlCache.get(path); if (item) { URL.revokeObjectURL(item.url); urlCache.delete(path); } }
 function releaseResources() { for (const path of [...urlCache.keys()]) releaseUrl(path); fileStore()?.clear?.(); selectedSourcePath = null; }
@@ -207,12 +235,21 @@ function wireCurrent(meta) {
       const field = element.dataset.assetField, nextValue = element.value || null;
       if (item[field] === nextValue) return;
       item[field] = nextValue;
-      const invalidated = invalidateApproved(review);
+      const invalidated = invalidateAssetReviews(id);
       if (invalidated) refreshQueue(meta.caseId);
       await persist();
       if (invalidated) await renderCurrent();
     }));
-    card.querySelectorAll('[data-rel-field]').forEach(element => element.addEventListener('change', async () => { rel[element.dataset.relField] = element.dataset.relField === 'displayOrder' ? Number(element.value) : element.value || null; rebuildIndexes(); await persist(); await renderCurrent(); }));
+    card.querySelectorAll('[data-rel-field]').forEach(element => element.addEventListener('change', async () => {
+      const field = element.dataset.relField, nextValue = field === 'displayOrder' ? Number(element.value) : element.value || null;
+      if (rel[field] === nextValue) return;
+      rel[field] = nextValue;
+      const invalidated = invalidateCaseAssetReview(meta.caseId, id);
+      rebuildIndexes();
+      if (invalidated) refreshQueue(meta.caseId);
+      await persist();
+      await renderCurrent();
+    }));
     const input = card.querySelector('[data-replace]');
     card.querySelector('.replace-image')?.addEventListener('click', () => input.click());
     input?.addEventListener('change', () => replaceImage(id, input.files?.[0]));
@@ -223,7 +260,7 @@ function wireCurrent(meta) {
       const isPrompt = element.dataset.questionField === 'promptMd', previousValue = isPrompt ? questionPrompt.promptMd : item.answerMd;
       if (previousValue === element.value) return;
       if (isPrompt) questionPrompt.promptMd = element.value; else item.answerMd = element.value;
-      const invalidated = invalidateApproved(review);
+      const invalidated = isPrompt ? invalidatePromptReviews(item.questionPromptId) : invalidateApproved(review);
       if (invalidated) refreshQueue(meta.caseId);
       await persist();
       if (invalidated) await renderCurrent();
@@ -237,7 +274,7 @@ function wireCurrent(meta) {
   }));
   document.querySelectorAll('[data-unresolved]').forEach(card => { const candidateId = card.dataset.unresolved; card.querySelector('.resolve-u')?.addEventListener('click', async () => { try { resolveUnresolvedQuestion(bundle.manifest, bundle.reviewMap, candidateId, { promptMd: card.querySelector('[data-u-prompt]').value, answerMd: card.querySelector('[data-u-answer]').value }); rebuildIndexes(); refreshQueue(meta.caseId); await persist(); await renderCurrent(); } catch (error) { showErrors('Cannot resolve question', [errorText(error)]); } }); card.querySelector('.reject-u')?.addEventListener('click', async () => { rejectUnresolvedQuestion(bundle.reviewMap, candidateId); rebuildIndexes(); refreshQueue(meta.caseId); await persist(); await renderCurrent(); }); });
 }
-async function replaceImage(assetId, file) { clearErrors(); try { if (!file) return; if (!['image/jpeg', 'image/png'].includes(file.type)) throw new ReviewBundleError('Replacement must be JPEG or PNG.'); if (file.size <= 0 || file.size > PRODUCTION_LIMITS.maxImageBytes) throw new ReviewBundleError(`Replacement image must be 1-${PRODUCTION_LIMITS.maxImageBytes} bytes.`); const bytes = new Uint8Array(await file.arrayBuffer()), detected = detectImageType(bytes); if (detected !== file.type) throw new ReviewBundleError('Replacement image bytes do not match the selected MIME type.'); const item = asset(assetId), meta = [...indexes.reviewAssets.values()].map(values => values.get(assetId)).find(Boolean); fileStore().set(item.path, bytes); releaseUrl(item.path); item.mimeType = file.type; item.originalFilename = file.name; meta.sha256 = await sha256Hex(bytes); meta.extractionMethod = 'human_replacement'; meta.reviewStatus = 'needs_review'; refreshQueue(); await persist(); await renderCurrent(); } catch (error) { showErrors('Image replacement failed', [errorText(error)]); } }
+async function replaceImage(assetId, file) { clearErrors(); try { if (!file) return; if (!['image/jpeg', 'image/png'].includes(file.type)) throw new ReviewBundleError('Replacement must be JPEG or PNG.'); if (file.size <= 0 || file.size > PRODUCTION_LIMITS.maxImageBytes) throw new ReviewBundleError(`Replacement image must be 1-${PRODUCTION_LIMITS.maxImageBytes} bytes.`); const bytes = new Uint8Array(await file.arrayBuffer()), detected = detectImageType(bytes); if (detected !== file.type) throw new ReviewBundleError('Replacement image bytes do not match the selected MIME type.'); const item = asset(assetId), reviews = linkedAssetReviews(assetId); if (!reviews.length) throw new ReviewBundleError(`Asset ${assetId} has no review metadata.`); fileStore().set(item.path, bytes); releaseUrl(item.path); item.mimeType = file.type; item.originalFilename = file.name; const digest = await sha256Hex(bytes); for (const review of reviews) { review.sha256 = digest; review.extractionMethod = 'human_replacement'; review.reviewStatus = 'needs_review'; } refreshQueue(); await persist(); await renderCurrent(); } catch (error) { showErrors('Image replacement failed', [errorText(error)]); } }
 
 async function approveCurrent() {
   clearErrors(); const meta = visibleCases[index]; if (!meta) return; const item = manifestCase(meta.caseId), issues = [];
