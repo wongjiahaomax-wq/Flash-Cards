@@ -6,11 +6,19 @@ import { ContentGuardError, requireProductionCase } from '$lib/server/db/content
 import { createDb } from '$lib/server/db/index.js';
 import { listActiveTagOptions } from '$lib/server/db/library-options.js';
 import { addCaseTag, removeCaseTag, TagInputError } from '$lib/server/db/tag-library.js';
+import { normalizeCaseLibraryReturnQuery } from '$lib/admin-case-library-state.ts';
 
 /** @param {FormData} formData @param {string} name */
 function formText(formData, name) {
   const value = formData.get(name);
   return typeof value === 'string' ? value.trim() : '';
+}
+
+/** @param {Request} request @param {FormData} formData */
+function editorReturnQuery(request, formData) {
+  const submitted = formText(formData, 'return_query');
+  if (submitted) return normalizeCaseLibraryReturnQuery(submitted);
+  try { return normalizeCaseLibraryReturnQuery(new URL(request.headers.get('referer') ?? '').searchParams.get('return_query')); } catch { return ''; }
 }
 
 export async function GET({ locals, platform }) {
@@ -48,5 +56,6 @@ export async function POST({ request, locals, platform, params }) {
     ? 'case-tag-created'
     : `case-tag-${operation === 'add' ? 'added' : 'removed'}`;
   if (wantsJson) return json({ ok: true, status });
-  redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=${status}#topics`);
+  const returnQuery = editorReturnQuery(request, formData);
+  redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=${status}${returnQuery ? `&return_query=${encodeURIComponent(returnQuery)}` : ''}#topics`);
 }

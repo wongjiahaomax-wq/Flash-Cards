@@ -53,6 +53,11 @@ function assertSourcePageBounds(reviewMap) {
   }
 }
 
+function dropReconciledBlockingWarnings(review) {
+  if (review?.reviewStatus !== 'approved' || !Array.isArray(review.warnings)) return;
+  review.warnings = review.warnings.filter(item => item.severity !== 'blocking');
+}
+
 function cloneWithoutRejectedChildren(manifest, reviewMap) {
   const clonedManifest = structuredClone(manifest);
   const clonedReviewMap = structuredClone(reviewMap);
@@ -70,8 +75,17 @@ function cloneWithoutRejectedChildren(manifest, reviewMap) {
   for (const caseReview of clonedReviewMap.cases) {
     caseReview.assets = caseReview.assets.filter(item => item.reviewStatus !== 'rejected');
     caseReview.questions = caseReview.questions.filter(item => item.reviewStatus !== 'rejected');
+
+    // An explicit human approval reconciles this record's own blocking warnings for
+    // deterministic readiness/finalization. The persisted review-map is untouched,
+    // so the warning remains visible and auditable in the reviewer/backup bundle.
+    dropReconciledBlockingWarnings(caseReview);
+    for (const assetReview of caseReview.assets) dropReconciledBlockingWarnings(assetReview);
+    for (const questionReview of caseReview.questions) dropReconciledBlockingWarnings(questionReview);
   }
 
+  // Batch warnings and unresolved-question warnings are deliberately not reconciled
+  // here. They remain fail-closed and require their existing resolution paths.
   return { manifest: clonedManifest, reviewMap: clonedReviewMap };
 }
 

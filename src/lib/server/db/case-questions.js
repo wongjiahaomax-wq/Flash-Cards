@@ -49,6 +49,7 @@ async function loadCaseQuestionRows(db, caseId) {
   return db
     .select({
       caseId: caseQuestions.caseId,
+      id: caseQuestions.id,
       questionPromptId: caseQuestions.questionPromptId,
       promptMd: questionPrompts.promptMd,
       answerMd: caseQuestions.answerMd,
@@ -185,39 +186,46 @@ async function removeReusableTopicQuestionIfUnused(db, caseId, promptId) {
  * its answer is also upserted as a primary-Concept question.
  *
  * @param {LearningDb} db
- * @param {{ caseId: string, originalPromptId?: string | null, promptMd: string, answerMd: string, reusableForTopic?: unknown }} input
+ * @param {{ caseId: string, caseQuestionId?: string | null, originalPromptId?: string | null, promptMd: string, answerMd: string, reusableForTopic?: unknown }} input
  */
 export async function saveCaseQuestion(db, input) {
   const caseId = requiredText(input.caseId, 'Case');
   const promptMd = requiredText(input.promptMd, 'Question prompt');
   const answerMd = requiredText(input.answerMd, 'Question answer');
   const context = await requireCaseContext(db, caseId);
+  const caseQuestionId = input.caseQuestionId ? String(input.caseQuestionId).trim() : null;
   const originalPromptId = input.originalPromptId ? String(input.originalPromptId).trim() : null;
-  const promptId = await findOrCreatePrompt(db, promptMd);
-  const current = originalPromptId
+  const current = caseQuestionId
     ? (await db
-        .select({ questionPromptId: caseQuestions.questionPromptId, createdAt: caseQuestions.createdAt })
+        .select({ id: caseQuestions.id, questionPromptId: caseQuestions.questionPromptId, createdAt: caseQuestions.createdAt })
+        .from(caseQuestions)
+        .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.id, caseQuestionId), eq(caseQuestions.isActive, true)))
+        .limit(1))[0]
+    : originalPromptId
+    ? (await db
+        .select({ id: caseQuestions.id, questionPromptId: caseQuestions.questionPromptId, createdAt: caseQuestions.createdAt })
         .from(caseQuestions)
         .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.questionPromptId, originalPromptId)))
         .limit(1))[0]
     : null;
+  const promptId = await findOrCreatePrompt(db, promptMd);
   const target =
-    promptId !== originalPromptId
+    (current ? promptId !== current.questionPromptId : promptId !== originalPromptId)
       ? (await db
-          .select({ questionPromptId: caseQuestions.questionPromptId })
+          .select({ id: caseQuestions.id, questionPromptId: caseQuestions.questionPromptId })
           .from(caseQuestions)
-          .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.questionPromptId, promptId)))
+          .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.questionPromptId, promptId), eq(caseQuestions.isActive, true)))
           .limit(1))[0]
       : null;
   if (!current && originalPromptId) throw new CaseQuestionInputError('That Case question no longer exists.');
   if (target) throw new CaseQuestionInputError('That prompt is already used by another question in this Case.');
 
-  if (current && originalPromptId) {
+  if (current) {
     await db
       .update(caseQuestions)
       .set({ questionPromptId: promptId, answerMd, isActive: true, updatedAt: new Date() })
-      .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.questionPromptId, originalPromptId)));
-    if (originalPromptId !== promptId) await removeReusableTopicQuestionIfUnused(db, caseId, originalPromptId);
+      .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.id, current.id)));
+    if (current.questionPromptId !== promptId) await removeReusableTopicQuestionIfUnused(db, caseId, current.questionPromptId);
   } else {
     await db.insert(caseQuestions).values({
       id: crypto.randomUUID(),

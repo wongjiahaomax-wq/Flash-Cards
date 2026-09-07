@@ -32,8 +32,8 @@
    */
   /** @typedef {{ case: { id: string }, stimulusGroups?: StimulusGroup[], attached?: SupportingAsset[] }} SelectedCase */
 
-  /** @type {{ selectedCase: SelectedCase }} */
-  let { selectedCase } = $props();
+  /** @type {{ selectedCase: SelectedCase, caseLibraryReturnQuery?: string }} */
+  let { selectedCase, caseLibraryReturnQuery = '' } = $props();
 
   let supportingAssets = $derived((selectedCase?.attached ?? []).filter((asset) => asset.isActive !== false));
   let activeGroups = $derived((selectedCase?.stimulusGroups ?? []).filter((group) => group.isActive));
@@ -53,6 +53,7 @@
 
   {#if activeGroups.length === 0 && supportingAssets.length > 1}
     <form method="POST" action="/admin/stimulus-roles" class="role-assignment">
+      <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
       <input type="hidden" name="intent" value="assign-pair" />
       <input type="hidden" name="case_id" value={selectedCase.case.id} />
 
@@ -126,6 +127,7 @@
       {#each activeGroups as group, groupIndex (group.id)}
         {@const eligible = group.options.filter((option) => option.isActive && !option.removedFromCase && option.assetIsActive)}
         <form method="POST" action="/admin/stimulus-roles" class="existing-role-form">
+          <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
           <input type="hidden" name="intent" value="set-original" />
           <input type="hidden" name="case_id" value={selectedCase.case.id} />
           <input type="hidden" name="group_id" value={group.id} />
@@ -168,6 +170,7 @@
         </form>
         {#each eligible.filter((option) => option.id !== group.originalOptionId) as option (option.id)}
           <form id={`move-supporting-${option.id}`} method="POST" action="/admin/stimulus-supporting" class="hidden-role-form">
+            <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
             <input type="hidden" name="case_id" value={selectedCase.case.id} />
             <input type="hidden" name="option_id" value={option.id} />
           </form>
@@ -188,6 +191,7 @@
               </div>
               {#if activeGroups.length === 1}
                 <form method="POST" action="/admin/stimulus-roles">
+                  <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
                   <input type="hidden" name="intent" value="add-alternative" />
                   <input type="hidden" name="case_id" value={selectedCase.case.id} />
                   <input type="hidden" name="group_id" value={activeGroups[0].id} />

@@ -3,6 +3,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { CaseLifecycleError, getInactiveProductionCaseRecovery, restoreProductionCase } from '$lib/server/db/case-lifecycle.ts';
 import { createDb } from '$lib/server/db/index.js';
+import { normalizeCaseLibraryReturnQuery } from '$lib/admin-case-library-state.ts';
 
 /** @param {FormData} formData @param {string} name */
 function formText(formData, name) {
@@ -16,7 +17,8 @@ export async function load({ locals, platform, params, url }) {
 
   const recoveryCase = await getInactiveProductionCaseRecovery(createDb(platform.env.DB), params.caseId);
   if (!recoveryCase) throw error(404, 'Inactive Production Case not found.');
-  return { recoveryCase, status: url.searchParams.get('status') ?? '' };
+  const caseLibraryReturnQuery = normalizeCaseLibraryReturnQuery(url.searchParams.get('return_query'));
+  return { recoveryCase, status: url.searchParams.get('status') ?? '', caseLibraryReturnQuery };
 }
 
 export const actions = {
@@ -34,6 +36,10 @@ export const actions = {
       console.error('Unable to restore Case.', errorValue);
       return fail(500, { error: 'Unable to restore this Case.' });
     }
-    redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=case-restored`);
+    let returnQuery = normalizeCaseLibraryReturnQuery(formText(formData, 'return_query'));
+    if (!returnQuery) {
+      try { returnQuery = normalizeCaseLibraryReturnQuery(new URL(request.headers.get('referer') ?? '').searchParams.get('return_query')); } catch { returnQuery = ''; }
+    }
+    redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=case-restored${returnQuery ? `&return_query=${encodeURIComponent(returnQuery)}` : ''}`);
   }
 };

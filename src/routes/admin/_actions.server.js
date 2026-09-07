@@ -1,4 +1,5 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { normalizeCaseLibraryReturnQuery } from '$lib/admin-case-library-state.ts';
 import { createDb } from '$lib/server/db/index.js';
 import { assets } from '$lib/server/db/schema.js';
 import {
@@ -104,9 +105,20 @@ function formText(formData, name) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
-/** @param {string} caseId @param {string} status @param {string} [hash] */
-function selectedCaseRedirect(caseId, status, hash = '') {
-  return `/admin/cases/${encodeURIComponent(caseId)}?status=${encodeURIComponent(status)}${hash}`;
+/** @param {Request} request @param {FormData} formData */
+function editorReturnQuery(request, formData) {
+  const submitted = formText(formData, 'return_query');
+  if (submitted) return normalizeCaseLibraryReturnQuery(submitted);
+  const referer = request.headers.get('referer');
+  if (!referer) return '';
+  try { return normalizeCaseLibraryReturnQuery(new URL(referer).searchParams.get('return_query')); } catch { return ''; }
+}
+
+/** @param {string} caseId @param {string} status @param {string} [hash] @param {string} [returnQuery] */
+function selectedCaseRedirect(caseId, status, hash = '', returnQuery = '') {
+  const query = new URLSearchParams({ status });
+  if (returnQuery) query.set('return_query', returnQuery);
+  return `/admin/cases/${encodeURIComponent(caseId)}?${query.toString()}${hash}`;
 }
 
 /** @type {import('./$types').Actions} */
@@ -159,7 +171,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'case-saved'));
+    redirect(303, selectedCaseRedirect(caseId, 'case-saved', '', editorReturnQuery(request, formData)));
   },
 
   addSecondaryTopic: async ({ request, locals, platform }) => {
@@ -175,7 +187,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'topic-added', '#topics'));
+    redirect(303, selectedCaseRedirect(caseId, 'topic-added', '#topics', editorReturnQuery(request, formData)));
   },
 
   removeSecondaryTopic: async ({ request, locals, platform }) => {
@@ -191,7 +203,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'topic-removed', '#topics'));
+    redirect(303, selectedCaseRedirect(caseId, 'topic-removed', '#topics', editorReturnQuery(request, formData)));
   },
 
   promoteTopic: async ({ request, locals, platform }) => {
@@ -207,7 +219,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'topic-promoted', '#topics'));
+    redirect(303, selectedCaseRedirect(caseId, 'topic-promoted', '#topics', editorReturnQuery(request, formData)));
   },
 
   bulkPromoteTopic: async ({ request, locals, platform }) => {
@@ -237,7 +249,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof AdminContentInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'vignette-saved'));
+    redirect(303, selectedCaseRedirect(caseId, 'vignette-saved', '', editorReturnQuery(request, formData)));
   },
 
   saveQuestion: async ({ request, locals, platform }) => {
@@ -249,6 +261,7 @@ export const actions = {
     try {
       savedPromptId = await saveCaseQuestion(createDb(platform.env.DB), {
         caseId,
+        caseQuestionId: formText(formData, 'case_question_id') || null,
         originalPromptId: formText(formData, 'original_prompt_id') || null,
         promptMd: formText(formData, 'prompt_md'),
         answerMd: formText(formData, 'answer_md'),
@@ -258,7 +271,7 @@ export const actions = {
       return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
     }
     const hash = savedPromptId ? `#question-${encodeURIComponent(savedPromptId)}` : '#questions';
-    redirect(303, selectedCaseRedirect(caseId, 'question-saved', hash));
+    redirect(303, selectedCaseRedirect(caseId, 'question-saved', hash, editorReturnQuery(request, formData)));
   },
 
   removeQuestion: async ({ request, locals, platform }) => {
@@ -272,7 +285,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, `${selectedCaseRedirect(caseId, 'question-removed')}&removed_question=${encodeURIComponent(promptId)}#questions`);
+    redirect(303, `${selectedCaseRedirect(caseId, 'question-removed', '', editorReturnQuery(request, formData))}&removed_question=${encodeURIComponent(promptId)}#questions`);
   },
 
   restoreQuestion: async ({ request, locals, platform }) => {
@@ -286,7 +299,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, `${selectedCaseRedirect(caseId, 'question-restored')}#question-${encodeURIComponent(promptId)}`);
+    redirect(303, `${selectedCaseRedirect(caseId, 'question-restored', '', editorReturnQuery(request, formData))}#question-${encodeURIComponent(promptId)}`);
   },
 
   reorderQuestion: async ({ request, locals, platform }) => {
@@ -303,7 +316,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'question-reordered'));
+    redirect(303, selectedCaseRedirect(caseId, 'question-reordered', '', editorReturnQuery(request, formData)));
   },
 
   moveCaseQuestionToStimulusOption: async ({ request, locals, platform }) => {
@@ -320,7 +333,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof CaseQuestionInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'question-moved-to-image', '#images'));
+    redirect(303, selectedCaseRedirect(caseId, 'question-moved-to-image', '#images', editorReturnQuery(request, formData)));
   },
 
   createStimulusGroup: async ({ request, locals, platform }) => {
@@ -331,7 +344,7 @@ export const actions = {
     try {
       await createStimulusGroup(createDb(platform.env.DB), { caseId, name: formText(formData, 'name'), specificQuestionMode: formText(formData, 'specific_question_mode'), minimumSpecificQuestions: formText(formData, 'minimum_specific_questions') });
     } catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
-    redirect(303, selectedCaseRedirect(caseId, 'stimulus-group-created'));
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-group-created', '', editorReturnQuery(request, formData)));
   },
 
   updateStimulusGroup: async ({ request, locals, platform }) => {
@@ -341,7 +354,7 @@ export const actions = {
     const caseId = formText(formData, 'case_id');
     try { await updateStimulusGroup(createDb(platform.env.DB), { groupId: formText(formData, 'group_id'), name: formText(formData, 'name'), specificQuestionMode: formText(formData, 'specific_question_mode'), minimumSpecificQuestions: formText(formData, 'minimum_specific_questions'), isActive: formData.get('is_active') }); }
     catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
-    redirect(303, selectedCaseRedirect(caseId, 'stimulus-group-saved'));
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-group-saved', '', editorReturnQuery(request, formData)));
   },
 
   addStimulusOption: async ({ request, locals, platform }) => {
@@ -354,7 +367,7 @@ export const actions = {
       if (formData.get('convert_fixed') === 'on') await convertCaseAssetToStimulusOption(db, formText(formData, 'group_id'), formText(formData, 'asset_id'));
       else await addStimulusOption(db, formText(formData, 'group_id'), formText(formData, 'asset_id'), formText(formData, 'caption'));
     } catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
-    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-added'));
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-added', '', editorReturnQuery(request, formData)));
   },
 
   setStimulusOptionActive: async ({ request, locals, platform }) => {
@@ -363,7 +376,7 @@ export const actions = {
     const formData = await request.formData(); const caseId = formText(formData, 'case_id');
     try { await setStimulusOptionActive(createDb(platform.env.DB), formText(formData, 'option_id'), formText(formData, 'active') === 'true'); }
     catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
-    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-saved'));
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-saved', '', editorReturnQuery(request, formData)));
   },
 
   removeStimulusOptionFromCase: async ({ request, locals, platform }) => {
@@ -372,7 +385,7 @@ export const actions = {
     const formData = await request.formData(); const caseId = formText(formData, 'case_id');
     try { await removeStimulusOptionFromCase(createDb(platform.env.DB), formText(formData, 'option_id')); }
     catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
-    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-removed'));
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-removed', '', editorReturnQuery(request, formData)));
   },
 
   reorderStimulusOption: async ({ request, locals, platform }) => {
@@ -383,25 +396,25 @@ export const actions = {
     if (direction !== 'up' && direction !== 'down') return fail(400, { error: 'A valid movement direction is required.', caseId });
     try { await moveStimulusOption(createDb(platform.env.DB), formText(formData, 'group_id'), formText(formData, 'option_id'), direction); }
     catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
-    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-reordered'));
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-option-reordered', '', editorReturnQuery(request, formData)));
   },
 
   saveStimulusGroupQuestion: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData(); const caseId = formText(formData, 'case_id');
-    try { await saveStimulusGroupQuestion(createDb(platform.env.DB), formText(formData, 'group_id'), { originalPromptId: formText(formData, 'original_prompt_id') || null, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') }); }
+    try { await saveStimulusGroupQuestion(createDb(platform.env.DB), formText(formData, 'group_id'), { relationshipId: formText(formData, 'stimulus_question_id') || null, originalPromptId: formText(formData, 'original_prompt_id') || null, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') }); }
     catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
-    redirect(303, selectedCaseRedirect(caseId, 'stimulus-question-saved'));
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-question-saved', '', editorReturnQuery(request, formData)));
   },
 
   saveStimulusOptionQuestion: async ({ request, locals, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData(); const caseId = formText(formData, 'case_id');
-    try { await saveStimulusOptionQuestion(createDb(platform.env.DB), formText(formData, 'option_id'), { originalPromptId: formText(formData, 'original_prompt_id') || null, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') }); }
+    try { await saveStimulusOptionQuestion(createDb(platform.env.DB), formText(formData, 'option_id'), { relationshipId: formText(formData, 'stimulus_question_id') || null, originalPromptId: formText(formData, 'original_prompt_id') || null, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') }); }
     catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
-    redirect(303, selectedCaseRedirect(caseId, 'stimulus-question-saved'));
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-question-saved', '', editorReturnQuery(request, formData)));
   },
 
   removeStimulusQuestion: async ({ request, locals, platform }) => {
@@ -413,7 +426,7 @@ export const actions = {
       if (formText(formData, 'scope') === 'option') await removeStimulusOptionQuestion(db, formText(formData, 'context_id'), formText(formData, 'prompt_id'));
       else await removeStimulusGroupQuestion(db, formText(formData, 'context_id'), formText(formData, 'prompt_id'));
     } catch (error) { return fail(error instanceof StimulusGroupInputError ? 400 : 500, { error: actionError(error), caseId }); }
-    redirect(303, selectedCaseRedirect(caseId, 'stimulus-question-removed'));
+    redirect(303, selectedCaseRedirect(caseId, 'stimulus-question-removed', '', editorReturnQuery(request, formData)));
   },
 
   upload: async ({ request, locals, platform }) => {
@@ -496,7 +509,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof CaseAssetInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'attached'));
+    redirect(303, selectedCaseRedirect(caseId, 'attached', '', editorReturnQuery(request, formData)));
   },
 
   detach: async ({ request, locals, platform }) => {
@@ -510,7 +523,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof CaseAssetInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'detached'));
+    redirect(303, selectedCaseRedirect(caseId, 'detached', '', editorReturnQuery(request, formData)));
   },
 
   caption: async ({ request, locals, platform }) => {
@@ -524,7 +537,7 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof CaseAssetInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'caption-saved'));
+    redirect(303, selectedCaseRedirect(caseId, 'caption-saved', '', editorReturnQuery(request, formData)));
   },
 
   reorder: async ({ request, locals, platform }) => {
@@ -542,6 +555,6 @@ export const actions = {
     } catch (error) {
       return fail(error instanceof CaseAssetInputError ? 400 : 500, { error: actionError(error), caseId });
     }
-    redirect(303, selectedCaseRedirect(caseId, 'reordered'));
+    redirect(303, selectedCaseRedirect(caseId, 'reordered', '', editorReturnQuery(request, formData)));
   }
 };

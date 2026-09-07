@@ -281,7 +281,7 @@ This preserves human edits, source evidence, review states, warnings, rejected m
 
 Finalization is deterministic and fail-closed. It performs no medical reasoning, taxonomy inference, Prompt rewriting, answer rewriting, or ID regeneration.
 
-Every Case must be `approved` or `rejected`. Every unresolved candidate must have been promoted/resolved or rejected. Approved Cases require valid production fields, approved child Assets/Questions, non-blocking metadata, valid references, and matching media hashes/MIME.
+Every Case must be `approved` or `rejected`. Every unresolved candidate must have been promoted/resolved or rejected. Approved Cases require valid production fields, approved child Assets/Questions, valid references, and matching media hashes/MIME. Blocking warnings remain fail-closed unless the exact manifest-backed Case, Asset, or Question has been explicitly human-approved; in that state the retained warning is the durable record of that record-level reconciliation. Batch-level blocking warnings, unresolved questions, and structural/media/package integrity failures remain non-overridable.
 
 Selection keeps only approved Cases and their required dependency closure:
 
@@ -326,7 +326,7 @@ Finalization errors are grouped and actionable. Fix the reviewed content rather 
 - unresolved question still open;
 - blank Prompt/answer/title;
 - unapproved Asset or Question;
-- blocking warning;
+- unreconciled record-level blocking warning or batch-level blocking warning;
 - missing media;
 - SHA-256 mismatch;
 - JPEG/PNG MIME mismatch;

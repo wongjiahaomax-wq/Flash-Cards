@@ -1,12 +1,123 @@
 <script>
+  // @ts-nocheck
+  import { onDestroy, onMount } from 'svelte';
+  import { enhance } from '$app/forms';
+  import { caseEditorUnsavedWorkMessage, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { cloneCaseEditorSnapshot, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
 
-  let { selectedCase, primaryTopic, editorLayout } = $props();
-  let questionSelectionMode = $state(selectedCase.case.questionSelectionMode);
+  let { selectedCase, primaryTopic, editorLayout, coordinator = null, caseLibraryReturnQuery = '' } = $props();
+  const serverSnapshot = (value) => ({
+    title: value.case.title ?? '',
+    vignetteMd: value.case.vignetteMd ?? '',
+    questionSelectionMode: value.case.questionSelectionMode ?? 'automatic',
+    questionCount: value.case.questionCount ?? ''
+  });
+  let draft = $state({ title: '', vignetteMd: '', questionSelectionMode: 'automatic', questionCount: '' });
+  let baseline = $state({ title: '', vignetteMd: '', questionSelectionMode: 'automatic', questionCount: '' });
+  let initialized = $state(false);
+  let detailsForm = $state();
+  let pending = $state(null);
+  let submittedSnapshot = $state(null);
+  let saveState = $state('saved');
+  let resolvePending = null;
+  let dirty = $derived(!sameCaseEditorSnapshot(draft, baseline));
+  function dirtyFields() {
+    return [
+      draft.title !== baseline.title ? 'Internal title' : null,
+      draft.vignetteMd !== baseline.vignetteMd ? 'Vignette' : null,
+      draft.questionSelectionMode !== baseline.questionSelectionMode ? 'Question selection' : null,
+      draft.questionCount !== baseline.questionCount ? 'Question count' : null
+    ].filter(Boolean);
+  }
 
   $effect(() => {
-    questionSelectionMode = selectedCase.case.questionSelectionMode;
+    const current = serverSnapshot(selectedCase);
+    if (!initialized) {
+      baseline = current;
+      draft = cloneCaseEditorSnapshot(current);
+      initialized = true;
+    } else if (!pending && !dirty) {
+      if (!sameCaseEditorSnapshot(baseline, current)) baseline = current;
+      if (!sameCaseEditorSnapshot(draft, current)) draft = cloneCaseEditorSnapshot(current);
+    }
   });
+
+  function beginSubmit(snapshot = draft) {
+    submittedSnapshot = cloneCaseEditorSnapshot(snapshot);
+    pending = new Promise((resolve) => { resolvePending = resolve; });
+    saveState = 'saving';
+    coordinator?.refresh();
+  }
+
+  function prepareDraftSave() {
+    return detailsForm?.reportValidity() ? cloneCaseEditorSnapshot(draft) : null;
+  }
+  function commitDraftSave(snapshot, authoritative = null) {
+    const reconciled = reconcileSubmittedCaseEditorDraft(draft, snapshot, authoritative ?? snapshot);
+    baseline = reconciled.baseline;
+    draft = reconciled.draft;
+    saveState = 'saved';
+    coordinator?.refresh();
+  }
+
+  function submitDraft(snapshot = null) {
+    if (pending) return pending;
+    if (!snapshot && !detailsForm?.reportValidity()) return Promise.resolve(false);
+    if (snapshot) submittedSnapshot = cloneCaseEditorSnapshot(snapshot);
+    detailsForm.requestSubmit();
+    return pending ?? Promise.resolve(false);
+  }
+
+  function enhanceDetails({ formElement, cancel }) {
+    if (pending) {
+      cancel();
+      return;
+    }
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: true, allowStructuralWork: true });
+    if (conflictMessage) {
+      window.alert(conflictMessage);
+      cancel();
+      return;
+    }
+    beginSubmit(submittedSnapshot ?? draft);
+    const view = captureCaseEditorView();
+    const stable = stableCaseEditorEnhance(view, formElement, {
+      reconcileSubmittedDraft: true,
+      deferInvalidation: () => coordinator?.dirtyCount?.('case-details') > 0
+    });
+    return async ({ result }) => {
+      const outcome = await stable({ result });
+      if (outcome.ok) {
+        const current = outcome.deferred ? submittedSnapshot : serverSnapshot(selectedCase);
+        const reconciled = reconcileSubmittedCaseEditorDraft(draft, submittedSnapshot, current);
+        baseline = reconciled.baseline;
+        draft = reconciled.draft;
+        saveState = 'saved';
+      } else {
+        saveState = 'error';
+      }
+      const resolve = resolvePending;
+      pending = null;
+      submittedSnapshot = null;
+      resolvePending = null;
+      coordinator?.refresh();
+      resolve?.(outcome.ok);
+    };
+  }
+
+  onMount(() => coordinator?.register('case-details', {
+    label: 'Case details',
+    dirtyFields,
+    isSaving: () => Boolean(pending),
+    status: () => pending ? 'Saving…' : !dirty ? 'Saved' : saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
+    isDirty: () => dirty,
+    prepareSave: prepareDraftSave,
+    saveAllPayload: (snapshot) => ({ kind: 'case-details', fields: snapshot }),
+    commitSaveAll: commitDraftSave,
+    save: submitDraft
+  }));
+  onDestroy(() => coordinator?.refresh());
 </script>
 
 <section id="case" class="panel stack">
@@ -21,15 +132,16 @@
       </h2>
       <p class="muted compact-hide-explainer">Cases under the same Topic can have different stems, causes, findings, or educational intent. The internal title is not shown to learners.</p>
     </div>
-    <button class="button primary" type="submit" form="case-details-form">Save Case</button>
+    <span class="save-state" class:error={saveState === 'error' && dirty}>{saveState === 'saving' ? 'Saving…' : dirty && saveState === 'error' ? 'Save failed — changes remain unsaved' : dirty ? `Unsaved changes — ${dirtyFields().join(', ')}` : 'Saved'}</span><button class="button primary" type="submit" form="case-details-form" disabled={Boolean(pending)}>Save Case</button>
   </div>
 
-  <form id="case-details-form" method="POST" action="?/updateCase" class="case-form">
+  <form bind:this={detailsForm} id="case-details-form" method="POST" action="?/updateCase" class="case-form" data-case-editor-internal use:enhance={enhanceDetails}>
     <input type="hidden" name="case_id" value={selectedCase.case.id} />
+    <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
 
     <label class="title-field">
       Internal Case title
-      <input name="title" value={selectedCase.case.title} maxlength="300" required />
+      <input name="title" bind:value={draft.title} oninput={() => coordinator?.refresh()} maxlength="300" required />
     </label>
 
     <div class="current-case-topic">
@@ -47,7 +159,7 @@
     <div class="case-main-layout">
       <label class="vignette-field">
         <span>Case stem / vignette <span class="muted field-helper">Optional</span></span>
-        <textarea name="vignette_md" rows="6" maxlength="5000">{selectedCase.case.vignetteMd ?? ''}</textarea>
+        <textarea name="vignette_md" bind:value={draft.vignetteMd} oninput={() => coordinator?.refresh()} rows="6" maxlength="5000"></textarea>
       </label>
 
       <aside class="review-setup" aria-labelledby="review-setup-heading">
@@ -58,16 +170,16 @@
 
         <label>
           Question selection
-          <select name="question_selection_mode" bind:value={questionSelectionMode}>
+          <select name="question_selection_mode" bind:value={draft.questionSelectionMode} onchange={() => coordinator?.refresh()}>
             <option value="automatic">Automatic</option>
             <option value="all">Ask all eligible</option>
             <option value="fixed">Choose N questions</option>
           </select>
         </label>
 
-        <label hidden={questionSelectionMode !== 'fixed'}>
+        <label hidden={draft.questionSelectionMode !== 'fixed'}>
           Question count
-          <input type="number" name="question_count" min="1" value={selectedCase.case.questionCount ?? ''} />
+          <input type="number" name="question_count" bind:value={draft.questionCount} oninput={() => coordinator?.refresh()} min="1" />
         </label>
       </aside>
     </div>
@@ -105,6 +217,8 @@
   .review-setup-heading span { font-size: 0.78rem; line-height: 1.35; }
   .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; }
   .button.primary { border-color: #172033; background: #172033; color: #fff; }
+  .save-state { color: #667085; font-size: 0.8rem; font-weight: 650; }
+  .save-state.error { color: #b42318; }
   button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 3px solid #84adff; outline-offset: 2px; }
   :global(.case-editor[data-editor-layout="compact"]) .compact-hide-explainer { display: none; }
 

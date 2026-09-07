@@ -1,0 +1,302 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+
+const page = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
+const caseServer = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
+const saveAllAuthoritative = readFileSync(new URL('../src/routes/admin/cases/[caseId]/save-all-authoritative/+server.js', import.meta.url), 'utf8');
+const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
+const details = readFileSync(new URL('../src/lib/components/case-editor/CaseDetailsSection.svelte', import.meta.url), 'utf8');
+const header = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorHeader.svelte', import.meta.url), 'utf8');
+const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url), 'utf8');
+const topics = readFileSync(new URL('../src/lib/components/case-editor/CaseTopicsSection.svelte', import.meta.url), 'utf8');
+const imagesSection = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
+const picker = readFileSync(new URL('../src/lib/components/case-editor/CaseImagePickerDialog.svelte', import.meta.url), 'utf8');
+const reusable = readFileSync(new URL('../src/lib/components/ReusableImageQuestionManager.svelte', import.meta.url), 'utf8');
+const mutation = readFileSync(new URL('../src/lib/case-editor-mutation.js', import.meta.url), 'utf8');
+const coordinator = readFileSync(new URL('../src/lib/case-editor-coordinator.js', import.meta.url), 'utf8');
+const imageSelection = readFileSync(new URL('../src/lib/admin-image-selection.js', import.meta.url), 'utf8');
+const questionScope = readFileSync(new URL('../src/routes/admin/cases/[caseId]/question-scope/+server.js', import.meta.url), 'utf8');
+const recoveryServer = readFileSync(new URL('../src/routes/admin/cases/[caseId]/recovery/+page.server.js', import.meta.url), 'utf8');
+const recoveryPage = readFileSync(new URL('../src/routes/admin/cases/[caseId]/recovery/+page.svelte', import.meta.url), 'utf8');
+const deactivate = readFileSync(new URL('../src/routes/admin/cases/[caseId]/deactivate/+server.js', import.meta.url), 'utf8');
+const previewServer = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
+const caseTags = readFileSync(new URL('../src/routes/admin/cases/[caseId]/case-tags/+server.js', import.meta.url), 'utf8');
+const moveOption = readFileSync(new URL('../src/routes/admin/cases/[caseId]/move-option/+server.js', import.meta.url), 'utf8');
+const stimulusRoles = readFileSync(new URL('../src/routes/admin/stimulus-roles/+server.js', import.meta.url), 'utf8');
+const stimulusSupporting = readFileSync(new URL('../src/routes/admin/stimulus-supporting/+server.js', import.meta.url), 'utf8');
+
+test('question-scope uses native endpoint submission and carries bounded return context', () => {
+  assert.doesNotMatch(page, /action\.startsWith\('\?\/'\)/);
+  assert.match(questionScope, /normalizeCaseLibraryReturnQuery/);
+  assert.match(questionScope, /request\.headers\.get\('referer'\)/);
+  assert.match(questionScope, /const returnQuery = editorReturnQuery\(request, formData\)/);
+  assert.match(questionScope, /selectedCaseRedirect\(caseId, 'question-scope-updated', '#images', returnQuery\)/);
+  assert.match(questionScope, /selectedCaseRedirect\(caseId, 'question-saved', hash, returnQuery\)/);
+  assert.match(questions, /action=\{previewMode \? '\?\/saveQuestion' : `\/admin\/cases\/\$\{selectedCase\.case\.id\}\/question-scope`\}/);
+  assert.match(questions, /action=\{`\/admin\/cases\/\$\{selectedCase\.case\.id\}\/question-scope`\}/);
+});
+
+test('live Case-question registration follows creation, Prompt identity changes, and removals', () => {
+  assert.doesNotMatch(questions, /onMount\(/);
+  assert.match(questions, /function liveQuestionState\(state\)/);
+  assert.match(questions, /function updateQuestionDraft\(state, field, value\)/);
+  assert.match(questions, /\$effect\(\(\) => \{\s*let changed = syncQuestionDrafts\(\)/);
+  assert.match(questions, /questionRegistrations\.delete\(caseQuestionId\)/);
+  assert.match(questions, /coordinator\?\.register\(`question:\$\{caseQuestionId\}`/);
+  assert.match(questions, /name="case_question_id" value=\{question\.id\}/);
+  assert.match(questions, /id=\{`question-edit-\$\{question\.id\}`\}/);
+  assert.doesNotMatch(questions, /sameCaseEditorSnapshot\(candidate\.submitted/);
+  assert.match(questions, /class="question-edit-form"/);
+  assert.match(mutation, /form\.classList\.contains\('question-edit-form'\)/);
+});
+
+test('advanced image forms register with the shared coordinator after conditional mount', () => {
+  assert.match(imagesSection, /coordinator=\{draftCoordinator\}|\{coordinator\}/);
+  assert.match(images, /registerCaseEditorForm/);
+  for (const key of ['caption:', 'option-caption:', 'option-question:', 'group-question:', 'group-settings:']) {
+    assert.match(images, new RegExp(`use:coordinateForm=\{\`${key.replace(':', ':')}[^}]*\}`));
+  }
+  assert.match(mutation, /form\.hasAttribute\('data-case-editor-coordinated'\)/);
+  assert.match(images, /data-case-editor-coordinated/);
+  assert.match(images, /use:coordinateForm=\{`option-question:\$\{option\.id\}:\$\{question\.id\}`\}/);
+  assert.match(images, /use:coordinateForm=\{`group-question:\$\{group\.id\}:\$\{question\.id\}`\}/);
+  assert.match(images, /group\.questions\.filter\(\(question\) => question\.isActive\) as question \(question\.id\)/);
+  assert.match(images, /name="stimulus_question_id" value=\{question\.id\}/);
+});
+
+test('stimulus question coordinator keys survive prompt identity changes', () => {
+  assert.match(mutation, /dataset\.caseEditorLogicalKey/);
+  assert.match(mutation, /findSubmittedEditorForm\(form, key, logicalKey\)/);
+  assert.match(mutation, /logicalKey = ''/);
+});
+
+test('successful enhanced submissions reconcile only the submitted form', () => {
+  assert.doesNotMatch(mutation, /captureEditorFormDrafts|restoreEditorFormDrafts/);
+  assert.match(mutation, /reconcileSubmittedEditorForm\(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot\)/);
+  assert.match(mutation, /sameEditableFormSnapshot\(currentSnapshot, submittedSnapshot\)/);
+  assert.match(mutation, /const authoritativeSnapshot = authoritativeCandidate \? captureEditableFormSnapshot\(authoritativeCandidate\) : null/);
+  assert.doesNotMatch(mutation, /function reconcileSubmittedEditorForm[\s\S]{0,500}candidate\.reset/);
+  assert.match(mutation, /pending = new Promise\(\(resolve\) => \{ resolvePending = resolve; \}\)/);
+  assert.match(mutation, /if \(pending\) \{\s*cancel\(\);/);
+  assert.doesNotMatch(mutation, /dispatchEvent\(new Event\('(input|change)'/);
+  assert.match(details, /stableCaseEditorEnhance\(view, formElement, \{[\s\S]{0,180}reconcileSubmittedDraft: true,[\s\S]{0,180}deferInvalidation/);
+  assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement, \{[\s\S]{0,180}reconcileSubmittedDraft: true,[\s\S]{0,180}deferInvalidation/);
+  assert.match(mutation, /postSuccessSnapshot/);
+  assert.match(page, /rebaseline\(structuralKey, [\s\S]{0,120}postSuccessSnapshot/);
+});
+
+test('Case-editor synchronization effects are idempotent and do not self-notify forever', () => {
+  assert.match(questions, /if \(!sameCaseEditorSnapshot\(state\.baseline, snapshot\)\)/);
+  assert.match(questions, /if \(!sameCaseEditorSnapshot\(state\.draft, snapshot\)\)/);
+  assert.match(questions, /if \(changed\) coordinator\?\.refresh\(\)/);
+  assert.match(details, /if \(!sameCaseEditorSnapshot\(baseline, current\)\)/);
+  assert.match(details, /if \(!sameCaseEditorSnapshot\(draft, current\)\)/);
+  assert.match(picker, /if \(changed\) coordinator\?\.refresh\(\)/);
+});
+
+test('Case-question controls update the reactive draft explicitly', () => {
+  assert.doesNotMatch(questions, /bind:(?:value|checked)=\{questionDraft\.draft\./);
+  assert.match(questions, /value=\{questionDraft\.draft\.promptMd\}/);
+  assert.match(questions, /checked=\{questionDraft\.draft\.reusableForTopic\}/);
+});
+
+test('individual saves permit other saveable work while enhanced cancellation still blocks structural conflicts', () => {
+  assert.match(page, /data-case-editor-enhanced/);
+  assert.match(page, /caseEditorUnsavedWorkMessage\(formElement, draftCoordinator, \{ allowSaveableWork: true \}\)/);
+  assert.match(page, /window\.alert\(conflictMessage\)/);
+  assert.match(page, /cancel\(\);/);
+  assert.match(page, /hasAttribute\('data-case-editor-coordinated'\)/);
+  assert.match(details, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: true, allowStructuralWork: true \}\)/);
+  assert.match(details, /cancel\(\);/);
+  assert.match(questions, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: true, allowStructuralWork: true \}\)/);
+  assert.match(questions, /cancel\(\);/);
+  assert.match(details, /deferInvalidation: \(\) => coordinator\?\.dirtyCount\?\.\('case-details'\) > 0/);
+  assert.match(questions, /deferInvalidation: \(\) => coordinator\?\.dirtyCount\?\.\(`question:\$\{currentState\.caseQuestionId\}`\) > 0/);
+  assert.match(mutation, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: true, allowStructuralWork: true \}\)/);
+  assert.match(mutation, /deferInvalidation: \(\) => coordinator\?\.dirtyCount\?\.\(`form:\$\{currentKey\}`\) > 0/);
+  assert.match(mutation, /isOrdinaryCaseEditorDraftForm/);
+  assert.match(mutation, /Save all changes instead/);
+  assert.match(mutation, /Submit or discard it first/);
+});
+
+test('structural conflict detection uses registered live baselines', () => {
+  assert.match(mutation, /Registered structural forms compare against a live baseline/);
+  assert.match(mutation, /const key = form\.dataset\?\.caseEditorStructuralKey;\s*if \(key\) continue;/);
+  assert.doesNotMatch(mutation, /const key = form\.dataset\?\.caseEditorStructuralKey;\s*if \(key && knownKeys\.has\(key\)\) continue;/);
+});
+
+test('picker links and reusable canonical answers retain coordinator and return context', () => {
+  assert.match(imagesSection, /function imagePickerHref\(\)/);
+  assert.match(imagesSection, /params\.set\('return_query', caseLibraryReturnQuery\)/);
+  assert.match(images, /function imagePickerHref\(targetGroupId = ''\)/);
+  assert.match(images, /params\.set\('target_group', targetGroupId\)/);
+  assert.match(images, /name="return_query" value=\{caseLibraryReturnQuery\}.*name="intent" value="move"/);
+  assert.match(page, /<CaseImagePickerDialog \{selectedCase\} imagePicker=\{data\.imagePicker\} \{editorBase\} coordinator=\{draftCoordinator\} caseLibraryReturnQuery=\{data\['caseLibraryReturnQuery'\]\} \/>/);
+  assert.match(picker, /let \{ selectedCase, imagePicker, editorBase, coordinator = null, caseLibraryReturnQuery = '' \}/);
+  assert.equal((picker.match(/name="return_query" value=\{caseLibraryReturnQuery\}/g) ?? []).length, 3);
+  assert.match(picker, /id="case-image-picker-attach"/);
+  assert.match(picker, /pickerAttachAssetIds\(pickerSelected\)/);
+  assert.match(picker, /name="picker_selected"/);
+  assert.match(reusable, /registerCaseEditorForm/);
+  assert.match(reusable, /data-case-editor-coordinated use:coordinateForm=\{`reusable-answer:/);
+});
+
+test('active and inactive lifecycle transitions preserve bounded return context', () => {
+  assert.match(recoveryServer, /status=case-restored/);
+  assert.match(recoveryServer, /normalizeCaseLibraryReturnQuery\(formText\(formData, 'return_query'\)\)/);
+  assert.match(deactivate, /status=case-deactivated/);
+  assert.match(deactivate, /normalizeCaseLibraryReturnQuery/);
+  assert.match(recoveryPage, /caseLibraryReturnHref\(data\.caseLibraryReturnQuery \|\| 'lifecycle=inactive'\)/);
+  assert.match(recoveryPage, /Back to Cases/);
+  assert.match(recoveryPage, /name="return_query" value=\{data\.caseLibraryReturnQuery\}/);
+});
+
+test('native dedicated Case-editor endpoints retain return context and are not generic enhanced', () => {
+  for (const source of [caseTags, moveOption, stimulusRoles, stimulusSupporting]) {
+    assert.match(source, /normalizeCaseLibraryReturnQuery/);
+    assert.match(source, /request\.headers\.get\('referer'\)/);
+    assert.match(source, /return_query/);
+  }
+  assert.match(previewServer, /function editorReturnQuery\(request, formData\)/);
+  assert.match(previewServer, /normalizeCaseLibraryReturnQuery/);
+  assert.match(previewServer, /caseRedirect\(caseId, 'case-saved', event\.request, formData/);
+  for (const endpoint of ['/question-scope', '/case-tags', '/move-option', '/deactivate']) assert.match(page + questions + images + topics, new RegExp(endpoint.replace('/', '\\/')));
+});
+
+test('native submit leave protection is one-shot while internal enhancers own cancellation', () => {
+  assert.match(page, /suppressNextBeforeUnload/);
+  assert.match(page, /acceptedNativeSubmit/);
+  assert.match(page, /!event\.defaultPrevented/);
+  assert.match(page, /data-case-editor-internal/);
+  assert.match(details, /data-case-editor-internal/);
+  assert.match(questions, /data-case-editor-internal/);
+});
+
+test('cross-form reconstruction is not part of normal save handling', () => {
+  assert.doesNotMatch(mutation, /captureEditorFormDrafts|restoreEditorFormDrafts/);
+  assert.doesNotMatch(mutation, /dispatchEvent\(new Event/);
+  assert.match(mutation, /reconcileSubmittedEditorForm/);
+  assert.match(mutation, /data-case-editor-controlled/);
+});
+
+test('Save All posts one captured server batch and reconciles canonically without dropping structural work', () => {
+  assert.match(coordinator, /const plans = \[\];/);
+  assert.match(coordinator, /const prepared = entry\.prepareSave \? entry\.prepareSave\(\) : true;/);
+  assert.match(coordinator, /const outcome = await submit\?\.\(plans\.map/);
+  assert.match(coordinator, /entry\.commitSaveAll\(prepared, authoritative\[index\] \?\? null\)/);
+  assert.doesNotMatch(coordinator, /Promise\.allSettled/);
+  assert.match(mutation, /prepareSave: \(\) => node\.reportValidity\(\) \? captureEditableFormSnapshot\(node\) : null/);
+  assert.match(mutation, /captureFormSubmissionSnapshot/);
+  assert.match(mutation, /saveAllPayload: \(\) => \(\{ kind: 'form'/);
+  assert.match(mutation, /reconcileEditableFormSaveSnapshot/);
+  assert.match(header, /result\.succeeded && !coordinator\.hasUnsavedWork\(\)/);
+  assert.match(header, /fetch\('\?\/saveAll'/);
+  assert.match(header, /new URLSearchParams\(\)/);
+  assert.match(header, /formData\.set\('drafts', JSON\.stringify\(\{ drafts \}\)\)/);
+  assert.match(header, /'x-sveltekit-action': 'true'/);
+  assert.match(header, /save-all-authoritative/);
+  assert.match(header, /const dirtyItems = [^\n]*coordinator\.dirtyItems\(\)/);
+  assert.match(header, /dirtyItems\.some\(\(item\) => !item\.saveable\)/);
+  assert.match(caseServer, /saveAll: async/);
+  assert.match(caseServer, /await request\.formData\(\)/);
+  assert.doesNotMatch(caseServer, /await request\.json\(\)/);
+  assert.match(caseServer, /draft\?\.kind === 'case-details'/);
+  assert.match(caseServer, /draft\?\.kind === 'question'/);
+  assert.match(caseServer, /draft\?\.kind === 'form'/);
+  assert.match(saveAllAuthoritative, /getAdminCaseData/);
+  assert.match(saveAllAuthoritative, /listCaseQuestions/);
+  assert.match(saveAllAuthoritative, /getAdminStimulusData/);
+  assert.match(saveAllAuthoritative, /listCaseImageQuestionSummaries/);
+  assert.match(picker, /caseEditorUnsavedWorkMessage\(formElement, coordinator, \{ allowSaveableWork: true \}\)/);
+  assert.match(page, /caseEditorUnsavedWorkMessage\(submittedForm, draftCoordinator, \{ allowSaveableWork: true \}\)/);
+  assert.match(details, /prepareSave: prepareDraftSave/);
+  assert.match(details, /commitDraftSave\(snapshot, authoritative = null\)/);
+  assert.match(questions, /prepareSave: \(\) => prepareQuestionSave\(state\)/);
+  assert.match(questions, /commitSaveAll: \(snapshot, authoritative\) => commitQuestionSave\(state, snapshot, authoritative\)/);
+  assert.match(details, /!dirty \? 'Saved' : saveState === 'error'/);
+  assert.match(questions, /!questionDirty\(state\) \? 'Saved' : state\.saveState === 'error'/);
+  assert.match(page, /allowSaveableWork: true/);
+  assert.match(page, /deferInvalidation: \(\) => draftCoordinator\.saveableDirtyCount\(\) > 0/);
+  assert.match(header, /Structural work remains Not submitted and is not included in Save All\./);
+  assert.match(caseServer, /not an all-or-nothing D1 transaction/);
+  assert.match(header, /Some changes may already have been saved/);
+});
+
+test('later-mounted structural forms use the stable enhanced submission path', () => {
+  assert.match(mutation, /export function registerCaseEditorStableForms\(enhanceForm\)/);
+  assert.match(mutation, /MutationObserver/);
+  assert.match(mutation, /getAttribute\('action'\) \?\? ''\)\.startsWith\('\?\/'\)/);
+  assert.match(page, /registerCaseEditorStableForms/);
+  assert.doesNotMatch(page, /const stableFormActions =/);
+});
+
+test('selected structural upload files warn before an unrelated mutation can discard them', () => {
+  assert.match(mutation, /formHasSelectedFile/);
+  assert.match(mutation, /caseEditorUnsavedWorkMessage/);
+  assert.match(mutation, /Submit or discard it first/);
+});
+
+test('Primary Topic promotion reconciles local picker state to the authoritative Topic', () => {
+  assert.match(topics, /let lastAuthoritativePrimaryTopicId = \$state\(null\)/);
+  assert.match(topics, /if \(lastAuthoritativePrimaryTopicId === null\)/);
+  assert.match(topics, /if \(nextPrimaryTopicId === lastAuthoritativePrimaryTopicId\) return/);
+  assert.match(topics, /replacementSystemId = systemIdFromTopic\(primaryTopic\) \|\| UNASSIGNED_SYSTEM_CONTEXT/);
+  assert.match(topics, /replacementTopicSearch = ''/);
+  assert.match(topics, /replacementTopicId = ''/);
+  assert.match(topics, /disabled=\{!replacementTopicId\}/);
+  assert.match(topics, /action="\?\/promoteTopic" class="topic-primary-form form-row" data-case-editor-controlled/);
+});
+
+test('header separates Save All work from structural work without blocking Save All', () => {
+  assert.match(header, /Can be saved with Save All/);
+  assert.match(header, /Needs individual action/);
+  assert.match(header, /\{#if saveableCount\}<button class="button primary save-all-button"/);
+  assert.doesNotMatch(header, /caseEditorUnsavedWorkMessage\(null, coordinator\)/);
+  assert.match(header, /Structural work remains Not submitted and is not included in Save All/);
+});
+
+test('reorder uses shared conflict cancellation and rejects stale or in-flight question identity', () => {
+  assert.match(questions, /caseEditorUnsavedWorkMessage\(formElement, coordinator\)/);
+  assert.match(questions, /canReorderCaseQuestion\(/);
+  assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement\)/);
+  assert.match(questions, /if \(!canReorderCaseQuestion/);
+  assert.match(coordinator, /export function canReorderCaseQuestion/);
+});
+
+test('picker attach uses canonical staged IDs and participates in leave protection', () => {
+  assert.match(picker, /data-case-editor-picker-dirty/);
+  assert.match(picker, /pickerAttachAssetIds\(pickerSelected\)/);
+  assert.match(picker, /use:enhance=\{enhancePickerAttach\}/);
+  assert.match(picker, /if \(outcome\.ok\) pickerSelected = reconcileCasePickerAttachSelection/);
+  assert.doesNotMatch(picker, /form="case-image-picker-attach" name="asset_id"/);
+  assert.match(mutation, /data-case-editor-picker-dirty="true"/);
+  assert.match(page, /hasCaseEditorPickerSelection\(\)/);
+  assert.match(imageSelection, /export function pickerAttachAssetIds/);
+});
+
+test('default active Case Library editor links carry explicit lifecycle context', () => {
+  const library = readFileSync(new URL('../src/routes/admin/cases/+page.svelte', import.meta.url), 'utf8');
+  const state = readFileSync(new URL('../src/lib/admin-case-library-state.ts', import.meta.url), 'utf8');
+  assert.match(library, /caseEditorReturnQuery\(currentQuery\(\), inactiveView \? 'inactive' : 'active'\)/);
+  assert.match(state, /params\.set\('lifecycle', lifecycle\)/);
+});
+
+test('coordinated saved forms become visibly unsaved after a later edit and stale Save All results clear', () => {
+  assert.match(mutation, /createCoordinatedFormSaveState/);
+  assert.match(mutation, /status\.textContent = saveState\.complete\(ok\)/);
+  const header = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorHeader.svelte', import.meta.url), 'utf8');
+  assert.match(header, /saveAllResultRevision/);
+  assert.match(header, /shouldClearSaveAllResult/);
+});
+
+test('picker Attach locks competing controls and Search has one same-context navigation exemption', () => {
+  assert.match(picker, /let attachPending = \$state\(false\)/);
+  assert.match(picker, /disabled=\{attachPending\}/);
+  assert.match(picker, /try \{/);
+  assert.match(picker, /finally \{/);
+  assert.match(page, /data-case-editor-picker-search/);
+  assert.match(page, /pendingPickerSearchNavigation/);
+  assert.match(page, /isSafeCasePickerSearchNavigation/);
+  assert.match(page, /caseEditorUnsavedWorkMessage\(submittedForm, draftCoordinator\)/);
+});

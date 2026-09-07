@@ -273,6 +273,45 @@ test('alternative image captions remain editable after picker-based grouping', a
   }
 });
 
+test('Case editor caption action persists through the database and reloads the saved value', async () => {
+  const fixture = createLearningDb();
+  try {
+    insertAsset(fixture.sqlite, { id: 'action-caption-option', name: 'Action caption option' });
+    const groupId = await createStimulusGroup(fixture.db, { caseId: 'seed-anterior-a', name: 'Action persistence set', specificQuestionMode: 'none' });
+    await bulkAddAssetsToStimulusGroup(fixture.db, groupId, ['action-caption-option']);
+    const option = fixture.sqlite.prepare('SELECT id FROM stimulus_group_options WHERE stimulus_group_id = ? AND asset_id = ?').get(groupId, 'action-caption-option');
+    const optionId = option?.id;
+    assert.ok(optionId);
+    const { actions, load } = await import('../src/routes/admin/cases/[caseId]/+page.server.js');
+    const formData = new FormData();
+    formData.set('case_id', 'seed-anterior-a');
+    formData.set('option_id', String(optionId));
+    formData.set('caption', 'Saved through the Case editor action');
+    await assert.rejects(
+      () => actions.updateStimulusOptionCaption(/** @type {any} */ ({
+        request: new Request('http://localhost/admin/cases/seed-anterior-a?/updateStimulusOptionCaption', { method: 'POST', body: formData }),
+        locals: { user: { role: 'admin' } },
+        params: { caseId: 'seed-anterior-a' },
+        platform: { env: { DB: fixture.d1 } }
+      })),
+      (error) => Boolean(error && typeof error === 'object' && /** @type {any} */ (error).status === 303)
+    );
+    const reloaded = await load(/** @type {any} */ ({
+      locals: { user: { role: 'admin' } },
+      params: { caseId: 'seed-anterior-a' },
+      platform: { env: { DB: fixture.d1 } },
+      url: new URL('http://localhost/admin/cases/seed-anterior-a?status=option-caption-updated')
+    }));
+    const selectedCase = /** @type {any} */ (reloaded.selectedCase);
+    const groups = /** @type {any[]} */ (selectedCase?.stimulusGroups ?? []);
+    const reloadedOption = groups
+      .find((group) => group.id === groupId)?.options.find((/** @type {any} */ candidate) => candidate.id === optionId);
+    assert.equal(reloadedOption?.captionMd, 'Saved through the Case editor action');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('bulk grouping rejects fixed or cross-set Case conflicts and invalid Assets without partial relationship changes', async () => {
   const fixture = createLearningDb();
   try {

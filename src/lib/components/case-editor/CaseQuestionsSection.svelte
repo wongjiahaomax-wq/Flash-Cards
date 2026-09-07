@@ -1,21 +1,193 @@
 <script>
-  import { applyAction, enhance } from '$app/forms';
-  import { invalidateAll, replaceState } from '$app/navigation';
-  import { tick } from 'svelte';
+  // @ts-nocheck
+  import { enhance } from '$app/forms';
+  import { onDestroy } from 'svelte';
+  import { caseEditorUnsavedWorkMessage, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { canReorderCaseQuestion, cloneCaseEditorSnapshot, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
 
   /** @typedef {'classic' | 'compact'} CaseEditorLayout */
   /** @typedef {{ assetId: string, isActive: boolean, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, captionMd?: string | null }} CaseAsset */
   /** @typedef {{ id: string, assetId: string, isActive: boolean, assetIsActive: boolean, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, captionMd?: string | null }} StimulusOption */
   /** @typedef {{ name: string, isActive: boolean, options: StimulusOption[] }} StimulusGroup */
-  /** @typedef {{ questionPromptId: string, promptMd: string, answerMd: string, reusableForTopic?: boolean }} CaseQuestion */
+  /** @typedef {{ id: string, questionPromptId: string, promptMd: string, answerMd: string, reusableForTopic?: boolean }} CaseQuestion */
   /** @typedef {{ case: { id: string, conceptName?: string | null }, questions: CaseQuestion[], attached: CaseAsset[], stimulusGroups: StimulusGroup[] }} QuestionsCase */
-  /** @typedef {{ selectedCase: QuestionsCase, previewMode: boolean, editorLayout: CaseEditorLayout, status?: string | null, removedQuestionPromptId?: string | null }} QuestionsProps */
+  /** @typedef {{ selectedCase: QuestionsCase, previewMode: boolean, editorLayout: CaseEditorLayout, status?: string | null, removedQuestionPromptId?: string | null, coordinator?: any, caseLibraryReturnQuery?: string }} QuestionsProps */
   /** @type {QuestionsProps} */
-  let { selectedCase, previewMode, editorLayout, status = null, removedQuestionPromptId = null } = $props();
+  let { selectedCase, previewMode, editorLayout, status = null, removedQuestionPromptId = null, coordinator = null, caseLibraryReturnQuery = '' } = $props();
   let newQuestionScope = $state('case');
   /** @type {CaseQuestion | null} */
   let pendingRemoval = $state(null);
+  const questionSnapshot = (question) => ({ promptMd: question.promptMd ?? '', answerMd: question.answerMd ?? '', reusableForTopic: Boolean(question.reusableForTopic) });
+  let questionDrafts = $state({});
+  let questionRegistrations = new Map();
+
+  function questionDirty(state) {
+    return !sameCaseEditorSnapshot(state.draft, state.baseline);
+  }
+
+  function questionState(question) {
+    return questionDrafts[question.id] ?? {
+      caseQuestionId: question.id,
+      authoritativeId: question.questionPromptId,
+      draft: questionSnapshot(question),
+      baseline: questionSnapshot(question),
+      pending: null,
+      submitted: null,
+      saveState: 'saved',
+      resolve: null
+    };
+  }
+
+  function liveQuestionState(state) {
+    return questionDrafts[state.caseQuestionId] ?? state;
+  }
+
+  function updateQuestionDraft(state, field, value) {
+    liveQuestionState(state).draft[field] = value;
+    coordinator?.refresh();
+  }
+
+  function syncQuestionDrafts() {
+    let changed = false;
+    for (const question of selectedCase.questions) {
+      let state = questionDrafts[question.id];
+      if (!state) {
+        const snapshot = questionSnapshot(question);
+        questionDrafts[question.id] = { caseQuestionId: question.id, authoritativeId: question.questionPromptId, draft: snapshot, baseline: cloneCaseEditorSnapshot(snapshot), pending: null, submitted: null, saveState: 'saved', resolve: null };
+        changed = true;
+      } else if (!state.pending && !questionDirty(state)) {
+        const snapshot = questionSnapshot(question);
+        if (state.authoritativeId !== question.questionPromptId) {
+          state.authoritativeId = question.questionPromptId;
+          changed = true;
+        }
+        if (!sameCaseEditorSnapshot(state.baseline, snapshot)) {
+          state.baseline = snapshot;
+          changed = true;
+        }
+        if (!sameCaseEditorSnapshot(state.draft, snapshot)) {
+          state.draft = cloneCaseEditorSnapshot(snapshot);
+          changed = true;
+        }
+      }
+    }
+    return changed;
+  }
+
+  function beginQuestionSubmit(state, snapshot = state.draft) {
+    state.submitted = cloneCaseEditorSnapshot(snapshot);
+    state.pending = new Promise((resolve) => { state.resolve = resolve; });
+    state.saveState = 'saving';
+    coordinator?.refresh();
+  }
+
+  function prepareQuestionSave(state) {
+    const form = document.getElementById(`question-edit-${state.caseQuestionId}`);
+    return form instanceof HTMLFormElement && form.reportValidity() ? cloneCaseEditorSnapshot(state.draft) : null;
+  }
+  function commitQuestionSave(state, snapshot, authoritative = null) {
+    const reconciled = reconcileSubmittedCaseEditorDraft(state.draft, snapshot, authoritative ?? snapshot);
+    state.baseline = reconciled.baseline;
+    state.draft = reconciled.draft;
+    state.saveState = 'saved';
+    coordinator?.refresh();
+  }
+
+  function submitQuestion(state, snapshot = null) {
+    if (state.pending) return state.pending;
+    const form = document.getElementById(`question-edit-${state.caseQuestionId}`);
+    if (!(form instanceof HTMLFormElement) || (!snapshot && !form.reportValidity())) return Promise.resolve(false);
+    if (snapshot) state.submitted = cloneCaseEditorSnapshot(snapshot);
+    form.requestSubmit();
+    return state.pending ?? Promise.resolve(false);
+  }
+
+  function enhanceQuestion(state) {
+    return ({ formElement, cancel }) => {
+      const currentState = liveQuestionState(state);
+      if (currentState.pending) {
+        cancel();
+        return;
+      }
+      const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: true, allowStructuralWork: true });
+      if (conflictMessage) {
+        window.alert(conflictMessage);
+        cancel();
+        return;
+      }
+      beginQuestionSubmit(currentState, currentState.submitted ?? currentState.draft);
+      const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, {
+        reconcileSubmittedDraft: true,
+        deferInvalidation: () => coordinator?.dirtyCount?.(`question:${currentState.caseQuestionId}`) > 0
+      });
+      return async ({ result }) => {
+        const outcome = await stable({ result });
+        if (outcome.ok) {
+          const submitted = currentState.submitted;
+          const authoritative = selectedCase.questions.find((question) => question.id === currentState.caseQuestionId);
+          if (authoritative) {
+            const snapshot = outcome.deferred ? submitted : questionSnapshot(authoritative);
+            currentState.authoritativeId = authoritative.questionPromptId;
+            const reconciled = reconcileSubmittedCaseEditorDraft(currentState.draft, submitted, snapshot);
+            currentState.baseline = reconciled.baseline;
+            currentState.draft = reconciled.draft;
+          }
+          currentState.saveState = 'saved';
+        } else {
+          currentState.saveState = 'error';
+        }
+        const resolve = currentState.resolve;
+        currentState.pending = null;
+        currentState.submitted = null;
+        currentState.resolve = null;
+        coordinator?.refresh();
+        resolve?.(outcome.ok);
+      };
+    };
+  }
+
+  $effect(() => {
+    let changed = syncQuestionDrafts();
+    const liveIds = new Set(selectedCase.questions.map((question) => question.id));
+    for (const [caseQuestionId, unregister] of questionRegistrations) {
+      if (liveIds.has(caseQuestionId)) continue;
+      unregister?.();
+      questionRegistrations.delete(caseQuestionId);
+      delete questionDrafts[caseQuestionId];
+      changed = true;
+    }
+    for (const question of selectedCase.questions) {
+      const caseQuestionId = question.id;
+      if (questionRegistrations.has(caseQuestionId)) continue;
+      const state = questionState(question);
+      const unregister = coordinator?.register(`question:${caseQuestionId}`, {
+        label: () => `Question ${selectedCase.questions.findIndex((candidate) => candidate.id === caseQuestionId) + 1}`,
+        dirtyFields: () => [
+          state.draft.promptMd !== state.baseline.promptMd ? 'Prompt' : null,
+          state.draft.answerMd !== state.baseline.answerMd ? 'Answer' : null,
+          state.draft.reusableForTopic !== state.baseline.reusableForTopic ? 'Share with Topic' : null
+        ].filter(Boolean),
+        isSaving: () => Boolean(state.pending),
+        status: () => state.pending ? 'Saving…' : !questionDirty(state) ? 'Saved' : state.saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
+        isDirty: () => questionDirty(state),
+        prepareSave: () => prepareQuestionSave(state),
+        saveAllPayload: (snapshot) => ({ kind: 'question', fields: { caseQuestionId: state.caseQuestionId, originalPromptId: state.authoritativeId, ...snapshot } }),
+        commitSaveAll: (snapshot, authoritative) => commitQuestionSave(state, snapshot, authoritative),
+        save: (snapshot) => submitQuestion(state, snapshot)
+      });
+      if (unregister) {
+        questionRegistrations.set(caseQuestionId, unregister);
+        changed = true;
+      }
+    }
+    if (changed) coordinator?.refresh();
+  });
+
+  onDestroy(() => {
+    for (const unregister of questionRegistrations.values()) unregister?.();
+    questionRegistrations.clear();
+  });
 
   /** @param {CaseQuestion} question */
   function requestQuestionRemoval(question) {
@@ -75,29 +247,22 @@
   };
 
   /** @type {NonNullable<Parameters<typeof enhance>[1]>} */
-  const preserveQuestionScroll = () => {
-    const scrollX = window.scrollX;
-    const scrollY = window.scrollY;
-
-    return async ({ result }) => {
-      if (result.type !== 'redirect') {
-        await applyAction(result);
-        return;
-      }
-
-      const root = document.documentElement;
-      const previousOverflowAnchor = root.style.overflowAnchor;
-      root.style.overflowAnchor = 'none';
-
-      try {
-        replaceState(result.location, {});
-        await invalidateAll();
-        await tick();
-        window.scrollTo(scrollX, scrollY);
-      } finally {
-        root.style.overflowAnchor = previousOverflowAnchor;
-      }
-    };
+  const preserveQuestionScroll = ({ formElement, cancel }) => {
+    const promptId = formElement.elements.namedItem('prompt_id')?.value ?? '';
+    const pendingQuestionIds = Object.values(questionDrafts)
+      .filter((state) => state.pending)
+      .map((state) => state.caseQuestionId);
+    if (!canReorderCaseQuestion({ promptId, questions: selectedCase.questions, pendingQuestionIds })) {
+      cancel();
+      return;
+    }
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
+    if (conflictMessage) {
+      window.alert(conflictMessage);
+      cancel();
+      return;
+    }
+    return stableCaseEditorEnhance(captureCaseEditorView(), formElement);
   };
 </script>
 
@@ -152,6 +317,7 @@
     </div>
     <form method="POST" action={previewMode ? '?/saveQuestion' : `/admin/cases/${selectedCase.case.id}/question-scope`} class="form-grid question-authoring">
       <input type="hidden" name="case_id" value={selectedCase.case.id} />
+      <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
       <label class="new-question-prompt">Question prompt<textarea name="prompt_md" rows="3" maxlength="2000" required placeholder="e.g. What is the likely cause in this patient?"></textarea></label>
       <label class="new-question-answer">Answer<textarea use:autoGrowAnswer name="answer_md" rows="3" maxlength="5000" required placeholder="The answer shown after reveal."></textarea></label>
       {#if !previewMode}
@@ -177,6 +343,7 @@
 
   <div class="question-list">
     {#each selectedCase.questions as question, index}
+      {@const questionDraft = questionState(question)}
       <article id={`question-${question.questionPromptId}`} class="question-card">
         <div class="card-heading">
           <div class="question-identity">
@@ -193,6 +360,7 @@
                 <summary>Change scope</summary>
                 <div class="scope-change-body stack">
                   <form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack">
+                    <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
                     <input type="hidden" name="intent" value="move" />
                     <input type="hidden" name="case_id" value={selectedCase.case.id} />
                     <input type="hidden" name="prompt_id" value={question.questionPromptId} />
@@ -203,21 +371,24 @@
               </details>
             {/if}
             <div class="question-order-actions">
-              <form method="POST" action="?/reorderQuestion" use:enhance={preserveQuestionScroll}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="up" /><button class="button small icon-action" type="submit" disabled={index === 0} aria-label="Move question up">↑</button></form>
-              <form method="POST" action="?/reorderQuestion" use:enhance={preserveQuestionScroll}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="down" /><button class="button small icon-action" type="submit" disabled={index === selectedCase.questions.length - 1} aria-label="Move question down">↓</button></form>
+              <form method="POST" action="?/reorderQuestion" data-case-editor-internal use:enhance={preserveQuestionScroll}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="up" /><button class="button small icon-action" type="submit" disabled={index === 0} aria-label="Move question up">↑</button></form>
+              <form method="POST" action="?/reorderQuestion" data-case-editor-internal use:enhance={preserveQuestionScroll}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="prompt_id" value={question.questionPromptId} /><input type="hidden" name="direction" value="down" /><button class="button small icon-action" type="submit" disabled={index === selectedCase.questions.length - 1} aria-label="Move question down">↓</button></form>
             </div>
             <button class="button danger small remove-action" type="button" onclick={() => requestQuestionRemoval(question)}>Remove</button>
           </div>
         </div>
 
-        <form id={`question-edit-${question.questionPromptId}`} method="POST" action="?/saveQuestion" class="question-edit-form">
+        <form id={`question-edit-${question.id}`} method="POST" action="?/saveQuestion" class="question-edit-form" data-case-editor-internal use:enhance={enhanceQuestion(questionDraft)}>
           <input type="hidden" name="case_id" value={selectedCase.case.id} />
-          <input type="hidden" name="original_prompt_id" value={question.questionPromptId} />
-          <label class="question-prompt-field">Prompt<textarea name="prompt_md" rows="3" maxlength="2000" required>{question.promptMd}</textarea></label>
-          <label class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" rows="3" maxlength="5000" required>{question.answerMd}</textarea></label>
+          <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
+          <input type="hidden" name="case_question_id" value={question.id} />
+          <input type="hidden" name="original_prompt_id" value={questionDraft.authoritativeId} />
+          <label class="question-prompt-field">Prompt<textarea name="prompt_md" value={questionDraft.draft.promptMd} oninput={(event) => updateQuestionDraft(questionDraft, 'promptMd', event.currentTarget.value)} rows="3" maxlength="2000" required></textarea></label>
+          <label class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" value={questionDraft.draft.answerMd} oninput={(event) => updateQuestionDraft(questionDraft, 'answerMd', event.currentTarget.value)} rows="3" maxlength="5000" required></textarea></label>
           <div class="question-footer">
-            <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" checked={question.reusableForTopic} /> Share this question with the Topic</label>
-            <button class="button primary save-question-action" type="submit">Save question</button>
+            <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" checked={questionDraft.draft.reusableForTopic} onchange={(event) => updateQuestionDraft(questionDraft, 'reusableForTopic', event.currentTarget.checked)} /> Share this question with the Topic</label>
+            <span class="save-state" class:error={questionDraft.saveState === 'error' && questionDirty(questionDraft)}>{questionDraft.saveState === 'saving' ? 'Saving…' : questionDirty(questionDraft) && questionDraft.saveState === 'error' ? 'Save failed — changes remain unsaved' : questionDirty(questionDraft) ? `Unsaved changes — ${[questionDraft.draft.promptMd !== questionDraft.baseline.promptMd ? 'Prompt' : null, questionDraft.draft.answerMd !== questionDraft.baseline.answerMd ? 'Answer' : null, questionDraft.draft.reusableForTopic !== questionDraft.baseline.reusableForTopic ? 'Share with Topic' : null].filter(Boolean).join(', ')}` : 'Saved'}</span>
+            <button class="button primary save-question-action" type="submit" disabled={Boolean(questionDraft.pending)}>Save question</button>
           </div>
         </form>
 
@@ -227,6 +398,7 @@
             <div class="scope-change-body stack">
               <strong class="classic-scope-heading">Change scope</strong>
               <form method="POST" action={`/admin/cases/${selectedCase.case.id}/question-scope`} class="stack">
+                <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
                 <input type="hidden" name="intent" value="move" />
                 <input type="hidden" name="case_id" value={selectedCase.case.id} />
                 <input type="hidden" name="prompt_id" value={question.questionPromptId} />
@@ -305,6 +477,8 @@
 
   .question-edit-form { display: grid; gap: 0.7rem 1rem; }
   .question-footer { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; padding-top: 0.1rem; }
+  .save-state { color: #667085; font-size: 0.8rem; font-weight: 650; }
+  .save-state.error { color: #b42318; }
   .question-reuse-field { min-width: 0; }
   .save-question-action { margin-left: auto; }
 
