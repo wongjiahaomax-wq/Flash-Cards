@@ -4,8 +4,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
-import { createCaseEditorCoordinator } from '../src/lib/case-editor-coordinator.js';
-import { captureEditableFormSnapshot, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInputAgainst, mutationMayChangeEditorFormTopology } from '../src/lib/case-editor-form-state.js';
+import { createCaseEditorCoordinator, reconcileSubmittedCaseEditorDraft } from '../src/lib/case-editor-coordinator.js';
+import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInputAgainst, mutationMayChangeEditorFormTopology } from '../src/lib/case-editor-form-state.js';
 
 class FakeInput {
   constructor(name, type = 'text', value = '') {
@@ -31,8 +31,9 @@ globalThis.HTMLInputElement = FakeInput;
 globalThis.HTMLTextAreaElement = FakeTextarea;
 globalThis.HTMLSelectElement = FakeSelect;
 
-function fakeForm(...elements) {
-  return { elements };
+function fakeForm(...args) {
+  const action = typeof args[0] === 'string' ? args.shift() : '';
+  return { elements: args, getAttribute: (name) => name === 'action' ? action : null };
 }
 
 test('explicit form baseline keeps Svelte-initialized controls pristine', () => {
@@ -63,10 +64,29 @@ test('selected upload file is part of the dirty snapshot', () => {
   assert.deepEqual(captureEditableFormSnapshot(form)[0].files, [{ name: 'ecg.png', size: 1234, lastModified: 42, type: 'image/png' }]);
 });
 
-test('coordinated save establishes a clean baseline but preserves edit-during-save dirtiness', async () => {
+test('pristine editor inventory has zero dirty items', () => {
   const coordinator = createCaseEditorCoordinator();
-  let draft = 'A';
-  let baseline = 'A';
+  const form = fakeForm(new FakeTextarea('prompt_md', 'text', 'Saved prompt'));
+  const baseline = captureEditableFormSnapshot(form);
+  coordinator.register('structural:question', { isDirty: () => formHasMeaningfulUnsubmittedInputAgainst(form, baseline), saveable: false });
+  assert.deepEqual(coordinator.dirtyItems(), []);
+});
+
+test('coordinated save retains the visible authoritative value and establishes its baseline', () => {
+  const form = fakeForm(new FakeTextarea('caption', 'text', 'Old caption'));
+  const submitted = captureEditableFormSnapshot(form);
+  form.elements[0].value = 'Saved caption';
+  const authoritative = captureEditableFormSnapshot(form);
+  const reconciled = reconcileSubmittedCaseEditorDraft(authoritative, submitted, authoritative);
+  assert.deepEqual(reconciled.draft, authoritative);
+  assert.deepEqual(reconciled.baseline, authoritative);
+  assert.equal(form.elements[0].value, 'Saved caption');
+});
+
+test('coordinated save establishes an authoritative baseline while preserving edit-during-save dirtiness', async () => {
+  const coordinator = createCaseEditorCoordinator();
+  let draft = 'O';
+  let baseline = 'O';
   let release;
   coordinator.register('caption', {
     label: 'Always-shown image',
@@ -75,23 +95,53 @@ test('coordinated save establishes a clean baseline but preserves edit-during-sa
     save: async () => {
       const submitted = draft;
       await new Promise((resolve) => { release = resolve; });
-      if (draft === submitted) baseline = submitted;
+      const authoritative = submitted;
+      baseline = authoritative;
       return true;
     }
   });
 
-  draft = 'saved caption';
+  draft = 'A';
   const firstSave = coordinator.saveAll();
+  draft = 'B';
   release();
   await firstSave;
-  assert.equal(coordinator.dirtyItems().length, 0);
+  assert.equal(coordinator.dirtyItems()[0].fields[0], 'Caption');
+  draft = 'A';
+  assert.equal(coordinator.dirtyItems().length, 0, 'reverting the newer edit to the saved value is clean');
+});
 
-  draft = 'newer caption';
-  const secondSave = coordinator.saveAll();
-  draft = 'edit while saving';
-  release();
-  await secondSave;
+test('failed coordinated save leaves the draft dirty', async () => {
+  const coordinator = createCaseEditorCoordinator();
+  let draft = 'Changed';
+  const baseline = 'Original';
+  coordinator.register('caption', { label: 'Always-shown image', isDirty: () => draft !== baseline, save: async () => false });
+  const result = await coordinator.saveAll();
+  assert.deepEqual(result, { attempted: 1, succeeded: 0, failed: 1 });
   assert.equal(coordinator.dirtyItems()[0].label, 'Always-shown image');
+});
+
+test('structural successful submit rebaselines the submitted form', () => {
+  const coordinator = createCaseEditorCoordinator();
+  let baseline = { value: 'Old System' };
+  let current = { value: 'New System' };
+  coordinator.register('structural:system', {
+    saveable: false,
+    isDirty: () => current.value !== baseline.value,
+    rebaseline: (snapshot) => { baseline = snapshot; }
+  });
+  assert.equal(coordinator.dirtyItems().length, 1);
+  assert.equal(coordinator.rebaseline('structural:system', { value: 'New System' }), true);
+  assert.deepEqual(coordinator.dirtyItems(), []);
+});
+
+test('contextual structural labels identify Topic and System controls', () => {
+  const createTopic = fakeForm('?/createCaseTopic', new FakeInput('name', 'text', 'Old'));
+  createTopic.elements[0].value = 'New';
+  assert.deepEqual(changedFormFieldLabels(createTopic, [{ name: 'name', type: 'text', value: 'Old' }]), ['Topic name']);
+  const primaryTopic = fakeForm('?/promoteTopic', new FakeInput('', 'search', 'Old topic'));
+  primaryTopic.elements[0].value = 'New topic';
+  assert.deepEqual(changedFormFieldLabels(primaryTopic, [{ name: '', type: 'search', value: 'Old topic' }]), ['Topic search']);
 });
 
 test('structural topology filter ignores status-node mutations', () => {
@@ -105,6 +155,8 @@ test('structural topology filter ignores status-node mutations', () => {
 
 test('coordinated enhancer captures the stable result before reading reconciliation snapshots', () => {
   const mutation = readFileSync(new URL('../src/lib/case-editor-mutation.js', import.meta.url), 'utf8');
-  assert.match(mutation, /const outcome = await stable\(\{ result \}\);\s*ok = outcome\.ok;/);
+  assert.match(mutation, /outcome = await stable\(\{ result \}\);\s*ok = outcome\.ok;/);
   assert.doesNotMatch(mutation, /ok = \(await stable\(\{ result \}\)\)\.ok;[\s\S]{0,180}outcome\./);
+  assert.match(mutation, /baseline = outcome\.authoritativeSnapshot \?\? outcome\.submittedSnapshot/);
+  assert.match(mutation, /rebaseline\(snapshot\)/);
 });

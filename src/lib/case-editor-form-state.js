@@ -47,29 +47,44 @@ export function mutationMayChangeEditorFormTopology(records) {
   return records.some((record) => [...record.addedNodes, ...record.removedNodes].some(mayChange));
 }
 
-export function changedFormFieldLabels(form, baseline) {
+function fieldLabel(form, value) {
+  const action = form?.getAttribute?.('action') ?? '';
+  const name = value?.name ?? '';
+  const type = value?.type ?? '';
+  if (action.includes('createCaseTopic') && name === 'name') return 'Topic name';
+  if (action.includes('case-tags') && name === 'name') return 'Tag name';
+  if (action.includes('promoteTopic')) {
+    if (!name && type === 'search') return 'Topic search';
+    if (!name && type.startsWith('select')) return 'System selection';
+  }
+  if (action.includes('assignPrimaryTopicToSystem') && name === 'system_id') return 'Parent System';
+  return {
+    '': type === 'file' ? 'Image file' : type === 'search' ? 'Topic search' : 'Selection',
+    title: 'Internal title',
+    vignette_md: 'Vignette',
+    prompt_md: 'Prompt',
+    answer_md: 'Answer',
+    reusable_for_topic: 'Share with Topic',
+    caption: 'Caption',
+    image: 'Image file',
+    name: action.includes('StimulusGroup') || action.includes('startAlternativeSet') ? 'Image-set name' : 'Name',
+    set_name: 'Image-set name',
+    specific_question_mode: 'Coverage',
+    minimum_specific_questions: 'Minimum questions',
+    target: 'Target',
+    prompt_id: 'Question',
+    group_id: 'Image set'
+  }[name] ?? name;
+}
+
+export function changedFormFieldLabels(form, baseline, current = undefined) {
   if (!baseline) return [];
-  const current = captureEditableFormSnapshot(form);
+  const snapshot = current ?? captureEditableFormSnapshot(form);
   const labels = [];
-  current.forEach((value, index) => {
+  snapshot.forEach((value, index) => {
     const previous = baseline[index];
     if (JSON.stringify(value) === JSON.stringify(previous)) return;
-    labels.push({
-      title: 'Internal title',
-      vignette_md: 'Vignette',
-      prompt_md: 'Prompt',
-      answer_md: 'Answer',
-      reusable_for_topic: 'Share with Topic',
-      caption: 'Caption',
-      image: 'Image file',
-      name: 'Image-set name',
-      set_name: 'Image-set name',
-      specific_question_mode: 'Coverage',
-      minimum_specific_questions: 'Minimum questions',
-      target: 'Target',
-      prompt_id: 'Question',
-      group_id: 'Image set'
-    }[value.name] ?? value.name);
+    labels.push(fieldLabel(form, value));
   });
   return [...new Set(labels)];
 }

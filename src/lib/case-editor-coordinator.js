@@ -98,6 +98,13 @@ export function createCaseEditorCoordinator() {
     refresh() {
       notify();
     },
+    rebaseline(key, snapshot = null) {
+      const entry = entries.get(key);
+      if (!entry?.rebaseline) return false;
+      entry.rebaseline(snapshot);
+      notify();
+      return true;
+    },
     dirtyItems({ excludeKey = null } = {}) {
       return [...entries.entries()]
         .filter(([key]) => key !== excludeKey)

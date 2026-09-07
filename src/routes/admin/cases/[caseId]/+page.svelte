@@ -107,7 +107,15 @@
         cancel();
         return;
       }
-      return stableCaseEditorEnhance(captureCaseEditorView(), formElement);
+      const structuralKey = formElement.dataset.caseEditorStructuralKey;
+      const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement);
+      /** @param {any} context */
+      const handleStableForm = async (context) => {
+        const outcome = await stable(context);
+        if (outcome.ok && structuralKey) draftCoordinator.rebaseline(structuralKey, /** @type {any} */ (outcome.authoritativeSnapshot));
+        return outcome;
+      };
+      return handleStableForm;
     };
     for (const form of stableFormActions) /** @type {HTMLFormElement} */ (form).dataset.caseEditorEnhanced = 'true';
     const enhancedForms = stableFormActions.map((form) => enhance(/** @type {HTMLFormElement} */ (form), /** @type {any} */ (enhanceStableForm)));

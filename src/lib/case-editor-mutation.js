@@ -4,7 +4,7 @@ import { applyAction, enhance } from '$app/forms';
 import { invalidateAll, replaceState } from '$app/navigation';
 import { tick } from 'svelte';
 import { createCoordinatedFormSaveState } from '$lib/case-editor-coordinator.js';
-import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, formHasMeaningfulUnsubmittedInputAgainst, mutationMayChangeEditorFormTopology, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
+import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, mutationMayChangeEditorFormTopology, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
 
 export { captureEditableFormSnapshot, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
 
@@ -71,11 +71,14 @@ function resetSubmittedEditorForm(form, key, logicalKey = '') {
   findSubmittedEditorForm(form, key, logicalKey)?.reset?.();
 }
 
-function reconcileSubmittedEditorForm(form, key, logicalKey, submittedSnapshot, currentSnapshot) {
+function reconcileSubmittedEditorForm(form, key, logicalKey, submittedSnapshot, currentSnapshot, authoritativeSnapshot) {
   const candidate = findSubmittedEditorForm(form, key, logicalKey);
   if (!candidate) return;
-  if (sameEditableFormSnapshot(currentSnapshot, submittedSnapshot)) candidate.reset?.();
-  else restoreEditableFormSnapshot(candidate, currentSnapshot);
+  if (sameEditableFormSnapshot(currentSnapshot, submittedSnapshot)) {
+    if (authoritativeSnapshot) restoreEditableFormSnapshot(candidate, authoritativeSnapshot);
+    return;
+  }
+  restoreEditableFormSnapshot(candidate, currentSnapshot);
 }
 
 function structuralFormLabel(form) {
@@ -86,6 +89,9 @@ function structuralFormLabel(form) {
   if (action.includes('createReusableImageQuestion')) return 'Create reusable image question';
   if (action.includes('uploadAndAttach')) return 'Image upload';
   if (action.includes('attachMany')) return 'Image picker';
+  if (action.includes('assignPrimaryTopicToSystem')) return 'Primary Topic — Parent System';
+  if (action.includes('promoteTopic')) return 'Primary Topic replacement';
+  if (action.includes('createCaseTopic')) return 'Create Topic';
   if (form.querySelector('[name="prompt_md"]') && form.querySelector('[name="answer_md"]')) return 'Add Case question';
   return 'Case-editor form';
 }
@@ -119,16 +125,35 @@ export function registerCaseEditorStructuralForms(coordinator) {
     }
     for (const form of forms) {
       if (registrations.has(form)) continue;
-      const baseline = captureEditableFormSnapshot(form);
+      let baseline = captureEditableFormSnapshot(form);
+      let cachedSnapshot = baseline;
+      let cachedDirty = false;
+      let cachedFields = [];
+      const updateCachedState = () => {
+        const nextSnapshot = captureEditableFormSnapshot(form);
+        const nextDirty = !sameEditableFormSnapshot(nextSnapshot, baseline);
+        const nextFields = nextDirty ? changedFormFieldLabels(form, baseline, nextSnapshot) : [];
+        const changed = cachedDirty !== nextDirty
+          || !sameEditableFormSnapshot(cachedSnapshot, nextSnapshot)
+          || JSON.stringify(cachedFields) !== JSON.stringify(nextFields);
+        cachedSnapshot = nextSnapshot;
+        cachedDirty = nextDirty;
+        cachedFields = nextFields;
+        return changed;
+      };
       const key = `structural:${editorFormKey(form)}`;
       const label = structuralFormLabel(form);
       const entry = {
         saveable: false,
         label,
-        isDirty: () => form.isConnected && formHasMeaningfulUnsubmittedInputAgainst(form, baseline),
-        dirtyFields: () => changedFormFieldLabels(form, baseline),
+        isDirty: () => form.isConnected && cachedDirty,
+        dirtyFields: () => cachedFields,
         status: () => 'Not submitted — use this form\'s action',
-        target: () => form.id || null
+        target: () => form.id || null,
+        rebaseline(snapshot) {
+          baseline = snapshot ?? captureEditableFormSnapshot(form);
+          updateCachedState();
+        }
       };
       const status = document.createElement('span');
       status.className = 'case-editor-inline-save-state';
@@ -136,7 +161,8 @@ export function registerCaseEditorStructuralForms(coordinator) {
       status.hidden = true;
       form.append(status);
       const refresh = () => {
-        const dirty = entry.isDirty();
+        if (!updateCachedState()) return;
+        const dirty = cachedDirty;
         status.hidden = !dirty;
         status.textContent = dirty ? `${label} — Not submitted` : '';
         coordinator.refresh();
@@ -179,12 +205,16 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
     if (result.type !== 'redirect') {
       await applyAction(result);
       await tick();
+      const authoritativeCandidate = successful
+        ? findSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey)
+        : null;
+      const authoritativeSnapshot = authoritativeCandidate ? captureEditableFormSnapshot(authoritativeCandidate) : null;
       restoreEditorFormDrafts(formDrafts);
       if (successful) {
-        if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot);
+        if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot);
         else resetSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
       }
-      return { ok: result.type === 'success', submittedSnapshot, currentSubmittedSnapshot };
+      return { ok: result.type === 'success', submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot };
     }
 
     const location = new URL(result.location, document.baseURI);
@@ -192,8 +222,10 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
     replaceState(`${location.pathname}${location.search}`, {});
     await invalidateAll();
     await tick();
+    const authoritativeCandidate = findSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
+    const authoritativeSnapshot = authoritativeCandidate ? captureEditableFormSnapshot(authoritativeCandidate) : null;
     restoreEditorFormDrafts(formDrafts);
-    if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot);
+    if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot);
     else resetSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
     window.scrollTo(scrollX, scrollY);
     if (activeElement?.isConnected && typeof activeElement.focus === 'function') {
@@ -202,7 +234,7 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
         activeElement.setSelectionRange(selectionStart, selectionEnd);
       }
     }
-    return { ok: true, submittedSnapshot, currentSubmittedSnapshot };
+    return { ok: true, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot };
   };
 }
 
@@ -244,6 +276,9 @@ export function hasCaseEditorPickerSelection() {
 export function registerCaseEditorForm(node, { coordinator, key }) {
   let currentKey = key;
   let baseline = captureEditableFormSnapshot(node);
+  let cachedSnapshot = baseline;
+  let cachedDirty = false;
+  let cachedFields = [];
   let unregister = register();
   let pending = null;
   let resolvePending = null;
@@ -252,15 +287,27 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
   status.setAttribute('role', 'status');
   status.hidden = true;
   node.append(status);
-  const saveState = createCoordinatedFormSaveState(() => !sameEditableFormSnapshot(captureEditableFormSnapshot(node), baseline));
+  const updateCachedState = () => {
+    const nextSnapshot = captureEditableFormSnapshot(node);
+    const nextDirty = !sameEditableFormSnapshot(nextSnapshot, baseline);
+    const nextFields = nextDirty ? changedFormFieldLabels(node, baseline, nextSnapshot) : [];
+    const changed = cachedDirty !== nextDirty
+      || !sameEditableFormSnapshot(cachedSnapshot, nextSnapshot)
+      || JSON.stringify(cachedFields) !== JSON.stringify(nextFields);
+    cachedSnapshot = nextSnapshot;
+    cachedDirty = nextDirty;
+    cachedFields = nextFields;
+    return changed;
+  };
+  const saveState = createCoordinatedFormSaveState(() => cachedDirty);
 
   function register() {
     return coordinator?.register(`form:${currentKey}`, {
       label: () => coordinatedFormLabel(node, currentKey),
-      dirtyFields: () => changedFormFieldLabels(node, baseline),
+      dirtyFields: () => cachedFields,
       isSaving: () => saveState.isPending(),
       status: () => saveState.isPending() ? 'Saving…' : saveState.hasFailed() ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
-      isDirty: () => node.isConnected && !sameEditableFormSnapshot(captureEditableFormSnapshot(node), baseline),
+      isDirty: () => node.isConnected && cachedDirty,
       save: () => {
         if (pending) return pending;
         if (!node.reportValidity()) return Promise.resolve(false);
@@ -271,10 +318,10 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
   }
 
   const refresh = () => {
+    if (!updateCachedState()) return;
     if (saveState.refresh() === 'Unsaved changes') {
       status.hidden = false;
-      const fields = changedFormFieldLabels(node, baseline);
-      status.textContent = fields.length ? `Unsaved changes — ${fields.join(', ')}` : 'Unsaved changes';
+      status.textContent = cachedFields.length ? `Unsaved changes — ${cachedFields.join(', ')}` : 'Unsaved changes';
       status.classList.remove('error');
     }
     coordinator?.refresh();
@@ -307,13 +354,12 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
     const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { reconcileSubmittedDraft: true, logicalKey: currentKey });
     return async ({ result }) => {
       let ok = false;
+      let outcome = null;
       try {
-        const outcome = await stable({ result });
+        outcome = await stable({ result });
         ok = outcome.ok;
-        if (ok && sameEditableFormSnapshot(outcome.currentSubmittedSnapshot, outcome.submittedSnapshot)) {
-          const candidate = findSubmittedEditorForm(formElement, editorFormKey(formElement), currentKey);
-          if (candidate) baseline = captureEditableFormSnapshot(candidate);
-        }
+        if (ok) baseline = outcome.authoritativeSnapshot ?? outcome.submittedSnapshot ?? baseline;
+        updateCachedState();
       } finally {
         const resolve = resolvePending;
         pending = null;
@@ -332,6 +378,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       unregister?.();
       currentKey = nextKey;
       baseline = captureEditableFormSnapshot(node);
+      updateCachedState();
       node.dataset.caseEditorLogicalKey = currentKey;
       unregister = register();
     },

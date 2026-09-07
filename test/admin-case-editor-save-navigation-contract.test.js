@@ -67,10 +67,12 @@ test('stimulus question coordinator keys survive prompt identity changes', () =>
   assert.match(mutation, /logicalKey = ''/);
 });
 
-test('successful enhanced submissions preserve unrelated drafts but reset the submitted form', () => {
+test('successful enhanced submissions preserve unrelated drafts and reconcile the submitted form', () => {
   assert.match(mutation, /captureEditorFormDrafts\(successful \? submittedForm : null\)/);
-  assert.match(mutation, /reconcileSubmittedEditorForm\(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot\)/);
+  assert.match(mutation, /reconcileSubmittedEditorForm\(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot\)/);
   assert.match(mutation, /sameEditableFormSnapshot\(currentSnapshot, submittedSnapshot\)/);
+  assert.match(mutation, /const authoritativeSnapshot = authoritativeCandidate \? captureEditableFormSnapshot\(authoritativeCandidate\) : null/);
+  assert.doesNotMatch(mutation, /function reconcileSubmittedEditorForm[\s\S]{0,500}candidate\.reset/);
   assert.match(mutation, /pending = new Promise\(\(resolve\) => \{ resolvePending = resolve; \}\)/);
   assert.match(mutation, /if \(pending\) \{\s*cancel\(\);/);
   assert.match(mutation, /restoreEditorFormDrafts\(formDrafts\)/);
