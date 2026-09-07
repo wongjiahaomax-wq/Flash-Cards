@@ -17,9 +17,7 @@ function Convert-OleRgbToHex {
     $g = ($number -shr 8) -band 0xFF
     $b = ($number -shr 16) -band 0xFF
     return ('#{0:X2}{1:X2}{2:X2}' -f $r, $g, $b)
-  } catch {
-    return $null
-  }
+  } catch { return $null }
 }
 
 function Convert-MsoTriStateToBoolean {
@@ -29,8 +27,36 @@ function Convert-MsoTriStateToBoolean {
     if ($state -eq -1) { return $true }
     if ($state -eq 0) { return $false }
   } catch {}
-  # Mixed/unknown formatting is not safely representable as one boolean.
   return $null
+}
+
+function Test-ShapeVisible {
+  param($Shape)
+  try {
+    # msoFalse = 0. Mixed/unknown states are preserved conservatively.
+    if ([int]$Shape.Visible -eq 0) { return $false }
+  } catch {}
+  return $true
+}
+
+function Test-ShapeIntersectsSlide {
+  param($Shape, [double]$SlideWidth, [double]$SlideHeight)
+  try {
+    $left = [double]$Shape.Left
+    $top = [double]$Shape.Top
+    $width = [double]$Shape.Width
+    $height = [double]$Shape.Height
+    if ($width -le 0 -or $height -le 0) { return $false }
+    $right = $left + $width
+    $bottom = $top + $height
+    if ($right -le 0 -or $bottom -le 0 -or $left -ge $SlideWidth -or $top -ge $SlideHeight) {
+      return $false
+    }
+  } catch {
+    # If geometry cannot be established, preserve the shape rather than guessing it is off-slide.
+    return $true
+  }
+  return $true
 }
 
 function Get-ShapeText {
@@ -58,9 +84,7 @@ function Get-TableText {
       $rows.Add(($cells -join "`t"))
     }
     return ($rows -join "`n").Trim()
-  } catch {
-    return $null
-  }
+  } catch { return $null }
 }
 
 function Get-ShapeStyle {
@@ -69,7 +93,6 @@ function Get-ShapeStyle {
   $color = $null
   $bold = $null
   $italic = $null
-
   try {
     if ($Shape.HasTextFrame -ne 0 -and $Shape.TextFrame.HasText -ne 0) {
       $font = $Shape.TextFrame.TextRange.Font
@@ -79,51 +102,42 @@ function Get-ShapeStyle {
       try { $color = Convert-OleRgbToHex $font.Color.RGB } catch {}
     }
   } catch {}
-
-  return [ordered]@{
-    fontSize = $fontSize
-    color = $color
-    bold = $bold
-    italic = $italic
-  }
+  return [ordered]@{ fontSize = $fontSize; color = $color; bold = $bold; italic = $italic }
 }
 
 function Add-ShapeBlocks {
   param(
     $Shape,
-    [System.Collections.Generic.List[object]]$Blocks
+    [System.Collections.Generic.List[object]]$Blocks,
+    [double]$SlideWidth,
+    [double]$SlideHeight
   )
 
-  # msoGroup = 6. Recurse into group members rather than emitting the group container.
+  # Respect visibility before group recursion so an invisible group cannot expose visible descendants.
+  if (-not (Test-ShapeVisible $Shape)) { return }
+
+  # msoGroup = 6. Recurse into members rather than emitting the group container.
   try {
     if ([int]$Shape.Type -eq 6) {
       for ($index = 1; $index -le $Shape.GroupItems.Count; $index++) {
-        Add-ShapeBlocks -Shape $Shape.GroupItems.Item($index) -Blocks $Blocks
+        Add-ShapeBlocks -Shape $Shape.GroupItems.Item($index) -Blocks $Blocks -SlideWidth $SlideWidth -SlideHeight $SlideHeight
       }
       return
     }
   } catch {}
 
+  if (-not (Test-ShapeIntersectsSlide -Shape $Shape -SlideWidth $SlideWidth -SlideHeight $SlideHeight)) { return }
+
   $text = $null
   $type = 'text'
   try {
-    if ($Shape.HasTable -ne 0) {
-      $text = Get-TableText $Shape
-      $type = 'table'
-    }
+    if ($Shape.HasTable -ne 0) { $text = Get-TableText $Shape; $type = 'table' }
   } catch {}
-
-  if ([string]::IsNullOrWhiteSpace($text)) {
-    $text = Get-ShapeText $Shape
-    $type = 'text'
-  }
+  if ([string]::IsNullOrWhiteSpace($text)) { $text = Get-ShapeText $Shape; $type = 'text' }
   if ([string]::IsNullOrWhiteSpace($text)) { return }
 
   $style = Get-ShapeStyle $Shape
-  $left = $null
-  $top = $null
-  $width = $null
-  $height = $null
+  $left = $null; $top = $null; $width = $null; $height = $null
   try { $left = [double]$Shape.Left } catch {}
   try { $top = [double]$Shape.Top } catch {}
   try { $width = [double]$Shape.Width } catch {}
@@ -132,14 +146,9 @@ function Add-ShapeBlocks {
   $Blocks.Add([ordered]@{
     type = $type
     text = ([string]$text -replace "`r`n?", "`n").Trim()
-    left = $left
-    top = $top
-    width = $width
-    height = $height
-    fontSize = $style.fontSize
-    color = $style.color
-    bold = $style.bold
-    italic = $style.italic
+    visible = $true
+    left = $left; top = $top; width = $width; height = $height
+    fontSize = $style.fontSize; color = $style.color; bold = $style.bold; italic = $style.italic
   })
 }
 
@@ -150,14 +159,12 @@ function Get-SpeakerNotes {
     foreach ($shape in $Slide.NotesPage.Shapes) {
       $skip = $false
       try {
-        if ($shape.Type -eq 14) { # msoPlaceholder
+        if ($shape.Type -eq 14) {
           $placeholderType = [int]$shape.PlaceholderFormat.Type
-          # Slide number/header/footer/date placeholders are metadata, not speaker notes.
           if ($placeholderType -in @(13, 14, 15, 16)) { $skip = $true }
         }
       } catch {}
       if ($skip) { continue }
-
       $text = Get-ShapeText $shape
       if (-not [string]::IsNullOrWhiteSpace($text)) {
         $normalized = ([string]$text -replace "`r`n?", "`n").Trim()
@@ -177,7 +184,6 @@ try {
   $resolvedJson = [System.IO.Path]::GetFullPath($JsonPath)
 
   $powerPoint = New-Object -ComObject PowerPoint.Application
-  # Open(FileName, ReadOnly, Untitled, WithWindow)
   $presentation = $powerPoint.Presentations.Open($resolvedInput, $true, $false, $false)
 
   $slideWidth = [double]$presentation.PageSetup.SlideWidth
@@ -188,22 +194,17 @@ try {
     $slide = $presentation.Slides.Item($slideNumber)
     $blocks = New-Object System.Collections.Generic.List[object]
     foreach ($shape in $slide.Shapes) {
-      Add-ShapeBlocks -Shape $shape -Blocks $blocks
+      Add-ShapeBlocks -Shape $shape -Blocks $blocks -SlideWidth $SlideWidth -SlideHeight $slideHeight
     }
-
+    # Hidden slides remain represented: page identity must stay aligned with PDF page identity.
     $pages.Add([ordered]@{
-      number = $slideNumber
-      width = $slideWidth
-      height = $slideHeight
-      blocks = @($blocks)
-      speakerNotes = Get-SpeakerNotes $slide
+      number = $slideNumber; width = $slideWidth; height = $slideHeight
+      blocks = @($blocks); speakerNotes = Get-SpeakerNotes $slide
     })
   }
 
-  # PowerShell COM binding is more reliable with an explicit PrintRange object.
-  # Values: PDF=2, screen intent=1, frame=false, output slides=1,
-  # hidden slides=true, range type all=1. Including hidden slides preserves the
-  # invariant that rendered PDF page N is source slide N.
+  # Explicit all-slide range + IncludeDocProperties/KeepIRM defaults. Include hidden slides so
+  # rendered PDF page N remains source slide N.
   $presentation.PrintOptions.Ranges.ClearAll()
   $printRange = $presentation.PrintOptions.Ranges.Add(1, $presentation.Slides.Count)
   $presentation.ExportAsFixedFormat($resolvedPdf, 2, 1, 0, 1, 1, -1, $printRange, 1)
@@ -219,9 +220,7 @@ try {
   $json = $raw | ConvertTo-Json -Depth 10
   [System.IO.File]::WriteAllText($resolvedJson, $json, (New-Object System.Text.UTF8Encoding($false)))
 } finally {
-  if ($null -ne $printRange) {
-    try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($printRange) } catch {}
-  }
+  if ($null -ne $printRange) { try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($printRange) } catch {} }
   if ($null -ne $presentation) {
     try { $presentation.Close() } catch {}
     try { [void][System.Runtime.InteropServices.Marshal]::FinalReleaseComObject($presentation) } catch {}

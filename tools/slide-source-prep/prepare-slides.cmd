@@ -9,6 +9,8 @@ if "%SOURCE%"=="" (
 
 if "%SOURCE%"=="" (
   echo No source path provided.
+  echo.
+  pause
   exit /b 1
 )
 
@@ -24,5 +26,5 @@ if not "%EXIT_CODE%"=="0" (
   echo Slide preparation complete.
 )
 
-if not "%~1"=="" pause
+pause
 exit /b %EXIT_CODE%

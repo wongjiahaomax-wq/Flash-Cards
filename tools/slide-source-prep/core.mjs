@@ -4,25 +4,14 @@ const NO_SLIDE_TEXT = '[No straightforward extractable visible text]';
 const NO_NOTES = '[No speaker notes]';
 
 const FORBIDDEN_SEMANTIC_KEYS = new Set([
-  'question',
-  'answer',
-  'caseId',
-  'diagnosis',
-  'answerSlideFor',
-  'likelyDuplicateOf',
-  'learnerAsset',
-  'suggestedTopic',
+  'question', 'answer', 'caseId', 'diagnosis', 'answerSlideFor',
+  'likelyDuplicateOf', 'learnerAsset', 'suggestedTopic',
 ]);
 
 function finiteNumber(value) {
   if (value == null || value === '') return null;
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
-}
-
-function clamp01(value) {
-  if (!Number.isFinite(value)) return null;
-  return Math.max(0, Math.min(1, value));
 }
 
 function round(value, places = 6) {
@@ -42,27 +31,43 @@ function normalizeColor(value) {
   return /^#[0-9A-F]{6}$/.test(normalized) ? normalized : null;
 }
 
-function normalizeGeometry(block, pageWidth, pageHeight) {
+/**
+ * Return a clipped on-page geometry when reliable. Fully off-page rectangles are
+ * explicitly identified so they can be omitted instead of being clamped onto an edge.
+ * Unknown geometry remains representable as null.
+ */
+function analyzeGeometry(block, pageWidth, pageHeight) {
   const left = finiteNumber(block.left);
   const top = finiteNumber(block.top);
   const width = finiteNumber(block.width);
   const height = finiteNumber(block.height);
   if (
-    left == null
-    || top == null
-    || width == null
-    || height == null
-    || !(pageWidth > 0)
-    || !(pageHeight > 0)
+    left == null || top == null || width == null || height == null
+    || !(pageWidth > 0) || !(pageHeight > 0)
+    || !(width > 0) || !(height > 0)
   ) {
-    return null;
+    return { outsideViewport: false, geometry: null };
   }
 
+  const right = left + width;
+  const bottom = top + height;
+  if (right <= 0 || bottom <= 0 || left >= pageWidth || top >= pageHeight) {
+    return { outsideViewport: true, geometry: null };
+  }
+
+  const clippedLeft = Math.max(0, left);
+  const clippedTop = Math.max(0, top);
+  const clippedRight = Math.min(pageWidth, right);
+  const clippedBottom = Math.min(pageHeight, bottom);
+
   return {
-    x: round(clamp01(left / pageWidth)),
-    y: round(clamp01(top / pageHeight)),
-    width: round(clamp01(width / pageWidth)),
-    height: round(clamp01(height / pageHeight)),
+    outsideViewport: false,
+    geometry: {
+      x: round(clippedLeft / pageWidth),
+      y: round(clippedTop / pageHeight),
+      width: round((clippedRight - clippedLeft) / pageWidth),
+      height: round((clippedBottom - clippedTop) / pageHeight),
+    },
   };
 }
 
@@ -72,7 +77,6 @@ function normalizeStyle(block) {
   const color = normalizeColor(block.color);
   const bold = typeof block.bold === 'boolean' ? block.bold : null;
   const italic = typeof block.italic === 'boolean' ? block.italic : null;
-
   if (fontSize == null && color == null && bold == null && italic == null) return null;
   return {
     fontSize: fontSize == null ? null : round(fontSize, 3),
@@ -92,10 +96,6 @@ export function padPage(number) {
   return String(number).padStart(PAGE_PAD, '0');
 }
 
-/**
- * Normalize deterministic extraction output into the versioned AI-facing source map.
- * Raw blocks may omit geometry/style when the source adapter cannot establish them safely.
- */
 export function normalizeSourceMap({ filename, type, pages }) {
   if (!filename || typeof filename !== 'string') throw new Error('Source filename is required.');
   if (!Array.isArray(pages)) throw new Error('Source pages must be an array.');
@@ -113,9 +113,11 @@ export function normalizeSourceMap({ filename, type, pages }) {
 
     const blocks = rawBlocks
       .map((block, extractionIndex) => {
+        if (block?.visible === false) return null;
         const text = normalizeText(block?.text);
         if (!text) return null;
-        const geometry = normalizeGeometry(block ?? {}, pageWidth, pageHeight);
+        const { outsideViewport, geometry } = analyzeGeometry(block ?? {}, pageWidth, pageHeight);
+        if (outsideViewport) return null;
         return {
           extractionIndex,
           type: block?.type === 'table' ? 'table' : 'text',
@@ -165,24 +167,15 @@ export function sourceMapToMarkdown(sourceMap) {
   assertSourceMapShape(sourceMap);
   const isPptx = sourceMap.source.type === 'pptx';
   const countLabel = isPptx ? 'Slides' : 'Pages';
-  const lines = [
-    `# Source: ${sourceMap.source.filename}`,
-    '',
-    `${countLabel}: ${sourceMap.pageCount}`,
-    '',
-  ];
+  const lines = [`# Source: ${sourceMap.source.filename}`, '', `${countLabel}: ${sourceMap.pageCount}`, ''];
 
   for (const page of sourceMap.pages) {
     lines.push(`## ${page.label}`, '');
     lines.push(`Visual page: ${page.page}`, `Source-map id: ${page.id}`, '');
     lines.push('### Visible text', '');
-    if (page.blocks.length === 0) {
-      lines.push(isPptx ? NO_SLIDE_TEXT : NO_TEXT);
-    } else {
-      for (const block of page.blocks) lines.push(block.text);
-    }
+    if (page.blocks.length === 0) lines.push(isPptx ? NO_SLIDE_TEXT : NO_TEXT);
+    else for (const block of page.blocks) lines.push(block.text);
     lines.push('');
-
     if (isPptx) {
       lines.push('### Speaker notes', '');
       lines.push(page.speakerNotes || NO_NOTES, '');
@@ -197,7 +190,6 @@ export function planChunkRanges(pageCount, { threshold = 50, chunkSize = 40 } = 
   if (!Number.isInteger(threshold) || threshold < 0) throw new Error('threshold must be a non-negative integer.');
   if (!Number.isInteger(chunkSize) || chunkSize <= 0) throw new Error('chunkSize must be a positive integer.');
   if (pageCount <= threshold) return [];
-
   const ranges = [];
   for (let start = 1; start <= pageCount; start += chunkSize) {
     ranges.push({ start, end: Math.min(pageCount, start + chunkSize - 1) });
@@ -210,15 +202,10 @@ export function sliceSourceMap(sourceMap, start, end) {
   if (!Number.isInteger(start) || !Number.isInteger(end) || start < 1 || end < start || end > sourceMap.pageCount) {
     throw new Error(`Invalid source-map range ${start}-${end}.`);
   }
-
   return {
     ...sourceMap,
     pageCount: end - start + 1,
-    source: {
-      ...sourceMap.source,
-      originalPageCount: sourceMap.pageCount,
-      range: { start, end },
-    },
+    source: { ...sourceMap.source, originalPageCount: sourceMap.pageCount, range: { start, end } },
     pages: sourceMap.pages.slice(start - 1, end),
   };
 }
@@ -230,7 +217,6 @@ export function assertSourceMapShape(sourceMap) {
   if (!Array.isArray(sourceMap.pages) || sourceMap.pages.length !== sourceMap.pageCount) {
     throw new Error('source-map pageCount does not match pages.');
   }
-
   const range = sourceMap.source?.range;
   sourceMap.pages.forEach((page, index) => {
     const expectedPage = range ? range.start + index : index + 1;
@@ -252,11 +238,8 @@ export function assertNonSemanticSourceMap(value, path = '$') {
     return;
   }
   if (!value || typeof value !== 'object') return;
-
   for (const [key, nested] of Object.entries(value)) {
-    if (FORBIDDEN_SEMANTIC_KEYS.has(key)) {
-      throw new Error(`Semantic source-map key is forbidden at ${path}.${key}.`);
-    }
+    if (FORBIDDEN_SEMANTIC_KEYS.has(key)) throw new Error(`Semantic source-map key is forbidden at ${path}.${key}.`);
     assertNonSemanticSourceMap(nested, `${path}.${key}`);
   }
 }
@@ -265,11 +248,8 @@ function decodeXmlEntities(value) {
   return value
     .replace(/&#(\d+);/g, (_match, digits) => String.fromCodePoint(Number(digits)))
     .replace(/&#x([0-9a-f]+);/gi, (_match, digits) => String.fromCodePoint(Number.parseInt(digits, 16)))
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&');
+    .replace(/&quot;/g, '"').replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 }
 
 function parseAttributes(fragment) {
@@ -278,17 +258,13 @@ function parseAttributes(fragment) {
   return attrs;
 }
 
-/** Parse Poppler `pdftotext -bbox-layout` XHTML into raw page/block records. */
 export function parsePopplerBboxXhtml(xhtml) {
   if (typeof xhtml !== 'string' || !xhtml.includes('<page')) throw new Error('Poppler bbox output contains no pages.');
   const pages = [];
-
   for (const pageMatch of xhtml.matchAll(/<page\b([^>]*)>([\s\S]*?)<\/page>/gi)) {
     const pageAttrs = parseAttributes(pageMatch[1]);
-    const pageBody = pageMatch[2];
     const blocks = [];
-
-    for (const lineMatch of pageBody.matchAll(/<line\b([^>]*)>([\s\S]*?)<\/line>/gi)) {
+    for (const lineMatch of pageMatch[2].matchAll(/<line\b([^>]*)>([\s\S]*?)<\/line>/gi)) {
       const lineAttrs = parseAttributes(lineMatch[1]);
       const words = [];
       for (const wordMatch of lineMatch[2].matchAll(/<word\b[^>]*>([\s\S]*?)<\/word>/gi)) {
@@ -302,34 +278,21 @@ export function parsePopplerBboxXhtml(xhtml) {
       const xMax = finiteNumber(lineAttrs.xMax);
       const yMax = finiteNumber(lineAttrs.yMax);
       blocks.push({
-        type: 'text',
-        text,
-        left: xMin,
-        top: yMin,
+        type: 'text', text,
+        left: xMin, top: yMin,
         width: xMin == null || xMax == null ? null : xMax - xMin,
         height: yMin == null || yMax == null ? null : yMax - yMin,
-        fontSize: null,
-        color: null,
-        bold: null,
-        italic: null,
+        fontSize: null, color: null, bold: null, italic: null,
       });
     }
-
     pages.push({
       number: pages.length + 1,
-      width: finiteNumber(pageAttrs.width),
-      height: finiteNumber(pageAttrs.height),
-      blocks,
-      speakerNotes: null,
+      width: finiteNumber(pageAttrs.width), height: finiteNumber(pageAttrs.height),
+      blocks, speakerNotes: null,
     });
   }
-
   if (pages.length === 0) throw new Error('Poppler bbox output contains no parseable pages.');
   return pages;
 }
 
-export const EMPTY_MARKERS = Object.freeze({
-  pdfText: NO_TEXT,
-  pptxText: NO_SLIDE_TEXT,
-  notes: NO_NOTES,
-});
+export const EMPTY_MARKERS = Object.freeze({ pdfText: NO_TEXT, pptxText: NO_SLIDE_TEXT, notes: NO_NOTES });
