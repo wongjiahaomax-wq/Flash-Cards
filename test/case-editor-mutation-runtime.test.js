@@ -8,7 +8,7 @@ registerHooks({
   resolve(specifier, context, nextResolve) {
     if (specifier === '$app/forms') {
       return {
-        url: 'data:text/javascript,export%20async%20function%20applyAction(result)%7Bawait%20globalThis.__caseEditorApplyAction%3F.(result)%7D%20export%20function%20enhance()%7Bthrow%20new%20Error(%22enhance%20is%20not%20used%20in%20this%20test%22)%7D',
+        url: 'data:text/javascript,export%20async%20function%20applyAction(result)%7Bawait%20globalThis.__caseEditorApplyAction%3F.(result)%7D%20export%20function%20enhance(node%2C%20callback)%7Breturn%20globalThis.__caseEditorEnhance%3F.(node%2C%20callback)%20%7C%7C%20%7Bdestroy()%7B%7D%7D%7D',
         shortCircuit: true
       };
     }
@@ -269,5 +269,130 @@ test('structural tracking does not rescan or refresh for status-only DOM mutatio
   assert.equal(registrations, 1);
   assert.equal(refreshes, 0);
   assert.equal(queryCount, initialQueries);
+  dispose();
+});
+
+test('generic coordinated Save All submits hidden IDs and checked values for multiple forms', async () => {
+  const { registerCaseEditorForm } = await import('../src/lib/case-editor-mutation.js');
+  const { createCaseEditorCoordinator } = await import('../src/lib/case-editor-coordinator.js');
+  const Input = globalThis.HTMLInputElement;
+  const makeInput = (name, type, value) => Object.assign(new Input(), { name, type, value });
+  const makeForm = (action, controls, entries) => ({
+    elements: controls,
+    submissionEntries: entries,
+    listeners: {},
+    isConnected: true,
+    dataset: {},
+    getAttribute: (name) => name === 'action' ? action : null,
+    querySelectorAll: () => [],
+    addEventListener(type, listener) { this.listeners[type] = listener; },
+    removeEventListener() {},
+    append() {},
+    reportValidity: () => true,
+    requestSubmit() {}
+  });
+  const caption = new FakeTextarea('caption', 'Changed caption');
+  const captionForm = makeForm('?/caption', [
+    makeInput('case_id', 'hidden', 'case-1'),
+    makeInput('asset_id', 'hidden', 'asset-1'),
+    caption
+  ], () => [['case_id', 'case-1'], ['asset_id', 'asset-1'], ['caption', caption.value]]);
+  const active = makeInput('is_active', 'checkbox', 'on');
+  active.checked = true;
+  const groupForm = makeForm('?/updateStimulusGroup', [
+    makeInput('case_id', 'hidden', 'case-1'),
+    makeInput('group_id', 'hidden', 'group-1'),
+    makeInput('name', 'text', 'ECG'),
+    active
+  ], () => [['case_id', 'case-1'], ['group_id', 'group-1'], ['name', groupForm.elements[2].value], ['is_active', 'on']]);
+  const previousFormData = globalThis.FormData;
+  globalThis.FormData = class {
+    constructor(form) { this.values = form.submissionEntries(); }
+    entries() { return this.values[Symbol.iterator](); }
+  };
+  globalThis.document = { createElement: () => ({ classList: { remove() {}, toggle() {} }, setAttribute() {}, remove() {} }) };
+  globalThis.__caseEditorEnhance = () => ({ destroy() {} });
+  const coordinator = createCaseEditorCoordinator();
+  registerCaseEditorForm(captionForm, { coordinator, key: 'caption:asset-1' });
+  registerCaseEditorForm(groupForm, { coordinator, key: 'group-settings:group-1' });
+  captionForm.elements[2].value = 'Changed caption again';
+  groupForm.elements[2].value = 'ECG revised';
+  captionForm.listeners.input();
+  groupForm.listeners.input();
+  let payload;
+  const result = await coordinator.saveAll(async (drafts) => { payload = drafts; return true; });
+
+  assert.deepEqual(result, { attempted: 2, succeeded: 2, failed: 0 });
+  assert.deepEqual(payload, [
+    { kind: 'form', action: '?/caption', fields: [
+      { name: 'case_id', value: 'case-1' },
+      { name: 'asset_id', value: 'asset-1' },
+      { name: 'caption', value: 'Changed caption again' }
+    ] },
+    { kind: 'form', action: '?/updateStimulusGroup', fields: [
+      { name: 'case_id', value: 'case-1' },
+      { name: 'group_id', value: 'group-1' },
+      { name: 'name', value: 'ECG revised' },
+      { name: 'is_active', value: 'on' }
+    ] }
+  ]);
+  globalThis.FormData = previousFormData;
+});
+
+test('a structural form mounted after startup is enhanced and keeps a dirty Case draft on submit', async () => {
+  const { registerCaseEditorStableForms, stableCaseEditorEnhance } = await import('../src/lib/case-editor-mutation.js');
+  const { createCaseEditorCoordinator } = await import('../src/lib/case-editor-coordinator.js');
+  class FakeForm {
+    constructor() {
+      this.elements = [new FakeTextarea('prompt_md', '')];
+      this.isConnected = true;
+      this.nodeType = 1;
+      this.dataset = {};
+      this.id = '';
+      this.classList = { contains: () => false };
+      this.listeners = {};
+    }
+    matches(selector) { return selector.includes('form'); }
+    hasAttribute() { return false; }
+    querySelector() { return null; }
+    getAttribute(name) { return name === 'action' ? '?/saveStimulusOptionQuestion' : null; }
+    addEventListener(type, listener) { this.listeners[type] = listener; }
+    removeEventListener() {}
+    querySelectorAll() { return []; }
+  }
+  const form = new FakeForm();
+  let forms = [];
+  let observerCallback;
+  let enhancedCallback;
+  globalThis.HTMLFormElement = FakeForm;
+  globalThis.MutationObserver = class {
+    constructor(callback) { observerCallback = callback; }
+    observe() {}
+    disconnect() {}
+  };
+  globalThis.document = {
+    body: {},
+    baseURI: 'https://example.test/admin/cases/case-1',
+    querySelector: () => ({}),
+    querySelectorAll: () => forms,
+    createElement: () => ({ classList: { remove() {}, toggle() {} }, setAttribute() {}, remove() {} })
+  };
+  globalThis.__caseEditorEnhance = (_node, callback) => { enhancedCallback = callback; return { destroy() {} }; };
+  globalThis.window = { scrollTo() {} };
+  const coordinator = createCaseEditorCoordinator();
+  let detailsDirty = true;
+  coordinator.register('case-details', { label: 'Case details', isDirty: () => detailsDirty });
+  const dispose = registerCaseEditorStableForms(({ formElement, cancel }) => {
+    const stable = stableCaseEditorEnhance({}, formElement, { deferInvalidation: true });
+    return (context) => stable(context);
+  });
+  forms = [form];
+  observerCallback([{ addedNodes: [form], removedNodes: [] }]);
+  assert.equal(form.dataset.caseEditorEnhanced, 'true');
+  assert.ok(enhancedCallback, 'the later-mounted structural form should receive enhancement');
+  const outcome = await enhancedCallback({ formElement: form, cancel: () => {} })({ result: { type: 'redirect', location: '/admin/cases/case-1?status=saved' } });
+  assert.equal(outcome.deferred, true);
+  assert.equal(detailsDirty, true, 'the unrelated Case details draft remains dirty');
+  assert.equal(coordinator.dirtyItems()[0].key, 'case-details');
   dispose();
 });

@@ -13,6 +13,17 @@ export function captureEditableFormSnapshot(form) {
     });
 }
 
+/**
+ * Capture the browser's successful-control submission semantics separately
+ * from the editable snapshot used for dirty detection. FormData includes
+ * hidden controls, omits unchecked checkboxes, and includes checked checkbox
+ * values exactly as a native form submission would.
+ */
+export function captureFormSubmissionSnapshot(form) {
+  return [...new FormData(form).entries()]
+    .map(([name, value]) => ({ name, value: typeof value === 'string' ? value : String(value) }));
+}
+
 export function sameEditableFormSnapshot(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }

@@ -4,7 +4,7 @@ import { applyAction, enhance } from '$app/forms';
 import { invalidateAll, replaceState } from '$app/navigation';
 import { tick } from 'svelte';
 import { createCoordinatedFormSaveState } from '$lib/case-editor-coordinator.js';
-import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, formHasSelectedFile, mutationMayChangeEditorFormTopology, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
+import { captureEditableFormSnapshot, captureFormSubmissionSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, formHasSelectedFile, mutationMayChangeEditorFormTopology, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
 
 export { captureEditableFormSnapshot, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
 
@@ -171,6 +171,57 @@ export function registerCaseEditorStructuralForms(coordinator) {
   };
 }
 
+function isStableCaseEditorForm(form) {
+  return form instanceof HTMLFormElement
+    && form.matches('.case-editor form[method="POST"]')
+    && form.id !== 'case-details-form'
+    && !form.classList.contains('question-edit-form')
+    && !form.hasAttribute('data-case-editor-coordinated')
+    && !form.hasAttribute('data-case-editor-internal')
+    && !form.hasAttribute('data-case-editor-enhanced')
+    && !form.hasAttribute('data-case-editor-picker')
+    && !form.hasAttribute('data-case-editor-picker-search');
+}
+
+/**
+ * Enhance native structural Case-editor forms as they mount. The editor's
+ * question-management panel is conditional, so a one-time query misses its
+ * forms and lets a later native POST discard other drafts.
+ */
+export function registerCaseEditorStableForms(enhanceForm) {
+  if (typeof document === 'undefined') return () => {};
+  const registrations = new Map();
+  const sync = () => {
+    const forms = new Set([...document.querySelectorAll('.case-editor form[method="POST"]')].filter(isStableCaseEditorForm));
+    for (const [form, registration] of registrations) {
+      if (forms.has(form) && form.isConnected) continue;
+      registration.action?.destroy?.();
+      if (form.dataset.caseEditorEnhanced === 'true') delete form.dataset.caseEditorEnhanced;
+      registrations.delete(form);
+    }
+    for (const form of forms) {
+      if (registrations.has(form)) continue;
+      form.dataset.caseEditorEnhanced = 'true';
+      registrations.set(form, { action: enhance(form, enhanceForm) });
+    }
+  };
+
+  sync();
+  const root = document.querySelector('.case-editor') ?? document.body;
+  const observer = new MutationObserver((records) => {
+    if (mutationMayChangeEditorFormTopology(records)) sync();
+  });
+  observer.observe(root, { childList: true, subtree: true });
+  return () => {
+    observer.disconnect();
+    for (const [form, registration] of registrations) {
+      registration.action?.destroy?.();
+      if (form.dataset.caseEditorEnhanced === 'true') delete form.dataset.caseEditorEnhanced;
+    }
+    registrations.clear();
+  };
+}
+
 /** @param {{ scrollX: number, scrollY: number, activeElement: Element | null, selectionStart: number | null, selectionEnd: number | null }} view @param {HTMLFormElement | null} [submittedForm] @param {{ reconcileSubmittedDraft?: boolean, logicalKey?: string, deferInvalidation?: boolean | (() => boolean), submittedSnapshot?: any[] | null }} [options] */
 export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selectionStart, selectionEnd }, submittedForm = null, { reconcileSubmittedDraft = false, logicalKey = '', deferInvalidation = false, submittedSnapshot: plannedSnapshot = null } = {}) {
   const submittedSnapshot = plannedSnapshot ?? (submittedForm ? captureEditableFormSnapshot(submittedForm) : null);
@@ -327,7 +378,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       status: () => saveState.isPending() ? 'Saving…' : saveState.hasFailed() ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
       isDirty: () => node.isConnected && cachedDirty,
       prepareSave: () => node.reportValidity() ? captureEditableFormSnapshot(node) : null,
-      saveAllPayload: (snapshot) => ({ kind: 'form', action: node.getAttribute('action') ?? '', fields: snapshot }),
+      saveAllPayload: () => ({ kind: 'form', action: node.getAttribute('action') ?? '', fields: captureFormSubmissionSnapshot(node) }),
       commitSaveAll: (snapshot) => {
         baseline = snapshot;
         saveState.complete(true);

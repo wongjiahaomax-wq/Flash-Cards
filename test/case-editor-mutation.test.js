@@ -64,6 +64,38 @@ test('Save All failure keeps every captured draft dirty', async () => {
   assert.equal(coordinator.dirtyCount(), 2);
 });
 
+test('partial Save All failure retains stable-ID updates for a safe retry', async () => {
+  const coordinator = createCaseEditorCoordinator();
+  const drafts = [
+    { id: 'asset-1', value: 'Caption A' },
+    { id: 'group-1', value: 'Group B' }
+  ];
+  const dirty = new Set(drafts.map((draft) => draft.id));
+  for (const draft of drafts) {
+    coordinator.register(`form:${draft.id}`, {
+      isDirty: () => dirty.has(draft.id),
+      prepareSave: () => draft,
+      saveAllPayload: (snapshot) => ({ kind: 'form', fields: snapshot }),
+      commitSaveAll: () => dirty.delete(draft.id)
+    });
+  }
+
+  const requests = [];
+  let attempt = 0;
+  const submit = async (batch) => {
+    requests.push(batch);
+    // Model an earlier writer persisting before a later writer fails. The
+    // coordinator must retain the whole captured batch for the retry.
+    if (attempt++ === 0) return false;
+    return true;
+  };
+  assert.deepEqual(await coordinator.saveAll(submit), { attempted: 2, succeeded: 0, failed: 2 });
+  assert.equal(coordinator.dirtyCount(), 2);
+  assert.deepEqual(await coordinator.saveAll(submit), { attempted: 2, succeeded: 2, failed: 0 });
+  assert.deepEqual(requests[1], requests[0], 'retry must reapply the same stable-ID updates');
+  assert.equal(coordinator.dirtyCount(), 0);
+});
+
 test('one Save All request carries Case details, Question, and generic drafts and only commits after success', async () => {
   const coordinator = createCaseEditorCoordinator();
   let detailsDirty = true;

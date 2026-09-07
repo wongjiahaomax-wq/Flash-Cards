@@ -92,6 +92,10 @@ export const actions = {
     if (!drafts) return fail(400, { error: 'Save All requires one to 60 valid drafts.' });
     const db = createDb(platform.env.DB);
     try {
+      // Save All is intentionally one request, but these existing-record
+      // updates are not an all-or-nothing D1 transaction. If a later writer
+      // fails, retrying the retained batch safely reapplies the same stable-ID
+      // updates; the client therefore keeps every captured draft unsaved.
       for (const draft of drafts) {
         if (draft?.kind === 'case-details') {
           const fields = draft.fields ?? {};

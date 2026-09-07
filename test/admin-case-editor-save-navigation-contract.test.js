@@ -45,7 +45,7 @@ test('live Case-question registration follows creation, Prompt identity changes,
   assert.match(questions, /id=\{`question-edit-\$\{question\.id\}`\}/);
   assert.doesNotMatch(questions, /sameCaseEditorSnapshot\(candidate\.submitted/);
   assert.match(questions, /class="question-edit-form"/);
-  assert.match(page, /form\.classList\.contains\('question-edit-form'\)/);
+  assert.match(mutation, /form\.classList\.contains\('question-edit-form'\)/);
 });
 
 test('advanced image forms register with the shared coordinator after conditional mount', () => {
@@ -54,7 +54,7 @@ test('advanced image forms register with the shared coordinator after conditiona
   for (const key of ['caption:', 'option-caption:', 'option-question:', 'group-question:', 'group-settings:']) {
     assert.match(images, new RegExp(`use:coordinateForm=\{\`${key.replace(':', ':')}[^}]*\}`));
   }
-  assert.match(page, /form\.hasAttribute\('data-case-editor-coordinated'\)/);
+  assert.match(mutation, /form\.hasAttribute\('data-case-editor-coordinated'\)/);
   assert.match(images, /data-case-editor-coordinated/);
   assert.match(images, /use:coordinateForm=\{`option-question:\$\{option\.id\}:\$\{question\.id\}`\}/);
   assert.match(images, /use:coordinateForm=\{`group-question:\$\{group\.id\}:\$\{question\.id\}`\}/);
@@ -173,7 +173,8 @@ test('Save All posts one captured server batch and structural work has a safe fi
   assert.match(coordinator, /const ok = await submit\?\.\(plans\.map/);
   assert.doesNotMatch(coordinator, /Promise\.allSettled/);
   assert.match(mutation, /prepareSave: \(\) => node\.reportValidity\(\) \? captureEditableFormSnapshot\(node\) : null/);
-  assert.match(mutation, /saveAllPayload: \(snapshot\) => \(\{ kind: 'form'/);
+  assert.match(mutation, /captureFormSubmissionSnapshot/);
+  assert.match(mutation, /saveAllPayload: \(\) => \(\{ kind: 'form'/);
   assert.match(header, /result\.succeeded && !coordinator\.hasUnsavedWork\(\)/);
   assert.match(header, /fetch\('\?\/saveAll'/);
   assert.match(caseServer, /saveAll: async/);
@@ -190,6 +191,14 @@ test('Save All posts one captured server batch and structural work has a safe fi
   assert.match(page, /allowSaveableWork: true/);
   assert.match(page, /deferInvalidation: \(\) => draftCoordinator\.saveableDirtyCount\(\) > 0/);
   assert.match(header, /Submit structural work first; then Save All is available\./);
+  assert.match(caseServer, /not an all-or-nothing D1 transaction/);
+});
+
+test('later-mounted structural forms use the stable enhanced submission path', () => {
+  assert.match(mutation, /export function registerCaseEditorStableForms\(enhanceForm\)/);
+  assert.match(mutation, /MutationObserver/);
+  assert.match(page, /registerCaseEditorStableForms/);
+  assert.doesNotMatch(page, /const stableFormActions =/);
 });
 
 test('selected structural upload files warn before an unrelated mutation can discard them', () => {
