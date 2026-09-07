@@ -1,8 +1,10 @@
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   assertNonSemanticSourceMap, normalizeSourceMap, parsePopplerBboxXhtml,
   planChunkRanges, sliceSourceMap, sourceMapToMarkdown,
@@ -195,4 +197,21 @@ test('PowerPoint adapter filters invisible groups/shapes and off-slide geometry 
   assert.match(script, /Test-ShapeIntersectsSlide/);
   assert.match(script, /Add-ShapeBlocks -Shape \$Shape\.GroupItems\.Item\(\$index\).*?-SlideWidth \$SlideWidth -SlideHeight \$SlideHeight/s);
   assert.match(script, /Hidden slides remain represented/);
+});
+
+test('direct CLI invocation executes preparation and reports a supported-source failure', () => {
+  const root = tempDir();
+  const sourcePath = join(root, 'Missing.pdf');
+  const cliPath = fileURLToPath(new URL('../cli.mjs', import.meta.url));
+  try {
+    const result = spawnSync(process.execPath, [cliPath, sourcePath], {
+      encoding: 'utf8',
+      windowsHide: true,
+    });
+    const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+    assert.notEqual(result.status, 0, `direct CLI unexpectedly succeeded:\n${output}`);
+    assert.match(output, /Slide preparation failed: Source file does not exist:/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

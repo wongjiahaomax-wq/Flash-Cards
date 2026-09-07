@@ -176,6 +176,7 @@ For tasks that change maintained tests, test selection, validation composition, 
 | Local development replica | `scripts/AGENTS.md` | `LOCAL_DEVELOPMENT_REPLICA.md`; `DEVELOPMENT_EXECUTION_WORKFLOW.md` | `agent:checks`; focused script tests; credential-dependent verification only when appropriate |
 | Imports / reviewed imports | DB/storage guidance | `CONTENT_IMPORT_PACKAGES.md`; `RESUMABLE_IMPORT_RUNTIME_SAFETY.md` | `agent:checks`; import tests; final required checks |
 | Slide-review tooling | `tools/slide-import-review/AGENTS.md` | `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md`; `CONTENT_IMPORT_PACKAGES.md` | `agent:checks`; `npm run slide-review:test`; `npm run slide-review:build` |
+| Slide-source preparation | `tools/slide-source-prep/AGENTS.md` | `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md`; `SLIDE_SOURCE_PREPARATION_PLAN.md`; `SLIDE_SOURCE_PREPARATION_SOURCE_MAP_AMENDMENT.md` | `agent:checks`; `npm run slide-prep:test`; final required checks |
 | Tags / Shared Questions | Admin + DB guidance | `TAGGING_MODEL_DECISIONS.md`; `TAGGING_STAGE_B_BEHAVIOR.md` | `agent:checks`; focused tests; Vite/HMR for presentation-only edits; final required checks |
 | Stimulus / reusable-image behavior | Admin + DB + storage guidance as applicable | `STIMULUS_GROUPS_DESIGN.md`; `REUSABLE_IMAGE_QUESTIONS.md`; `AUTHORING_MODEL.md` | `agent:checks`; focused tests; Vite/HMR for presentation-only edits; final required checks |
 

@@ -1,6 +1,6 @@
 # Slide Source Preparation — Source Map Amendment
 
-_Status: additive implementation contract for Draft PR #164. This amendment extends `SLIDE_SOURCE_PREPARATION_PLAN.md`; where this amendment is more specific about prepared-output structure, follow this amendment for PR #164._
+_Status: historical additive implementation contract for PR #164. It extends `SLIDE_SOURCE_PREPARATION_PLAN.md`; implemented behavior is authoritative in `tools/slide-source-prep/` and the living reviewed-slide workflow._
 
 ## Purpose
 
