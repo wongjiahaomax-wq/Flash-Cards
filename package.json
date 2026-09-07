@@ -49,7 +49,7 @@
     "fsrs:pr-g-acceptance-d1": "node scripts/learner-fsrs-pr-g-acceptance-d1.mjs",
     "multi-system:cutover-gate": "node scripts/multi-system-v2-cutover-gate.mjs",
     "multi-system:guard-verify": "node scripts/multi-system-v2-guard-verify.mjs",
-    "multi-system:d1-acceptance": "node scripts/multi-system-v2-d1-smoke.mjs",
+    "multi-system:d1-acceptance": "node scripts/multi-system-v2-d1-acceptance.mjs",
     "multi-system:d1-lifecycle-acceptance": "node scripts/multi-system-v2-lifecycle-d1.mjs --acceptance",
     "multi-system:d1-trigger-benchmark": "node scripts/multi-system-v2-lifecycle-d1.mjs --benchmark",
     "multi-system:benchmark": "node scripts/multi-system-v2-benchmark.mjs",
