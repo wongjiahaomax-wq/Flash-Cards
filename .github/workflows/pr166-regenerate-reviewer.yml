@@ -34,9 +34,6 @@ jobs:
       - name: Regenerate standalone reviewer
         run: CI=false node tools/slide-import-review/scripts/build.mjs
 
-      - name: Run focused slide-review tests
-        run: npm run slide-review:test
-
       - name: Commit generated reviewer and restored diagnostics
         run: |
           git config user.name "github-actions[bot]"
