@@ -158,9 +158,11 @@ export function createCaseEditorCoordinator() {
       let succeeded = 0;
       let failed = 0;
       try {
-        const ok = await submit?.(plans.map((plan) => plan.payload));
+        const outcome = await submit?.(plans.map((plan) => plan.payload));
+        const ok = outcome === true || outcome?.ok === true;
         if (ok) {
-          for (const { entry, prepared } of plans) entry.commitSaveAll(prepared);
+          const authoritative = Array.isArray(outcome?.authoritative) ? outcome.authoritative : [];
+          plans.forEach(({ entry, prepared }, index) => entry.commitSaveAll(prepared, authoritative[index] ?? null));
           succeeded = attempted;
         } else failed = attempted;
       } catch {
