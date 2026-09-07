@@ -181,7 +181,8 @@ test('Save All posts one captured server batch and reconciles canonically withou
   assert.match(header, /result\.succeeded && !coordinator\.hasUnsavedWork\(\)/);
   assert.match(header, /fetch\('\?\/saveAll'/);
   assert.match(header, /save-all-authoritative/);
-  assert.match(header, /coordinator\.dirtyItems\(\)\.some\(\(item\) => !item\.saveable\)/);
+  assert.match(header, /const dirtyItems = [^\n]*coordinator\.dirtyItems\(\)/);
+  assert.match(header, /dirtyItems\.some\(\(item\) => !item\.saveable\)/);
   assert.match(caseServer, /saveAll: async/);
   assert.match(caseServer, /await request\.json\(\)/);
   assert.match(caseServer, /draft\?\.kind === 'case-details'/);
