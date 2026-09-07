@@ -140,6 +140,6 @@ test('lifecycle return matrix keeps exact active and inactive Case Library state
 
   assert.equal(caseEditorHref('/admin/cases/case-1/recovery', inactive), '/admin/cases/case-1/recovery?return_query=q%3Duveitis%26topic%3Dtopic-retina%26system%3Dsystem-eye%26tag%3Dtag-1%26sort%3Dtopic-desc%26lifecycle%3Dinactive%26page%3D4');
   assert.equal(caseLibraryReturnHref(inactive), '/admin/cases?q=uveitis&topic=topic-retina&system=system-eye&tag=tag-1&sort=topic-desc&lifecycle=inactive&page=4');
-  assert.equal(caseEditorHref('/admin/cases/case-1', active), '/admin/cases/case-1?return_query=q%3Duveitis%26topic%3Dtopic-retina%26system%3Dsystem-eye%26tag%3Dtag-1%26sort%3Dtopic-desc%26page%3D4');
-  assert.equal(caseLibraryReturnHref(normalizeCaseLibraryReturnQuery(`${active}&return_to=https%3A%2F%2Fevil.example`)), '/admin/cases?q=uveitis&topic=topic-retina&system=system-eye&tag=tag-1&sort=topic-desc&page=4');
+  assert.equal(caseEditorHref('/admin/cases/case-1', active), '/admin/cases/case-1?return_query=q%3Duveitis%26topic%3Dtopic-retina%26system%3Dsystem-eye%26tag%3Dtag-1%26sort%3Dtopic-desc%26lifecycle%3Dactive%26page%3D4');
+  assert.equal(caseLibraryReturnHref(normalizeCaseLibraryReturnQuery(`${active}&return_to=https%3A%2F%2Fevil.example`)), '/admin/cases?q=uveitis&topic=topic-retina&system=system-eye&tag=tag-1&sort=topic-desc&lifecycle=active&page=4');
 });

@@ -89,6 +89,7 @@ test('Case questions can be added, edited, reused for the topic, reordered, and 
       'Name 3 other causes of this condition'
     ]);
     assert.equal(questions[1].reusableForTopic, true);
+    assert.ok(questions[1].id, 'Case-question read model exposes the stable relationship ID');
     assert.deepEqual(
       fixture.sqlite.prepare('SELECT answer_md, inherit_to_descendants FROM concept_questions WHERE concept_id = ? AND question_prompt_id = ?').all('seed-pityriasis-rosea', firstPromptId).map((row) => ({ ...row })),
       [{ answer_md: 'Prolonged QTc', inherit_to_descendants: 0 }]
@@ -141,6 +142,38 @@ test('exact prompt text reuses the existing question_prompts row', async () => {
     assert.ok(after);
     assert.equal(after.count, before.count);
     assert.equal(promptId, 'seed-prompt-describe-ecg');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Case-question saves target the stable relationship while prompt text is normalized', async () => {
+  const fixture = createLearningDb();
+  try {
+    const caseId = 'seed-pityriasis-rosea';
+    const before = await listCaseQuestions(fixture.db, caseId);
+    const relationship = before[0];
+    const promptId = await saveCaseQuestion(fixture.db, {
+      caseId,
+      caseQuestionId: relationship.id,
+      originalPromptId: relationship.questionPromptId,
+      promptMd: 'Normalized prompt ',
+      answerMd: 'Answer A'
+    });
+    const afterFirst = (await listCaseQuestions(fixture.db, caseId)).find((question) => question.id === relationship.id);
+    assert.equal(afterFirst?.promptMd, 'Normalized prompt');
+    assert.equal(afterFirst?.questionPromptId, promptId);
+
+    await saveCaseQuestion(fixture.db, {
+      caseId,
+      caseQuestionId: relationship.id,
+      originalPromptId: promptId,
+      promptMd: 'Normalized prompt',
+      answerMd: 'Answer B'
+    });
+    const afterSecond = await listCaseQuestions(fixture.db, caseId);
+    assert.equal(afterSecond.filter((question) => question.id === relationship.id).length, 1);
+    assert.equal(afterSecond.find((question) => question.id === relationship.id)?.answerMd, 'Answer B');
   } finally {
     fixture.sqlite.close();
   }

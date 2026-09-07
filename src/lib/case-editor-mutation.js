@@ -17,11 +17,11 @@ function captureEditorFormDrafts(excludedForm = null) {
   return [...document.querySelectorAll('.case-editor form[method="POST"]')]
     .filter((form) => form !== excludedForm)
     .map((form) => ({
-    key: editorFormKey(form),
-    values: [...form.elements].map((element) => {
-      if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) return { name: element.name, type: element.type, checked: element.checked };
+      key: editorFormKey(form),
+      values: [...form.elements].map((element, index) => {
+      if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) return { index, name: element.name, type: element.type, checked: element.checked };
       if (element instanceof HTMLInputElement && element.type === 'file') return null;
-      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return { name: element.name, type: element.type, value: element.value };
+      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return { index, name: element.name, type: element.type, value: element.value };
       return null;
     }).filter(Boolean)
     }));
@@ -32,11 +32,10 @@ function restoreEditorFormDrafts(drafts) {
     const form = [...document.querySelectorAll('.case-editor form[method="POST"]')].find((candidate) => editorFormKey(candidate) === draft.key);
     if (!form) continue;
     for (const value of draft.values) {
-      const elements = [...form.elements].filter((element) => element.name === value.name && element.type === value.type);
-      for (const element of elements) {
-        if (value.type === 'checkbox' || value.type === 'radio') element.checked = value.checked;
-        else element.value = value.value;
-      }
+      const element = form.elements[value.index];
+      if (!element || element.name !== value.name || element.type !== value.type) continue;
+      if (value.type === 'checkbox' || value.type === 'radio') element.checked = value.checked;
+      else element.value = value.value;
     }
   }
 }
@@ -169,6 +168,11 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
   let unregister = register();
   let pending = null;
   let resolvePending = null;
+  const status = document.createElement('span');
+  status.className = 'case-editor-inline-save-state';
+  status.setAttribute('role', 'status');
+  status.hidden = true;
+  node.append(status);
 
   function register() {
     return coordinator?.register(`form:${currentKey}`, {
@@ -194,11 +198,14 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       return;
     }
     pending = new Promise((resolve) => { resolvePending = resolve; });
+    status.hidden = false;
+    status.textContent = 'Saving…';
     if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
       cancel();
       const resolve = resolvePending;
       pending = null;
       resolvePending = null;
+      status.hidden = true;
       coordinator?.refresh();
       resolve?.(false);
       return;
@@ -213,6 +220,8 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
         pending = null;
         resolvePending = null;
         coordinator?.refresh();
+        status.textContent = ok ? 'Saved' : 'Save failed — try again';
+        status.classList.toggle('error', !ok);
         resolve?.(ok);
       }
     };
@@ -230,6 +239,7 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
       enhanced?.destroy?.();
       delete node.dataset.caseEditorEnhanced;
       delete node.dataset.caseEditorLogicalKey;
+      status.remove();
       node.removeEventListener('input', refresh);
       node.removeEventListener('change', refresh);
       unregister?.();

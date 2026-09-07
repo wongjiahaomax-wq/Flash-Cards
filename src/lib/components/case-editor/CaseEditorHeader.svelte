@@ -5,11 +5,16 @@
     draftRevision;
     return coordinator?.dirtyCount() ?? 0;
   });
+  /** @type {{ attempted: number, succeeded: number, failed: number } | null} */
+  let saveAllResult = $state(null);
+  async function saveAll() {
+    saveAllResult = await coordinator.saveAll();
+  }
 </script>
 
 <section class="page-heading">
   <div><p class="eyebrow">Case editor</p><h1>{selectedCase.case.title}</h1><p class="muted">Topic: {#if selectedCase.case.conceptId}<a class="topic-link" href={'/admin/topics/' + selectedCase.case.conceptId}>{selectedCase.case.conceptName}</a>{:else}No primary Topic assigned{/if}</p></div>
-  <div class="actions"><a class="button" href={caseLibraryReturnHref(caseLibraryReturnQuery)}>All Cases</a>{#if unsavedCount}<span class="unsaved-count" role="status">{unsavedCount} unsaved</span><button class="button primary" type="button" onclick={() => coordinator.saveAll()} disabled={coordinator.isSavingAll()}>{coordinator.isSavingAll() ? 'Saving…' : 'Save all changes'}</button>{/if}{#if previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href={studyPreviewHref ?? '/study'}>Preview in Study</a>{/if}</div>
+  <div class="actions"><a class="button" href={caseLibraryReturnHref(caseLibraryReturnQuery)}>All Cases</a>{#if unsavedCount}<span class="unsaved-count" role="status">{unsavedCount} unsaved</span><button class="button primary" type="button" onclick={saveAll} disabled={coordinator.isSavingAll()}>{coordinator.isSavingAll() ? 'Saving…' : 'Save all changes'}</button>{/if}{#if saveAllResult?.failed}<span class="save-all-result error" role="alert">{saveAllResult.succeeded} saved, {saveAllResult.failed} failed — unsaved changes remain</span>{:else if saveAllResult?.attempted}<span class="save-all-result" role="status">{saveAllResult.succeeded} saved</span>{/if}{#if previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href={studyPreviewHref ?? '/study'}>Preview in Study</a>{/if}</div>
 </section>
 
 <style>

@@ -267,6 +267,7 @@ export async function loadPreviewCaseEditor(db, previewSessionId, caseId, option
     db
       .select({
         caseId: caseQuestions.caseId,
+        id: caseQuestions.id,
         questionPromptId: caseQuestions.questionPromptId,
         promptMd: questionPrompts.promptMd,
         answerMd: caseQuestions.answerMd,
@@ -461,30 +462,32 @@ async function createPreviewPrompt(db, previewSessionId, promptMd) {
   return id;
 }
 
-/** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {{ originalPromptId?: string | null, promptMd: string, answerMd: string, reusableForTopic?: unknown }} input */
+/** @param {LearningDb} db @param {string} previewSessionId @param {string} caseId @param {{ caseQuestionId?: string | null, originalPromptId?: string | null, promptMd: string, answerMd: string, reusableForTopic?: unknown }} input */
 export async function savePreviewCaseQuestion(db, previewSessionId, caseId, input) {
   await requireOwnedPreviewCase(db, previewSessionId, caseId);
   if (booleanValue(input.reusableForTopic)) {
     throw new PreviewWorkspaceError('Reusable Topic questions are read-only in Preview Mode.', 'GLOBAL_WRITE_BLOCKED');
   }
   const answerMd = requiredText(input.answerMd, 'Question answer');
+  const caseQuestionId = optionalText(input.caseQuestionId);
   const originalPromptId = optionalText(input.originalPromptId);
-  if (originalPromptId) {
-    await requireOwnedPreviewPrompt(db, previewSessionId, originalPromptId);
+  if (caseQuestionId || originalPromptId) {
+    if (!caseQuestionId && originalPromptId) await requireOwnedPreviewPrompt(db, previewSessionId, originalPromptId);
     const relation = (
       await db
-        .select({ id: caseQuestions.id })
+        .select({ id: caseQuestions.id, questionPromptId: caseQuestions.questionPromptId })
         .from(caseQuestions)
-        .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.questionPromptId, originalPromptId)))
+        .where(and(eq(caseQuestions.caseId, caseId), caseQuestionId ? eq(caseQuestions.id, caseQuestionId) : eq(caseQuestions.questionPromptId, /** @type {string} */ (originalPromptId))))
         .limit(1)
     )[0];
     if (!relation) throw new PreviewWorkspaceError('That Preview Case question no longer exists.', 'INVALID_INPUT');
+    await requireOwnedPreviewPrompt(db, previewSessionId, relation.questionPromptId);
     await db
       .update(questionPrompts)
       .set({ promptMd: requiredText(input.promptMd, 'Question prompt'), updatedAt: new Date() })
-      .where(and(eq(questionPrompts.id, originalPromptId), eq(questionPrompts.previewSessionId, previewSessionId)));
+      .where(and(eq(questionPrompts.id, relation.questionPromptId), eq(questionPrompts.previewSessionId, previewSessionId)));
     await db.update(caseQuestions).set({ answerMd, isActive: true, updatedAt: new Date() }).where(eq(caseQuestions.id, relation.id));
-    return originalPromptId;
+    return relation.questionPromptId;
   }
   const promptId = await createPreviewPrompt(db, previewSessionId, input.promptMd);
   const latest = (

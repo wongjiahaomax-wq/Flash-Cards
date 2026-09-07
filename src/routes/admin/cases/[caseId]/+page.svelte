@@ -37,12 +37,17 @@
   let viewerImage = $state(null);
   const draftCoordinator = createCaseEditorCoordinator();
   let draftRevision = $state(0);
+  let suppressNextBeforeUnload = false;
 
   onMount(() => {
     editorLayout = readCaseEditorLayout(getCaseEditorStorage(window));
     const unsubscribe = draftCoordinator.subscribe(() => { draftRevision += 1; });
     /** @param {BeforeUnloadEvent} event */
     const beforeUnload = (event) => {
+      if (suppressNextBeforeUnload) {
+        suppressNextBeforeUnload = false;
+        return;
+      }
       if (!hasEditorUnsavedWork()) return;
       event.preventDefault();
       event.returnValue = '';
@@ -51,21 +56,25 @@
     const submitGuard = (event) => {
       const submittedForm = event.target;
       if (!(submittedForm instanceof HTMLFormElement) || !hasEditorUnsavedWork()) return;
-      if (submittedForm.hasAttribute('data-case-editor-enhanced')) return;
+      if (submittedForm.hasAttribute('data-case-editor-internal') || submittedForm.hasAttribute('data-case-editor-enhanced') || submittedForm.hasAttribute('data-case-editor-coordinated')) return;
       if (caseEditorHasConflictingUnsavedWork(submittedForm, draftCoordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) event.preventDefault();
+    };
+    /** @param {SubmitEvent} event */
+    const acceptedNativeSubmit = (event) => {
+      const submittedForm = event.target;
+      if (!(submittedForm instanceof HTMLFormElement) || submittedForm.hasAttribute('data-case-editor-internal') || submittedForm.hasAttribute('data-case-editor-enhanced') || submittedForm.hasAttribute('data-case-editor-coordinated')) return;
+      if (!event.defaultPrevented && submittedForm.method.toLowerCase() === 'post' && hasEditorUnsavedWork()) suppressNextBeforeUnload = true;
     };
     window.addEventListener('beforeunload', beforeUnload);
     document.addEventListener('submit', submitGuard, true);
+    document.addEventListener('submit', acceptedNativeSubmit);
     const stableFormActions = [...document.querySelectorAll('.case-editor form[method="POST"]')]
       .filter((form) => {
         if (!(form instanceof HTMLFormElement)) return false;
         if (form.id === 'case-details-form' || form.classList.contains('question-edit-form')) return false;
         if (form.hasAttribute('data-case-editor-coordinated')) return false;
         const action = form.getAttribute('action') ?? '';
-        return (action.startsWith('?/') || action.includes('/cases/'))
-          && !action.includes('/question-scope')
-          && !action.includes('/deactivate')
-          && !action.includes('/reorderQuestion');
+        return action.startsWith('?/') && !form.hasAttribute('data-case-editor-internal') && !form.hasAttribute('data-case-editor-enhanced') && !form.hasAttribute('data-case-editor-coordinated');
       });
     /** @param {any} submitContext */
     const enhanceStableForm = ({ formElement, cancel }) => {
@@ -81,6 +90,7 @@
       unsubscribe();
       window.removeEventListener('beforeunload', beforeUnload);
       document.removeEventListener('submit', submitGuard, true);
+      document.removeEventListener('submit', acceptedNativeSubmit);
       for (const [index, action] of enhancedForms.entries()) {
         action?.destroy?.();
         delete /** @type {HTMLFormElement} */ (stableFormActions[index]).dataset.caseEditorEnhanced;
@@ -140,10 +150,10 @@
   {#if !data.previewMode && data.status === 'case-restored'}<p class="success-message" role="status">Case restored. It is active and available to normal Admin and learner flows.</p>{/if}
   <div class="case-editor" data-editor-layout={editorLayout}>
     <CaseEditorNavigation {selectedCase} {primaryTopic} {editorLayout} {fastReviewSummary} auditCount={caseQuestionAudit.length} onlayoutchange={setEditorLayout} />
-    <CaseTopicsSection {selectedCase} concepts={data.concepts} systems={data.systems} tagOptions={selectedCase.tagOptions ?? []} {primaryTopic} previewMode={data.previewMode} {editorLayout} />
+    <CaseTopicsSection {selectedCase} concepts={data.concepts} systems={data.systems} tagOptions={selectedCase.tagOptions ?? []} {primaryTopic} previewMode={data.previewMode} {editorLayout} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
     <CaseDetailsSection {selectedCase} {primaryTopic} {editorLayout} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
     <CaseImagesSection {selectedCase} previewMode={data.previewMode} {editorLayout} {editorBase} onimageopen={showImage} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
-    {#if !data.previewMode}<StimulusOriginalsPanel {selectedCase} />{/if}
+    {#if !data.previewMode}<StimulusOriginalsPanel {selectedCase} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />{/if}
     <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} status={data.status} removedQuestionPromptId={data.removedQuestionPromptId} {editorLayout} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
     {#if editorLayout === 'compact'}<CaseQuestionAudit rows={caseQuestionAudit} onimageopen={showImage} />{/if}
     <CasePreviewSection previewMode={data.previewMode} {studyPreviewHref} />

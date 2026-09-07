@@ -9,8 +9,8 @@
   /** @typedef {{ id: string, name: string }} TagOption */
   /** @typedef {{ case: { id: string }, topics: CaseTopic[], caseTags?: CaseTag[] }} TopicsCase */
   /** @typedef {{ id: string, name: string }} SystemOption */
-  /** @typedef {{ selectedCase: TopicsCase, concepts: ConceptOption[], systems?: SystemOption[], tagOptions?: TagOption[], primaryTopic?: CaseTopic | null, previewMode: boolean, editorLayout: CaseEditorLayout }} TopicsProps */
-  let { selectedCase, concepts, systems = [], tagOptions = [], primaryTopic, previewMode, editorLayout } = $props();
+  /** @typedef {{ selectedCase: TopicsCase, concepts: ConceptOption[], systems?: SystemOption[], tagOptions?: TagOption[], primaryTopic?: CaseTopic | null, previewMode: boolean, editorLayout: CaseEditorLayout, caseLibraryReturnQuery?: string }} TopicsProps */
+  let { selectedCase, concepts, systems = [], tagOptions = [], primaryTopic, previewMode, editorLayout, caseLibraryReturnQuery = '' } = $props();
   const UNASSIGNED_SYSTEM_CONTEXT = '__unassigned__';
 
   /** @param {CaseTopic | ConceptOption | undefined | null} topic */
@@ -252,6 +252,7 @@
           </div>
           <small class="topic-help">Creates an unassigned global Topic and makes it canonical for this Case.</small>
           <form method="POST" action="?/createCaseTopic" class="topic-create-form form-row">
+            <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
             <input type="hidden" name="case_id" value={selectedCase.case.id} />
             <input type="hidden" name="relationship_intent" value="primary" />
             <label>Topic name<input name="name" maxlength="200" required placeholder="e.g. Pericarditis" /></label>
@@ -278,7 +279,7 @@
               <div class="tag-chip-wrap">
                 {#if previewMode}<span class:inactive={!tag.isActive} class="tag-chip">{tag.name}</span>{:else}<a class:inactive={!tag.isActive} class="tag-chip" href={'/admin/tags?tag=' + tag.id}>{tag.name}</a>{/if}
                 {#if !previewMode}
-                  <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'}><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="operation" value="remove" /><input type="hidden" name="tag_id" value={tag.id} /><button class="tag-remove" type="submit" aria-label={'Remove ' + tag.name + ' from this Case'}>Remove</button></form>
+                  <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'}><input type="hidden" name="return_query" value={caseLibraryReturnQuery} /><input type="hidden" name="case_id" value={selectedCase.case.id} /><input type="hidden" name="operation" value="remove" /><input type="hidden" name="tag_id" value={tag.id} /><button class="tag-remove" type="submit" aria-label={'Remove ' + tag.name + ' from this Case'}>Remove</button></form>
                 {/if}
               </div>
             {/each}
@@ -291,6 +292,7 @@
       {#if !previewMode}
         {#if tagOptions.some((tag) => !hasTag(selectedCase.caseTags, tag.id))}
           <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-add-form form-row">
+            <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
             <input type="hidden" name="case_id" value={selectedCase.case.id} />
             <input type="hidden" name="operation" value="add" />
             <label>Add existing Case Tag<select name="tag_id" required><option value="" disabled selected>Select an active Tag</option>{#each tagOptions as tag}{#if !hasTag(selectedCase.caseTags, tag.id)}<option value={tag.id}>{tag.name}</option>{/if}{/each}</select></label>
@@ -302,6 +304,7 @@
           <div class="secondary-heading"><strong>Create a new Case Tag</strong></div>
           <small class="topic-help">Creates a new active global Tag and attaches it to this Case.</small>
           <form method="POST" action={'/admin/cases/' + encodeURIComponent(selectedCase.case.id) + '/case-tags'} class="tag-create-form form-row">
+            <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
             <input type="hidden" name="case_id" value={selectedCase.case.id} />
             <input type="hidden" name="operation" value="create-and-add" />
             <label>Tag name<input name="name" maxlength="120" required placeholder="e.g. Prolonged QTc" /></label>

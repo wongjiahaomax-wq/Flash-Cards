@@ -59,9 +59,23 @@ function actionStatus(error) {
   return 400;
 }
 
-/** @param {string} caseId @param {string} status @param {string} [hash] */
-function caseRedirect(caseId, status, hash = '') {
-  return `/preview-admin/cases/${encodeURIComponent(caseId)}?status=${encodeURIComponent(status)}${hash}`;
+/** @param {Request} request @param {FormData} formData */
+function editorReturnQuery(request, formData) {
+  const submitted = formText(formData, 'return_query');
+  if (submitted) return normalizeCaseLibraryReturnQuery(submitted);
+  const referer = request.headers.get('referer');
+  if (!referer) return '';
+  try {
+    const refererUrl = new URL(referer);
+    if (refererUrl.origin !== new URL(request.url).origin) return '';
+    return normalizeCaseLibraryReturnQuery(refererUrl.searchParams.get('return_query'));
+  } catch { return ''; }
+}
+
+/** @param {string} caseId @param {string} status @param {Request} request @param {FormData} formData @param {string} [hash] */
+function caseRedirect(caseId, status, request, formData, hash = '') {
+  const returnQuery = editorReturnQuery(request, formData);
+  return `/preview-admin/cases/${encodeURIComponent(caseId)}?status=${encodeURIComponent(status)}${returnQuery ? `&return_query=${encodeURIComponent(returnQuery)}` : ''}${hash}`;
 }
 
 /** @param {{ locals: App.Locals, platform?: App.Platform }} event */
@@ -92,6 +106,7 @@ async function contextOrFailure(event) {
 export async function load({ parent, params, platform, url }) {
   const parentData = await parent();
   const caseLibraryReturnQuery = normalizeCaseLibraryReturnQuery(url.searchParams.get('return_query'));
+  const pickerSelectedAssetIds = url.searchParams.getAll('picker_selected').map((value) => value.trim()).filter(Boolean);
   const env = platform?.env;
   if (!env?.DB || parentData.workspace.status !== 'active' || parentData.workspaceError) {
     return {
@@ -108,12 +123,14 @@ export async function load({ parent, params, platform, url }) {
       workspaceBlocked: true
     };
   }
-  return {
-    ...(await loadPreviewCaseEditor(createDb(env.DB), parentData.workspace.id, params.caseId, {
+  const editorData = await loadPreviewCaseEditor(createDb(env.DB), parentData.workspace.id, params.caseId, {
       imagePickerOpen: url.searchParams.get('picker') === '1',
       imagePickerSearch: url.searchParams.get('image_q')?.trim() ?? '',
       targetGroupId: url.searchParams.get('target_group')?.trim() || null
-    })),
+    });
+  return {
+    ...editorData,
+    imagePicker: { ...editorData.imagePicker, selectedAssetIds: pickerSelectedAssetIds },
     systems: [],
     status: url.searchParams.get('status'),
     removedQuestionPromptId: url.searchParams.get('removed_question'),
@@ -143,7 +160,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'preview-images-attached', '#images'));
+    redirect(303, caseRedirect(caseId, 'preview-images-attached', event.request, formData, '#images'));
   },
 
   uploadAndAttach: async (event) => {
@@ -185,7 +202,7 @@ export const actions = {
       if (created) await discardPreviewAsset(result.context.db, result.context.env.MEDIA, result.context.session.id, created.id).catch(() => {});
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'preview-image-uploaded', '#images'));
+    redirect(303, caseRedirect(caseId, 'preview-image-uploaded', event.request, formData, '#images'));
   },
 
   updateStimulusOptionCaption: async (event) => {
@@ -205,7 +222,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'option-caption-updated', '#images'));
+    redirect(303, caseRedirect(caseId, 'option-caption-updated', event.request, formData, '#images'));
   },
 
   updateCase: async (event) => {
@@ -225,7 +242,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'case-saved', '#case'));
+    redirect(303, caseRedirect(caseId, 'case-saved', event.request, formData, '#case'));
   },
 
   addSecondaryTopic: async (event) => {
@@ -238,7 +255,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'topic-added', '#topics'));
+    redirect(303, caseRedirect(caseId, 'topic-added', event.request, formData, '#topics'));
   },
 
   removeSecondaryTopic: async (event) => {
@@ -251,7 +268,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'topic-removed', '#topics'));
+    redirect(303, caseRedirect(caseId, 'topic-removed', event.request, formData, '#topics'));
   },
 
   promoteTopic: async (event) => {
@@ -264,7 +281,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'topic-promoted', '#topics'));
+    redirect(303, caseRedirect(caseId, 'topic-promoted', event.request, formData, '#topics'));
   },
 
   vignette: async (event) => {
@@ -277,7 +294,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'vignette-saved', '#case'));
+    redirect(303, caseRedirect(caseId, 'vignette-saved', event.request, formData, '#case'));
   },
 
   saveQuestion: async (event) => {
@@ -288,6 +305,7 @@ export const actions = {
     let savedPromptId = null;
     try {
       savedPromptId = await savePreviewCaseQuestion(result.context.db, result.context.session.id, caseId, {
+        caseQuestionId: formText(formData, 'case_question_id') || null,
         originalPromptId: formText(formData, 'original_prompt_id') || null,
         promptMd: formText(formData, 'prompt_md'),
         answerMd: formText(formData, 'answer_md'),
@@ -297,7 +315,7 @@ export const actions = {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
     const hash = savedPromptId ? `#question-${encodeURIComponent(savedPromptId)}` : '#questions';
-    redirect(303, caseRedirect(caseId, 'question-saved', hash));
+    redirect(303, caseRedirect(caseId, 'question-saved', event.request, formData, hash));
   },
 
   removeQuestion: async (event) => {
@@ -310,7 +328,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, `${caseRedirect(caseId, 'question-removed')}&removed_question=${encodeURIComponent(formText(formData, 'prompt_id'))}#questions`);
+    redirect(303, `${caseRedirect(caseId, 'question-removed', event.request, formData)}&removed_question=${encodeURIComponent(formText(formData, 'prompt_id'))}#questions`);
   },
 
   restoreQuestion: async (event) => {
@@ -324,7 +342,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'question-restored', `#question-${encodeURIComponent(promptId)}`));
+    redirect(303, caseRedirect(caseId, 'question-restored', event.request, formData, `#question-${encodeURIComponent(promptId)}`));
   },
 
   reorderQuestion: async (event) => {
@@ -339,7 +357,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'question-reordered', '#questions'));
+    redirect(303, caseRedirect(caseId, 'question-reordered', event.request, formData, '#questions'));
   },
 
   createStimulusGroup: async (event) => {
@@ -356,7 +374,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'stimulus-group-created', '#stimuli'));
+    redirect(303, caseRedirect(caseId, 'stimulus-group-created', event.request, formData, '#stimuli'));
   },
 
   startAlternativeSet: async (event) => {
@@ -375,7 +393,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'alternative-set-created', '#stimuli'));
+    redirect(303, caseRedirect(caseId, 'alternative-set-created', event.request, formData, '#stimuli'));
   },
 
   updateStimulusGroup: async (event) => {
@@ -393,7 +411,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'stimulus-group-saved', '#stimuli'));
+    redirect(303, caseRedirect(caseId, 'stimulus-group-saved', event.request, formData, '#stimuli'));
   },
 
   addStimulusOption: async (event) => {
@@ -421,7 +439,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'stimulus-option-added', '#stimuli'));
+    redirect(303, caseRedirect(caseId, 'stimulus-option-added', event.request, formData, '#stimuli'));
   },
 
   setStimulusOptionActive: async (event) => {
@@ -439,7 +457,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'stimulus-option-saved', '#stimuli'));
+    redirect(303, caseRedirect(caseId, 'stimulus-option-saved', event.request, formData, '#stimuli'));
   },
 
   // The shared editor exposes this production-only lifecycle mutation, but
@@ -464,7 +482,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'stimulus-option-reordered', '#stimuli'));
+    redirect(303, caseRedirect(caseId, 'stimulus-option-reordered', event.request, formData, '#stimuli'));
   },
 
   saveStimulusGroupQuestion: async (event) => {
@@ -481,7 +499,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'stimulus-question-saved', '#stimuli'));
+    redirect(303, caseRedirect(caseId, 'stimulus-question-saved', event.request, formData, '#stimuli'));
   },
 
   saveStimulusOptionQuestion: async (event) => {
@@ -498,7 +516,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'stimulus-question-saved', '#stimuli'));
+    redirect(303, caseRedirect(caseId, 'stimulus-question-saved', event.request, formData, '#stimuli'));
   },
 
   removeStimulusQuestion: async (event) => {
@@ -518,7 +536,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'stimulus-question-removed', '#stimuli'));
+    redirect(303, caseRedirect(caseId, 'stimulus-question-removed', event.request, formData, '#stimuli'));
   },
 
   upload: async (event) => {
@@ -553,7 +571,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'preview-image-uploaded', '#images'));
+    redirect(303, caseRedirect(caseId, 'preview-image-uploaded', event.request, formData, '#images'));
   },
 
   attach: async (event) => {
@@ -566,7 +584,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'attached', '#images'));
+    redirect(303, caseRedirect(caseId, 'attached', event.request, formData, '#images'));
   },
 
   detach: async (event) => {
@@ -579,7 +597,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'detached', '#images'));
+    redirect(303, caseRedirect(caseId, 'detached', event.request, formData, '#images'));
   },
 
   caption: async (event) => {
@@ -598,7 +616,7 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'caption-saved', '#images'));
+    redirect(303, caseRedirect(caseId, 'caption-saved', event.request, formData, '#images'));
   },
 
   reorder: async (event) => {
@@ -619,6 +637,6 @@ export const actions = {
     } catch (error) {
       return fail(actionStatus(error), { error: actionError(error), caseId });
     }
-    redirect(303, caseRedirect(caseId, 'reordered', '#images'));
+    redirect(303, caseRedirect(caseId, 'reordered', event.request, formData, '#images'));
   }
 };

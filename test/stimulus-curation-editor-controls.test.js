@@ -327,7 +327,8 @@ test('curated image sets keep Original reassignment reachable through the canoni
     branch,
     /await\s+setStimulusGroupOriginal\s*\(\s*db\s*,\s*caseId\s*,\s*formText\(formData,\s*['"]group_id['"]\)\s*,\s*formText\(formData,\s*['"]option_id['"]\)\s*\)/s
   );
-  assert.match(roleRouteSource, /redirect\(303,\s*`\/admin\/cases\/\$\{encodeURIComponent\(caseId\)\}[^`]*#stimulus-curation`\)/);
+  assert.match(roleRouteSource, /editorReturnQuery/);
+  assert.match(roleRouteSource, /#stimulus-curation/);
 });
 
 test('Always shown images can return to the single active image set as Alternatives', () => {
@@ -407,6 +408,6 @@ test('only non-Original options can move to Always shown through the canonical c
   );
   assert.match(
     supportingRouteSource,
-    /redirect\(303,\s*`\/admin\/cases\/\$\{encodeURIComponent\(result\.caseId\)\}[^`]*#stimulus-curation`\)/
+    /editorReturnQuery[\s\S]*#stimulus-curation/
   );
 });

@@ -36,7 +36,10 @@ export const actions = {
       console.error('Unable to restore Case.', errorValue);
       return fail(500, { error: 'Unable to restore this Case.' });
     }
-    const returnQuery = normalizeCaseLibraryReturnQuery(formText(formData, 'return_query'));
+    let returnQuery = normalizeCaseLibraryReturnQuery(formText(formData, 'return_query'));
+    if (!returnQuery) {
+      try { returnQuery = normalizeCaseLibraryReturnQuery(new URL(request.headers.get('referer') ?? '').searchParams.get('return_query')); } catch { returnQuery = ''; }
+    }
     redirect(303, `/admin/cases/${encodeURIComponent(caseId)}?status=case-restored${returnQuery ? `&return_query=${encodeURIComponent(returnQuery)}` : ''}`);
   }
 };

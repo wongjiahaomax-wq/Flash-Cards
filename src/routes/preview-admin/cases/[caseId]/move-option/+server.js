@@ -4,11 +4,23 @@ import { createDb } from '$lib/server/db/index.js';
 import { moveStimulusOptionWithinCase, StimulusOptionMoveError } from '$lib/server/db/image-option-move.js';
 import { getLivePreviewSession } from '$lib/server/db/preview-workspace.js';
 import { requirePreviewAdmin } from '$lib/server/preview-auth.js';
+import { normalizeCaseLibraryReturnQuery } from '$lib/admin-case-library-state.ts';
 
 /** @param {FormData} formData @param {string} name */
 function text(formData, name) {
   const value = formData.get(name);
   return typeof value === 'string' ? value.trim() : '';
+}
+
+/** @param {Request} request @param {FormData} formData */
+function editorReturnQuery(request, formData) {
+  const submitted = text(formData, 'return_query');
+  if (submitted) return normalizeCaseLibraryReturnQuery(submitted);
+  try {
+    const refererUrl = new URL(request.headers.get('referer') ?? '');
+    if (refererUrl.origin !== new URL(request.url).origin) return '';
+    return normalizeCaseLibraryReturnQuery(refererUrl.searchParams.get('return_query'));
+  } catch { return ''; }
 }
 
 export async function POST({ request, locals, platform, params }) {
@@ -34,5 +46,6 @@ export async function POST({ request, locals, platform, params }) {
     if (!clientError) console.error('Unable to move Preview alternative stimulus option.', error);
     return new Response(clientError ? error.message : 'Unable to move the Preview alternative image.', { status: clientError ? (error.code === 'NOT_OWNED' ? 403 : 400) : 500 });
   }
-  redirect(303, `/preview-admin/cases/${encodeURIComponent(caseId)}?status=option-moved#images`);
+  const returnQuery = editorReturnQuery(request, formData);
+  redirect(303, `/preview-admin/cases/${encodeURIComponent(caseId)}?status=option-moved${returnQuery ? `&return_query=${encodeURIComponent(returnQuery)}` : ''}#images`);
 }

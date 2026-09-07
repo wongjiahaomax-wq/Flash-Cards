@@ -136,7 +136,8 @@ export function normalizeCaseLibraryReturnQuery(value: string | URLSearchParams 
     page: params.get('page') ?? '1'
   });
   if (!state) return '';
-  const href = caseLibraryStateHref(state);
+  const explicitKeys = (['sort', 'lifecycle', 'page'] as const).filter((key) => params.has(key));
+  const href = caseLibraryStateHref(state, explicitKeys);
   return href.includes('?') ? href.slice(href.indexOf('?') + 1) : '';
 }
 

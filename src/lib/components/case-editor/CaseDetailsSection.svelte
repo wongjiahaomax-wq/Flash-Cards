@@ -2,7 +2,7 @@
   // @ts-nocheck
   import { onDestroy, onMount } from 'svelte';
   import { enhance } from '$app/forms';
-  import { captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { cloneCaseEditorSnapshot, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
 
@@ -35,11 +35,7 @@
     }
   });
 
-  function beginSubmit(event) {
-    if (pending) {
-      event.preventDefault();
-      return;
-    }
+  function beginSubmit() {
     submittedSnapshot = cloneCaseEditorSnapshot(draft);
     pending = new Promise((resolve) => { resolvePending = resolve; });
     saveState = 'saving';
@@ -53,7 +49,16 @@
     return pending ?? Promise.resolve(false);
   }
 
-  function enhanceDetails({ formElement }) {
+  function enhanceDetails({ formElement, cancel }) {
+    if (pending) {
+      cancel();
+      return;
+    }
+    if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+      cancel();
+      return;
+    }
+    beginSubmit();
     const view = captureCaseEditorView();
     const stable = stableCaseEditorEnhance(view, formElement);
     return async ({ result }) => {
@@ -95,7 +100,7 @@
     <span class="save-state" class:error={saveState === 'error'}>{saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed — try again' : dirty ? 'Unsaved changes' : 'Saved'}</span><button class="button primary" type="submit" form="case-details-form" disabled={Boolean(pending)}>Save Case</button>
   </div>
 
-  <form bind:this={detailsForm} id="case-details-form" method="POST" action="?/updateCase" class="case-form" use:enhance={enhanceDetails} onsubmit={beginSubmit}>
+  <form bind:this={detailsForm} id="case-details-form" method="POST" action="?/updateCase" class="case-form" data-case-editor-internal use:enhance={enhanceDetails}>
     <input type="hidden" name="case_id" value={selectedCase.case.id} />
     <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
 

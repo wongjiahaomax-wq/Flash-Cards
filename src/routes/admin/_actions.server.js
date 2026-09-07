@@ -261,6 +261,7 @@ export const actions = {
     try {
       savedPromptId = await saveCaseQuestion(createDb(platform.env.DB), {
         caseId,
+        caseQuestionId: formText(formData, 'case_question_id') || null,
         originalPromptId: formText(formData, 'original_prompt_id') || null,
         promptMd: formText(formData, 'prompt_md'),
         answerMd: formText(formData, 'answer_md'),

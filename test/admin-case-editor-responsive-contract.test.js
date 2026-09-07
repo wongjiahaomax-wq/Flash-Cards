@@ -451,7 +451,7 @@ test('layout switching is presentation-only and keeps existing question forms mo
   const editForm = tags(questions, 'form').find((tag) => /(?:^|\s)question-edit-form(?:\s|$)/.test(attribute(tag, 'class') ?? ''));
   assert.ok(editForm);
   assert.equal(attribute(editForm, 'action'), '?/saveQuestion');
-  assert.match(editForm, /id=\{`question-edit-\$\{question\.questionPromptId\}`\}/);
+  assert.match(editForm, /id=\{`question-edit-\$\{question\.id\}`\}/);
   for (const { condition, body } of svelteIfBlocks(questions).filter(({ condition }) => /(?:===|!==)\s*['"](?:classic|compact)['"]/.test(condition))) {
     assert.equal(tags(body, 'form').some((tag) => /(?:^|\s)question-edit-form(?:\s|$)/.test(attribute(tag, 'class') ?? '')), false, `Existing question forms must not be mounted by layout condition: ${condition}`);
   }

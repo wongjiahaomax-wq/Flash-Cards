@@ -4,7 +4,9 @@ import test from 'node:test';
 
 const page = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
 const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
+const details = readFileSync(new URL('../src/lib/components/case-editor/CaseDetailsSection.svelte', import.meta.url), 'utf8');
 const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url), 'utf8');
+const topics = readFileSync(new URL('../src/lib/components/case-editor/CaseTopicsSection.svelte', import.meta.url), 'utf8');
 const imagesSection = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
 const picker = readFileSync(new URL('../src/lib/components/case-editor/CaseImagePickerDialog.svelte', import.meta.url), 'utf8');
 const reusable = readFileSync(new URL('../src/lib/components/ReusableImageQuestionManager.svelte', import.meta.url), 'utf8');
@@ -13,9 +15,15 @@ const questionScope = readFileSync(new URL('../src/routes/admin/cases/[caseId]/q
 const recoveryServer = readFileSync(new URL('../src/routes/admin/cases/[caseId]/recovery/+page.server.js', import.meta.url), 'utf8');
 const recoveryPage = readFileSync(new URL('../src/routes/admin/cases/[caseId]/recovery/+page.svelte', import.meta.url), 'utf8');
 const deactivate = readFileSync(new URL('../src/routes/admin/cases/[caseId]/deactivate/+server.js', import.meta.url), 'utf8');
+const previewServer = readFileSync(new URL('../src/routes/preview-admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
+const caseTags = readFileSync(new URL('../src/routes/admin/cases/[caseId]/case-tags/+server.js', import.meta.url), 'utf8');
+const moveOption = readFileSync(new URL('../src/routes/admin/cases/[caseId]/move-option/+server.js', import.meta.url), 'utf8');
+const stimulusRoles = readFileSync(new URL('../src/routes/admin/stimulus-roles/+server.js', import.meta.url), 'utf8');
+const stimulusSupporting = readFileSync(new URL('../src/routes/admin/stimulus-supporting/+server.js', import.meta.url), 'utf8');
 
 test('question-scope uses native endpoint submission and carries bounded return context', () => {
-  assert.match(page, /!action\.includes\('\/question-scope'\)/);
+  assert.match(page, /action\.startsWith\('\?\/'\)/);
+  assert.doesNotMatch(page, /action\.includes\('\/cases\/'\)/);
   assert.match(questionScope, /normalizeCaseLibraryReturnQuery/);
   assert.match(questionScope, /request\.headers\.get\('referer'\)/);
   assert.match(questionScope, /const returnQuery = editorReturnQuery\(request, formData\)/);
@@ -28,10 +36,11 @@ test('question-scope uses native endpoint submission and carries bounded return 
 test('live Case-question registration follows creation, Prompt identity changes, and removals', () => {
   assert.doesNotMatch(questions, /onMount\(/);
   assert.match(questions, /\$effect\(\(\) => \{\s*syncQuestionDrafts\(\)/);
-  assert.match(questions, /questionRegistrations\.delete\(promptId\)/);
-  assert.match(questions, /coordinator\?\.register\(`question:\$\{promptId\}`/);
-  assert.match(questions, /const previousId = state\.authoritativeId/);
-  assert.match(questions, /delete questionDrafts\[previousId\]/);
+  assert.match(questions, /questionRegistrations\.delete\(caseQuestionId\)/);
+  assert.match(questions, /coordinator\?\.register\(`question:\$\{caseQuestionId\}`/);
+  assert.match(questions, /name="case_question_id" value=\{question\.id\}/);
+  assert.match(questions, /id=\{`question-edit-\$\{question\.id\}`\}/);
+  assert.doesNotMatch(questions, /sameCaseEditorSnapshot\(candidate\.submitted/);
   assert.match(questions, /class="question-edit-form"/);
   assert.match(page, /form\.classList\.contains\('question-edit-form'\)/);
 });
@@ -70,6 +79,10 @@ test('coordinated ordinary saves do not warn about themselves and enhanced cance
   assert.match(page, /caseEditorHasConflictingUnsavedWork\(formElement, draftCoordinator\)/);
   assert.match(page, /cancel\(\);/);
   assert.match(page, /hasAttribute\('data-case-editor-coordinated'\)/);
+  assert.match(details, /caseEditorHasConflictingUnsavedWork\(formElement, coordinator\)/);
+  assert.match(details, /cancel\(\);/);
+  assert.match(questions, /caseEditorHasConflictingUnsavedWork\(formElement, coordinator\)/);
+  assert.match(questions, /cancel\(\);/);
   assert.match(mutation, /isOrdinaryCaseEditorDraftForm/);
   assert.match(mutation, /coordinator\?\.dirtyCount\?\.\(submittedCoordinatorKey\)/);
 });
@@ -83,6 +96,9 @@ test('picker links and reusable canonical answers retain coordinator and return 
   assert.match(page, /<CaseImagePickerDialog \{selectedCase\} imagePicker=\{data\.imagePicker\} \{editorBase\} caseLibraryReturnQuery=\{data\['caseLibraryReturnQuery'\]\} \/>/);
   assert.match(picker, /let \{ selectedCase, imagePicker, editorBase, caseLibraryReturnQuery = '' \}/);
   assert.equal((picker.match(/name="return_query" value=\{caseLibraryReturnQuery\}/g) ?? []).length, 3);
+  assert.match(picker, /id="case-image-picker-attach"/);
+  assert.match(picker, /name="asset_id" value=\{asset\.id\} type="checkbox"/);
+  assert.match(picker, /name="picker_selected"/);
   assert.match(reusable, /registerCaseEditorForm/);
   assert.match(reusable, /data-case-editor-coordinated use:coordinateForm=\{`reusable-answer:/);
 });
@@ -93,5 +109,33 @@ test('active and inactive lifecycle transitions preserve bounded return context'
   assert.match(deactivate, /status=case-deactivated/);
   assert.match(deactivate, /normalizeCaseLibraryReturnQuery/);
   assert.match(recoveryPage, /caseLibraryReturnHref\(data\.caseLibraryReturnQuery \|\| 'lifecycle=inactive'\)/);
+  assert.match(recoveryPage, /Back to Cases/);
   assert.match(recoveryPage, /name="return_query" value=\{data\.caseLibraryReturnQuery\}/);
+});
+
+test('native dedicated Case-editor endpoints retain return context and are not generic enhanced', () => {
+  for (const source of [caseTags, moveOption, stimulusRoles, stimulusSupporting]) {
+    assert.match(source, /normalizeCaseLibraryReturnQuery/);
+    assert.match(source, /request\.headers\.get\('referer'\)/);
+    assert.match(source, /return_query/);
+  }
+  assert.match(previewServer, /function editorReturnQuery\(request, formData\)/);
+  assert.match(previewServer, /normalizeCaseLibraryReturnQuery/);
+  assert.match(previewServer, /caseRedirect\(caseId, 'case-saved', event\.request, formData/);
+  for (const endpoint of ['/question-scope', '/case-tags', '/move-option', '/deactivate']) assert.match(page + questions + images + topics, new RegExp(endpoint.replace('/', '\\/')));
+});
+
+test('native submit leave protection is one-shot while internal enhancers own cancellation', () => {
+  assert.match(page, /suppressNextBeforeUnload/);
+  assert.match(page, /acceptedNativeSubmit/);
+  assert.match(page, /!event\.defaultPrevented/);
+  assert.match(page, /data-case-editor-internal/);
+  assert.match(details, /data-case-editor-internal/);
+  assert.match(questions, /data-case-editor-internal/);
+});
+
+test('grouped checkbox and radio drafts restore by captured control index', () => {
+  assert.match(mutation, /map\(\(element, index\)/);
+  assert.match(mutation, /index, name: element\.name, type: element\.type, checked/);
+  assert.match(mutation, /form\.elements\[value\.index\]/);
 });

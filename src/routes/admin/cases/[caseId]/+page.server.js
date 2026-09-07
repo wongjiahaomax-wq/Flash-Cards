@@ -41,6 +41,7 @@ function reusableQuestionActionError(errorValue) { const clientError = errorValu
 export async function load({ locals, platform, params, url }) {
   const pickerOpen = url.searchParams.get('picker') === '1';
   const pickerSearch = url.searchParams.get('image_q')?.trim() ?? '';
+  const pickerSelectedAssetIds = url.searchParams.getAll('picker_selected').map((value) => value.trim()).filter(Boolean);
   const caseLibraryReturnQuery = normalizeCaseLibraryReturnQuery(url.searchParams.get('return_query'));
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { concepts: [], systems: [], status: null, removedQuestionPromptId: null, selectedCase: null, imagePicker: emptyImagePicker(pickerOpen, pickerSearch), previewMode: false, caseLibraryReturnQuery };
 
@@ -69,7 +70,7 @@ export async function load({ locals, platform, params, url }) {
   return {
     concepts, systems, status: url.searchParams.get('status'), removedQuestionPromptId: url.searchParams.get('removed_question'), previewMode: false, caseLibraryReturnQuery,
     selectedCase: { ...manager, questions, stimulusGroups, reusableImageQuestions, caseTags, tagOptions, attached: manager.attached.map((asset) => ({ ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.assetId) : null })) },
-    imagePicker: { open: pickerOpen, ...pickerResults, targetGroupId: targetGroup?.id ?? null, targetGroupName: targetGroup?.name ?? null }
+    imagePicker: { open: pickerOpen, ...pickerResults, selectedAssetIds: pickerSelectedAssetIds, targetGroupId: targetGroup?.id ?? null, targetGroupName: targetGroup?.name ?? null }
   };
 }
 
