@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { createCaseEditorCoordinator, reconcileSubmittedCaseEditorDraft } from '../src/lib/case-editor-coordinator.js';
-import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, formHasMeaningfulUnsubmittedInputAgainst, formHasSelectedFile, mutationMayChangeEditorFormTopology } from '../src/lib/case-editor-form-state.js';
+import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, formHasMeaningfulUnsubmittedInputAgainst, formHasSelectedFile, mutationMayChangeEditorFormTopology, reconcileEditableFormSaveSnapshot } from '../src/lib/case-editor-form-state.js';
 
 class FakeInput {
   constructor(name, type = 'text', value = '') {
@@ -98,6 +98,20 @@ test('coordinated save retains the visible authoritative value and establishes i
   assert.equal(form.elements[0].value, 'Saved caption');
 });
 
+test('canonical form readback replaces normalized submitted value but preserves a newer edit', () => {
+  const submitted = [{ name: 'caption', type: 'text', value: '  Saved caption  ' }];
+  const canonical = { caption: 'Saved caption' };
+
+  const clean = reconcileEditableFormSaveSnapshot(submitted, submitted, canonical);
+  assert.deepEqual(clean.baseline, [{ name: 'caption', type: 'text', value: 'Saved caption' }]);
+  assert.deepEqual(clean.draft, clean.baseline);
+
+  const newer = [{ name: 'caption', type: 'text', value: 'Newer edit' }];
+  const dirty = reconcileEditableFormSaveSnapshot(newer, submitted, canonical);
+  assert.equal(dirty.baseline[0].value, 'Saved caption');
+  assert.equal(dirty.draft[0].value, 'Newer edit');
+});
+
 test('coordinated save establishes an authoritative baseline while preserving edit-during-save dirtiness', async () => {
   const coordinator = createCaseEditorCoordinator();
   let draft = 'O';
@@ -125,6 +139,21 @@ test('coordinated save establishes an authoritative baseline while preserving ed
   assert.equal(coordinator.dirtyItems()[0].fields[0], 'Caption');
   draft = 'A';
   assert.equal(coordinator.dirtyItems().length, 0, 'reverting the newer edit to the saved value is clean');
+});
+
+test('Save All passes authoritative persisted values to each captured commit', async () => {
+  const coordinator = createCaseEditorCoordinator();
+  let committed = null;
+  coordinator.register('caption', {
+    isDirty: () => true,
+    prepareSave: () => '  submitted  ',
+    saveAllPayload: (snapshot) => ({ snapshot }),
+    commitSaveAll: (prepared, authoritative) => { committed = { prepared, authoritative }; }
+  });
+
+  const result = await coordinator.saveAll(async () => ({ ok: true, authoritative: ['submitted'] }));
+  assert.deepEqual(result, { attempted: 1, succeeded: 1, failed: 0 });
+  assert.deepEqual(committed, { prepared: '  submitted  ', authoritative: 'submitted' });
 });
 
 test('failed coordinated save leaves the draft dirty', async () => {
