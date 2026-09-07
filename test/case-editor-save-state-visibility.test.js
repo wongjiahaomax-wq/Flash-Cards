@@ -96,9 +96,11 @@ test('coordinated save establishes a clean baseline but preserves edit-during-sa
 
 test('structural topology filter ignores status-node mutations', () => {
   const statusNode = { nodeType: 1, matches: () => false, querySelector: () => null };
-  const formNode = { nodeType: 1, matches: (selector) => selector === 'form', querySelector: () => null };
+  const formNode = { nodeType: 1, matches: (selector) => selector.includes('form'), querySelector: () => null };
+  const controlNode = { nodeType: 1, matches: (selector) => selector.includes('textarea'), querySelector: () => null };
   assert.equal(mutationMayChangeEditorFormTopology([{ addedNodes: [statusNode], removedNodes: [] }]), false);
   assert.equal(mutationMayChangeEditorFormTopology([{ addedNodes: [formNode], removedNodes: [] }]), true);
+  assert.equal(mutationMayChangeEditorFormTopology([{ addedNodes: [], removedNodes: [controlNode] }]), true);
 });
 
 test('coordinated enhancer captures the stable result before reading reconciliation snapshots', () => {

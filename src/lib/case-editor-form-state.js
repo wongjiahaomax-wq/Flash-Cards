@@ -41,7 +41,7 @@ export function formCanHoldMeaningfulStructuralInput(form) {
 export function mutationMayChangeEditorFormTopology(records) {
   const mayChange = (node) => {
     if (!node || node.nodeType !== 1) return false;
-    if (node.matches?.('form')) return true;
+    if (node.matches?.('form, input, textarea, select')) return true;
     return Boolean(node.querySelector?.('form, input, textarea, select'));
   };
   return records.some((record) => [...record.addedNodes, ...record.removedNodes].some(mayChange));
