@@ -16,6 +16,7 @@ import {
   convertCaseAssetToStimulusOption,
   createStimulusGroup,
   ensurePromptIsNotUsedByAnotherGroup,
+  saveStimulusGroupQuestion,
   saveStimulusOptionQuestion,
   setStimulusOptionActive
 } from '../src/lib/server/db/stimulus-groups.js';
@@ -88,6 +89,7 @@ test('Case questions can be added, edited, reused for the topic, reordered, and 
       'Name 3 other causes of this condition'
     ]);
     assert.equal(questions[1].reusableForTopic, true);
+    assert.ok(questions[1].id, 'Case-question read model exposes the stable relationship ID');
     assert.deepEqual(
       fixture.sqlite.prepare('SELECT answer_md, inherit_to_descendants FROM concept_questions WHERE concept_id = ? AND question_prompt_id = ?').all('seed-pityriasis-rosea', firstPromptId).map((row) => ({ ...row })),
       [{ answer_md: 'Prolonged QTc', inherit_to_descendants: 0 }]
@@ -140,6 +142,38 @@ test('exact prompt text reuses the existing question_prompts row', async () => {
     assert.ok(after);
     assert.equal(after.count, before.count);
     assert.equal(promptId, 'seed-prompt-describe-ecg');
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Case-question saves target the stable relationship while prompt text is normalized', async () => {
+  const fixture = createLearningDb();
+  try {
+    const caseId = 'seed-pityriasis-rosea';
+    const before = await listCaseQuestions(fixture.db, caseId);
+    const relationship = before[0];
+    const promptId = await saveCaseQuestion(fixture.db, {
+      caseId,
+      caseQuestionId: relationship.id,
+      originalPromptId: relationship.questionPromptId,
+      promptMd: 'Normalized prompt ',
+      answerMd: 'Answer A'
+    });
+    const afterFirst = (await listCaseQuestions(fixture.db, caseId)).find((question) => question.id === relationship.id);
+    assert.equal(afterFirst?.promptMd, 'Normalized prompt');
+    assert.equal(afterFirst?.questionPromptId, promptId);
+
+    await saveCaseQuestion(fixture.db, {
+      caseId,
+      caseQuestionId: relationship.id,
+      originalPromptId: promptId,
+      promptMd: 'Normalized prompt',
+      answerMd: 'Answer B'
+    });
+    const afterSecond = await listCaseQuestions(fixture.db, caseId);
+    assert.equal(afterSecond.filter((question) => question.id === relationship.id).length, 1);
+    assert.equal(afterSecond.find((question) => question.id === relationship.id)?.answerMd, 'Answer B');
   } finally {
     fixture.sqlite.close();
   }
@@ -212,6 +246,58 @@ test('moving a Case question to an exact image preserves its prompt and answer',
     assert.deepEqual(
       fixture.sqlite.prepare('SELECT answer_md AS answerMd FROM stimulus_option_questions WHERE stimulus_group_option_id = ? AND question_prompt_id = ?').all(optionB, promptId).map((row) => ({ ...row })),
       [{ answerMd: 'Hyperacute anterior T waves with subtle ST elevation.' }]
+    );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('stimulus question edits preserve the relationship row across prompt identity changes', async () => {
+  const fixture = createLearningDb();
+  try {
+    const groupId = await createStimulusGroup(fixture.db, {
+      caseId: 'seed-anterior-a',
+      name: 'Identity transition coverage',
+      specificQuestionMode: 'none'
+    });
+    const optionId = await convertCaseAssetToStimulusOption(fixture.db, groupId, 'seed-asset-anterior-a');
+
+    const groupPromptA = await saveStimulusGroupQuestion(fixture.db, groupId, {
+      promptMd: 'Group prompt A',
+      answerMd: 'Group answer A'
+    });
+    const groupRelationship = fixture.sqlite.prepare('SELECT id FROM stimulus_group_questions WHERE stimulus_group_id = ? AND question_prompt_id = ?').get(groupId, groupPromptA);
+    assert.ok(groupRelationship?.id);
+    const groupRelationshipId = String(groupRelationship.id);
+    const groupPromptB = await saveStimulusGroupQuestion(fixture.db, groupId, {
+      relationshipId: groupRelationshipId,
+      originalPromptId: groupPromptA,
+      promptMd: 'Group prompt B',
+      answerMd: 'Group answer B'
+    });
+    assert.notEqual(groupPromptB, groupPromptA);
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT id, question_prompt_id AS promptId, answer_md AS answerMd FROM stimulus_group_questions WHERE stimulus_group_id = ?').all(groupId).map((row) => ({ ...row })),
+      [{ id: groupRelationshipId, promptId: groupPromptB, answerMd: 'Group answer B' }]
+    );
+
+    const optionPromptA = await saveStimulusOptionQuestion(fixture.db, optionId, {
+      promptMd: 'Option prompt A',
+      answerMd: 'Option answer A'
+    });
+    const optionRelationship = fixture.sqlite.prepare('SELECT id FROM stimulus_option_questions WHERE stimulus_group_option_id = ? AND question_prompt_id = ?').get(optionId, optionPromptA);
+    assert.ok(optionRelationship?.id);
+    const optionRelationshipId = String(optionRelationship.id);
+    const optionPromptB = await saveStimulusOptionQuestion(fixture.db, optionId, {
+      relationshipId: optionRelationshipId,
+      originalPromptId: optionPromptA,
+      promptMd: 'Option prompt B',
+      answerMd: 'Option answer B'
+    });
+    assert.notEqual(optionPromptB, optionPromptA);
+    assert.deepEqual(
+      fixture.sqlite.prepare('SELECT id, question_prompt_id AS promptId, answer_md AS answerMd FROM stimulus_option_questions WHERE stimulus_group_option_id = ?').all(optionId).map((row) => ({ ...row })),
+      [{ id: optionRelationshipId, promptId: optionPromptB, answerMd: 'Option answer B' }]
     );
   } finally {
     fixture.sqlite.close();

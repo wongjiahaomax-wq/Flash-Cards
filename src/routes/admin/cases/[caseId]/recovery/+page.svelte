@@ -1,13 +1,15 @@
 <script>
+  import { caseLibraryReturnHref } from '$lib/admin-case-library-state.ts';
   let { data, form } = $props();
   let recovery = $derived(data.recoveryCase);
+  let returnToInactive = $derived(!data.caseLibraryReturnQuery || new URLSearchParams(data.caseLibraryReturnQuery).get('lifecycle') === 'inactive');
 </script>
 
 <svelte:head><title>{recovery.case.title} | Inactive Case | Admin | Flash-Cards</title></svelte:head>
 
 <section class="page-heading">
   <div><p class="eyebrow">Case recovery</p><div class="title-line"><h1>{recovery.case.title}</h1><span class="status-badge">Inactive</span></div><p class="muted">This Production Case is preserved but unavailable to learners and normal active-Case editing.</p></div>
-  <a class="button" href="/admin/cases?lifecycle=inactive">Back to Inactive Cases</a>
+  <a class="button" href={caseLibraryReturnHref(data.caseLibraryReturnQuery || 'lifecycle=inactive')}>{returnToInactive ? 'Back to Inactive Cases' : 'Back to Cases'}</a>
 </section>
 
 {#if data.status === 'case-deactivated'}<p class="success-message" role="status">Case deactivated. Its questions, images, Topics, Tags, and review history were retained.</p>{/if}
@@ -28,6 +30,7 @@
   <div><h2 id="restore-heading">Restore Case</h2><p class="muted">Restoration is validated server-side. The Case will only become active if it still has exactly one active Primary Topic classified as a Topic.</p></div>
   <form method="POST" action="?/restoreCase">
     <input type="hidden" name="case_id" value={recovery.case.id} />
+    <input type="hidden" name="return_query" value={data.caseLibraryReturnQuery} />
     <button class="button primary" type="submit">Restore Case</button>
   </form>
 </section>

@@ -1,5 +1,10 @@
 <script>
   import { onMount } from 'svelte';
+  import { enhance } from '$app/forms';
+  import { beforeNavigate } from '$app/navigation';
+  import { createCaseEditorCoordinator } from '$lib/case-editor-coordinator.js';
+  import { isSafeCasePickerSearchNavigation } from '$lib/admin-image-selection.js';
+  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, hasCaseEditorPickerSelection, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { getCaseEditorStorage, readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
   import { buildCaseFastReviewSummary, buildCaseQuestionAudit } from '$lib/admin-case-question-audit.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
@@ -31,9 +36,93 @@
   let editorLayout = $state('compact');
   /** @type {{ src: string, alt: string, title: string, subtitle: string } | null} */
   let viewerImage = $state(null);
+  const draftCoordinator = createCaseEditorCoordinator();
+  let draftRevision = $state(0);
+  let suppressNextBeforeUnload = false;
+  /** @type {{ targetUrl: URL, targetGroupId: string | null, selectedIds: string[] } | null} */
+  let pendingPickerSearchNavigation = null;
+
+  function hasNonPickerUnsavedWork() {
+    if (draftCoordinator.dirtyCount() > 0) return true;
+    return [...document.querySelectorAll('.case-editor form')].some((form) => form instanceof HTMLFormElement
+      && !form.matches('[data-case-editor-picker], [data-case-editor-picker-search]')
+      && formHasMeaningfulUnsubmittedInput(form));
+  }
 
   onMount(() => {
     editorLayout = readCaseEditorLayout(getCaseEditorStorage(window));
+    const unsubscribe = draftCoordinator.subscribe(() => { draftRevision += 1; });
+    /** @param {BeforeUnloadEvent} event */
+    const beforeUnload = (event) => {
+      if (suppressNextBeforeUnload) {
+        suppressNextBeforeUnload = false;
+        return;
+      }
+      if (!hasEditorUnsavedWork()) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    /** @param {SubmitEvent} event */
+    const submitGuard = (event) => {
+      const submittedForm = event.target;
+      if (!(submittedForm instanceof HTMLFormElement) || !hasEditorUnsavedWork()) return;
+      if (submittedForm.hasAttribute('data-case-editor-internal') || submittedForm.hasAttribute('data-case-editor-enhanced') || submittedForm.hasAttribute('data-case-editor-coordinated')) return;
+      if (submittedForm.matches('[data-case-editor-picker-search]')) {
+        if (hasNonPickerUnsavedWork() && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) event.preventDefault();
+        else if (!hasNonPickerUnsavedWork()) {
+          const targetUrl = new URL(submittedForm.getAttribute('action') ?? window.location.href, document.baseURI);
+          targetUrl.search = '';
+          const selectedIds = [];
+          let targetGroupId = null;
+          for (const [name, value] of new FormData(submittedForm).entries()) {
+            if (typeof value !== 'string') continue;
+            targetUrl.searchParams.append(name, value);
+            if (name === 'picker_selected') selectedIds.push(value);
+            if (name === 'target_group') targetGroupId = value;
+          }
+          pendingPickerSearchNavigation = { targetUrl, targetGroupId, selectedIds };
+        }
+        return;
+      }
+      if (caseEditorHasConflictingUnsavedWork(submittedForm, draftCoordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) event.preventDefault();
+    };
+    /** @param {SubmitEvent} event */
+    const acceptedNativeSubmit = (event) => {
+      const submittedForm = event.target;
+      if (!(submittedForm instanceof HTMLFormElement) || submittedForm.hasAttribute('data-case-editor-internal') || submittedForm.hasAttribute('data-case-editor-enhanced') || submittedForm.hasAttribute('data-case-editor-coordinated')) return;
+      if (!event.defaultPrevented && submittedForm.method.toLowerCase() === 'post' && hasEditorUnsavedWork()) suppressNextBeforeUnload = true;
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    document.addEventListener('submit', submitGuard, true);
+    document.addEventListener('submit', acceptedNativeSubmit);
+    const stableFormActions = [...document.querySelectorAll('.case-editor form[method="POST"]')]
+      .filter((form) => {
+        if (!(form instanceof HTMLFormElement)) return false;
+        if (form.id === 'case-details-form' || form.classList.contains('question-edit-form')) return false;
+        if (form.hasAttribute('data-case-editor-coordinated')) return false;
+        const action = form.getAttribute('action') ?? '';
+        return action.startsWith('?/') && !form.hasAttribute('data-case-editor-internal') && !form.hasAttribute('data-case-editor-enhanced') && !form.hasAttribute('data-case-editor-coordinated');
+      });
+    /** @param {any} submitContext */
+    const enhanceStableForm = ({ formElement, cancel }) => {
+      if (caseEditorHasConflictingUnsavedWork(formElement, draftCoordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+        cancel();
+        return;
+      }
+      return stableCaseEditorEnhance(captureCaseEditorView(), formElement);
+    };
+    for (const form of stableFormActions) /** @type {HTMLFormElement} */ (form).dataset.caseEditorEnhanced = 'true';
+    const enhancedForms = stableFormActions.map((form) => enhance(/** @type {HTMLFormElement} */ (form), /** @type {any} */ (enhanceStableForm)));
+    return () => {
+      unsubscribe();
+      window.removeEventListener('beforeunload', beforeUnload);
+      document.removeEventListener('submit', submitGuard, true);
+      document.removeEventListener('submit', acceptedNativeSubmit);
+      for (const [index, action] of enhancedForms.entries()) {
+        action?.destroy?.();
+        delete /** @type {HTMLFormElement} */ (stableFormActions[index]).dataset.caseEditorEnhanced;
+      }
+    };
   });
 
   /** @param {CaseEditorLayout} layout */
@@ -53,6 +142,34 @@
       event.preventDefault();
     }
   }
+
+  /** @param {HTMLFormElement} form */
+  function formHasMeaningfulUnsubmittedInput(form) {
+    if (form.id === 'case-details-form' || form.classList.contains('question-edit-form') || form.hasAttribute('data-case-editor-coordinated')) return false;
+    return [...form.elements].some((element) => {
+      if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
+      if (element instanceof HTMLInputElement && element.type === 'hidden') return false;
+      if (element instanceof HTMLInputElement && element.type === 'file') return Boolean(element.files?.length);
+      if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) return element.checked !== element.defaultChecked;
+      if (element instanceof HTMLSelectElement) return [...element.options].some((option) => option.selected !== option.defaultSelected);
+      return element.value.trim() !== element.defaultValue.trim();
+    });
+  }
+
+  function hasEditorUnsavedWork() {
+    if (draftCoordinator.dirtyCount() > 0) return true;
+    if (hasCaseEditorPickerSelection()) return true;
+    return [...document.querySelectorAll('.case-editor form')].some((form) => form instanceof HTMLFormElement && formHasMeaningfulUnsubmittedInput(form));
+  }
+
+  beforeNavigate(({ cancel }) => {
+    if (pendingPickerSearchNavigation) {
+      const pending = pendingPickerSearchNavigation;
+      pendingPickerSearchNavigation = null;
+      if (isSafeCasePickerSearchNavigation({ currentUrl: window.location.href, targetUrl: pending.targetUrl, targetGroupId: pending.targetGroupId, selectedIds: pending.selectedIds })) return;
+    }
+    if (hasEditorUnsavedWork() && !window.confirm('You have unsaved Case-editor work. Leave this page and lose it?')) cancel();
+  });
 </script>
 
 <svelte:head><title>{selectedCase?.case.title ?? 'Case'} | Admin | Flash-Cards</title></svelte:head>
@@ -60,17 +177,17 @@
 {#if !selectedCase}
   <section class="panel"><h1>Case not found</h1><p class="muted">This Case may be inactive or no longer available.</p><a class="button" href="/admin/cases">Back to Cases</a></section>
 {:else}
-  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} {studyPreviewHref} />
+  <CaseEditorHeader {selectedCase} previewMode={data.previewMode} {studyPreviewHref} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} coordinator={draftCoordinator} {draftRevision} />
 
   {#if form?.error}<p class="form-error" role="alert">{form.error}</p>{/if}
   {#if !data.previewMode && data.status === 'case-restored'}<p class="success-message" role="status">Case restored. It is active and available to normal Admin and learner flows.</p>{/if}
   <div class="case-editor" data-editor-layout={editorLayout}>
     <CaseEditorNavigation {selectedCase} {primaryTopic} {editorLayout} {fastReviewSummary} auditCount={caseQuestionAudit.length} onlayoutchange={setEditorLayout} />
-    <CaseTopicsSection {selectedCase} concepts={data.concepts} systems={data.systems} tagOptions={selectedCase.tagOptions ?? []} {primaryTopic} previewMode={data.previewMode} {editorLayout} />
-    <CaseDetailsSection {selectedCase} {primaryTopic} {editorLayout} />
-    <CaseImagesSection {selectedCase} previewMode={data.previewMode} {editorLayout} {editorBase} onimageopen={showImage} />
-    {#if !data.previewMode}<StimulusOriginalsPanel {selectedCase} />{/if}
-    <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} status={data.status} removedQuestionPromptId={data.removedQuestionPromptId} {editorLayout} />
+    <CaseTopicsSection {selectedCase} concepts={data.concepts} systems={data.systems} tagOptions={selectedCase.tagOptions ?? []} {primaryTopic} previewMode={data.previewMode} {editorLayout} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
+    <CaseDetailsSection {selectedCase} {primaryTopic} {editorLayout} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
+    <CaseImagesSection {selectedCase} previewMode={data.previewMode} {editorLayout} {editorBase} onimageopen={showImage} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
+    {#if !data.previewMode}<StimulusOriginalsPanel {selectedCase} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />{/if}
+    <CaseQuestionsSection {selectedCase} previewMode={data.previewMode} status={data.status} removedQuestionPromptId={data.removedQuestionPromptId} {editorLayout} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
     {#if editorLayout === 'compact'}<CaseQuestionAudit rows={caseQuestionAudit} onimageopen={showImage} />{/if}
     <CasePreviewSection previewMode={data.previewMode} {studyPreviewHref} />
     {#if !data.previewMode}
@@ -78,13 +195,14 @@
         <div><p class="eyebrow">Case lifecycle</p><h2 id="case-lifecycle-heading">Active</h2><p class="muted">Deactivate this Case to remove it from learner study and the active Case library. Questions, images, Topics, Tags, and review history are retained for recovery.</p></div>
         <form method="POST" action={`/admin/cases/${encodeURIComponent(selectedCase.case.id)}/deactivate`} onsubmit={confirmCaseDeactivation}>
           <input type="hidden" name="case_id" value={selectedCase.case.id} />
+          <input type="hidden" name="return_query" value={data['caseLibraryReturnQuery']} />
           <button class="button danger" type="submit">Deactivate Case</button>
         </form>
       </section>
     {/if}
+    <CaseImagePickerDialog {selectedCase} imagePicker={data.imagePicker} {editorBase} coordinator={draftCoordinator} caseLibraryReturnQuery={data['caseLibraryReturnQuery']} />
   </div>
 
-  <CaseImagePickerDialog {selectedCase} imagePicker={data.imagePicker} {editorBase} />
   <AdminImageViewer image={viewerImage} onclose={() => (viewerImage = null)} />
 {/if}
 

@@ -4,7 +4,7 @@
   import CaseImagesAdvanced from '$lib/components/case-editor/CaseImagesAdvanced.svelte';
 
   /** @typedef {'classic' | 'compact'} CaseEditorLayout */
-  /** @typedef {{ questionPromptId: string, promptMd: string, answerMd: string, isActive: boolean, stimulusGroupOptionId?: string | null }} ScopedQuestion */
+  /** @typedef {{ id: string, questionPromptId: string, promptMd: string, answerMd: string, isActive: boolean, stimulusGroupOptionId?: string | null }} ScopedQuestion */
   /** @typedef {{ questionPromptId: string, promptMd: string, answerMd?: string, isActive?: boolean }} CaseQuestion */
   /** @typedef {{ assetId: string, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, captionMd?: string | null, isActive: boolean, sourceLabel?: string | null, sourceUrl?: string | null, licence?: string | null }} CaseAsset */
   /** @typedef {{ id: string, assetId: string, imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, captionMd?: string | null, isActive: boolean, assetIsActive: boolean, removedFromCase?: boolean }} StimulusOption */
@@ -12,8 +12,8 @@
   /** @typedef {{ case: { id: string }, attached: CaseAsset[], questions: CaseQuestion[], stimulusGroups: StimulusGroup[], reusableImageQuestions?: any[] }} ImagesCase */
   /** @typedef {{ imageUrl?: string | null, altText?: string | null, originalFilename?: string | null, assetId?: string, id?: string }} ViewableAsset */
   /** @typedef {{ key: string, scope: 'Image-specific' | 'Reusable' | 'Shared across this image set', promptMd: string, answerMd: string }} ImageQuestionPreview */
-  /** @type {{ selectedCase: ImagesCase, previewMode: boolean, editorLayout: CaseEditorLayout, editorBase: string, onimageopen?: (asset: ViewableAsset, subtitle?: string) => void }} */
-  let { selectedCase, previewMode, editorLayout, editorBase, onimageopen } = $props();
+  /** @type {{ selectedCase: ImagesCase, previewMode: boolean, editorLayout: CaseEditorLayout, editorBase: string, onimageopen?: (asset: ViewableAsset, subtitle?: string) => void, coordinator?: any, caseLibraryReturnQuery?: string }} */
+  let { selectedCase, previewMode, editorLayout, editorBase, onimageopen, coordinator = null, caseLibraryReturnQuery = '' } = $props();
 
   let advancedOpen = $state(false);
   let activeGroups = $derived((selectedCase?.stimulusGroups ?? []).filter((group) => group.isActive));
@@ -42,6 +42,12 @@
   /** @param {ViewableAsset} asset @param {string} subtitle */
   function showImage(asset, subtitle) {
     onimageopen?.(asset, subtitle);
+  }
+
+  function imagePickerHref() {
+    const params = new URLSearchParams({ picker: '1' });
+    if (caseLibraryReturnQuery) params.set('return_query', caseLibraryReturnQuery);
+    return `?${params.toString()}#images`;
   }
 
   /** @param {CaseAsset | StimulusOption} image @param {StimulusGroup | null} [group] */
@@ -97,7 +103,7 @@
 </script>
 
 {#if previewMode}
-  <CaseImagesAdvanced {selectedCase} {previewMode} {editorLayout} {editorBase} {onimageopen} />
+  <CaseImagesAdvanced {selectedCase} {previewMode} {editorLayout} {editorBase} {onimageopen} {coordinator} {caseLibraryReturnQuery} />
 {:else}
   <section id={advancedOpen ? undefined : 'images'} class="panel image-overview" aria-labelledby="case-images-heading">
     <div class="panel-heading">
@@ -106,7 +112,7 @@
         <h2 id="case-images-heading">Images <span class="count">{imageCount}</span></h2>
         <p class="muted">Review each learner-visible image and its linked Q&A here. Use <strong>Image roles</strong> directly below to choose the Original and Alternatives.</p>
       </div>
-      <a class="button primary" href="?picker=1#images">Add images from library</a>
+      <a class="button primary" href={imagePickerHref()}>Add images from library</a>
     </div>
 
     {#if imageCount === 0}
@@ -193,7 +199,7 @@
       <!-- The delegated editor retains the established updateStimulusOptionCaption action and its identity-preserving mutation flow. -->
       {#if advancedOpen}
         <div class="advanced-editor">
-          <CaseImagesAdvanced {selectedCase} {previewMode} {editorLayout} {editorBase} {onimageopen} />
+          <CaseImagesAdvanced {selectedCase} {previewMode} {editorLayout} {editorBase} {onimageopen} {coordinator} {caseLibraryReturnQuery} />
         </div>
       {/if}
     </details>

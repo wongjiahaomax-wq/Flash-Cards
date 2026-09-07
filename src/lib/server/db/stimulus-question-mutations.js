@@ -20,18 +20,21 @@ async function findOrCreatePrompt(db, promptMd) {
   return id;
 }
 
-/** @param {LearningDb} db @param {string} groupId @param {{ originalPromptId?: string|null, promptMd: unknown, answerMd: unknown }} input */
+/** @param {LearningDb} db @param {string} groupId @param {{ relationshipId?: string|null, originalPromptId?: string|null, promptMd: unknown, answerMd: unknown }} input */
 export async function saveStimulusGroupQuestion(db, groupId, input) {
   const group = await requireStimulusGroup(db, groupId);
   const promptMd = requiredText(input.promptMd, 'Question prompt');
   const answerMd = requiredText(input.answerMd, 'Question answer');
   const promptId = await findOrCreatePrompt(db, promptMd);
   if (group.isActive) await ensurePromptIsNotUsedByAnotherGroup(db, group.caseId, promptId, group.id);
+  const relationshipId = optionalText(input.relationshipId);
   const original = optionalText(input.originalPromptId);
   const duplicate = (await db.select({ id: stimulusGroupQuestions.id, questionPromptId: stimulusGroupQuestions.questionPromptId }).from(stimulusGroupQuestions).where(and(eq(stimulusGroupQuestions.stimulusGroupId, groupId), eq(stimulusGroupQuestions.questionPromptId, promptId))).limit(1))[0];
-  if (duplicate && promptId !== original) throw new StimulusGroupInputError('That prompt is already used by this Stimulus Group.');
-  if (original) {
-    const existing = (await db.select({ id: stimulusGroupQuestions.id }).from(stimulusGroupQuestions).where(and(eq(stimulusGroupQuestions.stimulusGroupId, groupId), eq(stimulusGroupQuestions.questionPromptId, original))).limit(1))[0];
+  if (duplicate && (relationshipId ? duplicate.id !== relationshipId : promptId !== original)) throw new StimulusGroupInputError('That prompt is already used by this Stimulus Group.');
+  if (relationshipId || original) {
+    const existing = relationshipId
+      ? (await db.select({ id: stimulusGroupQuestions.id }).from(stimulusGroupQuestions).where(and(eq(stimulusGroupQuestions.stimulusGroupId, groupId), eq(stimulusGroupQuestions.id, relationshipId))).limit(1))[0]
+      : (await db.select({ id: stimulusGroupQuestions.id }).from(stimulusGroupQuestions).where(and(eq(stimulusGroupQuestions.stimulusGroupId, groupId), eq(stimulusGroupQuestions.questionPromptId, original ?? ''))).limit(1))[0];
     if (!existing) throw new StimulusGroupInputError('That Stimulus Group question no longer exists.');
     await db.update(stimulusGroupQuestions).set({ questionPromptId: promptId, answerMd, isActive: true, updatedAt: new Date() }).where(eq(stimulusGroupQuestions.id, existing.id));
   } else {
@@ -40,7 +43,7 @@ export async function saveStimulusGroupQuestion(db, groupId, input) {
   return promptId;
 }
 
-/** @param {LearningDb} db @param {string} optionId @param {{ originalPromptId?: string|null, promptMd: unknown, answerMd: unknown }} input */
+/** @param {LearningDb} db @param {string} optionId @param {{ relationshipId?: string|null, originalPromptId?: string|null, promptMd: unknown, answerMd: unknown }} input */
 export async function saveStimulusOptionQuestion(db, optionId, input) {
   const option = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, isActive: stimulusGroupOptions.isActive, groupIsActive: stimulusGroups.isActive }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(stimulusGroupOptions.removedFromCase, false), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
   if (!option) throw new StimulusGroupInputError('The selected Stimulus Option is missing or inactive.');
@@ -49,11 +52,14 @@ export async function saveStimulusOptionQuestion(db, optionId, input) {
   const answerMd = requiredText(input.answerMd, 'Question answer');
   const promptId = await findOrCreatePrompt(db, promptMd);
   if (option.groupIsActive && option.isActive) await ensurePromptIsNotUsedByAnotherGroup(db, group.caseId, promptId, group.id);
+  const relationshipId = optionalText(input.relationshipId);
   const original = optionalText(input.originalPromptId);
   const duplicate = (await db.select({ id: stimulusOptionQuestions.id, questionPromptId: stimulusOptionQuestions.questionPromptId }).from(stimulusOptionQuestions).where(and(eq(stimulusOptionQuestions.stimulusGroupOptionId, option.id), eq(stimulusOptionQuestions.questionPromptId, promptId))).limit(1))[0];
-  if (duplicate && promptId !== original) throw new StimulusGroupInputError('That prompt is already used by this Stimulus Option.');
-  if (original) {
-    const existing = (await db.select({ id: stimulusOptionQuestions.id }).from(stimulusOptionQuestions).where(and(eq(stimulusOptionQuestions.stimulusGroupOptionId, option.id), eq(stimulusOptionQuestions.questionPromptId, original))).limit(1))[0];
+  if (duplicate && (relationshipId ? duplicate.id !== relationshipId : promptId !== original)) throw new StimulusGroupInputError('That prompt is already used by this Stimulus Option.');
+  if (relationshipId || original) {
+    const existing = relationshipId
+      ? (await db.select({ id: stimulusOptionQuestions.id }).from(stimulusOptionQuestions).where(and(eq(stimulusOptionQuestions.stimulusGroupOptionId, option.id), eq(stimulusOptionQuestions.id, relationshipId))).limit(1))[0]
+      : (await db.select({ id: stimulusOptionQuestions.id }).from(stimulusOptionQuestions).where(and(eq(stimulusOptionQuestions.stimulusGroupOptionId, option.id), eq(stimulusOptionQuestions.questionPromptId, original ?? ''))).limit(1))[0];
     if (!existing) throw new StimulusGroupInputError('That Stimulus Option question no longer exists.');
     await db.update(stimulusOptionQuestions).set({ questionPromptId: promptId, answerMd, isActive: true, updatedAt: new Date() }).where(eq(stimulusOptionQuestions.id, existing.id));
   } else {

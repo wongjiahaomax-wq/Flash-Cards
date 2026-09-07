@@ -61,8 +61,45 @@ export function reconcileLibrarySelection(input) {
 export function reconcileCasePickerSelection(input) {
   const previousContextKey = input.previousContextKey ?? null;
   if (previousContextKey && previousContextKey !== input.nextContextKey) return { selectedIds: new Set(), contextKey: input.nextContextKey };
-  const pruned = pruneAssetSelection({ selectedIds: input.selectedIds, orderedIds: input.orderedIds });
-  return { selectedIds: pruned.selectedIds, contextKey: input.nextContextKey };
+  return { selectedIds: new Set(input.selectedIds ?? []), contextKey: input.nextContextKey };
+}
+
+/** @param {Iterable<unknown>} selectedIds */
+export function pickerAttachAssetIds(selectedIds) {
+  return [...new Set([...selectedIds].map((value) => String(value ?? '').trim()).filter(Boolean))];
+}
+
+/** @param {Iterable<unknown>} selectedIds */
+export function pickerSelectionIsDirty(selectedIds) {
+  return pickerAttachAssetIds(selectedIds).length > 0;
+}
+
+/** @param {Iterable<unknown>} selectedIds @param {boolean} [attachPending] */
+export function beginCasePickerAttach(selectedIds, attachPending = false) {
+  if (attachPending) return { accepted: false, submittedIds: [] };
+  return { accepted: true, submittedIds: pickerAttachAssetIds(selectedIds) };
+}
+
+/** @param {{ selectedIds?: Iterable<unknown>, submittedIds?: Iterable<unknown>, ok?: boolean }} input */
+export function reconcileCasePickerAttachSelection({ selectedIds, submittedIds, ok }) {
+  if (!ok) return new Set(selectedIds ?? []);
+  const submitted = new Set(submittedIds ?? []);
+  return new Set([...selectedIds ?? []].filter((id) => !submitted.has(id)));
+}
+
+/** @param {{ currentUrl: string | URL, targetUrl: string | URL, targetGroupId?: string | null, selectedIds?: Iterable<unknown> }} input */
+export function isSafeCasePickerSearchNavigation({ currentUrl, targetUrl, targetGroupId = null, selectedIds = [] }) {
+  const current = new URL(currentUrl, 'http://case-editor.local');
+  const target = new URL(targetUrl, current);
+  const selected = new Set(pickerAttachAssetIds(selectedIds));
+  const targetSelected = new Set(pickerAttachAssetIds(target.searchParams.getAll('picker_selected')));
+  return target.pathname === current.pathname
+    && current.searchParams.get('picker') === '1'
+    && target.searchParams.get('picker') === '1'
+    && (current.searchParams.get('target_group') ?? null) === (targetGroupId ?? null)
+    && (target.searchParams.get('target_group') ?? null) === (targetGroupId ?? null)
+    && selected.size === targetSelected.size
+    && [...selected].every((id) => targetSelected.has(id));
 }
 
 export function clearAssetSelection() { return { selectedIds: new Set(), anchorId: null }; }

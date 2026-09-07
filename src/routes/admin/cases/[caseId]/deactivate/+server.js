@@ -3,6 +3,7 @@ import { error, redirect } from '@sveltejs/kit';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { CaseLifecycleError, deactivateProductionCase } from '$lib/server/db/case-lifecycle.ts';
 import { createDb } from '$lib/server/db/index.js';
+import { normalizeCaseLibraryReturnQuery } from '$lib/admin-case-library-state.ts';
 
 export async function POST({ request, locals, platform, params }) {
   if (!canManageCaseAssets(locals.user)) throw error(403, 'Administrator access is required.');
@@ -19,5 +20,9 @@ export async function POST({ request, locals, platform, params }) {
     console.error('Unable to deactivate Case.', errorValue);
     throw error(500, 'Unable to deactivate this Case.');
   }
-  redirect(303, `/admin/cases/${encodeURIComponent(params.caseId)}/recovery?status=case-deactivated`);
+  let returnQuery = normalizeCaseLibraryReturnQuery(typeof formData.get('return_query') === 'string' ? String(formData.get('return_query')) : '');
+  if (!returnQuery) {
+    try { returnQuery = normalizeCaseLibraryReturnQuery(new URL(request.headers.get('referer') ?? '').searchParams.get('return_query')); } catch { returnQuery = ''; }
+  }
+  redirect(303, `/admin/cases/${encodeURIComponent(params.caseId)}/recovery?status=case-deactivated${returnQuery ? `&return_query=${encodeURIComponent(returnQuery)}` : ''}`);
 }
