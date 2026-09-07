@@ -108,8 +108,9 @@ test('persisted reviewer state only resumes for the exact opened bundle fingerpr
 test('browser reviewer skips rejected children during Case approval and fingerprints input ZIPs', () => {
   const source = readFileSync(new URL('../src/app.js', import.meta.url), 'utf8');
   assert.equal((source.match(/review\.reviewStatus\s*===\s*'rejected'\)\s*continue;/g) ?? []).length, 2);
-  assert.match(source, /sourceFingerprint=await sha256Hex\(raw\)/);
-  assert.match(source, /persistedStateMatches\(saved,loaded\.reviewMap\.bundleId,sourceFingerprint\)/);
+  assert.match(source, /async function fingerprintFile\(input\)/);
+  assert.match(source, /sha256Hex\(new Uint8Array\(await input\.arrayBuffer\(\)\)\)/);
+  assert.match(source, /persistedStateMatches\(saved, bundle\.reviewMap\.bundleId, bundleFingerprint\)/);
   assert.ok((source.match(/blocking\(review\.warnings\)/g) ?? []).length >= 4);
   assert.match(source, /Saving before opening next bundle/);
   assert.match(source, /dirtyBeforeFingerprint/);
@@ -125,4 +126,17 @@ test('browser reviewer skips rejected children during Case approval and fingerpr
   assert.match(source, /operationGuard\.active/);
   assert.match(source, /target => exportReviewedBundle\(target\)/);
   assert.match(source, /target => finalizeBundle\(target\)\.then/);
+  assert.match(source, /revealAnswers = true/);
+  assert.match(source, /function fitTextarea\(element\)/);
+  assert.match(source, /document\.querySelectorAll\('\.auto-grow'\)/);
+  assert.match(source, /function bulkEligibleQuestions\(caseId\)/);
+  assert.match(source, /review\?\.reviewStatus === 'pending'/);
+  assert.match(source, /includeReconciledWarning: true/);
+  assert.match(source, /id="accept-qa"/);
+  assert.match(source, /confirmWarningOverride/);
+  assert.match(source, /window\.confirm/);
+  const bulkAction = source.match(/async function approveEligibleQuestions\(meta\) \{([\s\S]*?)\n\}/)?.[1] ?? '';
+  assert.match(bulkAction, /reviewStatus = 'approved'/);
+  assert.match(bulkAction, /await persist\(\)/);
+  assert.doesNotMatch(bulkAction, /meta\.reviewStatus/);
 });

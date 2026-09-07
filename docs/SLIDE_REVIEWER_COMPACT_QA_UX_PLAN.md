@@ -1,6 +1,6 @@
 # Slide Import Reviewer — Compact Q&A Review UX Plan
 
-_Status: focused implementation plan for this Draft PR._
+_Status: implemented on Draft PR #166; pending final review._
 
 ## Goal
 
