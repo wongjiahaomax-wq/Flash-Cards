@@ -1,6 +1,6 @@
 # Slide Review Safety Invariants
 
-This note records the safety behavior added during the PR #53 review correction pass.
+This note records the safety behavior added during the PR #53 review correction pass and later reviewer UX hardening.
 
 ## Rejected manifest-backed children
 
@@ -17,6 +17,27 @@ Consequences:
 - pending or `needs_review` children still block an approved Case.
 
 The browser Case-approval action follows the same rule: a child explicitly marked `rejected` is intentionally excluded rather than converted back to `approved` or used to block the parent Case.
+
+## Explicit blocking-warning reconciliation
+
+Blocking warnings remain fail-closed by default. Automation and bulk Q&A approval must not silently convert a warned record to `approved`.
+
+A human reviewer may explicitly approve an individual Case, manifest-backed Case Question, or fixed Case Asset despite that record's own blocking warning. The browser requires an explicit warning-override confirmation for that transition. The warning remains present in `review-map.json` and remains visible/auditable in the reviewer and reviewed backup bundle.
+
+For deterministic readiness and finalization only, `reviewStatus: "approved"` is treated as durable human reconciliation of that same record's own blocking warnings. The public core performs this on a clone and does not mutate or delete the persisted warnings.
+
+The override boundary is intentionally narrow:
+
+- approving a Case reconciles only that Case's own blocking warnings;
+- approving a Question reconciles only that Question's own blocking warnings;
+- approving an Asset reconciles only that Asset's own blocking warnings;
+- structural/content validation still runs and may still fail;
+- missing review metadata still fails;
+- unresolved questions are not overrideable through this mechanism;
+- batch-level blocking warnings are not overrideable through this mechanism;
+- a parent Case approval does not waive an unapproved warned child.
+
+The Case-question bulk action is deliberately stricter: it only approves pending, manifest-backed questions that have review metadata, valid prompt/answer content, and no blocking warning. It never approves the parent Case.
 
 ## Source page bounds and complete coverage
 
@@ -54,6 +75,8 @@ The slide-review regression suite covers:
 
 - rejection of one Asset and one Question while retaining the parent Case;
 - deterministic pruning of rejected child dependencies without mutating review history;
+- explicitly approved warned Cases surviving persistence/reload and deterministic finalization;
+- record-scoped warned-child reconciliation without weakening batch or unresolved-question blockers;
 - out-of-range source references and source coverage;
 - mandatory coverage for every declared source page;
 - exact-fingerprint persistence matching;
