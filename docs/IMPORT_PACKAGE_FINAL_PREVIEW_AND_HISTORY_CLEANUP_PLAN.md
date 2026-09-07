@@ -49,12 +49,19 @@ Existing Production references and database conflicts are validated later.
 For `create`, show only behavior/content needed for inspection:
 
 - Case title/vignette and active state;
-- Case selection: `all` → all eligible Case Questions; `fixed` → declared count; `automatic` → exactly `Automatic selection`;
+- Case selection: `all` → `All eligible questions`; `fixed` → declared count; `automatic` → exactly `Automatic selection`;
 - primary Topic declaration/reference;
 - Case Assets by deterministic display order, with create CaseAsset caption;
 - create-Asset package media;
-- full create Case Question Q&A;
+- operation-aware Case/Topic Question content as specified below;
 - Topic Questions with owner Topic and create `inheritToDescendants`.
+
+Q&A rendering is operation-aware. For every Case Question and Topic Question:
+
+- show the authoritative create answer when the question relationship is `create`;
+- show prompt text only when the referenced Prompt operation is `create`;
+- when the Prompt operation is `use`, show only `Existing Production Question Prompt · <applicationId>` and do not present package/defaulted prompt text as authoritative;
+- all authoritative prompt and answer text is expanded and visible by default, with no per-question click/accordion required for the one-pass review.
 
 For `use`, always show reference-only (`Existing Production <type> · <applicationId>`). Do not show optional package source notes or normalized/defaulted behavior.
 
@@ -126,10 +133,12 @@ For one terminal candidate:
 1. require `complete`/`cancelled`;
 2. require `package_storage_key === importPackageStorageKey(job.id)`;
 3. require R2 capabilities needed to enumerate/delete/verify; otherwise fail closed;
-4. fully enumerate the canonical media prefix and fail closed if it exceeds current Package-v1 staging bounds;
+4. fully enumerate the canonical media prefix using `list()` cursor/truncation handling until enumeration is complete, accumulating canonical media keys across pages; fail closed if the cumulative media-key count exceeds the current Package-v1 staging bound;
 5. delete `[zipKey, planKey, ...mediaKeys]` with one bounded R2 multi-key delete;
-6. verify ZIP/plan absent and media prefix empty;
+6. verify ZIP/plan absent and re-enumerate the canonical media prefix to prove it is empty;
 7. only then status-qualified delete D1 and require exactly one row change.
+
+A single `list()` response never proves the prefix is complete when the result is truncated. No-list, incomplete enumeration, over-bound enumeration, or failed post-delete verification can authorize history-row deletion.
 
 Current Package v1 is capped at 256 archive entries, so one valid job fits below R2's 1000-key multi-delete limit. Do not implement partial per-job cleanup or a second operation-budget scheme. No-list/incomplete cleanup can never authorize history-row deletion.
 
@@ -147,6 +156,14 @@ Advance the cursor past failed rows during the current sweep so later safe rows 
 
 Show `Remove from history` only on visible complete/cancelled jobs and `Clear old imports` whenever global eligibility is true. Copy must state `Imported content will not be deleted.`
 
+`Clear old imports` requires an explicit confirmation dialog stating, in substance:
+
+```text
+Remove completed/cancelled import records from history?
+Imported Flash-Cards content will not be deleted.
+Failed or active resumable imports will be kept.
+```
+
 Use isolated fetch/enhanced history handling; do not replace page `form` preview state. Keep separate preview, processing/running-job, and history-mutation in-flight/error state.
 
 History cleanup must not pause/unlock/clear an unrelated processing loop. After mutation replace visible jobs with the authoritative snapshot.
@@ -159,48 +176,62 @@ Bulk results must visibly summarize removed and safely retained failed jobs with
 
 Implement the pure model and return model + successful digest from Step 1 without DB/R2 reads.
 
-**Done when executable tests prove:** create/use/skip authority; normalized-default-safe reference-only `use`; mixed create→use Topic/Asset/Prompt; primary-Topic modeling without invented operation; current empty-secondary rule; create selection/active state; Topic Question owner/inheritance/immediate parent; CaseAsset has no `isActive`; Step 1 remains no-write.
+**Done when executable tests prove:** create/use/skip authority; normalized-default-safe reference-only `use`; mixed create→use Topic/Asset/Prompt; operation-aware Q&A (create answer + create Prompt text or `use` Prompt reference); all authoritative Q&A expanded by default without per-question click; primary-Topic modeling without invented operation; current empty-secondary rule; create selection/active state; Topic Question owner/inheritance/immediate parent; CaseAsset has no `isActive`; Step 1 remains no-write.
 
 ### 2. Step-1 exact-file state + local ZIP media + preview UI
 
 Implement enhanced submission, generation fencing, digest binding, stored/deflated exact-path extraction, Blob lifecycle, and compact preview UI.
 
-**Done when executable tests prove:** A→select B before A response cannot restore A; overlap prevention; digest mismatch blocks Step 2; stored+deflated display; stale URL revocation; media-display failure is warning-only; Step-2 selection preserves preview; start consumes client authorization; `Automatic selection` has no duplicated count logic; package-media wording is accurate; server SHA gate unchanged.
+**Done when executable tests prove:** A→select B before A response cannot restore A; overlap prevention; digest mismatch blocks Step 2; stored+deflated display; stale URL revocation; media-display failure is warning-only; Step-2 selection preserves preview; start consumes client authorization; `Automatic selection` has no duplicated count logic; `All eligible questions` copy is used for `all`; package-media wording is accurate; server SHA gate unchanged.
 
 ### 3. Strict single/bulk history backend
 
 Implement authoritative history snapshot, strict per-job cleanup, individual action, and 10-candidate cursor bulk action.
 
-**Done when executable action/runtime tests prove:** Admin + DB/MEDIA guards; terminal eligibility; canonical mismatch retains row; no-list/incomplete cleanup retains row; bounded multi-delete+verification precedes D1 delete; maximum-valid media job succeeds atomically; one failure does not block later candidates; more failures than one batch do not starve later rows; cursor/new-sweep retry works; off-screen eligibility/newest-10 backfill works; domain/teaching media survive.
+**Done when executable action/runtime tests prove:** Admin + DB/MEDIA guards; terminal eligibility; canonical mismatch retains row; no-list/incomplete cleanup retains row; truncated/paginated `list()` enumeration is followed to completion; cumulative over-bound enumeration fails closed; bounded multi-delete+post-delete ZIP/plan/prefix verification precedes D1 delete; maximum-valid media job succeeds atomically; one failure does not block later candidates; more failures than one batch do not starve later rows; cursor/new-sweep retry works; off-screen eligibility/newest-10 backfill works; domain/teaching media survive.
 
 ### 4. History UI/state/feedback
 
 Wire Remove/Clear with isolated state and authoritative snapshots.
 
-**Done when executable client tests prove:** history mutation preserves package preview; cleanup during active processing does not disturb the loop; visible terminal transition enables cleanup; server snapshot backfills row 11; off-screen eligibility keeps Clear visible; partial results show removed+sanitized failures; `nextCursor` continues without client IDs becoming authority.
+**Done when executable client tests prove:** history mutation preserves package preview; cleanup during active processing does not disturb the loop; visible terminal transition enables cleanup; server snapshot backfills row 11; off-screen eligibility keeps Clear visible; Clear old imports shows the explicit non-destructive confirmation; partial results show removed+sanitized failures; `nextCursor` continues without client IDs becoming authority.
 
 ### 5. Docs + repository validation
 
 After implementation update `CONTENT_IMPORT_PACKAGES.md`, `RESUMABLE_IMPORT_RUNTIME_SAFETY.md`, `R2_COST_GUARDRAILS.md`, and `DOCUMENTATION_INDEX.md`. Classify this file as historical PR #167 planning only when implementation is complete; before merge use wording such as `implemented on Draft PR #167 branch`.
 
-**Done when:** focused executable tests, `npm run agent:checks -- --compact`, repository final checks, storage/runtime-specialized validation including `npm run runtime:smoke` when applicable, and exact-head CI are green against current `main`; PR remains Draft pending final review.
+**Done when:** focused executable tests, `npm run agent:checks -- --compact`, repository final checks, storage/runtime-specialized validation including `npm run runtime:smoke` when applicable, exact-head CI, and the manual local Admin smoke below are green against current `main`; PR remains Draft pending final review.
+
+#### Final manual local Admin smoke
+
+This supplements automated tests and `runtime:smoke`; it does not replace them.
+
+1. Prepare the local replica/Admin using the repository runbook (`npm run local:setup` / `npm run local:admin` if needed).
+2. Run `npm run dev` and, as local Admin, open `/admin/import`.
+3. Preview a representative valid ZIP and verify counts, all authoritative Q&A visible in one pass, and create-Asset image display.
+4. Change the Step-1 file and verify the old preview authorization is invalidated.
+5. Re-preview, select the exact ZIP in Step 2, start and complete the import against local D1/R2.
+6. Remove the completed job from history and exercise **Clear old imports** as applicable, including its explicit confirmation.
+7. Verify the imported local Case/Q&A/teaching image remain after history deletion.
+8. Stop the local replica with `npm run local:stop`.
 
 ## Acceptance criteria
 
 1. Valid Package-v1 ZIP → existing counts + safe package-declared content preview; Step 1 still writes neither D1 nor R2.
 2. `use` is reference-only; normalized defaults never appear as authored/current Production state.
-3. Create behavior shows applicable active state, Case selection (`Automatic selection` without duplicated runtime count), and Topic Question owner/inheritance context.
-4. Case→Topic preview uses current primary-Topic authority only; no invented CaseTopic operation; current empty-secondary reviewed contract remains intact.
-5. Create-Asset images come from the exact locally bound package and are labelled package-declared media; image display failure is not package validation failure.
-6. Step-1 generation races are fenced; Step 2 requires current server success + digest match; server SHA gate remains authoritative.
-7. History state is isolated from package preview and active processing.
-8. History responses provide authoritative newest-10 rows + global eligibility with off-screen eligibility/backfill.
-9. Single removal requires terminal status, canonical identity, strict bounded ZIP+plan+media deletion, verification, then status-qualified D1 deletion.
-10. Bulk removal scans at most 10 server-selected candidates with stable `(created_at,id)` traversal, continues past failures, and reaches later safe rows.
-11. Partial results visibly report removed and safely retained failures with sanitized messages; raw storage exceptions are not exposed.
-12. Cleanup never deletes imported domain content, Reviews, learner progress, teaching Assets, or learner-served media; failed/active jobs remain recoverable.
-13. Executable route/runtime/helper/client tests plus repository/runtime/storage validation are green at exact implemented head.
-14. No schema/package-version/Preview-authority/resumable-execution/slide-review redesign; PR remains Draft until deliberate implemented base→head review.
+3. Create behavior shows applicable active state, Case selection (`All eligible questions` for `all`; `Automatic selection` without duplicated runtime count), and Topic Question owner/inheritance context.
+4. Q&A is operation-aware: authoritative create answers are shown; Prompt text is shown only for create Prompts, while `use` Prompts render as Production references; all authoritative Q&A is visible by default in one pass.
+5. Case→Topic preview uses current primary-Topic authority only; no invented CaseTopic operation; current empty-secondary reviewed contract remains intact.
+6. Create-Asset images come from the exact locally bound package and are labelled package-declared media; image display failure is not package validation failure.
+7. Step-1 generation races are fenced; Step 2 requires current server success + digest match; server SHA gate remains authoritative.
+8. History state is isolated from package preview and active processing; Clear old imports requires explicit non-destructive confirmation.
+9. History responses provide authoritative newest-10 rows + global eligibility with off-screen eligibility/backfill.
+10. Single removal requires terminal status, canonical identity, complete paginated prefix enumeration, strict bounded ZIP+plan+media deletion, post-delete verification, then status-qualified D1 deletion.
+11. Bulk removal scans at most 10 server-selected candidates with stable `(created_at,id)` traversal, continues past failures, and reaches later safe rows.
+12. Partial results visibly report removed and safely retained failures with sanitized messages; raw storage exceptions are not exposed.
+13. Cleanup never deletes imported domain content, Reviews, learner progress, teaching Assets, or learner-served media; failed/active jobs remain recoverable.
+14. Executable route/runtime/helper/client tests, repository/runtime/storage validation, and the final manual local Admin smoke are green at exact implemented head.
+15. No schema/package-version/Preview-authority/resumable-execution/slide-review redesign; PR remains Draft until deliberate implemented base→head review.
 
 ## Execution
 
