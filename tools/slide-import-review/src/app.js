@@ -5,6 +5,7 @@ import {
 } from './core.js';
 import { createAutosaveCoordinator } from './autosave.js';
 import { trimResourceUrlCache } from './resource-cache.js';
+import { hasActiveMissingAnswer } from './review-filters.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -43,7 +44,7 @@ function rebuildIndexes() {
       blocking: blocking(review.warnings).length > 0 || assets.some(item => blocking(item.warnings).length > 0) || questions.some(item => blocking(item.warnings).length > 0),
       low: review.confidence === 'low' || assets.some(item => item.confidence === 'low') || questions.some(item => item.confidence === 'low'),
       image: assets.some(item => item.warnings.length > 0),
-      missing: pending.some(item => item.warnings.some(warning => warning.code === 'missing_answer')),
+      missing: hasActiveMissingAnswer(pending),
       unresolved: pending.some(item => item.reviewStatus !== 'rejected')
     });
   }

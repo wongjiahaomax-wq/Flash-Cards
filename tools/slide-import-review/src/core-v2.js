@@ -587,8 +587,8 @@ export class LazyZipArchive {
     const entry = this.entries.get(path);
     if (!entry || entry.synthetic || (entry.flags & 8)) return undefined;
     return {
-      localHeader: await blobRange(this.blob, entry.localOffset, entry.dataStart),
-      data: await blobRange(this.blob, entry.dataStart, entry.dataStart + entry.compressed),
+      localHeader: this.blob.slice(entry.localOffset, entry.dataStart),
+      data: this.blob.slice(entry.dataStart, entry.dataStart + entry.compressed),
       centralHeader: entry.centralHeader
     };
   }
@@ -644,6 +644,7 @@ export async function readZip(input) { return readZipIndex(input); }
 function push16(out, value) { out.push(value & 255, (value >>> 8) & 255); }
 function push32(out, value) { out.push(value & 255, (value >>> 8) & 255, (value >>> 16) & 255, (value >>> 24) & 255); }
 function setU32(bytes, offset, value) { bytes[offset] = value & 255; bytes[offset + 1] = (value >>> 8) & 255; bytes[offset + 2] = (value >>> 16) & 255; bytes[offset + 3] = (value >>> 24) & 255; }
+function partLength(part) { return part instanceof Blob ? part.size : part.length; }
 function createZipWriter() { return { parts: [], central: [], seen: new Set(), offset: 0, count: 0 }; }
 function appendZipEntry(writer, entry) {
   safeReviewZipPath(entry.path);
@@ -654,7 +655,7 @@ function appendZipEntry(writer, entry) {
     const copiedCentral = entry.copy.centralHeader.slice();
     setU32(copiedCentral, 42, writer.offset);
     writer.central.push(copiedCentral);
-    writer.offset += entry.copy.localHeader.length + entry.copy.data.length;
+    writer.offset += partLength(entry.copy.localHeader) + partLength(entry.copy.data);
     writer.count += 1;
     return;
   }

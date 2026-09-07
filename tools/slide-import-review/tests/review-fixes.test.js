@@ -118,4 +118,5 @@ test('browser reviewer skips rejected children during Case approval and fingerpr
   assert.match(source, /protectedPaths = new Set\(paths\)/);
   assert.match(source, /resourceUrl\(path, item\?\.mimeType, generation, protectedPaths\)/);
   assert.match(source, /const title = manifestCase\(item\.caseId\)/);
+  assert.match(source, /missing: hasActiveMissingAnswer\(pending\)/);
 });

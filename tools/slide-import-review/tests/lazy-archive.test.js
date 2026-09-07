@@ -58,12 +58,18 @@ test('reviewed export can materialize a Blob-backed archive only when backup is 
 test('Blob-backed backup copies unchanged previews without inflating them into the archive cache', async () => {
   const bundle = await loadReviewBundle(new Blob([fixture()]));
   const reads = [];
+  const copies = [];
   const originalGetFile = bundle.files.getFile.bind(bundle.files);
+  const originalCopyEntry = bundle.files.copyEntry.bind(bundle.files);
   bundle.files.getFile = async (path, options) => { reads.push(path); return originalGetFile(path, options); };
+  bundle.files.copyEntry = async path => { const copy = await originalCopyEntry(path); if (copy) copies.push(copy); return copy; };
   const cachedBefore = bundle.files.materializedBytes;
   const output = await exportReviewedBundle(bundle);
   assert.ok(output instanceof Blob);
   assert.equal(reads.some(path => path.startsWith('source-previews/')), false);
+  assert.equal(copies.length, 2);
+  assert.equal(copies.every(copy => copy.data instanceof Blob), true);
+  assert.equal(copies.reduce((sum, copy) => sum + copy.data.size, 0), preview.byteLength * 2);
   assert.equal(bundle.files.materializedBytes, cachedBefore);
 });
 

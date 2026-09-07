@@ -6,7 +6,7 @@ export function trimResourceUrlCache(cache, protectedPaths = new Set(), limit = 
     if (total <= limit) break;
     if (protectedPaths.has(path)) continue;
     total -= item.bytes;
-    cache.delete(path);
     release(path, item);
+    cache.delete(path);
   }
 }
