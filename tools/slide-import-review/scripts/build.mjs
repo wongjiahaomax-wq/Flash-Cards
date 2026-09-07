@@ -4,11 +4,15 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
-const [template, coreV2, coreFacade, app] = await Promise.all([
+const [template, coreV2, coreFacade, app, autosave, resourceCache, reviewFilters, operationGuard] = await Promise.all([
   readFile(resolve(root, 'index.template.html'), 'utf8'),
   readFile(resolve(root, 'src/core-v2.js'), 'utf8'),
   readFile(resolve(root, 'src/core.js'), 'utf8'),
-  readFile(resolve(root, 'src/app.js'), 'utf8')
+  readFile(resolve(root, 'src/app.js'), 'utf8'),
+  readFile(resolve(root, 'src/autosave.js'), 'utf8'),
+  readFile(resolve(root, 'src/resource-cache.js'), 'utf8'),
+  readFile(resolve(root, 'src/review-filters.js'), 'utf8'),
+  readFile(resolve(root, 'src/operation-guard.js'), 'utf8')
 ]);
 
 function moduleDataUrl(source) {
@@ -18,11 +22,23 @@ function moduleDataUrl(source) {
 const coreV2Url = moduleDataUrl(coreV2);
 const bundledCoreFacade = coreFacade.replaceAll("'./core-v2.js'", JSON.stringify(coreV2Url));
 const coreFacadeUrl = moduleDataUrl(bundledCoreFacade);
-const bundledApp = app.replace("'./core.js'", JSON.stringify(coreFacadeUrl));
+const autosaveUrl = moduleDataUrl(autosave);
+const resourceCacheUrl = moduleDataUrl(resourceCache);
+const reviewFiltersUrl = moduleDataUrl(reviewFilters);
+const operationGuardUrl = moduleDataUrl(operationGuard);
+const bundledApp = app.replace("'./core.js'", JSON.stringify(coreFacadeUrl)).replace("'./autosave.js'", JSON.stringify(autosaveUrl)).replace("'./resource-cache.js'", JSON.stringify(resourceCacheUrl)).replace("'./review-filters.js'", JSON.stringify(reviewFiltersUrl)).replace("'./operation-guard.js'", JSON.stringify(operationGuardUrl));
 
 const marker = '<script type="module" src="./src/app.js"></script>';
 if (!template.includes(marker)) throw new Error('Standalone reviewer template script marker is missing.');
 const html = template.replace(marker, `<script type="module">\n${bundledApp}\n</script>`);
-await mkdir(resolve(root, 'dist'), { recursive: true });
-await writeFile(resolve(root, 'dist/index.html'), html);
-console.log(`Built ${resolve(root, 'dist/index.html')}`);
+const output = resolve(root, 'reviewer.html');
+if (process.argv.includes('--check') || process.env.CI === 'true') {
+  let committed;
+  try { committed = await readFile(output, 'utf8'); } catch { throw new Error(`Generated reviewer is missing: ${output}`); }
+  if (committed !== html) throw new Error(`Generated reviewer is stale: ${output}. Run npm run slide-review:build locally and commit the updated reviewer.html.`);
+  console.log(`Verified ${output}`);
+} else {
+  await mkdir(resolve(root), { recursive: true });
+  await writeFile(output, html);
+  console.log(`Built ${output}`);
+}
