@@ -357,6 +357,33 @@ At minimum cover:
 
 Prefer unit/contract tests and browser wiring tests over unstable performance timing tests. Add synthetic large-bundle fixtures/instrumentation that can assert which entries were read/inflated and peak/resident cache behavior without making the tests slow.
 
+### Tranche 11 — No-build standalone reviewer distribution
+
+Make the routine human-review path require no local build step.
+
+Target routine workflow:
+
+```text
+open tools/slide-import-review/reviewer.html
+→ choose/drop review ZIP
+→ review
+```
+
+Required behavior:
+
+- commit a canonical standalone `tools/slide-import-review/reviewer.html` to the repository;
+- keep it fully offline/local and make it contain the same embedded reviewer application that the current standalone build produces;
+- make `npm run slide-review:build` a developer maintenance/regeneration command, not a prerequisite for normal reviewing;
+- add CI/build verification that regenerates the standalone reviewer and fails if committed `reviewer.html` differs byte-for-byte from the generated output;
+- update README/workflow documentation so normal users are instructed to open `reviewer.html` directly;
+- keep `src/app.js`, `src/core.js`, `src/core-v2.js`, `index.template.html`, and the build logic as the maintainable source/build authority; `reviewer.html` is the checked-in generated distribution;
+- do not require a worktree, branch switch, Node dependency install, dev server, Cloudflare, D1/R2, or internet access for normal review;
+- ensure the no-build artifact uses the same current public safety facade and passes the same review-bundle/finalization compatibility coverage;
+- do not solve this by committing the entire ignored `dist/` tree; use the deliberately named single ready-to-use distribution file `tools/slide-import-review/reviewer.html`;
+- document the source/distribution distinction explicitly: `src/` + template/build inputs are maintainable source, `reviewer.html` is ready-to-use generated application, and the build command regenerates/verifies it.
+
+This tranche is intended to prevent the usable reviewer from silently lagging behind its source merely because `tools/slide-import-review/dist/` is ignored or a user did not run a build before reviewing.
+
 ## Acceptance criteria
 
 The PR is ready for final review when all of the following are true:
@@ -379,6 +406,8 @@ The PR is ready for final review when all of the following are true:
 16. Existing review safety invariants and deterministic finalization behavior are unchanged except for deliberate UX presentation changes.
 17. Final `flashcards-import-v1.zip` remains accepted by the current production Import Package parser/compatibility tests.
 18. Repository-required slide-review tests/build and final validation pass on the actual PR head.
+19. A freshly cloned repository can open the Slide Import Reviewer and review/finalize a compatible bundle by opening the committed `tools/slide-import-review/reviewer.html`, with no build or dependency-install step.
+20. CI proves the committed standalone reviewer is byte-for-byte current with its source/build inputs, preventing stale reviewer distributions.
 
 ## Non-goals
 
@@ -419,4 +448,5 @@ The final reviewer should independently verify:
 - whether production finalization avoids review-only preview loading;
 - whether source/review metadata remains complete and auditable;
 - whether filtered navigation remains correct after mutations;
+- whether committed `reviewer.html` is reproducibly generated from current source/build inputs and is the documented no-build user entrypoint;
 - whether finalization behavior and production package compatibility remain unchanged.
