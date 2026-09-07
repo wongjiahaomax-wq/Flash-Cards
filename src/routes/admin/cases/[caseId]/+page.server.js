@@ -3,7 +3,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { AdminContentInputError, createCaseTopic, listCaseEditorTaxonomyOptions, updateCase } from '$lib/server/db/admin-content.js';
 import { createAssetFromUpload, AssetLibraryInputError } from '$lib/server/db/asset-library.js';
 import { AssetQuestionInputError, createAssetQuestion, optInAssetQuestion, optInFixedAssetQuestion, removeAssetQuestionOptIn, updateAssetQuestionAnswer } from '$lib/server/db/asset-questions.js';
-import { canManageCaseAssets, getAdminCaseData, updateCaseAssetCaption } from '$lib/server/db/case-assets.js';
+import { canManageCaseAssets, CaseAssetInputError, getAdminCaseData, updateCaseAssetCaption } from '$lib/server/db/case-assets.js';
 import { listCaseImageQuestionSummaries } from '$lib/server/db/case-image-question-summaries.js';
 import { CaseQuestionInputError, listCaseQuestions, saveCaseQuestion } from '$lib/server/db/case-questions.js';
 import { listProductionCaseTags } from '$lib/server/db/case-tag-read.ts';
@@ -116,7 +116,7 @@ export const actions = {
         } else throw new AdminContentInputError('Save All received an unknown draft.');
       }
     } catch (errorValue) {
-      const clientError = errorValue instanceof AdminContentInputError || errorValue instanceof CaseQuestionInputError || errorValue instanceof AdminImageWorkflowInputError || errorValue instanceof AssetQuestionInputError;
+      const clientError = errorValue instanceof AdminContentInputError || errorValue instanceof CaseQuestionInputError || errorValue instanceof AdminImageWorkflowInputError || errorValue instanceof AssetQuestionInputError || errorValue instanceof StimulusGroupInputError || errorValue instanceof CaseAssetInputError;
       if (!clientError) console.error('Case Save All failed.', errorValue);
       return fail(clientError ? 400 : 500, { error: errorValue instanceof Error ? errorValue.message : 'Unable to save all Case-editor drafts.' });
     }
