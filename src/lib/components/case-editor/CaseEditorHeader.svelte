@@ -30,7 +30,8 @@
         body: JSON.stringify({ drafts })
       });
       if (!response.ok) return false;
-      const hasStructuralWork = coordinator.dirtyItems().some((item) => !item.saveable);
+      const dirtyItems = /** @type {any[]} */ (coordinator.dirtyItems());
+      const hasStructuralWork = dirtyItems.some((item) => !item.saveable);
       if (!hasStructuralWork) return true;
       const readback = await fetch(`/admin/cases/${encodeURIComponent(selectedCase.case.id)}/save-all-authoritative`, {
         method: 'POST',
