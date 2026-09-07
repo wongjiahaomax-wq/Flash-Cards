@@ -2,7 +2,7 @@
   // @ts-nocheck
   import { enhance } from '$app/forms';
   import { onDestroy } from 'svelte';
-  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { caseEditorUnsavedWorkMessage, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { canReorderCaseQuestion, cloneCaseEditorSnapshot, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
 
@@ -39,68 +39,108 @@
     };
   }
 
+  function liveQuestionState(state) {
+    return questionDrafts[state.caseQuestionId] ?? state;
+  }
+
+  function updateQuestionDraft(state, field, value) {
+    liveQuestionState(state).draft[field] = value;
+    coordinator?.refresh();
+  }
+
   function syncQuestionDrafts() {
+    let changed = false;
     for (const question of selectedCase.questions) {
       let state = questionDrafts[question.id];
       if (!state) {
         const snapshot = questionSnapshot(question);
         questionDrafts[question.id] = { caseQuestionId: question.id, authoritativeId: question.questionPromptId, draft: snapshot, baseline: cloneCaseEditorSnapshot(snapshot), pending: null, submitted: null, saveState: 'saved', resolve: null };
+        changed = true;
       } else if (!state.pending && !questionDirty(state)) {
         const snapshot = questionSnapshot(question);
-        state.authoritativeId = question.questionPromptId;
-        state.baseline = snapshot;
-        state.draft = cloneCaseEditorSnapshot(snapshot);
+        if (state.authoritativeId !== question.questionPromptId) {
+          state.authoritativeId = question.questionPromptId;
+          changed = true;
+        }
+        if (!sameCaseEditorSnapshot(state.baseline, snapshot)) {
+          state.baseline = snapshot;
+          changed = true;
+        }
+        if (!sameCaseEditorSnapshot(state.draft, snapshot)) {
+          state.draft = cloneCaseEditorSnapshot(snapshot);
+          changed = true;
+        }
       }
     }
+    return changed;
   }
 
-  function beginQuestionSubmit(state) {
-    state.submitted = cloneCaseEditorSnapshot(state.draft);
+  function beginQuestionSubmit(state, snapshot = state.draft) {
+    state.submitted = cloneCaseEditorSnapshot(snapshot);
     state.pending = new Promise((resolve) => { state.resolve = resolve; });
     state.saveState = 'saving';
     coordinator?.refresh();
   }
 
-  function submitQuestion(state) {
+  function prepareQuestionSave(state) {
+    const form = document.getElementById(`question-edit-${state.caseQuestionId}`);
+    return form instanceof HTMLFormElement && form.reportValidity() ? cloneCaseEditorSnapshot(state.draft) : null;
+  }
+  function commitQuestionSave(state, snapshot, authoritative = null) {
+    const reconciled = reconcileSubmittedCaseEditorDraft(state.draft, snapshot, authoritative ?? snapshot);
+    state.baseline = reconciled.baseline;
+    state.draft = reconciled.draft;
+    state.saveState = 'saved';
+    coordinator?.refresh();
+  }
+
+  function submitQuestion(state, snapshot = null) {
     if (state.pending) return state.pending;
     const form = document.getElementById(`question-edit-${state.caseQuestionId}`);
-    if (!(form instanceof HTMLFormElement) || !form.reportValidity()) return Promise.resolve(false);
+    if (!(form instanceof HTMLFormElement) || (!snapshot && !form.reportValidity())) return Promise.resolve(false);
+    if (snapshot) state.submitted = cloneCaseEditorSnapshot(snapshot);
     form.requestSubmit();
     return state.pending ?? Promise.resolve(false);
   }
 
   function enhanceQuestion(state) {
     return ({ formElement, cancel }) => {
-      if (state.pending) {
+      const currentState = liveQuestionState(state);
+      if (currentState.pending) {
         cancel();
         return;
       }
-      if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+      const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: true, allowStructuralWork: true });
+      if (conflictMessage) {
+        window.alert(conflictMessage);
         cancel();
         return;
       }
-      beginQuestionSubmit(state);
-      const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement);
+      beginQuestionSubmit(currentState, currentState.submitted ?? currentState.draft);
+      const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, {
+        reconcileSubmittedDraft: true,
+        deferInvalidation: () => coordinator?.dirtyCount?.(`question:${currentState.caseQuestionId}`) > 0
+      });
       return async ({ result }) => {
         const outcome = await stable({ result });
         if (outcome.ok) {
-          const submitted = state.submitted;
-          const authoritative = selectedCase.questions.find((question) => question.id === state.caseQuestionId);
+          const submitted = currentState.submitted;
+          const authoritative = selectedCase.questions.find((question) => question.id === currentState.caseQuestionId);
           if (authoritative) {
-            const snapshot = questionSnapshot(authoritative);
-            state.authoritativeId = authoritative.questionPromptId;
-            const reconciled = reconcileSubmittedCaseEditorDraft(state.draft, submitted, snapshot);
-            state.baseline = reconciled.baseline;
-            state.draft = reconciled.draft;
+            const snapshot = outcome.deferred ? submitted : questionSnapshot(authoritative);
+            currentState.authoritativeId = authoritative.questionPromptId;
+            const reconciled = reconcileSubmittedCaseEditorDraft(currentState.draft, submitted, snapshot);
+            currentState.baseline = reconciled.baseline;
+            currentState.draft = reconciled.draft;
           }
-          state.saveState = 'saved';
+          currentState.saveState = 'saved';
         } else {
-          state.saveState = 'error';
+          currentState.saveState = 'error';
         }
-        const resolve = state.resolve;
-        state.pending = null;
-        state.submitted = null;
-        state.resolve = null;
+        const resolve = currentState.resolve;
+        currentState.pending = null;
+        currentState.submitted = null;
+        currentState.resolve = null;
         coordinator?.refresh();
         resolve?.(outcome.ok);
       };
@@ -108,25 +148,40 @@
   }
 
   $effect(() => {
-    syncQuestionDrafts();
+    let changed = syncQuestionDrafts();
     const liveIds = new Set(selectedCase.questions.map((question) => question.id));
     for (const [caseQuestionId, unregister] of questionRegistrations) {
       if (liveIds.has(caseQuestionId)) continue;
       unregister?.();
       questionRegistrations.delete(caseQuestionId);
       delete questionDrafts[caseQuestionId];
+      changed = true;
     }
     for (const question of selectedCase.questions) {
       const caseQuestionId = question.id;
       if (questionRegistrations.has(caseQuestionId)) continue;
       const state = questionState(question);
       const unregister = coordinator?.register(`question:${caseQuestionId}`, {
+        label: () => `Question ${selectedCase.questions.findIndex((candidate) => candidate.id === caseQuestionId) + 1}`,
+        dirtyFields: () => [
+          state.draft.promptMd !== state.baseline.promptMd ? 'Prompt' : null,
+          state.draft.answerMd !== state.baseline.answerMd ? 'Answer' : null,
+          state.draft.reusableForTopic !== state.baseline.reusableForTopic ? 'Share with Topic' : null
+        ].filter(Boolean),
+        isSaving: () => Boolean(state.pending),
+        status: () => state.pending ? 'Saving…' : !questionDirty(state) ? 'Saved' : state.saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
         isDirty: () => questionDirty(state),
-        save: () => submitQuestion(state)
+        prepareSave: () => prepareQuestionSave(state),
+        saveAllPayload: (snapshot) => ({ kind: 'question', fields: { caseQuestionId: state.caseQuestionId, originalPromptId: state.authoritativeId, ...snapshot } }),
+        commitSaveAll: (snapshot, authoritative) => commitQuestionSave(state, snapshot, authoritative),
+        save: (snapshot) => submitQuestion(state, snapshot)
       });
-      if (unregister) questionRegistrations.set(caseQuestionId, unregister);
+      if (unregister) {
+        questionRegistrations.set(caseQuestionId, unregister);
+        changed = true;
+      }
     }
-    coordinator?.refresh();
+    if (changed) coordinator?.refresh();
   });
 
   onDestroy(() => {
@@ -201,7 +256,9 @@
       cancel();
       return;
     }
-    if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
+    if (conflictMessage) {
+      window.alert(conflictMessage);
       cancel();
       return;
     }
@@ -326,11 +383,11 @@
           <input type="hidden" name="return_query" value={caseLibraryReturnQuery} />
           <input type="hidden" name="case_question_id" value={question.id} />
           <input type="hidden" name="original_prompt_id" value={questionDraft.authoritativeId} />
-          <label class="question-prompt-field">Prompt<textarea name="prompt_md" bind:value={questionDraft.draft.promptMd} oninput={() => coordinator?.refresh()} rows="3" maxlength="2000" required></textarea></label>
-          <label class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" bind:value={questionDraft.draft.answerMd} oninput={() => coordinator?.refresh()} rows="3" maxlength="5000" required></textarea></label>
+          <label class="question-prompt-field">Prompt<textarea name="prompt_md" value={questionDraft.draft.promptMd} oninput={(event) => updateQuestionDraft(questionDraft, 'promptMd', event.currentTarget.value)} rows="3" maxlength="2000" required></textarea></label>
+          <label class="question-answer-field">Answer<textarea use:autoGrowAnswer name="answer_md" value={questionDraft.draft.answerMd} oninput={(event) => updateQuestionDraft(questionDraft, 'answerMd', event.currentTarget.value)} rows="3" maxlength="5000" required></textarea></label>
           <div class="question-footer">
-            <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" bind:checked={questionDraft.draft.reusableForTopic} onchange={() => coordinator?.refresh()} /> Share this question with the Topic</label>
-            <span class="save-state" class:error={questionDraft.saveState === 'error'}>{questionDraft.saveState === 'saving' ? 'Saving…' : questionDraft.saveState === 'error' ? 'Save failed — try again' : questionDirty(questionDraft) ? 'Unsaved changes' : 'Saved'}</span>
+            <label class="checkbox-label question-reuse-field"><input name="reusable_for_topic" type="checkbox" checked={questionDraft.draft.reusableForTopic} onchange={(event) => updateQuestionDraft(questionDraft, 'reusableForTopic', event.currentTarget.checked)} /> Share this question with the Topic</label>
+            <span class="save-state" class:error={questionDraft.saveState === 'error' && questionDirty(questionDraft)}>{questionDraft.saveState === 'saving' ? 'Saving…' : questionDirty(questionDraft) && questionDraft.saveState === 'error' ? 'Save failed — changes remain unsaved' : questionDirty(questionDraft) ? `Unsaved changes — ${[questionDraft.draft.promptMd !== questionDraft.baseline.promptMd ? 'Prompt' : null, questionDraft.draft.answerMd !== questionDraft.baseline.answerMd ? 'Answer' : null, questionDraft.draft.reusableForTopic !== questionDraft.baseline.reusableForTopic ? 'Share with Topic' : null].filter(Boolean).join(', ')}` : 'Saved'}</span>
             <button class="button primary save-question-action" type="submit" disabled={Boolean(questionDraft.pending)}>Save question</button>
           </div>
         </form>

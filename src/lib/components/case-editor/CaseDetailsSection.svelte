@@ -2,7 +2,7 @@
   // @ts-nocheck
   import { onDestroy, onMount } from 'svelte';
   import { enhance } from '$app/forms';
-  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { caseEditorUnsavedWorkMessage, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { cloneCaseEditorSnapshot, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
 
@@ -22,6 +22,14 @@
   let saveState = $state('saved');
   let resolvePending = null;
   let dirty = $derived(!sameCaseEditorSnapshot(draft, baseline));
+  function dirtyFields() {
+    return [
+      draft.title !== baseline.title ? 'Internal title' : null,
+      draft.vignetteMd !== baseline.vignetteMd ? 'Vignette' : null,
+      draft.questionSelectionMode !== baseline.questionSelectionMode ? 'Question selection' : null,
+      draft.questionCount !== baseline.questionCount ? 'Question count' : null
+    ].filter(Boolean);
+  }
 
   $effect(() => {
     const current = serverSnapshot(selectedCase);
@@ -30,21 +38,33 @@
       draft = cloneCaseEditorSnapshot(current);
       initialized = true;
     } else if (!pending && !dirty) {
-      baseline = current;
-      draft = cloneCaseEditorSnapshot(current);
+      if (!sameCaseEditorSnapshot(baseline, current)) baseline = current;
+      if (!sameCaseEditorSnapshot(draft, current)) draft = cloneCaseEditorSnapshot(current);
     }
   });
 
-  function beginSubmit() {
-    submittedSnapshot = cloneCaseEditorSnapshot(draft);
+  function beginSubmit(snapshot = draft) {
+    submittedSnapshot = cloneCaseEditorSnapshot(snapshot);
     pending = new Promise((resolve) => { resolvePending = resolve; });
     saveState = 'saving';
     coordinator?.refresh();
   }
 
-  function submitDraft() {
+  function prepareDraftSave() {
+    return detailsForm?.reportValidity() ? cloneCaseEditorSnapshot(draft) : null;
+  }
+  function commitDraftSave(snapshot, authoritative = null) {
+    const reconciled = reconcileSubmittedCaseEditorDraft(draft, snapshot, authoritative ?? snapshot);
+    baseline = reconciled.baseline;
+    draft = reconciled.draft;
+    saveState = 'saved';
+    coordinator?.refresh();
+  }
+
+  function submitDraft(snapshot = null) {
     if (pending) return pending;
-    if (!detailsForm?.reportValidity()) return Promise.resolve(false);
+    if (!snapshot && !detailsForm?.reportValidity()) return Promise.resolve(false);
+    if (snapshot) submittedSnapshot = cloneCaseEditorSnapshot(snapshot);
     detailsForm.requestSubmit();
     return pending ?? Promise.resolve(false);
   }
@@ -54,17 +74,22 @@
       cancel();
       return;
     }
-    if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: true, allowStructuralWork: true });
+    if (conflictMessage) {
+      window.alert(conflictMessage);
       cancel();
       return;
     }
-    beginSubmit();
+    beginSubmit(submittedSnapshot ?? draft);
     const view = captureCaseEditorView();
-    const stable = stableCaseEditorEnhance(view, formElement);
+    const stable = stableCaseEditorEnhance(view, formElement, {
+      reconcileSubmittedDraft: true,
+      deferInvalidation: () => coordinator?.dirtyCount?.('case-details') > 0
+    });
     return async ({ result }) => {
       const outcome = await stable({ result });
       if (outcome.ok) {
-        const current = serverSnapshot(selectedCase);
+        const current = outcome.deferred ? submittedSnapshot : serverSnapshot(selectedCase);
         const reconciled = reconcileSubmittedCaseEditorDraft(draft, submittedSnapshot, current);
         baseline = reconciled.baseline;
         draft = reconciled.draft;
@@ -81,7 +106,17 @@
     };
   }
 
-  onMount(() => coordinator?.register('case-details', { isDirty: () => dirty, save: submitDraft }));
+  onMount(() => coordinator?.register('case-details', {
+    label: 'Case details',
+    dirtyFields,
+    isSaving: () => Boolean(pending),
+    status: () => pending ? 'Saving…' : !dirty ? 'Saved' : saveState === 'error' ? 'Save failed — still unsaved' : 'Unsaved — included in Save all',
+    isDirty: () => dirty,
+    prepareSave: prepareDraftSave,
+    saveAllPayload: (snapshot) => ({ kind: 'case-details', fields: snapshot }),
+    commitSaveAll: commitDraftSave,
+    save: submitDraft
+  }));
   onDestroy(() => coordinator?.refresh());
 </script>
 
@@ -97,7 +132,7 @@
       </h2>
       <p class="muted compact-hide-explainer">Cases under the same Topic can have different stems, causes, findings, or educational intent. The internal title is not shown to learners.</p>
     </div>
-    <span class="save-state" class:error={saveState === 'error'}>{saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Save failed — try again' : dirty ? 'Unsaved changes' : 'Saved'}</span><button class="button primary" type="submit" form="case-details-form" disabled={Boolean(pending)}>Save Case</button>
+    <span class="save-state" class:error={saveState === 'error' && dirty}>{saveState === 'saving' ? 'Saving…' : dirty && saveState === 'error' ? 'Save failed — changes remain unsaved' : dirty ? `Unsaved changes — ${dirtyFields().join(', ')}` : 'Saved'}</span><button class="button primary" type="submit" form="case-details-form" disabled={Boolean(pending)}>Save Case</button>
   </div>
 
   <form bind:this={detailsForm} id="case-details-form" method="POST" action="?/updateCase" class="case-form" data-case-editor-internal use:enhance={enhanceDetails}>

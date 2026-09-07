@@ -348,7 +348,7 @@ test('Compact Case questions keep scope and reorder controls together while pres
   assert.equal(callbacks.size, 1, 'Both reorder directions must share viewport-preserving behavior.');
 
   assert.match(questions, /const\s+preserveQuestionScroll\s*=\s*\(\{\s*formElement,\s*cancel\s*\}\)/);
-  assert.match(questions, /caseEditorHasConflictingUnsavedWork\(formElement, coordinator\)/);
+  assert.match(questions, /caseEditorUnsavedWorkMessage\(formElement, coordinator\)/);
   assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement\)/);
   assert.doesNotMatch(questions, /window\.scrollBy\s*\(|\bgoto\s*\(|\.reload\s*\(|window\.location/);
 });

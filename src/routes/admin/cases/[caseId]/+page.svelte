@@ -1,10 +1,9 @@
 <script>
   import { onMount } from 'svelte';
-  import { enhance } from '$app/forms';
   import { beforeNavigate } from '$app/navigation';
   import { createCaseEditorCoordinator } from '$lib/case-editor-coordinator.js';
   import { isSafeCasePickerSearchNavigation } from '$lib/admin-image-selection.js';
-  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, hasCaseEditorPickerSelection, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { caseEditorUnsavedWorkMessage, captureCaseEditorView, hasCaseEditorPickerSelection, registerCaseEditorStableForms, registerCaseEditorStructuralForms, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { getCaseEditorStorage, readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
   import { buildCaseFastReviewSummary, buildCaseQuestionAudit } from '$lib/admin-case-question-audit.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
@@ -42,16 +41,10 @@
   /** @type {{ targetUrl: URL, targetGroupId: string | null, selectedIds: string[] } | null} */
   let pendingPickerSearchNavigation = null;
 
-  function hasNonPickerUnsavedWork() {
-    if (draftCoordinator.dirtyCount() > 0) return true;
-    return [...document.querySelectorAll('.case-editor form')].some((form) => form instanceof HTMLFormElement
-      && !form.matches('[data-case-editor-picker], [data-case-editor-picker-search]')
-      && formHasMeaningfulUnsubmittedInput(form));
-  }
-
   onMount(() => {
     editorLayout = readCaseEditorLayout(getCaseEditorStorage(window));
     const unsubscribe = draftCoordinator.subscribe(() => { draftRevision += 1; });
+    const unregisterStructuralForms = registerCaseEditorStructuralForms(draftCoordinator);
     /** @param {BeforeUnloadEvent} event */
     const beforeUnload = (event) => {
       if (suppressNextBeforeUnload) {
@@ -68,8 +61,11 @@
       if (!(submittedForm instanceof HTMLFormElement) || !hasEditorUnsavedWork()) return;
       if (submittedForm.hasAttribute('data-case-editor-internal') || submittedForm.hasAttribute('data-case-editor-enhanced') || submittedForm.hasAttribute('data-case-editor-coordinated')) return;
       if (submittedForm.matches('[data-case-editor-picker-search]')) {
-        if (hasNonPickerUnsavedWork() && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) event.preventDefault();
-        else if (!hasNonPickerUnsavedWork()) {
+        const conflictMessage = caseEditorUnsavedWorkMessage(submittedForm, draftCoordinator);
+        if (conflictMessage) {
+          event.preventDefault();
+          window.alert(conflictMessage);
+        } else {
           const targetUrl = new URL(submittedForm.getAttribute('action') ?? window.location.href, document.baseURI);
           targetUrl.search = '';
           const selectedIds = [];
@@ -84,7 +80,11 @@
         }
         return;
       }
-      if (caseEditorHasConflictingUnsavedWork(submittedForm, draftCoordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) event.preventDefault();
+      const conflictMessage = caseEditorUnsavedWorkMessage(submittedForm, draftCoordinator, { allowSaveableWork: true });
+      if (conflictMessage) {
+        event.preventDefault();
+        window.alert(conflictMessage);
+      }
     };
     /** @param {SubmitEvent} event */
     const acceptedNativeSubmit = (event) => {
@@ -95,33 +95,35 @@
     window.addEventListener('beforeunload', beforeUnload);
     document.addEventListener('submit', submitGuard, true);
     document.addEventListener('submit', acceptedNativeSubmit);
-    const stableFormActions = [...document.querySelectorAll('.case-editor form[method="POST"]')]
-      .filter((form) => {
-        if (!(form instanceof HTMLFormElement)) return false;
-        if (form.id === 'case-details-form' || form.classList.contains('question-edit-form')) return false;
-        if (form.hasAttribute('data-case-editor-coordinated')) return false;
-        const action = form.getAttribute('action') ?? '';
-        return action.startsWith('?/') && !form.hasAttribute('data-case-editor-internal') && !form.hasAttribute('data-case-editor-enhanced') && !form.hasAttribute('data-case-editor-coordinated');
-      });
     /** @param {any} submitContext */
     const enhanceStableForm = ({ formElement, cancel }) => {
-      if (caseEditorHasConflictingUnsavedWork(formElement, draftCoordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+      // Structural actions may be submitted while saveable drafts are present.
+      // Their response deliberately does not invalidate those drafts; the user
+      // can immediately finish with the captured Save All batch.
+      const conflictMessage = caseEditorUnsavedWorkMessage(formElement, draftCoordinator, { allowSaveableWork: true });
+      if (conflictMessage) {
+        window.alert(conflictMessage);
         cancel();
         return;
       }
-      return stableCaseEditorEnhance(captureCaseEditorView(), formElement);
+      const structuralKey = formElement.dataset.caseEditorStructuralKey;
+      const stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { deferInvalidation: () => draftCoordinator.saveableDirtyCount() > 0 });
+      /** @param {any} context */
+      const handleStableForm = async (context) => {
+        const outcome = await stable(context);
+        if (outcome.ok && structuralKey) draftCoordinator.rebaseline(structuralKey, /** @type {any} */ (outcome.postSuccessSnapshot));
+        return outcome;
+      };
+      return handleStableForm;
     };
-    for (const form of stableFormActions) /** @type {HTMLFormElement} */ (form).dataset.caseEditorEnhanced = 'true';
-    const enhancedForms = stableFormActions.map((form) => enhance(/** @type {HTMLFormElement} */ (form), /** @type {any} */ (enhanceStableForm)));
+    const unregisterStableForms = registerCaseEditorStableForms(/** @type {any} */ (enhanceStableForm));
     return () => {
       unsubscribe();
+      unregisterStructuralForms();
       window.removeEventListener('beforeunload', beforeUnload);
       document.removeEventListener('submit', submitGuard, true);
       document.removeEventListener('submit', acceptedNativeSubmit);
-      for (const [index, action] of enhancedForms.entries()) {
-        action?.destroy?.();
-        delete /** @type {HTMLFormElement} */ (stableFormActions[index]).dataset.caseEditorEnhanced;
-      }
+      unregisterStableForms();
     };
   });
 
@@ -143,23 +145,15 @@
     }
   }
 
-  /** @param {HTMLFormElement} form */
-  function formHasMeaningfulUnsubmittedInput(form) {
-    if (form.id === 'case-details-form' || form.classList.contains('question-edit-form') || form.hasAttribute('data-case-editor-coordinated')) return false;
-    return [...form.elements].some((element) => {
-      if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement)) return false;
-      if (element instanceof HTMLInputElement && element.type === 'hidden') return false;
-      if (element instanceof HTMLInputElement && element.type === 'file') return Boolean(element.files?.length);
-      if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) return element.checked !== element.defaultChecked;
-      if (element instanceof HTMLSelectElement) return [...element.options].some((option) => option.selected !== option.defaultSelected);
-      return element.value.trim() !== element.defaultValue.trim();
-    });
+  function hasEditorUnsavedWork() {
+    const inventory = draftCoordinator.dirtyItems();
+    // Keep a defensive picker fallback until a dialog has mounted its registration.
+    return inventory.length > 0 || (hasCaseEditorPickerSelection() && !inventory.some((item) => item.key === 'picker-selection'));
   }
 
-  function hasEditorUnsavedWork() {
-    if (draftCoordinator.dirtyCount() > 0) return true;
-    if (hasCaseEditorPickerSelection()) return true;
-    return [...document.querySelectorAll('.case-editor form')].some((form) => form instanceof HTMLFormElement && formHasMeaningfulUnsubmittedInput(form));
+  function leaveWarning() {
+    const summary = draftCoordinator.describeUnsavedWork();
+    return `Unsaved Case-editor work: ${summary || 'changes'} Leave and lose these changes?`;
   }
 
   beforeNavigate(({ cancel }) => {
@@ -168,7 +162,7 @@
       pendingPickerSearchNavigation = null;
       if (isSafeCasePickerSearchNavigation({ currentUrl: window.location.href, targetUrl: pending.targetUrl, targetGroupId: pending.targetGroupId, selectedIds: pending.selectedIds })) return;
     }
-    if (hasEditorUnsavedWork() && !window.confirm('You have unsaved Case-editor work. Leave this page and lose it?')) cancel();
+    if (hasEditorUnsavedWork() && !window.confirm(leaveWarning())) cancel();
   });
 </script>
 

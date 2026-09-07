@@ -1,16 +1,16 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 
-import { AdminContentInputError, createCaseTopic, listCaseEditorTaxonomyOptions } from '$lib/server/db/admin-content.js';
+import { AdminContentInputError, createCaseTopic, listCaseEditorTaxonomyOptions, updateCase } from '$lib/server/db/admin-content.js';
 import { createAssetFromUpload, AssetLibraryInputError } from '$lib/server/db/asset-library.js';
 import { AssetQuestionInputError, createAssetQuestion, optInAssetQuestion, optInFixedAssetQuestion, removeAssetQuestionOptIn, updateAssetQuestionAnswer } from '$lib/server/db/asset-questions.js';
-import { canManageCaseAssets, getAdminCaseData } from '$lib/server/db/case-assets.js';
+import { canManageCaseAssets, CaseAssetInputError, getAdminCaseData, updateCaseAssetCaption } from '$lib/server/db/case-assets.js';
 import { listCaseImageQuestionSummaries } from '$lib/server/db/case-image-question-summaries.js';
-import { listCaseQuestions } from '$lib/server/db/case-questions.js';
+import { CaseQuestionInputError, listCaseQuestions, saveCaseQuestion } from '$lib/server/db/case-questions.js';
 import { listProductionCaseTags } from '$lib/server/db/case-tag-read.ts';
 import { AdminImageWorkflowInputError, attachAssetsToCase, bulkAddAssetsToStimulusGroup, listCaseImagePicker, updateStimulusOptionCaption, validateStimulusGroupTargetForNewAssets } from '$lib/server/db/admin-image-workflow.js';
 import { createDb } from '$lib/server/db/index.js';
 import { listActiveTagOptions } from '$lib/server/db/library-options.js';
-import { getAdminStimulusData, startStimulusGroupFromCaseAsset, StimulusGroupInputError } from '$lib/server/db/stimulus-groups.js';
+import { getAdminStimulusData, saveStimulusGroupQuestion, saveStimulusOptionQuestion, startStimulusGroupFromCaseAsset, StimulusGroupInputError, updateStimulusGroup } from '$lib/server/db/stimulus-groups.js';
 import { getTeachingImageUrl, MediaStorageLimitError } from '$lib/server/storage/media.js';
 import { assignPrimaryTopicToSystem, TaxonomyInputError } from '$lib/server/db/taxonomy-admin-write.ts';
 import { normalizeCaseLibraryReturnQuery } from '$lib/admin-case-library-state.ts';
@@ -37,6 +37,13 @@ function editorRedirect(caseId, status, request, formData, hash = '') {
 function emptyImagePicker(open = false, search = '') { return { open, search, assets: [], hasMore: false, limit: 60, targetGroupId: null, targetGroupName: null }; }
 /** @param {unknown} errorValue */
 function reusableQuestionActionError(errorValue) { const clientError = errorValue instanceof AssetQuestionInputError; if (!clientError) console.error('Case reusable image question action failed.', errorValue); return fail(clientError ? 400 : 500, { error: errorValue instanceof Error ? errorValue.message : 'Unable to update the reusable image question.' }); }
+/** @param {unknown} input */
+function saveAllDrafts(input) { return Array.isArray(input) && input.length > 0 && input.length <= 60 ? input : null; }
+/** @param {unknown} input */
+function snapshotFields(input) {
+  if (!Array.isArray(input)) return {};
+  return Object.fromEntries(input.filter((field) => field && typeof field.name === 'string').map((field) => [field.name, field.checked === false ? '' : String(field.value ?? '')]));
+}
 
 export async function load({ locals, platform, params, url }) {
   const pickerOpen = url.searchParams.get('picker') === '1';
@@ -76,6 +83,48 @@ export async function load({ locals, platform, params, url }) {
 
 export const actions = {
   ...parentActions,
+  saveAll: async ({ request, locals, platform, params }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    let body;
+    try {
+      const formData = await request.formData();
+      body = JSON.parse(String(formData.get('drafts') ?? ''));
+    } catch { return fail(400, { error: 'Save All requires valid form-encoded draft data.' }); }
+    const drafts = saveAllDrafts(body?.drafts);
+    if (!drafts) return fail(400, { error: 'Save All requires one to 60 valid drafts.' });
+    const db = createDb(platform.env.DB);
+    try {
+      // Save All is intentionally one request, but these existing-record
+      // updates are not an all-or-nothing D1 transaction. If a later writer
+      // fails, retrying the retained batch safely reapplies the same stable-ID
+      // updates; the client therefore keeps every captured draft unsaved.
+      for (const draft of drafts) {
+        if (draft?.kind === 'case-details') {
+          const fields = draft.fields ?? {};
+          await updateCase(db, { caseId: params.caseId, title: String(fields.title ?? ''), vignetteMd: String(fields.vignetteMd ?? ''), questionSelectionMode: fields.questionSelectionMode, questionCount: fields.questionCount });
+        } else if (draft?.kind === 'question') {
+          const fields = draft.fields ?? {};
+          await saveCaseQuestion(db, { caseId: params.caseId, caseQuestionId: String(fields.caseQuestionId ?? '') || null, originalPromptId: String(fields.originalPromptId ?? '') || null, promptMd: String(fields.promptMd ?? ''), answerMd: String(fields.answerMd ?? ''), reusableForTopic: fields.reusableForTopic });
+        } else if (draft?.kind === 'form') {
+          const fields = snapshotFields(draft.fields);
+          if (fields.case_id !== params.caseId) throw new AdminContentInputError('The selected Case does not match this editor.');
+          if (draft.action === '?/caption') await updateCaseAssetCaption(db, params.caseId, fields.asset_id, fields.caption);
+          else if (draft.action === '?/updateStimulusOptionCaption') await updateStimulusOptionCaption(db, params.caseId, fields.option_id, fields.caption);
+          else if (draft.action === '?/saveReusableImageAnswer') await updateAssetQuestionAnswer(db, { assetQuestionId: fields.asset_question_id, answerMd: fields.answer_md });
+          else if (draft.action === '?/updateStimulusGroup') await updateStimulusGroup(db, { groupId: fields.group_id, name: fields.name, specificQuestionMode: fields.specific_question_mode, minimumSpecificQuestions: fields.minimum_specific_questions, isActive: fields.is_active || null });
+          else if (draft.action === '?/saveStimulusOptionQuestion') await saveStimulusOptionQuestion(db, fields.option_id, { relationshipId: fields.stimulus_question_id, originalPromptId: fields.original_prompt_id, promptMd: fields.prompt_md, answerMd: fields.answer_md });
+          else if (draft.action === '?/saveStimulusGroupQuestion') await saveStimulusGroupQuestion(db, fields.group_id, { relationshipId: fields.stimulus_question_id, originalPromptId: fields.original_prompt_id, promptMd: fields.prompt_md, answerMd: fields.answer_md });
+          else throw new AdminContentInputError('This editor form cannot be included in Save All yet. Save it individually.');
+        } else throw new AdminContentInputError('Save All received an unknown draft.');
+      }
+    } catch (errorValue) {
+      const clientError = errorValue instanceof AdminContentInputError || errorValue instanceof CaseQuestionInputError || errorValue instanceof AdminImageWorkflowInputError || errorValue instanceof AssetQuestionInputError || errorValue instanceof StimulusGroupInputError || errorValue instanceof CaseAssetInputError;
+      if (!clientError) console.error('Case Save All failed.', errorValue);
+      return fail(clientError ? 400 : 500, { error: errorValue instanceof Error ? errorValue.message : 'Unable to save all Case-editor drafts.' });
+    }
+    return { ok: true };
+  },
   assignPrimaryTopicToSystem: async ({ request, locals, platform, params }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });

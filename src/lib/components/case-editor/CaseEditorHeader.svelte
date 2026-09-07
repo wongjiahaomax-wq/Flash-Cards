@@ -1,11 +1,15 @@
 <script>
+  import { invalidateAll } from '$app/navigation';
   import { caseLibraryReturnHref } from '$lib/admin-case-library-state.ts';
   import { shouldClearSaveAllResult } from '$lib/case-editor-coordinator.js';
   let { selectedCase, previewMode, studyPreviewHref = null, caseLibraryReturnQuery = '', coordinator = null, draftRevision = 0 } = $props();
-  let unsavedCount = $derived.by(() => {
+  let unsavedItems = $derived.by(() => {
     draftRevision;
-    return coordinator?.dirtyCount() ?? 0;
+    return /** @type {any[]} */ (coordinator?.dirtyItems() ?? []);
   });
+  let saveableCount = $derived(unsavedItems.filter((item) => item.saveable).length);
+  let saveableItems = $derived(unsavedItems.filter((item) => item.saveable));
+  let structuralItems = $derived(unsavedItems.filter((item) => !item.saveable));
   /** @type {{ attempted: number, succeeded: number, failed: number } | null} */
   let saveAllResult = $state(null);
   /** @type {number | null} */
@@ -18,7 +22,33 @@
     }
   });
   async function saveAll() {
-    const result = await coordinator.saveAll();
+    /** @param {any[]} drafts */
+    const submitSaveAll = async (drafts) => {
+      const formData = new URLSearchParams();
+      formData.set('drafts', JSON.stringify({ drafts }));
+      const response = await fetch('?/saveAll', {
+        method: 'POST',
+        headers: { accept: 'application/json', 'x-sveltekit-action': 'true' },
+        body: formData
+      });
+      if (!response.ok) return false;
+      const dirtyItems = /** @type {any[]} */ (coordinator.dirtyItems());
+      const hasStructuralWork = dirtyItems.some((item) => !item.saveable);
+      // Every successful batch must reconcile against canonical persisted values
+      // before coordinator commit. This covers structural work and newer edits
+      // made while Save All is in flight, either of which can prevent immediate
+      // authoritative invalidation after the commit.
+      const readback = await fetch(`/admin/cases/${encodeURIComponent(selectedCase.case.id)}/save-all-authoritative`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ drafts })
+      });
+      if (!readback.ok) return false;
+      const body = await readback.json();
+      return { ok: true, authoritative: body.authoritative, hasStructuralWork };
+    };
+    const result = await coordinator.saveAll(submitSaveAll);
+    if (result.succeeded && !coordinator.hasUnsavedWork()) await invalidateAll();
     saveAllResult = result;
     saveAllResultRevision = draftRevision;
   }
@@ -26,7 +56,10 @@
 
 <section class="page-heading">
   <div><p class="eyebrow">Case editor</p><h1>{selectedCase.case.title}</h1><p class="muted">Topic: {#if selectedCase.case.conceptId}<a class="topic-link" href={'/admin/topics/' + selectedCase.case.conceptId}>{selectedCase.case.conceptName}</a>{:else}No primary Topic assigned{/if}</p></div>
-  <div class="actions"><a class="button" href={caseLibraryReturnHref(caseLibraryReturnQuery)}>All Cases</a>{#if unsavedCount}<span class="unsaved-count" role="status">{unsavedCount} unsaved</span><button class="button primary" type="button" onclick={saveAll} disabled={coordinator.isSavingAll()}>{coordinator.isSavingAll() ? 'Saving…' : 'Save all changes'}</button>{/if}{#if saveAllResult?.failed}<span class="save-all-result error" role="alert">{saveAllResult.succeeded} saved, {saveAllResult.failed} failed — unsaved changes remain</span>{:else if saveAllResult?.attempted}<span class="save-all-result" role="status">{saveAllResult.succeeded} saved</span>{/if}{#if previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href={studyPreviewHref ?? '/study'}>Preview in Study</a>{/if}</div>
+  <div class="actions"><a class="button" href={caseLibraryReturnHref(caseLibraryReturnQuery)}>All Cases</a>{#if unsavedItems.length}<details class="unsaved-work"><summary class="unsaved-count" aria-live="polite">{unsavedItems.length} unsaved changes</summary><div class="unsaved-popover">
+    {#if saveableItems.length}<strong>Can be saved with Save All</strong><ul>{#each saveableItems as item}<li><span>{item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label}</span><small>{item.status}</small></li>{/each}</ul>{/if}
+    {#if structuralItems.length}<strong>Needs individual action</strong><p class="popover-guidance">Save All saves the saveable drafts; structural work stays Not submitted until you use its own action.</p><ul>{#each structuralItems as item}<li><span>{item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label}</span><small>Not submitted — use this form's action</small></li>{/each}</ul>{/if}
+  </div></details>{#if saveableCount}<button class="button primary save-all-button" type="button" onclick={saveAll} disabled={coordinator.isSavingAll()} aria-label="Save all saveable Case-editor changes">{coordinator.isSavingAll() ? 'Saving…' : 'Save all changes'}</button>{/if}{/if}{#if structuralItems.length}<span class="save-all-guidance">Structural work remains Not submitted and is not included in Save All.</span>{/if}{#if saveAllResult?.failed && saveAllResult.attempted}<span class="save-all-result error" role="alert">Save All did not complete. Some changes may already have been saved; captured drafts remain marked unsaved. Review them before retrying.</span>{:else if saveAllResult?.failed}<span class="save-all-result error" role="alert">Save All could not start; unsaved changes remain.</span>{:else if saveAllResult?.attempted}<span class="save-all-result" role="status">{saveAllResult.succeeded} saved</span>{/if}{#if previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href={studyPreviewHref ?? '/study'}>Preview in Study</a>{/if}</div>
 </section>
 
 <style>
@@ -35,6 +68,17 @@
   .eyebrow { margin-bottom: 0.3rem; color: #667085; font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
   .muted { color: #667085; } .topic-link { color: inherit; font-weight: 650; }
   .unsaved-count { color: #b54708; font-size: 0.82rem; font-weight: 700; }
+  .unsaved-work { position: relative; }
+  .unsaved-work summary { cursor: pointer; list-style: none; }
+  .unsaved-work summary::-webkit-details-marker { display: none; }
+  .unsaved-popover { position: absolute; right: 0; z-index: 3; width: min(28rem, 90vw); margin-top: 0.45rem; padding: 0.8rem; border: 1px solid #fecdca; border-radius: 8px; background: #fff; box-shadow: 0 12px 28px rgb(16 24 40 / 16%); }
+  .unsaved-popover ul { display: grid; gap: 0.55rem; margin: 0.55rem 0 0.8rem; padding-left: 1.15rem; }
+  .unsaved-popover li { padding-left: 0.15rem; }
+  .unsaved-popover li span, .unsaved-popover li small { display: block; }
+  .unsaved-popover li small { margin-top: 0.12rem; color: #667085; }
+  .popover-guidance, .save-all-guidance { color: #667085; font-size: 0.78rem; }
+  .popover-guidance { margin: 0.35rem 0 0; }
+  .save-all-guidance { max-width: 18rem; }
   .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; }
   .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; font: inherit; }
   .button.primary { border-color: #172033; background: #172033; color: #fff; }

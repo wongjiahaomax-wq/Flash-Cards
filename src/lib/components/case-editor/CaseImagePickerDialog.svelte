@@ -1,8 +1,9 @@
 <script>
   // @ts-nocheck
+  import { onMount } from 'svelte';
   import { enhance } from '$app/forms';
   import { beginCasePickerAttach, pickerAttachAssetIds, pickerSelectionIsDirty, reconcileCasePickerAttachSelection, reconcileCasePickerSelection } from '$lib/admin-image-selection.js';
-  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { caseEditorUnsavedWorkMessage, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
 
   /** @typedef {{ id: string, imageUrl: string, altText?: string | null, originalFilename?: string | null, sourceLabel?: string | null }} PickerAsset */
   /** @typedef {{ open: boolean, search: string, assets: PickerAsset[], hasMore: boolean, limit: number, targetGroupId: string | null, targetGroupName: string | null, selectedAssetIds?: string[] }} ImagePicker */
@@ -18,16 +19,36 @@
   let pickerContextKey = $state(null);
   let attachPending = $state(false);
 
+  onMount(() => {
+    const unregister = coordinator?.register('picker-selection', {
+      saveable: false,
+      label: () => imagePicker?.targetGroupName ? `Image picker — ${imagePicker.targetGroupName}` : 'Image picker',
+      dirtyFields: () => [`${pickerSelected.size} images selected`],
+      isDirty: () => pickerSelectionIsDirty(pickerSelected),
+      status: () => 'Not attached yet — use Attach'
+    });
+    return () => unregister?.();
+  });
+
   $effect(() => {
     const nextContextKey = `${selectedCase?.case.id ?? ''}:${imagePicker?.targetGroupId ?? 'fixed'}`;
-    if (pickerContextKey === null) pickerSelected = new Set(imagePicker?.selectedAssetIds ?? []);
+    let changed = false;
+    if (pickerContextKey === null) {
+      pickerSelected = new Set(imagePicker?.selectedAssetIds ?? []);
+      changed = true;
+    }
     const orderedIds = imagePicker?.assets?.map((asset) => asset.id) ?? [];
     const contextChanged = Boolean(pickerContextKey && pickerContextKey !== nextContextKey);
     if (contextChanged) {
       const reconciled = reconcileCasePickerSelection({ selectedIds: pickerSelected, previousContextKey: pickerContextKey, nextContextKey, orderedIds });
       pickerSelected = reconciled.selectedIds;
+      changed = true;
     }
-    pickerContextKey = nextContextKey;
+    if (pickerContextKey !== nextContextKey) {
+      pickerContextKey = nextContextKey;
+      changed = true;
+    }
+    if (changed) coordinator?.refresh();
     if (imagePicker?.open && pickerDialog && !pickerDialog.open) {
       pickerDialog.showModal();
       requestAnimationFrame(() => pickerCloseButton?.focus());
@@ -41,6 +62,7 @@
     if (next.has(assetId)) next.delete(assetId);
     else next.add(assetId);
     pickerSelected = next;
+    coordinator?.refresh();
   }
 
   const enhancePickerAttach = ({ formElement, cancel }) => {
@@ -49,7 +71,9 @@
       cancel();
       return;
     }
-    if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator, { allowSaveableWork: true });
+    if (conflictMessage) {
+      window.alert(conflictMessage);
       cancel();
       return;
     }
@@ -57,7 +81,7 @@
     const submittedSelection = transaction.submittedIds;
     let stable;
     try {
-      stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement);
+      stable = stableCaseEditorEnhance(captureCaseEditorView(), formElement, { deferInvalidation: () => coordinator?.saveableDirtyCount?.() > 0 });
     } catch (error) {
       attachPending = false;
       throw error;
@@ -68,6 +92,7 @@
         if (outcome.ok) pickerSelected = reconcileCasePickerAttachSelection({ selectedIds: pickerSelected, submittedIds: submittedSelection, ok: true });
       } finally {
         attachPending = false;
+        coordinator?.refresh();
       }
     };
   };
