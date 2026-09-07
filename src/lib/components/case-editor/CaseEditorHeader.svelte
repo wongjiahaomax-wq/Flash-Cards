@@ -29,7 +29,17 @@
         headers: { 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ drafts })
       });
-      return response.ok;
+      if (!response.ok) return false;
+      const hasStructuralWork = coordinator.dirtyItems().some((item) => !item.saveable);
+      if (!hasStructuralWork) return true;
+      const readback = await fetch(`/admin/cases/${encodeURIComponent(selectedCase.case.id)}/save-all-authoritative`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ drafts })
+      });
+      if (!readback.ok) return false;
+      const body = await readback.json();
+      return { ok: true, authoritative: body.authoritative };
     };
     const result = await coordinator.saveAll(submitSaveAll);
     if (result.succeeded && !coordinator.hasUnsavedWork()) await invalidateAll();
@@ -43,7 +53,7 @@
   <div class="actions"><a class="button" href={caseLibraryReturnHref(caseLibraryReturnQuery)}>All Cases</a>{#if unsavedItems.length}<details class="unsaved-work"><summary class="unsaved-count" aria-live="polite">{unsavedItems.length} unsaved changes</summary><div class="unsaved-popover">
     {#if saveableItems.length}<strong>Can be saved with Save All</strong><ul>{#each saveableItems as item}<li><span>{item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label}</span><small>{item.status}</small></li>{/each}</ul>{/if}
     {#if structuralItems.length}<strong>Needs individual action</strong><p class="popover-guidance">Save All saves the saveable drafts; structural work stays Not submitted until you use its own action.</p><ul>{#each structuralItems as item}<li><span>{item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label}</span><small>Not submitted — use this form's action</small></li>{/each}</ul>{/if}
-  </div></details>{#if saveableCount}<button class="button primary save-all-button" type="button" onclick={saveAll} disabled={coordinator.isSavingAll()} aria-label="Save all saveable Case-editor changes">{coordinator.isSavingAll() ? 'Saving…' : 'Save all changes'}</button>{/if}{/if}{#if structuralItems.length}<span class="save-all-guidance">Structural work remains Not submitted and is not included in Save All.</span>{/if}{#if saveAllResult?.failed}<span class="save-all-result error" role="alert">{saveAllResult.succeeded} saved, {saveAllResult.failed} failed — unsaved changes remain</span>{:else if saveAllResult?.attempted}<span class="save-all-result" role="status">{saveAllResult.succeeded} saved</span>{/if}{#if previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href={studyPreviewHref ?? '/study'}>Preview in Study</a>{/if}</div>
+  </div></details>{#if saveableCount}<button class="button primary save-all-button" type="button" onclick={saveAll} disabled={coordinator.isSavingAll()} aria-label="Save all saveable Case-editor changes">{coordinator.isSavingAll() ? 'Saving…' : 'Save all changes'}</button>{/if}{/if}{#if structuralItems.length}<span class="save-all-guidance">Structural work remains Not submitted and is not included in Save All.</span>{/if}{#if saveAllResult?.failed && saveAllResult.attempted}<span class="save-all-result error" role="alert">Save All did not complete. Some changes may already have been saved; captured drafts remain marked unsaved. Review them before retrying.</span>{:else if saveAllResult?.failed}<span class="save-all-result error" role="alert">Save All could not start; unsaved changes remain.</span>{:else if saveAllResult?.attempted}<span class="save-all-result" role="status">{saveAllResult.succeeded} saved</span>{/if}{#if previewMode}<span class="muted">Learner Study is unavailable in Preview Mode.</span>{:else}<a class="button primary" href={studyPreviewHref ?? '/study'}>Preview in Study</a>{/if}</div>
 </section>
 
 <style>
