@@ -1,8 +1,22 @@
 # Case Editor — Save Persistence and Unsaved-State Visibility Plan
 
-_Status: proposed implementation plan for Draft PR. Implementation must continue in this same PR/branch. Do not mark Ready, merge, deploy, or perform Production/Preview data mutation while the PR contains only planning or while implementation is incomplete._
+_Status: implemented in Draft PR #165; correction review and exact-head validation remain the handoff gate. Keep this PR Draft. Do not mark Ready, merge, deploy, or perform Production data mutation without explicit instruction._
 
 _Base for planning: `main` at `d4299c795c63e739106d3a5d872d3773550b304f`._
+
+## Implementation status
+
+The planned Case-editor save-state work is implemented in this Draft PR. The implementation now includes the shared descriptive unsaved-work inventory, explicit structural `Not submitted` state, picker-selection protection, snapshot-safe individual/Save All behavior, and persistence coverage.
+
+Follow-up correction review also established these final invariants:
+
+- Save All saves every saveable captured snapshot even when non-saveable structural work remains; structural work stays dirty/`Not submitted`.
+- Picker search and other non-authoring picker UI do not become structural unsaved work.
+- Network/rejected Save All requests keep captured drafts dirty and surface failure.
+- When structural work prevents normal invalidation, successful Save All performs read-only authoritative persistence readback so canonical trimming/normalization becomes the saved baseline/value without discarding structural drafts; edit-during-save still wins locally.
+- Because the current Save All writer batch is non-transactional, failed batches use uncertainty-aware messaging and do not claim that zero writes persisted.
+
+Preview Mode compatibility is not a review gate for this PR because Preview is being retired. No Preview-specific compatibility work is required by this plan.
 
 ## 1. Goal
 
@@ -158,7 +172,7 @@ For each ordinary save class, tests should prove the full contract:
 
 `edit -> click/submit visible Save action -> server success -> editor clean -> reload/read authoritative data -> saved value remains`
 
-The implementation does not need a second runtime verification request after every save merely to satisfy the UI. The existing server action + authoritative invalidation/reload path can remain the persistence authority. The regression suite must prove that path is wired correctly.
+The normal path may use authoritative invalidation/reload. When unsaved structural work must remain mounted, use a read-only authoritative readback rather than discarding that work or treating the raw submitted snapshot as canonical. The regression suite must prove both paths remain tied to the existing canonical writers.
 
 ## 4. Required unsaved-item model
 
@@ -337,24 +351,25 @@ The PR is ready for review only when all of the following are true:
 4. Save one item -> only that successfully persisted submitted snapshot becomes clean.
 5. Save fails -> the item remains dirty and visibly reports failure.
 6. Edit while save is in flight -> the newer edit remains dirty after the older response succeeds.
-7. Save All persists all saveable dirty items without falsely claiming structural partial forms were saved.
+7. Save All persists all saveable dirty items even when structural work also exists; structural items remain `Not submitted` and are not included in the batch.
 8. Partially entered Add/Create forms are visibly marked `Not submitted` and participate in leave protection.
 9. Staged image-picker selections are visible in the same unsaved-work inventory.
 10. Leaving with unsaved work identifies what would be lost for in-app navigation.
-11. Reload after successful Case details save reproduces the saved values.
-12. Reload after successful existing Case-question save reproduces the saved prompt/answer/reuse state.
-13. Representative image/coordinated save persists across reload/read.
+11. Reload/readback after successful Case details save reproduces the canonical saved values.
+12. Reload/readback after successful existing Case-question save reproduces the canonical saved prompt/answer/reuse state.
+13. Representative image/coordinated save persists across authoritative reload/readback, including canonical normalization.
 14. Header, Save All and leave protection agree on the same unsaved-work inventory.
-15. Existing PR #161 stable navigation, return-context, draft-preservation and Preview/Production boundaries remain intact.
+15. Existing PR #161 stable navigation, return-context, draft-preservation and Production boundaries remain intact. Preview Mode compatibility is not a review gate because Preview is being retired.
 
 ## 10. Non-goals
 
 - no schema or migration changes;
-- no Production/Preview data mutation for testing;
+- no Production data mutation for testing;
 - no deployment in this PR without separate explicit instruction;
 - no per-keystroke autosave;
 - no browser-local long-lived draft persistence;
 - no wholesale Case Editor visual redesign;
 - no replacement of canonical database writers;
-- no weakening of question, stimulus, taxonomy, Case Tag, Preview or lifecycle invariants;
+- no weakening of question, stimulus, taxonomy, Case Tag or lifecycle invariants;
+- no Preview-specific compatibility work;
 - no change to learner Study semantics.
