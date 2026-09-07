@@ -17,42 +17,6 @@ export function editorFormKey(form) {
   return `${action}|${hidden}`;
 }
 
-function captureEditorFormDrafts(excludedForm = null) {
-  return [...document.querySelectorAll('.case-editor form[method="POST"]')]
-    .filter((form) => form !== excludedForm)
-    .map((form) => ({
-      key: editorFormKey(form),
-      values: [...form.elements].map((element, index) => {
-      if (element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio')) return { index, name: element.name, type: element.type, checked: element.checked };
-      if (element instanceof HTMLInputElement && element.type === 'file') return null;
-      if (element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement || element instanceof HTMLSelectElement) return { index, name: element.name, type: element.type, value: element.value };
-      return null;
-    }).filter(Boolean)
-    }));
-}
-
-function restoreEditorFormDrafts(drafts) {
-  for (const draft of drafts) {
-    const form = [...document.querySelectorAll('.case-editor form[method="POST"]')].find((candidate) => editorFormKey(candidate) === draft.key);
-    if (!form) continue;
-    const restoredElements = [];
-    for (const value of draft.values) {
-      const element = form.elements[value.index];
-      if (!element || element.name !== value.name || element.type !== value.type) continue;
-      if (value.type === 'checkbox' || value.type === 'radio') element.checked = value.checked;
-      else element.value = value.value;
-      restoredElements.push(element);
-    }
-    if (typeof Event === 'function') {
-      for (const element of restoredElements) {
-        if (typeof element.dispatchEvent !== 'function') continue;
-        element.dispatchEvent(new Event('input', { bubbles: true }));
-        element.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    }
-  }
-}
-
 function findSubmittedEditorForm(form, key, logicalKey = '') {
   return form?.isConnected
     ? form
@@ -77,7 +41,9 @@ function restoreEditableFormSnapshot(form, snapshot) {
 }
 
 function resetSubmittedEditorForm(form, key, logicalKey = '') {
-  findSubmittedEditorForm(form, key, logicalKey)?.reset?.();
+  const candidate = findSubmittedEditorForm(form, key, logicalKey);
+  if (candidate?.hasAttribute?.('data-case-editor-controlled')) return;
+  candidate?.reset?.();
 }
 
 function reconcileSubmittedEditorForm(form, key, logicalKey, submittedSnapshot, currentSnapshot, authoritativeSnapshot) {
@@ -213,7 +179,6 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
     const successful = result.type === 'redirect' || result.type === 'success';
     const submittedKey = submittedForm ? editorFormKey(submittedForm) : '';
     const currentSubmittedSnapshot = submittedForm ? captureEditableFormSnapshot(submittedForm) : null;
-    const formDrafts = captureEditorFormDrafts(successful ? submittedForm : null);
     if (result.type !== 'redirect') {
       await applyAction(result);
       await tick();
@@ -221,7 +186,6 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
         ? findSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey)
         : null;
       const authoritativeSnapshot = authoritativeCandidate ? captureEditableFormSnapshot(authoritativeCandidate) : null;
-      restoreEditorFormDrafts(formDrafts);
       if (successful) {
         if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot);
         else resetSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
@@ -238,7 +202,6 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
     await tick();
     const authoritativeCandidate = findSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
     const authoritativeSnapshot = authoritativeCandidate ? captureEditableFormSnapshot(authoritativeCandidate) : null;
-    restoreEditorFormDrafts(formDrafts);
     if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot);
     else resetSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
     const postSuccessCandidate = findSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
@@ -260,26 +223,62 @@ export function isOrdinaryCaseEditorDraftForm(form) {
     || form?.hasAttribute?.('data-case-editor-coordinated');
 }
 
-export function caseEditorHasConflictingUnsavedWork(submittedForm, coordinator) {
-  const otherPartialForm = [...document.querySelectorAll('.case-editor form')].some((form) => {
-    if (!(form instanceof HTMLFormElement) || form === submittedForm || isOrdinaryCaseEditorDraftForm(form)) return false;
-    if (form.hasAttribute('data-case-editor-structural-key')) return formHasSelectedFile(form);
-    return formHasMeaningfulUnsubmittedInput(form);
-  });
-  const submittedCoordinatorKey = submittedForm?.hasAttribute?.('data-case-editor-coordinated')
-    ? `form:${editorFormKey(submittedForm)}`
-    : null;
-  const submittedStructuralKey = submittedForm?.dataset?.caseEditorStructuralKey ?? null;
-  const submittedPickerKey = submittedForm?.id === 'case-image-picker-attach' ? 'picker-selection' : null;
-  const unrelatedDirtyDraft = !isOrdinaryCaseEditorDraftForm(submittedForm)
-    && (submittedPickerKey
-      ? (coordinator?.dirtyItems?.({ excludeKey: submittedPickerKey }).length ?? 0) > 0
-      : submittedStructuralKey
-      ? (coordinator?.dirtyItems?.().some((item) => item.key !== submittedStructuralKey) ?? false)
-      : (coordinator?.dirtyCount?.(submittedCoordinatorKey) ?? 0) > 0);
-  const pickerSelectionDirty = submittedForm?.id !== 'case-image-picker-attach'
-    && Boolean(document.querySelector('.case-editor [data-case-editor-picker-dirty="true"]'));
-  return otherPartialForm || unrelatedDirtyDraft || pickerSelectionDirty;
+function submittedCaseEditorKey(form) {
+  if (!form) return null;
+  if (form.id === 'case-image-picker-attach' || form.matches?.('[data-case-editor-picker-search]')) return 'picker-selection';
+  if (form.id === 'case-details-form') return 'case-details';
+  if (form.classList?.contains('question-edit-form')) {
+    const caseQuestionId = form.id?.startsWith('question-edit-') ? form.id.slice('question-edit-'.length) : '';
+    return caseQuestionId ? `question:${caseQuestionId}` : null;
+  }
+  if (form.hasAttribute?.('data-case-editor-coordinated')) {
+    return `form:${form.dataset?.caseEditorLogicalKey || editorFormKey(form)}`;
+  }
+  return form.dataset?.caseEditorStructuralKey ?? null;
+}
+
+function conflictItemLabel(item) {
+  return item.fields?.length ? `${item.label} — ${item.fields.join(', ')}` : item.label;
+}
+
+function structuralFormConflictLabels(submittedForm, knownKeys) {
+  if (typeof document === 'undefined') return [];
+  const labels = [];
+  for (const form of [...document.querySelectorAll('.case-editor form')]) {
+    if (!(form instanceof HTMLFormElement) || form === submittedForm || isOrdinaryCaseEditorDraftForm(form)) continue;
+    const key = form.dataset?.caseEditorStructuralKey;
+    if (key && knownKeys.has(key)) continue;
+    if (formHasMeaningfulUnsubmittedInput(form) || formHasSelectedFile(form)) labels.push(structuralFormLabel(form));
+  }
+  if (submittedForm?.id !== 'case-image-picker-attach' && document.querySelector('.case-editor [data-case-editor-picker-dirty="true"]')) {
+    if (!knownKeys.has('picker-selection')) labels.push('Image picker');
+  }
+  return labels;
+}
+
+/**
+ * Return the blocking explanation for an individual save or Save All, if any.
+ * @param {HTMLFormElement | null} [submittedForm]
+ * @param {any} coordinator
+ */
+export function caseEditorUnsavedWorkMessage(submittedForm = null, coordinator) {
+  const submittedKey = submittedCaseEditorKey(submittedForm);
+  const items = coordinator?.dirtyItems?.() ?? [];
+  const otherItems = items.filter((item) => item.key !== submittedKey);
+  const structuralItems = otherItems.filter((item) => !item.saveable);
+  const saveableItems = submittedForm ? otherItems.filter((item) => item.saveable) : [];
+  const knownStructuralKeys = new Set(structuralItems.map((item) => item.key));
+  const structuralLabels = [...new Set([...structuralItems.map(conflictItemLabel), ...structuralFormConflictLabels(submittedForm, knownStructuralKeys)])];
+  const messages = [];
+  if (structuralLabels.length) {
+    const verb = structuralLabels.length === 1 ? 'has' : 'have';
+    messages.push(`Submit or discard it first: ${structuralLabels.join(', ')} ${verb} incomplete structural work.`);
+  }
+  if (saveableItems.length) {
+    const verb = saveableItems.length === 1 ? 'is' : 'are';
+    messages.push(`Save all changes instead: ${saveableItems.map(conflictItemLabel).join(', ')} ${verb} also unsaved.`);
+  }
+  return messages.length ? `Cannot continue. ${messages.join(' ')}` : '';
 }
 
 export function hasCaseEditorPickerSelection() {
@@ -362,7 +361,9 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
     pending = new Promise((resolve) => { resolvePending = resolve; });
     status.hidden = false;
     status.textContent = saveState.begin();
-    if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
+    if (conflictMessage) {
+      window.alert(conflictMessage);
       cancel();
       const resolve = resolvePending;
       pending = null;

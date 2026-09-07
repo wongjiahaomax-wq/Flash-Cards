@@ -2,7 +2,7 @@
   // @ts-nocheck
   import { onDestroy, onMount } from 'svelte';
   import { enhance } from '$app/forms';
-  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { caseEditorUnsavedWorkMessage, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { cloneCaseEditorSnapshot, reconcileSubmittedCaseEditorDraft, sameCaseEditorSnapshot } from '$lib/case-editor-coordinator.js';
   import AccessibleInfo from '$lib/components/AccessibleInfo.svelte';
 
@@ -62,7 +62,9 @@
       cancel();
       return;
     }
-    if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
+    if (conflictMessage) {
+      window.alert(conflictMessage);
       cancel();
       return;
     }

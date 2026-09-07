@@ -4,7 +4,7 @@
   import { beforeNavigate } from '$app/navigation';
   import { createCaseEditorCoordinator } from '$lib/case-editor-coordinator.js';
   import { isSafeCasePickerSearchNavigation } from '$lib/admin-image-selection.js';
-  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, hasCaseEditorPickerSelection, registerCaseEditorStructuralForms, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { caseEditorUnsavedWorkMessage, captureCaseEditorView, hasCaseEditorPickerSelection, registerCaseEditorStructuralForms, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
   import { getCaseEditorStorage, readCaseEditorLayout, writeCaseEditorLayout } from '$lib/admin-case-editor-layout.js';
   import { buildCaseFastReviewSummary, buildCaseQuestionAudit } from '$lib/admin-case-question-audit.js';
   import AdminImageViewer from '$lib/components/AdminImageViewer.svelte';
@@ -42,10 +42,6 @@
   /** @type {{ targetUrl: URL, targetGroupId: string | null, selectedIds: string[] } | null} */
   let pendingPickerSearchNavigation = null;
 
-  function hasNonPickerUnsavedWork() {
-    return draftCoordinator.dirtyItems().some((item) => item.key !== 'picker-selection');
-  }
-
   onMount(() => {
     editorLayout = readCaseEditorLayout(getCaseEditorStorage(window));
     const unsubscribe = draftCoordinator.subscribe(() => { draftRevision += 1; });
@@ -66,8 +62,11 @@
       if (!(submittedForm instanceof HTMLFormElement) || !hasEditorUnsavedWork()) return;
       if (submittedForm.hasAttribute('data-case-editor-internal') || submittedForm.hasAttribute('data-case-editor-enhanced') || submittedForm.hasAttribute('data-case-editor-coordinated')) return;
       if (submittedForm.matches('[data-case-editor-picker-search]')) {
-        if (hasNonPickerUnsavedWork() && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) event.preventDefault();
-        else if (!hasNonPickerUnsavedWork()) {
+        const conflictMessage = caseEditorUnsavedWorkMessage(submittedForm, draftCoordinator);
+        if (conflictMessage) {
+          event.preventDefault();
+          window.alert(conflictMessage);
+        } else {
           const targetUrl = new URL(submittedForm.getAttribute('action') ?? window.location.href, document.baseURI);
           targetUrl.search = '';
           const selectedIds = [];
@@ -82,7 +81,11 @@
         }
         return;
       }
-      if (caseEditorHasConflictingUnsavedWork(submittedForm, draftCoordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) event.preventDefault();
+      const conflictMessage = caseEditorUnsavedWorkMessage(submittedForm, draftCoordinator);
+      if (conflictMessage) {
+        event.preventDefault();
+        window.alert(conflictMessage);
+      }
     };
     /** @param {SubmitEvent} event */
     const acceptedNativeSubmit = (event) => {
@@ -103,7 +106,9 @@
       });
     /** @param {any} submitContext */
     const enhanceStableForm = ({ formElement, cancel }) => {
-      if (caseEditorHasConflictingUnsavedWork(formElement, draftCoordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+      const conflictMessage = caseEditorUnsavedWorkMessage(formElement, draftCoordinator);
+      if (conflictMessage) {
+        window.alert(conflictMessage);
         cancel();
         return;
       }

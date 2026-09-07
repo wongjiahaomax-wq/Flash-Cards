@@ -119,7 +119,7 @@ test('redirect Case and Question saves preserve visible values for retained and 
   }
 });
 
-test('restored drafts notify the remounted control so its registration can refresh', async () => {
+test('successful save does not reconstruct an unrelated form', async () => {
   const { stableCaseEditorEnhance } = await import('../src/lib/case-editor-mutation.js');
   const submittedControl = new FakeTextarea('title', 'Original title');
   const submittedForm = {
@@ -129,20 +129,20 @@ test('restored drafts notify the remounted control so its registration can refre
     getAttribute: (name) => name === 'action' ? '?/updateCase' : null,
     querySelectorAll: () => []
   };
-  const draftControl = new FakeTextarea('prompt_md', 'Unsaved prompt');
-  const draftForm = {
-    elements: [draftControl],
+  const unrelatedControl = new FakeTextarea('prompt_md', 'Unsaved prompt');
+  const unrelatedForm = {
+    elements: [unrelatedControl],
     isConnected: true,
     getAttribute: (name) => name === 'action' ? '?/saveQuestion' : null,
     querySelectorAll: () => []
   };
   globalThis.document = {
     baseURI: 'https://example.test/admin/cases/case-1',
-    querySelectorAll: () => [submittedForm, draftForm]
+    querySelectorAll: () => [submittedForm, unrelatedForm]
   };
   globalThis.window = { scrollTo() {} };
   globalThis.__caseEditorInvalidateAll = async () => {
-    draftControl.value = 'Server-rendered default';
+    unrelatedControl.value = 'Server-rendered prompt';
   };
 
   const handle = stableCaseEditorEnhance(
@@ -152,8 +152,35 @@ test('restored drafts notify the remounted control so its registration can refre
   );
   await handle({ result: { type: 'redirect', location: '/admin/cases/case-1?status=case-saved' } });
 
-  assert.equal(draftControl.value, 'Unsaved prompt');
-  assert.deepEqual(draftControl.events, ['input', 'change']);
+  assert.equal(unrelatedControl.value, 'Server-rendered prompt');
+});
+
+test('individual save names other saveable and structural work instead of preserving it', async () => {
+  const { caseEditorUnsavedWorkMessage } = await import('../src/lib/case-editor-mutation.js');
+  globalThis.document = { querySelectorAll: () => [], querySelector: () => null };
+  const detailsForm = { id: 'case-details-form', classList: { contains: () => false }, hasAttribute: () => false };
+  const message = caseEditorUnsavedWorkMessage(detailsForm, {
+    dirtyItems: () => [
+      { key: 'case-details', label: 'Case details', fields: ['Vignette'], saveable: true },
+      { key: 'question:2', label: 'Question 2', fields: ['Answer'], saveable: true },
+      { key: 'structural:topic', label: 'Primary Topic replacement', fields: ['Topic search'], saveable: false }
+    ]
+  });
+  assert.match(message, /Question 2 — Answer/);
+  assert.match(message, /Save all changes instead/);
+  assert.match(message, /Primary Topic replacement/);
+  assert.match(message, /Submit or discard it first/);
+});
+
+test('Save All is blocked by named structural work', async () => {
+  const { caseEditorUnsavedWorkMessage } = await import('../src/lib/case-editor-mutation.js');
+  globalThis.document = { querySelectorAll: () => [], querySelector: () => null };
+  const message = caseEditorUnsavedWorkMessage(null, {
+    dirtyItems: () => [{ key: 'structural:question', label: 'Add Case question', fields: ['Prompt'], saveable: false }]
+  });
+  assert.match(message, /Add Case question/);
+  assert.match(message, /Submit or discard it first/);
+  assert.doesNotMatch(message, /Save all changes instead/);
 });
 
 test('structural tracking does not rescan or refresh for status-only DOM mutations', async () => {

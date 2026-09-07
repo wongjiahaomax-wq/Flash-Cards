@@ -5,6 +5,7 @@ import test from 'node:test';
 const page = readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.svelte', import.meta.url), 'utf8');
 const questions = readFileSync(new URL('../src/lib/components/case-editor/CaseQuestionsSection.svelte', import.meta.url), 'utf8');
 const details = readFileSync(new URL('../src/lib/components/case-editor/CaseDetailsSection.svelte', import.meta.url), 'utf8');
+const header = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorHeader.svelte', import.meta.url), 'utf8');
 const images = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesAdvanced.svelte', import.meta.url), 'utf8');
 const topics = readFileSync(new URL('../src/lib/components/case-editor/CaseTopicsSection.svelte', import.meta.url), 'utf8');
 const imagesSection = readFileSync(new URL('../src/lib/components/case-editor/CaseImagesSection.svelte', import.meta.url), 'utf8');
@@ -67,15 +68,15 @@ test('stimulus question coordinator keys survive prompt identity changes', () =>
   assert.match(mutation, /logicalKey = ''/);
 });
 
-test('successful enhanced submissions preserve unrelated drafts and reconcile the submitted form', () => {
-  assert.match(mutation, /captureEditorFormDrafts\(successful \? submittedForm : null\)/);
+test('successful enhanced submissions reconcile only the submitted form', () => {
+  assert.doesNotMatch(mutation, /captureEditorFormDrafts|restoreEditorFormDrafts/);
   assert.match(mutation, /reconcileSubmittedEditorForm\(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot\)/);
   assert.match(mutation, /sameEditableFormSnapshot\(currentSnapshot, submittedSnapshot\)/);
   assert.match(mutation, /const authoritativeSnapshot = authoritativeCandidate \? captureEditableFormSnapshot\(authoritativeCandidate\) : null/);
   assert.doesNotMatch(mutation, /function reconcileSubmittedEditorForm[\s\S]{0,500}candidate\.reset/);
   assert.match(mutation, /pending = new Promise\(\(resolve\) => \{ resolvePending = resolve; \}\)/);
   assert.match(mutation, /if \(pending\) \{\s*cancel\(\);/);
-  assert.match(mutation, /restoreEditorFormDrafts\(formDrafts\)/);
+  assert.doesNotMatch(mutation, /dispatchEvent\(new Event\('(input|change)'/);
   assert.match(details, /stableCaseEditorEnhance\(view, formElement, \{ reconcileSubmittedDraft: true \}\)/);
   assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement, \{ reconcileSubmittedDraft: true \}\)/);
   assert.match(mutation, /postSuccessSnapshot/);
@@ -97,17 +98,19 @@ test('Case-question controls update the reactive draft explicitly', () => {
   assert.match(questions, /checked=\{questionDraft\.draft\.reusableForTopic\}/);
 });
 
-test('coordinated ordinary saves do not warn about themselves and enhanced cancellation blocks the post', () => {
+test('individual saves block with a named conflict and enhanced cancellation blocks the post', () => {
   assert.match(page, /data-case-editor-enhanced/);
-  assert.match(page, /caseEditorHasConflictingUnsavedWork\(formElement, draftCoordinator\)/);
+  assert.match(page, /caseEditorUnsavedWorkMessage\(formElement, draftCoordinator\)/);
+  assert.match(page, /window\.alert\(conflictMessage\)/);
   assert.match(page, /cancel\(\);/);
   assert.match(page, /hasAttribute\('data-case-editor-coordinated'\)/);
-  assert.match(details, /caseEditorHasConflictingUnsavedWork\(formElement, coordinator\)/);
+  assert.match(details, /caseEditorUnsavedWorkMessage\(formElement, coordinator\)/);
   assert.match(details, /cancel\(\);/);
-  assert.match(questions, /caseEditorHasConflictingUnsavedWork\(formElement, coordinator\)/);
+  assert.match(questions, /caseEditorUnsavedWorkMessage\(formElement, coordinator\)/);
   assert.match(questions, /cancel\(\);/);
   assert.match(mutation, /isOrdinaryCaseEditorDraftForm/);
-  assert.match(mutation, /coordinator\?\.dirtyCount\?\.\(submittedCoordinatorKey\)/);
+  assert.match(mutation, /Save all changes instead/);
+  assert.match(mutation, /Submit or discard it first/);
 });
 
 test('picker links and reusable canonical answers retain coordinator and return context', () => {
@@ -157,20 +160,39 @@ test('native submit leave protection is one-shot while internal enhancers own ca
   assert.match(questions, /data-case-editor-internal/);
 });
 
-test('grouped checkbox and radio drafts restore by captured control index', () => {
-  assert.match(mutation, /map\(\(element, index\)/);
-  assert.match(mutation, /index, name: element\.name, type: element\.type, checked/);
-  assert.match(mutation, /form\.elements\[value\.index\]/);
+test('cross-form reconstruction is not part of normal save handling', () => {
+  assert.doesNotMatch(mutation, /captureEditorFormDrafts|restoreEditorFormDrafts/);
+  assert.doesNotMatch(mutation, /dispatchEvent\(new Event/);
+  assert.match(mutation, /reconcileSubmittedEditorForm/);
+  assert.match(mutation, /data-case-editor-controlled/);
 });
 
 test('selected structural upload files warn before an unrelated mutation can discard them', () => {
   assert.match(mutation, /formHasSelectedFile/);
-  assert.match(mutation, /if \(form\.hasAttribute\('data-case-editor-structural-key'\)\) return formHasSelectedFile\(form\);/);
-  assert.match(mutation, /element\.dispatchEvent\(new Event\('input'/);
+  assert.match(mutation, /caseEditorUnsavedWorkMessage/);
+  assert.match(mutation, /Submit or discard it first/);
+});
+
+test('Primary Topic promotion reconciles local picker state to the authoritative Topic', () => {
+  assert.match(topics, /let lastAuthoritativePrimaryTopicId = \$state\(null\)/);
+  assert.match(topics, /if \(lastAuthoritativePrimaryTopicId === null\)/);
+  assert.match(topics, /if \(nextPrimaryTopicId === lastAuthoritativePrimaryTopicId\) return/);
+  assert.match(topics, /replacementSystemId = systemIdFromTopic\(primaryTopic\) \|\| UNASSIGNED_SYSTEM_CONTEXT/);
+  assert.match(topics, /replacementTopicSearch = ''/);
+  assert.match(topics, /replacementTopicId = ''/);
+  assert.match(topics, /disabled=\{!replacementTopicId\}/);
+  assert.match(topics, /action="\?\/promoteTopic" class="topic-primary-form form-row" data-case-editor-controlled/);
+});
+
+test('header separates Save All work from structural work and blocks Save All when needed', () => {
+  assert.match(header, /Can be saved with Save All/);
+  assert.match(header, /Needs individual action/);
+  assert.match(header, /caseEditorUnsavedWorkMessage\(null, coordinator\)/);
+  assert.match(header, /Save All waits for structural work to be submitted or discarded/);
 });
 
 test('reorder uses shared conflict cancellation and rejects stale or in-flight question identity', () => {
-  assert.match(questions, /caseEditorHasConflictingUnsavedWork\(formElement, coordinator\)/);
+  assert.match(questions, /caseEditorUnsavedWorkMessage\(formElement, coordinator\)/);
   assert.match(questions, /canReorderCaseQuestion\(/);
   assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement\)/);
   assert.match(questions, /if \(!canReorderCaseQuestion/);
@@ -211,5 +233,5 @@ test('picker Attach locks competing controls and Search has one same-context nav
   assert.match(page, /data-case-editor-picker-search/);
   assert.match(page, /pendingPickerSearchNavigation/);
   assert.match(page, /isSafeCasePickerSearchNavigation/);
-  assert.match(page, /hasNonPickerUnsavedWork/);
+  assert.match(page, /caseEditorUnsavedWorkMessage\(submittedForm, draftCoordinator\)/);
 });

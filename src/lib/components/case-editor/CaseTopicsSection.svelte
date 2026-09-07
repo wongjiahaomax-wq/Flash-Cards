@@ -19,13 +19,30 @@
   }
 
   let currentSystemId = $derived(systemIdFromTopic(primaryTopic));
-  let replacementSystemId = $state(systemIdFromTopic(primaryTopic) || UNASSIGNED_SYSTEM_CONTEXT);
+  let replacementSystemId = $state(UNASSIGNED_SYSTEM_CONTEXT);
   let replacementTopicSearch = $state('');
   let replacementTopicId = $state('');
+  let lastAuthoritativePrimaryTopicId = $state(null);
   let replacementTopicOpen = $state(false);
   let activeReplacementTopicIndex = $state(-1);
   const replacementTopics = $derived(filterTopicsForSystem(concepts, primaryTopic?.id, replacementSystemId));
   const matchingReplacementTopics = $derived(filterTopicsBySearch(replacementTopics, replacementTopicSearch));
+
+  $effect(() => {
+    const nextPrimaryTopicId = primaryTopic?.id ?? '';
+    if (lastAuthoritativePrimaryTopicId === null) {
+      lastAuthoritativePrimaryTopicId = nextPrimaryTopicId;
+      replacementSystemId = systemIdFromTopic(primaryTopic) || UNASSIGNED_SYSTEM_CONTEXT;
+      return;
+    }
+    if (nextPrimaryTopicId === lastAuthoritativePrimaryTopicId) return;
+    lastAuthoritativePrimaryTopicId = nextPrimaryTopicId;
+    replacementSystemId = systemIdFromTopic(primaryTopic) || UNASSIGNED_SYSTEM_CONTEXT;
+    replacementTopicSearch = '';
+    replacementTopicId = '';
+    replacementTopicOpen = false;
+    activeReplacementTopicIndex = -1;
+  });
 
   /** @param {CaseTopic[]} topics */
   function inactivePrimaryTopic(topics) {
@@ -187,7 +204,7 @@
         </div>
       </div>
 
-      <form method="POST" action="?/promoteTopic" class="topic-primary-form form-row">
+      <form method="POST" action="?/promoteTopic" class="topic-primary-form form-row" data-case-editor-controlled>
         <input type="hidden" name="case_id" value={selectedCase.case.id} />
         <input type="hidden" name="concept_id" value={replacementTopicId} />
         <div class="topic-picker-fields">

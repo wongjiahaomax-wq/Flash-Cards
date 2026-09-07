@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import { enhance } from '$app/forms';
   import { beginCasePickerAttach, pickerAttachAssetIds, pickerSelectionIsDirty, reconcileCasePickerAttachSelection, reconcileCasePickerSelection } from '$lib/admin-image-selection.js';
-  import { caseEditorHasConflictingUnsavedWork, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
+  import { caseEditorUnsavedWorkMessage, captureCaseEditorView, stableCaseEditorEnhance } from '$lib/case-editor-mutation.js';
 
   /** @typedef {{ id: string, imageUrl: string, altText?: string | null, originalFilename?: string | null, sourceLabel?: string | null }} PickerAsset */
   /** @typedef {{ open: boolean, search: string, assets: PickerAsset[], hasMore: boolean, limit: number, targetGroupId: string | null, targetGroupName: string | null, selectedAssetIds?: string[] }} ImagePicker */
@@ -71,7 +71,9 @@
       cancel();
       return;
     }
-    if (caseEditorHasConflictingUnsavedWork(formElement, coordinator) && !window.confirm('Another Case-editor form contains unsaved work. Continue and risk discarding it?')) {
+    const conflictMessage = caseEditorUnsavedWorkMessage(formElement, coordinator);
+    if (conflictMessage) {
+      window.alert(conflictMessage);
       cancel();
       return;
     }
