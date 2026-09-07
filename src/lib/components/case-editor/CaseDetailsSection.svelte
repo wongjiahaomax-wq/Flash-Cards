@@ -53,8 +53,10 @@
   function prepareDraftSave() {
     return detailsForm?.reportValidity() ? cloneCaseEditorSnapshot(draft) : null;
   }
-  function commitDraftSave(snapshot) {
-    baseline = cloneCaseEditorSnapshot(snapshot);
+  function commitDraftSave(snapshot, authoritative = null) {
+    const reconciled = reconcileSubmittedCaseEditorDraft(draft, snapshot, authoritative ?? snapshot);
+    baseline = reconciled.baseline;
+    draft = reconciled.draft;
     saveState = 'saved';
     coordinator?.refresh();
   }
