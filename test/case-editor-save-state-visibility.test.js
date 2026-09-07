@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { createCaseEditorCoordinator, reconcileSubmittedCaseEditorDraft } from '../src/lib/case-editor-coordinator.js';
-import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInputAgainst, mutationMayChangeEditorFormTopology } from '../src/lib/case-editor-form-state.js';
+import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInputAgainst, formHasSelectedFile, mutationMayChangeEditorFormTopology } from '../src/lib/case-editor-form-state.js';
 
 class FakeInput {
   constructor(name, type = 'text', value = '') {
@@ -62,6 +62,7 @@ test('selected upload file is part of the dirty snapshot', () => {
 
   assert.equal(formHasMeaningfulUnsubmittedInputAgainst(form, baseline), true);
   assert.deepEqual(captureEditableFormSnapshot(form)[0].files, [{ name: 'ecg.png', size: 1234, lastModified: 42, type: 'image/png' }]);
+  assert.equal(formHasSelectedFile(form), true);
 });
 
 test('pristine editor inventory has zero dirty items', () => {

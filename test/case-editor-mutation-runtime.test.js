@@ -14,7 +14,7 @@ registerHooks({
     }
     if (specifier === '$app/navigation') {
       return {
-        url: 'data:text/javascript,export%20async%20function%20invalidateAll()%7B%7D%20export%20function%20replaceState()%7B%7D',
+        url: 'data:text/javascript,export%20async%20function%20invalidateAll()%7Bawait%20globalThis.__caseEditorInvalidateAll%3F.()%7D%20export%20function%20replaceState()%7B%7D',
         shortCircuit: true
       };
     }
@@ -30,6 +30,11 @@ class FakeTextarea {
     this.name = name;
     this.type = 'textarea';
     this.value = value;
+    this.events = [];
+  }
+  dispatchEvent(event) {
+    this.events.push(event.type);
+    return true;
   }
 }
 
@@ -56,6 +61,99 @@ test('successful coordinated save preserves the authoritative visible value with
   assert.equal(outcome.ok, true);
   assert.equal(control.value, 'Saved caption');
   assert.deepEqual(outcome.authoritativeSnapshot, [{ name: 'caption', type: 'textarea', value: 'Saved caption' }]);
+});
+
+test('redirect Case and Question saves preserve visible values for retained and replaced forms', async () => {
+  const { stableCaseEditorEnhance } = await import('../src/lib/case-editor-mutation.js');
+  const scenarios = [
+    ['Save Case', '?/updateCase', 'title'],
+    ['Save Question', '?/saveQuestion', 'prompt_md']
+  ];
+
+  for (const [label, action, fieldName] of scenarios) {
+    for (const replaced of [false, true]) {
+      const originalControl = new FakeTextarea(fieldName, `Original ${label}`);
+      const originalForm = {
+        elements: [originalControl],
+        isConnected: true,
+        dataset: { caseEditorLogicalKey: `${label}:logical` },
+        getAttribute: (name) => name === 'action' ? action : null,
+        querySelectorAll: () => [],
+        reset() { throw new Error(`${label} must not use native reset`); }
+      };
+      const savedControl = new FakeTextarea(fieldName, `Saved ${label}`);
+      const savedForm = {
+        elements: [savedControl],
+        isConnected: true,
+        dataset: { caseEditorLogicalKey: `${label}:logical` },
+        getAttribute: (name) => name === 'action' ? action : null,
+        querySelectorAll: () => [],
+        reset() { throw new Error(`${label} must not use native reset`); }
+      };
+      let currentForm = originalForm;
+      globalThis.document = {
+        baseURI: 'https://example.test/admin/cases/case-1',
+        querySelectorAll: () => [currentForm]
+      };
+      globalThis.window = { scrollTo() {} };
+      globalThis.__caseEditorInvalidateAll = async () => {
+        if (replaced) {
+          originalForm.isConnected = false;
+          currentForm = savedForm;
+        } else {
+          originalControl.value = savedControl.value;
+        }
+      };
+
+      const handle = stableCaseEditorEnhance(
+        { scrollX: 0, scrollY: 0, activeElement: null, selectionStart: null, selectionEnd: null },
+        originalForm,
+        { reconcileSubmittedDraft: true, logicalKey: `${label}:logical` }
+      );
+      const outcome = await handle({ result: { type: 'redirect', location: '/admin/cases/case-1?status=case-saved' } });
+
+      assert.equal(outcome.ok, true, `${label} redirect should succeed`);
+      assert.equal(currentForm.elements[0].value, `Saved ${label}`, `${label} should retain the saved visible value (${replaced ? 'replaced' : 'retained'})`);
+      assert.deepEqual(outcome.postSuccessSnapshot, [{ name: fieldName, type: 'textarea', value: `Saved ${label}` }]);
+    }
+  }
+});
+
+test('restored drafts notify the remounted control so its registration can refresh', async () => {
+  const { stableCaseEditorEnhance } = await import('../src/lib/case-editor-mutation.js');
+  const submittedControl = new FakeTextarea('title', 'Original title');
+  const submittedForm = {
+    elements: [submittedControl],
+    isConnected: true,
+    dataset: {},
+    getAttribute: (name) => name === 'action' ? '?/updateCase' : null,
+    querySelectorAll: () => []
+  };
+  const draftControl = new FakeTextarea('prompt_md', 'Unsaved prompt');
+  const draftForm = {
+    elements: [draftControl],
+    isConnected: true,
+    getAttribute: (name) => name === 'action' ? '?/saveQuestion' : null,
+    querySelectorAll: () => []
+  };
+  globalThis.document = {
+    baseURI: 'https://example.test/admin/cases/case-1',
+    querySelectorAll: () => [submittedForm, draftForm]
+  };
+  globalThis.window = { scrollTo() {} };
+  globalThis.__caseEditorInvalidateAll = async () => {
+    draftControl.value = 'Server-rendered default';
+  };
+
+  const handle = stableCaseEditorEnhance(
+    { scrollX: 0, scrollY: 0, activeElement: null, selectionStart: null, selectionEnd: null },
+    submittedForm,
+    { reconcileSubmittedDraft: true }
+  );
+  await handle({ result: { type: 'redirect', location: '/admin/cases/case-1?status=case-saved' } });
+
+  assert.equal(draftControl.value, 'Unsaved prompt');
+  assert.deepEqual(draftControl.events, ['input', 'change']);
 });
 
 test('structural tracking does not rescan or refresh for status-only DOM mutations', async () => {

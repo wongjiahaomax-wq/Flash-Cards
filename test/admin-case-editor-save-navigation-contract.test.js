@@ -76,6 +76,10 @@ test('successful enhanced submissions preserve unrelated drafts and reconcile th
   assert.match(mutation, /pending = new Promise\(\(resolve\) => \{ resolvePending = resolve; \}\)/);
   assert.match(mutation, /if \(pending\) \{\s*cancel\(\);/);
   assert.match(mutation, /restoreEditorFormDrafts\(formDrafts\)/);
+  assert.match(details, /stableCaseEditorEnhance\(view, formElement, \{ reconcileSubmittedDraft: true \}\)/);
+  assert.match(questions, /stableCaseEditorEnhance\(captureCaseEditorView\(\), formElement, \{ reconcileSubmittedDraft: true \}\)/);
+  assert.match(mutation, /postSuccessSnapshot/);
+  assert.match(page, /rebaseline\(structuralKey, [\s\S]{0,120}postSuccessSnapshot/);
 });
 
 test('coordinated ordinary saves do not warn about themselves and enhanced cancellation blocks the post', () => {
@@ -142,6 +146,12 @@ test('grouped checkbox and radio drafts restore by captured control index', () =
   assert.match(mutation, /map\(\(element, index\)/);
   assert.match(mutation, /index, name: element\.name, type: element\.type, checked/);
   assert.match(mutation, /form\.elements\[value\.index\]/);
+});
+
+test('selected structural upload files warn before an unrelated mutation can discard them', () => {
+  assert.match(mutation, /formHasSelectedFile/);
+  assert.match(mutation, /if \(form\.hasAttribute\('data-case-editor-structural-key'\)\) return formHasSelectedFile\(form\);/);
+  assert.match(mutation, /element\.dispatchEvent\(new Event\('input'/);
 });
 
 test('reorder uses shared conflict cancellation and rejects stale or in-flight question identity', () => {

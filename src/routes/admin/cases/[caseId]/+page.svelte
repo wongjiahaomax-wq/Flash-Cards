@@ -112,7 +112,7 @@
       /** @param {any} context */
       const handleStableForm = async (context) => {
         const outcome = await stable(context);
-        if (outcome.ok && structuralKey) draftCoordinator.rebaseline(structuralKey, /** @type {any} */ (outcome.authoritativeSnapshot));
+        if (outcome.ok && structuralKey) draftCoordinator.rebaseline(structuralKey, /** @type {any} */ (outcome.postSuccessSnapshot));
         return outcome;
       };
       return handleStableForm;

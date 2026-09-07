@@ -4,7 +4,7 @@ import { applyAction, enhance } from '$app/forms';
 import { invalidateAll, replaceState } from '$app/navigation';
 import { tick } from 'svelte';
 import { createCoordinatedFormSaveState } from '$lib/case-editor-coordinator.js';
-import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, mutationMayChangeEditorFormTopology, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
+import { captureEditableFormSnapshot, changedFormFieldLabels, formCanHoldMeaningfulStructuralInput, formHasMeaningfulUnsubmittedInput, formHasSelectedFile, mutationMayChangeEditorFormTopology, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
 
 export { captureEditableFormSnapshot, sameEditableFormSnapshot } from '$lib/case-editor-form-state.js';
 
@@ -35,11 +35,20 @@ function restoreEditorFormDrafts(drafts) {
   for (const draft of drafts) {
     const form = [...document.querySelectorAll('.case-editor form[method="POST"]')].find((candidate) => editorFormKey(candidate) === draft.key);
     if (!form) continue;
+    const restoredElements = [];
     for (const value of draft.values) {
       const element = form.elements[value.index];
       if (!element || element.name !== value.name || element.type !== value.type) continue;
       if (value.type === 'checkbox' || value.type === 'radio') element.checked = value.checked;
       else element.value = value.value;
+      restoredElements.push(element);
+    }
+    if (typeof Event === 'function') {
+      for (const element of restoredElements) {
+        if (typeof element.dispatchEvent !== 'function') continue;
+        element.dispatchEvent(new Event('input', { bubbles: true }));
+        element.dispatchEvent(new Event('change', { bubbles: true }));
+      }
     }
   }
 }
@@ -153,6 +162,9 @@ export function registerCaseEditorStructuralForms(coordinator) {
         rebaseline(snapshot) {
           baseline = snapshot ?? captureEditableFormSnapshot(form);
           updateCachedState();
+          status.hidden = !cachedDirty;
+          status.textContent = cachedDirty ? `${label} — Not submitted` : '';
+          coordinator.refresh();
         }
       };
       const status = document.createElement('span');
@@ -214,7 +226,9 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
         if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot);
         else resetSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
       }
-      return { ok: result.type === 'success', submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot };
+      const postSuccessCandidate = successful ? findSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey) : null;
+      const postSuccessSnapshot = postSuccessCandidate ? captureEditableFormSnapshot(postSuccessCandidate) : null;
+      return { ok: result.type === 'success', submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot, postSuccessSnapshot };
     }
 
     const location = new URL(result.location, document.baseURI);
@@ -227,6 +241,8 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
     restoreEditorFormDrafts(formDrafts);
     if (reconcileSubmittedDraft) reconcileSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot);
     else resetSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
+    const postSuccessCandidate = findSubmittedEditorForm(submittedForm, submittedKey, submittedLogicalKey);
+    const postSuccessSnapshot = postSuccessCandidate ? captureEditableFormSnapshot(postSuccessCandidate) : null;
     window.scrollTo(scrollX, scrollY);
     if (activeElement?.isConnected && typeof activeElement.focus === 'function') {
       activeElement.focus({ preventScroll: true });
@@ -234,7 +250,7 @@ export function stableCaseEditorEnhance({ scrollX, scrollY, activeElement, selec
         activeElement.setSelectionRange(selectionStart, selectionEnd);
       }
     }
-    return { ok: true, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot };
+    return { ok: true, submittedSnapshot, currentSubmittedSnapshot, authoritativeSnapshot, postSuccessSnapshot };
   };
 }
 
@@ -246,7 +262,8 @@ export function isOrdinaryCaseEditorDraftForm(form) {
 
 export function caseEditorHasConflictingUnsavedWork(submittedForm, coordinator) {
   const otherPartialForm = [...document.querySelectorAll('.case-editor form')].some((form) => {
-    if (!(form instanceof HTMLFormElement) || form === submittedForm || isOrdinaryCaseEditorDraftForm(form) || form.hasAttribute('data-case-editor-structural-key')) return false;
+    if (!(form instanceof HTMLFormElement) || form === submittedForm || isOrdinaryCaseEditorDraftForm(form)) return false;
+    if (form.hasAttribute('data-case-editor-structural-key')) return formHasSelectedFile(form);
     return formHasMeaningfulUnsubmittedInput(form);
   });
   const submittedCoordinatorKey = submittedForm?.hasAttribute?.('data-case-editor-coordinated')
@@ -319,9 +336,14 @@ export function registerCaseEditorForm(node, { coordinator, key }) {
 
   const refresh = () => {
     if (!updateCachedState()) return;
-    if (saveState.refresh() === 'Unsaved changes') {
+    const currentStatus = saveState.refresh();
+    if (currentStatus === 'Unsaved changes') {
       status.hidden = false;
       status.textContent = cachedFields.length ? `Unsaved changes — ${cachedFields.join(', ')}` : 'Unsaved changes';
+      status.classList.remove('error');
+    } else if (!cachedDirty && !saveState.isPending()) {
+      status.hidden = true;
+      status.textContent = '';
       status.classList.remove('error');
     }
     coordinator?.refresh();

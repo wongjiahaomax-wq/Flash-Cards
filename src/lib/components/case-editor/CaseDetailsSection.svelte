@@ -68,7 +68,7 @@
     }
     beginSubmit();
     const view = captureCaseEditorView();
-    const stable = stableCaseEditorEnhance(view, formElement);
+    const stable = stableCaseEditorEnhance(view, formElement, { reconcileSubmittedDraft: true });
     return async ({ result }) => {
       const outcome = await stable({ result });
       if (outcome.ok) {

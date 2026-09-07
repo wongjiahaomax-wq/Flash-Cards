@@ -28,6 +28,12 @@ export function formHasMeaningfulUnsubmittedInput(form) {
   });
 }
 
+export function formHasSelectedFile(form) {
+  return [...form.elements].some((element) => element instanceof HTMLInputElement
+    && element.type === 'file'
+    && Boolean(element.files?.length));
+}
+
 export function formHasMeaningfulUnsubmittedInputAgainst(form, baseline) {
   return !sameEditableFormSnapshot(captureEditableFormSnapshot(form), baseline);
 }
