@@ -28,6 +28,23 @@ export function sameEditableFormSnapshot(left, right) {
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+export function reconcileEditableFormSaveSnapshot(current, submitted, canonicalFields = {}) {
+  const authoritative = submitted.map((value) => {
+    const copy = JSON.parse(JSON.stringify(value));
+    if (!value?.name || !Object.prototype.hasOwnProperty.call(canonicalFields, value.name)) return copy;
+    const canonical = canonicalFields[value.name];
+    if (Object.prototype.hasOwnProperty.call(value, 'checked')) return { ...copy, checked: Boolean(canonical) };
+    if (Object.prototype.hasOwnProperty.call(value, 'value')) return { ...copy, value: canonical == null ? '' : String(canonical) };
+    return copy;
+  });
+  return {
+    baseline: authoritative,
+    draft: sameEditableFormSnapshot(current, submitted)
+      ? JSON.parse(JSON.stringify(authoritative))
+      : JSON.parse(JSON.stringify(current))
+  };
+}
+
 function isCaseEditorNonAuthoringForm(form) {
   return Boolean(form?.hasAttribute?.('data-case-editor-picker-search') || form?.hasAttribute?.('data-case-editor-picker'));
 }
