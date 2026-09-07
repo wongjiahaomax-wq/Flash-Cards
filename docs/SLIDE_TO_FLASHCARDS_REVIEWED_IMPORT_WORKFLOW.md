@@ -112,19 +112,22 @@ tools/slide-import-review/
     └── core.test.js
 ```
 
-Build once from the repository root:
+Open the committed standalone reviewer directly:
+
+```text
+tools/slide-import-review/reviewer.html
+```
+
+Routine review requires no build or install step and does not require Cloudflare, D1, R2, GitHub Pages, an internet connection, a hosted backend, or a development server. The normal workflow is `open reviewer.html`, choose or drop a review ZIP, review it locally, back up the reviewed bundle, and create the final Import ZIP.
+
+`reviewer.html` is generated from the maintainable source files under `tools/slide-import-review/src/`, `index.template.html`, and `scripts/build.mjs`. Developers can regenerate or verify it with:
 
 ```bash
 npm run slide-review:build
+npm run slide-review:build -- --check
 ```
 
-Then open:
-
-```text
-tools/slide-import-review/dist/index.html
-```
-
-The build produces a standalone local HTML application. Routine review does not require Cloudflare, D1, R2, GitHub Pages, an internet connection, a hosted backend, or a development server.
+CI verifies the committed file byte-for-byte. Do not commit `dist/`.
 
 Available package scripts are:
 
@@ -500,7 +503,7 @@ A referenced preview path must exist in the selected ZIP; broken Case/source ref
 
 ## 14. Local persistence
 
-Review work is persisted in IndexedDB keyed by `bundleId`, including edited manifest/review metadata and replacement learner media.
+Review work is persisted in IndexedDB keyed by `bundleId`, including edited manifest/review metadata and replacement learner media as explicit overrides.
 
 This protects against accidental page closure, but browser persistence is not the portable source of truth.
 

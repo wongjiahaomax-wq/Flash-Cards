@@ -2,32 +2,33 @@
 
 This tool implements the human-review and deterministic-finalization layer for slide ingestion. It is deliberately separate from the production SvelteKit Admin application.
 
-## Build and routine use
+## Routine use
 
-Build once from the repository root:
-
-```bash
-npm run slide-review:build
-```
-
-Then open:
+Open the committed standalone reviewer directly. No build, install, development server, Cloudflare, D1, R2, GitHub Pages, or internet access is required for routine review:
 
 ```text
-tools/slide-import-review/dist/index.html
+tools/slide-import-review/reviewer.html
 ```
-
-The built reviewer is a standalone local HTML file. Routine review does not require a development server, Cloudflare, D1, R2, GitHub Pages, or internet access.
 
 Workflow:
 
 ```text
-open dist/index.html
+open reviewer.html
 → choose/drop <batch>-review.zip
 → compare source previews with the actual manifest-backed proposed import
 → edit / approve / reject
-→ Export Reviewed Bundle
-→ Finalize Import ZIP
+→ Back up reviewed bundle
+→ Create Import ZIP
 ```
+
+`reviewer.html` is the generated distribution artifact committed with the reviewer. The files under `src/`, `index.template.html`, and `scripts/build.mjs` are the maintainable source authority. Developers regenerate or verify it from the repository root with:
+
+```bash
+npm run slide-review:build
+npm run slide-review:build -- --check
+```
+
+CI performs the byte-for-byte check and fails when the committed artifact is stale. Do not commit `dist/`.
 
 The browser never uploads review-bundle contents or automatically fetches source URLs.
 
@@ -260,7 +261,7 @@ No recompression or image-quality reduction is performed.
 
 ## Local persistence
 
-Browser persistence uses IndexedDB keyed by `bundleId`. It stores the edited manifest, review map, and learner media replacements. This protects against accidental tab/window closure.
+Browser persistence uses IndexedDB keyed by `bundleId`. It stores the edited manifest, review map, and learner media replacements as explicit overrides. This protects against accidental tab/window closure.
 
 Browser persistence is not the portable audit record. Use **Export Reviewed Bundle** for durable transfer/backup.
 

@@ -108,6 +108,7 @@ export function persistedStateMatches(saved, bundleId, sourceFingerprint) {
     saved &&
     saved.bundleId === bundleId &&
     typeof saved.sourceFingerprint === 'string' &&
-    saved.sourceFingerprint === sourceFingerprint
+    saved.sourceFingerprint === sourceFingerprint &&
+    !(saved.media !== undefined && saved.mediaOverrides === undefined)
   );
 }
