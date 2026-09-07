@@ -101,7 +101,7 @@ test('record override never reconciles batch blockers or unresolved questions', 
   for (const caseMeta of batchMap.cases) caseMeta.reviewStatus = 'approved';
   batchMap.batchWarnings.push({ code: 'other', severity: 'blocking', message: 'Batch-level blocker.' });
   const batchBundle = await loadReviewBundle(reviewZip(batchMap));
-  await assert.rejects(() => finalizeBundle(batchBundle), error => error.issues.some(issue => issue.includes('Batch warning')));
+  await assert.rejects(() => finalizeBundle(batchBundle), error => error.issues.some(issue => issue.includes('Batch-level blocker.')));
 
   const unresolvedMap = reviewMap();
   for (const caseMeta of unresolvedMap.cases) caseMeta.reviewStatus = 'approved';
