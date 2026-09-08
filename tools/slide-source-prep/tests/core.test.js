@@ -185,9 +185,14 @@ test('CLI parsing remains one-source and bounded', () => {
   assert.throws(() => parseArgs(['deck.pdf', '--chunk-size', '0']), /positive integer/);
 });
 
-test('Windows human launcher always keeps the result visible', () => {
+test('Windows human launcher pauses for preparation results but exits cleanly on picker cancellation', () => {
   const launcher = readFileSync(new URL('../prepare-slides.cmd', import.meta.url), 'utf8');
   assert.match(launcher, /pause\s*\r?\nexit \/b %EXIT_CODE%/i);
+  assert.match(launcher, /set "PICKER_MODE=0"/i);
+  const cancellationBranch = launcher.match(/if "%PICKER_MODE%"=="1" if "%EXIT_CODE%"=="2" \([\s\S]*?\)/i)?.[0];
+  assert.ok(cancellationBranch, 'Expected a picker-cancellation branch.');
+  assert.doesNotMatch(cancellationBranch, /pause/i);
+  assert.match(launcher, /if not "%EXIT_CODE%"=="0"[\s\S]*?echo Slide preparation failed\.[\s\S]*?pause/i);
   assert.doesNotMatch(launcher, /if not "%~1"=="" pause/i);
 });
 
@@ -201,6 +206,7 @@ test('Windows launcher uses the native picker and delegates output handling', ()
   assert.match(helper, /\$dialog\.Filter = .*\*\.pptx;\*\.pdf/);
   assert.match(helper, /\$dialog\.Multiselect = \$false/);
   assert.match(helper, /DialogResult\]::OK/);
+  assert.match(helper, /if \(\$dialog\.ShowDialog\(\) -ne[\s\S]*?exit \$PickerCancelledExitCode/);
   assert.match(helper, /& node \$cliPath \$resolvedSourcePath/);
   assert.match(helper, /\$cliExitCode = \$LASTEXITCODE/);
   assert.match(helper, /if \(\$cliExitCode -ne 0\)[\s\S]*exit \$cliExitCode/);

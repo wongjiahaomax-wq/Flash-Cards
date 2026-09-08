@@ -8,6 +8,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PickerCancelledExitCode = 2
 
 try {
   $toolDirectory = Split-Path -Parent $MyInvocation.MyCommand.Definition
@@ -26,7 +27,7 @@ try {
       $dialog.CheckPathExists = $true
 
       if ($dialog.ShowDialog() -ne [System.Windows.Forms.DialogResult]::OK) {
-        exit 0
+        exit $PickerCancelledExitCode
       }
 
       $SourcePath = $dialog.FileName
