@@ -2,7 +2,7 @@
 
 _Status: implemented and production-validated as part of the reviewed/resumable importer. These safeguards remain authoritative for current Import Package v1 execution._
 
-_Last updated: 18 August 2026_
+_Last updated: 8 September 2026_
 
 ## Scope
 

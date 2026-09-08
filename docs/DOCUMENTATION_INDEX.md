@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reconciled: 7 September 2026._
+_Last reconciled: 8 September 2026._
 
 This index defines document authority. Historical plans/evidence may preserve old branch-era facts; they do not override current executable implementation or the living authorities below.
 
