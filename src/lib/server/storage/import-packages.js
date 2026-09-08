@@ -1,4 +1,4 @@
-import { MAX_ARCHIVE_BYTES } from '../import/reviewed-content-package.js';
+import { MAX_ARCHIVE_BYTES, MAX_ARCHIVE_ENTRIES } from '../import/reviewed-content-package.js';
 import {
   getMediaUsageBytes,
   MAX_IMAGE_BYTES,
@@ -11,6 +11,16 @@ const TEXT_ENCODER = new TextEncoder();
 const TEXT_DECODER = new TextDecoder('utf-8', { fatal: true });
 
 export const IMPORT_STAGING_PREFIX = 'imports/staging/';
+export const MAX_IMPORT_STAGED_MEDIA_KEYS = MAX_ARCHIVE_ENTRIES;
+
+export class ImportStagingCleanupError extends Error {
+  /** @param {string} code @param {string} message */
+  constructor(code, message) {
+    super(message);
+    this.name = 'ImportStagingCleanupError';
+    this.code = code;
+  }
+}
 
 /** @param {any} manifest */
 function assertPrimaryTopicOnlyManifest(manifest) {
@@ -261,4 +271,69 @@ export async function deleteStagedImportPackage(bucket, jobId) {
     if (!page.cursor) throw new Error('R2 returned a truncated staging list without a continuation cursor.');
     cursor = page.cursor;
   } while (true);
+}
+
+/** @param {R2Bucket} bucket @param {string} prefix */
+async function enumerateCanonicalMedia(bucket, prefix) {
+  if (typeof bucket.list !== 'function') throw new ImportStagingCleanupError('R2_LIST_UNAVAILABLE', 'Private staging cleanup could not enumerate its media prefix.');
+  const keys = [];
+  let cursor;
+  do {
+    let page;
+    try {
+      page = await bucket.list({ prefix, limit: 1000, ...(cursor ? { cursor } : {}) });
+    } catch {
+      throw new ImportStagingCleanupError('R2_LIST_FAILED', 'Private staging cleanup could not enumerate its media prefix.');
+    }
+    for (const object of page?.objects ?? []) {
+      if (typeof object?.key !== 'string' || !object.key.startsWith(prefix)) {
+        throw new ImportStagingCleanupError('R2_LIST_INVALID', 'Private staging cleanup received an invalid media-prefix listing.');
+      }
+      keys.push(object.key);
+      if (keys.length > MAX_IMPORT_STAGED_MEDIA_KEYS) {
+        throw new ImportStagingCleanupError('R2_MEDIA_BOUND_EXCEEDED', 'Private staging cleanup exceeded the supported media-entry bound.');
+      }
+    }
+    if (!page?.truncated) break;
+    if (!page.cursor || page.cursor === cursor) throw new ImportStagingCleanupError('R2_LIST_INCOMPLETE', 'Private staging cleanup could not complete media-prefix enumeration.');
+    cursor = page.cursor;
+  } while (true);
+  return keys;
+}
+
+/**
+ * Strict, history-only staging cleanup. The ordinary finalize/cancel helper
+ * above intentionally remains unchanged; this path must prove complete
+ * canonical cleanup before a history row can be removed.
+ * @param {R2Bucket} bucket
+ * @param {{ id: string, package_storage_key?: string, packageStorageKey?: string }} job
+ */
+export async function cleanupImportStagingStrict(bucket, job) {
+  const id = normalizedJobId(job?.id);
+  const packageKey = importPackageStorageKey(id);
+  const planKey = importPlanStorageKey(id);
+  const mediaPrefix = `${importStagingPrefix(id)}media/`;
+  if ((job.package_storage_key ?? job.packageStorageKey) !== packageKey) throw new ImportStagingCleanupError('STAGING_KEY_MISMATCH', 'The import record does not own its canonical staging key.');
+  if (typeof bucket.head !== 'function' || typeof bucket.delete !== 'function') throw new ImportStagingCleanupError('R2_CAPABILITY_UNAVAILABLE', 'Private staging cleanup is unavailable on this storage binding.');
+
+  const mediaKeys = await enumerateCanonicalMedia(bucket, mediaPrefix);
+  const keys = [packageKey, planKey, ...mediaKeys];
+  try {
+    await bucket.delete(keys);
+  } catch {
+    throw new ImportStagingCleanupError('R2_DELETE_FAILED', 'Private staging cleanup could not remove the complete staging set.');
+  }
+
+  let packageObject;
+  let planObject;
+  try {
+    packageObject = await bucket.head(packageKey);
+    planObject = await bucket.head(planKey);
+  } catch {
+    throw new ImportStagingCleanupError('R2_VERIFY_FAILED', 'Private staging cleanup could not verify ZIP and plan removal.');
+  }
+  if (packageObject || planObject) throw new ImportStagingCleanupError('R2_VERIFY_FAILED', 'Private staging cleanup could not prove ZIP and plan removal.');
+  const remainingMediaKeys = await enumerateCanonicalMedia(bucket, mediaPrefix);
+  if (remainingMediaKeys.length) throw new ImportStagingCleanupError('R2_VERIFY_FAILED', 'Private staging cleanup could not prove media-prefix removal.');
+  return { removedKeys: keys };
 }

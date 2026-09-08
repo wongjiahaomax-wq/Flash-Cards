@@ -536,3 +536,108 @@ export async function importContentPackage(db, bucket, validation) {
   }
   return importContentPackageCore(db, bucket, validation);
 }
+
+/**
+ * Build the read-only presentation model from the already hardened manifest.
+ * This intentionally does not resolve any Production identity or fetch D1/R2:
+ * `use` entries remain references and create entries expose only package data
+ * needed for one-pass administrator review.
+ * @param {any} parsedOrManifest
+ */
+export function buildImportPreviewModel(parsedOrManifest) {
+  const manifest = parsedOrManifest?.manifest ?? parsedOrManifest;
+  const topicById = new Map((manifest?.topics ?? []).map((item) => [item.id, item]));
+  const assetById = new Map((manifest?.assets ?? []).map((item) => [item.id, item]));
+  const promptById = new Map((manifest?.questionPrompts ?? []).map((item) => [item.id, item]));
+
+  const topicRef = (item) => {
+    if (!item || item.operation === 'skip') return null;
+    if (item.operation === 'use') return { operation: 'use', applicationId: item.applicationId };
+    return {
+      operation: 'create',
+      id: item.id,
+      name: item.name,
+      descriptionMd: item.descriptionMd
+    };
+  };
+  const assetRef = (item) => {
+    if (!item || item.operation === 'skip') return null;
+    if (item.operation === 'use') return { operation: 'use', applicationId: item.applicationId };
+    return {
+      operation: 'create',
+      id: item.id,
+      mediaPath: item.path,
+      mimeType: item.mimeType,
+      altText: item.altText,
+      originalFilename: item.originalFilename
+    };
+  };
+  const promptRef = (item) => {
+    if (!item || item.operation === 'skip') return null;
+    if (item.operation === 'use') return { operation: 'use', applicationId: item.applicationId };
+    return { operation: 'create', id: item.id, promptMd: item.promptMd };
+  };
+  const selectionLabel = (item) => {
+    if (item.questionSelectionMode === 'all') return 'All eligible questions';
+    if (item.questionSelectionMode === 'automatic') return 'Automatic selection';
+    return `${item.questionCount} questions`;
+  };
+
+  const cases = (manifest?.cases ?? [])
+    .filter((item) => item.operation !== 'skip')
+    .map((item) => ({
+      id: item.id,
+      operation: item.operation,
+      applicationId: item.operation === 'create' ? null : item.applicationId,
+      create: item.operation === 'create'
+        ? {
+            title: item.title,
+            vignetteMd: item.vignetteMd,
+            isActive: item.isActive,
+            selectionLabel: selectionLabel(item),
+            questionCount: item.questionCount
+          }
+        : null,
+      primaryTopic: topicRef(topicById.get(item.primaryTopicId)),
+      assets: (manifest.caseAssets ?? [])
+        .filter((link) => link.caseId === item.id && link.operation !== 'skip')
+        .sort((left, right) => left.displayOrder - right.displayOrder || left.id.localeCompare(right.id))
+        .map((link) => ({
+          id: link.id,
+          operation: link.operation,
+          applicationId: link.operation === 'create' ? null : link.applicationId,
+          create: link.operation === 'create' ? { displayOrder: link.displayOrder, captionMd: link.captionMd } : null,
+          asset: assetRef(assetById.get(link.assetId))
+        })),
+      questions: (manifest.caseQuestions ?? [])
+        .filter((question) => question.owner === item.id && question.operation !== 'skip')
+        .map((question) => ({
+          id: question.id,
+          operation: question.operation,
+          applicationId: question.operation === 'create' ? null : question.applicationId,
+          create: question.operation === 'create' ? { answerMd: question.answerMd, isActive: question.isActive } : null,
+          prompt: promptRef(promptById.get(question.questionPromptId))
+        }))
+    }));
+
+  const topicQuestions = (manifest?.topicQuestions ?? [])
+    .filter((question) => question.operation !== 'skip')
+    .map((question) => {
+      const owner = topicById.get(question.owner);
+      return {
+        id: question.id,
+        operation: question.operation,
+        applicationId: question.operation === 'create' ? null : question.applicationId,
+        create: question.operation === 'create'
+          ? { answerMd: question.answerMd, isActive: question.isActive, inheritToDescendants: question.inheritToDescendants }
+          : null,
+        ownerTopic: topicRef(owner),
+        ownerParentTopic: owner?.operation === 'create' && owner.parentTopicId
+          ? topicRef(topicById.get(owner.parentTopicId))
+          : null,
+        prompt: promptRef(promptById.get(question.questionPromptId))
+      };
+    });
+
+  return { cases, topicQuestions };
+}

@@ -1,6 +1,6 @@
 # Flash-Cards Import Packages
 
-_Status: implemented and production-validated. PR #22 established strict reviewed-package import; PR #23 added resumable bounded execution. PR #53 adds a separate local slide-review/finalization layer. PR #90 keeps Package v1 shape compatibility while retiring non-empty Additional Study Topic declarations._
+_Status: implemented and production-validated. PR #22 established strict reviewed-package import; PR #23 added resumable bounded execution. PR #53 adds a separate local slide-review/finalization layer. PR #90 keeps Package v1 shape compatibility while retiring non-empty Additional Study Topic declarations. Draft PR #167 adds the final package-declared preview and terminal history cleanup without changing Package v1 or resumable execution._
 
 _Last updated: 25 August 2026_
 
@@ -23,6 +23,10 @@ Those decisions happen before the strict package reaches Production Admin.
 The safety contract remains: strict package structure, hardened ZIP parsing, deterministic application identities/R2 teaching-image keys, explicit `create` / `use` / `skip`, fail-closed dependency checks, exact-ZIP SHA-256 confirmation, deterministic conflict handling, parent-first Topics, and R2 cleanup around D1 failure.
 
 Resumable execution remains browser-driven request orchestration backed by durable D1/R2 state; it does not imply background continuation.
+
+After Step 1, Admin sees a read-only presentation of package-declared create content. It uses only the hardened manifest: `use` entries remain identity-only Production references, create-Asset images are labelled package-declared media, and package-controlled text is escaped text rather than rendered Markdown/HTML. The browser may display exact declared media from the locally selected ZIP, but that display state is independent from server validation and the HttpOnly exact-ZIP SHA gate.
+
+Terminal import history can be removed from the Admin history view. The history-only cleanup path accepts only `complete`/`cancelled` rows with their canonical staging key, fully enumerates and verifies private ZIP/plan/media removal, then deletes the status-qualified D1 row. It never deletes imported domain content, Reviews, learner progress, teaching Assets, or learner-served media; failed and active jobs remain recoverable.
 
 ## Upstream source/review artifacts are not production packages
 
@@ -358,7 +362,7 @@ On cancellation after writes begin, processing stops/staging is removed, but pre
 1. Finalize a reviewed package outside production where applicable.
 2. Open **Admin → Import package**.
 3. Select the reviewed production ZIP and run **Validate and preview**.
-4. Review package ID/counts and resolve static/package errors, including any non-empty `secondaryTopicIds` rejection.
+4. Review package ID/counts and the package-declared content preview; resolve static/package errors, including any non-empty `secondaryTopicIds` rejection.
 5. Select the exact same ZIP again, confirm explicitly, and start the resumable job.
 6. Keep the page open for automatic sequential continuation if convenient.
 7. Watch status, phase, cursor, and progress.
@@ -366,6 +370,7 @@ On cancellation after writes begin, processing stops/staging is removed, but pre
 9. Resume later from persisted checkpoint.
 10. On failure, inspect phase/error, correct the underlying conflict where appropriate, then Retry/resume.
 11. Cancel only with the understanding that already committed chunks are not rolled back.
+12. Remove completed/cancelled records from history when desired; the confirmation states that imported Flash-Cards content will not be deleted. Clear retains failed/active resumable imports.
 
 ## 13. Security
 

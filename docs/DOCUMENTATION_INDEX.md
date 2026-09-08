@@ -118,6 +118,7 @@ Use:
 
 - `CONTENT_IMPORT_PACKAGES.md` — strict Import Package v1/resumable import contract;
 - `RESUMABLE_IMPORT_RUNTIME_SAFETY.md` — resumable runtime safety;
+- `IMPORT_PACKAGE_FINAL_PREVIEW_AND_HISTORY_CLEANUP_PLAN.md` — historical PR #167 implementation plan; executable behavior now lives in the importer, Admin route, and tests;
 - `ANKI_APKG_EXTRACTION.md` and `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` — source-recovery/migration guidance;
 - `ECG_ANKI_INGESTION_RULES.md` — ECG package-preparation convention;
 - `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md` — reviewed slide workflow;

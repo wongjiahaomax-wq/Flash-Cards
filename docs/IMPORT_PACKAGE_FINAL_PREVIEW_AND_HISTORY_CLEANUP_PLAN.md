@@ -1,6 +1,6 @@
 # Import Package Final Preview and History Cleanup Plan
 
-_Status: simplified implementation plan on Draft PR #167. Implementation has not started. Reconciled onto `main` at `7988bd7a01caa82f58d1bc09849fd6fa1b9a8a74`._
+_Status: historical implementation plan for Draft PR #167. Implemented on the PR branch and reconciled onto `main` at `7988bd7a01caa82f58d1bc09849fd6fa1b9a8a74`._
 
 # Luna implementation contract — implement from this section
 
@@ -241,9 +241,9 @@ This supplements automated tests and `runtime:smoke`; it does not replace them.
 
 Continue this existing Draft PR #167/branch. Do not create another PR or mark Ready.
 
-Before coding, reconcile again if `main` has moved. Use progressive retrieval from directly affected importer/runtime/storage/UI/tests. Implement the five tranches in order. Use this contract as primary authority; consult the appendix only for rationale/edge cases.
+Historical execution record: the five tranches were implemented on the existing Draft PR #167 branch in order. The Luna contract remained the primary authority; the appendix was consulted only for implementation edge cases.
 
-Reserve the next deep review for the implemented **base → head** diff unless implementation discovery changes a safety boundary.
+The remaining review checkpoint is the implemented **base → head** diff and its final validation evidence. No established safety boundary was changed during implementation.
 
 ---
 

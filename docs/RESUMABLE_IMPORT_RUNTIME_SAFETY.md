@@ -92,7 +92,13 @@ Completion/cancellation removes the exact ZIP, plan sidecar, and staged media un
 
 Regression coverage includes `test/resumable-runtime-safety.test.js`.
 
-## 4. Request-size philosophy
+## 4. Terminal history cleanup
+
+History removal is a separate Admin operation from package preview and the active browser processing loop. Only `complete` and `cancelled` jobs are eligible. The server requires the row's `package_storage_key` to equal the canonical key derived from its job ID, then fully follows paginated/truncated R2 listing results for the canonical private media prefix. The current Package v1 entry bound caps the accumulated media-key set before one bounded multi-key delete of the ZIP, plan sidecar, and media.
+
+The server verifies the ZIP and plan are absent and re-enumerates the media prefix to prove it is empty before the status-qualified D1 history row is deleted. Missing listing capabilities, incomplete cursors, over-bound listings, failed deletes, and failed verification retain the row with a sanitized failure. Bulk Clear scans at most ten candidates per request with a traversal cursor, continues past failures, and retries retained terminal rows on a new sweep. This path never touches imported domain rows, Reviews, learner progress, teaching Assets, or learner-served media.
+
+## 5. Request-size philosophy
 
 Current orchestration uses the conservative project limits recorded in the importer contract:
 

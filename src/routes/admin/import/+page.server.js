@@ -4,11 +4,12 @@ import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { ContentPackageError, importPackageDigest } from '$lib/server/import/reviewed-content-package.js';
 import {
   cancelImportJob,
+  clearImportHistory,
   createImportJob,
-  listImportJobs,
+  listImportHistory,
   previewResumableImport,
   processNextImportChunk,
-  serializeImportJob
+  removeImportHistory
 } from '$lib/server/import/resumable-content-package-runtime.js';
 
 const PREVIEW_COOKIE = 'flashcards_import_preview_sha256';
@@ -51,8 +52,7 @@ function rememberPreview(cookies, url, digest) {
 
 export async function load({ locals, platform }) {
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return { jobs: [] };
-  const jobs = await listImportJobs(platform.env.DB, 10);
-  return { jobs: jobs.map(serializeImportJob) };
+  return await listImportHistory(platform.env.DB);
 }
 
 export const actions = {
@@ -71,8 +71,10 @@ export const actions = {
       rememberPreview(cookies, url, digest);
       return {
         preview: preview.preview,
+        previewModel: preview.previewModel,
         warnings: preview.warnings,
         packageId: preview.packageId,
+        previewDigest: preview.digest,
         previewNotice: 'Package structure is valid. Database conflict validation will run in bounded resumable steps after confirmation, before any content writes.'
       };
     } catch (error) {
@@ -133,6 +135,32 @@ export const actions = {
     if (!id) return fail(400, { error: 'Import job ID is required.' });
     try {
       return { job: await cancelImportJob(platform.env.DB, platform.env.MEDIA, id) };
+    } catch (error) {
+      return fail(409, packageError(error));
+    }
+  },
+
+  removeHistory: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB || !platform.env.MEDIA) return fail(503, { error: 'The study database or image storage is not configured.' });
+    const id = jobId(await request.formData());
+    if (!id) return fail(400, { error: 'Import history record ID is required.' });
+    try {
+      return await removeImportHistory(platform.env.DB, platform.env.MEDIA, id);
+    } catch (error) {
+      return fail(409, packageError(error));
+    }
+  },
+
+  clearHistory: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB || !platform.env.MEDIA) return fail(503, { error: 'The study database or image storage is not configured.' });
+    const formData = await request.formData();
+    if (formData.get('confirm') !== 'on') return fail(400, { error: 'Explicit confirmation is required before clearing import history.' });
+    const cursor = formData.get('cursor');
+    if (cursor !== null && typeof cursor !== 'string') return fail(400, { error: 'The import history traversal cursor is invalid.' });
+    try {
+      return await clearImportHistory(platform.env.DB, platform.env.MEDIA, cursor || null);
     } catch (error) {
       return fail(409, packageError(error));
     }

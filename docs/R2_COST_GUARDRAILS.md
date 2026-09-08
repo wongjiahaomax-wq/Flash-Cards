@@ -133,6 +133,8 @@ new failed replacement object
 
 Do not combine these into a generic prefix-free R2 cleanup operation.
 
+Terminal import-history cleanup has an additional strict path: derive the ZIP, plan, and media prefix from the job ID; require the stored package key to match; completely enumerate the media prefix with the current Package v1 bound; delete the complete private staging set in one bounded multi-key request; and verify all three object classes are gone before D1 history deletion. A failed or incomplete proof retains the history row. This cleanup is never a teaching-media or domain-content garbage collector.
+
 ## 9. Review checklist for R2 work
 
 Before merging code that writes or deletes media:
