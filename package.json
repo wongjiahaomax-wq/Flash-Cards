@@ -61,6 +61,8 @@
     "local:stop": "node scripts/local-stop.mjs",
     "admin:bootstrap": "node scripts/bootstrap-admin.mjs",
     "preview-admin:bootstrap": "node scripts/bootstrap-preview-admin.mjs",
+    "slide-prep": "node tools/slide-source-prep/cli.mjs",
+    "slide-prep:test": "node scripts/test-runner.mjs tools/slide-source-prep/tests/*.test.js",
     "slide-review:build": "node tools/slide-import-review/scripts/build.mjs",
     "slide-review:test": "node scripts/test-runner.mjs tools/slide-import-review/tests/*.test.js",
     "slide-review:test:ci": "node scripts/test-runner.mjs --presentation=ci tools/slide-import-review/tests/*.test.js",

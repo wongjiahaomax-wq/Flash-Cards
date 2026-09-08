@@ -1,6 +1,6 @@
 # Flash-Cards Documentation Index
 
-_Last reconciled: 7 September 2026._
+_Last reconciled: 8 September 2026._
 
 This index defines document authority. Historical plans/evidence may preserve old branch-era facts; they do not override current executable implementation or the living authorities below.
 
@@ -120,7 +120,10 @@ Use:
 - `RESUMABLE_IMPORT_RUNTIME_SAFETY.md` — resumable runtime safety;
 - `ANKI_APKG_EXTRACTION.md` and `ANKI_TO_FLASHCARDS_MIGRATION_WORKFLOW.md` — source-recovery/migration guidance;
 - `ECG_ANKI_INGESTION_RULES.md` — ECG package-preparation convention;
-- `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md` — reviewed slide workflow;
+  - `SLIDE_TO_FLASHCARDS_REVIEWED_IMPORT_WORKFLOW.md` — living reviewed-slide workflow, including the optional deterministic source-preparation stage;
+  - `tools/slide-source-prep/README.md` and `tools/slide-source-prep/cli.mjs` — executable local/offline PPTX/PDF preparation workflow and implementation authority;
+  - `SLIDE_SOURCE_PREPARATION_PLAN.md` — historical PR #164 implementation plan; current behavior is defined by the executable preparer and living workflow;
+  - `SLIDE_SOURCE_PREPARATION_SOURCE_MAP_AMENDMENT.md` — historical PR #164 source-map implementation amendment;
 - `tools/slide-import-review/README.md` — executable reviewer/finalizer workflow;
 - `tools/slide-import-review/schemas/review-map-v1.schema.json` — authoritative strict review-map v1 schema.
 

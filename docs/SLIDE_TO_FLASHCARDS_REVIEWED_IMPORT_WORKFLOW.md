@@ -1,8 +1,8 @@
 # Slide-to-Flash-Cards Reviewed Import Workflow
 
-_Status: local review/finalization layer implemented and merged in PR #53; semantic PPTX/PDF source reconstruction remains a separate ChatGPT workflow._
+_Status: local deterministic source preparation and local review/finalization layers are implemented; semantic PPTX/PDF source reconstruction remains a separate ChatGPT workflow._
 
-_Last updated: 7 September 2026._
+_Last updated: 8 September 2026._
 
 ## 1. Purpose and boundary
 
@@ -14,14 +14,16 @@ The application does **not** attempt to interpret arbitrary slides itself. The g
 
 There is one semantic AI step only. The local reviewer/finalizer performs no medical reasoning, source interpretation, taxonomy inference, Prompt rewriting or answer rewriting.
 
-The repository now implements the reusable local review/finalization layer. It does **not** implement PPTX/PDF semantic extraction, OCR orchestration or the ChatGPT reconstruction step.
+The repository now implements an optional local deterministic preparation step and the reusable local review/finalization layer. It does **not** implement PPTX/PDF semantic extraction, OCR orchestration or the ChatGPT reconstruction step.
 
-Current `main` therefore contains the middle and final local tooling, not an end-to-end autonomous slide-ingestion system.
+The preparation step exposes source evidence only: PowerPoint performs PPTX rendering, PDF preparation uses native/selectable text, and v1 adds no OCR or semantic classification. This remains a staged workflow, not an end-to-end autonomous slide-ingestion system.
 
 ## 2. Architecture
 
 ```text
 Original PPTX / PDF
+        ↓
+Optional local deterministic source preparation
         ↓
       ChatGPT
 semantic source reconstruction
@@ -90,6 +92,18 @@ source material
 ```
 
 Everything after that is human review plus deterministic validation/finalization.
+
+### Optional deterministic source preparation
+
+Before ChatGPT reconstruction, run the executable local preparer when aligned visual, textual and structural evidence is useful:
+
+```text
+npm run slide-prep -- "C:\\path\\to\\Teaching Deck.pptx"
+```
+
+The workflow lives under `tools/slide-source-prep/`. It writes a sibling `*-prepared/` directory containing a byte-for-byte source copy, a PowerPoint-rendered PDF when the source is PPTX, a numbered Markdown index, a source-map JSON sidecar and mechanical range chunks for sources over 50 slides/pages. It never mutates the original source, calls external services, performs OCR, or infers Flash-Cards semantics. The tool README and scoped `AGENTS.md` document the user contract and safety invariants; `cli.mjs` is the executable implementation authority.
+
+The plan and source-map amendment for PR #164 remain historical implementation records. They explain the intended contract but do not outrank the executable preparer or this living workflow document.
 
 ## 4. Implemented local tool
 
