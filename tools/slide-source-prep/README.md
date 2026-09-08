@@ -125,6 +125,13 @@ Focused deterministic suite:
 npm run slide-prep:test
 ```
 
+Windows launcher smoke evidence (2026-09-08):
+
+- Poppler 25.07.0 was available through the WinGet installation.
+- A real PDF with a spaced Windows path completed through `prepare-slides.cmd` with exit code 0.
+- The exact `Smoke Deck-prepared` directory, index, and source map were created, and the launcher completed its Explorer-opening step.
+- Controlled CLI failure and existing-output protection both remained visible and fail-closed; the existing output sentinel was preserved.
+
 PowerPoint COM itself is not CI-tested. Before final handoff on Windows, manually smoke a real PPTX and PDF covering:
 
 1. PPTX ordinary text, table, colour/bold/italic, speaker notes;

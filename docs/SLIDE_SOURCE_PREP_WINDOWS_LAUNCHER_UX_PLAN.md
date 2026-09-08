@@ -1,6 +1,6 @@
 # Slide Source Prep Windows Launcher UX Plan
 
-_Status: proposed focused implementation plan._
+_Status: implemented in Draft PR #168; focused Windows PDF launcher smoke passed._
 
 _Base when planned: `main` at `286bcce9455e32c43880fe4873e1dee9dfaabd07`._
 
@@ -126,6 +126,17 @@ Double-click prepare-slides.cmd → choose a PPTX/PDF → prepared folder opens
 ```
 
 Also retain drag/drop and CLI instructions, and document that an existing output still requires explicit CLI `--force` replacement.
+
+## Implementation and validation evidence
+
+The bounded launcher implementation is in Draft PR #168. On Windows on 2026-09-08:
+
+- `npm run slide-prep:test` passed all 18 focused tests.
+- Poppler 25.07.0 was verified from the WinGet installation.
+- A real PDF with a spaced Windows path passed through the committed `prepare-slides.cmd` with exit code 0; the exact prepared directory, index, and source map were created, and the Explorer-opening step completed.
+- Controlled failure and existing-output smoke checks remained visible and fail-closed; the existing output sentinel was preserved.
+
+Native picker cancellation and a real PowerPoint success run remain manual checks for a desktop user environment; this evidence does not claim those interactions were automated in the coding session.
 
 ## Luna / Codex implementation guidance
 
