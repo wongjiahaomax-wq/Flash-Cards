@@ -142,8 +142,10 @@ Windows launcher smoke evidence (2026-09-08):
 - The exact `Smoke Deck-prepared` directory, index, and source map were created, and the launcher completed its Explorer-opening step.
 - A real Windows double-click/file-association launch opened the native picker; clicking `Cancel` completed with final launcher exit code 0 without running preparation, showing failure, or requiring another keypress.
 - Controlled CLI failure and existing-output protection both remained visible and fail-closed; the existing output sentinel was preserved.
+- On exact PR #168 head `2feb0147644cc79055928f0f3d5b1a847e8a5b6a`, a copied real `WKD 26.pptx` with a spaced Windows path completed through `prepare-slides.cmd` with exit code 0, 13 slides, zero warnings, and no chunks. PowerPoint COM identified hidden slide 8; the rendered PDF had 13 pages, and the source map retained ordered pages 1–13 including page 8.
+- That real PPTX smoke preserved native text and speaker notes (source-map text pages 1–7 and 9–13; notes pages 4, 6, 7, 9, and 13). The prepared root contained the source PPTX, rendered PDF, index, source map, and all four portable extraction artifacts (8/8).
 
-PowerPoint COM itself is not CI-tested. Before final handoff on Windows, manually smoke a real PPTX and PDF covering:
+PowerPoint COM itself is not CI-tested. The exact-head real PPTX success smoke above is complete. The broader manual checklist still covers:
 
 1. PPTX ordinary text, table, colour/bold/italic, speaker notes;
 2. invisible text shape;

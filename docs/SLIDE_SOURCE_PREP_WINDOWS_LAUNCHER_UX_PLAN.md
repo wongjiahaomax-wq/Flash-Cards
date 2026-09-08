@@ -1,6 +1,6 @@
 # Slide Source Prep Windows Launcher UX Plan
 
-_Status: implemented in Draft PR #168; focused Windows PDF and picker-cancellation launcher smoke passed._
+_Status: implemented in Draft PR #168; focused Windows PDF, picker-cancellation, and real PPTX launcher smoke passed._
 
 _Base when planned: `main` at `286bcce9455e32c43880fe4873e1dee9dfaabd07`._
 
@@ -131,13 +131,15 @@ Also retain drag/drop and CLI instructions, and document that an existing output
 
 The bounded launcher implementation is in Draft PR #168. On Windows on 2026-09-08:
 
-- `npm run slide-prep:test` passed all 18 focused tests.
+- `npm run slide-prep:test` passed all 26 focused tests.
 - Poppler 25.07.0 was verified from the WinGet installation.
 - A real PDF with a spaced Windows path passed through the committed `prepare-slides.cmd` with exit code 0; the exact prepared directory, index, and source map were created, and the Explorer-opening step completed.
 - A real Windows double-click/file-association launch opened the native picker; clicking `Cancel` completed with final launcher exit code 0 without running preparation, showing failure, or requiring another keypress.
 - Controlled failure and existing-output smoke checks remained visible and fail-closed; the existing output sentinel was preserved.
+- On exact PR #168 head `2feb0147644cc79055928f0f3d5b1a847e8a5b6a`, a copied real `WKD 26.pptx` with a spaced Windows path completed through the committed `prepare-slides.cmd` with exit code 0, 13 slides, zero warnings, and no chunks. PowerPoint COM identified hidden slide 8; the rendered PDF had 13 pages, and the source map retained ordered pages 1–13 including page 8.
+- The same run preserved native text and speaker notes (source-map text pages 1–7 and 9–13; notes pages 4, 6, 7, 9, and 13) and produced all 8 expected prepared-root artifacts: source PPTX, rendered PDF, index, source map, and the four portable extraction files.
 
-A real PowerPoint success run remains a manual check for a desktop user environment; this evidence does not claim that interaction was automated in the coding session.
+PowerPoint COM remains outside CI coverage, but the required real PowerPoint success smoke is now documented above for this exact head.
 
 ## Luna / Codex implementation guidance
 
