@@ -125,6 +125,8 @@ Use:
   - `tools/slide-source-prep/README.md` and `tools/slide-source-prep/cli.mjs` — executable local/offline PPTX/PDF preparation workflow and implementation authority;
   - `SLIDE_SOURCE_PREPARATION_PLAN.md` — historical PR #164 implementation plan; current behavior is defined by the executable preparer and living workflow;
   - `SLIDE_SOURCE_PREPARATION_SOURCE_MAP_AMENDMENT.md` — historical PR #164 source-map implementation amendment;
+  - `SLIDE_SOURCE_PREP_WINDOWS_LAUNCHER_UX_PLAN.md` — historical PR #168 Windows launcher UX implementation plan; executable behavior remains owned by the slide-source-prep implementation and README;
+  - `SLIDE_SOURCE_PREP_PORTABLE_AI_HANDOFF_PLAN.md` — PR #168 portable extraction contract and prepared-output packaging plan; executable behavior remains owned by the slide-source-prep implementation and its portable artifact tests;
 - `tools/slide-import-review/README.md` — executable reviewer/finalizer workflow;
 - `tools/slide-import-review/schemas/review-map-v1.schema.json` — authoritative strict review-map v1 schema.
 

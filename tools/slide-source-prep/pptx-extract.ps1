@@ -197,10 +197,11 @@ try {
       Add-ShapeBlocks -Shape $shape -Blocks $blocks -SlideWidth $SlideWidth -SlideHeight $slideHeight
     }
     # Hidden slides remain represented: page identity must stay aligned with PDF page identity.
-    $pages.Add([ordered]@{
+    $pageRecord = [pscustomobject][ordered]@{
       number = $slideNumber; width = $slideWidth; height = $slideHeight
-      blocks = @($blocks); speakerNotes = Get-SpeakerNotes $slide
-    })
+      blocks = $blocks.ToArray(); speakerNotes = Get-SpeakerNotes $slide
+    }
+    [void]$pages.Add([object]$pageRecord)
   }
 
   # Explicit all-slide range + IncludeDocProperties/KeepIRM defaults. Include hidden slides so
@@ -215,7 +216,7 @@ try {
   $raw = [ordered]@{
     filename = [System.IO.Path]::GetFileName($resolvedInput)
     type = 'pptx'
-    pages = @($pages)
+    pages = $pages.ToArray()
   }
   $json = $raw | ConvertTo-Json -Depth 10
   [System.IO.File]::WriteAllText($resolvedJson, $json, (New-Object System.Text.UTF8Encoding($false)))

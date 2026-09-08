@@ -1,6 +1,6 @@
 # Slide-to-Flash-Cards Reviewed Import Workflow
 
-_Status: local deterministic source preparation and local review/finalization layers are implemented; semantic PPTX/PDF source reconstruction remains a separate ChatGPT workflow._
+_Status: local deterministic source preparation and local review/finalization layers are implemented; semantic PPTX/PDF source reconstruction remains a separate extraction-AI workflow._
 
 _Last updated: 8 September 2026._
 
@@ -10,13 +10,13 @@ Teaching material will often arrive as unstructured PPTX/PDF slides containing v
 
 The application does **not** attempt to interpret arbitrary slides itself. The governing architecture is:
 
-> **ChatGPT reconstructs → human reviews the actual proposed manifest → deterministic code finalizes → existing importer writes production.**
+> **An extraction AI reconstructs → human reviews the actual proposed manifest → deterministic code finalizes → existing importer writes production.**
 
 There is one semantic AI step only. The local reviewer/finalizer performs no medical reasoning, source interpretation, taxonomy inference, Prompt rewriting or answer rewriting.
 
-The repository now implements an optional local deterministic preparation step and the reusable local review/finalization layer. It does **not** implement PPTX/PDF semantic extraction, OCR orchestration or the ChatGPT reconstruction step.
+The repository now implements an optional local deterministic preparation step and the reusable local review/finalization layer. It does **not** implement PPTX/PDF semantic extraction, OCR orchestration or the extraction-AI reconstruction step.
 
-The preparation step exposes source evidence only: PowerPoint performs PPTX rendering, PDF preparation uses native/selectable text, and v1 adds no OCR or semantic classification. This remains a staged workflow, not an end-to-end autonomous slide-ingestion system.
+The preparation step exposes source evidence plus four unchanged portable extraction inputs: a short handoff prompt, the versioned extraction contract, the narrow slide manifest profile, and the canonical review-map schema. PowerPoint performs PPTX rendering, PDF preparation uses native/selectable text, and v1 adds no OCR or semantic classification. This remains a staged workflow, not an end-to-end autonomous slide-ingestion system.
 
 ## 2. Architecture
 
@@ -25,7 +25,7 @@ Original PPTX / PDF
         ↓
 Optional local deterministic source preparation
         ↓
-      ChatGPT
+      Extraction AI
 semantic source reconstruction
         ↓
 Reviewable Import Bundle
@@ -61,7 +61,7 @@ The proposed-import panel edits the actual in-memory Import Package-shaped manif
 
 The semantic reconstruction step is an upstream editorial workflow, not part of the local reviewer/finalizer and not part of the production Worker.
 
-For each source batch, the reconstruction step should start from current `main` and use the current executable Import Package v1 validator as the authority for `manifest.json` shape.
+For each source batch, the reconstruction step uses the portable contract and schemas supplied in the prepared source root. The extraction agent must be able to work without project, prior-chat, or network access. The current executable Import Package v1 validator remains the compatibility authority during development and review, while `manifest-slide-profile-v1.schema.json` is the narrower runtime handoff profile.
 
 The reconstruction output is one Reviewable Import Bundle:
 
@@ -95,13 +95,13 @@ Everything after that is human review plus deterministic validation/finalization
 
 ### Optional deterministic source preparation
 
-Before ChatGPT reconstruction, run the executable local preparer when aligned visual, textual and structural evidence is useful:
+Before extraction-AI reconstruction, run the executable local preparer when aligned visual, textual and structural evidence is useful:
 
 ```text
 npm run slide-prep -- "C:\\path\\to\\Teaching Deck.pptx"
 ```
 
-The workflow lives under `tools/slide-source-prep/`. It writes a sibling `*-prepared/` directory containing a byte-for-byte source copy, a PowerPoint-rendered PDF when the source is PPTX, a numbered Markdown index, a source-map JSON sidecar and mechanical range chunks for sources over 50 slides/pages. It never mutates the original source, calls external services, performs OCR, or infers Flash-Cards semantics. The tool README and scoped `AGENTS.md` document the user contract and safety invariants; `cli.mjs` is the executable implementation authority.
+The workflow lives under `tools/slide-source-prep/`. It writes a sibling `*-prepared/` directory containing a byte-for-byte source copy, a PowerPoint-rendered PDF when the source is PPTX, a numbered Markdown index, a source-map JSON sidecar, four unchanged portable extraction inputs, and mechanical range chunks for sources over 50 slides/pages. It never mutates the original source, calls external services, performs OCR, or infers Flash-Cards semantics. The tool README and scoped `AGENTS.md` document the user contract and safety invariants; `cli.mjs` is the executable implementation authority.
 
 The plan and source-map amendment for PR #164 remain historical implementation records. They explain the intended contract but do not outrank the executable preparer or this living workflow document.
 
@@ -751,7 +751,7 @@ The repository implements the reusable human-review and deterministic-finalizati
 PPTX semantic extraction
 PDF semantic extraction
 OCR when source material genuinely requires it
-ChatGPT source reconstruction orchestration
+Extraction-AI source reconstruction orchestration
 medical correction
 automatic taxonomy
 Tags

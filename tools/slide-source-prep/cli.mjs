@@ -17,6 +17,25 @@ export const DEFAULT_CHUNK_SIZE = 40;
 export const DEFAULT_CHUNK_THRESHOLD = 50;
 const MAX_COMMAND_OUTPUT = 256 * 1024 * 1024;
 
+export const PORTABLE_ARTIFACTS = Object.freeze([
+  Object.freeze({
+    sourcePath: join(TOOL_DIR, 'AI_EXTRACTION_HANDOFF_PROMPT.md'),
+    fileName: 'AI_EXTRACTION_HANDOFF_PROMPT.md',
+  }),
+  Object.freeze({
+    sourcePath: join(TOOL_DIR, 'AI_EXTRACTION_CONTRACT.md'),
+    fileName: 'AI_EXTRACTION_CONTRACT.md',
+  }),
+  Object.freeze({
+    sourcePath: join(TOOL_DIR, 'manifest-slide-profile-v1.schema.json'),
+    fileName: 'manifest-slide-profile-v1.schema.json',
+  }),
+  Object.freeze({
+    sourcePath: join(TOOL_DIR, '..', 'slide-import-review', 'schemas', 'review-map-v1.schema.json'),
+    fileName: 'review-map-v1.schema.json',
+  }),
+]);
+
 export function usage() {
   return `Usage: npm run slide-prep -- <source.pptx|source.pdf> [--force] [--chunk-size N]\n\n` +
     `  --force         Replace an existing <name>-prepared directory.\n` +
@@ -114,6 +133,16 @@ export function withPreparedOutput(outputDir, force, work) {
   } finally {
     if (!succeeded) rmSync(outputDir, { recursive: true, force: true });
   }
+}
+
+export function copyPortableArtifacts(outputDir, artifacts = PORTABLE_ARTIFACTS) {
+  const copiedPaths = [];
+  for (const artifact of artifacts) {
+    const destination = join(outputDir, artifact.fileName);
+    copyFileSync(artifact.sourcePath, destination);
+    copiedPaths.push(destination);
+  }
+  return copiedPaths;
 }
 
 export function planChunkArtifacts(outputDir, stem, pageCount, chunkSize = DEFAULT_CHUNK_SIZE) {
@@ -237,6 +266,7 @@ export function prepareSource(options) {
     const artifacts = writeSourceArtifacts(sourceMap, plan.outputDir, plan.stem);
     const chunkPdfSource = plan.type === 'pptx' ? prepared.renderedPdfPath : plan.copiedSourcePath;
     const chunks = createChunks(sourceMap, chunkPdfSource, plan.outputDir, plan.stem, options.chunkSize);
+    const portableArtifacts = copyPortableArtifacts(plan.outputDir);
 
     return {
       sourcePath: plan.sourcePath,
@@ -246,6 +276,7 @@ export function prepareSource(options) {
       renderedPdfPath: plan.renderedPdfPath,
       ...artifacts,
       chunks,
+      portableArtifacts,
       warnings: [],
     };
   });

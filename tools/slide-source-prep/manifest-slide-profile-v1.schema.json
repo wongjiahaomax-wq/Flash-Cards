@@ -1,0 +1,169 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://flash-cards.local/schemas/manifest-slide-profile-v1.schema.json",
+  "title": "Flash-Cards portable slide ingestion manifest profile v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "packageId",
+    "topics",
+    "cases",
+    "assets",
+    "caseAssets",
+    "questionPrompts",
+    "caseQuestions",
+    "topicQuestions"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "packageId": { "$ref": "#/$defs/packageId" },
+    "topics": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": { "$ref": "#/$defs/holdingTopic" }
+    },
+    "cases": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/slideCase" }
+    },
+    "assets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/slideAsset" }
+    },
+    "caseAssets": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/caseAsset" }
+    },
+    "questionPrompts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/questionPrompt" }
+    },
+    "caseQuestions": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/caseQuestion" }
+    },
+    "topicQuestions": { "const": [] }
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"
+    },
+    "packageId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$"
+    },
+    "nonEmpty": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": ".*\\S.*"
+    },
+    "nullableNonEmpty": {
+      "oneOf": [
+        { "$ref": "#/$defs/nonEmpty" },
+        { "type": "null" }
+      ]
+    },
+    "nullableHttpUrl": {
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https?://(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*|\\[[0-9A-Fa-f:.]+\\])(?::(?:[0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?(?:[/?#][^\\s]*)?$"
+        },
+        { "type": "null" }
+      ]
+    },
+    "holdingTopic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "name", "slug", "descriptionMd", "parentTopicId", "isActive"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "operation": { "const": "create" },
+        "name": { "$ref": "#/$defs/nonEmpty" },
+        "slug": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]{0,79}$"
+        },
+        "descriptionMd": { "$ref": "#/$defs/nullableNonEmpty" },
+        "parentTopicId": { "const": null },
+        "isActive": { "const": true }
+      }
+    },
+    "slideCase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "title", "vignetteMd", "primaryTopicId", "secondaryTopicIds", "questionSelectionMode", "isActive"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "operation": { "const": "create" },
+        "title": { "$ref": "#/$defs/nonEmpty" },
+        "vignetteMd": { "$ref": "#/$defs/nullableNonEmpty" },
+        "primaryTopicId": { "$ref": "#/$defs/id" },
+        "secondaryTopicIds": { "const": [] },
+        "questionSelectionMode": { "const": "all" },
+        "isActive": { "const": true }
+      }
+    },
+    "slideAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "path", "mimeType", "originalFilename", "altText", "isActive"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "operation": { "const": "create" },
+        "path": {
+          "type": "string",
+          "pattern": "^media/[A-Za-z0-9][A-Za-z0-9._-]{0,127}\\.(?:jpg|jpeg|png)$"
+        },
+        "mimeType": { "enum": ["image/jpeg", "image/png"] },
+        "originalFilename": { "$ref": "#/$defs/nonEmpty" },
+        "altText": { "$ref": "#/$defs/nonEmpty" },
+        "sourceLabel": { "$ref": "#/$defs/nullableNonEmpty" },
+        "sourceUrl": { "$ref": "#/$defs/nullableHttpUrl" },
+        "licence": { "$ref": "#/$defs/nullableNonEmpty" },
+        "isActive": { "const": true }
+      }
+    },
+    "caseAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "caseId", "assetId", "displayOrder", "captionMd"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "operation": { "const": "create" },
+        "caseId": { "$ref": "#/$defs/id" },
+        "assetId": { "$ref": "#/$defs/id" },
+        "displayOrder": { "type": "integer", "minimum": 0 },
+        "captionMd": { "$ref": "#/$defs/nullableNonEmpty" }
+      }
+    },
+    "questionPrompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "promptMd", "isActive"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "operation": { "const": "create" },
+        "promptMd": { "$ref": "#/$defs/nonEmpty" },
+        "isActive": { "const": true }
+      }
+    },
+    "caseQuestion": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "operation", "caseId", "questionPromptId", "answerMd", "isActive"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "operation": { "const": "create" },
+        "caseId": { "$ref": "#/$defs/id" },
+        "questionPromptId": { "$ref": "#/$defs/id" },
+        "answerMd": { "$ref": "#/$defs/nonEmpty" },
+        "isActive": { "const": true }
+      }
+    }
+  }
+}
