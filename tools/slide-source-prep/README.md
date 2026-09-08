@@ -12,19 +12,21 @@ From the repository root:
 npm run slide-prep -- "C:\path\to\Teaching Deck.pptx"
 ```
 
-On Windows, drag a `.pptx`/`.pdf` onto or double-click:
+On Windows, double-click the launcher to open a native file picker, then choose one `.pptx` or `.pdf`:
 
 ```text
 tools\slide-source-prep\prepare-slides.cmd
 ```
 
-The launcher always pauses after success/failure so the human-readable summary remains visible. The CLI is the non-interactive path.
+The prepared output folder opens automatically after a successful run. The launcher pauses after success/failure so the human-readable summary remains visible; cancelling the picker exits without running preparation. For the fast path, drag one `.pptx`/`.pdf` onto the same launcher. The CLI is the non-interactive path.
 
 The tool refuses to mix a new run with an existing prepared directory. Replace intentionally with:
 
 ```bash
 npm run slide-prep -- "C:\path\to\Teaching Deck.pptx" --force
 ```
+
+The Windows launcher never adds `--force` and never deletes an existing prepared directory.
 
 ## Prerequisites
 

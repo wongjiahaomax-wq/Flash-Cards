@@ -191,6 +191,24 @@ test('Windows human launcher always keeps the result visible', () => {
   assert.doesNotMatch(launcher, /if not "%~1"=="" pause/i);
 });
 
+test('Windows launcher uses the native picker and delegates output handling', () => {
+  const launcher = readFileSync(new URL('../prepare-slides.cmd', import.meta.url), 'utf8');
+  const helper = readFileSync(new URL('../prepare-slides.ps1', import.meta.url), 'utf8');
+
+  assert.match(launcher, /prepare-slides\.ps1[\s\S]*-Pick/i);
+  assert.match(launcher, /prepare-slides\.ps1[\s\S]*-SourcePath "%~1"/i);
+  assert.match(helper, /OpenFileDialog/);
+  assert.match(helper, /\$dialog\.Filter = .*\*\.pptx;\*\.pdf/);
+  assert.match(helper, /\$dialog\.Multiselect = \$false/);
+  assert.match(helper, /DialogResult\]::OK/);
+  assert.match(helper, /& node \$cliPath \$resolvedSourcePath/);
+  assert.match(helper, /\$cliExitCode = \$LASTEXITCODE/);
+  assert.match(helper, /if \(\$cliExitCode -ne 0\)[\s\S]*exit \$cliExitCode/);
+  assert.match(helper, /Test-Path -LiteralPath \$preparedDirectory -PathType Container/);
+  assert.match(helper, /Start-Process -FilePath 'explorer\.exe'/);
+  assert.doesNotMatch(`${launcher}\n${helper}`, /--force/);
+});
+
 test('PowerPoint adapter filters invisible groups/shapes and off-slide geometry before extraction', () => {
   const script = readFileSync(new URL('../pptx-extract.ps1', import.meta.url), 'utf8');
   assert.match(script, /if \(-not \(Test-ShapeVisible \$Shape\)\) \{ return \}/);
