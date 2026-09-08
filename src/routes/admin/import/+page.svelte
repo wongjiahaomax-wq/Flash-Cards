@@ -2,15 +2,16 @@
   // @ts-nocheck
   import { deserialize } from '$app/forms';
   import { onDestroy } from 'svelte';
+  import ImportPackageText from '$lib/components/ImportPackageText.svelte';
+  import { createImportHistoryController } from '$lib/import-history-controller.js';
   import { createImportPreviewController } from '$lib/import-preview-controller.js';
-  import { CLEAR_IMPORT_HISTORY_CONFIRMATION, createImportHistoryState } from '$lib/import-history-state.js';
+  import { CLEAR_IMPORT_HISTORY_CONFIRMATION } from '$lib/import-history-state.js';
 
   let { data, form } = /** @type {any} */ ($props());
   let actionState = $state(form ?? null);
   let confirmImport = $state(false);
-  const historyState = createImportHistoryState(data);
-  let jobs = $state((() => historyState.value().jobs)());
-  let hasEligibleTerminalHistory = $state(historyState.value().hasEligibleTerminalHistory);
+  let jobs = $state([...(data.jobs ?? [])]);
+  let hasEligibleTerminalHistory = $state(Boolean(data.hasEligibleTerminalHistory));
   let runningJobId = $state(null);
   let requestInFlight = $state(false);
   let previewInFlight = $state(false);
@@ -43,6 +44,22 @@
     },
     onActionState(next) {
       actionState = next;
+    }
+  });
+
+  const historyController = createImportHistoryController(data, {
+    postJobAction,
+    postHistoryAction,
+    onChange(next) {
+      jobs = next.jobs;
+      hasEligibleTerminalHistory = next.hasEligibleTerminalHistory;
+      runningJobId = next.runningJobId;
+      requestInFlight = next.requestInFlight;
+      historyMutationInFlight = next.historyMutationInFlight;
+      localError = next.localError;
+      historyError = next.historyError;
+      historyResult = next.historyResult;
+      pendingClearCursor = next.pendingClearCursor;
     }
   });
 
@@ -100,21 +117,13 @@
       const result = deserialize(await response.text());
       actionState = result.data;
       if (result.type !== 'success') return;
-      if (result.data?.job) upsertJob(result.data.job);
-      if (result.data?.autoStartJobId) void runImport(result.data.autoStartJobId);
+      if (result.data?.job) historyController.upsertJob(result.data.job);
+      if (result.data?.autoStartJobId) void historyController.runImport(result.data.autoStartJobId);
     } catch (error) {
       actionState = { error: error instanceof Error ? error.message : 'Unable to start this import.' };
     } finally {
       startInFlight = false;
     }
-  }
-
-  function upsertJob(job) {
-    if (!job) return;
-    historyState.upsert(job);
-    const next = historyState.value();
-    jobs = next.jobs;
-    hasEligibleTerminalHistory = next.hasEligibleTerminalHistory;
   }
 
   function percent(job) {
@@ -146,49 +155,8 @@
     return result.data;
   }
 
-  async function runImport(id) {
-    if (requestInFlight || runningJobId) return;
-    runningJobId = id;
-    localError = '';
-    try {
-      while (runningJobId === id) {
-        requestInFlight = true;
-        let result;
-        try {
-          result = await postJobAction('process', id);
-        } finally {
-          requestInFlight = false;
-        }
-        if (result?.job) upsertJob(result.job);
-        if (result?.busy) {
-          localError = 'This import is currently being processed by another browser tab. Processing here has paused safely.';
-          break;
-        }
-        const job = result?.job;
-        if (!job || ['complete', 'cancelled', 'failed'].includes(job.status)) break;
-        await new Promise((resolve) => setTimeout(resolve, 30));
-      }
-    } catch (error) {
-      localError = error instanceof Error ? error.message : 'Import processing stopped unexpectedly.';
-    } finally {
-      requestInFlight = false;
-      if (runningJobId === id) runningJobId = null;
-    }
-  }
-
-  function pauseImport(id) {
-    if (runningJobId === id) runningJobId = null;
-  }
-
   async function cancelJob(id) {
-    pauseImport(id);
-    localError = '';
-    try {
-      const result = await postJobAction('cancel', id);
-      upsertJob(result?.job);
-    } catch (error) {
-      localError = error instanceof Error ? error.message : 'Unable to cancel this import.';
-    }
+    await historyController.cancelJob(id);
   }
 
   async function postHistoryAction(action, cursor = null) {
@@ -202,49 +170,33 @@
     return result.data;
   }
 
-  function applyHistorySnapshot(result) {
-    if (result?.history) {
-      historyState.replace(result.history);
-      const next = historyState.value();
-      jobs = next.jobs;
-      hasEligibleTerminalHistory = next.hasEligibleTerminalHistory;
-    }
-    historyResult = result;
-  }
-
   async function removeHistoryJob(id) {
-    if (historyMutationInFlight) return;
-    historyMutationInFlight = true;
-    historyError = '';
-    try { applyHistorySnapshot(await postHistoryAction('removeHistory', id)); }
-    catch (error) { historyError = error instanceof Error ? error.message : 'Unable to remove this history record safely.'; }
-    finally { historyMutationInFlight = false; }
+    await historyController.removeHistory(id);
   }
 
   function openClearDialog(cursor = null) {
+    historyController.openClearDialog(cursor);
     pendingClearCursor = cursor;
     clearDialog?.showModal();
   }
 
   async function confirmClearHistory() {
     clearDialog?.close();
-    if (historyMutationInFlight) return;
-    historyMutationInFlight = true;
-    historyError = '';
-    try { applyHistorySnapshot(await postHistoryAction('clearHistory', pendingClearCursor)); }
-    catch (error) { historyError = error instanceof Error ? error.message : 'Unable to clear import history safely.'; }
-    finally { historyMutationInFlight = false; }
+    await historyController.confirmClear({ confirmed: true, cursor: pendingClearCursor });
   }
 
   $effect(() => {
     if (!autoStarted && form?.autoStartJobId) {
       autoStarted = true;
-      if (form.job) upsertJob(form.job);
-      void runImport(form.autoStartJobId);
+      if (form.job) historyController.upsertJob(form.job);
+      void historyController.runImport(form.autoStartJobId);
     }
   });
 
-  onDestroy(() => previewController.destroy());
+  onDestroy(() => {
+    previewController.destroy();
+    historyController.destroy();
+  });
 </script>
 
 <svelte:head><title>Import package | Admin | Flash-Cards</title></svelte:head>
@@ -287,13 +239,13 @@
           {#if item.operation === 'use'}
             <p>Existing Production Case · {item.applicationId}</p>
           {:else}
-            <p><strong>{item.create.title}</strong></p>
-            {#if item.create.vignetteMd}<p class="package-text">{item.create.vignetteMd}</p>{/if}
+            <p><strong><ImportPackageText value={item.create.title} /></strong></p>
+            {#if item.create.vignetteMd}<p><ImportPackageText value={item.create.vignetteMd} /></p>{/if}
             <p>{item.create.isActive ? 'Active' : 'Inactive'} · {item.create.selectionLabel}</p>
           {/if}
           {#if item.primaryTopic}
             <p class="reference-label">Primary Topic</p>
-            {#if item.primaryTopic.operation === 'use'}<p>Existing Production Topic · {item.primaryTopic.applicationId}</p>{:else}<p>{item.primaryTopic.name}</p>{/if}
+            {#if item.primaryTopic.operation === 'use'}<p>Existing Production Topic · {item.primaryTopic.applicationId}</p>{:else}<p><ImportPackageText value={item.primaryTopic.name} /></p>{/if}
           {/if}
           {#if item.assets.length}
             <p class="reference-label">Case Assets</p>
@@ -305,7 +257,7 @@
                   {:else}
                     <span>Package media declared for this create Asset · {link.asset.id} · {link.asset.mediaPath}</span>
                     {#if media[link.asset.id]?.status === 'ready'}<img src={media[link.asset.id].url} alt={link.asset.altText ?? ''} />{:else if media[link.asset.id]?.status === 'unavailable'}<span class="muted">Image display unavailable; package validation still passed.</span>{/if}
-                    {#if link.create?.captionMd}<span class="package-text">{link.create.captionMd}</span>{/if}
+                    {#if link.create?.captionMd}<ImportPackageText value={link.create.captionMd} />{/if}
                   {/if}
                 </div>
               {/each}
@@ -317,8 +269,8 @@
               {#each item.questions as question (question.id)}
                 <div class="question-row">
                   <p><strong>Question · {question.id}</strong>{#if question.operation === 'use'} · Existing Production Case Question · {question.applicationId}{/if}</p>
-                  {#if question.prompt?.operation === 'use'}<p>Existing Production Question Prompt · {question.prompt.applicationId}</p>{:else if question.prompt?.operation === 'create'}<p class="package-text">{question.prompt.promptMd}</p>{/if}
-                  {#if question.create}<p class="package-text">{question.create.answerMd}</p><p>{question.create.isActive ? 'Active' : 'Inactive'}</p>{/if}
+                  {#if question.prompt?.operation === 'use'}<p>Existing Production Question Prompt · {question.prompt.applicationId}</p>{:else if question.prompt?.operation === 'create'}<p><ImportPackageText value={question.prompt.promptMd} /></p>{/if}
+                  {#if question.create}<p><ImportPackageText value={question.create.answerMd} /></p><p>{question.create.isActive ? 'Active' : 'Inactive'}</p>{/if}
                 </div>
               {/each}
             </div>
@@ -331,10 +283,10 @@
           {#each previewResult.previewModel.topicQuestions as question (question.id)}
             <article class="content-card question-row">
               <p><strong>Topic Question · {question.id}</strong>{#if question.operation === 'use'} · Existing Production Topic Question · {question.applicationId}{/if}</p>
-              {#if question.ownerTopic?.operation === 'use'}<p>Owner Topic: Existing Production Topic · {question.ownerTopic.applicationId}</p>{:else if question.ownerTopic}<p>Owner Topic: {question.ownerTopic.name}</p>{/if}
-              {#if question.ownerParentTopic}<p>Immediate package-declared parent: {question.ownerParentTopic.operation === 'use' ? `Existing Production Topic · ${question.ownerParentTopic.applicationId}` : question.ownerParentTopic.name}</p>{/if}
-              {#if question.prompt?.operation === 'use'}<p>Existing Production Question Prompt · {question.prompt.applicationId}</p>{:else if question.prompt?.operation === 'create'}<p class="package-text">{question.prompt.promptMd}</p>{/if}
-              {#if question.create}<p class="package-text">{question.create.answerMd}</p><p>{question.create.isActive ? 'Active' : 'Inactive'} · {question.create.inheritToDescendants ? 'Inherits to descendants' : 'Does not inherit to descendants'}</p>{/if}
+              {#if question.ownerTopic?.operation === 'use'}<p>Owner Topic: Existing Production Topic · {question.ownerTopic.applicationId}</p>{:else if question.ownerTopic}<p>Owner Topic: <ImportPackageText value={question.ownerTopic.name} /></p>{/if}
+              {#if question.ownerParentTopic}<p>Immediate package-declared parent: {#if question.ownerParentTopic.operation === 'use'}Existing Production Topic · {question.ownerParentTopic.applicationId}{:else}<ImportPackageText value={question.ownerParentTopic.name} />{/if}</p>{/if}
+              {#if question.prompt?.operation === 'use'}<p>Existing Production Question Prompt · {question.prompt.applicationId}</p>{:else if question.prompt?.operation === 'create'}<p><ImportPackageText value={question.prompt.promptMd} /></p>{/if}
+              {#if question.create}<p><ImportPackageText value={question.create.answerMd} /></p><p>{question.create.isActive ? 'Active' : 'Inactive'} · {question.create.inheritToDescendants ? 'Inherits to descendants' : 'Does not inherit to descendants'}</p>{/if}
             </article>
           {/each}
         </div>
@@ -393,9 +345,9 @@
           {#if job.status === 'complete'}<p class="success-inline">Import complete. The temporary staged ZIP has been removed; imported teaching images remain.</p>{/if}
           <div class="actions">
             {#if runningJobId === job.id}
-              <button class="button" type="button" onclick={() => pauseImport(job.id)}>Pause</button>
+              <button class="button" type="button" onclick={() => historyController.pauseImport(job.id)}>Pause</button>
             {:else if canResume(job)}
-              <button class="button primary" type="button" disabled={requestInFlight} onclick={() => runImport(job.id)}>{job.status === 'failed' ? 'Retry / resume' : 'Resume import'}</button>
+              <button class="button primary" type="button" disabled={requestInFlight} onclick={() => historyController.runImport(job.id)}>{job.status === 'failed' ? 'Retry / resume' : 'Resume import'}</button>
             {/if}
             {#if !['complete', 'cancelled'].includes(job.status)}
               <button class="button danger-outline" type="button" disabled={requestInFlight} onclick={() => cancelJob(job.id)}>{hasDomainWrites(job) ? 'Stop and discard staging' : 'Cancel import'}</button>
@@ -438,6 +390,6 @@
   .count-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; } .count-grid span { display: grid; gap: 0.2rem; padding: 0.7rem; border: 1px solid #eaecf0; border-radius: 8px; color: #667085; } .count-grid strong { color: #172033; }
   .actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; } .button { padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; font: inherit; cursor: pointer; } .button:disabled { cursor: not-allowed; opacity: 0.55; } .button.primary { border-color: #172033; background: #172033; color: #fff; } .button.danger { border-color: #b42318; background: #b42318; color: #fff; } .button.danger-outline { border-color: #b42318; color: #b42318; }
   .job-list { display: grid; gap: 0.8rem; }.job-card { padding: 0.9rem; border: 1px solid #eaecf0; border-radius: 9px; }.job-title { display: flex; justify-content: space-between; gap: 1rem; align-items: start; }.job-title > div { display: grid; gap: 0.2rem; }.job-id { color: #667085; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.76rem; overflow-wrap: anywhere; }.status { padding: 0.25rem 0.55rem; border-radius: 999px; background: #f2f4f7; color: #344054; font-size: 0.76rem; font-weight: 750; text-transform: capitalize; }.status.complete { background: #ecfdf3; color: #027a48; }.status.failed { background: #fef3f2; color: #b42318; }.progress-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0.7rem; align-items: center; margin: 0.8rem 0 0.4rem; }.progress-row progress { width: 100%; }.phase { margin-bottom: 0.65rem; color: #475467; font-size: 0.9rem; }.job-error { padding: 0.65rem; border-radius: 7px; background: #fef3f2; color: #b42318; font-size: 0.88rem; }.warning-inline { color: #93370d; font-size: 0.88rem; }.success-inline { color: #027a48; font-size: 0.88rem; }
-  .package-declared-preview { display: grid; gap: 0.75rem; margin-top: 1.1rem; }.content-card { padding: 0.85rem; border: 1px solid #eaecf0; border-radius: 8px; }.content-card h3 { margin: 0 0 0.45rem; font-size: 1rem; }.content-card p { margin-bottom: 0.45rem; }.package-text { white-space: pre-wrap; overflow-wrap: anywhere; }.reference-label { margin-top: 0.7rem; color: #667085; font-size: 0.78rem; font-weight: 750; letter-spacing: 0.04em; text-transform: uppercase; }.asset-list, .question-list { display: grid; gap: 0.55rem; }.asset-row, .question-row { display: grid; gap: 0.35rem; padding: 0.65rem; border-left: 3px solid #d0d5dd; background: #f9fafb; }.asset-row img { max-width: min(100%, 280px); max-height: 180px; object-fit: contain; border-radius: 5px; }.history-result { margin-top: 1rem; padding: 0.75rem; border: 1px solid #d0d5dd; border-radius: 8px; }.confirm-dialog { max-width: 34rem; width: calc(100% - 2rem); border: 0; border-radius: 10px; padding: 1.1rem; }.confirm-dialog::backdrop { background: rgb(16 24 40 / 45%); }
+  .package-declared-preview { display: grid; gap: 0.75rem; margin-top: 1.1rem; }.content-card { padding: 0.85rem; border: 1px solid #eaecf0; border-radius: 8px; }.content-card h3 { margin: 0 0 0.45rem; font-size: 1rem; }.content-card p { margin-bottom: 0.45rem; }.reference-label { margin-top: 0.7rem; color: #667085; font-size: 0.78rem; font-weight: 750; letter-spacing: 0.04em; text-transform: uppercase; }.asset-list, .question-list { display: grid; gap: 0.55rem; }.asset-row, .question-row { display: grid; gap: 0.35rem; padding: 0.65rem; border-left: 3px solid #d0d5dd; background: #f9fafb; }.asset-row img { max-width: min(100%, 280px); max-height: 180px; object-fit: contain; border-radius: 5px; }.history-result { margin-top: 1rem; padding: 0.75rem; border: 1px solid #d0d5dd; border-radius: 8px; }.confirm-dialog { max-width: 34rem; width: calc(100% - 2rem); border: 0; border-radius: 10px; padding: 1.1rem; }.confirm-dialog::backdrop { background: rgb(16 24 40 / 45%); }
   @media (max-width: 700px) { .page-heading, .section-heading { align-items: start; flex-direction: column; }.count-grid { grid-template-columns: minmax(0, 1fr); }.progress-row { grid-template-columns: minmax(0, 1fr) auto; }.progress-row span { grid-column: 2; }.job-title { flex-direction: column; } }
 </style>

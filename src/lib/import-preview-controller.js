@@ -102,9 +102,12 @@ export function createImportPreviewController(options = {}) {
   }
 
   async function loadPreviewMedia(model, file, requestGeneration) {
-    const targets = (model?.cases ?? []).flatMap((item) => item.assets ?? [])
-      .filter((item) => item.asset?.operation === 'create' && item.asset.mediaPath)
-      .map((item) => ({ id: item.asset.id, path: item.asset.mediaPath, mimeType: item.asset.mimeType }));
+    const targetsByAssetId = new Map();
+    for (const item of (model?.cases ?? []).flatMap((entry) => entry.assets ?? [])) {
+      if (item.asset?.operation !== 'create' || !item.asset.mediaPath || targetsByAssetId.has(item.asset.id)) continue;
+      targetsByAssetId.set(item.asset.id, { id: item.asset.id, path: item.asset.mediaPath, mimeType: item.asset.mimeType });
+    }
+    const targets = [...targetsByAssetId.values()];
     if (!targets.length) return;
 
     setState({
