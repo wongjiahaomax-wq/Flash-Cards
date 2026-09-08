@@ -1,8 +1,8 @@
 # Slide Source Preparation
 
-Living executable authority for the optional deterministic preparation step before ChatGPT slide reconstruction.
+Living executable authority for the optional deterministic preparation step before slide reconstruction by an extraction AI.
 
-This tool prepares `.pptx` and `.pdf` teaching material so ChatGPT receives aligned visual, textual, and structural source evidence. It performs **no semantic interpretation**: no Case/question/answer/diagnosis/Topic/Tag inference, no medical correction, no AI calls, and no OCR in v1.
+This tool prepares `.pptx` and `.pdf` teaching material so an extraction AI receives aligned visual, textual, and structural source evidence. It performs **no semantic interpretation**: no Case/question/answer/diagnosis/Topic/Tag inference, no medical correction, no AI calls, and no OCR in v1.
 
 ## Normal use
 
@@ -50,6 +50,10 @@ Teaching Deck-prepared/
 ├── Teaching Deck-rendered.pdf
 ├── Teaching Deck-index.md
 ├── Teaching Deck-source-map.json
+├── AI_EXTRACTION_HANDOFF_PROMPT.md
+├── AI_EXTRACTION_CONTRACT.md
+├── manifest-slide-profile-v1.schema.json
+├── review-map-v1.schema.json
 └── chunks/                         # only for >50 slides
 ```
 
@@ -60,10 +64,16 @@ Teaching Deck-prepared/
 ├── Teaching Deck.pdf
 ├── Teaching Deck-index.md
 ├── Teaching Deck-source-map.json
+├── AI_EXTRACTION_HANDOFF_PROMPT.md
+├── AI_EXTRACTION_CONTRACT.md
+├── manifest-slide-profile-v1.schema.json
+├── review-map-v1.schema.json
 └── chunks/                         # only for >50 pages
 ```
 
 The source is copied byte-for-byte; the input itself is never saved back to. On failed preparation the newly created output directory is removed so a partial run cannot masquerade as a successful one.
+
+The four portable extraction files are copied unchanged into the prepared root. They are the complete provider-neutral handoff, narrow slide manifest profile, and canonical review-map schema needed by an extraction AI that has no access to this project or external services. They are not duplicated into mechanical chunks.
 
 For large sources each range contains aligned files:
 
@@ -85,7 +95,7 @@ The rendered PDF is visual authority. Source-map/Markdown `Visible text` is deli
 - partially visible shapes are preserved and their source-map geometry is clipped to the on-slide intersection;
 - hidden **slides** remain represented and are included in the rendered PDF so slide N remains PDF page N.
 
-This prevents off-canvas author material from being presented to ChatGPT as visible learner-facing evidence while preserving slide identity.
+This prevents off-canvas author material from being presented as visible learner-facing evidence while preserving slide identity.
 
 ## `source-map.json`
 
