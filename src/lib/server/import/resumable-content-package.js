@@ -20,14 +20,17 @@ import {
 import { deleteTeachingImage, putTeachingImage } from '../storage/media.js';
 import {
   ContentPackageError,
+  buildImportPreviewModel,
   deterministicApplicationId,
   deterministicStorageKey,
   importPackageDigest,
   parseImportPackage
 } from './reviewed-content-package.js';
 import {
+  cleanupImportStagingStrict,
   deleteStagedImportPackage,
   importPackageStorageKey,
+  ImportStagingCleanupError,
   readStagedImportPackage,
   stageImportPackage
 } from '../storage/import-packages.js';
@@ -712,5 +715,102 @@ export async function cancelImportJob(d1, bucket, id) {
 export async function previewResumableImport(bytes) {
   const parsed = await parseImportPackage(bytes);
   const plan = prepareResumableImportPlan(parsed);
-  return { packageId: plan.manifest.packageId, preview: plan.preview, warnings: plan.warnings };
+  const digest = await importPackageDigest(bytes);
+  return {
+    packageId: plan.manifest.packageId,
+    preview: plan.preview,
+    previewModel: buildImportPreviewModel(plan.manifest),
+    warnings: plan.warnings,
+    digest
+  };
+}
+
+const HISTORY_TERMINAL_STATUSES = new Set(['complete', 'cancelled']);
+
+/** @param {any} d1 */
+export async function listImportHistory(d1) {
+  const [jobs, eligible] = await Promise.all([
+    listImportJobs(d1, 10),
+    d1.prepare("SELECT 1 AS eligible FROM import_jobs WHERE status IN ('complete', 'cancelled') LIMIT 1").first()
+  ]);
+  return {
+    jobs: jobs.map(serializeImportJob),
+    hasEligibleTerminalHistory: Boolean(eligible)
+  };
+}
+
+/** @param {any} row */
+function historyCursorFor(row) {
+  return `${Number(row.created_at)}|${encodeURIComponent(row.id)}`;
+}
+
+/** @param {string|null|undefined} cursor */
+function parseHistoryCursor(cursor) {
+  if (!cursor) return null;
+  const match = /^(\d+)\|(.+)$/.exec(String(cursor));
+  if (!match) throw new ContentPackageError('The import history traversal cursor is invalid.');
+  let id;
+  try { id = decodeURIComponent(match[2]); }
+  catch { throw new ContentPackageError('The import history traversal cursor is invalid.'); }
+  if (!id) throw new ContentPackageError('The import history traversal cursor is invalid.');
+  return { createdAt: Number(match[1]), id };
+}
+
+function historyFailure(error) {
+  if (error instanceof ImportStagingCleanupError) return { code: error.code, message: error.message };
+  return { code: 'CLEANUP_FAILED', message: 'Private staging cleanup could not be proven; the history record was retained.' };
+}
+
+/** @param {any} d1 @param {any} bucket @param {string} id */
+export async function removeImportHistory(d1, bucket, id) {
+  const job = await getImportJob(d1, id);
+  if (!job) throw new ContentPackageError('The import history record was not found.');
+  if (!HISTORY_TERMINAL_STATUSES.has(job.status)) throw new ContentPackageError('Only completed or cancelled import records can be removed from history.');
+  if (job.package_storage_key !== importPackageStorageKey(job.id)) throw new ContentPackageError('The import record does not own its canonical staging key; it was retained.');
+  try {
+    await cleanupImportStagingStrict(bucket, job);
+  } catch (error) {
+    const failure = historyFailure(error);
+    throw new ContentPackageError(`${failure.message} (${failure.code})`);
+  }
+  const result = await d1.prepare("DELETE FROM import_jobs WHERE id = ? AND status IN ('complete', 'cancelled') AND package_storage_key = ?")
+    .bind(job.id, importPackageStorageKey(job.id)).run();
+  if (!changed(result) || Number(result.meta?.changes ?? result.changes ?? 0) !== 1) throw new ContentPackageError('The history record changed before deletion; it was retained.');
+  return { removedIds: [job.id], failed: [], nextCursor: null, history: await listImportHistory(d1) };
+}
+
+/** @param {any} d1 @param {any} bucket @param {string|null|undefined} cursor */
+export async function clearImportHistory(d1, bucket, cursor = null) {
+  const parsedCursor = parseHistoryCursor(cursor);
+  const candidates = parsedCursor
+    ? await d1.prepare("SELECT * FROM import_jobs WHERE status IN ('complete', 'cancelled') AND (created_at > ? OR (created_at = ? AND id > ?)) ORDER BY created_at ASC, id ASC LIMIT 10")
+      .bind(parsedCursor.createdAt, parsedCursor.createdAt, parsedCursor.id).all()
+    : await d1.prepare("SELECT * FROM import_jobs WHERE status IN ('complete', 'cancelled') ORDER BY created_at ASC, id ASC LIMIT 10").all();
+  const rows = candidates.results ?? [];
+  const removedIds = [];
+  const failed = [];
+  let lastRow = null;
+
+  for (const job of rows) {
+    lastRow = job;
+    try {
+      if (job.package_storage_key !== importPackageStorageKey(job.id)) throw new ImportStagingCleanupError('STAGING_KEY_MISMATCH', 'The import record does not own its canonical staging key; the history record was retained.');
+      await cleanupImportStagingStrict(bucket, job);
+      const result = await d1.prepare("DELETE FROM import_jobs WHERE id = ? AND status IN ('complete', 'cancelled') AND package_storage_key = ?")
+        .bind(job.id, importPackageStorageKey(job.id)).run();
+      if (!changed(result) || Number(result.meta?.changes ?? result.changes ?? 0) !== 1) throw new ImportStagingCleanupError('D1_NOT_REMOVED', 'The history record changed before deletion; the history record was retained.');
+      removedIds.push(job.id);
+    } catch (error) {
+      const safe = historyFailure(error);
+      failed.push({ id: job.id, code: safe.code, message: safe.message });
+    }
+  }
+
+  let nextCursor = null;
+  if (rows.length === 10 && lastRow) {
+    const next = await d1.prepare("SELECT id FROM import_jobs WHERE status IN ('complete', 'cancelled') AND (created_at > ? OR (created_at = ? AND id > ?)) ORDER BY created_at ASC, id ASC LIMIT 1")
+      .bind(Number(lastRow.created_at), Number(lastRow.created_at), lastRow.id).first();
+    if (next) nextCursor = historyCursorFor(lastRow);
+  }
+  return { removedIds, failed, nextCursor, history: await listImportHistory(d1) };
 }
