@@ -2,6 +2,12 @@
 
 const TERMINAL_STATUSES = new Set(['complete', 'cancelled']);
 
+export const CLEAR_IMPORT_HISTORY_CONFIRMATION = Object.freeze({
+  title: 'Remove completed/cancelled import records from history?',
+  content: 'Imported Flash-Cards content will not be deleted.',
+  retained: 'Failed or active resumable imports will be kept.'
+});
+
 export function createImportHistoryState(initial = {}) {
   let snapshot = {
     jobs: [...(initial.jobs ?? [])],

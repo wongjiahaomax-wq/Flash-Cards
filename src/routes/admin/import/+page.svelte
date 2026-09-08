@@ -2,8 +2,8 @@
   // @ts-nocheck
   import { deserialize } from '$app/forms';
   import { onDestroy } from 'svelte';
-  import { createPreviewGenerationFence, extractDeclaredZipMedia, sha256Hex } from '$lib/import-package-preview.js';
-  import { createImportHistoryState } from '$lib/import-history-state.js';
+  import { createImportPreviewController } from '$lib/import-preview-controller.js';
+  import { CLEAR_IMPORT_HISTORY_CONFIRMATION, createImportHistoryState } from '$lib/import-history-state.js';
 
   let { data, form } = /** @type {any} */ ($props());
   let actionState = $state(form ?? null);
@@ -30,7 +30,21 @@
   let startInput;
   let clearDialog;
   let pendingClearCursor = $state(null);
-  const generationFence = createPreviewGenerationFence();
+
+  const previewController = createImportPreviewController({
+    onChange(next) {
+      selectedPreviewFile = next.selectedPreviewFile;
+      selectedStartFile = next.selectedStartFile;
+      previewResult = next.previewResult;
+      previewInFlight = next.previewInFlight;
+      serverPreviewStatus = next.serverPreviewStatus;
+      localBinding = next.localBinding;
+      media = next.media;
+    },
+    onActionState(next) {
+      actionState = next;
+    }
+  });
 
   const phaseLabels = {
     validate_topics: 'Validating Topics',
@@ -52,110 +66,34 @@
     finalize: 'Finalizing'
   };
 
-  function revokeMedia() {
-    for (const entry of Object.values(media)) if (entry?.url) URL.revokeObjectURL(entry.url);
-    media = {};
-  }
-
-  function invalidatePreview() {
-    generationFence.next();
-    revokeMedia();
-    selectedPreviewFile = null;
-    previewResult = null;
-    serverPreviewStatus = 'invalidated';
-    localBinding = 'invalidated';
+  function fileChanged(event) {
+    previewController.selectPreviewFile(event.currentTarget.files?.[0] ?? null);
+    if (startInput) startInput.value = '';
     confirmImport = false;
     actionState = null;
   }
 
-  function fileChanged(event) {
-    selectedPreviewFile = event.currentTarget.files?.[0] ?? null;
-    invalidatePreview();
-    if (selectedPreviewFile) selectedPreviewFile = event.currentTarget.files[0];
-  }
-
-  async function bindStartFile(file, generation) {
-    localBinding = 'hashing';
-    try {
-      const digest = await sha256Hex(await file.arrayBuffer());
-      if (!generationFence.isCurrent(generation)) return;
-      localBinding = previewResult?.previewDigest === digest ? 'matched' : 'mismatched';
-    } catch {
-      if (generationFence.isCurrent(generation)) localBinding = 'mismatched';
-    }
-  }
-
   function startFileChanged(event) {
-    selectedStartFile = event.currentTarget.files?.[0] ?? null;
-    if (!selectedStartFile) {
-      localBinding = 'unchecked';
-      return;
-    }
-    if (serverPreviewStatus === 'succeeded' && previewResult?.previewDigest) {
-      void bindStartFile(selectedStartFile, generationFence.current());
-    } else {
-      localBinding = 'mismatched';
-    }
-  }
-
-  async function loadPreviewMedia(model, file, generation) {
-    const targets = (model?.cases ?? []).flatMap((item) => item.assets ?? [])
-      .filter((item) => item.asset?.operation === 'create' && item.asset.mediaPath)
-      .map((item) => ({ id: item.asset.id, path: item.asset.mediaPath, mimeType: item.asset.mimeType }));
-    media = Object.fromEntries(targets.map((target) => [target.id, { status: 'pending', url: null }]));
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    for (const target of targets) {
-      try {
-        const extracted = await extractDeclaredZipMedia(bytes, [target.path]);
-        if (!generationFence.isCurrent(generation)) return;
-        const url = URL.createObjectURL(new Blob([extracted.get(target.path)], { type: target.mimeType }));
-        media = { ...media, [target.id]: { status: 'ready', url } };
-      } catch {
-        if (generationFence.isCurrent(generation)) media = { ...media, [target.id]: { status: 'unavailable', url: null } };
-      }
-    }
+    previewController.selectStartFile(event.currentTarget.files?.[0] ?? null);
   }
 
   async function submitPreview(event) {
     event.preventDefault();
-    if (previewInFlight || !selectedPreviewFile) return;
-    const generation = generationFence.current();
-    previewInFlight = true;
-    serverPreviewStatus = 'in-flight';
-    localBinding = 'unchecked';
-    try {
-      const response = await fetch(event.currentTarget.action, { method: 'POST', headers: { 'x-sveltekit-action': 'true' }, body: new FormData(event.currentTarget) });
-      const result = deserialize(await response.text());
-      if (!generationFence.isCurrent(generation)) return;
-      actionState = result.data;
-      if (result.type !== 'success') {
-        serverPreviewStatus = 'failed';
-        localBinding = 'mismatched';
-        return;
+    const form = event.currentTarget;
+    await previewController.submitPreview({
+      formData: new FormData(form),
+      post: async (formData) => {
+        const response = await fetch(form.action, { method: 'POST', headers: { 'x-sveltekit-action': 'true' }, body: formData });
+        return deserialize(await response.text());
       }
-      previewResult = result.data;
-      serverPreviewStatus = 'succeeded';
-      const digest = await sha256Hex(await selectedPreviewFile.arrayBuffer());
-      if (!generationFence.isCurrent(generation)) return;
-      localBinding = digest === result.data.previewDigest ? 'matched' : 'mismatched';
-      void loadPreviewMedia(result.data.previewModel, selectedPreviewFile, generation);
-    } catch (error) {
-      if (generationFence.isCurrent(generation)) {
-        serverPreviewStatus = 'failed';
-        localBinding = 'mismatched';
-        actionState = { error: error instanceof Error ? error.message : 'Unable to validate this package.' };
-      }
-    } finally {
-      previewInFlight = false;
-    }
+    });
   }
 
   async function submitStart(event) {
     event.preventDefault();
-    if (startInFlight || serverPreviewStatus !== 'succeeded' || localBinding !== 'matched') return;
+    if (startInFlight || !previewController.canStart()) return;
     startInFlight = true;
-    serverPreviewStatus = 'invalidated';
-    localBinding = 'invalidated';
+    previewController.consumeAuthorization();
     confirmImport = false;
     try {
       const response = await fetch(event.currentTarget.action, { method: 'POST', headers: { 'x-sveltekit-action': 'true' }, body: new FormData(event.currentTarget) });
@@ -306,7 +244,7 @@
     }
   });
 
-  onDestroy(revokeMedia);
+  onDestroy(() => previewController.destroy());
 </script>
 
 <svelte:head><title>Import package | Admin | Flash-Cards</title></svelte:head>
@@ -483,9 +421,9 @@
 
 <dialog bind:this={clearDialog} class="confirm-dialog">
   <form method="dialog" class="form-grid">
-    <h2>Remove completed/cancelled import records from history?</h2>
-    <p>Imported Flash-Cards content will not be deleted.</p>
-    <p>Failed or active resumable imports will be kept.</p>
+    <h2>{CLEAR_IMPORT_HISTORY_CONFIRMATION.title}</h2>
+    <p>{CLEAR_IMPORT_HISTORY_CONFIRMATION.content}</p>
+    <p>{CLEAR_IMPORT_HISTORY_CONFIRMATION.retained}</p>
     <div class="actions"><button class="button" type="submit">Cancel</button><button class="button danger" type="button" onclick={confirmClearHistory}>Remove records</button></div>
   </form>
 </dialog>
