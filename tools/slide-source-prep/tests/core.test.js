@@ -220,6 +220,8 @@ test('PowerPoint adapter filters invisible groups/shapes and off-slide geometry 
   assert.match(script, /if \(-not \(Test-ShapeVisible \$Shape\)\) \{ return \}/);
   assert.match(script, /Test-ShapeIntersectsSlide/);
   assert.match(script, /Add-ShapeBlocks -Shape \$Shape\.GroupItems\.Item\(\$index\).*?-SlideWidth \$SlideWidth -SlideHeight \$SlideHeight/s);
+  assert.match(script, /blocks = \$blocks\.ToArray\(\)/);
+  assert.match(script, /pages = \$pages\.ToArray\(\)/);
   assert.match(script, /Hidden slides remain represented/);
 });
 

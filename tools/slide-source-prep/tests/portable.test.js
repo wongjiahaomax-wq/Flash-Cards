@@ -127,6 +127,14 @@ function schemaErrors(value, schema, root = schema, path = '$') {
     if (typeof value !== 'string') return [`${path} must be a string.`];
     if (schema.minLength !== undefined && value.length < schema.minLength) errors.push(`${path} is empty.`);
     if (schema.pattern && !new RegExp(schema.pattern).test(value)) errors.push(`${path} has an invalid format.`);
+    if (schema.format === 'uri') {
+      try {
+        const url = new URL(value);
+        if (!['http:', 'https:'].includes(url.protocol)) errors.push(`${path} must be an HTTP(S) URL.`);
+      } catch {
+        errors.push(`${path} must be a valid URI.`);
+      }
+    }
   } else if (schema.type === 'integer') {
     if (!Number.isInteger(value)) return [`${path} must be an integer.`];
     if (schema.minimum !== undefined && value < schema.minimum) errors.push(`${path} is below the minimum.`);
@@ -192,6 +200,35 @@ test('portable schema rejects representative general-package structures', () => 
   }];
   assertSchemaRejects(topicQuestion, schema);
   assert.doesNotThrow(() => validateProductionManifest(topicQuestion));
+});
+
+test('portable schema rejects production-invalid whitespace and Asset source URLs', async () => {
+  const schema = JSON.parse(readFileSync(schemaPath, 'utf8'));
+  const validReviewMap = reviewMapFixture();
+
+  const assertManifestRejected = async (manifest, message) => {
+    assertSchemaRejects(manifest, schema);
+    assert.throws(() => validateProductionManifest(manifest), message);
+    const zip = writeStoredZip([
+      { path: 'manifest.json', bytes: enc.encode(JSON.stringify(manifest)) },
+      { path: 'review-map.json', bytes: enc.encode(JSON.stringify(validReviewMap)) },
+      { path: 'media/asset-1.png', bytes: png },
+      { path: 'source-previews/page-0001.png', bytes: png },
+    ]);
+    await assert.rejects(() => loadReviewBundle(zip), message);
+  };
+
+  const whitespaceTitle = structuredClone(manifestFixture());
+  whitespaceTitle.cases[0].title = '   \t  ';
+  await assertManifestRejected(whitespaceTitle, /create entries require title|non-empty string/);
+
+  const nonHttpSourceUrl = structuredClone(manifestFixture());
+  nonHttpSourceUrl.assets[0].sourceUrl = 'ftp://example.test/source';
+  await assertManifestRejected(nonHttpSourceUrl, /valid http\(s\) URL|HTTP\(S\) URL/);
+
+  const malformedSourceUrl = structuredClone(manifestFixture());
+  malformedSourceUrl.assets[0].sourceUrl = 'not-a-url';
+  await assertManifestRejected(malformedSourceUrl, /valid http\(s\) URL|HTTP\(S\) URL/);
 });
 
 test('canonical review-map schema and actual reviewer boundary stay aligned', async () => {
