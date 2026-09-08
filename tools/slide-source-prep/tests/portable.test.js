@@ -8,8 +8,11 @@ import {
   copyPortableArtifacts, PORTABLE_ARTIFACTS, withPreparedOutput,
 } from '../cli.mjs';
 import {
-  validateProductionManifest, validateReviewMap, writeStoredZip,
+  validateProductionManifest, writeStoredZip,
 } from '../../slide-import-review/src/core-v2.js';
+import {
+  loadReviewBundle, validateReviewMap,
+} from '../../slide-import-review/src/core.js';
 import { parseImportPackage } from '../../../src/lib/server/import/content-package.js';
 import { parseImportPackage as parseReviewedImportPackage } from '../../../src/lib/server/import/reviewed-content-package.js';
 
@@ -38,7 +41,9 @@ function manifestFixture() {
     }],
     assets: [{
       id: 'asset-1', operation: 'create', path: 'media/asset-1.png', mimeType: 'image/png',
-      originalFilename: 'asset-1.png', altText: 'Source image', isActive: true,
+      originalFilename: 'asset-1.png', altText: 'Source image',
+      sourceLabel: 'Source attribution', sourceUrl: 'https://example.test/source', licence: 'CC BY 4.0',
+      isActive: true,
     }],
     caseAssets: [{
       id: 'case-asset-1', operation: 'create', caseId: 'case-1', assetId: 'asset-1', displayOrder: 0, captionMd: null,
@@ -154,6 +159,17 @@ test('canonical slide profile is accepted by the portable schema and production 
   assert.equal(parsed.media.size, 1);
   const reviewed = await parseReviewedImportPackage(zip);
   assert.equal(reviewed.manifest.packageId, manifest.packageId);
+  assert.equal(parsed.manifest.assets[0].path, manifest.assets[0].path);
+  assert.equal(parsed.manifest.assets[0].sourceLabel, manifest.assets[0].sourceLabel);
+  assert.equal(parsed.manifest.assets[0].sourceUrl, manifest.assets[0].sourceUrl);
+  assert.equal(parsed.manifest.assets[0].licence, manifest.assets[0].licence);
+
+  const unavailableProvenance = structuredClone(manifest);
+  unavailableProvenance.assets[0].sourceLabel = null;
+  unavailableProvenance.assets[0].sourceUrl = null;
+  delete unavailableProvenance.assets[0].licence;
+  assertSchemaAccepts(unavailableProvenance, schema);
+  assert.doesNotThrow(() => validateProductionManifest(unavailableProvenance));
 });
 
 test('portable schema rejects representative general-package structures', () => {
@@ -178,13 +194,57 @@ test('portable schema rejects representative general-package structures', () => 
   assert.doesNotThrow(() => validateProductionManifest(topicQuestion));
 });
 
-test('canonical review-map schema and runtime validator stay aligned', () => {
+test('canonical review-map schema and actual reviewer boundary stay aligned', async () => {
   const manifest = manifestFixture();
   const reviewMap = reviewMapFixture();
   assert.doesNotThrow(() => validateReviewMap(reviewMap, manifest, new Set(['source-previews/page-0001.png'])));
+  const zip = writeStoredZip([
+    { path: 'manifest.json', bytes: enc.encode(JSON.stringify(manifest)) },
+    { path: 'review-map.json', bytes: enc.encode(JSON.stringify(reviewMap)) },
+    { path: 'media/asset-1.png', bytes: png },
+    { path: 'source-previews/page-0001.png', bytes: png },
+  ]);
+  const bundle = await loadReviewBundle(zip);
+  assert.equal(bundle.reviewMap.sourceCoverage[0].page, 1);
   assert.deepEqual(
     readFileSync(join(toolDir, '..', 'slide-import-review', 'schemas', 'review-map-v1.schema.json')),
     readFileSync(reviewSchemaPath),
+  );
+});
+
+test('actual reviewer boundary rejects an original-numbered later chunk as a final source', async () => {
+  const manifest = manifestFixture();
+  const incompleteBatch = reviewMapFixture();
+  incompleteBatch.sourceFiles[0].pageCount = 40;
+  assert.throws(
+    () => validateReviewMap(incompleteBatch, manifest, new Set(['source-previews/page-0001.png'])),
+    /missing source-1 page 2/,
+  );
+
+  const laterChunk = reviewMapFixture();
+  laterChunk.sourceFiles[0].pageCount = 40;
+  laterChunk.cases[0].sourceRefs[0].pages = [41];
+  laterChunk.cases[0].assets[0].sourceRefs[0].pages = [41];
+  laterChunk.cases[0].questions[0].promptSourceRefs[0].pages = [41];
+  laterChunk.cases[0].questions[0].answerSourceRefs[0].pages = [41];
+  laterChunk.sourceCoverage[0].page = 41;
+  laterChunk.sourceCoverage[0].previewPath = 'source-previews/page-0041.png';
+  const previewPaths = new Set(['source-previews/page-0041.png']);
+
+  assert.throws(
+    () => validateReviewMap(laterChunk, manifest, previewPaths),
+    /beyond declared pageCount 40|exceeds declared pageCount 40/,
+  );
+
+  const zip = writeStoredZip([
+    { path: 'manifest.json', bytes: enc.encode(JSON.stringify(manifest)) },
+    { path: 'review-map.json', bytes: enc.encode(JSON.stringify(laterChunk)) },
+    { path: 'media/asset-1.png', bytes: png },
+    { path: 'source-previews/page-0041.png', bytes: png },
+  ]);
+  await assert.rejects(
+    () => loadReviewBundle(zip),
+    /beyond declared pageCount 40|exceeds declared pageCount 40/,
   );
 });
 

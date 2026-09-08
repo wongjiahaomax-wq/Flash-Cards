@@ -111,6 +111,9 @@
         "mimeType": { "enum": ["image/jpeg", "image/png"] },
         "originalFilename": { "$ref": "#/$defs/nonEmpty" },
         "altText": { "$ref": "#/$defs/nonEmpty" },
+        "sourceLabel": { "$ref": "#/$defs/nullableNonEmpty" },
+        "sourceUrl": { "$ref": "#/$defs/nullableNonEmpty" },
+        "licence": { "$ref": "#/$defs/nullableNonEmpty" },
         "isActive": { "const": true }
       }
     },

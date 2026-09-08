@@ -73,7 +73,7 @@ Teaching Deck-prepared/
 
 The source is copied byte-for-byte; the input itself is never saved back to. On failed preparation the newly created output directory is removed so a partial run cannot masquerade as a successful one.
 
-The four portable extraction files are copied unchanged into the prepared root. They are the complete provider-neutral handoff, narrow slide manifest profile, and canonical review-map schema needed by an extraction AI that has no access to this project or external services. They are not duplicated into mechanical chunks.
+The four portable extraction files are copied unchanged into the prepared root. They are the complete provider-neutral handoff, narrow slide manifest profile, and canonical review-map schema needed by an extraction AI that has no access to this project or external services. They are not duplicated into mechanical chunks. A final review ZIP requires the complete prepared source batch; chunks are retrieval aids only and cannot independently satisfy the reviewer's complete source-coverage contract.
 
 For large sources each range contains aligned files:
 
@@ -83,7 +83,7 @@ Teaching Deck-0001-0040.md
 Teaching Deck-0001-0040.json
 ```
 
-Original numbering is preserved. Chunking is mechanical, not semantic.
+Original numbering is preserved. Chunking is mechanical, not semantic, and a chunk must not be renumbered or treated as an independently finalizable source.
 
 ## PPTX evidence semantics
 

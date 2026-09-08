@@ -24,7 +24,7 @@ This is a proposed review bundle, not a production import archive. Do not produc
 - Slide/page numbering is aligned across the supplied evidence and must be preserved in every source reference.
 - Hidden slides remain represented. Treat them as source evidence while respecting their hidden status and context.
 - PDF Markdown and source maps contain native/selectable text only. A blank entry may be an image-only or scanned page; inspect the visual page before deciding that evidence is absent.
-- Mechanical chunks are retrieval units, not Case or question boundaries. Inspect adjacent ranges when content continues across a chunk boundary.
+- The complete prepared source batch is required to produce a final review ZIP. Mechanical chunks are retrieval aids, not independently finalizable sources: they preserve original numbering and cannot replace omitted source pages or be renumbered to fabricate complete coverage. Inspect adjacent ranges when content continues across a chunk boundary.
 
 ## Source fidelity
 
@@ -47,6 +47,7 @@ If a Case boundary is uncertain, make only the source-supported reconstruction a
 - Normal slide-derived content uses `create` records only. Do not emit `use` or `skip` records.
 - Created Cases have a non-empty title, source-supported vignette or `null`, the holding Topic as `primaryTopicId`, `secondaryTopicIds: []`, and `questionSelectionMode: "all"`.
 - Created slide-derived images are JPEG or PNG `create` Assets whose actual bytes exist under the declared `media/` path. Link them through `create` CaseAssets and preserve source display order with `displayOrder`.
+- Preserve source-supplied Asset attribution in `sourceLabel`, `sourceUrl`, and `licence` when present. Use `null` when a value is unavailable. Do not invent attribution, validate it through outside lookup, or replace a source-supplied value with an inference.
 - Keep learner-facing QuestionPrompt wording in `questionPrompts[].promptMd` and the source-supported answer in the linked `caseQuestions[].answerMd`. Never place an answer in a prompt to work around a missing Case Question.
 - `topicQuestions` is exactly `[]`.
 - Use only the fields allowed by the supplied schema. Do not add taxonomy, Tags, Shared Questions, stimulus groups, Image Collections, deduplication decisions, confidence, warnings, or source references to `manifest.json`.
@@ -90,6 +91,6 @@ Before creating the ZIP:
 3. Check unique IDs, valid manifest references, valid source references, and the relationship between Cases, Assets, CaseAssets, QuestionPrompts, and CaseQuestions.
 4. Check that every declared media file exists, has the declared JPEG/PNG MIME type, and has the recorded SHA-256 digest.
 5. Check exact source coverage, preview paths, original numbering, no invented answers, and no answer leakage into learner media or prompts.
-6. Create `<batch>-review.zip` with `manifest.json`, `media/`, `review-map.json`, and `source-previews/`.
+6. Create `<batch>-review.zip` with `manifest.json`, `media/`, `review-map.json`, and `source-previews/` only after the complete prepared source batch has been inspected and its full source coverage is represented. If only a mechanical chunk or incomplete batch is available, do not finalize a review ZIP; report the missing evidence and preserve the affected material as unresolved.
 
 Return the ZIP and a concise summary of reconstructed Cases, Questions, Assets, and blocking or notable review warnings. If a capability or supplied file is missing, report the limitation and preserve the affected evidence as unresolved rather than guessing.

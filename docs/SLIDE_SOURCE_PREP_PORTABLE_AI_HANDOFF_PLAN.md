@@ -52,7 +52,7 @@ Teaching Deck-prepared/
 
 The contract/schema files are copied as immutable task inputs for that prepared run. They are not generated semantically from the source deck.
 
-Do not duplicate them into every mechanical chunk. When a user supplies only one or more chunk triplets to an AI, the root portable contract/schema files must accompany those chunks.
+Do not duplicate them into every mechanical chunk. Chunks are retrieval aids only: a complete review ZIP requires the complete prepared source batch and its full original page/slide coverage. Supplying only one or more chunk triplets cannot independently finalize a review bundle because the reviewer requires original-numbered references and complete `1..pageCount` source coverage.
 
 ## Provider-neutral handoff prompt
 
