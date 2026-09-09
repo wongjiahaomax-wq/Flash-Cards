@@ -43,7 +43,7 @@ globalThis.__cropTest = {
   setBundle(nextBundle) { bundle = nextBundle; bundleFingerprint = 'test-fingerprint'; loadGeneration = 1; saveGeneration = 1; rebuildIndexes(); visibleCases = bundle.reviewMap.cases; index = 0; selectedSourcePath = null; cropSession = null; },
   setSelectedSourcePath(path) { selectedSourcePath = path; }, setCrop(value) { cropSession.crop = value; }, setPersist(fn) { persist = fn; }, setRender(fn) { renderCurrent = fn; }, setGeneration(value) { loadGeneration = value; },
   enterCrop, cancelCrop, saveCrop, wireCurrent, wireCropEditor, assetCard, snapshot, restoreSaved, cropSession() { return cropSession; }, guard() { return operationGuard; },
-  current() { return { bundle, index, visibleCases, dirty, cropSession }; }, loadFile
+  current() { return { bundle, index, visibleCases, dirty, cropSession }; }, renderCurrent, loadFile
 };`;
   const elements = new Map(), selectorResults = new Map();
   const document = {
@@ -77,8 +77,8 @@ test('crop source eligibility never falls back to an unrelated Case source', asy
   harness.setSelectedSourcePath('source-previews/other.png'); assert.equal(await harness.enterCrop('asset-1'), true); assert.equal(harness.cropSession().sourcePath, 'source-previews/other.png');
 });
 
-test('Asset-owned crop source selection works when Asset refs are not Case refs', async () => {
-  const { harness, selectorResults } = loadHarness();
+test('Asset-owned crop source selection survives rerender and Save when Asset refs are not Case refs', async () => {
+  const { harness, selectorResults, elements } = loadHarness();
   const bundle = makeBundle({
     sourceRefs: [{ sourceId: 'case-source', pages: [1] }],
     assetSourceRefs: [{ sourceId: 'asset-source-a', pages: [2] }, { sourceId: 'asset-source-b', pages: [3] }],
@@ -96,11 +96,16 @@ test('Asset-owned crop source selection works when Asset refs are not Case refs'
   assert.match(card, /value="source-previews\/asset-b\.png"[^>]*>asset-source-b · page\/slide 3/);
   const picker = makeElement({ dataset: { cropSource: 'asset-1' }, value: 'source-previews/asset-b.png' });
   const adjust = makeElement({ dataset: { asset: 'asset-1' } });
-  selectorResults.set('[data-crop-source]', [picker]); selectorResults.set('.adjust-crop', [adjust]); selectorResults.set('[data-crop-editor]', []); selectorResults.set('[data-asset]', []);
+  selectorResults.set('[data-crop-source]', [picker]); selectorResults.set('.adjust-crop', [adjust]); selectorResults.set('[data-crop-editor]', []); selectorResults.set('[data-asset]', []); selectorResults.set('[data-crop-save]', []); selectorResults.set('[data-crop-cancel]', []); selectorResults.set('[data-crop-reset]', []);
+  await harness.renderCurrent();
   harness.wireCurrent(bundle.reviewMap.cases[0]); await picker.listener('change')();
   assert.equal(adjust.disabled, false);
   await adjust.listener('click')();
+  assert.match(elements.get('workspace').innerHTML, /Cropping from asset-source-b · page\/slide 3/);
   assert.equal(harness.cropSession().sourcePath, 'source-previews/asset-b.png');
+  harness.setPersist(async () => {});
+  assert.equal(await harness.saveCrop('asset-1'), true);
+  assert.deepEqual(bundle.files.get('media/learner.png'), pngBytes(4, 5, 6));
 });
 
 test('Adjust crop and Cancel are inline transitions and Cancel does not mutate or persist', async () => {
@@ -137,6 +142,25 @@ test('SHA failure is atomic and exact-token cleanup allows a subsequent crop Sav
   const { harness, context, elements } = loadHarness(), bundle = makeBundle(); harness.setBundle(bundle); harness.setSelectedSourcePath('source-previews/source-1.png'); await harness.enterCrop('asset-1'); const reviewBefore = structuredClone(bundle.reviewMap.cases[0].assets[0]);
   context.sha256Hex = async () => { throw new Error('forced SHA failure'); }; harness.setPersist(async () => {}); assert.equal(await harness.saveCrop('asset-1'), false); assert.equal(harness.guard().active, null); assert.deepEqual([...bundle.files.get('media/learner.png')], [...pngBytes(1, 2, 3)]); assert.deepEqual(bundle.reviewMap.cases[0].assets[0], reviewBefore);
   const unload = { preventDefault() {} }; context.window.listeners.get('beforeunload')(unload); assert.equal(unload.returnValue, undefined); context.sha256Hex = async () => 'new-sha'; assert.equal(await harness.saveCrop('asset-1'), true); assert.equal(harness.guard().active, null); assert.equal(elements.get('zip-input').disabled, false);
+});
+
+test('crop Save keeps its guard through deferred persistence and later protected work sees cropped bytes', async () => {
+  const { harness, context, elements } = loadHarness(), bundle = makeBundle(); harness.setBundle(bundle); harness.setSelectedSourcePath('source-previews/source-1.png'); harness.setRender(async () => {}); await harness.enterCrop('asset-1');
+  let resolvePersist, persistCalls = 0, backupCalls = 0, finalizeCalls = 0, opened = 0, seenBytes;
+  harness.setPersist(() => { persistCalls += 1; return new Promise(resolve => { resolvePersist = resolve; }); });
+  context.exportReviewedBundle = () => { backupCalls += 1; seenBytes = [...bundle.files.get('media/learner.png')]; return new Uint8Array(); };
+  context.finalizeBundle = async () => { finalizeCalls += 1; return { zip: new Uint8Array() }; };
+  context.loadReviewBundle = async () => { opened += 1; return null; };
+  const pending = harness.saveCrop('asset-1');
+  for (let i = 0; i < 12 && !resolvePersist; i += 1) { await Promise.resolve(); await new Promise(resolve => setTimeout(resolve, 0)); }
+  assert.equal(typeof resolvePersist, 'function');
+  const token = harness.guard().active;
+  assert.equal(token.kind, 'crop-save'); assert.deepEqual([...bundle.files.get('media/learner.png')], [...pngBytes(4, 5, 6)]); assert.equal(bundle.reviewMap.cases[0].assets[0].extractionMethod, 'human_crop');
+  assert.equal(await harness.saveCrop('asset-1'), false); elements.get('finalize').click(); elements.get('export-reviewed').click(); await harness.loadFile('later-bundle');
+  const unload = { preventDefault() {} }; context.window.listeners.get('beforeunload')(unload);
+  assert.equal(harness.guard().active, token); assert.equal(persistCalls, 1); assert.equal(backupCalls, 0); assert.equal(finalizeCalls, 0); assert.equal(opened, 0); assert.equal(unload.returnValue, '');
+  resolvePersist(); assert.equal(await pending, true); assert.equal(harness.guard().active, null);
+  await elements.get('export-reviewed').click(); assert.equal(backupCalls, 1); assert.deepEqual(seenBytes, [...pngBytes(4, 5, 6)]); assert.equal(harness.guard().active, null);
 });
 
 test('crop raster, MIME, and size failures leave the learner Asset untouched', async () => {

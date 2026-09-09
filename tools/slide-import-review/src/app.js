@@ -420,7 +420,7 @@ async function saveCrop(assetId) {
   const token = operationGuard.begin('crop-save', 'Saving crop…');
   if (!token) return false;
   clearCropDrag();
-  const session = cropSession, meta = visibleCases[index], item = asset(assetId), reviews = linkedAssetReviews(assetId), candidate = selectedCropCandidate(assetId, meta?.caseId), relation = indexes?.caseAssetRelationByKey.get(`${meta?.caseId}\u0000${assetId}`);
+  const session = cropSession, meta = visibleCases[index], item = asset(assetId), reviews = linkedAssetReviews(assetId), candidate = cropCandidates(assetId, meta?.caseId).find(value => value.previewPath === session.sourcePath), relation = indexes?.caseAssetRelationByKey.get(`${meta?.caseId}\u0000${assetId}`);
   const capture = { token, generation: loadGeneration, bundle, caseId: meta?.caseId, assetId, item, relation, assetPath: item?.path, mimeType: item?.mimeType, sourcePath: session.sourcePath, cropSessionToken: session.token, crop: { ...session.crop }, reviews };
   let committed = false, persistenceFailed = false;
   try {
