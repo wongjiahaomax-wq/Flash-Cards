@@ -49,6 +49,10 @@ test('taxonomy filters expose independent status toggles and an exclusive type f
   assert.match(organizer, /\{ id: 'unassigned', label: 'Unassigned' \}/);
   assert.match(organizer, /status: statusFilter/);
   assert.match(organizer, /type: typeFilter/);
+  assert.match(organizer, /function revealFilterContext()/);
+  assert.match(organizer, /oninput=\{revealFilterContext\}/);
+  assert.match(organizer, /function setTypeFilter\(next: WorkspaceTypeFilter\)/);
+  assert.match(organizer, /onclick=\{\(\) => setTypeFilter\(option\.id\)\}/);
 });
 
 test('organize mode keeps Case Primary Topic drag-and-drop plus non-drag Case Tag staging', () => {

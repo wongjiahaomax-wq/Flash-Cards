@@ -124,8 +124,21 @@
     collapsedIds = toggleId(collapsedIds, id);
   }
 
+  function revealFilterContext() {
+    collapsedIds = [];
+  }
+
+  function setTypeFilter(next: WorkspaceTypeFilter) {
+    if (typeFilter === next) return;
+    typeFilter = next;
+    revealFilterContext();
+  }
+
   function toggleStatus(key: WorkspaceStatusKey) {
-    statusFilter = toggleWorkspaceStatus(statusFilter, key);
+    const next = toggleWorkspaceStatus(statusFilter, key);
+    if (next.active === statusFilter.active && next.inactive === statusFilter.inactive) return;
+    statusFilter = next;
+    revealFilterContext();
   }
 
   function queryMatchesCase(item: TaxonomyWorkspaceItem) {
@@ -191,8 +204,8 @@
 
   function focusSystem(systemId: string) {
     focusSystemId = systemId;
-    typeFilter = 'all';
-    collapsedIds = [];
+    setTypeFilter('all');
+    revealFilterContext();
   }
 
   function clearFocus() {
@@ -361,7 +374,7 @@
     try {
       stagedCaseChanges = stageFlexibleCasePrimaryTopicChanges(items, stagedCaseChanges, caseIds, topicId);
       revealCases(topicId);
-      typeFilter = 'all';
+      setTypeFilter('all');
       const target = projectedItems.find((item) => item.id === topicId);
       if (focusSystemId && target?.systemId !== focusSystemId) focusSystemId = '';
       workspaceError = '';
@@ -390,7 +403,7 @@
   <div class="toolbar" aria-label="Taxonomy workspace controls">
     <label class="search-control" for="taxonomy-workspace-search">
       <span>Search taxonomy or Case title</span>
-      <input id="taxonomy-workspace-search" bind:value={query} placeholder="e.g. Arrhythmias or AF with RVR" />
+      <input id="taxonomy-workspace-search" bind:value={query} oninput={revealFilterContext} placeholder="e.g. Arrhythmias or AF with RVR" />
     </label>
     <div class="toolbar-actions">
       <button class="button" type="button" onclick={() => { collapsedIds = []; }}>Expand all</button>
@@ -414,7 +427,7 @@
     <span class="filter-divider" aria-hidden="true">|</span>
     <div class="filter-group" role="group" aria-label="Taxonomy type filters">
       {#each typeFilters as option}
-        <button class:active={typeFilter === option.id} class="filter-chip" type="button" aria-pressed={typeFilter === option.id} onclick={() => { typeFilter = option.id; }}>{option.label}</button>
+        <button class:active={typeFilter === option.id} class="filter-chip" type="button" aria-pressed={typeFilter === option.id} onclick={() => setTypeFilter(option.id)}>{option.label}</button>
       {/each}
     </div>
   </div>

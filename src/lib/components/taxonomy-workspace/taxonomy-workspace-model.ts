@@ -401,7 +401,6 @@ export function buildTaxonomyWorkspaceRows(
     : items;
 
   const needsHierarchyContext = Boolean(search) || type !== 'all' || !status.active || !status.inactive;
-  const autoExpandContext = Boolean(search) || type !== 'all' || (!status.active && status.inactive);
   const matchingIds = new Set(
     focusedItems
       .filter((item) => matchesStatus(item, status) && matchesType(item, type) && matchesSearch(item, search))
@@ -442,7 +441,7 @@ export function buildTaxonomyWorkspaceRows(
       hasChildren: children.length > 0,
       contextOnly: needsHierarchyContext && !matchingIds.has(item.id)
     });
-    if (!autoExpandContext && collapsedIds.has(item.id)) return;
+    if (collapsedIds.has(item.id)) return;
     for (const child of children) visit(child, depth + 1);
   };
 

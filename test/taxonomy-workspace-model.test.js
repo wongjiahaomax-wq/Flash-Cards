@@ -147,12 +147,15 @@ test('taxonomy type filters compose with status visibility', () => {
   assert.ok(allTopics.some((row) => row.id === 'inactive-child'));
 });
 
-test('type-filter context auto-expands a collapsed System while default Active + All preserves manual collapse', () => {
-  const topicRows = buildTaxonomyWorkspaceRows(fixture, {
+test('type-filter context is initially visible while default Active + All preserves manual collapse', () => {
+  const topicRows = buildTaxonomyWorkspaceRows(fixture, { type: 'topics' });
+  assert.deepEqual(topicRows.map((row) => row.id), ['cardio', 'arrhythmias', 'af', 'pericarditis', 'unassigned']);
+
+  const collapsedTopicRows = buildTaxonomyWorkspaceRows(fixture, {
     type: 'topics',
     collapsedIds: ['cardio']
   });
-  assert.deepEqual(topicRows.map((row) => row.id), ['cardio', 'arrhythmias', 'af', 'pericarditis', 'unassigned']);
+  assert.deepEqual(collapsedTopicRows.map((row) => row.id), ['cardio', 'unassigned']);
 
   const activeAllRows = buildTaxonomyWorkspaceRows(fixture, {
     status: { active: true, inactive: false },
@@ -162,13 +165,32 @@ test('type-filter context auto-expands a collapsed System while default Active +
   assert.deepEqual(activeAllRows.map((row) => row.id), ['cardio', 'endocrine', 'unassigned']);
 });
 
-test('inactive-only + All auto-expands a collapsed inactive parent to reveal matching inactive Topics', () => {
-  const rows = buildTaxonomyWorkspaceRows(fixture, {
+test('inactive-only + All initially reveals matching hierarchy while explicit collapse remains authoritative', () => {
+  const visible = buildTaxonomyWorkspaceRows(fixture, { status: { active: false, inactive: true }, type: 'all' });
+  assert.deepEqual(visible.map((row) => row.id), ['inactive-system', 'inactive-child', 'inactive-topic']);
+
+  const collapsed = buildTaxonomyWorkspaceRows(fixture, {
     status: { active: false, inactive: true },
     type: 'all',
     collapsedIds: ['inactive-system']
   });
-  assert.deepEqual(rows.map((row) => row.id), ['inactive-system', 'inactive-child', 'inactive-topic']);
+  assert.deepEqual(collapsed.map((row) => row.id), ['inactive-system', 'inactive-topic']);
+});
+
+test('explicit collapse remains authoritative for Active + Topics and Inactive + Topics', () => {
+  const activeTopics = buildTaxonomyWorkspaceRows(fixture, {
+    status: { active: true, inactive: false },
+    type: 'topics',
+    collapsedIds: ['cardio']
+  });
+  assert.deepEqual(activeTopics.map((row) => row.id), ['cardio', 'unassigned']);
+
+  const inactiveTopics = buildTaxonomyWorkspaceRows(fixture, {
+    status: { active: false, inactive: true },
+    type: 'topics',
+    collapsedIds: ['inactive-system']
+  });
+  assert.deepEqual(inactiveTopics.map((row) => row.id), ['inactive-system', 'inactive-topic']);
 });
 
 test('search composes with status and type while retaining matching Topic ancestors as context', () => {
@@ -179,6 +201,17 @@ test('search composes with status and type while retaining matching Topic ancest
   });
   assert.deepEqual(rows.map((row) => row.id), ['cardio', 'arrhythmias', 'af']);
   assert.deepEqual(rows.map((row) => row.contextOnly), [true, true, false]);
+});
+
+test('search context stays visible until an explicit collapse during a stable query', () => {
+  const visible = buildTaxonomyWorkspaceRows(fixture, { search: 'rapid ventricular' });
+  assert.deepEqual(visible.map((row) => row.id), ['cardio', 'arrhythmias', 'af']);
+
+  const collapsed = buildTaxonomyWorkspaceRows(fixture, {
+    search: 'rapid ventricular',
+    collapsedIds: ['cardio']
+  });
+  assert.deepEqual(collapsed.map((row) => row.id), ['cardio']);
 });
 
 test('contextual Topic creation can choose any active System or Topic parent', () => {
