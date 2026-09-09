@@ -1,6 +1,6 @@
 # Slide Import Reviewer — Workspace Visual Polish Plan
 
-_Status: planning-only Draft PR. Implementation is intended for GPT-5.6 Luna in Codex after the current inline-crop reviewer work has landed/reconciled._
+_Status: implementation-complete validation record for PR #173. The implementation was delivered on the existing Draft branch after the post-#172 inline-crop reviewer work had landed._
 
 ## Goal
 
@@ -318,6 +318,20 @@ npm run slide-review:build
 Then run the current repository-required final checks for the actual changed head and report what ran.
 
 Do not weaken final validation because the change is mostly CSS.
+
+## Completed implementation and validation record
+
+PR #173 implemented this plan and its amendment as a presentation/layout-only change. The existing review, crop, navigation, persistence, warning-override, source-selection and finalization behavior remains the authority; no new browser dependency or workflow action was added.
+
+The completed focused and rendered proof is:
+
+- `presentation-browser.test.js` exercises bundle-level multi-source provenance, clickable source selection, single-source compaction, and the styled file input's real `onchange` → `loadFile` path.
+- The focused crop/build/provenance set passed 22/22, and the generated standalone reviewer passed `npm run slide-review:build -- --check` after regeneration.
+- Headless Chrome smoke measured queue/source/review widths of 269/776/510 px at 1680 px, 248/642/425 px at 1440 px, and 248/543/364 px at 1280 px. The 1680 px source width was 116.3% of the 667 px pre-change comparison. The 1199 px three-column-to-stacked transition and 600 px narrow layout had no horizontal overflow.
+- The real post-#172 crop editor remained usable at 1280 px with eight handles and Reset/Cancel/Save actions visible without overflow. Provenance navigation changed the source preview, and opening the representative review ZIP through the rendered file input loaded its batch.
+- Project-owner manual testing was completed on 2026-09-10 with no issues reported.
+
+The Windows checkout may still report the known VM/ESM failures in the aggregate `slide-review:test` run; the repository CI check is the cross-platform gate for the generated artifact and full suite.
 
 ## Acceptance criteria
 

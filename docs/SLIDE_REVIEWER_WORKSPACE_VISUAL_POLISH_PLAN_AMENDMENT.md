@@ -1,6 +1,6 @@
 # Slide Import Reviewer — Workspace Visual Polish Plan Amendment
 
-_Status: normative implementation-readiness amendment for Draft PR #173. This document supplements and tightens `docs/SLIDE_REVIEWER_WORKSPACE_VISUAL_POLISH_PLAN.md`; where wording differs, this amendment controls._
+_Status: normative implementation and validation amendment for PR #173. This document supplements and tightens `docs/SLIDE_REVIEWER_WORKSPACE_VISUAL_POLISH_PLAN.md`; where wording differs, this amendment controls._
 
 ## Resolved baseline
 
@@ -170,6 +170,12 @@ Use a representative post-#172 review bundle and verify at 1680, 1440 and 1280 p
 12. Existing review-state, warning-override, bulk-Q&A, persistence, source-selection, crop-save and finalization behavior remains unchanged.
 
 Also exercise the responsive transition and the narrow/mobile layout around 600 px.
+
+## Completed validation record
+
+The implementation satisfied this amendment's focused proof requirements without adding a heavyweight browser dependency. Executable coverage now exercises multi-source provenance with source IDs retained on Prompt and Answer references, clickable source selection, single-source label compaction, and the styled file input's real local load path. The focused crop/build/provenance set passed 22/22.
+
+Measured rendered smoke on the representative post-#172 bundle recorded queue/source/review widths of 269/776/510 px at 1680 px, 248/642/425 px at 1440 px, and 248/543/364 px at 1280 px. The source was 116.3% of the 667 px pre-change comparison at 1680 px. The 1199 px responsive transition stacked cleanly, the 600 px layout had no horizontal overflow, and the real crop editor retained eight handles plus Reset/Cancel/Save actions at 1280 px. Project-owner manual testing was completed on 2026-09-10 with no issues reported.
 
 ## Updated Luna handoff
 
