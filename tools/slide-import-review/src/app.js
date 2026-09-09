@@ -241,6 +241,11 @@ function updateCropActionAvailability() {
     button.title = available ? '' : candidates.length ? 'Select one of this Asset’s source references first.' : 'Crop unavailable: no linked source preview is available.';
   });
 }
+function selectCropSource(assetId, path) {
+  if (!cropCandidates(assetId).some(candidate => candidate.previewPath === path)) return;
+  selectedSourcePath = path;
+  updateCropActionAvailability();
+}
 function cropFrameStyle(crop) { return `left:${crop.x * 100}%;top:${crop.y * 100}%;width:${crop.width * 100}%;height:${crop.height * 100}%;`; }
 function cropEditorHtml(item, meta, resources) {
   const session = cropSession?.assetId === item.id ? cropSession : null;
@@ -252,8 +257,10 @@ function cropEditorHtml(item, meta, resources) {
 }
 function cropActionHtml(item, meta) {
   const candidates = cropCandidates(item.id), available = candidates.length === 1 || candidates.some(candidate => candidate.previewPath === selectedSourcePath);
+  const selected = candidates.find(candidate => candidate.previewPath === selectedSourcePath);
+  const sourcePicker = candidates.length > 1 ? `<label class="crop-source-picker">Crop source<select data-crop-source="${esc(item.id)}"><option value="" disabled ${selected ? '' : 'selected'}>Select an Asset source…</option>${candidates.map(candidate => `<option value="${esc(candidate.previewPath)}" ${candidate.previewPath === selectedSourcePath ? 'selected' : ''}>${esc(candidate.sourceId)} · page/slide ${candidate.page}</option>`).join('')}</select></label>` : '';
   const explanation = candidates.length ? (available ? '' : '<span class="small muted crop-help">Select one of this Asset’s source references first.</span>') : '<span class="small muted crop-help">Crop unavailable: no linked source preview is available.</span>';
-  return `<button type="button" class="secondary adjust-crop" data-asset="${esc(item.id)}" ${available ? '' : 'disabled'}>Adjust crop</button>${explanation}`;
+  return `${sourcePicker}<button type="button" class="secondary adjust-crop" data-asset="${esc(item.id)}" ${available ? '' : 'disabled'}>Adjust crop</button>${explanation}`;
 }
 function assetMetadataHtml(rel, item) { return `<details><summary>Edit learner image metadata</summary><label>Filename<input data-asset-field="originalFilename" value="${esc(item.originalFilename || '')}"></label><label>Alt text<input data-asset-field="altText" value="${esc(item.altText || '')}"></label><label>Source label<input data-asset-field="sourceLabel" value="${esc(item.sourceLabel || '')}"></label><label>Source URL<input data-asset-field="sourceUrl" value="${esc(item.sourceUrl || '')}"></label><label>Licence<input data-asset-field="licence" value="${esc(item.licence || '')}"></label><label>Caption<textarea data-rel-field="captionMd">${esc(rel.captionMd || '')}</textarea></label><label>Display order<input type="number" min="0" data-rel-field="displayOrder" value="${rel.displayOrder}"></label><button type="button" class="secondary replace-image">Replace image</button><input hidden type="file" accept="image/jpeg,image/png" data-replace></details>`; }
 function assetCard(rel, meta, resources) {
@@ -443,6 +450,7 @@ function wireCurrent(meta) {
   $('toggle-answers')?.addEventListener('click', () => { revealAnswers = !revealAnswers; renderCurrent(); });
   $('accept-qa')?.addEventListener('click', () => approveEligibleQuestions(meta));
   document.querySelectorAll('.source-ref').forEach(element => element.addEventListener('click', event => { event.preventDefault(); sourceSelect(element.dataset.sourcePath); }));
+  document.querySelectorAll('[data-crop-source]').forEach(element => element.addEventListener('change', () => selectCropSource(element.dataset.cropSource, element.value)));
   $('source-fullscreen')?.addEventListener('click', () => $('source-large img')?.requestFullscreen?.());
   document.querySelectorAll('[data-queue-index]').forEach(element => element.addEventListener('click', () => { cropSession = null; index = Number(element.dataset.queueIndex); selectedSourcePath = null; renderCurrent(); }));
   document.querySelectorAll('.adjust-crop').forEach(element => element.addEventListener('click', () => enterCrop(element.dataset.asset)));

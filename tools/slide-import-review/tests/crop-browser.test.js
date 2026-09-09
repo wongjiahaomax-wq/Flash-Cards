@@ -19,7 +19,7 @@ function makeElement(overrides = {}) {
 function pngBytes(...tail) { return new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...tail]); }
 function jpegBytes(...tail) { return new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...tail, 0xff, 0xd9]); }
 
-function makeBundle({ sourceRefs = [{ sourceId: 'source-1', pages: [1] }], sourceCoverage = [{ sourceId: 'source-1', page: 1, previewPath: 'source-previews/source-1.png' }], cases = 1, shared = false } = {}) {
+function makeBundle({ sourceRefs = [{ sourceId: 'source-1', pages: [1] }], assetSourceRefs = sourceRefs, sourceCoverage = [{ sourceId: 'source-1', page: 1, previewPath: 'source-previews/source-1.png' }], cases = 1, shared = false } = {}) {
   const files = new Map([['media/learner.png', pngBytes(1, 2, 3)], ...sourceCoverage.filter(item => item.previewPath).map(item => [item.previewPath, pngBytes(9, item.page)])]);
   files.overrides = new Map(); const mapSet = files.set.bind(files); files.set = (path, bytes) => { mapSet(path, bytes); files.overrides.set(path, bytes); return files; }; files.getFile = async path => files.get(path);
   const caseRows = Array.from({ length: cases }, (_, i) => ({ id: `case-${i + 1}`, title: `Case ${i + 1}`, vignetteMd: 'Vignette', primaryTopicId: 'topic-1', secondaryTopicIds: [] }));
@@ -31,7 +31,7 @@ function makeBundle({ sourceRefs = [{ sourceId: 'source-1', pages: [1] }], sourc
     reviewMap: { version: 1, bundleId: 'crop-browser-bundle', batchName: 'Crop browser test',
       sourceFiles: sourceCoverage.map(item => ({ sourceId: item.sourceId, filename: `${item.sourceId}.png`, repository: null, path: null, ref: null, pageCount: Math.max(1, item.page) })), sourceCoverage, unresolvedQuestions: [], batchWarnings: [],
       cases: caseRows.map(item => ({ caseId: item.id, reviewStatus: item.id === 'case-1' ? 'needs_review' : 'pending', confidence: 'high', warnings: [], sourceRefs, caseBoundaryNotes: null,
-        assets: item.id === 'case-1' || (shared && item.id === 'case-2') ? [{ assetId: 'asset-1', reviewStatus: item.id === 'case-2' ? 'rejected' : 'approved', confidence: 'high', warnings: [{ code: 'keep', severity: 'warning', message: 'Keep this warning.' }], sourceRefs, extractionMethod: 'embedded_original', sha256: 'old-sha', reviewNotes: ['Keep this note.'] }] : [], questions: [], reviewNotes: [] })) }
+        assets: item.id === 'case-1' || (shared && item.id === 'case-2') ? [{ assetId: 'asset-1', reviewStatus: item.id === 'case-2' ? 'rejected' : 'approved', confidence: 'high', warnings: [{ code: 'keep', severity: 'warning', message: 'Keep this warning.' }], sourceRefs: assetSourceRefs, extractionMethod: 'embedded_original', sha256: 'old-sha', reviewNotes: ['Keep this note.'] }] : [], questions: [], reviewNotes: [] })) }
   };
 }
 
@@ -75,6 +75,32 @@ test('crop source eligibility never falls back to an unrelated Case source', asy
   harness.setBundle(multiple); harness.setSelectedSourcePath('source-previews/unrelated.png');
   assert.match(harness.assetCard(multiple.manifest.caseAssets[0], multiple.reviewMap.cases[0].assets[0], new Map([['media/learner.png', 'learner-url']])), /class="[^"]*adjust-crop"[^>]+disabled/);
   harness.setSelectedSourcePath('source-previews/other.png'); assert.equal(await harness.enterCrop('asset-1'), true); assert.equal(harness.cropSession().sourcePath, 'source-previews/other.png');
+});
+
+test('Asset-owned crop source selection works when Asset refs are not Case refs', async () => {
+  const { harness, selectorResults } = loadHarness();
+  const bundle = makeBundle({
+    sourceRefs: [{ sourceId: 'case-source', pages: [1] }],
+    assetSourceRefs: [{ sourceId: 'asset-source-a', pages: [2] }, { sourceId: 'asset-source-b', pages: [3] }],
+    sourceCoverage: [
+      { sourceId: 'case-source', page: 1, previewPath: 'source-previews/case.png' },
+      { sourceId: 'asset-source-a', page: 2, previewPath: 'source-previews/asset-a.png' },
+      { sourceId: 'asset-source-b', page: 3, previewPath: 'source-previews/asset-b.png' }
+    ]
+  });
+  harness.setBundle(bundle);
+  const card = harness.assetCard(bundle.manifest.caseAssets[0], bundle.reviewMap.cases[0].assets[0], new Map([['media/learner.png', 'learner-url'], ['source-previews/asset-a.png', 'asset-a-url'], ['source-previews/asset-b.png', 'asset-b-url']]));
+  assert.match(card, /data-crop-source="asset-1"/);
+  assert.match(card, /class="[^\"]*adjust-crop"[^>]+disabled/);
+  assert.match(card, /value="source-previews\/asset-a\.png"[^>]*>asset-source-a · page\/slide 2/);
+  assert.match(card, /value="source-previews\/asset-b\.png"[^>]*>asset-source-b · page\/slide 3/);
+  const picker = makeElement({ dataset: { cropSource: 'asset-1' }, value: 'source-previews/asset-b.png' });
+  const adjust = makeElement({ dataset: { asset: 'asset-1' } });
+  selectorResults.set('[data-crop-source]', [picker]); selectorResults.set('.adjust-crop', [adjust]); selectorResults.set('[data-crop-editor]', []); selectorResults.set('[data-asset]', []);
+  harness.wireCurrent(bundle.reviewMap.cases[0]); await picker.listener('change')();
+  assert.equal(adjust.disabled, false);
+  await adjust.listener('click')();
+  assert.equal(harness.cropSession().sourcePath, 'source-previews/asset-b.png');
 });
 
 test('Adjust crop and Cancel are inline transitions and Cancel does not mutate or persist', async () => {
