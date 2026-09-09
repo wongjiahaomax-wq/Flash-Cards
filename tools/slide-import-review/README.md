@@ -259,6 +259,12 @@ There is no later semantic conversion model.
 
 No recompression or image-quality reduction is performed.
 
+### Inline learner-image crop
+
+For a fixed learner Asset with an available linked `sourceRefs` preview, **Adjust crop** opens an inline crop editor on the same Asset card. It shows only the Asset-linked source preview; it never falls back to an unrelated Case source page. Drag the crop box or its edges/corners, then use **Reset**, **Cancel**, or **Save crop**. Cancel is a no-op. Save rasterizes with the browser Canvas API, preserves the Asset path and MIME (`image/jpeg` uses quality `0.98`), records `human_crop`, recomputes SHA-256, and moves non-rejected linked Asset reviews to `needs_review`.
+
+Crop Save is a protected reviewer operation. It blocks bundle opening, reviewed export, Import ZIP finalization, duplicate crop saves, and reviewer keyboard shortcuts until persistence completes or fails. Crop geometry is transient and is not written to the review map or production package. If no usable Asset-linked source preview exists, use **Replace image** instead.
+
 ## Local persistence
 
 Browser persistence uses IndexedDB keyed by `bundleId`. It stores the edited manifest, review map, and learner media replacements as explicit overrides. This protects against accidental tab/window closure.
