@@ -400,15 +400,16 @@ export function buildTaxonomyWorkspaceRows(
     ? items.filter((item) => isWithinFocusedSystem(item, focusSystemId, byId))
     : items;
 
-  const needsContext = Boolean(search) || type !== 'all' || !status.active || !status.inactive;
+  const needsHierarchyContext = Boolean(search) || type !== 'all' || !status.active || !status.inactive;
+  const autoExpandContext = Boolean(search) || type !== 'all';
   const matchingIds = new Set(
     focusedItems
       .filter((item) => matchesStatus(item, status) && matchesType(item, type) && matchesSearch(item, search))
       .map((item) => item.id)
   );
-  const visibleIds = needsContext ? new Set<string>() : new Set(focusedItems.map((item) => item.id));
+  const visibleIds = needsHierarchyContext ? new Set<string>() : new Set(focusedItems.map((item) => item.id));
 
-  if (needsContext) {
+  if (needsHierarchyContext) {
     for (const id of matchingIds) includeAncestors(id, visibleIds, byId);
     if (focusSystemId && matchingIds.size) visibleIds.add(focusSystemId);
   }
@@ -439,9 +440,9 @@ export function buildTaxonomyWorkspaceRows(
       childCount: children.length,
       directSubtopicCount: children.filter((child) => child.kind === 'topic').length,
       hasChildren: children.length > 0,
-      contextOnly: needsContext && !matchingIds.has(item.id)
+      contextOnly: needsHierarchyContext && !matchingIds.has(item.id)
     });
-    if (!search && collapsedIds.has(item.id)) return;
+    if (!autoExpandContext && collapsedIds.has(item.id)) return;
     for (const child of children) visit(child, depth + 1);
   };
 

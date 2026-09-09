@@ -147,6 +147,21 @@ test('taxonomy type filters compose with status visibility', () => {
   assert.ok(allTopics.some((row) => row.id === 'inactive-child'));
 });
 
+test('type-filter context auto-expands a collapsed System while default Active + All preserves manual collapse', () => {
+  const topicRows = buildTaxonomyWorkspaceRows(fixture, {
+    type: 'topics',
+    collapsedIds: ['cardio']
+  });
+  assert.deepEqual(topicRows.map((row) => row.id), ['cardio', 'arrhythmias', 'af', 'pericarditis', 'unassigned']);
+
+  const activeAllRows = buildTaxonomyWorkspaceRows(fixture, {
+    status: { active: true, inactive: false },
+    type: 'all',
+    collapsedIds: ['cardio']
+  });
+  assert.deepEqual(activeAllRows.map((row) => row.id), ['cardio', 'endocrine', 'unassigned']);
+});
+
 test('search composes with status and type while retaining matching Topic ancestors as context', () => {
   const rows = buildTaxonomyWorkspaceRows(fixture, {
     search: 'rapid ventricular',
