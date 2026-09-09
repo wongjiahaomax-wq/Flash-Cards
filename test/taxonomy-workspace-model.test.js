@@ -162,6 +162,15 @@ test('type-filter context auto-expands a collapsed System while default Active +
   assert.deepEqual(activeAllRows.map((row) => row.id), ['cardio', 'endocrine', 'unassigned']);
 });
 
+test('inactive-only + All auto-expands a collapsed inactive parent to reveal matching inactive Topics', () => {
+  const rows = buildTaxonomyWorkspaceRows(fixture, {
+    status: { active: false, inactive: true },
+    type: 'all',
+    collapsedIds: ['inactive-system']
+  });
+  assert.deepEqual(rows.map((row) => row.id), ['inactive-system', 'inactive-child', 'inactive-topic']);
+});
+
 test('search composes with status and type while retaining matching Topic ancestors as context', () => {
   const rows = buildTaxonomyWorkspaceRows(fixture, {
     search: 'rapid ventricular',

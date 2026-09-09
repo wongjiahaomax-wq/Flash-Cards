@@ -36,6 +36,8 @@ test('taxonomy identity, creation and hierarchy controls stay on the visual orga
 
 test('taxonomy filters expose independent status toggles and an exclusive type filter', () => {
   assert.match(organizer, /let statusFilter = \$state<WorkspaceStatusFilter>\(\{ active: true, inactive: false \}\)/);
+  assert.equal([...organizer.matchAll(/class="filter-row"/g)].length, 1);
+  assert.match(organizer, /<div class="filter-row" aria-label="Taxonomy filters">[\s\S]*<span class="filter-divider" aria-hidden="true">\|<\/span>[\s\S]*<\/div>/);
   assert.match(organizer, /aria-label="Taxonomy status filters"/);
   assert.match(organizer, /\{ id: 'active', label: 'Active' \}/);
   assert.match(organizer, /\{ id: 'inactive', label: 'Inactive' \}/);

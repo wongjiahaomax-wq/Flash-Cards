@@ -401,7 +401,7 @@ export function buildTaxonomyWorkspaceRows(
     : items;
 
   const needsHierarchyContext = Boolean(search) || type !== 'all' || !status.active || !status.inactive;
-  const autoExpandContext = Boolean(search) || type !== 'all';
+  const autoExpandContext = Boolean(search) || type !== 'all' || (!status.active && status.inactive);
   const matchingIds = new Set(
     focusedItems
       .filter((item) => matchesStatus(item, status) && matchesType(item, type) && matchesSearch(item, search))

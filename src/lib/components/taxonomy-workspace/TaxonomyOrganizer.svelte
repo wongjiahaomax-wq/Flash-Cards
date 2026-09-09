@@ -405,16 +405,18 @@
     </div>
   </div>
 
-  <div class="filter-row" aria-label="Taxonomy status filters">
-    {#each statusFilters as option}
-      <button class:active={statusFilter[option.id]} class="filter-chip" type="button" aria-pressed={statusFilter[option.id]} onclick={() => toggleStatus(option.id)}>{option.label}</button>
-    {/each}
-  </div>
-
-  <div class="filter-row" aria-label="Taxonomy type filters">
-    {#each typeFilters as option}
-      <button class:active={typeFilter === option.id} class="filter-chip" type="button" aria-pressed={typeFilter === option.id} onclick={() => { typeFilter = option.id; }}>{option.label}</button>
-    {/each}
+  <div class="filter-row" aria-label="Taxonomy filters">
+    <div class="filter-group" role="group" aria-label="Taxonomy status filters">
+      {#each statusFilters as option}
+        <button class:active={statusFilter[option.id]} class="filter-chip" type="button" aria-pressed={statusFilter[option.id]} onclick={() => toggleStatus(option.id)}>{option.label}</button>
+      {/each}
+    </div>
+    <span class="filter-divider" aria-hidden="true">|</span>
+    <div class="filter-group" role="group" aria-label="Taxonomy type filters">
+      {#each typeFilters as option}
+        <button class:active={typeFilter === option.id} class="filter-chip" type="button" aria-pressed={typeFilter === option.id} onclick={() => { typeFilter = option.id; }}>{option.label}</button>
+      {/each}
+    </div>
   </div>
 
   {#if focusedSystem}
@@ -533,6 +535,8 @@
   .button.organize-active { border-color: #f79009; background: #fffaeb; color: #93370d; }
   .button:disabled { cursor: not-allowed; opacity: .5; }
   .filter-row { align-items: center; }
+  .filter-group { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+  .filter-divider { color: #98a2b3; font-weight: 700; }
   .filter-chip { padding: .38rem .68rem; border: 1px solid #d0d5dd; border-radius: 999px; background: #fff; color: #475467; cursor: pointer; font: inherit; font-size: .84rem; font-weight: 650; }
   .filter-chip.active { border-color: #344054; background: #f2f4f7; color: #172033; }
   .focus-banner { display: flex; justify-content: space-between; align-items: center; gap: .75rem; padding: .7rem .85rem; border: 1px solid #c7d7fe; border-radius: 9px; background: #f5f8ff; }
