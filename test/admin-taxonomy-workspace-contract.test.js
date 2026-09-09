@@ -34,6 +34,21 @@ test('taxonomy identity, creation and hierarchy controls stay on the visual orga
   assert.match(organizer, /Drop Topic here → Unassigned/);
 });
 
+test('taxonomy filters expose independent status toggles and an exclusive type filter', () => {
+  assert.match(organizer, /let statusFilter = \$state<WorkspaceStatusFilter>\(\{ active: true, inactive: false \}\)/);
+  assert.match(organizer, /aria-label="Taxonomy status filters"/);
+  assert.match(organizer, /\{ id: 'active', label: 'Active' \}/);
+  assert.match(organizer, /\{ id: 'inactive', label: 'Inactive' \}/);
+  assert.match(organizer, /onclick=\{\(\) => toggleStatus\(option\.id\)\}/);
+  assert.match(organizer, /aria-label="Taxonomy type filters"/);
+  assert.match(organizer, /\{ id: 'all', label: 'All' \}/);
+  assert.match(organizer, /\{ id: 'systems', label: 'Systems' \}/);
+  assert.match(organizer, /\{ id: 'topics', label: 'Topics' \}/);
+  assert.match(organizer, /\{ id: 'unassigned', label: 'Unassigned' \}/);
+  assert.match(organizer, /status: statusFilter/);
+  assert.match(organizer, /type: typeFilter/);
+});
+
 test('organize mode keeps Case Primary Topic drag-and-drop plus non-drag Case Tag staging', () => {
   assert.match(organizer, /class="case-drag"/);
   assert.match(organizer, /beginCaseDrag/);

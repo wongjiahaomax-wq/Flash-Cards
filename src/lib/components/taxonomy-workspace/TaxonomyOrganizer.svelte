@@ -21,12 +21,15 @@
     projectTaxonomyWithMoves,
     stageTopicMove,
     taxonomyOptionLabel,
+    toggleWorkspaceStatus,
     topicMoveTargets,
     type StagedCasePrimaryTopicChange,
     type StagedTopicMove,
     type TaxonomyWorkspaceItem,
     type TaxonomyWorkspaceRow,
-    type WorkspaceFilter
+    type WorkspaceStatusFilter,
+    type WorkspaceStatusKey,
+    type WorkspaceTypeFilter
   } from './taxonomy-workspace-model.ts';
 
   let {
@@ -44,7 +47,8 @@
   } = $props();
 
   let query = $state(initialSearch);
-  let filter = $state<WorkspaceFilter>('all');
+  let statusFilter = $state<WorkspaceStatusFilter>({ active: true, inactive: false });
+  let typeFilter = $state<WorkspaceTypeFilter>('all');
   let selectedId = $state(initialSelectedId);
   let selectedCaseIds = $state<string[]>([]);
   let focusSystemId = $state('');
@@ -77,7 +81,8 @@
   const systemOptions = $derived(activeSystemOptions(projectedItems));
   const rows = $derived(buildTaxonomyWorkspaceRows(projectedItems, {
     search: query,
-    filter,
+    status: statusFilter,
+    type: typeFilter,
     focusSystemId: focusSystemId || null,
     collapsedIds
   }));
@@ -99,12 +104,16 @@
   })));
   const stagedChangeCount = $derived(stagedMoves.length + stagedCaseChanges.length + stagedCaseTagChanges.length);
 
-  const filters: { id: WorkspaceFilter; label: string }[] = [
+  const statusFilters: { id: WorkspaceStatusKey; label: string }[] = [
+    { id: 'active', label: 'Active' },
+    { id: 'inactive', label: 'Inactive' }
+  ];
+
+  const typeFilters: { id: WorkspaceTypeFilter; label: string }[] = [
     { id: 'all', label: 'All' },
     { id: 'systems', label: 'Systems' },
     { id: 'topics', label: 'Topics' },
-    { id: 'unassigned', label: 'Unassigned' },
-    { id: 'inactive', label: 'Inactive' }
+    { id: 'unassigned', label: 'Unassigned' }
   ];
 
   function toggleId(values: string[], id: string) {
@@ -113,6 +122,10 @@
 
   function toggleCollapsed(id: string) {
     collapsedIds = toggleId(collapsedIds, id);
+  }
+
+  function toggleStatus(key: WorkspaceStatusKey) {
+    statusFilter = toggleWorkspaceStatus(statusFilter, key);
   }
 
   function queryMatchesCase(item: TaxonomyWorkspaceItem) {
@@ -178,7 +191,7 @@
 
   function focusSystem(systemId: string) {
     focusSystemId = systemId;
-    filter = 'all';
+    typeFilter = 'all';
     collapsedIds = [];
   }
 
@@ -348,7 +361,7 @@
     try {
       stagedCaseChanges = stageFlexibleCasePrimaryTopicChanges(items, stagedCaseChanges, caseIds, topicId);
       revealCases(topicId);
-      filter = 'all';
+      typeFilter = 'all';
       const target = projectedItems.find((item) => item.id === topicId);
       if (focusSystemId && target?.systemId !== focusSystemId) focusSystemId = '';
       workspaceError = '';
@@ -392,9 +405,15 @@
     </div>
   </div>
 
-  <div class="filter-row" aria-label="Taxonomy filters">
-    {#each filters as option}
-      <button class:active={filter === option.id} class="filter-chip" type="button" aria-pressed={filter === option.id} onclick={() => { filter = option.id; }}>{option.label}</button>
+  <div class="filter-row" aria-label="Taxonomy status filters">
+    {#each statusFilters as option}
+      <button class:active={statusFilter[option.id]} class="filter-chip" type="button" aria-pressed={statusFilter[option.id]} onclick={() => toggleStatus(option.id)}>{option.label}</button>
+    {/each}
+  </div>
+
+  <div class="filter-row" aria-label="Taxonomy type filters">
+    {#each typeFilters as option}
+      <button class:active={typeFilter === option.id} class="filter-chip" type="button" aria-pressed={typeFilter === option.id} onclick={() => { typeFilter = option.id; }}>{option.label}</button>
     {/each}
   </div>
 

@@ -9,8 +9,10 @@ import {
   listWorkspaceCases,
   projectTaxonomyWithCasePrimaryTopics,
   projectTaxonomyWithMoves,
+  normalizeWorkspaceStatusFilter,
   stageCasePrimaryTopicChanges,
   stageTopicMove,
+  toggleWorkspaceStatus,
   topicMoveTargets
 } from '../src/lib/components/taxonomy-workspace/taxonomy-workspace-model.ts';
 
@@ -55,6 +57,16 @@ const fixture = [
     id: 'inactive-topic', name: 'Archived topic', slug: 'archived-topic', descriptionMd: null, kind: 'topic', parentId: null,
     isActive: false, breadcrumbLabel: 'Archived topic', systemId: null, unassigned: true,
     directCaseCount: 0, descendantStudyCaseCount: 0, activeSharedQuestionCount: 0, directCases: []
+  },
+  {
+    id: 'inactive-system', name: 'Archived system', slug: 'archived-system', descriptionMd: null, kind: 'system', parentId: null,
+    isActive: false, breadcrumbLabel: 'Archived system', systemId: 'inactive-system', unassigned: false,
+    directCaseCount: 0, descendantStudyCaseCount: 0, activeSharedQuestionCount: 0, directCases: []
+  },
+  {
+    id: 'inactive-child', name: 'Archived child', slug: 'archived-child', descriptionMd: null, kind: 'topic', parentId: 'inactive-system',
+    isActive: false, breadcrumbLabel: 'Archived system → Archived child', systemId: 'inactive-system', unassigned: false,
+    directCaseCount: 0, descendantStudyCaseCount: 0, activeSharedQuestionCount: 0, directCases: []
   }
 ];
 
@@ -84,11 +96,65 @@ test('System focus and taxonomy filters reduce visual overload without changing 
   const focused = buildTaxonomyWorkspaceRows(fixture, { focusSystemId: 'cardio' });
   assert.deepEqual(focused.map((row) => row.id), ['cardio', 'arrhythmias', 'af', 'pericarditis']);
 
-  const unassigned = buildTaxonomyWorkspaceRows(fixture, { filter: 'unassigned' });
-  assert.deepEqual(unassigned.map((row) => row.id), ['inactive-topic', 'unassigned']);
+  const unassigned = buildTaxonomyWorkspaceRows(fixture, { type: 'unassigned' });
+  assert.deepEqual(unassigned.map((row) => row.id), ['unassigned']);
 
-  const inactive = buildTaxonomyWorkspaceRows(fixture, { filter: 'inactive' });
-  assert.deepEqual(inactive.map((row) => row.id), ['inactive-topic']);
+  const inactive = buildTaxonomyWorkspaceRows(fixture, { status: { active: false, inactive: true } });
+  assert.deepEqual(inactive.map((row) => row.id), ['inactive-system', 'inactive-child', 'inactive-topic']);
+});
+
+test('taxonomy status defaults to active only and excludes inactive Systems and Topics', () => {
+  assert.deepEqual(normalizeWorkspaceStatusFilter(), { active: true, inactive: false });
+  const rows = buildTaxonomyWorkspaceRows(fixture);
+  assert.ok(rows.some((row) => row.id === 'cardio'));
+  assert.ok(rows.some((row) => row.id === 'unassigned'));
+  assert.ok(!rows.some((row) => row.id.startsWith('inactive-')));
+});
+
+test('taxonomy status toggles compose and the last enabled status stays enabled', () => {
+  assert.deepEqual(toggleWorkspaceStatus({ active: true, inactive: false }, 'inactive'), { active: true, inactive: true });
+  assert.deepEqual(toggleWorkspaceStatus({ active: true, inactive: true }, 'active'), { active: false, inactive: true });
+  assert.deepEqual(toggleWorkspaceStatus({ active: false, inactive: true }, 'inactive'), { active: false, inactive: true });
+  assert.deepEqual(toggleWorkspaceStatus({ active: false, inactive: false }, 'inactive'), { active: true, inactive: true });
+
+  const both = buildTaxonomyWorkspaceRows(fixture, { status: { active: true, inactive: true } });
+  assert.ok(both.some((row) => row.id === 'cardio'));
+  assert.ok(both.some((row) => row.id === 'inactive-system'));
+
+  const inactiveOnly = buildTaxonomyWorkspaceRows(fixture, { status: { active: false, inactive: true } });
+  assert.ok(inactiveOnly.every((row) => !row.isActive));
+});
+
+test('taxonomy type filters compose with status visibility', () => {
+  const systems = buildTaxonomyWorkspaceRows(fixture, { type: 'systems' });
+  assert.deepEqual(systems.map((row) => row.id), ['cardio', 'endocrine']);
+
+  const topics = buildTaxonomyWorkspaceRows(fixture, { type: 'topics' });
+  assert.ok(topics.filter((row) => !row.contextOnly).every((row) => row.kind === 'topic'));
+  assert.ok(topics.some((row) => row.id === 'cardio' && row.contextOnly));
+
+  const inactiveUnassigned = buildTaxonomyWorkspaceRows(fixture, {
+    status: { active: false, inactive: true },
+    type: 'unassigned'
+  });
+  assert.deepEqual(inactiveUnassigned.map((row) => row.id), ['inactive-topic']);
+
+  const allTopics = buildTaxonomyWorkspaceRows(fixture, {
+    status: { active: true, inactive: true },
+    type: 'topics'
+  });
+  assert.ok(allTopics.some((row) => row.id === 'af'));
+  assert.ok(allTopics.some((row) => row.id === 'inactive-child'));
+});
+
+test('search composes with status and type while retaining matching Topic ancestors as context', () => {
+  const rows = buildTaxonomyWorkspaceRows(fixture, {
+    search: 'rapid ventricular',
+    status: { active: true, inactive: false },
+    type: 'topics'
+  });
+  assert.deepEqual(rows.map((row) => row.id), ['cardio', 'arrhythmias', 'af']);
+  assert.deepEqual(rows.map((row) => row.contextOnly), [true, true, false]);
 });
 
 test('contextual Topic creation can choose any active System or Topic parent', () => {

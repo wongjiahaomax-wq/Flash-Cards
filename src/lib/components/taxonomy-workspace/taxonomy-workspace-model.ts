@@ -1,5 +1,31 @@
 export type TaxonomyKind = 'system' | 'topic';
-export type WorkspaceFilter = 'all' | 'systems' | 'topics' | 'unassigned' | 'inactive';
+export type WorkspaceTypeFilter = 'all' | 'systems' | 'topics' | 'unassigned';
+export type WorkspaceStatusFilter = {
+  active: boolean;
+  inactive: boolean;
+};
+export type WorkspaceStatusKey = keyof WorkspaceStatusFilter;
+
+// Keep the old single-filter shape available for the unused legacy workspace
+// component while the active organizer uses explicit status and type filters.
+export type WorkspaceFilter = WorkspaceTypeFilter | 'inactive';
+
+export function normalizeWorkspaceStatusFilter(
+  filter?: Partial<WorkspaceStatusFilter>
+): WorkspaceStatusFilter {
+  const active = filter?.active !== false;
+  const inactive = filter?.inactive === true;
+  return active || inactive ? { active, inactive } : { active: true, inactive: false };
+}
+
+export function toggleWorkspaceStatus(
+  filter: WorkspaceStatusFilter,
+  key: WorkspaceStatusKey
+): WorkspaceStatusFilter {
+  const current = normalizeWorkspaceStatusFilter(filter);
+  if (current[key] && current.active !== current.inactive) return current;
+  return normalizeWorkspaceStatusFilter({ ...current, [key]: !current[key] });
+}
 
 export type TaxonomyCaseSummary = {
   id: string;
@@ -59,6 +85,9 @@ export type WorkspaceCaseAssignment = {
 
 type BuildWorkspaceRowsInput = {
   search?: string;
+  status?: WorkspaceStatusFilter;
+  type?: WorkspaceTypeFilter;
+  /** @deprecated Use status and type. Retained for the unused legacy workspace. */
   filter?: WorkspaceFilter;
   focusSystemId?: string | null;
   collapsedIds?: string[];
@@ -73,12 +102,24 @@ function normalizedParentId(value: string | null | undefined) {
   return parentId || null;
 }
 
-function matchesFilter(item: TaxonomyWorkspaceItem, filter: WorkspaceFilter) {
-  if (filter === 'systems') return item.kind === 'system';
-  if (filter === 'topics') return item.kind === 'topic';
-  if (filter === 'unassigned') return item.kind === 'topic' && item.unassigned;
-  if (filter === 'inactive') return !item.isActive;
+function matchesStatus(item: TaxonomyWorkspaceItem, status: WorkspaceStatusFilter) {
+  return item.isActive ? status.active : status.inactive;
+}
+
+function matchesType(item: TaxonomyWorkspaceItem, type: WorkspaceTypeFilter) {
+  if (type === 'systems') return item.kind === 'system';
+  if (type === 'topics') return item.kind === 'topic';
+  if (type === 'unassigned') return item.kind === 'topic' && item.unassigned;
   return true;
+}
+
+function resolveWorkspaceFilters(input: BuildWorkspaceRowsInput) {
+  const legacyFilter = input.filter;
+  const status = normalizeWorkspaceStatusFilter(
+    input.status ?? (legacyFilter === 'inactive' ? { active: false, inactive: true } : undefined)
+  );
+  const type = input.type ?? (!legacyFilter || legacyFilter === 'inactive' ? 'all' : legacyFilter);
+  return { status, type };
 }
 
 function matchesSearch(item: TaxonomyWorkspaceItem, search: string) {
@@ -351,7 +392,7 @@ export function buildTaxonomyWorkspaceRows(
   input: BuildWorkspaceRowsInput = {}
 ): TaxonomyWorkspaceRow[] {
   const search = String(input.search ?? '').trim().toLocaleLowerCase();
-  const filter = input.filter ?? 'all';
+  const { status, type } = resolveWorkspaceFilters(input);
   const focusSystemId = input.focusSystemId ?? null;
   const collapsedIds = new Set(input.collapsedIds ?? []);
   const byId = new Map(items.map((item) => [item.id, item]));
@@ -359,10 +400,10 @@ export function buildTaxonomyWorkspaceRows(
     ? items.filter((item) => isWithinFocusedSystem(item, focusSystemId, byId))
     : items;
 
-  const needsContext = Boolean(search) || filter !== 'all';
+  const needsContext = Boolean(search) || type !== 'all' || !status.active || !status.inactive;
   const matchingIds = new Set(
     focusedItems
-      .filter((item) => matchesFilter(item, filter) && matchesSearch(item, search))
+      .filter((item) => matchesStatus(item, status) && matchesType(item, type) && matchesSearch(item, search))
       .map((item) => item.id)
   );
   const visibleIds = needsContext ? new Set<string>() : new Set(focusedItems.map((item) => item.id));
@@ -400,7 +441,7 @@ export function buildTaxonomyWorkspaceRows(
       hasChildren: children.length > 0,
       contextOnly: needsContext && !matchingIds.has(item.id)
     });
-    if (!needsContext && collapsedIds.has(item.id)) return;
+    if (!search && collapsedIds.has(item.id)) return;
     for (const child of children) visit(child, depth + 1);
   };
 
