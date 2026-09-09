@@ -10,10 +10,72 @@
 </style>
 </head>
 <body>
-<header class="top"><h1>Flash-Cards Slide Import Reviewer</h1><span id="batch"></span><span id="persist"></span><label style="margin:0;font-weight:400">Choose review ZIP <input id="zip-input" type="file" accept=".zip,application/zip" style="width:auto"></label></header>
+<style>
+:root{--ink:#17202a;--muted:#667085;--line:#dfe3e8;--line-soft:#e8edf2;--accent:#175cd3;--surface:#fff;--canvas:#f6f7f9;--space-1:.35rem;--space-2:.55rem;--space-3:.75rem;--space-4:1rem;--space-5:1.25rem}
+body{background:var(--canvas);color:var(--ink)}
+button{transition:background-color .15s ease,border-color .15s ease,box-shadow .15s ease}
+.top{padding:.85rem 1.25rem;gap:1rem;box-shadow:0 1px 0 rgba(16,24,40,.03)}
+.top-brand{display:grid;gap:.15rem;min-width:0;margin-right:auto}
+.top-kicker{margin:0;color:var(--muted);font-size:.7rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.top h1{font-size:1.05rem;letter-spacing:-.01em}
+.top-meta{display:flex;align-items:center;gap:.65rem;min-width:0;color:var(--muted);font-size:.82rem}
+#batch{max-width:min(34vw,28rem);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#batch:not(:empty)::before{content:'';display:inline-block;width:5px;height:5px;margin:0 .45rem .1rem 0;border-radius:50%;background:#98a2b3}
+#persist{white-space:nowrap}
+.file-picker{position:relative;display:inline-flex;align-items:center;justify-content:center;margin:0;padding:.55rem .8rem;border:1px solid #cdd5df;border-radius:8px;background:#fff;color:var(--ink);font-size:.82rem;font-weight:700;cursor:pointer;white-space:nowrap}
+.file-picker:hover{background:#f8fafc;border-color:#98a2b3}
+.file-picker:focus-within{outline:2px solid #84adff;outline-offset:2px}
+.file-picker input{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.shell{padding:18px 20px 28px}
+.toolbar{gap:10px;margin-bottom:10px;align-items:stretch}
+.toolbar-group{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.toolbar-group+.toolbar-group{padding-left:12px;border-left:1px solid var(--line)}
+.toolbar-navigation{flex:1 1 auto}
+.toolbar-review,.toolbar-output{flex:0 1 auto}
+.toolbar-filter{width:auto;min-width:8.5rem}
+#position{padding:0 .15rem;color:var(--muted);font-size:.82rem;font-weight:700;white-space:nowrap}
+.toolbar button{padding:.52rem .72rem}
+.progress-summary{display:flex;align-items:center;gap:.45rem;flex-wrap:wrap;margin:0 0 16px;color:var(--muted);font-size:.78rem;line-height:1.6}
+.progress-item{display:inline-flex;align-items:center;gap:.25rem;padding:.08rem .4rem;border:1px solid var(--line-soft);border-radius:999px;background:#fff}
+.progress-item b{color:var(--ink)}
+.review-layout{grid-template-columns:clamp(248px,16vw,270px) minmax(0,1fr);gap:18px}
+.queue{padding:8px;border-color:var(--line);box-shadow:0 3px 12px rgba(16,24,40,.03)}
+.queue-heading{padding:.35rem .45rem .7rem}
+.queue-item{align-items:flex-start;gap:10px;padding:.62rem .55rem;margin:.18rem 0;border-left:3px solid transparent;border-radius:8px}
+.queue-item:hover{background:#f8fafc}
+.queue-item.selected{background:#eef4ff;outline:0;border-left-color:var(--accent);box-shadow:inset 0 0 0 1px #d7e5ff}
+.queue-item:focus-visible{outline:2px solid #84adff;outline-offset:1px}
+.queue-content{display:grid;gap:3px;min-width:0;flex:1}
+.queue-title{display:block;line-height:1.28;overflow-wrap:anywhere}
+.queue-meta{display:block;color:var(--muted);font-size:.72rem;line-height:1.25;overflow-wrap:anywhere}
+.queue-state{flex:0 0 auto;margin-top:1px;max-width:8.2rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize}
+.review-grid{grid-template-columns:minmax(0,1.35fr) minmax(320px,.85fr);gap:18px}
+.panel,.coverage{padding:16px;border-color:var(--line);box-shadow:0 3px 12px rgba(16,24,40,.025)}
+.panel-heading{gap:12px}
+.panel h2{font-size:1.08rem;letter-spacing:-.01em}
+.panel h3{font-size:.96rem}
+.source-meta{padding:.55rem .65rem;border-radius:8px;background:#f8fafc;color:#475467;font-size:.8rem;line-height:1.5}
+.source-meta b{color:var(--ink)}
+.source-large{max-width:100%;max-height:520px}
+.card{border-color:var(--line-soft);box-shadow:none}
+.question-card{border-color:#edf0f3;background:#fff;padding:.68rem .78rem}
+.question-source{display:flex;flex-wrap:wrap;gap:.25rem .75rem;margin:.35rem 0 .5rem;line-height:1.4}
+.source-summary-item{display:inline-flex;align-items:baseline;gap:.25rem;min-width:0}
+.source-summary-label{color:var(--muted);font-weight:700}
+.technical-id{font-size:.7rem;color:#98a2b3}
+.status-select{min-width:7.2rem}
+.link-button{color:var(--accent);font-weight:600}
+.crop-editor,.crop-surface{min-width:0}
+.crop-source-picker{min-width:0}
+.crop-source-picker select{min-width:0}
+.crop-actions{flex-wrap:wrap}
+@media(max-width:1200px){.review-layout{grid-template-columns:1fr}.queue,.source-panel{position:static;max-height:none}.queue{display:flex;gap:.3rem;overflow:auto}.queue-heading{display:none}.queue-item{width:auto;min-width:150px}.review-grid{grid-template-columns:1fr}.toolbar-group+.toolbar-group{padding-left:0;border-left:0}}
+@media(max-width:600px){.top{padding:.75rem 1rem}.top-brand{flex:1 1 100%}.top-meta{order:3;flex:1 1 auto}.file-picker{order:2}.shell{padding:14px 12px 22px}.toolbar-group{flex:1 1 100%}.toolbar-group+.toolbar-group{padding-top:6px;border-top:1px solid var(--line-soft)}.toolbar button{flex:1}.progress-summary{margin-bottom:12px}.queue-item{min-width:142px}.queue-state{max-width:6.5rem}.qa-toolbar>.row{width:100%;margin-left:0}.qa-toolbar button{flex:1}}
+</style>
+<header class="top"><div class="top-brand"><p class="top-kicker">Offline review workspace</p><h1>Flash-Cards Slide Import Reviewer</h1></div><div class="top-meta"><span id="batch"></span><span id="persist"></span></div><label class="file-picker"><span>Open review ZIP</span><input id="zip-input" type="file" accept=".zip,application/zip"></label></header>
 <div id="errors"></div><div id="batch-warning"></div>
 <div id="empty-start"><div id="drop" class="drop"><h2>Open a review bundle</h2><p>Drop <code>&lt;batch&gt;-review.zip</code> here, or choose it above. Files stay on this device.</p></div></div>
-<main id="review-shell" class="shell" hidden><div class="toolbar"><button id="prev" class="secondary">← Previous</button><span id="position"></span><button id="next" class="secondary">Next →</button><select id="filter" style="width:auto"><option value="all">All Cases</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="needs_review">Needs review</option><option value="rejected">Rejected</option><option value="blocking">Blocking warnings</option><option value="low">Low confidence</option><option value="missing">Missing answers</option><option value="image">Image warnings</option><option value="unresolved">Unresolved questions</option></select><button id="coverage" class="secondary">Source coverage</button><span class="spacer"></span><button id="approve">Approve (A)</button><button id="needs" class="secondary">Needs review (R)</button><button id="reject" class="secondary">Reject (X)</button><button id="export-reviewed" class="secondary">Back up reviewed bundle</button><button id="finalize" aria-label="Finalize Import ZIP">Create Import ZIP</button></div><div class="small">Progress: all <b id="count-all">0</b> · pending <b id="count-pending">0</b> · approved <b id="count-approved">0</b> · needs review <b id="count-needs_review">0</b> · rejected <b id="count-rejected">0</b> · blocking <b id="count-blocking">0</b> · low confidence <b id="count-low">0</b> · missing answers <b id="count-missing">0</b> · image warnings <b id="count-image">0</b> · unresolved <b id="count-unresolved">0</b></div><div id="workspace"></div></main>
+<main id="review-shell" class="shell" hidden><div class="toolbar"><div class="toolbar-group toolbar-navigation" aria-label="Navigation"><button id="prev" class="secondary">← Previous</button><span id="position"></span><button id="next" class="secondary">Next →</button><select id="filter" class="toolbar-filter"><option value="all">All Cases</option><option value="pending">Pending</option><option value="approved">Approved</option><option value="needs_review">Needs review</option><option value="rejected">Rejected</option><option value="blocking">Blocking warnings</option><option value="low">Low confidence</option><option value="missing">Missing answers</option><option value="image">Image warnings</option><option value="unresolved">Unresolved questions</option></select><button id="coverage" class="secondary">Source coverage</button></div><div class="toolbar-group toolbar-review" aria-label="Review status"><button id="approve">Approve (A)</button><button id="needs" class="secondary">Needs review (R)</button><button id="reject" class="secondary">Reject (X)</button></div><div class="toolbar-group toolbar-output" aria-label="Output"><button id="export-reviewed" class="secondary">Back up reviewed bundle</button><button id="finalize" aria-label="Finalize Import ZIP">Create Import ZIP</button></div></div><div class="progress-summary" aria-label="Review progress">Progress: <span class="progress-item">all <b id="count-all">0</b></span><span class="progress-item">pending <b id="count-pending">0</b></span><span class="progress-item">approved <b id="count-approved">0</b></span><span class="progress-item">needs review <b id="count-needs_review">0</b></span><span class="progress-item">rejected <b id="count-rejected">0</b></span><span class="progress-item">blocking <b id="count-blocking">0</b></span><span class="progress-item">low confidence <b id="count-low">0</b></span><span class="progress-item">missing answers <b id="count-missing">0</b></span><span class="progress-item">image warnings <b id="count-image">0</b></span><span class="progress-item">unresolved <b id="count-unresolved">0</b></span></div><div id="workspace"></div></main>
 <script type="module" src="./src/app.js"></script>
 </body>
 </html>
