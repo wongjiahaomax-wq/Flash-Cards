@@ -1,6 +1,6 @@
 # Slide Import Reviewer — Inline Learner-Image Crop Plan
 
-_Status: implementation plan for a Draft PR. Plan only at creation; implementation should happen in this same PR. Do not create a second implementation PR._
+_Status: implementation-ready plan for Draft PR #172 after first-pass planning review. Do not create a second implementation PR, mark Ready, or merge until implementation and review are complete._
 
 ## Goal
 
@@ -9,468 +9,544 @@ Add the smallest practical in-review correction workflow for learner images that
 ```text
 see bad learner image
 → Adjust crop
-→ linked source slide appears in-place
+→ Asset-linked source slide appears in-place
 → drag crop box / edges / corners
 → Save crop
 → learner image is replaced in-place
 → continue reviewing
 ```
 
-The feature is intentionally narrow. It is not a general image editor.
+This is deliberately not a general-purpose image editor.
 
-## Current implementation facts to preserve
-
-The current reviewer already has the core mutation/persistence machinery required for this feature:
-
-- learner media are stored behind the review bundle file store;
-- `Replace image` can replace exact learner-image bytes;
-- replacement recomputes SHA-256;
-- linked Asset review records are invalidated to `needs_review` except already-rejected reviews;
-- binary overrides are persisted locally and restored only for the exact source-bundle fingerprint;
-- object URLs can be invalidated per path;
-- reviewed-bundle backup and deterministic finalization already consume the current file-store bytes;
-- the standalone reviewer is generated from maintainable sources and must be rebuilt rather than hand-editing `reviewer.html`.
-
-Use those existing paths instead of creating a parallel image state/persistence/export system.
-
-## Non-negotiable scope
-
-### In scope
+## Fixed product scope
 
 For a manifest-backed fixed learner image:
 
-- visible `Adjust crop` action on the learner-image card;
-- inline crop editor in that same card; no modal and no separate page;
-- source image comes only from that Asset review record's existing `sourceRefs` / `sourceCoverage.previewPath` evidence;
-- free-aspect crop rectangle;
-- mouse/pointer move of the whole crop rectangle;
-- resize from all four edges and four corners;
-- `Reset`, `Cancel`, `Save crop`;
-- native browser Canvas rasterization;
-- replace the existing learner Asset bytes at the same manifest path;
+- show `Adjust crop` on the learner-image card;
+- edit inline in that same card; no modal and no separate page;
+- use only the Asset review record's existing `sourceRefs` mapped through `reviewMap.sourceCoverage[].previewPath`;
+- use a free-aspect crop rectangle;
+- support moving the whole crop and resizing from four edges + four corners;
+- provide only `Reset`, `Cancel`, and `Save crop`;
+- rasterize with native browser Canvas APIs;
+- replace bytes at the existing learner Asset path;
 - recompute SHA-256;
 - set `extractionMethod = "human_crop"`;
-- preserve existing local autosave/restore/backup/finalize behavior;
-- update reviewer documentation and generated standalone artifact.
+- preserve existing autosave/restore, reviewed-bundle backup, deterministic finalization, and exact-fingerprint semantics.
 
-### Explicitly out of scope
+Do not add:
 
-Do **not** add:
-
-- a third-party crop/image-editing dependency;
+- third-party crop/image-editing dependencies;
 - zoom/pan controls in v1;
-- rotation;
-- brightness/contrast/filters;
-- annotations/drawing;
-- OCR or AI-assisted recropping;
-- automatic matching of the existing crop back onto the source slide;
+- rotation, filters, drawing, OCR, or AI-assisted recropping;
+- automatic matching of the current crop back onto the source slide;
 - arbitrary source-page browsing from the crop editor;
-- crop-coordinate persistence or review-map schema changes;
-- a new image format or path-renaming scheme;
-- production Admin/importer, D1, R2, schema, deployment, or extraction-pipeline changes.
+- crop-coordinate persistence or review-map/schema changes;
+- path renaming or new image formats;
+- production Admin/importer, D1, R2, deployment, or extraction-pipeline changes.
 
-`package.json` dependency lists should remain unchanged for this feature.
+`package.json` dependency lists remain unchanged.
+
+## Existing architecture to reuse
+
+The current reviewer already owns the required mutation and persistence boundaries:
+
+- learner media live behind the bundle file store;
+- manual `Replace image` replaces exact learner-image bytes;
+- media overrides participate in local snapshot/restore;
+- replacement invalidates linked Asset reviews and recomputes SHA-256;
+- object URLs can be invalidated per path;
+- backup/finalization consume the current file-store bytes;
+- `operationGuard` serializes protected reviewer operations;
+- `reviewer.html` is generated from maintainable sources.
+
+Do not create a parallel image store, save queue, operation lock, export path, or review state model.
 
 ## UX contract
 
 ### Normal state
 
-Each eligible learner-image card should expose a clear action near the displayed image:
+Each eligible learner-image card exposes:
 
 ```text
 [Adjust crop]
 ```
 
-Keep the existing `Replace image` fallback available under the current metadata/details area.
+Keep the existing `Replace image` fallback available.
 
 ### Entering crop mode
 
-Clicking `Adjust crop` replaces the learner-image preview area in that card with the linked source preview and an editable crop rectangle.
+Clicking `Adjust crop` replaces the learner-image preview area in that card with the linked source preview and crop rectangle.
 
-Do not use a modal or overlay dialog.
-
-The crop editor should show enough context to make the source unambiguous, for example:
+Show the source identity, for example:
 
 ```text
 Cropping from source-001 · page/slide 10
 ```
 
-Initial crop selection is the **entire source preview**. Do not attempt image matching or infer the prior crop coordinates.
+Initial crop = the full source preview:
 
-### Interaction
+```text
+{ x: 0, y: 0, width: 1, height: 1 }
+```
 
-Use pointer events so the same implementation works for mouse and touch-capable pointers, but the acceptance target is ordinary desktop mouse use.
+Do not infer the prior crop.
 
-Required interactions:
+### Pointer interaction
 
-- drag inside the crop box → move it;
-- drag top/bottom/left/right handle → resize that edge;
-- drag any corner handle → resize both axes;
-- crop must stay inside the source image;
-- crop must not collapse to zero/near-zero size;
-- no aspect-ratio lock.
+Use Pointer Events with pointer capture.
 
-A simple dimmed-outside-selection effect is sufficient. Prefer a single crop box plus CSS `box-shadow`/equivalent over a complex masking system.
+Required behavior:
+
+- `pointerdown` on the crop body/handle starts one drag only when no drag is active;
+- record exactly one active `pointerId` and drag mode (`move`, `n`, `s`, `e`, `w`, `ne`, `nw`, `se`, `sw`);
+- call `setPointerCapture(pointerId)` on the interaction element once the drag is accepted;
+- process `pointermove` only for the recorded active `pointerId`;
+- ignore unrelated/secondary pointer events;
+- finish and clear drag state on matching `pointerup`;
+- also clear drag state on matching `pointercancel` and `lostpointercapture`;
+- release pointer capture where appropriate and safe; cleanup must be idempotent;
+- crop must remain inside source bounds and must not collapse below the defined minimum size.
+
+A simple crop box with dimmed outside area is sufficient.
 
 ### Controls
 
-Crop mode requires exactly these routine controls:
+Crop mode exposes only:
 
 ```text
 Reset   Cancel   Save crop
 ```
 
-`Reset` restores the crop rectangle to the full source preview.
+`Reset` restores full-source bounds.
 
-`Cancel` exits crop mode with **no bundle mutation, no status change, and no persistence write**.
+`Cancel` exits crop mode with **no media mutation, review-status mutation, SHA change, cache invalidation, or persistence write**.
 
-`Save crop` performs the explicit learner-image replacement described below.
+Unsaved crop geometry is transient. Ordinary navigation may discard it without confirmation.
 
-### Leaving the Case/bundle
-
-Unsaved crop UI state is transient and must not be persisted.
-
-Navigating to another Case, changing to a state where the active Case is replaced, or opening another bundle should cancel/discard the transient crop editor without mutating learner media.
-
-Do not add a confirmation dialog for this in v1. The only durable operation is `Save crop`.
+Once `Save crop` has been accepted, however, the save becomes a protected operation and navigation/open/export/finalize serialization rules below apply.
 
 ## Source-selection safety
 
-This is an important learner-media boundary.
+The crop source is a learner-media safety boundary.
 
-The crop source must be resolved only from the **current Asset review record's** `sourceRefs`, mapped through `reviewMap.sourceCoverage` to an existing `previewPath` in the opened review bundle.
+Build candidate preview paths only from the current Asset review record's `sourceRefs`, resolving each `(sourceId, page)` through `reviewMap.sourceCoverage` to an existing `previewPath` in the opened bundle.
 
-Do not allow the crop editor to use an arbitrary Case source page merely because it is visible in the left source panel.
+Rules:
 
-Resolve candidate crop source paths as unique valid preview paths.
+1. **One usable candidate** → use it directly.
+2. **Multiple usable candidates** → use `selectedSourcePath` only if it is one of those Asset candidates. Otherwise require the reviewer to select one of the Asset's existing source references first; do not silently choose another page.
+3. **No usable candidate** → crop is unavailable/disabled with a concise explanation; manual `Replace image` remains available.
 
-Behavior:
+Never use an unrelated Case source page merely because it is currently visible in the left source panel.
 
-1. **Exactly one usable source preview** → `Adjust crop` uses it directly.
-2. **Multiple usable source previews** → use the currently selected source page only if its `previewPath` is one of this Asset's candidates. Otherwise require the reviewer to select one of the Asset's existing clickable source references first; do not silently choose a different page.
-3. **No usable source preview** → disable/hide `Adjust crop` with a concise explanation; `Replace image` remains available.
-
-This avoids adding a new source picker while preventing accidental cropping from unrelated/answer-side Case pages.
-
-Existing Asset warnings remain visible. Cropping must not clear/downgrade answer-leakage or other warnings automatically.
+Cropping does not clear, downgrade, rewrite, or hide existing warnings, including answer-leakage warnings.
 
 ## Crop geometry contract
 
-Prefer a small pure helper module, e.g. `tools/slide-import-review/src/crop.js`, rather than embedding all geometry math into `app.js`.
+Prefer a small pure helper module such as `tools/slide-import-review/src/crop.js` for geometry/pixel conversion only.
 
-Keep it narrowly scoped to crop geometry; do not build a generic image-editor framework.
-
-Use **normalized source-image coordinates**:
+Use normalized source-image coordinates:
 
 ```text
 x, y, width, height ∈ [0, 1]
 ```
 
-Reasons:
-
-- geometry survives responsive re-rendering;
-- pointer math is independent of natural source resolution;
-- save-time mapping to source pixels is deterministic.
-
 Required helper behavior:
 
-- full-page initial rectangle `{ x: 0, y: 0, width: 1, height: 1 }`;
+- full-page initial rectangle;
 - move while preserving size and clamping to bounds;
-- resize by `n`, `s`, `e`, `w`, `ne`, `nw`, `se`, `sw`;
-- preserve the opposite edge/corner while resizing;
+- resize by all eight directions while preserving the opposite edge/corner;
 - enforce a small minimum visible crop size derived from rendered dimensions rather than a large arbitrary normalized constant;
-- convert normalized rectangle to integer natural-image pixel bounds without escaping the source image;
-- never upscale during save: output canvas pixel dimensions equal the selected natural-source pixel dimensions.
+- convert normalized geometry to integer natural-image pixel bounds without escaping the source;
+- never upscale: output dimensions equal the selected natural-source pixel dimensions.
 
-Do not use CSS `object-fit` geometry that introduces hidden letterboxing offsets. The crop wrapper should track the rendered image's actual aspect-ratio box so pointer coordinates map directly to the image.
+Avoid geometry based on hidden `object-fit` letterboxing offsets. Pointer coordinates must map directly to the rendered image box.
 
-## Save-crop byte pipeline
+## Output format
 
-`Save crop` should use native browser APIs only:
+Preserve the learner Asset's current path and MIME:
+
+- `image/png` Asset → encode PNG;
+- `image/jpeg` Asset → encode JPEG with one documented high-quality value, `quality: 0.98`.
+
+Do not lower JPEG quality dynamically to make an oversized crop pass.
+
+A crop whose encoded output exceeds `PRODUCTION_LIMITS.maxImageBytes` fails visibly and leaves the existing learner Asset untouched.
+
+## Protected-operation serialization
+
+### Crop Save must use the existing `operationGuard`
+
+An accepted crop Save is a protected reviewer operation. Do not create a separate crop-operation lock or concurrency state machine.
+
+Required sequence:
 
 ```text
-linked source-preview <img>
-→ naturalWidth / naturalHeight
-→ normalized crop → source pixel rectangle
-→ canvas.drawImage(...)
-→ canvas.toBlob(...)
-→ Uint8Array
-→ existing learner-image replacement/update path
+Save crop clicked
+→ acquire operationGuard token for crop save
+→ if guard acquisition fails, do not start save work
+→ disable conflicting reviewer operations through existing guard UI behavior
+→ perform all precommit work
+→ re-check guard/session/generation
+→ commit bytes + review metadata
+→ persist through existing path and await completion
+→ finish operationGuard
 ```
 
-### Output format
+Acquire the guard **before the first asynchronous decode/raster/hash step**. Holding the guard only around the final mutation is insufficient because backup/finalize/open could otherwise observe the old image while the accepted crop Save is still pending.
 
-Preserve the learner Asset's current manifest MIME type and path.
+While crop Save is active:
 
-- current `image/png` Asset → encode PNG;
-- current `image/jpeg` Asset → encode JPEG at a single documented high-quality setting (`quality: 0.98`).
+- `Back up reviewed bundle` / reviewed export must not start;
+- `Create Import ZIP` / Finalize must not start;
+- opening another bundle must not start;
+- a second crop Save must not start;
+- if another protected operation was already active, crop Save must not start.
 
-Do not automatically lower JPEG quality to make an oversized crop pass validation. If the resulting bytes exceed the current production image-size limit, fail visibly and leave the old learner image unchanged.
+The guard remains active until the crop commit has gone through the existing persistence path. Therefore, when a later export/finalize/open operation is accepted, it observes the committed cropped state, not the old learner bytes.
 
-This is an explicit human-requested transformation, not background/silent recompression.
+Do not bypass `operationGuard` with a second mutex/flag simply for crop operations.
 
-### Validation before mutation
+### Unload protection
 
-Before replacing any bytes, require:
+An accepted in-flight crop Save counts as in-flight/unsaved work for `beforeunload` protection from the instant the guard accepts it until the protected save finishes or fails.
 
-- source image has valid non-zero natural dimensions;
-- crop converts to a non-zero pixel rectangle;
-- Canvas context/rasterization succeeds;
-- Blob/bytes are non-empty;
-- resulting MIME bytes are detected as the Asset's existing JPEG/PNG MIME;
-- resulting byte size is within `PRODUCTION_LIMITS.maxImageBytes`.
+Prefer deriving this from the existing protected-operation state/token rather than maintaining a parallel unsynchronized boolean. The implementation may expose a small helper such as `hasProtectedUnsavedWork()` if needed, but the source of truth remains the existing operation guard/crop operation identity.
 
-If any step fails:
+## Strict precommit boundary
 
-- show an ordinary reviewer error;
-- keep original learner bytes and metadata untouched;
-- keep the crop editor available where practical so the reviewer can adjust and retry.
+This boundary is non-negotiable.
 
-## Learner-Asset mutation semantics
+### Phase A — prepare, with zero bundle mutation
 
-Do not create a second mutation implementation for crop saves.
+Complete **all fallible preparation work** before writing learner bytes or mutating manifest/review state:
 
-Factor/reuse a small internal helper around the existing replacement side effects so manual `Replace image` and `Save crop` cannot drift on validation/invalidation/persistence behavior.
+```text
+resolve Asset-linked source
+→ ensure/decode source image and non-zero natural dimensions
+→ normalize crop to natural pixel rectangle
+→ create Canvas/context
+→ draw source crop
+→ encode Blob
+→ materialize Uint8Array
+→ verify non-empty bytes
+→ verify detected MIME matches existing Asset MIME
+→ verify production size limit
+→ compute SHA-256 of final bytes
+```
 
-For a successful crop, mutate only what is required:
+Until SHA-256 has completed successfully, the following must remain unchanged:
+
+- `fileStore()` learner bytes / media override;
+- Asset manifest record;
+- linked Asset review status;
+- linked Asset review SHA/extraction method;
+- warnings/sourceRefs/reviewNotes/confidence;
+- cache/object URL state;
+- persistence state.
+
+A failure in decode, rasterization, Blob creation, MIME detection, size validation, or **SHA-256** leaves the old bytes and metadata exactly intact.
+
+### Phase B — revalidate ownership immediately before commit
+
+After all preparation succeeds and immediately before the first mutation, verify all captured ownership still matches:
+
+- `operationGuard.isCurrent(cropSaveToken)`;
+- same `loadGeneration`;
+- same bundle object/identity;
+- same Case id;
+- same Asset id and path;
+- same crop-session token/source path;
+- Asset/review relationships needed for commit still resolve as expected.
+
+If any check fails, abandon the prepared bytes without mutation.
+
+### Phase C — commit one prepared result
+
+Only after Phase B succeeds:
+
+1. `fileStore().set(existingAssetPath, preparedBytes)`;
+2. apply the prepared digest and review metadata to every linked Asset review;
+3. invalidate only the affected learner-image cache/object URL;
+4. refresh review queue/status calculations;
+5. persist via the existing autosave/snapshot path and await it;
+6. re-render from the new stored bytes;
+7. finish the protected operation.
+
+The commit result for a crop is:
 
 ```text
 same Asset id
 same Asset path
-same Asset MIME type
+same Asset MIME
 same originalFilename
-same altText/source metadata
+same altText/sourceLabel/sourceUrl/licence
 same CaseAsset relationship/caption/displayOrder
-new file bytes at existing path
+new learner-image bytes
 new SHA-256
 extractionMethod = human_crop
+non-rejected linked Asset reviews = needs_review
+rejected linked Asset reviews remain rejected
 ```
 
-For every review record linked to that Asset:
+Warnings, confidence, `sourceRefs`, and `reviewNotes` remain unchanged.
 
-- update `sha256` to the digest of the new bytes;
-- set `extractionMethod = "human_crop"`;
-- if status is not `rejected`, move it to `needs_review`;
-- if status is already `rejected`, preserve rejected-child semantics;
-- preserve warnings, confidence, sourceRefs, and reviewNotes unchanged.
+Do not mutate `source-previews/`.
 
-Then:
+### Shared replacement helper
 
-- invalidate only the learner Asset path's cached object URL/bytes as current replacement behavior requires;
-- refresh review queue/status calculations;
-- persist through the existing autosave/snapshot path;
-- re-render the learner image from the newly stored bytes.
+Reuse/refactor the existing manual image-replacement path only enough to prevent validation/invalidation semantics from drifting.
 
-Do not mutate the immutable `source-previews/` entry.
+A good shape is a two-stage boundary:
 
-Do not add crop coordinates to `review-map.json`; the actual replacement media bytes are the durable reviewed learner Asset.
+```text
+prepare/validate/hash replacement bytes   // no bundle mutation
+commit prepared learner-image replacement // minimal deterministic mutation + persist
+```
 
-## Async/race safety
+The crop path must preserve Asset MIME/original filename. Manual `Replace image` keeps its existing behavior, including its current allowed MIME/file-name updates. Do not accidentally change manual replacement UX while sharing helpers.
 
-Crop save includes asynchronous image decode/rasterization/hash/persistence and must not be allowed to complete into stale reviewer state.
+## Async stale-work rules
 
-At save start, capture the current:
+At Save start capture:
 
+- operation token;
 - `loadGeneration`;
-- bundle identity/reference;
+- bundle reference/identity;
 - Case id;
 - Asset id/path;
-- crop-session token/state.
+- source preview path;
+- crop-session token and geometry snapshot.
 
-After every asynchronous boundary that precedes mutation, and immediately before mutating file-store/manifest/review state, verify that the same bundle generation and crop session are still current.
+Preparation may cross async boundaries such as decode, Canvas/Blob conversion, hashing, and persistence. Re-check ownership after relevant async boundaries and always immediately before commit.
 
-If the user switches bundles/Cases or the crop session is cancelled while save work is pending, stale completion must be ignored and must not:
+Stale completion must never:
 
-- write into the new bundle;
-- alter statuses;
-- call persistence for the new bundle;
-- re-render stale DOM as current.
+- write into a later bundle;
+- write into a different Case/Asset;
+- change review statuses;
+- call persistence for a later bundle;
+- release/finish a different operation token;
+- render stale DOM as current.
 
-Disable the crop editor's own Save/Cancel/drag controls while an accepted Save operation is committing so duplicate saves cannot race each other. Do not freeze the entire reviewer with a new global operation model unless current implementation evidence requires it.
+Because the accepted crop Save owns `operationGuard`, ordinary protected bundle-open/export/finalize operations should be blocked rather than racing it.
 
 ## Proposed implementation surface
 
-Keep the change inside the existing reviewer subsystem.
+Keep the change in `tools/slide-import-review/`.
 
 Expected maintainable files:
 
-- `tools/slide-import-review/src/app.js`
+- `src/app.js`
   - crop-session state;
-  - source-candidate resolution integration;
+  - Asset-source resolution integration;
   - inline editor rendering/wiring;
+  - pointer-capture lifecycle;
   - Canvas rasterization;
-  - common learner-image byte commit path shared with `Replace image`;
-  - stale-generation/session guards.
-- `tools/slide-import-review/src/crop.js` (preferred)
-  - normalized geometry operations and pixel conversion only.
-- `tools/slide-import-review/index.template.html`
-  - minimal crop editor/handle styling and responsive behavior.
-- `tools/slide-import-review/scripts/build.mjs`
-  - include the new helper module in the standalone build if `crop.js` is added.
-- `tools/slide-import-review/tests/crop.test.js` (preferred)
-  - executable pure geometry/source-selection tests where helpers live.
-- `tools/slide-import-review/tests/browser-transitions.test.js`
-  - executable reviewer-state/save/cancel/race behavior; do not substitute static regex/source inspection for these transitions.
-- `tools/slide-import-review/README.md`
-  - document `Adjust crop` and its source-page limitation.
-- generated `tools/slide-import-review/reviewer.html`
-  - regenerate via existing build path; do not hand-edit independently.
+  - protected crop-save orchestration;
+  - prepare → revalidate → commit integration;
+  - shared learner-image replacement helper where appropriate;
+  - beforeunload protected-save awareness.
+- `src/crop.js` (preferred)
+  - pure geometry/pixel conversion, and pure source-candidate helpers if that remains cohesive.
+- `index.template.html`
+  - minimal crop styling/handles.
+- `scripts/build.mjs`
+  - bundle `crop.js` into standalone reviewer if added.
+- `tests/crop.test.js` (preferred)
+  - geometry/source-resolution helper coverage.
+- `tests/browser-transitions.test.js`
+  - actual crop entry/cancel/save, pointer wiring, protected-operation races, stale completion, failure atomicity, unload behavior.
+- `README.md`
+  - document `Adjust crop`, Asset-linked source limitation, and that Save is a protected operation.
+- generated `reviewer.html`
+  - regenerate through the existing build path only.
 
-If the current code makes a slightly different file split materially simpler, keep the same behavioral contracts and avoid broad refactoring.
+If current code makes a slightly different split materially simpler, preserve these behavior contracts and avoid broad refactoring.
 
 ## Implementation tranches
 
-### Tranche 1 — Geometry + common byte-commit path
+### Tranche 1 — geometry + prepare/commit replacement boundary
 
-- add/test normalized crop geometry helpers;
-- identify/refactor the minimal common learner-image byte mutation helper shared by manual replacement and crop save;
-- preserve current `Replace image` behavior exactly;
-- no UI behavior change yet beyond what is needed to make the helper testable.
+Implement/test:
+
+- normalized geometry helpers;
+- source-pixel conversion;
+- minimal shared image prepare/commit helpers;
+- validation + SHA occurring before mutation;
+- existing manual `Replace image` behavior unchanged.
 
 Checkpoint proof:
 
 - geometry helper tests pass;
-- existing replacement/dependency-invalidation tests still pass;
-- no schema/dependency changes.
+- executable SHA-failure test proves old bytes and metadata remain untouched;
+- existing replacement/dependency-invalidation tests remain green;
+- no schema/dependency change.
 
-### Tranche 2 — Inline crop UI + source resolution
+### Tranche 2 — inline crop UI + source safety + pointer lifecycle
 
-- add `Adjust crop` action;
-- resolve only Asset-linked source previews using the rules above;
-- render source preview inline with full-page initial crop;
-- wire move + 8 resize directions;
-- add Reset/Cancel/Save controls;
-- cancel transient crop state on navigation/bundle replacement.
+Implement/test:
 
-Checkpoint proof:
-
-- executable browser-transition coverage proves entry/cancel/source eligibility behavior;
-- manual local smoke confirms the box can be moved/resized without a modal.
-
-### Tranche 3 — Rasterize + save safely
-
-- implement Canvas crop-to-bytes;
-- preserve current Asset MIME/path/metadata;
-- validate bytes/size before mutation;
-- commit through the common byte-update path;
-- SHA/update linked reviews to `human_crop` + `needs_review` semantics;
-- add generation/session guards and duplicate-save prevention;
-- persist and re-render.
+- `Adjust crop` action;
+- Asset-linked source resolution only;
+- full-source initial crop;
+- move + eight resize directions;
+- pointer capture and active `pointerId` filtering;
+- cleanup on `pointerup`, `pointercancel`, `lostpointercapture`;
+- Reset/Cancel/Save controls;
+- transient unsaved crop discarded on ordinary navigation.
 
 Checkpoint proof:
 
-- executable browser test invokes the actual save transition with a deterministic/stubbed rasterizer boundary and proves exact state mutation;
-- stale async completion test proves no mutation after generation/session change;
-- oversize/wrong-MIME/rasterization failure leaves original bytes unchanged.
+- executable browser transition proves source eligibility and Cancel no-op;
+- executable pointer wiring proves capture + cleanup;
+- manual smoke verifies move/resize without a modal.
 
-### Tranche 4 — Integration/docs/build/handoff
+### Tranche 3 — protected Canvas Save + atomic commit
 
+Implement/test:
+
+- Canvas crop-to-bytes;
+- PNG/JPEG encoding contract;
+- acquire `operationGuard` before async preparation;
+- full precommit validation + SHA;
+- immediate generation/session/operation re-check;
+- deterministic prepared-result commit;
+- persistence awaited before guard release;
+- unload protection while crop Save is active;
+- stale-work rejection.
+
+Checkpoint proof:
+
+- actual save transition mutates exact expected learner Asset bytes/metadata;
+- raster/MIME/size/SHA failures are atomic;
+- deferred crop-save race proves backup, Finalize, and bundle-open cannot start/observe the old image while Save is pending, and after completion the next protected operation sees the new bytes;
+- duplicate Save cannot race;
+- stale completion cannot mutate a later state.
+
+### Tranche 4 — regression/docs/build/handoff
+
+- complete focused executable regression coverage;
 - update README;
-- regenerate standalone `reviewer.html`;
-- run the repository-owned slide-review specialized checks and final handoff validation;
-- perform the manual representative-bundle smoke below;
-- keep PR Draft until implementation and review are complete.
+- regenerate `reviewer.html`;
+- perform representative-bundle manual smoke;
+- run repository-required slide-review and final handoff validation;
+- keep PR Draft until review says otherwise.
 
-## Executable acceptance contract
+## Executable acceptance matrix
 
-Important invariants must be proven at the correct layer rather than only by source inspection.
+Static/regex inspection may supplement but cannot satisfy these items.
 
 | Invariant | Required behavior | Required executable proof |
 | --- | --- | --- |
-| Crop geometry | move/8-direction resize stays in bounds and respects minimum size | direct geometry tests exercising helper functions |
-| Source safety | crop can only start from Asset-linked `sourceRefs`; unrelated selected Case page is rejected | executable source-resolution/browser transition test |
-| Cancel safety | Cancel makes no media/status/persistence mutation | browser transition invoking actual cancel path |
-| Save mutation | successful Save replaces exact Asset-path bytes, updates SHA + `human_crop`, invalidates non-rejected linked reviews | browser transition invoking actual save path with deterministic rasterizer output |
-| Metadata stability | id/path/MIME/originalFilename/alt text/caption/displayOrder are unchanged by crop | executable save assertion |
-| Rejected semantics | already-rejected linked Asset review stays rejected | executable save assertion |
-| Error atomicity | raster/MIME/size failure leaves original bytes/review metadata intact | executable failure-path tests |
-| Async isolation | stale save completion after bundle/crop-session change cannot mutate current state | deferred-promise race test |
-| Persistence | successful crop is present in media overrides/snapshot and survives exact-fingerprint restore path | executable save + snapshot/restore test where practical |
-| Final artifact | standalone reviewer is generated from maintainable sources and is in sync | existing build/check test + `npm run slide-review:build` |
+| Geometry | move + 8-direction resize remain bounded and respect minimum size | direct helper tests |
+| Source safety | crop source cannot escape Asset `sourceRefs` | source-resolution/browser transition test |
+| Pointer lifecycle | one active pointer is captured; secondary pointers ignored; up/cancel/lost-capture clean up | executable DOM/event wiring test |
+| Cancel | no byte/status/SHA/cache/persist mutation | actual cancel transition |
+| Precommit atomicity | decode/raster/MIME/size/SHA failures leave old state unchanged | executable failure tests including forced SHA rejection |
+| Save serialization | accepted crop Save owns existing `operationGuard` until persistence completes | deferred protected-operation race test |
+| Export/finalize/open isolation | while crop Save is deferred, backup, Finalize, and bundle-open do not run/observe old media; after completion subsequent operation sees new media | actual deferred save + operation attempts |
+| Unload safety | accepted in-flight crop Save triggers unload protection until completed/failed | executable beforeunload state test |
+| Save mutation | exact Asset path receives prepared bytes; SHA + `human_crop` + non-rejected invalidation applied | actual save transition |
+| Metadata stability | crop preserves stable Asset/CaseAsset metadata | executable save assertions |
+| Rejected semantics | linked rejected Asset review remains rejected | executable save assertion |
+| Stale isolation | invalid generation/session/token cannot commit prepared bytes | deferred stale-work test |
+| Persistence | crop override enters existing snapshot/restore only for exact fingerprint | executable save + snapshot/restore test |
+| Replace regression | manual `Replace image` behavior remains unchanged | existing + focused regression tests |
+| Standalone artifact | generated reviewer matches maintainable sources | existing build/check path |
 
-Static/regex checks may supplement these tests but do not satisfy the behavioral acceptance items above by themselves.
-
-## Focused regression coverage
+## Minimum regression inventory
 
 At minimum cover:
 
-1. full-page initial crop rectangle;
-2. move clamps at all image boundaries;
-3. each edge resize and representative corner resizes;
-4. minimum crop-size enforcement;
-5. normalized-to-natural-pixel conversion with no out-of-bounds result;
-6. one Asset source preview starts directly;
-7. multiple Asset source previews require the currently selected page to be one of the candidates;
-8. selected Case source page outside the Asset's sourceRefs cannot be used;
-9. missing preview disables/fails crop safely while manual Replace remains available;
-10. Cancel performs no mutation/persist;
-11. Reset returns to full source bounds;
-12. successful crop replaces bytes at the same Asset path and preserves stable metadata;
-13. SHA is recomputed from actual cropped bytes;
-14. extraction method becomes `human_crop`;
-15. all non-rejected linked Asset reviews become `needs_review`; rejected review stays rejected;
-16. warnings/sourceRefs/reviewNotes are preserved;
-17. cached learner-image URL is invalidated while the source preview remains unchanged;
-18. crop output over the production size limit fails atomically;
-19. detected output MIME mismatch fails atomically;
-20. stale async crop completion after navigation/bundle switch is ignored;
-21. duplicate Save cannot commit twice/race;
-22. crop media override participates in existing snapshot/restore semantics;
-23. existing manual `Replace image` behavior remains unchanged;
-24. generated `reviewer.html` remains in sync.
+1. full-source initial rectangle;
+2. move clamps at each boundary;
+3. all edge resizes and representative corner resizes;
+4. minimum-size enforcement;
+5. normalized-to-natural pixel conversion stays in bounds;
+6. one Asset source candidate starts directly;
+7. multiple candidates require the selected source to be one of them;
+8. unrelated Case source page cannot be used;
+9. no usable preview fails safely while Replace remains available;
+10. pointer capture occurs for accepted drag;
+11. non-active pointer moves/up events are ignored;
+12. pointerup cleanup;
+13. pointercancel cleanup;
+14. lostpointercapture cleanup;
+15. Reset returns full bounds;
+16. Cancel performs no mutation or persist;
+17. successful crop replaces same Asset-path bytes and preserves stable metadata;
+18. SHA is computed from final cropped bytes before mutation;
+19. extraction method becomes `human_crop`;
+20. non-rejected linked Asset reviews become `needs_review`; rejected stays rejected;
+21. warnings/sourceRefs/reviewNotes/confidence remain unchanged;
+22. only learner-image cache/object URL is invalidated;
+23. oversized output fails atomically;
+24. MIME mismatch fails atomically;
+25. raster/decode failure fails atomically;
+26. forced SHA failure leaves old bytes + metadata untouched;
+27. stale generation/session/token completion cannot commit;
+28. duplicate Save cannot race;
+29. deferred accepted Save blocks reviewed-bundle export;
+30. deferred accepted Save blocks Finalize;
+31. deferred accepted Save blocks opening another bundle;
+32. post-save protected operation sees new learner bytes;
+33. in-flight crop Save participates in `beforeunload` protection;
+34. media override survives existing exact-fingerprint snapshot/restore behavior;
+35. manual `Replace image` remains unchanged;
+36. generated `reviewer.html` is in sync.
 
 ## Manual acceptance smoke
 
-Use a representative review bundle containing a learner image that is visibly cropped incorrectly, such as a slide table where the current learner image omits some rows/columns.
+Use a representative review bundle with a visibly incorrect learner crop, preferably a table/figure with omitted rows or columns.
 
-Confirm the real workflow:
+Confirm:
 
 ```text
 open Case
 → inspect bad learner image
-→ click Adjust crop
-→ correct linked source slide appears inside that Asset card
-→ drag crop edges/corners until the desired complete table/figure is selected
+→ Adjust crop
+→ correct Asset-linked source appears inline
+→ move/resize crop
 → Save crop
-→ card returns to normal learner-image view showing the new crop
-→ Asset status is needs review
+→ card returns to learner-image view with corrected crop
+→ Asset is needs review
 → continue reviewing
 ```
 
 Also confirm:
 
 - no modal appears;
-- source preview evidence in the left panel remains unchanged;
-- Reset restores full-page selection;
-- Cancel restores the original learner image with no status/save change;
-- after Save, re-approving the image and navigating away/back shows the cropped learner bytes;
-- closing/reopening the same source review ZIP restores the saved crop through existing exact-fingerprint local persistence;
-- backing up the reviewed bundle preserves the cropped learner Asset;
-- after required approvals, final `flashcards-import-v1.zip` contains the cropped learner Asset and no source-preview files;
-- an Asset with ambiguous/multiple source pages does not silently crop from an unrelated selected Case page.
+- left source evidence remains unchanged;
+- Reset restores full source;
+- Cancel restores original learner image with no save/status change;
+- pointer drag does not get stuck when pointer leaves the crop surface;
+- while Save is actively pending, backup/finalize/open bundle controls cannot race it;
+- after Save, backup contains the cropped learner image;
+- after required approvals, final Import ZIP contains the cropped learner image and no `source-previews/`;
+- ambiguous multiple Asset sources never silently use an unrelated selected Case page.
 
 ## Validation
 
-Follow current repository routing and progressive retrieval rather than preloading unrelated docs.
+Follow current repository routing/progressive retrieval.
 
-For this subsystem the required specialized checks remain:
+Required subsystem checks remain:
 
 ```text
 npm run slide-review:test
 npm run slide-review:build
 ```
 
-Also run current `agent:checks` guidance and every final check it requires before handoff. Do not claim local checks ran unless they actually ran.
+Then run current `agent:checks` guidance and every final required check before handoff. Do not claim a check ran unless it actually ran.
 
 ## Luna/Codex implementation instruction
 
-When implementation begins:
-
-> Continue this existing Draft PR; do not create a new PR or restart from `main`. Implement `docs/SLIDE_REVIEWER_INLINE_CROP_PLAN.md` in the current slide-reviewer architecture. Treat the UX, source-selection safety, mutation semantics, async-race rules, and executable acceptance matrix as required contracts. Keep the solution dependency-free and narrowly scoped. Use progressive retrieval from the current repository authorities, implement in the four tranches, run focused executable tests at each tranche, then run repository-required slide-review and handoff validation. Do not mark Ready or merge.
+> Continue Draft PR #172. Do not create a new PR or restart from `main`. Implement this plan as the required contract. Keep the existing UX/source-selection/metadata/no-dependency/no-schema scope. In particular: serialize accepted crop Save through the existing `operationGuard`; complete decode/raster/MIME/size/SHA work before any bundle mutation; re-check operation + generation + session immediately before commit; use pointer capture with one active pointer and cleanup on up/cancel/lost capture; and satisfy the executable acceptance matrix rather than static source-inspection substitutes. Implement in the four tranches with focused executable tests, then run repository-required slide-review and final handoff validation. Do not mark Ready or merge.
 
 ## Completion criteria
 
-The PR is implementation-complete only when the ordinary reviewer can perform:
+The PR is implementation-complete only when the reviewer can perform:
 
 ```text
 bad learner image
@@ -483,4 +559,4 @@ bad learner image
 → continue
 ```
 
-with no new dependency, no modal, no schema change, no production/importer change, no source-preview mutation, and executable proof of the important save/cancel/source/race invariants.
+with no new dependency, no modal, no schema change, no production/importer change, no source-preview mutation, no operation overlap with export/finalize/bundle-open, and executable proof of pointer, precommit atomicity, stale-work, persistence, and protected-operation invariants.
