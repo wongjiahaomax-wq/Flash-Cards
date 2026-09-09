@@ -4,16 +4,17 @@ import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
+const readSource = path => readFile(path, 'utf8').then(source => source.replace(/\r\n?/g, '\n'));
 const [template, coreV2, coreFacade, app, autosave, resourceCache, reviewFilters, operationGuard, crop] = await Promise.all([
-  readFile(resolve(root, 'index.template.html'), 'utf8'),
-  readFile(resolve(root, 'src/core-v2.js'), 'utf8'),
-  readFile(resolve(root, 'src/core.js'), 'utf8'),
-  readFile(resolve(root, 'src/app.js'), 'utf8'),
-  readFile(resolve(root, 'src/autosave.js'), 'utf8'),
-  readFile(resolve(root, 'src/resource-cache.js'), 'utf8'),
-  readFile(resolve(root, 'src/review-filters.js'), 'utf8'),
-  readFile(resolve(root, 'src/operation-guard.js'), 'utf8'),
-  readFile(resolve(root, 'src/crop.js'), 'utf8')
+  readSource(resolve(root, 'index.template.html')),
+  readSource(resolve(root, 'src/core-v2.js')),
+  readSource(resolve(root, 'src/core.js')),
+  readSource(resolve(root, 'src/app.js')),
+  readSource(resolve(root, 'src/autosave.js')),
+  readSource(resolve(root, 'src/resource-cache.js')),
+  readSource(resolve(root, 'src/review-filters.js')),
+  readSource(resolve(root, 'src/operation-guard.js')),
+  readSource(resolve(root, 'src/crop.js'))
 ]);
 
 function moduleDataUrl(source) {
