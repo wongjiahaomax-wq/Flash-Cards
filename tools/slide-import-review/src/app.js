@@ -7,6 +7,7 @@ import { createAutosaveCoordinator } from './autosave.js';
 import { trimResourceUrlCache } from './resource-cache.js';
 import { hasActiveMissingAnswer } from './review-filters.js';
 import { createOperationGuard } from './operation-guard.js';
+import { fullCrop, minimumCropSize, moveCrop, resizeCrop, cropToPixels, resolveCropSourceCandidates } from './crop.js';
 
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
@@ -15,6 +16,7 @@ const inputSelector = 'input,textarea,select,[contenteditable="true"]';
 let bundle = null, bundleFingerprint = null, visibleCases = [], index = 0, filter = 'all', coverageMode = false, revealAnswers = true, selectedSourcePath = null, loadGeneration = 0;
 let indexes = null, urlCache = new Map(), saveTimer = null, saveChain = Promise.resolve(), saveVersion = 0, pendingSaveResolvers = [], saveInFlight = false;
 let dirty = false, dirtyBeforeFingerprint = false, editRevision = 0, lastSavedRevision = 0, saveGeneration = 0;
+let cropSession = null, cropSessionSequence = 0, cropDrag = null;
 let operationGuard;
 
 function updateOperationUi(active) {
@@ -23,6 +25,7 @@ function updateOperationUi(active) {
   $('drop').classList.toggle('busy', busy);
   $('review-shell').setAttribute('aria-busy', String(busy));
   document.querySelectorAll('#review-shell button, #review-shell select, #review-shell input, #review-shell textarea').forEach(element => { element.disabled = busy; });
+  if (!busy) updateCropActionAvailability();
 }
 
 operationGuard = createOperationGuard(() => ({ generation: loadGeneration, bundle }), updateOperationUi);
@@ -117,6 +120,33 @@ function linkedAssetReviews(assetId) {
   return result;
 }
 
+async function prepareLearnerImageReplacement(bytes, mimeType) {
+  const data = bytes instanceof Uint8Array ? new Uint8Array(bytes) : new Uint8Array(bytes);
+  if (!data.byteLength || data.byteLength > PRODUCTION_LIMITS.maxImageBytes) throw new ReviewBundleError(`Replacement image must be 1-${PRODUCTION_LIMITS.maxImageBytes} bytes.`);
+  if (!['image/jpeg', 'image/png'].includes(mimeType)) throw new ReviewBundleError('Replacement must be JPEG or PNG.');
+  if (detectImageType(data) !== mimeType) throw new ReviewBundleError('Replacement image bytes do not match the selected MIME type.');
+  const digest = await sha256Hex(data);
+  return { bytes: data, mimeType, digest };
+}
+
+function commitLearnerImageReplacement(assetId, prepared, { filename = null, extractionMethod = 'human_replacement', reviews = linkedAssetReviews(assetId), preserveAssetMetadata = false } = {}) {
+  const item = asset(assetId);
+  if (!item) throw new ReviewBundleError(`Asset ${assetId} is missing from the manifest.`);
+  if (!reviews.length) throw new ReviewBundleError(`Asset ${assetId} has no review metadata.`);
+  fileStore().set(item.path, prepared.bytes);
+  releaseUrl(item.path);
+  if (!preserveAssetMetadata) {
+    item.mimeType = prepared.mimeType;
+    if (filename) item.originalFilename = filename;
+  }
+  for (const review of reviews) {
+    review.sha256 = prepared.digest;
+    review.extractionMethod = extractionMethod;
+    if (review.reviewStatus !== 'rejected') review.reviewStatus = 'needs_review';
+  }
+  refreshQueue();
+}
+
 function releaseUrl(path) { const item = urlCache.get(path); if (item) { URL.revokeObjectURL(item.url); urlCache.delete(path); } }
 function releaseResources() { for (const path of [...urlCache.keys()]) releaseUrl(path); fileStore()?.clear?.(); selectedSourcePath = null; }
 function trimUrls(protectedPaths = new Set()) { trimResourceUrlCache(urlCache, protectedPaths, undefined, path => releaseUrl(path)); }
@@ -194,7 +224,50 @@ function bulkEligibleQuestions(caseId) {
 }
 
 function sourcePanel(meta, resources) { const pages = []; for (const ref of meta.sourceRefs) for (const page of ref.pages) { const coverage = indexes.coverage.get(`${ref.sourceId}:${page}`); if (coverage?.previewPath) pages.push({ ref, page, coverage, url: resources.get(coverage.previewPath) }); } const selected = pages.find(item => item.coverage.previewPath === selectedSourcePath) ?? pages[0]; selectedSourcePath = selected?.coverage.previewPath ?? null; return `<section class="panel source-panel"><div class="panel-heading"><h2>Original source</h2><button class="secondary" id="source-fullscreen" ${selected?.url ? '' : 'disabled'}>Open large</button></div><div class="source-meta"><b>Confidence:</b> ${esc(meta.confidence)}<br><b>Boundary notes:</b> ${esc(meta.caseBoundaryNotes || '—')}</div>${warningHtml(meta.warnings)}${notesHtml(meta.reviewNotes)}<div class="thumbs">${pages.map(item => item.url ? `<button class="thumb ${item.coverage.previewPath === selectedSourcePath ? 'selected' : ''} source-ref" data-source-path="${esc(item.coverage.previewPath)}"><img src="${item.url}" alt="Source page ${item.page}"><span>${esc(item.ref.sourceId)} · ${item.page}</span></button>` : `<span class="thumb missing">${esc(item.ref.sourceId)} · ${item.page}<br>preview not loaded</span>`).join('') || '<p class="muted">No linked source previews.</p>'}</div><div id="source-large">${selected?.url ? `<img class="source-large" src="${selected.url}" alt="Selected source page"><p>${esc(selected.ref.sourceId)} · page/slide ${selected.page}</p>` : ''}</div></section>`; }
-function assetCard(rel, meta, resources) { const item = asset(rel.assetId); if (!item) return `<div class="card error-card">Missing Asset ${esc(rel.assetId)}</div>`; const url = resources.get(item.path); return `<article class="card asset-card" data-asset="${esc(item.id)}"><div class="row between"><b>${esc(item.originalFilename || item.id)}</b>${meta ? statusSelect('asset', item.id, meta.reviewStatus) : '<span class="danger">Missing review metadata</span>'}</div>${url ? `<img class="learner-image" src="${url}" alt="${esc(item.altText || '')}">` : '<div class="danger">Media is not materialized yet or is missing.</div>'}<div class="small">Source: ${refsHtml(meta?.sourceRefs)} · extraction: ${esc(meta?.extractionMethod || '—')} · confidence: ${esc(meta?.confidence || '—')}<br>SHA-256: <details><summary>Show technical details</summary><code>${esc(meta?.sha256 || 'missing')}</code></details></div>${warningHtml(meta?.warnings)}${notesHtml(meta?.reviewNotes)}<details><summary>Edit learner image metadata</summary><label>Filename<input data-asset-field="originalFilename" value="${esc(item.originalFilename || '')}"></label><label>Alt text<input data-asset-field="altText" value="${esc(item.altText || '')}"></label><label>Source label<input data-asset-field="sourceLabel" value="${esc(item.sourceLabel || '')}"></label><label>Source URL<input data-asset-field="sourceUrl" value="${esc(item.sourceUrl || '')}"></label><label>Licence<input data-asset-field="licence" value="${esc(item.licence || '')}"></label><label>Caption<textarea data-rel-field="captionMd">${esc(rel.captionMd || '')}</textarea></label><label>Display order<input type="number" min="0" data-rel-field="displayOrder" value="${rel.displayOrder}"></label><button class="secondary replace-image">Replace image</button><input hidden type="file" accept="image/jpeg,image/png" data-replace></details></article>`; }
+function cropCandidates(assetId, caseId = visibleCases[index]?.caseId) {
+  const meta = indexes?.reviewAssets.get(caseId)?.get(assetId);
+  return resolveCropSourceCandidates(meta?.sourceRefs, bundle?.reviewMap.sourceCoverage, fileStore());
+}
+function selectedCropCandidate(assetId, caseId = visibleCases[index]?.caseId) {
+  const candidates = cropCandidates(assetId, caseId);
+  return candidates.length === 1 ? candidates[0] : candidates.find(item => item.previewPath === selectedSourcePath) ?? null;
+}
+function updateCropActionAvailability() {
+  if (!bundle || !indexes) return;
+  document.querySelectorAll('.adjust-crop').forEach(button => {
+    const candidates = cropCandidates(button.dataset.asset);
+    const available = candidates.length === 1 || candidates.some(item => item.previewPath === selectedSourcePath);
+    button.disabled = !available;
+    button.title = available ? '' : candidates.length ? 'Select one of this Asset’s source references first.' : 'Crop unavailable: no linked source preview is available.';
+  });
+}
+function selectCropSource(assetId, path) {
+  if (!cropCandidates(assetId).some(candidate => candidate.previewPath === path)) return;
+  selectedSourcePath = path;
+  updateCropActionAvailability();
+}
+function cropFrameStyle(crop) { return `left:${crop.x * 100}%;top:${crop.y * 100}%;width:${crop.width * 100}%;height:${crop.height * 100}%;`; }
+function cropEditorHtml(item, meta, resources) {
+  const session = cropSession?.assetId === item.id ? cropSession : null;
+  const source = session && cropCandidates(item.id, session.caseId).find(candidate => candidate.previewPath === session.sourcePath);
+  const sourceUrl = source && resources.get(source.previewPath);
+  if (!session || !source || !sourceUrl) return '<div class="crop-unavailable danger">The linked source preview could not be loaded. Cancel and use Replace image if needed.</div>';
+  const handles = ['n', 's', 'e', 'w', 'ne', 'nw', 'se', 'sw'].map(mode => `<span class="crop-handle crop-handle-${mode}" data-crop-mode="${mode}" aria-label="Resize crop ${mode}"></span>`).join('');
+  return `<div class="crop-editor" data-crop-editor="${esc(item.id)}"><p class="small"><b>Adjust crop</b> · Cropping from ${esc(source.sourceId)} · page/slide ${source.page}</p><div class="crop-surface" data-crop-surface="${esc(item.id)}"><img class="crop-source-image" src="${esc(sourceUrl)}" alt="Source page ${source.page}"><div class="crop-frame" data-crop-mode="move" style="${cropFrameStyle(session.crop)}">${handles}</div></div><div class="row crop-actions"><button type="button" class="secondary" data-crop-reset="${esc(item.id)}">Reset</button><button type="button" class="secondary" data-crop-cancel="${esc(item.id)}">Cancel</button><button type="button" data-crop-save="${esc(item.id)}">Save crop</button></div></div>`;
+}
+function cropActionHtml(item, meta) {
+  const candidates = cropCandidates(item.id), available = candidates.length === 1 || candidates.some(candidate => candidate.previewPath === selectedSourcePath);
+  const selected = candidates.find(candidate => candidate.previewPath === selectedSourcePath);
+  const sourcePicker = candidates.length > 1 ? `<label class="crop-source-picker">Crop source<select data-crop-source="${esc(item.id)}"><option value="" disabled ${selected ? '' : 'selected'}>Select an Asset source…</option>${candidates.map(candidate => `<option value="${esc(candidate.previewPath)}" ${candidate.previewPath === selectedSourcePath ? 'selected' : ''}>${esc(candidate.sourceId)} · page/slide ${candidate.page}</option>`).join('')}</select></label>` : '';
+  const explanation = candidates.length ? (available ? '' : '<span class="small muted crop-help">Select one of this Asset’s source references first.</span>') : '<span class="small muted crop-help">Crop unavailable: no linked source preview is available.</span>';
+  return `${sourcePicker}<button type="button" class="secondary adjust-crop" data-asset="${esc(item.id)}" ${available ? '' : 'disabled'}>Adjust crop</button>${explanation}`;
+}
+function assetMetadataHtml(rel, item) { return `<details><summary>Edit learner image metadata</summary><label>Filename<input data-asset-field="originalFilename" value="${esc(item.originalFilename || '')}"></label><label>Alt text<input data-asset-field="altText" value="${esc(item.altText || '')}"></label><label>Source label<input data-asset-field="sourceLabel" value="${esc(item.sourceLabel || '')}"></label><label>Source URL<input data-asset-field="sourceUrl" value="${esc(item.sourceUrl || '')}"></label><label>Licence<input data-asset-field="licence" value="${esc(item.licence || '')}"></label><label>Caption<textarea data-rel-field="captionMd">${esc(rel.captionMd || '')}</textarea></label><label>Display order<input type="number" min="0" data-rel-field="displayOrder" value="${rel.displayOrder}"></label><button type="button" class="secondary replace-image">Replace image</button><input hidden type="file" accept="image/jpeg,image/png" data-replace></details>`; }
+function assetCard(rel, meta, resources) {
+  const item = asset(rel.assetId); if (!item) return `<div class="card error-card">Missing Asset ${esc(rel.assetId)}</div>`;
+  const url = resources.get(item.path), cropping = cropSession?.assetId === item.id && cropSession.caseId === visibleCases[index]?.caseId;
+  return `<article class="card asset-card" data-asset="${esc(item.id)}"><div class="row between"><b>${esc(item.originalFilename || item.id)}</b>${meta ? statusSelect('asset', item.id, meta.reviewStatus) : '<span class="danger">Missing review metadata</span>'}</div>${cropping ? cropEditorHtml(item, meta, resources) : url ? `<img class="learner-image" src="${url}" alt="${esc(item.altText || '')}"><div class="row crop-toolbar">${cropActionHtml(item, meta)}</div>` : `<div class="danger">Media is not materialized yet or is missing.</div><div class="row crop-toolbar">${cropActionHtml(item, meta)}</div>`}<div class="small">Source: ${refsHtml(meta?.sourceRefs)} · extraction: ${esc(meta?.extractionMethod || '—')} · confidence: ${esc(meta?.confidence || '—')}<br>SHA-256: <details><summary>Show technical details</summary><code>${esc(meta?.sha256 || 'missing')}</code></details></div>${warningHtml(meta?.warnings)}${notesHtml(meta?.reviewNotes)}${assetMetadataHtml(rel, item)}</article>`;
+}
 function questionCard(item, meta, number) { const questionPrompt = prompt(item.questionPromptId); return `<article class="card question-card" data-question="${esc(item.id)}"><div class="row between question-heading"><div class="question-id"><b>Q${number}</b><span class="technical-id">${esc(item.id)}</span></div>${meta ? statusSelect('question', item.id, meta.reviewStatus) : '<span class="danger">Missing review metadata</span>'}</div><div class="small question-source">Prompt source: ${refsHtml(meta?.promptSourceRefs)} · Answer source: ${refsHtml(meta?.answerSourceRefs)} · Confidence: ${esc(meta?.confidence || '—')}</div>${warningHtml(meta?.warnings)}${notesHtml(meta?.reviewNotes)}<label>Prompt<textarea class="auto-grow" data-question-field="promptMd">${esc(questionPrompt?.promptMd || '')}</textarea></label><label class="answer ${revealAnswers ? '' : 'hidden'}">Answer<textarea class="auto-grow" data-question-field="answerMd">${esc(item.answerMd || '')}</textarea></label></article>`; }
 function unresolvedCard(candidate) { return `<article class="card unresolved" data-unresolved="${esc(candidate.candidateId)}"><div class="row between"><b>${esc(candidate.candidateId)}</b><span class="badge ${esc(candidate.reviewStatus)}">${esc(candidate.reviewStatus)}</span></div><div class="small">Prompt source: ${refsHtml(candidate.promptSourceRefs)}<br>Answer source: ${refsHtml(candidate.answerSourceRefs)} · confidence: ${esc(candidate.confidence)}</div>${warningHtml(candidate.warnings)}${notesHtml(candidate.reviewNotes)}<label>Prompt<textarea class="auto-grow" data-u-prompt>${esc(candidate.proposedPrompt)}</textarea></label><label>Answer<textarea class="auto-grow" data-u-answer placeholder="Required to include"></textarea></label><div class="row"><button class="resolve-u">Create Prompt + Case Question</button><button class="secondary reject-u">Reject unresolved question</button></div></article>`; }
 function proposedPanel(meta, resources) {
@@ -204,21 +277,187 @@ function proposedPanel(meta, resources) {
 }
 function queueHtml() { return `<div class="queue-heading"><b>Cases</b><span class="small">${visibleCases.length} in queue</span></div>${visibleCases.map((item, i) => { const title = manifestCase(item.caseId)?.title?.trim() || 'Untitled Case'; const flags = indexes.caseFlags.get(item.caseId); const problem = flags?.blocking ? ' · blocking' : flags?.missing ? ' · missing answer' : flags?.image ? ' · image warning' : ''; return `<button class="queue-item ${i === index ? 'selected' : ''}" data-queue-index="${i}"><span><b>${esc(title)}</b><small>Case ${i + 1} · ${esc(item.caseId)}</small></span><span class="queue-state ${esc(item.reviewStatus)}" title="${esc(item.reviewStatus + problem)}">${item.reviewStatus === 'needs_review' ? '!' : item.reviewStatus[0].toUpperCase()}${problem ? ' ·' : ''}</span></button>`; }).join('')}`; }
 function updateNavigation() { $('prev').disabled = index <= 0; $('next').disabled = index >= visibleCases.length - 1 || !visibleCases.length; $('position').textContent = visibleCases.length ? `Case ${index + 1} of ${visibleCases.length}` : 'No Cases'; }
-async function renderCurrent() { if (!bundle || coverageMode) return renderCoverage(); updateCounts(); if (!visibleCases.length) { $('workspace').innerHTML = '<div class="empty">No Cases match this filter.</div>'; updateNavigation(); return; } const meta = visibleCases[index], generation = loadGeneration, paths = []; for (const ref of meta.sourceRefs) for (const page of ref.pages) { const coverage = indexes.coverage.get(`${ref.sourceId}:${page}`); if (coverage?.previewPath) paths.push(coverage.previewPath); } for (const rel of caseAssets(meta.caseId)) { const item = asset(rel.assetId); if (item?.path) paths.push(item.path); } const resources = await loadResources([...new Set(paths)], generation); if (generation !== loadGeneration || !bundle || visibleCases[index]?.caseId !== meta.caseId) return; $('workspace').innerHTML = `<div class="review-layout"><aside class="queue" id="queue">${queueHtml()}</aside><div class="review-grid">${sourcePanel(meta, resources)}${proposedPanel(meta, resources)}</div></div>`; wireCurrent(meta); prefetchAdjacent(generation); updateNavigation(); }
+async function renderCurrent() { if (!bundle || coverageMode) return renderCoverage(); updateCounts(); if (!visibleCases.length) { $('workspace').innerHTML = '<div class="empty">No Cases match this filter.</div>'; updateNavigation(); return; } const meta = visibleCases[index], generation = loadGeneration, paths = []; for (const ref of meta.sourceRefs) for (const page of ref.pages) { const coverage = indexes.coverage.get(`${ref.sourceId}:${page}`); if (coverage?.previewPath) paths.push(coverage.previewPath); } for (const rel of caseAssets(meta.caseId)) { const item = asset(rel.assetId), review = indexes.reviewAssets.get(meta.caseId)?.get(rel.assetId); if (item?.path) paths.push(item.path); for (const candidate of resolveCropSourceCandidates(review?.sourceRefs, bundle.reviewMap.sourceCoverage, fileStore())) paths.push(candidate.previewPath); } const resources = await loadResources([...new Set(paths)], generation); if (generation !== loadGeneration || !bundle || visibleCases[index]?.caseId !== meta.caseId) return; $('workspace').innerHTML = `<div class="review-layout"><aside class="queue" id="queue">${queueHtml()}</aside><div class="review-grid">${sourcePanel(meta, resources)}${proposedPanel(meta, resources)}</div></div>`; wireCurrent(meta); prefetchAdjacent(generation); updateNavigation(); }
 async function prefetchAdjacent(generation) { const candidates = [visibleCases[index - 1], visibleCases[index + 1]].filter(Boolean), paths = []; for (const meta of candidates) for (const rel of caseAssets(meta.caseId)) { const item = asset(rel.assetId); if (item?.path) paths.push(item.path); } let count = 0; for (const path of [...new Set(paths)]) { if (count++ >= 4 || generation !== loadGeneration) break; await resourceUrl(path, indexes.byPath.get(path)?.mimeType, generation, new Set()); } }
-async function sourceSelect(path) { if (!path || !bundle) return; selectedSourcePath = path; const generation = loadGeneration, image = await resourceUrl(path, null, generation, new Set([path])); if (generation !== loadGeneration || !image) return; const thumb = document.querySelector(`[data-source-path="${CSS.escape(path)}"]`); if (thumb) { document.querySelectorAll('.thumb').forEach(item => item.classList.remove('selected')); thumb.classList.add('selected'); } const target = $('source-large'); if (target) target.innerHTML = `<img class="source-large" src="${image}" alt="Selected source page">`; }
+async function sourceSelect(path) { if (!path || !bundle) return; selectedSourcePath = path; const generation = loadGeneration, image = await resourceUrl(path, null, generation, new Set([path])); if (generation !== loadGeneration || !image) return; const thumb = document.querySelector(`[data-source-path="${CSS.escape(path)}"]`); if (thumb) { document.querySelectorAll('.thumb').forEach(item => item.classList.remove('selected')); thumb.classList.add('selected'); } const target = $('source-large'); if (target) target.innerHTML = `<img class="source-large" src="${image}" alt="Selected source page">`; updateCropActionAvailability(); }
 async function approveEligibleQuestions(meta) {
   const eligible = bulkEligibleQuestions(meta.caseId);
   if (!eligible.length) return;
   for (const relation of eligible) indexes.reviewQuestions.get(meta.caseId).get(relation.id).reviewStatus = 'approved';
   refreshQueue(meta.caseId); await persist(); await renderCurrent();
 }
+
+class StaleCropSaveError extends Error {}
+
+function assertCropSaveCurrent(capture, token) {
+  const currentItem = asset(capture.assetId), currentReviews = linkedAssetReviews(capture.assetId), session = cropSession;
+  const currentRelation = indexes?.caseAssetRelationByKey.get(`${capture.caseId}\u0000${capture.assetId}`);
+  const currentCandidates = cropCandidates(capture.assetId, capture.caseId);
+  if (!operationGuard.isCurrent(token) || loadGeneration !== capture.generation || bundle !== capture.bundle || visibleCases[index]?.caseId !== capture.caseId || currentItem !== capture.item || currentItem?.path !== capture.assetPath || currentItem?.mimeType !== capture.mimeType || currentRelation !== capture.relation || !currentRelation || session?.token !== capture.cropSessionToken || session?.sourcePath !== capture.sourcePath || !session || JSON.stringify(session.crop) !== JSON.stringify(capture.crop) || !currentCandidates.some(candidate => candidate.previewPath === capture.sourcePath) || currentReviews.length !== capture.reviews.length || currentReviews.some((review, i) => review !== capture.reviews[i])) throw new StaleCropSaveError('The crop save is no longer current.');
+}
+
+async function decodeCropSource(bytes, mimeType) {
+  if (typeof Image === 'undefined') throw new ReviewBundleError('This browser cannot decode source images for cropping.');
+  const url = URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+  try {
+    return await new Promise((resolve, reject) => {
+      const image = new Image();
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new ReviewBundleError('The linked source preview could not be decoded.'));
+      image.src = url;
+    });
+  } finally { URL.revokeObjectURL(url); }
+}
+
+async function prepareCropReplacement(capture, token) {
+  const sourceBytes = await fileStore().getFile(capture.sourcePath);
+  assertCropSaveCurrent(capture, token);
+  if (!sourceBytes?.byteLength) throw new ReviewBundleError('The linked source preview is empty or missing.');
+  const sourceMime = detectImageType(sourceBytes);
+  if (!sourceMime) throw new ReviewBundleError('The linked source preview is not a valid JPEG or PNG.');
+  const image = await decodeCropSource(sourceBytes, sourceMime);
+  assertCropSaveCurrent(capture, token);
+  const naturalWidth = Number(image.naturalWidth || image.width), naturalHeight = Number(image.naturalHeight || image.height);
+  if (!(naturalWidth > 0) || !(naturalHeight > 0)) throw new ReviewBundleError('The linked source preview has no usable dimensions.');
+  const pixels = cropToPixels(capture.crop, naturalWidth, naturalHeight);
+  const canvas = document.createElement('canvas');
+  canvas.width = pixels.width; canvas.height = pixels.height;
+  const context = canvas.getContext('2d');
+  if (!context) throw new ReviewBundleError('This browser cannot rasterize the crop.');
+  try { context.drawImage(image, pixels.x, pixels.y, pixels.width, pixels.height, 0, 0, pixels.width, pixels.height); } catch { throw new ReviewBundleError('The crop could not be rasterized.'); }
+  assertCropSaveCurrent(capture, token);
+  const blob = await new Promise((resolve, reject) => {
+    try { canvas.toBlob(value => value ? resolve(value) : reject(new ReviewBundleError('The browser could not encode the crop.')), capture.mimeType, capture.mimeType === 'image/jpeg' ? 0.98 : undefined); } catch { reject(new ReviewBundleError('The browser could not encode the crop.')); }
+  });
+  assertCropSaveCurrent(capture, token);
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  assertCropSaveCurrent(capture, token);
+  const prepared = await prepareLearnerImageReplacement(bytes, capture.mimeType);
+  assertCropSaveCurrent(capture, token);
+  return prepared;
+}
+
+async function enterCrop(assetId) {
+  clearErrors();
+  const meta = visibleCases[index], candidate = selectedCropCandidate(assetId, meta?.caseId);
+  if (!meta || !candidate) { showErrors('Cannot adjust crop', ['Select one of this Asset’s linked source references first, or use Replace image.']); return false; }
+  cropSession = { token: ++cropSessionSequence, caseId: meta.caseId, assetId, sourcePath: candidate.previewPath, crop: fullCrop() };
+  await renderCurrent();
+  return true;
+}
+
+async function cancelCrop(assetId) {
+  if (cropSession?.assetId !== assetId) return;
+  clearCropDrag();
+  cropSession = null;
+  clearErrors();
+  await renderCurrent();
+}
+
+function resetCrop(assetId) {
+  if (cropSession?.assetId !== assetId) return;
+  cropSession.crop = fullCrop();
+  updateCropFrame(cropSession);
+}
+
+function updateCropFrame(session) {
+  if (!session) return;
+  for (const editor of document.querySelectorAll('[data-crop-editor]')) if (editor.dataset.cropEditor === session.assetId) {
+    const frame = editor.querySelector('.crop-frame');
+    if (frame) frame.style.cssText = cropFrameStyle(session.crop);
+  }
+}
+
+function pointerMode(event, surface) {
+  const target = event.target?.closest?.('[data-crop-mode]');
+  if (target?.dataset.cropMode) return target.dataset.cropMode;
+  return event.target === surface ? 'move' : null;
+}
+
+function pointerPosition(event, surface) {
+  const rect = surface.getBoundingClientRect();
+  return { x: Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), y: Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height)), width: rect.width, height: rect.height };
+}
+
+function finishCropDrag(surface, event) {
+  const active = cropDrag;
+  if (!active || active.surface !== surface || event.pointerId !== active.pointerId) return;
+  cropDrag = null;
+  try { if (surface.hasPointerCapture?.(active.pointerId)) surface.releasePointerCapture(active.pointerId); } catch {}
+}
+function clearCropDrag() {
+  const active = cropDrag;
+  cropDrag = null;
+  if (!active) return;
+  try { if (active.surface.hasPointerCapture?.(active.pointerId)) active.surface.releasePointerCapture(active.pointerId); } catch {}
+}
+
+function wireCropEditor(assetId) {
+  const editor = [...document.querySelectorAll('[data-crop-editor]')].find(item => item.dataset.cropEditor === assetId), surface = editor?.querySelector('[data-crop-surface]');
+  if (!surface) return;
+  surface.addEventListener('pointerdown', event => {
+    if (cropDrag || event.isPrimary === false || !cropSession || cropSession.assetId !== assetId || typeof surface.setPointerCapture !== 'function') return;
+    const mode = pointerMode(event, surface), position = mode && pointerPosition(event, surface);
+    if (!mode || !position?.width || !position?.height) return;
+    try { surface.setPointerCapture(event.pointerId); } catch { return; }
+    cropDrag = { surface, pointerId: event.pointerId, mode, start: position, startCrop: { ...cropSession.crop }, sessionToken: cropSession.token };
+    event.preventDefault();
+  });
+  surface.addEventListener('pointermove', event => {
+    const active = cropDrag;
+    if (!active || active.surface !== surface || active.pointerId !== event.pointerId || !cropSession || cropSession.token !== active.sessionToken) return;
+    const position = pointerPosition(event, surface), deltaX = position.x - active.start.x, deltaY = position.y - active.start.y, minSize = minimumCropSize(active.start.width, active.start.height);
+    cropSession.crop = active.mode === 'move' ? moveCrop(active.startCrop, deltaX, deltaY) : resizeCrop(active.startCrop, deltaX, deltaY, active.mode, minSize);
+    updateCropFrame(cropSession);
+    event.preventDefault();
+  });
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) surface.addEventListener(type, event => finishCropDrag(surface, event));
+}
+
+async function saveCrop(assetId) {
+  clearErrors();
+  if (!cropSession || cropSession.assetId !== assetId) return false;
+  const token = operationGuard.begin('crop-save', 'Saving crop…');
+  if (!token) return false;
+  clearCropDrag();
+  const session = cropSession, meta = visibleCases[index], item = asset(assetId), reviews = linkedAssetReviews(assetId), candidate = cropCandidates(assetId, meta?.caseId).find(value => value.previewPath === session.sourcePath), relation = indexes?.caseAssetRelationByKey.get(`${meta?.caseId}\u0000${assetId}`);
+  const capture = { token, generation: loadGeneration, bundle, caseId: meta?.caseId, assetId, item, relation, assetPath: item?.path, mimeType: item?.mimeType, sourcePath: session.sourcePath, cropSessionToken: session.token, crop: { ...session.crop }, reviews };
+  let committed = false, persistenceFailed = false;
+  try {
+    if (!meta || !item || !candidate || candidate.previewPath !== session.sourcePath || !reviews.length) throw new ReviewBundleError('The crop session is no longer valid.');
+    statusText('Saving crop…');
+    const prepared = await prepareCropReplacement(capture, token);
+    assertCropSaveCurrent(capture, token);
+    commitLearnerImageReplacement(assetId, prepared, { extractionMethod: 'human_crop', reviews, preserveAssetMetadata: true });
+    committed = true;
+    cropSession = null;
+    try { await persist(); } catch (error) { persistenceFailed = true; throw error; }
+    if (!operationGuard.isCurrent(token)) return false;
+    await renderCurrent();
+    return true;
+  } catch (error) {
+    if (committed && operationGuard.isCurrent(token)) { try { await renderCurrent(); } catch {} }
+    if (!(error instanceof StaleCropSaveError)) showErrors('Crop save failed', [errorText(error)]);
+    return false;
+  } finally {
+    const ownsToken = operationGuard.active === token, current = operationGuard.isCurrent(token);
+    if (ownsToken) operationGuard.finish(token);
+    if (ownsToken && current && !committed && !persistenceFailed) statusText('Ready');
+  }
+}
+
 function wireCurrent(meta) {
   $('toggle-answers')?.addEventListener('click', () => { revealAnswers = !revealAnswers; renderCurrent(); });
   $('accept-qa')?.addEventListener('click', () => approveEligibleQuestions(meta));
   document.querySelectorAll('.source-ref').forEach(element => element.addEventListener('click', event => { event.preventDefault(); sourceSelect(element.dataset.sourcePath); }));
+  document.querySelectorAll('[data-crop-source]').forEach(element => element.addEventListener('change', () => selectCropSource(element.dataset.cropSource, element.value)));
   $('source-fullscreen')?.addEventListener('click', () => $('source-large img')?.requestFullscreen?.());
-  document.querySelectorAll('[data-queue-index]').forEach(element => element.addEventListener('click', () => { index = Number(element.dataset.queueIndex); selectedSourcePath = null; renderCurrent(); }));
+  document.querySelectorAll('[data-queue-index]').forEach(element => element.addEventListener('click', () => { cropSession = null; index = Number(element.dataset.queueIndex); selectedSourcePath = null; renderCurrent(); }));
+  document.querySelectorAll('.adjust-crop').forEach(element => element.addEventListener('click', () => enterCrop(element.dataset.asset)));
+  document.querySelectorAll('[data-crop-reset]').forEach(element => element.addEventListener('click', () => resetCrop(element.dataset.cropReset)));
+  document.querySelectorAll('[data-crop-cancel]').forEach(element => element.addEventListener('click', () => cancelCrop(element.dataset.cropCancel)));
+  document.querySelectorAll('[data-crop-save]').forEach(element => element.addEventListener('click', () => saveCrop(element.dataset.cropSave)));
+  document.querySelectorAll('[data-crop-editor]').forEach(element => wireCropEditor(element.dataset.cropEditor));
   document.querySelectorAll('[data-edit]').forEach(element => element.addEventListener('change', async () => {
     const item = manifestCase(meta.caseId), isTitle = element.dataset.edit === 'case.title', nextValue = isTitle ? element.value : element.value || null, previousValue = isTitle ? item.title : item.vignetteMd;
     if (previousValue === nextValue) return;
@@ -274,7 +513,7 @@ function wireCurrent(meta) {
   }));
   document.querySelectorAll('[data-unresolved]').forEach(card => { const candidateId = card.dataset.unresolved; card.querySelector('.resolve-u')?.addEventListener('click', async () => { try { resolveUnresolvedQuestion(bundle.manifest, bundle.reviewMap, candidateId, { promptMd: card.querySelector('[data-u-prompt]').value, answerMd: card.querySelector('[data-u-answer]').value }); rebuildIndexes(); refreshQueue(meta.caseId); await persist(); await renderCurrent(); } catch (error) { showErrors('Cannot resolve question', [errorText(error)]); } }); card.querySelector('.reject-u')?.addEventListener('click', async () => { rejectUnresolvedQuestion(bundle.reviewMap, candidateId); rebuildIndexes(); refreshQueue(meta.caseId); await persist(); await renderCurrent(); }); });
 }
-async function replaceImage(assetId, file) { clearErrors(); try { if (!file) return; if (!['image/jpeg', 'image/png'].includes(file.type)) throw new ReviewBundleError('Replacement must be JPEG or PNG.'); if (file.size <= 0 || file.size > PRODUCTION_LIMITS.maxImageBytes) throw new ReviewBundleError(`Replacement image must be 1-${PRODUCTION_LIMITS.maxImageBytes} bytes.`); const bytes = new Uint8Array(await file.arrayBuffer()), detected = detectImageType(bytes); if (detected !== file.type) throw new ReviewBundleError('Replacement image bytes do not match the selected MIME type.'); const item = asset(assetId), reviews = linkedAssetReviews(assetId); if (!reviews.length) throw new ReviewBundleError(`Asset ${assetId} has no review metadata.`); fileStore().set(item.path, bytes); releaseUrl(item.path); item.mimeType = file.type; item.originalFilename = file.name; const digest = await sha256Hex(bytes); for (const review of reviews) { review.sha256 = digest; review.extractionMethod = 'human_replacement'; if (review.reviewStatus !== 'rejected') review.reviewStatus = 'needs_review'; } refreshQueue(); await persist(); await renderCurrent(); } catch (error) { showErrors('Image replacement failed', [errorText(error)]); } }
+async function replaceImage(assetId, file) { clearErrors(); try { if (!file) return; if (!['image/jpeg', 'image/png'].includes(file.type)) throw new ReviewBundleError('Replacement must be JPEG or PNG.'); if (file.size <= 0 || file.size > PRODUCTION_LIMITS.maxImageBytes) throw new ReviewBundleError(`Replacement image must be 1-${PRODUCTION_LIMITS.maxImageBytes} bytes.`); const bytes = new Uint8Array(await file.arrayBuffer()), prepared = await prepareLearnerImageReplacement(bytes, file.type), item = asset(assetId), reviews = linkedAssetReviews(assetId); if (!item || !reviews.length) throw new ReviewBundleError(`Asset ${assetId} has no review metadata.`); commitLearnerImageReplacement(assetId, prepared, { filename: file.name, reviews }); await persist(); await renderCurrent(); } catch (error) { showErrors('Image replacement failed', [errorText(error)]); } }
 
 async function approveCurrent() {
   clearErrors(); const meta = visibleCases[index]; if (!meta) return; const item = manifestCase(meta.caseId), issues = [];
@@ -312,10 +551,11 @@ async function setCaseStatus(status) { const meta = visibleCases[index]; if (!me
 
 function renderCoverage() { updateCounts(); const rows = bundle.reviewMap.sourceCoverage.map(item => { const source = indexes.sources.get(item.sourceId); const broken = item.caseIds.some(id => !manifestCase(id)); const issue = item.classification === 'uncertain' || !item.classification || (item.previewPath && !fileStore().has(item.previewPath)) || broken; return `<tr class="${issue ? 'issue' : ''}"><td>${esc(source?.filename || item.sourceId)}</td><td>${item.page}</td><td>${esc(item.classification || 'missing')}</td><td>${esc(item.caseIds.join(', ') || '—')}</td><td>${esc(item.notes || '')}</td><td>${item.previewPath ? (fileStore().has(item.previewPath) ? 'available on demand' : 'missing') : 'none'}</td></tr>`; }).join(''); $('workspace').innerHTML = `<section class="coverage"><div class="row between"><h2>Source coverage</h2><button id="back-cases">Back to Case review</button></div><p class="small">Coverage is indexed without loading preview bytes.</p><table><thead><tr><th>Source</th><th>Page</th><th>Classification</th><th>Cases</th><th>Notes</th><th>Preview</th></tr></thead><tbody>${rows}</tbody></table></section>`; $('back-cases').onclick = () => { coverageMode = false; renderCurrent(); }; }
 
-async function loadFile(input) { clearErrors(); if (!input) return; if (operationGuard.active) { statusText(operationGuard.active.label); showErrors('Review operation in progress', ['Wait for the current backup or Import ZIP to finish before opening another bundle.']); return; } if (bundle && dirtyBeforeFingerprint) { showErrors('Finish checking saved review before switching bundles', ['Your edits are still waiting for exact source fingerprint verification.']); return; } if (bundle && dirty) { try { statusText('Saving before opening next bundle…'); if (!await flushPendingSave()) { showErrors('Cannot switch bundles', ['The latest review edits are not saved.']); return; } } catch (error) { showErrors('Cannot switch bundles', [errorText(error)]); return; } } const generation = ++loadGeneration; operationGuard.cancel(); releaseResources(); bundle = null; indexes = null; bundleFingerprint = null; dirty = false; dirtyBeforeFingerprint = false; editRevision = 0; lastSavedRevision = 0; statusText('Opening bundle…'); try { const loaded = await loadReviewBundle(input); if (generation !== loadGeneration) return; bundle = loaded; rebuildIndexes(); filter = $('filter').value; refreshQueue(); coverageMode = false; $('empty-start').hidden = true; $('review-shell').hidden = false; $('batch').textContent = loaded.reviewMap.batchName; $('batch-warning').innerHTML = loaded.reviewMap.batchWarnings?.length ? `<div class="error-card"><strong>Batch warnings</strong>${warningHtml(loaded.reviewMap.batchWarnings)}</div>` : ''; const saved = await getSaved(loaded.reviewMap.bundleId); if (generation !== loadGeneration) return; if (saved) statusText('Checking saved review…'); else { await renderCurrent(); statusText('Checking saved review…'); } const fingerprint = await fingerprintFile(input); if (generation !== loadGeneration) return; bundleFingerprint = fingerprint; const matchingSaved = saved && persistedStateMatches(saved, bundle.reviewMap.bundleId, fingerprint); if (matchingSaved) { statusText('Restoring review…'); await restoreSaved(saved); refreshQueue(); } const hadDirty = dirtyBeforeFingerprint; dirtyBeforeFingerprint = false; await renderCurrent(); if (hadDirty && !matchingSaved) await persist(); else if (!matchingSaved) statusText(saved ? 'Ready · saved review belongs to a different ZIP' : 'Ready · local save starts after your first edit'); else statusText(`Restored locally · ${new Date(saved.updatedAt).toLocaleTimeString()}`); } catch (error) { if (generation === loadGeneration) showErrors('Could not open review bundle', errorText(error).split('\n')); } }
+async function loadFile(input) { clearErrors(); if (!input) return; if (operationGuard.active) { statusText(operationGuard.active.label); showErrors('Review operation in progress', ['Wait for the current backup or Import ZIP to finish before opening another bundle.']); return; } if (bundle && dirtyBeforeFingerprint) { showErrors('Finish checking saved review before switching bundles', ['Your edits are still waiting for exact source fingerprint verification.']); return; } if (bundle && dirty) { try { statusText('Saving before opening next bundle…'); if (!await flushPendingSave()) { showErrors('Cannot switch bundles', ['The latest review edits are not saved.']); return; } } catch (error) { showErrors('Cannot switch bundles', [errorText(error)]); return; } } const generation = ++loadGeneration; clearCropDrag(); cropSession = null; operationGuard.cancel(); releaseResources(); bundle = null; indexes = null; bundleFingerprint = null; dirty = false; dirtyBeforeFingerprint = false; editRevision = 0; lastSavedRevision = 0; statusText('Opening bundle…'); try { const loaded = await loadReviewBundle(input); if (generation !== loadGeneration) return; bundle = loaded; rebuildIndexes(); filter = $('filter').value; refreshQueue(); coverageMode = false; $('empty-start').hidden = true; $('review-shell').hidden = false; $('batch').textContent = loaded.reviewMap.batchName; $('batch-warning').innerHTML = loaded.reviewMap.batchWarnings?.length ? `<div class="error-card"><strong>Batch warnings</strong>${warningHtml(loaded.reviewMap.batchWarnings)}</div>` : ''; const saved = await getSaved(loaded.reviewMap.bundleId); if (generation !== loadGeneration) return; if (saved) statusText('Checking saved review…'); else { await renderCurrent(); statusText('Checking saved review…'); } const fingerprint = await fingerprintFile(input); if (generation !== loadGeneration) return; bundleFingerprint = fingerprint; const matchingSaved = saved && persistedStateMatches(saved, bundle.reviewMap.bundleId, fingerprint); if (matchingSaved) { statusText('Restoring review…'); await restoreSaved(saved); refreshQueue(); } const hadDirty = dirtyBeforeFingerprint; dirtyBeforeFingerprint = false; await renderCurrent(); if (hadDirty && !matchingSaved) await persist(); else if (!matchingSaved) statusText(saved ? 'Ready · saved review belongs to a different ZIP' : 'Ready · local save starts after your first edit'); else statusText(`Restored locally · ${new Date(saved.updatedAt).toLocaleTimeString()}`); } catch (error) { if (generation === loadGeneration) showErrors('Could not open review bundle', errorText(error).split('\n')); } }
 
 $('zip-input').onchange = event => loadFile(event.target.files?.[0]); const drop = $('drop'); drop.ondragover = event => { event.preventDefault(); drop.classList.add('drag'); }; drop.ondragleave = () => drop.classList.remove('drag'); drop.ondrop = event => { event.preventDefault(); drop.classList.remove('drag'); loadFile(event.dataTransfer.files?.[0]); };
-$('prev').onclick = () => { if (index > 0) { index -= 1; selectedSourcePath = null; renderCurrent(); } }; $('next').onclick = () => { if (index < visibleCases.length - 1) { index += 1; selectedSourcePath = null; renderCurrent(); } }; $('approve').onclick = approveCurrent; $('needs').onclick = () => setCaseStatus('needs_review'); $('reject').onclick = () => setCaseStatus('rejected'); $('filter').onchange = event => { filter = event.target.value; refreshQueue(); renderCurrent(); }; $('coverage').onclick = () => { coverageMode = true; renderCoverage(); };
+function moveCase(delta) { clearCropDrag(); cropSession = null; if (delta < 0 && index > 0) { index -= 1; selectedSourcePath = null; renderCurrent(); } else if (delta > 0 && index < visibleCases.length - 1) { index += 1; selectedSourcePath = null; renderCurrent(); } }
+$('prev').onclick = () => moveCase(-1); $('next').onclick = () => moveCase(1); $('approve').onclick = approveCurrent; $('needs').onclick = () => setCaseStatus('needs_review'); $('reject').onclick = () => setCaseStatus('rejected'); $('filter').onchange = event => { clearCropDrag(); cropSession = null; filter = event.target.value; refreshQueue(); renderCurrent(); }; $('coverage').onclick = () => { clearCropDrag(); cropSession = null; coverageMode = true; renderCoverage(); };
 async function runBundleOperation(kind, label, successLabel, action, filename) { clearErrors(); const token = operationGuard.begin(kind, label); if (!token) return; const target = bundle, batchName = target?.reviewMap.batchName; let completed = false; try { statusText(label); if (!await flushPendingSave()) throw new ReviewBundleError('The latest review edits are not saved.'); if (!operationGuard.isCurrent(token)) return; statusText(label); const output = await action(target); if (!operationGuard.isCurrent(token)) return; download(output, filename(batchName)); completed = true; } catch (error) { if (operationGuard.isCurrent(token)) showErrors(kind === 'backup' ? 'Backup failed' : 'Finalization blocked', error instanceof ReviewBundleError ? error.issues : [errorText(error)]); } finally { const current = operationGuard.isCurrent(token); operationGuard.finish(token); if (current) statusText(completed ? successLabel : 'Ready'); } }
 $('export-reviewed').onclick = () => runBundleOperation('backup', 'Backing up…', 'Backup ready', target => exportReviewedBundle(target), batchName => `${batchName.replace(/[^A-Za-z0-9._-]+/g, '-')}-reviewed.zip`); $('finalize').onclick = () => runBundleOperation('finalize', 'Creating Import ZIP…', 'Import ZIP ready', target => finalizeBundle(target).then(output => output.zip), () => 'flashcards-import-v1.zip');
-window.addEventListener('beforeunload', event => { if (dirty || dirtyBeforeFingerprint || saveTimer || saveInFlight) { event.preventDefault(); event.returnValue = ''; } }); document.addEventListener('keydown', event => { if (!bundle || event.target?.matches?.(inputSelector)) return; if (event.key === 'ArrowLeft') { event.preventDefault(); $('prev').click(); } else if (event.key === 'ArrowRight') { event.preventDefault(); $('next').click(); } else if (event.key === ' ') { event.preventDefault(); revealAnswers = !revealAnswers; renderCurrent(); } else if (event.key.toLowerCase() === 'a') approveCurrent(); else if (event.key.toLowerCase() === 'r') setCaseStatus('needs_review'); else if (event.key.toLowerCase() === 'x') setCaseStatus('rejected'); });
+window.addEventListener('beforeunload', event => { if (dirty || dirtyBeforeFingerprint || saveTimer || saveInFlight || operationGuard.active) { event.preventDefault(); event.returnValue = ''; } }); document.addEventListener('keydown', event => { if (!bundle || event.target?.matches?.(inputSelector)) return; if (operationGuard.active) return; if (event.key === 'ArrowLeft') { event.preventDefault(); $('prev').click(); } else if (event.key === 'ArrowRight') { event.preventDefault(); $('next').click(); } else if (event.key === ' ') { event.preventDefault(); revealAnswers = !revealAnswers; renderCurrent(); } else if (event.key.toLowerCase() === 'a') approveCurrent(); else if (event.key.toLowerCase() === 'r') setCaseStatus('needs_review'); else if (event.key.toLowerCase() === 'x') setCaseStatus('rejected'); });

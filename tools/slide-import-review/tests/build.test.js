@@ -16,6 +16,7 @@ test('reviewer source modules parse and standalone build has no external script 
   execFileSync(process.execPath, ['--check', resolve(root, 'src/core-v2.js')], { stdio: 'pipe' });
   execFileSync(process.execPath, ['--check', resolve(root, 'src/core.js')], { stdio: 'pipe' });
   execFileSync(process.execPath, ['--check', resolve(root, 'src/app.js')], { stdio: 'pipe' });
+  execFileSync(process.execPath, ['--check', resolve(root, 'src/crop.js')], { stdio: 'pipe' });
   execFileSync(process.execPath, ['--check', resolve(root, 'src/operation-guard.js')], { stdio: 'pipe' });
 
   const coreV2 = await readFile(resolve(root, 'src/core-v2.js'), 'utf8');
@@ -30,6 +31,8 @@ test('reviewer source modules parse and standalone build has no external script 
   const html = await readFile(resolve(root, 'reviewer.html'), 'utf8');
   assert.match(html, /Flash-Cards Slide Import Reviewer/);
   assert.match(html, /Finalize Import ZIP/);
+  assert.match(html, /Adjust crop/);
+  assert.match(html, /human_crop/);
   assert.match(html, /data:text\/javascript;base64,/);
   assert.doesNotMatch(html, /src="\.\/src\/app\.js"/);
   assert.doesNotMatch(html, /https?:\/\//);
