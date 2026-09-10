@@ -24,6 +24,7 @@ import {
   createAssetQuestion,
   removeAssetQuestionOptIn,
   optInAssetQuestion,
+  optInFixedAssetQuestion,
   setAssetQuestionActive,
   updateAssetQuestionAnswer
 } from '../src/lib/server/db/asset-questions.js';
@@ -460,6 +461,53 @@ test('same-Prompt different-answer conflicts require one exact resolution and pr
   } finally { fx.sqlite.close(); }
 });
 
+test('reusable-question answer equality normalizes CRLF and lone CR but preserves surrounding whitespace', async () => {
+  const equalPairs = [
+    ['Line one\r\nLine two', 'Line one\nLine two'],
+    ['Line one\rLine two', 'Line one\nLine two'],
+    ['  padded\r\nanswer  ', '  padded\nanswer  ']
+  ];
+  for (const [survivorAnswer, duplicateAnswer] of equalPairs) {
+    const fx = domainFixture();
+    try {
+      fx.sqlite.prepare('UPDATE asset_questions SET answer_md = ? WHERE id = ?').run(survivorAnswer, 'aq-a');
+      fx.sqlite.prepare('UPDATE asset_questions SET answer_md = ? WHERE id = ?').run(duplicateAnswer, 'aq-b');
+      const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+      const conflict = plan.questionConflicts.find((row) => row.questionPromptId === 'prompt-shared');
+      assert.equal(conflict.kind, 'same-answer', JSON.stringify([survivorAnswer, duplicateAnswer]));
+      assert.equal(conflict.resolutionRequired, false);
+      await mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true });
+      assert.equal(fx.sqlite.prepare('SELECT answer_md FROM asset_questions WHERE id = ?').get('aq-a').answer_md, survivorAnswer);
+    } finally { fx.sqlite.close(); }
+  }
+});
+
+test('reusable-question answer equality keeps trimmed and newline-collapsed differences distinct', async () => {
+  const differentPairs = [
+    ['answer', ' answer '],
+    ['answer', 'answer\n'],
+    ['line one\nline two', 'line one line two'],
+    ['line one\nline two', 'line one\n\nline two']
+  ];
+  for (const [survivorAnswer, duplicateAnswer] of differentPairs) {
+    const fx = domainFixture();
+    try {
+      fx.sqlite.prepare('UPDATE asset_questions SET answer_md = ? WHERE id = ?').run(survivorAnswer, 'aq-a');
+      fx.sqlite.prepare('UPDATE asset_questions SET answer_md = ? WHERE id = ?').run(duplicateAnswer, 'aq-b');
+      const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+      const conflict = plan.questionConflicts.find((row) => row.questionPromptId === 'prompt-shared');
+      assert.equal(conflict.kind, 'different-answer', JSON.stringify([survivorAnswer, duplicateAnswer]));
+      assert.equal(conflict.resolutionRequired, true);
+      await assert.rejects(
+        () => mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, questionResolutions: {}, certificationConfirmed: true }),
+        (error) => error instanceof AssetDeduplicationInputError && /exactly one current answer resolution/.test(error.message)
+      );
+      await mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, questionResolutions: { 'prompt-shared': 'survivor' }, certificationConfirmed: true });
+      assert.equal(fx.sqlite.prepare('SELECT answer_md FROM asset_questions WHERE id = ?').get('aq-a').answer_md, survivorAnswer);
+    } finally { fx.sqlite.close(); }
+  }
+});
+
 test('stale exact-state equality aborts before canonicalization or R2 cleanup', async () => {
   let first = true;
   const fx = domainFixture({ beforeBatch(sqlite) {
@@ -668,6 +716,41 @@ test('stale B Asset Question creation maps a fully deleted source Asset to the c
     assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM question_prompts WHERE prompt_md = ?').get('Deleted source prompt').count, 0);
     assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM asset_questions WHERE answer_md = ?').get('Deleted source answer').count, 0);
     assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM assets WHERE id = ?').get('asset-b').count, 0);
+  } finally { fx.sqlite.close(); }
+});
+
+test('fixed-image reusable conversion maps a mid-batch source tombstone to a controlled error and rolls back', async () => {
+  const fx = domainFixture({ beforeBatch(sqlite) {
+    sqlite.prepare('UPDATE assets SET is_active = 0, deduplicated_into_asset_id = ? WHERE id = ?').run('asset-unused', 'asset-a');
+  } });
+  try {
+    await assert.rejects(
+      () => optInFixedAssetQuestion(fx.db, { caseId: 'case-a', assetId: 'asset-a', assetQuestionId: 'aq-a' }),
+      (error) => error instanceof AssetQuestionInputError && /Asset changed/.test(error.message)
+    );
+    assert.equal(Number(fx.sqlite.prepare("SELECT count(*) AS count FROM stimulus_groups WHERE case_id = 'case-a'").get().count), 0);
+    assert.equal(Number(fx.sqlite.prepare("SELECT count(*) AS count FROM stimulus_group_options WHERE asset_id = ?").get('asset-a').count), 0);
+    assert.ok(fx.sqlite.prepare("SELECT 1 FROM case_assets WHERE case_id = 'case-a' AND asset_id = 'asset-a'").get());
+    assert.ok(fx.sqlite.prepare('SELECT 1 FROM asset_questions WHERE id = ?').get('aq-a'));
+  } finally { fx.sqlite.close(); }
+});
+
+test('fixed-image reusable conversion maps a mid-batch source deletion to a controlled error and rolls back the group', async () => {
+  const fx = domainFixture({ beforeBatch(sqlite) {
+    sqlite.prepare('DELETE FROM stimulus_option_asset_questions WHERE asset_question_id IN (SELECT id FROM asset_questions WHERE asset_id = ?)').run('asset-a');
+    sqlite.prepare('DELETE FROM asset_questions WHERE asset_id = ?').run('asset-a');
+    sqlite.prepare('DELETE FROM case_assets WHERE asset_id = ?').run('asset-a');
+    sqlite.prepare('DELETE FROM assets WHERE id = ?').run('asset-a');
+  } });
+  try {
+    await assert.rejects(
+      () => optInFixedAssetQuestion(fx.db, { caseId: 'case-a', assetId: 'asset-a', assetQuestionId: 'aq-a' }),
+      (error) => error instanceof AssetQuestionInputError && /Asset changed/.test(error.message)
+    );
+    assert.equal(Number(fx.sqlite.prepare("SELECT count(*) AS count FROM stimulus_groups WHERE case_id = 'case-a'").get().count), 0);
+    assert.equal(Number(fx.sqlite.prepare("SELECT count(*) AS count FROM stimulus_group_options WHERE asset_id = ?").get('asset-a').count), 0);
+    assert.equal(Number(fx.sqlite.prepare("SELECT count(*) AS count FROM assets WHERE id = ?").get('asset-a').count), 0);
+    assert.equal(Number(fx.sqlite.prepare("SELECT count(*) AS count FROM case_assets WHERE asset_id = ?").get('asset-a').count), 0);
   } finally { fx.sqlite.close(); }
 });
 

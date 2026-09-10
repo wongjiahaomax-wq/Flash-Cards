@@ -438,6 +438,7 @@ export async function optInFixedAssetQuestion(db, input) {
   const optionId = crypto.randomUUID();
   await ensurePromptMayBeSpecificInGroup(db, caseId, question.promptId, groupId);
   const writes = [
+    productionAssetWriteFence(db, assetId),
     db.insert(stimulusGroups).values({ id: groupId, caseId, name: automaticGroupName(fixed.originalFilename, assetId), displayOrder: (lastGroup?.displayOrder ?? -1) + 1, selectionCount: 1, specificQuestionMode: 'none', minimumSpecificQuestions: null, isActive: true }),
     db.insert(stimulusGroupOptions).values({ id: optionId, stimulusGroupId: groupId, assetId, displayOrder: 0, captionMd: fixed.captionMd, isActive: true }),
     db.update(stimulusGroups).set({ originalOptionId: optionId, updatedAt: new Date() }).where(eq(stimulusGroups.id, groupId)),
@@ -445,6 +446,6 @@ export async function optInFixedAssetQuestion(db, input) {
     db.delete(caseAssets).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, assetId))),
     ...remaining.map((row, index) => db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, row.assetId))))
   ];
-  await db.batch(/** @type {[any, ...any[]]} */ (writes));
+  await runAssetQuestionBatch(db, /** @type {[any, ...any[]]} */ (writes));
   return optionId;
 }

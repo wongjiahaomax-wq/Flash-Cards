@@ -61,9 +61,15 @@ function storedValue(value) {
   return value === undefined ? null : value;
 }
 
-/** @param {unknown} value */
+/**
+ * Canonical answer equality is exact: only CRLF and lone CR are normalized to
+ * LF. Whitespace and newline differences are meaningful authoring differences
+ * and must not be trimmed or collapsed.
+ *
+ * @param {unknown} value
+ */
 function normalizedAnswer(value) {
-  return text(value).replace(/\r\n?/g, '\n');
+  return String(value ?? '').replace(/\r\n?/g, '\n');
 }
 
 /** @param {any} value */

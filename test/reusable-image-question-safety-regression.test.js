@@ -33,3 +33,16 @@ test('reusable image removal actions pass their owning Case or Asset scope', () 
   assert.match(caseRoute, /removeAssetQuestionOptIn\([^\n]+\{ caseId, optionId:/);
   assert.match(assetRoute, /removeAssetQuestionOptIn\([^\n]+\{ assetId: params\.assetId, optionId:/);
 });
+
+test('fixed-image reusable conversion fences and maps stale-source batch failures to a 400', () => {
+  const source = fs.readFileSync(new URL('../src/lib/server/db/asset-questions.js', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export async function optInFixedAssetQuestion'));
+  assert.match(body, /productionAssetWriteFence\(db, assetId\)/);
+  assert.match(body, /await runAssetQuestionBatch\(db,/);
+  const caseRoute = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
+  const assetRoute = fs.readFileSync(new URL('../src/routes/admin/images/[assetId]/+page.server.js', import.meta.url), 'utf8');
+  assert.match(caseRoute, /errorValue instanceof AssetQuestionInputError/);
+  assert.match(caseRoute, /fail\(clientError \? 400 : 500/);
+  assert.match(assetRoute, /error instanceof AssetQuestionInputError/);
+  assert.match(assetRoute, /fail\(clientError \? 400 : 500/);
+});
