@@ -1,42 +1,42 @@
 # Admin Image Deduplication — implementation plan
 
-_Status: Draft planning contract for implementation in this same PR/branch. Second-pass planning review amendments are incorporated below. Implementation has not started. Do not create a follow-up implementation PR._
+_Status: Draft planning contract for implementation in this same PR/branch. Third planning-review amendments are incorporated. Implementation has not started. Do not create a follow-up implementation PR._
 
 ## Goal
 
 Add a Production Admin workflow that lets a human certify that two global image Assets are clinically and educationally interchangeable representations of the same teaching image, choose one canonical survivor, union reusable image knowledge onto that survivor, and reclaim the duplicate R2 object without permitting the retired duplicate to be reacquired or chained into another dedupe.
 
-The feature has exactly two implementation tranches in this PR:
+This PR has exactly two implementation tranches:
 
 ```text
 Tranche 1 — Human-certified canonical Asset merge + durable cleanup fence
 Tranche 2 — Visual duplicate discovery that proposes pairs to Tranche 1
 ```
 
-The Admin is the final identity authority. Discovery may propose pairs but must never merge automatically.
+The Admin is the final identity authority. Discovery may propose candidate pairs but must never merge automatically.
 
 ---
 
 # Fixed product / architecture decisions
 
-1. **Human certification is stronger than visual sameness.** The Admin must certify that the selected survivor is clinically and educationally interchangeable for every retained A/B usage shown by the review, preserves required visible content, and introduces no answer-bearing annotation/overlay.
-2. **One canonical Asset remains.** Survivor A keeps its Asset ID, R2 object, alt text and Asset metadata. Duplicate B is first converted into a durable cleanup-pending tombstone, then its R2 object and D1 row are removed.
-3. **Reusable Image Questions are unioned.** B-only questions move to A with the same Asset Question ID. A-only questions remain. Same-Prompt collisions follow the explicit rules below.
-4. **Existing reusable-question opt-ins do not broaden.** Canonicalization preserves the exact pre-merge opt-in set after ID remapping; reuse is never automatically enabled in additional Cases.
-5. **Active Reviews block the merge.** Do not rewrite a frozen active Review from B to A in this PR. If any current `active_review_assets` row uses B or B's storage key, or any current active Review question references a B Asset Question, the merge is blocked until that active Review is completed/discarded/expired/replaced. A stale active Review snapshot that tries to persist B after the claim is rejected by the database tombstone fence.
-6. **Retired legacy Reviews are never rewritten.** `reviews`, `review_questions` and `review_assets` remain zero-data cutover sentinels. Any nonzero or unreadable legacy count blocks dedupe.
-7. **R2 reclamation is intentional.** Once Phase 1 safely claims B and the no-reference contract holds, B's teaching-image object is permanently deleted.
-8. **Higher-resolution replacement remains a separate lifecycle.** Do not overload `superseded_by_asset_id` or change current replacement behavior.
+1. **Certification is stronger than visual sameness.** The Admin must certify that the chosen survivor is clinically and educationally interchangeable for every retained A/B context shown by the review, preserves required visible content, and introduces no answer-bearing annotation/overlay.
+2. **One canonical Asset remains for this dedupe.** Survivor A keeps its Asset ID, R2 bytes, alt text and global Asset metadata. Duplicate B becomes a durable cleanup-pending tombstone and is physically removed only after all cleanup guards pass.
+3. **Reusable Image Questions are unioned.** B-only questions move to A with the same Asset Question ID. A-only questions remain. Same-Prompt collisions use the deterministic rules below.
+4. **Reusable-question opt-ins do not broaden.** Canonicalization preserves the exact pre-merge opt-in set after ID remapping; no Case gains a reusable question merely because A now owns it.
+5. **Physically retained Active Reviews block the merge.** Do not rewrite frozen active Review context in this PR. Expiry/non-resumability alone is not cleanup: if the physical `active_review_*` rows still retain B/B-key/B-question provenance, dedupe is blocked until those rows are actually removed.
+6. **Retired legacy Reviews are never rewritten.** `reviews`, `review_questions`, and `review_assets` remain zero-data cutover sentinels. Any nonzero or unreadable legacy count blocks dedupe.
+7. **R2 reclamation is intentional.** After Phase 1 safely claims B, Phase 2 deletes B's teaching-image object only while A's authoritative survivor object still exists.
+8. **Higher-resolution replacement remains a separate, non-destructive lifecycle.** Do not overload `superseded_by_asset_id` or redesign replacement in this PR.
 9. **Production only.** No Preview Admin merge endpoint. Any retained Preview relationship to B blocks the claim regardless of Preview status/expiry.
-10. **A schema migration is required.** Current `main` reaches migration `0025`; at this reviewed head the expected new migration is `0026_admin_image_deduplication.sql`. Luna must re-check the actual migration head before creating it if `main` advances.
-11. **No new image-processing dependency.** Tranche 2 stays browser-side and dependency-free: no AI/embeddings, OpenCV/ORB, Sharp/server Canvas, WASM vision stack, vector DB or persisted fingerprint table.
+10. **A schema migration is required.** Current `main` reaches `0025`; at this reviewed head the expected migration is `0026_admin_image_deduplication.sql`. Luna must re-check the migration head before creating it if `main` advances.
+11. **No new image-processing dependency.** Tranche 2 stays browser-side and dependency-free: no AI/embeddings, OpenCV/ORB, Sharp/server Canvas, WASM vision stack, vector DB, or persisted fingerprint table.
 12. **No Import Package / Slide Import Reviewer changes.** Deduplication remains an Admin Image Library maintenance workflow.
 
 ---
 
 # Tranche 1 — Human-certified canonical Asset merge
 
-## 1. Required schema and durable tombstone
+## 1. Schema and durable dedupe tombstone
 
 Add:
 
@@ -44,7 +44,7 @@ Add:
 assets.deduplicated_into_asset_id nullable FK -> assets.id ON DELETE RESTRICT
 ```
 
-and an index on the column.
+and an index.
 
 Semantics:
 
@@ -55,70 +55,155 @@ NULL
 B.deduplicated_into_asset_id = A.id
 → B is a cleanup-pending dedupe tombstone whose canonical survivor is A
 → B.is_active MUST be false
-→ B may not acquire any new media/question/application reference
+→ B may not acquire a new media/question/application reference
 → B may not be reactivated
-→ B's non-null tombstone may not be changed or cleared; only DELETE may remove the row
+→ the non-null tombstone is immutable until B row DELETE
 ```
 
-The field is separate from supersession.
+This field is distinct from `superseded_by_asset_id`.
 
 ### Chain prevention
 
-Dedupe chains are forbidden.
-
-A source/duplicate candidate X may not be claimed if either is true:
+A source/duplicate candidate X may not be claimed when either is true:
 
 ```text
 X.deduplicated_into_asset_id IS NOT NULL
 OR
-EXISTS asset child WHERE child.deduplicated_into_asset_id = X.id
+EXISTS child_asset WHERE child_asset.deduplicated_into_asset_id = X.id
 ```
 
-Therefore, after B → A commits but B cleanup is pending, A has an incoming dedupe tombstone and **A cannot later become the source in A → C**. Multiple independent tombstones may point to the same stable canonical survivor A, but A itself cannot be retired until all incoming tombstones are physically cleaned.
+Therefore:
 
-A survivor target must itself have `deduplicated_into_asset_id IS NULL`.
+```text
+B → A cleanup pending
+attempt A → C
+→ reject
+```
 
-The dedicated cleanup retry for tombstone B must also require **no incoming dedupe tombstone targets B**. This is defensive even though the claim guard should make such a chain impossible.
+A survivor target must have `deduplicated_into_asset_id IS NULL`.
+
+Multiple independent cleanup-pending duplicates may point to the same stable survivor A, but A itself cannot be used as a destructive dedupe source while any incoming dedupe tombstone exists.
+
+The cleanup retry for B must also require no incoming dedupe tombstone targets B.
 
 ### Database guards
 
-Application preflight is not the race authority. The migration must add D1 triggers/check-equivalent guards enforcing at minimum:
+Application preflight is not the race authority. Migration triggers/check-equivalent guards must enforce at minimum:
 
-- setting a non-null tombstone requires `NEW.is_active = false`;
+- non-null tombstone requires `NEW.is_active = false`;
 - self-deduplication is rejected;
-- once `OLD.deduplicated_into_asset_id IS NOT NULL`, UPDATE may not change or clear that value;
-- a tombstoned Asset may never become active;
-- setting X's tombstone is rejected if any other Asset currently points to X through `deduplicated_into_asset_id`;
-- the survivor target is rejected if it is itself tombstoned;
+- once `OLD.deduplicated_into_asset_id IS NOT NULL`, UPDATE may not change or clear it;
+- a tombstoned Asset may not become active;
+- setting X's tombstone is rejected while another Asset points to X through `deduplicated_into_asset_id`;
+- survivor target is rejected if it is itself tombstoned;
 - new/updated references to a tombstoned Asset are rejected in:
   - `case_assets.asset_id`;
   - `stimulus_group_options.asset_id`;
   - `asset_questions.asset_id`;
   - `active_review_assets.asset_id`;
   - `active_review_assets.storage_key_snapshot` when it equals a tombstoned Asset's `storage_key`;
-  - `assets.superseded_by_asset_id` when the target is tombstoned.
+  - `assets.superseded_by_asset_id` when the **target** is tombstoned.
 
-These guards apply to all shared tables, including Preview writers. After B is claimed, no current/future writer can reacquire B.
+These guards apply to shared Production/Preview tables. Once B is claimed, no writer may reacquire B.
 
-The migration is additive: all existing Assets receive NULL and need no backfill.
+The migration is additive: all existing rows receive NULL and require no backfill.
 
-## 2. Migration / deployment ordering
+## 2. Authoritative Asset eligibility contract
 
-Production ordering is mandatory:
+Eligibility is server-owned and must be reasserted at submit/Phase 1; UI selection is never authority.
+
+### Survivor A must be
 
 ```text
-1. merge code only after review
-2. apply the additive D1 migration first while the old Worker is still running
-3. verify migration success
-4. only then deploy the Worker that reads/writes deduplicated_into_asset_id
-5. only after the new Worker is live may an Admin perform a dedupe
+exists
+type = image
+preview_session_id IS NULL
+is_active = true
+deduplicated_into_asset_id IS NULL
+superseded_by_asset_id IS NULL
+R2 object at A.storage_key exists before Phase 1
 ```
 
-Do not deploy a Worker that requires the new column/triggers before the Production migration is applied. The additive migration is old-Worker-compatible because no tombstones exist until the new dedupe feature creates them.
+A may have incoming `deduplicated_into_asset_id` rows from earlier cleanup-pending duplicates because A is being kept, not deleted.
 
-No Production migration/deployment is part of implementation work unless explicitly requested later.
+A may also be the target of an existing higher-resolution supersession predecessor because deleting A is not part of this merge. If repository invariants make such a target inactive, the `is_active=true` rule already excludes it.
 
-## 3. Admin entry points and cleanup-pending visibility
+### Duplicate/source B must be
+
+```text
+exists
+type = image
+preview_session_id IS NULL
+is_active = true before claim
+deduplicated_into_asset_id IS NULL before claim
+superseded_by_asset_id IS NULL
+no incoming dedupe tombstone points to B
+no Asset P has P.superseded_by_asset_id = B.id
+R2 object at B.storage_key exists before Phase 1
+```
+
+The incoming supersession blocker is mandatory: B cannot be physically deleted while another Asset uses B as its `superseded_by_asset_id` target.
+
+### Other hard blockers
+
+Reject before Phase 1, and reassert inside Phase 1 where race-relevant:
+
+- same Asset ID on both sides;
+- any retained same-Case A+B usage across fixed/stimulus relationships;
+- any physically retained Active Review reference to B/B-key/B-owned Asset Question;
+- any retained Preview relationship to B;
+- any forbidden outgoing/incoming dedupe state;
+- any forbidden outgoing/incoming supersession state for B;
+- any nonzero/unreadable legacy Review sentinel;
+- unresolved reusable-question conflict;
+- prospective cross-group Prompt invariant violation;
+- missing authoritative A or B R2 object.
+
+Do not invent repair/collapse semantics inside dedupe.
+
+## 3. Higher-resolution replacement interaction
+
+Keep existing higher-resolution replacement semantics unchanged.
+
+An incoming dedupe tombstone:
+
+```text
+B.deduplicated_into_asset_id = A.id
+```
+
+means A cannot be used as a **destructive dedupe/delete source** while B cleanup is pending.
+
+It does **not** by itself block the existing non-destructive higher-resolution replacement of A, because replacement retains A's D1 row and A's R2 bytes as lineage/history.
+
+Therefore PR #174 must not add a general trigger saying "incoming dedupe tombstone blocks any update/supersession of A".
+
+If A is higher-resolution-replaced after B → A Phase 1 but before B cleanup:
+
+- A row must remain;
+- A's original `storage_key` object must remain;
+- B cleanup may proceed only after reloading A and freshly proving that exact A object still exists;
+- B's tombstone remains B → A; do not retarget it to the replacement Asset C;
+- do not modify higher-resolution replacement logic except where the new tombstone column must be tolerated.
+
+This PR must not broaden into replacement-family redesign.
+
+## 4. Migration / Production deployment ordering
+
+Required Production order:
+
+```text
+1. implementation/review completes
+2. apply additive D1 migration while old Worker is still running
+3. verify migration success
+4. deploy Worker that reads/writes deduplicated_into_asset_id
+5. only then allow Admin dedupe
+```
+
+Do not deploy the new Worker before the migration. The additive migration is old-Worker-compatible because all existing tombstones are NULL.
+
+No Production migration/deployment is part of this implementation task unless explicitly requested later.
+
+## 5. Admin entry points and cleanup-pending visibility
 
 Add:
 
@@ -126,23 +211,23 @@ Add:
 /admin/images/deduplicate
 ```
 
-The existing Image Library exposes **Compare / merge duplicates** only when exactly two eligible Production images are selected.
+The Image Library exposes **Compare / merge duplicates** only when exactly two eligible Production images are selected.
 
-The dedupe page also has a clearly discoverable **Cleanup pending** section listing every Production image where:
+The dedupe page also exposes a discoverable **Cleanup pending** section for every Production image where:
 
 ```text
 deduplicated_into_asset_id IS NOT NULL
 ```
 
-Each entry shows duplicate image name/ID, canonical survivor name/ID, claim/update time where available, and a **Retry storage cleanup** action. This is the only generic Admin recovery surface for failed physical cleanup.
+Each entry shows duplicate name/ID, survivor name/ID, claim/update time when available, cleanup blocker reason, and **Retry storage cleanup**.
 
-Dedupe tombstones must not masquerade as ordinary inactive/archived images. Normal Image Library presentation should either exclude them from ordinary inactive results or render an explicit `Dedupe cleanup pending` state with navigation to the retry surface. They must never be eligible for ordinary reuse/selection.
+Tombstones must not masquerade as ordinary inactive/archived Assets. Either exclude them from ordinary inactive lists or label them explicitly as `Dedupe cleanup pending` with navigation to the retry surface. Never allow ordinary reuse/selection.
 
-Do **not** add a broad `delete unused inactive image` action.
+Do not add generic inactive-Asset deletion.
 
-## 4. Certification evidence — all retained Production usage
+## 6. Certification evidence — every retained Production context
 
-The Admin must certify over **every retained Production relationship** that Phase 1 must rewrite, not only currently learner-visible usage.
+The Admin must certify over every retained Production relationship that Phase 1 would rewrite, not only currently learner-visible usage.
 
 For each A/B Asset show:
 
@@ -151,14 +236,16 @@ For each A/B Asset show:
 - alt text;
 - source label / source URL / licence;
 - Collection;
-- storage/media state and active/supersession/dedupe state;
-- dimensions when available for display;
-- all retained Production fixed `case_assets` rows;
-- all retained Production `stimulus_group_options` rows;
-- reusable Asset Questions;
-- contextual Stimulus Group and Stimulus Option questions for every retained option/group using A/B.
+- MIME/storage identity and active/supersession/dedupe state;
+- dimensions when display decoding succeeds;
+- all retained Production `case_assets`;
+- all retained Production `stimulus_group_options`;
+- all associated reusable Asset Questions;
+- contextual Stimulus Group/Option questions;
+- **each retained Case's full `vignette_md`;**
+- **each retained Case's retained `case_questions` Prompt/answer/active state.**
 
-Every retained usage must be clearly classified as one of:
+Every retained usage is labelled as applicable:
 
 ```text
 Current learner-relevant
@@ -168,21 +255,37 @@ Retained inactive Stimulus Option
 Retained removed-from-Case Stimulus Option
 ```
 
-Do not hide retained/inactive rows merely because they are not currently selectable by learners; they still prevent B deletion and are certification-relevant.
+Do not hide inactive/removed retained context; those rows still participate in certification and physical-delete safety.
 
-For each retained Case usage show decision-relevant context:
+### Per retained Case context
 
-- Case ID/title and active state;
-- canonical Primary Topic ID/name and System ancestry used for context;
-- relationship kind (fixed vs stimulus option);
-- fixed `display_order`, `caption_md`, `created_at` where applicable;
-- Stimulus Group ID/name/active state;
-- Stimulus Option ID/display order/caption/`is_active`/`removed_from_case`;
-- contextual `stimulus_group_questions` and `stimulus_option_questions`: Prompt ID/text, answer, active state.
+For every Case appearing on either side, show:
 
-For fixed `case_assets`, do not invent a relationship ID: identity is the retained `(case_id, asset_id)` relationship plus its actual columns. Stimulus Option ID remains the stable contextual identity.
+- Case ID/title;
+- Case `is_active`;
+- full `vignette_md` rendered literally;
+- canonical Primary Topic ID/name;
+- displayed System ancestry IDs/names;
+- every retained `case_question` belonging to that Case:
+  - Case Question ID;
+  - Prompt ID/text;
+  - `answer_md`;
+  - `is_active`;
+- relationship kind: fixed or stimulus option;
+- for fixed usage: `display_order`, `caption_md`, `created_at`;
+- for stimulus usage:
+  - Group ID/name/active state;
+  - Option ID/display order/caption/`is_active`/`removed_from_case`;
+  - contextual `stimulus_group_questions` Prompt ID/text/answer/active state;
+  - contextual `stimulus_option_questions` Prompt ID/text/answer/active state.
 
-For each reusable Image Question show:
+`case_questions` are certification-only; dedupe does not move or edit them. They are shown because replacing the image must remain educationally valid in the Case's complete learner context.
+
+For fixed `case_assets`, do not invent a relationship ID. Its identity is the `(case_id, asset_id)` relationship and actual columns.
+
+### Reusable Image Question evidence
+
+For each Asset Question show:
 
 - Asset Question ID;
 - Prompt ID/text;
@@ -193,26 +296,47 @@ For each reusable Image Question show:
 
 ### Same-Case A+B blocker
 
-Build the retained Case-ID set for A and for B across **both** fixed relationships and all stimulus options, irrespective of Case/group/option current state.
-
-If the intersection is non-empty, block dedupe. This includes:
+Build retained Case-ID sets for A and B across all fixed relationships and all stimulus options regardless active/removed state. Any intersection blocks dedupe, including:
 
 ```text
 A fixed + B fixed
 A fixed + B option
 A option + B fixed
-A/B options in the same group
-A/B options in different groups of the same Case
-inactive/removed retained variants of any of the above
+A/B options in same group
+A/B options in different groups of same Case
+inactive/removed variants of all above
 ```
 
-Do not invent collapse semantics for this PR.
+No collapse semantics in this PR.
 
-## 5. Active Review policy — block rather than rewrite
+## 7. Safe rendering
 
-An active Review is frozen learner context, including media, captions, alt text, Prompt/answer snapshots and source provenance. To keep certification tractable and avoid changing frozen cardinality/context, **B must have zero active Review usage at claim time**.
+All persisted/package-controlled text on the certification surface must use normal escaped Svelte text rendering.
 
-Block when any current active Review has:
+Includes:
+
+- filenames;
+- Case title/vignette;
+- Case, Group, Option, reusable-question Prompt/answer text;
+- captions;
+- Topic/System names;
+- metadata/provenance/licence.
+
+Rules:
+
+- no unsanitized `{@html}`;
+- no ad-hoc Markdown-to-HTML rendering on this page;
+- preserve line breaks with CSS such as `white-space: pre-wrap`.
+
+Add focused executable/client coverage with HTML/event-handler-looking persisted values proving literal display.
+
+## 8. Physically retained Active Review policy
+
+B must have **zero physically retained Active Review references** at claim time.
+
+Do not filter the blocker by `active_reviews.expires_at`. An expired/non-resumable Review may still physically exist until a later cleanup/create path deletes it. Expiry is not evidence of deletion.
+
+Block whenever retained rows contain any of:
 
 ```text
 active_review_assets.asset_id = B.id
@@ -220,48 +344,39 @@ OR active_review_assets.storage_key_snapshot = B.storage_key
 OR active_review_questions.source_asset_question_id references an Asset Question currently owned by B
 ```
 
-If a Review contains both A and B, it is necessarily blocked as a subset of this rule; retain an explicit test for that case.
+The blocker query must consider the physical retained row set, including rows whose parent Review is already expired.
 
-The comparison page should show a non-identifying blocker such as:
+If both A and B occur in one retained Review, that is explicitly blocked.
+
+UI wording should not tell the Admin that expiry alone is sufficient. Prefer:
 
 ```text
-This duplicate is currently frozen in N active Review(s). Complete/discard/expire those Reviews before merging.
+This image is still retained by N learner Review snapshot(s).
+Complete/discard/replace the Review or allow the application's Review cleanup to remove the stored snapshot, then retry.
 ```
 
 Do not expose learner identity.
 
 ### Stale-snapshot race
 
-Required race behavior:
+Required:
 
 ```text
-T1 builds Review snapshot containing B but has not persisted it
-T2 Phase 1 exact-state guard sees zero committed B active Reviews
-T2 claims/tombstones B
-T1 attempts INSERT active_review_assets(B, B-key)
-→ DB tombstone trigger rejects it
-→ Active Review creation maps to current content-unavailable/stale-content behavior
+T1 builds snapshot containing B but has not persisted
+T2 Phase 1 sees zero physically retained B Review references
+T2 tombstones B
+T1 attempts INSERT active_review_assets(B,B-key)
+→ DB tombstone trigger rejects
+→ Review creation maps to existing stale/content-unavailable behavior
 ```
 
-If T1 persists B before Phase 1 begins, Phase 1's in-batch no-active-B assertion fails and the dedupe does not claim/delete anything.
+If a B Review persistence commits before Phase 1, Phase 1's in-batch physical-row assertion aborts the merge.
 
-Late Active Reviews are intentionally **not** part of the authoring plan fingerprint; they are governed by the in-batch zero-active-B assertion plus post-claim tombstone trigger.
+Late Review rows are not part of the authoring fingerprint; they are governed by the in-batch zero-retained-B assertion plus tombstone trigger.
 
-## 6. Safe rendering of certification content
+## 9. Survivor metadata and authoritative R2 checks
 
-All persisted/package-controlled text shown by this page must render literally through normal escaped Svelte text bindings.
-
-This includes filenames, Case titles, captions, Topic/System names, Group names, metadata/provenance, Prompt text and answers.
-
-- no unsanitized `{@html}`;
-- no ad-hoc Markdown-to-HTML path on this review surface;
-- preserve line breaks with CSS such as `white-space: pre-wrap` where useful.
-
-Add focused coverage with HTML/event-handler-looking persisted strings proving they are displayed as text, not executable markup.
-
-## 7. Survivor metadata contract and R2 authority
-
-A's global Asset metadata wins. Dedupe must never copy B metadata into A automatically and must never overwrite A's:
+A's metadata wins. Dedupe never overwrites A's:
 
 - image name;
 - alt text;
@@ -273,102 +388,172 @@ A's global Asset metadata wins. Dedupe must never copy B metadata into A automat
 - storage key;
 - R2 bytes.
 
-The UI must visibly mark B metadata/provenance/licence that will be discarded.
+B metadata/provenance/licence that will be discarded must be visible.
 
-Before Phase 1, the server—not browser image loading—must verify the survivor R2 object exists using the authoritative bucket/storage helper (`head` or established equivalent). Also verify B's object exists for a normal merge; if either expected object is missing, block and require storage repair rather than creating a tombstone against an unusable canonical image.
+### Before Phase 1
 
-R2 existence verification is preflight authority for media availability; D1 tombstone/reference guards remain the race authority for references.
+Server-side authoritative storage checks must prove:
 
-## 8. Server-owned merge plan and full decision fingerprint
+```text
+A.storage_key exists in R2
+B.storage_key exists in R2
+```
 
-Provide a domain read model conceptually equivalent to:
+Browser image rendering is not mutation authority.
+
+If either is missing, block before tombstone creation.
+
+### Immediately before every Phase-2/retry B-object delete
+
+Reload A and B, then **freshly re-verify that the exact current `A.storage_key` exists in R2 immediately before calling delete on B.storage_key**.
+
+This check is required for:
+
+- automatic Phase-2 cleanup immediately after Phase 1;
+- every Admin/manual cleanup retry;
+- any idempotent retry after a prior partial failure.
+
+If A's object is missing at that moment:
+
+```text
+do NOT delete B.storage_key
+do NOT delete B D1 tombstone row
+keep B inactive tombstone → A
+return cleanup blocked: canonical survivor media missing
+surface blocker in Cleanup pending UI
+```
+
+This protects against:
+
+```text
+Phase 1 commits B → A
+A object disappears before Phase 2
+```
+
+The cleanup path must never treat an earlier pre-Phase-1 A `head` result as sufficient.
+
+## 10. Server-owned merge plan and complete decision fingerprint
+
+Provide:
 
 ```js
 getDuplicateAssetMergePlan({ db, survivorAssetId, duplicateAssetId })
 ```
 
-It returns the complete certification model and a deterministic `mergePlanFingerprint`.
+It returns the complete certification model plus deterministic `mergePlanFingerprint`.
 
-The fingerprint is computed server-side from canonical, sorted, serialization-stable data and must cover **every decision-relevant value displayed to the Admin**, not merely IDs/counts. Include at minimum:
+Fingerprint input is canonical, sorted, serialization-stable and includes every decision-relevant displayed value.
 
-### Asset values
-- both Asset IDs;
-- image names;
-- alt text;
+### Asset state
+
+- A/B IDs;
+- names/alt text;
 - source label/URL/licence;
 - Collection ID/name;
 - MIME/storage key;
-- active/supersession/dedupe state;
+- active state;
+- outgoing/incoming dedupe state;
+- outgoing/incoming supersession state;
 - relevant timestamps/update markers.
 
-### Retained Case / taxonomy context
+### Retained Case/taxonomy state
+
+For every retained A/B Case context:
+
 - Case ID/title/active state;
+- full `vignette_md`;
 - Primary Topic ID/name;
 - displayed System ancestry IDs/names;
+- every retained `case_question`:
+  - ID;
+  - Prompt ID/text;
+  - answer;
+  - active state;
 - fixed relationship caption/order/created-at;
-- all retained relationship classification states.
+- retained/current classification state.
 
-### Stimulus context
+### Stimulus state
+
 - Group ID/name/active state and other displayed state;
 - Option ID/order/caption/active/removed state;
-- every displayed Stimulus Group/Option question ID, Prompt ID/text, answer and active state.
+- displayed Group/Option Question ID, Prompt ID/text, answer, active state.
 
 ### Reusable questions / opt-ins
+
 - Asset Question IDs;
 - Prompt IDs/text;
 - answers;
 - active states;
-- exact opt-in relationship identities and displayed Case/Group/Option context.
+- exact opt-in identities and displayed Case/Group/Option context.
 
-### Blocker-relevant state
-- retained Preview relationship identities;
-- supersession/dedupe incoming/outgoing state;
-- legacy sentinel state.
+### Blocker state
 
-Active Review rows are excluded from the fingerprint for the reason described above and receive an independent atomic zero-use assertion.
+- retained Preview references;
+- dedupe incoming/outgoing state;
+- supersession incoming/outgoing state;
+- legacy sentinel state;
+- same-Case collision state.
 
-Use SHA-256 or another deterministic cryptographic digest already available in the runtime only for **plan staleness**, not image identity.
+Physically retained Active Review rows remain outside the fingerprint because they are independently asserted atomically at Phase 1.
 
-## 9. Submit recomputation and recompute→D1 race closure
+Use SHA-256 or existing deterministic cryptographic digest only for plan staleness, never for image identity.
+
+## 11. Submit recomputation and recompute→D1 race closure
 
 On submit:
 
-1. server recomputes the entire merge plan from current D1 state;
-2. rejects a stale `mergePlanFingerprint`;
-3. recomputes same-Prompt conflicts and prospective cross-group validation;
-4. rejects missing, extra or stale conflict resolutions;
-5. verifies authoritative A/B R2 existence;
-6. enters Phase 1 with the exact recomputed expected authoring snapshot.
+1. recompute the full merge plan;
+2. reject stale `mergePlanFingerprint`;
+3. recompute question conflicts/prospective invariant validation;
+4. reject missing/extra/stale conflict resolutions;
+5. verify current A/B R2 existence;
+6. enter Phase 1 with exact expected authoring snapshot.
 
-The recompute itself is **not sufficient**. A Case/question/opt-in writer could commit after recompute and before the D1 batch.
+Recompute alone is insufficient. Phase 1 begins with a database-enforced **exact set-and-value equality assertion** against the recomputed snapshot.
 
-Therefore the first part of the Phase-1 atomic batch must contain a database-enforced **exact set-and-value equality assertion** against the expected recomputed snapshot. Use the current D1 sentinel style (for example canonical JSON payloads + `json_each`/CTE comparisons feeding a NOT-NULL sentinel) so mismatch aborts the whole batch.
+Use current D1 sentinel patterns; canonical JSON + `json_each`/CTE comparisons is acceptable. Any mismatch aborts the entire batch.
 
-The in-batch assertion must prove there are neither missing nor extra certification-relevant rows and that the relevant values are unchanged for:
+The in-batch equality guard must prove neither missing nor extra rows and unchanged decision values for:
 
-- both Asset rows and incoming/outgoing dedupe/supersession state;
-- every retained Production A/B `case_assets` relationship plus displayed Case/taxonomy values;
-- every retained Production A/B stimulus option plus displayed Case/Group/Option values;
-- every displayed contextual Stimulus Group/Option question value;
+- both Asset rows and complete incoming/outgoing dedupe/supersession state;
+- every retained A/B `case_assets` relationship;
+- every displayed retained Case value:
+  - title;
+  - `vignette_md`;
+  - active state;
+  - Primary Topic/taxonomy display values;
+- every retained Case Question ID/Prompt ID/text/answer/active state;
+- every retained A/B stimulus option and displayed Case/Group/Option values;
+- every displayed Group/Option Question ID/Prompt ID/text/answer/active state;
 - every A/B Asset Question value;
-- every affected reusable-question opt-in relationship;
-- retained Preview blockers (still zero for B);
+- every affected reusable-question opt-in;
+- retained Preview blocker state;
 - legacy sentinel zero state;
-- same-Case A+B retained-collision state.
+- same-Case A+B collision state;
+- complete incoming supersession blocker state for B.
 
-Do **not** let set-based canonicalization silently absorb a newly created Case/stimulus usage, changed caption/order/state, changed Prompt/answer, new/removed opt-in or other unreviewed authoring change.
+Do not let set-based B→A updates silently absorb newly added/changed authoring state.
 
-Because D1 batch statements are atomic/serialized, once this equality guard succeeds, competing authoring writes cannot interleave inside that Phase-1 batch. Any writer that committed before the guard causes a stale-plan abort; any B-reference writer after the tombstone is rejected by the new trigger.
+Examples that must stale-abort:
 
-## 10. Reusable Image Question union
+- new retained Case/stimulus usage;
+- Case `vignette_md` change;
+- Case Question Prompt/answer/active-state change;
+- caption/order/status change;
+- Group/Option question change;
+- Asset Question Prompt/answer/active-state change;
+- opt-in added/removed;
+- supersession or dedupe state change.
+
+Once the equality guard succeeds, D1 batch atomicity prevents authoring interleaving inside Phase 1. Post-claim B-reference writes are rejected by tombstone triggers.
+
+## 12. Reusable Image Question union
 
 Recompute by `question_prompt_id` on submit.
 
 ### A-only
 
-```text
-keep A row unchanged
-```
+Keep unchanged.
 
 ### B-only
 
@@ -377,7 +562,7 @@ UPDATE existing B row asset_id B → A
 preserve Asset Question ID, Prompt ID, answer and is_active
 ```
 
-Do not clone B-only rows.
+Do not clone.
 
 ### Same Prompt + same answer
 
@@ -385,135 +570,146 @@ Answer equality is exact after line-ending normalization only.
 
 ```text
 A-Q survives
-B-Q references/opt-ins canonicalize to A-Q
+B-Q usages/opt-ins canonicalize to A-Q
 B-Q deleted
 result_is_active = A.is_active OR B.is_active
 ```
 
 ### Same Prompt + different answer
 
-Require exactly one current conflict resolution:
+Require exactly one current resolution:
 
 ```text
 Keep survivor answer
 Use duplicate answer
 ```
 
-A-Q remains the canonical ID. No synthesized answer. Resulting active state is also:
+A-Q remains canonical ID. No synthesized answer. Result active state is `A.is_active OR B.is_active`.
 
-```text
-A.is_active OR B.is_active
-```
+### Prospective cross-group validation
 
-### Cross-group reactivation / union validation
-
-The OR-active rule is only valid when the **prospective post-merge opt-in graph** satisfies the existing cross-Stimulus-Group Prompt invariant.
-
-Validate for every state combination, including:
+Validate the full post-merge opt-in graph for every state combination, including:
 
 - A inactive / B active;
 - A active / B inactive;
 - both active;
-- different-answer resolution yielding an active row.
+- different-answer resolution yielding active canonical row.
 
-B's dormant opt-ins can still create a conflict when unioned onto an already-active A question, so do not rely only on the existing `inactive → active` trigger. If the prospective graph violates the invariant, block the whole Asset merge; do not silently inactivate the question and do not add an override.
+If union would violate the existing cross-Stimulus-Group Prompt invariant, block merge. Do not silently inactivate or override.
 
-If both are inactive, result remains inactive and retained opt-ins are remapped without reactivation.
+If both are inactive, result remains inactive.
 
 ### Exact opt-in preservation
 
-Canonical post-merge opt-ins are exactly the pre-merge union after question-ID remapping and duplicate pair collapse. No additional opt-in is inferred.
+Post-merge opt-ins are exactly the pre-merge union after question-ID remapping and duplicate pair collapse. No inferred opt-ins.
 
-For each same-Prompt pair/conflict, show per-side blast radius: Asset Question ID, Prompt, answer, active state, opt-in count, retained/current Case titles, Group/Option names/states and whether prospective OR-active union is blocked.
+Conflict UI shows per-side Asset Question ID, Prompt, answer, active state, opt-in count, retained/current Case titles, Group/Option context and prospective blocker state.
 
-## 11. Contextual Stimulus questions are certification-only
+## 13. Contextual Case/Stimulus questions are certification-only
 
-`stimulus_group_questions` and `stimulus_option_questions` are not moved by Asset dedupe; their contextual owners remain unchanged. They are displayed/fingerprinted because they are evidence the Admin must consider when deciding whether A can replace B in that context.
-
-Any change to their Prompt/answer/active state between certification and Phase 1 invalidates the plan through the exact in-batch authoring-state assertion.
-
-## 12. Phase-1 mutation order
-
-After all server/R2 preflight succeeds, use one atomic D1 batch with this semantic order:
+Dedupe does not move/edit:
 
 ```text
-A. exact expected-authoring-state assertion
-B. independent no-active-Review-B assertion
-C. no retained Preview B assertion
-D. no same-Case retained A+B collision assertion
-E. no incoming dedupe tombstone on source B; A/B chain/supersession eligibility assertions
-F. temporarily remove affected reusable opt-ins if needed for trigger-safe canonicalization
-G. move/collapse reusable Asset Questions using validated resolutions
-H. canonicalize all retained Production media relationships B → A
-   - every Production case_assets row, regardless current/inactive Case
-   - every Production stimulus_group_options row, regardless group/option active/removed state
-I. recreate exactly the canonical preserved opt-in set
-J. final no-reference assertion for B
-K. conditional tombstone claim in ONE update:
-   B.is_active = false
-   B.deduplicated_into_asset_id = A.id
-L. exact-claim sentinel proving the tombstone points to A and B is inactive
+case_questions
+stimulus_group_questions
+stimulus_option_questions
 ```
 
-Do not update active Review rows: Phase 1 requires zero B active Review use.
+They are displayed and fingerprinted because they determine whether the Admin can safely certify A for B's complete educational context.
+
+Any change in Prompt text, answer or active state after recompute must make the Phase-1 equality guard fail.
+
+## 14. Phase-1 atomic mutation order
+
+After server/R2 preflight, use one atomic D1 batch:
+
+```text
+A. exact expected-authoring-state equality assertion
+B. zero physically retained Active Review B/B-key/B-question-provenance assertion
+C. zero retained Preview B assertion
+D. zero same-Case retained A+B collision assertion
+E. exact Asset eligibility:
+   - A valid survivor
+   - B valid source
+   - no incoming dedupe tombstone on B
+   - no forbidden B outgoing/incoming supersession
+F. temporarily remove affected reusable opt-ins if needed
+G. move/collapse reusable Asset Questions using validated resolutions
+H. canonicalize every retained Production media relationship B → A
+   - every Production case_assets row
+   - every Production stimulus_group_options row
+I. recreate exactly preserved canonical opt-in set
+J. final no-reference assertion for B
+K. conditional claim in one UPDATE:
+   B.is_active = false
+   B.deduplicated_into_asset_id = A.id
+L. exact-claim sentinel:
+   B inactive
+   tombstone exactly A.id
+```
+
+Do not update Active Review rows.
 
 ### Final B no-reference assertion
 
-Before tombstone claim, prove B has no remaining:
+Before claim, prove B has no:
 
-- Production or Preview `case_assets` reference;
-- Production or Preview stimulus-option reference;
+- Production/Preview `case_assets`;
+- Production/Preview stimulus option;
 - `asset_questions` ownership;
-- active Review Asset ID/storage-key reference;
-- active Review Asset Question provenance owned by B;
-- forbidden supersession reference;
+- physically retained Active Review Asset ID/storage-key reference;
+- physically retained Active Review B-owned Asset Question provenance;
 - incoming dedupe tombstone;
+- forbidden supersession:
+  - B.superseded_by_asset_id must be NULL;
+  - no P.superseded_by_asset_id = B.id;
 - other known direct Asset FK required for physical deletion.
 
-If implementation discovery finds another current Asset-owning FK, add it to both the claim guard and tests before coding continues.
+If implementation discovers another Asset-owning FK, add it to guards/tests before continuing.
 
-## 13. Writer/race contract
+## 15. Race/interleaving contract
 
-### Authoring writer commits before Phase 1
+### Authoring change before Phase 1
 
-A new/changed Case, stimulus relationship, contextual question, Asset Question or opt-in that commits after submit recompute but before Phase 1 changes the exact authoring snapshot.
+Any certification-relevant authoring change after recompute/before Phase 1:
 
 ```text
-Phase-1 equality assertion fails
+exact equality assertion fails
 → no canonicalization
 → no tombstone
 → no R2 delete
-→ Admin refreshes/re-certifies
+→ refresh/re-certify
 ```
 
-### Writer attempts B reference after Phase 1
+Explicitly include forced interleavings for Case `vignette_md` and Case Question changes.
+
+### Review persistence before Phase 1
 
 ```text
-tombstone visible
-→ DB trigger rejects B reference
+physical B Review rows commit
+→ in-batch zero-retained-B assertion fails
+→ no claim
 ```
 
-### Active Review commits before Phase 1
+This applies even when `expires_at` is already in the past.
 
-```text
-active Review persists B/B-key
-→ in-batch no-active-B assertion fails
-→ merge does not claim B
-```
-
-### Stale active Review persists after Phase 1
+### Stale Review persistence after claim
 
 ```text
 snapshot built before claim
-→ insert B/B-key after claim
+→ B/B-key insert after tombstone
 → DB trigger rejects
 ```
 
+### Post-claim authoring
+
+Any writer attempting to reference B is rejected by tombstone trigger.
+
 ### Concurrent dedupe
 
-Only one exact B claim may win. A losing merge performs no R2 deletion.
+Only one exact B claim wins; loser performs no R2 deletion.
 
-### Tombstone chain attempt
+### Tombstone chain
 
 ```text
 B → A cleanup pending
@@ -521,137 +717,180 @@ attempt A → C
 → incoming-tombstone source guard rejects
 ```
 
-## 14. Phase-2 R2 cleanup
+## 16. Phase-2 R2 cleanup and retry
 
-After Phase 1 commits, the tombstone/trigger fence closes the D1/R2 TOCTOU: no writer can acquire B between a no-reference recheck and R2 deletion.
+After Phase 1, the tombstone fence closes D1/R2 reference TOCTOU.
 
-Cleanup sequence:
+For **every** automatic cleanup and retry:
 
 ```text
 1. reload B and A
-2. require B.is_active=false and B.deduplicated_into_asset_id=A.id
-3. require B tombstone value is unchanged
-4. require no incoming dedupe tombstone targets B
-5. require A still exists and is not itself tombstoned
-6. strict no-reference recheck, including retained Preview and active Review checks
-7. legacy Review sentinels still zero
-8. delete ONLY B.storage_key through central teaching-image delete helper
-9. missing B object is idempotent success when helper semantics permit
-10. delete B D1 row under the same tombstone/no-reference guards
+2. require B.is_active=false
+3. require B.deduplicated_into_asset_id=A.id
+4. require tombstone unchanged/immutable
+5. require no incoming dedupe tombstone targets B
+6. require A row still exists
+7. require A is not itself dedupe-tombstoned
+8. strict B no-reference recheck:
+   - Production/Preview
+   - physically retained Active Review rows regardless expires_at
+   - Asset Questions
+   - supersession incoming/outgoing
+9. legacy Review sentinels still zero
+10. FRESH authoritative R2 existence check for exact A.storage_key
+11. if A object missing: STOP; keep B object + tombstone; report cleanup blocked
+12. delete ONLY B.storage_key
+13. missing B object is idempotent success where helper permits
+14. delete B D1 row under same tombstone/no-reference guards
 ```
 
-Never pass A.storage_key to an R2 delete operation.
+Never pass A.storage_key to R2 delete.
 
-Failure after Phase 1:
+A may have become non-destructively superseded by higher-resolution replacement after Phase 1. That alone does not block B cleanup so long as A row remains and exact A.storage_key still exists.
+
+### Cleanup failure states
+
+R2 delete failure:
 
 ```text
-R2 failure
-→ A remains canonical
-→ B remains inactive tombstone → A
-→ visible Cleanup pending entry
-
-R2 succeeds but D1 row deletion fails
-→ B remains tombstone; object may be absent
-→ retry revalidates and finishes idempotently
+A remains canonical
+B remains inactive tombstone → A
+B object remains
+Cleanup pending remains visible
 ```
 
-The retry operation accepts only a valid dedupe tombstone. Ordinary inactive/archived Assets are never eligible.
+A object missing immediately before B delete:
 
-## 15. Certification wording
+```text
+B object MUST remain
+B tombstone row MUST remain
+Cleanup pending reason = canonical survivor media missing
+```
+
+B R2 delete succeeds but B D1-row delete fails:
+
+```text
+B tombstone remains
+B object may be absent
+retry revalidates A object + all guards and completes idempotently
+```
+
+Ordinary inactive/archived Assets cannot use this retry.
+
+## 17. Certification wording
 
 Final confirmation should be substantially equivalent to:
 
-> I have reviewed both images and every retained Case/stimulus/reusable-question context shown above. I certify that the selected survivor is clinically and educationally interchangeable for all of those uses, preserves all required visible content, and does not introduce an answer-bearing annotation or overlay. I understand the duplicate's Asset metadata/provenance will not be copied automatically and its stored image will be permanently deleted after the canonical merge succeeds.
+> I have reviewed both images and every retained Case, vignette, Case question, stimulus and reusable-question context shown above. I certify that the selected survivor is clinically and educationally interchangeable for all of those uses, preserves all required visible content, and does not introduce an answer-bearing annotation or overlay. I understand the duplicate's global Asset metadata/provenance will not be copied automatically and its stored image will be permanently deleted only after the canonical survivor media is reverified.
 
-If any active Review uses B, confirmation controls are disabled and the Review blocker is shown instead.
+If B has any physically retained Active Review reference, confirmation controls are disabled.
 
-## 16. Tranche-1 executable acceptance matrix
+## 18. Tranche-1 executable acceptance matrix
 
 Static/regex checks are supplemental only. Add executable migration/domain/route coverage proving at minimum:
 
-1. migration is additive; existing Assets get null tombstone;
+1. migration is additive and existing Assets get NULL tombstone;
 2. tombstone requires inactive state;
-3. non-null tombstone cannot be changed or cleared by UPDATE;
+3. non-null tombstone cannot be changed/cleared by UPDATE;
 4. tombstoned Asset cannot be reactivated;
-5. self-dedupe is rejected;
+5. self-dedupe rejected;
 6. source with incoming dedupe tombstone cannot be claimed;
-7. tombstoned target cannot be used as survivor;
-8. B→A cleanup-pending then attempted A→C is rejected;
-9. cleanup retry rejects any tombstone with an incoming dedupe reference;
+7. tombstoned target cannot be survivor;
+8. B→A cleanup-pending then attempted A→C rejected;
+9. cleanup retry rejects tombstone with incoming dedupe reference;
 10. `case_assets` INSERT/UPDATE cannot acquire tombstoned B;
 11. `stimulus_group_options` INSERT/UPDATE cannot acquire tombstoned B;
 12. `asset_questions` INSERT/UPDATE cannot acquire tombstoned B;
-13. `active_review_assets` INSERT/UPDATE cannot use tombstoned B ID;
-14. `active_review_assets` cannot use B's tombstoned storage key with any Asset ID;
+13. `active_review_assets` cannot acquire tombstoned B by ID;
+14. `active_review_assets` cannot use B tombstoned storage key with another Asset ID;
 15. supersession cannot newly target tombstoned B;
-16. all retained Production B fixed relationships move to A, including inactive Cases, preserving caption/order/created-at semantics;
-17. all retained B stimulus options move to A, including inactive/removed rows, preserving stable option IDs/context;
-18. certification read model labels current vs each retained inactive/removed state correctly;
-19. any retained same-Case A+B intersection across fixed/options/same-or-different groups blocks merge;
-20. certification includes contextual Stimulus Group/Option Prompt/answer/state accurately;
-21. B-only reusable questions move to A with same IDs/states;
-22. same-Prompt/same-answer collapse applies OR-active rule and exact opt-in preservation;
-23. same-Prompt/different-answer requires exactly one current resolution and applies selected answer + OR-active rule;
-24. stale/missing/extra conflict resolutions reject;
-25. prospective cross-group conflicts for A-inactive/B-active, A-active/B-inactive and both-active unions block;
-26. per-side reusable-question blast radius is accurate;
-27. survivor alt text, metadata, storage key and R2 bytes never change; B provenance/licence is not copied;
-28. retained Preview B reference blocks regardless active/expired/cleanup_required status;
-29. unexpected nonzero/unreadable legacy Review sentinel blocks with no mutation/R2 delete;
-30. any active Review using B Asset ID, B storage key or B Asset Question provenance blocks;
-31. active Review containing both A and B blocks;
-32. stale active Review snapshot built before claim but persisted after claim is rejected by DB guard;
-33. active Review B persistence immediately before Phase 1 makes the in-batch guard abort the merge;
-34. server blocks when authoritative survivor R2 object is missing;
-35. server blocks normal merge when B R2 object is unexpectedly missing;
-36. displayed persisted HTML/event-handler-looking values render literally and cannot execute;
-37. mergePlanFingerprint changes when any decision-relevant displayed value changes, including Prompt text/state, caption/order/status, Case/Group/Option context or metadata;
-38. submit recomputation rejects stale browser fingerprint;
-39. forced interleaving: new retained Case/stimulus usage commits after recompute/before Phase 1 → exact in-batch equality guard aborts;
-40. forced interleaving: caption/order/Case or Group/Option state changes after recompute/before Phase 1 → abort;
-41. forced interleaving: Asset Question Prompt/answer/active state changes after recompute/before Phase 1 → abort;
-42. forced interleaving: reusable opt-in added/removed after recompute/before Phase 1 → abort;
-43. forced interleaving: contextual Group/Option question changes after recompute/before Phase 1 → abort;
-44. no late authoring write is silently absorbed by set-based B→A updates;
-45. successful Phase 1 leaves zero protected B references before tombstone;
-46. post-claim attempt to add a B reference is rejected, closing D1/R2 TOCTOU;
-47. cleanup deletes only B.storage_key;
-48. Phase-1 failure performs no R2 delete;
-49. R2 failure leaves durable cleanup-pending tombstone visible in Admin retry list;
-50. retry accepts only valid dedupe tombstone and is idempotent for already-missing B object when storage helper permits;
-51. ordinary inactive/archived Asset never appears as cleanup-pending and cannot use retry;
-52. concurrent/double merge claims B at most once and loser performs no R2 delete;
-53. Preview Admin has no equivalent mutation endpoint;
-54. Production route auth/domain-error mapping follows current Admin patterns.
+16. authoritative eligibility rejects non-image, Preview, inactive, outgoing-dedupe or superseded A/B as specified;
+17. B with incoming dedupe tombstone is rejected;
+18. B with `B.superseded_by_asset_id != NULL` is rejected;
+19. B with any P where `P.superseded_by_asset_id=B.id` is rejected and cannot be physically cleaned;
+20. A with incoming dedupe tombstone cannot be destructive dedupe source;
+21. existing non-destructive higher-resolution replacement remains permitted for A with incoming B→A tombstone when its existing replacement invariants pass;
+22. higher-resolution replacement does not retarget/remove B→A tombstone or delete A R2;
+23. all retained Production B fixed relationships move to A, including inactive Cases, preserving relationship values;
+24. all retained B stimulus options move to A, including inactive/removed rows, preserving stable option IDs/context;
+25. read model labels current vs inactive/removed retained states correctly;
+26. any retained same-Case A+B intersection across fixed/options/groups blocks;
+27. certification includes each retained Case's full `vignette_md`;
+28. certification includes every retained Case Question ID/Prompt text/answer/active state;
+29. certification includes contextual Group/Option Prompt/answer/state;
+30. B-only reusable questions move to A with same IDs/states;
+31. same-Prompt/same-answer collapse applies OR-active and exact opt-in preservation;
+32. same-Prompt/different-answer requires exactly one current resolution and selected answer + OR-active;
+33. stale/missing/extra conflict resolution rejected;
+34. prospective cross-group conflicts block all relevant active-state combinations;
+35. per-side reusable-question blast radius accurate;
+36. survivor alt text/metadata/storage key/R2 bytes never change; B provenance/licence not copied;
+37. retained Preview B reference blocks regardless session status including expired/cleanup_required;
+38. unexpected nonzero/unreadable legacy Review sentinel blocks with no mutation/R2 delete;
+39. physically retained Active Review B Asset ID blocks even if parent `expires_at` is past;
+40. physically retained Active Review B storage-key snapshot blocks even if expired;
+41. physically retained Active Review B-owned Asset Question provenance blocks even if expired;
+42. active Review containing both A and B blocks;
+43. simply making an Active Review expired/non-resumable does not unblock until physical retained rows are removed;
+44. stale active Review snapshot built before claim but persisted after claim is rejected by DB guard;
+45. B Review persistence immediately before Phase 1 makes in-batch guard abort;
+46. server blocks Phase 1 when A R2 object missing;
+47. server blocks normal merge when B R2 object missing;
+48. persisted HTML/event-handler-looking certification values render literally;
+49. fingerprint changes when Case vignette changes;
+50. fingerprint changes when retained Case Question Prompt/answer/active state changes;
+51. fingerprint changes for all other decision-relevant displayed changes;
+52. submit recomputation rejects stale browser fingerprint;
+53. forced interleaving new Case/stimulus usage after recompute/before Phase 1 aborts;
+54. forced interleaving Case vignette change after recompute/before Phase 1 aborts;
+55. forced interleaving Case Question Prompt/answer/active state change after recompute/before Phase 1 aborts;
+56. forced interleaving caption/order/Case/Group/Option state change aborts;
+57. forced interleaving Asset Question change aborts;
+58. forced interleaving reusable opt-in add/remove aborts;
+59. forced interleaving Group/Option question change aborts;
+60. no late authoring write is silently absorbed by set-based B→A updates;
+61. successful Phase 1 leaves zero protected B references before tombstone;
+62. post-claim B reference attempt rejected;
+63. Phase-2 cleanup freshly verifies A.storage_key immediately before deleting B;
+64. A object disappears after Phase 1 → B object is NOT deleted, B tombstone remains, cleanup blocked shown;
+65. same A-missing rule applies on retry;
+66. successful cleanup deletes only B.storage_key;
+67. Phase-1 failure performs no R2 delete;
+68. R2 failure leaves durable cleanup-pending tombstone visible;
+69. retry accepts only valid dedupe tombstone and is idempotent for already-missing B object where helper permits;
+70. ordinary inactive/archived Asset never appears as cleanup-pending and cannot use retry;
+71. concurrent/double merge claims B at most once and loser performs no R2 delete;
+72. Preview Admin has no equivalent mutation endpoint;
+73. Production route auth/domain-error mapping follows current Admin patterns.
 
 ---
 
 # Tranche 2 — Visual duplicate discovery
 
-## 17. Candidate membership
+## 19. Candidate membership
 
 Only active, non-Preview, non-superseded, non-tombstoned Production image Assets are automatic discovery candidates.
 
 ### Topic — default
 
-Given Topic T, include X when X has at least one **current learner-relevant Production usage** in an active Case whose canonical Primary Topic is exactly T.
+Given Topic T, include X when X has at least one current learner-relevant Production usage in an active Case whose canonical Primary Topic is exactly T.
 
 Current usage:
 
 - fixed `case_assets` on an active Production Case;
 - active non-removed Stimulus Option in an active Stimulus Group on an active Production Case.
 
-Inactive/removed retained relationships are certification evidence once a pair is compared, but do not grant Topic discovery membership.
+Inactive/removed retained relationships are certification evidence after comparison, not Topic-discovery membership.
 
 ### System — explicit widening
 
-Include X when its current Production Case usage has a canonical Primary Topic whose recursive ancestor chain contains selected System S at **any depth**. Do not assume Topics are direct children of Systems.
+Include X when its current Production Case usage has a canonical Primary Topic whose recursive ancestor chain contains selected System S at any depth. Do not assume direct-parent only.
 
 ### Global — explicit widening
 
 Include all eligible active Production image Assets, including currently unused active library Assets. Never auto-widen from Topic/System to global.
 
-## 18. Scan bounds / resources
+## 20. Scan resource bounds
 
 Use explicit constants:
 
@@ -666,44 +905,42 @@ MAX_WORKING_PIXELS = 768 * 768
 YIELD_EVERY_PAIR_COMPARISONS = 100
 ```
 
-Do not silently truncate a scope and imply completeness.
+Do not silently truncate and imply completeness.
 
-If candidate count >120, require a narrower scope or explicit bounded batch/page and label it as incomplete/bounded.
+If scope >120, require narrower scope or explicit bounded batch/page and label incomplete/bounded.
 
-Count bytes using trusted `Content-Length` when present and actual Blob byte length before fingerprinting; stop before the cumulative scan exceeds 96 MiB and report a visible incomplete-scan warning. A failed/oversize fetch is non-destructive.
+Count trusted `Content-Length` when present and actual Blob bytes before fingerprinting. Stop before >96 MiB and show incomplete warning.
 
-At most 2 images may be in decode/working-raster processing simultaneously. Retain only compact fingerprints after each image is processed.
+At most 2 images may be decoding/working-raster processing simultaneously. Retain only compact fingerprints afterward.
 
-After fingerprinting each image:
+Release resources:
 
 - `ImageBitmap.close()` where available;
-- release Blob/object-URL references;
-- clear/reset temporary Canvas backing dimensions;
-- release pixel arrays once hashes are produced.
+- Blob/object URL references;
+- temporary Canvas dimensions;
+- pixel arrays.
 
-New scan/scope change/cancel uses an `AbortController` plus scan-generation token; abort outstanding fetches and prevent stale workers from committing results.
+New scan/scope/cancel uses `AbortController` plus scan-generation token; abort outstanding fetches and prevent stale result publication.
 
-Yield to the browser every 100 unordered pair comparisons.
+Yield every 100 unordered pair comparisons.
 
-## 19. Deterministic fingerprint extraction
+## 21. Deterministic fingerprint extraction
 
-Browser decoding supplies pixels; matching mathematics is pure JS and testable from deterministic RGBA fixtures.
+Browser decoding supplies pixels; mathematics is pure JS and testable from deterministic RGBA fixtures.
 
 ### Working raster
 
-Preserve the decoded whole-image aspect ratio when drawing into a bounded working Canvas whose longest side is <=768 and whose total pixels are <=768².
+Preserve whole-image aspect ratio when drawing into bounded Canvas longest side <=768 and total pixels <=768².
 
-Do **not** claim that each 9×8 hash preserves aspect ratio. Each selected source region is intentionally resampled directly to a 9×8 comparison grid.
+Each selected source region is intentionally resampled directly to 9×8; do not claim that individual hashes preserve aspect ratio.
 
 ### Alpha compositing
 
-Before grayscale, composite each RGBA pixel onto opaque white using integer alpha `a` in [0,255]:
+Composite RGBA to opaque white:
 
 ```text
 Cwhite = round((C * a + 255 * (255 - a)) / 255)
 ```
-
-for R/G/B separately.
 
 Then:
 
@@ -711,45 +948,45 @@ Then:
 gray = round(0.299*Rwhite + 0.587*Gwhite + 0.114*Bwhite)
 ```
 
-### Region families — include asymmetric crops
+### Region families
 
-Use normalized `(widthFraction, heightFraction)` shapes:
+Use normalized `(widthFraction,heightFraction)` shapes:
 
 ```text
-[1.0, 1.0]
-[0.8, 0.8]
-[0.6, 0.6]
-[0.4, 0.4]
-[0.8, 1.0]
-[0.6, 1.0]
-[1.0, 0.8]
-[1.0, 0.6]
-[0.8, 0.6]
-[0.6, 0.8]
+[1.0,1.0]
+[0.8,0.8]
+[0.6,0.6]
+[0.4,0.4]
+[0.8,1.0]
+[0.6,1.0]
+[1.0,0.8]
+[1.0,0.6]
+[0.8,0.6]
+[0.6,0.8]
 ```
 
-Origin rules:
+Origins:
 
-- full frame: one origin `(0,0)`;
-- if both dimensions are cropped: top-left, top-right, bottom-left, bottom-right, centre;
-- if only width is cropped: left, centre, right;
-- if only height is cropped: top, centre, bottom.
+- full frame: `(0,0)`;
+- both dimensions cropped: top-left/top-right/bottom-left/bottom-right/centre;
+- width-only crop: left/centre/right;
+- height-only crop: top/centre/bottom.
 
-This yields exactly **38 region hashes per image** and explicitly covers one-sided horizontal/vertical border crops as well as rectangular asymmetric crops. Do not use the earlier scalar-only 30-region contract.
+This yields exactly **38 hashes/image** and covers symmetric, one-sided horizontal/vertical, and rectangular asymmetric border crops.
 
-For each region, sample/resample deterministically into a 9×8 RGBA/grid, composite alpha, convert to grayscale, then compute a 64-bit row-major dHash from each pixel vs the pixel immediately right:
+For each region, resample to 9×8 RGBA, composite alpha, grayscale, then compute row-major 64-bit dHash:
 
 ```text
 bit = 1 when leftGray > rightGray else 0
 ```
 
-Represent each 64-bit hash as JavaScript `BigInt`, never `Number`.
+Represent hashes as JavaScript `BigInt`, never Number.
 
-Hamming distance is exact popcount of `hashA ^ hashB` using `BigInt` operations.
+Hamming distance = exact popcount of `hashA ^ hashB` via BigInt operations.
 
-## 20. Deterministic pair score / thresholds
+## 22. Deterministic score / thresholds
 
-For the 38 hashes of A and B:
+For 38 hashes of A/B:
 
 ```text
 nearestA[i] = min Hamming(A[i], every B hash)
@@ -757,43 +994,43 @@ nearestB[j] = min Hamming(B[j], every A hash)
 bestDistance = min(nearestA ∪ nearestB)
 supportA = count(nearestA <= 8)
 supportB = count(nearestB <= 8)
-support = min(supportA, supportB)
-top3DistanceSum = sum of the 3 smallest values in nearestA ∪ nearestB
+support = min(supportA,supportB)
+top3DistanceSum = sum of 3 smallest values in nearestA ∪ nearestB
 ```
 
-Classify:
+Classification:
 
 ```text
-Likely duplicate
-→ bestDistance <= 6
+Likely duplicate:
+bestDistance <= 6
 AND support >= 3
 AND top3DistanceSum <= 24
 
-Possible duplicate
-→ not Likely
+Possible duplicate:
+not Likely
 AND bestDistance <= 10
 AND support >= 2
 AND top3DistanceSum <= 36
 
-Otherwise
-→ do not propose
+Otherwise:
+do not propose
 ```
 
-Rank proposed pairs deterministically by:
+Ranking:
 
 ```text
-classification (Likely before Possible)
-bestDistance ascending
-top3DistanceSum ascending
-support descending
-canonical sorted Asset-ID pair ascending as final tie-break
+Likely before Possible
+bestDistance asc
+top3DistanceSum asc
+support desc
+canonical sorted Asset-ID pair asc
 ```
 
-Thresholds are conservative proposal thresholds, not identity proof. Admin certification remains mandatory.
+Thresholds propose review only; they never prove identity.
 
-## 21. Discovery UX / Not-duplicate lifetime
+## 23. Discovery UX / Not-duplicate lifetime
 
-Show Topic selector and explicit widening controls:
+Controls:
 
 ```text
 Find likely duplicates in Topic
@@ -801,70 +1038,70 @@ Search this System
 Search global library
 ```
 
-Each proposed pair shows both images, scope/context and `Likely duplicate` or `Possible duplicate` only. Never say `Identical` based on the matcher.
+Pairs show both images, scope/context and `Likely duplicate` / `Possible duplicate`; never `Identical`.
 
-`Compare` enters Tranche 1 and reloads the authoritative full retained certification plan.
+`Compare` enters Tranche 1 and reloads authoritative retained certification plan.
 
-`Not duplicate` stores the canonical sorted pair key in `sessionStorage` for the **current browser tab session**:
+`Not duplicate` stores canonical pair key in current-tab `sessionStorage`:
 
-- survives route reload/navigation in the same tab;
+- survives same-tab route reload/navigation;
 - applies across Topic/System/global searches in that tab;
-- does not persist to another tab/device/session;
-- disappears when the tab session ends or storage is cleared.
+- not shared to another tab/device;
+- clears when tab session/storage ends.
 
-Provide a small **Reset dismissed pairs** action.
+Provide **Reset dismissed pairs**.
 
-## 22. Tranche-2 executable acceptance
+## 24. Tranche-2 executable acceptance
 
-The pure matching core must accept deterministic RGBA/pixel fixtures in Node tests. Cover at minimum:
+Pure matching core accepts deterministic RGBA fixtures. Cover:
 
-1. same source at different resolution remains proposed;
-2. JPEG-like/noise perturbation remains proposed;
-3. symmetric crop remains proposed;
-4. one-sided left crop remains proposed;
-5. one-sided right crop remains proposed;
-6. one-sided top crop remains proposed;
-7. one-sided bottom crop remains proposed;
-8. rectangular asymmetric border crop remains proposed;
-9. merely similar medical-style synthetic patterns do not meet the strongest Likely threshold solely from broad structure;
-10. transparent vs equivalent white-composited source hashes deterministically according to the alpha rule;
-11. 64-bit hash values use `BigInt` and Hamming/popcount is exact above 2^53;
-12. score/support/top3 formula and tie-breaking are deterministic;
-13. Topic membership uses current learner-relevant exact Primary Topic only;
-14. System widening resolves recursive ancestry, not only direct parent;
-15. inactive/Preview/superseded/tombstoned Assets are excluded;
-16. candidate count >120 does not silently truncate;
-17. cumulative fetch budget >96 MiB stops with incomplete warning;
-18. fetch concurrency never exceeds 4 and decode concurrency never exceeds 2 in controlled tests/helpers;
-19. working raster never exceeds configured dimension/pixel bound;
-20. cancellation aborts fetches, releases resources and prevents stale result publication;
-21. decode/fetch failure is visible/non-fatal/non-mutating;
-22. Not-duplicate pair persists only for current tab `sessionStorage` and reset clears it;
-23. no discovery code path can invoke merge without Tranche-1 server comparison + explicit certification.
+1. same source different resolution proposed;
+2. JPEG-like/noise perturbation proposed;
+3. symmetric crop proposed;
+4. left crop proposed;
+5. right crop proposed;
+6. top crop proposed;
+7. bottom crop proposed;
+8. rectangular asymmetric crop proposed;
+9. similar synthetic medical-style patterns do not reach strongest Likely solely from broad structure;
+10. transparent vs white-composited source follows alpha rule;
+11. 64-bit BigInt/Hamming exact above 2^53;
+12. score/support/top3/tie-break deterministic;
+13. Topic membership uses current exact Primary Topic;
+14. System widening uses recursive ancestry;
+15. inactive/Preview/superseded/tombstoned Assets excluded;
+16. candidate count >120 not silently truncated;
+17. >96 MiB fetch budget stops with incomplete warning;
+18. fetch concurrency <=4, decode <=2;
+19. working raster respects bounds;
+20. cancellation releases resources and blocks stale publication;
+21. decode/fetch failure visible/non-fatal/non-mutating;
+22. Not-duplicate sessionStorage lifetime/reset correct;
+23. discovery cannot invoke merge without Tranche-1 server comparison + explicit certification.
 
-Do not use real patient/production images in repository tests.
+Do not use real patient/Production images in repository tests.
 
 ---
 
 # Implementation order — same Draft PR
 
-Luna must implement in exactly two tranches on this branch:
+Luna implements exactly two tranches on this branch:
 
 ```text
 Tranche 1
   migration + tombstone/reference guards
   → executable migration/race tests
-  → server merge-plan/read model + exact D1 stale-state guard
-  → merge + cleanup domain operations/tests
-  → manual compare/certification + cleanup-pending Admin UX
-  → focused checkpoint validation
+  → server merge-plan/read model + exact D1 equality guard
+  → merge + cleanup operations/tests
+  → compare/certification + cleanup-pending Admin UX
+  → focused validation
 
 Tranche 2
   pure matcher + deterministic fixture tests
   → Topic/System/global candidate read path
   → bounded/cancellable discovery UI
   → Compare wiring to Tranche 1
-  → focused checkpoint validation
+  → focused validation
 ```
 
 Keep mutation logic out of Svelte components.
@@ -876,34 +1113,35 @@ Do not add:
 - automatic merges;
 - AI/vision embeddings;
 - SHA as image identity;
-- OpenCV/ORB/Sharp/server Canvas dependencies;
+- OpenCV/ORB/Sharp/server Canvas;
 - persistent fingerprint/vector tables;
 - durable negative-match storage;
 - Asset families/version-history;
 - generic inactive-Asset deletion;
-- Preview Admin dedupe mutation;
+- Preview Admin dedupe;
 - Import Package changes;
 - Slide Reviewer/importer dedupe logic;
-- automatic promotion of Case-specific questions into reusable questions;
-- automatic opt-in of newly unioned reusable questions;
-- FSRS scheduling/rating changes.
+- automatic promotion of Case-specific questions to reusable questions;
+- automatic opt-in of unioned reusable questions;
+- FSRS scheduling/rating changes;
+- redesign of higher-resolution replacement.
 
 ## Validation / Luna 5.6 handoff
 
-Continue this exact Draft PR. Do not restart from `main`, create another PR, mark Ready, merge, deploy, apply Production migrations or mutate Production data without explicit instruction.
+Continue this exact Draft PR. Do not restart from `main`, create another PR, mark Ready, merge, deploy, apply Production migrations, or mutate Production data without explicit instruction.
 
-This task crosses Admin + schema/migrations + DB + Asset/R2 + reusable-question + active-Review boundaries. Follow current repository routing and progressive retrieval.
+This crosses Admin + schema/migrations + DB + Asset/R2 + reusable-question + Active Review boundaries. Use repository routing/progressive retrieval.
 
 During implementation:
 
-- use executable focused tests for each protected invariant/interleaving;
-- migration/trigger tests must execute against current-schema SQLite/D1-style fixtures rather than regex-only inspection;
+- executable focused tests for every protected invariant/interleaving;
+- migration/trigger tests execute on current-schema SQLite/D1-style fixtures, not regex-only;
 - static assertions may supplement but never replace domain/race tests;
-- run `npm run db:check` for schema/migration work;
-- use `npm run agent:checks -- --compact` at coherent checkpoints and every final/specialized check it reports;
-- run repository-required final validation including full validation before handoff;
-- run runtime smoke only if current routing says the implementation changes Worker/runtime/binding behavior;
-- inspect the complete `main` → final head diff once at final review;
+- run `npm run db:check`;
+- run `npm run agent:checks -- --compact` at coherent checkpoints and every final/specialized check it reports;
+- run repository-required final/full validation;
+- runtime smoke only when current routing says Worker/runtime/binding behavior changed;
+- inspect complete `main` → final head diff once at final review;
 - reconcile living image/R2/reusable-question/data-model docs after implementation.
 
-If implementation discovers an additional Asset-owning FK, trigger interaction or runtime constraint that materially changes this contract, amend this planning document in the same Draft PR before broadening implementation.
+If implementation discovers an additional Asset-owning FK, trigger interaction, Review-retention path, or runtime constraint that materially changes this contract, amend this planning document in this same Draft PR before broadening implementation.
