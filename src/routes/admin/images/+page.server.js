@@ -23,6 +23,11 @@ import {
   bulkAddAssetsToStimulusGroup,
   listActiveStimulusGroupTargets
 } from '$lib/server/db/admin-image-workflow.js';
+import {
+  AssetDeduplicationInputError,
+  cleanupDuplicateAsset,
+  listPendingDuplicateCleanup
+} from '$lib/server/db/asset-deduplication.js';
 import { getTeachingImageUrl, MediaStorageLimitError } from '$lib/server/storage/media.js';
 
 /** @param {FormData} formData @param {string} name */
@@ -31,24 +36,45 @@ function formText(formData, name) {
   return typeof value === 'string' ? value.trim() : '';
 }
 
+/** @param {string | null | undefined} reason */
+function cleanupReason(reason) {
+  /** @type {Record<string, string>} */
+  const messages = {
+    'canonical-survivor-media-missing': 'Cleanup is blocked because the canonical survivor media is missing from R2. The duplicate object and tombstone were kept.',
+    'r2-delete-failed': 'R2 could not delete the duplicate object. Cleanup remains pending.',
+    'tombstone-delete-failed': 'The duplicate object was handled, but its D1 tombstone remains for a safe retry.',
+    'active-review-reference': 'A physically retained learner Review still references this image. Expiry alone does not unblock cleanup.',
+    'active-review-question-reference': 'A physically retained learner Review still references a reusable question from this image.',
+    'retained-case-reference': 'A retained Case relationship still references this image.',
+    'retained-stimulus-reference': 'A retained Stimulus Option still references this image.',
+    'retained-asset-question': 'A reusable Asset Question still belongs to this image.',
+    'incoming-dedupe-reference': 'Another dedupe tombstone still targets this image.',
+    'incoming-supersession-reference': 'Another Asset still targets this image through higher-resolution supersession.',
+    'legacy-review-sentinel': 'Legacy Review history is still present or unreadable.'
+  };
+  return messages[reason ?? ''] ?? 'Cleanup is still blocked. Refresh the Image Library and retry after resolving the displayed blocker.';
+}
+
 export async function load({ locals, platform, url }) {
   const filters = parseAssetLibraryFilters(url.searchParams);
   const requestedPage = parseAssetLibraryPage(url.searchParams);
-  const empty = { assets: [], topics: [], collections: [], stimulusGroups: [], filters, pagination: { totalCount: 0, totalPages: 1, page: 1, pageSize: 60 }, queryContext: assetLibraryQueryContext(filters), allMatchingIds: [], selectAllLimit: ASSET_LIBRARY_SELECT_ALL_LIMIT, bulkLimit: ADMIN_IMAGE_BULK_LIMIT, collectionBulkLimit: ASSET_LIBRARY_COLLECTION_BULK_LIMIT };
+  const empty = { assets: [], topics: [], collections: [], stimulusGroups: [], pendingCleanup: [], filters, pagination: { totalCount: 0, totalPages: 1, page: 1, pageSize: 60 }, queryContext: assetLibraryQueryContext(filters), allMatchingIds: [], selectAllLimit: ASSET_LIBRARY_SELECT_ALL_LIMIT, bulkLimit: ADMIN_IMAGE_BULK_LIMIT, collectionBulkLimit: ASSET_LIBRARY_COLLECTION_BULK_LIMIT };
   if (!canManageCaseAssets(locals.user) || !platform?.env?.DB) return empty;
 
   const db = createDb(platform.env.DB);
-  const [pageData, topics, collections, stimulusGroups] = await Promise.all([
+  const [pageData, topics, collections, stimulusGroups, pendingCleanup] = await Promise.all([
     getAssetLibraryPage(db, filters, { page: requestedPage, includeAllMatchingIds: true }),
     listAssetLibraryTopics(db),
     listAssetLibraryCollections(db),
-    listActiveStimulusGroupTargets(db)
+    listActiveStimulusGroupTargets(db),
+    listPendingDuplicateCleanup(db)
   ]);
   return {
     assets: pageData.rows,
     topics,
     collections,
     stimulusGroups,
+    pendingCleanup,
     filters,
     pagination: { totalCount: pageData.totalCount, totalPages: pageData.totalPages, page: pageData.page, pageSize: pageData.pageSize },
     queryContext: assetLibraryQueryContext(filters),
@@ -137,6 +163,25 @@ export const actions = {
       const clientError = error instanceof AdminImageWorkflowInputError;
       if (!clientError) console.error('Bulk image grouping failed.', error);
       return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to update the selected images.' });
+    }
+  },
+
+  retryCleanup: async ({ request, locals, platform }) => {
+    if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
+    if (!platform?.env?.DB || !platform.env.MEDIA) return fail(503, { error: 'Image storage is not configured.' });
+    const formData = await request.formData();
+    try {
+      const result = await cleanupDuplicateAsset({
+        db: createDb(platform.env.DB),
+        bucket: platform.env.MEDIA,
+        duplicateAssetId: formText(formData, 'duplicate_asset_id')
+      });
+      if (result.status !== 'cleaned') return fail(400, { error: cleanupReason(result.reason) });
+      return { cleanupRetried: true, cleanupMessage: 'Duplicate image storage cleanup completed.' };
+    } catch (error) {
+      const clientError = error instanceof AssetDeduplicationInputError;
+      if (!clientError) console.error('Image dedupe cleanup retry failed.', error);
+      return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to retry image cleanup.' });
     }
   },
 

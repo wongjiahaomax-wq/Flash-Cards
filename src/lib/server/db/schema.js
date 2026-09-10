@@ -139,6 +139,10 @@ export const assets = sqliteTable(
       /** @returns {import('drizzle-orm/sqlite-core').AnySQLiteColumn} */ () => assets.id,
       { onDelete: 'restrict' }
     ),
+    deduplicatedIntoAssetId: text('deduplicated_into_asset_id').references(
+      /** @returns {import('drizzle-orm/sqlite-core').AnySQLiteColumn} */ () => assets.id,
+      { onDelete: 'restrict' }
+    ),
     isActive: activeFlag(),
     createdAt: timestamp('created_at'),
     updatedAt: timestamp('updated_at')
@@ -148,7 +152,8 @@ export const assets = sqliteTable(
     index('assets_active_idx').on(table.isActive),
     index('assets_image_collection_idx').on(table.imageCollectionId),
     index('assets_preview_session_idx').on(table.previewSessionId),
-    index('assets_superseded_by_idx').on(table.supersededByAssetId)
+    index('assets_superseded_by_idx').on(table.supersededByAssetId),
+    index('assets_deduplicated_into_idx').on(table.deduplicatedIntoAssetId)
   ]
 );
 

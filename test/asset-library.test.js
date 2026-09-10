@@ -38,7 +38,8 @@ const migrationSql = [
   readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0013_review_assets_asset_lookup.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0013_review_assets_asset_lookup.sql', import.meta.url), 'utf8'),
+  'ALTER TABLE assets ADD COLUMN deduplicated_into_asset_id text;'
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
 function createLearningDb() {
@@ -197,6 +198,20 @@ test('Asset Library searches metadata and filters usage, status, and provenance'
       () => updateAssetMetadata(fixture.db, 'seed-asset-pityriasis-herald', { sourceUrl: 'javascript:alert(1)', isActive: true }),
       (error) => error instanceof AssetLibraryInputError && /valid http\(s\)/.test(error.message)
     );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Image Library excludes deduplication tombstones from ordinary Asset results', async () => {
+  const fixture = createLearningDb();
+  try {
+    insertTestAsset(fixture.sqlite, { id: 'dedupe-survivor', name: 'Canonical survivor', createdAt: 30_000 });
+    insertTestAsset(fixture.sqlite, { id: 'dedupe-duplicate', name: 'Duplicate hidden image', createdAt: 30_001 });
+    fixture.sqlite.prepare('UPDATE assets SET is_active = 0, deduplicated_into_asset_id = ? WHERE id = ?').run('dedupe-survivor', 'dedupe-duplicate');
+
+    const rows = await listAssetLibrary(fixture.db, { search: 'Canonical survivor' });
+    assert.deepEqual(rows.map((asset) => asset.id), ['dedupe-survivor']);
   } finally {
     fixture.sqlite.close();
   }

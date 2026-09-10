@@ -2,7 +2,7 @@
 
 _Last updated: 5 September 2026_
 
-This document records the implemented V1 application data model through the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, Original/Alternative stimulus changes, merged PR #139 (PR F), the PR G Admin analytics/account-deletion repository implementation, the Multi-System Runtime v2 scope/runtime foundation through migration `0026`, and the learner multi-System `/study` UX implementation. It should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the current learner-runtime boundary and explicitly distinguishes repository state from Production deployment state. `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` records the focused Runtime v2 implementation/cutover evidence; `MULTI_SYSTEM_UX_IMPLEMENTATION.md` records the current learner chooser/count/navigation cutover on top of that runtime.
+This document records the implemented V1 application data model through the learner FSRS runtime cutover, contextual System/Topic/Tag navigation, Primary-Topic-only Case behavior, Original/Alternative stimulus changes, merged PR #139 (PR F), the PR G Admin analytics/account-deletion repository implementation, the Multi-System Runtime v2 scope/runtime foundation through migration `0026`, the learner multi-System `/study` UX implementation, migration `0027`, and the Draft PR #174 Asset deduplication implementation through its Tranche 1 boundary. It should agree with the current Drizzle schema modules, committed D1 migrations, and subsystem invariant documents. `LEARNER_FSRS_RUNTIME_CUTOVER_STATUS.md` is the companion authority for the current learner-runtime boundary and explicitly distinguishes repository state from Production deployment state. `MULTI_SYSTEM_RUNTIME_V2_IMPLEMENTATION.md` records the focused Runtime v2 implementation/cutover evidence; `MULTI_SYSTEM_UX_IMPLEMENTATION.md` records the current learner chooser/count/navigation cutover on top of that runtime.
 
 A migration file being committed is not proof that it has been applied to production D1. Merge status, production migration application, Worker deployment, taxonomy/stimulus curation, learner feature enablement, and behavior verification remain separate operational facts.
 
@@ -38,6 +38,8 @@ The repository migration sequence contains:
 0024_learner_fsrs_reset_fresh.sql
 0025_learner_fsrs_admin_analytics_deletion.sql
 0026_multi_system_active_review_scope_v2.sql
+0027_self_service_study_data_deletion.sql
+0028_admin_image_deduplication.sql
 ```
 
 Important migrations for the current model include:
@@ -60,12 +62,14 @@ Important migrations for the current model include:
 - `0024` — defensive Scheduled active-Review/profile-boundary guard used by Reset Progress / Fresh FSRS Start serialization. It prevents generation/review-sequence/parameter/scheduler boundary movement while a Scheduled active Review still survives.
 - `0025` — durable learner × historical-System × UTC-month Scheduled analytics buckets, transactional maintenance/backfill from still-retained detailed history, System-provenance guards, and durable retry-safe learner account-deletion state/guards with bounded auth/application ownership phases.
 - `0026` — replaces the Active Review content/scope guard with the strict canonical Runtime v2 envelope, validates bounded canonical multi-System `runScope`, proves the frozen scalar attribution System is selected and can actually reach the Case through that selected sub-scope, rejects duplicate/contradictory scope shapes, and retains the active/non-Preview Case plus active Primary Topic eligibility baseline.
+- `0027` — durable self-service learner study-data deletion state and its bounded account/session/content-preservation guards.
+- `0028` — nullable immutable Asset deduplication tombstones plus database guards that prevent inactive tombstone reacquisition, self/chain state, and new Case, Stimulus Option, reusable-question, active-Review, storage-key, or supersession references to a tombstoned Asset.
 
 Migrations `0013`–`0015` remain immutable and valid migration history. Their legacy `reviews`, `review_questions`, and `review_assets` semantics must not be read as current runtime architecture after the FSRS cutover.
 
 `0016` does not claim that every existing family has a known Original. It assigns an Original only to an unambiguous eligible one-option **production** family, leaves ambiguous legacy multi-option production families uncurated with `original_option_id = NULL`, and leaves retained Preview-owned families uncurated. It does not rewrite older legacy Review rows. The migration also prevents creating a group with an arbitrary non-null Original pointer; a family is inserted with `original_option_id = NULL`, then an eligible option is inserted/restored and an explicit validated update assigns the Original.
 
-No new migration is required to retire Additional Study Topics from current product behavior. The current Drizzle authority is split deliberately across `src/lib/server/db/schema.js` for content/domain tables, `src/lib/server/db/fsrs-schema.js` for durable FSRS/progress state, `src/lib/server/db/fsrs-analytics-schema.js` for durable PR G monthly analytics/deletion state, `src/lib/server/db/active-review-schema.js` for unfinished learner Review ownership, and `src/lib/server/db/free-study-schema.js` for Free completion receipts; `drizzle.config.js` registers the current schema modules. `src/lib/server/db/schema.js` intentionally exports no legacy `reviews`, `review_questions`, or `review_assets` tables after cutover. The historical physical `case_concepts.role = primary | secondary` shape remains unchanged, while current application read/write paths treat only `role = 'primary'` as behaviorally active. Migration `0026` changes database guard semantics rather than adding a new Drizzle table/column.
+No new migration is required to retire Additional Study Topics from current product behavior. The current Drizzle authority is split deliberately across `src/lib/server/db/schema.js` for content/domain tables, `src/lib/server/db/fsrs-schema.js` for durable FSRS/progress state, `src/lib/server/db/fsrs-analytics-schema.js` for durable PR G monthly analytics/deletion state, `src/lib/server/db/active-review-schema.js` for unfinished learner Review ownership, and `src/lib/server/db/free-study-schema.js` for Free completion receipts; `drizzle.config.js` registers the current schema modules. `src/lib/server/db/schema.js` intentionally exports no legacy `reviews`, `review_questions`, or `review_assets` tables after cutover. The historical physical `case_concepts.role = primary | secondary` shape remains unchanged, while current application read/write paths treat only `role = 'primary'` as behaviorally active. Migration `0026` changes database guard semantics rather than adding a new Drizzle table/column. Migration `0028` is additive: it adds only the nullable `assets.deduplicated_into_asset_id` self-FK/index and defensive lifecycle/reference triggers; committing it does not prove Production D1 application.
 
 ## 2. General design rules
 
@@ -212,6 +216,7 @@ licence
 image_collection_id nullable
 preview_session_id nullable
 superseded_by_asset_id nullable FK -> assets.id
+deduplicated_into_asset_id nullable FK -> assets.id
 is_active
 created_at
 updated_at
@@ -232,6 +237,15 @@ B.is_active = true
 ```
 
 A later upgrade may produce A → B → C. This is not a generic Asset-family/version abstraction.
+
+For a certified duplicate merge, the duplicate is instead claimed as an immutable inactive tombstone:
+
+```text
+duplicate.is_active = false
+duplicate.deduplicated_into_asset_id = survivor.id
+```
+
+The tombstone cannot be reacquired, reactivated, chained, or used as a new relationship target. Its R2 object and row are deleted only by the separate cleanup phase after the survivor object and all restrictive references are revalidated. The survivor's provenance/metadata is not implicitly overwritten by the duplicate.
 
 ### Derived Image Library usage state
 
@@ -827,6 +841,7 @@ cases
 assets
   ├── image_collection_id ── image_collections
   ├── superseded_by_asset_id ── assets
+  ├── deduplicated_into_asset_id ── assets [duplicate tombstone → survivor]
   └── asset_questions ── question_prompts
 
 shared_questions

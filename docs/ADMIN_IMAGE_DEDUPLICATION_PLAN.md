@@ -1,6 +1,6 @@
 # Admin Image Deduplication — implementation plan
 
-_Status: Draft planning contract for implementation in this same PR/branch. Third planning-review amendments are incorporated. Implementation has not started. Do not create a follow-up implementation PR._
+_Status: Draft planning contract for implementation in this same PR/branch. Third planning-review amendments are incorporated. Tranche 1 implementation is in progress; Tranche 2 remains intentionally untouched. Do not create a follow-up implementation PR._
 
 ## Goal
 
@@ -28,7 +28,7 @@ The Admin is the final identity authority. Discovery may propose candidate pairs
 7. **R2 reclamation is intentional.** After Phase 1 safely claims B, Phase 2 deletes B's teaching-image object only while A's authoritative survivor object still exists.
 8. **Higher-resolution replacement remains a separate, non-destructive lifecycle.** Do not overload `superseded_by_asset_id` or redesign replacement in this PR.
 9. **Production only.** No Preview Admin merge endpoint. Any retained Preview relationship to B blocks the claim regardless of Preview status/expiry.
-10. **A schema migration is required.** Current `main` reaches `0025`; at this reviewed head the expected migration is `0026_admin_image_deduplication.sql`. Luna must re-check the migration head before creating it if `main` advances.
+10. **A schema migration is required.** Current `main` reaches `0027`; at this implementation head the expected migration is `0028_admin_image_deduplication.sql`. Luna re-checked the migration head before creating it after `main` advanced beyond the planning snapshot.
 11. **No new image-processing dependency.** Tranche 2 stays browser-side and dependency-free: no AI/embeddings, OpenCV/ORB, Sharp/server Canvas, WASM vision stack, vector DB, or persisted fingerprint table.
 12. **No Import Package / Slide Import Reviewer changes.** Deduplication remains an Admin Image Library maintenance workflow.
 

@@ -29,14 +29,24 @@ async function ensureActiveReviewAssetFixture(db) {
   `));
 }
 
+/** @param {any} db */
+async function ensureDedupeColumnFixture(db) {
+  const info = await db.$client.prepare("PRAGMA table_info('assets')").bind().all();
+  const columns = /** @type {Array<{ name?: string }>} */ (info.results ?? []);
+  if (columns.some((column) => column.name === 'deduplicated_into_asset_id')) return;
+  await db.run(sql.raw('ALTER TABLE assets ADD COLUMN deduplicated_into_asset_id text'));
+}
+
 /** @param {any} db @param {any} [filters] */
 export async function listAssetLibrary(db, filters = {}) {
   await ensureActiveReviewAssetFixture(db);
+  await ensureDedupeColumnFixture(db);
   return listAssetLibraryReal(db, filters);
 }
 
 /** @param {any} db @param {string} assetId */
 export async function getAssetLibraryDetail(db, assetId) {
   await ensureActiveReviewAssetFixture(db);
+  await ensureDedupeColumnFixture(db);
   return getAssetLibraryDetailReal(db, assetId);
 }

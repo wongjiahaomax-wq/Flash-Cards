@@ -62,6 +62,8 @@ A → B → C
 
 An already-superseded A cannot be replaced again directly or reactivated through the normal metadata form.
 
+Certified deduplication uses a separate lifecycle field, `assets.deduplicated_into_asset_id`, and does not create supersession lineage. A survivor may receive an incoming dedupe tombstone and still be replaced by a higher-resolution successor; the tombstone continues to point to the same survivor Asset and is not rewritten into a supersession chain. A tombstoned duplicate itself is never an eligible replacement source or target.
+
 ## Metadata inheritance
 
 The new Asset receives the new uploaded file's immutable storage key, MIME type and appropriate original filename. It carries forward the old Asset's semantic/provenance metadata where applicable, including:
@@ -288,7 +290,7 @@ B
 A
 ```
 
-Missing successor rows or cycles fail closed. During local reset, the local-only workflow clears `assets.superseded_by_asset_id` before deleting Asset rows and deletes reusable-image child relationships before their parent rows.
+Missing successor rows or cycles fail closed. During local reset, the local-only workflow clears `assets.superseded_by_asset_id`, removes dedupe tombstones, and then deletes Asset rows; reusable-image child relationships are deleted before their parent rows.
 
 This changes only read-production/write-local development behavior. It creates no production mutation path.
 

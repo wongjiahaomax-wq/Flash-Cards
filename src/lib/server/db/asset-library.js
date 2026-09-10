@@ -231,6 +231,7 @@ const retainedHistoryExpr = sql`(
   or exists (select 1 from asset_questions history_aq where history_aq.asset_id = ${assets.id})
   or ${assets.supersededByAssetId} is not null
   or exists (select 1 from assets history_predecessor where history_predecessor.superseded_by_asset_id = ${assets.id})
+  or ${assets.deduplicatedIntoAssetId} is not null
 )`;
 
 const historicalOnlyExpr = sql`not (${currentUseExpr}) and ${retainedHistoryExpr}`;
@@ -243,7 +244,7 @@ const activeReviewCountExpr = sql`(
 
 /** @param {ReturnType<typeof parseAssetLibraryFilters>} filters */
 function libraryConditions(filters) {
-  const conditions = [isNull(assets.previewSessionId)];
+  const conditions = [isNull(assets.previewSessionId), isNull(assets.deduplicatedIntoAssetId)];
   const search = filters.search;
   if (search) {
     const pattern = `%${search}%`;
@@ -349,6 +350,9 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
     collectionId: assets.imageCollectionId,
     collectionName: imageCollections.name,
     isActive: assets.isActive,
+    supersededByAssetId: assets.supersededByAssetId,
+    deduplicatedIntoAssetId: assets.deduplicatedIntoAssetId,
+    dedupeSurvivorName: sql`(select survivor.original_filename from assets survivor where survivor.id = ${assets.deduplicatedIntoAssetId})`,
     hasCurrentUsage: currentUseExpr.mapWith(Boolean),
     hasRetainedHistory: retainedHistoryExpr.mapWith(Boolean),
     activeReviewCount: activeReviewCountExpr.mapWith(Number),
@@ -394,7 +398,7 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
       ...asset,
       usageCount: usageCasesByAsset.get(asset.id)?.size ?? 0,
       usageState,
-      imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null,
+      imageUrl: asset.isActive && !asset.supersededByAssetId && !asset.deduplicatedIntoAssetId ? getTeachingImageUrl(asset.id) : null,
       topicNames,
       topicSummary: topicSummary(topicNames),
       currentTopicNames,
@@ -440,6 +444,9 @@ export async function getAssetLibraryDetail(db, assetId) {
     collectionName: imageCollections.name,
     previewSessionId: assets.previewSessionId,
     isActive: assets.isActive,
+    supersededByAssetId: assets.supersededByAssetId,
+    deduplicatedIntoAssetId: assets.deduplicatedIntoAssetId,
+    dedupeSurvivorName: sql`(select survivor.original_filename from assets survivor where survivor.id = ${assets.deduplicatedIntoAssetId})`,
     createdAt: assets.createdAt,
     updatedAt: assets.updatedAt
   }).from(assets).leftJoin(imageCollections, eq(assets.imageCollectionId, imageCollections.id)).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
@@ -447,7 +454,7 @@ export async function getAssetLibraryDetail(db, assetId) {
   if (!asset) return null;
   const usages = await listRetainedUsageRows(db, [asset.id]);
   const currentUsages = usages.filter((usage) => usage.relationshipIsCurrent);
-  return { asset: { ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null, usageCount: new Set(currentUsages.map((usage) => usage.caseId)).size }, usages, currentUsages };
+  return { asset: { ...asset, imageUrl: asset.isActive && !asset.supersededByAssetId && !asset.deduplicatedIntoAssetId ? getTeachingImageUrl(asset.id) : null, usageCount: new Set(currentUsages.map((usage) => usage.caseId)).size }, usages, currentUsages };
 }
 
 /**
