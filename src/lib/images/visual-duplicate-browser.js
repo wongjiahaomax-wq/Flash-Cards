@@ -106,3 +106,14 @@ export function createBrowserVisualDuplicateController(options = {}) {
     yieldControl: browserYield
   });
 }
+
+/**
+ * Build the Admin discovery page's controller from the server-owned page data, so
+ * the scan bounds and the authoritative teaching-image size ceiling come from the
+ * route load instead of coincidentally matching client-side defaults.
+ * @param {{ limits?: any } | null | undefined} pageData
+ * @param {(progress: any) => void} [onProgress]
+ */
+export function createAdminDiscoveryController(pageData, onProgress) {
+  return createBrowserVisualDuplicateController({ limits: pageData?.limits, onProgress });
+}

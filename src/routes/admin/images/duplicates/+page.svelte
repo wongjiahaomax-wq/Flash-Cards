@@ -1,7 +1,7 @@
 <script>
   import { browser } from '$app/environment';
   import { onMount } from 'svelte';
-  import { buildCompareHref, createBrowserVisualDuplicateController } from '$lib/images/visual-duplicate-browser.js';
+  import { buildCompareHref, createAdminDiscoveryController } from '$lib/images/visual-duplicate-browser.js';
   import { createVisualDuplicateDismissals } from '$lib/images/visual-duplicate-dismissals.js';
   import { canonicalPairKey } from '$lib/images/visual-duplicate-matcher.js';
 
@@ -29,9 +29,7 @@
     systemId = data.scopes.systems[0]?.id ?? '';
     dismissals = createVisualDuplicateDismissals(window.sessionStorage);
     dismissedKeys = new Set(dismissals.list());
-    controller = createBrowserVisualDuplicateController({
-      onProgress: (next) => { progress = next; }
-    });
+    controller = createAdminDiscoveryController(data, (next) => { progress = next; if (next.phase !== 'listing') status = 'running'; });
     return () => controller?.cancel();
   });
 
@@ -75,24 +73,6 @@
     progress = null;
   }
 
-  /** @param {any} payload */
-  function emptyScan(payload) {
-    return {
-      pairs: [],
-      failures: [],
-      totalBytes: 0,
-      comparisons: 0,
-      truncated: Boolean(payload.truncated),
-      budgetExceeded: false,
-      aborted: false,
-      candidateCount: payload.totalCount,
-      scannedCount: 0,
-      fingerprintedCount: 0,
-      maxFetchConcurrency: 0,
-      maxDecodeConcurrency: 0
-    };
-  }
-
   /** @param {'topic' | 'system' | 'global'} nextScope */
   async function startSearch(nextScope) {
     if (!browser || !controller) return;
@@ -108,33 +88,28 @@
     const params = new URLSearchParams({ scope: nextScope });
     if (nextScope === 'topic') params.set('topic_id', topicId);
     if (nextScope === 'system') params.set('system_id', systemId);
-    let payload = null;
-    try {
-      const response = await fetch(`/admin/images/duplicates/candidates?${params.toString()}`, { headers: { accept: 'application/json' } });
-      payload = await response.json().catch(() => null);
+    /** @param {AbortSignal} signal @returns {Promise<any>} */
+    const loadCandidates = async (signal) => {
+      const response = await fetch(`/admin/images/duplicates/candidates?${params.toString()}`, {
+        headers: { accept: 'application/json' },
+        signal
+      });
+      const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(payload?.error ?? 'Unable to list discovery candidates.');
-    } catch (error) {
-      status = 'error';
-      errorMessage = error instanceof Error ? error.message : 'Unable to list discovery candidates.';
-      return;
-    }
-
-    candidateSet = payload;
-    if (!payload.candidates.length) {
-      scan = emptyScan(payload);
-      status = 'done';
-      return;
-    }
-    status = 'running';
+      return payload;
+    };
     let result;
     try {
-      result = await controller.start({ candidates: payload.candidates, scope: payload });
+      // The controller owns the whole lifecycle, so cancelling during the
+      // candidate listing aborts this fetch and prevents the scan from starting.
+      result = await controller.start({ scope: nextScope, loadCandidates });
     } catch (error) {
       status = 'error';
       errorMessage = error instanceof Error ? error.message : 'Visual duplicate discovery failed.';
       return;
     }
     if (!result.published) return;
+    candidateSet = result.candidatePayload;
     scan = result;
     status = 'done';
   }

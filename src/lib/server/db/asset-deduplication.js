@@ -98,6 +98,83 @@ function inList(ids) {
   return ids.length ? `(${placeholders(ids)})` : '(NULL)';
 }
 
+/**
+ * Cloudflare D1 caps bound parameters per query. Reads, exact-state guards, and
+ * Phase-1 mutations must therefore never materialize an unbounded ID set into one
+ * `IN (...)`/`inArray(...)` statement.
+ */
+export const D1_MAX_BOUND_PARAMS = 100;
+const D1_SAFE_BOUND_PARAMS = 90;
+
+/** @param {string[]} ids @param {number} [size] */
+function idChunks(ids, size = D1_SAFE_BOUND_PARAMS) {
+  const unique = [...new Set(ids.filter(Boolean))].sort();
+  if (!unique.length) return [];
+  const chunkSize = Math.max(1, Math.min(size, D1_SAFE_BOUND_PARAMS));
+  const chunks = [];
+  for (let index = 0; index < unique.length; index += chunkSize) chunks.push(unique.slice(index, index + chunkSize));
+  return chunks;
+}
+
+/**
+ * Run one bounded-parameter read per ID chunk and concatenate the rows. Callers
+ * re-sort when their SQL `ORDER BY` spans chunk boundaries.
+ * @template T
+ * @param {string[]} ids
+ * @param {(chunk: string[]) => Promise<T[]>} run
+ * @returns {Promise<T[]>}
+ */
+async function readIdChunks(ids, run) {
+  /** @type {T[]} */
+  const rows = [];
+  for (const chunk of idChunks(ids)) rows.push(...await run(chunk));
+  return rows;
+}
+
+/** @param {string[]} ids @param {number} times */
+function repeatParams(ids, times) {
+  /** @type {string[]} */
+  const params = [];
+  for (let index = 0; index < times; index += 1) params.push(...ids);
+  return params;
+}
+
+/** @param {string[]} ids @param {(chunk: string[]) => any} build */
+function chunkedById(ids, build) {
+  return idChunks(ids).map((chunk) => build(chunk));
+}
+
+/** @param {any[]} rows @param {number} paramsPerRow */
+function rowChunks(rows, paramsPerRow) {
+  const size = Math.max(1, Math.floor(D1_SAFE_BOUND_PARAMS / Math.max(1, paramsPerRow)));
+  /** @type {any[][]} */
+  const chunks = [];
+  for (let index = 0; index < rows.length; index += size) chunks.push(rows.slice(index, index + size));
+  return chunks;
+}
+
+/**
+ * Deterministic replacement for an `ORDER BY` that spans chunked reads. SQLite's
+ * default BINARY text ordering matches JavaScript string comparison, so results
+ * stay identical to the single-query form.
+ * @param {any[]} rows @param {string[]} keys
+ */
+function sortRowsByKeys(rows, keys) {
+  return rows.sort((left, right) => {
+    for (const key of keys) {
+      const a = left[key];
+      const b = right[key];
+      if (a === b) continue;
+      const aMissing = a === null || a === undefined;
+      const bMissing = b === null || b === undefined;
+      if (aMissing || bMissing) return aMissing && bMissing ? 0 : aMissing ? -1 : 1;
+      if (a < b) return -1;
+      if (a > b) return 1;
+    }
+    return 0;
+  });
+}
+
 /** @param {LearningDb} db @param {string[]} assetIds */
 async function loadRawState(db, assetIds) {
   const assetParams = [...assetIds, ...assetIds, ...assetIds];
@@ -153,11 +230,11 @@ async function loadRawState(db, assetIds) {
   ])].filter(Boolean).sort();
 
   const [casesRows, caseConceptRows, caseQuestionRows, groupsRows, graphOptionRows] = await Promise.all([
-    caseIds.length ? rawRows(db, `SELECT * FROM cases WHERE id IN ${inList(caseIds)} ORDER BY id`, caseIds) : [],
-    caseIds.length ? rawRows(db, `SELECT * FROM case_concepts WHERE case_id IN ${inList(caseIds)} AND role = 'primary' ORDER BY case_id, concept_id`, caseIds) : [],
-    caseIds.length ? rawRows(db, `SELECT * FROM case_questions WHERE case_id IN ${inList(caseIds)} ORDER BY case_id, id`, caseIds) : [],
-    caseIds.length ? rawRows(db, `SELECT * FROM stimulus_groups WHERE case_id IN ${inList(caseIds)} ORDER BY case_id, id`, caseIds) : [],
-    caseIds.length ? rawRows(db, `
+    readIdChunks(caseIds, (chunk) => rawRows(db, `SELECT * FROM cases WHERE id IN ${inList(chunk)} ORDER BY id`, chunk)).then((rows) => sortRowsByKeys(rows, ['id'])),
+    readIdChunks(caseIds, (chunk) => rawRows(db, `SELECT * FROM case_concepts WHERE case_id IN ${inList(chunk)} AND role = 'primary' ORDER BY case_id, concept_id`, chunk)).then((rows) => sortRowsByKeys(rows, ['case_id', 'concept_id'])),
+    readIdChunks(caseIds, (chunk) => rawRows(db, `SELECT * FROM case_questions WHERE case_id IN ${inList(chunk)} ORDER BY case_id, id`, chunk)).then((rows) => sortRowsByKeys(rows, ['case_id', 'id'])),
+    readIdChunks(caseIds, (chunk) => rawRows(db, `SELECT * FROM stimulus_groups WHERE case_id IN ${inList(chunk)} ORDER BY case_id, id`, chunk)).then((rows) => sortRowsByKeys(rows, ['case_id', 'id'])),
+    readIdChunks(caseIds, (chunk) => rawRows(db, `
       SELECT sgo.*, sg.case_id, sg.name AS group_name, sg.is_active AS group_is_active,
         sg.selection_count, sg.specific_question_mode, sg.minimum_specific_questions,
         c.title AS case_title, c.vignette_md AS case_vignette_md,
@@ -168,17 +245,17 @@ async function loadRawState(db, assetIds) {
       JOIN cases c ON c.id = sg.case_id
       LEFT JOIN case_concepts cc ON cc.case_id = c.id AND cc.role = 'primary'
       LEFT JOIN concepts ON concepts.id = cc.concept_id
-      WHERE sg.case_id IN ${inList(caseIds)}
+      WHERE sg.case_id IN ${inList(chunk)}
       ORDER BY sg.case_id, sgo.stimulus_group_id, sgo.display_order, sgo.id
-    `, caseIds) : []
+    `, chunk)).then((rows) => sortRowsByKeys(rows, ['case_id', 'stimulus_group_id', 'display_order', 'id']))
   ]);
 
   const groupIds = [...new Set(groupsRows.map((row) => row.id).filter(Boolean))].sort();
   const optionIds = [...new Set(graphOptionRows.map((row) => row.id).filter(Boolean))].sort();
   const [groupQuestionRows, optionQuestionRows, graphOptInRows] = await Promise.all([
-    groupIds.length ? rawRows(db, `SELECT * FROM stimulus_group_questions WHERE stimulus_group_id IN ${inList(groupIds)} ORDER BY stimulus_group_id, id`, groupIds) : [],
-    optionIds.length ? rawRows(db, `SELECT * FROM stimulus_option_questions WHERE stimulus_group_option_id IN ${inList(optionIds)} ORDER BY stimulus_group_option_id, id`, optionIds) : [],
-    optionIds.length ? rawRows(db, `
+    readIdChunks(groupIds, (chunk) => rawRows(db, `SELECT * FROM stimulus_group_questions WHERE stimulus_group_id IN ${inList(chunk)} ORDER BY stimulus_group_id, id`, chunk)).then((rows) => sortRowsByKeys(rows, ['stimulus_group_id', 'id'])),
+    readIdChunks(optionIds, (chunk) => rawRows(db, `SELECT * FROM stimulus_option_questions WHERE stimulus_group_option_id IN ${inList(chunk)} ORDER BY stimulus_group_option_id, id`, chunk)).then((rows) => sortRowsByKeys(rows, ['stimulus_group_option_id', 'id'])),
+    readIdChunks(optionIds, (chunk) => rawRows(db, `
       SELECT soaq.*, sgo.stimulus_group_id, sg.case_id,
         sgo.asset_id AS option_asset_id, sgo.is_active AS option_is_active,
         sgo.removed_from_case, sg.is_active AS group_is_active,
@@ -188,23 +265,23 @@ async function loadRawState(db, assetIds) {
       JOIN stimulus_group_options sgo ON sgo.id = soaq.stimulus_group_option_id
       JOIN stimulus_groups sg ON sg.id = sgo.stimulus_group_id
       JOIN cases c ON c.id = sg.case_id
-      WHERE soaq.stimulus_group_option_id IN ${inList(optionIds)}
+      WHERE soaq.stimulus_group_option_id IN ${inList(chunk)}
       ORDER BY soaq.asset_question_id, soaq.stimulus_group_option_id
-    `, optionIds) : []
+    `, chunk)).then((rows) => sortRowsByKeys(rows, ['asset_question_id', 'stimulus_group_option_id']))
   ]);
 
   const graphQuestionIds = [...new Set([
     ...questionIds,
     ...graphOptInRows.map((row) => row.asset_question_id).filter(Boolean)
   ])].sort();
-  const graphAssetQuestionRows = graphQuestionIds.length ? await rawRows(db, `
+  const graphAssetQuestionRows = await readIdChunks(graphQuestionIds, (chunk) => rawRows(db, `
     SELECT aq.*, qp.prompt_md, qp.preview_session_id AS prompt_preview_session_id,
       qp.is_active AS prompt_is_active
     FROM asset_questions aq
     JOIN question_prompts qp ON qp.id = aq.question_prompt_id
-    WHERE aq.id IN ${inList(graphQuestionIds)}
+    WHERE aq.id IN ${inList(chunk)}
     ORDER BY aq.asset_id, aq.question_prompt_id, aq.id
-  `, graphQuestionIds) : [];
+  `, chunk)).then((rows) => sortRowsByKeys(rows, ['asset_id', 'question_prompt_id', 'id']));
   const optInRows = graphOptInRows.filter((row) => questionIds.includes(row.asset_question_id));
 
   const allConceptRows = await rawRows(db, 'SELECT * FROM concepts ORDER BY id');
@@ -228,9 +305,7 @@ async function loadRawState(db, assetIds) {
     ...graphAssetQuestionRows.map((row) => row.question_prompt_id)
   );
   const uniquePromptIds = [...new Set(promptIds.filter(Boolean))].sort();
-  const promptRows = uniquePromptIds.length
-    ? await rawRows(db, `SELECT * FROM question_prompts WHERE id IN ${inList(uniquePromptIds)} ORDER BY id`, uniquePromptIds)
-    : [];
+  const promptRows = await readIdChunks(uniquePromptIds, (chunk) => rawRows(db, `SELECT * FROM question_prompts WHERE id IN ${inList(chunk)} ORDER BY id`, chunk)).then((rows) => sortRowsByKeys(rows, ['id']));
 
   let legacyReview;
   try {
@@ -670,19 +745,31 @@ function rowCondition(row) {
 }
 
 /**
- * D1 allows at most 100 bound parameters per query. Keep every exact-state
- * sentinel statement comfortably under that limit instead of binding every
- * retained row into one oversized statement.
+ * D1 allows at most `D1_MAX_BOUND_PARAMS` bound parameters per query. Keep every
+ * exact-state sentinel statement comfortably under that ceiling instead of
+ * binding every retained row or ID list into one oversized statement.
  */
-const MAX_SENTINEL_PARAMS = 90;
+const MAX_SENTINEL_PARAMS = D1_SAFE_BOUND_PARAMS;
+
+/**
+ * @typedef {{
+ *   table: string,
+ *   rows: any[],
+ *   scopeIds: string[],
+ *   paramsPerId: number,
+ *   countKey: string | null,
+ *   scopeFor: (chunk: string[]) => string
+ * }} GuardTable
+ */
 
 /**
  * Build exact row/value equality assertions as independently bindable chunks.
- * The scope strings use bound parameters embedded by `scopeWithParams`; every
- * expected row is matched column-for-column. Every chunk still executes inside
- * the same atomic D1 batch, so a changed, missing, or extra row in any chunk
- * fails its own NOT NULL sentinel update and aborts the whole merge.
- * @param {Array<[string, string, unknown[], any[]]>} tables
+ * Every expected row is matched column-for-column, and each scope's "exactly N
+ * rows" assertion is itself split into bounded ID chunks whose expected counts
+ * sum to the same total. Every chunk still executes inside the same atomic D1
+ * batch, so a changed, missing, or extra row in any chunk fails its own NOT NULL
+ * sentinel update and aborts the whole merge.
+ * @param {GuardTable[]} tables
  * @returns {any[]}
  */
 function exactStateConditionChunks(tables) {
@@ -704,37 +791,57 @@ function exactStateConditionChunks(tables) {
     pending.push(condition);
     pendingParams += params;
   };
-  for (const [table, scope, params, rows] of tables) {
-    const tableId = identifier(table);
-    add(sql`(SELECT count(*) FROM ${tableId} WHERE ${boundScope(scope, params)}) = ${rows.length}`, params.length);
-    for (const row of rows) add(sql`EXISTS (SELECT 1 FROM ${tableId} WHERE ${rowCondition(row)})`, Object.keys(row).length);
+  for (const table of tables) {
+    const tableId = identifier(table.table);
+    const countKey = table.countKey;
+    const perChunk = countKey
+      ? Math.max(1, Math.floor(MAX_SENTINEL_PARAMS / Math.max(1, table.paramsPerId)))
+      : table.scopeIds.length;
+    const scopeChunks = countKey ? idChunks(table.scopeIds, perChunk) : [table.scopeIds];
+    if (!scopeChunks.length) scopeChunks.push([]);
+    for (const chunk of scopeChunks) {
+      let expected = table.rows.length;
+      if (countKey) {
+        const inChunk = new Set(chunk);
+        expected = table.rows.filter((row) => inChunk.has(row[countKey])).length;
+      }
+      const params = repeatParams(chunk, table.paramsPerId);
+      add(sql`(SELECT count(*) FROM ${tableId} WHERE ${boundScope(table.scopeFor(chunk), params)}) = ${expected}`, params.length);
+    }
+    for (const row of table.rows) add(sql`EXISTS (SELECT 1 FROM ${tableId} WHERE ${rowCondition(row)})`, Object.keys(row).length);
   }
   flush();
   return chunks.length ? chunks : [sql`1 = 1`];
 }
 
-/** @param {any} state @param {string[]} assetIds */
+/**
+ * @param {any} state @param {string[]} assetIds
+ * @returns {GuardTable[]}
+ */
 function stateTablesWithParams(state, assetIds) {
   const ids = assetIds;
-  const threeIds = [...ids, ...ids, ...ids];
-  const table = (name, scope, params, rows) => [name, scope, params, rows];
+  const conceptIds = state.conceptRows.map((row) => row.id);
+  const collectionIds = state.imageCollectionRows.map((row) => row.id);
+  const graphQuestionIds = state.graphQuestionIds ?? state.questionIds;
   return [
-    table('assets', `id IN ${inList(ids)} OR deduplicated_into_asset_id IN ${inList(ids)} OR superseded_by_asset_id IN ${inList(ids)}`, threeIds, state.assetRows),
-    table('case_assets', `asset_id IN ${inList(ids)}`, ids, state.fixedRows.map(stripFixedDerived)),
-    table('stimulus_group_options', `stimulus_group_id IN ${inList(state.groupIds)}`, state.groupIds, state.graphOptionRows.map(stripOptionDerived)),
-    table('stimulus_group_options', `asset_id IN ${inList(ids)}`, ids, state.optionRows.map(stripOptionDerived)),
-    table('cases', `id IN ${inList(state.caseIds)}`, state.caseIds, state.casesRows),
-    table('case_concepts', `${inScope('case_id', state.caseIds)} AND role = 'primary'`, state.caseIds, state.caseConceptRows),
-    table('concepts', `id IN ${inList(state.conceptRows.map((row) => row.id))}`, state.conceptRows.map((row) => row.id), state.conceptRows),
-    table('image_collections', `id IN ${inList(state.imageCollectionRows.map((row) => row.id))}`, state.imageCollectionRows.map((row) => row.id), state.imageCollectionRows),
-    table('case_questions', `case_id IN ${inList(state.caseIds)}`, state.caseIds, state.caseQuestionRows),
-    table('stimulus_groups', `case_id IN ${inList(state.caseIds)}`, state.caseIds, state.groupsRows),
-    table('stimulus_group_questions', `stimulus_group_id IN ${inList(state.groupIds)}`, state.groupIds, state.groupQuestionRows),
-    table('stimulus_option_questions', `stimulus_group_option_id IN ${inList(state.optionIds)}`, state.optionIds, state.optionQuestionRows),
-    table('question_prompts', `id IN ${inList(state.promptIds)}`, state.promptIds, state.promptRows),
-    table('asset_questions', `id IN ${inList(state.graphQuestionIds ?? state.questionIds)}`, state.graphQuestionIds ?? state.questionIds, (state.graphAssetQuestionRows ?? state.assetQuestionRows).map(stripDerived)),
-    table('asset_questions', `asset_id IN ${inList(ids)}`, ids, state.assetQuestionRows.map(stripDerived)),
-    table('stimulus_option_asset_questions', `stimulus_group_option_id IN ${inList(state.optionIds)}`, state.optionIds, (state.graphOptInRows ?? state.optInRows).map(stripDerived))
+    // The assets scope is a three-column OR over the two compared Asset IDs, so it
+    // is the one non-decomposable count; its ID set is always exactly two IDs.
+    { table: 'assets', rows: state.assetRows, scopeIds: ids, paramsPerId: 3, countKey: null, scopeFor: (chunk) => `id IN ${inList(chunk)} OR deduplicated_into_asset_id IN ${inList(chunk)} OR superseded_by_asset_id IN ${inList(chunk)}` },
+    { table: 'case_assets', rows: state.fixedRows.map(stripFixedDerived), scopeIds: ids, paramsPerId: 1, countKey: 'asset_id', scopeFor: (chunk) => `asset_id IN ${inList(chunk)}` },
+    { table: 'stimulus_group_options', rows: state.graphOptionRows.map(stripOptionDerived), scopeIds: state.groupIds, paramsPerId: 1, countKey: 'stimulus_group_id', scopeFor: (chunk) => `stimulus_group_id IN ${inList(chunk)}` },
+    { table: 'stimulus_group_options', rows: state.optionRows.map(stripOptionDerived), scopeIds: ids, paramsPerId: 1, countKey: 'asset_id', scopeFor: (chunk) => `asset_id IN ${inList(chunk)}` },
+    { table: 'cases', rows: state.casesRows, scopeIds: state.caseIds, paramsPerId: 1, countKey: 'id', scopeFor: (chunk) => `id IN ${inList(chunk)}` },
+    { table: 'case_concepts', rows: state.caseConceptRows, scopeIds: state.caseIds, paramsPerId: 1, countKey: 'case_id', scopeFor: (chunk) => `case_id IN ${inList(chunk)} AND role = 'primary'` },
+    { table: 'concepts', rows: state.conceptRows, scopeIds: conceptIds, paramsPerId: 1, countKey: 'id', scopeFor: (chunk) => `id IN ${inList(chunk)}` },
+    { table: 'image_collections', rows: state.imageCollectionRows, scopeIds: collectionIds, paramsPerId: 1, countKey: 'id', scopeFor: (chunk) => `id IN ${inList(chunk)}` },
+    { table: 'case_questions', rows: state.caseQuestionRows, scopeIds: state.caseIds, paramsPerId: 1, countKey: 'case_id', scopeFor: (chunk) => `case_id IN ${inList(chunk)}` },
+    { table: 'stimulus_groups', rows: state.groupsRows, scopeIds: state.caseIds, paramsPerId: 1, countKey: 'case_id', scopeFor: (chunk) => `case_id IN ${inList(chunk)}` },
+    { table: 'stimulus_group_questions', rows: state.groupQuestionRows, scopeIds: state.groupIds, paramsPerId: 1, countKey: 'stimulus_group_id', scopeFor: (chunk) => `stimulus_group_id IN ${inList(chunk)}` },
+    { table: 'stimulus_option_questions', rows: state.optionQuestionRows, scopeIds: state.optionIds, paramsPerId: 1, countKey: 'stimulus_group_option_id', scopeFor: (chunk) => `stimulus_group_option_id IN ${inList(chunk)}` },
+    { table: 'question_prompts', rows: state.promptRows, scopeIds: state.promptIds, paramsPerId: 1, countKey: 'id', scopeFor: (chunk) => `id IN ${inList(chunk)}` },
+    { table: 'asset_questions', rows: (state.graphAssetQuestionRows ?? state.assetQuestionRows).map(stripDerived), scopeIds: graphQuestionIds, paramsPerId: 1, countKey: 'id', scopeFor: (chunk) => `id IN ${inList(chunk)}` },
+    { table: 'asset_questions', rows: state.assetQuestionRows.map(stripDerived), scopeIds: ids, paramsPerId: 1, countKey: 'asset_id', scopeFor: (chunk) => `asset_id IN ${inList(chunk)}` },
+    { table: 'stimulus_option_asset_questions', rows: (state.graphOptInRows ?? state.optInRows).map(stripDerived), scopeIds: state.optionIds, paramsPerId: 1, countKey: 'stimulus_group_option_id', scopeFor: (chunk) => `stimulus_group_option_id IN ${inList(chunk)}` }
   ];
 }
 
@@ -854,12 +961,12 @@ function batchStatements(db, plan, survivorId, duplicateId) {
       AND EXISTS (SELECT 1 FROM assets b WHERE b.id = ${duplicateId} AND b.type = 'image' AND b.preview_session_id IS NULL AND b.is_active = true AND b.deduplicated_into_asset_id IS NULL AND b.superseded_by_asset_id IS NULL)
       AND NOT EXISTS (SELECT 1 FROM assets incoming WHERE incoming.deduplicated_into_asset_id = ${duplicateId})
       AND NOT EXISTS (SELECT 1 FROM assets incoming WHERE incoming.superseded_by_asset_id = ${duplicateId})`),
-    db.delete(stimulusOptionAssetQuestions).where(inArray(stimulusOptionAssetQuestions.assetQuestionId, affectedQuestionIds)),
+    ...chunkedById(affectedQuestionIds, (chunk) => db.delete(stimulusOptionAssetQuestions).where(inArray(stimulusOptionAssetQuestions.assetQuestionId, chunk))),
     ...questionUpdates,
-    db.delete(assetQuestions).where(inArray(assetQuestions.id, deleteQuestionIds)),
+    ...chunkedById(deleteQuestionIds, (chunk) => db.delete(assetQuestions).where(inArray(assetQuestions.id, chunk))),
     db.update(caseAssets).set({ assetId: survivorId }).where(eq(caseAssets.assetId, duplicateId)),
     db.update(stimulusGroupOptions).set({ assetId: survivorId }).where(eq(stimulusGroupOptions.assetId, duplicateId)),
-    ...uniqueOptIns.map((row) => db.insert(stimulusOptionAssetQuestions).values({ stimulusGroupOptionId: row.optionId, assetQuestionId: row.assetQuestionId })),
+    ...rowChunks(uniqueOptIns, 2).map((chunk) => db.insert(stimulusOptionAssetQuestions).values(chunk.map((row) => ({ stimulusGroupOptionId: row.optionId, assetQuestionId: row.assetQuestionId })))),
     sentinel(noDuplicateReferencesSql(duplicateId), duplicateId),
     db.update(assets).set({ isActive: false, deduplicatedIntoAssetId: survivorId, updatedAt: now }).where(and(
       eq(assets.id, duplicateId), eq(assets.isActive, true), isNull(assets.deduplicatedIntoAssetId), isNull(assets.supersededByAssetId)

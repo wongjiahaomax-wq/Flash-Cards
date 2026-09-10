@@ -51,7 +51,8 @@ import {
   runVisualDuplicateScan
 } from '../src/lib/images/visual-duplicate-discovery.js';
 import { createVisualDuplicateDismissals } from '../src/lib/images/visual-duplicate-dismissals.js';
-import { buildCompareHref } from '../src/lib/images/visual-duplicate-browser.js';
+import { buildCompareHref, createAdminDiscoveryController } from '../src/lib/images/visual-duplicate-browser.js';
+import { MAX_IMAGE_BYTES } from '../src/lib/server/storage/media.js';
 import { applyCurrentSchema } from './current-schema.js';
 
 // ---------------------------------------------------------------------------
@@ -512,6 +513,114 @@ test('cancellation aborts outstanding work and suppresses stale publication', as
   assert.deepEqual(second.fingerprints.size, 3);
 });
 
+test('cancelling during candidate listing aborts the fetch and never starts the scan', async () => {
+  let fetchStarted = false;
+  let fetchAborted = false;
+  let scanFetches = 0;
+  const phases = [];
+  const controller = createVisualDuplicateController({
+    fetchImage: async () => { scanFetches += 1; return fakeResponse(new Uint8Array(32)); },
+    decodeImage: async () => seededRaster(20),
+    onProgress: (next) => phases.push(next.phase),
+    yieldControl: tinyYield
+  });
+
+  const running = controller.start({
+    scope: 'topic',
+    loadCandidates: (signal) => new Promise((_resolve, reject) => {
+      fetchStarted = true;
+      signal.addEventListener('abort', () => { fetchAborted = true; reject(new DOMException('aborted', 'AbortError')); }, { once: true });
+    })
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(fetchStarted, true);
+
+  controller.cancel();
+  const result = await running;
+  assert.equal(fetchAborted, true, 'cancel must abort the in-flight candidate listing');
+  assert.equal(result.published, false);
+  assert.equal(result.stale, true);
+  assert.equal(result.aborted, true);
+  assert.equal(scanFetches, 0, 'a cancelled candidate listing must never start the visual scan');
+  assert.deepEqual(phases, ['listing']);
+});
+
+test('a candidate listing that resolves after cancellation cannot start or publish the scan', async () => {
+  let resolveListing;
+  let scanFetches = 0;
+  const controller = createVisualDuplicateController({
+    fetchImage: async () => { scanFetches += 1; return fakeResponse(new Uint8Array(32)); },
+    decodeImage: async () => seededRaster(21),
+    yieldControl: tinyYield
+  });
+
+  const running = controller.start({
+    loadCandidates: () => new Promise((resolve) => { resolveListing = resolve; })
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  controller.cancel();
+  // The request finishes anyway; the stale completion must not resurrect the search.
+  resolveListing({ candidates: [{ id: 'late', imageUrl: '/image/late' }], totalCount: 1, truncated: false });
+  const result = await running;
+
+  assert.equal(result.published, false);
+  assert.equal(result.stale, true);
+  assert.equal(scanFetches, 0);
+  assert.equal(result.candidatePayload, null);
+});
+
+test('a superseded search cannot overwrite a newer search progress or results', async () => {
+  const events = [];
+  let resolveFirst;
+  const controller = createVisualDuplicateController({
+    fetchImage: async () => fakeResponse(new Uint8Array(32)),
+    decodeImage: async () => seededRaster(23),
+    onProgress: (next) => events.push(next),
+    yieldControl: tinyYield
+  });
+
+  const first = controller.start({
+    scope: 'first',
+    loadCandidates: () => new Promise((resolve) => { resolveFirst = resolve; })
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+
+  const secondCandidates = Array.from({ length: 3 }, (_, index) => ({ id: `new-${index}`, imageUrl: `/image/${index}` }));
+  const second = await controller.start({
+    scope: 'second',
+    loadCandidates: async () => ({ candidates: secondCandidates, totalCount: 3, truncated: false, scopeLabel: 'Second' })
+  });
+  resolveFirst({ candidates: [{ id: 'old-0', imageUrl: '/image/old-0' }], totalCount: 1, truncated: false, scopeLabel: 'First' });
+  const firstResult = await first;
+
+  assert.equal(firstResult.published, false);
+  assert.equal(firstResult.stale, true);
+  assert.equal(firstResult.candidatePayload, null);
+  assert.equal(second.published, true);
+  assert.equal(second.candidatePayload.scopeLabel, 'Second');
+  assert.equal(second.fingerprintedCount, 3);
+  assert.equal(events.filter((event) => event.total === 1).length, 0, 'superseded work must not publish its progress');
+  assert.equal(events.filter((event) => event.phase === 'listing').length, 2);
+  assert.ok(events.some((event) => event.phase === 'scan' && event.total === 3), 'the newer search must still publish its own progress');
+});
+
+test('the discovery controller takes the server-provided limits instead of client defaults', () => {
+  const serverLimits = {
+    maxScanAssets: 77,
+    maxTotalFetchBytes: 33 * 1024 * 1024,
+    maxSingleFetchBytes: MAX_IMAGE_BYTES,
+    fetchConcurrency: 3,
+    decodeConcurrency: 1
+  };
+  const controller = createAdminDiscoveryController({ limits: serverLimits }, () => {});
+  assert.equal(controller.limits.maxScanAssets, 77);
+  assert.equal(controller.limits.maxTotalFetchBytes, 33 * 1024 * 1024);
+  assert.equal(controller.limits.maxSingleFetchBytes, MAX_IMAGE_BYTES);
+  assert.equal(controller.limits.fetchConcurrency, 3);
+  assert.equal(controller.limits.decodeConcurrency, 1);
+  assert.equal(controller.limits.yieldEveryPairComparisons, DEFAULT_LIMITS.yieldEveryPairComparisons);
+});
+
 test('per-image fetch, decode, and hash failures are isolated and surfaced', async () => {
   const markers = { 'ok-1': 0, 'fetch-fail': 1, 'ok-2': 0, 'decode-fail': 2, 'hash-fail': 3 };
   const result = await runVisualDuplicateScan({
@@ -922,6 +1031,7 @@ test('candidate endpoint returns JSON for authorized admins, refuses others, and
   assert.ok(pageData.scopes.topics.length >= 3);
   assert.equal(pageData.limits.maxScanAssets, VISUAL_DISCOVERY_MAX_ASSETS);
   assert.equal(pageData.limits.maxTotalFetchBytes, 96 * 1024 * 1024);
+  assert.equal(pageData.limits.maxSingleFetchBytes, MAX_IMAGE_BYTES);
   assert.equal(pageData.limits.fetchConcurrency, 4);
   assert.equal(pageData.limits.decodeConcurrency, 2);
 

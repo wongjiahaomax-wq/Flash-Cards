@@ -386,10 +386,37 @@ export async function runVisualDuplicateScan(options) {
   };
 }
 
+/** @param {any} candidatePayload */
+function emptyScanResult(candidatePayload) {
+  const truncated = Boolean(candidatePayload?.truncated);
+  return {
+    pairs: [],
+    fingerprints: new Map(),
+    failures: [],
+    scope: null,
+    candidateCount: candidatePayload?.totalCount ?? 0,
+    scannedCount: 0,
+    fingerprintedCount: 0,
+    totalBytes: 0,
+    comparisons: 0,
+    yields: 0,
+    truncated,
+    bounded: truncated,
+    budgetExceeded: false,
+    aborted: false,
+    incomplete: truncated,
+    incompleteReasons: truncated ? ['candidate-limit'] : [],
+    maxFetchConcurrency: 0,
+    maxDecodeConcurrency: 0
+  };
+}
+
 /**
- * Stateful controller that owns one active scan, its generation token, and its
- * AbortController. Starting a new scan or cancelling aborts outstanding work and
- * prevents a superseded run from publishing results.
+ * Stateful controller that owns exactly one search lifecycle at a time: the
+ * candidate-listing load, the bounded scan, progress publication, and the final
+ * result all share one generation token and one AbortController. Starting a new
+ * search or cancelling aborts the outstanding candidate fetch and scan work, and
+ * a superseded run can neither publish progress nor publish results.
  * @param {{
  *   fetchImage: ScanOptions['fetchImage'],
  *   decodeImage: ScanOptions['decodeImage'],
@@ -400,6 +427,7 @@ export async function runVisualDuplicateScan(options) {
  * }} adapters
  */
 export function createVisualDuplicateController(adapters) {
+  const limits = { ...DEFAULT_LIMITS, ...(adapters.limits ?? {}) };
   let generation = 0;
   /** @type {AbortController | null} */
   let abortController = null;
@@ -413,7 +441,7 @@ export function createVisualDuplicateController(adapters) {
   }
 
   /**
-   * @param {{ candidates: DiscoveryCandidate[], scope?: any }} input
+   * @param {{ candidates?: DiscoveryCandidate[], loadCandidates?: (signal: AbortSignal) => Promise<any>, scope?: any }} input
    */
   async function start(input) {
     abortController?.abort();
@@ -421,22 +449,57 @@ export function createVisualDuplicateController(adapters) {
     const controller = new AbortController();
     abortController = controller;
     running = true;
+    const isCurrent = () => runGeneration === generation && !controller.signal.aborted;
+    /** @param {any} next */
+    const publishProgress = (next) => {
+      if (isCurrent()) adapters.onProgress?.(next);
+    };
+    const staleResult = () => ({
+      ...emptyScanResult(null),
+      candidatePayload: null,
+      stale: true,
+      published: false,
+      aborted: true
+    });
     try {
+      /** @type {any} */
+      let candidatePayload = null;
+      /** @type {DiscoveryCandidate[]} */
+      let candidates = [];
+      if (typeof input.loadCandidates === 'function') {
+        publishProgress({ phase: 'listing' });
+        try {
+          candidatePayload = await input.loadCandidates(controller.signal);
+        } catch (error) {
+          if (!isCurrent()) return staleResult();
+          throw error;
+        }
+        if (!isCurrent()) return staleResult();
+        candidates = Array.isArray(candidatePayload?.candidates) ? candidatePayload.candidates : [];
+      } else {
+        candidates = Array.isArray(input.candidates) ? input.candidates : [];
+      }
+
+      if (!candidates.length) {
+        if (!isCurrent()) return staleResult();
+        return { ...emptyScanResult(candidatePayload), candidatePayload, scope: input.scope ?? null, stale: false, published: true };
+      }
+
       const result = await runVisualDuplicateScan({
-        candidates: input.candidates,
+        candidates,
         scope: input.scope ?? null,
-        limits: adapters.limits,
+        limits,
         fetchImage: adapters.fetchImage,
         decodeImage: adapters.decodeImage,
         hashRaster: adapters.hashRaster,
-        onProgress: adapters.onProgress,
+        onProgress: publishProgress,
         yieldControl: adapters.yieldControl,
         signal: controller.signal
       });
-      if (runGeneration !== generation) {
-        return { ...result, pairs: [], fingerprints: new Map(), stale: true, published: false };
+      if (!isCurrent()) {
+        return { ...result, pairs: [], fingerprints: new Map(), candidatePayload, stale: true, published: false };
       }
-      return { ...result, stale: false, published: true };
+      return { ...result, candidatePayload, stale: false, published: true };
     } finally {
       if (runGeneration === generation) {
         running = false;
@@ -448,6 +511,7 @@ export function createVisualDuplicateController(adapters) {
   return {
     start,
     cancel,
+    limits,
     get running() { return running; },
     get generation() { return generation; }
   };

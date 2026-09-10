@@ -14,6 +14,7 @@ import {
   AssetDeduplicationInputError,
   AssetDeduplicationStaleError,
   cleanupDuplicateAsset,
+  D1_MAX_BOUND_PARAMS,
   getDuplicateAssetMergePlan,
   listPendingDuplicateCleanup,
   mergeDuplicateAssets
@@ -67,11 +68,18 @@ function expectConstraint(action, message = /deduplicat|tombstone/i) {
   });
 }
 
-function d1Fixture(sqlite, { beforeBatch, beforeStatement } = {}) {
+function d1Fixture(sqlite, { beforeBatch, beforeStatement, onBind } = {}) {
   return {
     prepare(statement) {
       return {
         bind(...params) {
+          if (onBind) onBind(statement, params);
+          // Enforce the repository's D1 bound-parameter ceiling in the fixture, as
+          // the other D1 fixtures do, so an unbounded IN (...) path fails loudly
+          // instead of passing on node:sqlite's much higher variable limit.
+          if (params.length > 100) {
+            throw new Error(`D1 bound parameter limit exceeded in fixture: ${params.length}`);
+          }
           return {
             async all() { if (beforeStatement) await beforeStatement(statement, sqlite); return { results: sqlite.prepare(statement).all(...params) }; },
             async first() { return sqlite.prepare(statement).get(...params) ?? null; },
@@ -157,6 +165,56 @@ function domainFixture(options = {}) {
     INSERT INTO stimulus_option_asset_questions (stimulus_group_option_id, asset_question_id, created_at) VALUES ('option-b', 'aq-b', 1);
     INSERT INTO stimulus_option_asset_questions (stimulus_group_option_id, asset_question_id, created_at) VALUES ('option-b', 'aq-b-only', 1);
   `);
+  storage.objects.set('teaching-images/asset-a.png', true);
+  storage.objects.set('teaching-images/asset-b.png', true);
+  return { sqlite, db, ...storage };
+}
+
+/**
+ * A retained graph whose Case, group, option, prompt and reusable-question ID sets
+ * each exceed the D1 bound-parameter ceiling, so every plan read, exact-state
+ * guard, and Phase-1 mutation must chunk its IN (...) bindings.
+ */
+function highCardinalityFixture({ onBind } = {}) {
+  const sqlite = fixture();
+  const d1 = d1Fixture(sqlite, { onBind });
+  const storage = bucketFixture();
+  const db = createDb(d1);
+  sqlite.exec(`
+    INSERT INTO concepts (id, name, slug, kind, is_active, created_at, updated_at) VALUES ('system', 'System', 'system', 'system', 1, 1, 1);
+    INSERT INTO concepts (id, name, slug, kind, parent_id, is_active, created_at, updated_at) VALUES ('topic', 'Topic', 'topic', 'topic', 'system', 1, 1, 1);
+    INSERT INTO cases (id, title, question_selection_mode, is_active, created_at, updated_at) VALUES ('case-a', 'Case A', 'all', 1, 1, 1);
+    INSERT INTO case_concepts (case_id, concept_id, role, created_at) VALUES ('case-a', 'topic', 'primary', 1);
+  `);
+  insertAsset(sqlite, 'asset-a', { storageKey: 'teaching-images/asset-a.png', filename: 'A name' });
+  insertAsset(sqlite, 'asset-b', { storageKey: 'teaching-images/asset-b.png', filename: 'B name' });
+  sqlite.exec("INSERT INTO case_assets (case_id, asset_id, display_order, created_at) VALUES ('case-a', 'asset-a', 0, 1);");
+
+  const insertCase = sqlite.prepare("INSERT INTO cases (id, title, question_selection_mode, is_active, created_at, updated_at) VALUES (?, ?, 'all', 1, 1, 1)");
+  const insertCaseConcept = sqlite.prepare("INSERT INTO case_concepts (case_id, concept_id, role, created_at) VALUES (?, 'topic', 'primary', 1)");
+  const insertCaseAsset = sqlite.prepare('INSERT INTO case_assets (case_id, asset_id, display_order, created_at) VALUES (?, ?, 0, 1)');
+  const insertGroup = sqlite.prepare('INSERT INTO stimulus_groups (id, case_id, name, display_order, is_active, created_at, updated_at) VALUES (?, ?, ?, 0, 1, 1, 1)');
+  const insertOption = sqlite.prepare('INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, removed_from_case, created_at) VALUES (?, ?, ?, 0, ?, 1, 0, 1)');
+  const insertPrompt = sqlite.prepare('INSERT INTO question_prompts (id, prompt_md, is_active, created_at, updated_at) VALUES (?, ?, 1, 1, 1)');
+  const insertCaseQuestion = sqlite.prepare("INSERT INTO case_questions (id, case_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES (?, ?, ?, 'Case answer', 1, 1, 1)");
+  const insertGroupQuestion = sqlite.prepare("INSERT INTO stimulus_group_questions (id, stimulus_group_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES (?, ?, ?, 'Group answer', 1, 1, 1)");
+  const insertAssetQuestion = sqlite.prepare("INSERT INTO asset_questions (id, asset_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES (?, ?, ?, 'Reusable answer', 1, 1, 1)");
+  for (let index = 0; index < 105; index += 1) {
+    const suffix = String(index).padStart(3, '0');
+    const caseId = `case-${suffix}`;
+    const groupId = `group-${suffix}`;
+    insertCase.run(caseId, `Case ${suffix}`);
+    insertCaseConcept.run(caseId);
+    insertCaseAsset.run(caseId, 'asset-b');
+    insertGroup.run(groupId, caseId, `Group ${suffix}`);
+    insertOption.run(`option-${suffix}`, groupId, 'asset-b', `Caption ${suffix}`);
+    insertPrompt.run(`case-prompt-${suffix}`, `Case prompt ${suffix}`);
+    insertPrompt.run(`group-prompt-${suffix}`, `Group prompt ${suffix}`);
+    insertCaseQuestion.run(`case-question-${suffix}`, caseId, `case-prompt-${suffix}`);
+    insertGroupQuestion.run(`group-question-${suffix}`, groupId, `group-prompt-${suffix}`);
+    insertPrompt.run(`asset-prompt-${suffix}`, `Asset prompt ${suffix}`);
+    insertAssetQuestion.run(`asset-question-${suffix}`, 'asset-a', `asset-prompt-${suffix}`);
+  }
   storage.objects.set('teaching-images/asset-a.png', true);
   storage.objects.set('teaching-images/asset-b.png', true);
   return { sqlite, db, ...storage };
@@ -459,6 +517,43 @@ test('certified merge keeps every D1 batch statement within the bound-parameter 
       maxBound <= 100,
       `a merge batch statement bound ${maxBound} SQL parameters; D1 allows at most 100 bound parameters per query, so the exact-state guard must be split across smaller statements in the same batch.`
     );
+  } finally { fx.sqlite.close(); }
+});
+
+test('a >100-ID retained graph merges correctly without exceeding the D1 bound-parameter ceiling', async () => {
+  let maxBound = 0;
+  let statements = 0;
+  const fx = highCardinalityFixture({ onBind: (_statement, params) => { statements += 1; maxBound = Math.max(maxBound, params.length); } });
+  try {
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    assert.equal(plan.blockers.length, 0);
+    assert.equal(plan.questionResolutionBlockers.length, 0);
+    assert.ok(plan.contexts.length > 100, `fixture must retain more than 100 Cases, saw ${plan.contexts.length}`);
+
+    const result = await mergeDuplicateAssets({
+      db: fx.db,
+      bucket: fx.bucket,
+      survivorAssetId: 'asset-a',
+      duplicateAssetId: 'asset-b',
+      mergePlanFingerprint: plan.mergePlanFingerprint,
+      questionResolutions: {},
+      certificationConfirmed: true
+    });
+
+    // Every plan read and every merge statement was recorded; the D1 fixture also
+    // throws on any bind above the repository's ceiling.
+    assert.ok(statements > 100, `expected many bound statements for a high-cardinality graph, saw ${statements}`);
+    assert.ok(maxBound <= D1_MAX_BOUND_PARAMS, `max bound parameter count was ${maxBound}; D1 allows at most ${D1_MAX_BOUND_PARAMS} per query`);
+
+    assert.equal(result.cleanup.status, 'cleaned');
+    assert.deepEqual(fx.deleted, ['teaching-images/asset-b.png']);
+    assert.equal(fx.sqlite.prepare("SELECT count(*) AS count FROM assets WHERE id = 'asset-b'").get().count, 0);
+    assert.equal(fx.sqlite.prepare("SELECT count(*) AS count FROM case_assets WHERE asset_id = 'asset-b'").get().count, 0);
+    assert.equal(fx.sqlite.prepare("SELECT count(*) AS count FROM stimulus_group_options WHERE asset_id = 'asset-b'").get().count, 0);
+    assert.equal(fx.sqlite.prepare("SELECT count(*) AS count FROM asset_questions WHERE asset_id = 'asset-b'").get().count, 0);
+    assert.equal(fx.sqlite.prepare("SELECT count(*) AS count FROM case_assets WHERE asset_id = 'asset-a'").get().count, 106);
+    assert.equal(fx.sqlite.prepare("SELECT count(*) AS count FROM stimulus_group_options WHERE asset_id = 'asset-a'").get().count, 105);
+    assert.equal(fx.sqlite.prepare("SELECT count(*) AS count FROM asset_questions WHERE asset_id = 'asset-a'").get().count, 105);
   } finally { fx.sqlite.close(); }
 });
 
