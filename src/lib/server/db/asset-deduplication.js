@@ -161,10 +161,10 @@ async function loadRawState(db, assetIds) {
 
   const groupIds = [...new Set(groupsRows.map((row) => row.id).filter(Boolean))].sort();
   const optionIds = [...new Set(graphOptionRows.map((row) => row.id).filter(Boolean))].sort();
-  const [groupQuestionRows, optionQuestionRows, optInRows] = await Promise.all([
+  const [groupQuestionRows, optionQuestionRows, graphOptInRows] = await Promise.all([
     groupIds.length ? rawRows(db, `SELECT * FROM stimulus_group_questions WHERE stimulus_group_id IN ${inList(groupIds)} ORDER BY stimulus_group_id, id`, groupIds) : [],
     optionIds.length ? rawRows(db, `SELECT * FROM stimulus_option_questions WHERE stimulus_group_option_id IN ${inList(optionIds)} ORDER BY stimulus_group_option_id, id`, optionIds) : [],
-    questionIds.length ? rawRows(db, `
+    optionIds.length ? rawRows(db, `
       SELECT soaq.*, sgo.stimulus_group_id, sg.case_id,
         sgo.asset_id AS option_asset_id, sgo.is_active AS option_is_active,
         sgo.removed_from_case, sg.is_active AS group_is_active,
@@ -174,10 +174,24 @@ async function loadRawState(db, assetIds) {
       JOIN stimulus_group_options sgo ON sgo.id = soaq.stimulus_group_option_id
       JOIN stimulus_groups sg ON sg.id = sgo.stimulus_group_id
       JOIN cases c ON c.id = sg.case_id
-      WHERE soaq.asset_question_id IN ${inList(questionIds)}
+      WHERE soaq.stimulus_group_option_id IN ${inList(optionIds)}
       ORDER BY soaq.asset_question_id, soaq.stimulus_group_option_id
-    `, questionIds) : []
+    `, optionIds) : []
   ]);
+
+  const graphQuestionIds = [...new Set([
+    ...questionIds,
+    ...graphOptInRows.map((row) => row.asset_question_id).filter(Boolean)
+  ])].sort();
+  const graphAssetQuestionRows = graphQuestionIds.length ? await rawRows(db, `
+    SELECT aq.*, qp.prompt_md, qp.preview_session_id AS prompt_preview_session_id,
+      qp.is_active AS prompt_is_active
+    FROM asset_questions aq
+    JOIN question_prompts qp ON qp.id = aq.question_prompt_id
+    WHERE aq.id IN ${inList(graphQuestionIds)}
+    ORDER BY aq.asset_id, aq.question_prompt_id, aq.id
+  `, graphQuestionIds) : [];
+  const optInRows = graphOptInRows.filter((row) => questionIds.includes(row.asset_question_id));
 
   const allConceptRows = await rawRows(db, 'SELECT * FROM concepts ORDER BY id');
   const conceptsById = new Map(allConceptRows.map((row) => [row.id, row]));
@@ -193,7 +207,12 @@ async function loadRawState(db, assetIds) {
     }
   }
   const conceptRows = allConceptRows.filter((row) => relevantConceptIds.has(row.id));
-  promptIds.push(...caseQuestionRows.map((row) => row.question_prompt_id), ...groupQuestionRows.map((row) => row.question_prompt_id), ...optionQuestionRows.map((row) => row.question_prompt_id));
+  promptIds.push(
+    ...caseQuestionRows.map((row) => row.question_prompt_id),
+    ...groupQuestionRows.map((row) => row.question_prompt_id),
+    ...optionQuestionRows.map((row) => row.question_prompt_id),
+    ...graphAssetQuestionRows.map((row) => row.question_prompt_id)
+  );
   const uniquePromptIds = [...new Set(promptIds.filter(Boolean))].sort();
   const promptRows = uniquePromptIds.length
     ? await rawRows(db, `SELECT * FROM question_prompts WHERE id IN ${inList(uniquePromptIds)} ORDER BY id`, uniquePromptIds)
@@ -250,8 +269,8 @@ async function loadRawState(db, assetIds) {
     ['stimulus_group_questions', inScope('stimulus_group_id', groupIds), groupQuestionRows],
     ['stimulus_option_questions', inScope('stimulus_group_option_id', optionIds), optionQuestionRows],
     ['question_prompts', inScope('id', uniquePromptIds), promptRows],
-    ['asset_questions', inScope('asset_id', assetIds), assetQuestionRows.map(stripDerived)],
-    ['stimulus_option_asset_questions', inScope('asset_question_id', questionIds), optInRows.map(stripDerived)]
+    ['asset_questions', inScope('id', graphQuestionIds), graphAssetQuestionRows.map(stripDerived)],
+    ['stimulus_option_asset_questions', inScope('stimulus_group_option_id', optionIds), graphOptInRows.map(stripDerived)]
   ];
 
   return {
@@ -268,7 +287,9 @@ async function loadRawState(db, assetIds) {
     optionQuestionRows,
     promptRows,
     assetQuestionRows,
+    graphAssetQuestionRows,
     optInRows,
+    graphOptInRows,
     activeReviewAssets,
     activeReviewQuestions,
     legacyReview,
@@ -277,6 +298,7 @@ async function loadRawState(db, assetIds) {
     groupIds,
     optionIds,
     questionIds,
+    graphQuestionIds,
     promptIds: uniquePromptIds
   };
 }
@@ -493,7 +515,6 @@ export async function getDuplicateAssetMergePlan({ db, survivorAssetId, duplicat
   const sameCaseIds = [...aCaseIds].filter((id) => bCaseIds.has(id)).sort();
   const previewContexts = contexts.filter((context) => context.asset_id === duplicateId && context.case?.previewSessionId);
   const incomingDedupe = state.assetRows.filter((row) => row.deduplicated_into_asset_id === duplicateId);
-  const survivorIncomingDedupe = state.assetRows.filter((row) => row.deduplicated_into_asset_id === survivorId);
   const incomingSupersession = state.assetRows.filter((row) => row.superseded_by_asset_id === duplicateId);
 
   const prospective = prospectivePromptConflicts({ state, survivorId, duplicateId, aQuestions, bQuestions, questionConflicts });
@@ -503,7 +524,6 @@ export async function getDuplicateAssetMergePlan({ db, survivorAssetId, duplicat
   if (survivor && (survivor.type !== 'image' || survivor.preview_session_id || !survivor.is_active || survivor.deduplicated_into_asset_id || survivor.superseded_by_asset_id)) blockers.push({ code: 'survivor-ineligible', message: 'The survivor must be an active, production, non-superseded, non-tombstoned image Asset.' });
   if (duplicate && (duplicate.type !== 'image' || duplicate.preview_session_id || !duplicate.is_active || duplicate.deduplicated_into_asset_id || duplicate.superseded_by_asset_id)) blockers.push({ code: 'duplicate-ineligible', message: 'The duplicate must be an active, production, non-superseded, non-tombstoned image Asset.' });
   if (incomingDedupe.length) blockers.push({ code: 'duplicate-incoming-dedupe', message: 'The duplicate already has an incoming dedupe tombstone and cannot be claimed as a source.' });
-  if (survivorIncomingDedupe.length) blockers.push({ code: 'survivor-incoming-dedupe', message: 'The selected survivor already has an incoming dedupe tombstone and cannot be used as a new destructive dedupe source.' });
   if (incomingSupersession.length) blockers.push({ code: 'duplicate-incoming-supersession', message: 'Another Asset still points to the duplicate through higher-resolution supersession.' });
   if (!r2.readable || !r2.a) blockers.push({ code: 'survivor-media-missing', message: 'The canonical survivor media could not be verified in R2.' });
   if (!r2.readable || !r2.b) blockers.push({ code: 'duplicate-media-missing', message: 'The duplicate media could not be verified in R2.' });
@@ -546,6 +566,10 @@ export async function getDuplicateAssetMergePlan({ db, survivorAssetId, duplicat
 function prospectivePromptConflicts({ state, survivorId, duplicateId, aQuestions, bQuestions, questionConflicts }) {
   const map = new Map();
   const remap = new Map();
+  const graphAssetQuestionRows = state.graphAssetQuestionRows ?? state.assetQuestionRows;
+  const graphOptInRows = state.graphOptInRows ?? state.optInRows;
+  const graphAssetQuestionsById = byKey(graphAssetQuestionRows, 'id');
+  const promptById = byKey(state.promptRows, 'id');
   const aByPrompt = byKey(aQuestions, 'question_prompt_id');
   const bByPrompt = byKey(bQuestions, 'question_prompt_id');
   const canonicalActiveById = new Map();
@@ -556,17 +580,20 @@ function prospectivePromptConflicts({ state, survivorId, duplicateId, aQuestions
     if (conflict.duplicate) remap.set(conflict.duplicate.id, canonical.id);
     canonicalActiveById.set(canonical.id, Boolean(conflict.survivor?.is_active || conflict.duplicate?.is_active));
   }
-  for (const row of state.optInRows) {
-    const aq = state.assetQuestionRows.find((candidate) => candidate.id === row.asset_question_id);
+  for (const row of graphOptInRows) {
+    const aq = graphAssetQuestionsById.get(row.asset_question_id);
     if (!aq) continue;
     const canonicalId = remap.get(row.asset_question_id) ?? row.asset_question_id;
-    const canonical = state.assetQuestionRows.find((candidate) => candidate.id === canonicalId);
+    const canonical = graphAssetQuestionsById.get(canonicalId);
     if (!canonical) continue;
     const option = (state.graphOptionRows ?? state.optionRows).find((candidate) => candidate.id === row.stimulus_group_option_id);
     if (!option) continue;
     const key = `${option.case_id}:${canonical.question_prompt_id}`;
     const groups = map.get(key) ?? new Set();
-    if (option.group_is_active && option.is_active && !option.removed_from_case && option.case_is_active && !option.case_preview_session_id && canonicalActiveById.get(canonical.id)) groups.add(option.stimulus_group_id);
+    const canonicalIsActive = canonicalActiveById.has(canonical.id)
+      ? canonicalActiveById.get(canonical.id)
+      : Boolean(canonical.is_active && promptById.get(canonical.question_prompt_id)?.is_active);
+    if (option.group_is_active && option.is_active && !option.removed_from_case && option.case_is_active && !option.case_preview_session_id && canonicalIsActive) groups.add(option.stimulus_group_id);
     map.set(key, groups);
   }
   for (const row of state.groupQuestionRows) {
@@ -644,6 +671,7 @@ function stateTablesWithParams(state, assetIds) {
     table('assets', `id IN ${inList(ids)} OR deduplicated_into_asset_id IN ${inList(ids)} OR superseded_by_asset_id IN ${inList(ids)}`, threeIds, state.assetRows),
     table('case_assets', `asset_id IN ${inList(ids)}`, ids, state.fixedRows.map(stripFixedDerived)),
     table('stimulus_group_options', `stimulus_group_id IN ${inList(state.groupIds)}`, state.groupIds, state.graphOptionRows.map(stripOptionDerived)),
+    table('stimulus_group_options', `asset_id IN ${inList(ids)}`, ids, state.optionRows.map(stripOptionDerived)),
     table('cases', `id IN ${inList(state.caseIds)}`, state.caseIds, state.casesRows),
     table('case_concepts', `${inScope('case_id', state.caseIds)} AND role = 'primary'`, state.caseIds, state.caseConceptRows),
     table('concepts', `id IN ${inList(state.conceptRows.map((row) => row.id))}`, state.conceptRows.map((row) => row.id), state.conceptRows),
@@ -652,9 +680,15 @@ function stateTablesWithParams(state, assetIds) {
     table('stimulus_group_questions', `stimulus_group_id IN ${inList(state.groupIds)}`, state.groupIds, state.groupQuestionRows),
     table('stimulus_option_questions', `stimulus_group_option_id IN ${inList(state.optionIds)}`, state.optionIds, state.optionQuestionRows),
     table('question_prompts', `id IN ${inList(state.promptIds)}`, state.promptIds, state.promptRows),
-    table('asset_questions', `asset_id IN ${inList(ids)}`, ids, state.assetQuestionRows.map(stripDerived)),
-    table('stimulus_option_asset_questions', `asset_question_id IN ${inList(state.questionIds)}`, state.questionIds, state.optInRows.map(stripDerived))
+    table('asset_questions', `id IN ${inList(state.graphQuestionIds ?? state.questionIds)}`, state.graphQuestionIds ?? state.questionIds, (state.graphAssetQuestionRows ?? state.assetQuestionRows).map(stripDerived)),
+    table('stimulus_option_asset_questions', `stimulus_group_option_id IN ${inList(state.optionIds)}`, state.optionIds, (state.graphOptInRows ?? state.optInRows).map(stripDerived))
   ];
+}
+
+function legacyReviewZeroSql() {
+  return sql`NOT EXISTS (SELECT 1 FROM reviews)
+    AND NOT EXISTS (SELECT 1 FROM review_questions)
+    AND NOT EXISTS (SELECT 1 FROM review_assets)`;
 }
 
 /** @param {any} state @param {string} duplicateId */
@@ -759,12 +793,12 @@ function batchStatements(db, plan, survivorId, duplicateId) {
   const uniqueOptIns = [...new Map(optIns.map((row) => [`${row.optionId}:${row.assetQuestionId}`, row])).values()];
   const statements = [
     sentinel(exact),
+    sentinel(legacyReviewZeroSql()),
     sentinel(activeReviewBlockerSql(state, duplicateId)),
     sentinel(noPreviewDuplicateSql(duplicateId)),
     sentinel(noSameCaseCollisionSql(survivorId, duplicateId)),
     sentinel(sql`EXISTS (SELECT 1 FROM assets a WHERE a.id = ${survivorId} AND a.type = 'image' AND a.preview_session_id IS NULL AND a.is_active = true AND a.deduplicated_into_asset_id IS NULL AND a.superseded_by_asset_id IS NULL)
       AND EXISTS (SELECT 1 FROM assets b WHERE b.id = ${duplicateId} AND b.type = 'image' AND b.preview_session_id IS NULL AND b.is_active = true AND b.deduplicated_into_asset_id IS NULL AND b.superseded_by_asset_id IS NULL)
-      AND NOT EXISTS (SELECT 1 FROM assets incoming WHERE incoming.deduplicated_into_asset_id = ${survivorId})
       AND NOT EXISTS (SELECT 1 FROM assets incoming WHERE incoming.deduplicated_into_asset_id = ${duplicateId})
       AND NOT EXISTS (SELECT 1 FROM assets incoming WHERE incoming.superseded_by_asset_id = ${duplicateId})`),
     db.delete(stimulusOptionAssetQuestions).where(inArray(stimulusOptionAssetQuestions.assetQuestionId, affectedQuestionIds)),
@@ -809,7 +843,7 @@ export async function mergeDuplicateAssets(input) {
   try {
     await input.db.batch(batchStatements(input.db, plan, plan.survivorAssetId, plan.duplicateAssetId));
   } catch (error) {
-    if (error instanceof Error && /NOT NULL constraint failed: assets\.type|deduplicat|Review|Prompt/i.test(error.message)) throw new AssetDeduplicationStaleError();
+    if (error instanceof Error && /NOT NULL constraint failed: assets\.type|deduplicat|Review|Prompt|no such table: (reviews|review_questions|review_assets)|no such column: .*review/i.test(error.message)) throw new AssetDeduplicationStaleError();
     throw error;
   }
   const cleanup = await cleanupDuplicateAsset({ db: input.db, bucket: input.bucket, duplicateAssetId: plan.duplicateAssetId });
