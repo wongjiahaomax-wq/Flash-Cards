@@ -13,6 +13,7 @@ import { assets, caseAssets, caseConcepts, cases, concepts, imageCollections, st
 export const ASSET_LIBRARY_PAGE_SIZE = 60;
 export const ASSET_LIBRARY_SELECT_ALL_LIMIT = 300;
 export const ASSET_LIBRARY_COLLECTION_BULK_LIMIT = 30;
+export const ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE = 'This Asset is a deduplication tombstone with cleanup pending; metadata and reusable-question changes are unavailable.';
 
 export class AssetLibraryInputError extends Error {
   /** @param {string} message */
@@ -468,8 +469,9 @@ export async function getAssetLibraryDetail(db, assetId) {
  */
 export async function updateAssetMetadata(db, assetId, input) {
   const normalizedId = requiredText(assetId, 'Asset');
-  const existing = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
+  const existing = await db.select({ id: assets.id, deduplicatedIntoAssetId: assets.deduplicatedIntoAssetId }).from(assets).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
   if (!existing[0]) throw new AssetLibraryInputError('The selected production Asset no longer exists.');
+  if (existing[0].deduplicatedIntoAssetId) throw new AssetLibraryInputError(ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE);
   const imageCollectionId = optionalText(input.imageCollectionId);
   await validateCollection(db, imageCollectionId);
   const update = { originalFilename: optionalText(input.originalFilename), altText: optionalText(input.altText), sourceLabel: optionalText(input.sourceLabel), sourceUrl: validateAssetSourceUrl(input.sourceUrl), licence: optionalText(input.licence), imageCollectionId, isActive: booleanValue(input.isActive), updatedAt: new Date() };

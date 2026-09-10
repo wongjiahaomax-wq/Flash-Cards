@@ -191,6 +191,7 @@ test('Asset Library searches metadata and filters usage, status, and provenance'
     const detail = await getAssetLibraryDetail(fixture.db, 'seed-asset-pityriasis-herald');
     assert.ok(detail);
     assert.equal(detail.asset.usageCount, 1);
+    assert.equal(detail.asset.deduplicatedIntoAssetId, null);
     assert.deepEqual(detail.usages.map((usage) => [usage.caseId, usage.captionMd]), [['seed-pityriasis-rosea', 'Herald patch']]);
     assert.equal(detail.asset.imageUrl, '/api/assets/seed-asset-pityriasis-herald/image');
 
@@ -212,6 +213,41 @@ test('Image Library excludes deduplication tombstones from ordinary Asset result
 
     const rows = await listAssetLibrary(fixture.db, { search: 'Canonical survivor' });
     assert.deepEqual(rows.map((asset) => asset.id), ['dedupe-survivor']);
+    const detail = await getAssetLibraryDetail(fixture.db, 'dedupe-duplicate');
+    if (!detail) throw new Error('Expected the direct tombstone detail to remain readable.');
+    assert.equal(detail.asset.deduplicatedIntoAssetId, 'dedupe-survivor');
+    assert.equal(detail.asset.imageUrl, null);
+    await assert.rejects(
+      () => updateAssetMetadata(fixture.db, 'dedupe-duplicate', { originalFilename: 'must-not-change' }),
+      (error) => error instanceof AssetLibraryInputError && /cleanup pending/i.test(error.message)
+    );
+
+    const { load, actions } = await import('../src/routes/admin/images/[assetId]/+page.server.js');
+    /** @param {Request} request */
+    const routeEvent = (request) => /** @type {any} */ ({
+      request,
+      locals: { user: { role: 'admin' } },
+      params: { assetId: 'dedupe-duplicate' },
+      platform: { env: { DB: fixture.d1 } }
+    });
+    const loaded = await load({ ...routeEvent(new Request('http://localhost/admin/images/dedupe-duplicate')), url: new URL('http://localhost/admin/images/dedupe-duplicate') });
+    if (!loaded.detail) throw new Error('Expected the direct tombstone route to load detail.');
+    assert.equal(loaded.detail.asset.deduplicatedIntoAssetId, 'dedupe-survivor');
+    assert.deepEqual(loaded.reusableQuestions, []);
+    assert.equal(loaded.replacement, null);
+
+    const metadata = new FormData();
+    metadata.set('original_filename', 'must-not-change');
+    const metadataResult = await actions.saveMetadata(routeEvent(new Request('http://localhost/admin/images/dedupe-duplicate?/saveMetadata', { method: 'POST', body: metadata })));
+    assert.equal(metadataResult.status, 400);
+    assert.match(metadataResult.data.error, /cleanup pending/i);
+
+    const question = new FormData();
+    question.set('prompt_md', 'Must not create');
+    question.set('answer_md', 'Must not create');
+    const questionResult = await actions.createReusableQuestion(routeEvent(new Request('http://localhost/admin/images/dedupe-duplicate?/createReusableQuestion', { method: 'POST', body: question })));
+    assert.equal(questionResult.status, 400);
+    assert.match(questionResult.data.error, /cleanup pending/i);
   } finally {
     fixture.sqlite.close();
   }

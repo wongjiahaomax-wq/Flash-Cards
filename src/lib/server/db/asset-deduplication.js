@@ -580,7 +580,7 @@ function prospectivePromptConflicts({ state, survivorId, duplicateId, aQuestions
   }
   for (const row of state.optionQuestionRows) {
     if (!row.is_active) continue;
-    const option = state.optionRows.find((candidate) => candidate.id === row.stimulus_group_option_id);
+    const option = (state.graphOptionRows ?? state.optionRows).find((candidate) => candidate.id === row.stimulus_group_option_id);
     if (!option?.group_is_active || !option.is_active || option.removed_from_case || !option.case_is_active || option.case_preview_session_id) continue;
     const key = `${option.case_id}:${row.question_prompt_id}`;
     const groups = map.get(key) ?? new Set();

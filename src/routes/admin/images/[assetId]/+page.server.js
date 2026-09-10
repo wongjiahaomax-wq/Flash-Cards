@@ -4,6 +4,7 @@ import { and, eq, isNull } from 'drizzle-orm';
 import { canManageCaseAssets } from '$lib/server/db/case-assets.js';
 import { createDb } from '$lib/server/db/index.js';
 import {
+  ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE,
   AssetLibraryInputError,
   getAssetLibraryDetail,
   listAssetLibraryCollections,
@@ -41,8 +42,15 @@ function detailRedirect(assetId, status) {
 }
 
 /** @param {LearningDb} db @param {string} assetId */
-async function isProductionAsset(db, assetId) {
-  return Boolean((await db.select({ id: assets.id }).from(assets).where(and(eq(assets.id, assetId), isNull(assets.previewSessionId))).limit(1))[0]);
+async function getProductionAsset(db, assetId) {
+  return (await db.select({ id: assets.id, deduplicatedIntoAssetId: assets.deduplicatedIntoAssetId }).from(assets).where(and(eq(assets.id, assetId), isNull(assets.previewSessionId))).limit(1))[0] ?? null;
+}
+
+/** @param {LearningDb} db @param {string} assetId */
+async function getEditableProductionAsset(db, assetId) {
+  const asset = await getProductionAsset(db, assetId);
+  if (asset?.deduplicatedIntoAssetId) throw new AssetLibraryInputError(ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE);
+  return asset;
 }
 
 /** @param {unknown} error */
@@ -60,13 +68,14 @@ export async function load({ locals, params, platform, url }) {
     return { detail: null, collections: [], reusableQuestions: [], optedKeys: [], replacement: null, status: null };
   }
   const db = createDb(platform.env.DB);
-  if (!(await isProductionAsset(db, params.assetId))) {
+  const productionAsset = await getProductionAsset(db, params.assetId);
+  if (!productionAsset) {
     return { detail: null, collections: [], reusableQuestions: [], optedKeys: [], replacement: null, status: null };
   }
   const [detail, reusableQuestions, replacement] = await Promise.all([
     getAssetLibraryDetail(db, params.assetId),
-    listAssetQuestions(db, params.assetId),
-    getAssetReplacementSummary(db, params.assetId)
+    productionAsset.deduplicatedIntoAssetId ? [] : listAssetQuestions(db, params.assetId),
+    productionAsset.deduplicatedIntoAssetId ? null : getAssetReplacementSummary(db, params.assetId)
   ]);
   const optionIds = detail?.usages.map((usage) => usage.stimulusOptionId).filter(Boolean) ?? [];
   const optedRows = optionIds.length
@@ -88,7 +97,9 @@ export const actions = {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const db = createDb(platform.env.DB);
-    if (!(await isProductionAsset(db, params.assetId))) return fail(404, { error: 'Production Asset not found.' });
+    let asset;
+    try { asset = await getEditableProductionAsset(db, params.assetId); } catch (error) { return actionError(error); }
+    if (!asset) return fail(404, { error: 'Production Asset not found.' });
     const formData = await request.formData();
     try {
       const replacement = await getAssetReplacementSummary(db, params.assetId);
@@ -109,7 +120,9 @@ export const actions = {
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     if (!platform?.env?.MEDIA) return fail(503, { error: 'Media storage is not configured.' });
     const db = createDb(platform.env.DB);
-    if (!(await isProductionAsset(db, params.assetId))) return fail(404, { error: 'Production Asset not found.' });
+    let asset;
+    try { asset = await getEditableProductionAsset(db, params.assetId); } catch (error) { return actionError(error); }
+    if (!asset) return fail(404, { error: 'Production Asset not found.' });
     const formData = await request.formData();
     const file = formData.get('image');
     let result;
@@ -130,9 +143,13 @@ export const actions = {
   createReusableQuestion: async ({ request, locals, params, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const db = createDb(platform.env.DB);
+    let asset;
+    try { asset = await getEditableProductionAsset(db, params.assetId); } catch (error) { return actionError(error); }
+    if (!asset) return fail(404, { error: 'Production Asset not found.' });
     const formData = await request.formData();
     try {
-      await createAssetQuestion(createDb(platform.env.DB), { assetId: params.assetId, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') });
+      await createAssetQuestion(db, { assetId: params.assetId, promptMd: formText(formData, 'prompt_md'), answerMd: formText(formData, 'answer_md') });
     } catch (error) { return actionError(error); }
     redirect(303, detailRedirect(params.assetId, 'reusable-created'));
   },
@@ -140,8 +157,12 @@ export const actions = {
   saveReusableAnswer: async ({ request, locals, params, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const db = createDb(platform.env.DB);
+    let asset;
+    try { asset = await getEditableProductionAsset(db, params.assetId); } catch (error) { return actionError(error); }
+    if (!asset) return fail(404, { error: 'Production Asset not found.' });
     const formData = await request.formData();
-    try { await updateAssetQuestionAnswer(createDb(platform.env.DB), { assetQuestionId: formText(formData, 'asset_question_id'), answerMd: formText(formData, 'answer_md') }); }
+    try { await updateAssetQuestionAnswer(db, { assetQuestionId: formText(formData, 'asset_question_id'), answerMd: formText(formData, 'answer_md') }); }
     catch (error) { return actionError(error); }
     redirect(303, detailRedirect(params.assetId, 'reusable-saved'));
   },
@@ -149,8 +170,12 @@ export const actions = {
   setReusableActive: async ({ request, locals, params, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const db = createDb(platform.env.DB);
+    let asset;
+    try { asset = await getEditableProductionAsset(db, params.assetId); } catch (error) { return actionError(error); }
+    if (!asset) return fail(404, { error: 'Production Asset not found.' });
     const formData = await request.formData();
-    try { await setAssetQuestionActive(createDb(platform.env.DB), { assetQuestionId: formText(formData, 'asset_question_id'), isActive: formText(formData, 'active') === 'true' }); }
+    try { await setAssetQuestionActive(db, { assetQuestionId: formText(formData, 'asset_question_id'), isActive: formText(formData, 'active') === 'true' }); }
     catch (error) { return actionError(error); }
     redirect(303, detailRedirect(params.assetId, 'reusable-status'));
   },
@@ -160,6 +185,9 @@ export const actions = {
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
     const formData = await request.formData();
     const db = createDb(platform.env.DB);
+    let asset;
+    try { asset = await getEditableProductionAsset(db, params.assetId); } catch (error) { return actionError(error); }
+    if (!asset) return fail(404, { error: 'Production Asset not found.' });
     try {
       const optionId = formText(formData, 'option_id');
       if (optionId) await optInAssetQuestion(db, { caseId: formText(formData, 'case_id'), optionId, assetQuestionId: formText(formData, 'asset_question_id') });
@@ -171,8 +199,12 @@ export const actions = {
   removeReusable: async ({ request, locals, params, platform }) => {
     if (!canManageCaseAssets(locals.user)) return fail(403, { error: 'Administrator access is required.' });
     if (!platform?.env?.DB) return fail(503, { error: 'The study database is not configured.' });
+    const db = createDb(platform.env.DB);
+    let asset;
+    try { asset = await getEditableProductionAsset(db, params.assetId); } catch (error) { return actionError(error); }
+    if (!asset) return fail(404, { error: 'Production Asset not found.' });
     const formData = await request.formData();
-    try { await removeAssetQuestionOptIn(createDb(platform.env.DB), { assetId: params.assetId, optionId: formText(formData, 'option_id'), assetQuestionId: formText(formData, 'asset_question_id') }); }
+    try { await removeAssetQuestionOptIn(db, { assetId: params.assetId, optionId: formText(formData, 'option_id'), assetQuestionId: formText(formData, 'asset_question_id') }); }
     catch (error) { return actionError(error); }
     redirect(303, detailRedirect(params.assetId, 'removed-from-case'));
   }

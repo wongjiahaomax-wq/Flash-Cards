@@ -250,6 +250,23 @@ test('prospective Prompt conflicts include unrelated active Groups in a retained
   } finally { fx.sqlite.close(); }
 });
 
+test('prospective Prompt conflicts include unrelated active Option Questions in a retained Case', async () => {
+  const fx = domainFixture();
+  try {
+    fx.sqlite.exec(`
+      UPDATE asset_questions SET is_active = 0 WHERE id = 'aq-b';
+      UPDATE stimulus_option_questions SET is_active = 0 WHERE id = 'option-q';
+      INSERT INTO stimulus_groups (id, case_id, name, display_order, is_active, created_at, updated_at) VALUES ('group-other-option', 'case-b', 'Other option group', 1, 1, 1, 1);
+      INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, removed_from_case, created_at) VALUES ('option-other', 'group-other-option', 'asset-unused', 0, 'Other option caption', 1, 0, 1);
+      INSERT INTO stimulus_option_questions (id, stimulus_group_option_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES ('option-other-q', 'option-other', 'prompt-shared', 'Other option answer', 1, 1, 1);
+    `);
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    assert.equal(plan.canMerge, false);
+    assert.ok(plan.prospectivePromptConflicts.some((conflict) => conflict.key === 'case-b:prompt-shared'));
+    assert.ok(plan.blockers.some((blocker) => blocker.code === 'prospective-prompt-conflict'));
+  } finally { fx.sqlite.close(); }
+});
+
 test('certified merge unions reusable questions, moves retained relationships, and cleans only duplicate media', async () => {
   const fx = domainFixture();
   try {
