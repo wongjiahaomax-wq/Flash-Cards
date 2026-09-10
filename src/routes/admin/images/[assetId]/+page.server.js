@@ -162,7 +162,7 @@ export const actions = {
     try { asset = await getEditableProductionAsset(db, params.assetId); } catch (error) { return actionError(error); }
     if (!asset) return fail(404, { error: 'Production Asset not found.' });
     const formData = await request.formData();
-    try { await updateAssetQuestionAnswer(db, { assetQuestionId: formText(formData, 'asset_question_id'), answerMd: formText(formData, 'answer_md') }); }
+    try { await updateAssetQuestionAnswer(db, { assetQuestionId: formText(formData, 'asset_question_id'), answerMd: formText(formData, 'answer_md'), expectedAssetId: params.assetId }); }
     catch (error) { return actionError(error); }
     redirect(303, detailRedirect(params.assetId, 'reusable-saved'));
   },
@@ -175,7 +175,7 @@ export const actions = {
     try { asset = await getEditableProductionAsset(db, params.assetId); } catch (error) { return actionError(error); }
     if (!asset) return fail(404, { error: 'Production Asset not found.' });
     const formData = await request.formData();
-    try { await setAssetQuestionActive(db, { assetQuestionId: formText(formData, 'asset_question_id'), isActive: formText(formData, 'active') === 'true' }); }
+    try { await setAssetQuestionActive(db, { assetQuestionId: formText(formData, 'asset_question_id'), isActive: formText(formData, 'active') === 'true', expectedAssetId: params.assetId }); }
     catch (error) { return actionError(error); }
     redirect(303, detailRedirect(params.assetId, 'reusable-status'));
   },
@@ -190,7 +190,7 @@ export const actions = {
     if (!asset) return fail(404, { error: 'Production Asset not found.' });
     try {
       const optionId = formText(formData, 'option_id');
-      if (optionId) await optInAssetQuestion(db, { caseId: formText(formData, 'case_id'), optionId, assetQuestionId: formText(formData, 'asset_question_id') });
+      if (optionId) await optInAssetQuestion(db, { caseId: formText(formData, 'case_id'), optionId, assetQuestionId: formText(formData, 'asset_question_id'), expectedAssetId: params.assetId });
       else await optInFixedAssetQuestion(db, { caseId: formText(formData, 'case_id'), assetId: params.assetId, assetQuestionId: formText(formData, 'asset_question_id') });
     } catch (error) { return actionError(error); }
     redirect(303, detailRedirect(params.assetId, 'reused'));

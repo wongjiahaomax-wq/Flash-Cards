@@ -156,11 +156,50 @@ async function ensurePromptMayBeSpecificInGroup(db, caseId, promptId, groupId) {
   }
 }
 
-/** @param {LearningDb} db @param {{ caseId: unknown, optionId: unknown, assetQuestionId: unknown }} input */
+/**
+ * Insert a reusable-question opt-in only if the option and Asset Question still
+ * belong to the Asset captured by the request. The route precheck is useful for
+ * UX, but this predicate is the write-side race fence.
+ *
+ * @param {LearningDb} db
+ * @param {{ optionId: string, assetQuestionId: string, expectedAssetId: string }} input
+ */
+async function insertExpectedAssetQuestionOptIn(db, input) {
+  const result = await db.$client.prepare(`
+    INSERT INTO stimulus_option_asset_questions (stimulus_group_option_id, asset_question_id)
+    SELECT ?, ?
+    WHERE EXISTS (
+      SELECT 1
+      FROM stimulus_group_options option_row
+      JOIN assets option_asset ON option_asset.id = option_row.asset_id
+      JOIN asset_questions question_row ON question_row.id = ?
+      WHERE option_row.id = ?
+        AND option_row.asset_id = ?
+        AND question_row.asset_id = ?
+        AND option_asset.preview_session_id IS NULL
+        AND option_asset.is_active = 1
+        AND option_asset.superseded_by_asset_id IS NULL
+        AND option_asset.deduplicated_into_asset_id IS NULL
+    )
+  `).bind(
+    input.optionId,
+    input.assetQuestionId,
+    input.assetQuestionId,
+    input.optionId,
+    input.expectedAssetId,
+    input.expectedAssetId
+  ).run();
+  if (Number(result?.meta?.changes ?? 0) !== 1) {
+    throw new AssetQuestionInputError('The reusable image question usage moved to another Asset; refresh and try again.');
+  }
+}
+
+/** @param {LearningDb} db @param {{ caseId: unknown, optionId: unknown, assetQuestionId: unknown, expectedAssetId?: unknown }} input */
 export async function optInAssetQuestion(db, input) {
   const caseId = requiredText(input.caseId, 'Case');
   const optionId = requiredText(input.optionId, 'Stimulus option');
   const assetQuestionId = requiredText(input.assetQuestionId, 'Reusable image question');
+  const expectedAssetId = String(input.expectedAssetId ?? '').trim();
   const option = await requireProductionOption(db, caseId, optionId);
   const question = (await db.select({ id: assetQuestions.id, assetId: assetQuestions.assetId, promptId: assetQuestions.questionPromptId, isActive: assetQuestions.isActive })
     .from(assetQuestions)
@@ -169,12 +208,16 @@ export async function optInAssetQuestion(db, input) {
     .limit(1))[0];
   if (!question) throw new AssetQuestionInputError('The reusable image question is missing or inactive.');
   if (question.assetId !== option.assetId) throw new AssetQuestionInputError('The reusable image question belongs to a different Asset.');
+  if (expectedAssetId && option.assetId !== expectedAssetId) throw new AssetQuestionInputError('The reusable image question usage moved to another Asset; refresh and try again.');
   await ensurePromptMayBeSpecificInGroup(db, caseId, question.promptId, option.stimulusGroupId);
   const existing = await db.select({ assetQuestionId: stimulusOptionAssetQuestions.assetQuestionId })
     .from(stimulusOptionAssetQuestions)
     .where(and(eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, optionId), eq(stimulusOptionAssetQuestions.assetQuestionId, assetQuestionId)))
     .limit(1);
-  if (!existing[0]) await db.insert(stimulusOptionAssetQuestions).values({ stimulusGroupOptionId: optionId, assetQuestionId });
+  if (!existing[0]) {
+    if (expectedAssetId) await insertExpectedAssetQuestionOptIn(db, { optionId, assetQuestionId, expectedAssetId });
+    else await db.insert(stimulusOptionAssetQuestions).values({ stimulusGroupOptionId: optionId, assetQuestionId });
+  }
   return assetQuestionId;
 }
 
@@ -208,24 +251,33 @@ export async function removeAssetQuestionOptIn(db, input) {
   ));
 }
 
-/** @param {LearningDb} db @param {{ assetQuestionId: unknown, answerMd: unknown }} input */
+/** @param {LearningDb} db @param {{ assetQuestionId: unknown, answerMd: unknown, expectedAssetId?: unknown }} input */
 export async function updateAssetQuestionAnswer(db, input) {
   const id = requiredText(input.assetQuestionId, 'Reusable image question');
   const answerMd = requiredText(input.answerMd, 'Question answer');
+  const expectedAssetId = String(input.expectedAssetId ?? '').trim();
   const row = (await db.select({ id: assetQuestions.id, assetId: assetQuestions.assetId })
     .from(assetQuestions)
     .innerJoin(assets, eq(assets.id, assetQuestions.assetId))
     .where(and(eq(assetQuestions.id, id), isNull(assets.previewSessionId)))
     .limit(1))[0];
   if (!row) throw new AssetQuestionInputError('The reusable image question no longer exists.');
-  await db.update(assetQuestions).set({ answerMd, updatedAt: new Date() }).where(eq(assetQuestions.id, id));
+  const conditions = [eq(assetQuestions.id, id)];
+  if (expectedAssetId) conditions.push(eq(assetQuestions.assetId, expectedAssetId));
+  const updated = await db.update(assetQuestions)
+    .set({ answerMd, updatedAt: new Date() })
+    .where(and(...conditions))
+    .returning({ id: assetQuestions.id });
+  if (expectedAssetId && !updated.length) throw new AssetQuestionInputError('The reusable image question moved to another Asset; refresh and try again.');
 }
 
-/** @param {LearningDb} db @param {{ assetQuestionId: unknown, isActive: boolean }} input */
+/** @param {LearningDb} db @param {{ assetQuestionId: unknown, isActive: boolean, expectedAssetId?: unknown }} input */
 export async function setAssetQuestionActive(db, input) {
   const id = requiredText(input.assetQuestionId, 'Reusable image question');
+  const expectedAssetId = String(input.expectedAssetId ?? '').trim();
   const row = (await db.select({
     id: assetQuestions.id,
+    assetId: assetQuestions.assetId,
     promptId: assetQuestions.questionPromptId,
     isActive: assetQuestions.isActive
   })
@@ -258,7 +310,13 @@ export async function setAssetQuestionActive(db, input) {
     }
   }
 
-  await db.update(assetQuestions).set({ isActive: input.isActive, updatedAt: new Date() }).where(eq(assetQuestions.id, id));
+  const conditions = [eq(assetQuestions.id, id)];
+  if (expectedAssetId) conditions.push(eq(assetQuestions.assetId, expectedAssetId));
+  const updated = await db.update(assetQuestions)
+    .set({ isActive: input.isActive, updatedAt: new Date() })
+    .where(and(...conditions))
+    .returning({ id: assetQuestions.id });
+  if (expectedAssetId && !updated.length) throw new AssetQuestionInputError('The reusable image question moved to another Asset; refresh and try again.');
 }
 
 /** @param {string | null | undefined} filename @param {string} assetId */

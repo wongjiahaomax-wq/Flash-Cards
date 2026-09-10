@@ -19,6 +19,12 @@ import {
   mergeDuplicateAssets
 } from '../src/lib/server/db/asset-deduplication.js';
 import { ActiveReviewError, createFreeActiveReview } from '../src/lib/server/db/active-reviews.js';
+import {
+  AssetQuestionInputError,
+  optInAssetQuestion,
+  setAssetQuestionActive,
+  updateAssetQuestionAnswer
+} from '../src/lib/server/db/asset-questions.js';
 import { applyCurrentSchema } from './current-schema.js';
 
 function fixture() {
@@ -147,6 +153,14 @@ function domainFixture(options = {}) {
   storage.objects.set('teaching-images/asset-a.png', true);
   storage.objects.set('teaching-images/asset-b.png', true);
   return { sqlite, db, ...storage };
+}
+
+function insertLateBOption(sqlite) {
+  sqlite.exec(`
+    INSERT INTO cases (id, title, vignette_md, question_selection_mode, is_active, created_at, updated_at) VALUES ('case-b-late', 'Case B late', 'Late vignette', 'all', 1, 1, 1);
+    INSERT INTO stimulus_groups (id, case_id, name, display_order, is_active, created_at, updated_at) VALUES ('group-b-late', 'case-b-late', 'Late group', 0, 1, 1, 1);
+    INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, removed_from_case, created_at) VALUES ('option-b-late', 'group-b-late', 'asset-b', 0, 'Late option', 1, 0, 1);
+  `);
 }
 
 test('0028 is additive and existing Assets receive a NULL dedupe tombstone', () => {
@@ -442,6 +456,74 @@ test('stale exact-state equality rejects a new B Stimulus Option in a new Case b
   } finally { fx.sqlite.close(); }
 });
 
+test('stale B Asset Question answer writes are rejected after B-only questions move to A', async () => {
+  const fx = domainFixture();
+  try {
+    assert.equal(fx.sqlite.prepare('SELECT asset_id FROM asset_questions WHERE id = ?').get('aq-b-only').asset_id, 'asset-b');
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    await mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true });
+    await assert.rejects(
+      () => updateAssetQuestionAnswer(fx.db, { assetQuestionId: 'aq-b-only', answerMd: 'stale write', expectedAssetId: 'asset-b' }),
+      (error) => error instanceof AssetQuestionInputError && /moved to another Asset/.test(error.message)
+    );
+    assert.equal(fx.sqlite.prepare('SELECT answer_md, asset_id FROM asset_questions WHERE id = ?').get('aq-b-only').answer_md, 'B reusable answer');
+    assert.equal(fx.sqlite.prepare('SELECT asset_id FROM asset_questions WHERE id = ?').get('aq-b-only').asset_id, 'asset-a');
+  } finally { fx.sqlite.close(); }
+});
+
+test('stale B Asset Question active-state writes are rejected after B-only questions move to A', async () => {
+  const fx = domainFixture();
+  try {
+    assert.equal(fx.sqlite.prepare('SELECT asset_id FROM asset_questions WHERE id = ?').get('aq-b-only').asset_id, 'asset-b');
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    await mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true });
+    await assert.rejects(
+      () => setAssetQuestionActive(fx.db, { assetQuestionId: 'aq-b-only', isActive: false, expectedAssetId: 'asset-b' }),
+      (error) => error instanceof AssetQuestionInputError && /moved to another Asset/.test(error.message)
+    );
+    assert.equal(fx.sqlite.prepare('SELECT is_active, asset_id FROM asset_questions WHERE id = ?').get('aq-b-only').is_active, 1);
+    assert.equal(fx.sqlite.prepare('SELECT asset_id FROM asset_questions WHERE id = ?').get('aq-b-only').asset_id, 'asset-a');
+  } finally { fx.sqlite.close(); }
+});
+
+test('stale B stimulus-option opt-in is rejected after the option and B-only question move to A', async () => {
+  const fx = domainFixture();
+  try {
+    insertLateBOption(fx.sqlite);
+    assert.equal(fx.sqlite.prepare('SELECT asset_id FROM stimulus_group_options WHERE id = ?').get('option-b-late').asset_id, 'asset-b');
+    assert.equal(fx.sqlite.prepare('SELECT asset_id FROM asset_questions WHERE id = ?').get('aq-b-only').asset_id, 'asset-b');
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    await mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true });
+    await assert.rejects(
+      () => optInAssetQuestion(fx.db, { caseId: 'case-b-late', optionId: 'option-b-late', assetQuestionId: 'aq-b-only', expectedAssetId: 'asset-b' }),
+      (error) => error instanceof AssetQuestionInputError && /moved to another Asset/.test(error.message)
+    );
+    assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM stimulus_option_asset_questions WHERE stimulus_group_option_id = ? AND asset_question_id = ?').get('option-b-late', 'aq-b-only').count, 0);
+  } finally { fx.sqlite.close(); }
+});
+
+test('stale exact-state equality rejects a new A Asset Question before any mutation', async () => {
+  let first = true;
+  const fx = domainFixture({ beforeBatch(sqlite) {
+    if (!first) return;
+    first = false;
+    sqlite.exec(`
+      INSERT INTO question_prompts (id, prompt_md, is_active, created_at, updated_at) VALUES ('prompt-a-late', 'Late A prompt', 1, 1, 1);
+      INSERT INTO asset_questions (id, asset_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES ('aq-a-late', 'asset-a', 'prompt-a-late', 'Late A answer', 1, 1, 1);
+    `);
+  } });
+  try {
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    await assert.rejects(
+      () => mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true }),
+      (error) => error instanceof AssetDeduplicationStaleError
+    );
+    assert.equal(fx.deleted.length, 0);
+    assert.equal(fx.sqlite.prepare('SELECT asset_id FROM asset_questions WHERE id = ?').get('aq-a-late').asset_id, 'asset-a');
+    assert.equal(fx.sqlite.prepare('SELECT deduplicated_into_asset_id FROM assets WHERE id = ?').get('asset-b').deduplicated_into_asset_id, null);
+  } finally { fx.sqlite.close(); }
+});
+
 test('Phase 1 reasserts the global legacy Review zero sentinel before canonicalization', async () => {
   let first = true;
   const fx = domainFixture({ beforeBatch(sqlite) {
@@ -608,17 +690,29 @@ test('normal inactive Assets cannot use dedupe cleanup retry', async () => {
 test('Admin certification evidence renders persisted text and permits required answer resolutions', async () => {
   const source = readFileSync(new URL('../src/routes/admin/images/deduplicate/+page.svelte', import.meta.url), 'utf8');
   const server = readFileSync(new URL('../src/routes/admin/images/deduplicate/+page.server.js', import.meta.url), 'utf8');
+  const detailServer = readFileSync(new URL('../src/routes/admin/images/[assetId]/+page.server.js', import.meta.url), 'utf8');
   const library = readFileSync(new URL('../src/lib/components/AdminImageLibrary.svelte', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /\{@html/);
   assert.match(source, /displayAsset\(plan\.survivor/);
   assert.match(source, /<pre>\{context\.case\?\.vignetteMd \?\? ''\}<\/pre>/);
   assert.match(source, /<pre>\{question\.answer_md\}<\/pre>/);
+  assert.match(source, /Prompt ID \{question\.question_prompt_id\}/);
+  assert.match(source, /Group Question \{question\.id\}/);
+  assert.match(source, /Option Question \{question\.id\}/);
+  assert.match(source, /naturalWidth/);
+  assert.match(source, /context\.primaryTopic\.id/);
+  assert.match(source, /item\.id\}\)/);
   assert.match(source, /white-space:pre-wrap/);
   assert.match(source, /I certify that the selected survivor is clinically and educationally interchangeable/);
   assert.match(server, /let result;/);
+  assert.match(detailServer, /expectedAssetId: params\.assetId/);
   assert.ok(server.indexOf('redirect(303') > server.indexOf('} catch (error) {'));
   assert.match(library, /cleanupReasonLabel/);
   assert.match(library, /item\.reason/);
+  assert.match(library, /let canCompareSelected = \$derived/);
+  assert.match(library, /asset\.type === 'image'/);
+  assert.match(library, /!asset\.supersededByAssetId/);
+  assert.match(library, /!asset\.deduplicatedIntoAssetId/);
 
   const compiled = compile(source, { filename: 'AdminImageDeduplicationPage.svelte', generate: 'server' });
   const directory = mkdtempSync(join(process.cwd(), '.tmp-admin-dedupe-page-'));
@@ -639,8 +733,18 @@ test('Admin certification evidence renders persisted text and permits required a
             mergePlanFingerprint: 'fingerprint',
             survivor: { id: 'asset-a', original_filename: 'A', alt_text: null, source_label: null, source_url: null, licence: null, image_collection_id: null, mime_type: 'image/png', storage_key: 'a.png', is_active: true, preview_session_id: null, superseded_by_asset_id: null, deduplicated_into_asset_id: null, imageUrl: null },
             duplicate: { id: 'asset-b', original_filename: 'B', alt_text: null, source_label: null, source_url: null, licence: null, image_collection_id: null, mime_type: 'image/png', storage_key: 'b.png', is_active: true, preview_session_id: null, superseded_by_asset_id: null, deduplicated_into_asset_id: null, imageUrl: null },
-            contexts: [{ relationship: 'fixed', id: 'case-asset', display_order: 0, caption_md: '', case: { id: 'case-b', title: 'Case B', vignetteMd: hostile, isActive: true, previewSessionId: null }, primaryTopic: null, taxonomyPath: [], systemAncestry: [], caseQuestions: [] }],
-            reusableQuestions: [],
+            contexts: [
+              { relationship: 'fixed', id: 'case-asset', display_order: 0, caption_md: '', case: { id: 'case-b', title: 'Case B', vignetteMd: hostile, isActive: true, previewSessionId: null }, primaryTopic: null, taxonomyPath: [], systemAncestry: [], caseQuestions: [] },
+              {
+                relationship: 'stimulus-option', id: 'option-id', stimulus_group_id: 'group-id', display_order: 1, created_at: 1, caption_md: 'Option caption', is_active: true, removed_from_case: false,
+                case: { id: 'case-c', title: 'Case C', vignetteMd: 'Stimulus vignette', isActive: true, previewSessionId: null },
+                primaryTopic: { id: 'topic-id', name: 'Topic' }, systemAncestry: [{ id: 'system-id', name: 'System' }],
+                group: { id: 'group-id', name: 'Group', is_active: true, questions: [{ id: 'group-question-id', question_prompt_id: 'group-prompt-id', promptMd: 'Group prompt', is_active: true, answer_md: 'Group answer' }] },
+                optionQuestions: [{ id: 'option-question-id', question_prompt_id: 'option-prompt-id', promptMd: 'Option prompt', is_active: true, answer_md: 'Option answer' }],
+                caseQuestions: []
+              }
+            ],
+            reusableQuestions: [{ asset_id: 'asset-a', id: 'aq-a', question_prompt_id: 'reusable-prompt-id', prompt_md: 'Reusable prompt', answer_md: 'Reusable answer', is_active: true, optIns: [] }],
             questionConflicts: [{ questionPromptId: 'prompt', promptMd: 'Prompt', resolutionRequired: true, survivor: { answer_md: 'Survivor answer' }, duplicate: { answer_md: 'Duplicate answer' } }]
           }
         },
@@ -649,6 +753,13 @@ test('Admin certification evidence renders persisted text and permits required a
     }).html;
     assert.match(html, /&lt;script>alert\(1\)&lt;\/script>/);
     assert.doesNotMatch(html, /<script\b/i);
+    assert.match(html, /Primary Topic:/);
+    assert.match(html, /Topic \(ID topic-id\)/);
+    assert.match(html, /System ancestry:/);
+    assert.match(html, /System \(ID system-id\)/);
+    assert.match(html, /Group Question group-question-id/);
+    assert.match(html, /Option Question option-question-id/);
+    assert.match(html, /Prompt ID reusable-prompt-id: Reusable prompt/);
     assert.match(html, /type="radio"[^>]+required/);
     assert.match(html, /name="certification_confirmed"[^>]+required/);
     assert.doesNotMatch(html, /name="certification_confirmed"[^>]+disabled/);

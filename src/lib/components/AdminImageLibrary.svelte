@@ -1,5 +1,5 @@
 <script>
-  /** @typedef {{ id: string, imageUrl: string | null, altText: string | null, originalFilename: string | null, topicSummary: string, topicNames: string[], currentTopicNames: string[], historicalTopicNames: string[], currentTopicSummary: string, historicalTopicSummary: string, collectionName: string | null, createdAt: string | number | Date | null, usageCount: number, usageState: 'current' | 'historical' | 'unused', activeReviewCount: number, isActive: boolean, supersededByAssetId?: string | null, deduplicatedIntoAssetId?: string | null }} LibraryAsset */
+  /** @typedef {{ id: string, type: string, imageUrl: string | null, altText: string | null, originalFilename: string | null, topicSummary: string, topicNames: string[], currentTopicNames: string[], historicalTopicNames: string[], currentTopicSummary: string, historicalTopicSummary: string, collectionName: string | null, createdAt: string | number | Date | null, usageCount: number, usageState: 'current' | 'historical' | 'unused', activeReviewCount: number, isActive: boolean, supersededByAssetId?: string | null, deduplicatedIntoAssetId?: string | null }} LibraryAsset */
   /** @typedef {{ id: string, name: string, assetCount?: number }} NamedOption */
   /** @typedef {{ duplicateId: string, duplicateName: string | null, survivorId: string, survivorName: string | null, claimedAt: string | number | Date | null, reason: string | null }} PendingCleanup */
   /** @typedef {{ assets: LibraryAsset[], topics: NamedOption[], collections: NamedOption[], stimulusGroups: { id: string, name: string, caseTitle?: string }[], pendingCleanup?: PendingCleanup[], filters: { search: string, topic: string, collection: string, usage: string, status: string, source: string, sort: string }, pagination: { totalCount: number, totalPages: number, page: number, pageSize: number }, queryContext: string, allMatchingIds: string[] | null, selectAllLimit: number, bulkLimit: number, collectionBulkLimit?: number }} LibraryData */
@@ -29,6 +29,13 @@
   let firstShown = $derived(data.pagination.totalCount === 0 ? 0 : (data.pagination.page - 1) * data.pagination.pageSize + 1);
   let lastShown = $derived(Math.min(data.pagination.page * data.pagination.pageSize, data.pagination.totalCount));
   let selectedCompareIds = $derived([...selectedIds]);
+  let selectedCompareAssets = $derived(selectedCompareIds.map((id) => data.assets.find((asset) => asset.id === id)).filter((asset) => asset !== undefined));
+  let canCompareSelected = $derived(
+    !previewMode
+      && selectedCompareIds.length === 2
+      && selectedCompareAssets.length === 2
+      && selectedCompareAssets.every((asset) => asset.type === 'image' && asset.isActive && !asset.supersededByAssetId && !asset.deduplicatedIntoAssetId)
+  );
 
   $effect(() => {
     const nextContext = data.queryContext;
@@ -286,7 +293,7 @@
       {:else}
         <span class="muted">Select all is limited to {data.selectAllLimit} images. Refine the search or filters; no partial selection will be labelled as all matching.</span>
       {/if}
-      {#if !previewMode && selectedCompareIds.length === 2}<a class="button small primary" href={`/admin/images/deduplicate?survivor=${encodeURIComponent(selectedCompareIds[0])}&duplicate=${encodeURIComponent(selectedCompareIds[1])}`}>Compare / merge duplicates</a>{/if}
+      {#if canCompareSelected}<a class="button small primary" href={`/admin/images/deduplicate?survivor=${encodeURIComponent(selectedCompareIds[0])}&duplicate=${encodeURIComponent(selectedCompareIds[1])}`}>Compare / merge duplicates</a>{/if}
     </div>
   {/if}
 

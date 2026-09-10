@@ -681,6 +681,7 @@ function stateTablesWithParams(state, assetIds) {
     table('stimulus_option_questions', `stimulus_group_option_id IN ${inList(state.optionIds)}`, state.optionIds, state.optionQuestionRows),
     table('question_prompts', `id IN ${inList(state.promptIds)}`, state.promptIds, state.promptRows),
     table('asset_questions', `id IN ${inList(state.graphQuestionIds ?? state.questionIds)}`, state.graphQuestionIds ?? state.questionIds, (state.graphAssetQuestionRows ?? state.assetQuestionRows).map(stripDerived)),
+    table('asset_questions', `asset_id IN ${inList(ids)}`, ids, state.assetQuestionRows.map(stripDerived)),
     table('stimulus_option_asset_questions', `stimulus_group_option_id IN ${inList(state.optionIds)}`, state.optionIds, (state.graphOptInRows ?? state.optInRows).map(stripDerived))
   ];
 }
