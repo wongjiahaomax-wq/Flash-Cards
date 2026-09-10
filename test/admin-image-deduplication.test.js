@@ -361,6 +361,39 @@ test('prospective Prompt conflicts include live reusable Option opt-ins in an in
   } finally { fx.sqlite.close(); }
 });
 
+test('prospective Prompt conflicts include unrelated reusable opt-ins whose inactive Prompt is OR-revived by the merge', async () => {
+  const fx = domainFixture();
+  try {
+    fx.sqlite.exec(`
+      UPDATE question_prompts SET is_active = 0 WHERE id = 'prompt-shared';
+      UPDATE asset_questions SET is_active = 0 WHERE id = 'aq-a';
+      DELETE FROM stimulus_option_asset_questions WHERE asset_question_id = 'aq-b';
+      UPDATE stimulus_option_questions SET is_active = 0 WHERE id = 'option-q';
+      INSERT INTO asset_questions (id, asset_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES ('aq-x', 'asset-unused', 'prompt-shared', 'Unrelated reusable answer', 1, 1, 1);
+      INSERT INTO stimulus_groups (id, case_id, name, display_order, is_active, created_at, updated_at) VALUES ('group-a-reusable', 'case-a', 'A reusable group', 1, 1, 1, 1);
+      INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, removed_from_case, created_at) VALUES ('option-a-reusable', 'group-a-reusable', 'asset-a', 0, 'A reusable option', 1, 0, 1);
+      INSERT INTO stimulus_option_asset_questions (stimulus_group_option_id, asset_question_id, created_at) VALUES ('option-a-reusable', 'aq-a', 1);
+      INSERT INTO stimulus_groups (id, case_id, name, display_order, is_active, created_at, updated_at) VALUES ('group-reusable-other', 'case-a', 'Other reusable group', 2, 1, 1, 1);
+      INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, removed_from_case, created_at) VALUES ('option-reusable-other', 'group-reusable-other', 'asset-unused', 0, 'Other reusable option', 1, 0, 1);
+      INSERT INTO stimulus_option_asset_questions (stimulus_group_option_id, asset_question_id, created_at) VALUES ('option-reusable-other', 'aq-x', 1);
+    `);
+    // The D1 cross-group guard ignores `question_prompts.is_active`, so the merge
+    // reactivates aq-a (OR-active) and re-inserts the opt-ins even though the
+    // Prompt is inactive. Preflight must therefore flag the pair as blocked.
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    assert.equal(plan.canMerge, false);
+    assert.ok(plan.prospectivePromptConflicts.some((conflict) => conflict.key === 'case-a:prompt-shared'));
+    assert.ok(plan.blockers.some((blocker) => blocker.code === 'prospective-prompt-conflict'));
+    await assert.rejects(
+      () => mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true }),
+      (error) => error instanceof AssetDeduplicationInputError && /cross-Stimulus-Group/.test(error.message)
+    );
+    assert.equal(fx.deleted.length, 0);
+    assert.equal(fx.sqlite.prepare('SELECT asset_id FROM stimulus_group_options WHERE id = ?').get('option-b').asset_id, 'asset-b');
+    assert.equal(fx.sqlite.prepare('SELECT deduplicated_into_asset_id FROM assets WHERE id = ?').get('asset-b').deduplicated_into_asset_id, null);
+  } finally { fx.sqlite.close(); }
+});
+
 test('certified merge unions reusable questions, moves retained relationships, and cleans only duplicate media', async () => {
   const fx = domainFixture();
   try {
@@ -610,6 +643,31 @@ test('stale B Asset Question creation does not leave a new Prompt after source i
     assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM question_prompts WHERE prompt_md = ?').get('Late stale prompt').count, 0);
     assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM asset_questions WHERE asset_id = ? AND answer_md = ?').get('asset-b', 'Late stale answer').count, 0);
     assert.equal(fx.sqlite.prepare('SELECT deduplicated_into_asset_id FROM assets WHERE id = ?').get('asset-b').deduplicated_into_asset_id, 'asset-a');
+  } finally { fx.sqlite.close(); }
+});
+
+test('stale B Asset Question creation maps a fully deleted source Asset to the controlled Asset-changed error', async () => {
+  let first = true;
+  const fx = domainFixture({ beforeBatch(sqlite) {
+    if (!first) return;
+    first = false;
+    sqlite.exec(`
+      DELETE FROM stimulus_option_asset_questions WHERE stimulus_group_option_id = 'option-b' OR asset_question_id IN (SELECT id FROM asset_questions WHERE asset_id = 'asset-b');
+      DELETE FROM stimulus_option_questions WHERE stimulus_group_option_id = 'option-b';
+      DELETE FROM asset_questions WHERE asset_id = 'asset-b';
+      DELETE FROM stimulus_group_options WHERE asset_id = 'asset-b';
+      DELETE FROM case_assets WHERE asset_id = 'asset-b';
+      DELETE FROM assets WHERE id = 'asset-b';
+    `);
+  } });
+  try {
+    await assert.rejects(
+      () => createAssetQuestion(fx.db, { assetId: 'asset-b', promptMd: 'Deleted source prompt', answerMd: 'Deleted source answer' }),
+      (error) => error instanceof AssetQuestionInputError && /Asset changed/.test(error.message)
+    );
+    assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM question_prompts WHERE prompt_md = ?').get('Deleted source prompt').count, 0);
+    assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM asset_questions WHERE answer_md = ?').get('Deleted source answer').count, 0);
+    assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM assets WHERE id = ?').get('asset-b').count, 0);
   } finally { fx.sqlite.close(); }
 });
 

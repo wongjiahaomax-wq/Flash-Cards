@@ -584,7 +584,6 @@ function prospectivePromptConflicts({ state, survivorId, duplicateId, aQuestions
   const graphAssetQuestionRows = state.graphAssetQuestionRows ?? state.assetQuestionRows;
   const graphOptInRows = state.graphOptInRows ?? state.optInRows;
   const graphAssetQuestionsById = byKey(graphAssetQuestionRows, 'id');
-  const promptById = byKey(state.promptRows, 'id');
   const aByPrompt = byKey(aQuestions, 'question_prompt_id');
   const bByPrompt = byKey(bQuestions, 'question_prompt_id');
   const canonicalActiveById = new Map();
@@ -605,9 +604,13 @@ function prospectivePromptConflicts({ state, survivorId, duplicateId, aQuestions
     if (!option) continue;
     const key = `${option.case_id}:${canonical.question_prompt_id}`;
     const groups = map.get(key) ?? new Set();
+    // The D1 cross-group trigger keys off `asset_questions.is_active` alone and
+    // ignores `question_prompts.is_active`; an active reusable Question that is
+    // OR-revived by the merge still reserves live Prompt ownership. Mirror that
+    // guard exactly so preflight cannot certify a merge the batch then refuses.
     const canonicalIsActive = canonicalActiveById.has(canonical.id)
       ? canonicalActiveById.get(canonical.id)
-      : Boolean(canonical.is_active && promptById.get(canonical.question_prompt_id)?.is_active);
+      : Boolean(canonical.is_active);
     if (option.group_is_active && option.is_active && !option.removed_from_case && !option.case_preview_session_id && canonicalIsActive) groups.add(option.stimulus_group_id);
     map.set(key, groups);
   }

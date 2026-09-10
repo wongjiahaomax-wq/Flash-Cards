@@ -595,6 +595,8 @@ Validate the full post-merge opt-in graph for every state combination, including
 - both active;
 - different-answer resolution yielding active canonical row.
 
+The prospective check must mirror the deployed D1 cross-group guard exactly. That guard keys live Prompt ownership off `asset_questions.is_active` (plus live target/other Family/Option and non-removed Option state) and deliberately ignores `question_prompts.is_active`. Prospective validation therefore must not require the Prompt to be active: an active reusable Asset Question whose Prompt is inactive still reserves live ownership, because the merge's OR-activation (`A.is_active OR B.is_active`) plus opt-in re-insertion can revive it inside the same batch. Suppressing that ownership would certify a merge the Phase-1 batch then refuses.
+
 If union would violate the existing cross-Stimulus-Group Prompt invariant, block merge. Do not silently inactivate or override.
 
 If both are inactive, result remains inactive.
@@ -704,6 +706,23 @@ snapshot built before claim
 ### Post-claim authoring
 
 Any writer attempting to reference B is rejected by tombstone trigger.
+
+### Stale reusable-question authoring against a claimed or deleted source
+
+`createAssetQuestion` reasserts the source Asset inside its write batch. Both stale-source shapes must surface as the same controlled Admin input error (400), never an unhandled 500:
+
+```text
+B tombstoned before the batch
+→ write fence NOT NULL sentinel fails
+→ controlled "Asset changed; refresh and try again"
+
+B fully deleted before the batch
+→ write fence updates 0 rows (no sentinel trip)
+→ Asset Question insert fails its `assets.id` foreign key
+→ mapped to the same controlled "Asset changed; refresh and try again"
+```
+
+In both cases the batch rolls back atomically, so no orphan Prompt and no orphan Asset Question leak.
 
 ### Concurrent dedupe
 
@@ -822,7 +841,7 @@ Static/regex checks are supplemental only. Add executable migration/domain/route
 31. same-Prompt/same-answer collapse applies OR-active and exact opt-in preservation;
 32. same-Prompt/different-answer requires exactly one current resolution and selected answer + OR-active;
 33. stale/missing/extra conflict resolution rejected;
-34. prospective cross-group conflicts block all relevant active-state combinations;
+34. prospective cross-group conflicts block all relevant active-state combinations, including inactive-Prompt reusable ownership that OR-activation revives and which the D1 cross-group guard (which ignores `question_prompts.is_active`) would reject;
 35. per-side reusable-question blast radius accurate;
 36. survivor alt text/metadata/storage key/R2 bytes never change; B provenance/licence not copied;
 37. retained Preview B reference blocks regardless session status including expired/cleanup_required;
@@ -861,7 +880,9 @@ Static/regex checks are supplemental only. Add executable migration/domain/route
 70. ordinary inactive/archived Asset never appears as cleanup-pending and cannot use retry;
 71. concurrent/double merge claims B at most once and loser performs no R2 delete;
 72. Preview Admin has no equivalent mutation endpoint;
-73. Production route auth/domain-error mapping follows current Admin patterns.
+73. Production route auth/domain-error mapping follows current Admin patterns;
+74. reusable Asset Question creation against a tombstoned source Asset fails the write-fence sentinel and maps to the controlled Asset-changed input error (400);
+75. reusable Asset Question creation against a fully deleted source Asset maps the `assets.id` foreign-key failure to the same controlled Asset-changed input error (400) with no orphan Prompt or Asset Question.
 
 ---
 

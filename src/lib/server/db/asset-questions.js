@@ -70,7 +70,11 @@ async function runAssetQuestionBatch(db, statements) {
     const batchStatements = statements;
     await db.batch(batchStatements);
   } catch (error) {
-    if (error instanceof Error && /NOT NULL constraint failed: assets\.type|deduplicat|supersed|tombston/i.test(error.message)) {
+    // A source Asset that was tombstoned between the read and the batch trips the
+    // fence's NOT NULL sentinel; a source Asset that was fully deleted makes the
+    // fence a no-op and the Asset Question insert fail its foreign key. Both are
+    // the same stale-source race and must surface as a controlled input error.
+    if (error instanceof Error && /NOT NULL constraint failed: assets\.type|FOREIGN KEY constraint failed|deduplicat|supersed|tombston/i.test(error.message)) {
       throw new AssetQuestionInputError('The selected production image Asset changed; refresh and try again.');
     }
     throw error;
