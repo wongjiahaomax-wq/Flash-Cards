@@ -41,19 +41,66 @@ async function requireProductionAsset(db, assetId) {
 }
 
 /** @param {LearningDb} db @param {string} promptMd */
-async function findOrCreateProductionPrompt(db, promptMd) {
+async function findProductionPrompt(db, promptMd) {
   const existing = (await db.select({ id: questionPrompts.id, isActive: questionPrompts.isActive, previewSessionId: questionPrompts.previewSessionId })
     .from(questionPrompts)
     .where(eq(questionPrompts.promptMd, promptMd))
     .orderBy(asc(questionPrompts.createdAt), asc(questionPrompts.id))
     .limit(1))[0];
-  if (existing && !existing.previewSessionId) {
-    if (!existing.isActive) await db.update(questionPrompts).set({ isActive: true, updatedAt: new Date() }).where(eq(questionPrompts.id, existing.id));
-    return existing.id;
+  return existing && !existing.previewSessionId ? existing : null;
+}
+
+/** @param {LearningDb} db @param {string} assetId */
+function productionAssetWriteFence(db, assetId) {
+  return db.update(assets).set({
+    type: sql`CASE WHEN EXISTS (
+      SELECT 1 FROM assets source_asset
+      WHERE source_asset.id = ${assetId}
+        AND source_asset.type = 'image'
+        AND source_asset.preview_session_id IS NULL
+        AND source_asset.is_active = 1
+        AND source_asset.superseded_by_asset_id IS NULL
+        AND source_asset.deduplicated_into_asset_id IS NULL
+    ) THEN \`type\` ELSE NULL END`
+  }).where(eq(assets.id, assetId));
+}
+
+/** @param {LearningDb} db @param {[any, ...any[]]} statements */
+async function runAssetQuestionBatch(db, statements) {
+  try {
+    /** @type {[any, ...any[]]} */
+    const batchStatements = statements;
+    await db.batch(batchStatements);
+  } catch (error) {
+    if (error instanceof Error && /NOT NULL constraint failed: assets\.type|deduplicat|supersed|tombston/i.test(error.message)) {
+      throw new AssetQuestionInputError('The selected production image Asset changed; refresh and try again.');
+    }
+    throw error;
   }
-  const id = crypto.randomUUID();
-  await db.insert(questionPrompts).values({ id, promptMd, previewSessionId: null, isActive: true });
-  return id;
+}
+
+/** @param {LearningDb} db @param {string} assetQuestionId @param {string} promptId */
+async function validateAssetQuestionActivation(db, assetQuestionId, promptId) {
+  const contexts = await db.select({ caseId: stimulusGroups.caseId, groupId: stimulusGroups.id })
+    .from(stimulusOptionAssetQuestions)
+    .innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionAssetQuestions.stimulusGroupOptionId))
+    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+    .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
+    .where(and(
+      eq(stimulusOptionAssetQuestions.assetQuestionId, assetQuestionId),
+      eq(cases.isActive, true),
+      isNull(cases.previewSessionId),
+      eq(stimulusGroups.isActive, true),
+      eq(stimulusGroupOptions.isActive, true),
+      eq(stimulusGroupOptions.removedFromCase, false)
+    ));
+  const checked = new Set();
+  for (const context of contexts) {
+    const key = `${context.caseId}:${context.groupId}`;
+    if (checked.has(key)) continue;
+    checked.add(key);
+    await ensurePromptMayBeSpecificInGroup(db, context.caseId, promptId, context.groupId);
+  }
 }
 
 /** @param {LearningDb} db @param {string} assetId */
@@ -80,8 +127,10 @@ export async function createAssetQuestion(db, input) {
   const assetId = requiredText(input.assetId, 'Asset');
   const promptMd = requiredText(input.promptMd, 'Question prompt');
   const answerMd = requiredText(input.answerMd, 'Question answer');
+  if (typeof db.batch !== 'function') throw new AssetQuestionInputError('Atomic reusable image question creation requires D1 batch support.');
   await requireProductionAsset(db, assetId);
-  const promptId = await findOrCreateProductionPrompt(db, promptMd);
+  const prompt = await findProductionPrompt(db, promptMd);
+  const promptId = prompt?.id ?? crypto.randomUUID();
   const existing = (await db.select({ id: assetQuestions.id, answerMd: assetQuestions.answerMd, isActive: assetQuestions.isActive })
     .from(assetQuestions)
     .where(and(eq(assetQuestions.assetId, assetId), eq(assetQuestions.questionPromptId, promptId)))
@@ -90,11 +139,22 @@ export async function createAssetQuestion(db, input) {
     if (existing.answerMd !== answerMd) {
       throw new AssetQuestionInputError('This image already has a reusable question with that wording. Edit the canonical question instead of creating a second answer.');
     }
-    if (!existing.isActive) await setAssetQuestionActive(db, { assetQuestionId: existing.id, isActive: true });
+    if (!existing.isActive) await validateAssetQuestionActivation(db, existing.id, promptId);
+    const statements = /** @type {[any, ...any[]]} */ ([productionAssetWriteFence(db, assetId)]);
+    if (prompt && !prompt.isActive) statements.push(db.update(questionPrompts).set({ isActive: true, updatedAt: new Date() }).where(eq(questionPrompts.id, promptId)));
+    if (!existing.isActive) statements.push(db.update(assetQuestions).set({ isActive: true, updatedAt: new Date() }).where(and(eq(assetQuestions.id, existing.id), eq(assetQuestions.assetId, assetId))));
+    await runAssetQuestionBatch(db, statements);
     return existing.id;
   }
   const id = crypto.randomUUID();
-  await db.insert(assetQuestions).values({ id, assetId, questionPromptId: promptId, answerMd, isActive: true });
+  const statements = /** @type {[any, ...any[]]} */ ([productionAssetWriteFence(db, assetId)]);
+  if (prompt) {
+    if (!prompt.isActive) statements.push(db.update(questionPrompts).set({ isActive: true, updatedAt: new Date() }).where(eq(questionPrompts.id, promptId)));
+  } else {
+    statements.push(db.insert(questionPrompts).values({ id: promptId, promptMd, previewSessionId: null, isActive: true }));
+  }
+  statements.push(db.insert(assetQuestions).values({ id, assetId, questionPromptId: promptId, answerMd, isActive: true }));
+  await runAssetQuestionBatch(db, statements);
   return id;
 }
 
@@ -245,10 +305,30 @@ export async function removeAssetQuestionOptIn(db, input) {
   if (!question || question.assetId !== option.assetId) {
     throw new AssetQuestionInputError('The reusable image question does not belong to this stimulus Asset.');
   }
-  await db.delete(stimulusOptionAssetQuestions).where(and(
+  const existing = await db.select({ assetQuestionId: stimulusOptionAssetQuestions.assetQuestionId })
+    .from(stimulusOptionAssetQuestions)
+    .where(and(
+      eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, optionId),
+      eq(stimulusOptionAssetQuestions.assetQuestionId, assetQuestionId)
+    ))
+    .limit(1);
+  if (!existing[0]) return;
+  const deleteConditions = [
     eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, optionId),
     eq(stimulusOptionAssetQuestions.assetQuestionId, assetQuestionId)
-  ));
+  ];
+  if (expectedAssetId) deleteConditions.push(sql`EXISTS (
+    SELECT 1
+    FROM stimulus_group_options current_option
+    JOIN asset_questions current_question ON current_question.id = ${assetQuestionId}
+    WHERE current_option.id = ${optionId}
+      AND current_option.asset_id = ${expectedAssetId}
+      AND current_question.asset_id = ${expectedAssetId}
+  )`);
+  const deleted = await db.delete(stimulusOptionAssetQuestions)
+    .where(and(...deleteConditions))
+    .returning({ assetQuestionId: stimulusOptionAssetQuestions.assetQuestionId });
+  if (expectedAssetId && !deleted.length) throw new AssetQuestionInputError('The reusable image question usage moved to another Asset; refresh and try again.');
 }
 
 /** @param {LearningDb} db @param {{ assetQuestionId: unknown, answerMd: unknown, expectedAssetId?: unknown }} input */
@@ -286,28 +366,10 @@ export async function setAssetQuestionActive(db, input) {
     .where(and(eq(assetQuestions.id, id), isNull(assets.previewSessionId)))
     .limit(1))[0];
   if (!row) throw new AssetQuestionInputError('The reusable image question no longer exists.');
+  if (expectedAssetId && row.assetId !== expectedAssetId) throw new AssetQuestionInputError('The reusable image question moved to another Asset; refresh and try again.');
 
   if (input.isActive && !row.isActive) {
-    const contexts = await db.select({ caseId: stimulusGroups.caseId, groupId: stimulusGroups.id })
-      .from(stimulusOptionAssetQuestions)
-      .innerJoin(stimulusGroupOptions, eq(stimulusGroupOptions.id, stimulusOptionAssetQuestions.stimulusGroupOptionId))
-      .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
-      .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
-      .where(and(
-        eq(stimulusOptionAssetQuestions.assetQuestionId, id),
-        eq(cases.isActive, true),
-        isNull(cases.previewSessionId),
-        eq(stimulusGroups.isActive, true),
-        eq(stimulusGroupOptions.isActive, true),
-        eq(stimulusGroupOptions.removedFromCase, false)
-      ));
-    const checked = new Set();
-    for (const context of contexts) {
-      const key = `${context.caseId}:${context.groupId}`;
-      if (checked.has(key)) continue;
-      checked.add(key);
-      await ensurePromptMayBeSpecificInGroup(db, context.caseId, row.promptId, context.groupId);
-    }
+    await validateAssetQuestionActivation(db, id, row.promptId);
   }
 
   const conditions = [eq(assetQuestions.id, id)];

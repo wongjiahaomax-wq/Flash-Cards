@@ -95,7 +95,7 @@ function inList(ids) {
 /** @param {LearningDb} db @param {string[]} assetIds */
 async function loadRawState(db, assetIds) {
   const assetParams = [...assetIds, ...assetIds, ...assetIds];
-  const [assetRows, fixedRows, optionRows, assetQuestionRows] = await Promise.all([
+  const [assetRows, fixedRows, optionRows, assetQuestionRows, imageCollectionRows] = await Promise.all([
     rawRows(db, `SELECT * FROM assets WHERE id IN ${inList(assetIds)} OR deduplicated_into_asset_id IN ${inList(assetIds)} OR superseded_by_asset_id IN ${inList(assetIds)} ORDER BY id`, assetParams),
     rawRows(db, `
       SELECT ca.*, c.title AS case_title, c.vignette_md AS case_vignette_md,
@@ -129,6 +129,14 @@ async function loadRawState(db, assetIds) {
       JOIN question_prompts qp ON qp.id = aq.question_prompt_id
       WHERE aq.asset_id IN ${inList(assetIds)}
       ORDER BY aq.asset_id, aq.question_prompt_id, aq.id
+    `, assetIds),
+    rawRows(db, `
+      SELECT image_collections.*
+      FROM image_collections
+      WHERE image_collections.id IN (
+        SELECT image_collection_id FROM assets WHERE id IN ${inList(assetIds)}
+      )
+      ORDER BY image_collections.id
     `, assetIds)
   ]);
 
@@ -264,6 +272,7 @@ async function loadRawState(db, assetIds) {
     ['cases', inScope('id', caseIds), casesRows],
     ['case_concepts', `${inScope('case_id', caseIds)} AND role = 'primary'`, caseConceptRows],
     ['concepts', inScope('id', conceptRows.map((row) => row.id)), conceptRows],
+    ['image_collections', inScope('id', imageCollectionRows.map((row) => row.id)), imageCollectionRows],
     ['case_questions', inScope('case_id', caseIds), caseQuestionRows],
     ['stimulus_groups', inScope('id', groupIds), groupsRows],
     ['stimulus_group_questions', inScope('stimulus_group_id', groupIds), groupQuestionRows],
@@ -288,6 +297,7 @@ async function loadRawState(db, assetIds) {
     promptRows,
     assetQuestionRows,
     graphAssetQuestionRows,
+    imageCollectionRows,
     optInRows,
     graphOptInRows,
     activeReviewAssets,
@@ -432,6 +442,7 @@ async function createFingerprint(state, assetIds, r2 = {}) {
     cases: sortRows(state.casesRows),
     caseConcepts: sortRows(state.caseConceptRows),
     concepts: sortRows(state.conceptRows),
+    imageCollections: sortRows(state.imageCollectionRows ?? []),
     caseQuestions: sortRows(state.caseQuestionRows),
     stimulusGroups: sortRows(state.groupsRows),
     stimulusGroupQuestions: sortRows(state.groupQuestionRows),
@@ -456,8 +467,12 @@ export async function getDuplicateAssetMergePlan({ db, survivorAssetId, duplicat
   const assetIds = [survivorId, duplicateId];
   const state = await loadRawState(db, assetIds);
   const assetById = byKey(state.assetRows.filter((row) => assetIds.includes(row.id)), 'id');
-  const survivor = assetById.get(survivorId) ?? null;
-  const duplicate = assetById.get(duplicateId) ?? null;
+  const collectionById = byKey(state.imageCollectionRows, 'id');
+  const withCollectionName = (asset) => asset
+    ? { ...asset, image_collection_name: collectionById.get(asset.image_collection_id)?.name ?? null }
+    : null;
+  const survivor = withCollectionName(assetById.get(survivorId) ?? null);
+  const duplicate = withCollectionName(assetById.get(duplicateId) ?? null);
   let r2 = { a: true, b: true, readable: true };
   if (bucket) {
     try {
@@ -675,6 +690,7 @@ function stateTablesWithParams(state, assetIds) {
     table('cases', `id IN ${inList(state.caseIds)}`, state.caseIds, state.casesRows),
     table('case_concepts', `${inScope('case_id', state.caseIds)} AND role = 'primary'`, state.caseIds, state.caseConceptRows),
     table('concepts', `id IN ${inList(state.conceptRows.map((row) => row.id))}`, state.conceptRows.map((row) => row.id), state.conceptRows),
+    table('image_collections', `id IN ${inList(state.imageCollectionRows.map((row) => row.id))}`, state.imageCollectionRows.map((row) => row.id), state.imageCollectionRows),
     table('case_questions', `case_id IN ${inList(state.caseIds)}`, state.caseIds, state.caseQuestionRows),
     table('stimulus_groups', `case_id IN ${inList(state.caseIds)}`, state.caseIds, state.groupsRows),
     table('stimulus_group_questions', `stimulus_group_id IN ${inList(state.groupIds)}`, state.groupIds, state.groupQuestionRows),

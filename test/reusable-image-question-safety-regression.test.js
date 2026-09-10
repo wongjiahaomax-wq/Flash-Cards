@@ -5,9 +5,10 @@ import fs from 'node:fs';
 test('reusable image question reactivation revalidates dormant opt-ins', () => {
   const source = fs.readFileSync(new URL('../src/lib/server/db/asset-questions.js', import.meta.url), 'utf8');
   const body = source.slice(source.indexOf('export async function setAssetQuestionActive'), source.indexOf('function automaticGroupName'));
+  const activationBody = source.slice(source.indexOf('async function validateAssetQuestionActivation'), source.indexOf('export async function listAssetQuestions'));
   assert.match(body, /if \(input\.isActive && !row\.isActive\)/);
-  assert.match(body, /stimulusOptionAssetQuestions\.assetQuestionId/);
-  assert.match(body, /ensurePromptMayBeSpecificInGroup/);
+  assert.match(activationBody, /stimulusOptionAssetQuestions\.assetQuestionId/);
+  assert.match(activationBody, /ensurePromptMayBeSpecificInGroup/);
 });
 
 test('database guard blocks invalid reusable-question reactivation', () => {

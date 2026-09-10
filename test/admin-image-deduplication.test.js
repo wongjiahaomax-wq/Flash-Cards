@@ -21,6 +21,8 @@ import {
 import { ActiveReviewError, createFreeActiveReview } from '../src/lib/server/db/active-reviews.js';
 import {
   AssetQuestionInputError,
+  createAssetQuestion,
+  removeAssetQuestionOptIn,
   optInAssetQuestion,
   setAssetQuestionActive,
   updateAssetQuestionAnswer
@@ -64,16 +66,17 @@ function expectConstraint(action, message = /deduplicat|tombstone/i) {
   });
 }
 
-function d1Fixture(sqlite, { beforeBatch } = {}) {
+function d1Fixture(sqlite, { beforeBatch, beforeStatement } = {}) {
   return {
     prepare(statement) {
       return {
         bind(...params) {
           return {
-            async all() { return { results: sqlite.prepare(statement).all(...params) }; },
+            async all() { if (beforeStatement) await beforeStatement(statement, sqlite); return { results: sqlite.prepare(statement).all(...params) }; },
             async first() { return sqlite.prepare(statement).get(...params) ?? null; },
-            async raw() { return sqlite.prepare(statement).all(...params).map((row) => Object.values(row)); },
+            async raw() { if (beforeStatement) await beforeStatement(statement, sqlite); return sqlite.prepare(statement).all(...params).map((row) => Object.values(row)); },
             async run() {
+              if (beforeStatement) await beforeStatement(statement, sqlite);
               const result = sqlite.prepare(statement).run(...params);
               return { success: true, results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
             },
@@ -161,6 +164,32 @@ function insertLateBOption(sqlite) {
     INSERT INTO stimulus_groups (id, case_id, name, display_order, is_active, created_at, updated_at) VALUES ('group-b-late', 'case-b-late', 'Late group', 0, 1, 1, 1);
     INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, removed_from_case, created_at) VALUES ('option-b-late', 'group-b-late', 'asset-b', 0, 'Late option', 1, 0, 1);
   `);
+}
+
+function forceBToTombstone(sqlite, { moveQuestionId = null } = {}) {
+  if (moveQuestionId) sqlite.prepare('UPDATE asset_questions SET asset_id = ? WHERE id = ?').run('asset-a', moveQuestionId);
+  sqlite.prepare('UPDATE assets SET is_active = 0, deduplicated_into_asset_id = ? WHERE id = ?').run('asset-a', 'asset-b');
+}
+
+function insertExpiredActiveReview(sqlite, reviewId, userId) {
+  sqlite.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 1, 1, 1)').run(userId, userId, `${userId}@example.test`);
+  sqlite.prepare(`
+    INSERT INTO active_reviews (
+      id, user_id, case_id, system_id, study_mode, content_mode, queue_class,
+      run_id, scope_fingerprint, scope_json, case_title_snapshot, vignette_snapshot_md,
+      snapshot_version, started_at, expires_at
+    ) VALUES (?, ?, 'case-b', 'system', 'free', 'original', NULL, ?, ?, ?, 'Case B', 'Expired snapshot', 1, 1, 2)
+  `).run(
+    reviewId,
+    userId,
+    `${reviewId}-run`,
+    `${reviewId}-scope`,
+    JSON.stringify({
+      version: 2,
+      systemId: 'system',
+      runScope: { systems: [{ systemId: 'system', mode: 'routes', routes: [{ routeType: 'topic', routeId: 'topic' }] }] }
+    })
+  );
 }
 
 test('0028 is additive and existing Assets receive a NULL dedupe tombstone', () => {
@@ -524,6 +553,87 @@ test('stale exact-state equality rejects a new A Asset Question before any mutat
   } finally { fx.sqlite.close(); }
 });
 
+test('stale B opt-in removal cannot delete the canonical A opt-in after the merge interleaves', async () => {
+  let triggered = false;
+  const fx = domainFixture({ beforeStatement(statement, sqlite) {
+    if (triggered || !/delete[\s\S]*stimulus_option_asset_questions/i.test(statement)) return;
+    triggered = true;
+    sqlite.prepare('DELETE FROM stimulus_option_asset_questions WHERE asset_question_id = ?').run('aq-b');
+    sqlite.prepare('UPDATE asset_questions SET asset_id = ? WHERE id = ?').run('asset-a', 'aq-b-only');
+    sqlite.prepare('UPDATE stimulus_group_options SET asset_id = ? WHERE id = ?').run('asset-a', 'option-b');
+    forceBToTombstone(sqlite);
+  } });
+  try {
+    const removal = removeAssetQuestionOptIn(fx.db, { optionId: 'option-b', assetQuestionId: 'aq-b-only', assetId: 'asset-b' });
+    await assert.rejects(removal, (error) => error instanceof AssetQuestionInputError && /moved to another Asset/.test(error.message));
+    assert.equal(triggered, true);
+    assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM stimulus_option_asset_questions WHERE stimulus_group_option_id = ? AND asset_question_id = ?').get('option-b', 'aq-b-only').count, 1);
+    assert.equal(fx.sqlite.prepare('SELECT deduplicated_into_asset_id FROM assets WHERE id = ?').get('asset-b').deduplicated_into_asset_id, 'asset-a');
+  } finally { fx.sqlite.close(); }
+});
+
+test('stale B Asset Question creation does not leave a new Prompt after source invalidation', async () => {
+  let first = true;
+  const fx = domainFixture({ beforeBatch(sqlite) {
+    if (!first) return;
+    first = false;
+    forceBToTombstone(sqlite);
+  } });
+  try {
+    await assert.rejects(
+      () => createAssetQuestion(fx.db, { assetId: 'asset-b', promptMd: 'Late stale prompt', answerMd: 'Late stale answer' }),
+      (error) => error instanceof AssetQuestionInputError && /Asset changed/.test(error.message)
+    );
+    assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM question_prompts WHERE prompt_md = ?').get('Late stale prompt').count, 0);
+    assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM asset_questions WHERE asset_id = ? AND answer_md = ?').get('asset-b', 'Late stale answer').count, 0);
+    assert.equal(fx.sqlite.prepare('SELECT deduplicated_into_asset_id FROM assets WHERE id = ?').get('asset-b').deduplicated_into_asset_id, 'asset-a');
+  } finally { fx.sqlite.close(); }
+});
+
+test('stale B Asset Question creation cannot reactivate an inactive question after it moves to A', async () => {
+  let first = true;
+  const fx = domainFixture({ beforeBatch(sqlite) {
+    if (!first) return;
+    first = false;
+    sqlite.prepare('DELETE FROM stimulus_option_asset_questions WHERE asset_question_id = ?').run('aq-b');
+    forceBToTombstone(sqlite, { moveQuestionId: 'aq-b-only' });
+  } });
+  try {
+    fx.sqlite.prepare('UPDATE asset_questions SET is_active = 0 WHERE id = ?').run('aq-b-only');
+    await assert.rejects(
+      () => createAssetQuestion(fx.db, { assetId: 'asset-b', promptMd: 'B only prompt', answerMd: 'B reusable answer' }),
+      (error) => error instanceof AssetQuestionInputError && /Asset changed/.test(error.message)
+    );
+    assert.deepEqual(
+      { asset_id: fx.sqlite.prepare('SELECT asset_id FROM asset_questions WHERE id = ?').get('aq-b-only').asset_id, is_active: fx.sqlite.prepare('SELECT is_active FROM asset_questions WHERE id = ?').get('aq-b-only').is_active },
+      { asset_id: 'asset-a', is_active: 0 }
+    );
+  } finally { fx.sqlite.close(); }
+});
+
+test('renaming an Image Collection after recompute stale-aborts the certified merge', async () => {
+  let first = true;
+  const fx = domainFixture({ beforeBatch(sqlite) {
+    if (!first) return;
+    first = false;
+    sqlite.prepare('UPDATE image_collections SET name = ? WHERE id = ?').run('Renamed Collection', 'collection-a');
+  } });
+  try {
+    fx.sqlite.exec("INSERT INTO image_collections (id, name, created_at, updated_at) VALUES ('collection-a', 'Original Collection', 1, 1)");
+    fx.sqlite.prepare('UPDATE assets SET image_collection_id = ? WHERE id = ?').run('collection-a', 'asset-a');
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    assert.equal(plan.survivor.image_collection_id, 'collection-a');
+    assert.equal(plan.survivor.image_collection_name, 'Original Collection');
+    assert.deepEqual(plan.fingerprintPayload.imageCollections.map((row) => ({ id: row.id, name: row.name })), [{ id: 'collection-a', name: 'Original Collection' }]);
+    await assert.rejects(
+      () => mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true }),
+      (error) => error instanceof AssetDeduplicationStaleError
+    );
+    assert.equal(fx.deleted.length, 0);
+    assert.equal(fx.sqlite.prepare('SELECT deduplicated_into_asset_id FROM assets WHERE id = ?').get('asset-b').deduplicated_into_asset_id, null);
+  } finally { fx.sqlite.close(); }
+});
+
 test('Phase 1 reasserts the global legacy Review zero sentinel before canonicalization', async () => {
   let first = true;
   const fx = domainFixture({ beforeBatch(sqlite) {
@@ -604,6 +714,51 @@ test('expired but physically retained Active Review references still block dedup
     `);
     const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
     assert.equal(plan.activeReviewAssets[0].expires_at, 2);
+    assert.ok(plan.blockers.some((blocker) => blocker.code === 'active-review-reference'));
+    await assert.rejects(
+      () => mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true }),
+      (error) => error instanceof AssetDeduplicationInputError && /Review snapshot reference/.test(error.message)
+    );
+    assert.equal(fx.deleted.length, 0);
+  } finally { fx.sqlite.close(); }
+});
+
+test('expired storage-key-only Active Review retention blocks deduplication independently of asset ownership', async () => {
+  const fx = domainFixture();
+  try {
+    insertExpiredActiveReview(fx.sqlite, 'expired-key-review', 'expired-key-learner');
+    fx.sqlite.exec(`
+      INSERT INTO active_review_assets (id, active_review_id, asset_id, display_order, storage_key_snapshot)
+      VALUES ('expired-key-review-asset', 'expired-key-review', 'asset-a', 0, 'teaching-images/asset-b.png');
+    `);
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    assert.equal(plan.activeReviewAssets.length, 1);
+    assert.equal(plan.activeReviewAssets[0].asset_id, 'asset-a');
+    assert.equal(plan.activeReviewAssets[0].storage_key_snapshot, 'teaching-images/asset-b.png');
+    assert.equal(plan.activeReviewAssets[0].expires_at, 2);
+    assert.ok(plan.blockers.some((blocker) => blocker.code === 'active-review-reference'));
+    await assert.rejects(
+      () => mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true }),
+      (error) => error instanceof AssetDeduplicationInputError && /Review snapshot reference/.test(error.message)
+    );
+    assert.equal(fx.deleted.length, 0);
+  } finally { fx.sqlite.close(); }
+});
+
+test('expired Active Review Asset Question provenance blocks deduplication independently', async () => {
+  const fx = domainFixture();
+  try {
+    insertExpiredActiveReview(fx.sqlite, 'expired-question-review', 'expired-question-learner');
+    fx.sqlite.exec(`
+      INSERT INTO active_review_questions (
+        id, active_review_id, question_prompt_id, source_type, source_asset_question_id,
+        display_order, prompt_snapshot_md, answer_snapshot_md
+      ) VALUES ('expired-question', 'expired-question-review', 'prompt-b-only', 'asset', 'aq-b-only', 0, 'B only prompt', 'B reusable answer');
+    `);
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    assert.equal(plan.activeReviewQuestions.length, 1);
+    assert.equal(plan.activeReviewQuestions[0].asset_id, 'asset-b');
+    assert.equal(plan.activeReviewQuestions[0].expires_at, 2);
     assert.ok(plan.blockers.some((blocker) => blocker.code === 'active-review-reference'));
     await assert.rejects(
       () => mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true }),
@@ -699,6 +854,7 @@ test('Admin certification evidence renders persisted text and permits required a
   assert.match(source, /Prompt ID \{question\.question_prompt_id\}/);
   assert.match(source, /Group Question \{question\.id\}/);
   assert.match(source, /Option Question \{question\.id\}/);
+  assert.match(source, /asset\.image_collection_name/);
   assert.match(source, /naturalWidth/);
   assert.match(source, /context\.primaryTopic\.id/);
   assert.match(source, /item\.id\}\)/);
@@ -731,7 +887,7 @@ test('Admin certification evidence renders persisted text and permits required a
             survivorAssetId: 'asset-a',
             duplicateAssetId: 'asset-b',
             mergePlanFingerprint: 'fingerprint',
-            survivor: { id: 'asset-a', original_filename: 'A', alt_text: null, source_label: null, source_url: null, licence: null, image_collection_id: null, mime_type: 'image/png', storage_key: 'a.png', is_active: true, preview_session_id: null, superseded_by_asset_id: null, deduplicated_into_asset_id: null, imageUrl: null },
+            survivor: { id: 'asset-a', original_filename: 'A', alt_text: null, source_label: null, source_url: null, licence: null, image_collection_id: 'collection-a', image_collection_name: 'Collection A', mime_type: 'image/png', storage_key: 'a.png', is_active: true, preview_session_id: null, superseded_by_asset_id: null, deduplicated_into_asset_id: null, imageUrl: null },
             duplicate: { id: 'asset-b', original_filename: 'B', alt_text: null, source_label: null, source_url: null, licence: null, image_collection_id: null, mime_type: 'image/png', storage_key: 'b.png', is_active: true, preview_session_id: null, superseded_by_asset_id: null, deduplicated_into_asset_id: null, imageUrl: null },
             contexts: [
               { relationship: 'fixed', id: 'case-asset', display_order: 0, caption_md: '', case: { id: 'case-b', title: 'Case B', vignetteMd: hostile, isActive: true, previewSessionId: null }, primaryTopic: null, taxonomyPath: [], systemAncestry: [], caseQuestions: [] },
@@ -754,6 +910,7 @@ test('Admin certification evidence renders persisted text and permits required a
     assert.match(html, /&lt;script>alert\(1\)&lt;\/script>/);
     assert.doesNotMatch(html, /<script\b/i);
     assert.match(html, /Primary Topic:/);
+    assert.match(html, /collection-a · Collection A/);
     assert.match(html, /Topic \(ID topic-id\)/);
     assert.match(html, /System ancestry:/);
     assert.match(html, /System \(ID system-id\)/);
