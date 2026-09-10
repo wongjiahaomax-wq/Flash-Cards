@@ -81,7 +81,10 @@ function d1Fixture(sqlite, { beforeBatch, beforeStatement } = {}) {
               const result = sqlite.prepare(statement).run(...params);
               return { success: true, results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
             },
-            statement
+            statement,
+            // D1 caps bound parameters per query. Record the real bound count so
+            // tests can assert the limit that node:sqlite itself does not enforce.
+            paramCount: params.length
           };
         }
       };
@@ -426,6 +429,36 @@ test('certified merge unions reusable questions, moves retained relationships, a
     assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM asset_questions WHERE asset_id = ?').get('asset-b').count, 0);
     assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM asset_questions WHERE asset_id = ?').get('asset-a').count, 2);
     assert.deepEqual(fx.sqlite.prepare('SELECT asset_question_id FROM stimulus_option_asset_questions WHERE stimulus_group_option_id = ? ORDER BY asset_question_id').all('option-b').map((row) => row.asset_question_id), ['aq-a', 'aq-b-only']);
+  } finally { fx.sqlite.close(); }
+});
+
+test('certified merge keeps every D1 batch statement within the bound-parameter limit', async () => {
+  /** @type {number[]} */
+  let batchParamCounts = [];
+  const fx = domainFixture({
+    beforeBatch: (_sqlite, statements) => {
+      batchParamCounts = statements.map((statement) => statement.paramCount ?? 0);
+    }
+  });
+  try {
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    assert.equal(plan.blockers.length, 0);
+    const result = await mergeDuplicateAssets({
+      db: fx.db,
+      bucket: fx.bucket,
+      survivorAssetId: 'asset-a',
+      duplicateAssetId: 'asset-b',
+      mergePlanFingerprint: plan.mergePlanFingerprint,
+      questionResolutions: {},
+      certificationConfirmed: true
+    });
+    assert.equal(result.cleanup.status, 'cleaned');
+    assert.ok(batchParamCounts.length > 0, 'the certified merge must run as one atomic D1 batch');
+    const maxBound = Math.max(...batchParamCounts);
+    assert.ok(
+      maxBound <= 100,
+      `a merge batch statement bound ${maxBound} SQL parameters; D1 allows at most 100 bound parameters per query, so the exact-state guard must be split across smaller statements in the same batch.`
+    );
   } finally { fx.sqlite.close(); }
 });
 

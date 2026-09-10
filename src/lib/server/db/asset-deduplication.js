@@ -670,20 +670,47 @@ function rowCondition(row) {
 }
 
 /**
- * Build an exact row/value equality assertion. The scope strings use bound
- * parameters embedded by `scopeWithParams`; every expected row is also
- * matched column-for-column, so a changed, missing, or extra row fails the
- * NOT NULL sentinel update inside the same D1 batch.
- * @param {Array<[string, string, unknown[], any[]]>} tables
+ * D1 allows at most 100 bound parameters per query. Keep every exact-state
+ * sentinel statement comfortably under that limit instead of binding every
+ * retained row into one oversized statement.
  */
-function exactStateConditionWithParams(tables) {
-  const conditions = [];
+const MAX_SENTINEL_PARAMS = 90;
+
+/**
+ * Build exact row/value equality assertions as independently bindable chunks.
+ * The scope strings use bound parameters embedded by `scopeWithParams`; every
+ * expected row is matched column-for-column. Every chunk still executes inside
+ * the same atomic D1 batch, so a changed, missing, or extra row in any chunk
+ * fails its own NOT NULL sentinel update and aborts the whole merge.
+ * @param {Array<[string, string, unknown[], any[]]>} tables
+ * @returns {any[]}
+ */
+function exactStateConditionChunks(tables) {
+  /** @type {any[]} */
+  const chunks = [];
+  /** @type {any[]} */
+  let pending = [];
+  let pendingParams = 0;
+  /** @returns {void} */
+  const flush = () => {
+    if (!pending.length) return;
+    chunks.push(sql.join(pending, sql` AND `));
+    pending = [];
+    pendingParams = 0;
+  };
+  /** @param {any} condition @param {number} params */
+  const add = (condition, params) => {
+    if (pending.length && pendingParams + params > MAX_SENTINEL_PARAMS) flush();
+    pending.push(condition);
+    pendingParams += params;
+  };
   for (const [table, scope, params, rows] of tables) {
     const tableId = identifier(table);
-    conditions.push(sql`(SELECT count(*) FROM ${tableId} WHERE ${boundScope(scope, params)}) = ${rows.length}`);
-    for (const row of rows) conditions.push(sql`EXISTS (SELECT 1 FROM ${tableId} WHERE ${rowCondition(row)})`);
+    add(sql`(SELECT count(*) FROM ${tableId} WHERE ${boundScope(scope, params)}) = ${rows.length}`, params.length);
+    for (const row of rows) add(sql`EXISTS (SELECT 1 FROM ${tableId} WHERE ${rowCondition(row)})`, Object.keys(row).length);
   }
-  return conditions.length ? sql.join(conditions, sql` AND `) : sql`1 = 1`;
+  flush();
+  return chunks.length ? chunks : [sql`1 = 1`];
 }
 
 /** @param {any} state @param {string[]} assetIds */
@@ -780,7 +807,7 @@ function noDuplicateReferencesSql(duplicateId) {
 /** @param {LearningDb} db @param {any} plan @param {string} survivorId @param {string} duplicateId */
 function batchStatements(db, plan, survivorId, duplicateId) {
   const state = plan.authoringState;
-  const exact = exactStateConditionWithParams(stateTablesWithParams(state, [survivorId, duplicateId]));
+  const exactChunks = exactStateConditionChunks(stateTablesWithParams(state, [survivorId, duplicateId]));
   const sentinel = (condition, id = survivorId) => db.update(assets).set({ type: sql`CASE WHEN ${condition} THEN \`type\` ELSE NULL END` }).where(eq(assets.id, id));
   const now = new Date();
   const questionById = new Map(state.assetQuestionRows.map((row) => [row.id, row]));
@@ -818,7 +845,7 @@ function batchStatements(db, plan, survivorId, duplicateId) {
     .filter((row) => row.assetQuestionId && questionById.has(row.assetQuestionId));
   const uniqueOptIns = [...new Map(optIns.map((row) => [`${row.optionId}:${row.assetQuestionId}`, row])).values()];
   const statements = [
-    sentinel(exact),
+    ...exactChunks.map((condition) => sentinel(condition)),
     sentinel(legacyReviewZeroSql()),
     sentinel(activeReviewBlockerSql(state, duplicateId)),
     sentinel(noPreviewDuplicateSql(duplicateId)),
