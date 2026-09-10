@@ -11,6 +11,7 @@ import {
   AssetDeduplicationStaleError,
   cleanupDuplicateAsset,
   getDuplicateAssetMergePlan,
+  listPendingDuplicateCleanup,
   mergeDuplicateAssets
 } from '../src/lib/server/db/asset-deduplication.js';
 import { applyCurrentSchema } from './current-schema.js';
@@ -234,6 +235,21 @@ test('merge plan exposes full retained certification context and deterministic f
   } finally { fx.sqlite.close(); }
 });
 
+test('prospective Prompt conflicts include unrelated active Groups in a retained Case', async () => {
+  const fx = domainFixture();
+  try {
+    fx.sqlite.prepare('UPDATE asset_questions SET is_active = 0 WHERE id = ?').run('aq-b');
+    fx.sqlite.exec(`
+      INSERT INTO stimulus_groups (id, case_id, name, display_order, is_active, created_at, updated_at) VALUES ('group-other', 'case-b', 'Other group', 1, 1, 1, 1);
+      INSERT INTO stimulus_group_questions (id, stimulus_group_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES ('group-other-q', 'group-other', 'prompt-shared', 'Other group answer', 1, 1, 1);
+    `);
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    assert.equal(plan.canMerge, false);
+    assert.ok(plan.prospectivePromptConflicts.some((conflict) => conflict.key === 'case-b:prompt-shared'));
+    assert.ok(plan.blockers.some((blocker) => blocker.code === 'prospective-prompt-conflict'));
+  } finally { fx.sqlite.close(); }
+});
+
 test('certified merge unions reusable questions, moves retained relationships, and cleans only duplicate media', async () => {
   const fx = domainFixture();
   try {
@@ -319,12 +335,53 @@ test('stale exact-state equality aborts before canonicalization or R2 cleanup', 
   } finally { fx.sqlite.close(); }
 });
 
+test('stale exact-state equality covers retained Stimulus Option group and removal state', async () => {
+  const changes = [
+    {
+      label: 'removed state',
+      mutate(sqlite) { sqlite.prepare('UPDATE stimulus_group_options SET removed_from_case = 1 WHERE id = ?').run('option-b'); }
+    },
+    {
+      label: 'group identity',
+      mutate(sqlite) {
+        sqlite.exec("INSERT INTO stimulus_groups (id, case_id, name, display_order, is_active, created_at, updated_at) VALUES ('group-b-alt', 'case-b', 'Alternate group', 1, 1, 1, 1)");
+        sqlite.prepare('UPDATE stimulus_group_options SET stimulus_group_id = ? WHERE id = ?').run('group-b-alt', 'option-b');
+      }
+    },
+    {
+      label: 'new unrelated group',
+      mutate(sqlite) {
+        sqlite.exec("INSERT INTO stimulus_groups (id, case_id, name, display_order, is_active, created_at, updated_at) VALUES ('group-b-new', 'case-b', 'New group', 2, 1, 1, 1)");
+      }
+    }
+  ];
+  for (const change of changes) {
+    let beforeBatch = true;
+    const fx = domainFixture({ beforeBatch(sqlite) {
+      if (!beforeBatch) return;
+      beforeBatch = false;
+      change.mutate(sqlite);
+    } });
+    try {
+      const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+      await assert.rejects(
+        () => mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true }),
+        (error) => error instanceof AssetDeduplicationStaleError,
+        change.label
+      );
+      assert.equal(fx.deleted.length, 0);
+    } finally { fx.sqlite.close(); }
+  }
+});
+
 test('R2 cleanup failure leaves a durable tombstone and retry is idempotent', async () => {
   const fx = domainFixture({ deleteError: true });
   try {
     const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
     const result = await mergeDuplicateAssets({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b', mergePlanFingerprint: plan.mergePlanFingerprint, certificationConfirmed: true });
     assert.equal(result.cleanup.status, 'pending');
+    const pending = await listPendingDuplicateCleanup(fx.db, fx.bucket);
+    assert.equal(pending[0].reason, 'r2-delete-pending');
     assert.equal(fx.sqlite.prepare('SELECT is_active, deduplicated_into_asset_id FROM assets WHERE id = ?').get('asset-b').deduplicated_into_asset_id, 'asset-a');
     assert.equal(fx.objects.has('teaching-images/asset-b.png'), true);
   } finally { fx.sqlite.close(); }
@@ -356,9 +413,16 @@ test('normal inactive Assets cannot use dedupe cleanup retry', async () => {
 
 test('Admin certification evidence renders persisted text through escaped Svelte values', () => {
   const source = readFileSync(new URL('../src/routes/admin/images/deduplicate/+page.svelte', import.meta.url), 'utf8');
+  const server = readFileSync(new URL('../src/routes/admin/images/deduplicate/+page.server.js', import.meta.url), 'utf8');
+  const library = readFileSync(new URL('../src/lib/components/AdminImageLibrary.svelte', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /\{@html/);
+  assert.match(source, /displayAsset\(plan\.survivor/);
   assert.match(source, /<pre>\{context\.case\?\.vignetteMd \?\? ''\}<\/pre>/);
   assert.match(source, /<pre>\{question\.answer_md\}<\/pre>/);
   assert.match(source, /white-space:pre-wrap/);
   assert.match(source, /I certify that the selected survivor is clinically and educationally interchangeable/);
+  assert.match(server, /let result;/);
+  assert.ok(server.indexOf('redirect(303') > server.indexOf('} catch (error) {'));
+  assert.match(library, /cleanupReasonLabel/);
+  assert.match(library, /item\.reason/);
 });

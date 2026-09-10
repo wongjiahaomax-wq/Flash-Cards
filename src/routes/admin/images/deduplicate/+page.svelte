@@ -24,6 +24,26 @@
   function ancestryLabel(ancestry) {
     return ancestry.map((item) => item.name).join(' → ');
   }
+
+  /** @param {any} asset @param {string} id @param {string} label */
+  function displayAsset(asset, id, label) {
+    return asset ?? {
+      id,
+      original_filename: `${label} Asset no longer exists`,
+      alt_text: null,
+      source_label: null,
+      source_url: null,
+      licence: null,
+      image_collection_id: null,
+      mime_type: 'unknown',
+      storage_key: 'unavailable',
+      is_active: false,
+      preview_session_id: null,
+      superseded_by_asset_id: null,
+      deduplicated_into_asset_id: null,
+      imageUrl: null
+    };
+  }
 </script>
 
 <svelte:head><title>Compare image Assets | Admin | Flash-Cards</title></svelte:head>
@@ -45,7 +65,7 @@
     <input type="hidden" name="merge_plan_fingerprint" value={plan.mergePlanFingerprint} />
 
     <section class="comparison-grid" aria-label="Image comparison">
-      {#each [plan.survivor, plan.duplicate] as asset, index}
+      {#each [displayAsset(plan.survivor, plan.survivorAssetId, 'Selected survivor'), displayAsset(plan.duplicate, plan.duplicateAssetId, 'Selected duplicate')] as asset, index}
         <article class:survivor-card={index === 0} class="panel image-column">
           <p class="eyebrow">{index === 0 ? 'Selected survivor A' : 'Duplicate/source B'}</p>
           {#if asset.imageUrl}<img class="large-preview" src={asset.imageUrl} alt={asset.alt_text ?? ''} />{:else}<div class="missing-preview">Authoritative R2 object unavailable</div>{/if}

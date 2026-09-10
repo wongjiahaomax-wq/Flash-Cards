@@ -1,7 +1,7 @@
 <script>
   /** @typedef {{ id: string, imageUrl: string | null, altText: string | null, originalFilename: string | null, topicSummary: string, topicNames: string[], currentTopicNames: string[], historicalTopicNames: string[], currentTopicSummary: string, historicalTopicSummary: string, collectionName: string | null, createdAt: string | number | Date | null, usageCount: number, usageState: 'current' | 'historical' | 'unused', activeReviewCount: number, isActive: boolean, supersededByAssetId?: string | null, deduplicatedIntoAssetId?: string | null }} LibraryAsset */
   /** @typedef {{ id: string, name: string, assetCount?: number }} NamedOption */
-  /** @typedef {{ duplicateId: string, duplicateName: string | null, survivorId: string, survivorName: string | null, claimedAt: string | number | Date | null }} PendingCleanup */
+  /** @typedef {{ duplicateId: string, duplicateName: string | null, survivorId: string, survivorName: string | null, claimedAt: string | number | Date | null, reason: string | null }} PendingCleanup */
   /** @typedef {{ assets: LibraryAsset[], topics: NamedOption[], collections: NamedOption[], stimulusGroups: { id: string, name: string, caseTitle?: string }[], pendingCleanup?: PendingCleanup[], filters: { search: string, topic: string, collection: string, usage: string, status: string, source: string, sort: string }, pagination: { totalCount: number, totalPages: number, page: number, pageSize: number }, queryContext: string, allMatchingIds: string[] | null, selectAllLimit: number, bulkLimit: number, collectionBulkLimit?: number }} LibraryData */
   import { browser } from '$app/environment';
   import { deserialize } from '$app/forms';
@@ -64,6 +64,28 @@
   function formatAddedDate(value) {
     if (!value) return 'Unknown date';
     return new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(value));
+  }
+
+  /** @param {string | null | undefined} reason */
+  function cleanupReasonLabel(reason) {
+    /** @type {Record<string, string>} */
+    const labels = {
+      'r2-delete-pending': 'R2 duplicate-object deletion is still pending.',
+      'r2-check-failed': 'R2 could not be checked; retry cleanup to re-verify storage.',
+      'tombstone-delete-pending': 'The duplicate object is already absent; the D1 tombstone still needs cleanup.',
+      'canonical-survivor-media-missing': 'Blocked: the canonical survivor object is missing from R2.',
+      'active-review-reference': 'Blocked: a retained learner Review still references the duplicate.',
+      'active-review-question-reference': 'Blocked: a retained learner Review references a reusable question from the duplicate.',
+      'retained-case-reference': 'Blocked: a retained Case relationship still references the duplicate.',
+      'retained-stimulus-reference': 'Blocked: a retained Stimulus Option still references the duplicate.',
+      'retained-asset-question': 'Blocked: a reusable Asset Question still belongs to the duplicate.',
+      'incoming-dedupe-reference': 'Blocked: another dedupe tombstone targets the duplicate.',
+      'incoming-supersession-reference': 'Blocked: higher-resolution supersession still targets the duplicate.',
+      'outgoing-supersession-reference': 'Blocked: the duplicate still has a supersession target.',
+      'legacy-review-sentinel': 'Blocked: legacy Review history is present or unreadable.',
+      'legacy-review-sentinel-unreadable': 'Blocked: legacy Review history could not be checked.'
+    };
+    return labels[reason ?? ''] ?? 'Cleanup remains pending; review the current guards and retry.';
   }
 
   /** @param {string} assetId @param {{ shiftKey?: boolean, toggleKey?: boolean }} [options] */
@@ -247,7 +269,7 @@
     <div class="panel-heading"><div><p class="eyebrow">Durable dedupe tombstones</p><h2 id="dedupe-cleanup-heading">Cleanup pending <span class="count">{data.pendingCleanup.length}</span></h2></div><span class="muted">These inactive duplicates are fenced from reuse until their old R2 object is safely reclaimed.</span></div>
     <div class="cleanup-list">
       {#each data.pendingCleanup as item}
-        <div class="cleanup-row"><div><strong>{item.duplicateName ?? item.duplicateId}</strong><span class="muted">Duplicate Asset {item.duplicateId} → survivor {item.survivorName ?? item.survivorId}</span><span class="muted">Claimed {formatAddedDate(item.claimedAt)}</span></div><a class="button small" href={`/admin/images/deduplicate?survivor=${encodeURIComponent(item.survivorId)}&duplicate=${encodeURIComponent(item.duplicateId)}`}>Review cleanup</a><form method="POST" action="?/retryCleanup"><input type="hidden" name="duplicate_asset_id" value={item.duplicateId} /><button class="button small" type="submit">Retry storage cleanup</button></form></div>
+        <div class="cleanup-row"><div><strong>{item.duplicateName ?? item.duplicateId}</strong><span class="muted">Duplicate Asset {item.duplicateId} → survivor {item.survivorName ?? item.survivorId}</span><span class="muted">Claimed {formatAddedDate(item.claimedAt)}</span><span class="cleanup-reason">{cleanupReasonLabel(item.reason)}</span></div><a class="button small" href={`/admin/images/deduplicate?survivor=${encodeURIComponent(item.survivorId)}&duplicate=${encodeURIComponent(item.duplicateId)}`}>Review cleanup</a><form method="POST" action="?/retryCleanup"><input type="hidden" name="duplicate_asset_id" value={item.duplicateId} /><button class="button small" type="submit">Retry storage cleanup</button></form></div>
       {/each}
     </div>
   </section>

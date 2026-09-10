@@ -67,7 +67,7 @@ export async function load({ locals, platform, url }) {
     listAssetLibraryTopics(db),
     listAssetLibraryCollections(db),
     listActiveStimulusGroupTargets(db),
-    listPendingDuplicateCleanup(db)
+    listPendingDuplicateCleanup(db, platform.env.MEDIA)
   ]);
   return {
     assets: pageData.rows,

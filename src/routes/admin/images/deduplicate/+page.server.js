@@ -57,8 +57,9 @@ export const actions = {
       if (!name.startsWith('resolution_') || typeof value !== 'string' || !value) continue;
       questionResolutions[name.slice('resolution_'.length)] = value;
     }
+    let result;
     try {
-      const result = await mergeDuplicateAssets({
+      result = await mergeDuplicateAssets({
         db: createDb(platform.env.DB),
         bucket: platform.env.MEDIA,
         survivorAssetId: formText(formData, 'survivor_asset_id'),
@@ -67,11 +68,11 @@ export const actions = {
         questionResolutions,
         certificationConfirmed: formData.get('certification_confirmed') === 'yes'
       });
-      redirect(303, `/admin/images?status=dedupe-${result.cleanup.status}`);
     } catch (error) {
       const clientError = error instanceof AssetDeduplicationInputError;
       if (!clientError) console.error('Certified image dedupe failed.', error);
       return fail(clientError ? 400 : 500, { error: clientError ? error.message : 'Unable to merge these image Assets.' });
     }
+    redirect(303, `/admin/images?status=dedupe-${result.cleanup.status}`);
   }
 };

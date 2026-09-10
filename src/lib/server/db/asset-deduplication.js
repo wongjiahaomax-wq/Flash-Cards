@@ -133,18 +133,35 @@ async function loadRawState(db, assetIds) {
   ]);
 
   const caseIds = [...new Set([...fixedRows, ...optionRows].map((row) => row.case_id).filter(Boolean))].sort();
-  const groupIds = [...new Set(optionRows.map((row) => row.stimulus_group_id).filter(Boolean))].sort();
-  const optionIds = [...new Set(optionRows.map((row) => row.id).filter(Boolean))].sort();
   const questionIds = [...new Set(assetQuestionRows.map((row) => row.id).filter(Boolean))].sort();
   const promptIds = [...new Set([
     ...assetQuestionRows.map((row) => row.question_prompt_id),
   ])].filter(Boolean).sort();
 
-  const [casesRows, caseConceptRows, caseQuestionRows, groupsRows, groupQuestionRows, optionQuestionRows, optInRows] = await Promise.all([
+  const [casesRows, caseConceptRows, caseQuestionRows, groupsRows, graphOptionRows] = await Promise.all([
     caseIds.length ? rawRows(db, `SELECT * FROM cases WHERE id IN ${inList(caseIds)} ORDER BY id`, caseIds) : [],
     caseIds.length ? rawRows(db, `SELECT * FROM case_concepts WHERE case_id IN ${inList(caseIds)} AND role = 'primary' ORDER BY case_id, concept_id`, caseIds) : [],
     caseIds.length ? rawRows(db, `SELECT * FROM case_questions WHERE case_id IN ${inList(caseIds)} ORDER BY case_id, id`, caseIds) : [],
-    groupIds.length ? rawRows(db, `SELECT * FROM stimulus_groups WHERE id IN ${inList(groupIds)} ORDER BY id`, groupIds) : [],
+    caseIds.length ? rawRows(db, `SELECT * FROM stimulus_groups WHERE case_id IN ${inList(caseIds)} ORDER BY case_id, id`, caseIds) : [],
+    caseIds.length ? rawRows(db, `
+      SELECT sgo.*, sg.case_id, sg.name AS group_name, sg.is_active AS group_is_active,
+        sg.selection_count, sg.specific_question_mode, sg.minimum_specific_questions,
+        c.title AS case_title, c.vignette_md AS case_vignette_md,
+        c.preview_session_id AS case_preview_session_id, c.is_active AS case_is_active,
+        cc.concept_id AS primary_topic_id, concepts.name AS primary_topic_name
+      FROM stimulus_group_options sgo
+      JOIN stimulus_groups sg ON sg.id = sgo.stimulus_group_id
+      JOIN cases c ON c.id = sg.case_id
+      LEFT JOIN case_concepts cc ON cc.case_id = c.id AND cc.role = 'primary'
+      LEFT JOIN concepts ON concepts.id = cc.concept_id
+      WHERE sg.case_id IN ${inList(caseIds)}
+      ORDER BY sg.case_id, sgo.stimulus_group_id, sgo.display_order, sgo.id
+    `, caseIds) : []
+  ]);
+
+  const groupIds = [...new Set(groupsRows.map((row) => row.id).filter(Boolean))].sort();
+  const optionIds = [...new Set(graphOptionRows.map((row) => row.id).filter(Boolean))].sort();
+  const [groupQuestionRows, optionQuestionRows, optInRows] = await Promise.all([
     groupIds.length ? rawRows(db, `SELECT * FROM stimulus_group_questions WHERE stimulus_group_id IN ${inList(groupIds)} ORDER BY stimulus_group_id, id`, groupIds) : [],
     optionIds.length ? rawRows(db, `SELECT * FROM stimulus_option_questions WHERE stimulus_group_option_id IN ${inList(optionIds)} ORDER BY stimulus_group_option_id, id`, optionIds) : [],
     questionIds.length ? rawRows(db, `
@@ -224,7 +241,7 @@ async function loadRawState(db, assetIds) {
   const tables = [
     ['assets', assetsScope(assetIds), assetRows],
     ['case_assets', inScope('asset_id', assetIds), fixedRows.map(stripFixedDerived)],
-    ['stimulus_group_options', inScope('asset_id', assetIds), optionRows.map(stripDerived)],
+    ['stimulus_group_options', inScope('id', graphOptionRows.map((row) => row.id)), graphOptionRows.map(stripOptionDerived)],
     ['cases', inScope('id', caseIds), casesRows],
     ['case_concepts', `${inScope('case_id', caseIds)} AND role = 'primary'`, caseConceptRows],
     ['concepts', inScope('id', conceptRows.map((row) => row.id)), conceptRows],
@@ -241,6 +258,7 @@ async function loadRawState(db, assetIds) {
     assetRows,
     fixedRows,
     optionRows,
+    graphOptionRows,
     casesRows,
     caseConceptRows,
     conceptRows,
@@ -288,6 +306,14 @@ function stripDerived(row) {
   ]) {
     delete copy[key];
   }
+  return copy;
+}
+
+/** @param {any} row */
+function stripOptionDerived(row) {
+  const copy = stripDerived(row);
+  copy.stimulus_group_id = row.stimulus_group_id;
+  copy.removed_from_case = row.removed_from_case;
   return copy;
 }
 
@@ -536,7 +562,7 @@ function prospectivePromptConflicts({ state, survivorId, duplicateId, aQuestions
     const canonicalId = remap.get(row.asset_question_id) ?? row.asset_question_id;
     const canonical = state.assetQuestionRows.find((candidate) => candidate.id === canonicalId);
     if (!canonical) continue;
-    const option = state.optionRows.find((candidate) => candidate.id === row.stimulus_group_option_id);
+    const option = (state.graphOptionRows ?? state.optionRows).find((candidate) => candidate.id === row.stimulus_group_option_id);
     if (!option) continue;
     const key = `${option.case_id}:${canonical.question_prompt_id}`;
     const groups = map.get(key) ?? new Set();
@@ -617,12 +643,12 @@ function stateTablesWithParams(state, assetIds) {
   return [
     table('assets', `id IN ${inList(ids)} OR deduplicated_into_asset_id IN ${inList(ids)} OR superseded_by_asset_id IN ${inList(ids)}`, threeIds, state.assetRows),
     table('case_assets', `asset_id IN ${inList(ids)}`, ids, state.fixedRows.map(stripFixedDerived)),
-    table('stimulus_group_options', `asset_id IN ${inList(ids)}`, ids, state.optionRows.map(stripDerived)),
+    table('stimulus_group_options', `stimulus_group_id IN ${inList(state.groupIds)}`, state.groupIds, state.graphOptionRows.map(stripOptionDerived)),
     table('cases', `id IN ${inList(state.caseIds)}`, state.caseIds, state.casesRows),
     table('case_concepts', `${inScope('case_id', state.caseIds)} AND role = 'primary'`, state.caseIds, state.caseConceptRows),
     table('concepts', `id IN ${inList(state.conceptRows.map((row) => row.id))}`, state.conceptRows.map((row) => row.id), state.conceptRows),
     table('case_questions', `case_id IN ${inList(state.caseIds)}`, state.caseIds, state.caseQuestionRows),
-    table('stimulus_groups', `id IN ${inList(state.groupIds)}`, state.groupIds, state.groupsRows),
+    table('stimulus_groups', `case_id IN ${inList(state.caseIds)}`, state.caseIds, state.groupsRows),
     table('stimulus_group_questions', `stimulus_group_id IN ${inList(state.groupIds)}`, state.groupIds, state.groupQuestionRows),
     table('stimulus_option_questions', `stimulus_group_option_id IN ${inList(state.optionIds)}`, state.optionIds, state.optionQuestionRows),
     table('question_prompts', `id IN ${inList(state.promptIds)}`, state.promptIds, state.promptRows),
@@ -847,9 +873,10 @@ export async function cleanupDuplicateAsset({ db, bucket, duplicateAssetId }) {
 
 /**
  * @param {LearningDb} db
- * @returns {Promise<Array<{ duplicateId: string, duplicateName: string | null, survivorId: string, survivorName: string | null, claimedAt: string | null }>>}
+ * @param {R2Bucket | undefined} [bucket]
+ * @returns {Promise<Array<{ duplicateId: string, duplicateName: string | null, survivorId: string, survivorName: string | null, claimedAt: string | null, reason: string | null }>>}
  */
-export async function listPendingDuplicateCleanup(db) {
+export async function listPendingDuplicateCleanup(db, bucket) {
   const rows = await rawRows(db, `
     SELECT duplicate.id AS duplicate_id, duplicate.original_filename AS duplicate_name,
       survivor.id AS survivor_id, survivor.original_filename AS survivor_name,
@@ -860,11 +887,36 @@ export async function listPendingDuplicateCleanup(db) {
     WHERE duplicate.deduplicated_into_asset_id IS NOT NULL
     ORDER BY duplicate.updated_at DESC, duplicate.id
   `);
-  return rows.map((row) => ({
-    duplicateId: String(row.duplicate_id),
-    duplicateName: row.duplicate_name == null ? null : String(row.duplicate_name),
-    survivorId: String(row.survivor_id),
-    survivorName: row.survivor_name == null ? null : String(row.survivor_name),
-    claimedAt: row.claimed_at == null ? null : String(row.claimed_at)
-  }));
+  const pending = [];
+  for (const row of rows) {
+    const duplicateId = String(row.duplicate_id);
+    const blockers = await cleanupBlockers(db, duplicateId);
+    let reason = blockers.reason;
+    if (!reason) {
+      if (!bucket) {
+        reason = 'r2-delete-pending';
+      } else {
+        try {
+          const survivorObject = await bucket.head(String(row.survivor_storage_key));
+          if (!survivorObject) {
+            reason = 'canonical-survivor-media-missing';
+          } else {
+            const duplicateObject = await bucket.head(String(row.duplicate_storage_key));
+            reason = duplicateObject ? 'r2-delete-pending' : 'tombstone-delete-pending';
+          }
+        } catch {
+          reason = 'r2-check-failed';
+        }
+      }
+    }
+    pending.push({
+      duplicateId,
+      duplicateName: row.duplicate_name == null ? null : String(row.duplicate_name),
+      survivorId: String(row.survivor_id),
+      survivorName: row.survivor_name == null ? null : String(row.survivor_name),
+      claimedAt: row.claimed_at == null ? null : String(row.claimed_at),
+      reason
+    });
+  }
+  return pending;
 }
