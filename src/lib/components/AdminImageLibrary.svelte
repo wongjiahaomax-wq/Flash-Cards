@@ -283,7 +283,7 @@
 {/if}
 
 <section class="panel" aria-labelledby="image-list-heading">
-  <div class="panel-heading"><div><h2 id="image-list-heading">Assets <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} images · Page {data.pagination.page} of {data.pagination.totalPages}. Shift ranges stay on the current page.</span></div>{#if selectedIds.size > 0}<button class="button small" type="button" onclick={resetSelection}>Clear selection</button>{/if}</div>
+  <div class="panel-heading"><div><h2 id="image-list-heading">Assets <span class="count">{data.pagination.totalCount}</span></h2><span class="muted">Showing {firstShown}–{lastShown} of {data.pagination.totalCount} images · Page {data.pagination.page} of {data.pagination.totalPages}. Shift ranges stay on the current page.</span></div>{#if !previewMode || selectedIds.size > 0}<div class="heading-actions">{#if !previewMode}<a class="button small" href="/admin/images/duplicates">Find visual duplicates</a>{/if}{#if selectedIds.size > 0}<button class="button small" type="button" onclick={resetSelection}>Clear selection</button>{/if}</div>{/if}</div>
 
   {#if selectedIds.size > 0 || data.pagination.totalCount > data.assets.length}
     <div class="selection-summary">

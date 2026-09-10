@@ -1,6 +1,6 @@
 # Admin Image Deduplication — implementation plan
 
-_Status: Draft planning contract for implementation in this same PR/branch. Third planning-review amendments are incorporated. Tranche 1 implementation is in progress; Tranche 2 remains intentionally untouched. Do not create a follow-up implementation PR._
+_Status: Draft planning contract for implementation in this same PR/branch. Third planning-review amendments are incorporated. Tranche 1 and Tranche 2 are both implemented on this branch; final validation and review remain. Do not create a follow-up implementation PR._
 
 ## Goal
 
