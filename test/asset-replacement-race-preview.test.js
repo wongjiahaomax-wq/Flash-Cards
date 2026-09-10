@@ -21,10 +21,22 @@ const migrationSql = readdirSync(new URL('../drizzle/', import.meta.url))
   .join('\n')
   .replaceAll('--> statement-breakpoint', '');
 
-function d1Fixture(sqlite, { releaseAfterBatches = 0, beforeFirstBatch = null } = {}) {
+function d1Fixture(sqlite, {
+  releaseAfterBatches = 0,
+  beforeFirstBatch = null,
+  maxParamsPerStatement = Infinity
+} = {}) {
   let pending = [];
   let barrierOpen = releaseAfterBatches <= 1;
   let firstBatchStarted = false;
+  const parameterCounts = [];
+
+  function assertParameterCount(params) {
+    parameterCounts.push(params.length);
+    if (params.length > maxParamsPerStatement) {
+      throw new Error(`D1 statement exceeded the parameter limit: ${params.length}`);
+    }
+  }
 
   async function executeBatch(statements) {
     if (!firstBatchStarted) {
@@ -47,6 +59,7 @@ function d1Fixture(sqlite, { releaseAfterBatches = 0, beforeFirstBatch = null } 
     prepare(sql) {
       return {
         bind(...params) {
+          assertParameterCount(params);
           return {
             async all() {
               return { results: sqlite.prepare(sql).all(...params) };
@@ -87,7 +100,8 @@ function d1Fixture(sqlite, { releaseAfterBatches = 0, beforeFirstBatch = null } 
           }
         })();
       });
-    }
+    },
+    parameterCounts
   };
 }
 
@@ -151,6 +165,7 @@ function fixture(options = {}) {
   });
 
   if (options.includeDedupeGraph) addDedupeGraph({ sqlite, ...storage });
+  if (options.includeHighCardGraph) addHighCardGraph({ sqlite });
 
   return { sqlite, d1, db, ...storage };
 }
@@ -199,6 +214,35 @@ function addDedupeGraph({ sqlite, objects }) {
     bytes: new TextEncoder().encode('duplicate-image'),
     type: 'image/png'
   });
+}
+
+function addHighCardGraph({ sqlite }) {
+  const graphSize = 20;
+  for (let index = 0; index < graphSize; index += 1) {
+    sqlite.prepare(
+      'INSERT INTO cases (id, title, question_selection_mode, question_count, preview_session_id, is_active, created_at, updated_at) VALUES (?, ?, ?, NULL, NULL, 1, 1, 1)'
+    ).run(`high-case-${index}`, `High cardinality case ${index}`, 'all');
+    sqlite.prepare(
+      'INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, 0, ?, 1)'
+    ).run(`high-case-${index}`, 'asset-a', `High fixed caption ${index}`);
+
+    sqlite.prepare(
+      'INSERT INTO stimulus_groups (id, case_id, name, display_order, selection_count, specific_question_mode, minimum_specific_questions, is_active, created_at, updated_at) VALUES (?, ?, ?, 0, 1, ?, NULL, 1, 1, 1)'
+    ).run(`high-group-${index}`, 'production-case', `High alternatives ${index}`, 'none');
+    sqlite.prepare(
+      'INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, removed_from_case, created_at) VALUES (?, ?, ?, 0, ?, 1, 0, 1)'
+    ).run(`high-option-${index}`, `high-group-${index}`, 'asset-a', `High option caption ${index}`);
+
+    sqlite.prepare(
+      'INSERT INTO question_prompts (id, prompt_md, preview_session_id, is_active, created_at, updated_at) VALUES (?, ?, NULL, 1, 1, 1)'
+    ).run(`high-prompt-${index}`, `High prompt ${index}`);
+    sqlite.prepare(
+      'INSERT INTO asset_questions (id, asset_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1, 1)'
+    ).run(`high-question-${index}`, 'asset-a', `high-prompt-${index}`, `High answer ${index}`);
+    sqlite.prepare(
+      'INSERT INTO stimulus_option_asset_questions (stimulus_group_option_id, asset_question_id, created_at) VALUES (?, ?, 1)'
+    ).run(`high-option-${index}`, `high-question-${index}`);
+  }
 }
 
 async function dedupeBIntoA(fx) {
@@ -396,6 +440,59 @@ test('replacement started after dedupe migrates the complete unioned graph', asy
     assert.equal(fx.objects.has(result.newStorageKey), true);
     assert.equal(fx.objects.has('teaching-images/asset-a.png'), true);
     assert.equal(fx.objects.has('teaching-images/asset-b.png'), false);
+  } finally {
+    fx.sqlite.close();
+  }
+});
+
+test('high-cardinality replacement keeps every D1 statement within 100 params and migrates the complete graph', async () => {
+  const fx = fixture({ includeHighCardGraph: true, maxParamsPerStatement: 100 });
+  try {
+    const result = await replaceAssetWithHigherResolution({
+      db: fx.db,
+      bucket: fx.bucket,
+      assetId: 'asset-a',
+      file: namedBlob('high cardinality replacement', 'high-card.png'),
+      confirmedSameImage: true
+    });
+
+    assert.ok(fx.d1.parameterCounts.length > 0);
+    assert.ok(fx.d1.parameterCounts.every((count) => count <= 100));
+    assert.equal(result.fixedRelationshipCount, 21);
+    assert.equal(result.stimulusOptionCount, 20);
+    assert.equal(result.clonedAssetQuestionCount, 20);
+    assert.equal(result.remappedOptInCount, 20);
+    assert.equal(
+      fx.sqlite.prepare("SELECT COUNT(*) AS count FROM case_assets WHERE asset_id = ? AND case_id LIKE 'high-case-%'").get(result.newAssetId).count,
+      20
+    );
+    assert.equal(
+      fx.sqlite.prepare("SELECT COUNT(*) AS count FROM case_assets WHERE asset_id = 'asset-a' AND case_id LIKE 'high-case-%'").get().count,
+      0
+    );
+    assert.equal(
+      fx.sqlite.prepare("SELECT COUNT(*) AS count FROM stimulus_group_options WHERE asset_id = ? AND id LIKE 'high-option-%'").get(result.newAssetId).count,
+      20
+    );
+    assert.equal(
+      fx.sqlite.prepare("SELECT COUNT(*) AS count FROM stimulus_group_options WHERE asset_id = 'asset-a' AND id LIKE 'high-option-%'").get().count,
+      0
+    );
+    assert.equal(
+      fx.sqlite.prepare("SELECT COUNT(*) AS count FROM asset_questions WHERE asset_id = ? AND question_prompt_id LIKE 'high-prompt-%'").get(result.newAssetId).count,
+      20
+    );
+    assert.equal(
+      fx.sqlite.prepare(`
+        SELECT COUNT(*) AS count
+        FROM stimulus_option_asset_questions soaq
+        INNER JOIN asset_questions aq ON aq.id = soaq.asset_question_id
+        INNER JOIN stimulus_group_options sgo ON sgo.id = soaq.stimulus_group_option_id
+        WHERE aq.asset_id = ? AND sgo.asset_id = ? AND sgo.id LIKE 'high-option-%'
+      `).get(result.newAssetId, result.newAssetId).count,
+      20
+    );
+    assert.equal(fx.objects.has(result.newStorageKey), true);
   } finally {
     fx.sqlite.close();
   }

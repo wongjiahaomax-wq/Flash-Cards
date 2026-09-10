@@ -27,7 +27,7 @@ export class AssetReplacementInputError extends Error {
   }
 }
 
-const MAX_GRAPH_GUARD_PARAMS = 90;
+const MAX_D1_STATEMENT_PARAMS = 100;
 
 /** @param {unknown} value */
 function storedValue(value) {
@@ -46,13 +46,20 @@ function exactRow(columns, row) {
   return sql.join(columns.map(([column, key]) => exactColumn(column, row[key])), sql` AND `);
 }
 
-/** @param {any[]} rows @param {number} columnsPerRow */
-function graphRowChunks(rows, columnsPerRow) {
-  const size = Math.max(1, Math.floor((MAX_GRAPH_GUARD_PARAMS - 2) / columnsPerRow));
+/** @param {any[]} rows @param {number} paramsPerRow @param {number} fixedParams */
+function parameterSafeChunks(rows, paramsPerRow, fixedParams = 0) {
+  const size = Math.max(1, Math.floor((MAX_D1_STATEMENT_PARAMS - fixedParams) / paramsPerRow));
   /** @type {any[][]} */
   const chunks = [];
   for (let index = 0; index < rows.length; index += size) chunks.push(rows.slice(index, index + size));
   return chunks.length ? chunks : [[]];
+}
+
+/** @param {any[]} rows @param {number} columnsPerRow */
+function graphRowChunks(rows, columnsPerRow) {
+  // Every graph row also repeats sourceAssetId in its scope. Each guard has
+  // one sentinel bind, one count bind, and one expected-row-count bind.
+  return parameterSafeChunks(rows, columnsPerRow + 1, 3);
 }
 
 /**
@@ -452,8 +459,9 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
       })
     ];
 
-    if (reusableRows.length) {
-      statements.push(db.insert(assetQuestions).values(reusableRows.map((row) => ({
+    for (const questionRows of parameterSafeChunks(reusableRows, 7)) {
+      if (!questionRows.length) continue;
+      statements.push(db.insert(assetQuestions).values(questionRows.map((row) => ({
         id: clonedQuestionId(row.id),
         assetId: newAssetId,
         questionPromptId: row.questionPromptId,
@@ -464,18 +472,20 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
       }))));
     }
 
-    const fixedCaseIds = fixedRows.map((row) => row.caseId);
-    if (fixedCaseIds.length) {
+    const fixedCaseIds = [...new Set(fixedRows.map((row) => row.caseId))];
+    for (const caseIdChunk of parameterSafeChunks(fixedCaseIds, 1, 2)) {
+      if (!caseIdChunk.length) continue;
       statements.push(db.update(caseAssets)
         .set({ assetId: newAssetId })
-        .where(and(eq(caseAssets.assetId, normalizedAssetId), inArray(caseAssets.caseId, fixedCaseIds))));
+        .where(and(eq(caseAssets.assetId, normalizedAssetId), inArray(caseAssets.caseId, caseIdChunk))));
     }
 
-    const optionIds = optionRows.map((row) => row.optionId);
-    if (optionIds.length) {
+    const optionIds = [...new Set(optionRows.map((row) => row.optionId))];
+    for (const optionIdChunk of parameterSafeChunks(optionIds, 1, 2)) {
+      if (!optionIdChunk.length) continue;
       statements.push(db.update(stimulusGroupOptions)
         .set({ assetId: newAssetId })
-        .where(and(eq(stimulusGroupOptions.assetId, normalizedAssetId), inArray(stimulusGroupOptions.id, optionIds))));
+        .where(and(eq(stimulusGroupOptions.assetId, normalizedAssetId), inArray(stimulusGroupOptions.id, optionIdChunk))));
     }
 
     for (const usage of productionOptIns) {
