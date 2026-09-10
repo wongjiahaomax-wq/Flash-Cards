@@ -29,6 +29,7 @@ function d1Fixture(sqlite, {
   let pending = [];
   let barrierOpen = releaseAfterBatches <= 1;
   let firstBatchStarted = false;
+  let batchCount = 0;
   const parameterCounts = [];
 
   function assertParameterCount(params) {
@@ -82,7 +83,11 @@ function d1Fixture(sqlite, {
         }
       };
     },
+    get batchCount() {
+      return batchCount;
+    },
     async batch(statements) {
+      batchCount += 1;
       if (barrierOpen) return executeBatch(statements);
       return new Promise((resolve, reject) => {
         pending.push({ statements, resolve, reject });
@@ -458,6 +463,7 @@ test('high-cardinality replacement keeps every D1 statement within 100 params an
 
     assert.ok(fx.d1.parameterCounts.length > 0);
     assert.ok(fx.d1.parameterCounts.every((count) => count <= 100));
+    assert.equal(fx.d1.batchCount, 1);
     assert.equal(result.fixedRelationshipCount, 21);
     assert.equal(result.stimulusOptionCount, 20);
     assert.equal(result.clonedAssetQuestionCount, 20);
