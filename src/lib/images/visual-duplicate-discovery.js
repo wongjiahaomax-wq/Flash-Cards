@@ -386,29 +386,47 @@ export async function runVisualDuplicateScan(options) {
   };
 }
 
+/**
+ * Reconciles the server-owned candidate-listing completeness metadata with a scan
+ * result. The listing endpoint returns at most its own cap together with the true
+ * eligible `totalCount`, so the received array can legitimately equal the local
+ * scan cap while the scope is still incomplete. Server truncation and client-side
+ * array truncation are both preserved, and incompleteness reasons stay additive.
+ * @param {any} result @param {any} candidatePayload
+ */
+function reconcileCandidateCompleteness(result, candidatePayload) {
+  const reportedTotal = Number(candidatePayload?.totalCount);
+  const hasReportedTotal = Number.isFinite(reportedTotal) && reportedTotal >= 0;
+  const receivedCount = Number(result?.candidateCount) || 0;
+  const candidateCount = hasReportedTotal ? Math.max(reportedTotal, receivedCount) : receivedCount;
+  const truncated = Boolean(result?.truncated) || Boolean(candidatePayload?.truncated);
+  const incompleteReasons = Array.isArray(result?.incompleteReasons) ? [...result.incompleteReasons] : [];
+  if (truncated && !incompleteReasons.includes('candidate-limit')) incompleteReasons.push('candidate-limit');
+  return { ...result, candidateCount, truncated, bounded: truncated, incomplete: incompleteReasons.length > 0, incompleteReasons };
+}
+
 /** @param {any} candidatePayload */
 function emptyScanResult(candidatePayload) {
-  const truncated = Boolean(candidatePayload?.truncated);
-  return {
+  return reconcileCandidateCompleteness({
     pairs: [],
     fingerprints: new Map(),
     failures: [],
     scope: null,
-    candidateCount: candidatePayload?.totalCount ?? 0,
+    candidateCount: 0,
     scannedCount: 0,
     fingerprintedCount: 0,
     totalBytes: 0,
     comparisons: 0,
     yields: 0,
-    truncated,
-    bounded: truncated,
+    truncated: false,
+    bounded: false,
     budgetExceeded: false,
     aborted: false,
-    incomplete: truncated,
-    incompleteReasons: truncated ? ['candidate-limit'] : [],
+    incomplete: false,
+    incompleteReasons: [],
     maxFetchConcurrency: 0,
     maxDecodeConcurrency: 0
-  };
+  }, candidatePayload);
 }
 
 /**
@@ -485,17 +503,20 @@ export function createVisualDuplicateController(adapters) {
         return { ...emptyScanResult(candidatePayload), candidatePayload, scope: input.scope ?? null, stale: false, published: true };
       }
 
-      const result = await runVisualDuplicateScan({
-        candidates,
-        scope: input.scope ?? null,
-        limits,
-        fetchImage: adapters.fetchImage,
-        decodeImage: adapters.decodeImage,
-        hashRaster: adapters.hashRaster,
-        onProgress: publishProgress,
-        yieldControl: adapters.yieldControl,
-        signal: controller.signal
-      });
+      const result = reconcileCandidateCompleteness(
+        await runVisualDuplicateScan({
+          candidates,
+          scope: input.scope ?? null,
+          limits,
+          fetchImage: adapters.fetchImage,
+          decodeImage: adapters.decodeImage,
+          hashRaster: adapters.hashRaster,
+          onProgress: publishProgress,
+          yieldControl: adapters.yieldControl,
+          signal: controller.signal
+        }),
+        candidatePayload
+      );
       if (!isCurrent()) {
         return { ...result, pairs: [], fingerprints: new Map(), candidatePayload, stale: true, published: false };
       }

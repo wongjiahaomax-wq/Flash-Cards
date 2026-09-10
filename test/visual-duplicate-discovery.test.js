@@ -604,6 +604,58 @@ test('a superseded search cannot overwrite a newer search progress or results', 
   assert.ok(events.some((event) => event.phase === 'scan' && event.total === 3), 'the newer search must still publish its own progress');
 });
 
+test('a server-truncated candidate listing stays visibly incomplete after the scan publishes', async () => {
+  const totalCount = 377;
+  const controller = createVisualDuplicateController({
+    fetchImage: async () => fakeResponse(new Uint8Array(64)),
+    decodeImage: async () => seededRaster(31),
+    yieldControl: tinyYield
+  });
+  const cappedCandidates = Array.from({ length: 120 }, (_, index) => ({ id: `eligible-${String(index).padStart(3, '0')}`, imageUrl: `/image/${index}` }));
+
+  // The listing endpoint returns at most its own cap of 120 rows plus the true
+  // eligible count, so the received array length alone never proves completeness.
+  const result = await controller.start({
+    scope: 'topic',
+    loadCandidates: async () => ({
+      scope: 'topic',
+      scopeLabel: 'Topic topic-1',
+      totalCount,
+      truncated: true,
+      maxAssets: 120,
+      candidates: cappedCandidates
+    })
+  });
+
+  assert.equal(result.published, true);
+  assert.equal(result.candidatePayload.totalCount, totalCount);
+  assert.equal(result.scannedCount, 120, 'every received candidate is still compared');
+  assert.equal(result.fingerprintedCount, 120);
+  assert.equal(result.candidateCount, totalCount, 'the published summary must report the true eligible count, not the received array length');
+  assert.notEqual(result.candidateCount, result.scannedCount, 'a server-truncated scope must never be reported as 120 of 120');
+  assert.equal(result.truncated, true);
+  assert.equal(result.bounded, true);
+  assert.equal(result.incomplete, true);
+  assert.ok(result.incompleteReasons.includes('candidate-limit'));
+
+  // Client-side truncation of an over-long payload is still reported even when the
+  // server itself did not label the listing truncated.
+  const clientBounded = await controller.start({
+    loadCandidates: async () => ({
+      scopeLabel: 'Oversized listing',
+      totalCount: 130,
+      truncated: false,
+      candidates: Array.from({ length: 130 }, (_, index) => ({ id: `over-${index}`, imageUrl: `/image/${index}` }))
+    })
+  });
+  assert.equal(clientBounded.scannedCount, 120);
+  assert.equal(clientBounded.candidateCount, 130);
+  assert.equal(clientBounded.truncated, true);
+  assert.equal(clientBounded.bounded, true);
+  assert.equal(clientBounded.incomplete, true);
+  assert.ok(clientBounded.incompleteReasons.includes('candidate-limit'));
+});
+
 test('the discovery controller takes the server-provided limits instead of client defaults', () => {
   const serverLimits = {
     maxScanAssets: 77,

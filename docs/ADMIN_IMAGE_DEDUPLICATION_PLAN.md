@@ -930,6 +930,8 @@ Do not silently truncate and imply completeness.
 
 If scope >120, require narrower scope or explicit bounded batch/page and label incomplete/bounded.
 
+The candidate listing applies the 120 cap server-side, so the browser receives at most 120 rows plus the true eligible `totalCount` and `truncated`. The controller must reconcile that server-owned completeness metadata into the published scan result — reporting the actual eligible count and keeping `truncated`/`bounded`/`incomplete`/`candidate-limit` set — rather than inferring completeness from the received array length. Client-side truncation of an over-long payload remains reported the same way.
+
 Count trusted `Content-Length` when present and actual Blob bytes before fingerprinting. Stop before >96 MiB and show incomplete warning.
 
 At most 2 images may be decoding/working-raster processing simultaneously. Retain only compact fingerprints afterward.
