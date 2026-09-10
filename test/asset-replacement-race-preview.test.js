@@ -9,6 +9,10 @@ import {
   AssetReplacementInputError,
   replaceAssetWithHigherResolution
 } from '../src/lib/server/db/asset-replacement.js';
+import {
+  getDuplicateAssetMergePlan,
+  mergeDuplicateAssets
+} from '../src/lib/server/db/asset-deduplication.js';
 
 const migrationSql = readdirSync(new URL('../drizzle/', import.meta.url))
   .filter((name) => /^\d{4}_.+\.sql$/.test(name))
@@ -146,7 +150,73 @@ function fixture(options = {}) {
     type: 'image/png'
   });
 
+  if (options.includeDedupeGraph) addDedupeGraph({ sqlite, ...storage });
+
   return { sqlite, d1, db, ...storage };
+}
+
+function addDedupeGraph({ sqlite, objects }) {
+  sqlite.prepare(
+    'INSERT INTO cases (id, title, question_selection_mode, question_count, preview_session_id, is_active, created_at, updated_at) VALUES (?, ?, ?, NULL, NULL, 1, 1, 1)'
+  ).run('dedupe-case-b', 'Duplicate case', 'all');
+  sqlite.prepare(
+    'INSERT INTO assets (id, type, storage_key, mime_type, original_filename, alt_text, preview_session_id, superseded_by_asset_id, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, 1, 1, 1)'
+  ).run('asset-b', 'image', 'teaching-images/asset-b.png', 'image/png', 'duplicate.png', 'Duplicate image');
+  sqlite.prepare(
+    'INSERT INTO case_assets (case_id, asset_id, display_order, caption_md, created_at) VALUES (?, ?, 0, ?, 1)'
+  ).run('dedupe-case-b', 'asset-b', 'B caption');
+  sqlite.prepare(
+    'INSERT INTO stimulus_groups (id, case_id, name, display_order, selection_count, specific_question_mode, minimum_specific_questions, is_active, created_at, updated_at) VALUES (?, ?, ?, 0, 1, ?, NULL, 1, 1, 1)'
+  ).run('group-a', 'production-case', 'A alternatives', 'none');
+  sqlite.prepare(
+    'INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, removed_from_case, created_at) VALUES (?, ?, ?, 0, ?, 1, 0, 1)'
+  ).run('option-a', 'group-a', 'asset-a', 'A option caption');
+  sqlite.prepare(
+    'INSERT INTO stimulus_groups (id, case_id, name, display_order, selection_count, specific_question_mode, minimum_specific_questions, is_active, created_at, updated_at) VALUES (?, ?, ?, 0, 1, ?, NULL, 1, 1, 1)'
+  ).run('group-b', 'dedupe-case-b', 'B alternatives', 'none');
+  sqlite.prepare(
+    'INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, removed_from_case, created_at) VALUES (?, ?, ?, 0, ?, 1, 0, 1)'
+  ).run('option-b', 'group-b', 'asset-b', 'B option caption');
+  sqlite.prepare(
+    'INSERT INTO question_prompts (id, prompt_md, preview_session_id, is_active, created_at, updated_at) VALUES (?, ?, NULL, 1, 1, 1)'
+  ).run('prompt-a', 'A prompt');
+  sqlite.prepare(
+    'INSERT INTO question_prompts (id, prompt_md, preview_session_id, is_active, created_at, updated_at) VALUES (?, ?, NULL, 1, 1, 1)'
+  ).run('prompt-b', 'B prompt');
+  sqlite.prepare(
+    'INSERT INTO asset_questions (id, asset_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1, 1)'
+  ).run('aq-a', 'asset-a', 'prompt-a', 'A answer');
+  sqlite.prepare(
+    'INSERT INTO asset_questions (id, asset_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES (?, ?, ?, ?, 1, 1, 1)'
+  ).run('aq-b', 'asset-b', 'prompt-b', 'B answer');
+  sqlite.prepare(
+    'INSERT INTO stimulus_option_asset_questions (stimulus_group_option_id, asset_question_id, created_at) VALUES (?, ?, 1)'
+  ).run('option-a', 'aq-a');
+  sqlite.prepare(
+    'INSERT INTO stimulus_option_asset_questions (stimulus_group_option_id, asset_question_id, created_at) VALUES (?, ?, 1)'
+  ).run('option-b', 'aq-b');
+  objects.set('teaching-images/asset-b.png', {
+    bytes: new TextEncoder().encode('duplicate-image'),
+    type: 'image/png'
+  });
+}
+
+async function dedupeBIntoA(fx) {
+  const plan = await getDuplicateAssetMergePlan({
+    db: fx.db,
+    bucket: fx.bucket,
+    survivorAssetId: 'asset-a',
+    duplicateAssetId: 'asset-b'
+  });
+  assert.equal(plan.canMerge, true);
+  return mergeDuplicateAssets({
+    db: fx.db,
+    bucket: fx.bucket,
+    survivorAssetId: 'asset-a',
+    duplicateAssetId: 'asset-b',
+    mergePlanFingerprint: plan.mergePlanFingerprint,
+    certificationConfirmed: true
+  });
 }
 
 function addLivePreviewFixedReference(fx) {
@@ -225,6 +295,107 @@ test('concurrent replacement submissions allow exactly one claim and clean up th
     assert.equal(fx.objects.has('teaching-images/asset-a.png'), true);
     assert.equal(fx.objects.has(winner.newStorageKey), true);
     assert.equal(fx.objects.size, 2);
+  } finally {
+    fx.sqlite.close();
+  }
+});
+
+test('replacement aborts without C residue when dedupe B to A commits after its graph snapshot', async () => {
+  let fx;
+  fx = fixture({
+    includeDedupeGraph: true,
+    beforeFirstBatch: async () => {
+      const result = await dedupeBIntoA(fx);
+      assert.equal(result.cleanup.status, 'cleaned');
+    }
+  });
+  try {
+    await assert.rejects(
+      () => replaceAssetWithHigherResolution({
+        db: fx.db,
+        bucket: fx.bucket,
+        assetId: 'asset-a',
+        file: namedBlob('stale replacement', 'stale.png'),
+        confirmedSameImage: true
+      }),
+      (error) => error instanceof AssetReplacementInputError
+        && /relationships changed while this replacement was being prepared/.test(error.message)
+    );
+
+    assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM assets WHERE id NOT IN (?, ?)').get('asset-a', 'asset-b').count, 0);
+    assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM assets WHERE id = ?').get('asset-b').count, 0);
+    assert.equal(fx.sqlite.prepare('SELECT is_active, superseded_by_asset_id FROM assets WHERE id = ?').get('asset-a').is_active, 1);
+    assert.equal(fx.sqlite.prepare('SELECT superseded_by_asset_id FROM assets WHERE id = ?').get('asset-a').superseded_by_asset_id, null);
+    assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM assets WHERE id <> ?').get('asset-a').count, 0);
+    assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM asset_questions WHERE asset_id = ?').get('asset-a').count, 2);
+    assert.deepEqual(
+      fx.sqlite.prepare('SELECT id, asset_id FROM stimulus_group_options ORDER BY id').all().map((row) => ({ ...row })),
+      [{ id: 'option-a', asset_id: 'asset-a' }, { id: 'option-b', asset_id: 'asset-a' }]
+    );
+    assert.equal(fx.writes.length, 1);
+    assert.deepEqual(fx.deleted.sort(), ['teaching-images/asset-b.png', fx.writes[0]].sort());
+    assert.equal(fx.objects.has(fx.writes[0]), false);
+    assert.equal(fx.objects.has('teaching-images/asset-a.png'), true);
+    assert.equal(fx.objects.has('teaching-images/asset-b.png'), false);
+  } finally {
+    fx.sqlite.close();
+  }
+});
+
+test('replacement started after dedupe migrates the complete unioned graph', async () => {
+  const fx = fixture({ includeDedupeGraph: true });
+  try {
+    const dedupe = await dedupeBIntoA(fx);
+    assert.equal(dedupe.cleanup.status, 'cleaned');
+
+    const result = await replaceAssetWithHigherResolution({
+      db: fx.db,
+      bucket: fx.bucket,
+      assetId: 'asset-a',
+      file: namedBlob('union replacement', 'union.png'),
+      confirmedSameImage: true
+    });
+
+    assert.equal(result.clonedAssetQuestionCount, 2);
+    assert.equal(result.remappedOptInCount, 2);
+    assert.equal(fx.sqlite.prepare('SELECT is_active FROM assets WHERE id = ?').get('asset-a').is_active, 0);
+    const successor = fx.sqlite.prepare('SELECT is_active, superseded_by_asset_id FROM assets WHERE id = ?').get(result.newAssetId);
+    assert.deepEqual({ ...successor }, { is_active: 1, superseded_by_asset_id: null });
+    assert.deepEqual(
+      fx.sqlite.prepare('SELECT case_id, asset_id FROM case_assets ORDER BY case_id').all().map((row) => ({ ...row })),
+      [
+        { case_id: 'dedupe-case-b', asset_id: result.newAssetId },
+        { case_id: 'production-case', asset_id: result.newAssetId }
+      ]
+    );
+    assert.deepEqual(
+      fx.sqlite.prepare('SELECT id, asset_id FROM stimulus_group_options ORDER BY id').all().map((row) => ({ ...row })),
+      [{ id: 'option-a', asset_id: result.newAssetId }, { id: 'option-b', asset_id: result.newAssetId }]
+    );
+    assert.deepEqual(
+      fx.sqlite.prepare('SELECT question_prompt_id, answer_md FROM asset_questions WHERE asset_id = ? ORDER BY question_prompt_id').all(result.newAssetId).map((row) => ({ ...row })),
+      [
+        { question_prompt_id: 'prompt-a', answer_md: 'A answer' },
+        { question_prompt_id: 'prompt-b', answer_md: 'B answer' }
+      ]
+    );
+    assert.deepEqual(
+      fx.sqlite.prepare(`
+        SELECT stimulus_group_option_id, aq.question_prompt_id
+        FROM stimulus_option_asset_questions soaq
+        JOIN asset_questions aq ON aq.id = soaq.asset_question_id
+        JOIN stimulus_group_options sgo ON sgo.id = soaq.stimulus_group_option_id
+        WHERE sgo.asset_id = ?
+        ORDER BY stimulus_group_option_id
+      `).all(result.newAssetId).map((row) => ({ ...row })),
+      [
+        { stimulus_group_option_id: 'option-a', question_prompt_id: 'prompt-a' },
+        { stimulus_group_option_id: 'option-b', question_prompt_id: 'prompt-b' }
+      ]
+    );
+    assert.equal(fx.objects.has(result.newStorageKey), true);
+    assert.equal(fx.objects.has('teaching-images/asset-a.png'), true);
+    assert.equal(fx.objects.has('teaching-images/asset-b.png'), false);
   } finally {
     fx.sqlite.close();
   }
