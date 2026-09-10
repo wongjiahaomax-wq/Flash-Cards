@@ -608,7 +608,7 @@ function prospectivePromptConflicts({ state, survivorId, duplicateId, aQuestions
     const canonicalIsActive = canonicalActiveById.has(canonical.id)
       ? canonicalActiveById.get(canonical.id)
       : Boolean(canonical.is_active && promptById.get(canonical.question_prompt_id)?.is_active);
-    if (option.group_is_active && option.is_active && !option.removed_from_case && option.case_is_active && !option.case_preview_session_id && canonicalIsActive) groups.add(option.stimulus_group_id);
+    if (option.group_is_active && option.is_active && !option.removed_from_case && !option.case_preview_session_id && canonicalIsActive) groups.add(option.stimulus_group_id);
     map.set(key, groups);
   }
   for (const row of state.groupQuestionRows) {
@@ -623,7 +623,7 @@ function prospectivePromptConflicts({ state, survivorId, duplicateId, aQuestions
   for (const row of state.optionQuestionRows) {
     if (!row.is_active) continue;
     const option = (state.graphOptionRows ?? state.optionRows).find((candidate) => candidate.id === row.stimulus_group_option_id);
-    if (!option?.group_is_active || !option.is_active || option.removed_from_case || !option.case_is_active || option.case_preview_session_id) continue;
+    if (!option?.group_is_active || !option.is_active || option.removed_from_case || option.case_preview_session_id) continue;
     const key = `${option.case_id}:${row.question_prompt_id}`;
     const groups = map.get(key) ?? new Set();
     groups.add(option.stimulus_group_id);

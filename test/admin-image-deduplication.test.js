@@ -338,6 +338,29 @@ test('prospective Prompt conflicts include unrelated active reusable Option opt-
   } finally { fx.sqlite.close(); }
 });
 
+test('prospective Prompt conflicts include live reusable Option opt-ins in an inactive retained Case', async () => {
+  const fx = domainFixture();
+  try {
+    fx.sqlite.exec(`
+      UPDATE cases SET is_active = 0 WHERE id = 'case-a';
+      UPDATE asset_questions SET is_active = 0 WHERE id = 'aq-a';
+      DELETE FROM stimulus_option_asset_questions WHERE asset_question_id = 'aq-b';
+      UPDATE stimulus_option_questions SET is_active = 0 WHERE id = 'option-q';
+      INSERT INTO asset_questions (id, asset_id, question_prompt_id, answer_md, is_active, created_at, updated_at) VALUES ('aq-x-inactive-case', 'asset-unused', 'prompt-shared', 'Unrelated reusable answer', 1, 1, 1);
+      INSERT INTO stimulus_groups (id, case_id, name, display_order, is_active, created_at, updated_at) VALUES ('group-a-inactive-case', 'case-a', 'Inactive-case A group', 1, 1, 1, 1);
+      INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, removed_from_case, created_at) VALUES ('option-a-inactive-case', 'group-a-inactive-case', 'asset-a', 0, 'Inactive-case A option', 1, 0, 1);
+      INSERT INTO stimulus_option_asset_questions (stimulus_group_option_id, asset_question_id, created_at) VALUES ('option-a-inactive-case', 'aq-a', 1);
+      INSERT INTO stimulus_groups (id, case_id, name, display_order, is_active, created_at, updated_at) VALUES ('group-other-inactive-case', 'case-a', 'Other inactive-case group', 2, 1, 1, 1);
+      INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, caption_md, is_active, removed_from_case, created_at) VALUES ('option-other-inactive-case', 'group-other-inactive-case', 'asset-unused', 0, 'Other inactive-case option', 1, 0, 1);
+      INSERT INTO stimulus_option_asset_questions (stimulus_group_option_id, asset_question_id, created_at) VALUES ('option-other-inactive-case', 'aq-x-inactive-case', 1);
+    `);
+    const plan = await getDuplicateAssetMergePlan({ db: fx.db, bucket: fx.bucket, survivorAssetId: 'asset-a', duplicateAssetId: 'asset-b' });
+    assert.equal(plan.canMerge, false);
+    assert.ok(plan.prospectivePromptConflicts.some((conflict) => conflict.key === 'case-a:prompt-shared'));
+    assert.ok(plan.blockers.some((blocker) => blocker.code === 'prospective-prompt-conflict'));
+  } finally { fx.sqlite.close(); }
+});
+
 test('certified merge unions reusable questions, moves retained relationships, and cleans only duplicate media', async () => {
   const fx = domainFixture();
   try {
@@ -611,6 +634,19 @@ test('stale B Asset Question creation cannot reactivate an inactive question aft
   } finally { fx.sqlite.close(); }
 });
 
+test('Asset Question creation preserves inactive and superseded production-image authoring semantics', async () => {
+  for (const state of ['inactive', 'superseded']) {
+    const fx = domainFixture();
+    try {
+      if (state === 'inactive') fx.sqlite.prepare('UPDATE assets SET is_active = 0 WHERE id = ?').run('asset-unused');
+      else fx.sqlite.prepare('UPDATE assets SET superseded_by_asset_id = ? WHERE id = ?').run('asset-a', 'asset-unused');
+      const questionId = await createAssetQuestion(fx.db, { assetId: 'asset-unused', promptMd: `${state} production prompt`, answerMd: `${state} production answer` });
+      assert.equal(fx.sqlite.prepare('SELECT asset_id FROM asset_questions WHERE id = ?').get(questionId).asset_id, 'asset-unused');
+      assert.equal(fx.sqlite.prepare('SELECT count(*) AS count FROM question_prompts WHERE prompt_md = ?').get(`${state} production prompt`).count, 1);
+    } finally { fx.sqlite.close(); }
+  }
+});
+
 test('renaming an Image Collection after recompute stale-aborts the certified merge', async () => {
   let first = true;
   const fx = domainFixture({ beforeBatch(sqlite) {
@@ -854,6 +890,9 @@ test('Admin certification evidence renders persisted text and permits required a
   assert.match(source, /Prompt ID \{question\.question_prompt_id\}/);
   assert.match(source, /Group Question \{question\.id\}/);
   assert.match(source, /Option Question \{question\.id\}/);
+  assert.match(source, /Retained inactive Stimulus Group/);
+  assert.match(source, /Retained inactive Stimulus Option/);
+  assert.match(source, /Retained removed-from-Case Stimulus Option/);
   assert.match(source, /asset\.image_collection_name/);
   assert.match(source, /naturalWidth/);
   assert.match(source, /context\.primaryTopic\.id/);
@@ -898,7 +937,10 @@ test('Admin certification evidence renders persisted text and permits required a
                 group: { id: 'group-id', name: 'Group', is_active: true, questions: [{ id: 'group-question-id', question_prompt_id: 'group-prompt-id', promptMd: 'Group prompt', is_active: true, answer_md: 'Group answer' }] },
                 optionQuestions: [{ id: 'option-question-id', question_prompt_id: 'option-prompt-id', promptMd: 'Option prompt', is_active: true, answer_md: 'Option answer' }],
                 caseQuestions: []
-              }
+              },
+              { relationship: 'stimulus-option', id: 'inactive-group-option', stimulus_group_id: 'inactive-group', display_order: 2, created_at: 1, caption_md: '', is_active: true, removed_from_case: false, case: { id: 'case-inactive-group', title: 'Inactive group case', vignetteMd: '', isActive: true, previewSessionId: null }, primaryTopic: null, systemAncestry: [], group: { id: 'inactive-group', name: 'Inactive group', is_active: false, questions: [] }, optionQuestions: [], caseQuestions: [] },
+              { relationship: 'stimulus-option', id: 'inactive-option', stimulus_group_id: 'active-group', display_order: 3, created_at: 1, caption_md: '', is_active: false, removed_from_case: false, case: { id: 'case-inactive-option', title: 'Inactive option case', vignetteMd: '', isActive: true, previewSessionId: null }, primaryTopic: null, systemAncestry: [], group: { id: 'active-group', name: 'Active group', is_active: true, questions: [] }, optionQuestions: [], caseQuestions: [] },
+              { relationship: 'stimulus-option', id: 'removed-option', stimulus_group_id: 'active-group', display_order: 4, created_at: 1, caption_md: '', is_active: true, removed_from_case: true, case: { id: 'case-removed-option', title: 'Removed option case', vignetteMd: '', isActive: true, previewSessionId: null }, primaryTopic: null, systemAncestry: [], group: { id: 'active-group', name: 'Active group', is_active: true, questions: [] }, optionQuestions: [], caseQuestions: [] }
             ],
             reusableQuestions: [{ asset_id: 'asset-a', id: 'aq-a', question_prompt_id: 'reusable-prompt-id', prompt_md: 'Reusable prompt', answer_md: 'Reusable answer', is_active: true, optIns: [] }],
             questionConflicts: [{ questionPromptId: 'prompt', promptMd: 'Prompt', resolutionRequired: true, survivor: { answer_md: 'Survivor answer' }, duplicate: { answer_md: 'Duplicate answer' } }]
@@ -916,6 +958,9 @@ test('Admin certification evidence renders persisted text and permits required a
     assert.match(html, /System \(ID system-id\)/);
     assert.match(html, /Group Question group-question-id/);
     assert.match(html, /Option Question option-question-id/);
+    assert.match(html, /Retained inactive Stimulus Group/);
+    assert.match(html, /Retained inactive Stimulus Option/);
+    assert.match(html, /Retained removed-from-Case Stimulus Option/);
     assert.match(html, /Prompt ID reusable-prompt-id: Reusable prompt/);
     assert.match(html, /type="radio"[^>]+required/);
     assert.match(html, /name="certification_confirmed"[^>]+required/);

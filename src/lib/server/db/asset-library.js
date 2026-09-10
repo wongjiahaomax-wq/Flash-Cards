@@ -475,7 +475,19 @@ export async function updateAssetMetadata(db, assetId, input) {
   const imageCollectionId = optionalText(input.imageCollectionId);
   await validateCollection(db, imageCollectionId);
   const update = { originalFilename: optionalText(input.originalFilename), altText: optionalText(input.altText), sourceLabel: optionalText(input.sourceLabel), sourceUrl: validateAssetSourceUrl(input.sourceUrl), licence: optionalText(input.licence), imageCollectionId, isActive: booleanValue(input.isActive), updatedAt: new Date() };
-  await db.update(assets).set(update).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId)));
+  const updated = await db.update(assets).set(update).where(and(
+    eq(assets.id, normalizedId),
+    isNull(assets.previewSessionId),
+    isNull(assets.deduplicatedIntoAssetId)
+  )).returning({ id: assets.id });
+  if (!updated.length) {
+    const current = await db.select({ deduplicatedIntoAssetId: assets.deduplicatedIntoAssetId })
+      .from(assets)
+      .where(eq(assets.id, normalizedId))
+      .limit(1);
+    if (current[0]?.deduplicatedIntoAssetId) throw new AssetLibraryInputError(ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE);
+    throw new AssetLibraryInputError('The selected production Asset no longer exists.');
+  }
   return update;
 }
 
@@ -500,10 +512,33 @@ export async function setAssetCollection(db, assetIds, collectionId) {
   if (uniqueIds.length > ASSET_LIBRARY_COLLECTION_BULK_LIMIT) throw new AssetLibraryInputError(`Collection updates are limited to ${ASSET_LIBRARY_COLLECTION_BULK_LIMIT} Assets per request.`);
   const normalizedCollectionId = optionalText(collectionId);
   await validateCollection(db, normalizedCollectionId);
-  const existing = await db.select({ id: assets.id }).from(assets).where(and(isNull(assets.previewSessionId), inArray(assets.id, uniqueIds)));
+  const existing = await db.select({ id: assets.id, deduplicatedIntoAssetId: assets.deduplicatedIntoAssetId })
+    .from(assets)
+    .where(and(isNull(assets.previewSessionId), inArray(assets.id, uniqueIds)));
+  if (existing.some((row) => row.deduplicatedIntoAssetId)) throw new AssetLibraryInputError(ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE);
   if (existing.length !== uniqueIds.length) throw new AssetLibraryInputError('One or more selected production Assets no longer exist.');
-  await db.update(assets).set({ imageCollectionId: normalizedCollectionId, updatedAt: new Date() }).where(and(isNull(assets.previewSessionId), inArray(assets.id, uniqueIds)));
-  return { updatedCount: uniqueIds.length, collectionId: normalizedCollectionId };
+  const selectedIds = sql.join(uniqueIds.map((id) => sql`${id}`), sql`, `);
+  const allTargetsStillWritable = sql`(
+    SELECT count(*) FROM assets selected_asset
+    WHERE selected_asset.id IN (${selectedIds})
+      AND selected_asset.preview_session_id IS NULL
+      AND selected_asset.deduplicated_into_asset_id IS NULL
+  ) = ${uniqueIds.length}`;
+  const updated = await db.update(assets).set({ imageCollectionId: normalizedCollectionId, updatedAt: new Date() }).where(and(
+    isNull(assets.previewSessionId),
+    isNull(assets.deduplicatedIntoAssetId),
+    inArray(assets.id, uniqueIds),
+    allTargetsStillWritable
+  )).returning({ id: assets.id });
+  if (updated.length !== uniqueIds.length) {
+    const tombstones = await db.select({ id: assets.id })
+      .from(assets)
+      .where(and(inArray(assets.id, uniqueIds), isNotNull(assets.deduplicatedIntoAssetId)))
+      .limit(1);
+    if (tombstones.length) throw new AssetLibraryInputError(ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE);
+    throw new AssetLibraryInputError('One or more selected production Assets no longer exist.');
+  }
+  return { updatedCount: updated.length, collectionId: normalizedCollectionId };
 }
 
 /** @param {string} mimeType */

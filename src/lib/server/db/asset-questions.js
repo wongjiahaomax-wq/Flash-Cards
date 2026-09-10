@@ -58,8 +58,6 @@ function productionAssetWriteFence(db, assetId) {
       WHERE source_asset.id = ${assetId}
         AND source_asset.type = 'image'
         AND source_asset.preview_session_id IS NULL
-        AND source_asset.is_active = 1
-        AND source_asset.superseded_by_asset_id IS NULL
         AND source_asset.deduplicated_into_asset_id IS NULL
     ) THEN \`type\` ELSE NULL END`
   }).where(eq(assets.id, assetId));

@@ -42,7 +42,8 @@ const migrationSql = [
   'ALTER TABLE assets ADD COLUMN deduplicated_into_asset_id text;'
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
-function createLearningDb() {
+/** @param {{ beforeStatement?: (sql: string, sqlite: DatabaseSync) => void | Promise<void> }} [options] */
+function createLearningDb({ beforeStatement } = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(migrationSql);
@@ -54,9 +55,10 @@ function createLearningDb() {
         /** @param {...any} params */
         bind(...params) {
           return {
-            async all() { return { results: sqlite.prepare(sql).all(...params) }; },
-            async raw() { return sqlite.prepare(sql).all(...params).map((row) => Object.values(row)); },
+            async all() { if (beforeStatement) await beforeStatement(sql, sqlite); return { results: sqlite.prepare(sql).all(...params) }; },
+            async raw() { if (beforeStatement) await beforeStatement(sql, sqlite); return sqlite.prepare(sql).all(...params).map((row) => Object.values(row)); },
             async run() {
+              if (beforeStatement) await beforeStatement(sql, sqlite);
               const result = sqlite.prepare(sql).run(...params);
               return { success: true, results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
             }
@@ -248,6 +250,26 @@ test('Image Library excludes deduplication tombstones from ordinary Asset result
     const questionResult = await actions.createReusableQuestion(routeEvent(new Request('http://localhost/admin/images/dedupe-duplicate?/createReusableQuestion', { method: 'POST', body: question })));
     assert.equal(questionResult.status, 400);
     assert.match(questionResult.data.error, /cleanup pending/i);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Asset metadata update rejects a tombstone race without mutating cleanup state', async () => {
+  let triggered = false;
+  const fixture = createLearningDb({ beforeStatement(sql, sqlite) {
+    if (triggered || !/update[\s\S]*assets/i.test(sql)) return;
+    triggered = true;
+    sqlite.prepare('UPDATE assets SET is_active = 0, deduplicated_into_asset_id = ? WHERE id = ?').run('seed-asset-pityriasis-trunk', 'seed-asset-pityriasis-herald');
+  } });
+  try {
+    await assert.rejects(
+      () => updateAssetMetadata(fixture.db, 'seed-asset-pityriasis-herald', { originalFilename: 'must-not-change' }),
+      (error) => error instanceof AssetLibraryInputError && /cleanup pending/i.test(error.message)
+    );
+    assert.equal(triggered, true);
+    const stored = fixture.sqlite.prepare('SELECT original_filename, deduplicated_into_asset_id FROM assets WHERE id = ?').get('seed-asset-pityriasis-herald');
+    assert.deepEqual({ ...stored }, { original_filename: null, deduplicated_into_asset_id: 'seed-asset-pityriasis-trunk' });
   } finally {
     fixture.sqlite.close();
   }

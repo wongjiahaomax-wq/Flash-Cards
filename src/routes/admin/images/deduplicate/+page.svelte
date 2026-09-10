@@ -7,8 +7,11 @@
   function contextLabel(context) {
     if (context.case?.previewSessionId) return 'Retained Preview context';
     if (context.relationship === 'fixed') return context.case?.isActive ? 'Current learner-relevant fixed image' : 'Retained inactive Case';
-    if (!context.group?.is_active || !context.is_active || context.removed_from_case) return 'Retained inactive/removed Stimulus Option';
-    return context.case?.isActive ? 'Current learner-relevant Stimulus Option' : 'Retained inactive Case Stimulus Option';
+    if (!context.case?.isActive) return 'Retained inactive Case';
+    if (!context.group?.is_active) return 'Retained inactive Stimulus Group';
+    if (context.removed_from_case) return 'Retained removed-from-Case Stimulus Option';
+    if (!context.is_active) return 'Retained inactive Stimulus Option';
+    return 'Current learner-relevant Stimulus Option';
   }
 
   /** @param {any[]} questions @param {string} assetId */
