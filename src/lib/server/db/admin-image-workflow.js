@@ -351,7 +351,8 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
   );
   if (!newIds.length) {
     if (restoreStatements.length) {
-      await db.batch(/** @type {[any, ...any[]]} */ ([...restoreStatements, productionCaseTimestampWrite(db, group.caseId)]));
+      const batchWrites = [...restoreStatements, productionCaseTimestampWrite(db, group.caseId)];
+      await db.batch(/** @type {[any, ...any[]]} */ (/** @type {unknown} */ (batchWrites)));
     }
     return { caseId: group.caseId, requestedCount: assetIds.length, addedCount: 0, alreadyPresentCount: assetIds.length };
   }
@@ -386,12 +387,13 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
         isActive: true
       })
     );
-    await db.batch(/** @type {[any, ...any[]]} */ ([
+    const batchWrites = [
       ...restoreStatements,
       firstStatement,
       ...remainingStatements,
       productionCaseTimestampWrite(db, group.caseId)
-    ]));
+    ];
+    await db.batch(/** @type {[any, ...any[]]} */ (/** @type {unknown} */ (batchWrites)));
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       throw new AdminImageWorkflowInputError('The alternative image set changed while updating. Refresh and try again.');

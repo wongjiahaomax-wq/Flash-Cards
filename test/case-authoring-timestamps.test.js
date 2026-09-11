@@ -212,7 +212,7 @@ test('Production timestamp helper does not touch Preview-owned Cases', async () 
 
 test('sequential post-commit timestamp failures are logged and swallowed as best-effort metadata', async () => {
   const error = new Error('timestamp write failed');
-  const logged = [];
+  const logged = /** @type {any[][]} */ ([]);
   const originalConsoleError = console.error;
   console.error = (...args) => logged.push(args);
   try {

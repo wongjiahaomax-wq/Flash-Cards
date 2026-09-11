@@ -76,7 +76,8 @@ export async function convertCaseAssetToStimulusOption(db, groupId, assetId) {
   ];
   if (typeof db.batch === 'function') {
     const updatedAt = new Date();
-    await db.batch(/** @type {[any, ...any[]]} */ ([...writes, productionCaseTimestampWrite(db, group.caseId, updatedAt)]));
+    const batchWrites = [...writes, productionCaseTimestampWrite(db, group.caseId, updatedAt)];
+    await db.batch(/** @type {[any, ...any[]]} */ (/** @type {unknown} */ (batchWrites)));
   } else {
     for (const write of writes) await write;
     await touchProductionCaseUpdatedAt(db, group.caseId);
