@@ -33,6 +33,7 @@ const migrationSql = [
   '0012_archive_stimulus_options.sql'
 ]
   .map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8'))
+  .concat('ALTER TABLE assets ADD COLUMN deduplicated_into_asset_id text;')
   .join('\n')
   .replaceAll('--> statement-breakpoint', '');
 

@@ -202,6 +202,9 @@ function mappedCreateError(cause) {
   if (message.includes('active_review_ineligible_scope')) {
     return new ActiveReviewError('ineligible-scope', 'This Case is no longer active learner content in the selected study scope.');
   }
+  if (message.includes('An active Review cannot acquire a deduplicated Asset')) {
+    return new ActiveReviewError('content-unavailable', 'The Case or learner asset changed before the Review could be frozen.');
+  }
   if (message.includes('FOREIGN KEY constraint failed')) {
     return new ActiveReviewError('content-unavailable', 'The Case or learner asset changed before the Review could be frozen.');
   }

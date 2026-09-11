@@ -23,6 +23,7 @@ Relevant Asset fields include:
 - `source_url` — optional source webpage/reference URL;
 - `licence` — optional licence/permission text;
 - `image_collection_id` — optional Image Library organisational Collection;
+- `deduplicated_into_asset_id` — nullable immutable lifecycle tombstone pointing from a certified duplicate to its canonical survivor;
 - `is_active` — current content state.
 
 ### `original_filename` naming note
@@ -124,6 +125,18 @@ exact-option context/questions
 ```
 
 Do not move Case-specific teaching context onto the global Asset merely because the same image is involved.
+
+## Certified duplicate tombstones
+
+The Admin deduplication workflow is a human-certified identity operation, not an automatic visual-similarity decision. A successful Phase 1 merge moves the duplicate's retained production relationships and reusable-image knowledge to the selected survivor, then marks the duplicate inactive with `deduplicated_into_asset_id` pointing to that survivor.
+
+The tombstone is immutable until its duplicate R2 object is safely deleted. Database guards prevent the tombstoned Asset from being reacquired by Case, Stimulus Option, reusable-question, active-Review, or supersession relationships, and prevent tombstone chains. The survivor's global provenance and metadata are not copied automatically; the comparison/certification record shows both sides before the merge.
+
+R2 deletion and D1 tombstone deletion are separate cleanup steps. If either fails, the inactive tombstone remains in a dedicated cleanup-pending Admin surface. Cleanup retry must revalidate the survivor and every restrictive reference, re-head the survivor object immediately before deleting the duplicate key, and must never delete the duplicate object when the survivor media is missing.
+
+### Visual duplicate discovery (read-only pre-filter)
+
+The Production Admin visual duplicate discovery surface is a read-only pre-filter that proposes candidate pairs for that same human-certified comparison. It computes bounded, dependency-free perceptual region hashes entirely in the Admin browser, streams at most 120 Topic/recursive-System/global candidates within a 96 MiB fetch budget, and persists nothing: no fingerprint, no candidate, and no "not duplicate" decision is written to D1 (per-tab dismissals live only in `sessionStorage`). It never merges, archives, replaces, or otherwise mutates an Asset, and a proposed pair still has to pass server-owned Tranche-1 revalidation and explicit certification. Topic scope is the default; recursive-System and global searches require explicit Admin action.
 
 ## Multi-image and reused-Asset Cases
 

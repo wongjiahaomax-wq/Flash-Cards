@@ -1,6 +1,7 @@
 <script>
   let { data, form } = $props();
   let detail = $derived(data.detail);
+  let isDedupeTombstone = $derived(Boolean(detail?.asset.deduplicatedIntoAssetId));
   /** @param {string} optionId @param {string} questionId */
   const opted = (optionId, questionId) => data.optedKeys?.includes(`${optionId}:${questionId}`) ?? false;
 </script>
@@ -18,6 +19,10 @@
   {#if data.status === 'replaced'}<p class="success" role="status">Higher-resolution replacement created. Current production relationships now use this new Asset; active unfinished Reviews retain their frozen previous-image snapshots.</p>{/if}
   {#if data.status?.startsWith('reusable') || data.status === 'reused' || data.status === 'removed-from-case'}<p class="success" role="status">Reusable image questions updated.</p>{/if}
 
+  {#if isDedupeTombstone}
+    <p class="lineage-notice cleanup-notice" role="status"><strong>Dedupe cleanup pending.</strong> This inactive Asset is a durable cleanup tombstone for <a href={`/admin/images/${detail.asset.deduplicatedIntoAssetId}`}>{detail.asset.dedupeSurvivorName ?? detail.asset.deduplicatedIntoAssetId}</a>. Metadata editing, replacement, and reusable-question changes are unavailable until cleanup completes. Open <a href="/admin/images">the Image Library cleanup queue</a> to review or retry storage cleanup.</p>
+  {/if}
+
   {#if data.replacement?.supersededBy}
     <p class="lineage-notice" role="status">This Asset has been superseded. Its old R2 object remains available while active unfinished Reviews may still reference a frozen snapshot. Current authoring uses <a href={`/admin/images/${data.replacement.supersededBy.id}`}>{data.replacement.supersededBy.originalFilename ?? data.replacement.supersededBy.id}</a>.</p>
   {:else if data.replacement?.supersedes}
@@ -31,7 +36,10 @@
       <p class="muted">Runtime image delivery uses the protected R2-backed Asset route. Active unfinished Reviews use their own authenticated frozen-snapshot route. The source URL below is attribution/reference metadata only.</p>
     </section>
 
-    <section class="panel">
+      {#if isDedupeTombstone}
+        <section class="panel cleanup-panel"><p class="eyebrow">Cleanup state</p><h2>Cleanup pending</h2><p class="muted">This tombstone remains visible for cleanup provenance only. Its canonical survivor owns future authoring and reuse.</p><dl class="cleanup-metadata"><dt>Canonical survivor</dt><dd><a href={`/admin/images/${detail.asset.deduplicatedIntoAssetId}`}>{detail.asset.dedupeSurvivorName ?? detail.asset.deduplicatedIntoAssetId}</a></dd><dt>Asset ID</dt><dd>{detail.asset.id}</dd></dl></section>
+      {:else}
+      <section class="panel">
       <p class="eyebrow">Global metadata</p>
       <h2>Edit Asset</h2>
       <p class="muted">Renaming changes <code>assets.original_filename</code> in D1 only. Case-specific captions stay in each Case editor. Collection is Image Library organisation, separate from educational Topics and Tags.</p>
@@ -47,9 +55,10 @@
         <div class="wide"><button class="button primary" type="submit">Save metadata</button></div>
       </form>
     </section>
+      {/if}
   </div>
 
-  <section class="panel replacement-panel" id="higher-resolution-replacement">
+  {#if !isDedupeTombstone}<section class="panel replacement-panel" id="higher-resolution-replacement">
     <div class="panel-heading"><div><p class="eyebrow">Same image · better media</p><h2>Replace with higher-resolution version</h2></div><span class="muted">Production Admin only</span></div>
     <p>This workflow is only for a better-quality copy of the <strong>same underlying image</strong>. A different ECG, X-ray, photograph or diagram — even when it shows the same diagnosis — must be uploaded as a separate Asset.</p>
 
@@ -77,9 +86,9 @@
     {:else}
       <p class="muted">Only an active production image Asset that has not already been superseded is eligible for this operation.</p>
     {/if}
-  </section>
+  </section>{/if}
 
-  <section class="panel" id="reusable-questions">
+  {#if !isDedupeTombstone}<section class="panel" id="reusable-questions">
     <div class="panel-heading"><div><p class="eyebrow">Question scope</p><h2>Reusable with this image</h2></div><span class="muted">Production Admin only · exact Asset identity</span></div>
     <p class="muted">These are canonical questions whose wording and answer are intrinsically true of this exact image. Reusing this Asset in another Case does <strong>not</strong> add any question automatically; each Case/stimulus must opt in explicitly. Use the Case-specific image-question workflow for context-dependent answers.</p>
 
@@ -128,7 +137,7 @@
         {/each}
       </div>
     {/if}
-  </section>
+  </section>{/if}
 
   <section class="panel usage-panel"><div class="panel-heading"><div><p class="eyebrow">Relationship usage</p><h2>Retained Case relationships <span class="count">{detail.usages.length}</span></h2></div><span class="muted">{detail.asset.usageCount} current {detail.asset.usageCount === 1 ? 'Case' : 'Cases'} · historical authored relationships remain visible for context.</span></div>
     {#if detail.usages.length === 0}<p class="empty-state">This image has no retained production Case relationship.</p>{:else}<div class="usage-list">{#each detail.usages as usage}<a class="usage-row" href={`/admin/cases/${usage.caseId}`}><span><strong>{usage.caseTitle}</strong>{#if usage.stimulusGroupName}<small>Alternative stimulus: {usage.stimulusGroupName}</small>{/if}{#if usage.removedFromCase}<small>Removed from Case</small>{:else if usage.stimulusOptionId && !usage.stimulusOptionIsActive}<small>Deactivated alternative</small>{:else if usage.stimulusGroupId && !usage.stimulusGroupIsActive}<small>Inactive alternative set</small>{/if}{#if usage.captionMd}<small>Case caption: {usage.captionMd}</small>{/if}</span><span class="usage-status">{usage.relationshipIsCurrent ? 'Current' : usage.caseIsActive ? 'Historical authored relationship' : 'Inactive Case'} →</span></a>{/each}</div>{/if}
@@ -140,6 +149,7 @@
   .actions, .inline-form { display: flex; flex-wrap: wrap; gap: 0.6rem; } .button { display: inline-block; padding: 0.7rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: #172033; text-decoration: none; cursor: pointer; } .button.primary { border-color: #172033; background: #172033; color: #fff; } .panel { margin-top: 1rem; padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; } .detail-grid { display: grid; grid-template-columns: minmax(240px, 0.85fr) minmax(0, 1.15fr); gap: 1rem; } .preview-panel { align-self: start; } .large-preview, .inactive-preview { display: grid; place-items: center; width: 100%; min-height: 300px; max-height: 560px; object-fit: contain; border-radius: 8px; background: #eef2f6; } .inactive-preview { color: #667085; }
   .form-grid, .question-create { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.85rem; } .question-create { margin-top: 1rem; padding: 1rem; border: 1px dashed #cdd6e3; border-radius: 8px; } label { display: grid; gap: 0.35rem; color: #344054; font-weight: 650; } input, textarea, select { width: 100%; box-sizing: border-box; padding: 0.65rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } textarea { resize: vertical; } .wide { grid-column: 1 / -1; } .checkbox-label { display: flex; align-items: center; gap: 0.45rem; font-weight: 500; } .checkbox-label input { width: auto; } .success, .error { margin: 1rem 0; padding: 0.75rem; border-radius: 8px; } .success { background: #ecfdf3; color: #027a48; } .error { border: 1px solid #fecdca; background: #fef3f2; color: #b42318; } .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
   .lineage-notice, .impact-box { margin: 1rem 0; padding: 0.85rem 1rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #f8fafc; } .replacement-panel p { max-width: 78ch; } .impact-box ul { margin-bottom: 0; padding-left: 1.25rem; } .impact-box li + li { margin-top: 0.3rem; } .replacement-form { display: grid; gap: 0.85rem; max-width: 760px; margin-top: 1rem; } .confirmation { align-items: start; padding: 0.8rem; border: 1px solid #dfe5ee; border-radius: 8px; }
+  .cleanup-notice { border-color: #f5d0a0; background: #fffaf0; } .cleanup-panel { align-self: start; } .cleanup-metadata { display: grid; grid-template-columns: max-content 1fr; gap: 0.35rem 0.75rem; } .cleanup-metadata dt { color: #344054; font-weight: 700; } .cleanup-metadata dd { margin: 0; }
   .question-list { display: grid; gap: 1rem; margin-top: 1rem; } .question-card { padding: 1rem; border: 1px solid #dfe5ee; border-radius: 8px; } .question-heading { align-items: start; } .question-heading div, .reuse-row span:first-child { display: grid; gap: 0.2rem; } .question-heading small, .reuse-row small { color: #667085; } .shared-badge { padding: 0.25rem 0.5rem; border-radius: 999px; background: #f2f4f7; color: #475467; font-size: 0.75rem; white-space: nowrap; } .answer-form { margin-top: 0.9rem; } .reuse-section { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #eaecf0; } .reuse-row { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: 0.7rem 0; border-bottom: 1px solid #f2f4f7; } .reuse-row:last-child { border-bottom: 0; }
   .usage-list { display: grid; margin-top: 1rem; } .usage-row { display: flex; justify-content: space-between; gap: 1rem; padding: 0.8rem 0.4rem; border-bottom: 1px solid #eaecf0; color: #172033; text-decoration: none; } .usage-row:last-child { border-bottom: 0; } .usage-row span:first-child { display: grid; gap: 0.2rem; } .usage-row small { color: #667085; } .usage-status { color: #667085; font-size: 0.86rem; white-space: nowrap; } .empty-state { margin-top: 1rem; padding: 1rem; border: 1px dashed #d0d5dd; border-radius: 8px; }
   @media (max-width: 760px) { .page-heading, .panel-heading, .question-heading { align-items: start; flex-direction: column; } .detail-grid, .form-grid, .question-create { grid-template-columns: minmax(0, 1fr); } .wide { grid-column: auto; } .usage-row, .reuse-row { align-items: start; flex-direction: column; gap: 0.3rem; } }

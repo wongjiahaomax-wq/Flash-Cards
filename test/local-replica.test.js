@@ -104,8 +104,10 @@ test('local reset deliberately preserves Better Auth identity tables and clears 
   assert.ok(sql.indexOf(clearOriginal) < sql.indexOf(deleteOptions));
   assert.match(sql, /UPDATE `concepts` SET `parent_id` = NULL/);
   assert.match(sql, /UPDATE `assets` SET `superseded_by_asset_id` = NULL/);
+  assert.match(sql, /DELETE FROM `assets` WHERE `deduplicated_into_asset_id` IS NOT NULL/);
+  assert.ok(sql.indexOf('DELETE FROM `assets` WHERE `deduplicated_into_asset_id` IS NOT NULL') < sql.indexOf('DELETE FROM `asset_questions`'));
   assert.ok(sql.indexOf('DELETE FROM `stimulus_option_asset_questions`') < sql.indexOf('DELETE FROM `asset_questions`'));
-  assert.ok(sql.indexOf('DELETE FROM `asset_questions`') < sql.indexOf('DELETE FROM `assets`'));
+  assert.ok(sql.indexOf('DELETE FROM `asset_questions`') < sql.lastIndexOf('DELETE FROM `assets`;'));
 });
 
 test('local replica restores Original stimulus pointers only after family options are inserted', () => {
@@ -188,6 +190,25 @@ test('Asset supersession import fails closed on missing successors or cycles', (
         { id: 'one', superseded_by_asset_id: 'two' },
         { id: 'two', superseded_by_asset_id: 'one' }
       ]),
+    /cycle detected/
+  );
+});
+
+test('Asset deduplication tombstones are inserted target-first and fail closed on missing targets or cycles', () => {
+  const rows = [
+    { id: 'duplicate', deduplicated_into_asset_id: 'survivor' },
+    { id: 'survivor', deduplicated_into_asset_id: null }
+  ];
+  assert.deepEqual(orderRowsForInsert('assets', rows).map((row) => row.id), ['survivor', 'duplicate']);
+  assert.throws(
+    () => orderRowsForInsert('assets', [{ id: 'duplicate', deduplicated_into_asset_id: 'missing' }]),
+    /missing dedupe target/
+  );
+  assert.throws(
+    () => orderRowsForInsert('assets', [
+      { id: 'one', deduplicated_into_asset_id: 'two' },
+      { id: 'two', deduplicated_into_asset_id: 'one' }
+    ]),
     /cycle detected/
   );
 });

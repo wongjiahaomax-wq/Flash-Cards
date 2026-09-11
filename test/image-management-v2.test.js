@@ -32,7 +32,8 @@ registerHooks({
   }
 });
 
-function fixture() {
+/** @param {{ beforeStatement?: (sql: string, sqlite: DatabaseSync) => void | Promise<void> }} [options] */
+function fixture({ beforeStatement } = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   applyCurrentSchema(sqlite);
@@ -46,13 +47,15 @@ function fixture() {
         /** @param {...any} params */
         bind(...params) {
           return {
-            async all() { return { results: sqlite.prepare(sql).all(...params) }; },
+            async all() { if (beforeStatement) await beforeStatement(sql, sqlite); return { results: sqlite.prepare(sql).all(...params) }; },
             async raw() {
+              if (beforeStatement) await beforeStatement(sql, sqlite);
               const statement = sqlite.prepare(sql);
               statement.setReturnArrays(true);
               return statement.all(...params);
             },
             async run() {
+              if (beforeStatement) await beforeStatement(sql, sqlite);
               const result = sqlite.prepare(sql).run(...params);
               return { success: true, results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
             }
@@ -355,6 +358,25 @@ test('Collection deletion and assignment reject stale or missing Collections', a
     await assert.rejects(() => setAssetCollection(db, ['stale-collection-asset'], 'missing-collection'), (error) => error instanceof AssetLibraryInputError && /does not exist/.test(error.message));
     const staleAsset = /** @type {{ image_collection_id: string | null }} */ (sqlite.prepare('SELECT image_collection_id FROM assets WHERE id = ?').get('stale-collection-asset'));
     assert.equal(staleAsset.image_collection_id, null);
+  } finally { sqlite.close(); }
+});
+
+test('Collection assignment rejects a tombstone race without mutating cleanup state', async () => {
+  let triggered = false;
+  const { sqlite, db } = fixture({ beforeStatement(sql, sqlite) {
+    if (triggered || !/update[\s\S]*assets[\s\S]*image_collection_id/i.test(sql)) return;
+    triggered = true;
+    sqlite.prepare('UPDATE assets SET is_active = 0, deduplicated_into_asset_id = ? WHERE id = ?').run('seed-asset-pityriasis-trunk', 'seed-asset-pityriasis-herald');
+  } });
+  try {
+    const collection = await createImageCollection(db, 'Tombstone race');
+    await assert.rejects(
+      () => setAssetCollection(db, ['seed-asset-pityriasis-herald'], collection.id),
+      (error) => error instanceof AssetLibraryInputError && /cleanup pending/i.test(error.message)
+    );
+    assert.equal(triggered, true);
+    const stored = sqlite.prepare('SELECT image_collection_id, deduplicated_into_asset_id FROM assets WHERE id = ?').get('seed-asset-pityriasis-herald');
+    assert.deepEqual({ ...stored }, { image_collection_id: null, deduplicated_into_asset_id: 'seed-asset-pityriasis-trunk' });
   } finally { sqlite.close(); }
 });
 

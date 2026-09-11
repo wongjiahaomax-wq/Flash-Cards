@@ -27,6 +27,161 @@ export class AssetReplacementInputError extends Error {
   }
 }
 
+const MAX_D1_STATEMENT_PARAMS = 100;
+
+/** @param {unknown} value */
+function storedValue(value) {
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'boolean') return value ? 1 : 0;
+  return value === undefined ? null : value;
+}
+
+/** @param {any} column @param {unknown} value */
+function exactColumn(column, value) {
+  return sql`${column} IS ${storedValue(value)}`;
+}
+
+/** @param {any[]} columns @param {any} row */
+function exactRow(columns, row) {
+  return sql.join(columns.map(([column, key]) => exactColumn(column, row[key])), sql` AND `);
+}
+
+/** @param {any[]} rows @param {number} paramsPerRow @param {number} fixedParams */
+function parameterSafeChunks(rows, paramsPerRow, fixedParams = 0) {
+  const size = Math.max(1, Math.floor((MAX_D1_STATEMENT_PARAMS - fixedParams) / paramsPerRow));
+  /** @type {any[][]} */
+  const chunks = [];
+  for (let index = 0; index < rows.length; index += size) chunks.push(rows.slice(index, index + size));
+  return chunks.length ? chunks : [[]];
+}
+
+/** @param {any[]} rows @param {number} columnsPerRow */
+function graphRowChunks(rows, columnsPerRow) {
+  // Every graph row also repeats sourceAssetId in its scope. Each guard has
+  // one sentinel bind, one count bind, and one expected-row-count bind.
+  return parameterSafeChunks(rows, columnsPerRow + 1, 3);
+}
+
+/**
+ * Assert that the production migration graph still exactly matches the rows
+ * read before the replacement object was uploaded. Each category gets its own
+ * bounded sentinel statement so a large Asset graph remains within D1's query
+ * parameter ceiling while all assertions still run in the same atomic batch.
+ *
+ * @param {LearningDb} db
+ * @param {string} sourceAssetId
+ * @param {{ fixedRows: any[], optionRows: any[], reusableRows: any[], productionOptIns: any[] }} graph
+ */
+function graphSnapshotGuardStatements(db, sourceAssetId, graph) {
+  /** @param {any} condition */
+  const sentinel = (condition) => db.update(assets)
+    .set({ type: sql`CASE WHEN ${condition} THEN ${assets.type} ELSE NULL END` })
+    .where(eq(assets.id, sourceAssetId));
+  /** @type {any[]} */
+  const statements = [];
+
+  /** @param {{ rows: any[], columns: any[], countQuery: any, rowQuery: (row: any) => any }} category */
+  const addCategory = ({ rows, columns, countQuery, rowQuery }) => {
+    for (const chunk of graphRowChunks(rows, columns.length)) {
+      const conditions = [
+        sql`(${countQuery}) = ${rows.length}`,
+        ...chunk.map((row) => sql`EXISTS (${rowQuery(row)})`)
+      ];
+      statements.push(sentinel(sql.join(conditions, sql` AND `)));
+    }
+  };
+
+  const fixedColumns = [
+    [caseAssets.caseId, 'caseId'],
+    [caseAssets.assetId, 'assetId'],
+    [caseAssets.displayOrder, 'displayOrder'],
+    [caseAssets.captionMd, 'captionMd'],
+    [caseAssets.createdAt, 'createdAt']
+  ];
+  const fixedScope = and(eq(caseAssets.assetId, sourceAssetId), isNull(cases.previewSessionId));
+  addCategory({
+    rows: graph.fixedRows,
+    columns: fixedColumns,
+    countQuery: sql`SELECT count(*) FROM ${caseAssets}
+      INNER JOIN ${cases} ON ${eq(cases.id, caseAssets.caseId)}
+      WHERE ${fixedScope}`,
+    rowQuery: /** @param {any} row */ (row) => sql`SELECT 1 FROM ${caseAssets}
+      INNER JOIN ${cases} ON ${eq(cases.id, caseAssets.caseId)}
+      WHERE ${fixedScope} AND ${exactRow(fixedColumns, row)}`
+  });
+
+  const optionColumns = [
+    [stimulusGroupOptions.id, 'optionId'],
+    [stimulusGroupOptions.stimulusGroupId, 'stimulusGroupId'],
+    [stimulusGroupOptions.assetId, 'assetId'],
+    [stimulusGroupOptions.displayOrder, 'displayOrder'],
+    [stimulusGroupOptions.captionMd, 'captionMd'],
+    [stimulusGroupOptions.isActive, 'isActive'],
+    [stimulusGroupOptions.removedFromCase, 'removedFromCase'],
+    [stimulusGroupOptions.createdAt, 'createdAt']
+  ];
+  const optionScope = and(eq(stimulusGroupOptions.assetId, sourceAssetId), isNull(cases.previewSessionId));
+  addCategory({
+    rows: graph.optionRows,
+    columns: optionColumns,
+    countQuery: sql`SELECT count(*) FROM ${stimulusGroupOptions}
+      INNER JOIN ${stimulusGroups} ON ${eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)}
+      INNER JOIN ${cases} ON ${eq(cases.id, stimulusGroups.caseId)}
+      WHERE ${optionScope}`,
+    rowQuery: /** @param {any} row */ (row) => sql`SELECT 1 FROM ${stimulusGroupOptions}
+      INNER JOIN ${stimulusGroups} ON ${eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)}
+      INNER JOIN ${cases} ON ${eq(cases.id, stimulusGroups.caseId)}
+      WHERE ${optionScope} AND ${exactRow(optionColumns, row)}`
+  });
+
+  const reusableQuestionColumns = [
+    [assetQuestions.id, 'id'],
+    [assetQuestions.assetId, 'assetId'],
+    [assetQuestions.questionPromptId, 'questionPromptId'],
+    [assetQuestions.answerMd, 'answerMd'],
+    [assetQuestions.isActive, 'isActive'],
+    [assetQuestions.createdAt, 'createdAt'],
+    [assetQuestions.updatedAt, 'updatedAt']
+  ];
+  const reusableQuestionScope = eq(assetQuestions.assetId, sourceAssetId);
+  addCategory({
+    rows: graph.reusableRows,
+    columns: reusableQuestionColumns,
+    countQuery: sql`SELECT count(*) FROM ${assetQuestions} WHERE ${reusableQuestionScope}`,
+    rowQuery: /** @param {any} row */ (row) => sql`SELECT 1 FROM ${assetQuestions}
+      WHERE ${reusableQuestionScope} AND ${exactRow(reusableQuestionColumns, row)}`
+  });
+
+  const optInColumns = [
+    [stimulusOptionAssetQuestions.stimulusGroupOptionId, 'optionId'],
+    [stimulusOptionAssetQuestions.assetQuestionId, 'oldAssetQuestionId'],
+    [stimulusOptionAssetQuestions.createdAt, 'createdAt'],
+    [stimulusGroupOptions.assetId, 'optionAssetId']
+  ];
+  const optInScope = and(
+    eq(assetQuestions.assetId, sourceAssetId),
+    isNull(cases.previewSessionId)
+  );
+  addCategory({
+    rows: graph.productionOptIns,
+    columns: optInColumns,
+    countQuery: sql`SELECT count(*) FROM ${stimulusOptionAssetQuestions}
+      INNER JOIN ${assetQuestions} ON ${eq(assetQuestions.id, stimulusOptionAssetQuestions.assetQuestionId)}
+      INNER JOIN ${stimulusGroupOptions} ON ${eq(stimulusGroupOptions.id, stimulusOptionAssetQuestions.stimulusGroupOptionId)}
+      INNER JOIN ${stimulusGroups} ON ${eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)}
+      INNER JOIN ${cases} ON ${eq(cases.id, stimulusGroups.caseId)}
+      WHERE ${optInScope}`,
+    rowQuery: /** @param {any} row */ (row) => sql`SELECT 1 FROM ${stimulusOptionAssetQuestions}
+      INNER JOIN ${assetQuestions} ON ${eq(assetQuestions.id, stimulusOptionAssetQuestions.assetQuestionId)}
+      INNER JOIN ${stimulusGroupOptions} ON ${eq(stimulusGroupOptions.id, stimulusOptionAssetQuestions.stimulusGroupOptionId)}
+      INNER JOIN ${stimulusGroups} ON ${eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)}
+      INNER JOIN ${cases} ON ${eq(cases.id, stimulusGroups.caseId)}
+      WHERE ${optInScope} AND ${exactRow(optInColumns, row)}`
+  });
+
+  return statements;
+}
+
 /** @param {string} mimeType */
 function extensionForType(mimeType) {
   if (mimeType === 'image/jpeg') return 'jpg';
@@ -208,24 +363,43 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
   assertNoLivePreviewUsage(await loadLivePreviewUsage(db, normalizedAssetId, now));
 
   const [fixedRows, optionRows, reusableRows, productionOptIns] = await Promise.all([
-    db.select({ caseId: caseAssets.caseId })
+    db.select({
+      caseId: caseAssets.caseId,
+      assetId: caseAssets.assetId,
+      displayOrder: caseAssets.displayOrder,
+      captionMd: caseAssets.captionMd,
+      createdAt: caseAssets.createdAt
+    })
       .from(caseAssets)
       .innerJoin(cases, eq(cases.id, caseAssets.caseId))
       .where(and(eq(caseAssets.assetId, normalizedAssetId), isNull(cases.previewSessionId))),
-    db.select({ optionId: stimulusGroupOptions.id, optionAssetId: stimulusGroupOptions.assetId })
+    db.select({
+      optionId: stimulusGroupOptions.id,
+      stimulusGroupId: stimulusGroupOptions.stimulusGroupId,
+      assetId: stimulusGroupOptions.assetId,
+      displayOrder: stimulusGroupOptions.displayOrder,
+      captionMd: stimulusGroupOptions.captionMd,
+      isActive: stimulusGroupOptions.isActive,
+      removedFromCase: stimulusGroupOptions.removedFromCase,
+      createdAt: stimulusGroupOptions.createdAt
+    })
       .from(stimulusGroupOptions)
       .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
       .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
       .where(and(eq(stimulusGroupOptions.assetId, normalizedAssetId), isNull(cases.previewSessionId))),
     db.select({
       id: assetQuestions.id,
+      assetId: assetQuestions.assetId,
       questionPromptId: assetQuestions.questionPromptId,
       answerMd: assetQuestions.answerMd,
-      isActive: assetQuestions.isActive
+      isActive: assetQuestions.isActive,
+      createdAt: assetQuestions.createdAt,
+      updatedAt: assetQuestions.updatedAt
     }).from(assetQuestions).where(eq(assetQuestions.assetId, normalizedAssetId)),
     db.select({
       optionId: stimulusOptionAssetQuestions.stimulusGroupOptionId,
       oldAssetQuestionId: stimulusOptionAssetQuestions.assetQuestionId,
+      createdAt: stimulusOptionAssetQuestions.createdAt,
       optionAssetId: stimulusGroupOptions.assetId
     })
       .from(stimulusOptionAssetQuestions)
@@ -260,6 +434,12 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
   try {
     /** @type {any[]} */
     const statements = [
+      ...graphSnapshotGuardStatements(db, normalizedAssetId, {
+        fixedRows,
+        optionRows,
+        reusableRows,
+        productionOptIns
+      }),
       db.insert(assets).values({
         id: newAssetId,
         type: source.type,
@@ -279,8 +459,9 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
       })
     ];
 
-    if (reusableRows.length) {
-      statements.push(db.insert(assetQuestions).values(reusableRows.map((row) => ({
+    for (const questionRows of parameterSafeChunks(reusableRows, 7)) {
+      if (!questionRows.length) continue;
+      statements.push(db.insert(assetQuestions).values(questionRows.map((row) => ({
         id: clonedQuestionId(row.id),
         assetId: newAssetId,
         questionPromptId: row.questionPromptId,
@@ -291,18 +472,20 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
       }))));
     }
 
-    const fixedCaseIds = fixedRows.map((row) => row.caseId);
-    if (fixedCaseIds.length) {
+    const fixedCaseIds = [...new Set(fixedRows.map((row) => row.caseId))];
+    for (const caseIdChunk of parameterSafeChunks(fixedCaseIds, 1, 2)) {
+      if (!caseIdChunk.length) continue;
       statements.push(db.update(caseAssets)
         .set({ assetId: newAssetId })
-        .where(and(eq(caseAssets.assetId, normalizedAssetId), inArray(caseAssets.caseId, fixedCaseIds))));
+        .where(and(eq(caseAssets.assetId, normalizedAssetId), inArray(caseAssets.caseId, caseIdChunk))));
     }
 
-    const optionIds = optionRows.map((row) => row.optionId);
-    if (optionIds.length) {
+    const optionIds = [...new Set(optionRows.map((row) => row.optionId))];
+    for (const optionIdChunk of parameterSafeChunks(optionIds, 1, 2)) {
+      if (!optionIdChunk.length) continue;
       statements.push(db.update(stimulusGroupOptions)
         .set({ assetId: newAssetId })
-        .where(and(eq(stimulusGroupOptions.assetId, normalizedAssetId), inArray(stimulusGroupOptions.id, optionIds))));
+        .where(and(eq(stimulusGroupOptions.assetId, normalizedAssetId), inArray(stimulusGroupOptions.id, optionIdChunk))));
     }
 
     for (const usage of productionOptIns) {
@@ -358,6 +541,11 @@ export async function replaceAssetWithHigherResolution({ db, bucket, assetId, fi
     if (livePreviewUsage.hasUsage) {
       throw new AssetReplacementInputError(
         'Replacement is temporarily blocked because this image is referenced by an active Preview workspace. Reset that Preview workspace or let it expire, then retry.'
+      );
+    }
+    if (error instanceof Error && /NOT NULL constraint failed: assets\.type/.test(error.message)) {
+      throw new AssetReplacementInputError(
+        'The production image relationships changed while this replacement was being prepared. Refresh the image and retry.'
       );
     }
     throw error;

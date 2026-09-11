@@ -5,9 +5,10 @@ import fs from 'node:fs';
 test('reusable image question reactivation revalidates dormant opt-ins', () => {
   const source = fs.readFileSync(new URL('../src/lib/server/db/asset-questions.js', import.meta.url), 'utf8');
   const body = source.slice(source.indexOf('export async function setAssetQuestionActive'), source.indexOf('function automaticGroupName'));
+  const activationBody = source.slice(source.indexOf('async function validateAssetQuestionActivation'), source.indexOf('export async function listAssetQuestions'));
   assert.match(body, /if \(input\.isActive && !row\.isActive\)/);
-  assert.match(body, /stimulusOptionAssetQuestions\.assetQuestionId/);
-  assert.match(body, /ensurePromptMayBeSpecificInGroup/);
+  assert.match(activationBody, /stimulusOptionAssetQuestions\.assetQuestionId/);
+  assert.match(activationBody, /ensurePromptMayBeSpecificInGroup/);
 });
 
 test('database guard blocks invalid reusable-question reactivation', () => {
@@ -31,4 +32,17 @@ test('reusable image removal actions pass their owning Case or Asset scope', () 
   const assetRoute = fs.readFileSync(new URL('../src/routes/admin/images/[assetId]/+page.server.js', import.meta.url), 'utf8');
   assert.match(caseRoute, /removeAssetQuestionOptIn\([^\n]+\{ caseId, optionId:/);
   assert.match(assetRoute, /removeAssetQuestionOptIn\([^\n]+\{ assetId: params\.assetId, optionId:/);
+});
+
+test('fixed-image reusable conversion fences and maps stale-source batch failures to a 400', () => {
+  const source = fs.readFileSync(new URL('../src/lib/server/db/asset-questions.js', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export async function optInFixedAssetQuestion'));
+  assert.match(body, /productionAssetWriteFence\(db, assetId\)/);
+  assert.match(body, /await runAssetQuestionBatch\(db,/);
+  const caseRoute = fs.readFileSync(new URL('../src/routes/admin/cases/[caseId]/+page.server.js', import.meta.url), 'utf8');
+  const assetRoute = fs.readFileSync(new URL('../src/routes/admin/images/[assetId]/+page.server.js', import.meta.url), 'utf8');
+  assert.match(caseRoute, /errorValue instanceof AssetQuestionInputError/);
+  assert.match(caseRoute, /fail\(clientError \? 400 : 500/);
+  assert.match(assetRoute, /error instanceof AssetQuestionInputError/);
+  assert.match(assetRoute, /fail\(clientError \? 400 : 500/);
 });

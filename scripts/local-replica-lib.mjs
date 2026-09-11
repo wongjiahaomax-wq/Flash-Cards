@@ -190,23 +190,27 @@ export function orderRowsForInsert(tableName, rows) {
   const state = new Map();
   /** @type {D1Row[]} */
   const ordered = [];
-  const relationshipColumn = tableName === 'concepts' ? 'parent_id' : 'superseded_by_asset_id';
+  const relationshipColumns = tableName === 'concepts'
+    ? [{ column: 'parent_id', label: 'parent' }]
+    : tableName === 'assets'
+      ? [{ column: 'superseded_by_asset_id', label: 'successor' }, { column: 'deduplicated_into_asset_id', label: 'dedupe target' }]
+      : [];
   const entityLabel = tableName === 'concepts' ? 'Topic' : 'Asset';
-  const relationshipLabel = tableName === 'concepts' ? 'parent' : 'successor';
 
   /** @param {D1Row} row */
   const visit = (row) => {
     const id = String(row.id);
     const current = state.get(id);
     if (current === 'done') return;
-    if (current === 'visiting') throw new Error(`${entityLabel} ${relationshipLabel} cycle detected at ${id}.`);
+    if (current === 'visiting') throw new Error(`${entityLabel} relationship cycle detected at ${id}.`);
 
     state.set(id, 'visiting');
-    const relatedIdValue = row[relationshipColumn];
-    if (relatedIdValue != null) {
+    for (const relationship of relationshipColumns) {
+      const relatedIdValue = row[relationship.column];
+      if (relatedIdValue == null) continue;
       const relatedId = String(relatedIdValue);
       const related = byId.get(relatedId);
-      if (!related) throw new Error(`${entityLabel} ${id} references missing ${relationshipLabel} ${relatedId}.`);
+      if (!related) throw new Error(`${entityLabel} ${id} references missing ${relationship.label} ${relatedId}.`);
       visit(related);
     }
     state.set(id, 'done');
@@ -278,6 +282,7 @@ export function buildLocalResetSql() {
     'UPDATE `stimulus_groups` SET `original_option_id` = NULL WHERE `original_option_id` IS NOT NULL;',
     'UPDATE `concepts` SET `parent_id` = NULL WHERE `parent_id` IS NOT NULL;',
     'UPDATE `assets` SET `superseded_by_asset_id` = NULL WHERE `superseded_by_asset_id` IS NOT NULL;',
+    'DELETE FROM `assets` WHERE `deduplicated_into_asset_id` IS NOT NULL;',
     ...LOCAL_RESET_TABLES.map((table) => `DELETE FROM ${sqlIdentifier(table)};`),
     ''
   ].join('\n');

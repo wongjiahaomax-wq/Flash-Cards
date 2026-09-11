@@ -38,10 +38,12 @@ const migrationSql = [
   readFileSync(new URL('../drizzle/0009_reusable_image_questions.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0011_asset_supersession.sql', import.meta.url), 'utf8'),
   readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0013_review_assets_asset_lookup.sql', import.meta.url), 'utf8')
+  readFileSync(new URL('../drizzle/0013_review_assets_asset_lookup.sql', import.meta.url), 'utf8'),
+  'ALTER TABLE assets ADD COLUMN deduplicated_into_asset_id text;'
 ].join('\n').replaceAll('--> statement-breakpoint', '');
 
-function createLearningDb() {
+/** @param {{ beforeStatement?: (sql: string, sqlite: DatabaseSync) => void | Promise<void> }} [options] */
+function createLearningDb({ beforeStatement } = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
   sqlite.exec(migrationSql);
@@ -53,9 +55,10 @@ function createLearningDb() {
         /** @param {...any} params */
         bind(...params) {
           return {
-            async all() { return { results: sqlite.prepare(sql).all(...params) }; },
-            async raw() { return sqlite.prepare(sql).all(...params).map((row) => Object.values(row)); },
+            async all() { if (beforeStatement) await beforeStatement(sql, sqlite); return { results: sqlite.prepare(sql).all(...params) }; },
+            async raw() { if (beforeStatement) await beforeStatement(sql, sqlite); return sqlite.prepare(sql).all(...params).map((row) => Object.values(row)); },
             async run() {
+              if (beforeStatement) await beforeStatement(sql, sqlite);
               const result = sqlite.prepare(sql).run(...params);
               return { success: true, results: [], meta: { changes: Number(result.changes), last_row_id: Number(result.lastInsertRowid) } };
             }
@@ -190,6 +193,7 @@ test('Asset Library searches metadata and filters usage, status, and provenance'
     const detail = await getAssetLibraryDetail(fixture.db, 'seed-asset-pityriasis-herald');
     assert.ok(detail);
     assert.equal(detail.asset.usageCount, 1);
+    assert.equal(detail.asset.deduplicatedIntoAssetId, null);
     assert.deepEqual(detail.usages.map((usage) => [usage.caseId, usage.captionMd]), [['seed-pityriasis-rosea', 'Herald patch']]);
     assert.equal(detail.asset.imageUrl, '/api/assets/seed-asset-pityriasis-herald/image');
 
@@ -197,6 +201,75 @@ test('Asset Library searches metadata and filters usage, status, and provenance'
       () => updateAssetMetadata(fixture.db, 'seed-asset-pityriasis-herald', { sourceUrl: 'javascript:alert(1)', isActive: true }),
       (error) => error instanceof AssetLibraryInputError && /valid http\(s\)/.test(error.message)
     );
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Image Library excludes deduplication tombstones from ordinary Asset results', async () => {
+  const fixture = createLearningDb();
+  try {
+    insertTestAsset(fixture.sqlite, { id: 'dedupe-survivor', name: 'Canonical survivor', createdAt: 30_000 });
+    insertTestAsset(fixture.sqlite, { id: 'dedupe-duplicate', name: 'Duplicate hidden image', createdAt: 30_001 });
+    fixture.sqlite.prepare('UPDATE assets SET is_active = 0, deduplicated_into_asset_id = ? WHERE id = ?').run('dedupe-survivor', 'dedupe-duplicate');
+
+    const rows = await listAssetLibrary(fixture.db, { search: 'Canonical survivor' });
+    assert.deepEqual(rows.map((asset) => asset.id), ['dedupe-survivor']);
+    const detail = await getAssetLibraryDetail(fixture.db, 'dedupe-duplicate');
+    if (!detail) throw new Error('Expected the direct tombstone detail to remain readable.');
+    assert.equal(detail.asset.deduplicatedIntoAssetId, 'dedupe-survivor');
+    assert.equal(detail.asset.imageUrl, null);
+    await assert.rejects(
+      () => updateAssetMetadata(fixture.db, 'dedupe-duplicate', { originalFilename: 'must-not-change' }),
+      (error) => error instanceof AssetLibraryInputError && /cleanup pending/i.test(error.message)
+    );
+
+    const { load, actions } = await import('../src/routes/admin/images/[assetId]/+page.server.js');
+    /** @param {Request} request */
+    const routeEvent = (request) => /** @type {any} */ ({
+      request,
+      locals: { user: { role: 'admin' } },
+      params: { assetId: 'dedupe-duplicate' },
+      platform: { env: { DB: fixture.d1 } }
+    });
+    const loaded = await load({ ...routeEvent(new Request('http://localhost/admin/images/dedupe-duplicate')), url: new URL('http://localhost/admin/images/dedupe-duplicate') });
+    if (!loaded.detail) throw new Error('Expected the direct tombstone route to load detail.');
+    assert.equal(loaded.detail.asset.deduplicatedIntoAssetId, 'dedupe-survivor');
+    assert.deepEqual(loaded.reusableQuestions, []);
+    assert.equal(loaded.replacement, null);
+
+    const metadata = new FormData();
+    metadata.set('original_filename', 'must-not-change');
+    const metadataResult = await actions.saveMetadata(routeEvent(new Request('http://localhost/admin/images/dedupe-duplicate?/saveMetadata', { method: 'POST', body: metadata })));
+    assert.equal(metadataResult.status, 400);
+    assert.match(metadataResult.data.error, /cleanup pending/i);
+
+    const question = new FormData();
+    question.set('prompt_md', 'Must not create');
+    question.set('answer_md', 'Must not create');
+    const questionResult = await actions.createReusableQuestion(routeEvent(new Request('http://localhost/admin/images/dedupe-duplicate?/createReusableQuestion', { method: 'POST', body: question })));
+    assert.equal(questionResult.status, 400);
+    assert.match(questionResult.data.error, /cleanup pending/i);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('Asset metadata update rejects a tombstone race without mutating cleanup state', async () => {
+  let triggered = false;
+  const fixture = createLearningDb({ beforeStatement(sql, sqlite) {
+    if (triggered || !/update[\s\S]*assets/i.test(sql)) return;
+    triggered = true;
+    sqlite.prepare('UPDATE assets SET is_active = 0, deduplicated_into_asset_id = ? WHERE id = ?').run('seed-asset-pityriasis-trunk', 'seed-asset-pityriasis-herald');
+  } });
+  try {
+    await assert.rejects(
+      () => updateAssetMetadata(fixture.db, 'seed-asset-pityriasis-herald', { originalFilename: 'must-not-change' }),
+      (error) => error instanceof AssetLibraryInputError && /cleanup pending/i.test(error.message)
+    );
+    assert.equal(triggered, true);
+    const stored = fixture.sqlite.prepare('SELECT original_filename, deduplicated_into_asset_id FROM assets WHERE id = ?').get('seed-asset-pityriasis-herald');
+    assert.deepEqual({ ...stored }, { original_filename: null, deduplicated_into_asset_id: 'seed-asset-pityriasis-trunk' });
   } finally {
     fixture.sqlite.close();
   }

@@ -13,6 +13,7 @@ import { assets, caseAssets, caseConcepts, cases, concepts, imageCollections, st
 export const ASSET_LIBRARY_PAGE_SIZE = 60;
 export const ASSET_LIBRARY_SELECT_ALL_LIMIT = 300;
 export const ASSET_LIBRARY_COLLECTION_BULK_LIMIT = 30;
+export const ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE = 'This Asset is a deduplication tombstone with cleanup pending; metadata and reusable-question changes are unavailable.';
 
 export class AssetLibraryInputError extends Error {
   /** @param {string} message */
@@ -231,6 +232,7 @@ const retainedHistoryExpr = sql`(
   or exists (select 1 from asset_questions history_aq where history_aq.asset_id = ${assets.id})
   or ${assets.supersededByAssetId} is not null
   or exists (select 1 from assets history_predecessor where history_predecessor.superseded_by_asset_id = ${assets.id})
+  or ${assets.deduplicatedIntoAssetId} is not null
 )`;
 
 const historicalOnlyExpr = sql`not (${currentUseExpr}) and ${retainedHistoryExpr}`;
@@ -243,7 +245,7 @@ const activeReviewCountExpr = sql`(
 
 /** @param {ReturnType<typeof parseAssetLibraryFilters>} filters */
 function libraryConditions(filters) {
-  const conditions = [isNull(assets.previewSessionId)];
+  const conditions = [isNull(assets.previewSessionId), isNull(assets.deduplicatedIntoAssetId)];
   const search = filters.search;
   if (search) {
     const pattern = `%${search}%`;
@@ -349,6 +351,9 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
     collectionId: assets.imageCollectionId,
     collectionName: imageCollections.name,
     isActive: assets.isActive,
+    supersededByAssetId: assets.supersededByAssetId,
+    deduplicatedIntoAssetId: assets.deduplicatedIntoAssetId,
+    dedupeSurvivorName: sql`(select survivor.original_filename from assets survivor where survivor.id = ${assets.deduplicatedIntoAssetId})`,
     hasCurrentUsage: currentUseExpr.mapWith(Boolean),
     hasRetainedHistory: retainedHistoryExpr.mapWith(Boolean),
     activeReviewCount: activeReviewCountExpr.mapWith(Number),
@@ -394,7 +399,7 @@ export async function getAssetLibraryPage(db, filters, options = {}) {
       ...asset,
       usageCount: usageCasesByAsset.get(asset.id)?.size ?? 0,
       usageState,
-      imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null,
+      imageUrl: asset.isActive && !asset.supersededByAssetId && !asset.deduplicatedIntoAssetId ? getTeachingImageUrl(asset.id) : null,
       topicNames,
       topicSummary: topicSummary(topicNames),
       currentTopicNames,
@@ -440,6 +445,9 @@ export async function getAssetLibraryDetail(db, assetId) {
     collectionName: imageCollections.name,
     previewSessionId: assets.previewSessionId,
     isActive: assets.isActive,
+    supersededByAssetId: assets.supersededByAssetId,
+    deduplicatedIntoAssetId: assets.deduplicatedIntoAssetId,
+    dedupeSurvivorName: sql`(select survivor.original_filename from assets survivor where survivor.id = ${assets.deduplicatedIntoAssetId})`,
     createdAt: assets.createdAt,
     updatedAt: assets.updatedAt
   }).from(assets).leftJoin(imageCollections, eq(assets.imageCollectionId, imageCollections.id)).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
@@ -447,7 +455,7 @@ export async function getAssetLibraryDetail(db, assetId) {
   if (!asset) return null;
   const usages = await listRetainedUsageRows(db, [asset.id]);
   const currentUsages = usages.filter((usage) => usage.relationshipIsCurrent);
-  return { asset: { ...asset, imageUrl: asset.isActive ? getTeachingImageUrl(asset.id) : null, usageCount: new Set(currentUsages.map((usage) => usage.caseId)).size }, usages, currentUsages };
+  return { asset: { ...asset, imageUrl: asset.isActive && !asset.supersededByAssetId && !asset.deduplicatedIntoAssetId ? getTeachingImageUrl(asset.id) : null, usageCount: new Set(currentUsages.map((usage) => usage.caseId)).size }, usages, currentUsages };
 }
 
 /**
@@ -461,12 +469,25 @@ export async function getAssetLibraryDetail(db, assetId) {
  */
 export async function updateAssetMetadata(db, assetId, input) {
   const normalizedId = requiredText(assetId, 'Asset');
-  const existing = await db.select({ id: assets.id }).from(assets).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
+  const existing = await db.select({ id: assets.id, deduplicatedIntoAssetId: assets.deduplicatedIntoAssetId }).from(assets).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId))).limit(1);
   if (!existing[0]) throw new AssetLibraryInputError('The selected production Asset no longer exists.');
+  if (existing[0].deduplicatedIntoAssetId) throw new AssetLibraryInputError(ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE);
   const imageCollectionId = optionalText(input.imageCollectionId);
   await validateCollection(db, imageCollectionId);
   const update = { originalFilename: optionalText(input.originalFilename), altText: optionalText(input.altText), sourceLabel: optionalText(input.sourceLabel), sourceUrl: validateAssetSourceUrl(input.sourceUrl), licence: optionalText(input.licence), imageCollectionId, isActive: booleanValue(input.isActive), updatedAt: new Date() };
-  await db.update(assets).set(update).where(and(eq(assets.id, normalizedId), isNull(assets.previewSessionId)));
+  const updated = await db.update(assets).set(update).where(and(
+    eq(assets.id, normalizedId),
+    isNull(assets.previewSessionId),
+    isNull(assets.deduplicatedIntoAssetId)
+  )).returning({ id: assets.id });
+  if (!updated.length) {
+    const current = await db.select({ deduplicatedIntoAssetId: assets.deduplicatedIntoAssetId })
+      .from(assets)
+      .where(eq(assets.id, normalizedId))
+      .limit(1);
+    if (current[0]?.deduplicatedIntoAssetId) throw new AssetLibraryInputError(ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE);
+    throw new AssetLibraryInputError('The selected production Asset no longer exists.');
+  }
   return update;
 }
 
@@ -491,10 +512,33 @@ export async function setAssetCollection(db, assetIds, collectionId) {
   if (uniqueIds.length > ASSET_LIBRARY_COLLECTION_BULK_LIMIT) throw new AssetLibraryInputError(`Collection updates are limited to ${ASSET_LIBRARY_COLLECTION_BULK_LIMIT} Assets per request.`);
   const normalizedCollectionId = optionalText(collectionId);
   await validateCollection(db, normalizedCollectionId);
-  const existing = await db.select({ id: assets.id }).from(assets).where(and(isNull(assets.previewSessionId), inArray(assets.id, uniqueIds)));
+  const existing = await db.select({ id: assets.id, deduplicatedIntoAssetId: assets.deduplicatedIntoAssetId })
+    .from(assets)
+    .where(and(isNull(assets.previewSessionId), inArray(assets.id, uniqueIds)));
+  if (existing.some((row) => row.deduplicatedIntoAssetId)) throw new AssetLibraryInputError(ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE);
   if (existing.length !== uniqueIds.length) throw new AssetLibraryInputError('One or more selected production Assets no longer exist.');
-  await db.update(assets).set({ imageCollectionId: normalizedCollectionId, updatedAt: new Date() }).where(and(isNull(assets.previewSessionId), inArray(assets.id, uniqueIds)));
-  return { updatedCount: uniqueIds.length, collectionId: normalizedCollectionId };
+  const selectedIds = sql.join(uniqueIds.map((id) => sql`${id}`), sql`, `);
+  const allTargetsStillWritable = sql`(
+    SELECT count(*) FROM assets selected_asset
+    WHERE selected_asset.id IN (${selectedIds})
+      AND selected_asset.preview_session_id IS NULL
+      AND selected_asset.deduplicated_into_asset_id IS NULL
+  ) = ${uniqueIds.length}`;
+  const updated = await db.update(assets).set({ imageCollectionId: normalizedCollectionId, updatedAt: new Date() }).where(and(
+    isNull(assets.previewSessionId),
+    isNull(assets.deduplicatedIntoAssetId),
+    inArray(assets.id, uniqueIds),
+    allTargetsStillWritable
+  )).returning({ id: assets.id });
+  if (updated.length !== uniqueIds.length) {
+    const tombstones = await db.select({ id: assets.id })
+      .from(assets)
+      .where(and(inArray(assets.id, uniqueIds), isNotNull(assets.deduplicatedIntoAssetId)))
+      .limit(1);
+    if (tombstones.length) throw new AssetLibraryInputError(ASSET_DEDUPE_TOMBSTONE_MUTATION_MESSAGE);
+    throw new AssetLibraryInputError('One or more selected production Assets no longer exist.');
+  }
+  return { updatedCount: updated.length, collectionId: normalizedCollectionId };
 }
 
 /** @param {string} mimeType */
