@@ -36,7 +36,15 @@ test('Case Library keeps deliberate search and native browser state restoration'
 
 test('pagination, sort, lifecycle and named mutations stay wired through the Case Library state helpers', () => {
   assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), page \}, \['page'\]\)/);
+  assert.match(pageSource, /href=\{pageHref\(item\.page\)\}/);
+  assert.match(pageSource, /aria-current="page"/);
+  assert.match(pageSource, /paginationItems\(\)/);
+  assert.match(pageSource, /pagination-ellipsis/);
+  assert.match(pageSource, /class="button pagination-button is-disabled" aria-disabled="true">Previous/);
+  assert.match(pageSource, /class="button pagination-button is-disabled" aria-disabled="true">Next/);
   assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), sort: `\$\{column\}-\$\{direction\}`, page: 1 \}, \['sort'\]\)/);
+  assert.match(pageSource, /sortHref\('added'\)/);
+  assert.match(pageSource, /sortHref\('edited'\)/);
   assert.match(pageSource, /caseLibraryStateHref\(\{ \.\.\.currentStoredState\(\), lifecycle, page: 1 \}, \['lifecycle'\]\)/);
   assert.match(pageSource, /caseLibraryNamedActionHref\(actionName, currentQuery\(\)\)/);
   assert.match(pageSource, /action=\{actionHref\(inactiveView \? 'bulkRestoreCases' : 'bulkDeactivateCases'\)\}/);

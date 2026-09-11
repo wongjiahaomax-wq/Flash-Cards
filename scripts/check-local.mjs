@@ -1,4 +1,7 @@
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parseSvelteMachineOutput } from './ci-svelte-diagnostics.mjs';
 
@@ -17,6 +20,50 @@ function bounded(value, limit) {
 function npmInvocation(args, env) {
   if (env.npm_execpath) return { executable: process.execPath, args: [env.npm_execpath, ...args] };
   return { executable: 'npm', args };
+}
+
+/**
+ * Capture the machine stream through files instead of pipes. The pinned
+ * svelte-check writer uses asynchronous stdout writes and can exit before a
+ * synchronous piped child capture receives those records.
+ * @param {typeof spawnSync} spawn
+ * @param {{ executable: string, args: string[] }} invocation
+ * @param {NodeJS.ProcessEnv} env
+ */
+function spawnCaptured(spawn, invocation, env) {
+  const temporaryDirectory = mkdtempSync(join(tmpdir(), 'flash-cards-svelte-check-'));
+  const stdoutPath = join(temporaryDirectory, 'stdout.log');
+  const stderrPath = join(temporaryDirectory, 'stderr.log');
+  let stdoutFd = null;
+  let stderrFd = null;
+  try {
+    stdoutFd = openSync(stdoutPath, 'w');
+    stderrFd = openSync(stderrPath, 'w');
+    const result = spawn(invocation.executable, invocation.args, {
+      cwd: process.cwd(),
+      stdio: ['inherit', stdoutFd, stderrFd],
+      shell: false,
+      env,
+    });
+    closeSync(stdoutFd);
+    stdoutFd = null;
+    closeSync(stderrFd);
+    stderrFd = null;
+    const capturedResult = /** @type {{ stdout?: string | Buffer | null, stderr?: string | Buffer | null }} */ (result);
+    return {
+      result,
+      stdout: capturedResult.stdout !== undefined && capturedResult.stdout !== null
+        ? String(capturedResult.stdout)
+        : readFileSync(stdoutPath, 'utf8'),
+      stderr: capturedResult.stderr !== undefined && capturedResult.stderr !== null
+        ? String(capturedResult.stderr)
+        : readFileSync(stderrPath, 'utf8'),
+    };
+  } finally {
+    if (stdoutFd !== null) closeSync(stdoutFd);
+    if (stderrFd !== null) closeSync(stderrFd);
+    rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
 }
 
 /** @param {string[]} argv */
@@ -64,18 +111,11 @@ export function runLocalSvelteCheck(options = {}) {
     throw new Error(`Unknown local Svelte check argument: ${argv[0]}`);
   }
 
-  const result = spawn(invocation.executable, invocation.args, {
-    cwd: process.cwd(),
-    stdio: ['inherit', 'pipe', 'pipe'],
-    shell: false,
-    env,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
+  const captured = spawnCaptured(spawn, invocation, env);
+  const { result } = captured;
   if (result.error) throw result.error;
 
-  const stdout = String(result.stdout ?? '');
-  const stderr = String(result.stderr ?? '');
+  const { stdout, stderr } = captured;
   const parsed = parseSvelteMachineOutput(stdout);
   const errors = parsed.diagnostics.filter((diagnostic) => diagnostic.severity === 'error');
   const warningDiagnostics = parsed.diagnostics.filter((diagnostic) => diagnostic.severity === 'warning');
@@ -84,22 +124,23 @@ export function runLocalSvelteCheck(options = {}) {
   const incomplete = !parsed.protocolStarted
     || !parsed.completion
     || parsed.malformedDiagnosticRecords > 0
+    || Boolean(parsed.failure)
     || completionErrorMismatch
     || completionWarningMismatch;
   const displayErrors = incomplete ? errors.length : (parsed.completion?.errors ?? errors.length);
   const displayWarnings = incomplete ? warningDiagnostics.length : (parsed.completion?.warnings ?? warningDiagnostics.length);
 
-  if (result.status === 0) {
-    if (!incomplete && parsed.protocolStarted && parsed.completion) {
-      console.log(`✓ Svelte — ${displayErrors} errors, ${displayWarnings} warnings`);
-    } else {
-      console.log('✓ Svelte — passed (structured summary unavailable)');
-    }
+  if (result.status === 0 && !incomplete) {
+    console.log(`✓ Svelte — ${displayErrors} errors, ${displayWarnings} warnings`);
     return 0;
   }
 
-  const countQualifier = incomplete ? ' parsed' : '';
-  console.error(`✗ Svelte — ${displayErrors}${countQualifier} error${displayErrors === 1 ? '' : 's'}, ${displayWarnings}${countQualifier} warning${displayWarnings === 1 ? '' : 's'}`);
+  if (result.status === 0 && incomplete) {
+    console.error('✗ Svelte — structured diagnostics incomplete; validation status unavailable');
+  } else {
+    const countQualifier = incomplete ? ' parsed' : '';
+    console.error(`✗ Svelte — ${displayErrors}${countQualifier} error${displayErrors === 1 ? '' : 's'}, ${displayWarnings}${countQualifier} warning${displayWarnings === 1 ? '' : 's'}`);
+  }
   const visible = errors.slice(0, ERROR_LIMIT);
   for (let index = 0; index < visible.length; index += 1) {
     console.error(`\n${index + 1}. ${formatLocalSvelteDiagnostic(visible[index])}`);
@@ -112,6 +153,7 @@ export function runLocalSvelteCheck(options = {}) {
     if (!parsed.protocolStarted) reasons.push('START missing');
     if (!parsed.completion) reasons.push('COMPLETED missing');
     if (parsed.malformedDiagnosticRecords > 0) reasons.push(`malformedRecords=${parsed.malformedDiagnosticRecords}`);
+    if (parsed.failure) reasons.push('FAILURE record present');
     if (completionErrorMismatch && parsed.completion) {
       reasons.push(`parsedErrors=${errors.length}`);
       reasons.push(`reportedErrors=${parsed.completion.errors}`);
@@ -125,7 +167,7 @@ export function runLocalSvelteCheck(options = {}) {
     if (fallback) console.error(bounded(fallback, OUTPUT_LIMIT));
   }
   console.error('\nVerbose reproduction: npm run check:verbose');
-  return Number.isInteger(result.status) ? result.status : 1;
+  return Number.isInteger(result.status) && result.status !== 0 ? result.status : 1;
 }
 
 const invokedDirectly = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;

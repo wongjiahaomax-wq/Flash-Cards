@@ -142,7 +142,32 @@
     return caseLibraryStateHref({ ...currentStoredState(), page }, ['page']);
   }
 
-  /** @param {'case' | 'topic' | 'system' | 'tag'} column */
+  /** @returns {({ type: 'page', page: number } | { type: 'ellipsis', key: string })[]} */
+  function paginationItems() {
+    const totalPages = data.pagination.totalPages;
+    const currentPage = data.pagination.page;
+    if (totalPages <= 7) {
+      /** @type {({ type: 'page', page: number } | { type: 'ellipsis', key: string })[]} */
+      const items = [];
+      for (let page = 1; page <= totalPages; page += 1) items.push({ type: 'page', page });
+      return items;
+    }
+
+    const visiblePages = [...new Set([1, currentPage - 1, currentPage, currentPage + 1, totalPages])]
+      .filter((page) => page >= 1 && page <= totalPages)
+      .sort((left, right) => left - right);
+    /** @type {({ type: 'page', page: number } | { type: 'ellipsis', key: string })[]} */
+    const items = [];
+    let previousPage = 0;
+    for (const page of visiblePages) {
+      if (page - previousPage > 1) items.push({ type: 'ellipsis', key: `ellipsis-${previousPage}-${page}` });
+      items.push({ type: 'page', page });
+      previousPage = page;
+    }
+    return items;
+  }
+
+  /** @param {'case' | 'topic' | 'system' | 'tag' | 'added' | 'edited'} column */
   function sortHref(column) {
     const currentColumn = data.caseFilters.sort?.split('-')[0];
     const currentDirection = data.caseFilters.sort?.split('-')[1];
@@ -150,7 +175,7 @@
     return caseLibraryStateHref({ ...currentStoredState(), sort: `${column}-${direction}`, page: 1 }, ['sort']);
   }
 
-  /** @param {'case' | 'topic' | 'system' | 'tag'} column */
+  /** @param {'case' | 'topic' | 'system' | 'tag' | 'added' | 'edited'} column */
   function sortIndicator(column) {
     if (data.caseFilters.sort?.startsWith(`${column}-asc`)) return '↑';
     if (data.caseFilters.sort?.startsWith(`${column}-desc`)) return '↓';
@@ -290,13 +315,15 @@
       <p class="empty-state">No {inactiveView ? 'inactive' : 'active'} Cases match these filters.</p>
     {:else}
       <div class="case-table" role="list">
-        <div class="table-header"><span class="case-heading"><input type="checkbox" checked={allVisibleSelected} onchange={toggleAllVisible} aria-label="Select all visible Cases" /><a class="sort-header" href={sortHref('case')} aria-label={`Sort by Case ${data.caseFilters.sort === 'case-asc' ? 'descending' : 'ascending'}`}>Case <span aria-hidden="true">{sortIndicator('case')}</span></a></span><a class="sort-header" href={sortHref('topic')} aria-label={`Sort by Topic ${data.caseFilters.sort === 'topic-asc' ? 'descending' : 'ascending'}`}>Topic <span aria-hidden="true">{sortIndicator('topic')}</span></a><a class="sort-header" href={sortHref('system')} aria-label={`Sort by System ${data.caseFilters.sort === 'system-asc' ? 'descending' : 'ascending'}`}>System <span aria-hidden="true">{sortIndicator('system')}</span></a><a class="sort-header" href={sortHref('tag')} aria-label={`Sort by Tags ${data.caseFilters.sort === 'tag-asc' ? 'descending' : 'ascending'}`}>Tags <span aria-hidden="true">{sortIndicator('tag')}</span></a><span>Open</span></div>
+        <div class="table-header"><span class="case-heading"><input type="checkbox" checked={allVisibleSelected} onchange={toggleAllVisible} aria-label="Select all visible Cases" /><a class="sort-header" href={sortHref('case')} aria-label={`Sort by Case ${data.caseFilters.sort === 'case-asc' ? 'descending' : 'ascending'}`}>Case <span aria-hidden="true">{sortIndicator('case')}</span></a></span><a class="sort-header" href={sortHref('topic')} aria-label={`Sort by Topic ${data.caseFilters.sort === 'topic-asc' ? 'descending' : 'ascending'}`}>Topic <span aria-hidden="true">{sortIndicator('topic')}</span></a><a class="sort-header" href={sortHref('system')} aria-label={`Sort by System ${data.caseFilters.sort === 'system-asc' ? 'descending' : 'ascending'}`}>System <span aria-hidden="true">{sortIndicator('system')}</span></a><a class="sort-header" href={sortHref('tag')} aria-label={`Sort by Tags ${data.caseFilters.sort === 'tag-asc' ? 'descending' : 'ascending'}`}>Tags <span aria-hidden="true">{sortIndicator('tag')}</span></a><a class="sort-header" href={sortHref('added')} aria-label={`Sort by Added date ${data.caseFilters.sort === 'added-asc' ? 'descending' : 'ascending'}`}>Added <span aria-hidden="true">{sortIndicator('added')}</span></a><a class="sort-header" href={sortHref('edited')} aria-label={`Sort by Last edited date ${data.caseFilters.sort === 'edited-asc' ? 'descending' : 'ascending'}`}>Last edited <span aria-hidden="true">{sortIndicator('edited')}</span></a><span>Open</span></div>
         {#each data.cases as item}
           <div class="table-row" class:inactive-row={inactiveView} class:selected-row={selectedCaseIds.includes(item.id)}>
-            <span class="case-cell"><input class="case-select" type="checkbox" name="case_ids" value={item.id} checked={selectedCaseIds.includes(item.id)} onclick={(event) => selectCase(item.id, event)} aria-label={`Select ${item.title}`} /><span class="case-details"><span class="case-title-line"><a href={caseHref(item)}><strong>{item.title}</strong></a>{#if inactiveView}<span class="status-badge">Inactive</span>{/if}</span><span class="case-authoring-dates">Added {formatCaseAuthoringDate(item.createdAt)} · Edited {formatCaseAuthoringDate(item.updatedAt)}</span></span></span>
+            <span class="case-cell"><input class="case-select" type="checkbox" name="case_ids" value={item.id} checked={selectedCaseIds.includes(item.id)} onclick={(event) => selectCase(item.id, event)} aria-label={`Select ${item.title}`} /><span class="case-details"><span class="case-title-line"><a href={caseHref(item)}><strong>{item.title}</strong></a>{#if inactiveView}<span class="status-badge">Inactive</span>{/if}</span></span></span>
             {#if inactiveView}<span>{item.conceptName ?? 'Unassigned'}</span>{:else}<div class="classification-cell"><span>{item.conceptName ?? 'Unassigned'}</span><CaseClassificationEditor caseId={item.id} caseTitle={item.title} currentTopicId={item.conceptId ?? ''} currentTopicName={item.conceptName ?? 'Unassigned'} currentSystemName={item.systemName ?? 'Unassigned'} topics={data.topics} parentOptions={data.topicParents} /></div>{/if}
             <span>{item.systemName ?? 'Unassigned'}</span>
             <div class="tag-cell">{#if inactiveView}<span class="tag-list">{#if item.tags.length}{#each item.tags as tag}<span class="tag-chip">{tag.name}</span>{/each}{:else}<span class="muted">—</span>{/if}</span>{:else}<CaseTagInlineEditor caseId={item.id} caseTitle={item.title} tags={item.tags} availableTags={data.tags} selectedCaseIds={selectedCaseIds} cases={data.cases} />{/if}</div>
+            <span class="case-date" data-label="Added"><time datetime={item.createdAt?.toISOString?.() ?? ''}>{formatCaseAuthoringDate(item.createdAt)}</time></span>
+            <span class="case-date" data-label="Last edited"><time datetime={item.updatedAt?.toISOString?.() ?? ''}>{formatCaseAuthoringDate(item.updatedAt)}</time></span>
             <a class="open-link" href={caseHref(item)}>{inactiveView ? 'Recover' : 'Open'} →</a>
           </div>
         {/each}
@@ -305,9 +332,16 @@
   </form>
 
   <nav class="pagination" aria-label="Case Library pages">
-    {#if data.pagination.page > 1}<a class="button" href={pageHref(data.pagination.page - 1)}>Previous</a>{:else}<span></span>{/if}
-    <span>Page {data.pagination.page} of {data.pagination.totalPages}</span>
-    {#if data.pagination.page < data.pagination.totalPages}<a class="button" href={pageHref(data.pagination.page + 1)}>Next</a>{/if}
+    <div class="pagination-controls">
+      {#if data.pagination.page > 1}<a class="button pagination-button" href={pageHref(data.pagination.page - 1)}>Previous</a>{:else}<span class="button pagination-button is-disabled" aria-disabled="true">Previous</span>{/if}
+      <div class="page-numbers" role="group" aria-label="Select a Case Library page">
+        {#each paginationItems() as item}
+          {#if item.type === 'ellipsis'}<span class="pagination-ellipsis" aria-hidden="true">…</span>{:else if item.page === data.pagination.page}<span class="page-number current" aria-current="page">{item.page}</span>{:else}<a class="page-number" href={pageHref(item.page)} aria-label={`Go to page ${item.page}`}>{item.page}</a>{/if}
+        {/each}
+      </div>
+      {#if data.pagination.page < data.pagination.totalPages}<a class="button pagination-button" href={pageHref(data.pagination.page + 1)}>Next</a>{:else}<span class="button pagination-button is-disabled" aria-disabled="true">Next</span>{/if}
+    </div>
+    <span class="page-status">Page {data.pagination.page} of {data.pagination.totalPages}</span>
   </nav>
 </section>
 
@@ -321,12 +355,12 @@
   .search-form { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 0.75rem; align-items: end; margin: 1rem 0; } label { display: grid; gap: 0.4rem; color: #344054; font-weight: 650; } input, select { width: 100%; min-width: 0; box-sizing: border-box; padding: 0.7rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; font: inherit; } .search-actions { display: flex; gap: 0.5rem; }
   .panel { padding: 1.1rem; border: 1px solid #dfe5ee; border-radius: 10px; background: #fff; } .count { color: #667085; font-size: 0.85rem; font-weight: 500; }
   .bulk-toolbar { position: sticky; top: 0.75rem; z-index: 12; display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; max-width: 100%; min-width: 0; box-sizing: border-box; margin-top: 1rem; padding: 0.85rem; border: 1px solid #dfe5ee; border-radius: 8px; background: #fff; box-shadow: 0 6px 18px rgb(16 24 40 / 10%); } .bulk-toolbar > div { display: grid; gap: 0.2rem; margin-right: auto; } .selection-hint { color: #667085; font-size: 0.82rem; } .bulk-topic, .bulk-system { display: flex; align-items: center; gap: 0.55rem; min-width: 360px; } .bulk-topic select, .bulk-system select { flex: 1; min-width: 0; } button:disabled, select:disabled { cursor: not-allowed; opacity: 0.55; } .form-error, .success-message, .selection-warning { margin: 1rem 0 0; padding: 0.75rem; border-radius: 8px; } .form-error { background: #fef3f2; color: #b42318; } .success-message { background: #ecfdf3; color: #027a48; } .selection-warning { background: #fffaeb; color: #93370d; }
-  .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(160px, 1fr) 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .sort-header { color: inherit; text-decoration: none; } .sort-header span { margin-left: 0.2rem; font-size: 0.9rem; } .table-row { scroll-margin-top: 9rem; border-bottom: 1px solid #eaecf0; color: #172033; } .table-row.inactive-row { background: #fcfcfd; } .table-row.selected-row { background: #f5f8ff; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .case-heading, .case-cell, .case-title-line { display: flex; align-items: center; gap: 0.55rem; min-width: 0; } .case-details { display: grid; gap: 0.16rem; min-width: 0; } .case-cell a { min-width: 0; color: #172033; text-decoration: none; } .case-cell a strong { overflow-wrap: anywhere; } .case-authoring-dates { color: #667085; font-size: 0.76rem; font-weight: 500; } .case-heading input, .case-select { width: 1rem; height: 1rem; flex: 0 0 auto; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; text-decoration: none; }
+  .case-table { display: grid; margin-top: 1rem; } .table-header, .table-row { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(110px, 0.8fr) minmax(110px, 0.8fr) minmax(160px, 1fr) 115px 135px 80px; gap: 1rem; align-items: center; padding: 0.8rem 0.5rem; } .table-header { color: #667085; border-bottom: 1px solid #dfe5ee; font-size: 0.76rem; font-weight: 750; letter-spacing: 0.06em; text-transform: uppercase; } .sort-header { color: inherit; text-decoration: none; } .sort-header span { margin-left: 0.2rem; font-size: 0.9rem; } .table-row { scroll-margin-top: 9rem; border-bottom: 1px solid #eaecf0; color: #172033; } .table-row.inactive-row { background: #fcfcfd; } .table-row.selected-row { background: #f5f8ff; } .table-row:last-child { border-bottom: 0; } .table-row > span { color: #667085; } .case-heading, .case-cell, .case-title-line { display: flex; align-items: center; gap: 0.55rem; min-width: 0; } .case-details { display: grid; gap: 0.16rem; min-width: 0; } .case-cell a { min-width: 0; color: #172033; text-decoration: none; } .case-cell a strong { overflow-wrap: anywhere; } .case-date { color: #667085; font-size: 0.82rem; font-variant-numeric: tabular-nums; white-space: nowrap; } .case-date time { display: block; } .case-heading input, .case-select { width: 1rem; height: 1rem; flex: 0 0 auto; } .open-link { color: #344054 !important; font-size: 0.9rem; font-weight: 650; text-align: right; text-decoration: none; }
   .classification-cell { display: flex; flex-wrap: wrap; align-items: center; gap: 0.35rem; min-width: 0; color: #667085; }
   .status-badge { flex: 0 0 auto; padding: 0.16rem 0.42rem; border-radius: 999px; background: #fef3f2; color: #b42318 !important; font-size: 0.72rem; font-weight: 750; } .tag-list { display: flex; flex-wrap: wrap; gap: 0.3rem; } .tag-chip { display: inline-block; padding: 0.18rem 0.4rem; border-radius: 999px; background: #ecfdf3; color: #027a48; font-size: 0.76rem; font-weight: 650; }
   .tag-cell { min-width: 0; }
   .empty-state { margin-top: 1rem; padding: 1rem; border: 1px dashed #d0d5dd; border-radius: 8px; }
-  .pagination { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.75rem; margin-top: 1rem; } .pagination > :last-child { justify-self: end; }
+  .pagination { display: grid; justify-items: center; gap: 0.55rem; margin-top: 1rem; } .pagination-controls { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; width: 100%; } .pagination-button { display: inline-flex; width: 90px; box-sizing: border-box; align-items: center; justify-content: center; text-align: center; } .pagination-button.is-disabled { border-color: #e4e7ec; background: #f8fafc; color: #98a2b3; cursor: not-allowed; } .page-numbers { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 0.25rem; } .page-number { display: inline-flex; width: 2.5rem; height: 2.5rem; box-sizing: border-box; align-items: center; justify-content: center; border: 1px solid transparent; border-radius: 8px; color: #344054; text-decoration: none; } .page-number:hover, .page-number:focus-visible { border-color: #cdd6e3; background: #f8fafc; } .page-number.current { border-color: #172033; background: #172033; color: #fff; font-weight: 700; } .pagination-ellipsis { display: inline-flex; width: 2.5rem; height: 2.5rem; align-items: center; justify-content: center; color: #667085; } .page-status { color: #667085; font-size: 0.9rem; }
   @media (max-width: 1100px) { .search-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .search-actions { grid-column: 1 / -1; } }
-  @media (max-width: 600px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .search-form { grid-template-columns: minmax(0, 1fr); } .search-actions { grid-column: auto; } .bulk-toolbar { top: 0.5rem; gap: 0.55rem; padding: 0.7rem; } .bulk-toolbar > div { width: 100%; margin-right: 0; } .selection-hint { display: none; } .bulk-topic, .bulk-system { min-width: 100%; } .table-header { display: none; } .table-row { grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem 0.75rem; } .case-cell, .classification-cell, .tag-list, .tag-cell { grid-column: 1 / -1; } .classification-cell { align-items: stretch; flex-direction: column; } .open-link { text-align: left; } .pagination { grid-template-columns: 1fr 1fr; } .pagination > span { grid-column: 1 / -1; grid-row: 1; text-align: center; } .pagination > a:first-of-type { grid-column: 1; } .pagination > a:last-of-type { grid-column: 2; } }
+  @media (max-width: 600px) { .page-heading, .panel-heading { align-items: start; flex-direction: column; } .search-form { grid-template-columns: minmax(0, 1fr); } .search-actions { grid-column: auto; } .bulk-toolbar { top: 0.5rem; gap: 0.55rem; padding: 0.7rem; } .bulk-toolbar > div { width: 100%; margin-right: 0; } .selection-hint { display: none; } .bulk-topic, .bulk-system { min-width: 100%; } .table-header { display: none; } .table-row { grid-template-columns: minmax(0, 1fr) auto; gap: 0.35rem 0.75rem; } .case-cell, .classification-cell, .tag-list, .tag-cell, .case-date { grid-column: 1 / -1; } .classification-cell { align-items: stretch; flex-direction: column; } .case-date { display: flex; gap: 0.5rem; align-items: baseline; } .case-date::before { content: attr(data-label); min-width: 6.5rem; color: #344054; font-size: 0.76rem; font-weight: 700; } .open-link { text-align: left; } .pagination-controls { gap: 0.35rem; } .pagination-button { width: 82px; } .page-numbers { gap: 0.1rem; } .page-number, .pagination-ellipsis { width: 2.1rem; height: 2.1rem; } }
 </style>
