@@ -1,10 +1,12 @@
+import fs from 'node:fs';
+import os from 'node:os';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { runLocalBuild } from '../scripts/build-local.mjs';
 import { runLocalSvelteCheck } from '../scripts/check-local.mjs';
 import localTestReporter, { boundedPreview } from '../scripts/local-test-reporter.mjs';
-import { runNodeTests } from '../scripts/test-runner.mjs';
+import { hasExplicitMaintainedNodeTarget, runNodeTests } from '../scripts/test-runner.mjs';
 import {
   CI_TEST_REPORTER,
   LOCAL_TEST_REPORTER,
@@ -45,6 +47,15 @@ function captureConsole(callback) {
     console.log = originalLog;
     console.warn = originalWarn;
     console.error = originalError;
+  }
+}
+
+/** @param {string} root @param {string[]} files */
+function writeEmptyTests(root, files) {
+  for (const file of files) {
+    const absolute = path.join(root, ...file.split('/'));
+    fs.mkdirSync(path.dirname(absolute), { recursive: true });
+    fs.writeFileSync(absolute, '');
   }
 }
 
@@ -150,7 +161,7 @@ test('explicit caller and CI presentation outrank the local compact default with
   assert.deepEqual(nodeTestArgsForPresentation(['tests/example.test.js'], 'verbose', { ...process.env }), ['tests/example.test.js']);
 });
 
-test('test runner preserves focused arguments and selects one presentation owner', () => {
+test('test runner preserves focused arguments and selects one presentation owner', async () => {
   /** @type {Array<{ executable: string, args: string[], options: any }>} */
   const calls = [];
   /** @param {string} executable @param {string[]} args @param {any} options */
@@ -158,7 +169,7 @@ test('test runner preserves focused arguments and selects one presentation owner
     calls.push({ executable, args, options });
     return { status: 0 };
   }
-  const status = runNodeTests({
+  const status = await runNodeTests({
     argv: ['tests/example.test.js'],
     env: { ...process.env, CI_NODE_TEST_CHECK_ID: 'local-metadata-only' },
     spawn: /** @type {any} */ (mockSpawn),
@@ -174,12 +185,134 @@ test('test runner preserves focused arguments and selects one presentation owner
     ciCalls.push({ executable, args });
     return { status: 0 };
   }
-  runNodeTests({
+  await runNodeTests({
     argv: ['--presentation=ci', 'tests/example.test.js'],
     env: { ...process.env },
     spawn: /** @type {any} */ (mockCiSpawn),
   });
   assert.deepEqual(ciCalls[0].args, ['--test', `--test-reporter=${CI_TEST_REPORTER}`, 'tests/example.test.js']);
+});
+
+test('test runner explicitly discovers complete maintained tests for a no-target run', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flash-cards-test-runner-discovery-'));
+  try {
+    writeEmptyTests(root, [
+      'test/alpha.test.js',
+      'tests/beta-test.mjs',
+      'scripts/test-runner.mjs',
+      'scripts/test-presentation.mjs',
+    ]);
+    /** @type {{ executable: string, args: string[], options: any }[]} */
+    const calls = [];
+    const status = await runNodeTests({
+      cwd: root,
+      argv: [],
+      env: { ...process.env },
+      spawn: /** @type {any} */ (/** @param {string} executable @param {string[]} args @param {any} options */ (executable, args, options) => {
+        calls.push({ executable, args, options });
+        return { status: 0 };
+      }),
+    });
+
+    assert.equal(status, 0);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].executable, process.execPath);
+    assert.deepEqual(calls[0].args, [
+      '--test',
+      `--test-reporter=${LOCAL_TEST_REPORTER}`,
+      'test/alpha.test.js',
+      'tests/beta-test.mjs',
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('test runner skips path-looking values for supported Node options before appending discovery', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flash-cards-test-runner-options-'));
+  try {
+    writeEmptyTests(root, ['test/alpha.test.js', 'tests/beta.test.js']);
+    assert.equal(hasExplicitMaintainedNodeTarget(['--test-name-pattern', 'tests/fake.test.js']), false);
+    assert.equal(hasExplicitMaintainedNodeTarget(['--test-name-pattern', 'tests/fake.test.js', 'test/alpha.test.js']), true);
+
+    /** @type {string[][]} */
+    const calls = [];
+    const spawn = /** @type {any} */ (/** @param {string} executable @param {string[]} args */ (executable, args) => {
+      assert.equal(executable, process.execPath);
+      calls.push(args);
+      return { status: 0 };
+    });
+    await runNodeTests({
+      cwd: root,
+      argv: ['--test-name-pattern=foo'],
+      env: { ...process.env },
+      spawn,
+    });
+    await runNodeTests({
+      cwd: root,
+      argv: ['--test-name-pattern', 'tests/fake.test.js'],
+      env: { ...process.env },
+      spawn,
+    });
+
+    assert.deepEqual(calls[0], [
+      '--test',
+      `--test-reporter=${LOCAL_TEST_REPORTER}`,
+      '--test-name-pattern=foo',
+      'test/alpha.test.js',
+      'tests/beta.test.js',
+    ]);
+    assert.deepEqual(calls[1], [
+      '--test',
+      `--test-reporter=${LOCAL_TEST_REPORTER}`,
+      '--test-name-pattern',
+      'tests/fake.test.js',
+      'test/alpha.test.js',
+      'tests/beta.test.js',
+    ]);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('test runner preserves a package-script-shaped maintained glob as the focused target', async () => {
+  /** @type {string[][]} */
+  const calls = [];
+  await runNodeTests({
+    argv: ['tools/slide-import-review/tests/*.test.js'],
+    env: { ...process.env },
+    spawn: /** @type {any} */ (/** @param {string} executable @param {string[]} args */ (executable, args) => {
+      assert.equal(executable, process.execPath);
+      calls.push(args);
+      return { status: 0 };
+    }),
+  });
+  assert.deepEqual(calls, [[
+    '--test',
+    `--test-reporter=${LOCAL_TEST_REPORTER}`,
+    'tools/slide-import-review/tests/*.test.js',
+  ]]);
+});
+
+test('test runner refuses zero maintained discovery before spawning', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flash-cards-test-runner-empty-'));
+  let spawned = false;
+  try {
+    await assert.rejects(
+      () => runNodeTests({
+        cwd: root,
+        argv: [],
+        spawn: /** @type {any} */ (() => {
+          spawned = true;
+          return { status: 0 };
+        }),
+      }),
+      /Complete Node test discovery resolved to zero maintained tests/,
+    );
+    assert.equal(spawned, false);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('presentation parser keeps ordinary Node arguments and rejects unknown modes', () => {
