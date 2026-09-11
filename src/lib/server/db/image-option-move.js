@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, isNull } from 'drizzle-orm';
 
+import { touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import { assets, cases, stimulusGroupOptions, stimulusGroupQuestions, stimulusGroups, stimulusOptionQuestions } from './schema.js';
 import { StimulusGroupInputError, validateStimulusOptionMoveState } from './stimulus-groups.js';
 
@@ -176,5 +177,6 @@ export async function moveStimulusOptionWithinCase(db, input) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) throw new StimulusOptionMoveError('The source or target set changed while moving the image. Refresh and try again.');
     throw error;
   }
+  if (previewSessionId == null) await touchProductionCaseUpdatedAt(db, caseId);
   return { optionId, sourceGroupId: source.id, targetGroupId, displayOrder };
 }

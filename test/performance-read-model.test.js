@@ -184,7 +184,10 @@ test('Case editor read preserves its external model while executing one bounded 
 
     const data = await getAdminCaseData(fixture.db, 'case-1', { includeAvailable: false });
     assert.ok(data);
-    assert.deepEqual(data.case, {
+    const { createdAt, updatedAt, ...caseFields } = data.case;
+    assert.ok(createdAt instanceof Date);
+    assert.ok(updatedAt instanceof Date);
+    assert.deepEqual(caseFields, {
       id: 'case-1',
       title: 'Case 01',
       vignetteMd: 'Stem 1',

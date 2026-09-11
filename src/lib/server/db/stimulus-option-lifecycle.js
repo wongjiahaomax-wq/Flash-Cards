@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, isNull } from 'drizzle-orm';
 
+import { productionCaseTimestampWrite, touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import { caseAssets, cases, stimulusGroupOptions, stimulusGroups } from './schema.js';
 import { StimulusGroupInputError } from './stimulus-family-error.js';
 import { requireStimulusGroup, requireStimulusImageAsset } from './stimulus-family-eligibility.js';
@@ -20,6 +21,7 @@ export async function addStimulusOption(db, groupId, assetId, captionMd = null) 
       await validateStimulusOptionRestoration(db, duplicate[0].id);
       const caption = optionalText(captionMd);
       await db.update(stimulusGroupOptions).set({ isActive: true, removedFromCase: false, ...(caption ? { captionMd: caption } : {}) }).where(eq(stimulusGroupOptions.id, duplicate[0].id));
+      await touchProductionCaseUpdatedAt(db, group.caseId);
       return duplicate[0].id;
     }
     throw new StimulusGroupInputError(duplicate[0].removedFromCase
@@ -31,6 +33,7 @@ export async function addStimulusOption(db, groupId, assetId, captionMd = null) 
   const last = await db.select({ displayOrder: stimulusGroupOptions.displayOrder }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.stimulusGroupId, group.id)).orderBy(desc(stimulusGroupOptions.displayOrder)).limit(1);
   const id = crypto.randomUUID();
   await db.insert(stimulusGroupOptions).values({ id, stimulusGroupId: group.id, assetId, displayOrder: (last[0]?.displayOrder ?? -1) + 1, captionMd: optionalText(captionMd) });
+  await touchProductionCaseUpdatedAt(db, group.caseId);
   return id;
 }
 
@@ -50,8 +53,15 @@ export async function convertCaseAssetToStimulusOption(db, groupId, assetId) {
     const restore = db.update(stimulusGroupOptions).set({ isActive: true, removedFromCase: false }).where(eq(stimulusGroupOptions.id, duplicate.id));
     const fixedDelete = db.delete(caseAssets).where(and(eq(caseAssets.caseId, group.caseId), eq(caseAssets.assetId, assetId)));
     const reorderStatements = remaining.map((row, index) => db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, group.caseId), eq(caseAssets.assetId, row.assetId))));
-    if (typeof db.batch === 'function') await db.batch([restore, fixedDelete, ...reorderStatements]);
-    else { await restore; await fixedDelete; for (const statement of reorderStatements) await statement; }
+    if (typeof db.batch === 'function') {
+      const updatedAt = new Date();
+      await db.batch([restore, fixedDelete, ...reorderStatements, productionCaseTimestampWrite(db, group.caseId, updatedAt)]);
+    } else {
+      await restore;
+      await fixedDelete;
+      for (const statement of reorderStatements) await statement;
+      await touchProductionCaseUpdatedAt(db, group.caseId);
+    }
     return duplicate.id;
   }
 
@@ -64,36 +74,45 @@ export async function convertCaseAssetToStimulusOption(db, groupId, assetId) {
     db.delete(caseAssets).where(and(eq(caseAssets.caseId, group.caseId), eq(caseAssets.assetId, assetId))),
     ...remaining.map((row, index) => db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, group.caseId), eq(caseAssets.assetId, row.assetId))))
   ];
-  if (typeof db.batch === 'function') await db.batch(/** @type {[any, ...any[]]} */ (writes));
-  else for (const write of writes) await write;
+  if (typeof db.batch === 'function') {
+    const updatedAt = new Date();
+    const batchWrites = [...writes, productionCaseTimestampWrite(db, group.caseId, updatedAt)];
+    await db.batch(/** @type {[any, ...any[]]} */ (/** @type {unknown} */ (batchWrites)));
+  } else {
+    for (const write of writes) await write;
+    await touchProductionCaseUpdatedAt(db, group.caseId);
+  }
   return optionId;
 }
 
 /** @param {LearningDb} db @param {string} optionId @param {boolean} isActive */
 export async function setStimulusOptionActive(db, optionId, isActive) {
-  const row = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, removedFromCase: stimulusGroupOptions.removedFromCase, groupIsActive: stimulusGroups.isActive, originalOptionId: stimulusGroups.originalOptionId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
+  const row = (await db.select({ id: stimulusGroupOptions.id, groupId: stimulusGroupOptions.stimulusGroupId, caseId: stimulusGroups.caseId, isActive: stimulusGroupOptions.isActive, removedFromCase: stimulusGroupOptions.removedFromCase, groupIsActive: stimulusGroups.isActive, originalOptionId: stimulusGroups.originalOptionId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
   if (!row) throw new StimulusGroupInputError('The selected Stimulus Option is missing.');
-  if (row.removedFromCase) throw new StimulusGroupInputError('The selected Stimulus Option has been removed from this Case. Add the Asset again to restore it.');
+  if (row.removedFromCase) throw new StimulusGroupInputError('The selected Stimulus Option has been removed from this Case.');
   if (!isActive && row.originalOptionId === row.id) throw new StimulusGroupInputError('Choose another Original stimulus before deactivating this image.');
   if (isActive && row.groupIsActive) {
     const group = await requireStimulusGroup(db, row.groupId);
     await validateStimulusFamilyLiveState(db, group, { selected: { mode: group.specificQuestionMode, minimum: group.minimumSpecificQuestions }, state: { activateOptionId: row.id } });
   }
+  if (row.isActive === isActive) return;
   await db.update(stimulusGroupOptions).set({ isActive }).where(eq(stimulusGroupOptions.id, optionId));
+  await touchProductionCaseUpdatedAt(db, row.caseId);
 }
 
 /** @param {LearningDb} db @param {string} optionId */
 export async function removeStimulusOptionFromCase(db, optionId) {
-  const row = (await db.select({ id: stimulusGroupOptions.id, removedFromCase: stimulusGroupOptions.removedFromCase, originalOptionId: stimulusGroups.originalOptionId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
+  const row = (await db.select({ id: stimulusGroupOptions.id, caseId: stimulusGroups.caseId, removedFromCase: stimulusGroupOptions.removedFromCase, originalOptionId: stimulusGroups.originalOptionId }).from(stimulusGroupOptions).innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId)).innerJoin(cases, eq(cases.id, stimulusGroups.caseId)).where(and(eq(stimulusGroupOptions.id, optionId), eq(cases.isActive, true), isNull(cases.previewSessionId))).limit(1))[0];
   if (!row) throw new StimulusGroupInputError('The selected Stimulus Option is missing.');
   if (row.removedFromCase) return;
   if (row.originalOptionId === row.id) throw new StimulusGroupInputError('Choose another Original stimulus before removing this image from the Case.');
   await db.update(stimulusGroupOptions).set({ isActive: false, removedFromCase: true }).where(eq(stimulusGroupOptions.id, optionId));
+  await touchProductionCaseUpdatedAt(db, row.caseId);
 }
 
 /** @param {LearningDb} db @param {string} groupId @param {string} optionId @param {'up'|'down'} direction */
 export async function moveStimulusOption(db, groupId, optionId, direction) {
-  await requireStimulusGroup(db, groupId);
+  const group = await requireStimulusGroup(db, groupId);
   const rows = await db.select({ id: stimulusGroupOptions.id }).from(stimulusGroupOptions).where(and(eq(stimulusGroupOptions.stimulusGroupId, groupId), eq(stimulusGroupOptions.removedFromCase, false))).orderBy(asc(stimulusGroupOptions.displayOrder));
   const index = rows.findIndex((row) => row.id === optionId);
   const next = direction === 'up' ? index - 1 : direction === 'down' ? index + 1 : -1;
@@ -102,5 +121,6 @@ export async function moveStimulusOption(db, groupId, optionId, direction) {
   [rows[index], rows[next]] = [rows[next], rows[index]];
   for (const [order, row] of rows.entries()) await db.update(stimulusGroupOptions).set({ displayOrder: rows.length + order + 1 }).where(eq(stimulusGroupOptions.id, row.id));
   for (const [order, row] of rows.entries()) await db.update(stimulusGroupOptions).set({ displayOrder: order }).where(eq(stimulusGroupOptions.id, row.id));
+  await touchProductionCaseUpdatedAt(db, group.caseId);
   return true;
 }

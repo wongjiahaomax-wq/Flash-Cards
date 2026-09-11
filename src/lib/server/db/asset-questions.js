@@ -1,5 +1,7 @@
 import { and, asc, desc, eq, isNull, sql } from 'drizzle-orm';
 
+import { productionCaseTimestampWrite, touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
+
 import {
   assetQuestions,
   assets,
@@ -276,10 +278,10 @@ export async function optInAssetQuestion(db, input) {
     .from(stimulusOptionAssetQuestions)
     .where(and(eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, optionId), eq(stimulusOptionAssetQuestions.assetQuestionId, assetQuestionId)))
     .limit(1);
-  if (!existing[0]) {
-    if (expectedAssetId) await insertExpectedAssetQuestionOptIn(db, { optionId, assetQuestionId, expectedAssetId });
-    else await db.insert(stimulusOptionAssetQuestions).values({ stimulusGroupOptionId: optionId, assetQuestionId });
-  }
+  if (existing[0]) return assetQuestionId;
+  if (expectedAssetId) await insertExpectedAssetQuestionOptIn(db, { optionId, assetQuestionId, expectedAssetId });
+  else await db.insert(stimulusOptionAssetQuestions).values({ stimulusGroupOptionId: optionId, assetQuestionId });
+  await touchProductionCaseUpdatedAt(db, caseId);
   return assetQuestionId;
 }
 
@@ -314,7 +316,7 @@ export async function removeAssetQuestionOptIn(db, input) {
       eq(stimulusOptionAssetQuestions.assetQuestionId, assetQuestionId)
     ))
     .limit(1);
-  if (!existing[0]) return;
+  if (!existing[0]) return false;
   const deleteConditions = [
     eq(stimulusOptionAssetQuestions.stimulusGroupOptionId, optionId),
     eq(stimulusOptionAssetQuestions.assetQuestionId, assetQuestionId)
@@ -331,6 +333,8 @@ export async function removeAssetQuestionOptIn(db, input) {
     .where(and(...deleteConditions))
     .returning({ assetQuestionId: stimulusOptionAssetQuestions.assetQuestionId });
   if (expectedAssetId && !deleted.length) throw new AssetQuestionInputError('The reusable image question usage moved to another Asset; refresh and try again.');
+  await touchProductionCaseUpdatedAt(db, option.caseId);
+  return true;
 }
 
 /** @param {LearningDb} db @param {{ assetQuestionId: unknown, answerMd: unknown, expectedAssetId?: unknown }} input */
@@ -437,14 +441,16 @@ export async function optInFixedAssetQuestion(db, input) {
   const groupId = crypto.randomUUID();
   const optionId = crypto.randomUUID();
   await ensurePromptMayBeSpecificInGroup(db, caseId, question.promptId, groupId);
+  const updatedAt = new Date();
   const writes = [
     productionAssetWriteFence(db, assetId),
     db.insert(stimulusGroups).values({ id: groupId, caseId, name: automaticGroupName(fixed.originalFilename, assetId), displayOrder: (lastGroup?.displayOrder ?? -1) + 1, selectionCount: 1, specificQuestionMode: 'none', minimumSpecificQuestions: null, isActive: true }),
     db.insert(stimulusGroupOptions).values({ id: optionId, stimulusGroupId: groupId, assetId, displayOrder: 0, captionMd: fixed.captionMd, isActive: true }),
-    db.update(stimulusGroups).set({ originalOptionId: optionId, updatedAt: new Date() }).where(eq(stimulusGroups.id, groupId)),
+    db.update(stimulusGroups).set({ originalOptionId: optionId, updatedAt }).where(eq(stimulusGroups.id, groupId)),
     db.insert(stimulusOptionAssetQuestions).values({ stimulusGroupOptionId: optionId, assetQuestionId }),
     db.delete(caseAssets).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, assetId))),
-    ...remaining.map((row, index) => db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, row.assetId))))
+    ...remaining.map((row, index) => db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, row.assetId)))),
+    productionCaseTimestampWrite(db, caseId, updatedAt)
   ];
   await runAssetQuestionBatch(db, /** @type {[any, ...any[]]} */ (writes));
   return optionId;

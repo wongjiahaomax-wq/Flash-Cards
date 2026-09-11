@@ -1,5 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 
+import { productionCaseTimestampWrite } from './case-authoring-timestamps.js';
 import { ContentGuardError, requireProductionCase } from './content-guards.js';
 import { addCaseTag, createTag, TagInputError } from './tag-library.js';
 import { caseTags, tags } from './tag-schema.js';
@@ -118,7 +119,11 @@ export async function bulkAddCaseTag(db: LearningDb, input: BulkTagInput) {
   const currentRows = await existingCaseMemberships(db, caseIds, tag.id);
   const attached = new Set(currentRows.map((row) => row.caseId));
   const missingCaseIds = caseIds.filter((caseId) => !attached.has(caseId));
-  const writes = missingCaseIds.map((caseId) => db.insert(caseTags).values({ caseId, tagId: tag.id }));
+  const updatedAt = new Date();
+  const writes = [
+    ...missingCaseIds.map((caseId) => db.insert(caseTags).values({ caseId, tagId: tag.id })),
+    ...missingCaseIds.map((caseId) => productionCaseTimestampWrite(db, caseId, updatedAt))
+  ];
   await runCaseTagBatch(db, writes);
   return { tag, selectedCount: caseIds.length, changedCount: missingCaseIds.length };
 }
@@ -132,9 +137,13 @@ export async function bulkRemoveCaseTag(db: LearningDb, input: BulkTagInput) {
   const { caseIds, tag } = await prepareExistingTagBulk(db, input);
   const currentRows = await existingCaseMemberships(db, caseIds, tag.id);
   const attachedCaseIds = currentRows.map((row) => row.caseId);
-  const writes = attachedCaseIds.map((caseId) => db
-    .delete(caseTags)
-    .where(and(eq(caseTags.caseId, caseId), eq(caseTags.tagId, tag.id))));
+  const updatedAt = new Date();
+  const writes = [
+    ...attachedCaseIds.map((caseId) => db
+      .delete(caseTags)
+      .where(and(eq(caseTags.caseId, caseId), eq(caseTags.tagId, tag.id)))),
+    ...attachedCaseIds.map((caseId) => productionCaseTimestampWrite(db, caseId, updatedAt))
+  ];
   await runCaseTagBatch(db, writes);
   return { tag, selectedCount: caseIds.length, changedCount: attachedCaseIds.length };
 }
@@ -155,7 +164,11 @@ export async function bulkCreateAndAddCaseTag(
 
   const tag = await createTag(db, input.name);
   try {
-    const writes = caseIds.map((caseId) => db.insert(caseTags).values({ caseId, tagId: tag.id }));
+    const updatedAt = new Date();
+    const writes = [
+      ...caseIds.map((caseId) => db.insert(caseTags).values({ caseId, tagId: tag.id })),
+      ...caseIds.map((caseId) => productionCaseTimestampWrite(db, caseId, updatedAt))
+    ];
     await runCaseTagBatch(db, writes);
   } catch (error) {
     try {

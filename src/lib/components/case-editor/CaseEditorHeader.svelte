@@ -1,6 +1,7 @@
 <script>
   import { invalidateAll } from '$app/navigation';
   import { caseLibraryReturnHref } from '$lib/admin-case-library-state.ts';
+  import { formatCaseAuthoringDate, formatCaseAuthoringDateTime } from '$lib/case-authoring-dates.js';
   import { shouldClearSaveAllResult } from '$lib/case-editor-coordinator.js';
   let { selectedCase, previewMode, studyPreviewHref = null, caseLibraryReturnQuery = '', coordinator = null, draftRevision = 0 } = $props();
   let unsavedItems = $derived.by(() => {
@@ -55,7 +56,7 @@
 </script>
 
 <section class="page-heading">
-  <div><p class="eyebrow">Case editor</p><h1>{selectedCase.case.title}</h1><p class="muted">Topic: {#if selectedCase.case.conceptId}<a class="topic-link" href={'/admin/topics/' + selectedCase.case.conceptId}>{selectedCase.case.conceptName}</a>{:else}No primary Topic assigned{/if}</p></div>
+  <div><p class="eyebrow">Case editor</p><h1>{selectedCase.case.title}</h1><p class="muted">Topic: {#if selectedCase.case.conceptId}<a class="topic-link" href={'/admin/topics/' + selectedCase.case.conceptId}>{selectedCase.case.conceptName}</a>{:else}No primary Topic assigned{/if}</p>{#if !previewMode}<p class="muted authoring-dates">Added {formatCaseAuthoringDate(selectedCase.case.createdAt)} · Last edited {formatCaseAuthoringDateTime(selectedCase.case.updatedAt)}</p>{/if}</div>
   <div class="actions"><a class="button" href={caseLibraryReturnHref(caseLibraryReturnQuery)}>All Cases</a>{#if unsavedItems.length}<details class="unsaved-work"><summary class="unsaved-count" aria-live="polite">{unsavedItems.length} unsaved changes</summary><div class="unsaved-popover">
     {#if saveableItems.length}<strong>Can be saved with Save All</strong><ul>{#each saveableItems as item}<li><span>{item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label}</span><small>{item.status}</small></li>{/each}</ul>{/if}
     {#if structuralItems.length}<strong>Needs individual action</strong><p class="popover-guidance">Save All saves the saveable drafts; structural work stays Not submitted until you use its own action.</p><ul>{#each structuralItems as item}<li><span>{item.fields.length ? `${item.label} — ${item.fields.join(', ')}` : item.label}</span><small>Not submitted — use this form's action</small></li>{/each}</ul>{/if}
@@ -67,6 +68,7 @@
   h1, p { margin-top: 0; } h1 { margin-bottom: 0.3rem; font-size: clamp(1.8rem, 4vw, 2.5rem); }
   .eyebrow { margin-bottom: 0.3rem; color: #667085; font-size: 0.74rem; font-weight: 750; letter-spacing: 0.08em; text-transform: uppercase; }
   .muted { color: #667085; } .topic-link { color: inherit; font-weight: 650; }
+  .authoring-dates { margin-bottom: 0; font-size: 0.84rem; }
   .unsaved-count { color: #b54708; font-size: 0.82rem; font-weight: 700; }
   .unsaved-work { position: relative; }
   .unsaved-work summary { cursor: pointer; list-style: none; }
