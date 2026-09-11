@@ -19,6 +19,15 @@ npm test
 
 The local presentation layer does not redefine selection. Do not redefine `npm test` as a subset. Full/Ready validation retains the complete suite.
 
+Complete and fast selection share one discovery authority:
+
+```text
+scripts/test-selection.mjs
+→ complete maintained discovery
+→ npm test/test:ci/test:verbose use all maintained tests explicitly
+→ test:fast uses the same discovery minus FAST_TEST_EXCLUSIONS
+```
+
 ### Ordinary new tests enter Draft fast validation automatically
 
 The fast architecture is exclusion-based. Maintained Node tests are discovered by the repository-owned selector in `scripts/test-selection.mjs`; an ordinary new maintained test should not require an edit to a central allow-list before Draft CI can see it.
