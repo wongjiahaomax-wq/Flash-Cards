@@ -1,6 +1,6 @@
 # Case Added / Last Edited Metadata — Simplified Implementation Plan
 
-_Status: single planning authority for Draft PR #176. This PR remains planning-only. Feature implementation has not started._
+_Status: implementation authority for Draft PR #176. Feature implementation is complete; PR remains Draft._
 
 ## Goal
 
