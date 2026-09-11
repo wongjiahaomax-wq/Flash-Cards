@@ -8,13 +8,15 @@ Use this overlay only when the active coding client is **Codex** working against
 
 Do **not** load or apply this overlay when ChatGPT chat is working through the GitHub plugin. That workflow remains governed by the universal repository guidance plus the existing Remote GitHub execution/write discipline.
 
-This overlay changes only local Codex retrieval and shell-output discipline. It does not weaken or replace protected-boundary routing, evidence-reuse rules, prompt discipline, required validation, complete final diff review, Production/Preview safeguards, or Remote GitHub write safety.
+This overlay changes only local Codex retrieval, batching, and shell-output discipline. It does not weaken or replace protected-boundary routing, evidence-reuse rules, prompt discipline, required validation, complete final diff review, Production/Preview safeguards, or Remote GitHub write safety.
 
 ## Local Codex delta
 
 ### Target-first retrieval
 
 For a clearly bounded task, start from the directly affected symbol/path and the smallest semantic unit needed to answer the current implementation question. Prefer the directly related test/helper when it is needed to resolve that question. Broaden only for a concrete unresolved dependency or a protected/cross-cutting boundary already defined by the universal guidance.
+
+When an implementation-ready PR plan or review handoff already names likely files, symbols, tests, or invariants, use that material as the starting retrieval map. Verify exact current symbols and nearby implementation locally; do not rediscover the wider repository architecture unless current repository evidence contradicts or materially leaves the supplied map incomplete.
 
 Prefer bounded semantic reads once the relevant region is known. Avoid full substantial files, broad documentation batches, or repeated overlapping reads merely for completeness when a smaller semantic excerpt answers the question. Read the complete artifact when whole-file semantics are materially required.
 
@@ -55,6 +57,42 @@ Do not combine full authorities, broad history/memory lookup, repository-wide se
 Prefer path-scoped searches, exact files/fields, bounded semantic excerpts, compact structured summaries, and repository-owned compact reporters. Avoid large multi-file concatenations, full logs when only a failure region is needed, and repeated unchanged retrieval.
 
 Batch outputs only when they answer the same immediate question, remain reasonably bounded, and preserve clear success/failure attribution. One extra targeted command is preferable to one oversized batch that pollutes later turns.
+
+### Semantic implementation batches
+
+Treat one semantic implementation batch as one behavioral invariant or one related common-cause correction, not as one file, one line, or one shell command.
+
+For a well-specified local implementation step, prefer this loop:
+
+```text
+one unresolved invariant/question
+-> targeted retrieval batch
+-> coherent production + regression-test patch
+-> scoped diff inspection
+-> focused test batch
+-> next invariant
+```
+
+Use the following execution rules:
+
+1. Before editing, gather the minimum evidence needed for the immediate invariant. Combine exact-symbol/path searches and bounded reads when they answer the same question and remain reasonably sized.
+2. Once the affected surfaces are understood and the next edits are already known, make the coherent production and directly related regression-test corrections before requesting more retrieval.
+3. Do not pause between already-known edits merely to reread unchanged files or to test an intentionally incomplete intermediate state.
+4. After the edit batch, inspect the scoped changed-file/diff evidence rather than rereading complete edited files by default.
+5. Run the directly affected focused tests together when their execution is independent and their result attribution remains clear. Rerun a passing focused command only after a relevant change could invalidate it.
+6. Start another retrieval/model decision turn when a test result, repository fact, protected-boundary question, or ambiguity can materially change the next implementation decision.
+
+Split a batch whenever an intermediate result is genuinely needed to decide what the next edit should be. Do not merge unrelated invariants just to reduce visible command count, and do not create oversized search/patch commands that make evidence or failures harder to attribute.
+
+The optimization target is fewer unnecessary model/tool round trips, less retained-context replay, and shorter wall-clock implementation time for comparable work. There is no fixed tool-call, patch-count, or token quota, and efficiency never substitutes for required validation or complete final review.
+
+### Local-first code discovery and review handoff
+
+When usable local execution exists, prefer the local checkout for exact code discovery, call-site/reference search, bounded source inspection, working-tree/scoped diff inspection, and executable focused validation. These operations are normally faster and require less remote round-trip overhead than reconstructing the same code state through GitHub APIs.
+
+Use Remote GitHub/ChatGPT strengths for facts whose source of truth is remote: PR/base/head metadata, review discussions, GitHub CI/check state, and independent intended-base-to-head review. Do not remote-fetch repository code merely because GitHub access exists when the local checkout can answer the implementation question directly and is known to represent the required work state.
+
+If review findings are already supplied in the task prompt, treat those findings as task evidence and implement from them. Do not retrieve the original review thread merely to restate already-complete findings; retrieve it only when a finding is materially ambiguous, incomplete, or its exact remote state is required.
 
 ### Process waiting and polling
 
