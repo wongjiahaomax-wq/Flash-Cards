@@ -145,7 +145,7 @@ node --test <presentation args> --test-name-pattern=foo <explicit maintained fil
 
 and must not fall back to Node implicit discovery.
 
-Do **not** build a general Node CLI parser. Reuse repository test-path semantics to identify explicit maintained test targets. A small helper using `isMaintainedNodeTestPath()` over forwarded repository-relative file/glob arguments is sufficient for current supported invocations.
+Do **not** build a general Node CLI parser. Use the smallest token-aware scanner needed for the supported Node test options that can consume a following argument, including the separate-value form of `--test-name-pattern`. For each explicitly supported option, skip its following value token before applying `isMaintainedNodeTestPath()` only to the remaining positional file/path/glob candidates; treat `--option=value` as self-contained. At minimum, `--test-name-pattern tests/fake.test.js` must treat `tests/fake.test.js` as the option value, not an explicit target, while `--test-name-pattern=foo` remains an option with no target. Keep the supported-option set explicit and small; do not infer arbitrary CLI grammar or support arbitrary non-maintained JavaScript entrypoints.
 
 If at least one explicit maintained target is present, preserve the caller invocation unchanged. If none is present, preserve the Node options and append complete maintained discovery.
 
@@ -235,7 +235,7 @@ In `scripts/test-runner.mjs`:
 7. pass the final list through `nodeTestArgsForPresentation(...)` and then spawn `node --test` as before;
 8. preserve process executable, cwd, env, stdio, shell mode, result error handling, and exit status.
 
-The explicit-target detector must stay small. It does not need to understand every Node CLI option. Its job is only to recognize supported maintained repository test targets so options-only invocations do not accidentally suppress maintained discovery.
+The explicit-target detector must stay small and token-aware. It should scan only the forwarded Node arguments, skip the separate value token for each explicitly supported value-taking Node test option, and call `isMaintainedNodeTestPath()` only on the remaining positional candidates. For example, `['--test-name-pattern', 'tests/fake.test.js']` has no explicit target; the path-looking value must not prevent complete discovery from being appended. Do not classify arbitrary unknown option values or build a general CLI parser.
 
 Because `discoverMaintainedNodeTests()` is async, the simplest solution is to make `runNodeTests()` async and await it in the direct-execution path. Update direct callers/tests accordingly rather than adding a second synchronous filesystem walker.
 
@@ -265,16 +265,18 @@ Using a temporary root with a small deterministic set of test-shaped files plus 
 
 ### Case B — options but no target
 
-For example:
+Use both option forms:
 
 ```text
 argv: ['--test-name-pattern=foo']
+argv: ['--test-name-pattern', 'tests/fake.test.js']
 ```
 
 prove:
 
-- the option is preserved;
-- complete maintained discovery is appended explicitly;
+- each option is preserved;
+- for the separate-value form, the path-looking value is skipped as an option value rather than treated as an explicit target;
+- complete maintained discovery is appended explicitly, including for `tests/fake.test.js`;
 - no implicit-discovery path remains.
 
 ### Case C — explicit target
@@ -501,7 +503,8 @@ Test the detector with inline representative source strings:
 ```text
 literal partial migration list executed into SQLite -> detected
 applyCurrentSchema(...) -> allowed
-file containing applyCurrentSchema plus a separate literal partial bootstrap -> literal bootstrap still detected
+file containing applyCurrentSchema plus a separate literal partial bootstrap -> partial bootstrap still detected
+allowed historical-exception path with its allowed historical bootstrap plus an additional unrelated partial-schema bootstrap -> historical match allowed, unrelated bootstrap still rejected
 complete dynamic migration-directory enumeration -> allowed
 single migration file read for source assertion only -> allowed
 ```
@@ -589,7 +592,7 @@ Do not run full validation after each small edit.
 After Tranches 1-3:
 
 ```sh
-npm run agent:checks -- --compact
+npm run agent:checks
 ```
 
 Follow the current checkpoint guidance, normally including `npm run validate:fast` when applicable.
@@ -600,7 +603,7 @@ If `validate:fast` passes and no later change can invalidate that result, do **n
 
 After the final code/documentation delta:
 
-1. rerun `npm run agent:checks -- --compact` because changed-file classification may have changed;
+1. rerun `npm run agent:checks` because changed-file classification may have changed;
 2. execute every final required and specialized check it reports;
 3. use `npm run validate:full` when that is the repository-selected ordinary handoff path;
 4. treat a successful unchanged `validate:full` Node stage as evidence for canonical `npm test`; do not rerun `npm test` solely for duplication;
@@ -646,6 +649,7 @@ Implementation is complete when all of the following are true.
 - known literal partial ordinary-schema bootstraps are rejected;
 - `applyCurrentSchema`, complete dynamic enumeration, and source-only migration assertions are allowed;
 - the presence of `applyCurrentSchema` does not suppress detection of a separate literal partial bootstrap in the same file;
+- a historical exception is not a whole-file exemption: an allowed historical file with an additional unrelated partial-schema bootstrap still rejects the additional bootstrap;
 - historical exceptions are exact paths with reasons;
 - the detector remains intentionally syntactic/repository-specific, not a generic lint/parser architecture.
 
