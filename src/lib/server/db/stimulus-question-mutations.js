@@ -1,5 +1,6 @@
 import { and, asc, eq, isNull } from 'drizzle-orm';
 
+import { touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import { cases, questionPrompts, stimulusGroupOptions, stimulusGroupQuestions, stimulusGroups, stimulusOptionQuestions } from './schema.js';
 import { StimulusGroupInputError } from './stimulus-family-error.js';
 import { requireStimulusGroup } from './stimulus-family-eligibility.js';
@@ -40,6 +41,7 @@ export async function saveStimulusGroupQuestion(db, groupId, input) {
   } else {
     await db.insert(stimulusGroupQuestions).values({ id: crypto.randomUUID(), stimulusGroupId: groupId, questionPromptId: promptId, answerMd, isActive: true });
   }
+  await touchProductionCaseUpdatedAt(db, group.caseId);
   return promptId;
 }
 
@@ -65,19 +67,22 @@ export async function saveStimulusOptionQuestion(db, optionId, input) {
   } else {
     await db.insert(stimulusOptionQuestions).values({ id: crypto.randomUUID(), stimulusGroupOptionId: option.id, questionPromptId: promptId, answerMd, isActive: true });
   }
+  await touchProductionCaseUpdatedAt(db, group.caseId);
   return promptId;
 }
 
 /** @param {LearningDb} db @param {string} groupId @param {string} promptId */
 export async function removeStimulusGroupQuestion(db, groupId, promptId) {
-  await requireStimulusGroup(db, groupId);
+  const group = await requireStimulusGroup(db, groupId);
   await db.update(stimulusGroupQuestions).set({ isActive: false, updatedAt: new Date() }).where(and(eq(stimulusGroupQuestions.stimulusGroupId, groupId), eq(stimulusGroupQuestions.questionPromptId, promptId)));
+  await touchProductionCaseUpdatedAt(db, group.caseId);
 }
 
 /** @param {LearningDb} db @param {string} optionId @param {string} promptId */
 export async function removeStimulusOptionQuestion(db, optionId, promptId) {
   const option = (await db.select({ groupId: stimulusGroupOptions.stimulusGroupId }).from(stimulusGroupOptions).where(eq(stimulusGroupOptions.id, optionId)).limit(1))[0];
   if (!option) throw new StimulusGroupInputError('The selected Stimulus Option is missing or inactive.');
-  await requireStimulusGroup(db, option.groupId);
+  const group = await requireStimulusGroup(db, option.groupId);
   await db.update(stimulusOptionQuestions).set({ isActive: false, updatedAt: new Date() }).where(and(eq(stimulusOptionQuestions.stimulusGroupOptionId, optionId), eq(stimulusOptionQuestions.questionPromptId, promptId)));
+  await touchProductionCaseUpdatedAt(db, group.caseId);
 }

@@ -1,5 +1,6 @@
 import { and, asc, desc, eq } from 'drizzle-orm';
 
+import { productionCaseTimestampWrite, touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import { caseAssets, stimulusGroupOptions, stimulusGroups } from './schema.js';
 import { StimulusGroupInputError } from './stimulus-family-error.js';
 import { requireStimulusGroup, requireStimulusImageAsset, requireStimulusProductionCase } from './stimulus-family-eligibility.js';
@@ -20,6 +21,7 @@ export async function createStimulusGroup(db, input) {
   const last = await db.select({ displayOrder: stimulusGroups.displayOrder }).from(stimulusGroups).where(eq(stimulusGroups.caseId, caseId)).orderBy(desc(stimulusGroups.displayOrder)).limit(1);
   const id = crypto.randomUUID();
   await db.insert(stimulusGroups).values({ id, caseId, name, displayOrder: (last[0]?.displayOrder ?? -1) + 1, selectionCount: 1, specificQuestionMode: selected.mode, minimumSpecificQuestions: selected.minimum, isActive: nextIsActive });
+  await touchProductionCaseUpdatedAt(db, caseId);
   return id;
 }
 
@@ -63,12 +65,14 @@ export async function startStimulusGroupFromCaseAsset(db, input) {
   const remaining = currentFixed.filter((row) => row.assetId !== assetId);
   const groupId = crypto.randomUUID();
   const optionId = crypto.randomUUID();
+  const updatedAt = new Date();
   const writes = [
     db.insert(stimulusGroups).values({ id: groupId, caseId, name, displayOrder: (lastGroup[0]?.displayOrder ?? -1) + 1, selectionCount: 1, specificQuestionMode: 'none', minimumSpecificQuestions: null, isActive: true }),
     db.insert(stimulusGroupOptions).values({ id: optionId, stimulusGroupId: groupId, assetId, displayOrder: 0, captionMd: optionalText(fixed.captionMd) }),
-    db.update(stimulusGroups).set({ originalOptionId: optionId, updatedAt: new Date() }).where(eq(stimulusGroups.id, groupId)),
+    db.update(stimulusGroups).set({ originalOptionId: optionId, updatedAt }).where(eq(stimulusGroups.id, groupId)),
     db.delete(caseAssets).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, assetId))),
-    ...remaining.map((row, index) => db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, row.assetId))))
+    ...remaining.map((row, index) => db.update(caseAssets).set({ displayOrder: index }).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, row.assetId)))),
+    productionCaseTimestampWrite(db, caseId, updatedAt)
   ];
   await db.batch(/** @type {[any, ...any[]]} */ (writes));
   return { caseId, groupId, optionId, assetId };
@@ -84,5 +88,7 @@ export async function updateStimulusGroup(db, input) {
   } else {
     await validateStimulusCoverageFitsCase(db, group.caseId, group.id, selected, nextIsActive);
   }
-  await db.update(stimulusGroups).set({ name: requiredText(input.name, 'Stimulus Group name'), specificQuestionMode: selected.mode, minimumSpecificQuestions: selected.minimum, isActive: nextIsActive, updatedAt: new Date() }).where(eq(stimulusGroups.id, group.id));
+  const updatedAt = new Date();
+  await db.update(stimulusGroups).set({ name: requiredText(input.name, 'Stimulus Group name'), specificQuestionMode: selected.mode, minimumSpecificQuestions: selected.minimum, isActive: nextIsActive, updatedAt }).where(eq(stimulusGroups.id, group.id));
+  await touchProductionCaseUpdatedAt(db, group.caseId, updatedAt);
 }

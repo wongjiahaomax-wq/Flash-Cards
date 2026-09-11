@@ -83,7 +83,12 @@ test('administrator can create and edit a Case while replacing its single canoni
     });
 
     const listed = await listAdminCases(fixture.db);
-    assert.deepEqual(listed.find((item) => item.id === created.id), {
+    const listedCase = listed.find((item) => item.id === created.id);
+    assert.ok(listedCase);
+    const { createdAt, updatedAt, ...listedCaseFields } = listedCase;
+    assert.ok(createdAt instanceof Date);
+    assert.ok(updatedAt instanceof Date);
+    assert.deepEqual(listedCaseFields, {
       id: created.id,
       title: 'Admin-only Case label',
       vignetteMd: 'A short case stem for study.',

@@ -27,12 +27,17 @@ function parts(formatter, date) {
   return Object.fromEntries(formatter.formatToParts(date).map((part) => [part.type, part.value]));
 }
 
+/** @param {string | undefined} month */
+function normalizedShortMonth(month) {
+  return month === 'Sept' ? 'Sep' : month ?? '';
+}
+
 /** @param {Date | string | number | null | undefined} value */
 export function formatCaseAuthoringDate(value) {
   const date = validDate(value);
   if (!date) return '';
   const formatted = parts(DATE_FORMATTER, date);
-  return `${formatted.day} ${formatted.month} ${formatted.year}`;
+  return `${formatted.day} ${normalizedShortMonth(formatted.month)} ${formatted.year}`;
 }
 
 /** @param {Date | string | number | null | undefined} value */
@@ -40,5 +45,5 @@ export function formatCaseAuthoringDateTime(value) {
   const date = validDate(value);
   if (!date) return '';
   const formatted = parts(DATE_TIME_FORMATTER, date);
-  return `${formatted.day} ${formatted.month} ${formatted.year}, ${formatted.hour}:${formatted.minute} SGT`;
+  return `${formatted.day} ${normalizedShortMonth(formatted.month)} ${formatted.year}, ${formatted.hour}:${formatted.minute} SGT`;
 }
