@@ -110,6 +110,8 @@ Use the smallest change that fits the writer already present:
 3. **Existing sequential writer** — preserve its current mutation structure; after the substantive Case-local mutation succeeds, update the Production Case timestamp.
 4. Do not restructure a working sequential or compensating writer solely to guarantee perfect timestamp atomicity.
 
+For an existing sequential writer, if the substantive Case-local mutation has already successfully committed and the subsequent `updated_at` metadata touch fails, **do not turn the completed authoring action into a user-visible save failure solely because the timestamp update failed**. Treat that post-commit timestamp touch as best-effort metadata in this specific situation and use the repository's existing logging/error-reporting convention. Do not add rollback, retry, CAS, transaction, compensation, concurrency, or recovery machinery for the timestamp failure. A rare stale Last edited value after such a metadata failure is an acceptable imperfection.
+
 Rare failure/concurrency edge cases where Last edited becomes slightly conservative/newer than the final net state are acceptable for this Admin documentation feature.
 
 The timestamp helper/update must remain Production-only and must not create a new Preview ownership implementation.
