@@ -1,92 +1,95 @@
 # Test Suite Discovery and Fixture Cleanup Plan
 
-_Status: planning-only implementation contract for a Draft PR. No test runner, fixture, helper, assertion, schema, migration, CI workflow, or application behavior has been changed by this document._
+_Status: planning-only implementation contract for Draft PR #178. No runner, fixture, schema, migration, CI workflow, application behavior, or Production/Preview state has been changed by this document._
 
 _Base used for planning: `main` at `63757ba76ff6d29602d50c9a984c20182eef1d77` (PR #177 merged). Refresh drift-prone facts before implementation._
 
 ## Purpose
 
-A 2026-09-11 exploratory redundancy audit found no proven broad behavioral-test redundancy. The high-confidence problems are narrower:
+The 2026-09-11 test-suite redundancy audit did **not** justify broad test deletion. It identified two correctness-bearing maintenance problems worth fixing now:
 
-1. maintained-test discovery currently counts `scripts/test-runner.mjs` and `scripts/test-presentation.mjs` as tests even though both are orchestration modules;
-2. complete `npm test` and `npm run test:fast` currently have different discovery authorities, so fixing only the selector exclusion set would leave the complete suite on implicit Node discovery;
-3. several ordinary runtime tests still bootstrap a hard-coded partial migration sequence and therefore exercise an obsolete schema even though `test/current-schema.js` exists;
-4. current-schema fixture policy can regress because no small executable guard distinguishes ordinary runtime fixtures from intentional migration-boundary fixtures.
+1. maintained-test discovery counts `scripts/test-runner.mjs` and `scripts/test-presentation.mjs` as tests, while canonical full `npm test` still relies on Node implicit discovery instead of the repository selector;
+2. several ordinary runtime tests bootstrap a hand-maintained partial migration sequence and therefore exercise stale schemas instead of the current supported schema.
 
-The audit also found repeated harnesses and a few navigational consolidation candidates, but those do not currently justify assertion deletion or a broad refactor. This PR should fix the correctness-bearing discovery/fixture issues first and preserve existing behavioral coverage.
+This PR fixes those two problems and adds one narrow regression guard. It does not attempt a general test-suite refactor.
 
 ## Agent target
 
-This plan is written for GPT-5.6 Luna implementing locally in Codex/WSL or another environment with a usable checkout and command execution.
+This plan is for GPT-5.6 Luna implementing locally in Codex/WSL or another environment with a usable checkout and command execution.
 
-Follow root `AGENTS.md`, `scripts/AGENTS.md`, the relevant `docs/AGENT_TASK_MAP.md` routing, and `docs/TESTING_AND_VALIDATION_GUIDANCE.md`. Do not treat this plan as authority over current executable code if the branch moves.
+Before editing, follow:
 
-Use the repository's normal `Discovery -> Implementation -> Checkpoint -> Handoff` flow. Keep retrieval bounded after the directly affected runner/tests/fixtures are established.
+```text
+root AGENTS.md
+scripts/AGENTS.md
+docs/AGENT_TASK_MAP.md — Tests / validation architecture / fixtures row
+docs/TESTING_AND_VALIDATION_GUIDANCE.md
+```
 
-## Scope decision
+Use the repository's normal `Discovery -> Implementation -> Checkpoint -> Handoff` flow. Once the affected runner/tests/fixtures are established, keep retrieval bounded.
 
-### In scope for this PR
+# Scope
 
-1. **Single-source maintained-test discovery** for the canonical no-target complete suite and the existing fast suite.
-2. **Exclude the two orchestration false positives** from maintained discovery.
-3. **Preserve focused/targeted test invocation** without expanding it to the complete suite.
-4. **Normalize the 13 genuinely stale ordinary runtime fixtures** to `applyCurrentSchema`.
-5. **Retain intentional historical/migration fixtures explicitly**, including the previously omitted `test/resumable-import-contract.test.js` exception.
-6. **Add one narrow fixture-policy contract test** that prevents new ordinary explicit partial migration bootstraps without banning legitimate migration source assertions or complete dynamic current-schema bootstraps.
-7. Update living testing guidance only where the implementation makes its description materially incomplete.
+## In scope
 
-### Explicitly out of scope
+1. Make `scripts/test-selection.mjs` the maintained-test discovery authority for canonical full `npm test` as well as `test:fast`.
+2. Exclude `scripts/test-runner.mjs` and `scripts/test-presentation.mjs` from maintained discovery.
+3. Preserve documented targeted test invocations and reporter/presentation behavior.
+4. Convert the 13 known stale ordinary runtime fixtures to `applyCurrentSchema`.
+5. Preserve genuine historical migration-boundary fixtures explicitly.
+6. Add one small repository-specific policy test preventing new hand-maintained partial ordinary-schema bootstraps.
+7. Reconcile living testing guidance only where the implemented runner contract makes it materially incomplete.
 
-Do **not** bundle the lower-confidence maintenance ideas from the redundancy audit into this PR:
+## Explicitly out of scope
 
-- no behavioral assertion deletion;
-- no new fast-test exclusions;
-- no universal/shared test framework;
-- no broad D1-adapter abstraction;
-- no slide-review fake-DOM helper extraction;
-- no import ZIP-helper extraction;
-- no case-editor test-file consolidation;
-- no large image/deduplication test-file split;
-- no conversion of already-correct dynamic current-schema bootstraps merely for style consistency;
-- no mutation-testing/coverage framework;
-- no application/domain behavior changes;
-- no schema or migration changes;
-- no `.github` workflow changes unless implementation proves they are strictly required for the stated runner contract;
-- no Production D1/R2, deployment, Preview, or live-environment mutation.
+Do not add any of the following to this PR:
 
-These can be separate follow-ups if they later show concrete maintenance value.
+- behavioral assertion deletion;
+- new fast-test exclusions;
+- generic/shared test framework;
+- generalized D1 test abstraction;
+- slide-review fake-DOM helper refactor;
+- import ZIP-helper refactor;
+- case-editor test-file consolidation;
+- large test-file splitting;
+- conversion of already-current dynamic migration enumeration merely for style;
+- mutation-testing or coverage framework;
+- application/domain behavior changes;
+- schema or migration changes;
+- CI workflow rewrite unless a concrete implementation-discovered requirement makes it unavoidable;
+- Production D1/R2, Preview, deployment, or live-environment mutation.
 
-## Current implementation facts to confirm before editing
+# Current facts to refresh before editing
 
 At the planning base:
 
-- `package.json` maps `npm test` to `node scripts/test-runner.mjs`.
-- `scripts/test-runner.mjs` strips repository presentation args and invokes `node --test` with the remaining Node args. With no target it relies on Node implicit discovery.
-- `scripts/test-fast.mjs` calls `resolveFastNodeTestSelection()` and passes the explicit selected list to `node --test`.
-- `scripts/test-selection.mjs` owns `discoverMaintainedNodeTests()` and `FAST_TEST_EXCLUSIONS`.
-- `NON_TEST_TOOLING_FILES` currently excludes `scripts/test-fast.mjs` and `scripts/test-selection.mjs`, but not `scripts/test-runner.mjs` or `scripts/test-presentation.mjs`.
-- the audit observed 194 discovered paths / 188 fast-selected because of those two false positives; the actual maintained test roots contained 192 real test files. With the existing six fast exclusions, the expected relationship after the fix is 192 complete / 186 fast-selected **if the repository has not moved**. Treat that as a planning snapshot, not a hard-coded contract.
-- `test/current-schema.js` already applies every contiguous repository migration in order and is the preferred ordinary current-runtime fixture helper.
-- `docs/TESTING_AND_VALIDATION_GUIDANCE.md` already distinguishes current runtime behavior from deliberate migration/upgrade behavior and allows an equally-current purpose-built fixture; do not turn one helper implementation into a universal architecture rule.
+- `package.json`: `npm test -> node scripts/test-runner.mjs`.
+- `scripts/test-runner.mjs` currently forwards parsed Node arguments to `node --test`; when no target is supplied, Node owns implicit discovery.
+- `scripts/test-fast.mjs` explicitly uses `resolveFastNodeTestSelection()`.
+- `scripts/test-selection.mjs` owns `discoverMaintainedNodeTests()`, `isMaintainedNodeTestPath()`, and `FAST_TEST_EXCLUSIONS`.
+- `NON_TEST_TOOLING_FILES` excludes `scripts/test-fast.mjs` and `scripts/test-selection.mjs`, but not the runner/presentation modules.
+- the audit snapshot observed 194 selector-discovered paths, of which 192 were real tests; six approved fast exclusions then imply 186 fast-selected files if the repository has not moved.
+- `test/current-schema.js` already applies every contiguous repository migration in order.
+- living guidance already distinguishes ordinary current-runtime fixtures from intentional historical migration fixtures.
 
-Before implementation, refresh:
+Before mutation, refresh only these drift-prone facts:
 
 ```text
-branch/head/base
+PR head/base
 current migration tip
 maintained discovery count
-FAST_TEST_EXCLUSIONS (must still be exactly the currently approved set unless separately reviewed)
+FAST_TEST_EXCLUSIONS
 explicit partial-migration bootstrap inventory
-child-process test baseline in the actual implementation environment
+actual child-process test behavior in the local environment
 ```
 
-If these facts materially differ, adapt the implementation while preserving the invariants below rather than forcing stale counts/file lists.
+Do not force stale counts or inventories if the branch has moved.
 
 # Required invariants
 
-## A. Complete-suite invariant
+## A. Complete maintained-suite invariant
 
-Canonical no-target:
+Canonical no-target full commands:
 
 ```text
 npm test
@@ -94,9 +97,11 @@ npm run test:ci
 npm run test:verbose
 ```
 
-must execute the complete repository-maintained Node test set explicitly selected by `scripts/test-selection.mjs`.
+must execute an **explicit complete maintained-test list from `scripts/test-selection.mjs`**.
 
-The full suite must not fall back to implicit Node discovery if maintained selection fails or resolves to zero.
+No canonical no-target full run may silently fall back to Node implicit discovery.
+
+If maintained discovery resolves to zero, fail closed before spawning Node tests.
 
 ## B. Fast-suite invariant
 
@@ -107,32 +112,48 @@ complete maintained discovery
 minus exactly FAST_TEST_EXCLUSIONS
 ```
 
-Do not add a second discovery rule and do not add a seventh exclusion as part of this PR.
+Do not add a second discovery implementation or another fast exclusion.
 
 ## C. Targeted-run invariant
 
-Existing focused invocations must stay focused:
+Existing supported focused commands must remain focused, including:
 
 ```text
 npm test -- test/example.test.js
 npm run test:verbose -- test/example.test.js
 npm run slide-review:test
+npm run slide-prep:test
 ```
 
-Do not silently append the complete maintained suite when the caller already supplied forwarded Node/test arguments.
+Do not append the whole maintained suite when the caller has supplied an explicit maintained-test target/path/glob.
 
-For simplicity, do **not** build a general Node CLI parser. After repository `--presentation=` handling:
+## D. Node-options-without-target invariant
 
-- if `nodeArgs.length === 0`, resolve and append complete maintained discovery;
-- if `nodeArgs.length > 0`, preserve those caller arguments unchanged.
+A full invocation containing Node test options but **no explicit maintained-test target** must still use repository maintained discovery.
 
-This deliberately keeps explicit/custom invocations on their existing passthrough path while fixing the canonical no-target suite. It also avoids misclassifying separate option values as test paths.
+Example:
 
-## D. Presentation invariant
+```text
+npm test -- --test-name-pattern=foo
+```
 
-The selection fix must not change reporter precedence or compact/CI/verbose presentation semantics.
+must become conceptually:
 
-Preserve:
+```text
+node --test <presentation args> --test-name-pattern=foo <explicit maintained file list>
+```
+
+and must not fall back to Node implicit discovery.
+
+Do **not** build a general Node CLI parser. Reuse repository test-path semantics to identify explicit maintained test targets. A small helper using `isMaintainedNodeTestPath()` over forwarded repository-relative file/glob arguments is sufficient for current supported invocations.
+
+If at least one explicit maintained target is present, preserve the caller invocation unchanged. If none is present, preserve the Node options and append complete maintained discovery.
+
+Do not broaden this task into supporting arbitrary non-maintained JavaScript entrypoints as test targets.
+
+## E. Presentation invariant
+
+Preserve reporter precedence and presentation semantics:
 
 ```text
 explicit caller-selected reporter/presentation
@@ -140,27 +161,31 @@ explicit caller-selected reporter/presentation
 > local compact default
 ```
 
-`CI_NODE_TEST_CHECK_ID` and `CI_NODE_TEST_REPRO_COMMAND` remain metadata only.
+`CI_NODE_TEST_CHECK_ID` and `CI_NODE_TEST_REPRO_COMMAND` remain reporter metadata only.
 
-## E. Fixture invariant
+Preserve `process.execPath`, `stdio: 'inherit'`, `shell: false`, environment forwarding, and child exit-status behavior.
 
-Ordinary runtime/data behavior tests use the current supported schema.
+## F. Fixture invariant
 
-A test may retain an explicit historical schema only when the subject is genuinely a migration/upgrade/sequencing boundary. Historical data shapes that are still valid should be represented as current schema + explicit seed state, not an obsolete schema.
+Ordinary application/runtime behavior tests use the current supported schema.
 
-## F. Coverage-preservation invariant
+Historical schema is valid only when migration/upgrade/sequencing behavior is itself under test. Historical data states that remain valid should normally be represented as current schema plus explicit seed state.
 
-This PR changes setup/discovery ownership, not product behavior. Preserve existing assertions and their owner boundaries. If converting a stale fixture exposes a failure under the current schema, repair the **test setup/data** to be valid under the current schema unless the failure demonstrates a real application bug. Do not weaken a production constraint, add runtime fallback behavior, or revert a migration to keep an obsolete fixture green.
+## G. Coverage-preservation invariant
+
+This is infrastructure/fixture cleanup, not product behavior change.
+
+Preserve behavioral assertions and owner boundaries. If moving a stale fixture to current schema exposes a legitimate current constraint, minimally repair test setup/data. Do not weaken production constraints, add runtime fallbacks, edit migration SQL, or restore obsolete schemas merely to keep an old fixture green.
 
 # Implementation sequence
 
-Implement in the following tranches. Keep each tranche coherent and run the focused checks listed before moving on.
+Implement in four tranches.
 
 ---
 
-## Tranche 1 — unify complete and fast maintained-test discovery
+# Tranche 1 — single-source maintained discovery
 
-### Files expected to change
+## Expected files
 
 Primary:
 
@@ -171,99 +196,126 @@ tests/test-selection.test.js
 tests/compact-terminal-validation.test.js
 ```
 
-Possibly, after implementation:
+Possible living documentation update later:
 
 ```text
 docs/TESTING_AND_VALIDATION_GUIDANCE.md
 ```
 
-Do not edit `scripts/test-fast.mjs` unless required to share a small existing selector primitive; its current explicit selection behavior is already conceptually correct.
+Do not edit `scripts/test-fast.mjs` unless a very small shared-selector adjustment is actually required.
 
-### 1.1 Exclude orchestration modules
+## 1.1 Exclude the two orchestration false positives
 
-Add these exact repository-relative paths to `NON_TEST_TOOLING_FILES`:
+Add these exact paths to `NON_TEST_TOOLING_FILES`:
 
 ```text
 scripts/test-runner.mjs
 scripts/test-presentation.mjs
 ```
 
-Keep the existing exclusions:
+Keep the existing exact exclusions:
 
 ```text
 scripts/test-fast.mjs
 scripts/test-selection.mjs
 ```
 
-Do not replace the exact non-test set with filename heuristics or directory exclusions that could hide future legitimate maintained tests.
+Do not replace exact paths with broad filename/directory heuristics.
 
-### 1.2 Make the complete no-target runner use selector discovery
+## 1.2 Make canonical full runs use maintained discovery
 
 In `scripts/test-runner.mjs`:
 
-1. import `discoverMaintainedNodeTests` from `scripts/test-selection.mjs`;
-2. preserve `parseTestPresentationArgs(argv)` as the presentation owner;
-3. after parsing, when `nodeArgs.length === 0`, resolve complete maintained discovery against `cwd`;
-4. refuse to spawn when complete selection is empty; throw a clear error rather than letting Node implicitly rediscover files;
-5. pass the explicit discovered file list through `nodeTestArgsForPresentation(...)` and then to `node --test`;
-6. when `nodeArgs.length > 0`, pass those args through unchanged as today;
-7. preserve `process.execPath`, `stdio: 'inherit'`, `shell: false`, caller environment, and child exit status.
+1. import `discoverMaintainedNodeTests` and `isMaintainedNodeTestPath` from `scripts/test-selection.mjs`;
+2. keep `parseTestPresentationArgs(argv)` as the presentation parser;
+3. determine whether the forwarded `nodeArgs` contain an explicit repository-maintained test target/path/glob;
+4. if an explicit maintained target exists, keep the forwarded Node/test arguments unchanged;
+5. if no explicit maintained target exists, resolve complete maintained discovery against `cwd` and append the explicit discovered file list after preserving any forwarded Node test options;
+6. if that required complete discovery is empty, throw a clear error and do not spawn;
+7. pass the final list through `nodeTestArgsForPresentation(...)` and then spawn `node --test` as before;
+8. preserve process executable, cwd, env, stdio, shell mode, result error handling, and exit status.
 
-Because `discoverMaintainedNodeTests` is asynchronous, the simplest implementation is to make `runNodeTests()` async and await it in the direct-execution block. Update its direct tests/callers rather than creating a second synchronous filesystem walker.
+The explicit-target detector must stay small. It does not need to understand every Node CLI option. Its job is only to recognize supported maintained repository test targets so options-only invocations do not accidentally suppress maintained discovery.
 
-Do not add a second discovery implementation to `test-runner.mjs`.
+Because `discoverMaintainedNodeTests()` is async, the simplest solution is to make `runNodeTests()` async and await it in the direct-execution path. Update direct callers/tests accordingly rather than adding a second synchronous filesystem walker.
 
-### 1.3 Regression coverage
+## 1.3 Regression coverage
 
-Extend existing tests rather than creating a new selector test framework.
+Extend existing tests; do not create another selector framework.
 
-In `tests/test-selection.test.js`, prove at minimum:
+In `tests/test-selection.test.js`, prove:
 
-- `isMaintainedNodeTestPath('scripts/test-runner.mjs') === false`;
-- `isMaintainedNodeTestPath('scripts/test-presentation.mjs') === false`;
-- both remain absent from repository `discoverMaintainedNodeTests(...)`;
-- the six existing `FAST_TEST_EXCLUSIONS` remain exactly the approved set;
-- fast selection still equals complete maintained discovery minus those six.
+```text
+scripts/test-runner.mjs -> not maintained
+scripts/test-presentation.mjs -> not maintained
+repository discovery excludes both
+FAST_TEST_EXCLUSIONS remains the existing exact six
+fast selection == complete maintained discovery - six exclusions
+```
 
-In `tests/compact-terminal-validation.test.js`, adapt existing `runNodeTests` tests to async and prove:
+In `tests/compact-terminal-validation.test.js`, adapt `runNodeTests` coverage to async and prove four cases.
 
-**No-target complete path**
+### Case A — canonical no-target
 
-- use a temp root with a small deterministic set of real test-shaped files and the orchestration false-positive filenames;
-- `runNodeTests({ cwd: tempRoot, argv: [], spawn: mockSpawn })` passes exactly the selector-discovered maintained files to `node --test`;
-- orchestration files are not present;
-- the selected reporter remains correct.
+Using a temporary root with a small deterministic set of test-shaped files plus the orchestration false-positive names:
 
-**Targeted path**
+- `argv: []` explicitly passes exactly maintained discovered files;
+- orchestration modules are absent;
+- local presentation remains correct.
 
-- the existing focused-file case remains exactly focused and does not append unrelated maintained tests;
-- CI/verbose presentation remains presentation-only and does not alter caller targets.
+### Case B — options but no target
 
-**Fail-safe path**
+For example:
 
-- no-target runner refuses zero maintained tests and does not call spawn.
+```text
+argv: ['--test-name-pattern=foo']
+```
 
-Do not hard-code repository-wide file counts in unit tests. Assert set relationships and exact small temp-fixture behavior.
+prove:
 
-### Focused validation after Tranche 1
+- the option is preserved;
+- complete maintained discovery is appended explicitly;
+- no implicit-discovery path remains.
+
+### Case C — explicit target
+
+For a caller-supplied maintained file or maintained glob:
+
+- target remains focused;
+- unrelated maintained files are not appended;
+- CI/local/verbose presentation only changes presentation, not target selection.
+
+Include at least one package-script-shaped glob case such as the slide-review or slide-prep pattern so the supported glob path remains protected.
+
+### Case D — zero-discovery fail closed
+
+When a complete maintained list is required but resolves to zero:
+
+- fail clearly;
+- do not invoke spawn.
+
+Do not hard-code repository-wide counts in unit tests. Assert set relationships and small deterministic temp-root behavior.
+
+## Focused Tranche 1 validation
 
 ```sh
 npm test -- tests/test-selection.test.js tests/compact-terminal-validation.test.js
 npm test -- test/ecg-batch-01-asset-rename.test.js
 npm run slide-review:test
+npm run slide-prep:test
 ```
 
-The second and third checks are sanity checks that existing specialized/targeted invocations still remain targetable. If `agent:checks` identifies a different narrower relevant command at implementation time, follow current repository guidance.
+The latter commands are targeted-invocation sanity checks. Do not repeat them after unrelated later edits unless those edits could invalidate their result.
 
 ---
 
-## Tranche 2 — normalize genuinely stale ordinary runtime fixtures
+# Tranche 2 — normalize stale ordinary current-runtime fixtures
 
-The audit's original ordinary list contained 19 files, not 20. Six already enumerate every migration dynamically and are semantically current. Only the following **13** are high-confidence stale/partial ordinary runtime bootstraps and are required in this PR.
+The audit's ordinary-current list contained 19 files, not 20. Six already enumerate every migration dynamically and are semantically current. The following 13 are the known stale/partial ordinary runtime fixtures required in this PR.
 
-### 2.1 Required current-schema conversions
+## 2.1 Required conversions
 
-Convert these files to `applyCurrentSchema`:
+Convert these to `applyCurrentSchema`:
 
 ```text
 test/asset-library.test.js
@@ -284,20 +336,21 @@ test/taxonomy-workspace-staging.test.js
 For each file:
 
 1. import `applyCurrentSchema` from `./current-schema.js`;
-2. preserve the existing in-memory SQLite/D1 adapter and domain-specific seed data unless a current-schema constraint requires a narrow seed correction;
-3. preserve `PRAGMA foreign_keys = ON` behavior/order where already present;
-4. replace the hard-coded migration array/string/manual migration concatenation with `applyCurrentSchema(sqlite)`;
-5. remove now-unused `readFileSync`/migration-name constants/manual `ALTER TABLE` shims only when they are no longer used for another legitimate source assertion;
-6. do not rewrite assertions, production implementation, or migration SQL merely to make conversion easier.
+2. keep the existing in-memory SQLite/D1 adapter unless a narrow current-schema adjustment is necessary;
+3. preserve existing `PRAGMA foreign_keys = ON` behavior/order;
+4. replace hard-coded migration arrays/concatenation with `applyCurrentSchema(sqlite)`;
+5. remove migration-only imports/constants/manual `ALTER TABLE` shims that become unused;
+6. preserve domain seeds and assertions unless current constraints require a minimal seed correction;
+7. do not edit production implementation or migration SQL to accommodate the old fixture.
 
 Special attention:
 
-- `test/asset-library.test.js` and `test/preview-workspace-foundations.test.js` manually emulate later deduplication columns; remove those shims when current schema owns them.
-- the four staging tests should keep their domain-specific setup/assertions local. This tranche removes stale migration bootstrap duplication; it does **not** authorize a generic staging D1 fixture abstraction.
+- `test/asset-library.test.js` and `test/preview-workspace-foundations.test.js` manually emulate later deduplication columns; current schema should own those columns after conversion.
+- staging tests keep their local domain-specific setup. Do not introduce a generic staging fixture abstraction in this PR.
 
-### 2.2 Already-current dynamic bootstraps — leave unchanged in this PR
+## 2.2 Already-current dynamic bootstraps — leave unchanged
 
-These six ordinary tests dynamically enumerate the complete migration directory and are therefore not correctness defects:
+These are not correctness defects because they enumerate the entire migration directory dynamically:
 
 ```text
 test/asset-higher-resolution-replacement.test.js
@@ -308,13 +361,11 @@ test/stimulus-family-live-prompt-trigger-alignment.test.js
 test/stimulus-prompt-specificity-characterisation.test.js
 ```
 
-Do not convert them merely for stylistic uniformity in this PR. They can later use `applyCurrentSchema` if a separate cleanup shows enough maintenance value. The future policy guard must not classify their complete dynamic bootstrap as stale.
+Do not convert them for style consistency in this PR.
 
-### 2.3 Focused fixture validation
+## Focused Tranche 2 validation
 
-Run the converted tests in coherent subsystem groups, not one full-suite rerun after every file.
-
-Suggested grouping:
+Run coherent groups rather than one full-suite run after every file:
 
 ```sh
 npm test -- test/asset-library.test.js test/asset-preview-isolation.test.js test/preview-workspace-foundations.test.js
@@ -324,71 +375,80 @@ npm test -- test/case-library-inactive-tags.test.js test/case-primary-topic-stag
 npm test -- test/question-library.test.js test/question-library-unicode-search.test.js test/tag-library.test.js test/tagging-stage-b-admin-consistency.test.js
 ```
 
-If a group fails because a newer migration now enforces a valid production invariant, inspect that invariant and minimally update fixture data. Do not restore the old schema.
+If current schema exposes a real production invariant, minimally update fixture data rather than restoring a stale schema.
 
 ---
 
-## Tranche 3 — add a narrow current-schema fixture-policy guard
+# Tranche 3 — narrow current-schema fixture-policy guard
 
-### Goal
+## Goal
 
-Prevent the specific regression that caused the stale fixtures: an ordinary runtime test explicitly executing a hand-maintained partial migration sequence that silently stops receiving newer migrations.
+Prevent recurrence of the concrete defect: an ordinary runtime test executing a hand-maintained literal migration subset which silently stops receiving later migrations.
 
-This is **not** a general source linter and must not ban all migration reads.
+This must remain a repository-specific regression test, **not a general source linter**.
 
-### Recommended file
+Recommended file:
 
 ```text
 tests/current-schema-fixture-policy.test.js
 ```
 
-### Scan scope
+## 3.1 Discover candidate test files using repository discovery
 
-Scan only application test roots where repository schema fixtures belong:
+Do not create a second `test/**/*.test.js` glob policy.
+
+Use `discoverMaintainedNodeTests()` and then filter to repository application-test roots:
 
 ```text
-test/**/*.test.js
-tests/**/*.test.js
+test/
+tests/
 ```
 
-Do not scan slide-review/source-prep tool trees unless evidence shows they actually own application migration fixtures.
+Exclude the policy-test file itself from the repository scan:
 
-### Detection scope
+```text
+tests/current-schema-fixture-policy.test.js
+```
 
-The classifier should be deliberately narrow. Detect recognizable **executed explicit migration bootstraps**, for example:
+That file intentionally contains synthetic prohibited examples for detector self-coverage and must not flag itself.
 
-- a hard-coded migration filename/name array used to build SQL that is executed into SQLite; or
-- an equivalent explicit partial migration SQL bootstrap.
+Do not scan slide-review/source-prep tool trees unless implementation evidence shows they own application migration fixtures.
 
-Do **not** flag solely because a file contains `readFileSync`, a `drizzle/*.sql` path, or migration text.
+## 3.2 Keep detection syntactic and narrow
+
+The detector only needs to recognize the known repository pattern class that caused the stale fixtures: **literal/hand-maintained migration lists or equivalent literal migration-file bootstrap code that is executed as an application schema**.
+
+It is acceptable to use small source-string/regex checks tailored to the current repository patterns.
+
+Do not attempt data-flow analysis. Do not add AST/parser dependencies. Do not promise to detect every theoretically possible obsolete-schema construction.
 
 The guard must allow:
 
-1. ordinary tests using `applyCurrentSchema`;
-2. complete dynamic enumeration of the migration directory, because it remains current by construction (even though the shared helper is preferred for maintainability);
-3. focused source-contract assertions that read one migration file without using that read as an application-schema bootstrap;
-4. exact intentional historical/migration exceptions listed below.
+1. `applyCurrentSchema(...)`;
+2. complete dynamic enumeration of the migration directory;
+3. source-only assertions that read migration SQL without using it to bootstrap an application runtime schema;
+4. exact documented historical migration-boundary exceptions.
 
-Keep the detector local/simple. Do not introduce a generic lint DSL, parser dependency, AST dependency, or repository-wide policy framework.
+Before enforcing, run the detector/search in an inventory/report mode against the current branch and classify every hit. If a file does not fit the known ordinary or historical categories, inspect that file before extending the allowlist or conversion set.
 
-### Intentional historical/migration exception map
+## 3.3 Expected historical exception map
 
-Before enforcing the map, run the planned search over the **current implementation head** and reconcile every detected explicit bootstrap. If an unexpected file appears, classify it by behavior before adding it to either ordinary conversion or exception scope.
+Use an exact `path -> reason` map. Do not allowlist directories, prefixes, regex families, all FSRS tests, or all import tests.
 
-Expected intentional exceptions from the audited base:
+Expected historical boundaries at the planning base:
 
 ```text
 test/auth-migration.test.js
   Better Auth migration 0001 in isolation.
 
 test/learner-fsrs-active-review-resume-race.test.js
-  Minimal pre-FSRS tables plus migrations 0019/0020.
+  Minimal pre-FSRS schema plus migrations 0019/0020.
 
 test/learner-fsrs-active-review-scope.test.js
-  Minimal active-review scope schema from migrations 0019/0020.
+  Minimal active-review scope schema from 0019/0020.
 
 test/learner-fsrs-active-review.test.js
-  Minimal active-review schema from migrations 0019/0020.
+  Minimal active-review schema from 0019/0020.
 
 test/learner-fsrs-foundation.test.js
   Migration 0019 foundation in isolation.
@@ -400,16 +460,16 @@ test/learner-fsrs-reset-fresh.test.js
   Ordered FSRS migrations 0019/0020/0024.
 
 test/learner-fsrs-retention-admin.test.js
-  Migration 0019 foundation in a minimal fixture.
+  Migration 0019 foundation in a minimal historical fixture.
 
 test/learner-fsrs-scheduled-completion.test.js
   Ordered FSRS migrations 0019-0021.
 
 test/learner-study-data-deletion.test.js
-  Pre-0027 schema versus current-schema comparison.
+  Explicit pre-0027 versus current-schema behavior.
 
 test/multi-topic-migration-d1.test.js
-  Migrations 0000/0002 as the base for applying 0003.
+  Migrations 0000/0002 form the historical base for applying 0003.
 
 test/original-stimulus-semantics.test.js
   Pre-0016 schema plus migration 0016 under test.
@@ -418,68 +478,72 @@ test/question-pool-mode-invariants.test.js
   Migration 0014 in isolation.
 
 test/resumable-content-import.test.js
-  Migration 0004 checkpoint schema and migration-boundary assertions.
+  Migration 0004 checkpoint/import-job boundary behavior.
 
 test/resumable-import-contract.test.js
-  Explicit 0000-0004 upgrade path proving resumable import schema creation. This file was omitted from the exploratory report's exception list and must be retained.
+  Explicit 0000-0004 upgrade path proving resumable import schema creation.
 
 test/resumable-import-lease-safety.test.js
   Migration 0004 import-job schema in isolation.
+
+test/tag-shared-schema.test.js
+  Explicit 0000-0008 Stage B foundation plus pre-0008 -> 0008 upgrade/preservation behavior.
 ```
 
-Use an exact `path -> reason` map. Do not allowlist an entire directory, prefix, regex family, or all FSRS/import tests.
+This list is an expected planning inventory, not permission to skip the current-head scan. Add an exception only when the file genuinely tests a historical migration boundary.
 
-Where an exception currently lacks an obvious nearby comment describing the historical boundary, add a short comment only if it materially improves readability. Avoid noisy comments that merely repeat the filename.
+## 3.4 Guard self-coverage
 
-### Guard self-coverage
+Test the detector with inline representative source strings:
 
-Keep self-coverage small. In the policy test, exercise the detector with representative source strings for:
+```text
+literal partial migration list executed into SQLite -> detected
+applyCurrentSchema(...) -> allowed
+complete dynamic migration-directory enumeration -> allowed
+single migration file read for source assertion only -> allowed
+```
 
-- an explicit partial executed migration list -> detected;
-- `applyCurrentSchema(...)` -> allowed;
-- complete dynamic migration-directory enumeration -> allowed;
-- a single migration text/source assertion that is not used as schema bootstrap -> allowed.
-
-Then scan the actual repository test roots and fail with a useful message containing:
+Then run it across the actual maintained application-test files and emit a useful failure containing:
 
 ```text
 file path
-classification problem
-expected action: use current schema or add an exact documented migration-boundary exception
+why it matched
+expected action: current schema or exact documented migration-boundary exception
 ```
 
-Do not build fixtures/files on disk solely to test the policy scanner if inline strings cover its logic.
+Do not create temporary repository files solely to test the scanner if inline samples prove detector behavior.
 
-### Focused validation after Tranche 3
+## Focused Tranche 3 validation
 
 ```sh
 npm test -- tests/current-schema-fixture-policy.test.js
+npm test -- tests/test-selection.test.js tests/compact-terminal-validation.test.js
 ```
 
-Then rerun the Tranche 1 selector tests because adding a new maintained test should automatically enter both complete discovery and fast selection unless explicitly excluded (it must **not** be excluded).
+The second command confirms the newly added maintained policy test enters normal discovery/fast selection automatically.
 
 ---
 
-## Tranche 4 — reconcile living testing documentation
+# Tranche 4 — reconcile living testing guidance
 
-After code/tests are green, inspect `docs/TESTING_AND_VALIDATION_GUIDANCE.md` for statements made materially incomplete by Tranche 1.
+After implementation/tests are coherent, inspect `docs/TESTING_AND_VALIDATION_GUIDANCE.md`.
 
-At minimum, the documentation should accurately express:
+Update only what becomes materially incomplete. The durable discovery relationship should be clear:
 
 ```text
 scripts/test-selection.mjs
-→ complete maintained discovery
-→ npm test uses all maintained tests
-→ test:fast uses the same maintained set minus FAST_TEST_EXCLUSIONS
+  -> complete maintained discovery
+  -> npm test uses all maintained tests
+  -> test:fast uses the same set minus FAST_TEST_EXCLUSIONS
 ```
 
-Do not copy the full implementation, file counts, or exception inventory into living guidance. Keep drift-prone counts in tests/executable code, not prose.
+Do not copy repository-wide file counts, migration exception inventories, or implementation details into living guidance.
 
-The existing schema-fixture section already states the correct semantic policy (`current schema` for ordinary runtime behavior, explicit historical schemas for migration/upgrade behavior). Update it only if the new guard requires a small durable clarification; do not rewrite it around this PR.
+The existing schema-fixture guidance already has the correct semantic rule. Add only a small clarification if needed; do not rewrite it around this PR.
 
-No `DOCUMENTATION_INDEX.md`, roadmap, product design, data-model, deployment, or Production-status update should be required unless implementation unexpectedly changes one of those authorities.
+No roadmap, product-design, data-model, deployment, Production-status, or documentation-index update should be needed unless implementation unexpectedly changes one of those authorities.
 
-# Luna implementation workflow
+# Luna workflow
 
 ## Step 1 — establish current state
 
@@ -489,126 +553,134 @@ From the PR branch:
 npm run agent:doctor
 ```
 
-Then refresh current head/base and inspect only the files needed for Tranche 1. Do not re-audit the entire repository before starting.
+Refresh PR head/base and the drift-prone facts listed above. Do not repeat the whole redundancy audit.
 
-Before implementing Tranche 2/3, run a bounded migration-bootstrap search to verify the 13 ordinary files and exception map against the actual branch. Suitable search concepts include:
+Before Tranches 2/3, use a bounded search for concepts such as:
 
 ```text
 migrationSql
 migrationNames
+migrationUrls
 readFileSync + drizzle
 readdirSync + drizzle
 applyCurrentSchema
+sqlite.exec(...migration...)
 ```
 
-The purpose is classification, not a second broad redundancy audit.
+The goal is classification only.
 
-## Step 2 — implement one tranche at a time
+## Step 2 — implement coherent tranches
 
 For each tranche:
 
-1. make the coherent set of related edits;
-2. inspect the scoped diff;
-3. run the listed focused checks;
-4. fix only failures attributable to that tranche;
-5. continue when the tranche is coherent.
+1. make the coherent related edits;
+2. inspect the scoped delta;
+3. run the focused checks listed for that tranche;
+4. fix only attributable failures;
+5. continue once the tranche is coherent.
 
-Do not run the full suite after every small file edit.
+Do not run full validation after each small edit.
 
 ## Step 3 — checkpoint
 
-After Tranches 1-3 are coherent:
+After Tranches 1-3:
 
 ```sh
 npm run agent:checks -- --compact
 ```
 
-Run the current checkpoint guidance it reports, normally including `npm run validate:fast` when appropriate.
+Follow the current checkpoint guidance, normally including `npm run validate:fast` when applicable.
 
-The exploratory audit previously encountered sandbox `EPERM`/child-process capture failures. In a normal local WSL/Codex environment, rerun the actual commands and treat current execution as authority. If the environment still blocks child processes, report that as an environment limitation rather than weakening tests or runner behavior.
+If `validate:fast` passes and no later change can invalidate that result, do **not** rerun `npm run test:fast` merely to obtain duplicate evidence.
 
-## Step 4 — final handoff validation
+## Step 4 — final handoff
 
-Before final handoff/review:
+After the final code/documentation delta:
 
-1. rerun `npm run agent:checks -- --compact` after the final implementation delta;
-2. execute **every** final required check and specialized check it reports;
-3. ensure canonical `npm test` and `npm run test:fast` both run cleanly in a permissive environment;
-4. inspect the complete intended-base -> head diff once;
-5. verify no application code, migrations, schema, Production tooling, or unrelated tests were changed accidentally;
-6. update the Draft PR body with implemented tranches, validation evidence, and any intentionally deferred follow-up.
+1. rerun `npm run agent:checks -- --compact` because changed-file classification may have changed;
+2. execute every final required and specialized check it reports;
+3. use `npm run validate:full` when that is the repository-selected ordinary handoff path;
+4. treat a successful unchanged `validate:full` Node stage as evidence for canonical `npm test`; do not rerun `npm test` solely for duplication;
+5. similarly, retain prior `validate:fast`/focused evidence unless subsequent changes could invalidate it;
+6. inspect the complete intended-base -> current-head diff once;
+7. verify there are no unintended application, schema, migration, CI workflow, Production/Preview, or unrelated test changes;
+8. update the Draft PR body with implemented tranches and actual validation evidence.
 
-Use `npm run validate:full` when it is the current repository-selected ordinary handoff path. Do not substitute focused test success for final required checks.
+If child-process execution is blocked by the environment, report that limitation rather than weakening runner/tests.
 
 # Acceptance criteria
 
-The implementation is complete only when all of the following hold.
+Implementation is complete when all of the following are true.
 
-## Maintained discovery
+## Discovery
 
 - `scripts/test-runner.mjs` and `scripts/test-presentation.mjs` are not maintained tests.
-- canonical no-target `npm test` gets its complete file list from `scripts/test-selection.mjs`.
-- no-target full discovery resolving to zero fails closed before spawning Node tests.
-- fast selection uses the same complete maintained set minus exactly the approved `FAST_TEST_EXCLUSIONS`.
-- no new fast exclusion is introduced.
-- ordinary new maintained tests continue to enter fast selection automatically.
+- canonical no-target full runs receive an explicit maintained file list from `scripts/test-selection.mjs`.
+- options-only full invocations such as `--test-name-pattern=...` preserve those options **and** append maintained discovery.
+- explicit maintained file/glob invocations remain focused.
+- required full discovery resolving to zero fails before spawn.
+- fast selection remains complete maintained discovery minus exactly the approved six exclusions.
+- a new ordinary maintained test enters fast selection automatically unless separately approved for exclusion.
 
-## Targeting/presentation
+## Presentation / process behavior
 
-- `npm test -- <file>` remains focused on the caller-supplied target/args.
-- slide-review targeted test commands remain targeted.
-- compact, CI, verbose, explicit reporter precedence, metadata, child status, `process.execPath`, `stdio`, and `shell:false` semantics remain unchanged except for the intentional async wrapper needed by maintained discovery.
+- compact/CI/verbose and explicit reporter precedence remain unchanged;
+- caller environment, `process.execPath`, `stdio`, `shell:false`, spawn errors, and child status remain preserved;
+- the async runner change, if used, does not alter exit semantics.
 
 ## Fixtures
 
-- all 13 required ordinary stale fixtures use current schema rather than hard-coded partial migration sequences/manual column shims.
-- their behavioral assertions remain present.
-- the six already-current dynamic bootstraps remain valid and are not required to change in this PR.
-- intentional migration-boundary tests retain their historical schema, including `test/resumable-import-contract.test.js`.
-- no application fallback or migration/schema change is added to accommodate old test fixtures.
+- all 13 known stale ordinary fixtures use current schema;
+- their behavioral assertions remain present;
+- the six complete dynamic current-schema bootstraps remain valid and are not required to change;
+- genuine migration-boundary fixtures remain historical, including `resumable-import-contract` and `tag-shared-schema`;
+- no production fallback, schema change, or migration edit is introduced to accommodate old fixtures.
 
 ## Policy guard
 
-- a new ordinary explicit partial migration bootstrap in `test/` or `tests/` causes a focused, understandable failure;
-- `applyCurrentSchema`, complete dynamic enumeration, and source-only migration assertions are not falsely rejected;
-- intentional historical exceptions are exact-path + reason entries;
-- the guard is a small maintained test, not a new general lint architecture.
+- maintained application-test discovery is reused rather than reimplemented with a second glob rule;
+- the guard excludes its own synthetic self-test source from repository scanning;
+- known literal partial ordinary-schema bootstraps are rejected;
+- `applyCurrentSchema`, complete dynamic enumeration, and source-only migration assertions are allowed;
+- historical exceptions are exact paths with reasons;
+- the detector remains intentionally syntactic/repository-specific, not a generic lint/parser architecture.
 
 ## Scope / safety
 
 - no product/domain behavior changes;
 - no behavioral test deletion;
+- no new fast exclusion;
 - no schema/migration changes;
 - no Production/Preview mutation;
-- no `.github` workflow change unless separately justified by an implementation-discovered hard requirement;
-- no broad refactor/helper framework.
+- no broad fixture/harness refactor;
+- no `.github` workflow change unless an implementation-discovered hard requirement is separately justified.
 
-# Deferred follow-up candidates
+# Deferred follow-ups
 
-Do not implement these in this PR. Record them only if later maintenance pain justifies separate work:
+Do not implement these in PR #178 unless a concrete correctness dependency unexpectedly requires one:
 
-1. replace the six already-current dynamic schema enumerators with `applyCurrentSchema` for consistency;
-2. extract a narrowly scoped staging D1 fixture for the four taxonomy/case staging tests;
-3. extract slide-review fake-DOM helpers shared by approval/dependency invalidation tests;
-4. extract ZIP construction helpers shared by import hardening/safety tests;
-5. move the single case-editor canonical-reconciliation test into the mutation-owner file without deleting the assertion;
-6. split `admin-image-deduplication.test.js` by behavior owner if navigation/reviewability remains materially difficult.
+1. convert the six already-current dynamic migration enumerators to `applyCurrentSchema` for consistency;
+2. consider one narrowly scoped staging D1 fixture if repeated maintenance pain continues;
+3. extract slide-review fake-DOM helpers;
+4. extract reviewed-import ZIP construction helpers;
+5. move the case-editor canonical-reconciliation test without deleting its assertion;
+6. split very large image/dedup tests only if navigation/reviewability remains materially poor.
 
-No follow-up should infer behavioral redundancy from repeated setup, similar names, or file size alone.
+Repeated setup, similar names, or large file size alone is not evidence of behavioral redundancy.
 
 # Handover summary for Luna
 
-Implement this plan in the same Draft PR. The priority is **test infrastructure correctness, not test-count reduction**:
+Implement PR #178 with this priority order:
 
 ```text
-1. make full + fast share maintained discovery;
-2. remove the two orchestration false positives;
-3. preserve targeted/presentation behavior;
-4. move only the 13 genuinely stale ordinary fixtures to current schema;
-5. preserve exact historical migration exceptions;
-6. add one narrow regression guard;
-7. run repository-selected final validation;
-8. do not broaden into behavioral deletion or maintenance-only refactors.
+1. full + fast share maintained discovery;
+2. remove runner/presentation false positives;
+3. preserve explicit targets and make options-only full runs explicit too;
+4. convert only the 13 stale ordinary fixtures to current schema;
+5. retain exact historical migration tests, including tag-shared-schema;
+6. add one narrow syntactic policy guard using maintained discovery;
+7. follow repository-selected validation without redundant reruns;
+8. do not broaden into assertion deletion or general test refactoring.
 ```
 
-If implementation reveals a changed safety boundary or a classification that contradicts this plan, stop that specific tranche, document the concrete discrepancy in the PR, and resolve it from current code/tests/guidance. Do not guess from the old audit snapshot.
+If current-head evidence contradicts a fixture classification or reveals a changed safety boundary, stop only that affected tranche, document the concrete discrepancy, and resolve it from current code/tests/guidance rather than guessing from the audit snapshot.
