@@ -11,7 +11,9 @@ import { getCaseLibraryPage } from '../src/lib/server/db/case-library.js';
 import { deactivateProductionCase, restoreProductionCase } from '../src/lib/server/db/case-lifecycle.ts';
 import { saveCaseQuestion } from '../src/lib/server/db/case-questions.js';
 import { bulkAddCaseTag } from '../src/lib/server/db/case-tag-authoring.ts';
+import { moveStimulusOptionWithinCase } from '../src/lib/server/db/image-option-move.js';
 import { createDb } from '../src/lib/server/db/index.js';
+import { assignSimpleStimulusRoles } from '../src/lib/server/db/simple-stimulus-curation.js';
 import { createStimulusGroup } from '../src/lib/server/db/stimulus-groups.js';
 import { addCaseTag, createTag, renameTag } from '../src/lib/server/db/tag-library.js';
 import { buildSeedSql } from '../scripts/seed-content.mjs';
@@ -140,6 +142,68 @@ test('representative Topic, Tag, Case Question, fixed-image, and stimulus author
     setCaseTimes(fixture.sqlite, caseId, 1_000, 2_000);
     await createStimulusGroup(fixture.db, { caseId, name: 'Timestamp alternatives', specificQuestionMode: 'none' });
     assert.ok(caseTimes(fixture.sqlite, caseId).updated_at > 2_000);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('simple Original/Alternative role assignment advances the Production Case timestamp in its atomic batch', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.exec(`
+      INSERT INTO cases (id, title, is_active, created_at, updated_at)
+      VALUES ('timestamp-simple-case', 'Timestamp simple stimulus Case', 1, 1000, 2000);
+      INSERT INTO assets (id, type, storage_key, mime_type, original_filename, is_active, created_at, updated_at) VALUES
+        ('timestamp-simple-a', 'image', 'timestamp-simple-a.png', 'image/png', 'timestamp-simple-a.png', 1, 1000, 1000),
+        ('timestamp-simple-b', 'image', 'timestamp-simple-b.png', 'image/png', 'timestamp-simple-b.png', 1, 1000, 1000);
+      INSERT INTO case_assets (case_id, asset_id, display_order, caption_md) VALUES
+        ('timestamp-simple-case', 'timestamp-simple-a', 0, 'Original caption'),
+        ('timestamp-simple-case', 'timestamp-simple-b', 1, 'Alternative caption');
+    `);
+
+    await assignSimpleStimulusRoles(fixture.db, {
+      caseId: 'timestamp-simple-case',
+      originalAssetId: 'timestamp-simple-a',
+      alternativeAssetId: 'timestamp-simple-b'
+    });
+
+    const times = caseTimes(fixture.sqlite, 'timestamp-simple-case');
+    assert.equal(times.created_at, 1_000);
+    assert.ok(times.updated_at > 2_000);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
+test('same-Case Production stimulus option move advances the owning Case timestamp', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.exec(`
+      INSERT INTO cases (id, title, is_active, created_at, updated_at)
+      VALUES ('timestamp-move-case', 'Timestamp move Case', 1, 3000, 4000);
+      INSERT INTO assets (id, type, storage_key, mime_type, original_filename, is_active, created_at, updated_at)
+      VALUES ('timestamp-move-asset', 'image', 'timestamp-move-asset.png', 'image/png', 'timestamp-move-asset.png', 1, 3000, 3000);
+      INSERT INTO stimulus_groups (id, case_id, name, display_order, selection_count, specific_question_mode, is_active) VALUES
+        ('timestamp-source-group', 'timestamp-move-case', 'Source', 0, 1, 'none', 1),
+        ('timestamp-target-group', 'timestamp-move-case', 'Target', 1, 1, 'none', 1);
+      INSERT INTO stimulus_group_options (id, stimulus_group_id, asset_id, display_order, is_active, removed_from_case)
+      VALUES ('timestamp-moving-option', 'timestamp-source-group', 'timestamp-move-asset', 0, 1, 0);
+    `);
+
+    await moveStimulusOptionWithinCase(fixture.db, {
+      caseId: 'timestamp-move-case',
+      optionId: 'timestamp-moving-option',
+      targetGroupId: 'timestamp-target-group',
+      previewSessionId: null
+    });
+
+    const times = caseTimes(fixture.sqlite, 'timestamp-move-case');
+    assert.equal(times.created_at, 3_000);
+    assert.ok(times.updated_at > 4_000);
+    assert.equal(
+      fixture.sqlite.prepare('SELECT stimulus_group_id FROM stimulus_group_options WHERE id = ?').get('timestamp-moving-option')?.stimulus_group_id,
+      'timestamp-target-group'
+    );
   } finally {
     fixture.sqlite.close();
   }

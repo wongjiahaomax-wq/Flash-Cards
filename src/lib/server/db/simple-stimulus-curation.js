@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
+import { productionCaseTimestampWrite } from './case-authoring-timestamps.js';
 import { ContentGuardError, requireProductionCase, requireProductionImageAsset } from './content-guards.js';
 import { caseAssets, stimulusGroupOptions, stimulusGroups } from './schema.js';
 
@@ -161,7 +162,8 @@ export async function assignSimpleStimulusRoles(db, input) {
     alternativeInsert,
     originalUpdate,
     fixedDelete,
-    ...reorderStatements
+    ...reorderStatements,
+    productionCaseTimestampWrite(db, caseId)
   ]);
 
   return { caseId, groupId, originalOptionId, alternativeOptionId };
