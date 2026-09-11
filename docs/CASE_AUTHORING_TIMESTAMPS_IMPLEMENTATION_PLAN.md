@@ -1,368 +1,195 @@
-# Case Added / Last Edited Metadata — Implementation Plan
+# Case Added / Last Edited Metadata — Simplified Implementation Plan
 
-_Status: normative implementation contract for Draft PR #176. Planning is complete and feature implementation is intentionally still pending. Continue implementation in this same Draft PR only._
+_Status: single planning authority for Draft PR #176. This PR remains planning-only at this commit. Feature implementation has not started._
 
 ## Goal
 
-Document when each Production Case was originally added and when its Case-local authored content was most recently changed, then surface that information unobtrusively in the Admin Case Library and Production Case Editor.
+Show useful Case authoring dates to Admins using the timestamp columns that already exist on `cases`:
 
-The product should answer two different questions:
+- **Added** = existing `cases.created_at`
+- **Last edited** = existing `cases.updated_at`
+
+Display:
 
 ```text
-Added
-→ when this Case record was originally created/imported into Flash-Cards
+Case Library
+Added 3 Sep 2026 · Edited 9 Sep 2026
 
-Last edited
-→ when a successful substantive Production Case-local authoring change most recently changed this Case
+Production Case Editor
+Added 3 Sep 2026 · Last edited 9 Sep 2026, 21:42 SGT
 ```
 
-This is content-documentation metadata, not an audit log.
+Use deterministic `Asia/Singapore` formatting.
 
-## Current baseline
+This is practical Admin-facing authoring metadata. It is **not** an audit log, revision number, concurrency token, or mathematically exact representation of every persisted Case transition.
 
-The current schema already has `cases.created_at` and `cases.updated_at`. The original migration gives both non-null millisecond timestamp fields with database defaults, so this feature needs **no schema migration and no historical timestamp backfill**.
+## Existing data model
 
-Current Case creation relies on those database defaults. Current Production authoring does not consistently maintain the parent Case's `updated_at`: core Case fields, Topic relationships, Tags, Case Questions, fixed images and stimulus/image-question relationships are owned by separate writers. Current Case Library and Case Editor read models also do not expose the Case timestamps.
+The current `cases` table already has `created_at` and `updated_at`.
 
-Therefore this PR reuses the existing fields and establishes `cases.updated_at` as the canonical aggregate **Production Case-authoring timestamp** from this feature onward.
+Therefore:
 
-Historical limitation: `created_at` is authoritative for when an existing Case was added. Pre-feature `updated_at` values were not maintained as a comprehensive Case-authoring history, so old Cases may initially show an incomplete historical "Last edited" value. Do not fabricate a backfill or attempt to reconstruct historical edits.
+- no schema migration;
+- no new timestamp columns;
+- no historical backfill;
+- no attempt to reconstruct old edit history;
+- existing Cases may initially have a `updated_at` value that reflects older incomplete maintenance rather than every historical authoring action.
 
-The schema default uses second-resolution `unixepoch()` multiplied to milliseconds. That is acceptable for initial row creation, but timestamp correctness tests must not depend on the default changing within a particular wall-clock interval.
+From this feature onward, `updated_at` should be maintained as useful Case authoring recency.
 
 ## Product semantics
 
-### `created_at` / Added
+### Added
 
-- Immutable after Case creation.
-- Represents when the Case record was inserted into Flash-Cards, including imported Cases.
-- Initial related writes performed while constructing a newly imported/created Case do not require artificial parent timestamp touches; the Case's creation/default timestamp is the initial authoring point.
-- Never rewrite `created_at` merely to implement this feature.
+`created_at` remains immutable after Case creation.
 
-### `updated_at` / Last edited
+It represents when the Case record was originally created/imported into Flash-Cards. Initial Case/import assembly should continue to rely on the existing creation timestamp behavior; do not add extra post-create timestamp churn solely for this feature.
 
-Treat `cases.updated_at` as the most recent successful **Production Case-local authoring change**.
+### Last edited
 
-A Case-local authoring change is a change an Admin makes to the authored definition/configuration of that specific Case. It is not a generic "something related somewhere changed" timestamp.
+Advance `updated_at` after a **successful Production Admin action that actually changes normal Case-authored content or configuration**.
 
-The governing rule is:
+Count ordinary Case-local authoring such as:
 
-> Advance `cases.updated_at` only when a successful operation actually changes Production Case-local authored state for that Case.
-
-A validation/error path that makes no Case-local change must not advance it. A true no-op/idempotent replay must not advance it. `created_at` must remain unchanged.
-
-### Monotonicity
-
-`cases.updated_at` must be monotonic. An operation carrying an older or equal operation time must never overwrite a newer persisted Case timestamp.
-
-This is a database-write invariant, not a read-then-write convention:
-
-```text
-persisted updated_at = max(existing updated_at, operation time)
-```
-
-Use an equivalent atomic SQL expression/conditional update at the database write itself. Do **not** read `updated_at` into application code, compare it there, and later issue an unconditional write; that can lose a newer concurrent value.
-
-No-op detection is still required. The monotonic expression prevents time regression; it does not make a no-op into a legitimate edit.
-
-A timestamp is **not** an operation identity or version token. Distinct operations may have equal millisecond timestamps, so timestamp equality must never be used as a CAS/ownership mechanism for rollback, compensation, or concurrency control.
-
-## What MUST count as a Case edit
-
-The implementation must cover the currently exposed Production Admin authoring surfaces in these semantic families. Use current repository routing and actual current writer ownership to locate the complete call sites rather than treating this section as a permanent hard-coded file map.
-
-### Core Case metadata
-
-Count actual changes to:
-
-- internal Case title;
+- title;
 - vignette;
-- question-selection mode/count.
+- question-selection settings;
+- Primary Topic assignment;
+- Case Tags;
+- Case Question Tags;
+- Case Questions, including meaningful reorder and scope changes;
+- fixed-image attachment/removal, Case-specific caption, and meaningful reorder;
+- stimulus / Original / Alternative / supporting configuration;
+- Case-specific stimulus questions;
+- per-Case reusable-question opt-in/out.
 
-### Primary Topic assignment
+Do not update Case authoring recency merely because related global/shared state changed elsewhere.
 
-Count changes to the Case's canonical Primary Topic, including:
+### Must not touch `updated_at`
 
-- a single Case Primary Topic change;
-- bulk Primary Topic assignment for the Cases whose Primary Topic actually changes;
-- quick-create a Topic and make it the Case's Primary Topic.
+Do not advance Production Case `updated_at` for:
 
-Do **not** count a later rename/reparent/System move of the shared Topic itself as edits to every Case using it.
-
-### Case Tags and Case Question Tags
-
-Count:
-
-- attach/remove a Case Tag;
-- bulk attach/remove, but only for Cases whose relationship actually changes;
-- quick-create a Tag and attach it to a Case;
-- add/remove a Tag on a Case Question, touching the Case that owns that Case Question.
-
-This applies whether the relationship is edited from the Case editor, Case Library, or the separate Production Admin Tags workspace.
-
-Do **not** count global Tag rename/activation/deactivation as edits to every related Case.
-
-### Case Questions and Case-specific question scope
-
-Count actual changes to Case-owned question configuration, including:
-
-- create/edit/remove/restore a Case Question;
-- **reorder a Case Question when its order actually changes**;
-- prompt/answer changes made through Case Question authoring;
-- Case Question scope movement between Case-wide and Case-specific stimulus scope;
-- the per-Case choice to make/remove a Case Question reusable for its Topic when that Case-editor authoring choice actually changes persisted state.
-
-A boundary/no-op question reorder must not advance `updated_at`.
-
-If a reusable/shared question is later edited through a global/shared authoring surface, that global edit must not fan out and touch every Case that references it.
-
-### Fixed Case images
-
-Count:
-
-- attach/remove a fixed image;
-- reorder fixed images when order actually changes;
-- change a Case-specific fixed-image caption.
-
-Uploading/renaming/replacing an underlying global Asset is not by itself a Case edit. If an upload flow immediately attaches the new Asset to a Case, the **attachment** is the Case edit.
-
-### Alternative image / Stimulus Family configuration
-
-Count actual Case-owned changes such as:
-
-- create/update an Alternative/Stimulus group;
-- add/restore/remove/reorder an option;
-- change Original/Alternative/supporting role/configuration where that is Case-owned state;
-- **convert an existing stimulus option back to Always shown / supporting**;
-- change a Case-specific option caption;
-- activate/deactivate Case-owned stimulus configuration when the persisted state actually changes;
-- create/edit/remove/restore Case-specific group/option questions.
-
-Preserve the current stimulus façade/module ownership and current validation/ownership invariants. This timestamp feature is not authorization to refactor the Stimulus Family architecture.
-
-### Reusable Asset Question Case opt-ins
-
-Count the Case-local relationship/configuration operations that opt a reusable Asset Question into or out of this Case, whether for a fixed image or a stimulus option.
-
-Do **not** count global reusable Asset Question prompt/answer/lifecycle edits as edits to every Case currently opting into that reusable question.
-
-## What MUST NOT count as a Case edit
-
-Do not advance Production Case `updated_at` merely because of:
-
-- global System/Topic rename or hierarchy changes;
-- global Tag rename/activation/deactivation;
-- global Asset metadata changes, image replacement, R2 lifecycle or deduplication/maintenance;
-- global/shared/reusable question edits outside a Case-local relationship/configuration operation;
+- Preview edits;
 - learner study/review/progress activity;
-- Case deactivation or restoration lifecycle operations;
-- Preview-owned Case edits;
-- reads, previews, navigation, opening/saving UI state, or other non-content actions;
-- creation/import assembly of a brand-new Case beyond its initial database timestamp.
+- Case deactivate/restore lifecycle actions;
+- global System maintenance;
+- global Topic rename/reparent/hierarchy maintenance;
+- global Tag rename/activation/deactivation;
+- global Asset metadata, replacement, R2 lifecycle, deduplication, or storage maintenance;
+- global reusable/shared-question content edits;
+- reads, navigation, filtering, previewing, or opening the editor;
+- creation/import assembly beyond the Case's initial timestamp.
 
-Case lifecycle remains distinct from authored-content recency. Deactivating and later restoring a Case should preserve the date it was last substantively authored.
+Case lifecycle and authoring recency remain separate concepts.
 
-## Complete Production Admin mutation-entrypoint coverage contract
+## Engineering rule: keep this simple
 
-Before implementation, every **currently exposed Production Admin mutation entrypoint** relevant to Case authoring must be accounted for. Representative family testing alone is insufficient because standalone routes and alternate Admin workspaces can bypass the obvious Case-editor path.
+Do **not** turn `cases.updated_at` into an audit-grade consistency system.
 
-Use progressive repository discovery rather than committing a permanent path/function checklist:
+Do not introduce or redesign concurrency control solely for this feature. In particular, do not add:
 
-```text
-Production Admin server actions + POST mutation endpoints
-        ↓
-trace inherited/standalone route entrypoints to their real DB writer(s)
-        ↓
-classify each current writer/entrypoint
-        ↓
-verify timestamp behavior and executable coverage
-```
+- CAS/version-token machinery;
+- concurrency sentinels;
+- timestamp ownership tokens;
+- new rollback/compensation frameworks;
+- new transaction abstractions;
+- exhaustive compensation/interleaving logic;
+- audit/event tables;
+- schema changes;
+- a permanent mutation-entrypoint registry;
+- repository-wide writer refactors merely to make timestamps exact.
 
-Classify each current mutation as exactly one of:
+Preserve the current writer architecture unless a very small local change is required to maintain the timestamp.
 
-1. **touch** — successful execution necessarily creates/changes Case-local authored state. A new Case's initial insert satisfies this through its creation timestamps; do not add a redundant post-create touch.
-2. **conditional-no-op touch** — the operation can validly succeed without changing Case-local state; advance the timestamp only for the changed Case(s).
-3. **must-not-touch** — the operation changes only global/shared data, lifecycle state, Preview state, learner state, or other non-Case-authoring state.
+### Practical write rule
 
-Discovery must include route aliases/inherited actions and standalone mutation endpoints, not only forms rendered directly by the Case editor. Known non-obvious boundaries that must be explicitly traced include:
+Use the smallest change that fits the writer already present:
 
-- stimulus-option → Always shown/supporting conversion;
-- Case Tags through the Case editor, Case Library bulk flows, and Tags workspace;
-- Case-Question-Tag add/remove from the Tags workspace;
-- Case Question scope/reorder entrypoints;
-- quick-create Topic/Tag flows that combine global-object creation with Case-local assignment;
-- upload/create global Asset flows that may or may not also attach the Asset to a Case;
-- reusable-question global editing versus per-Case opt-in/out;
-- lifecycle deactivate/restore, which is explicitly `must-not-touch`.
+1. **Case-row edits** — when the Case row itself is already being updated, include `updatedAt` in that successful substantive update where practical.
+2. **Existing `db.batch(...)` writer** — if the Case-local mutation already uses a batch and adding the Case touch is straightforward, include the timestamp update in that batch.
+3. **Existing sequential writer** — preserve its current mutation structure; after the substantive Case-local mutation succeeds, update the Production Case timestamp.
+4. Do not restructure a working sequential or compensating writer solely to guarantee perfect timestamp atomicity.
 
-This inventory is a **discovery/review checkpoint**, not a second architecture registry. Do not add a permanent source-code list that will silently become stale. Before final handoff, repeat the mutation-entrypoint discovery against the then-current PR head and record the classified inventory concisely in the PR handoff/review notes.
+Rare failure/concurrency edge cases where Last edited becomes slightly conservative/newer than the final net state are acceptable for this Admin documentation feature.
 
-Executable tests do not need one duplicate test per route alias when multiple entrypoints demonstrably delegate to the exact same writer with no extra persistence behavior. However, each non-obvious or independently implemented boundary must have direct behavioral proof, and no current mutation family may remain unclassified.
+The timestamp helper/update must remain Production-only and must not create a new Preview ownership implementation.
 
-## Timestamp write architecture
+## No-op handling
 
-Introduce one narrowly scoped server-side Production Case-authoring timestamp primitive near the DB layer. Exact naming/API should follow current repository conventions, but it must support composition into the actual database atomic unit rather than behaving as a best-effort side effect.
+Avoid obvious false edits without creating a general diff engine.
 
-### Atomicity is mandatory
+Preserve existing no-op knowledge where the writer already has it or where a small equality check is straightforward, for example:
 
-For every substantive Production Case-local transition:
+- assigning the same Primary Topic;
+- already-attached/already-removed relationship when the writer already knows that state;
+- boundary reorder where no order changes;
+- already-equal activation state;
+- identical Case Editor Save All replay where practical.
 
-```text
-Case-local authored-state mutation
-+
-parent Case updated_at advancement
-=
-one atomic D1 persistence unit for that transition
-```
+A known no-op should leave `updated_at` unchanged.
 
-Requirements:
+However, do not add substantial preflight/concurrency logic simply to distinguish every theoretical no-op. If equality detection would materially complicate the existing writer or change its semantics, preserve the existing writer behavior rather than expanding this PR.
 
-1. The primitive must target Production Cases only (`preview_session_id IS NULL`) and must not become a second Preview ownership implementation.
-2. Callers remain responsible for determining whether a substantive change exists. Do not turn the helper into a broad full-Case diff/fingerprint engine.
-3. If the authored fields live on the `cases` row itself, update the authored fields and monotonic `updated_at` in the **same SQL UPDATE**.
-4. If Case-local authored state lives in another table or spans tables, include the Case touch in the **same D1 batch/transactional unit** as the corresponding Case-local state transition.
-5. Where an existing writer already has an atomic `db.batch(...)`, add the touch to that exact batch rather than issuing a later durable write.
-6. Where adding the parent touch converts an otherwise single cross-table write into two writes, use one atomic D1 unit for the authored-state write(s) and Case touch. A sequential best-effort pair is not acceptable.
-7. **Statement ordering inside one atomic D1 batch is allowed.** “Do not touch first then content” means do not use separate durable writes that can diverge. The touch may appear before or after another statement inside the same all-or-nothing batch when needed for mutation-time conditional/no-op logic, provided the authored state and timestamp commit or roll back together.
-8. Preserve existing mutation semantics on supported non-D1/test fallbacks. If an existing fallback path remains supported, it must provide equivalent content/timestamp consistency or safe compensation; do not silently weaken the invariant just because `db.batch` is unavailable.
-9. Do not duplicate raw `cases.updated_at = ...` writes throughout unrelated modules if one focused statement builder/helper can preserve the invariant cleanly.
-10. Do not add a generic data-access abstraction, event bus, audit table or repository-wide mutation framework for this feature.
-11. Do not touch Preview Case timestamps as part of this Production documentation feature. Existing Preview behavior may remain as-is.
+Do not move current ownership, validation, or error checks merely to optimize timestamp no-ops.
 
-Use one explicit operation time for all statements representing one logical atomic transition where practical.
+## Bulk operations
 
-### Monotonic touch statement
+For bulk Case-local actions:
 
-The parent touch must update `updated_at` to the greater of its current persisted value and the supplied operation time **inside the database statement**. The operation time must be usable as a deterministic test input without changing public route payloads.
+- preserve current validation and batch behavior;
+- if the writer already identifies the subset of Cases whose relationship/configuration changed, timestamp only that changed subset;
+- Cases already in the requested state should remain untouched where the existing writer already exposes that distinction;
+- do not add complex preflight/concurrency machinery solely to make bulk timestamping perfectly exact.
 
-An older operation time is therefore a valid successful authored-state operation but must leave a newer persisted `updated_at` intact.
+## Production Admin surface discovery
 
-### Intentionally partial-persistence writers
+During implementation, inspect the current Production Admin authoring surfaces sufficiently to avoid obvious missed Case-local writers.
 
-Do **not** accidentally change an existing writer's partial-persistence contract merely to simplify timestamp handling.
-
-If a current operation intentionally consists of independently durable steps and a later step can fail after earlier Case-local authored state has persisted:
-
-- each independently durable Case-local transition must atomically carry its truthful timestamp touch;
-- a later error must not erase that already-truthful timestamp unless the current writer also safely rolls that authored state back;
-- global/shared preparatory writes that persist without any Case-local state change do not justify a Case touch;
-- Save All remains request-level partial persistence across drafts exactly as today.
-
-This means an operation may return an error while a Case timestamp legitimately advanced **only when Case-local authored state also legitimately remained persisted**.
-
-### Concurrency-safe compensation / rollback
-
-Some current writers persist an atomic unit, verify postconditions, and compensate if a concurrency/postcondition check fails. Timestamp integration must not turn that compensation into a regression hazard.
-
-Controlling rules:
-
-1. **Never blindly restore the pre-operation `updated_at`.** An unconditional `updated_at = priorValue` can erase a later independent edit.
-2. **Never use timestamp equality as an operation/version/CAS token.** Two distinct operations can legitimately have the same millisecond timestamp.
-3. Prefer eliminating timestamp-compensation ambiguity by moving the writer's existing concurrency/postcondition fence into the **same atomic D1 unit** as the Case-local authored-state transition and monotonic Case touch, so a failed fence makes neither state nor touch durable.
-4. An implementation may retain a compensation model only if it has an equally strong concurrency-safe condition that can distinguish the state written by this operation from later independent edits without introducing an audit/version subsystem.
-5. If compensation fully removes this operation's Case-local state and there has been **no later independent Case edit**, this operation must leave no false Last-edited timestamp behind.
-6. If operation A at `T1` fails/conflicts after independent operation B has durably edited the same Case at `T2 > T1`, A must not revert B's authored state and must not lower `cases.updated_at` below `T2`.
-7. If the current writer's scalar state cannot support safe compensation under interleaving, do not guess. Restructure only that writer's existing verification/fence so A's authored state + touch + concurrency sentinel either all commit or all roll back.
-8. Preserve the writer's current user-visible all-set/concurrency behavior. Strengthening its existing atomic fence is allowed; do not broaden atomicity across intentionally independent operations such as separate Save All drafts.
-9. If compensation itself fails and current semantics leave Case-local authored state changed, the surviving timestamp must remain truthful for the state that actually remains.
-
-Do not add a schema column, revision counter, audit event table, general transaction framework, or application-wide optimistic-locking system to solve this.
-
-## No-op, retry and failure semantics
-
-This is a correctness requirement because the Case Editor's Save All intentionally is **not** one all-or-nothing D1 transaction across every draft.
-
-Current Save All can persist an earlier draft and then fail on a later draft. The client retains captured drafts so the user can retry. Therefore:
+Use progressive repository discovery:
 
 ```text
-successful earlier substantive draft
-→ authored state + timestamp persist together even if a later Save All draft fails
-
-retry of the already-persisted identical earlier draft
-→ must NOT advance Last edited again
-
-failing draft that changes nothing
-→ must NOT advance Last edited
+start from the Case editor / Case Library / Tags / image-stimulus authoring surfaces
+→ follow the current route/action to its real writer
+→ add the smallest timestamp integration at the writer boundary
+→ stop when the normal Case-local authoring families are covered
 ```
 
-Do not implement one blind route-level "touch Case after successful request" hook. That would misclassify shared/global operations, break atomicity, and make idempotent Save All retries appear to be new edits.
+This is a pragmatic coverage review, not a formal completeness proof.
 
-Where current writers already know no-op state, preserve/use it. Current examples include same-Primary-Topic early return and boundary reorders that return without changing order.
+Do not create:
 
-Where a writer currently rewrites equal values, add the minimum persisted-state equality mechanism needed to avoid timestamp-only churn. Compare normalized/canonical values, not raw form formatting where normalization is already part of the writer's contract.
+- an exhaustive one-test-per-writer certification matrix;
+- a permanent registry of mutation entrypoints;
+- a new architecture layer whose only purpose is tracking timestamp coverage.
 
-### No-op detection must preserve mutation-time semantics
+Pay particular attention to normal Case-local operations that may be exposed from more than one Admin surface, including Case Tags, Case Question Tags, question scope/reorder, fixed images, stimulus roles/options, and reusable-question opt-ins.
 
-No-op detection must **not** change existing validation, ownership, error ordering, or concurrency semantics.
-
-A preflight read can establish validation/context, but for mutable state it must not be the sole authority for deciding that a write is unnecessary when another writer could change the state before this operation reaches its persistence boundary.
-
-Example:
-
-```text
-A reads value = desired value and plans to return no-op
-B changes the value
-A returns without reaching its former write boundary
-```
-
-If A previously would have performed a set-to-value/last-write-wins update, the timestamp feature must not silently convert that request into a stale-read no-op.
-
-Controlling rules:
-
-- preserve all existing ownership/validation/error ordering first;
-- where current semantics are a set/update operation, prefer deciding changed-versus-no-op at the **same database mutation/atomic boundary** using a conditional predicate, expected-state condition, affected-row outcome, or equivalent SQL shape;
-- where current semantics intentionally depend on a validated loaded snapshot, such as ordered-list movement, preserve that model but couple the resulting changed/no-op decision and parent touch without introducing a second race window;
-- for relationship add/remove, make the timestamp conditional on the relationship transition that actually occurs in the same atomic unit;
-- an already-absent relationship removal that currently succeeds should remain a successful no-op and leave `updated_at` unchanged;
-- an already-equal activation/state toggle must leave `updated_at` unchanged while preserving the writer's existing validation behavior;
-- a Case Question/fixed-image/stimulus-option boundary reorder must keep its current no-op result and leave `updated_at` unchanged.
-
-Do not solve no-op detection by loading/fingerprinting the complete Case graph before and after every mutation, and do not broaden this into general optimistic concurrency control.
-
-## Bulk-operation semantics
-
-For bulk Case-local changes:
-
-- validate the selection exactly as current code requires;
-- determine the subset whose relationship/configuration will really change;
-- mutate and timestamp only that changed subset;
-- Cases already in the requested state must keep their previous `updated_at`;
-- include Case timestamp writes in the same all-set D1 batch/transactional unit as the corresponding relationship writes;
-- preserve existing all-set validation, concurrency and compensation semantics subject to the concurrency-safe rules above.
-
-A mixed selection is an important executable acceptance case.
-
-## Read models
+## Read model changes
 
 ### Case Library
 
-Extend the existing bounded `/admin/cases` read model to return `createdAt` and `updatedAt` directly from the already selected Case rows.
+Extend the existing bounded Case Library read model so each Case row already returned by the query also exposes:
 
-Preserve the current performance/read-model contract:
+- `createdAt`;
+- `updatedAt`.
 
-- filtering/counting/pagination still happen against Cases;
-- do not add a per-row timestamp query;
-- do not introduce timestamp joins;
-- keep the existing page bound and enrichment pattern;
-- keep all current search/filter/sort semantics unchanged.
+Do not add N+1 reads or per-Case timestamp queries.
 
-Do **not** add Added/Edited sorting or filtering in this PR.
+Preserve current pagination, filtering, sorting, counts, return-context behavior, and inactive Case handling.
 
-### Case Editor
+### Production Case Editor
 
-Extend the existing Production Case detail/read model so `selectedCase.case` includes `createdAt` and `updatedAt`.
+Expose `createdAt` and `updatedAt` through the existing Production Case detail/editor data path.
 
 Do not add a second Case-detail query solely for timestamps.
 
-The shared Production/Preview editor component must not imply that this PR established the same documentation semantics for Preview-owned Cases.
+Preview Editor timestamp UI remains out of scope.
 
-## UI presentation
+## UI
 
-The timestamps are documentation metadata and should remain visually secondary to the Case title/classification.
+### Case Library
 
-### Admin Case Library
-
-Do not add another table column. Under the Case title, show a small muted metadata line similar to:
+Under the Case title, render muted secondary metadata:
 
 ```text
 Added 3 Sep 2026 · Edited 9 Sep 2026
@@ -370,15 +197,14 @@ Added 3 Sep 2026 · Edited 9 Sep 2026
 
 Requirements:
 
-- show it for both active and inactive Production Case Library rows;
-- keep it inside the Case cell so mobile layout remains coherent;
-- keep title, selection checkbox and Inactive badge behavior intact;
-- exact-date presentation, not relative text such as "2 days ago";
-- no new timestamp column, sort control or filter.
+- no new table column;
+- keep existing title, checkbox, Topic/System/Tags, inactive badge, and Open behavior intact;
+- show absolute dates, not relative time;
+- keep responsive/mobile behavior intact.
 
-### Production Case Editor header
+### Production Case Editor
 
-Near the existing Topic metadata under the title, show a second muted line similar to:
+Under/near the existing header metadata, render:
 
 ```text
 Added 3 Sep 2026 · Last edited 9 Sep 2026, 21:42 SGT
@@ -387,241 +213,136 @@ Added 3 Sep 2026 · Last edited 9 Sep 2026, 21:42 SGT
 Requirements:
 
 - Production editor only;
-- preserve current Save All, unsaved-work, return-context and Study Preview controls;
-- do not show this Production documentation line in Preview Mode;
-- no revision-history interaction or editable timestamp control.
+- keep Save All, unsaved-work, navigation, return-context, and Study Preview behavior unchanged;
+- no editable timestamp control;
+- no revision/history interaction.
 
-### Date formatting
+### Formatting
 
-Use one small shared deterministic presentation helper if that avoids duplicated formatting.
+Prefer one small shared formatting helper.
 
 Formatting contract:
 
-- locale: human-readable English Singapore style;
-- timezone: `Asia/Singapore` explicitly, so SSR/client rendering does not depend on machine timezone;
+- explicit timezone: `Asia/Singapore`;
+- English human-readable date;
 - Case Library: date only;
-- Case Editor: date + 24-hour time and an explicit Singapore timezone indication (`SGT` or an equivalent unambiguous presentation);
-- no new date library dependency.
+- Production editor: date + 24-hour time + explicit `SGT` indication;
+- deterministic across server/test environments;
+- no new date dependency.
 
-Prefer semantic `<time datetime="...">` markup where practical. The stored value remains UTC epoch milliseconds / the current Drizzle timestamp representation; this PR changes presentation and maintenance semantics, not storage format.
+Use semantic `<time>` markup where convenient, but do not expand scope solely for markup refactoring.
 
-## Clock-deterministic test contract
+## Testing contract
 
-Every test whose assertion depends on whether `updated_at` changed or stayed unchanged must control time deterministically.
+Use deterministic timestamps wherever a test compares before/after timestamp values. Do not use sleeps or depend on wall-clock resolution.
 
-Requirements:
+Focus executable coverage on the product behavior rather than formal writer certification.
 
-- use the repository's Node 22-compatible test clock facilities or a narrow explicit operation-time injection seam at the timestamp boundary;
-- do not change public route payloads merely to inject time;
-- do not use `sleep`, polling delays, busy waits, or assumptions that the wall clock advanced;
-- do not rely on the schema default's effective one-second resolution to distinguish two operations;
-- seed known `created_at`/`updated_at` values where useful and advance the test clock/operation time to exact known instants;
-- for no-op tests, choose a controlled candidate operation time that would definitely produce a different timestamp if an accidental touch occurred;
-- for monotonicity, apply a newer controlled operation time followed by an older one and assert that the newer persisted value survives;
-- for compensation/interleaving tests, use explicit `T0`, `T1`, and `T2` values so the expected survivor is unambiguous.
+Required coverage:
 
-Creation-default coverage may assert that the database populated timestamps, but edit/no-op ordering assertions must use controlled values.
+1. A real core Case edit updates `updated_at`.
+2. `created_at` remains unchanged after later edits.
+3. An obvious identical/no-op update does not falsely advance `updated_at` where the current writer supports that distinction.
+4. Representative Primary Topic, Tag, and Case Question Case-local changes update the owning Case.
+5. A representative fixed-image or stimulus Case-local change updates the owning Case.
+6. A representative bulk operation timestamps only the changed subset where the current writer already exposes that subset.
+7. A representative global/shared metadata edit does not fan out `updated_at` to related Cases.
+8. Case deactivate/restore does not alter authoring recency.
+9. Preview authoring does not alter the Production Case's recency.
+10. Case Editor Save All retains its existing partial-persistence/retry behavior; timestamp support must not make the whole Save All request transactional or change its established error semantics.
+11. Case Library and Production Case Editor render the requested Added/Edited metadata.
+12. Singapore formatting is deterministic.
 
-## Implementation tranches for GPT-5.6 Luna
+Prefer existing current-schema fixtures and real writer/action tests. Static/source tests may supplement UI/routing contracts but should not be the only evidence for timestamp mutation behavior.
 
-Implement in this same Draft PR. Do not create a new PR or restart from `main`. First inspect the actual current PR/base/head; if `main` has advanced since this planning commit, reconcile normally before implementation while preserving this contract.
+Do **not** require:
 
-Before Tranche 1, perform the progressive Production Admin mutation-entrypoint inventory described above so the implementation surface is known without creating a permanent hard-coded registry.
+- two-direction failure injection solely for timestamp atomicity;
+- synthetic compensation/interleaving tests;
+- monotonic-concurrency proofs;
+- timestamp-as-CAS tests;
+- exhaustive route/writer certification.
 
-### Tranche 1 — Timestamp primitive + core Case behavior
+## Preserve existing behavior
 
-Establish the narrow Production Case-authoring timestamp statement/helper pattern with:
+Do not change:
 
-- DB-side monotonic-max semantics;
-- deterministic operation-time testability;
-- atomic composition with Case-local writes;
-- core Case metadata no-op detection at the effective mutation boundary;
-- Production-only targeting.
+- Production/Preview ownership boundaries;
+- Case Editor Save All semantics;
+- current validation/error ordering and domain error mapping;
+- one Primary Topic + Case Tags classification model;
+- Case Question/shared-question ownership semantics;
+- stimulus architecture or Original/Alternative/supporting semantics;
+- Asset identity, replacement, R2 lifecycle, or storage safeguards;
+- Case deactivate/restore behavior;
+- learner/review behavior;
+- import package/schema merely to carry timestamps.
 
-Prove:
-
-- creation/default timestamps are populated;
-- a real core Case edit advances `updated_at`;
-- `created_at` remains fixed;
-- an identical core update/replay does not advance `updated_at`;
-- an older operation time cannot lower a newer persisted timestamp;
-- a forced failure cannot persist content without its touch or the touch without its content;
-- Preview-owned Cases are not accidentally touched by the Production helper.
-
-### Tranche 2 — Classification / Tags / Questions
-
-Apply the same atomic/conditional touch contract to current Production Case-local Topic, Tag, Case Question, Case Question reorder, question-scope and Case Question Tag authoring across every current Production Admin entrypoint found in discovery.
-
-Preserve current shared Topic/Tag/question semantics: global shared-object changes do not fan out into parent Case timestamps.
-
-For bulk Topic/Tag actions, timestamp only changed Cases and preserve current batch/concurrency semantics under the compensation rules above.
-
-Add explicit no-op coverage for an already-absent relationship removal and a boundary Case Question reorder.
-
-### Tranche 3 — Images / Stimulus / reusable-question opt-ins
-
-Apply the Case-local atomic/conditional touch contract to current Production fixed-image relationships, Alternative/Stimulus Family configuration, option→supporting conversion, Case-specific stimulus questions/scope changes and reusable Asset Question Case opt-in/out relationships.
-
-Do not touch global Asset/R2 replacement/maintenance or global reusable Asset Question content edits.
-
-Preserve current Production/Preview and Asset/stimulus ownership guards. Do not broaden this into stimulus or storage architecture work.
-
-Add explicit no-op proof for an already-equal state toggle and a boundary image/option reorder, plus direct executable coverage of the standalone option→supporting transition.
-
-### Tranche 4 — Read models + presentation
-
-Expose timestamps through the existing bounded Case Library and Case detail read models, add deterministic Singapore formatting, and render the two requested UI presentations.
-
-Keep the Case Library column/sort/filter model unchanged. Keep Preview Editor timestamp presentation out of scope.
-
-### Tranche 5 — Completion / regression proof
-
-Repeat the Production Admin mutation-entrypoint discovery against the then-current head and confirm every current entrypoint is classified as `touch`, `conditional-no-op touch`, or `must-not-touch`.
-
-Run focused semantic tests while iterating, then follow current repository-owned checkpoint/handoff validation. Inspect the complete intended-base → current-head diff before handoff and keep the PR Draft until explicitly asked otherwise.
-
-Record the final concise mutation classification and test mapping in the PR handoff/review notes rather than adding a permanent hard-coded source registry.
-
-## Executable acceptance contract
-
-Important semantic requirements must be proven at the behavioral layer rather than only by regex/source-inspection tests.
-
-| Invariant | Required behavior | Required executable proof |
-| --- | --- | --- |
-| Added is immutable | `created_at` is set at Case creation and does not change on later authoring | Current-schema DB fixture creates a Case, performs a real edit at controlled time, and observes unchanged `created_at` |
-| Real Case edit advances recency | A substantive core Case change advances parent `updated_at` | Invoke the real Production Case writer with deterministic time and query the Case row before/after |
-| Timestamp is monotonic | Older/equal operation time never overwrites newer persisted `updated_at` | Focused executable test applies controlled newer then older operation times and observes the newer value remains |
-| Timestamp is not a CAS token | Equality with an operation timestamp is never treated as ownership/version identity | Focused concurrency/compensation proof or direct implementation-level behavioral test showing equal timestamps do not authorize rollback |
-| Idempotent replay is not a new edit | Reapplying canonically identical persisted values leaves `updated_at` unchanged | Invoke the same real writer twice with controlled distinct candidate operation times and compare timestamps |
-| Atomic content/timestamp success | A cross-table Case-local mutation cannot persist independently of its parent timestamp touch | Failure-injection test of the real atomic writer/batch proves content and timestamp commit together |
-| Atomic content/timestamp failure | Failure of either statement in the atomic transition leaves neither a one-sided content change nor a one-sided timestamp change | Purpose-built executable batch/transaction failure injection; no production test hook |
-| Failed A with no later edit leaves no false recency | If A's Case-local state is fully rolled back and no independent edit follows, A must not leave its own false Last-edited value behind | Deterministic `T0 → A(T1) → A fails/rolls back` proof observes pre-A authored state and no false T1 timestamp |
-| Failed A cannot regress later B | If B durably edits at `T2 > T1` before A's failure/compensation completes, A must not revert B or lower `updated_at` below T2 | Deterministic interleaving proof `T0 → A(T1) → B(T2) → A failure` observes B state survives and final `updated_at >= T2` |
-| Partial persistence remains truthful | If an earlier independently durable Case-local transition persists and a later step/request draft fails, its timestamp persists with it | Focused executable writer/Save All failure case verifies persisted state and timestamp agree |
-| Save All retry is idempotent | Retrying an already-persisted identical earlier draft after later failure does not create a newer timestamp | Focused executable `actions.saveAll`/route coverage using deterministic time, not static source inspection |
-| No-op detection preserves mutation-time semantics | A stale equality preflight cannot silently convert a request that would previously write into a no-op | Deterministic mutable equal-value interleaving test ties changed/no-op result to the effective persistence boundary |
-| Complete Production mutation coverage | Every current Production Admin authoring entrypoint is classified touch / conditional-no-op touch / must-not-touch | Final progressive route→writer inventory against current head, recorded in handoff notes; non-obvious independent boundaries have executable tests |
-| Primary Topic relationships count | Actual relationship change touches the owning Case; same-target no-op does not | Execute real single/bulk writer paths with controlled timestamps |
-| Case Tags count across surfaces | Real Case Tag relationship changes touch the Case regardless of Case editor/Library/Tags workspace entrypoint | Execute the underlying real writer plus independently implemented route boundary where needed; absent removal no-op keeps timestamp |
-| Case Question Tags count | Add/remove Case-Question-Tag touches the Case owning that Case Question; absent removal is a no-op | Real Tags-workspace/underlying writer coverage resolves owner Case and observes controlled timestamp behavior |
-| Bulk no-op subset stays unchanged | Mixed bulk selection timestamps only Cases whose relationship changed | Real bulk writer test with already-attached/already-target + changed Cases |
-| Case Questions count | Create/edit/remove/restore/scope-changing Case-owned question state touches its Case | Existing current-schema Case Question/question-scope fixture invokes real writer(s) with deterministic time |
-| Case Question reorder counts conditionally | Successful reorder advances Case timestamp; boundary/no-op reorder does not | Real `moveCaseQuestion` coverage checks changed and boundary paths |
-| Case-owned fixed-image state counts | Real fixed-image attach/detach/caption/reorder transitions touch Case when changed | Existing image fixture exercises actual writers; boundary/no-op reorder remains unchanged |
-| Stimulus state counts | Real group/option/caption/question/role transitions touch Case when changed | Existing stimulus fixture plus focused independent-boundary tests |
-| Option→supporting conversion is atomic | Converting an Alternative option to supporting changes relationship state and Case timestamp as one unit | Direct executable `convertStimulusOptionToSupporting` success + injected failure coverage |
-| Equal state toggle is a no-op | Requesting already-persisted active/inactive state does not advance Case timestamp while preserving existing validation semantics | Real toggle writer test with controlled candidate time |
-| Already-absent relationship removal is a no-op | Successful removal of a relationship that is already absent keeps `updated_at` unchanged and keeps current success/error semantics | Real Case Tag or equivalent relationship writer coverage |
-| Reusable image relationship counts but global edit does not | Case opt-in/out touches Case; editing global reusable Asset Question content alone does not | Real opt-in/out and global-question writer coverage against the same related Case |
-| Global shared metadata does not fan out | Tag rename/shared Topic hierarchy/global Asset metadata/global reusable content change leaves related Case timestamp unchanged | Real global writer coverage for the non-obvious shared-object boundaries found in inventory |
-| Lifecycle is separate | Case deactivate/restore leaves last-authoring timestamp intact | Invoke current lifecycle writer and compare controlled `updated_at` |
-| Failure without Case mutation is not an edit | Validation/ownership/error path that persists no Case-local authored state leaves timestamp unchanged | Exercise real failing writer paths with deterministic candidate time |
-| Production/Preview boundary holds | Preview authoring does not update a Production Case timestamp and Production timestamp helper cannot target Preview-owned rows | Current Preview/Production fixture or ownership-focused executable coverage |
-| Library read stays bounded | Library rows include both timestamps without N+1/per-row reads or altered pagination/filter behavior | Extend current Case Library/read-model performance coverage |
-| Editor read exposes timestamps | Production editor data includes both fields through its existing Case data path | Exercise existing `getAdminCaseData`/real consumer coverage |
-| UI documents dates | Production Case Library shows `Added`/`Edited`; Production editor shows `Added`/`Last edited`; Preview editor omits the Production timestamp line | Render/component behavior coverage appropriate to current Svelte test conventions; source inspection may supplement but not replace DB semantics |
-| Singapore formatting is deterministic | Formatting is independent of host timezone | Focused formatter test using fixed timestamps and expected `Asia/Singapore` output |
-
-### Failure-injection and interleaving requirements
-
-At minimum, executable failure injection must prove both directions for a real cross-table Case-local transition:
-
-```text
-content transition would fail
-→ timestamp does not advance
-
-parent timestamp write / another statement in the same atomic unit fails
-→ Case-local content transition does not remain committed alone
-```
-
-Also prove the two distinct compensation outcomes separately:
-
-```text
-Case 1: no later independent edit
-T0 → A attempts T1 → A fails/rolls back
-→ A leaves no false T1 recency behind
-
-Case 2: later independent edit exists
-T0 → A attempts T1 → B durably edits at T2 > T1 → A conflicts/fails
-→ A cannot revert B's durable authored state
-→ final updated_at is not lower than T2
-```
-
-The implementation must not satisfy these cases by treating `updated_at == T1` as proof that A owns the row/state. Timestamp equality is not a safe operation token.
-
-Where a writer currently uses post-write verification/compensation, prefer proving the equivalent outcome after moving its concurrency/postcondition sentinel into the same D1 atomic unit: conflicting A rolls back its authored state and touch together while B remains authoritative.
-
-Use the current DB fixture/batch/transaction semantics or a purpose-built test adapter that can force a statement failure/interleaving while observing rollback. Do not add production-only failure switches.
-
-Also exercise at least one current intentionally partial-persistence path where an earlier Case-local unit succeeds and a later step fails, proving that the earlier authored state and its timestamp remain aligned.
-
-Do not create an enormous duplicate one-test-per-route-alias matrix when multiple routes provably delegate to the same already-tested writer with no additional persistence. Conversely, "representative" writer tests are not sufficient to skip independently implemented or semantically non-obvious Production Admin mutation boundaries.
-
-## Existing behavior that must remain intact
-
-- Production/Preview ownership boundaries and current Preview editor behavior.
-- One canonical Primary Topic + Case Tags classification model; do not reintroduce Additional Study Topics.
-- Existing Case Library bounded reads, paging, filters, sorting, sticky selection/return-context behavior and inactive recovery semantics.
-- Existing Case Editor Save All semantics, including partial persistence and authoritative readback behavior.
-- Existing writer validation/error ordering and legitimate no-op behavior.
-- Existing mutation-time/concurrency semantics except where an existing post-write verification fence is safely moved into the same atomic unit without changing user-visible all-set behavior.
-- Current Case Question/reusable Topic Question behavior, including reorder semantics.
-- Current Stimulus Family/Original/Alternative/supporting semantics and module façades.
-- Current reusable Asset Question/global Asset ownership semantics.
-- Asset identity/history and R2 lifecycle safeguards.
-- Existing domain error mapping and SvelteKit redirect handling.
-- Existing D1 all-set semantics; timestamp integration must strengthen content/timestamp consistency without silently widening transaction scope across intentionally partial operations.
+If implementation discovery exposes an unrelated defect, keep it out of this PR unless it blocks safe timestamp integration.
 
 ## Explicit non-goals
 
-Do not add in this PR:
+Do not add:
 
-- schema migration or new timestamp columns;
-- historical timestamp backfill;
-- revision/audit log;
-- `updated_by`, editor identity or "Last edited by";
-- revision diff/history UI;
-- learner-facing Case timestamps;
+- schema migration;
+- historical backfill;
+- `updated_by` / editor identity;
+- audit or revision history;
+- history/diff UI;
+- learner-facing timestamps;
+- Preview timestamp UI;
 - Added/Edited sorting or filtering;
 - relative-time labels;
 - timestamp editing controls;
-- notifications;
-- import-package/schema changes solely to carry timestamps;
-- Production deployment or Production D1/R2 mutation;
-- Preview timestamp UX;
-- a permanent mutation-entrypoint registry/checklist that duplicates repository routing;
-- a generic transaction/audit/event framework;
-- a new operation/version column solely for timestamp compensation;
-- unrelated refactors/cleanup.
+- new date library;
+- concurrency/version infrastructure;
+- broad authoring refactors;
+- Production deployment or Production D1/R2 mutation.
 
-A future audit-history feature can build on this later, but should use an explicit change-event/user-identity model rather than overloading this PR.
+## Implementation tranches for Luna 5.6
 
-## Planning conclusion
+Keep implementation in this same Draft PR. Do not create a new PR, merge, or mark Ready.
 
-The first-pass and second-pass planning findings are incorporated into this single normative document. No further broad planning review is required before implementation unless repository discovery shows that these corrections materially change an existing concurrency or persistence boundary.
+### Tranche 1 — Core timestamp behavior
 
-If implementation discovery finds a writer whose current semantics cannot satisfy the atomicity/compensation contract without widening transaction scope or changing user-visible behavior, stop implementation for that boundary and surface the changed planning constraint rather than inventing a new architecture.
+- Establish the smallest Production-only Case timestamp helper/pattern that fits current DB conventions.
+- Update core Case metadata writes so substantive title/vignette/question-selection changes advance `updated_at`.
+- Preserve `created_at`.
+- Add deterministic focused tests for real edit + obvious no-op behavior.
+
+### Tranche 2 — Classification and questions
+
+- Cover normal Primary Topic, Case Tag, Case Question Tag, Case Question, reorder, and question-scope authoring.
+- Reuse existing no-op knowledge rather than adding a general diff layer.
+- Preserve current validation and shared/global Topic/Tag/question semantics.
+
+### Tranche 3 — Images, stimulus, reusable-question opt-ins
+
+- Cover Case-local fixed-image and stimulus configuration changes and per-Case reusable-question opt-in/out.
+- Where current writers already use `db.batch(...)`, include the Case timestamp update in the batch when straightforward.
+- Keep global Asset/R2 and reusable-question content maintenance from touching Cases.
+- Do not refactor stimulus/storage architecture for timestamp precision.
+
+### Tranche 4 — Read models and UI
+
+- Expose `createdAt` and `updatedAt` through existing bounded Case Library and Production Case Editor read models.
+- Add one small deterministic Singapore formatter if appropriate.
+- Render the requested metadata without another Case Library column or Preview UI.
+
+### Tranche 5 — Focused regression and handoff
+
+- Do a pragmatic scan of current Production Admin authoring surfaces for obvious missed Case-local writers.
+- Add/finish the focused behavioral coverage listed above; do not create exhaustive writer certification.
+- Run `npm run agent:checks -- --compact` and all repository-required focused/checkpoint/final validation it reports.
+- Inspect the complete intended-base → head diff once at final handoff.
+- Keep the PR Draft.
 
 ## Luna 5.6 implementation handoff
 
-Use this as the implementation prompt:
+Use this prompt when implementation begins:
 
-> Continue existing Draft PR #176 and implement `docs/CASE_AUTHORING_TIMESTAMPS_IMPLEMENTATION_PLAN.md` in the same PR. This file is the single normative plan; do not use superseded compensation wording from earlier commits. Do not create another PR, merge, or mark Ready. Inspect the actual current PR/base/head and follow current root/scoped `AGENTS.md` plus `AGENT_TASK_MAP.md` with progressive retrieval. Before editing, inventory every current Production Admin mutation entrypoint that can affect Case authoring and classify it touch / conditional-no-op touch / must-not-touch; do not create a permanent hard-coded registry. Existing `cases.created_at` is immutable Added time. Existing `cases.updated_at` is the canonical Production Case-local authoring timestamp. A Case-local authored-state transition and its parent timestamp must commit in the same atomic D1 unit; statement ordering inside that unit is allowed where needed, but separate durable content/timestamp writes are forbidden. Timestamp writes must use DB-side monotonic-max semantics. Never blindly restore a prior timestamp and never use timestamp equality as an operation/version/CAS token. For concurrency-sensitive writers, prefer putting the existing postcondition/concurrency fence in the same atomic unit so a failed operation's authored state + touch never become durable; any retained compensation must preserve later independent edits. Deterministic proof must distinguish A failing with no later edit (no false A timestamp) from A(T1) failing after independent B(T2>T1) (B survives and final `updated_at >= T2`). No-op/idempotent replay, already-absent removals, equal toggles and boundary reorders must not advance the timestamp, and no-op detection must be tied to the effective mutation boundary so stale preflight reads do not change existing writer semantics. Include Case Question reorder, Tags/Case-Question-Tags, question scope, fixed images, stimulus/option—including option→supporting conversion—and per-Case reusable-question opt-ins. Global/shared edits, learner activity, lifecycle-only deactivate/restore and Preview edits must not fan out touches. Preserve Save All partial persistence and retry semantics. Expose timestamps through the existing bounded Case Library/detail read models and show the requested `Added`/`Edited` metadata using deterministic `Asia/Singapore` formatting. No migration/backfill/audit log/date sorting/new dependency/Preview timestamp UI/deployment/Production mutation. Timestamp-sensitive tests must use deterministic time—never sleeps or schema-default timing—and must include atomic failure injection, monotonicity, compensation/interleaving, mutation-time no-op behavior, partial-persistence truthfulness and final current-entrypoint coverage review. Follow repository-owned focused/checkpoint/final validation and report exactly what ran.
+> Continue existing Draft PR #176 from its current head. Do not create a new PR, merge, or mark Ready. Implement `docs/CASE_AUTHORING_TIMESTAMPS_IMPLEMENTATION_PLAN.md` as the single authority. Keep the feature pragmatic: existing `cases.created_at` is immutable Added time; existing `cases.updated_at` is useful Production Admin Case-authoring recency, not an audit/concurrency system. Advance it after successful substantive Case-local authoring changes; do not touch it for Preview, learner/review activity, deactivate/restore, or global/shared Topic/Tag/Asset/R2/reusable-question maintenance. Preserve existing writer architecture: include the touch in an existing `db.batch(...)` when straightforward; otherwise preserve sequential writers and touch after the successful substantive mutation. Avoid obvious no-op timestamp churn using existing writer knowledge, but do not add CAS/version/rollback/concurrency machinery or a general diff engine. Cover normal core Case, classification/Tags/questions, fixed-image/stimulus and per-Case reusable-question authoring, then expose `createdAt`/`updatedAt` through the existing bounded Case Library and Production editor read models. Render `Added … · Edited …` in the library and `Added … · Last edited … SGT` in the Production editor using deterministic `Asia/Singapore` formatting. No migration/backfill/audit/history/date sorting/new dependency/Preview timestamp UI/deployment/Production mutation. Use deterministic timestamp tests, focused representative executable coverage, and repository-required validation. Keep the PR Draft.
 
 ## Completion condition
 
-The feature is complete when an Admin can see a stable Added date and trustworthy Last edited date for Production Cases in both requested Admin surfaces, and executable tests establish all of the following:
-
-- real Case-local authoring advances recency;
-- `created_at` remains immutable;
-- content and timestamp cannot drift across success or failure;
-- a fully failed/rolled-back operation with no later edit leaves no false timestamp;
-- an earlier failing operation cannot revert a later independent edit or lower its newer timestamp;
-- timestamp equality is never used as an operation/version/CAS token;
-- intentionally partial persisted authored state retains a truthful timestamp;
-- `updated_at` is monotonic under out-of-order operation times;
-- no-ops/retries/absent removals/equal toggles/boundary reorders do not create false edits;
-- mutation-time no-op logic does not introduce stale-read/TOCTOU behavior changes;
-- every current Production Admin authoring entrypoint has been classified and the non-obvious boundaries proven;
-- Preview/lifecycle/learner/global-shared maintenance does not alter Production Case authoring recency;
-- the requested bounded read models and Singapore UI presentation are preserved without schema or scope expansion.
+The feature is complete when Admins can see stable Added dates and useful Last edited dates in the requested Production Admin surfaces, normal Case-local authoring refreshes Last edited, obvious no-ops do not create misleading edits where the current writer can cheaply identify them, global/lifecycle/Preview/learner operations remain excluded, and the implementation achieves this without turning `cases.updated_at` into an audit or concurrency subsystem.
