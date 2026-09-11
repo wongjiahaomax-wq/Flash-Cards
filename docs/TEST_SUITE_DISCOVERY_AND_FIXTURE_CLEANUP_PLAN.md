@@ -429,6 +429,8 @@ The guard must allow:
 3. source-only assertions that read migration SQL without using it to bootstrap an application runtime schema;
 4. exact documented historical migration-boundary exceptions.
 
+These allowances are classification-specific, not whole-file exemptions. Detect and classify any executed literal partial-migration bootstrap independently of whether the same file also contains `applyCurrentSchema(...)`. The presence of `applyCurrentSchema` must never short-circuit scanning or suppress another detected bootstrap in that file. A detected literal historical bootstrap is allowed only when that exact path is present in the documented historical exception map.
+
 Before enforcing, run the detector/search in an inventory/report mode against the current branch and classify every hit. If a file does not fit the known ordinary or historical categories, inspect that file before extending the allowlist or conversion set.
 
 ## 3.3 Expected historical exception map
@@ -499,6 +501,7 @@ Test the detector with inline representative source strings:
 ```text
 literal partial migration list executed into SQLite -> detected
 applyCurrentSchema(...) -> allowed
+file containing applyCurrentSchema plus a separate literal partial bootstrap -> literal bootstrap still detected
 complete dynamic migration-directory enumeration -> allowed
 single migration file read for source assertion only -> allowed
 ```
@@ -642,6 +645,7 @@ Implementation is complete when all of the following are true.
 - the guard excludes its own synthetic self-test source from repository scanning;
 - known literal partial ordinary-schema bootstraps are rejected;
 - `applyCurrentSchema`, complete dynamic enumeration, and source-only migration assertions are allowed;
+- the presence of `applyCurrentSchema` does not suppress detection of a separate literal partial bootstrap in the same file;
 - historical exceptions are exact paths with reasons;
 - the detector remains intentionally syntactic/repository-specific, not a generic lint/parser architecture.
 
