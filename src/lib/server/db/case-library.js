@@ -23,7 +23,7 @@ export function parseCaseLibraryFilters(params) {
     topicId: params.get('topic')?.trim() ?? '',
     systemId: params.get('system')?.trim() ?? '',
     tagId: params.get('tag')?.trim() ?? '',
-    sort: ['case-asc', 'case-desc', 'topic-asc', 'topic-desc', 'system-asc', 'system-desc', 'tag-asc', 'tag-desc'].includes(sort) ? sort : 'case-asc',
+    sort: ['case-asc', 'case-desc', 'topic-asc', 'topic-desc', 'system-asc', 'system-desc', 'tag-asc', 'tag-desc', 'added-asc', 'added-desc', 'edited-asc', 'edited-desc'].includes(sort) ? sort : 'case-asc',
     lifecycle: params.get('lifecycle') === 'inactive' ? 'inactive' : 'active'
   };
 }
@@ -237,7 +237,7 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
     )
     select name from system_ancestors where id in (${sql.join(systemIds.map((id) => sql`${id}`), sql`, `)}) limit 1
   ), '')` : sql`''`;
-  const sortExpression = sort.startsWith('topic') ? topicSort : sort.startsWith('system') ? systemSort : sort.startsWith('tag') ? tagSort : cases.title;
+  const sortExpression = sort.startsWith('topic') ? topicSort : sort.startsWith('system') ? systemSort : sort.startsWith('tag') ? tagSort : sort.startsWith('added') ? cases.createdAt : sort.startsWith('edited') ? cases.updatedAt : cases.title;
   const sortDirection = sort.endsWith('desc') ? desc : asc;
 
   const rawRows = await db

@@ -316,6 +316,37 @@ test('Case Library/editor read models expose timestamps without extra per-Case r
   }
 });
 
+test('Case Library sorts by Added and Last edited timestamps in both directions', async () => {
+  const fixture = createLearningDb();
+  try {
+    fixture.sqlite.exec(`
+      INSERT INTO cases (id, title, is_active, created_at, updated_at) VALUES
+        ('timestamp-sort-a', 'Timestamp Sort A', 1, 1000, 4000),
+        ('timestamp-sort-b', 'Timestamp Sort B', 1, 2000, 3000);
+    `);
+
+    const addedAscending = await getCaseLibraryPage(fixture.db, {
+      search: 'Timestamp Sort', topicId: '', systemId: '', tagId: '', sort: 'added-asc', lifecycle: 'active'
+    });
+    const addedDescending = await getCaseLibraryPage(fixture.db, {
+      search: 'Timestamp Sort', topicId: '', systemId: '', tagId: '', sort: 'added-desc', lifecycle: 'active'
+    });
+    const editedAscending = await getCaseLibraryPage(fixture.db, {
+      search: 'Timestamp Sort', topicId: '', systemId: '', tagId: '', sort: 'edited-asc', lifecycle: 'active'
+    });
+    const editedDescending = await getCaseLibraryPage(fixture.db, {
+      search: 'Timestamp Sort', topicId: '', systemId: '', tagId: '', sort: 'edited-desc', lifecycle: 'active'
+    });
+
+    assert.deepEqual(addedAscending.rows.map((row) => row.id), ['timestamp-sort-a', 'timestamp-sort-b']);
+    assert.deepEqual(addedDescending.rows.map((row) => row.id), ['timestamp-sort-b', 'timestamp-sort-a']);
+    assert.deepEqual(editedAscending.rows.map((row) => row.id), ['timestamp-sort-b', 'timestamp-sort-a']);
+    assert.deepEqual(editedDescending.rows.map((row) => row.id), ['timestamp-sort-a', 'timestamp-sort-b']);
+  } finally {
+    fixture.sqlite.close();
+  }
+});
+
 test('Singapore Case-authoring date formatting is deterministic', () => {
   assert.equal(formatCaseAuthoringDate('2026-09-02T16:00:00.000Z'), '3 Sep 2026');
   assert.equal(formatCaseAuthoringDateTime('2026-09-09T13:42:00.000Z'), '9 Sep 2026, 21:42 SGT');
@@ -325,6 +356,9 @@ test('Admin Case Library and Production Case Editor render the requested timesta
   const librarySource = readFileSync(new URL('../src/routes/admin/cases/+page.svelte', import.meta.url), 'utf8');
   const headerSource = readFileSync(new URL('../src/lib/components/case-editor/CaseEditorHeader.svelte', import.meta.url), 'utf8');
 
-  assert.match(librarySource, /Added \{formatCaseAuthoringDate\(item\.createdAt\)\} · Edited \{formatCaseAuthoringDate\(item\.updatedAt\)\}/);
+  assert.match(librarySource, /href=\{sortHref\('added'\)\}[\s\S]*>Added <span aria-hidden="true">\{sortIndicator\('added'\)\}/);
+  assert.match(librarySource, /href=\{sortHref\('edited'\)\}[\s\S]*>Last edited <span aria-hidden="true">\{sortIndicator\('edited'\)\}/);
+  assert.match(librarySource, /class="case-date" data-label="Added"[^>]*>[\s\S]*formatCaseAuthoringDate\(item\.createdAt\)/);
+  assert.match(librarySource, /class="case-date" data-label="Last edited"[^>]*>[\s\S]*formatCaseAuthoringDate\(item\.updatedAt\)/);
   assert.match(headerSource, /\{#if !previewMode\}<p class="muted authoring-dates">Added \{formatCaseAuthoringDate\(selectedCase\.case\.createdAt\)\} · Last edited \{formatCaseAuthoringDateTime\(selectedCase\.case\.updatedAt\)\}/);
 });

@@ -3,7 +3,8 @@ export const CASE_LIBRARY_STATE_VERSION = 2;
 
 const CASE_LIBRARY_SORTS = new Set([
   'case-asc', 'case-desc', 'topic-asc', 'topic-desc',
-  'system-asc', 'system-desc', 'tag-asc', 'tag-desc'
+  'system-asc', 'system-desc', 'tag-asc', 'tag-desc',
+  'added-asc', 'added-desc', 'edited-asc', 'edited-desc'
 ]);
 const CASE_LIBRARY_QUERY_KEYS = ['q', 'topic', 'system', 'tag', 'sort', 'lifecycle', 'page'];
 

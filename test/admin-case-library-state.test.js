@@ -55,6 +55,9 @@ test('Case Library stored state normalizes the supported working context', () =>
     page: 3
   });
   assert.equal(Object.hasOwn(parsed, 'cases'), false);
+
+  const timestampSort = parseCaseLibraryStoredState(JSON.stringify({ version: CASE_LIBRARY_STATE_VERSION, sort: 'edited-desc' }));
+  assert.equal(timestampSort?.sort, 'edited-desc');
 });
 
 test('malformed and stale Case Library state fails safely', () => {
