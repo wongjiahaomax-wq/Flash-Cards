@@ -233,6 +233,7 @@ test('test runner skips path-looking values for supported Node options before ap
   try {
     writeEmptyTests(root, ['test/alpha.test.js', 'tests/beta.test.js']);
     assert.equal(hasExplicitMaintainedNodeTarget(['--test-name-pattern', 'tests/fake.test.js']), false);
+    assert.equal(hasExplicitMaintainedNodeTarget(['--test-coverage-include=tests/*.test.js']), false);
     assert.equal(hasExplicitMaintainedNodeTarget(['--test-name-pattern', 'tests/fake.test.js', 'test/alpha.test.js']), true);
 
     /** @type {string[][]} */
@@ -254,6 +255,12 @@ test('test runner skips path-looking values for supported Node options before ap
       env: { ...process.env },
       spawn,
     });
+    await runNodeTests({
+      cwd: root,
+      argv: ['--test-coverage-include=tests/*.test.js'],
+      env: { ...process.env },
+      spawn,
+    });
 
     assert.deepEqual(calls[0], [
       '--test',
@@ -267,6 +274,13 @@ test('test runner skips path-looking values for supported Node options before ap
       `--test-reporter=${LOCAL_TEST_REPORTER}`,
       '--test-name-pattern',
       'tests/fake.test.js',
+      'test/alpha.test.js',
+      'tests/beta.test.js',
+    ]);
+    assert.deepEqual(calls[2], [
+      '--test',
+      `--test-reporter=${LOCAL_TEST_REPORTER}`,
+      '--test-coverage-include=tests/*.test.js',
       'test/alpha.test.js',
       'tests/beta.test.js',
     ]);
