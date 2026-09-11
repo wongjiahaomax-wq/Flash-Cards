@@ -1,6 +1,6 @@
 # Case Added / Last Edited Metadata — Simplified Implementation Plan
 
-_Status: single planning authority for Draft PR #176. This PR remains planning-only at this commit. Feature implementation has not started._
+_Status: single planning authority for Draft PR #176. This PR remains planning-only. Feature implementation has not started._
 
 ## Goal
 
@@ -33,7 +33,7 @@ Therefore:
 - no new timestamp columns;
 - no historical backfill;
 - no attempt to reconstruct old edit history;
-- existing Cases may initially have a `updated_at` value that reflects older incomplete maintenance rather than every historical authoring action.
+- existing Cases may initially have an `updated_at` value that reflects older incomplete maintenance rather than every historical authoring action.
 
 From this feature onward, `updated_at` should be maintained as useful Case authoring recency.
 
