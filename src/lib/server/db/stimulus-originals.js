@@ -1,5 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm';
 
+import { touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import { assets, cases, stimulusGroupOptions, stimulusGroups } from './schema.js';
 import { StimulusGroupInputError } from './stimulus-groups.js';
 
@@ -40,7 +41,8 @@ export async function setStimulusGroupOriginal(db, caseId, groupId, optionId) {
     .select({
       id: stimulusGroups.id,
       caseId: stimulusGroups.caseId,
-      isActive: stimulusGroups.isActive
+      isActive: stimulusGroups.isActive,
+      originalOptionId: stimulusGroups.originalOptionId
     })
     .from(stimulusGroups)
     .where(and(
@@ -69,6 +71,10 @@ export async function setStimulusGroupOriginal(db, caseId, groupId, optionId) {
     throw new StimulusGroupInputError('The Original must be an active eligible image in this stimulus family.');
   }
 
+  if (group.originalOptionId === cleanOptionId) {
+    return { caseId: cleanCaseId, groupId: cleanGroupId, optionId: cleanOptionId };
+  }
+
   await db
     .update(stimulusGroups)
     .set({ originalOptionId: cleanOptionId, updatedAt: new Date() })
@@ -77,6 +83,7 @@ export async function setStimulusGroupOriginal(db, caseId, groupId, optionId) {
       eq(stimulusGroups.caseId, cleanCaseId),
       eq(stimulusGroups.isActive, true)
     ));
+  await touchProductionCaseUpdatedAt(db, cleanCaseId);
 
   return { caseId: cleanCaseId, groupId: cleanGroupId, optionId: cleanOptionId };
 }

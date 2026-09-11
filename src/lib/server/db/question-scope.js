@@ -13,6 +13,7 @@ import {
   stimulusGroups,
   stimulusOptionQuestions
 } from './schema.js';
+import { productionCaseTimestampWrite } from './case-authoring-timestamps.js';
 import {
   ensurePromptIsNotUsedByAnotherGroup,
   saveStimulusOptionQuestion,
@@ -219,7 +220,8 @@ export async function saveQuestionAtScope(db, input) {
   /** @type {any[]} */
   const writes = [
     ...fixedConversionWrites(db, caseId, prepared),
-    db.insert(stimulusOptionQuestions).values({ id: crypto.randomUUID(), stimulusGroupOptionId: prepared.optionId, questionPromptId: promptId, answerMd, isActive: true, createdAt: await nextOptionQuestionTime(db, prepared.optionId) })
+    db.insert(stimulusOptionQuestions).values({ id: crypto.randomUUID(), stimulusGroupOptionId: prepared.optionId, questionPromptId: promptId, answerMd, isActive: true, createdAt: await nextOptionQuestionTime(db, prepared.optionId) }),
+    productionCaseTimestampWrite(db, caseId)
   ];
   await db.batch(/** @type {[any, ...any[]]} */ (writes));
   return promptId;
@@ -261,6 +263,7 @@ export async function moveCaseQuestionToStimulusTarget(db, input) {
     db.update(caseQuestions).set({ isActive: false, updatedAt: new Date() }).where(eq(caseQuestions.id, question.id))
   ];
   if (!otherCaseUses.some((row) => row.caseId !== caseId)) writes.push(db.delete(conceptQuestions).where(and(eq(conceptQuestions.conceptId, context.conceptId), eq(conceptQuestions.questionPromptId, promptId))));
+  writes.push(productionCaseTimestampWrite(db, caseId));
   await db.batch(/** @type {[any, ...any[]]} */ (writes));
   return promptId;
 }

@@ -240,7 +240,20 @@ export async function getCaseLibraryPage(db, filters, options = {}) {
   const sortExpression = sort.startsWith('topic') ? topicSort : sort.startsWith('system') ? systemSort : sort.startsWith('tag') ? tagSort : cases.title;
   const sortDirection = sort.endsWith('desc') ? desc : asc;
 
-  const rawRows = await db.select({ id: cases.id, title: cases.title, vignetteMd: cases.vignetteMd, isActive: cases.isActive }).from(cases).where(where).orderBy(sortDirection(sortExpression), asc(cases.title), asc(cases.id)).limit(pageSize).offset((page - 1) * pageSize);
+  const rawRows = await db
+    .select({
+      id: cases.id,
+      title: cases.title,
+      vignetteMd: cases.vignetteMd,
+      isActive: cases.isActive,
+      createdAt: cases.createdAt,
+      updatedAt: cases.updatedAt
+    })
+    .from(cases)
+    .where(where)
+    .orderBy(sortDirection(sortExpression), asc(cases.title), asc(cases.id))
+    .limit(pageSize)
+    .offset((page - 1) * pageSize);
   const caseIds = rawRows.map((row) => row.id);
   const [primaryRows, tagRows] = await Promise.all([listPagePrimaryTopics(db, caseIds, conceptRows), listPageCaseTags(db, caseIds, inactiveView)]);
 

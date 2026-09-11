@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
+import { productionCaseTimestampWrite, touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import {
   assets,
   caseConcepts,
@@ -242,6 +243,7 @@ export async function saveCaseQuestion(db, input) {
   } else {
     await removeReusableTopicQuestionIfUnused(db, caseId, promptId);
   }
+  await touchProductionCaseUpdatedAt(db, caseId);
   return promptId;
 }
 
@@ -380,8 +382,13 @@ export async function moveCaseQuestionToStimulusOption(db, input) {
       .where(eq(caseQuestions.id, question.id))
   ]);
   if (removeTopicUse) writes.push(removeTopicUse);
-  if (typeof db.batch === 'function') await db.batch(/** @type {[any, ...any[]]} */ (writes));
-  else for (const write of writes) await write;
+  if (typeof db.batch === 'function') {
+    writes.push(productionCaseTimestampWrite(db, caseId));
+    await db.batch(/** @type {[any, ...any[]]} */ (writes));
+  } else {
+    for (const write of writes) await write;
+    await touchProductionCaseUpdatedAt(db, caseId);
+  }
   return promptId;
 }
 
@@ -398,6 +405,7 @@ export async function removeCaseQuestion(db, caseId, promptId) {
     .update(caseQuestions)
     .set({ isActive: false, updatedAt: new Date() })
     .where(eq(caseQuestions.id, existing[0].id));
+  await touchProductionCaseUpdatedAt(db, caseId);
   return result;
 }
 
@@ -411,6 +419,7 @@ export async function restoreCaseQuestion(db, caseId, promptId) {
     .limit(1);
   if (!existing[0]) throw new CaseQuestionInputError('That removed Case question is no longer available to restore.');
   await db.update(caseQuestions).set({ isActive: true, updatedAt: new Date() }).where(eq(caseQuestions.id, existing[0].id));
+  await touchProductionCaseUpdatedAt(db, caseId);
   return promptId;
 }
 
@@ -431,5 +440,6 @@ export async function moveCaseQuestion(db, caseId, promptId, direction) {
       .set({ createdAt: new Date(base + index), updatedAt: new Date() })
       .where(and(eq(caseQuestions.caseId, caseId), eq(caseQuestions.questionPromptId, id)));
   }
+  await touchProductionCaseUpdatedAt(db, caseId);
   return true;
 }

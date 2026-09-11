@@ -1,5 +1,6 @@
 import { and, desc, eq, isNull } from 'drizzle-orm';
 
+import { productionCaseTimestampWrite, touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import { assets, caseAssets, cases, stimulusGroupOptions, stimulusGroups } from './schema.js';
 import { StimulusGroupInputError } from './stimulus-groups.js';
 
@@ -110,7 +111,12 @@ export async function convertStimulusOptionToSupporting(db, optionId, expectedCa
     .where(eq(stimulusGroupOptions.id, option.id));
 
   if (typeof db.batch === 'function') {
-    await db.batch(/** @type {[any, ...any[]]} */ ([attachSupporting, archiveOption]));
+    const updatedAt = new Date();
+    await db.batch(/** @type {[any, ...any[]]} */ ([
+      attachSupporting,
+      archiveOption,
+      productionCaseTimestampWrite(db, option.caseId, updatedAt)
+    ]));
   } else {
     await attachSupporting;
     try {
@@ -122,6 +128,7 @@ export async function convertStimulusOptionToSupporting(db, optionId, expectedCa
         .catch(() => {});
       throw error;
     }
+    await touchProductionCaseUpdatedAt(db, option.caseId);
   }
 
   return { caseId: option.caseId, groupId: option.groupId, optionId: option.id, assetId: option.assetId };

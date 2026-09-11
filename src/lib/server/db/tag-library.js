@@ -1,5 +1,6 @@
 import { and, asc, eq, isNull, like, sql } from 'drizzle-orm';
 
+import { touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import { caseQuestions, cases, questionPrompts } from './schema.js';
 import { caseQuestionTags, caseTags, tags } from './tag-schema.js';
 
@@ -221,7 +222,7 @@ async function requireActiveCase(db, caseId) {
 /** @param {LearningDb} db @param {string} caseQuestionId */
 async function requireProductionCaseQuestion(db, caseQuestionId) {
   const row = await db
-    .select({ id: caseQuestions.id })
+    .select({ id: caseQuestions.id, caseId: caseQuestions.caseId })
     .from(caseQuestions)
     .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
     .innerJoin(questionPrompts, eq(questionPrompts.id, caseQuestions.questionPromptId))
@@ -234,12 +235,13 @@ async function requireProductionCaseQuestion(db, caseQuestionId) {
     )
     .limit(1);
   if (!row[0]) throw new TagInputError('The selected production Case Question does not exist.');
+  return row[0];
 }
 
 /** @param {LearningDb} db @param {string} caseQuestionId */
 async function requireActiveCaseQuestion(db, caseQuestionId) {
   const row = await db
-    .select({ id: caseQuestions.id })
+    .select({ id: caseQuestions.id, caseId: caseQuestions.caseId })
     .from(caseQuestions)
     .innerJoin(cases, eq(cases.id, caseQuestions.caseId))
     .innerJoin(questionPrompts, eq(questionPrompts.id, caseQuestions.questionPromptId))
@@ -255,6 +257,7 @@ async function requireActiveCaseQuestion(db, caseQuestionId) {
     )
     .limit(1);
   if (!row[0]) throw new TagInputError('The selected production Case Question is missing or inactive.');
+  return row[0];
 }
 
 /** @param {LearningDb} db @param {{ caseId: unknown, tagId: unknown }} input */
@@ -270,6 +273,7 @@ export async function addCaseTag(db, input) {
     }
     throw error;
   }
+  await touchProductionCaseUpdatedAt(db, caseId);
 }
 
 /** @param {LearningDb} db @param {{ caseId: unknown, tagId: unknown }} input */
@@ -277,14 +281,22 @@ export async function removeCaseTag(db, input) {
   const caseId = requiredId(input.caseId, 'Case');
   const tagId = requiredId(input.tagId, 'Tag');
   await requireProductionCase(db, caseId);
+  const existing = await db
+    .select({ caseId: caseTags.caseId })
+    .from(caseTags)
+    .where(and(eq(caseTags.caseId, caseId), eq(caseTags.tagId, tagId)))
+    .limit(1);
+  if (!existing[0]) return false;
   await db.delete(caseTags).where(and(eq(caseTags.caseId, caseId), eq(caseTags.tagId, tagId)));
+  await touchProductionCaseUpdatedAt(db, caseId);
+  return true;
 }
 
 /** @param {LearningDb} db @param {{ caseQuestionId: unknown, tagId: unknown }} input */
 export async function addCaseQuestionTag(db, input) {
   const caseQuestionId = requiredId(input.caseQuestionId, 'Case Question');
   const tagId = requiredId(input.tagId, 'Tag');
-  await Promise.all([requireActiveCaseQuestion(db, caseQuestionId), requireActiveTag(db, tagId)]);
+  const [question] = await Promise.all([requireActiveCaseQuestion(db, caseQuestionId), requireActiveTag(db, tagId)]);
   try {
     await db.insert(caseQuestionTags).values({ caseQuestionId, tagId });
   } catch (error) {
@@ -293,16 +305,25 @@ export async function addCaseQuestionTag(db, input) {
     }
     throw error;
   }
+  await touchProductionCaseUpdatedAt(db, question.caseId);
 }
 
 /** @param {LearningDb} db @param {{ caseQuestionId: unknown, tagId: unknown }} input */
 export async function removeCaseQuestionTag(db, input) {
   const caseQuestionId = requiredId(input.caseQuestionId, 'Case Question');
   const tagId = requiredId(input.tagId, 'Tag');
-  await requireProductionCaseQuestion(db, caseQuestionId);
+  const question = await requireProductionCaseQuestion(db, caseQuestionId);
+  const existing = await db
+    .select({ caseQuestionId: caseQuestionTags.caseQuestionId })
+    .from(caseQuestionTags)
+    .where(and(eq(caseQuestionTags.caseQuestionId, caseQuestionId), eq(caseQuestionTags.tagId, tagId)))
+    .limit(1);
+  if (!existing[0]) return false;
   await db
     .delete(caseQuestionTags)
     .where(and(eq(caseQuestionTags.caseQuestionId, caseQuestionId), eq(caseQuestionTags.tagId, tagId)));
+  await touchProductionCaseUpdatedAt(db, question.caseId);
+  return true;
 }
 
 /** Current active Case↔Tag relationships for Case library filtering. @param {LearningDb} db */

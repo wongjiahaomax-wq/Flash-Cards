@@ -2,6 +2,7 @@ import { and, asc, desc, eq, isNull, like } from 'drizzle-orm';
 
 import { withServerReadTiming } from '../performance-timing.js';
 import { listCaseTopics } from './admin-content.js';
+import { touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import { ContentGuardError, requireProductionCase, requireProductionImageAsset } from './content-guards.js';
 import { assets, caseAssets, caseConcepts, cases, concepts, stimulusGroupOptions, stimulusGroups } from './schema.js';
 
@@ -32,6 +33,8 @@ export async function listAdminCases(db, search = '') {
       id: cases.id,
       title: cases.title,
       vignetteMd: cases.vignetteMd,
+      createdAt: cases.createdAt,
+      updatedAt: cases.updatedAt,
       conceptId: caseConcepts.conceptId,
       conceptName: concepts.name
     })
@@ -51,6 +54,8 @@ export async function getAdminCaseById(db, caseId) {
       vignetteMd: cases.vignetteMd,
       questionSelectionMode: cases.questionSelectionMode,
       questionCount: cases.questionCount,
+      createdAt: cases.createdAt,
+      updatedAt: cases.updatedAt,
       conceptId: caseConcepts.conceptId,
       conceptName: concepts.name
     })
@@ -185,7 +190,7 @@ export async function attachAssetToCase(db, caseId, assetId, captionMd = null) {
   const grouped = await db
     .select({ id: stimulusGroupOptions.id })
     .from(stimulusGroupOptions)
-    .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
+    .innerJoin(stimulusGroups, eq(stimulusGroupOptions.stimulusGroupId, stimulusGroups.id))
     .where(and(eq(stimulusGroups.caseId, caseId), eq(stimulusGroupOptions.assetId, assetId), eq(stimulusGroupOptions.removedFromCase, false)))
     .limit(1);
   if (grouped[0]) throw new CaseAssetInputError('That Asset is already an option in this Case.');
@@ -210,6 +215,7 @@ export async function attachAssetToCase(db, caseId, assetId, captionMd = null) {
     }
     throw error;
   }
+  await touchProductionCaseUpdatedAt(db, caseId);
 }
 
 /** @param {LearningDb} db @param {string} caseId @param {string} assetId */
@@ -223,6 +229,7 @@ export async function detachAssetFromCase(db, caseId, assetId) {
 
   await db.delete(caseAssets).where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, assetId)));
   await normalizeOrder(db, caseId);
+  await touchProductionCaseUpdatedAt(db, caseId);
 }
 
 /** @param {LearningDb} db @param {string} caseId @param {string} assetId @param {string | null} captionMd */
@@ -230,13 +237,18 @@ export async function updateCaseAssetCaption(db, caseId, assetId, captionMd) {
   await requireActiveCase(db, caseId);
   await requireActiveAsset(db, assetId);
   const rows = await attachedRows(db, caseId);
-  if (!rows.some((row) => row.assetId === assetId)) {
+  const attached = rows.find((row) => row.assetId === assetId);
+  if (!attached) {
     throw new CaseAssetInputError('That Asset is not attached to this Case.');
   }
+  const normalizedCaption = normalizeCaption(captionMd);
+  if (attached.captionMd === normalizedCaption) return false;
   await db
     .update(caseAssets)
-    .set({ captionMd: normalizeCaption(captionMd) })
+    .set({ captionMd: normalizedCaption })
     .where(and(eq(caseAssets.caseId, caseId), eq(caseAssets.assetId, assetId)));
+  await touchProductionCaseUpdatedAt(db, caseId);
+  return true;
 }
 
 /** @param {LearningDb} db @param {string} caseId @param {string} assetId @param {'up' | 'down'} direction */
@@ -253,6 +265,7 @@ export async function moveCaseAsset(db, caseId, assetId, direction) {
   const orderedIds = rows.map((row) => row.assetId);
   [orderedIds[currentIndex], orderedIds[nextIndex]] = [orderedIds[nextIndex], orderedIds[currentIndex]];
   await writeOrder(db, caseId, orderedIds);
+  await touchProductionCaseUpdatedAt(db, caseId);
   return true;
 }
 

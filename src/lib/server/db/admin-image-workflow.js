@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, inArray, isNull, like, notInArray, or } from 'drizzle-orm';
 
 import { getTeachingImageUrl } from '../storage/media.js';
+import { productionCaseTimestampWrite, touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import {
   assets,
   caseAssets,
@@ -194,7 +195,7 @@ export async function attachAssetsToCase(db, caseId, submittedAssetIds) {
         captionMd: null
       })
     );
-    await db.batch([firstStatement, ...remainingStatements]);
+    await db.batch([firstStatement, ...remainingStatements, productionCaseTimestampWrite(db, caseId)]);
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       throw new AdminImageWorkflowInputError('The Case image list changed while attaching. Refresh and try again.');
@@ -349,7 +350,9 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
     db.update(stimulusGroupOptions).set({ isActive: true, removedFromCase: false }).where(eq(stimulusGroupOptions.id, option.id))
   );
   if (!newIds.length) {
-    if (restoreStatements.length) await db.batch(/** @type {[any, ...any[]]} */ (restoreStatements));
+    if (restoreStatements.length) {
+      await db.batch(/** @type {[any, ...any[]]} */ ([...restoreStatements, productionCaseTimestampWrite(db, group.caseId)]));
+    }
     return { caseId: group.caseId, requestedCount: assetIds.length, addedCount: 0, alreadyPresentCount: assetIds.length };
   }
   const last = (
@@ -383,7 +386,12 @@ export async function bulkAddAssetsToStimulusGroup(db, groupId, submittedAssetId
         isActive: true
       })
     );
-    await db.batch(/** @type {[any, ...any[]]} */ ([...restoreStatements, firstStatement, ...remainingStatements]));
+    await db.batch(/** @type {[any, ...any[]]} */ ([
+      ...restoreStatements,
+      firstStatement,
+      ...remainingStatements,
+      productionCaseTimestampWrite(db, group.caseId)
+    ]));
   } catch (error) {
     if (error instanceof Error && /unique|constraint/i.test(error.message)) {
       throw new AdminImageWorkflowInputError('The alternative image set changed while updating. Refresh and try again.');
@@ -415,7 +423,7 @@ export async function updateStimulusOptionCaption(db, caseId, optionId, captionM
   }
   const option = (
     await db
-      .select({ id: stimulusGroupOptions.id })
+      .select({ id: stimulusGroupOptions.id, captionMd: stimulusGroupOptions.captionMd })
       .from(stimulusGroupOptions)
       .innerJoin(stimulusGroups, eq(stimulusGroups.id, stimulusGroupOptions.stimulusGroupId))
       .innerJoin(cases, eq(cases.id, stimulusGroups.caseId))
@@ -431,5 +439,8 @@ export async function updateStimulusOptionCaption(db, caseId, optionId, captionM
   )[0];
   if (!option) throw new AdminImageWorkflowInputError('That alternative image is not attached to this active Case.');
   const normalizedCaption = String(captionMd ?? '').trim() || null;
+  if (option.captionMd === normalizedCaption) return false;
   await db.update(stimulusGroupOptions).set({ captionMd: normalizedCaption }).where(eq(stimulusGroupOptions.id, option.id));
+  await touchProductionCaseUpdatedAt(db, normalizedCaseId);
+  return true;
 }

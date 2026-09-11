@@ -1,5 +1,6 @@
 import { and, eq, inArray } from 'drizzle-orm';
 
+import { touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import { listConceptTaxonomy } from './concept-taxonomy-compat.ts';
 import { ContentGuardError, requireProductionCase } from './content-guards.js';
 import { caseConcepts, concepts } from './schema.js';
@@ -117,6 +118,13 @@ async function compensateCreatedTopicAssignment(
   await conceptDelete;
 }
 
+async function touchAssignedCases(
+  db: import('./index.js').LearningDb,
+  validatedCases: { caseId: string; primaryConceptId: string }[]
+) {
+  await Promise.all(validatedCases.map((current) => touchProductionCaseUpdatedAt(db, current.caseId)));
+}
+
 /**
  * Create one global Topic from the Production Admin Case Library and optionally
  * make it the canonical Primary Topic for the selected active Production Cases.
@@ -165,6 +173,7 @@ export async function createCaseLibraryTopic(
       }
       throw taxonomyConceptCreationError(error);
     }
+    await touchAssignedCases(db, validatedCases);
     return { ...concept, selectedCount: validatedCases.length };
   }
 
@@ -186,5 +195,6 @@ export async function createCaseLibraryTopic(
     throw taxonomyConceptCreationError(error);
   }
 
+  await touchAssignedCases(db, validatedCases);
   return { ...concept, selectedCount: validatedCases.length };
 }

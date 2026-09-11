@@ -1,6 +1,7 @@
 import { and, asc, eq } from 'drizzle-orm';
 
 import { conceptBreadcrumb } from '../learning/taxonomy-graph.ts';
+import { productionCaseTimestampWrite, touchProductionCaseUpdatedAt } from './case-authoring-timestamps.js';
 import {
   buildTopicConceptInsert,
   listActiveConceptTaxonomy,
@@ -209,10 +210,14 @@ export async function createCase(db, input) {
 /** @param {LearningDb} db @param {string} caseId @param {string | null} vignetteMd */
 export async function updateCaseVignette(db, caseId, vignetteMd) {
   await requireActiveProductionCase(db, caseId);
+  const nextVignetteMd = optionalText(vignetteMd);
+  const current = await db.select({ vignetteMd: cases.vignetteMd }).from(cases).where(eq(cases.id, caseId)).limit(1);
+  if (current[0]?.vignetteMd === nextVignetteMd) return false;
   await db
     .update(cases)
-    .set({ vignetteMd: optionalText(vignetteMd) })
+    .set({ vignetteMd: nextVignetteMd, updatedAt: new Date() })
     .where(eq(cases.id, caseId));
+  return true;
 }
 
 /**
@@ -224,14 +229,33 @@ export async function updateCaseVignette(db, caseId, vignetteMd) {
 export async function updateCase(db, input) {
   const caseId = requiredText(input.caseId, 'Case');
   const title = requiredText(input.title, 'Internal Case title');
+  const vignetteMd = optionalText(input.vignetteMd);
   const selection = questionSelection(input.questionSelectionMode, input.questionCount);
 
   await requireActiveCaseWithOnePrimary(db, caseId);
   await validateCaseQuestionCoverage(db, caseId, selection);
+  const current = await db
+    .select({
+      title: cases.title,
+      vignetteMd: cases.vignetteMd,
+      questionSelectionMode: cases.questionSelectionMode,
+      questionCount: cases.questionCount
+    })
+    .from(cases)
+    .where(eq(cases.id, caseId))
+    .limit(1);
+  if (
+    current[0]?.title === title &&
+    current[0]?.vignetteMd === vignetteMd &&
+    current[0]?.questionSelectionMode === selection.mode &&
+    current[0]?.questionCount === selection.count
+  ) return false;
+
   await db
     .update(cases)
-    .set({ title, vignetteMd: optionalText(input.vignetteMd), questionSelectionMode: selection.mode, questionCount: selection.count })
+    .set({ title, vignetteMd, questionSelectionMode: selection.mode, questionCount: selection.count, updatedAt: new Date() })
     .where(eq(cases.id, caseId));
+  return true;
 }
 
 /**
@@ -345,6 +369,7 @@ export async function promoteCaseTopic(db, input) {
   const targetSecondary = topicRows.find((topic) => topic.conceptId === conceptId && topic.role === 'secondary');
   if (!targetSecondary) {
     await primaryWrite;
+    await touchProductionCaseUpdatedAt(db, caseId);
     return;
   }
 
@@ -356,7 +381,8 @@ export async function promoteCaseTopic(db, input) {
       eq(caseConcepts.role, 'secondary')
     ));
   if (typeof db.batch === 'function') {
-    await db.batch(/** @type {[any, ...any[]]} */ ([secondaryDelete, primaryWrite]));
+    const updatedAt = new Date();
+    await db.batch(/** @type {[any, ...any[]]} */ ([secondaryDelete, primaryWrite, productionCaseTimestampWrite(db, caseId, updatedAt)]));
     return;
   }
 
@@ -371,6 +397,7 @@ export async function promoteCaseTopic(db, input) {
     }
     throw error;
   }
+  await touchProductionCaseUpdatedAt(db, caseId);
 }
 
 /**
@@ -388,9 +415,11 @@ export async function bulkPromoteCaseTopics(db, input) {
   const conceptId = await requireActiveTopic(db, input.conceptId);
   const validated = await Promise.all(caseIds.map((caseId) => requireActiveCaseWithOnePrimary(db, caseId)));
   const writes = [];
+  const changedCaseIds = [];
 
   for (const current of validated) {
     if (current.primaryConceptId === conceptId) continue;
+    changedCaseIds.push(current.caseId);
     const targetSecondary = current.topicRows.find((topic) => topic.conceptId === conceptId && topic.role === 'secondary');
     if (targetSecondary) {
       writes.push(db.delete(caseConcepts).where(and(
@@ -407,10 +436,13 @@ export async function bulkPromoteCaseTopics(db, input) {
 
   if (!writes.length) return;
   if (typeof db.batch === 'function') {
-    await db.batch(/** @type {[any, ...any[]]} */ (writes));
+    const updatedAt = new Date();
+    const timestampWrites = changedCaseIds.map((caseId) => productionCaseTimestampWrite(db, caseId, updatedAt));
+    await db.batch(/** @type {[any, ...any[]]} */ ([...writes, ...timestampWrites]));
     return;
   }
   for (const write of writes) await write;
+  for (const caseId of changedCaseIds) await touchProductionCaseUpdatedAt(db, caseId);
 }
 
 /**
@@ -436,7 +468,8 @@ export async function createCaseTopic(db, input) {
   let useSequentialFallback = typeof db.batch !== 'function';
   if (!useSequentialFallback) {
     try {
-      await db.batch(/** @type {[any, ...any[]]} */ ([conceptWrite, relationshipWrite]));
+      const updatedAt = new Date();
+      await db.batch(/** @type {[any, ...any[]]} */ ([conceptWrite, relationshipWrite, productionCaseTimestampWrite(db, caseId, updatedAt)]));
     } catch (error) {
       if (error instanceof TypeError && /batch is not a function/i.test(error.message)) {
         useSequentialFallback = true;
@@ -464,6 +497,7 @@ export async function createCaseTopic(db, input) {
       }
       throw error;
     }
+    await touchProductionCaseUpdatedAt(db, caseId);
   }
 
   return { ...concept, relationshipIntent: 'primary' };
