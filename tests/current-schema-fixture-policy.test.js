@@ -9,23 +9,23 @@ const MIGRATION_FILENAME = /\b\d{4}_[A-Za-z0-9_-]+\.sql\b/;
 const APPLICATION_TEST_ROOTS = ['test/', 'tests/'];
 
 const HISTORICAL_MIGRATION_EXCEPTIONS = new Map([
-  ['test/auth-migration.test.js', 'Better Auth migration 0001 in isolation.'],
-  ['test/learner-fsrs-active-review-resume-race.test.js', 'Minimal pre-FSRS schema plus migrations 0019/0020.'],
-  ['test/learner-fsrs-active-review-scope.test.js', 'Minimal active-review scope schema from 0019/0020.'],
-  ['test/learner-fsrs-active-review.test.js', 'Minimal active-review schema from 0019/0020.'],
-  ['test/learner-fsrs-foundation.test.js', 'Migration 0019 foundation in isolation.'],
-  ['test/learner-fsrs-free-study.test.js', 'Ordered FSRS migrations 0019-0022.'],
-  ['test/learner-fsrs-reset-fresh.test.js', 'Ordered FSRS migrations 0019/0020/0024.'],
-  ['test/learner-fsrs-retention-admin.test.js', 'Migration 0019 foundation in a minimal historical fixture.'],
-  ['test/learner-fsrs-scheduled-completion.test.js', 'Ordered FSRS migrations 0019-0021.'],
-  ['test/learner-study-data-deletion.test.js', 'Explicit pre-0027 versus current-schema behavior.'],
-  ['test/multi-topic-migration-d1.test.js', 'Migrations 0000/0002 form the historical base for applying 0003.'],
-  ['test/original-stimulus-semantics.test.js', 'Pre-0016 schema plus migration 0016 under test.'],
-  ['test/question-pool-mode-invariants.test.js', 'Migration 0014 in isolation.'],
-  ['test/resumable-content-import.test.js', 'Migration 0004 checkpoint/import-job boundary behavior.'],
-  ['test/resumable-import-contract.test.js', 'Explicit 0000-0004 upgrade path proving resumable import schema creation.'],
-  ['test/resumable-import-lease-safety.test.js', 'Migration 0004 import-job schema in isolation.'],
-  ['test/tag-shared-schema.test.js', 'Explicit 0000-0008 Stage B foundation plus pre-0008 -> 0008 upgrade/preservation behavior.'],
+  ['test/auth-migration.test.js', { reason: 'Better Auth migration 0001 in isolation.', names: ['migrationSql'] }],
+  ['test/learner-fsrs-active-review-resume-race.test.js', { reason: 'Minimal pre-FSRS schema plus migrations 0019/0020.', names: ['foundationSql', 'activeSql'] }],
+  ['test/learner-fsrs-active-review-scope.test.js', { reason: 'Minimal active-review scope schema from 0019/0020.', names: ['foundationSql', 'activeSql'] }],
+  ['test/learner-fsrs-active-review.test.js', { reason: 'Minimal active-review schema from 0019/0020.', names: ['foundationSql', 'activeSql'] }],
+  ['test/learner-fsrs-foundation.test.js', { reason: 'Migration 0019 foundation in isolation.', names: ['foundationSql'] }],
+  ['test/learner-fsrs-free-study.test.js', { reason: 'Ordered FSRS migrations 0019-0022.', names: ['foundationSql', 'activeSql', 'scheduledCompletionSql', 'freeSql'] }],
+  ['test/learner-fsrs-reset-fresh.test.js', { reason: 'Ordered FSRS migrations 0019/0020/0024.', names: ['foundationSql', 'activeSql', 'resetFreshSql'] }],
+  ['test/learner-fsrs-retention-admin.test.js', { reason: 'Migration 0019 foundation in a minimal historical fixture.', names: ['foundationSql'] }],
+  ['test/learner-fsrs-scheduled-completion.test.js', { reason: 'Ordered FSRS migrations 0019-0021.', names: ['foundationSql', 'activeSql', 'completionSql'] }],
+  ['test/learner-study-data-deletion.test.js', { reason: 'Explicit pre-0027 versus current-schema behavior.', names: ['migrationSql'] }],
+  ['test/multi-topic-migration-d1.test.js', { reason: 'Migrations 0000/0002 form the historical base for applying 0003.', names: ['baseMigrationSql', 'multiTopicMigrationSql'] }],
+  ['test/original-stimulus-semantics.test.js', { reason: 'Pre-0016 schema plus migration 0016 under test.', names: ['preOriginalMigrationSql', 'originalMigrationSql'] }],
+  ['test/question-pool-mode-invariants.test.js', { reason: 'Migration 0014 in isolation.', names: ['migrationSql'] }],
+  ['test/resumable-content-import.test.js', { reason: 'Migration 0004 checkpoint/import-job boundary behavior.', names: ['baseSql', 'importJobSql'] }],
+  ['test/resumable-import-contract.test.js', { reason: 'Explicit 0000-0004 upgrade path proving resumable import schema creation.', names: ['migration'] }],
+  ['test/resumable-import-lease-safety.test.js', { reason: 'Migration 0004 import-job schema in isolation.', names: ['importJobSql'] }],
+  ['test/tag-shared-schema.test.js', { reason: 'Explicit 0000-0008 Stage B foundation plus pre-0008 -> 0008 upgrade/preservation behavior.', names: ['migrationUrls'] }],
 ]);
 
 /** @param {string} value */
@@ -109,9 +109,13 @@ export function findLiteralMigrationBootstraps(source) {
  * @param {string} source
  */
 export function classifyFixtureSource(file, source) {
-  const historicalReason = HISTORICAL_MIGRATION_EXCEPTIONS.get(file);
+  const historicalException = HISTORICAL_MIGRATION_EXCEPTIONS.get(file);
+  const historicalReason = historicalException?.reason;
   const findings = findLiteralMigrationBootstraps(source);
-  const allowed = findings.filter((finding) => finding.kind === 'historical' && historicalReason);
+  const allowed = findings.filter((finding) => (
+    finding.kind === 'historical'
+    && historicalException?.names.includes(finding.name)
+  ));
   const violations = findings.filter((finding) => !allowed.includes(finding));
   return { historicalReason, findings, allowed, violations };
 }
@@ -167,15 +171,20 @@ test('fixture-policy historical exceptions do not exempt an additional unrelated
       '0000_dashing_centennial.sql',
       '0002_optional_stimulus_groups.sql'
     ].join('\\n');
+    const unrelatedLegacyBootstrap = [
+      readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
+      readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8')
+    ].join('\\n');
     sqlite.exec(baseMigrationSql);
     sqlite.exec(migrationSql);
+    sqlite.exec(unrelatedLegacyBootstrap);
   `);
   assert.equal(mixedHistorical.historicalReason, 'Migrations 0000/0002 form the historical base for applying 0003.');
-  assert.equal(mixedHistorical.allowed.length, 1);
+  assert.deepEqual(mixedHistorical.allowed.map((finding) => finding.name), ['baseMigrationSql']);
   assert.equal(mixedHistorical.allowed[0].name, 'baseMigrationSql');
-  assert.equal(mixedHistorical.violations.length, 1);
-  assert.equal(mixedHistorical.violations[0].name, 'migrationSql');
+  assert.deepEqual(mixedHistorical.violations.map((finding) => finding.name), ['migrationSql', 'unrelatedLegacyBootstrap']);
   assert.equal(mixedHistorical.violations[0].kind, 'ordinary');
+  assert.equal(mixedHistorical.violations[1].kind, 'historical');
 });
 
 test('fixture-policy scan reuses maintained discovery and validates application-test files', async () => {

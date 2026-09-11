@@ -39,6 +39,7 @@ export function hasExplicitMaintainedNodeTarget(nodeArgs) {
       skipNext = true;
       continue;
     }
+    if (arg.startsWith('-')) continue;
     if (isMaintainedNodeTestPath(arg)) return true;
   }
   return false;

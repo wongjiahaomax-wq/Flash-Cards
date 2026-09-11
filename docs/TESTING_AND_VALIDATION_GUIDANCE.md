@@ -8,7 +8,7 @@ For execution mode and command cadence, also follow root `AGENTS.md`, `docs/AGEN
 
 ## 1. Complete suite and fast-tier placement
 
-### `npm test` is complete
+### Canonical no-target `npm test` is complete
 
 ```text
 npm test
@@ -27,6 +27,8 @@ scripts/test-selection.mjs
 → npm test/test:ci/test:verbose use all maintained tests explicitly
 → test:fast uses the same discovery minus FAST_TEST_EXCLUSIONS
 ```
+
+This applies to canonical no-target commands; focused invocations with a maintained file or glob remain focused on the caller-supplied target.
 
 ### Ordinary new tests enter Draft fast validation automatically
 
