@@ -1,540 +1,250 @@
-# Account Management PR A — Implementation Prompt
+# Account Management PR A — Password Recovery + Transactional Email
 
-_Status: active implementation handoff while PR A remains pending_
+_Status: implementation-ready Draft PR handoff_
 
-_Last reviewed: 25 August 2026_
+_Last reviewed: 12 September 2026_
 
-This file preserves the agreed implementation prompt for the first Account Management v1 implementation PR. It is intentionally stored beside `ACCOUNT_MANAGEMENT_PLAN.md` rather than under `docs/agent-tasks/`, which is reserved for already-completed historical prompts.
+This is the implementation contract for PR A of Account Management. It replaces the August handoff with a current-main plan. Implement in this Draft PR; do not create a second PR for the same scope.
 
-The account-management design remains authoritative over this prompt if the two ever diverge. Before implementation, inspect current `main` and current PR state rather than assuming file layout or dependency behavior has remained unchanged.
+## Work state
 
----
+Repository: `wongjiahaomax-wq/Flash-Cards`
 
-Please implement PR A of the Account Management v1 plan in:
+Branch: `agent/account-password-recovery-2026-09`
 
-`wongjiahaomax-wq/Flash-Cards`
+Initial base: current `main` at `63757ba76ff6d29602d50c9a984c20182eef1d77`.
 
-This PR is specifically:
+Before coding, follow root `AGENTS.md` and `docs/AGENT_TASK_MAP.md`, then inspect the current auth implementation and directly related tests. Authentication is a protected boundary, so broaden only as required by repository routing.
 
-**PASSWORD RECOVERY + TRANSACTIONAL EMAIL FOUNDATION**
+Do not revive or rebase old PR #96 wholesale. It is useful implementation/history reference, but current `main` has materially evolved.
 
-Do NOT implement the Admin Accounts management UI yet.
+## Goal
 
-## WORK STATE
+Add secure self-service password recovery and the small transactional-email foundation required by future Admin account creation.
 
-Before editing, inspect current repository/PR state.
-
-The product/design decisions are recorded in:
-
-- PR #95 — “Document account management and password recovery plan”
-- `docs/ACCOUNT_MANAGEMENT_PLAN.md`
-
-IMPORTANT:
-
-- If PR #95 has been merged by the time you start, use the copy on current main.
-- If PR #95 is still open/unmerged, read the document and PR as design context, but DO NOT branch from PR #95 merely to inherit the documentation.
-- This implementation should start from the latest current main unless another implementation PR for this exact PR-A scope already exists.
-- If an implementation PR for PR A already exists, inspect and continue it rather than creating duplicate work.
-
-Create a focused feature branch, for example:
-
-`agent/account-password-recovery`
-
-Open a DRAFT PR targeting:
-
-`main`
-
-Do NOT merge the PR.
-
-## EXECUTION MODE
-
-Use the repository's capability-based workflow.
-
-Read:
-
-- `AGENTS.md`
-- `docs/AGENT_TASK_MAP.md`
-- `docs/ACCOUNT_MANAGEMENT_PLAN.md`
-- `docs/ENGINEERING_ARCHITECTURE_GUIDELINES.md`
-
-If you have a usable terminal/local checkout, use the repository-defined Local/Hybrid validation workflow.
-
-If you only have GitHub repository access, use Remote GitHub mode and clearly distinguish GitHub CI evidence from commands you personally executed.
-
-Inspect current implementation rather than assuming the paths below remain unchanged.
-
-## CURRENT AUTH BASELINE
-
-The repository currently uses Better Auth with Cloudflare D1.
-
-Important existing behavior that must be preserved:
-
-- email/password authentication is already enabled;
-- public signup is intentionally disabled: `disableSignUp: true`;
-- the Better Auth Admin plugin is already configured;
-- production Admin, Preview Admin, and combined-role behavior already exists;
-- production/Preview authority boundaries must remain intact;
-- the Preview Worker must not gain production Admin authority;
-- `npm run admin:bootstrap` remains the initial-production-Admin / disaster-recovery mechanism;
-- ordinary learner account creation is NOT part of this PR.
-
-The repository currently pins:
-
-`better-auth 1.6.25`
-
-Do NOT upgrade Better Auth as part of this PR.
-
-Before implementation, verify the exact password-reset APIs and configuration supported by the pinned Better Auth version rather than assuming the latest Better Auth documentation exactly matches 1.6.25.
-
-## GOAL
-
-Implement secure self-service password recovery and the transactional-email foundation needed by future account creation.
-
-The finished learner flow should be:
+Finished learner flow:
 
 ```text
 Sign in
 → Forgot password?
 → enter email
-→ generic confirmation response
-→ receive password-reset email through Resend
-→ open secure reset link
+→ generic confirmation
+→ receive reset email
+→ /reset-password#token=...
 → choose new password
 → password changes
-→ previous sessions are revoked
-→ user may sign in with the new password
+→ prior sessions are revoked
+→ sign in normally
 ```
 
-This PR should also establish a small reusable email-delivery boundary that PR B can later use for new-account “Set your password” invitations.
+PR B will build the Admin Accounts portal on top of this foundation.
 
-## EMAIL PROVIDER
+## Current baseline to preserve
 
-Use:
+- Better Auth `1.6.25` remains pinned. Do not upgrade it in this PR.
+- Cloudflare D1 remains the auth/user database. Do not create another database.
+- Email/password auth is already enabled.
+- Public registration remains disabled (`disableSignUp: true`).
+- Better Auth Admin support already exists.
+- Production `admin`, Preview `preview_admin`, and combined-role behavior already exist.
+- Preview must not gain production account-management authority.
+- The current staged learner-account deletion architecture and its database/request guards remain unchanged.
+- No schema migration is expected for PR A. Add one only if implementation proves a persisted field is genuinely required; do not add speculative auth tables.
 
-**Resend**
+## Scope
 
-Resend is the agreed initial transactional-email provider.
+Implement only:
 
-However, do NOT couple Better Auth or route code directly to Resend throughout the application.
+1. a small server-only transactional email boundary;
+2. Resend transport/configuration behind that boundary;
+3. Better Auth password-reset callback/configuration using the pinned API;
+4. `/forgot-password`;
+5. `/reset-password`;
+6. `Forgot password?` from `/sign-in`;
+7. short reset-token expiry (target approximately 1 hour if supported cleanly);
+8. session revocation after successful password reset;
+9. focused executable tests at the real auth/runtime boundary where practical;
+10. operator documentation for required email configuration and rollout steps.
 
-Create a small server-side email abstraction with clear ownership.
+Do not implement `/admin/accounts`, account creation, invitations, role changes, Disable/Restore, account deletion UI, audit UI, public signup, OAuth, 2FA/passkeys, cohorts/organizations, or a Better Auth upgrade.
 
-For example, inspect current conventions and choose an appropriate focused location such as:
+## Email design
 
-`src/lib/server/email/`
+Use Resend as the initial provider, but keep provider-specific code behind a narrow server-side abstraction. Prefer existing repository conventions and TypeScript for new application modules.
 
-New/extracted application code should prefer TypeScript in accordance with the repository architecture guidance.
-
-A reasonable conceptual boundary is:
+Conceptually:
 
 ```text
-sendPasswordResetEmail(...)
+Better Auth / auth workflow
         ↓
-email provider abstraction
+password-reset email function
         ↓
-Resend transport
+transactional email transport
+        ↓
+Resend HTTP API
 ```
 
-Do not create a generic framework unnecessarily.
+Do not create a generic notification framework. The abstraction only needs to make PR B able to reuse the transport for a future `Set your password` email without coupling routes/auth configuration directly to Resend.
 
-The purpose of the abstraction is simply to prevent Better Auth/domain logic from depending directly on the provider SDK/API everywhere.
-
-## SECRETS / CONFIGURATION
-
-Use Cloudflare environment bindings/secrets.
-
-Expected configuration will likely include concepts such as:
+Expected server-only configuration:
 
 ```text
 RESEND_API_KEY
 AUTH_EMAIL_FROM
 ```
 
-Choose exact names consistently with repository conventions.
+Use repository naming conventions if current code establishes a better equivalent. Never commit, log, expose, or configure real production secrets while implementing this PR.
 
-Do NOT:
+Automated tests must fake/mock email delivery; ordinary CI must not send real email.
 
-- commit secrets;
-- hard-code an API key;
-- configure a real production secret;
-- deploy a Worker;
-- mutate production configuration.
+## Password-reset contract
 
-Update the appropriate documentation/example configuration so future operators know which environment values are required.
+Use Better Auth's built-in reset-token lifecycle. Do not invent application-owned reset tokens or cryptography.
 
-Do not document current Resend free-tier quotas/pricing as an application contract because external pricing can change.
+Preserve the reviewed fragment transport unless current pinned Better Auth makes it impossible:
 
-## BETTER AUTH PASSWORD RESET
+```text
+/reset-password#token=...
+```
 
-Integrate Better Auth's password-reset mechanism using the capabilities actually available in pinned Better Auth 1.6.25.
+The token must not appear in the initial HTTP request URL. The client should capture it and immediately remove the fragment from the visible browser URL, then submit the reset using the supported Better Auth API.
 
-The implementation should provide the equivalent of:
+Configure session revocation on successful password reset using `revokeSessionsOnPasswordReset: true` or the pinned-version equivalent.
 
-1. request password reset;
-2. Better Auth creates/validates the reset token;
-3. `sendResetPassword` or the pinned-version equivalent sends the email;
-4. reset page consumes the token;
-5. Better Auth updates the password;
-6. existing sessions are revoked.
+Invalid, expired, missing, and already-used tokens must fail closed without exposing internal validation details.
 
-Prefer Better Auth's built-in reset-token implementation.
+## Anti-enumeration and Cloudflare behavior
 
-Do NOT invent a custom password-reset token table or homemade cryptographic token system unless the pinned Better Auth version genuinely cannot provide the required capability.
-
-Configure a sensible short expiration time.
-
-Target approximately:
-
-`1 hour`
-
-unless the pinned API requires a materially different safe configuration.
-
-Configure:
-
-`revokeSessionsOnPasswordReset: true`
-
-or the pinned-version equivalent.
-
-## EMAIL-SENDING TIMING / CLOUDFLARE
-
-Password-reset requests must not leak whether an account exists.
-
-The browser-facing request should not behave observably differently simply because the email exists or does not exist.
-
-Better Auth guidance recommends avoiding a synchronous email-send timing leak.
-
-Because this application runs on Cloudflare Workers, inspect the current SvelteKit/Cloudflare request context and use an appropriate background-lifetime mechanism such as Cloudflare `waitUntil` if supported cleanly by the existing runtime.
-
-Do NOT:
-
-- delay the response only for known accounts;
-- expose Resend errors to the learner;
-- expose whether a user was found;
-- log reset tokens.
-
-If asynchronous delivery fails after the reset request has been accepted, handle/log the operational failure safely without exposing the account state or token.
-
-Never log:
-
-- plaintext passwords;
-- temporary credentials;
-- reset tokens;
-- Resend API keys.
-
-## FORGOT PASSWORD UX
-
-Add:
-
-**Forgot password?**
-
-to the existing sign-in page.
-
-Implement a focused route such as:
-
-`/forgot-password`
-
-The page should:
-
-- ask for an email address;
-- submit the reset request;
-- present the SAME learner-facing result whether or not the account exists.
+`/forgot-password` must return the same learner-facing result regardless of whether the email exists. Provider failure must not reveal account existence.
 
 Use wording equivalent to:
 
-> If an account exists for that email address, we’ve sent password reset instructions.
+> If an account exists for that email address, password reset instructions have been sent.
 
-Do not reveal:
+Do not expose `email not found`, account existence, or provider-specific failure details.
 
-- “email not found”;
-- “no account exists”;
-- different success/error states based on account existence.
+Avoid making response latency materially dependent on external email delivery for known accounts. Reuse the existing Cloudflare/SvelteKit background-task mechanism if available cleanly (for example the existing `waitUntil`/background-task pattern). Do not create new concurrency infrastructure solely for this feature.
 
-Normal validation errors such as a malformed email may still be handled appropriately, provided they do not reveal stored account state.
+## Rate limiting
 
-## RESET PASSWORD UX
+Inspect Better Auth `1.6.25` behavior actually present in the installed package/current code.
 
-Implement a route such as:
+Do not upgrade Better Auth and do not build a new distributed rate-limiting subsystem in PR A unless a realistic material abuse gap cannot otherwise be shipped safely.
 
-`/reset-password`
+If the pinned built-in reset limiter is per-process/per-isolate rather than durable across Cloudflare isolates, document that residual limitation accurately. Treat it as a rollout/security limitation, not an excuse for broad infrastructure work.
 
-The reset email should direct the user to this application route with the Better Auth reset token in the expected form.
+## Required security invariants
 
-The page should allow the user to:
-
-- enter a new password;
-- confirm it;
-- submit the reset through Better Auth.
-
-Handle:
-
-- missing token;
-- invalid token;
-- expired token;
-- successful reset.
-
-Invalid/expired reset links should fail safely and offer a route back to request a new password-reset email.
-
-Do not expose internal token-validation details.
-
-Use existing application UI conventions rather than redesigning authentication screens.
-
-## PASSWORD POLICY
-
-Use the password constraints already enforced by Better Auth/current application configuration.
-
-Do not create a second contradictory password policy purely in the UI.
-
-Client-side hints/validation may mirror the server constraints for UX, but the server/Better Auth remains authoritative.
-
-## SECURITY INVARIANTS
-
-These are acceptance requirements.
+Implementation must preserve all of these:
 
 1. Public signup remains disabled.
-2. This PR does NOT add learner self-registration.
-3. Password-reset requests do not reveal whether an account exists.
-4. Better Auth remains responsible for reset-token generation and validation.
-5. Reset links expire.
-6. Reset tokens are not stored/logged by application code outside Better Auth's intended storage mechanism.
-7. Passwords are never logged.
-8. Resend credentials remain server-only.
-9. A successful password reset revokes existing sessions.
-10. A reset token cannot be reused after successful password reset.
-11. Invalid/expired reset links fail closed.
-12. Production/Preview auth boundaries remain unchanged.
-13. Preview Admin authority must not be expanded.
-14. No production mutation/configuration/deployment occurs while implementing this PR.
+2. PR A creates no learner/admin accounts.
+3. Forgot-password responses do not reveal whether an account exists.
+4. Better Auth owns reset-token generation, storage, validation, expiry, and single-use semantics.
+5. The reset token is not sent in the initial reset-page HTTP request URL.
+6. The token fragment is removed from the visible URL promptly after client capture.
+7. Passwords, reset tokens, full token-bearing reset URLs, and Resend credentials are never logged.
+8. Resend configuration remains server-only.
+9. A successful reset revokes prior sessions.
+10. Invalid/expired/reused reset links fail safely.
+11. Production/Preview authorization boundaries are unchanged.
+12. Existing learner-account deletion fences/guards remain unchanged.
+13. No production D1/R2 mutation, production secret change, DNS change, deployment, or live Resend send is performed as part of implementation/testing.
 
-## EMAIL TEMPLATE
+## Implementation shape
 
-Keep the v1 password-reset email simple.
+Keep the change small. Likely affected surfaces include current auth configuration, the sign-in route, new forgot/reset routes, a small server email module, tests, and focused documentation. Discover exact paths from current repository routing rather than treating this list as mandatory.
 
-It needs:
+Do not refactor unrelated auth/Preview code.
 
-- clear Flash-Cards identity;
-- explanation that a password reset was requested;
-- secure reset link;
-- indication that the link expires;
-- wording that the recipient can ignore the email if they did not request it.
+Do not add a new database or duplicate Better Auth's credential/session storage.
 
-Do not add marketing content.
+## Implementation tranches
 
-Avoid putting sensitive token values anywhere except the reset URL itself.
+### Tranche 1 — auth/email foundation
 
-Both plain-text and HTML forms may be provided if that fits the chosen Resend integration cleanly.
+- Verify pinned Better Auth reset APIs/options.
+- Add narrow transactional email transport + Resend implementation.
+- Wire Better Auth reset-email callback and expiry/session-revocation behavior.
+- Add fakeable/testable delivery boundary.
 
-## EMAIL ABSTRACTION REQUIREMENT
+Checkpoint the security-sensitive server behavior before proceeding.
 
-Design the email layer so PR B can later add:
+### Tranche 2 — learner UX
 
-**Set your Flash-Cards password**
+- Add `Forgot password?` to sign-in.
+- Implement `/forgot-password` with generic result.
+- Implement `/reset-password` with fragment capture/removal, new-password + confirm-password UX, safe invalid/expired handling, and success path back to sign-in.
+- Follow existing auth-screen UI conventions; do not redesign the auth area.
 
-without rewriting the authentication layer.
+### Tranche 3 — executable proof + docs
 
-Do NOT implement account invitations in this PR.
+Add focused coverage proving the behavioral contract, then update operator/account-management documentation to describe what is implemented versus what still requires production configuration.
 
-It should simply be possible for future code to reuse the same email transport cleanly.
+## Acceptance coverage
 
-Keep modules cohesive and small.
+At minimum prove the equivalent of:
 
-Avoid putting:
-
-- auth configuration;
-- Resend transport;
-- templates;
-- SvelteKit form handling;
-
-all into one large module.
-
-Follow the repository architecture direction:
-
-- TypeScript for new/extracted application modules where practical;
-- small cohesive modules;
-- thin routes;
-- explicit ownership;
-- no generic utility dumping ground.
-
-## RATE LIMITING
-
-Inspect the rate-limiting behavior actually provided by Better Auth 1.6.25.
-
-Password-reset endpoints must not become an obvious abuse vector.
-
-Use Better Auth's supported protections where sufficient.
-
-Do NOT:
-
-- silently assume features documented only for a newer Better Auth version;
-- bundle a Better Auth upgrade into this PR;
-- create a large custom distributed rate-limiting system unless genuinely necessary.
-
-If Better Auth 1.6.25 cannot provide the desired durable Cloudflare/serverless rate-limit behavior cleanly, implement the safest narrow PR-A behavior available and explicitly document the residual limitation for later hardening.
-
-Do not allow this concern to expand PR A into a major infrastructure project.
-
-## TESTING
-
-Add focused automated coverage for security-sensitive behavior where feasible.
-
-At minimum verify the equivalent of:
-
-- public signup remains disabled;
-- forgot-password request uses a generic result;
-- unknown email does not produce an account-enumeration response;
-- known email triggers the email-dispatch path;
-- reset email contains the appropriate application reset URL;
-- reset tokens are not accidentally exposed in rendered response data;
+- signup remains disabled;
+- known and unknown email produce the same public forgot-password response;
+- a known account reaches the email-dispatch path;
+- provider failure does not become an enumeration response;
+- reset email uses the application reset route and fragment-token contract;
+- token is not exposed in initial rendered/server response data;
 - valid reset changes the password;
-- successful reset revokes prior sessions;
-- invalid reset token fails safely;
-- expired reset token fails safely;
-- password mismatch / invalid password handling works;
-- Resend/email-provider failure does not leak account existence;
-- provider secrets remain server-side;
-- Preview/production authority behavior is unchanged.
+- successful reset invalidates prior sessions;
+- used token cannot reset again;
+- invalid token fails safely;
+- expired token fails safely;
+- missing token fails safely;
+- password mismatch/invalid-password behavior is handled;
+- Preview/production auth behavior is unchanged;
+- external email is mocked/faked in tests.
 
-Mock external email delivery in automated tests.
+Prefer integration/smoke coverage through the actual Better Auth + D1/runtime boundary for the security-critical reset/session behavior rather than only source-string tests. Keep testing proportional; do not build a second test framework.
 
-Do NOT send real Resend emails from ordinary unit/CI tests.
+## Validation
 
-Inspect existing test conventions before introducing new test infrastructure.
+Follow repository-owned validation selection rather than a hard-coded blanket loop.
 
-## DOCUMENTATION
-
-Update documentation in the same PR where necessary.
-
-At minimum ensure the repository records:
-
-- password recovery is now implemented;
-- Resend is the current email transport;
-- required environment-secret names;
-- how reset-email URLs are constructed/configured;
-- any local-development behavior;
-- any manual operator setup still required before production use.
-
-Update:
-
-`docs/ACCOUNT_MANAGEMENT_PLAN.md`
-
-to distinguish implemented PR-A behavior from future PR-B/PR-C work if the document is present on current main by implementation time.
-
-Also update the appropriate documentation index/status documents if repository conventions require it.
-
-Do NOT claim:
-
-- Resend is configured in production;
-- a sending domain has been verified;
-- production password reset is working;
-
-unless those things have actually been explicitly verified.
+Typical sequence when local execution is available:
 
 ```text
-Code merged
-≠ production secret configured
-≠ Resend domain verified
-≠ Worker deployed
-≠ production behavior verified
+npm run agent:doctor
+focused auth/password-reset tests during implementation
+npm run agent:checks -- --compact
+repository-required checkpoint/final validation
 ```
 
-Keep those facts separate.
+Before handoff, execute every final check reported by current `agent:checks` and inspect the complete base-to-head diff. Do not claim a command passed unless it actually ran.
 
-## OUT OF SCOPE
+If working without a terminal, report GitHub CI evidence separately from local commands that were not executable.
 
-Do NOT implement in this PR:
+## Documentation / rollout truth
 
-- `/admin/accounts`;
-- Admin learner list;
-- account creation;
-- learner invitation creation;
-- Admin-created temporary passwords;
-- Admin role promotion/demotion UI;
-- Disable/Restore account UI;
-- account hard deletion;
-- Admin session-management UI;
-- learner-progress administration;
-- public signup;
-- OAuth/social login;
-- organizations/cohorts;
-- 2FA;
-- passkeys;
-- Better Auth upgrades;
-- production Resend secret configuration;
-- production DNS changes;
-- production deployment.
+Document the required Resend/API/from-address configuration and any local-development behavior.
 
-PR B will handle production Admin account management after this email/reset foundation exists.
+Keep these claims separate:
 
-## IMPLEMENTATION REVIEW
+```text
+code implemented/merged
+≠ Resend production secret configured
+≠ sending domain/from address verified
+≠ Worker deployed
+≠ production password-reset flow verified
+```
 
-Before pushing the principal implementation, self-review the complete diff for:
+Do not claim production readiness for any step that was not actually performed.
 
-- accidental public-signup enablement;
-- account enumeration;
-- token leakage;
-- password leakage;
-- secret leakage;
-- synchronous timing differences;
-- unsafe external-email error handling;
-- lost session revocation;
-- Preview/production authority regression;
-- unnecessary Better Auth upgrade;
-- route/module bloat;
-- duplicated auth logic;
-- unrelated cleanup.
+## Handoff
 
-## VALIDATION
+Leave this PR Draft until implementation and review are complete. Do not merge or deploy automatically.
 
-When command execution is available, follow repository guidance.
+Final PR description/handoff should clearly record:
 
-Start with:
-
-`npm run agent:doctor`
-
-After implementation:
-
-`npm run agent:checks`
-
-Run focused authentication/password-reset tests.
-
-Then run the appropriate repository validation, including:
-
-`npm run validate:full`
-
-before final handoff when applicable.
-
-Run specialized checks identified by `agent:checks`.
-
-Do not report a command as passing unless you actually executed it.
-
-If working in Remote GitHub mode without a terminal:
-
-- inspect the complete PR diff;
-- inspect GitHub CI/check results;
-- clearly state what was not executable locally.
-
-## PR HANDOFF
-
-Open/update a DRAFT PR.
-
-The PR description should contain:
-
-- Goal
-- Current auth baseline
-- Implementation
-- Security invariants
-- Resend/configuration requirements
-- Validation
-- Manual testing
-- Production rollout still required
-- Explicitly out of scope
-- Next stage — PR B
-
-Do NOT merge the PR.
-
-Do NOT deploy to production.
-
-Do NOT configure production secrets.
-
-Do NOT mutate production D1.
-
-Leave the draft PR as a complete durable handoff for review and the subsequent Admin Account Management PR B.
+- implementation completed;
+- preserved security invariants;
+- tests/validation actually run;
+- any residual Better Auth 1.6.25 rate-limit limitation;
+- production Resend setup still required;
+- explicit PR-B next step: Admin Accounts lifecycle UI and actions.
