@@ -19,6 +19,9 @@
     "test": "node scripts/test-runner.mjs",
     "test:ci": "node scripts/test-runner.mjs --presentation=ci",
     "test:verbose": "node scripts/test-runner.mjs --presentation=verbose",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
     "test:fast": "node scripts/test-fast.mjs",
     "test:fast:ci": "node scripts/test-fast.mjs --presentation=ci",
     "test:fast:verbose": "node scripts/test-fast.mjs --presentation=verbose",
@@ -75,6 +78,7 @@
     "ts-fsrs": "5.4.2"
   },
   "devDependencies": {
+    "@playwright/test": "1.55.0",
     "@sveltejs/adapter-cloudflare": "7.2.9",
     "@sveltejs/kit": "2.70.1",
     "@sveltejs/vite-plugin-svelte": "7.2.0",
