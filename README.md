@@ -174,6 +174,8 @@ Routine local repository validation is compact by default. Use explicit verbose 
 
 `npm run dev` / `npm run preview` use local bindings/state. Production deployment and remote D1 migration remain explicit operator operations governed by `docs/CLOUDFLARE.md`. CI, Preview, Production and deployment workflows deliberately select their own presentation rather than inheriting local compact defaults.
 
+Browser end-to-end checks use the pinned Playwright Chromium browser. Install it once per local environment with `npx playwright install chromium`, then run `npm run test:e2e`. Browser installation is intentionally not part of `postinstall` or CI.
+
 ## Public-repository safety
 
 Because this repository is public, never commit:
