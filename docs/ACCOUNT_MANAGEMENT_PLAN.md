@@ -1,12 +1,14 @@
 # Account Management Plan
 
-_Status: pending product/implementation design_
+_Status: PR A implementation is present in Draft PR #180; PR B/C and production rollout remain pending._
 
-_Last reviewed: 26 August 2026_
+_Last reviewed: 14 September 2026_
 
 This document records the agreed direction for production account creation, learner/Admin account management, password recovery, transactional authentication email, and related security controls.
 
-It is a design/implementation handoff, not a statement that these capabilities are deployed.
+It is a product/design authority plus implementation-status note. Repository implementation is not evidence that Resend production configuration, Worker deployment, or live production verification has occurred.
+
+The current PR A implementation is documented in [`PASSWORD_RECOVERY.md`](PASSWORD_RECOVERY.md). This plan continues to describe the future PR B/C account-management scope so that the implemented password-recovery foundation is not mistaken for the Admin Accounts portal.
 
 ## Goal
 
@@ -348,6 +350,8 @@ Requirements:
 - user-enumeration resistance is preserved;
 - rate-limit state should not rely on one process's memory if that would make protection ineffective across Cloudflare isolates.
 
+PR A supplies a deliberately narrow five-requests-per-60-seconds request-boundary guard for the application and direct Better Auth reset-request surfaces. It is useful per isolate but is not a durable distributed Cloudflare-wide control; durable hardening remains a possible PR C concern.
+
 Do not upgrade Better Auth only to obtain a newer rate-limit API without treating that upgrade as a separate reviewed dependency change.
 
 ## Auditability
@@ -392,6 +396,19 @@ Scope:
 - relevant auth/Cloudflare documentation.
 
 Do not add Admin account-management UI in this PR unless a very small shared primitive is necessary.
+
+#### Current PR A status
+
+Draft PR #180 implements the PR A password-recovery foundation and keeps the following boundaries explicit:
+
+- Better Auth `1.6.25` remains the reset-token authority, with approximately one-hour expiry and session revocation after reset;
+- `/forgot-password` and the direct `/api/auth/request-password-reset` HTTP surface share a focused five-requests-per-60-seconds per-isolate request guard;
+- no additional reset-request alias is exposed by the current core-only Better Auth configuration;
+- email delivery is lazy-configured, server-only, and attached to the Cloudflare request lifetime when available;
+- Preview blocks the password-recovery application and Better Auth reset paths before handling while preserving Preview sign-in, sign-out, and get-session;
+- focused Better Auth/D1, local Worker, and Playwright proofs are included.
+
+The guard's per-isolate limitation and the remaining Resend configuration/deployment work are recorded in [`PASSWORD_RECOVERY.md`](PASSWORD_RECOVERY.md). No production D1/R2 mutation, secret change, deployment, or live provider send is part of this implementation.
 
 ### PR B — Production Admin account management
 

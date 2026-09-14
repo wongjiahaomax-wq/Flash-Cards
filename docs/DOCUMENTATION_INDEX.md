@@ -105,12 +105,14 @@ Additional Study Topic authoring is retired. Historical Case Library PR #104 pla
 
 `ACCOUNT_MANAGEMENT_PLAN.md` is product/design context. Its PR A/B implementation prompts are task handoffs, not proof of current-main behavior.
 
+`PASSWORD_RECOVERY.md` is the current implementation and operator-configuration note for PR A's learner password recovery, transactional email boundary, reset-request guard, and Preview fail-closed behavior.
+
 As of this reconciliation:
 
-- PR #96 (password recovery / transactional email) is open and draft;
-- PR #97 (Admin account management) is open and draft and stacked on PR #96.
+- Draft PR #180 contains the current password recovery / transactional email implementation;
+- the Admin account-management portal remains future PR B work, with broader security/self-service polish in PR C.
 
-Neither is part of the reconciliation base merely because the design/prompts are committed.
+The Draft PR is not part of the reconciliation base merely because the design/prompts or implementation are present in the working branch. Production configuration, deployment, and live verification remain separate evidence.
 
 ## Reviewed imports / Anki / slide review
 
