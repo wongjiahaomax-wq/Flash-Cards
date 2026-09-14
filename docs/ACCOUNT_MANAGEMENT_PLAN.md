@@ -1,6 +1,6 @@
 # Account Management Plan
 
-_Status: PR A implementation is present in Draft PR #180; PR B/C and production rollout remain pending._
+_Status: PR A is merged in #180; PR B implementation is in progress for #181; PR C and production rollout remain pending._
 
 _Last reviewed: 14 September 2026_
 
@@ -8,7 +8,7 @@ This document records the agreed direction for production account creation, lear
 
 It is a product/design authority plus implementation-status note. Repository implementation is not evidence that Resend production configuration, Worker deployment, or live production verification has occurred.
 
-The current PR A implementation is documented in [`PASSWORD_RECOVERY.md`](PASSWORD_RECOVERY.md). This plan continues to describe the future PR B/C account-management scope so that the implemented password-recovery foundation is not mistaken for the Admin Accounts portal.
+The merged PR A implementation is documented in [`PASSWORD_RECOVERY.md`](PASSWORD_RECOVERY.md). This plan records the PR B account-management implementation in progress so that code, merge, configuration, deployment, and live verification remain distinct states.
 
 ## Goal
 
@@ -399,7 +399,7 @@ Do not add Admin account-management UI in this PR unless a very small shared pri
 
 #### Current PR A status
 
-Draft PR #180 implements the PR A password-recovery foundation and keeps the following boundaries explicit:
+Merged PR #180 delivered the PR A password-recovery foundation and keeps the following boundaries explicit:
 
 - Better Auth `1.6.25` remains the reset-token authority, with approximately one-hour expiry and session revocation after reset;
 - `/forgot-password` and the direct `/api/auth/request-password-reset` HTTP surface share a focused five-requests-per-60-seconds per-isolate request guard;
@@ -428,6 +428,19 @@ Scope:
 - focused tests.
 
 Do not add Preview Admin creation to this UI.
+
+#### Current PR B implementation status
+
+The PR B implementation in progress adds:
+
+- the production-Admin-only `/admin/accounts` list/search and detail routes;
+- Better Auth-backed Learner/Administrator creation without an Admin-selected password;
+- the PR-A reset-token/email transport reused for set-password and password-reset messages;
+- role changes that preserve unrelated roles such as `preview_admin`;
+- Active/Disabled lifecycle controls, session revocation, and guarded self/last-Admin protections;
+- a database backstop for concurrent/direct removal of the final active production Administrator.
+
+Preview-enabled identities remain outside Production lifecycle/session mutations because the retained Preview and Production runtimes share account/session records. Production role changes preserve the retained Preview role. No production migration, secret/configuration change, deployment, or live verification is implied by this implementation state.
 
 ### PR C — Account security / self-service polish
 

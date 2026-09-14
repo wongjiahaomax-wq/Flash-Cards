@@ -13,6 +13,7 @@ test('preview_admin is distinct from production admin', () => {
   const previewUser = { id: 'preview-user', role: 'preview_admin' };
   const productionAdmin = { id: 'admin-user', role: 'admin' };
   const learner = { id: 'learner-user', role: 'user' };
+  const learnerWithPreviewAccess = { id: 'learner-preview-user', role: 'user,preview_admin' };
 
   assert.equal(isPreviewAdmin(previewUser), true);
   assert.equal(isPreviewOnlyAdmin(previewUser), true);
@@ -22,6 +23,8 @@ test('preview_admin is distinct from production admin', () => {
   assert.equal(isPreviewOnlyAdmin(productionAdmin), false);
   assert.equal(isPreviewAdmin(learner), false);
   assert.equal(isPreviewOnlyAdmin(learner), false);
+  assert.equal(isPreviewAdmin(learnerWithPreviewAccess), true);
+  assert.equal(isPreviewOnlyAdmin(learnerWithPreviewAccess), false);
 });
 
 test('one identity can intentionally hold both production Admin and Preview Admin roles', () => {

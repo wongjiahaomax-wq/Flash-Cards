@@ -54,8 +54,8 @@ export async function handle({ event, resolve }) {
   // Worker shares the production auth tables, so those privileged endpoints
   // must fail closed before Better Auth handles the request. Ordinary auth
   // endpoints such as sign-in, sign-out and get-session remain available.
-  if (isPreviewWorker(env) && isRouteWithin(pathname, '/api/auth/admin')) {
-    return forbidden('Better Auth user administration is unavailable on the Preview Worker.');
+  if (isRouteWithin(pathname, '/api/auth/admin')) {
+    return forbidden('Direct Better Auth user administration is unavailable. Use the Production Admin Accounts workflow.');
   }
 
   // Preview shares production D1/auth state. Password recovery is therefore
