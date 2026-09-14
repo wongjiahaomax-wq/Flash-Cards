@@ -99,7 +99,6 @@ export async function handle({ event, resolve }) {
   // session cookie must fail closed before its physical session row disappears.
   if (
     event.locals.user?.id &&
-    (event.locals.user.role == null || event.locals.user.role === 'user') &&
     await learnerDeletionInProgress(env.DB, event.locals.user.id)
   ) {
     event.locals.session = null;

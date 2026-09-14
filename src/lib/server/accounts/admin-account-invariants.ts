@@ -45,6 +45,19 @@ function hasLastAdminMarker(error: unknown): boolean {
   return String(error).includes('LAST_ACTIVE_PRODUCTION_ADMIN');
 }
 
+function hasDeletionMarker(error: unknown): boolean {
+  if (error instanceof Error && error.message.includes('LEARNER_ACCOUNT_DELETION_IN_PROGRESS')) return true;
+  return String(error).includes('LEARNER_ACCOUNT_DELETION_IN_PROGRESS');
+}
+
+function deletionInProgressBlocked(): AccountManagementError {
+  return new AccountManagementError(
+    'ACCOUNT_DELETION_IN_PROGRESS',
+    'Deletion in progress. Continue deletion before changing this account.',
+    409
+  );
+}
+
 function returnedExactlyOneRow(result: D1Result<unknown> | undefined): boolean {
   return (result?.results?.length ?? 0) === 1;
 }
@@ -150,6 +163,7 @@ export async function demoteProductionAdministratorAtomically(options: {
     }
   } catch (error) {
     if (error instanceof AccountManagementError) throw error;
+    if (hasDeletionMarker(error)) throw deletionInProgressBlocked();
     if (hasLastAdminMarker(error)) throw lastAdminBlocked();
     throw new AccountManagementError('ACCOUNT_OPERATION_FAILED', 'Unable to change the account type.', 500);
   }

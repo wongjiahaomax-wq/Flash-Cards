@@ -1,6 +1,6 @@
 # Account Management Plan
 
-_Status: PR A is merged in #180; PR B implementation is in progress for #181; PR C and production rollout remain pending._
+_Status: PR A is merged in #180; PR B implementation is present on Draft #181 and final handoff is pending; PR C and production rollout remain pending._
 
 _Last reviewed: 14 September 2026_
 
@@ -8,7 +8,7 @@ This document records the agreed direction for production account creation, lear
 
 It is a product/design authority plus implementation-status note. Repository implementation is not evidence that Resend production configuration, Worker deployment, or live production verification has occurred.
 
-The merged PR A implementation is documented in [`PASSWORD_RECOVERY.md`](PASSWORD_RECOVERY.md). This plan records the PR B account-management implementation in progress so that code, merge, configuration, deployment, and live verification remain distinct states.
+The merged PR A implementation is documented in [`PASSWORD_RECOVERY.md`](PASSWORD_RECOVERY.md). This plan records the PR B account-management implementation so that code, merge, configuration, deployment, and live verification remain distinct states.
 
 ## Goal
 
@@ -433,7 +433,7 @@ Do not add Preview Admin creation to this UI.
 
 #### Current PR B implementation status
 
-The PR B implementation in progress adds:
+The PR B implementation adds:
 
 - the production-Admin-only `/admin/accounts` list/search and detail routes;
 - Better Auth-backed Learner/Administrator creation without an Admin-selected password;
@@ -444,7 +444,7 @@ The PR B implementation in progress adds:
 - deletion-marker-aware account reads and server-side fencing for role, lifecycle, password-email, and session actions;
 - a database backstop for concurrent/direct removal of the final active production Administrator.
 
-Preview-enabled identities remain outside Production lifecycle/session mutations because the retained Preview and Production runtimes share account/session records. Production role changes preserve the retained Preview role. No production migration, secret/configuration change, deployment, or live verification is implied by this implementation state.
+Preview-enabled identities remain outside Production lifecycle/session mutations because the retained Preview and Production runtimes share account/session records. Production role changes preserve the retained Preview role. The implementation includes the narrow integrity migrations [`0029_account_admin_safety.sql`](../drizzle/0029_account_admin_safety.sql) and [`0030_learner_account_deletion_integrity.sql`](../drizzle/0030_learner_account_deletion_integrity.sql); applying them, configuring secrets, deploying, and live verification remain separate rollout operations.
 
 ### PR C — Account security / self-service polish
 
@@ -549,13 +549,14 @@ Before enabling real password recovery/invitations in production:
 1. configure the transactional email provider account;
 2. verify the sending domain/address;
 3. configure required Cloudflare secrets without committing them;
-4. deploy the Worker with the expected public auth base URL;
-5. test one real invitation/set-password email;
-6. test one real forgotten-password reset;
-7. verify reset/session revocation behavior from a second browser/session;
-8. verify a disabled learner cannot continue an existing session or sign in again;
-9. verify the last-Admin guard using non-production fixtures/local data before relying on it;
-10. record deployment/behavior verification separately from PR merge status.
+4. apply all pending D1 migrations, including `0029_account_admin_safety.sql` and `0030_learner_account_deletion_integrity.sql`;
+5. deploy the Worker with the expected public auth base URL;
+6. test one real invitation/set-password email;
+7. test one real forgotten-password reset;
+8. verify reset/session revocation behavior from a second browser/session;
+9. verify a disabled learner cannot continue an existing session or sign in again;
+10. verify the last-Admin and deletion-integrity guards using non-production fixtures/local data before relying on them;
+11. record deployment/behavior verification separately from PR merge status.
 
 ## Explicitly out of scope for Account Management v1
 
@@ -565,7 +566,7 @@ Do not add these merely for completeness:
 - social OAuth providers;
 - magic-link-only authentication;
 - Preview Admin account creation in production Accounts UI;
-- routine hard user deletion;
+- direct or unbounded hard user deletion;
 - learner Review deletion/anonymization policy;
 - organizations/teams/cohorts;
 - complex permission/ACL frameworks beyond current roles;

@@ -4,7 +4,12 @@ import { registerHooks } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
+import { createDb } from '../src/lib/server/db/index.js';
 import { getAccount } from '../src/lib/server/accounts/admin-accounts.ts';
+import {
+  advanceLearnerAccountDeletion,
+  beginLearnerAccountDeletion
+} from '../src/lib/server/db/learner-account-deletion.ts';
 import { applyCurrentSchema } from './current-schema.js';
 
 registerHooks({
@@ -128,7 +133,7 @@ function fixture() {
     VALUES ('${LEARNER_ID}', '5.4.2', '{}');
   `);
 
-  return { sqlite, d1, auth, calls, users };
+  return { sqlite, d1, db: createDb(d1), auth, calls, users };
 }
 
 function actionEvent(fixtureValue, action, fields = {}) {
@@ -208,6 +213,71 @@ test('marked accounts are shown as deletion-in-progress and every privileged mut
     assert.equal(userState(fixtureValue.sqlite)?.banned, 1);
     assert.equal(count(fixtureValue.sqlite, 'session', 'userId'), 0, 'the start batch may revoke existing sessions, but mutations must not add or change them');
     assert.equal(fixtureValue.calls.some((call) => call.operation === 'removeUser'), false);
+  } finally {
+    fixtureValue.sqlite.close();
+  }
+});
+
+test('promotion committed before a deletion marker leaves the deletion unstarted and learner data intact', async () => {
+  const fixtureValue = fixture();
+  try {
+    const staleLearnerRead = fixtureValue.sqlite.prepare(
+      'SELECT "role" FROM "user" WHERE "id" = ?'
+    ).get(LEARNER_ID);
+    assert.equal(staleLearnerRead?.role, 'user');
+
+    fixtureValue.sqlite.prepare('UPDATE "user" SET "role" = ? WHERE "id" = ?').run('admin', LEARNER_ID);
+
+    await assert.rejects(
+      () => fixtureValue.d1.batch([
+        fixtureValue.d1.prepare(`
+          INSERT INTO learner_account_deletions (user_id, phase)
+          VALUES (?, 'auth_sessions')
+        `).bind(LEARNER_ID),
+        fixtureValue.d1.prepare(`
+          INSERT INTO learner_study_data_deletions (
+            user_id, phase, requested_at, updated_at, batches_completed, completed_at
+          ) VALUES (?, 'active_reviews', 1, 1, 0, NULL)
+        `).bind(LEARNER_ID),
+        fixtureValue.d1.prepare('UPDATE "user" SET "banned" = 1 WHERE "id" = ?').bind(LEARNER_ID)
+      ]),
+      /LEARNER_ACCOUNT_DELETION_TARGET_NOT_LEARNER/
+    );
+    assert.equal(fixtureValue.sqlite.prepare('SELECT COUNT(*) AS count FROM learner_account_deletions').get().count, 0);
+    assert.equal(fixtureValue.sqlite.prepare('SELECT COUNT(*) AS count FROM learner_study_data_deletions').get().count, 0);
+    assert.equal(userState(fixtureValue.sqlite)?.role, 'admin');
+    assert.equal(userState(fixtureValue.sqlite)?.banned, 0);
+    assert.equal(count(fixtureValue.sqlite, 'session', 'userId'), 1);
+    assert.equal(count(fixtureValue.sqlite, 'account', 'userId'), 1);
+    assert.equal(count(fixtureValue.sqlite, 'learner_preferences'), 1);
+
+    await assert.rejects(
+      () => beginLearnerAccountDeletion({ db: fixtureValue.db, userId: LEARNER_ID }),
+      (error) => error?.code === 'not-learner'
+    );
+  } finally {
+    fixtureValue.sqlite.close();
+  }
+});
+
+test('a deletion marker committed first rejects role promotion and remains resumable', async () => {
+  const fixtureValue = fixture();
+  try {
+    await beginLearnerAccountDeletion({ db: fixtureValue.db, userId: LEARNER_ID });
+    assert.equal(fixtureValue.sqlite.prepare('SELECT COUNT(*) AS count FROM learner_account_deletions').get().count, 1);
+    assert.equal(userState(fixtureValue.sqlite)?.role, 'user');
+    assert.equal(userState(fixtureValue.sqlite)?.banned, 1);
+
+    assert.throws(
+      () => fixtureValue.sqlite.prepare('UPDATE "user" SET "role" = ? WHERE "id" = ?').run('admin', LEARNER_ID),
+      /LEARNER_ACCOUNT_DELETION_IN_PROGRESS/
+    );
+    assert.equal(userState(fixtureValue.sqlite)?.role, 'user');
+    const progress = await advanceLearnerAccountDeletion({ db: fixtureValue.db, userId: LEARNER_ID, batchSize: 1 });
+    assert.equal(progress.deleted, false);
+    assert.equal(fixtureValue.sqlite.prepare('SELECT COUNT(*) AS count FROM learner_account_deletions').get().count, 1);
+    assert.equal(userState(fixtureValue.sqlite)?.role, 'user');
+    assert.equal(userState(fixtureValue.sqlite)?.banned, 1);
   } finally {
     fixtureValue.sqlite.close();
   }

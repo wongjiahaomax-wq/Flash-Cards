@@ -1,6 +1,6 @@
 # Account Management PR B — Production Admin Accounts
 
-_Status: planning-only implementation contract for the new PR B Draft. Do not implement product code until this contract has been reviewed._
+_Status: implementation contract for Draft PR #181. The PR-B implementation is present; final handoff and rollout verification remain pending._
 
 _Last reviewed: 14 September 2026._
 
@@ -112,7 +112,7 @@ account
 verification
 ```
 
-No PR-B schema migration is expected.
+No additional account-state migration is required. The implementation does include two narrow D1 integrity migrations: `0029_account_admin_safety.sql` protects the last active Production Administrator, and `0030_learner_account_deletion_integrity.sql` makes a deletion marker and Production role change mutually exclusive. Apply both when deploying pending migrations.
 
 ## PR-A email/reset foundation
 
@@ -755,7 +755,7 @@ Log only the minimum operational context necessary, preferably action + safe tar
 
 ---
 
-# No schema migration by default
+# Narrow schema migrations only when integrity requires them
 
 Current schema already supports:
 
@@ -765,7 +765,7 @@ Current schema already supports:
 - reset verifications;
 - permanent learner deletion markers and staged cleanup.
 
-Do not add a migration merely to track invitation state, account status, role labels, or deletion confirmation.
+Do not add a migration merely to track invitation state, account status, role labels, or deletion confirmation. The implementation's `0029_account_admin_safety.sql` and `0030_learner_account_deletion_integrity.sql` migrations are narrow database backstops for concurrency and lockout integrity, not new product state.
 
 The first version does **not** need persisted invitation status. `Setup email requested` is an action result, not a new durable account state.
 
@@ -884,7 +884,7 @@ PR B is implementation-ready/complete only when all applicable items below are t
 
 # Luna 5.6 implementation sequence
 
-When this planning Draft is approved for coding:
+Implementation sequence used for this Draft:
 
 1. sync to the exact current PR head and run repository doctor/routing;
 2. read this prompt **and** `ACCOUNT_MANAGEMENT_PR_B_IMPLEMENTATION_AMENDMENT.md` as one contract;

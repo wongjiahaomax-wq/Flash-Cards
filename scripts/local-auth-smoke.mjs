@@ -16,6 +16,8 @@ const seedFile = `${stateDir}/seed-auth-smoke.sql`;
 const email = 'local-smoke-admin@example.test';
 const password = 'LocalSmokePassword123!';
 const newPassword = 'LocalSmokePassword456!';
+const createdAccountEmail = 'local-smoke-created@example.test';
+const createdAccountPassword = 'LocalSmokePassword789!';
 const userId = '00000000-0000-4000-8000-000000000001';
 const accountId = '00000000-0000-4000-8000-000000000002';
 const targetUserId = '00000000-0000-4000-8000-000000000006';
@@ -286,6 +288,74 @@ try {
   assert.equal(study.status, 200);
   const admin = await fetch(`${baseURL}/admin`, { headers: { cookie: cookies }, redirect: 'manual' });
   assert.equal(admin.status, 200);
+
+  const createManagedAccount = await fetch(`${baseURL}/admin/accounts?/create`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      origin: baseURL,
+      'x-sveltekit-action': 'true',
+      cookie: cookies
+    },
+    body: new URLSearchParams({
+      name: 'Local Smoke Created Learner',
+      email: createdAccountEmail,
+      account_type: 'learner'
+    })
+  });
+  const createManagedAccountBody = await createManagedAccount.text();
+  if (createManagedAccount.status === 200) {
+    const actionResult = JSON.parse(createManagedAccountBody);
+    assert.deepEqual(actionResult, {
+      type: 'redirect',
+      status: 303,
+      location: actionResult.location
+    });
+  } else {
+    assert.equal(createManagedAccount.status, 303, createManagedAccountBody);
+  }
+  const createdUsers = queryLocal(
+    `SELECT \`id\`, \`role\`, coalesce(\`banned\`, 0) AS \`banned\` FROM \`user\` WHERE \`email\` = ${sqlString(createdAccountEmail)}`
+  );
+  assert.equal(createdUsers.length, 1);
+  assert.equal(createdUsers[0].role, 'user');
+  assert.equal(Number(createdUsers[0].banned), 0);
+  const createdUserId = String(createdUsers[0].id);
+  const createdAccountsBeforePassword = queryLocal(
+    `SELECT count(*) AS \`count\` FROM \`account\` WHERE \`userId\` = ${sqlString(createdUserId)}`
+  );
+  assert.equal(Number(createdAccountsBeforePassword[0]?.count ?? 0), 0, 'Admin creation must not create a temporary credential.');
+
+  const createdResetRequest = await requestPasswordReset(createdAccountEmail, '198.51.100.26');
+  assert.equal(createdResetRequest.status, 200);
+  const createdVerification = queryLocal(
+    `SELECT \`identifier\` FROM \`verification\` WHERE \`value\` = ${sqlString(createdUserId)} AND \`identifier\` LIKE 'reset-password:%' ORDER BY \`createdAt\` DESC LIMIT 1`
+  );
+  const createdResetIdentifier = String(createdVerification[0]?.identifier ?? '');
+  assert.match(createdResetIdentifier, /^reset-password:.+/);
+  const createdResetToken = createdResetIdentifier.slice('reset-password:'.length);
+  const createdReset = await fetch(`${baseURL}/api/auth/reset-password`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseURL },
+    body: JSON.stringify({ newPassword: createdAccountPassword, token: createdResetToken })
+  });
+  assert.equal(createdReset.status, 200, await createdReset.text());
+  const createdSignIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseURL },
+    body: JSON.stringify({ email: createdAccountEmail, password: createdAccountPassword, rememberMe: false })
+  });
+  assert.equal(createdSignIn.status, 200, await createdSignIn.text());
+  const createdCookies = cookieHeader(createdSignIn);
+  const createdSession = await fetch(`${baseURL}/api/auth/get-session`, { headers: { cookie: createdCookies } });
+  assert.equal(createdSession.status, 200);
+  assert.equal((await createdSession.json())?.user?.email, createdAccountEmail);
+  const createdSignOut = await fetch(`${baseURL}/api/auth/sign-out`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseURL, cookie: createdCookies },
+    body: '{}'
+  });
+  assert.equal(createdSignOut.status, 200);
 
   const targetBeforeAdminApi = targetState();
   for (const [endpoint, body] of [

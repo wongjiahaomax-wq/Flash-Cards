@@ -1,6 +1,6 @@
 # Account Management PR B — Security Contract Amendment
 
-_Status: normative planning amendment for Draft PR #181. Planning only; do not implement product code until the full PR-B contract has been reviewed._
+_Status: normative implementation amendment for Draft PR #181. The required implementation is present; final handoff and rollout verification remain pending._
 
 _Last reviewed: 14 September 2026._
 
@@ -243,4 +243,4 @@ PR B is not implementation-complete unless all of these are true in addition to 
 - a confirmed deletion start creates the durable marker before Continue is accepted;
 - Continue resumes only that existing deletion operation.
 
-No new auth architecture, deletion architecture, durable queue, distributed lock, schema migration or background system is requested by this amendment.
+No additional auth architecture, deletion architecture, durable queue, distributed lock, or background system is requested by this amendment. The narrow integrity migrations required by the reviewed race fix (`0029_account_admin_safety.sql` and `0030_learner_account_deletion_integrity.sql`) are in scope; no other schema migration is requested.

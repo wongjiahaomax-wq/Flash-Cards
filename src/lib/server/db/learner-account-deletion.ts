@@ -66,6 +66,10 @@ function changes(result: D1Result): number {
   return Number(result?.meta?.changes ?? 0);
 }
 
+function isDeletionTargetRace(error: unknown): boolean {
+  return String(error).includes('LEARNER_ACCOUNT_DELETION_TARGET_NOT_LEARNER');
+}
+
 async function readLearner(client: D1Database, userId: string) {
   return await client.prepare(`
     SELECT id, name, email, COALESCE(role, 'user') AS role, COALESCE(banned, 0) AS banned
@@ -124,36 +128,46 @@ export async function beginLearnerAccountDeletion(input: {
     throw new LearnerAccountDeletionError('not-learner', 'Only normal learner accounts can use the FSRS account-deletion flow.');
   }
 
-  await client.batch([
-    client.prepare(`
-      INSERT INTO learner_account_deletions (user_id, phase)
-      VALUES (?, 'auth_sessions')
-      ON CONFLICT(user_id) DO NOTHING
-    `).bind(userId),
-    // Permanent account deletion supersedes self-service cleanup. Keep the
-    // shared study marker active so every current study writer remains fenced;
-    // the account-deletion worker owns the cleanup from this point onward.
-    client.prepare(`
-      INSERT INTO learner_study_data_deletions (
-        user_id, phase, requested_at, updated_at, batches_completed, completed_at
-      ) VALUES (?, 'active_reviews', (unixepoch() * 1000), (unixepoch() * 1000), 0, NULL)
-      ON CONFLICT(user_id) DO UPDATE SET
-        phase = 'active_reviews',
-        requested_at = excluded.requested_at,
-        updated_at = excluded.updated_at,
-        batches_completed = 0,
-        completed_at = NULL
-      WHERE learner_study_data_deletions.phase = 'complete'
-    `).bind(userId),
-    client.prepare(`
-      UPDATE user
-      SET banned = 1,
-          banReason = 'Account deletion in progress',
-          banExpires = NULL,
-          updatedAt = ${DATABASE_NOW_MS_SQL}
-      WHERE id = ? AND (role IS NULL OR role = 'user')
-    `).bind(userId)
-  ]);
+  try {
+    await client.batch([
+      client.prepare(`
+        INSERT INTO learner_account_deletions (user_id, phase)
+        VALUES (?, 'auth_sessions')
+        ON CONFLICT(user_id) DO NOTHING
+      `).bind(userId),
+      // Permanent account deletion supersedes self-service cleanup. Keep the
+      // shared study marker active so every current study writer remains fenced;
+      // the account-deletion worker owns the cleanup from this point onward.
+      client.prepare(`
+        INSERT INTO learner_study_data_deletions (
+          user_id, phase, requested_at, updated_at, batches_completed, completed_at
+        ) VALUES (?, 'active_reviews', (unixepoch() * 1000), (unixepoch() * 1000), 0, NULL)
+        ON CONFLICT(user_id) DO UPDATE SET
+          phase = 'active_reviews',
+          requested_at = excluded.requested_at,
+          updated_at = excluded.updated_at,
+          batches_completed = 0,
+          completed_at = NULL
+        WHERE learner_study_data_deletions.phase = 'complete'
+      `).bind(userId),
+      client.prepare(`
+        UPDATE user
+        SET banned = 1,
+            banReason = 'Account deletion in progress',
+            banExpires = NULL,
+            updatedAt = ${DATABASE_NOW_MS_SQL}
+        WHERE id = ? AND (role IS NULL OR role = 'user')
+      `).bind(userId)
+    ]);
+  } catch (error) {
+    if (isDeletionTargetRace(error)) {
+      throw new LearnerAccountDeletionError(
+        'not-learner',
+        'Only normal learner accounts can use the FSRS account-deletion flow.'
+      );
+    }
+    throw error;
+  }
 
   const deletion = await readDeletion(client, userId);
   if (!deletion) throw new Error('Learner deletion started without a durable deletion marker.');

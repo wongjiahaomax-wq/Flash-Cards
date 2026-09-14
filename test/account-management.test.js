@@ -160,10 +160,30 @@ test('account listing is bounded, supports name/email search, maps product state
   assert.equal(result.accounts.find((account) => account.id === 'lp')?.hasPreviewAccess, true);
 
   const listCall = auth.calls.find((call) => call.operation === 'listUsers');
-  assert.equal(listCall.query.limit, 25);
+  assert.equal(listCall.query.limit, 100);
   assert.equal(listCall.query.offset, 0);
   assert.equal(listCall.query.searchField, 'email');
   assert.equal(listCall.query.searchOperator, 'contains');
+});
+
+test('account pagination filters pure Preview identities before slicing visible pages', async () => {
+  const previewOnlyUsers = Array.from({ length: 25 }, (_, index) => ({
+    id: `preview-${index}`,
+    name: `Preview ${index}`,
+    email: `preview-${index}@example.test`,
+    role: 'preview_admin',
+    createdAt: new Date(`2026-01-${String(index + 1).padStart(2, '0')}`)
+  }));
+  const auth = fakeAuth([
+    ...previewOnlyUsers,
+    { id: 'learner', name: 'Visible Learner', email: 'learner@example.test', role: 'user' }
+  ]);
+
+  const result = await listAccounts({ auth, headers, page: 1 });
+
+  assert.deepEqual(result.accounts.map((account) => account.id), ['learner']);
+  assert.equal(result.totalIncludingPreviewOnly, 26);
+  assert.equal(result.hasNext, false);
 });
 
 test('Admin account creation uses Better Auth without any temporary password and requests set-password email', async () => {
