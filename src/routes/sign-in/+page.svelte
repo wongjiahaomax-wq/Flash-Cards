@@ -71,6 +71,8 @@
         />
       </label>
 
+      <a class="forgot-link" href="/forgot-password">Forgot password?</a>
+
       {#if errorMessage}
         <p class="error" role="alert">{errorMessage}</p>
       {/if}
@@ -113,5 +115,9 @@
   .error {
     margin: 0;
     color: #b42318;
+  }
+
+  .forgot-link {
+    justify-self: start;
   }
 </style>
