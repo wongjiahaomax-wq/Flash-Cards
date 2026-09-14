@@ -6,6 +6,8 @@ _Last reviewed: 14 September 2026._
 
 This is the current implementation contract for **Account Management PR B**. It replaces the stale August handoff and is grounded in current `main` after PR #178 and PR #180 merged.
 
+**Normative security amendment:** `ACCOUNT_MANAGEMENT_PR_B_IMPLEMENTATION_AMENDMENT.md` is part of this contract and supersedes/tightens this prompt where they differ. It closes the Production `/api/auth/admin/*` bypass surface and requires a pre-existing durable deletion marker before `Continue deletion` may advance staged deletion.
+
 Where older account-management documentation says routine hard deletion is absent, that statement is stale for normal Learners: current `main` already contains a tested staged permanent learner-account deletion flow and the product decision is now to expose that existing capability from the Accounts portal. Do **not** use that decision to invent a second deletion engine or to direct-delete Administrator/Preview identities.
 
 ---
@@ -34,6 +36,7 @@ Before coding, follow:
 - the applicable rows in `docs/AGENT_TASK_MAP.md`;
 - `docs/ACCOUNT_MANAGEMENT_PLAN.md` as product context, subject to the current deletion decision above;
 - `docs/PASSWORD_RECOVERY.md` for the merged PR-A implementation;
+- `docs/ACCOUNT_MANAGEMENT_PR_B_IMPLEMENTATION_AMENDMENT.md` as the normative security tightening for this prompt;
 - `docs/ENGINEERING_ARCHITECTURE_GUIDELINES.md`;
 - nearest scoped `AGENTS.md` files for any modified server/Admin areas.
 
@@ -364,6 +367,8 @@ Do not rely solely on the parent layout for mutation authorization. A direct for
 
 Remember: a direct server call to `auth.api.*` does not traverse the public `/api/auth/admin` hook path. The application route itself must enforce the Preview/Production boundary before calling it.
 
+In addition, apply `ACCOUNT_MANAGEMENT_PR_B_IMPLEMENTATION_AMENDMENT.md`: the public Better Auth `/api/auth/admin` HTTP subtree must not remain an alternate Production mutation control plane. Block the unused direct HTTP surface at the existing hook boundary while preserving trusted server-side `auth.api.*` calls, with focused runtime proof.
+
 ---
 
 # Account read model
@@ -584,6 +589,8 @@ Prove:
 - Preview-bearing target mutation fails closed under the chosen v1 rule;
 - deletion-in-progress account cannot be restored/promoted/reset-email-requested into an inconsistent state.
 
+Also run the amendment's direct-HTTP bypass proof: Production requests to the Better Auth `/api/auth/admin` subtree must be rejected before mutation, while protected server-side Accounts actions can still call `auth.api.*` and ordinary auth endpoints remain available.
+
 ---
 
 # Last-active-production-Admin guard
@@ -669,6 +676,16 @@ After final identity removal:
 - account/session/verification and learner data are gone according to the existing staged deletion contract;
 - no deletion marker is left orphaned beyond existing cascade semantics.
 
+## Start versus Continue precondition
+
+Apply the normative amendment explicitly:
+
+- **Start deletion** is the only action allowed to create the durable `learner_account_deletions` marker, and only after typed-email confirmation succeeds.
+- **Continue deletion** must first prove server-side that the durable marker already exists for the target.
+- If no marker exists, Continue fails without calling the auto-starting `advanceLearnerAccountDeletion()`, without banning the user, without creating/resetting deletion markers, and without deleting auth or learner data.
+
+Do not change `advanceLearnerAccountDeletion()` solely to remove its existing auto-start behavior. Enforce this distinction in the Accounts route/shared orchestration before delegation.
+
 ## Shared orchestration
 
 There is already deletion orchestration in `src/routes/admin/learner-analytics/+page.server.js`.
@@ -681,6 +698,8 @@ Preferred smallest solution:
 - if current code already exposes an adequate shared primitive by implementation time, use it directly.
 
 Keep email-confirmation/UI mapping in each route as appropriate.
+
+If orchestration is shared, preserve explicit **start confirmed deletion** versus **continue existing deletion** semantics. Do not allow a shared helper to auto-start a deletion merely because `advanceLearnerAccountDeletion()` can do so.
 
 Do not broadly refactor learner analytics.
 
@@ -702,7 +721,9 @@ Preserve existing staged-deletion tests and add only the Accounts-facing coverag
 - delete requires exact-email confirmation;
 - normal Learner deletion starts and immediately revokes access;
 - bounded request can return Deletion in progress;
-- Continue deletion resumes the existing durable phase rather than restarting unsafe work;
+- direct Continue POST with **no existing marker** fails and leaves identity, ban state, deletion-marker state, sessions/accounts and representative learner data unchanged;
+- confirmed Start creates the durable marker before Continue is accepted;
+- Continue deletion resumes the existing durable phase rather than restarting/auto-starting unsafe work;
 - final ready state removes identity through Better Auth;
 - deleted account cannot sign in and no longer appears in Accounts;
 - disabled Learner can still be permanently deleted;
@@ -744,9 +765,11 @@ Current schema already supports:
 - reset verifications;
 - permanent learner deletion markers and staged cleanup.
 
-Do not add a migration merely to track invitation state, account status, or role labels.
+Do not add a migration merely to track invitation state, account status, role labels, or deletion confirmation.
 
 The first version does **not** need persisted invitation status. `Setup email requested` is an action result, not a new durable account state.
+
+The existing `learner_account_deletions` marker is sufficient to distinguish a confirmed/start-in-progress permanent deletion from a rejected direct Continue request; do not add a second confirmation marker.
 
 If implementation discovers an actual persisted-field requirement, stop that narrow tranche and justify it before adding schema.
 
@@ -758,249 +781,151 @@ After behavior is correct:
 
 1. ensure Accounts navigation and pages match current Admin spacing/forms/table conventions;
 2. keep destructive actions visually separated in a Danger zone;
-3. show clear disabled/protected controls for self/last-Admin/Preview-bearing constraints where useful, while retaining server-side enforcement;
-4. show deletion progress plainly;
-5. avoid a new component/design system unless repeated markup genuinely warrants a small local component.
+3. show deletion progress clearly without exposing internal SQL details;
+4. reconcile living account-management documentation to state that PR A is merged and permanent normal-Learner deletion is supported through the existing staged engine;
+5. keep historical branch-era prompts/evidence historical rather than rewriting all old docs;
+6. document that external `/api/auth/admin/*` is intentionally blocked as a public account-mutation surface while internal server-side `auth.api.*` remains the application mutation path.
 
-Reconcile living account documentation only where current merged state or the implemented PR-B behavior makes it materially stale.
-
-At minimum, final implementation should update `docs/ACCOUNT_MANAGEMENT_PLAN.md` to reflect:
-
-- PR A merged;
-- PR B implemented state;
-- permanent normal-Learner deletion now exposed through Accounts using the already-existing staged deletion contract;
-- production Admin deletion requires safe demotion to Learner first;
-- Preview-bearing identity deletion remains outside this portal.
-
-Also reconcile `docs/DOCUMENTATION_INDEX.md` Authentication / Account Management status if needed.
-
-Do not rewrite historical prompt bodies merely for chronology.
+Do not mix Production deployment evidence into repository implementation status.
 
 ---
 
-# Security invariants
+# Validation strategy
 
-The final implementation must preserve all of these.
+Use focused validation during implementation, not a full suite after every small edit.
 
-1. Public signup remains disabled.
-2. No public account-creation endpoint is introduced.
-3. Only Production Administrators can manage production accounts.
-4. Preview Worker cannot manage production accounts.
-5. Preview-only Admins cannot manage production accounts.
-6. Better Auth remains credential/session/reset authority.
-7. No Better Auth upgrade is bundled into PR B.
-8. No new auth database/table is created.
-9. Admin never chooses or learns a target user's initial password.
-10. Generated initial credential is high entropy and never returned/logged/emailed.
-11. Initial setup reuses Better Auth reset semantics.
-12. Reset tokens remain absent from initial application HTTP request URLs.
-13. Public forgot-password anti-enumeration remains unchanged.
-14. Disable prevents sign-in and revokes existing sessions.
-15. Restore never resurrects old sessions.
-16. Manual Revoke all sessions does not Disable the account.
-17. Self-disable is blocked server-side.
-18. Self-demote is blocked server-side.
-19. Last active production Admin cannot be Disabled.
-20. Last active production Admin cannot be demoted.
-21. `preview_admin` is never accidentally stripped or promoted into production authority.
-22. Permanent delete is available only for a normal Learner in PR B.
-23. Production Administrator deletion requires safe demotion to Learner first.
-24. Preview-bearing identity deletion remains blocked.
-25. Learner deletion reuses the current durable staged deletion flow and Better Auth final identity removal.
-26. Deletion in progress remains access-revoked and retry-safe.
-27. No password/hash/reset token/session token/provider secret is exposed in logs or browser data.
-28. No Production deployment, secret mutation, or live Production-account mutation is part of implementation/testing without separate explicit authorization.
-
----
-
-# Test strategy
-
-Keep testing proportional to the real security/product risk. Do not build a new test framework.
-
-## Unit/read-model tests
-
-Cover:
-
-- role parsing/product type;
-- status derivation;
-- search/pagination;
-- Preview-bearing protection;
-- active-production-Admin count/guard;
-- typed validation/errors.
-
-Use the repository current-schema fixture (`applyCurrentSchema`) for ordinary runtime tests, consistent with merged PR #178.
-
-## Better Auth integration tests
-
-Using the pinned installed package and isolated DB/fake email behavior, prove representative real API semantics for:
-
-- createUser;
-- setRole;
-- ban/unban;
-- revokeUserSessions;
-- requestPasswordReset;
-- removeUser where Accounts deletion reaches final identity removal.
-
-Do not mock the exact Better Auth behavior that the test is intended to prove.
-
-## Route/runtime tests
-
-Prove direct application actions enforce:
-
-- Production Admin only;
-- Preview fail closed;
-- self/last-Admin guard;
-- lifecycle effects;
-- deletion confirmation/progression.
-
-Extend an existing local auth/Worker smoke only where that gives materially stronger evidence without turning it into an oversized all-purpose suite.
-
-## Browser/UI coverage
-
-Use the merged Playwright setup for one or two focused high-value paths if practical, e.g.:
-
-- Accounts page renders/searches and opens detail;
-- destructive Learner delete requires typed confirmation / shows controlled progress.
-
-Do not reproduce every server mutation in Playwright when lower-level runtime tests already prove it.
-
----
-
-# Focused implementation sequence for Luna 5.6
-
-Implement in coherent tranches and review each tranche before expanding scope.
-
-## Step 0 — refresh current state
-
-Before mutation:
+For each tranche:
 
 ```text
-current PR head/base
-installed better-auth version
-current Better Auth Admin API signatures/types
-current auth/Preview guards
-current learner deletion APIs/tests
-current Admin route conventions
-current test-routing output from agent:checks
+coherent code + tests
+→ scoped diff
+→ focused tests
 ```
 
-Do not re-read unrelated repository architecture.
+At checkpoint/final handoff follow current `docs/TESTING_AND_VALIDATION_GUIDANCE.md` and `npm run agent:checks` routing.
 
-## Step 1 — Tranche 1
+Security-sensitive final evidence must include the applicable real runtime boundaries rather than source assertions only:
 
-Accounts list/detail read model + read-only UI + navigation.
+- Better Auth/D1 integration for create/role/ban/unban/session/remove paths;
+- Production hook/runtime proof that public `/api/auth/admin/*` cannot mutate accounts while ordinary auth remains functional;
+- Preview fail-closed behavior;
+- public signup still disabled;
+- PR-A password reset still works;
+- direct Continue-without-marker route proof plus confirmed Start → Continue progression;
+- staged deletion through final Better Auth identity removal;
+- browser/UI smoke for the Accounts happy path and destructive confirmation where practical with existing Playwright infrastructure.
 
-Run only focused account/read-model/auth-boundary tests plus repository-routed checks required by changed files.
-
-## Step 2 — Tranche 2
-
-Create account + setup/reset request.
-
-Add focused Better Auth integration proof. Confirm no secret/temporary credential appears in outputs/logs.
-
-## Step 3 — Tranche 3
-
-Reset resend + session revoke + Disable/Restore + role changes + lockout guards.
-
-Test representative session/sign-in effects, not just source shape.
-
-## Step 4 — Tranche 4
-
-Expose permanent Learner deletion by reusing the existing staged engine. Share only the small orchestration necessary with Learner Analytics.
-
-Run existing deletion regressions plus focused Accounts-facing deletion tests.
-
-## Step 5 — Tranche 5
-
-UI cleanup and living-doc reconciliation only after behavior is stable.
-
-## Checkpoint / final handoff
-
-Use repository routing rather than inventing a validation list:
-
-```sh
-npm run agent:checks
-```
-
-Then run every required/specialized check it reports.
-
-During development, use targeted tests for the affected tranche. Do not repeatedly run the full suite after tiny edits.
-
-At final handoff, run the repository-selected full validation path (normally `npm run validate:full` when reported), plus any account/auth/deletion/browser checks that `agent:checks` does not already cover and that are required by this contract.
-
-Inspect the complete intended-base → head diff once before handoff.
-
-Do not claim commands were run if they were not actually run.
-
----
-
-# Manual acceptance checklist
-
-Using local/test identities only:
-
-1. Production Admin opens Accounts.
-2. Search finds account by name/email.
-3. Add Learner; no password is shown; setup email request is reported.
-4. Add Administrator; same undisclosed-credential behavior.
-5. Existing target receives/reset flow can establish password in configured test environment.
-6. Revoke sessions logs target out without disabling.
-7. Disable logs target out and blocks sign-in.
-8. Restore allows a new sign-in but old session remains invalid.
-9. Promote Learner to Administrator.
-10. Demote a non-self/non-last Administrator to Learner.
-11. Self-disable and self-demote are rejected.
-12. Last-active-Admin disable/demote are rejected.
-13. Preview-bearing role mutation/destruction is unavailable/fails closed.
-14. Delete Learner requires typed email.
-15. Deletion either completes or shows Deletion in progress + Continue deletion.
-16. Continue deletion reaches final identity removal.
-17. Deleted Learner cannot sign in and disappears from Accounts.
-18. Administrator cannot be deleted directly; after safe demotion to Learner, deletion becomes available.
-19. Preview Worker cannot access or mutate Production Accounts.
-20. Public signup remains disabled.
+External Resend delivery must remain faked/injected for normal automated tests. Do not send live email or mutate Production accounts merely to satisfy validation.
 
 ---
 
 # Acceptance criteria
 
-PR B is implementation-complete only when:
+PR B is implementation-ready/complete only when all applicable items below are true.
 
-- Accounts navigation + list/search/detail exist;
-- list/search is bounded;
-- add Learner/Admin works without an Admin-visible password;
-- setup/reset email uses PR-A Better Auth reset semantics;
-- resend setup/reset works;
-- revoke all sessions works;
-- Disable/Restore works with real session/sign-in effects;
-- Learner/Admin promotion/demotion works for supported pure production roles;
-- Preview-bearing roles fail closed from unsupported destructive/role changes;
-- self-disable/self-demote and last-active-Admin guards are server-side and tested;
-- permanent normal-Learner deletion is available with typed confirmation;
-- deletion reuses staged deletion, supports Continue deletion, and finalizes through Better Auth;
-- an Administrator must be safely demoted to Learner before deletion;
-- no schema migration was added unless separately justified by implementation evidence;
-- public signup, Preview boundaries, password-recovery security, and existing learner deletion behavior remain intact;
-- final repository-required validation passes;
-- no Production deployment/configuration/data mutation was performed merely to validate the PR.
+## Authority / boundary
+
+- only Production Admin can access/manage Accounts;
+- Preview Worker cannot manage Production accounts;
+- Preview-only Admin cannot manage Production accounts;
+- public `/api/auth/admin` HTTP routes cannot bypass PR-B policy on Production;
+- trusted protected Accounts actions can still use server-side `auth.api.*`;
+- ordinary sign-in/sign-out/get-session remain unaffected;
+- public signup remains disabled.
+
+## Creation / password setup
+
+- Admin can create Learner and production Administrator;
+- no Admin-visible password exists;
+- generated credential is high entropy and undisclosed;
+- setup/reset request reuses Better Auth + PR-A flow;
+- duplicate email is safe;
+- account survives a post-create setup-request failure with retry path;
+- no second invitation-token architecture exists;
+- direct Better Auth Admin HTTP creation cannot bypass the no-direct-password workflow.
+
+## Roles / lifecycle / sessions
+
+- promote/demote normal production roles;
+- Preview-bearing role is not accidentally stripped;
+- self-disable/self-demote fail;
+- last-active-production-Admin disable/demote fail;
+- direct Better Auth Admin HTTP role/lifecycle mutations cannot bypass those guards;
+- Disable prevents sign-in and revokes sessions;
+- Restore permits new sign-in but revives no old session;
+- manual revoke revokes sessions only;
+- deletion-in-progress target is fenced from conflicting mutations.
+
+## Permanent Learner deletion
+
+- exact-email confirmation is server-side for the initial Delete action;
+- durable deletion marker/access revocation happens before bounded cleanup;
+- Continue requires an already-existing `learner_account_deletions` marker server-side;
+- Continue without a marker is non-destructive and cannot auto-start deletion;
+- confirmed Start → Continue progression is executable-proven;
+- bounded retry/resume works;
+- final identity removal uses Better Auth;
+- direct Better Auth Admin HTTP remove-user cannot bypass staged deletion or confirmation;
+- normal Learner data/auth state is removed according to existing deletion contract;
+- Administrator deletion requires prior safe demotion;
+- Preview-bearing identity cannot be deleted from PR B.
+
+## Scope
+
+- no Better Auth upgrade;
+- no new auth DB;
+- no new schema without separately justified need;
+- no new deletion state machine;
+- no distributed locking/queue architecture;
+- no broad auth/Admin refactor;
+- no Production deployment/secret/account mutation as part of coding/testing.
 
 ---
 
-# Short handoff to implementation agent
+# Luna 5.6 implementation sequence
+
+When this planning Draft is approved for coding:
+
+1. sync to the exact current PR head and run repository doctor/routing;
+2. read this prompt **and** `ACCOUNT_MANAGEMENT_PR_B_IMPLEMENTATION_AMENDMENT.md` as one contract;
+3. verify exact pinned Better Auth Admin APIs and current tests;
+4. implement Tranche 1 and focused tests;
+5. implement Tranche 2 and focused tests;
+6. implement Tranche 3 plus the direct `/api/auth/admin/*` runtime block/proof;
+7. implement Tranche 4 with explicit confirmed-Start versus marker-required-Continue semantics;
+8. reconcile UI/docs in Tranche 5;
+9. run repository-selected final validation and inspect the entire base→head delta;
+10. keep PR Draft until independent review is complete.
+
+Do not implement beyond this contract merely because nearby auth/Admin cleanup appears possible.
+
+---
+
+# Final handover summary for Luna
+
+Implement the smallest production Admin Accounts portal on current post-PR-A architecture.
 
 ```text
-Implement Account Management PR B from this Draft's reviewed contract.
-
-Priority:
-1. bounded Production Admin Accounts list/search/detail;
-2. Add Learner/Admin with server-generated undisclosed credential;
-3. reuse PR-A Better Auth reset flow for setup/resend;
-4. revoke sessions + Disable/Restore;
-5. Learner/Admin role changes with self/last-active-Admin guards;
-6. expose permanent Learner deletion using the existing staged deletion engine;
-7. Admin must be demoted to Learner before deletion; Preview-bearing identities remain protected;
-8. keep routes thin, prefer one cohesive TS account server module, no schema by default;
-9. no Better Auth upgrade, no new invitation token system, no broad auth refactor;
-10. use focused tests per tranche and repository-selected final validation.
-
-Do not implement beyond this contract without concrete current-head evidence that the requirement cannot otherwise be satisfied.
+/admin/accounts
+→ bounded directory/search
+→ Add Learner/Admin with no Admin-known password
+→ reuse PR-A Better Auth setup/reset email
+→ reset resend / revoke sessions
+→ Disable/Restore
+→ Learner↔Admin with self + last-Admin guards
+→ permanent Learner deletion via existing staged engine
 ```
+
+Two non-negotiable boundary rules from the normative amendment:
+
+```text
+public /api/auth/admin/* on Production
+→ blocked before Better Auth
+→ protected server auth.api.* remains usable
+
+Continue deletion
+→ requires existing learner_account_deletions marker
+→ never auto-starts an unconfirmed deletion
+```
+
+Protect Preview-bearing identities, keep public signup disabled, preserve Preview boundaries, add no new auth/deletion architecture, and keep validation proportional but executable at the actual security boundaries.
