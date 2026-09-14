@@ -140,12 +140,14 @@ Admin Study Preview remains isolated from learner persistence. It must not creat
 
 ## Account Management
 
-Account Management v1 is not merged on the reconciliation base:
+Account Management v1 is progressing after the password-recovery foundation merged:
 
-- PR #96 is open/draft and implements password recovery plus transactional email on its branch;
-- PR #97 is open/draft and stacked on #96 for Production Admin account management.
+- PR #180 merged the password-recovery and transactional-email foundation;
+- PR #181 is the in-progress Production Admin account-management implementation;
+- PR C and production rollout/configuration/live verification remain pending.
 
-Do not treat their implementation prompts or PR bodies as current-main behavior.
+The PR #181 implementation state is not evidence of merge, production configuration,
+deployment, or live verification.
 
 ## Development / validation
 

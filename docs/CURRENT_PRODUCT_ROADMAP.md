@@ -138,12 +138,14 @@ No documentation or ordinary feature PR authorizes those Production operations.
 
 ### 2. Account Management v1
 
-Account Management design is committed, but implementation is not on the reconciliation base:
+Account Management v1 is progressing in the current implementation worktree:
 
-- PR #96 — open draft: password recovery and transactional-email foundation;
-- PR #97 — open draft: Production Admin account management, stacked on #96.
+- PR #180 — merged: password recovery and transactional-email foundation;
+- PR #181 — implementation in progress: Production Admin account management;
+- PR C and the production rollout remain pending.
 
-Do not call those features merged until the PRs actually merge.
+The PR #181 implementation state is not evidence of merge, production configuration,
+deployment, or live verification.
 
 ### 3. Real-corpus taxonomy and content curation
 

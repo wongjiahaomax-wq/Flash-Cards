@@ -20,7 +20,7 @@ The implemented learner flow is:
 → existing sessions revoked
 ```
 
-PR A does not add public registration, `/admin/accounts`, account creation, role management, disable/restore controls, or production deployment/configuration.
+PR A did not add public registration, `/admin/accounts`, account creation, role management, disable/restore controls, or production deployment/configuration. Those account-management controls are implemented separately in PR B.
 
 ## Better Auth ownership
 
@@ -123,4 +123,4 @@ These are repository/runtime proofs only. They do not constitute production depl
 
 Before enabling live recovery, an operator must configure and verify the Resend sender/domain, set `RESEND_API_KEY` securely, set `AUTH_EMAIL_FROM`, confirm `BETTER_AUTH_URL`, deploy through the normal release path, and perform real known-account/unknown-account reset and session-revocation checks.
 
-Merging this Draft PR does not perform any of those operations. PR B remains the next step for the production Admin Accounts lifecycle UI and actions.
+Merging PR A did not perform any of those operations. PR B separately owns the production Admin Accounts lifecycle UI and actions.

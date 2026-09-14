@@ -1,6 +1,8 @@
 import { getRequestEvent } from '$app/server';
 import { betterAuth } from 'better-auth';
 import { admin } from 'better-auth/plugins';
+import { createAccessControl } from 'better-auth/plugins/access';
+import { adminAc, defaultStatements } from 'better-auth/plugins/admin/access';
 import { sveltekitCookies } from 'better-auth/svelte-kit';
 
 import { getBetterAuthBaseOptions } from './auth-config.js';
@@ -10,6 +12,24 @@ import {
 } from './email/password-reset.ts';
 import { sendTransactionalEmail } from './email/resend.ts';
 import { EmailDeliveryError } from './email/transactional.ts';
+
+/** @typedef {'reset' | 'account-setup'} PasswordEmailPurpose */
+/** @typedef {'sent' | 'failed'} PasswordEmailDeliveryResult */
+/** @typedef {{
+ *   passwordEmailPurpose?: PasswordEmailPurpose,
+ *   awaitPasswordEmailDelivery?: boolean,
+ *   onPasswordEmailDeliveryResult?: (result: PasswordEmailDeliveryResult) => void
+ * }} CreateAuthOptions */
+
+// preview_admin is a retained application role, not a production Admin role.
+// Register it explicitly so production role changes can preserve it without
+// granting Preview-only identities Better Auth Admin permissions.
+const accountAdminAccessControl = createAccessControl(defaultStatements);
+const accountAdminRoles = {
+  admin: accountAdminAccessControl.newRole(adminAc.statements),
+  user: accountAdminAccessControl.newRole({}),
+  preview_admin: accountAdminAccessControl.newRole({})
+};
 
 /** @param {Promise<unknown>} task */
 function scheduleAuthBackgroundTask(task) {
@@ -49,9 +69,11 @@ function scheduleAuthBackgroundTask(task) {
  *   RESEND_API_KEY?: string,
  *   AUTH_EMAIL_FROM?: string
  * }} env
+ * @param {CreateAuthOptions} [config]
  */
-export function createAuth(env) {
+export function createAuth(env, config = {}) {
   const baseOptions = getBetterAuthBaseOptions(env);
+  const passwordEmailPurpose = config.passwordEmailPurpose ?? 'reset';
 
   return betterAuth({
     ...baseOptions,
@@ -60,12 +82,31 @@ export function createAuth(env) {
       resetPasswordTokenExpiresIn: PASSWORD_RESET_TOKEN_EXPIRES_IN_SECONDS,
       revokeSessionsOnPasswordReset: true,
       sendResetPassword: async ({ user, url, token }) => {
+        if (config.awaitPasswordEmailDelivery) {
+          try {
+            await sendPasswordResetEmail({
+              env,
+              to: user.email,
+              betterAuthResetUrl: url,
+              token,
+              purpose: passwordEmailPurpose,
+              sendEmail: (emailEnv, message) => sendTransactionalEmail(emailEnv, message)
+            });
+            config.onPasswordEmailDeliveryResult?.('sent');
+          } catch (error) {
+            config.onPasswordEmailDeliveryResult?.('failed');
+            throw error;
+          }
+          return;
+        }
+
         try {
           await sendPasswordResetEmail({
             env,
             to: user.email,
             betterAuthResetUrl: url,
             token,
+            purpose: passwordEmailPurpose,
             sendEmail: (emailEnv, message) => sendTransactionalEmail(emailEnv, message)
           });
         } catch (error) {
@@ -80,12 +121,19 @@ export function createAuth(env) {
     },
     advanced: {
       ...baseOptions.advanced,
-      backgroundTasks: {
-        handler: scheduleAuthBackgroundTask
-      }
+      ...(config.awaitPasswordEmailDelivery
+        ? {}
+        : {
+            backgroundTasks: {
+              handler: scheduleAuthBackgroundTask
+            }
+          })
     },
     plugins: [
-      admin(),
+      admin({
+        ac: accountAdminAccessControl,
+        roles: accountAdminRoles
+      }),
       // Must remain last so Better Auth can set cookies from SvelteKit server calls.
       sveltekitCookies(getRequestEvent)
     ]

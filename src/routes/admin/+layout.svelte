@@ -30,6 +30,7 @@
       <a href="/admin/learner-retention">Learner retention</a>
       <a href="/admin/my-study-data">My study data</a>
       <a href="/admin/import">Import package</a>
+      <a href="/admin/accounts">Accounts</a>
     </aside>
 
     <main class="admin-content">{@render children()}</main>
