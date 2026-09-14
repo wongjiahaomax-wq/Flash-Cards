@@ -8,9 +8,10 @@ export type AccountView = {
   name: string;
   email: string;
   accountType: 'Learner' | 'Administrator';
-  status: 'Active' | 'Disabled';
+  status: 'Active' | 'Disabled' | 'Deletion in progress';
   createdAt: string | null;
   hasPreviewAccess: boolean;
+  deletionPhase: string | null;
 };
 
 export type AccountListResult = {
@@ -31,6 +32,10 @@ type AccountUser = {
   role?: unknown;
   banned?: unknown;
   createdAt?: unknown;
+};
+
+type AccountDeletionState = {
+  phase: string;
 };
 
 type AccountAdminApi = {
@@ -185,7 +190,34 @@ function isPreviewOnlyRole(role: unknown): boolean {
   return roles.includes('preview_admin') && !roles.includes('admin') && !roles.includes('user');
 }
 
-function toAccountView(value: unknown): AccountView | null {
+async function readDeletionState(
+  db: D1Database | undefined,
+  userId: string
+): Promise<AccountDeletionState | null> {
+  if (!db) return null;
+  const row = await db
+    .prepare('SELECT `phase` FROM `learner_account_deletions` WHERE `user_id` = ? LIMIT 1')
+    .bind(userId)
+    .first<{ phase?: unknown }>();
+  if (!row || typeof row.phase !== 'string' || !row.phase) return null;
+  return { phase: row.phase };
+}
+
+export async function assertAccountDeletionNotInProgress(
+  db: D1Database | undefined,
+  userId: string
+): Promise<void> {
+  const deletion = await readDeletionState(db, userId);
+  if (deletion) {
+    throw new AccountManagementError(
+      'ACCOUNT_DELETION_IN_PROGRESS',
+      'Deletion in progress. Continue deletion before changing this account.',
+      409
+    );
+  }
+}
+
+function toAccountView(value: unknown, deletion: AccountDeletionState | null = null): AccountView | null {
   const user = accountUser(value);
   if (isPreviewOnlyRole(user.role)) return null;
   return {
@@ -193,10 +225,19 @@ function toAccountView(value: unknown): AccountView | null {
     name: user.name,
     email: user.email,
     accountType: parseRoles(user.role).includes('admin') ? 'Administrator' : 'Learner',
-    status: isDisabled(user.banned) ? 'Disabled' : 'Active',
+    status: deletion ? 'Deletion in progress' : isDisabled(user.banned) ? 'Disabled' : 'Active',
     createdAt: createdAtIso(user.createdAt),
-    hasPreviewAccess: isPreviewAdmin(user)
+    hasPreviewAccess: isPreviewAdmin(user),
+    deletionPhase: deletion?.phase ?? null
   };
+}
+
+async function toAccountViewWithDeletion(
+  value: unknown,
+  db: D1Database | undefined
+): Promise<AccountView | null> {
+  const user = accountUser(value);
+  return toAccountView(user, await readDeletionState(db, user.id));
 }
 
 function requiredText(value: unknown, label: string): string {
@@ -238,6 +279,7 @@ export function productionRoleTransition(role: unknown, target: AccountType): st
 export async function listAccounts(options: {
   auth: unknown;
   headers: Headers;
+  db?: D1Database;
   page?: number;
   search?: string;
   searchField?: 'name' | 'email';
@@ -270,7 +312,8 @@ export async function listAccounts(options: {
     );
 
     return {
-      accounts: users.map(toAccountView).filter((value): value is AccountView => Boolean(value)),
+      accounts: (await Promise.all(users.map((value) => toAccountViewWithDeletion(value, options.db))))
+        .filter((value): value is AccountView => Boolean(value)),
       page,
       pageSize,
       totalIncludingPreviewOnly: total,
@@ -283,7 +326,12 @@ export async function listAccounts(options: {
   }
 }
 
-export async function getAccount(auth: unknown, headers: Headers, userId: string): Promise<AccountView> {
+export async function getAccount(
+  auth: unknown,
+  headers: Headers,
+  userId: string,
+  db?: D1Database
+): Promise<AccountView> {
   let user: unknown;
   try {
     user = await accountAdminApi(auth).getUser({ query: { id: userId }, headers });
@@ -292,7 +340,7 @@ export async function getAccount(auth: unknown, headers: Headers, userId: string
     throw mapAuthError(error, 'Unable to load that account.');
   }
 
-  const view = toAccountView(user);
+  const view = await toAccountViewWithDeletion(user, db);
   if (!view) {
     throw new AccountManagementError(
       'PREVIEW_ACCOUNT_NOT_MANAGED',
@@ -446,10 +494,12 @@ export async function createAccount(options: {
 export async function sendAccountPasswordEmail(options: {
   auth: unknown;
   headers: Headers;
+  db?: D1Database;
   userId: string;
   purpose: PasswordEmailPurpose;
   sendPasswordEmail: PasswordEmailSender;
 }): Promise<void> {
+  await assertAccountDeletionNotInProgress(options.db, options.userId);
   const target = await loadRawManagedUser(options.auth, options.headers, options.userId);
   try {
     await options.sendPasswordEmail(target.email, options.purpose);
@@ -465,10 +515,12 @@ export async function sendAccountPasswordEmail(options: {
 export async function changeProductionRole(options: {
   auth: unknown;
   headers: Headers;
+  db?: D1Database;
   actorUserId: string;
   userId: string;
   accountType: AccountType;
 }): Promise<AccountView | null> {
+  await assertAccountDeletionNotInProgress(options.db, options.userId);
   const target = await loadRawManagedUser(options.auth, options.headers, options.userId);
   const currentRoles = parseRoles(target.role);
   const isAdmin = currentRoles.includes('admin');
@@ -502,9 +554,11 @@ export async function changeProductionRole(options: {
 export async function disableAccount(options: {
   auth: unknown;
   headers: Headers;
+  db?: D1Database;
   actorUserId: string;
   userId: string;
 }): Promise<AccountView> {
+  await assertAccountDeletionNotInProgress(options.db, options.userId);
   const target = await loadRawManagedUser(options.auth, options.headers, options.userId);
   if (target.id === options.actorUserId) {
     throw new AccountManagementError(
@@ -543,8 +597,10 @@ export async function disableAccount(options: {
 export async function restoreAccount(options: {
   auth: unknown;
   headers: Headers;
+  db?: D1Database;
   userId: string;
 }): Promise<AccountView> {
+  await assertAccountDeletionNotInProgress(options.db, options.userId);
   const target = await loadRawManagedUser(options.auth, options.headers, options.userId);
   if (!isDisabled(target.banned)) {
     const view = toAccountView(target);
@@ -569,9 +625,11 @@ export async function restoreAccount(options: {
 export async function revokeAccountSessions(options: {
   auth: unknown;
   headers: Headers;
+  db?: D1Database;
   actorUserId: string;
   userId: string;
 }): Promise<void> {
+  await assertAccountDeletionNotInProgress(options.db, options.userId);
   if (options.userId === options.actorUserId) {
     throw new AccountManagementError(
       'SELF_SESSION_REVOKE_BLOCKED',

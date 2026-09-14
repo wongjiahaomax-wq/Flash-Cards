@@ -5,6 +5,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hashPassword } from 'better-auth/crypto';
 
+import { extractD1Rows } from './local-replica-lib.mjs';
+
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(scriptDir, '..');
 const wranglerCli = join(repoRoot, 'node_modules', 'wrangler', 'bin', 'wrangler.js');
@@ -16,6 +18,9 @@ const password = 'LocalSmokePassword123!';
 const newPassword = 'LocalSmokePassword456!';
 const userId = '00000000-0000-4000-8000-000000000001';
 const accountId = '00000000-0000-4000-8000-000000000002';
+const targetUserId = '00000000-0000-4000-8000-000000000006';
+const targetAccountId = '00000000-0000-4000-8000-000000000007';
+const targetSessionId = '00000000-0000-4000-8000-000000000008';
 const validResetToken = 'local-smoke-valid-reset-token';
 const expiredResetToken = 'local-smoke-expired-reset-token';
 const previewResetToken = 'local-smoke-preview-reset-token';
@@ -24,8 +29,23 @@ const expiredVerificationId = '00000000-0000-4000-8000-000000000004';
 const previewVerificationId = '00000000-0000-4000-8000-000000000005';
 const secret = 'local-auth-smoke-secret-32-characters-minimum';
 
-function runWrangler(args) {
+function runWrangler(args, { capture = false } = {}) {
+  if (capture) {
+    return execFileSync(process.execPath, [wranglerCli, ...args], {
+      encoding: 'utf8',
+      stdio: ['inherit', 'pipe', 'inherit']
+    });
+  }
   execFileSync(process.execPath, [wranglerCli, ...args], { stdio: 'inherit' });
+  return '';
+}
+
+function queryLocal(sql) {
+  return extractD1Rows(
+    runWrangler(['d1', 'execute', 'DB', '--local', '--persist-to', stateDir, '--command', sql, '--json'], {
+      capture: true
+    })
+  );
 }
 
 function sqlString(value) {
@@ -124,6 +144,23 @@ async function responseBody(response) {
   }
 }
 
+function targetState() {
+  const user = queryLocal(
+    `SELECT \`id\`, \`role\`, coalesce(\`banned\`, 0) AS \`banned\` FROM \`user\` WHERE \`id\` = ${sqlString(targetUserId)}`
+  );
+  const accounts = queryLocal(
+    `SELECT count(*) AS \`count\` FROM \`account\` WHERE \`userId\` = ${sqlString(targetUserId)}`
+  );
+  const sessions = queryLocal(
+    `SELECT count(*) AS \`count\` FROM \`session\` WHERE \`userId\` = ${sqlString(targetUserId)}`
+  );
+  return {
+    user: user[0] ?? null,
+    accounts: Number(accounts[0]?.count ?? 0),
+    sessions: Number(sessions[0]?.count ?? 0)
+  };
+}
+
 rmSync(stateDir, { recursive: true, force: true });
 mkdirSync(stateDir, { recursive: true });
 
@@ -138,6 +175,9 @@ writeFileSync(
     'PRAGMA foreign_keys = ON;',
     `INSERT INTO \`user\` (\`id\`, \`name\`, \`email\`, \`emailVerified\`, \`createdAt\`, \`updatedAt\`, \`role\`, \`banned\`) VALUES (${sqlString(userId)}, 'Local Smoke Admin', ${sqlString(email)}, 1, ${now}, ${now}, 'admin', 0);`,
     `INSERT INTO \`account\` (\`id\`, \`accountId\`, \`providerId\`, \`userId\`, \`password\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(accountId)}, ${sqlString(userId)}, 'credential', ${sqlString(userId)}, ${sqlString(passwordHash)}, ${now}, ${now});`,
+    `INSERT INTO \`user\` (\`id\`, \`name\`, \`email\`, \`emailVerified\`, \`createdAt\`, \`updatedAt\`, \`role\`, \`banned\`) VALUES (${sqlString(targetUserId)}, 'Local Smoke Target', 'local-smoke-target@example.test', 1, ${now}, ${now}, 'user', 0);`,
+    `INSERT INTO \`account\` (\`id\`, \`accountId\`, \`providerId\`, \`userId\`, \`password\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(targetAccountId)}, ${sqlString(targetUserId)}, 'credential', ${sqlString(targetUserId)}, ${sqlString(passwordHash)}, ${now}, ${now});`,
+    `INSERT INTO \`session\` (\`id\`, \`expiresAt\`, \`token\`, \`createdAt\`, \`updatedAt\`, \`userId\`) VALUES (${sqlString(targetSessionId)}, ${now + 86400000}, 'local-smoke-target-session', ${now}, ${now}, ${sqlString(targetUserId)});`,
     `INSERT INTO \`verification\` (\`id\`, \`identifier\`, \`value\`, \`expiresAt\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(validVerificationId)}, ${sqlString(`reset-password:${validResetToken}`)}, ${sqlString(userId)}, ${sqlString(new Date(now + 60 * 60 * 1000).toISOString())}, ${now}, ${now});`,
     `INSERT INTO \`verification\` (\`id\`, \`identifier\`, \`value\`, \`expiresAt\`, \`createdAt\`, \`updatedAt\`) VALUES (${sqlString(expiredVerificationId)}, ${sqlString(`reset-password:${expiredResetToken}`)}, ${sqlString(userId)}, ${sqlString(new Date(now - 1000).toISOString())}, ${now}, ${now});`
   ].join('\n')
@@ -247,6 +287,25 @@ try {
   const admin = await fetch(`${baseURL}/admin`, { headers: { cookie: cookies }, redirect: 'manual' });
   assert.equal(admin.status, 200);
 
+  const targetBeforeAdminApi = targetState();
+  for (const [endpoint, body] of [
+    ['create-user', { name: 'Direct Bypass', email: 'direct-bypass@example.test', role: 'admin', password }],
+    ['set-role', { userId: targetUserId, role: 'admin' }],
+    ['remove-user', { userId: targetUserId }]
+  ]) {
+    const response = await fetch(`${baseURL}/api/auth/admin/${endpoint}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: baseURL, cookie: cookies },
+      body: JSON.stringify(body)
+    });
+    assert.equal(response.status, 403, `Direct Better Auth Admin ${endpoint} must be blocked before the plugin handles it.`);
+    await response.text();
+  }
+  assert.deepEqual(targetState(), targetBeforeAdminApi, 'Blocked Better Auth Admin requests must not mutate local D1 state.');
+  const sessionAfterAdminApiBlock = await fetch(`${baseURL}/api/auth/get-session`, { headers: { cookie: cookies } });
+  assert.equal(sessionAfterAdminApiBlock.status, 200);
+  assert.equal((await sessionAfterAdminApiBlock.json())?.user?.email, email);
+
   const reset = await fetch(`${baseURL}/api/auth/reset-password`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', origin: baseURL },
@@ -269,6 +328,18 @@ try {
     body: JSON.stringify({ email, password: newPassword, rememberMe: false })
   });
   assert.equal(newPasswordSignIn.status, 200, await newPasswordSignIn.text());
+  const newPasswordCookies = cookieHeader(newPasswordSignIn);
+  const signOut = await fetch(`${baseURL}/api/auth/sign-out`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseURL, cookie: newPasswordCookies },
+    body: '{}'
+  });
+  assert.equal(signOut.status, 200);
+  const sessionAfterSignOut = await fetch(`${baseURL}/api/auth/get-session`, {
+    headers: { cookie: newPasswordCookies }
+  });
+  assert.equal(sessionAfterSignOut.status, 200);
+  assert.equal(await sessionAfterSignOut.json(), null);
 
   const reusedToken = await fetch(`${baseURL}/api/auth/reset-password`, {
     method: 'POST',

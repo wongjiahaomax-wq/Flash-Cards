@@ -1,6 +1,7 @@
 import { STUDY_DATA_DELETION_DESCRIPTORS } from './learner-study-data-deletion.ts';
 
 export const LEARNER_ACCOUNT_DELETION_BATCH_SIZE = 1_000;
+export const MAX_LEARNER_ACCOUNT_DELETION_STEPS_PER_REQUEST = 8;
 
 const DATABASE_NOW_MS_SQL = "cast((julianday('now') - 2440587.5) * 86400000 as integer)";
 
@@ -38,7 +39,7 @@ const LEGACY_STUDY_DATA_DESCRIPTORS = STUDY_DATA_DELETION_DESCRIPTORS.filter((de
 export type LearnerAccountDeletionPhase = (typeof PHASES)[number]['phase'] | 'identity_ready';
 
 export class LearnerAccountDeletionError extends Error {
-  code: 'invalid-input' | 'learner-not-found' | 'not-learner';
+  code: 'invalid-input' | 'learner-not-found' | 'not-learner' | 'deletion-not-started';
 
   constructor(code: LearnerAccountDeletionError['code'], message: string) {
     super(message);
@@ -324,4 +325,38 @@ export async function getLearnerAccountDeletionStatus(
     batchesCompleted: Number(deletion?.batches_completed ?? 0),
     banned: Boolean(Number(learner.banned ?? 0))
   };
+}
+
+/**
+ * The Accounts and Learner Analytics routes share this bounded orchestration,
+ * while keeping the destructive start and marker-required continuation
+ * preconditions explicit. The lower-level advance primitive intentionally
+ * retains its auto-start behavior for existing callers and tests.
+ */
+export async function startConfirmedLearnerAccountDeletion(input: {
+  db: import('./index.js').LearningDb;
+  userId: string;
+}) {
+  await beginLearnerAccountDeletion(input);
+  return continueExistingLearnerAccountDeletion(input);
+}
+
+export async function continueExistingLearnerAccountDeletion(input: {
+  db: import('./index.js').LearningDb;
+  userId: string;
+}) {
+  const status = await getLearnerAccountDeletionStatus(input.db, input.userId);
+  if (!status.inProgress) {
+    throw new LearnerAccountDeletionError(
+      'deletion-not-started',
+      'There is no confirmed learner account deletion to continue.'
+    );
+  }
+
+  let progress = null;
+  for (let step = 0; step < MAX_LEARNER_ACCOUNT_DELETION_STEPS_PER_REQUEST; step += 1) {
+    progress = await advanceLearnerAccountDeletion(input);
+    if (progress.deleted || progress.readyForIdentityDelete) break;
+  }
+  return progress;
 }

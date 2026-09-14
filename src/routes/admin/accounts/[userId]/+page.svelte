@@ -39,7 +39,11 @@
     </div>
     <div class="badges">
       <span class="badge">{data.account.accountType}</span>
-      <span class:disabled={data.account.status === 'Disabled'} class="badge status">{data.account.status}</span>
+      <span
+        class:disabled={data.account.status === 'Disabled'}
+        class:deleting={data.account.status === 'Deletion in progress'}
+        class="badge status"
+      >{data.account.status}</span>
     </div>
   </div>
 
@@ -67,20 +71,34 @@
     {/if}
   </section>
 
-  <section class="card stack">
-    <div>
-      <h2>Password email</h2>
-      <p class="muted">Use Set password for initial setup or a failed invitation. Use Password reset for an established user who forgot their password. Better Auth owns the secure token; no password or token is shown to the Administrator.</p>
-    </div>
-    <div class="actions">
-      <form method="POST" action="?/sendSetPassword">
-        <button class="button primary" type="submit">Send set-password email</button>
+  {#if data.account.status === 'Deletion in progress'}
+    <section class="card stack deletion-card" aria-live="polite">
+      <div>
+        <h2>Deletion in progress</h2>
+        <p class="muted">
+          This Learner account is being permanently removed in safe bounded steps. Password, role, lifecycle, and session actions are unavailable until deletion completes.
+        </p>
+        <p class="muted phase">Current phase: {data.account.deletionPhase ?? 'unknown'}</p>
+      </div>
+      <form method="POST" action="?/continueDeletion">
+        <button class="button danger" type="submit">Continue deletion</button>
       </form>
-      <form method="POST" action="?/sendPasswordReset">
-        <button class="button" type="submit">Send password-reset email</button>
-      </form>
-    </div>
-  </section>
+    </section>
+  {:else}
+    <section class="card stack">
+      <div>
+        <h2>Password email</h2>
+        <p class="muted">Use Set password for initial setup or a failed invitation. Use Password reset for an established user who forgot their password. Better Auth owns the secure token; no password or token is shown to the Administrator.</p>
+      </div>
+      <div class="actions">
+        <form method="POST" action="?/sendSetPassword">
+          <button class="button primary" type="submit">Send set-password email</button>
+        </form>
+        <form method="POST" action="?/sendPasswordReset">
+          <button class="button" type="submit">Send password-reset email</button>
+        </form>
+      </div>
+    </section>
 
   <section class="card stack">
     <div>
@@ -125,7 +143,7 @@
       {:else if data.account.status === 'Disabled'}
         <p class="muted">Restore permits future sign-in but does not restore old sessions.</p>
       {:else}
-        <p class="muted">Disable preserves the account and learning history, prevents sign-in, and revokes existing sessions. Accounts are not hard-deleted here.</p>
+        <p class="muted">Disable preserves the account and learning history, prevents sign-in, and revokes existing sessions. Permanent deletion is a separate staged action for normal Learners.</p>
       {/if}
     </div>
 
@@ -142,7 +160,27 @@
         <button class="button danger" type="submit">Disable account</button>
       </form>
     {/if}
+
+    {#if !data.account.hasPreviewAccess && data.account.accountType === 'Learner'}
+      <div class="permanent-delete">
+        <h3>Permanent learner deletion</h3>
+        <p class="muted">This removes the Learner identity and its learner-owned data through the existing staged deletion engine. Type the email to confirm the first destructive request.</p>
+        <form method="POST" action="?/deleteLearner" onsubmit={(event) => confirmAction(event, 'Permanently delete this Learner account and all learner-owned data? This cannot be undone.')}>
+          <label class="confirm-field">
+            <span>Type {data.account.email} to confirm</span>
+            <input name="confirmEmail" autocomplete="off" required />
+          </label>
+          <button class="button danger" type="submit">Delete account permanently</button>
+        </form>
+      </div>
+    {:else if !data.account.hasPreviewAccess}
+      <div class="permanent-delete">
+        <h3>Permanent learner deletion</h3>
+        <p class="muted">Demote this Administrator to Learner first. Administrator identities are not permanently deleted through this portal.</p>
+      </div>
+    {/if}
   </section>
+  {/if}
 </div>
 
 <style>
@@ -161,6 +199,7 @@
   .badge { display: inline-flex; padding: 0.25rem 0.6rem; border-radius: 999px; background: #edf2ff; color: #2949a6; font-size: 0.84rem; font-weight: 750; }
   .badge.status { background: #e9f8ee; color: #176b37; }
   .badge.status.disabled { background: #f1f3f5; color: #596273; }
+  .badge.status.deleting { background: #fff4e5; color: #9a5b00; }
   .notice { margin: 0; padding: 0.8rem 1rem; border: 1px solid #9bd3ae; border-radius: 8px; background: #effaf2; }
   .notice.warning { border-color: #f0c36d; background: #fff8e8; }
   .notice.error { border-color: #efb3b3; background: #fff1f1; }
@@ -169,6 +208,12 @@
   .button.danger { border-color: #b42318; background: #b42318; color: #fff; }
   .button.danger-outline { border-color: #d92d20; color: #b42318; }
   .danger-zone { border-color: #f3c4c0; }
+  .deletion-card { border-color: #f0c36d; background: #fffaf0; }
+  .phase { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88rem; }
+  .permanent-delete { display: grid; gap: 0.45rem; padding-top: 1rem; border-top: 1px solid #f0d1ce; }
+  .permanent-delete h3, .permanent-delete p { margin: 0; }
+  .confirm-field { display: grid; gap: 0.35rem; max-width: 420px; color: #344054; font-weight: 650; }
+  .confirm-field input { padding: 0.62rem 0.7rem; border: 1px solid #cfd6e1; border-radius: 7px; font: inherit; }
   @media (max-width: 760px) {
     .page-heading { display: grid; }
     .details-grid { grid-template-columns: 1fr; }

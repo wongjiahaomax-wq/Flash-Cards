@@ -10,6 +10,7 @@ type AccountSafetyRow = {
   id: string;
   role: string | null;
   banned: number | boolean | null;
+  deletion_phase: string | null;
 };
 
 const DISABLED_REASON = 'Disabled by Production Administrator';
@@ -50,7 +51,13 @@ function returnedExactlyOneRow(result: D1Result<unknown> | undefined): boolean {
 
 async function loadSafetyRow(db: D1Database, userId: string): Promise<AccountSafetyRow> {
   const row = await db
-    .prepare('SELECT `id`, `role`, `banned` FROM `user` WHERE `id` = ? LIMIT 1')
+    .prepare(`
+      SELECT u."id", u."role", u."banned", d."phase" AS deletion_phase
+      FROM "user" AS u
+      LEFT JOIN "learner_account_deletions" AS d ON d."user_id" = u."id"
+      WHERE u."id" = ?
+      LIMIT 1
+    `)
     .bind(userId)
     .first<AccountSafetyRow>();
 
@@ -62,6 +69,13 @@ async function loadSafetyRow(db: D1Database, userId: string): Promise<AccountSaf
       'PREVIEW_ACCOUNT_NOT_MANAGED',
       'Preview-only Administrator identities are managed separately from Production Accounts.',
       404
+    );
+  }
+  if (row.deletion_phase) {
+    throw new AccountManagementError(
+      'ACCOUNT_DELETION_IN_PROGRESS',
+      'Deletion in progress. Continue deletion before changing this account.',
+      409
     );
   }
   return row;
@@ -95,7 +109,7 @@ export async function demoteProductionAdministratorAtomically(options: {
   const target = await loadSafetyRow(options.db, options.userId);
   const currentRoles = parseRoles(target.role);
   if (!currentRoles.includes('admin')) {
-    return getAccount(options.auth, options.headers, options.userId);
+    return getAccount(options.auth, options.headers, options.userId, options.db);
   }
 
   const nextRole = productionRoleTransition(target.role, 'learner').join(',');
@@ -130,7 +144,7 @@ export async function demoteProductionAdministratorAtomically(options: {
     if (!returnedExactlyOneRow(result)) {
       const current = await loadSafetyRow(options.db, target.id);
       if (!parseRoles(current.role).includes('admin')) {
-        return getAccount(options.auth, options.headers, target.id);
+        return getAccount(options.auth, options.headers, target.id, options.db);
       }
       throw lastAdminBlocked();
     }
@@ -140,7 +154,7 @@ export async function demoteProductionAdministratorAtomically(options: {
     throw new AccountManagementError('ACCOUNT_OPERATION_FAILED', 'Unable to change the account type.', 500);
   }
 
-  return getAccount(options.auth, options.headers, target.id);
+  return getAccount(options.auth, options.headers, target.id, options.db);
 }
 
 /**
@@ -171,7 +185,7 @@ export async function disableManagedAccountAtomically(options: {
     throw previewAuthorityBlocked();
   }
   if (isDisabled(target.banned)) {
-    return getAccount(options.auth, options.headers, target.id);
+    return getAccount(options.auth, options.headers, target.id, options.db);
   }
 
   const expectedRole = target.role ?? '';
@@ -221,7 +235,7 @@ export async function disableManagedAccountAtomically(options: {
         throw previewAuthorityBlocked();
       }
       if (isDisabled(current.banned)) {
-        return getAccount(options.auth, options.headers, target.id);
+        return getAccount(options.auth, options.headers, target.id, options.db);
       }
       if (parseRoles(current.role).includes('admin')) throw lastAdminBlocked();
       throw new AccountManagementError(
@@ -236,5 +250,5 @@ export async function disableManagedAccountAtomically(options: {
     throw new AccountManagementError('ACCOUNT_OPERATION_FAILED', 'Unable to disable the account.', 500);
   }
 
-  return getAccount(options.auth, options.headers, target.id);
+  return getAccount(options.auth, options.headers, target.id, options.db);
 }

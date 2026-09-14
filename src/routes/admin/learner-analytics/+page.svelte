@@ -141,10 +141,12 @@
     </p>
     <form method="POST" action="?/deleteLearner" class="delete-form">
       <input type="hidden" name="userId" value={data.selected.learner.userId} />
-      <label>
-        <span>Type {data.selected.learner.email} to confirm</span>
-        <input name="confirmEmail" autocomplete="off" required />
-      </label>
+      {#if !data.selected.learner.deletionPhase}
+        <label>
+          <span>Type {data.selected.learner.email} to confirm</span>
+          <input name="confirmEmail" autocomplete="off" required />
+        </label>
+      {/if}
       <button type="submit">{data.selected.learner.deletionPhase ? 'Continue deletion' : 'Delete account permanently'}</button>
     </form>
   </section>

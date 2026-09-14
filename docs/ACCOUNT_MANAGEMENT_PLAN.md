@@ -423,6 +423,8 @@ Scope:
 - Learner/Admin promotion and demotion;
 - Active/Disabled lifecycle;
 - session revocation;
+- explicit permanent deletion for normal Learners through the existing staged deletion engine;
+- marker-required Continue deletion and deletion-in-progress mutation fencing;
 - self-lockout and last-active-Admin guards;
 - Admin navigation entry;
 - focused tests.
@@ -438,6 +440,8 @@ The PR B implementation in progress adds:
 - the PR-A reset-token/email transport reused for set-password and password-reset messages;
 - role changes that preserve unrelated roles such as `preview_admin`;
 - Active/Disabled lifecycle controls, session revocation, and guarded self/last-Admin protections;
+- explicit normal-Learner Delete/Continue actions reusing the existing durable staged deletion engine;
+- deletion-marker-aware account reads and server-side fencing for role, lifecycle, password-email, and session actions;
 - a database backstop for concurrent/direct removal of the final active production Administrator.
 
 Preview-enabled identities remain outside Production lifecycle/session mutations because the retained Preview and Production runtimes share account/session records. Production role changes preserve the retained Preview role. No production migration, secret/configuration change, deployment, or live verification is implied by this implementation state.
@@ -503,7 +507,7 @@ Implementation must preserve all of the following:
 11. Admin-created undisclosed initial credentials are never exposed.
 12. The signed-in Admin cannot disable/demote themselves through ordinary account-management UI/actions.
 13. The last active production Admin cannot be disabled/demoted.
-14. Routine hard deletion is absent until learning-history retention is explicitly designed.
+14. Direct or unbounded hard deletion is absent; explicit normal-Learner deletion revokes access first and reuses the existing bounded, retry-safe staged deletion engine.
 15. Passwords, generated credentials, and reset tokens are never written to application logs/audit records.
 16. Reset tokens are not exposed through initial application/Cloudflare request URLs under the current fragment-based PR-A design.
 
@@ -529,7 +533,9 @@ At minimum, add focused coverage for:
 - promote/demote behavior matches production Admin authorization;
 - self-disable/self-demote fails closed;
 - last-active-Admin disable/demote fails closed;
-- hard-delete action is not exposed;
+- permanent normal-Learner deletion requires exact email confirmation, creates the durable marker before cleanup, and exposes only marker-required Continue while in progress;
+- deletion-in-progress accounts cannot be promoted/demoted, disabled/restored, sent password email, or have sessions revoked;
+- direct Better Auth Admin HTTP create-user, set-role, and remove-user requests are rejected at the runtime hook and leave D1 unchanged;
 - email sender is faked in tests and no real provider secret is required.
 
 Use the repository's current agent/validation workflow. Runtime/Cloudflare-sensitive changes may require the specialized runtime smoke test as advised by `npm run agent:checks`.
@@ -577,8 +583,9 @@ Account Management v1 is successful when:
 - recipients can securely set/recover their own password by email;
 - public registration remains closed;
 - Admins can list, search, promote/demote, disable/restore, resend reset email, and revoke sessions;
+- Admins can explicitly delete a normal Learner through bounded staged cleanup and continue a marked deletion to Better Auth identity removal;
 - self-lockout and last-active-Admin lockout are prevented server-side;
-- disabled accounts retain learner history rather than being hard-deleted;
+- disabled accounts retain learner history until an explicit eligible Learner deletion is confirmed;
 - Preview and production authority boundaries remain intact;
 - secrets/tokens/passwords do not leak through browser data, request URLs, logs, or Git;
 - the implementation is covered by focused auth/account security tests and normal repository validation.

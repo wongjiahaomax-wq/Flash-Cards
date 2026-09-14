@@ -24,13 +24,17 @@ function requireLoadContext(event) {
     if (errorValue instanceof AccountManagementError) error(errorValue.status, errorValue.message);
     throw errorValue;
   }
-  if (!event.locals.auth) error(503, 'Authentication is not configured.');
-  return event.locals.auth;
+  const env = event.platform?.env;
+  if (!event.locals.auth || !env?.DB) error(503, 'Authentication is not configured.');
+  return {
+    auth: event.locals.auth,
+    db: env.DB
+  };
 }
 
 /** @type {import('./$types').PageServerLoad} */
 export async function load(event) {
-  const auth = requireLoadContext(event);
+  const { auth, db } = requireLoadContext(event);
   const search = event.url.searchParams.get('q')?.trim() ?? '';
   const searchField = event.url.searchParams.get('field') === 'email' ? 'email' : 'name';
   const parsedPage = Number.parseInt(event.url.searchParams.get('page') ?? '1', 10);
@@ -39,6 +43,7 @@ export async function load(event) {
   try {
     const result = await listAccounts({
       auth,
+      db,
       headers: event.request.headers,
       search,
       searchField,

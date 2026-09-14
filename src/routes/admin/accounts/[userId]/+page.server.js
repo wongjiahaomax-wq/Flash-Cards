@@ -1,5 +1,13 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 
+import { removeUserWithBetterAuth } from '$lib/server/auth-config.js';
+import { createDb } from '$lib/server/db/index.js';
+import {
+  LearnerAccountDeletionError,
+  continueExistingLearnerAccountDeletion,
+  getLearnerAccountDeletionStatus,
+  startConfirmedLearnerAccountDeletion
+} from '$lib/server/db/learner-account-deletion.ts';
 import {
   AccountManagementError,
   changeProductionRole,
@@ -20,6 +28,9 @@ function actionFailure(errorValue) {
   if (errorValue instanceof AccountManagementError) {
     return fail(errorValue.status, { error: errorValue.message });
   }
+  if (errorValue instanceof LearnerAccountDeletionError) {
+    return fail(errorValue.code === 'learner-not-found' ? 404 : 409, { error: errorValue.message });
+  }
   return fail(500, { error: 'Unable to update the account.' });
 }
 
@@ -33,12 +44,53 @@ function requireContext(event) {
   if (!auth || !env) {
     throw new AccountManagementError('AUTH_NOT_CONFIGURED', 'Authentication is not configured.', 503);
   }
+  if (!env.DB) {
+    throw new AccountManagementError('DB_NOT_CONFIGURED', 'The application database is not configured.', 503);
+  }
   return {
     actorUserId,
     auth,
     env,
+    db: env.DB,
+    learningDb: createDb(env.DB),
     headers: event.request.headers
   };
+}
+
+/** @param {ReturnType<typeof requireContext>} context @param {string} userId */
+async function getLearnerDeletionTarget(context, userId) {
+  const account = await getAccount(context.auth, context.headers, userId, context.db);
+  if (account.status === 'Deletion in progress') {
+    throw new AccountManagementError(
+      'ACCOUNT_DELETION_IN_PROGRESS',
+      'Deletion in progress. Use Continue deletion to finish it.',
+      409
+    );
+  }
+  if (account.accountType !== 'Learner' || account.hasPreviewAccess) {
+    throw new AccountManagementError(
+      'ACCOUNT_DELETE_FORBIDDEN',
+      'Only normal Learner accounts without Preview Admin access can be permanently deleted. Demote an Administrator first.',
+      409
+    );
+  }
+  return account;
+}
+
+/** @param {ReturnType<typeof requireContext>} context @param {string} userId @param {{ readyForIdentityDelete?: boolean } | null | undefined} progress */
+async function removeWhenReady(context, userId, progress) {
+  if (!progress?.readyForIdentityDelete) return false;
+  await removeUserWithBetterAuth(context.auth, {
+    userId,
+    headers: context.headers
+  });
+  return true;
+}
+
+/** @param {string} userId @param {boolean} deleted */
+function deletionRedirect(userId, deleted) {
+  if (deleted) redirect(303, '/admin/accounts?status=deleted');
+  redirect(303, `/admin/accounts/${encodeURIComponent(userId)}?status=deletion-progress`);
 }
 
 /**
@@ -52,7 +104,14 @@ function requireContext(event) {
  * @param {string} userId
  */
 async function assertProductionSecurityMutationScope(context, userId) {
-  const account = await getAccount(context.auth, context.headers, userId);
+  const account = await getAccount(context.auth, context.headers, userId, context.db);
+  if (account.status === 'Deletion in progress') {
+    throw new AccountManagementError(
+      'ACCOUNT_DELETION_IN_PROGRESS',
+      'Deletion in progress. Continue deletion before changing this account.',
+      409
+    );
+  }
   if (account.hasPreviewAccess) {
     throw new AccountManagementError(
       'PREVIEW_AUTHORITY_SEPARATE',
@@ -67,7 +126,7 @@ export async function load(event) {
   let context;
   try {
     context = requireContext(event);
-    const account = await getAccount(context.auth, context.headers, event.params.userId);
+    const account = await getAccount(context.auth, context.headers, event.params.userId, context.db);
     return {
       account,
       isCurrentAccount: account.id === context.actorUserId,
@@ -87,6 +146,7 @@ export const actions = {
       await sendAccountPasswordEmail({
         auth: context.auth,
         headers: context.headers,
+        db: context.db,
         userId: event.params.userId,
         purpose: 'account-setup',
         sendPasswordEmail: (emailAddress, purpose) =>
@@ -104,6 +164,7 @@ export const actions = {
       await sendAccountPasswordEmail({
         auth: context.auth,
         headers: context.headers,
+        db: context.db,
         userId: event.params.userId,
         purpose: 'reset',
         sendPasswordEmail: (emailAddress, purpose) =>
@@ -121,6 +182,7 @@ export const actions = {
       await changeProductionRole({
         auth: context.auth,
         headers: context.headers,
+        db: context.db,
         actorUserId: context.actorUserId,
         userId: event.params.userId,
         accountType: 'administrator'
@@ -129,6 +191,75 @@ export const actions = {
       return actionFailure(errorValue);
     }
     redirect(303, `/admin/accounts/${encodeURIComponent(event.params.userId)}?status=promoted`);
+  },
+
+  deleteLearner: async (event) => {
+    let context;
+    let target;
+    try {
+      context = requireContext(event);
+      target = await getLearnerDeletionTarget(context, event.params.userId);
+    } catch (errorValue) {
+      return actionFailure(errorValue);
+    }
+
+    const formData = await event.request.formData();
+    const confirmEmail = typeof formData.get('confirmEmail') === 'string'
+      ? String(formData.get('confirmEmail')).trim()
+      : '';
+    if (!confirmEmail || confirmEmail.toLowerCase() !== target.email.toLowerCase()) {
+      return fail(400, { error: 'Type the target account email exactly to confirm permanent deletion.' });
+    }
+
+    let deleted;
+    try {
+      const progress = await startConfirmedLearnerAccountDeletion({
+        db: context.learningDb,
+        userId: target.id
+      });
+      deleted = await removeWhenReady(context, target.id, progress);
+    } catch (errorValue) {
+      return actionFailure(errorValue);
+    }
+    deletionRedirect(target.id, deleted);
+  },
+
+  continueDeletion: async (event) => {
+    let context;
+    let target;
+    try {
+      context = requireContext(event);
+      target = await getAccount(context.auth, context.headers, event.params.userId, context.db);
+      const deletion = await getLearnerAccountDeletionStatus(context.learningDb, target.id);
+      if (!deletion.inProgress || !target.deletionPhase) {
+        throw new AccountManagementError(
+          'ACCOUNT_DELETION_NOT_IN_PROGRESS',
+          'There is no confirmed learner account deletion to continue.',
+          409
+        );
+      }
+      if (target.accountType !== 'Learner' || target.hasPreviewAccess) {
+        throw new AccountManagementError(
+          'ACCOUNT_DELETE_FORBIDDEN',
+          'Only a normal Learner account can continue staged deletion.',
+          409
+        );
+      }
+    } catch (errorValue) {
+      return actionFailure(errorValue);
+    }
+
+    let deleted;
+    try {
+      const progress = await continueExistingLearnerAccountDeletion({
+        db: context.learningDb,
+        userId: target.id
+      });
+      deleted = await removeWhenReady(context, target.id, progress);
+    } catch (errorValue) {
+      return actionFailure(errorValue);
+    }
+    deletionRedirect(target.id, deleted);
   },
 
   demote: async (event) => {
@@ -172,6 +303,7 @@ export const actions = {
       await restoreAccount({
         auth: context.auth,
         headers: context.headers,
+        db: context.db,
         userId: event.params.userId
       });
     } catch (errorValue) {
@@ -187,6 +319,7 @@ export const actions = {
       await revokeAccountSessions({
         auth: context.auth,
         headers: context.headers,
+        db: context.db,
         actorUserId: context.actorUserId,
         userId: event.params.userId
       });

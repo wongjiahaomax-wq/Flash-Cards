@@ -3,6 +3,7 @@
 
   /** @type {Record<string, string>} */
   const statusMessages = {
+    deleted: 'Learner account permanently deleted.',
     demoted: 'Account changed to Learner.',
     'demoted-preview-retained': 'Production Administrator access removed. Preview Admin access was retained.'
   };
@@ -122,7 +123,13 @@
               </td>
               <td>{account.email}</td>
               <td>{account.accountType}</td>
-              <td><span class:disabled={account.status === 'Disabled'} class="status-badge">{account.status}</span></td>
+              <td>
+                <span
+                  class:disabled={account.status === 'Disabled'}
+                  class:deleting={account.status === 'Deletion in progress'}
+                  class="status-badge"
+                >{account.status}</span>
+              </td>
               <td>{formatDate(account.createdAt)}</td>
               <td class="row-action"><a href={`/admin/accounts/${encodeURIComponent(account.id)}`}>Manage</a></td>
             </tr>
@@ -172,6 +179,7 @@
   .subtle { margin-top: 0.15rem; color: #667085; font-size: 0.8rem; }
   .status-badge { display: inline-flex; padding: 0.15rem 0.5rem; border-radius: 999px; background: #e9f8ee; color: #176b37; font-size: 0.82rem; font-weight: 700; }
   .status-badge.disabled { background: #f1f3f5; color: #596273; }
+  .status-badge.deleting { background: #fff4e5; color: #9a5b00; }
   .empty { color: #667085; text-align: center; }
   .muted { color: #667085; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
