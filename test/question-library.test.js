@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { buildSeedSql } from '../scripts/seed-content.mjs';
 import { createDb } from '../src/lib/server/db/index.js';
+import { applyCurrentSchema } from './current-schema.js';
 import {
   getQuestionPromptDetail,
   listQuestionLibrary,
@@ -12,18 +12,10 @@ import {
   updateQuestionPrompt
 } from '../src/lib/server/db/question-library.js';
 
-const migrationSql = [
-  readFileSync(new URL('../drizzle/0000_dashing_centennial.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0002_optional_stimulus_groups.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0006_preview_admin_workspace.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0007_image_collections.sql', import.meta.url), 'utf8'),
-  readFileSync(new URL('../drizzle/0012_archive_stimulus_options.sql', import.meta.url), 'utf8')
-].join('\n').replaceAll('--> statement-breakpoint', '');
-
 function createLearningDb() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql);
+  applyCurrentSchema(sqlite);
   sqlite.exec(buildSeedSql());
   const d1 = /** @type {any} */ ({
     /** @param {string} sql */
@@ -121,6 +113,7 @@ test('active Case Question on an inactive Case is excluded from current active u
 test('active Concept Question on an inactive Concept is excluded from current active usage', async () => {
   const fixture = createLearningDb();
   try {
+    fixture.sqlite.prepare('UPDATE concepts SET is_active = 0 WHERE id = ?').run('seed-anterior-stemi');
     fixture.sqlite.prepare('UPDATE concepts SET is_active = 0 WHERE id = ?').run('seed-stemi');
 
     const listRow = (await listQuestionLibrary(fixture.db))

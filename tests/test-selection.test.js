@@ -35,6 +35,8 @@ test('maintained Node-test discovery accepts ordinary Node-standard basenames wi
   assert.equal(isMaintainedNodeTestPath('test/current-schema.js'), false);
   assert.equal(isMaintainedNodeTestPath('scripts/test-fast.mjs'), false);
   assert.equal(isMaintainedNodeTestPath('scripts/test-selection.mjs'), false);
+  assert.equal(isMaintainedNodeTestPath('scripts/test-runner.mjs'), false);
+  assert.equal(isMaintainedNodeTestPath('scripts/test-presentation.mjs'), false);
   assert.equal(isMaintainedNodeTestPath('node_modules/pkg/example.test.js'), false);
   assert.equal(isMaintainedNodeTestPath('.svelte-kit/output/example.test.js'), false);
 });
@@ -176,6 +178,8 @@ test('Checkpoint 2D excludes exactly the six approved specialized tests while co
   const selection = selectFastNodeTests(complete, FAST_TEST_EXCLUSIONS);
 
   assert.ok(complete.length > 6);
+  assert.equal(complete.includes('scripts/test-runner.mjs'), false);
+  assert.equal(complete.includes('scripts/test-presentation.mjs'), false);
   assert.deepEqual(selection.complete, complete);
   assert.deepEqual(selection.excluded, [...FAST_TEST_EXCLUSIONS].sort());
   assert.equal(selection.selected.length, complete.length - 6);

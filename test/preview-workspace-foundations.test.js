@@ -2,12 +2,12 @@
 // @ts-nocheck
 
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 
 import { createDb } from '../src/lib/server/db/index.js';
 import * as previewWorkspace from './preview-workspace-test-adapter.js';
+import { applyCurrentSchema } from './current-schema.js';
 import { PreviewWorkspaceError as InternalPreviewWorkspaceError } from '../src/lib/server/db/preview-workspace/errors.js';
 import { requiredText } from '../src/lib/server/db/preview-workspace/input.js';
 import {
@@ -19,23 +19,6 @@ import {
 } from '../src/lib/server/db/preview-workspace/ownership.js';
 
 /** @typedef {import('../src/lib/server/db/index.js').LearningDb} LearningDb */
-
-const migrationSql = [
-  '0000_dashing_centennial.sql',
-  '0002_optional_stimulus_groups.sql',
-  '0003_multi_topic_study_routing.sql',
-  '0005_tag_foundation.sql',
-  '0006_preview_admin_workspace.sql',
-  '0007_image_collections.sql',
-  '0008_tag_shared_questions.sql',
-  '0009_reusable_image_questions.sql',
-  '0011_asset_supersession.sql',
-  '0012_archive_stimulus_options.sql'
-]
-  .map((name) => readFileSync(new URL(`../drizzle/${name}`, import.meta.url), 'utf8'))
-  .concat('ALTER TABLE assets ADD COLUMN deduplicated_into_asset_id text;')
-  .join('\n')
-  .replaceAll('--> statement-breakpoint', '');
 
 function createD1(sqlite) {
   return {
@@ -85,7 +68,7 @@ class TestBucket {
 function createFixture() {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(migrationSql);
+  applyCurrentSchema(sqlite);
   const d1 = createD1(sqlite);
   const db = /** @type {LearningDb} */ (createDb(/** @type {any} */ (d1)));
   return { sqlite, db, bucket: new TestBucket() };

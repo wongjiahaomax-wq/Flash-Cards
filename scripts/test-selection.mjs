@@ -7,6 +7,8 @@ const MAINTAINED_TEST_FILE = /(?:^|\/)(?:test|test-[^/]+|[^/]+(?:\.test|-test|_t
 const NON_TEST_TOOLING_FILES = new Set([
   'scripts/test-fast.mjs',
   'scripts/test-selection.mjs',
+  'scripts/test-runner.mjs',
+  'scripts/test-presentation.mjs',
 ]);
 const IGNORED_DIRECTORIES = new Set([
   '.git',
