@@ -300,49 +300,33 @@ export async function listAccounts(options: {
   const api = accountAdminApi(options.auth);
 
   try {
-    // Better Auth paginates before the product read model hides pure Preview
-    // identities. Scan the source pages first so a page is not empty merely
-    // because its raw slice was filled with identities Accounts must hide.
-    const sourcePageSize = 100;
-    const visibleUsers: unknown[] = [];
-    let total = 0;
-    let sourceOffset = 0;
-
-    while (true) {
-      const result = listResult(
-        await api.listUsers({
-          query: {
-            limit: sourcePageSize,
-            offset: sourceOffset,
-            sortBy: 'createdAt',
-            sortDirection: 'desc',
-            ...(search
-              ? {
-                  searchValue: search,
-                  searchField,
-                  searchOperator: 'contains'
-                }
-              : {})
-          },
-          headers: options.headers
-        })
-      );
-      total = result.total;
-      visibleUsers.push(...result.users);
-      if (result.users.length === 0 || sourceOffset + result.users.length >= total) break;
-      sourceOffset += result.users.length;
-    }
-
-    const accounts = (await Promise.all(visibleUsers.map((value) => toAccountViewWithDeletion(value, options.db))))
-      .filter((value): value is AccountView => Boolean(value));
+    const { users, total } = listResult(
+      await api.listUsers({
+        query: {
+          limit: pageSize,
+          offset,
+          sortBy: 'createdAt',
+          sortDirection: 'desc',
+          ...(search
+            ? {
+                searchValue: search,
+                searchField,
+                searchOperator: 'contains'
+              }
+            : {})
+        },
+        headers: options.headers
+      })
+    );
 
     return {
-      accounts: accounts.slice(offset, offset + pageSize),
+      accounts: (await Promise.all(users.map((value) => toAccountViewWithDeletion(value, options.db))))
+        .filter((value): value is AccountView => Boolean(value)),
       page,
       pageSize,
       totalIncludingPreviewOnly: total,
       hasPrevious: page > 1,
-      hasNext: offset + pageSize < accounts.length
+      hasNext: offset + pageSize < total
     };
   } catch (error) {
     if (error instanceof AccountManagementError) throw error;
