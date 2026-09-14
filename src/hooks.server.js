@@ -4,8 +4,8 @@ import { svelteKitHandler } from 'better-auth/svelte-kit';
 import { createAuth } from '$lib/server/auth.js';
 import {
   consumePasswordResetRequest,
+  isDirectPasswordResetRequestPath,
   isPasswordRecoveryPath,
-  isPasswordResetRequestPath,
   passwordResetRateLimitResponse
 } from '$lib/server/password-reset-guard.ts';
 import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
@@ -66,11 +66,11 @@ export async function handle({ event, resolve }) {
   }
 
   // Better Auth's 1.6.25 limiter applies to HTTP handling, not direct
-  // server-side auth.api calls. Guard both the application action and the
-  // direct Better Auth reset-request endpoint at the common request boundary.
+  // server-side auth.api calls. The application form consumes the shared
+  // bucket in its action; keep the direct Better Auth endpoint protected here.
   // This small per-isolate guard is deliberately reset-specific; durable
   // cross-isolate enforcement remains a later operational hardening item.
-  if (event.request.method === 'POST' && isPasswordResetRequestPath(pathname)) {
+  if (event.request.method === 'POST' && isDirectPasswordResetRequestPath(pathname)) {
     const decision = consumePasswordResetRequest(event.request);
     if (!decision.allowed) return passwordResetRateLimitResponse(decision.retryAfter);
   }

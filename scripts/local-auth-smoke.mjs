@@ -219,7 +219,7 @@ try {
     assert.match(allowed.body, /If an account exists for that email address/);
   }
   const blockedForgotForm = await requestForgotPassword('form-guard-blocked@example.test', '198.51.100.25');
-  assert.equal(blockedForgotForm.status, 429);
+  assert.match(blockedForgotForm.body, /Too many password reset requests/);
 
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const allowed = await requestPasswordReset(`guard-${attempt}@example.test`, '198.51.100.24');

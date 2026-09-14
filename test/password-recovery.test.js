@@ -172,7 +172,9 @@ test('auth and page configuration preserve the security-sensitive implementation
   assert.match(authSource, /revokeSessionsOnPasswordReset/);
   assert.match(authSource, /waitUntil\(safeTask\)/);
   assert.match(hooksSource, /isPasswordRecoveryPath/);
-  assert.match(hooksSource, /isPasswordResetRequestPath/);
+  assert.match(hooksSource, /isDirectPasswordResetRequestPath/);
+  assert.match(forgotServerSource, /isApplicationPasswordResetRequestPath/);
+  assert.match(forgotServerSource, /fail\(429, \{ error: PASSWORD_RESET_RATE_LIMIT_MESSAGE \}\)/);
   assert.match(forgotServerSource, /If an account exists for that email address, we’ve sent password reset instructions\./);
   assert.doesNotMatch(forgotSource, /email not found|no account exists/i);
   assert.match(resetSource, /window\.location\.hash/);

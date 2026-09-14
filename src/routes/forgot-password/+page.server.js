@@ -1,5 +1,11 @@
 import { fail } from '@sveltejs/kit';
 
+import {
+  consumePasswordResetRequest,
+  isApplicationPasswordResetRequestPath,
+  PASSWORD_RESET_RATE_LIMIT_MESSAGE
+} from '$lib/server/password-reset-guard.ts';
+
 const GENERIC_RESET_MESSAGE = 'If an account exists for that email address, we’ve sent password reset instructions.';
 
 export function load({ locals }) {
@@ -10,6 +16,13 @@ export function load({ locals }) {
 
 export const actions = {
   default: async ({ request, locals }) => {
+    if (isApplicationPasswordResetRequestPath(new URL(request.url).pathname)) {
+      const decision = consumePasswordResetRequest(request);
+      if (!decision.allowed) {
+        return fail(429, { error: PASSWORD_RESET_RATE_LIMIT_MESSAGE });
+      }
+    }
+
     const formData = await request.formData();
     const email = String(formData.get('email') ?? '').trim();
 

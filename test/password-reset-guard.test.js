@@ -4,8 +4,9 @@ import test from 'node:test';
 import {
   clearPasswordResetRateLimitForTests,
   consumePasswordResetRequest,
+  isApplicationPasswordResetRequestPath,
+  isDirectPasswordResetRequestPath,
   isPasswordRecoveryPath,
-  isPasswordResetRequestPath,
   passwordResetRateLimitResponse
 } from '../src/lib/server/password-reset-guard.ts';
 
@@ -32,9 +33,11 @@ test('password recovery path coverage includes the pinned Better Auth reset endp
     assert.equal(isPasswordRecoveryPath(path), true, path);
   }
 
-  assert.equal(isPasswordResetRequestPath('/forgot-password'), true);
-  assert.equal(isPasswordResetRequestPath('/api/auth/request-password-reset/'), true);
-  assert.equal(isPasswordResetRequestPath('/api/auth/reset-password'), false);
+  assert.equal(isApplicationPasswordResetRequestPath('/forgot-password'), true);
+  assert.equal(isApplicationPasswordResetRequestPath('/forgot-password/'), true);
+  assert.equal(isDirectPasswordResetRequestPath('/api/auth/request-password-reset/'), true);
+  assert.equal(isDirectPasswordResetRequestPath('/forgot-password'), false);
+  assert.equal(isDirectPasswordResetRequestPath('/api/auth/reset-password'), false);
   assert.equal(isPasswordRecoveryPath('/api/auth/sign-in/email'), false);
   assert.equal(isPasswordRecoveryPath('/api/auth/sign-out'), false);
   assert.equal(isPasswordRecoveryPath('/api/auth/get-session'), false);

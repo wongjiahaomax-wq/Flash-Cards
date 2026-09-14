@@ -115,6 +115,8 @@ The focused implementation proof includes:
 - local Worker/D1 smoke coverage for reset behavior and the Preview boundary;
 - focused Playwright fragment capture/removal and request-URL hygiene coverage.
 
+The focused browser proof is run with `npm run test:e2e -- e2e/password-recovery.spec.js`; it passes both the fragment-hygiene test and the enhanced-form throttle test.
+
 These are repository/runtime proofs only. They do not constitute production deployment or live Resend verification.
 
 ## Production rollout still required

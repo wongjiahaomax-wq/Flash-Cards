@@ -1,6 +1,7 @@
 const PASSWORD_RESET_RATE_LIMIT_WINDOW_MS = 60_000;
 const PASSWORD_RESET_RATE_LIMIT_MAX_REQUESTS = 5;
 const MAX_TRACKED_CLIENTS = 10_000;
+export const PASSWORD_RESET_RATE_LIMIT_MESSAGE = 'Too many password reset requests. Please try again later.';
 
 type RateLimitEntry = {
   count: number;
@@ -24,9 +25,14 @@ export function isPasswordRecoveryPath(pathname: string): boolean {
 }
 
 /** @param {string} pathname */
-export function isPasswordResetRequestPath(pathname: string): boolean {
+export function isApplicationPasswordResetRequestPath(pathname: string): boolean {
   const normalizedPathname = normalizePathname(pathname);
-  return normalizedPathname === '/forgot-password' || normalizedPathname === '/api/auth/request-password-reset';
+  return normalizedPathname === '/forgot-password';
+}
+
+/** @param {string} pathname */
+export function isDirectPasswordResetRequestPath(pathname: string): boolean {
+  return normalizePathname(pathname) === '/api/auth/request-password-reset';
 }
 
 /** @param {string} pathname */
@@ -89,7 +95,7 @@ export function clearPasswordResetRateLimitForTests(): void {
 
 /** @param {number} retryAfter */
 export function passwordResetRateLimitResponse(retryAfter: number): Response {
-  return new Response('Too many password reset requests. Please try again later.', {
+  return new Response(PASSWORD_RESET_RATE_LIMIT_MESSAGE, {
     status: 429,
     headers: {
       'content-type': 'text/plain; charset=utf-8',
