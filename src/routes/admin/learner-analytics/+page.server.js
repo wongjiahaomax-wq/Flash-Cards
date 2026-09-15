@@ -11,12 +11,11 @@ import {
 } from '$lib/server/db/fsrs-admin-analytics.ts';
 import {
   LearnerAccountDeletionError,
-  advanceLearnerAccountDeletion,
-  beginLearnerAccountDeletion
+  continueExistingLearnerAccountDeletion,
+  getLearnerAccountDeletionStatus,
+  startConfirmedLearnerAccountDeletion
 } from '$lib/server/db/learner-account-deletion.ts';
 import { isPreviewWorker, isProductionAdmin } from '$lib/server/preview-auth.js';
-
-const MAX_DELETION_STEPS_PER_REQUEST = 8;
 
 /** @param {App.Locals} locals @param {App.Platform | undefined} platform */
 function requireAdminContext(locals, platform) {
@@ -65,20 +64,20 @@ export const actions = {
 
     try {
       const detail = await getLearnerAnalyticsDetail(db, userId, { historyLimit: 1 });
-      if (!confirmEmail || confirmEmail.toLowerCase() !== detail.learner.email.toLowerCase()) {
-        return fail(400, {
-          deleted: false,
-          deletionInProgress: false,
-          userId,
-          message: 'Enter the learner email exactly to confirm permanent account deletion.'
-        });
-      }
-
-      await beginLearnerAccountDeletion({ db, userId });
-      let progress = null;
-      for (let step = 0; step < MAX_DELETION_STEPS_PER_REQUEST; step += 1) {
-        progress = await advanceLearnerAccountDeletion({ db, userId });
-        if (progress.deleted || progress.readyForIdentityDelete) break;
+      const currentDeletion = await getLearnerAccountDeletionStatus(db, userId);
+      let progress;
+      if (currentDeletion.inProgress) {
+        progress = await continueExistingLearnerAccountDeletion({ db, userId });
+      } else {
+        if (!confirmEmail || confirmEmail.toLowerCase() !== detail.learner.email.toLowerCase()) {
+          return fail(400, {
+            deleted: false,
+            deletionInProgress: false,
+            userId,
+            message: 'Enter the learner email exactly to confirm permanent account deletion.'
+          });
+        }
+        progress = await startConfirmedLearnerAccountDeletion({ db, userId });
       }
 
       if (progress?.readyForIdentityDelete) {
@@ -99,7 +98,7 @@ export const actions = {
         deleted: false,
         deletionInProgress: true,
         userId,
-        phase: progress?.phase ?? 'auth_verifications',
+        phase: progress?.phase ?? currentDeletion.phase ?? 'auth_verifications',
         message: 'Account access is revoked. Bounded learner-data deletion is still in progress; submit Continue deletion to advance it.'
       };
     } catch (cause) {

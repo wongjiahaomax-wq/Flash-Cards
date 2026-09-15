@@ -54,8 +54,8 @@ export async function handle({ event, resolve }) {
   // Worker shares the production auth tables, so those privileged endpoints
   // must fail closed before Better Auth handles the request. Ordinary auth
   // endpoints such as sign-in, sign-out and get-session remain available.
-  if (isPreviewWorker(env) && isRouteWithin(pathname, '/api/auth/admin')) {
-    return forbidden('Better Auth user administration is unavailable on the Preview Worker.');
+  if (isRouteWithin(pathname, '/api/auth/admin')) {
+    return forbidden('Direct Better Auth user administration is unavailable. Use the Production Admin Accounts workflow.');
   }
 
   // Preview shares production D1/auth state. Password recovery is therefore
@@ -99,7 +99,6 @@ export async function handle({ event, resolve }) {
   // session cookie must fail closed before its physical session row disappears.
   if (
     event.locals.user?.id &&
-    (event.locals.user.role == null || event.locals.user.role === 'user') &&
     await learnerDeletionInProgress(env.DB, event.locals.user.id)
   ) {
     event.locals.session = null;

@@ -1,6 +1,6 @@
 # Account Management Plan
 
-_Status: PR A implementation is present in Draft PR #180; PR B/C and production rollout remain pending._
+_Status: PR A is merged in #180; PR B implementation is present on Draft #181 and final handoff is pending; PR C and production rollout remain pending._
 
 _Last reviewed: 14 September 2026_
 
@@ -8,7 +8,7 @@ This document records the agreed direction for production account creation, lear
 
 It is a product/design authority plus implementation-status note. Repository implementation is not evidence that Resend production configuration, Worker deployment, or live production verification has occurred.
 
-The current PR A implementation is documented in [`PASSWORD_RECOVERY.md`](PASSWORD_RECOVERY.md). This plan continues to describe the future PR B/C account-management scope so that the implemented password-recovery foundation is not mistaken for the Admin Accounts portal.
+The merged PR A implementation is documented in [`PASSWORD_RECOVERY.md`](PASSWORD_RECOVERY.md). This plan records the PR B account-management implementation so that code, merge, configuration, deployment, and live verification remain distinct states.
 
 ## Goal
 
@@ -399,7 +399,7 @@ Do not add Admin account-management UI in this PR unless a very small shared pri
 
 #### Current PR A status
 
-Draft PR #180 implements the PR A password-recovery foundation and keeps the following boundaries explicit:
+Merged PR #180 delivered the PR A password-recovery foundation and keeps the following boundaries explicit:
 
 - Better Auth `1.6.25` remains the reset-token authority, with approximately one-hour expiry and session revocation after reset;
 - `/forgot-password` and the direct `/api/auth/request-password-reset` HTTP surface share a focused five-requests-per-60-seconds per-isolate request guard;
@@ -423,11 +423,28 @@ Scope:
 - Learner/Admin promotion and demotion;
 - Active/Disabled lifecycle;
 - session revocation;
+- explicit permanent deletion for normal Learners through the existing staged deletion engine;
+- marker-required Continue deletion and deletion-in-progress mutation fencing;
 - self-lockout and last-active-Admin guards;
 - Admin navigation entry;
 - focused tests.
 
 Do not add Preview Admin creation to this UI.
+
+#### Current PR B implementation status
+
+The PR B implementation adds:
+
+- the production-Admin-only `/admin/accounts` list/search and detail routes;
+- Better Auth-backed Learner/Administrator creation without an Admin-selected password;
+- the PR-A reset-token/email transport reused for set-password and password-reset messages;
+- role changes that preserve unrelated roles such as `preview_admin`;
+- Active/Disabled lifecycle controls, session revocation, and guarded self/last-Admin protections;
+- explicit normal-Learner Delete/Continue actions reusing the existing durable staged deletion engine;
+- deletion-marker-aware account reads and server-side fencing for role, lifecycle, password-email, and session actions;
+- a database backstop for concurrent/direct removal of the final active production Administrator.
+
+Preview-enabled identities remain outside Production lifecycle/session mutations because the retained Preview and Production runtimes share account/session records. Production role changes preserve the retained Preview role. The implementation includes the narrow integrity migrations [`0029_account_admin_safety.sql`](../drizzle/0029_account_admin_safety.sql) and [`0030_learner_account_deletion_integrity.sql`](../drizzle/0030_learner_account_deletion_integrity.sql); applying them, configuring secrets, deploying, and live verification remain separate rollout operations.
 
 ### PR C — Account security / self-service polish
 
@@ -490,7 +507,7 @@ Implementation must preserve all of the following:
 11. Admin-created undisclosed initial credentials are never exposed.
 12. The signed-in Admin cannot disable/demote themselves through ordinary account-management UI/actions.
 13. The last active production Admin cannot be disabled/demoted.
-14. Routine hard deletion is absent until learning-history retention is explicitly designed.
+14. Direct or unbounded hard deletion is absent; explicit normal-Learner deletion revokes access first and reuses the existing bounded, retry-safe staged deletion engine.
 15. Passwords, generated credentials, and reset tokens are never written to application logs/audit records.
 16. Reset tokens are not exposed through initial application/Cloudflare request URLs under the current fragment-based PR-A design.
 
@@ -516,7 +533,9 @@ At minimum, add focused coverage for:
 - promote/demote behavior matches production Admin authorization;
 - self-disable/self-demote fails closed;
 - last-active-Admin disable/demote fails closed;
-- hard-delete action is not exposed;
+- permanent normal-Learner deletion requires exact email confirmation, creates the durable marker before cleanup, and exposes only marker-required Continue while in progress;
+- deletion-in-progress accounts cannot be promoted/demoted, disabled/restored, sent password email, or have sessions revoked;
+- direct Better Auth Admin HTTP create-user, set-role, and remove-user requests are rejected at the runtime hook and leave D1 unchanged;
 - email sender is faked in tests and no real provider secret is required.
 
 Use the repository's current agent/validation workflow. Runtime/Cloudflare-sensitive changes may require the specialized runtime smoke test as advised by `npm run agent:checks`.
@@ -530,13 +549,14 @@ Before enabling real password recovery/invitations in production:
 1. configure the transactional email provider account;
 2. verify the sending domain/address;
 3. configure required Cloudflare secrets without committing them;
-4. deploy the Worker with the expected public auth base URL;
-5. test one real invitation/set-password email;
-6. test one real forgotten-password reset;
-7. verify reset/session revocation behavior from a second browser/session;
-8. verify a disabled learner cannot continue an existing session or sign in again;
-9. verify the last-Admin guard using non-production fixtures/local data before relying on it;
-10. record deployment/behavior verification separately from PR merge status.
+4. apply all pending D1 migrations, including `0029_account_admin_safety.sql` and `0030_learner_account_deletion_integrity.sql`;
+5. deploy the Worker with the expected public auth base URL;
+6. test one real invitation/set-password email;
+7. test one real forgotten-password reset;
+8. verify reset/session revocation behavior from a second browser/session;
+9. verify a disabled learner cannot continue an existing session or sign in again;
+10. verify the last-Admin and deletion-integrity guards using non-production fixtures/local data before relying on them;
+11. record deployment/behavior verification separately from PR merge status.
 
 ## Explicitly out of scope for Account Management v1
 
@@ -546,7 +566,7 @@ Do not add these merely for completeness:
 - social OAuth providers;
 - magic-link-only authentication;
 - Preview Admin account creation in production Accounts UI;
-- routine hard user deletion;
+- direct or unbounded hard user deletion;
 - learner Review deletion/anonymization policy;
 - organizations/teams/cohorts;
 - complex permission/ACL frameworks beyond current roles;
@@ -564,8 +584,9 @@ Account Management v1 is successful when:
 - recipients can securely set/recover their own password by email;
 - public registration remains closed;
 - Admins can list, search, promote/demote, disable/restore, resend reset email, and revoke sessions;
+- Admins can explicitly delete a normal Learner through bounded staged cleanup and continue a marked deletion to Better Auth identity removal;
 - self-lockout and last-active-Admin lockout are prevented server-side;
-- disabled accounts retain learner history rather than being hard-deleted;
+- disabled accounts retain learner history until an explicit eligible Learner deletion is confirmed;
 - Preview and production authority boundaries remain intact;
 - secrets/tokens/passwords do not leak through browser data, request URLs, logs, or Git;
 - the implementation is covered by focused auth/account security tests and normal repository validation.

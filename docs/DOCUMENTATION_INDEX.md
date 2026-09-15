@@ -109,8 +109,9 @@ Additional Study Topic authoring is retired. Historical Case Library PR #104 pla
 
 As of this reconciliation:
 
-- Draft PR #180 contains the current password recovery / transactional email implementation;
-- the Admin account-management portal remains future PR B work, with broader security/self-service polish in PR C.
+- PR #180 merged the password recovery / transactional email implementation;
+- PR #181 is the in-progress Production Admin account-management implementation;
+- broader security/self-service polish remains PR C work.
 
 The Draft PR is not part of the reconciliation base merely because the design/prompts or implementation are present in the working branch. Production configuration, deployment, and live verification remain separate evidence.
 
