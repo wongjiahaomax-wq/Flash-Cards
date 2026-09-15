@@ -432,10 +432,7 @@ try {
   const betaVerificationBefore = betaVerificationCount();
   const betaDirectReset = await requestPasswordReset(betaEmail, '198.51.100.27');
   const betaUnknownReset = await requestPasswordReset('unknown-beta@example.test', '198.51.100.29');
-  assert.equal(betaDirectReset.status, 200);
-  assert.equal(betaDirectReset.body.status, true);
-  assert.equal(betaUnknownReset.status, 200);
-  assert.equal(betaUnknownReset.body.status, true);
+  assert.deepEqual(betaDirectReset, betaUnknownReset);
   const betaForgotReset = await requestForgotPassword(betaEmail, '198.51.100.28');
   assert.equal(betaForgotReset.status, 200);
   assert.match(betaForgotReset.body, /If an account exists for that email address/);

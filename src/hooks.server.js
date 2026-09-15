@@ -11,6 +11,8 @@ import {
 import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
 import { isBetaEmail } from '$lib/auth/beta-credentials.js';
 
+const GENERIC_PASSWORD_RESET_MESSAGE = 'If this email exists in our system, check your email for the reset link';
+
 /** @param {string} pathname @param {string} root */
 function isRouteWithin(pathname, root) {
   return pathname === root || pathname.startsWith(`${root}/`);
@@ -35,7 +37,10 @@ async function isBetaPasswordResetRequest(request) {
 }
 
 function genericPasswordResetResponse() {
-  return new Response(JSON.stringify({ status: true }), {
+  return new Response(JSON.stringify({
+    status: true,
+    message: GENERIC_PASSWORD_RESET_MESSAGE
+  }), {
     status: 200,
     headers: {
       'content-type': 'application/json',
