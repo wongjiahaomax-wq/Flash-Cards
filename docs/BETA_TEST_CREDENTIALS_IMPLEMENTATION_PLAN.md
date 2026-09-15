@@ -4,7 +4,7 @@ _Status: reviewed implementation contract for Draft PR #182. PR #181 has merged;
 
 _Last reviewed: 15 September 2026._
 
-`BETA_TEST_CREDENTIALS_IMPLEMENTATION_AMENDMENT.md` records the review corrections that made this plan implementation-ready. Those corrections are incorporated below. If older wording elsewhere conflicts, this current plan plus the amendment govern PR #182.
+`BETA_TEST_CREDENTIALS_IMPLEMENTATION_AMENDMENT.md` records the review corrections that made this plan implementation-ready. Those corrections are incorporated below. If older wording elsewhere conflicts, this current plan governs execution; use the amendment as the review record.
 
 ## Why this exists
 
