@@ -1,22 +1,21 @@
 # Beta Test Credentials — Implementation Amendment
 
-_Status: authoritative amendment for Draft PR #182. PR #182 owns both planning and implementation. This amendment supersedes any conflicting planning-only wording in `BETA_TEST_CREDENTIALS_IMPLEMENTATION_PLAN.md` and `BETA_TEST_CREDENTIALS_DECISIONS.md`._
+_Status: reviewed amendment for Draft PR #182. PR #181 has merged and PR #182 owns both planning and implementation. The corrections below have now been incorporated into `BETA_TEST_CREDENTIALS_IMPLEMENTATION_PLAN.md`; retain this file as the review record if historical context is needed._
 
-_Last reviewed: 14 September 2026._
+_Last reviewed: 15 September 2026._
 
 ## Lifecycle
 
 PR #182 remains the single PR for this work. Do not create a follow-up implementation PR.
 
-While PR #181 is still open, #182 may remain stacked on #181 and must stay Draft. Do not implement product code against the stacked branch.
-
-After PR #181 merges:
+PR #181 has merged. Before product implementation:
 
 1. inspect exact current `main`;
-2. retarget/rebase #182 onto that exact `main` result;
-3. keep #182 Draft;
-4. implement the reviewed beta-credentials plan in #182;
-5. run focused validation, repository-required final validation, and the planned real Better Auth + local D1 smoke before handoff.
+2. rebase the existing #182 branch onto that exact `main` result;
+3. confirm #182 remains targeted to `main`;
+4. keep #182 Draft;
+5. implement the reviewed beta-credentials plan in #182;
+6. run focused validation, repository-required final validation, and the planned real Better Auth + local D1 smoke before handoff.
 
 Do not restart from a new PR.
 
@@ -86,7 +85,7 @@ Administrator
 
 The restriction must be enforced server-side at the normal account-creation boundary. UI validation may assist but is not authoritative.
 
-Normal real-email Learner and Administrator creation from PR #181 must remain unchanged.
+Normal real-email Learner and Administrator creation from merged PR #181 must remain unchanged.
 
 This closes the full invariant:
 
@@ -170,7 +169,7 @@ All prior reviewed scope boundaries remain in force unless explicitly amended ab
 - no new email provider or beta email delivery;
 - no beta self-service password recovery;
 - no unrelated account-security work;
-- preserve PR #181 Production Admin, Preview/Production, deletion, session, and last-Admin boundaries;
+- preserve merged PR #181 Production Admin, Preview/Production, deletion, session, and last-Admin boundaries;
 - preserve normal real-email account creation, sign-in, and password recovery behavior.
 
 The implementation should use the narrowest existing boundaries that satisfy these invariants.
@@ -179,7 +178,7 @@ The implementation should use the narrowest existing boundaries that satisfy the
 
 ## Updated implementation acceptance
 
-In addition to the existing plan, implementation is not complete until:
+In addition to the current implementation plan, implementation is not complete until:
 
 - [ ] both `/forgot-password` and direct `/api/auth/request-password-reset` suppress beta reset-token/email processing while remaining generic/non-enumerating;
 - [ ] real-email password recovery still follows the existing path;
