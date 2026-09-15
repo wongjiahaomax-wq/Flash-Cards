@@ -1,13 +1,13 @@
 # Beta Test Credentials — Decision Summary
 
-_Status: planning + implementation companion for Draft PR #182. PR #182 owns implementation after PR #181 merges. The detailed contract is `BETA_TEST_CREDENTIALS_IMPLEMENTATION_PLAN.md` plus the authoritative `BETA_TEST_CREDENTIALS_IMPLEMENTATION_AMENDMENT.md`._
+_Status: planning + implementation companion for Draft PR #182. PR #181 has merged; PR #182 owns implementation. The detailed current execution contract is `BETA_TEST_CREDENTIALS_IMPLEMENTATION_PLAN.md`; `BETA_TEST_CREDENTIALS_IMPLEMENTATION_AMENDMENT.md` records the review corrections now incorporated there._
 
 ## Lifecycle
 
 - Keep PR #182 Draft.
 - Do not create a separate implementation PR.
-- While PR #181 remains open, #182 may stay stacked and remains contract-only.
-- After #181 merges, retarget/rebase #182 onto exact current `main`, then implement in #182.
+- PR #181 has merged and #182 is targeted to `main`.
+- Before product implementation, rebase the existing #182 branch onto exact current `main`, then implement in #182.
 
 ## Decisions
 
@@ -23,7 +23,7 @@ _Status: planning + implementation companion for Draft PR #182. PR #182 owns imp
 - Public password recovery must not create beta reset tokens or attempt beta reset email processing through either `/forgot-password` or direct `/api/auth/request-password-reset`; public behavior remains generic/non-enumerating.
 - Existing real-email account creation and password recovery remain unchanged for future custom-domain rollout.
 - Current passwords are never viewable after submission and are never persisted outside Better Auth's credential hash.
-- Existing PR #181 account lifecycle, deletion, Preview/Production, session, and last-Admin protections are reused rather than rebuilt.
+- Existing merged PR #181 account lifecycle, deletion, Preview/Production, session, and last-Admin protections are reused rather than rebuilt.
 - No schema migration is expected.
 
 ## Beta login example
