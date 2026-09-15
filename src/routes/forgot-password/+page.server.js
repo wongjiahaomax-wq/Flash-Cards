@@ -5,6 +5,7 @@ import {
   isApplicationPasswordResetRequestPath,
   PASSWORD_RESET_RATE_LIMIT_MESSAGE
 } from '$lib/server/password-reset-guard.ts';
+import { isBetaEmail } from '$lib/auth/beta-credentials.js';
 
 const GENERIC_RESET_MESSAGE = 'If an account exists for that email address, we’ve sent password reset instructions.';
 
@@ -30,7 +31,7 @@ export const actions = {
       return fail(400, { error: 'Enter a valid email address.' });
     }
 
-    if (locals.auth) {
+    if (locals.auth && !isBetaEmail(email)) {
       try {
         await locals.auth.api.requestPasswordReset({
           body: { email },

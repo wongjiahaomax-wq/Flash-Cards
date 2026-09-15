@@ -9,6 +9,9 @@ import {
   passwordResetRateLimitResponse
 } from '$lib/server/password-reset-guard.ts';
 import { isPreviewOnlyAdmin, isPreviewWorker } from '$lib/server/preview-auth.js';
+import { isBetaEmail } from '$lib/auth/beta-credentials.js';
+
+const GENERIC_PASSWORD_RESET_MESSAGE = 'If this email exists in our system, check your email for the reset link';
 
 /** @param {string} pathname @param {string} root */
 function isRouteWithin(pathname, root) {
@@ -20,6 +23,29 @@ function forbidden(message) {
   return new Response(message, {
     status: 403,
     headers: { 'content-type': 'text/plain; charset=utf-8' }
+  });
+}
+
+/** @param {Request} request */
+async function isBetaPasswordResetRequest(request) {
+  try {
+    const body = await request.clone().json();
+    return isBetaEmail(body?.email);
+  } catch {
+    return false;
+  }
+}
+
+function genericPasswordResetResponse() {
+  return new Response(JSON.stringify({
+    status: true,
+    message: GENERIC_PASSWORD_RESET_MESSAGE
+  }), {
+    status: 200,
+    headers: {
+      'content-type': 'application/json',
+      'cache-control': 'no-store'
+    }
   });
 }
 
@@ -73,6 +99,7 @@ export async function handle({ event, resolve }) {
   if (event.request.method === 'POST' && isDirectPasswordResetRequestPath(pathname)) {
     const decision = consumePasswordResetRequest(event.request);
     if (!decision.allowed) return passwordResetRateLimitResponse(decision.retryAfter);
+    if (await isBetaPasswordResetRequest(event.request)) return genericPasswordResetResponse();
   }
 
   // Keep the non-authenticated scaffold buildable until D1 and secrets are bound.

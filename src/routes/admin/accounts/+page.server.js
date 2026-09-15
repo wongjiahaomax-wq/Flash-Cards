@@ -3,6 +3,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import {
   AccountManagementError,
   createAccount,
+  createBetaLearner,
   listAccounts,
   requireProductionAccountManager
 } from '$lib/server/accounts/admin-accounts.ts';
@@ -102,5 +103,40 @@ export const actions = {
 
     const status = result.invitationStatus === 'sent' ? 'created' : 'created-email-failed';
     redirect(303, `/admin/accounts/${encodeURIComponent(result.account.id)}?status=${status}`);
+  },
+
+  createBeta: async (event) => {
+    try {
+      requireProductionAccountManager(event.locals.user, event.platform?.env);
+    } catch (errorValue) {
+      return accountActionFailure(errorValue);
+    }
+
+    const auth = event.locals.auth;
+    const env = event.platform?.env;
+    if (!auth || !env) {
+      return fail(503, { error: 'Authentication is not configured.' });
+    }
+
+    const formData = await event.request.formData();
+    const values = {
+      name: typeof formData.get('name') === 'string' ? String(formData.get('name')) : '',
+      username: typeof formData.get('beta_username') === 'string' ? String(formData.get('beta_username')) : ''
+    };
+
+    let result;
+    try {
+      result = await createBetaLearner({
+        auth,
+        headers: event.request.headers,
+        name: values.name,
+        username: values.username,
+        password: formData.get('password')
+      });
+    } catch (errorValue) {
+      return accountActionFailure(errorValue, { beta: true, values });
+    }
+
+    redirect(303, `/admin/accounts/${encodeURIComponent(result.account.id)}?status=beta-created`);
   }
 };

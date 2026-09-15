@@ -1,5 +1,5 @@
 <script>
-  let { data, form } = $props();
+  let { data, form } = /** @type {any} */ ($props());
 
   /** @type {Record<string, string>} */
   const statusMessages = {
@@ -72,6 +72,33 @@
     </form>
   </details>
 
+  <details class="card stack" open={Boolean(form?.beta)}>
+    <summary><strong>Add beta learner</strong></summary>
+    <p class="muted">No email is sent. Give the learner the username and password privately; the password cannot be viewed later. This creates a Learner only.</p>
+
+    {#if form?.error && form?.beta}
+      <p class="notice error" role="alert">{form.error}</p>
+    {/if}
+
+    <form class="create-grid beta-create-grid" method="POST" action="?/createBeta">
+      <label class="field">
+        <span>Name</span>
+        <input name="name" required autocomplete="off" value={form?.values?.name ?? ''} />
+      </label>
+      <label class="field">
+        <span>Beta username</span>
+        <input name="beta_username" required minlength="3" maxlength="24" autocomplete="username" value={form?.values?.username ?? ''} />
+      </label>
+      <label class="field">
+        <span>Initial password</span>
+        <input name="password" type="password" minlength="8" maxlength="128" required autocomplete="new-password" />
+      </label>
+      <div class="submit-cell">
+        <button class="button primary" type="submit">Create beta learner</button>
+      </div>
+    </form>
+  </details>
+
   <section class="card stack">
     <div class="section-heading">
       <div>
@@ -105,7 +132,7 @@
         <thead>
           <tr>
             <th>Name</th>
-            <th>Email</th>
+            <th>Login</th>
             <th>Type</th>
             <th>Status</th>
             <th>Created</th>
@@ -121,7 +148,13 @@
                   <div class="subtle">Also has Preview Admin access</div>
                 {/if}
               </td>
-              <td>{account.email}</td>
+              <td>
+                {#if account.betaUsername}
+                  {account.betaUsername} <span class="subtle">[Beta]</span>
+                {:else}
+                  {account.email}
+                {/if}
+              </td>
               <td>{account.accountType}</td>
               <td>
                 <span
@@ -160,6 +193,7 @@
   .card { padding: 1.25rem; border: 1px solid #dfe5ee; border-radius: 10px; background: white; }
   details summary { cursor: pointer; }
   .create-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(160px, 0.6fr) auto; gap: 0.9rem; align-items: end; }
+  .beta-create-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(160px, 0.8fr) auto; }
   .field { display: grid; gap: 0.35rem; font-weight: 650; }
   .field span { font-size: 0.9rem; }
   input, select { width: 100%; padding: 0.7rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: inherit; }
@@ -184,7 +218,7 @@
   .muted { color: #667085; }
   .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   @media (max-width: 1050px) {
-    .create-grid { grid-template-columns: 1fr 1fr; }
+    .create-grid, .beta-create-grid { grid-template-columns: 1fr 1fr; }
     .submit-cell { align-self: end; }
   }
   @media (max-width: 720px) {
