@@ -1,4 +1,9 @@
 import { isPreviewAdmin, isPreviewWorker, isProductionAdmin, parseRoles } from '../preview-auth.js';
+import {
+  betaUsernameFromEmail,
+  betaUsernameToEmail,
+  isBetaEmail
+} from '../../auth/beta-credentials.js';
 
 export type PasswordEmailPurpose = 'account-setup' | 'reset';
 export type AccountType = 'learner' | 'administrator';
@@ -7,6 +12,7 @@ export type AccountView = {
   id: string;
   name: string;
   email: string;
+  betaUsername: string | null;
   accountType: 'Learner' | 'Administrator';
   status: 'Active' | 'Disabled' | 'Deletion in progress';
   createdAt: string | null;
@@ -45,7 +51,11 @@ type AccountAdminApi = {
   }): Promise<unknown>;
   getUser(input: { query: { id: string }; headers: Headers }): Promise<unknown>;
   createUser(input: {
-    body: { name: string; email: string; role: 'user' | 'admin' };
+    body: { name: string; email: string; role: 'user' | 'admin'; password?: string };
+    headers: Headers;
+  }): Promise<unknown>;
+  setUserPassword(input: {
+    body: { userId: string; newPassword: string };
     headers: Headers;
   }): Promise<unknown>;
   setRole(input: {
@@ -232,6 +242,7 @@ function toAccountView(value: unknown, deletion: AccountDeletionState | null = n
     id: user.id,
     name: user.name,
     email: user.email,
+    betaUsername: betaUsernameFromEmail(user.email),
     accountType: parseRoles(user.role).includes('admin') ? 'Administrator' : 'Learner',
     status: deletion ? 'Deletion in progress' : isDisabled(user.banned) ? 'Disabled' : 'Active',
     createdAt: createdAtIso(user.createdAt),
@@ -259,7 +270,20 @@ function normalizedEmail(value: unknown): string {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new AccountManagementError('INVALID_INPUT', 'Enter a valid email address.');
   }
+  if (isBetaEmail(email)) {
+    throw new AccountManagementError(
+      'BETA_NAMESPACE_RESERVED',
+      'The @beta.invalid namespace is reserved for Add beta learner.'
+    );
+  }
   return email;
+}
+
+function betaPassword(value: unknown): string {
+  if (typeof value !== 'string' || value.length < 8 || value.length > 128) {
+    throw new AccountManagementError('INVALID_INPUT', 'Password must be between 8 and 128 characters.');
+  }
+  return value;
 }
 
 export function requireProductionAccountManager(
@@ -499,6 +523,46 @@ export async function createAccount(options: {
   }
 }
 
+export async function createBetaLearner(options: {
+  auth: unknown;
+  headers: Headers;
+  name: unknown;
+  username: unknown;
+  password: unknown;
+}): Promise<{ account: AccountView }> {
+  const name = requiredText(options.name, 'Name');
+  let email: string;
+  try {
+    email = betaUsernameToEmail(options.username);
+  } catch {
+    throw new AccountManagementError(
+      'INVALID_INPUT',
+      'Beta usernames must be 3–24 characters using letters, numbers, and internal hyphens.'
+    );
+  }
+  const password = betaPassword(options.password);
+
+  let created: unknown;
+  try {
+    created = await accountAdminApi(options.auth).createUser({
+      body: { name, email, password, role: 'user' },
+      headers: options.headers
+    });
+  } catch (error) {
+    if (authErrorCode(error).includes('USER_ALREADY_EXISTS')) {
+      throw new AccountManagementError('BETA_USERNAME_TAKEN', 'That beta username is already in use.', 409);
+    }
+    if (error instanceof AccountManagementError) throw error;
+    throw mapAuthError(error, 'Unable to create the beta learner.');
+  }
+
+  const account = toAccountView(resultUser(created));
+  if (!account?.betaUsername) {
+    throw new AccountManagementError('INVALID_ACCOUNT_DATA', 'Unable to read the created beta learner.', 500);
+  }
+  return { account };
+}
+
 export async function sendAccountPasswordEmail(options: {
   auth: unknown;
   headers: Headers;
@@ -509,6 +573,12 @@ export async function sendAccountPasswordEmail(options: {
 }): Promise<void> {
   await assertAccountDeletionNotInProgress(options.db, options.userId);
   const target = await loadRawManagedUser(options.auth, options.headers, options.userId);
+  if (isBetaEmail(target.email)) {
+    throw new AccountManagementError(
+      'BETA_PASSWORD_EMAIL_BLOCKED',
+      'Beta learners use a password set directly by the Administrator; no password email is sent.'
+    );
+  }
   try {
     await options.sendPasswordEmail(target.email, options.purpose);
   } catch {
@@ -532,6 +602,13 @@ export async function changeProductionRole(options: {
   const target = await loadRawManagedUser(options.auth, options.headers, options.userId);
   const currentRoles = parseRoles(target.role);
   const isAdmin = currentRoles.includes('admin');
+
+  if (isBetaEmail(target.email) && options.accountType === 'administrator') {
+    throw new AccountManagementError(
+      'BETA_ADMIN_BLOCKED',
+      'Beta learners cannot be promoted to Production Administrator.'
+    );
+  }
 
   if (options.accountType === 'learner') {
     await assertMayRemoveProductionAdmin(options.auth, options.headers, options.actorUserId, target);
@@ -560,6 +637,38 @@ export async function changeProductionRole(options: {
   }
 
   return toAccountView(resultUser(updated));
+}
+
+export async function setBetaLearnerPassword(options: {
+  auth: unknown;
+  headers: Headers;
+  db?: D1Database;
+  userId: string;
+  password: unknown;
+}): Promise<void> {
+  await assertAccountDeletionNotInProgress(options.db, options.userId);
+  const target = await loadRawManagedUser(options.auth, options.headers, options.userId);
+  const roles = parseRoles(target.role);
+  if (!isBetaEmail(target.email) || !roles.includes('user') || roles.includes('admin')) {
+    throw new AccountManagementError(
+      'BETA_ACCOUNT_REQUIRED',
+      'Set new beta password is available only for Beta Learner accounts.'
+    );
+  }
+  const newPassword = betaPassword(options.password);
+
+  try {
+    await accountAdminApi(options.auth).setUserPassword({
+      body: { userId: target.id, newPassword },
+      headers: options.headers
+    });
+  } catch (error) {
+    if (error instanceof AccountManagementError) throw error;
+    if (authErrorContains(error, 'LEARNER_ACCOUNT_DELETION_IN_PROGRESS')) {
+      throw accountDeletionInProgressError();
+    }
+    throw mapAuthError(error, 'Unable to set the beta learner password.');
+  }
 }
 
 export async function disableAccount(options: {

@@ -15,6 +15,7 @@ import {
   requireProductionAccountManager,
   restoreAccount,
   revokeAccountSessions,
+  setBetaLearnerPassword,
   sendAccountPasswordEmail
 } from '$lib/server/accounts/admin-accounts.ts';
 import {
@@ -176,6 +177,23 @@ export const actions = {
     redirect(303, `/admin/accounts/${encodeURIComponent(event.params.userId)}?status=password-reset-sent`);
   },
 
+  setBetaPassword: async (event) => {
+    try {
+      const context = requireContext(event);
+      const formData = await event.request.formData();
+      await setBetaLearnerPassword({
+        auth: context.auth,
+        headers: context.headers,
+        db: context.db,
+        userId: event.params.userId,
+        password: formData.get('newPassword')
+      });
+    } catch (errorValue) {
+      return actionFailure(errorValue);
+    }
+    redirect(303, `/admin/accounts/${encodeURIComponent(event.params.userId)}?status=beta-password-set`);
+  },
+
   promote: async (event) => {
     try {
       const context = requireContext(event);
@@ -204,11 +222,15 @@ export const actions = {
     }
 
     const formData = await event.request.formData();
-    const confirmEmail = typeof formData.get('confirmEmail') === 'string'
-      ? String(formData.get('confirmEmail')).trim()
+    const confirmIdentifierValue = formData.get('confirmIdentifier') ?? formData.get('confirmEmail');
+    const confirmIdentifier = typeof confirmIdentifierValue === 'string'
+      ? String(confirmIdentifierValue).trim()
       : '';
-    if (!confirmEmail || confirmEmail.toLowerCase() !== target.email.toLowerCase()) {
-      return fail(400, { error: 'Type the target account email exactly to confirm permanent deletion.' });
+    const expectedIdentifier = target.betaUsername ?? target.email;
+    if (!confirmIdentifier || confirmIdentifier.toLowerCase() !== expectedIdentifier.toLowerCase()) {
+      return fail(400, {
+        error: `Type the target account ${target.betaUsername ? 'beta username' : 'email'} exactly to confirm permanent deletion.`
+      });
     }
 
     let deleted;

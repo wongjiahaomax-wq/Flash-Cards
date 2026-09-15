@@ -18,6 +18,10 @@ const password = 'LocalSmokePassword123!';
 const newPassword = 'LocalSmokePassword456!';
 const createdAccountEmail = 'local-smoke-created@example.test';
 const createdAccountPassword = 'LocalSmokePassword789!';
+const betaUsername = 'local-beta01';
+const betaEmail = `${betaUsername}@beta.invalid`;
+const betaPassword = 'LocalBetaPassword123!';
+const betaNewPassword = 'LocalBetaPassword456!';
 const userId = '00000000-0000-4000-8000-000000000001';
 const accountId = '00000000-0000-4000-8000-000000000002';
 const targetUserId = '00000000-0000-4000-8000-000000000006';
@@ -163,6 +167,19 @@ function targetState() {
   };
 }
 
+function betaState() {
+  const user = queryLocal(
+    `SELECT \`id\`, \`role\`, coalesce(\`banned\`, 0) AS \`banned\` FROM \`user\` WHERE \`email\` = ${sqlString(betaEmail)}`
+  );
+  const accounts = queryLocal(
+    `SELECT \`password\` FROM \`account\` WHERE \`userId\` = (SELECT \`id\` FROM \`user\` WHERE \`email\` = ${sqlString(betaEmail)}) AND \`providerId\` = 'credential'`
+  );
+  return {
+    user: user[0] ?? null,
+    credential: accounts[0]?.password ?? null
+  };
+}
+
 rmSync(stateDir, { recursive: true, force: true });
 mkdirSync(stateDir, { recursive: true });
 
@@ -288,6 +305,141 @@ try {
   assert.equal(study.status, 200);
   const admin = await fetch(`${baseURL}/admin`, { headers: { cookie: cookies }, redirect: 'manual' });
   assert.equal(admin.status, 200);
+
+  for (const accountType of ['learner', 'administrator']) {
+    const reservedCreate = await fetch(`${baseURL}/admin/accounts?/create`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/x-www-form-urlencoded',
+        origin: baseURL,
+        'x-sveltekit-action': 'true',
+        cookie: cookies
+      },
+      body: new URLSearchParams({
+        name: 'Reserved Beta Namespace',
+        email: `${accountType}@beta.invalid`,
+        account_type: accountType
+      })
+    });
+    assert.ok([200, 400].includes(reservedCreate.status));
+    assert.match(await reservedCreate.text(), /beta\.invalid|reserved|beta learner/i);
+  }
+  assert.equal(Number(queryLocal(`SELECT count(*) AS \`count\` FROM \`user\` WHERE \`email\` LIKE '%@beta.invalid'`)[0]?.count ?? 0), 0);
+
+  const createBeta = await fetch(`${baseURL}/admin/accounts?/createBeta`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      origin: baseURL,
+      'x-sveltekit-action': 'true',
+      cookie: cookies
+    },
+    body: new URLSearchParams({
+      name: 'Local Smoke Beta Learner',
+      beta_username: betaUsername,
+      password: betaPassword
+    })
+  });
+  const createBetaBody = await createBeta.text();
+  if (createBeta.status === 200) {
+    const actionResult = JSON.parse(createBetaBody);
+    assert.deepEqual(actionResult, {
+      type: 'redirect',
+      status: 303,
+      location: actionResult.location
+    });
+  } else {
+    assert.equal(createBeta.status, 303, createBetaBody);
+  }
+  const betaUsers = queryLocal(
+    `SELECT \`id\`, \`role\`, coalesce(\`banned\`, 0) AS \`banned\` FROM \`user\` WHERE \`email\` = ${sqlString(betaEmail)}`
+  );
+  assert.equal(betaUsers.length, 1);
+  assert.equal(betaUsers[0].role, 'user');
+  const betaUserId = String(betaUsers[0].id);
+  assert.equal(betaState().credential !== null, true, 'Beta creation must create a credential account directly.');
+
+  const betaSignIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseURL },
+    body: JSON.stringify({ email: betaEmail, password: betaPassword, rememberMe: false })
+  });
+  assert.equal(betaSignIn.status, 200, await betaSignIn.text());
+  const betaCookies = cookieHeader(betaSignIn);
+  const betaSession = await fetch(`${baseURL}/api/auth/get-session`, { headers: { cookie: betaCookies } });
+  assert.equal(betaSession.status, 200);
+  assert.equal((await betaSession.json())?.user?.email, betaEmail);
+  await fetch(`${baseURL}/api/auth/sign-out`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseURL, cookie: betaCookies },
+    body: '{}'
+  });
+
+  const setBetaPassword = await fetch(`${baseURL}/admin/accounts/${encodeURIComponent(betaUserId)}?/setBetaPassword`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/x-www-form-urlencoded',
+      origin: baseURL,
+      'x-sveltekit-action': 'true',
+      cookie: cookies
+    },
+    body: new URLSearchParams({ newPassword: betaNewPassword })
+  });
+  const setBetaPasswordBody = await setBetaPassword.text();
+  if (setBetaPassword.status === 200) {
+    const actionResult = JSON.parse(setBetaPasswordBody);
+    assert.deepEqual(actionResult, {
+      type: 'redirect',
+      status: 303,
+      location: actionResult.location
+    });
+  } else {
+    assert.equal(setBetaPassword.status, 303, setBetaPasswordBody);
+  }
+
+  const oldBetaPasswordSignIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseURL },
+    body: JSON.stringify({ email: betaEmail, password: betaPassword, rememberMe: false })
+  });
+  assert.equal(oldBetaPasswordSignIn.status, 401);
+  const newBetaPasswordSignIn = await fetch(`${baseURL}/api/auth/sign-in/email`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseURL },
+    body: JSON.stringify({ email: betaEmail, password: betaNewPassword, rememberMe: false })
+  });
+  assert.equal(newBetaPasswordSignIn.status, 200, await newBetaPasswordSignIn.text());
+  const newBetaCookies = cookieHeader(newBetaPasswordSignIn);
+  await fetch(`${baseURL}/api/auth/sign-out`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseURL, cookie: newBetaCookies },
+    body: '{}'
+  });
+
+  const betaStateBeforeAdminPasswordBypass = betaState();
+  const directBetaPassword = await fetch(`${baseURL}/api/auth/admin/set-user-password`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseURL, cookie: cookies },
+    body: JSON.stringify({ userId: betaUserId, newPassword: 'DirectBypassPassword123!' })
+  });
+  assert.equal(directBetaPassword.status, 403);
+  await directBetaPassword.text();
+  assert.deepEqual(betaState(), betaStateBeforeAdminPasswordBypass);
+
+  const betaVerificationCount = () => Number(queryLocal(
+    `SELECT count(*) AS \`count\` FROM \`verification\` WHERE \`value\` = ${sqlString(betaUserId)} AND \`identifier\` LIKE 'reset-password:%'`
+  )[0]?.count ?? 0);
+  const betaVerificationBefore = betaVerificationCount();
+  const betaDirectReset = await requestPasswordReset(betaEmail, '198.51.100.27');
+  const betaUnknownReset = await requestPasswordReset('unknown-beta@example.test', '198.51.100.29');
+  assert.equal(betaDirectReset.status, 200);
+  assert.equal(betaDirectReset.body.status, true);
+  assert.equal(betaUnknownReset.status, 200);
+  assert.equal(betaUnknownReset.body.status, true);
+  const betaForgotReset = await requestForgotPassword(betaEmail, '198.51.100.28');
+  assert.equal(betaForgotReset.status, 200);
+  assert.match(betaForgotReset.body, /If an account exists for that email address/);
+  assert.equal(betaVerificationCount(), betaVerificationBefore);
 
   const createManagedAccount = await fetch(`${baseURL}/admin/accounts?/create`, {
     method: 'POST',
@@ -502,7 +654,7 @@ try {
   });
   assert.equal(resetAfterPreview.status, 200, await resetAfterPreview.text());
 
-  console.log('Local D1 + Better Auth password-recovery and Preview-boundary smoke test passed.');
+  console.log('Local D1 + Better Auth beta-account, password-recovery, and Preview-boundary smoke test passed.');
 } catch (error) {
   if (worker) console.error(worker.logs.join(''));
   throw error;
