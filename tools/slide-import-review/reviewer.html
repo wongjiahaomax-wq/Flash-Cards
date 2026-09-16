@@ -69,6 +69,17 @@ button{transition:background-color .15s ease,border-color .15s ease,box-shadow .
 .crop-source-picker{min-width:0}
 .crop-source-picker select{min-width:0}
 .crop-actions{flex-wrap:wrap}
+.review-grid{grid-template-columns:minmax(320px,var(--review-source-track,1.35fr)) 18px minmax(320px,var(--review-proposed-track,.85fr));gap:0;align-items:start}
+.workspace-splitter{align-self:stretch;min-height:100%;cursor:col-resize;touch-action:none;position:relative;background:transparent}
+.workspace-splitter::before{content:'';position:absolute;top:0;bottom:0;left:50%;width:1px;transform:translateX(-50%);background:var(--line-soft)}
+.workspace-splitter::after{content:'';position:absolute;top:50%;left:50%;width:6px;height:40px;transform:translate(-50%,-50%);border-radius:999px;background:#c7d0dc;box-shadow:0 1px 3px rgba(16,24,40,.16)}
+.workspace-splitter:hover::before,.workspace-splitter:focus-visible::before{background:#98a2b3}
+.workspace-splitter:hover::after,.workspace-splitter:focus-visible::after{background:#84adff;box-shadow:0 1px 4px rgba(23,92,211,.28)}
+.workspace-splitter:active::after{background:#175cd3}
+.workspace-splitter:focus-visible{outline:2px solid #84adff;outline-offset:-2px}
+.selected-crop-target{border-color:#84adff;box-shadow:0 0 0 2px #d7e5ff}
+.crop-workspace .crop-editor{margin-top:.8rem}
+@media(max-width:1200px){.review-grid{grid-template-columns:1fr;gap:18px}.workspace-splitter{display:none}}
 @media(max-width:1200px){.review-layout{grid-template-columns:1fr}.queue,.source-panel{position:static;max-height:none}.queue{display:flex;gap:.3rem;overflow:auto}.queue-heading{display:none}.queue-item{width:auto;min-width:150px}.review-grid{grid-template-columns:1fr}.toolbar-group+.toolbar-group{padding-left:0;border-left:0}}
 @media(max-width:600px){.top{padding:.75rem 1rem}.top-brand{flex:1 1 100%}.top-meta{order:3;flex:1 1 auto}.file-picker{order:2}.shell{padding:14px 12px 22px}.toolbar-group{flex:1 1 100%}.toolbar-group+.toolbar-group{padding-top:6px;border-top:1px solid var(--line-soft)}.toolbar button{flex:1}.progress-summary{margin-bottom:12px}.queue-item{min-width:142px}.queue-state{max-width:6.5rem}.qa-toolbar>.row{width:100%;margin-left:0}.qa-toolbar button{flex:1}}
 </style>
@@ -96,6 +107,9 @@ let bundle = null, bundleFingerprint = null, visibleCases = [], index = 0, filte
 let indexes = null, urlCache = new Map(), saveTimer = null, saveChain = Promise.resolve(), saveVersion = 0, pendingSaveResolvers = [], saveInFlight = false;
 let dirty = false, dirtyBeforeFingerprint = false, editRevision = 0, lastSavedRevision = 0, saveGeneration = 0;
 let cropSession = null, cropSessionSequence = 0, cropDrag = null;
+let cropSourceSelections = new Map();
+let workspaceSplit = 1.35 / (1.35 + .85), workspaceDrag = null;
+const WORKSPACE_MIN_PANE_WIDTH = 320;
 let operationGuard;
 
 function updateOperationUi(active) {
@@ -227,7 +241,7 @@ function commitLearnerImageReplacement(assetId, prepared, { filename = null, ext
 }
 
 function releaseUrl(path) { const item = urlCache.get(path); if (item) { URL.revokeObjectURL(item.url); urlCache.delete(path); } }
-function releaseResources() { for (const path of [...urlCache.keys()]) releaseUrl(path); fileStore()?.clear?.(); selectedSourcePath = null; }
+function releaseResources() { for (const path of [...urlCache.keys()]) releaseUrl(path); fileStore()?.clear?.(); selectedSourcePath = null; cropSourceSelections.clear(); }
 function trimUrls(protectedPaths = new Set()) { trimResourceUrlCache(urlCache, protectedPaths, undefined, path => releaseUrl(path)); }
 async function resourceUrl(path, mime, generation, protectedPaths) {
   if (!fileStore()?.has(path)) return null;
@@ -302,26 +316,92 @@ function bulkEligibleQuestions(caseId) {
   });
 }
 
-function sourcePanel(meta, resources) { const pages = []; for (const ref of meta.sourceRefs) for (const page of ref.pages) { const coverage = indexes.coverage.get(`${ref.sourceId}:${page}`); if (coverage?.previewPath) pages.push({ ref, page, coverage, url: resources.get(coverage.previewPath) }); } const selected = pages.find(item => item.coverage.previewPath === selectedSourcePath) ?? pages[0]; selectedSourcePath = selected?.coverage.previewPath ?? null; return `<section class="panel source-panel"><div class="panel-heading"><h2>Original source</h2><button class="secondary" id="source-fullscreen" ${selected?.url ? '' : 'disabled'}>Open large</button></div><div class="source-meta"><b>Confidence:</b> ${esc(meta.confidence)}<br><b>Boundary notes:</b> ${esc(meta.caseBoundaryNotes || '—')}</div>${warningHtml(meta.warnings)}${notesHtml(meta.reviewNotes)}<div class="thumbs">${pages.map(item => item.url ? `<button class="thumb ${item.coverage.previewPath === selectedSourcePath ? 'selected' : ''} source-ref" data-source-path="${esc(item.coverage.previewPath)}"><img src="${item.url}" alt="Source page ${item.page}"><span>${esc(item.ref.sourceId)} · ${item.page}</span></button>` : `<span class="thumb missing">${esc(item.ref.sourceId)} · ${item.page}<br>preview not loaded</span>`).join('') || '<p class="muted">No linked source previews.</p>'}</div><div id="source-large">${selected?.url ? `<img class="source-large" src="${selected.url}" alt="Selected source page"><p>${esc(selected.ref.sourceId)} · page/slide ${selected.page}</p>` : ''}</div></section>`; }
+function sourcePanel(meta, resources) {
+  const activeSession = cropSession?.caseId === meta.caseId ? cropSession : null;
+  const activeItem = activeSession && asset(activeSession.assetId);
+  const activeMeta = activeSession && indexes.reviewAssets.get(meta.caseId)?.get(activeSession.assetId);
+  if (activeSession && activeItem && activeMeta) {
+    return `<section class="panel source-panel crop-workspace"><div class="panel-heading"><h2>Original source</h2><span class="badge pending">Crop workspace</span></div>${cropEditorHtml(activeItem, activeMeta, resources)}</section>`;
+  }
+  const pages = [];
+  for (const ref of meta.sourceRefs) for (const page of ref.pages) {
+    const coverage = indexes.coverage.get(`${ref.sourceId}:${page}`);
+    if (coverage?.previewPath) pages.push({ ref, page, coverage, url: resources.get(coverage.previewPath) });
+  }
+  const selected = pages.find(item => item.coverage.previewPath === selectedSourcePath) ?? pages[0];
+  selectedSourcePath = selected?.coverage.previewPath ?? null;
+  return `<section class="panel source-panel"><div class="panel-heading"><h2>Original source</h2><button class="secondary" id="source-fullscreen" ${selected?.url ? '' : 'disabled'}>Open large</button></div><div class="source-meta"><b>Confidence:</b> ${esc(meta.confidence)}<br><b>Boundary notes:</b> ${esc(meta.caseBoundaryNotes || '—')}</div>${warningHtml(meta.warnings)}${notesHtml(meta.reviewNotes)}<div class="thumbs">${pages.map(item => item.url ? `<button class="thumb ${item.coverage.previewPath === selectedSourcePath ? 'selected' : ''} source-ref" data-source-path="${esc(item.coverage.previewPath)}"><img src="${item.url}" alt="Source page ${item.page}"><span>${esc(item.ref.sourceId)} · ${item.page}</span></button>` : `<span class="thumb missing">${esc(item.ref.sourceId)} · ${item.page}<br>preview not loaded</span>`).join('') || '<p class="muted">No linked source previews.</p>'}</div><div id="source-large">${selected?.url ? `<img class="source-large" src="${selected.url}" alt="Selected source page"><p>${esc(selected.ref.sourceId)} · page/slide ${selected.page}</p>` : ''}</div></section>`;
+}
+function workspaceGridStyle() { return `--review-source-track:${workspaceSplit}fr;--review-proposed-track:${1 - workspaceSplit}fr;`; }
+function workspaceDividerHtml() { return '<div class="workspace-splitter" data-workspace-splitter role="separator" aria-orientation="vertical" aria-label="Resize Original source and Proposed import"></div>'; }
+function applyWorkspaceSplit(grid) {
+  const style = grid?.style;
+  if (!style) return;
+  if (typeof style.setProperty === 'function') {
+    style.setProperty('--review-source-track', `${workspaceSplit}fr`);
+    style.setProperty('--review-proposed-track', `${1 - workspaceSplit}fr`);
+  } else {
+    style['--review-source-track'] = `${workspaceSplit}fr`;
+    style['--review-proposed-track'] = `${1 - workspaceSplit}fr`;
+  }
+}
+function finishWorkspaceDrag(splitter, event) {
+  const active = workspaceDrag;
+  if (!active || active.splitter !== splitter || event.pointerId !== active.pointerId) return;
+  workspaceDrag = null;
+  try { if (splitter.hasPointerCapture?.(active.pointerId)) splitter.releasePointerCapture(active.pointerId); } catch {}
+}
+function clearWorkspaceDrag() {
+  const active = workspaceDrag;
+  workspaceDrag = null;
+  if (!active) return;
+  try { if (active.splitter.hasPointerCapture?.(active.pointerId)) active.splitter.releasePointerCapture(active.pointerId); } catch {}
+}
+function wireWorkspaceSplitter() {
+  const splitter = document.querySelector?.('[data-workspace-splitter]'), grid = document.querySelector?.('[data-review-grid]');
+  if (!splitter || !grid) return;
+  splitter.addEventListener('pointerdown', event => {
+    if (workspaceDrag || event.isPrimary === false) return;
+    const gridRect = grid.getBoundingClientRect?.(), splitterRect = splitter.getBoundingClientRect?.();
+    if (!gridRect?.width || !splitterRect?.width || gridRect.width - splitterRect.width <= WORKSPACE_MIN_PANE_WIDTH * 2) return;
+    try { splitter.setPointerCapture?.(event.pointerId); } catch { return; }
+    workspaceDrag = { splitter, grid, pointerId: event.pointerId };
+    event.preventDefault();
+  });
+  splitter.addEventListener('pointermove', event => {
+    const active = workspaceDrag;
+    if (!active || active.splitter !== splitter || active.pointerId !== event.pointerId) return;
+    const gridRect = grid.getBoundingClientRect?.(), splitterRect = splitter.getBoundingClientRect?.(), available = gridRect?.width - splitterRect?.width;
+    if (!(available > WORKSPACE_MIN_PANE_WIDTH * 2)) return;
+    const sourceWidth = Math.max(WORKSPACE_MIN_PANE_WIDTH, Math.min(available - WORKSPACE_MIN_PANE_WIDTH, event.clientX - gridRect.left - splitterRect.width / 2));
+    workspaceSplit = sourceWidth / available;
+    applyWorkspaceSplit(grid);
+    event.preventDefault();
+  });
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) splitter.addEventListener(type, event => finishWorkspaceDrag(splitter, event));
+}
 function cropCandidates(assetId, caseId = visibleCases[index]?.caseId) {
   const meta = indexes?.reviewAssets.get(caseId)?.get(assetId);
   return resolveCropSourceCandidates(meta?.sourceRefs, bundle?.reviewMap.sourceCoverage, fileStore());
 }
+function cropSourceKey(assetId, caseId = visibleCases[index]?.caseId) { return `${caseId}\u0000${assetId}`; }
 function selectedCropCandidate(assetId, caseId = visibleCases[index]?.caseId) {
   const candidates = cropCandidates(assetId, caseId);
-  return candidates.length === 1 ? candidates[0] : candidates.find(item => item.previewPath === selectedSourcePath) ?? null;
+  const selectedPath = cropSourceSelections.get(cropSourceKey(assetId, caseId));
+  return candidates.length === 1 ? candidates[0] : candidates.find(item => item.previewPath === selectedPath) ?? null;
 }
 function updateCropActionAvailability() {
   if (!bundle || !indexes) return;
   document.querySelectorAll('.adjust-crop').forEach(button => {
-    const candidates = cropCandidates(button.dataset.asset);
-    const available = candidates.length === 1 || candidates.some(item => item.previewPath === selectedSourcePath);
+    const assetId = button.dataset.asset, candidates = cropCandidates(assetId), selectedPath = cropSourceSelections.get(cropSourceKey(assetId));
+    const available = candidates.length === 1 || candidates.some(item => item.previewPath === selectedPath);
     button.disabled = !available;
     button.title = available ? '' : candidates.length ? 'Select one of this Asset’s source references first.' : 'Crop unavailable: no linked source preview is available.';
   });
 }
 function selectCropSource(assetId, path) {
   if (!cropCandidates(assetId).some(candidate => candidate.previewPath === path)) return;
+  cropSourceSelections.set(cropSourceKey(assetId), path);
   selectedSourcePath = path;
   updateCropActionAvailability();
 }
@@ -335,17 +415,18 @@ function cropEditorHtml(item, meta, resources) {
   return `<div class="crop-editor" data-crop-editor="${esc(item.id)}"><p class="small"><b>Adjust crop</b> · Cropping from ${esc(source.sourceId)} · page/slide ${source.page}</p><div class="crop-surface" data-crop-surface="${esc(item.id)}"><img class="crop-source-image" src="${esc(sourceUrl)}" alt="Source page ${source.page}"><div class="crop-frame" data-crop-mode="move" style="${cropFrameStyle(session.crop)}">${handles}</div></div><div class="row crop-actions"><button type="button" class="secondary" data-crop-reset="${esc(item.id)}">Reset</button><button type="button" class="secondary" data-crop-cancel="${esc(item.id)}">Cancel</button><button type="button" data-crop-save="${esc(item.id)}">Save crop</button></div></div>`;
 }
 function cropActionHtml(item, meta) {
-  const candidates = cropCandidates(item.id), available = candidates.length === 1 || candidates.some(candidate => candidate.previewPath === selectedSourcePath);
-  const selected = candidates.find(candidate => candidate.previewPath === selectedSourcePath);
-  const sourcePicker = candidates.length > 1 ? `<label class="crop-source-picker">Crop source<select data-crop-source="${esc(item.id)}"><option value="" disabled ${selected ? '' : 'selected'}>Select an Asset source…</option>${candidates.map(candidate => `<option value="${esc(candidate.previewPath)}" ${candidate.previewPath === selectedSourcePath ? 'selected' : ''}>${esc(candidate.sourceId)} · page/slide ${candidate.page}</option>`).join('')}</select></label>` : '';
+  const candidates = cropCandidates(item.id), selectedPath = cropSourceSelections.get(cropSourceKey(item.id)), available = candidates.length === 1 || candidates.some(candidate => candidate.previewPath === selectedPath);
+  const selected = candidates.find(candidate => candidate.previewPath === selectedPath);
+  const sourcePicker = candidates.length > 1 ? `<label class="crop-source-picker">Crop source<select data-crop-source="${esc(item.id)}"><option value="" disabled ${selected ? '' : 'selected'}>Select an Asset source…</option>${candidates.map(candidate => `<option value="${esc(candidate.previewPath)}" ${candidate.previewPath === selectedPath ? 'selected' : ''}>${esc(candidate.sourceId)} · page/slide ${candidate.page}</option>`).join('')}</select></label>` : '';
   const explanation = candidates.length ? (available ? '' : '<span class="small muted crop-help">Select one of this Asset’s source references first.</span>') : '<span class="small muted crop-help">Crop unavailable: no linked source preview is available.</span>';
   return `${sourcePicker}<button type="button" class="secondary adjust-crop" data-asset="${esc(item.id)}" ${available ? '' : 'disabled'}>Adjust crop</button>${explanation}`;
 }
 function assetMetadataHtml(rel, item) { return `<details><summary>Edit learner image metadata</summary><label>Filename<input data-asset-field="originalFilename" value="${esc(item.originalFilename || '')}"></label><label>Alt text<input data-asset-field="altText" value="${esc(item.altText || '')}"></label><label>Source label<input data-asset-field="sourceLabel" value="${esc(item.sourceLabel || '')}"></label><label>Source URL<input data-asset-field="sourceUrl" value="${esc(item.sourceUrl || '')}"></label><label>Licence<input data-asset-field="licence" value="${esc(item.licence || '')}"></label><label>Caption<textarea data-rel-field="captionMd">${esc(rel.captionMd || '')}</textarea></label><label>Display order<input type="number" min="0" data-rel-field="displayOrder" value="${rel.displayOrder}"></label><button type="button" class="secondary replace-image">Replace image</button><input hidden type="file" accept="image/jpeg,image/png" data-replace></details>`; }
 function assetCard(rel, meta, resources) {
   const item = asset(rel.assetId); if (!item) return `<div class="card error-card">Missing Asset ${esc(rel.assetId)}</div>`;
-  const url = resources.get(item.path), cropping = cropSession?.assetId === item.id && cropSession.caseId === visibleCases[index]?.caseId;
-  return `<article class="card asset-card" data-asset="${esc(item.id)}"><div class="row between"><b>${esc(item.originalFilename || item.id)}</b>${meta ? statusSelect('asset', item.id, meta.reviewStatus) : '<span class="danger">Missing review metadata</span>'}</div>${cropping ? cropEditorHtml(item, meta, resources) : url ? `<img class="learner-image" src="${url}" alt="${esc(item.altText || '')}"><div class="row crop-toolbar">${cropActionHtml(item, meta)}</div>` : `<div class="danger">Media is not materialized yet or is missing.</div><div class="row crop-toolbar">${cropActionHtml(item, meta)}</div>`}<div class="small">Source: ${refsHtml(meta?.sourceRefs)} · extraction: ${esc(meta?.extractionMethod || '—')} · confidence: ${esc(meta?.confidence || '—')}<br>SHA-256: <details><summary>Show technical details</summary><code>${esc(meta?.sha256 || 'missing')}</code></details></div>${warningHtml(meta?.warnings)}${notesHtml(meta?.reviewNotes)}${assetMetadataHtml(rel, item)}</article>`;
+  const url = resources.get(item.path), selected = cropSession?.assetId === item.id && cropSession.caseId === visibleCases[index]?.caseId;
+  const image = url ? `<img class="learner-image" src="${url}" alt="${esc(item.altText || '')}">` : '<div class="danger">Media is not materialized yet or is missing.</div>';
+  return `<article class="card asset-card${selected ? ' selected-crop-target' : ''}" data-asset="${esc(item.id)}"${selected ? ' aria-selected="true" data-crop-target="true"' : ''}><div class="row between"><b>${esc(item.originalFilename || item.id)}</b>${meta ? statusSelect('asset', item.id, meta.reviewStatus) : '<span class="danger">Missing review metadata</span>'}</div>${image}<div class="row crop-toolbar">${cropActionHtml(item, meta)}</div><div class="small">Source: ${refsHtml(meta?.sourceRefs)} · extraction: ${esc(meta?.extractionMethod || '—')} · confidence: ${esc(meta?.confidence || '—')}<br>SHA-256: <details><summary>Show technical details</summary><code>${esc(meta?.sha256 || 'missing')}</code></details></div>${warningHtml(meta?.warnings)}${notesHtml(meta?.reviewNotes)}${assetMetadataHtml(rel, item)}</article>`;
 }
 function questionCard(item, meta, number) { const questionPrompt = prompt(item.questionPromptId); return `<article class="card question-card" data-question="${esc(item.id)}"><div class="row between question-heading"><div class="question-id"><b>Q${number}</b><span class="technical-id">${esc(item.id)}</span></div>${meta ? statusSelect('question', item.id, meta.reviewStatus) : '<span class="danger">Missing review metadata</span>'}</div><div class="small question-source"><span class="source-summary-item"><span class="source-summary-label">Prompt</span> ${refsHtml(meta?.promptSourceRefs)}</span><span class="source-summary-item"><span class="source-summary-label">Answer</span> ${refsHtml(meta?.answerSourceRefs)}</span><span class="source-summary-item"><span class="source-summary-label">Confidence</span> ${esc(meta?.confidence || '—')}</span></div>${warningHtml(meta?.warnings)}${notesHtml(meta?.reviewNotes)}<label>Prompt<textarea class="auto-grow" data-question-field="promptMd">${esc(questionPrompt?.promptMd || '')}</textarea></label><label class="answer ${revealAnswers ? '' : 'hidden'}">Answer<textarea class="auto-grow" data-question-field="answerMd">${esc(item.answerMd || '')}</textarea></label></article>`; }
 function unresolvedCard(candidate) { return `<article class="card unresolved" data-unresolved="${esc(candidate.candidateId)}"><div class="row between"><b>${esc(candidate.candidateId)}</b><span class="badge ${esc(candidate.reviewStatus)}">${esc(candidate.reviewStatus)}</span></div><div class="small question-source"><span class="source-summary-item"><span class="source-summary-label">Prompt</span> ${refsHtml(candidate.promptSourceRefs)}</span><span class="source-summary-item"><span class="source-summary-label">Answer</span> ${refsHtml(candidate.answerSourceRefs)}</span><span class="source-summary-item"><span class="source-summary-label">Confidence</span> ${esc(candidate.confidence)}</span></div>${warningHtml(candidate.warnings)}${notesHtml(candidate.reviewNotes)}<label>Prompt<textarea class="auto-grow" data-u-prompt>${esc(candidate.proposedPrompt)}</textarea></label><label>Answer<textarea class="auto-grow" data-u-answer placeholder="Required to include"></textarea></label><div class="row"><button class="resolve-u">Create Prompt + Case Question</button><button class="secondary reject-u">Reject unresolved question</button></div></article>`; }
@@ -356,7 +437,7 @@ function proposedPanel(meta, resources) {
 }
 function queueHtml() { return `<div class="queue-heading"><b>Cases</b><span class="small">${visibleCases.length} in queue</span></div>${visibleCases.map((item, i) => { const title = manifestCase(item.caseId)?.title?.trim() || 'Untitled Case'; const flags = indexes.caseFlags.get(item.caseId); const problem = flags?.blocking ? ' · blocking' : flags?.missing ? ' · missing answer' : flags?.image ? ' · image warning' : ''; const status = item.reviewStatus.replace('_', ' '); return `<button class="queue-item ${i === index ? 'selected' : ''}" data-queue-index="${i}"><span class="queue-content"><b class="queue-title">${esc(title)}</b><small class="queue-meta">Case ${i + 1} · ${esc(item.caseId)}</small></span><span class="queue-state ${esc(item.reviewStatus)}" title="${esc(item.reviewStatus + problem)}"><span class="queue-state-label">${esc(status)}</span>${problem ? ' ·' : ''}</span></button>`; }).join('')}`; }
 function updateNavigation() { $('prev').disabled = index <= 0; $('next').disabled = index >= visibleCases.length - 1 || !visibleCases.length; $('position').textContent = visibleCases.length ? `Case ${index + 1} of ${visibleCases.length}` : 'No Cases'; }
-async function renderCurrent() { if (!bundle || coverageMode) return renderCoverage(); updateCounts(); if (!visibleCases.length) { $('workspace').innerHTML = '<div class="empty">No Cases match this filter.</div>'; updateNavigation(); return; } const meta = visibleCases[index], generation = loadGeneration, paths = []; for (const ref of meta.sourceRefs) for (const page of ref.pages) { const coverage = indexes.coverage.get(`${ref.sourceId}:${page}`); if (coverage?.previewPath) paths.push(coverage.previewPath); } for (const rel of caseAssets(meta.caseId)) { const item = asset(rel.assetId), review = indexes.reviewAssets.get(meta.caseId)?.get(rel.assetId); if (item?.path) paths.push(item.path); for (const candidate of resolveCropSourceCandidates(review?.sourceRefs, bundle.reviewMap.sourceCoverage, fileStore())) paths.push(candidate.previewPath); } const resources = await loadResources([...new Set(paths)], generation); if (generation !== loadGeneration || !bundle || visibleCases[index]?.caseId !== meta.caseId) return; $('workspace').innerHTML = `<div class="review-layout"><aside class="queue" id="queue">${queueHtml()}</aside><div class="review-grid">${sourcePanel(meta, resources)}${proposedPanel(meta, resources)}</div></div>`; wireCurrent(meta); prefetchAdjacent(generation); updateNavigation(); }
+async function renderCurrent() { if (!bundle || coverageMode) return renderCoverage(); updateCounts(); if (!visibleCases.length) { $('workspace').innerHTML = '<div class="empty">No Cases match this filter.</div>'; updateNavigation(); return; } const meta = visibleCases[index], generation = loadGeneration, paths = []; for (const ref of meta.sourceRefs) for (const page of ref.pages) { const coverage = indexes.coverage.get(`${ref.sourceId}:${page}`); if (coverage?.previewPath) paths.push(coverage.previewPath); } for (const rel of caseAssets(meta.caseId)) { const item = asset(rel.assetId), review = indexes.reviewAssets.get(meta.caseId)?.get(rel.assetId); if (item?.path) paths.push(item.path); for (const candidate of resolveCropSourceCandidates(review?.sourceRefs, bundle.reviewMap.sourceCoverage, fileStore())) paths.push(candidate.previewPath); } const resources = await loadResources([...new Set(paths)], generation); if (generation !== loadGeneration || !bundle || visibleCases[index]?.caseId !== meta.caseId) return; $('workspace').innerHTML = `<div class="review-layout"><aside class="queue" id="queue">${queueHtml()}</aside><div class="review-grid" data-review-grid style="${workspaceGridStyle()}">${sourcePanel(meta, resources)}${workspaceDividerHtml()}${proposedPanel(meta, resources)}</div></div>`; wireCurrent(meta); prefetchAdjacent(generation); updateNavigation(); }
 async function prefetchAdjacent(generation) { const candidates = [visibleCases[index - 1], visibleCases[index + 1]].filter(Boolean), paths = []; for (const meta of candidates) for (const rel of caseAssets(meta.caseId)) { const item = asset(rel.assetId); if (item?.path) paths.push(item.path); } let count = 0; for (const path of [...new Set(paths)]) { if (count++ >= 4 || generation !== loadGeneration) break; await resourceUrl(path, indexes.byPath.get(path)?.mimeType, generation, new Set()); } }
 async function sourceSelect(path) { if (!path || !bundle) return; selectedSourcePath = path; const generation = loadGeneration, image = await resourceUrl(path, null, generation, new Set([path])); if (generation !== loadGeneration || !image) return; const thumb = document.querySelector(`[data-source-path="${CSS.escape(path)}"]`); if (thumb) { document.querySelectorAll('.thumb').forEach(item => item.classList.remove('selected')); thumb.classList.add('selected'); } const target = $('source-large'); if (target) target.innerHTML = `<img class="source-large" src="${image}" alt="Selected source page">`; updateCropActionAvailability(); }
 async function approveEligibleQuestions(meta) {
@@ -526,6 +607,8 @@ async function saveCrop(assetId) {
 }
 
 function wireCurrent(meta) {
+  clearWorkspaceDrag();
+  wireWorkspaceSplitter();
   $('toggle-answers')?.addEventListener('click', () => { revealAnswers = !revealAnswers; renderCurrent(); });
   $('accept-qa')?.addEventListener('click', () => approveEligibleQuestions(meta));
   document.querySelectorAll('.source-ref').forEach(element => element.addEventListener('click', event => { event.preventDefault(); sourceSelect(element.dataset.sourcePath); }));
