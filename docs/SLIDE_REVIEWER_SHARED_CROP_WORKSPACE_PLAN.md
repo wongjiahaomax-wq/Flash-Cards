@@ -194,3 +194,7 @@ Confirm:
 Implementation, focused tests, generated reviewer output, and any small README update required by the changed UX belong in this same PR.
 
 Follow current repository guidance and progressive retrieval. Keep the PR Draft during implementation. Do not merge or mark Ready for Review.
+
+## Luna 5.6 handoff
+
+Continue Draft PR #183. Planning and implementation belong in this same PR; do not create another PR. Implement this plan, including both the shared central crop workspace and the single draggable Source ↔ Proposed import divider. Preserve the existing crop/save safety architecture and left Cases queue behavior. Keep the solution small and native; no new dependency or generic layout subsystem. Run focused interaction/regression coverage plus repository-required final validation. Do not mark Ready or merge.
