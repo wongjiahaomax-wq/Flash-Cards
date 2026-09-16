@@ -242,17 +242,17 @@ function sourcePanel(meta, resources) {
   selectedSourcePath = selected?.coverage.previewPath ?? null;
   return `<section class="panel source-panel"><div class="panel-heading"><h2>Original source</h2><button class="secondary" id="source-fullscreen" ${selected?.url ? '' : 'disabled'}>Open large</button></div><div class="source-meta"><b>Confidence:</b> ${esc(meta.confidence)}<br><b>Boundary notes:</b> ${esc(meta.caseBoundaryNotes || '—')}</div>${warningHtml(meta.warnings)}${notesHtml(meta.reviewNotes)}<div class="thumbs">${pages.map(item => item.url ? `<button class="thumb ${item.coverage.previewPath === selectedSourcePath ? 'selected' : ''} source-ref" data-source-path="${esc(item.coverage.previewPath)}"><img src="${item.url}" alt="Source page ${item.page}"><span>${esc(item.ref.sourceId)} · ${item.page}</span></button>` : `<span class="thumb missing">${esc(item.ref.sourceId)} · ${item.page}<br>preview not loaded</span>`).join('') || '<p class="muted">No linked source previews.</p>'}</div><div id="source-large">${selected?.url ? `<img class="source-large" src="${selected.url}" alt="Selected source page"><p>${esc(selected.ref.sourceId)} · page/slide ${selected.page}</p>` : ''}</div></section>`;
 }
-function workspaceGridStyle() { return `--review-source-fr:${workspaceSplit};--review-proposed-fr:${1 - workspaceSplit};`; }
+function workspaceGridStyle() { return `--review-source-track:${workspaceSplit}fr;--review-proposed-track:${1 - workspaceSplit}fr;`; }
 function workspaceDividerHtml() { return '<div class="workspace-splitter" data-workspace-splitter role="separator" aria-orientation="vertical" aria-label="Resize Original source and Proposed import"></div>'; }
 function applyWorkspaceSplit(grid) {
   const style = grid?.style;
   if (!style) return;
   if (typeof style.setProperty === 'function') {
-    style.setProperty('--review-source-fr', workspaceSplit);
-    style.setProperty('--review-proposed-fr', 1 - workspaceSplit);
+    style.setProperty('--review-source-track', `${workspaceSplit}fr`);
+    style.setProperty('--review-proposed-track', `${1 - workspaceSplit}fr`);
   } else {
-    style['--review-source-fr'] = workspaceSplit;
-    style['--review-proposed-fr'] = 1 - workspaceSplit;
+    style['--review-source-track'] = `${workspaceSplit}fr`;
+    style['--review-proposed-track'] = `${1 - workspaceSplit}fr`;
   }
 }
 function finishWorkspaceDrag(splitter, event) {

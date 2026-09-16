@@ -19,19 +19,26 @@ function makeElement(overrides = {}) {
 function pngBytes(...tail) { return new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...tail]); }
 function jpegBytes(...tail) { return new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...tail, 0xff, 0xd9]); }
 
-function makeBundle({ sourceRefs = [{ sourceId: 'source-1', pages: [1] }], assetSourceRefs = sourceRefs, sourceCoverage = [{ sourceId: 'source-1', page: 1, previewPath: 'source-previews/source-1.png' }], cases = 1, shared = false } = {}) {
-  const files = new Map([['media/learner.png', pngBytes(1, 2, 3)], ...sourceCoverage.filter(item => item.previewPath).map(item => [item.previewPath, pngBytes(9, item.page)])]);
+function makeBundle({ sourceRefs = [{ sourceId: 'source-1', pages: [1] }], assetSourceRefs = sourceRefs, secondAssetSourceRefs = sourceRefs, sourceCoverage = [{ sourceId: 'source-1', page: 1, previewPath: 'source-previews/source-1.png' }], cases = 1, shared = false, secondAsset = false } = {}) {
+  const files = new Map([['media/learner.png', pngBytes(1, 2, 3)], ...(secondAsset ? [['media/learner-2.png', pngBytes(4, 5, 6)]] : []), ...sourceCoverage.filter(item => item.previewPath).map(item => [item.previewPath, pngBytes(9, item.page)])]);
   files.overrides = new Map(); const mapSet = files.set.bind(files); files.set = (path, bytes) => { mapSet(path, bytes); files.overrides.set(path, bytes); return files; }; files.getFile = async path => files.get(path);
   const caseRows = Array.from({ length: cases }, (_, i) => ({ id: `case-${i + 1}`, title: `Case ${i + 1}`, vignetteMd: 'Vignette', primaryTopicId: 'topic-1', secondaryTopicIds: [] }));
+  const assetRows = [{ id: 'asset-1', path: 'media/learner.png', mimeType: 'image/png', originalFilename: 'learner.png', altText: 'Learner image', sourceLabel: 'Stable label', sourceUrl: null, licence: null }, ...(secondAsset ? [{ id: 'asset-2', path: 'media/learner-2.png', mimeType: 'image/png', originalFilename: 'learner-2.png', altText: 'Learner image 2', sourceLabel: 'Stable label 2', sourceUrl: null, licence: null }] : [])];
+  const caseAssetRows = [{ id: 'case-asset-1', caseId: 'case-1', assetId: 'asset-1', captionMd: 'Caption', displayOrder: 0 }, ...(secondAsset ? [{ id: 'case-asset-2', caseId: 'case-1', assetId: 'asset-2', captionMd: 'Second caption', displayOrder: 1 }] : []), ...(shared ? [{ id: 'case-asset-3', caseId: 'case-2', assetId: 'asset-1', captionMd: 'Other caption', displayOrder: 0 }] : [])];
+  const reviewAssets = item => {
+    if (item.id !== 'case-1' && !(shared && item.id === 'case-2')) return [];
+    const result = [{ assetId: 'asset-1', reviewStatus: item.id === 'case-2' ? 'rejected' : 'approved', confidence: 'high', warnings: [{ code: 'keep', severity: 'warning', message: 'Keep this warning.' }], sourceRefs: assetSourceRefs, extractionMethod: 'embedded_original', sha256: 'old-sha', reviewNotes: ['Keep this note.'] }];
+    if (secondAsset && item.id === 'case-1') result.push({ assetId: 'asset-2', reviewStatus: 'approved', confidence: 'high', warnings: [], sourceRefs: secondAssetSourceRefs, extractionMethod: 'embedded_original', sha256: 'old-sha-2', reviewNotes: ['Keep second note.'] });
+    return result;
+  };
   return {
     files,
     manifest: { version: 1, packageId: 'crop-browser-test', topics: [{ id: 'topic-1' }], cases: caseRows,
-      assets: [{ id: 'asset-1', path: 'media/learner.png', mimeType: 'image/png', originalFilename: 'learner.png', altText: 'Learner image', sourceLabel: 'Stable label', sourceUrl: null, licence: null }],
-      caseAssets: [{ id: 'case-asset-1', caseId: 'case-1', assetId: 'asset-1', captionMd: 'Caption', displayOrder: 0 }, ...(shared ? [{ id: 'case-asset-2', caseId: 'case-2', assetId: 'asset-1', captionMd: 'Other caption', displayOrder: 0 }] : [])], questionPrompts: [], caseQuestions: [], topicQuestions: [] },
+      assets: assetRows, caseAssets: caseAssetRows, questionPrompts: [], caseQuestions: [], topicQuestions: [] },
     reviewMap: { version: 1, bundleId: 'crop-browser-bundle', batchName: 'Crop browser test',
       sourceFiles: sourceCoverage.map(item => ({ sourceId: item.sourceId, filename: `${item.sourceId}.png`, repository: null, path: null, ref: null, pageCount: Math.max(1, item.page) })), sourceCoverage, unresolvedQuestions: [], batchWarnings: [],
       cases: caseRows.map(item => ({ caseId: item.id, reviewStatus: item.id === 'case-1' ? 'needs_review' : 'pending', confidence: 'high', warnings: [], sourceRefs, caseBoundaryNotes: null,
-        assets: item.id === 'case-1' || (shared && item.id === 'case-2') ? [{ assetId: 'asset-1', reviewStatus: item.id === 'case-2' ? 'rejected' : 'approved', confidence: 'high', warnings: [{ code: 'keep', severity: 'warning', message: 'Keep this warning.' }], sourceRefs: assetSourceRefs, extractionMethod: 'embedded_original', sha256: 'old-sha', reviewNotes: ['Keep this note.'] }] : [], questions: [], reviewNotes: [] })) }
+        assets: reviewAssets(item), questions: [], reviewNotes: [] })) }
   };
 }
 
@@ -115,15 +122,45 @@ test('Asset-owned crop source selection survives rerender and Save when Asset re
 test('shared crop workspace keeps the saved Asset preview and transient split across rerender', async () => {
   const { harness, elements } = loadHarness(), bundle = makeBundle();
   harness.setBundle(bundle); harness.setWorkspaceSplit(.7); await harness.renderCurrent();
-  assert.match(elements.get('workspace').innerHTML, /--review-source-fr:0\.7/);
+  assert.match(elements.get('workspace').innerHTML, /--review-source-track:0\.7fr/);
   await harness.enterCrop('asset-1');
   const html = elements.get('workspace').innerHTML;
   assert.equal((html.match(/data-crop-editor=/g) ?? []).length, 1);
   assert.ok(html.indexOf('data-crop-editor="asset-1"') < html.indexOf('Proposed import'));
   assert.match(html, /data-crop-target="true"/);
   assert.match(html, /class="learner-image"/);
-  assert.match(html, /--review-source-fr:0\.7/);
+  assert.match(html, /--review-source-track:0\.7fr/);
   assert.equal(harness.current().dirty, false);
+  await harness.cancelCrop('asset-1');
+  const exitedHtml = elements.get('workspace').innerHTML;
+  assert.doesNotMatch(exitedHtml, /data-crop-editor=/);
+  assert.match(exitedHtml, /--review-source-track:0\.7fr/);
+});
+
+test('switching unsaved crop targets keeps Asset A unchanged and starts Asset B from its own source', async () => {
+  const { harness } = loadHarness(), bundle = makeBundle({
+    sourceRefs: [{ sourceId: 'case-source', pages: [1] }],
+    assetSourceRefs: [{ sourceId: 'asset-a-source', pages: [2] }],
+    secondAssetSourceRefs: [{ sourceId: 'asset-b-source', pages: [3] }],
+    secondAsset: true,
+    sourceCoverage: [
+      { sourceId: 'case-source', page: 1, previewPath: 'source-previews/case.png' },
+      { sourceId: 'asset-a-source', page: 2, previewPath: 'source-previews/asset-a.png' },
+      { sourceId: 'asset-b-source', page: 3, previewPath: 'source-previews/asset-b.png' }
+    ]
+  });
+  bundle.files.overrides.set('media/learner.png', pngBytes(1, 2, 3));
+  harness.setBundle(bundle); let persists = 0; harness.setPersist(async () => { persists += 1; });
+  await harness.enterCrop('asset-1'); harness.setCrop({ x: .1, y: .1, width: .5, height: .5 });
+  const assetABytes = [...bundle.files.get('media/learner.png')], assetAReview = structuredClone(bundle.reviewMap.cases[0].assets.find(item => item.assetId === 'asset-1')), assetAOverrides = [...bundle.files.overrides].map(([path, bytes]) => [path, [...bytes]]);
+  await harness.enterCrop('asset-2');
+  assert.equal(harness.cropSession().assetId, 'asset-2');
+  assert.equal(harness.cropSession().sourcePath, 'source-previews/asset-b.png');
+  assert.deepEqual(harness.cropSession().crop, { x: 0, y: 0, width: 1, height: 1 });
+  assert.deepEqual([...bundle.files.get('media/learner.png')], assetABytes);
+  assert.deepEqual(bundle.reviewMap.cases[0].assets.find(item => item.assetId === 'asset-1'), assetAReview);
+  assert.deepEqual([...bundle.files.overrides].map(([path, bytes]) => [path, [...bytes]]), assetAOverrides);
+  assert.equal(persists, 0);
 });
 
 test('workspace splitter clamps both panes, ignores secondary pointers, and cleans up capture', () => {
@@ -135,7 +172,7 @@ test('workspace splitter clamps both panes, ignores secondary pointers, and clea
   const down = splitter.listener('pointerdown'), move = splitter.listener('pointermove'), up = splitter.listener('pointerup'), cancel = splitter.listener('pointercancel');
   down({ pointerId: 7, isPrimary: true, preventDefault() {} }); down({ pointerId: 8, isPrimary: true, preventDefault() {} }); assert.equal(captured, 7);
   const before = harness.workspaceSplit(); move({ pointerId: 8, clientX: 900, preventDefault() {} }); assert.equal(harness.workspaceSplit(), before);
-  move({ pointerId: 7, clientX: 80, preventDefault() {} }); assert.ok(Number(styleValues['--review-source-fr']) > .3 && Number(styleValues['--review-source-fr']) < .4);
+  move({ pointerId: 7, clientX: 80, preventDefault() {} }); assert.ok(parseFloat(styleValues['--review-source-track']) > .3 && parseFloat(styleValues['--review-source-track']) < .4);
   up({ pointerId: 7 }); assert.equal(captured, null); down({ pointerId: 9, isPrimary: true, preventDefault() {} }); cancel({ pointerId: 9 }); assert.equal(captured, null); assert.equal(harness.current().dirty, false);
 });
 
