@@ -535,7 +535,10 @@ export async function createBetaLearner(options: {
   try {
     email = betaUsernameToEmail(options.username);
   } catch {
-    throw new AccountManagementError('INVALID_INPUT', 'Enter a beta username without spaces or @.');
+    throw new AccountManagementError(
+      'INVALID_INPUT',
+      'Enter a beta username using letters, numbers, - or _ without spaces or @.'
+    );
   }
   const password = betaPassword(options.password);
 

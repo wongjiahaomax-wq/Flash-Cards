@@ -116,11 +116,11 @@ Also retain proof that ordinary real-email Learner and Administrator creation st
 ## Amendment 3 — superseded beta username length requirement
 
 The earlier review requirement below was implemented during the initial PR 182
-work, but it has since been superseded. Beta usernames no longer have a
-3–24-character, ASCII-letter/number, or internal-hyphen restriction. The
-current rule is documented in `BETA_TEST_CREDENTIALS_IMPLEMENTATION_PLAN.md`:
-normalize to lowercase, require a non-empty value, and reject whitespace or
-`@` so the synthetic email mapping remains usable.
+work, but it has since been superseded. Beta usernames have no length limit;
+the current rule is documented in `BETA_TEST_CREDENTIALS_IMPLEMENTATION_PLAN.md`:
+normalize to lowercase, require a non-empty value, and accept only ASCII
+letters, numbers, hyphens, or underscores so the synthetic email mapping
+remains Better Auth-compatible.
 
 The superseded beta username rule was:
 
@@ -193,7 +193,7 @@ In addition to the current implementation plan, implementation is not complete u
 - [ ] standard Add account rejects `@beta.invalid` for both Learner and Administrator, with no identity created;
 - [ ] dedicated beta creation remains Learner-only;
 - [ ] beta promotion to Administrator remains blocked;
-- [ ] beta username validation removes the product-level length and character-set restriction while preserving non-empty, whitespace-free, `@`-free synthetic email mapping;
+- [ ] beta username validation has no product-level length limit, normalizes uppercase input to lowercase, and accepts only non-empty ASCII letters, numbers, hyphens, and underscores;
 - [ ] focused tests pass;
 - [ ] repository-required final validation passes;
 - [ ] the planned real Better Auth + local D1 smoke passes, including beta create → sign in → Admin password replacement → old password fails → new password succeeds and direct `/api/auth/admin/set-user-password` rejection with credential state unchanged.

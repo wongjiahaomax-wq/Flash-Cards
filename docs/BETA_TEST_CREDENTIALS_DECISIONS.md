@@ -14,7 +14,7 @@ _Status: planning + implementation companion for Draft PR #182. PR #181 has merg
 - Keep Better Auth email/password as the only authentication architecture.
 - Do not add the Better Auth username plugin or a username schema column.
 - A beta username maps deterministically to `<username>@beta.invalid`.
-- Beta usernames are normalized to lowercase and must be non-empty without whitespace or `@`, so they remain usable as the synthetic email local part.
+- Beta usernames are normalized to lowercase and must be non-empty using only ASCII letters, numbers, hyphens, or underscores, with no length limit; whitespace, `@`, other punctuation, and Unicode are rejected so the synthetic email remains Better Auth-compatible.
 - `@beta.invalid` is a reserved synthetic namespace owned only by the dedicated Beta Learner creation path.
 - The normal Add account path must reject `@beta.invalid` for both Learner and Administrator creation, with no identity created.
 - Beta accounts are ordinary Learners (`role = user`) and may not become Production Administrators.
@@ -43,7 +43,7 @@ Better Auth performs the existing email/password sign-in.
 
 Executable proof must include:
 
-- unusable blank, whitespace-containing, and `@`-containing beta usernames rejected;
+- blank, whitespace-containing, `@`-containing, punctuation-containing, and Unicode beta usernames rejected;
 - standard Add account rejects `@beta.invalid` for both Learner and Administrator with no identity created;
 - `/forgot-password` beta request remains generic and creates no reset token/email side effect;
 - direct `/api/auth/request-password-reset` beta request remains generic/non-enumerating and creates no reset token/email side effect;

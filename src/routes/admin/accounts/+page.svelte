@@ -74,7 +74,7 @@
 
   <details class="card stack" open={Boolean(form?.beta)}>
     <summary><strong>Add beta learner</strong></summary>
-    <p class="muted">No email is sent. Give the learner the username and password privately; the password cannot be viewed later. This creates a Learner only.</p>
+    <p class="muted">No email is sent. Give the learner their beta username and initial password privately. This creates a Learner account only.</p>
 
     {#if form?.error && form?.beta}
       <p class="notice error" role="alert">{form.error}</p>
@@ -88,10 +88,12 @@
       <label class="field">
         <span>Beta username</span>
         <input name="beta_username" required autocomplete="username" value={form?.values?.username ?? ''} />
+        <small class="field-help">Letters, numbers, - and _. No spaces or @. It will be converted to lowercase.</small>
       </label>
       <label class="field">
         <span>Initial password</span>
         <input name="password" type="password" minlength="8" maxlength="128" required autocomplete="new-password" />
+        <small class="field-help">8–128 characters.</small>
       </label>
       <div class="submit-cell">
         <button class="button primary" type="submit">Create beta learner</button>
@@ -196,6 +198,7 @@
   .beta-create-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(160px, 0.8fr) auto; }
   .field { display: grid; gap: 0.35rem; font-weight: 650; }
   .field span { font-size: 0.9rem; }
+  .field-help { color: #667085; font-size: 0.82rem; font-weight: 500; line-height: 1.35; }
   input, select { width: 100%; padding: 0.7rem 0.75rem; border: 1px solid #cdd6e3; border-radius: 8px; background: #fff; color: inherit; }
   .search-form { display: grid; grid-template-columns: 160px minmax(240px, 1fr) auto; gap: 0.75rem; align-items: end; }
   .search-actions, .actions { display: flex; gap: 0.5rem; align-items: center; }

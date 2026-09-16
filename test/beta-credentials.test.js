@@ -72,17 +72,17 @@ function fakeAuth(initialUsers = []) {
 
 const headers = new Headers({ cookie: 'better-auth.session_token=test' });
 
-test('beta identity helper accepts non-empty username values usable as email local parts', () => {
-  for (const username of ['a', 'ab', 'a'.repeat(25), 'a-b', '-abc', 'abc-', 'a_b', 'resident.01']) {
+test('beta identity helper relaxes length while enforcing Better Auth-compatible characters', () => {
+  for (const username of ['a', 'ab', 'a'.repeat(25), 'a-b', '-abc', 'abc-', 'a_b', 'resident_01']) {
     assert.equal(isValidBetaUsername(username), true, username);
   }
-  for (const username of ['', '   ', 'a b', 'a@b']) {
+  for (const username of ['', '   ', 'a b', 'a@b', 'resident!01', 'resident.01', 'résident01']) {
     assert.equal(isValidBetaUsername(username), false, username);
   }
   assert.equal(normalizeBetaUsername(' Beta-01 '), 'beta-01');
-  assert.equal(normalizeBetaUsername(' A_B '), 'a_b');
+  assert.equal(normalizeBetaUsername(' Resident_01 '), 'resident_01');
   assert.throws(() => normalizeBetaUsername(' '));
-  assert.throws(() => normalizeBetaUsername('a@b'));
+  assert.throws(() => normalizeBetaUsername('resident!01'));
   assert.equal(betaUsernameToEmail('Beta-01'), `beta-01${BETA_EMAIL_SUFFIX}`);
   assert.equal(betaUsernameFromEmail('BETA-01@BETA.INVALID'), 'beta-01');
   assert.equal(betaUsernameFromEmail('learner@example.test'), null);
@@ -116,9 +116,9 @@ test('dedicated beta creation creates a Learner credential without email deliver
   });
 });
 
-test('beta username input rejects only unusable values before identity creation', async () => {
+test('beta username input rejects Better Auth-incompatible values before identity creation', async () => {
   const fixture = fakeAuth();
-  for (const username of ['', '   ', 'a b', 'a@b']) {
+  for (const username of ['', '   ', 'a b', 'a@b', 'resident!01', 'resident.01', 'résident01']) {
     await assert.rejects(
       () => createBetaLearner({ auth: fixture.auth, headers, name: 'Invalid', username, password: 'Password123!' }),
       (error) => error instanceof AccountManagementError && error.code === 'INVALID_INPUT'
@@ -206,6 +206,7 @@ test('reachable beta recovery and account actions contain the reserved-namespace
   const hooksSource = await readFile(new URL('../src/hooks.server.js', import.meta.url), 'utf8');
   const forgotSource = await readFile(new URL('../src/routes/forgot-password/+page.server.js', import.meta.url), 'utf8');
   const listRouteSource = await readFile(new URL('../src/routes/admin/accounts/+page.server.js', import.meta.url), 'utf8');
+  const listPageSource = await readFile(new URL('../src/routes/admin/accounts/+page.svelte', import.meta.url), 'utf8');
   const detailRouteSource = await readFile(new URL('../src/routes/admin/accounts/[userId]/+page.server.js', import.meta.url), 'utf8');
   const signInSource = await readFile(new URL('../src/routes/sign-in/+page.svelte', import.meta.url), 'utf8');
 
@@ -213,6 +214,9 @@ test('reachable beta recovery and account actions contain the reserved-namespace
   assert.match(hooksSource, /genericPasswordResetResponse/);
   assert.match(forgotSource, /!isBetaEmail\(email\)/);
   assert.match(listRouteSource, /createBetaLearner/);
+  assert.match(listPageSource, /Letters, numbers, - and _\. No spaces or @\. It will be converted to lowercase\./);
+  assert.match(listPageSource, /8–128 characters\./);
+  assert.match(listPageSource, /No email is sent\. Give the learner their beta username and initial password privately\. This creates a Learner account only\./);
   assert.match(detailRouteSource, /setBetaLearnerPassword/);
   assert.match(detailRouteSource, /target\.betaUsername \? 'beta username'/);
   assert.match(signInSource, /loginIdentifierToEmail/);

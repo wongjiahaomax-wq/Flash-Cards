@@ -1,8 +1,8 @@
 export const BETA_EMAIL_SUFFIX = '@beta.invalid';
 
-// Keep the synthetic email local part usable without imposing a product-level
-// length or character-set policy on beta usernames.
-const BETA_USERNAME_PATTERN = /^[^\s@]+$/;
+// Keep the synthetic email local part compatible with Better Auth without
+// imposing a product-level length policy on beta usernames.
+const BETA_USERNAME_PATTERN = /^[a-z0-9_-]+$/;
 
 /** @param {unknown} value */
 export function isValidBetaUsername(value) {
@@ -13,7 +13,7 @@ export function isValidBetaUsername(value) {
 export function normalizeBetaUsername(value) {
   const username = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (!BETA_USERNAME_PATTERN.test(username)) {
-    throw new Error('Enter a beta username without spaces or @.');
+    throw new Error('Enter a beta username using letters, numbers, - or _ without spaces or @.');
   }
   return username;
 }
