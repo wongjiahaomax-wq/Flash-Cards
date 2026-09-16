@@ -72,17 +72,17 @@ function fakeAuth(initialUsers = []) {
 
 const headers = new Headers({ cookie: 'better-auth.session_token=test' });
 
-test('beta identity helper enforces the reviewed 3–24 character contract', () => {
-  assert.equal(isValidBetaUsername('ab'), false);
-  assert.equal(isValidBetaUsername('abc'), true);
-  assert.equal(isValidBetaUsername('a'.repeat(24)), true);
-  assert.equal(isValidBetaUsername('a'.repeat(25)), false);
-  assert.equal(isValidBetaUsername('a-b'), true);
-  assert.equal(isValidBetaUsername('-abc'), false);
-  assert.equal(isValidBetaUsername('abc-'), false);
-  assert.equal(isValidBetaUsername('a_b'), false);
+test('beta identity helper accepts non-empty username values usable as email local parts', () => {
+  for (const username of ['a', 'ab', 'a'.repeat(25), 'a-b', '-abc', 'abc-', 'a_b', 'resident.01']) {
+    assert.equal(isValidBetaUsername(username), true, username);
+  }
+  for (const username of ['', '   ', 'a b', 'a@b']) {
+    assert.equal(isValidBetaUsername(username), false, username);
+  }
   assert.equal(normalizeBetaUsername(' Beta-01 '), 'beta-01');
-  assert.throws(() => normalizeBetaUsername('a'));
+  assert.equal(normalizeBetaUsername(' A_B '), 'a_b');
+  assert.throws(() => normalizeBetaUsername(' '));
+  assert.throws(() => normalizeBetaUsername('a@b'));
   assert.equal(betaUsernameToEmail('Beta-01'), `beta-01${BETA_EMAIL_SUFFIX}`);
   assert.equal(betaUsernameFromEmail('BETA-01@BETA.INVALID'), 'beta-01');
   assert.equal(betaUsernameFromEmail('learner@example.test'), null);
@@ -116,15 +116,20 @@ test('dedicated beta creation creates a Learner credential without email deliver
   });
 });
 
-test('beta validation and uniqueness fail before a second identity is created', async () => {
+test('beta username input rejects only unusable values before identity creation', async () => {
   const fixture = fakeAuth();
-  for (const username of ['a', 'ab', 'a'.repeat(25), '-abc', 'abc-']) {
+  for (const username of ['', '   ', 'a b', 'a@b']) {
     await assert.rejects(
       () => createBetaLearner({ auth: fixture.auth, headers, name: 'Invalid', username, password: 'Password123!' }),
       (error) => error instanceof AccountManagementError && error.code === 'INVALID_INPUT'
     );
   }
   assert.equal(fixture.calls.length, 0);
+
+  for (const username of ['a', 'a'.repeat(25), '-abc', 'abc-', 'a_b']) {
+    await createBetaLearner({ auth: fixture.auth, headers, name: 'Accepted', username, password: 'Password123!' });
+  }
+  assert.equal(fixture.calls.length, 5);
 
   await createBetaLearner({
     auth: fixture.auth,

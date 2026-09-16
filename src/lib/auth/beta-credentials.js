@@ -1,6 +1,8 @@
 export const BETA_EMAIL_SUFFIX = '@beta.invalid';
 
-const BETA_USERNAME_PATTERN = /^[a-z0-9][a-z0-9-]{1,22}[a-z0-9]$/;
+// Keep the synthetic email local part usable without imposing a product-level
+// length or character-set policy on beta usernames.
+const BETA_USERNAME_PATTERN = /^[^\s@]+$/;
 
 /** @param {unknown} value */
 export function isValidBetaUsername(value) {
@@ -11,7 +13,7 @@ export function isValidBetaUsername(value) {
 export function normalizeBetaUsername(value) {
   const username = typeof value === 'string' ? value.trim().toLowerCase() : '';
   if (!BETA_USERNAME_PATTERN.test(username)) {
-    throw new Error('Beta usernames must be 3–24 characters using letters, numbers, and internal hyphens.');
+    throw new Error('Enter a beta username without spaces or @.');
   }
   return username;
 }

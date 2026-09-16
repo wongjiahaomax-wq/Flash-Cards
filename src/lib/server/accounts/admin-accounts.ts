@@ -535,10 +535,7 @@ export async function createBetaLearner(options: {
   try {
     email = betaUsernameToEmail(options.username);
   } catch {
-    throw new AccountManagementError(
-      'INVALID_INPUT',
-      'Beta usernames must be 3–24 characters using letters, numbers, and internal hyphens.'
-    );
+    throw new AccountManagementError('INVALID_INPUT', 'Enter a beta username without spaces or @.');
   }
   const password = betaPassword(options.password);
 

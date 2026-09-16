@@ -158,38 +158,34 @@ Do not rely on hiding a button alone; enforce these restrictions server-side.
 
 # Username rules
 
-Keep beta usernames deliberately boring and predictable.
-
-Normalize to lowercase and require:
-
-```text
-3–24 characters
-lowercase ASCII letters a-z
-numbers 0-9
-hyphens allowed internally
-must start and end with a letter or number
-```
+Normalize beta usernames to lowercase. The only input restrictions are that a
+username must be non-empty after trimming and must not contain whitespace or
+`@`, because it is embedded as the local part of the synthetic
+`<username>@beta.invalid` email identity.
 
 Examples:
 
 ```text
 valid:
+a
 beta01
 resident-01
 fm2026
-
-invalid:
-A User
-beta@example.com
+resident_01
 -beta01
 beta01-
-a_b
+resident.01
+
+invalid:
+<empty>
+A User
+beta@example.com
 ```
 
 A suitable validation expression is:
 
 ```text
-^[a-z0-9][a-z0-9-]{1,22}[a-z0-9]$
+^[^\s@]+$
 ```
 
 The server must perform the authoritative validation. Client/UI validation may improve usability but is not the security boundary.
@@ -197,14 +193,13 @@ The server must perform the authoritative validation. Client/UI validation may i
 Focused validation must explicitly prove:
 
 ```text
-1 character  → rejected
-2 characters → rejected
-3 characters → accepted when otherwise valid
-24 characters → accepted when otherwise valid
-25 characters → rejected
+blank or whitespace-only → rejected
+whitespace-containing   → rejected
+@-containing            → rejected
+short, long, and punctuation-containing values → accepted when otherwise valid
 ```
 
-Retain proportionate invalid-character and leading/trailing-hyphen coverage.
+Retain proportionate coverage for normalization and deterministic mapping.
 
 Uniqueness comes from the existing unique email identity constraint after deterministic mapping to `<username>@beta.invalid`; do not add a second username registry.
 
@@ -656,11 +651,8 @@ Testing should be proportional to this small feature but must cover the security
 
 Prove:
 
-- valid beta username normalization;
-- 1- and 2-character usernames are rejected;
-- 3- and 24-character valid usernames are accepted;
-- 25-character usernames are rejected;
-- invalid characters and leading/trailing hyphens are rejected;
+- beta username normalization for short, long, hyphenated, and punctuated values;
+- blank, whitespace-containing, and `@`-containing usernames are rejected;
 - deterministic `<username>@beta.invalid` mapping;
 - beta username extraction from the reserved suffix;
 - normal email login passes through;
@@ -772,7 +764,7 @@ Implementation is complete only when all of the following are true:
 - [ ] Merged PR #181 account management is the retained foundation; no duplicate portal/auth architecture exists.
 - [ ] A Production Administrator can create a Beta Learner with name, beta username, and initial password without any email delivery.
 - [ ] Beta username maps deterministically to `<username>@beta.invalid` and requires no new schema.
-- [ ] Beta username validation enforces 3–24 characters, including explicit 1- and 2-character rejection.
+- [ ] Beta username validation removes the product-level length and character-set restriction while preserving non-empty, whitespace-free, `@`-free synthetic email mapping.
 - [ ] Standard Add account rejects `@beta.invalid` for both Learner and Administrator before identity creation.
 - [ ] Beta accounts are normal Learners (`user`) and cannot be promoted to Production Administrator.
 - [ ] Learners can sign in using the beta username rather than seeing/typing the synthetic email.

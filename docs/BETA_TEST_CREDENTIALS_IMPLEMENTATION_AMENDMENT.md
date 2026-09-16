@@ -113,9 +113,16 @@ Also retain proof that ordinary real-email Learner and Administrator creation st
 
 ---
 
-## Amendment 3 — enforce the stated beta username length
+## Amendment 3 — superseded beta username length requirement
 
-The beta username rule is exactly:
+The earlier review requirement below was implemented during the initial PR 182
+work, but it has since been superseded. Beta usernames no longer have a
+3–24-character, ASCII-letter/number, or internal-hyphen restriction. The
+current rule is documented in `BETA_TEST_CREDENTIALS_IMPLEMENTATION_PLAN.md`:
+normalize to lowercase, require a non-empty value, and reject whitespace or
+`@` so the synthetic email mapping remains usable.
+
+The superseded beta username rule was:
 
 ```text
 3–24 characters
@@ -133,7 +140,8 @@ The previous recommended expression:
 
 is not acceptable because its optional group permits a one-character username.
 
-Use validation semantics that actually require 3–24 characters. A suitable expression is:
+The superseded implementation was required to use validation semantics that
+actually enforce 3–24 characters. Its suitable expression was:
 
 ```text
 ^[a-z0-9][a-z0-9-]{1,22}[a-z0-9]$
@@ -141,7 +149,7 @@ Use validation semantics that actually require 3–24 characters. A suitable exp
 
 The server remains authoritative.
 
-### Required executable proof
+### Historical executable proof (before supersession)
 
 Focused helper/server tests must explicitly prove:
 
@@ -185,7 +193,7 @@ In addition to the current implementation plan, implementation is not complete u
 - [ ] standard Add account rejects `@beta.invalid` for both Learner and Administrator, with no identity created;
 - [ ] dedicated beta creation remains Learner-only;
 - [ ] beta promotion to Administrator remains blocked;
-- [ ] beta username validation actually enforces 3–24 characters, including explicit 1- and 2-character rejection tests;
+- [ ] beta username validation removes the product-level length and character-set restriction while preserving non-empty, whitespace-free, `@`-free synthetic email mapping;
 - [ ] focused tests pass;
 - [ ] repository-required final validation passes;
 - [ ] the planned real Better Auth + local D1 smoke passes, including beta create → sign in → Admin password replacement → old password fails → new password succeeds and direct `/api/auth/admin/set-user-password` rejection with credential state unchanged.

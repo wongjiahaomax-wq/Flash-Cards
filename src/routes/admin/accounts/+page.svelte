@@ -87,7 +87,7 @@
       </label>
       <label class="field">
         <span>Beta username</span>
-        <input name="beta_username" required minlength="3" maxlength="24" autocomplete="username" value={form?.values?.username ?? ''} />
+        <input name="beta_username" required autocomplete="username" value={form?.values?.username ?? ''} />
       </label>
       <label class="field">
         <span>Initial password</span>
