@@ -1,6 +1,6 @@
 # Slide Import Reviewer — Shared Crop Workspace Plan
 
-_Status: implementation-ready after first-pass planning review. Planning and implementation belong in this same Draft PR; do not create a second PR, mark Ready, or merge until implementation and review are complete._
+_Status: implementation-ready after second-pass planning review. Planning and implementation belong in this same Draft PR; do not create a second PR, mark Ready, or merge until implementation and review are complete._
 
 ## Goal
 
@@ -25,6 +25,20 @@ review Case
 
 This is a UX/layout improvement to the existing crop feature, not a new image editor or workspace framework.
 
+## Implementation principle
+
+Prefer the smallest change that preserves current reviewer behavior:
+
+```text
+existing crop editor
+→ render its active surface in the central source pane
+
+existing two-column source/review grid
+→ add one transient split value + one draggable divider
+```
+
+Do not add architecture, persistence, dependencies, or test machinery solely for this feature.
+
 ## Product contract
 
 ### 1. One shared large crop workspace
@@ -33,9 +47,9 @@ The central source pane becomes the crop canvas while an Asset is being adjusted
 
 Do not render the interactive crop canvas inside the narrow learner-image card. The right-side Asset remains the crop target and should stay visibly selected.
 
-Normal source-review behavior returns when crop mode exits.
-
 The central crop workspace is the only interactive crop preview. Do not add a second live cropped-preview pipeline in the Asset card.
+
+While crop mode is active, ordinary source browsing does **not** need to remain independently interactive. The central pane may temporarily replace the normal source thumbnails/large-source interaction with the crop workspace. Normal source-review behavior returns when crop mode exits.
 
 ### 2. Asset-linked crop source is authoritative
 
@@ -68,7 +82,7 @@ The large central crop surface must preserve the existing crop interaction contr
 - resize from all four edges and all four corners;
 - keep the crop inside source bounds;
 - preserve current minimum-size behavior;
-- preserve pointer capture/cleanup behavior so dragging remains stable when the pointer leaves the crop surface.
+- preserve current pointer capture/cleanup behavior so dragging remains stable when the pointer leaves the crop surface.
 
 Do not replace the existing crop geometry/pointer implementation with a new interaction system merely because the rendering location changes.
 
@@ -87,7 +101,7 @@ Required desktop/side-by-side behavior:
 - the selected split remains across ordinary reviewer rerenders and while navigating between Cases during the current reviewer session;
 - crop mode uses the same current split rather than forcing a special fixed width;
 - entering/exiting crop mode does not reset the split;
-- use the smallest native implementation that fits the current layout, such as a local/session split value applied to the existing grid; do not add a split-pane dependency or general layout framework.
+- use the smallest native implementation that fits the current layout, such as one local/session split value applied to the existing grid; do not add a split-pane dependency or general layout framework.
 
 A narrow visible grab target and resize cursor should make the divider discoverable without materially reducing workspace width.
 
@@ -95,31 +109,29 @@ Persistence across browser reload/reopening the reviewer is not required.
 
 #### Splitter pointer lifecycle
 
-Use a bounded Pointer Events lifecycle rather than document-wide unmanaged dragging:
+Use ordinary bounded Pointer Events behavior:
 
-- accept one primary pointer only;
-- capture the accepted pointer on drag start where supported;
-- process moves only for the active pointer;
-- ignore secondary/unrelated pointers;
-- finish on matching `pointerup`;
-- also clean up on matching `pointercancel` and `lostpointercapture`;
-- cleanup is idempotent and cannot leave the divider stuck in a dragging state.
+- accept one primary pointer;
+- use pointer capture where supported;
+- ignore unrelated pointer moves;
+- stop dragging on the matching pointer release;
+- clean up on cancellation/lost capture so the divider cannot remain stuck.
 
-This is local UI interaction state only; do not create a new operation guard or concurrency abstraction for the splitter.
+This is a low-risk local UI interaction. Do not create a new state machine, operation guard, concurrency abstraction, or exhaustive event-test suite for the splitter.
 
 #### Responsive/stacked behavior
 
-The current reviewer has a responsive layout that stacks the source and Proposed import workspaces at narrower widths. Preserve that behavior.
+Preserve the reviewer's existing responsive stacked layout.
 
-When those panes are stacked rather than side-by-side:
+When source and Proposed import are stacked rather than side-by-side:
 
 - hide/disable the vertical splitter;
 - do not apply desktop split widths to the stacked layout;
 - do not introduce horizontal page scrolling merely to preserve the split;
 - keep source review, crop controls, and Proposed import editing usable;
-- when the viewport returns to the side-by-side layout in the same session, restore the previously selected desktop split.
+- when the viewport returns to side-by-side layout in the same session, restore the previously selected desktop split.
 
-Do not redesign the existing responsive breakpoint system unless a small bounded adjustment is required to preserve current usability.
+Do not redesign the existing breakpoint system unless a small bounded adjustment is required to preserve current usability.
 
 ### 6. Splitter is presentation-only
 
@@ -146,7 +158,7 @@ Source: source-001 · page/slide 24
 
 The right-side selected Asset card should remain visible and highlighted.
 
-While crop geometry is still unsaved, keep showing the currently saved learner image in the Asset card. Do not build a separate live crop-rendering path there.
+While crop geometry is unsaved, keep showing the currently saved learner image in the Asset card. Do not build a separate live crop-rendering path there.
 
 After a successful **Save crop**, refresh the Asset card from the newly committed learner bytes through the existing resource/cache path.
 
@@ -175,7 +187,7 @@ Keep each learner Asset independently selectable with its own **Adjust crop** ac
 
 The resizable workspace divider complements this: the reviewer may widen the central pane for crop work and move it back when focusing on question/answer editing.
 
-Do not introduce tabs, floating windows, a modal editor, zoom/pan, or another dedicated image-editing screen. They are not required for this task.
+Do not introduce tabs, floating windows, a modal editor, zoom/pan, or another dedicated image-editing screen.
 
 A small visual cleanup of the learner-image cards is allowed if needed to make the selected crop target obvious, but do not turn this into a broad reviewer redesign.
 
@@ -225,58 +237,58 @@ For the workspace splitter:
 
 Do not create duplicate crop state, a second crop implementation, a live crop-preview subsystem, a generic resizable-panels subsystem, or persisted layout preferences.
 
-## Executable acceptance contract
+## Proportional validation contract
 
-| Invariant | Required behavior | Required executable proof |
-| --- | --- | --- |
-| Single Asset source | one valid Asset source auto-selects and starts crop using that source | browser transition covering automatic source selection |
-| Ambiguous Asset sources | multiple valid Asset sources require explicit Asset-source selection; no silent first-source choice | browser transition beginning with no candidate selected |
-| Asset source authority | crop mode renders the validated Asset source even when an unrelated Case source was previously visible | focused source-selection regression |
-| Multiple Assets | switching crop target selects the correct Asset/session, including two Assets sharing one source page | browser transition with multiple learner Assets |
-| Unsaved target switch | switching A → B without saving A discards A geometry with zero media/review/persist mutation | focused browser transition |
-| Large shared crop surface | active crop editor renders in the central source pane, not inside the narrow Asset card | production reviewer DOM/render assertion |
-| Crop move + resize | crop can be dragged and resized from 4 edges + 4 corners after relocation | existing pointer/geometry tests remain green plus focused relocated-DOM interaction proof if needed |
-| Workspace splitter | dragging the central/right divider changes only their widths, Cases is unaffected, and minimum widths are enforced | focused production DOM/pointer transition test |
-| Splitter pointer cleanup | primary pointer capture works and up/cancel/lost-capture all end drag cleanly | focused DOM/event transition |
-| Split retention across rerenders | chosen split survives Case navigation and at least one non-navigation rerender | browser transition covering both |
-| Crop + splitter integration | entering/exiting crop mode does not reset the current workspace split | focused transition assertion |
-| Responsive splitter | stacked layout hides/disables splitter and ignores desktop widths; returning to side-by-side restores the session split | rendered responsive transition/smoke plus light executable assertion where available |
-| Splitter has no review persistence | divider movement does not dirty or mutate bundle/review/autosave state | focused state assertion |
-| Unsaved Asset preview | Asset card keeps showing saved learner media during crop editing | DOM/render assertion |
-| Cancel | exits shared crop mode and restores ordinary source review without media/review mutation | actual cancel transition |
-| Save | existing crop-save semantics still apply and successful Save refreshes the Asset from committed bytes | actual save transition/regression coverage |
-| Existing protections | protected save, stale-work, failure atomicity, export/finalization and persistence behavior do not regress | existing crop-save regression suite remains green |
+Testing should be proportional to the product risk. Do **not** create one bespoke test for every sentence in this plan, and do not expand the lightweight reviewer harness solely to emulate full CSS layout.
 
-Static/regex checks may supplement these tests but should not be the only proof for the interaction changes.
+Combine related assertions into the smallest representative scenarios that prove material behavior.
 
-Do not add a heavyweight browser/testing dependency solely for layout measurement. Use the lightest current executable/rendered mechanism plus documented manual viewport smoke where CSS geometry cannot be reliably asserted in the existing harness.
+Required executable coverage:
+
+| Area | Material behavior to prove |
+| --- | --- |
+| Crop source safety | single-source Asset auto-selects; ambiguous Asset requires explicit valid selection; an unrelated visible Case source cannot become the crop source |
+| Multi-Asset switching | switching A → B uses B's correct session/source and does not mutate unsaved A, including the shared-source-page case where practical |
+| Shared crop workspace | active crop surface renders in the central pane and existing move/8-direction resize wiring remains functional |
+| Splitter core behavior | dragging changes only source/review allocation, respects minimum usable widths, leaves Cases unchanged, and does not dirty/persist review state |
+| Split retention | one representative flow proves the chosen split survives ordinary rerender/Case navigation and crop entry/exit |
+| Crop mutation semantics | existing Cancel/Save behavior and existing crop-save safety/regression suite remain green |
+
+For splitter pointer handling, normal implementation coverage plus a focused interaction that proves drag starts/stops cleanly is sufficient. Dedicated tests for every theoretical `pointercancel`/`lostpointercapture` combination are not required unless implementation evidence exposes a real defect.
+
+Responsive geometry and exact minimum widths are primarily **manual/rendered smoke** concerns. If the current harness can assert a relevant responsive state cheaply, use it; otherwise do not add a heavyweight browser dependency or large layout simulator solely for this PR.
+
+Static/regex checks may supplement but must not replace the material interaction proofs above.
 
 ## Manual smoke
 
 Use a representative Case with at least two learner images and, if available, one Asset with multiple valid source references.
 
-At representative desktop/intermediate widths already used by the reviewer workflow (including approximately 1680, 1440, and 1280 px) and around the existing responsive transition/narrow layout, confirm:
+At representative desktop/intermediate widths already used by the reviewer workflow (approximately 1680, 1440, and 1280 px) and around the existing responsive transition/narrow layout, confirm:
 
 1. drag the Source ↔ Proposed import divider in both directions; both panes remain usable and Cases stays unchanged;
 2. force an ordinary rerender and navigate to another Case; the chosen desktop split remains;
-3. enter a stacked/narrow viewport: splitter disappears/does not force widths; return to desktop and the previous split returns;
-4. with an unrelated Case source page visible, click **Adjust crop** on a single-source image A → centre switches to A's Asset-linked source and shows the large crop surface without resetting the split;
+3. enter the stacked/narrow layout: splitter disappears/does not force widths; return to desktop and the previous split returns;
+4. with an unrelated Case source page visible, click **Adjust crop** on a single-source image A → centre uses A's Asset-linked source and shows the large crop surface without resetting the split;
 5. drag the crop rectangle and resize from at least one edge and one corner;
 6. confirm image A's right-side card still shows the saved learner image while the crop is unsaved;
 7. Cancel returns to normal source review without changing A or the chosen split;
 8. adjust A again and Save → A preview refreshes from the committed cropped bytes;
 9. for a multi-source Asset, confirm no source is silently chosen; explicitly select one valid Asset source before crop starts;
 10. start adjusting A, then switch to image B without saving A → A remains unchanged and B gets its own correct crop session/source;
-11. if A and B share one source page, the page may remain visible but the active target/session changes correctly;
-12. other learner-image cards remain visible and are not themselves interactive crop canvases;
-13. ordinary source review and Proposed import editing remain usable near both splitter limits and in the stacked layout.
+11. ordinary source review and Proposed import editing remain usable near both splitter limits and in the stacked layout;
+12. divider dragging ends cleanly on release and does not leave a stuck resize state.
+
+Do not add extra manual scenarios for theoretical edge cases unless implementation evidence suggests a realistic regression.
 
 ## Completion
 
-Implementation, focused tests, generated reviewer output, and any small README update required by the changed UX belong in this same PR.
+Implementation, focused proportional tests, regenerated `reviewer.html`, and any small README update required by the changed UX belong in this same PR.
 
-Follow current repository guidance and progressive retrieval. Keep the PR Draft during implementation. Do not merge or mark Ready for Review.
+Run the current slide-review/crop regressions, the focused new interaction coverage above, the existing representative viewport smoke, and repository-required final validation. Do not add heavyweight test infrastructure solely for this PR.
+
+Keep the PR Draft during implementation. Do not merge or mark Ready for Review.
 
 ## Luna 5.6 handoff
 
-Continue Draft PR #183. Planning and implementation belong in this same PR; do not create another PR. Implement this plan, including the shared central crop workspace and single Source ↔ Proposed import divider. Preserve Asset-linked crop-source authority and existing ambiguous-source selection safety. The splitter is desktop/side-by-side UI only, must survive ordinary rerenders in-session, must disappear cleanly in the stacked responsive layout, and must not dirty or persist review data. Keep the Asset card on the saved learner image until Save succeeds. Preserve the existing crop/save safety architecture and left Cases queue behavior. Keep the solution small and native; no new dependency, generic layout subsystem, live second crop preview, or persisted layout preference. Run focused interaction/regression coverage plus the existing responsive/manual smoke and repository-required final validation. Do not mark Ready or merge.
+Continue Draft PR #183 and implement this plan in the same PR; do not create another PR. Keep the implementation minimal: relocate the existing crop UI into the central source pane and add one transient Source ↔ Proposed import splitter using the current layout. Reuse the existing crop/session/source/save machinery. Preserve Asset-linked source safety, ambiguous-source selection, crop Save/Cancel semantics, left Cases behavior, and the existing responsive stacked layout. Do not add new crop/layout architecture, persisted layout preferences, dependencies, live secondary previews, or heavyweight browser testing. Combine related interaction assertions where practical; use focused executable tests for material behavior and the existing manual viewport smoke for layout. Keep Draft; do not merge or mark Ready.
