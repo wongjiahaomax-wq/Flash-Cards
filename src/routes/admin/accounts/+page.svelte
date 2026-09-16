@@ -200,7 +200,7 @@
   .search-form { display: grid; grid-template-columns: 160px minmax(240px, 1fr) auto; gap: 0.75rem; align-items: end; }
   .search-actions, .actions { display: flex; gap: 0.5rem; align-items: center; }
   .button { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0.6rem 0.9rem; border: 1px solid #bcc8d8; border-radius: 8px; background: #fff; color: #223047; font: inherit; font-weight: 700; text-decoration: none; cursor: pointer; }
-  .button.primary { border-color: #1d4ed8; background: #1d4ed8; color: #fff; }
+  .button.primary { border-color: #172033; background: #172033; color: #fff; }
   .button.secondary { background: #f8fafc; }
   .notice { margin: 0; padding: 0.8rem 1rem; border-radius: 8px; }
   .notice.success { border: 1px solid #9bd3ae; background: #effaf2; }

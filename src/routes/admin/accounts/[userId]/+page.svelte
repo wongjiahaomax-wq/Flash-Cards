@@ -233,14 +233,17 @@
   .notice.warning { border-color: #f0c36d; background: #fff8e8; }
   .notice.error { border-color: #efb3b3; background: #fff1f1; }
   .button { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0.6rem 0.9rem; border: 1px solid #bcc8d8; border-radius: 8px; background: #fff; color: #223047; font: inherit; font-weight: 700; cursor: pointer; }
-  .button.primary { border-color: #1d4ed8; background: #1d4ed8; color: #fff; }
-  .button.danger { border-color: #b42318; background: #b42318; color: #fff; }
-  .button.danger-outline { border-color: #d92d20; color: #b42318; }
+  .button.primary { border-color: #172033; background: #172033; color: #fff; }
+  .button.danger { border-color: #efb3b3; background: #fff1f1; color: #b42318; }
+  .button.danger:hover:not(:disabled) { border-color: #e6a7a7; background: #ffe7e5; }
+  .button.danger-outline { border-color: #efb3b3; background: #fff; color: #b42318; }
+  .button.danger-outline:hover:not(:disabled) { border-color: #e6a7a7; background: #fff1f1; }
   .danger-zone { border-color: #f3c4c0; }
   .deletion-card { border-color: #f0c36d; background: #fffaf0; }
   .phase { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88rem; }
   .permanent-delete { display: grid; gap: 0.45rem; padding-top: 1rem; border-top: 1px solid #f0d1ce; }
   .permanent-delete h3, .permanent-delete p { margin: 0; }
+  .permanent-delete form { display: grid; justify-items: start; gap: 0.6rem; }
   .confirm-field { display: grid; gap: 0.35rem; max-width: 420px; color: #344054; font-weight: 650; }
   .confirm-field input { padding: 0.62rem 0.7rem; border: 1px solid #cfd6e1; border-radius: 7px; font: inherit; }
   .password-form { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem; }
