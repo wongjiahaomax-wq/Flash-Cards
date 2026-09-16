@@ -195,7 +195,8 @@
   .card { padding: 1.25rem; border: 1px solid #dfe5ee; border-radius: 10px; background: white; }
   details summary { cursor: pointer; }
   .create-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(160px, 0.6fr) auto; gap: 0.9rem; align-items: end; }
-  .beta-create-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(160px, 0.8fr) auto; }
+  .beta-create-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(160px, 0.8fr) auto; align-items: start; }
+  .beta-create-grid .submit-cell { align-self: start; padding-top: 1.45rem; }
   .field { display: grid; gap: 0.35rem; font-weight: 650; }
   .field span { font-size: 0.9rem; }
   .field-help { color: #667085; font-size: 0.82rem; font-weight: 500; line-height: 1.35; }
@@ -223,9 +224,11 @@
   @media (max-width: 1050px) {
     .create-grid, .beta-create-grid { grid-template-columns: 1fr 1fr; }
     .submit-cell { align-self: end; }
+    .beta-create-grid .submit-cell { align-self: end; padding-top: 0; }
   }
   @media (max-width: 720px) {
     .create-grid, .search-form { grid-template-columns: 1fr; }
+    .beta-create-grid .submit-cell { align-self: start; }
     .page-heading, .section-heading, .pagination { display: grid; }
   }
 </style>
