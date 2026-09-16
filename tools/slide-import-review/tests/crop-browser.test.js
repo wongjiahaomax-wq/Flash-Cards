@@ -40,14 +40,16 @@ function loadHarness() {
   source = source.replace(/import\s+\{[\s\S]*?\}\s+from\s+'\.\/[^']+';\r?\n/g, '').replace(/import\s+\*\s+as\s+cropGeometry\s+from\s+'\.\/crop\.js';\r?\n/g, '');
   source += `
 globalThis.__cropTest = {
-  setBundle(nextBundle) { bundle = nextBundle; bundleFingerprint = 'test-fingerprint'; loadGeneration = 1; saveGeneration = 1; rebuildIndexes(); visibleCases = bundle.reviewMap.cases; index = 0; selectedSourcePath = null; cropSession = null; },
+  setBundle(nextBundle) { bundle = nextBundle; bundleFingerprint = 'test-fingerprint'; loadGeneration = 1; saveGeneration = 1; rebuildIndexes(); visibleCases = bundle.reviewMap.cases; index = 0; selectedSourcePath = null; cropSourceSelections.clear(); cropSession = null; },
   setSelectedSourcePath(path) { selectedSourcePath = path; }, setCrop(value) { cropSession.crop = value; }, setPersist(fn) { persist = fn; }, setRender(fn) { renderCurrent = fn; }, setGeneration(value) { loadGeneration = value; },
-  enterCrop, cancelCrop, saveCrop, wireCurrent, wireCropEditor, assetCard, snapshot, restoreSaved, cropSession() { return cropSession; }, guard() { return operationGuard; },
+  setWorkspaceSplit(value) { workspaceSplit = value; }, workspaceSplit() { return workspaceSplit; }, workspaceGridStyle, wireWorkspaceSplitter, selectCropSource,
+  enterCrop, cancelCrop, saveCrop, wireCurrent, wireCropEditor, assetCard, sourcePanel, snapshot, restoreSaved, cropSession() { return cropSession; }, guard() { return operationGuard; },
   current() { return { bundle, index, visibleCases, dirty, cropSession }; }, renderCurrent, loadFile
 };`;
   const elements = new Map(), selectorResults = new Map();
   const document = {
     getElementById(id) { if (!elements.has(id)) elements.set(id, makeElement()); return elements.get(id); },
+    querySelector(selector) { return selectorResults.get(selector)?.[0] ?? null; },
     querySelectorAll(selector) { return selectorResults.get(selector) ?? []; },
     addEventListener(type, listener) { this.listeners.set(type, listener); }, listeners: new Map(),
     dispatch(type, event) { return this.listeners.get(type)?.(event); },
@@ -74,7 +76,9 @@ test('crop source eligibility never falls back to an unrelated Case source', asy
   const multiple = makeBundle({ sourceRefs: [{ sourceId: 'source-1', pages: [1] }, { sourceId: 'source-2', pages: [9] }], sourceCoverage: [{ sourceId: 'source-1', page: 1, previewPath: 'source-previews/linked.png' }, { sourceId: 'source-2', page: 9, previewPath: 'source-previews/other.png' }] });
   harness.setBundle(multiple); harness.setSelectedSourcePath('source-previews/unrelated.png');
   assert.match(harness.assetCard(multiple.manifest.caseAssets[0], multiple.reviewMap.cases[0].assets[0], new Map([['media/learner.png', 'learner-url']])), /class="[^"]*adjust-crop"[^>]+disabled/);
-  harness.setSelectedSourcePath('source-previews/other.png'); assert.equal(await harness.enterCrop('asset-1'), true); assert.equal(harness.cropSession().sourcePath, 'source-previews/other.png');
+  harness.setSelectedSourcePath('source-previews/other.png');
+  assert.match(harness.assetCard(multiple.manifest.caseAssets[0], multiple.reviewMap.cases[0].assets[0], new Map([['media/learner.png', 'learner-url']])), /class="[^\"]*adjust-crop"[^>]+disabled/);
+  harness.selectCropSource('asset-1', 'source-previews/other.png'); assert.equal(await harness.enterCrop('asset-1'), true); assert.equal(harness.cropSession().sourcePath, 'source-previews/other.png');
 });
 
 test('Asset-owned crop source selection survives rerender and Save when Asset refs are not Case refs', async () => {
@@ -106,6 +110,33 @@ test('Asset-owned crop source selection survives rerender and Save when Asset re
   harness.setPersist(async () => {});
   assert.equal(await harness.saveCrop('asset-1'), true);
   assert.deepEqual(bundle.files.get('media/learner.png'), pngBytes(4, 5, 6));
+});
+
+test('shared crop workspace keeps the saved Asset preview and transient split across rerender', async () => {
+  const { harness, elements } = loadHarness(), bundle = makeBundle();
+  harness.setBundle(bundle); harness.setWorkspaceSplit(.7); await harness.renderCurrent();
+  assert.match(elements.get('workspace').innerHTML, /--review-source-fr:0\.7/);
+  await harness.enterCrop('asset-1');
+  const html = elements.get('workspace').innerHTML;
+  assert.equal((html.match(/data-crop-editor=/g) ?? []).length, 1);
+  assert.ok(html.indexOf('data-crop-editor="asset-1"') < html.indexOf('Proposed import'));
+  assert.match(html, /data-crop-target="true"/);
+  assert.match(html, /class="learner-image"/);
+  assert.match(html, /--review-source-fr:0\.7/);
+  assert.equal(harness.current().dirty, false);
+});
+
+test('workspace splitter clamps both panes, ignores secondary pointers, and cleans up capture', () => {
+  const { harness, selectorResults } = loadHarness(), bundle = makeBundle(); harness.setBundle(bundle);
+  let captured = null, styleValues = {};
+  const grid = makeElement({ style: { setProperty(name, value) { styleValues[name] = value; } }, getBoundingClientRect: () => ({ left: 0, width: 1000 }) });
+  const splitter = makeElement({ getBoundingClientRect: () => ({ left: 600, width: 18 }), setPointerCapture(id) { captured = id; }, hasPointerCapture: id => captured === id, releasePointerCapture(id) { if (captured === id) captured = null; } });
+  selectorResults.set('[data-review-grid]', [grid]); selectorResults.set('[data-workspace-splitter]', [splitter]); harness.wireWorkspaceSplitter();
+  const down = splitter.listener('pointerdown'), move = splitter.listener('pointermove'), up = splitter.listener('pointerup'), cancel = splitter.listener('pointercancel');
+  down({ pointerId: 7, isPrimary: true, preventDefault() {} }); down({ pointerId: 8, isPrimary: true, preventDefault() {} }); assert.equal(captured, 7);
+  const before = harness.workspaceSplit(); move({ pointerId: 8, clientX: 900, preventDefault() {} }); assert.equal(harness.workspaceSplit(), before);
+  move({ pointerId: 7, clientX: 80, preventDefault() {} }); assert.ok(Number(styleValues['--review-source-fr']) > .3 && Number(styleValues['--review-source-fr']) < .4);
+  up({ pointerId: 7 }); assert.equal(captured, null); down({ pointerId: 9, isPrimary: true, preventDefault() {} }); cancel({ pointerId: 9 }); assert.equal(captured, null); assert.equal(harness.current().dirty, false);
 });
 
 test('Adjust crop and Cancel are inline transitions and Cancel does not mutate or persist', async () => {
