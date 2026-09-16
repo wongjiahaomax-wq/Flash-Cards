@@ -1,10 +1,11 @@
 <script>
   import { goto } from '$app/navigation';
   import { authClient } from '$lib/auth-client.js';
+  import { loginIdentifierToEmail } from '$lib/auth/beta-credentials.js';
 
   let { data } = $props();
 
-  let email = $state('');
+  let identifier = $state('');
   let password = $state('');
   let errorMessage = $state('');
   let submitting = $state(false);
@@ -14,6 +15,15 @@
     event.preventDefault();
     errorMessage = '';
     submitting = true;
+
+    let email;
+    try {
+      email = loginIdentifierToEmail(identifier);
+    } catch {
+      submitting = false;
+      errorMessage = 'Enter a valid email address or beta username.';
+      return;
+    }
 
     const { error } = await authClient.signIn.email({
       email,
@@ -56,8 +66,8 @@
 
     <form class="stack" onsubmit={signIn}>
       <label class="field">
-        <span>Email</span>
-        <input bind:value={email} type="email" autocomplete="email" required disabled={!data.authConfigured || submitting} />
+        <span>Email or beta username</span>
+        <input bind:value={identifier} type="text" autocomplete="username" required disabled={!data.authConfigured || submitting} />
       </label>
 
       <label class="field">
@@ -72,6 +82,7 @@
       </label>
 
       <a class="forgot-link" href="/forgot-password">Forgot password?</a>
+      <p class="muted beta-hint">Beta test users: ask the Administrator to set a new password.</p>
 
       {#if errorMessage}
         <p class="error" role="alert">{errorMessage}</p>
@@ -91,6 +102,11 @@
   .field {
     display: grid;
     gap: 0.4rem;
+  }
+
+  .beta-hint {
+    margin: 0;
+    font-size: 0.9rem;
   }
 
   input {

@@ -5,8 +5,10 @@
   const statusMessages = {
     created: 'Account created and set-password email requested.',
     'created-email-failed': 'Account created, but the set-password email could not be delivered. The account was preserved; retry below.',
+    'beta-created': 'Beta learner created. Give the learner the username and password privately.',
     'set-password-sent': 'Set-password email sent.',
     'password-reset-sent': 'Password-reset email sent.',
+    'beta-password-set': 'Beta learner password replaced. The old password no longer works.',
     promoted: 'Account promoted to Administrator.',
     demoted: 'Account changed to Learner.',
     disabled: 'Account disabled. Existing sessions were revoked.',
@@ -27,7 +29,7 @@
 </script>
 
 <svelte:head>
-  <title>{data.account.name || data.account.email} | Accounts</title>
+  <title>{data.account.name || data.account.betaUsername || data.account.email} | Accounts</title>
 </svelte:head>
 
 <div class="stack">
@@ -35,7 +37,13 @@
     <div>
       <a class="back-link" href="/admin/accounts">← Accounts</a>
       <h1>{data.account.name || 'Unnamed account'}</h1>
-      <p class="muted">{data.account.email}</p>
+      <p class="muted">
+        {#if data.account.betaUsername}
+          Beta username: {data.account.betaUsername}
+        {:else}
+          {data.account.email}
+        {/if}
+      </p>
     </div>
     <div class="badges">
       <span class="badge">{data.account.accountType}</span>
@@ -58,7 +66,10 @@
     <h2>Account details</h2>
     <dl class="details-grid">
       <div><dt>Name</dt><dd>{data.account.name || '—'}</dd></div>
-      <div><dt>Email</dt><dd>{data.account.email}</dd></div>
+      <div>
+        <dt>{data.account.betaUsername ? 'Beta username' : 'Email'}</dt>
+        <dd>{data.account.betaUsername ?? data.account.email}</dd>
+      </div>
       <div><dt>Account type</dt><dd>{data.account.accountType}</dd></div>
       <div><dt>Status</dt><dd>{data.account.status}</dd></div>
       <div><dt>Created</dt><dd>{formatDate(data.account.createdAt)}</dd></div>
@@ -85,20 +96,36 @@
       </form>
     </section>
   {:else}
-    <section class="card stack">
-      <div>
-        <h2>Password email</h2>
-        <p class="muted">Use Set password for initial setup or a failed invitation. Use Password reset for an established user who forgot their password. Better Auth owns the secure token; no password or token is shown to the Administrator.</p>
-      </div>
-      <div class="actions">
-        <form method="POST" action="?/sendSetPassword">
-          <button class="button primary" type="submit">Send set-password email</button>
+    {#if data.account.betaUsername}
+      <section class="card stack">
+        <div>
+          <h2>Beta password</h2>
+          <p class="muted">Set a new password and give it to the learner privately. No email is sent, and the password cannot be viewed again.</p>
+        </div>
+        <form class="password-form" method="POST" action="?/setBetaPassword">
+          <label class="confirm-field">
+            <span>New password</span>
+            <input name="newPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password" required />
+          </label>
+          <button class="button primary" type="submit">Set new beta password</button>
         </form>
-        <form method="POST" action="?/sendPasswordReset">
-          <button class="button" type="submit">Send password-reset email</button>
-        </form>
-      </div>
-    </section>
+      </section>
+    {:else}
+      <section class="card stack">
+        <div>
+          <h2>Password email</h2>
+          <p class="muted">Use Set password for initial setup or a failed invitation. Use Password reset for an established user who forgot their password. Better Auth owns the secure token; no password or token is shown to the Administrator.</p>
+        </div>
+        <div class="actions">
+          <form method="POST" action="?/sendSetPassword">
+            <button class="button primary" type="submit">Send set-password email</button>
+          </form>
+          <form method="POST" action="?/sendPasswordReset">
+            <button class="button" type="submit">Send password-reset email</button>
+          </form>
+        </div>
+      </section>
+    {/if}
 
   <section class="card stack">
     <div>
@@ -106,7 +133,9 @@
       <p class="muted">Role changes are enforced server-side. The signed-in Administrator and the last active Production Administrator are protected from lockout.</p>
     </div>
 
-    {#if data.isCurrentAccount}
+    {#if data.account.betaUsername}
+      <p class="muted">Beta learners cannot be promoted to Production Administrator.</p>
+    {:else if data.isCurrentAccount}
       <p class="muted">You cannot demote your own Production Administrator account here.</p>
     {:else if data.account.accountType === 'Learner'}
       <form method="POST" action="?/promote" onsubmit={(event) => confirmAction(event, 'Promote this Learner to Production Administrator?')}>
@@ -164,11 +193,11 @@
     {#if !data.account.hasPreviewAccess && data.account.accountType === 'Learner'}
       <div class="permanent-delete">
         <h3>Permanent learner deletion</h3>
-        <p class="muted">This removes the Learner identity and its learner-owned data through the existing staged deletion engine. Type the email to confirm the first destructive request.</p>
+        <p class="muted">This removes the Learner identity and its learner-owned data through the existing staged deletion engine. Type the displayed login identifier to confirm the first destructive request.</p>
         <form method="POST" action="?/deleteLearner" onsubmit={(event) => confirmAction(event, 'Permanently delete this Learner account and all learner-owned data? This cannot be undone.')}>
           <label class="confirm-field">
-            <span>Type {data.account.email} to confirm</span>
-            <input name="confirmEmail" autocomplete="off" required />
+            <span>Type {data.account.betaUsername ?? data.account.email} to confirm</span>
+            <input name="confirmIdentifier" autocomplete="off" required />
           </label>
           <button class="button danger" type="submit">Delete account permanently</button>
         </form>
@@ -204,16 +233,20 @@
   .notice.warning { border-color: #f0c36d; background: #fff8e8; }
   .notice.error { border-color: #efb3b3; background: #fff1f1; }
   .button { display: inline-flex; align-items: center; justify-content: center; min-height: 40px; padding: 0.6rem 0.9rem; border: 1px solid #bcc8d8; border-radius: 8px; background: #fff; color: #223047; font: inherit; font-weight: 700; cursor: pointer; }
-  .button.primary { border-color: #1d4ed8; background: #1d4ed8; color: #fff; }
-  .button.danger { border-color: #b42318; background: #b42318; color: #fff; }
-  .button.danger-outline { border-color: #d92d20; color: #b42318; }
+  .button.primary { border-color: #172033; background: #172033; color: #fff; }
+  .button.danger { border-color: #efb3b3; background: #fff1f1; color: #b42318; }
+  .button.danger:hover:not(:disabled) { border-color: #e6a7a7; background: #ffe7e5; }
+  .button.danger-outline { border-color: #efb3b3; background: #fff; color: #b42318; }
+  .button.danger-outline:hover:not(:disabled) { border-color: #e6a7a7; background: #fff1f1; }
   .danger-zone { border-color: #f3c4c0; }
   .deletion-card { border-color: #f0c36d; background: #fffaf0; }
   .phase { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.88rem; }
   .permanent-delete { display: grid; gap: 0.45rem; padding-top: 1rem; border-top: 1px solid #f0d1ce; }
   .permanent-delete h3, .permanent-delete p { margin: 0; }
+  .permanent-delete form { display: grid; justify-items: start; gap: 0.6rem; }
   .confirm-field { display: grid; gap: 0.35rem; max-width: 420px; color: #344054; font-weight: 650; }
   .confirm-field input { padding: 0.62rem 0.7rem; border: 1px solid #cfd6e1; border-radius: 7px; font: inherit; }
+  .password-form { display: flex; flex-wrap: wrap; align-items: end; gap: 0.75rem; }
   @media (max-width: 760px) {
     .page-heading { display: grid; }
     .details-grid { grid-template-columns: 1fr; }
