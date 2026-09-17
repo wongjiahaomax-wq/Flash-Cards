@@ -28,7 +28,7 @@ The Case title can contain the diagnosis, so it must not be exposed to the learn
 
 The Case editor's up/down controls define meaningful Case-question order.
 
-For Original/Core Study, keep existing eligibility, duplicate precedence, coverage, and random/subset selection behavior, but once the Review's questions have been selected, display the selected questions in their authored/pool order rather than shuffled order.
+For Original/Core Study, keep existing eligibility, duplicate precedence, coverage, and random/subset selection behavior. The intended presentation order is the resolved Core pool order before random subset selection/shuffling. After the Review's questions have been selected, present the selected questions in that resolved Core order rather than in shuffle order.
 
 Do not change Expanded Learning ordering unless required by the smallest shared implementation. Do not change which questions are eligible or how many are selected.
 
@@ -90,18 +90,19 @@ Do not add or redesign:
    - After the real reveal action, the same Review renders its frozen Case title as the heading.
 
 2. **Core ordering**
-   - A focused test creates/uses Case questions with a known authored order, exercises Core Review question selection, and proves the selected questions are displayed in authored order even when selection randomness would otherwise shuffle them.
-   - Existing selection count and coverage behavior remains intact.
+   - Focused executable proof must operate at the active-Review/learner-visible layer, not only on the question-selection helper.
+   - Create/use Core Study content with a known authored Case-question order, exercise actual Review creation, and prove the selected questions frozen into or rendered from that Review appear in the resolved Core pool order that existed before random subset selection/shuffling.
+   - Existing eligibility, duplicate precedence, selection count, coverage constraints, and random subset selection remain intact.
 
-3. **Image inspection**
-   - Exercise the actual Study Review component/page at the rendered-interaction layer where practical: activating an image opens the larger modal; caption is retained; close control and `Escape` close it.
-   - The modal uses the existing Study media URL; no alternate media endpoint is introduced.
+3. **Image inspection and reveal-position interaction**
+   - Use the repository's existing Playwright/browser surface for one focused Study Review regression; do not add new test infrastructure or broaden into a large E2E suite.
+   - Activating the Study image or magnifying-glass affordance opens the larger inspection modal using the existing Study media URL and retaining the caption.
+   - The explicit close control and `Escape` close the modal. Backdrop-close behavior should also remain covered where economical in the same regression.
+   - The same focused browser regression should exercise the real reveal interaction and prove it does not reset the learner to an unrelated scroll position.
+   - No alternate media endpoint is introduced.
 
 4. **Run progress**
    - If implemented, focused proof shows the label reflects the existing run descriptor and does not persist a separate counter.
-
-5. **Reveal position**
-   - Focused browser/component coverage should prove reveal does not reset the learner to an unrelated page position if the repository's current test surface supports this economically. Do not build new test infrastructure solely for this.
 
 ## Execution
 
