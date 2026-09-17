@@ -95,14 +95,15 @@ test('Production cutover completion requires both the v2 guard and an open ident
   assert.match(workflow, /Unable to inspect the currently deployed Production runtime\. No cutover action was taken\./);
 });
 
-test('Production workflow mechanically enforces the retry-safe fenced v2 cutover order', () => {
+test('Production workflow runs expensive v2 acceptance and benchmarks only for an incomplete cutover', () => {
   const workflow = source('.github/workflows/deploy-production.yml');
   assert.match(workflow, /apply_migrations:/);
   assertOrdered(workflow, [
+    'Detect whether the one-time v2 cutover is still required',
     'Run multi-System v2 migrated-D1 scope guard acceptance',
     'Run multi-System v2 migrated-D1 lifecycle acceptance',
+    'Run multi-System v2 supported JS/browser-envelope benchmark',
     'Run multi-System v2 supported-envelope D1 trigger benchmark',
-    'Detect whether the one-time v2 cutover is still required',
     'Install temporary learner write fence Worker',
     'Verify temporary write fence',
     'Require exact zero Production learner runtime data',
@@ -113,6 +114,19 @@ test('Production workflow mechanically enforces the retry-safe fenced v2 cutover
     'Reopen learner runtime with v2 Worker',
     'Verify deployed v2 runtime is open'
   ]);
+
+  for (const stepName of [
+    'Run multi-System v2 migrated-D1 scope guard acceptance',
+    'Run multi-System v2 migrated-D1 lifecycle acceptance',
+    'Run multi-System v2 supported JS/browser-envelope benchmark',
+    'Run multi-System v2 supported-envelope D1 trigger benchmark'
+  ]) {
+    const start = workflow.indexOf(`- name: ${stepName}`);
+    assert.ok(start >= 0, `missing Production step: ${stepName}`);
+    const next = workflow.indexOf('\n      - name:', start + 1);
+    const step = workflow.slice(start, next >= 0 ? next : workflow.length);
+    assert.match(step, /if: \$\{\{ steps\.cutover\.outputs\.required == 'true' \}\}/);
+  }
 
   const migrationStart = workflow.indexOf('- name: Apply all pending production D1 migrations');
   const migrationEnd = workflow.indexOf('- name: Verify v2 Active Review D1 guard');

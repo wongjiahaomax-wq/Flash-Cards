@@ -134,9 +134,9 @@ test('multi-System v2 cutover retries unless both schema and an open identified 
   assert.match(guard, /inspection/);
 
   const order = [
+    'Detect whether the one-time v2 cutover is still required',
     'Run multi-System v2 migrated-D1 lifecycle acceptance',
     'Run multi-System v2 supported-envelope D1 trigger benchmark',
-    'Detect whether the one-time v2 cutover is still required',
     'Install temporary learner write fence Worker',
     'Require exact zero Production learner runtime data',
     'Apply all pending production D1 migrations',
@@ -147,6 +147,19 @@ test('multi-System v2 cutover retries unless both schema and an open identified 
   ].map((label) => workflow.indexOf(label));
   assert.equal(order.every((position) => position >= 0), true);
   assert.deepEqual(order, [...order].sort((a, b) => a - b));
+
+  for (const stepName of [
+    'Run multi-System v2 migrated-D1 scope guard acceptance',
+    'Run multi-System v2 migrated-D1 lifecycle acceptance',
+    'Run multi-System v2 supported JS/browser-envelope benchmark',
+    'Run multi-System v2 supported-envelope D1 trigger benchmark'
+  ]) {
+    const start = workflow.indexOf(`- name: ${stepName}`);
+    assert.ok(start >= 0, `missing cutover validation step: ${stepName}`);
+    const next = workflow.indexOf('\n      - name:', start + 1);
+    const step = workflow.slice(start, next >= 0 ? next : workflow.length);
+    assert.match(step, /if: \$\{\{ steps\.cutover\.outputs\.required == 'true' \}\}/);
+  }
 });
 
 test('Production cutover restores only a positively verified pre-fence Worker when a fenced pre-migration gate fails', () => {

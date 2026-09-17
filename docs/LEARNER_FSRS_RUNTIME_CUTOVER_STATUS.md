@@ -122,13 +122,13 @@ AND
 
 Therefore a state where migration `0026` was applied manually, or where an earlier cutover stopped after migration or while the app remained fenced, re-enters the fenced exact-zero path rather than being treated as complete. D1 inspection/authentication failures and runtime-status transport failures fail before the workflow installs a Production fence.
 
-The cutover mechanically performs repository validation plus both migrated-D1 acceptances and both envelope benchmarks, verifies the preconditions above, installs/verifies the temporary fence, runs the exact-zero gate, applies migrations, verifies the v2 guard, deploys the expected v2 Worker with `LEARNER_RUNTIME_WRITE_FENCE=true` and `APP_BUILD_SHA=GITHUB_SHA`, performs non-mutating verification, then reopens that same expected build.
+The workflow mechanically performs repository validation, verifies the preconditions above (the D1 guard and the deployed runtime completion state), and then—only when that detection shows a first or incomplete cutover—runs both migrated-D1 acceptances and both envelope benchmarks before installing/verifying the temporary fence, runs the exact-zero gate, applies migrations, verifies the v2 guard, deploys the expected v2 Worker with `LEARNER_RUNTIME_WRITE_FENCE=true` and `APP_BUILD_SHA=GITHUB_SHA`, performs non-mutating verification, then reopens that same expected build.
 
 `/api/runtime-cutover-status` reports `learnerRuntimeBuildSha`; both fenced and final-open verification require it to equal the exact workflow `GITHUB_SHA`. Reaching an unidentified or different v2-looking Worker is not sufficient evidence.
 
 The shared `/study` access owner also honors `LEARNER_RUNTIME_WRITE_FENCE`, so planning/open/resume/reveal/completion cannot run while the fenced v2 Worker is being verified.
 
-Only after both the v2 D1 guard and an already-open identified v2 runtime prove the historical cutover completed may an ordinary later deployment skip the exact-zero/fence sequence and return to the normal optional migration policy.
+Only after both the v2 D1 guard and an already-open identified v2 runtime prove the historical cutover completed may an ordinary later deployment skip the four conditional pre-fence acceptances/benchmarks and the exact-zero/fence sequence and return to the normal optional migration policy.
 
 These repository mechanics are not evidence that the Production cutover has been executed.
 

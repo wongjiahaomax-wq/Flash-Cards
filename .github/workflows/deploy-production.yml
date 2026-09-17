@@ -78,18 +78,6 @@ jobs:
       - name: Smoke test local D1 and Better Auth
         run: node scripts/local-auth-smoke.mjs
 
-      - name: Run multi-System v2 migrated-D1 scope guard acceptance
-        run: npm run multi-system:d1-acceptance
-
-      - name: Run multi-System v2 migrated-D1 lifecycle acceptance
-        run: npm run multi-system:d1-lifecycle-acceptance
-
-      - name: Run multi-System v2 supported JS/browser-envelope benchmark
-        run: npm run multi-system:benchmark
-
-      - name: Run multi-System v2 supported-envelope D1 trigger benchmark
-        run: npm run multi-system:d1-trigger-benchmark
-
       - name: Detect whether the one-time v2 cutover is still required
         id: cutover
         shell: bash
@@ -139,6 +127,22 @@ jobs:
           echo "guard_status=${guard_status}" >> "$GITHUB_OUTPUT"
           echo "runtime_status=${runtime_status}" >> "$GITHUB_OUTPUT"
           echo "prior_build_sha=${runtime_build_sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Run multi-System v2 migrated-D1 scope guard acceptance
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        run: npm run multi-system:d1-acceptance
+
+      - name: Run multi-System v2 migrated-D1 lifecycle acceptance
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        run: npm run multi-system:d1-lifecycle-acceptance
+
+      - name: Run multi-System v2 supported JS/browser-envelope benchmark
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        run: npm run multi-system:benchmark
+
+      - name: Run multi-System v2 supported-envelope D1 trigger benchmark
+        if: ${{ steps.cutover.outputs.required == 'true' }}
+        run: npm run multi-system:d1-trigger-benchmark
 
       - name: Require D1 write credential when migration is required
         if: ${{ steps.cutover.outputs.required == 'true' || inputs.apply_migrations == true }}

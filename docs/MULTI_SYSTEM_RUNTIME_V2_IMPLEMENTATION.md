@@ -191,15 +191,15 @@ AND
 
 An absent, legacy, malformed, or still-fenced runtime therefore does **not** become “complete” merely because migration `0026` exists. That state re-enters the fenced exact-zero sequence. A D1 inspection/authentication failure or runtime-status transport failure stops before the workflow mutates or fences Production.
 
-For a first or incomplete cutover, the workflow mechanically performs:
+The workflow mechanically enforces the following order. It first detects whether the one-time v2 cutover is still required; the four migrated-D1 acceptances/benchmarks run only for a first or incomplete cutover:
 
 ```text
 repository validation
-→ migrated-D1 v2 scope-guard acceptance
+→ inspect D1 guard + deployed v2 runtime completion state
+→ first or incomplete cutover only: migrated-D1 v2 scope-guard acceptance
 → migrated-D1 Scheduled/Free lifecycle acceptance
 → supported JS/browser-envelope benchmark
 → supported-envelope D1 trigger benchmark
-→ inspect D1 guard + deployed v2 runtime completion state
 → require D1 write credential before fencing
 → deploy temporary learner-runtime fence Worker
 → verify fence is live
@@ -216,7 +216,7 @@ The shared learner Study access owner rejects `/study` planning/open/resume/reve
 
 The runtime status endpoint exposes `learnerRuntimeBuildSha` from `APP_BUILD_SHA`. Fenced and reopened verification compare it to the exact workflow `GITHUB_SHA`; merely reaching some v2 Worker is not enough.
 
-Subsequent ordinary deployments may skip the historical exact-zero/fence sequence only when both the v2 D1 guard and an already-open identified v2 runtime prove the previous cutover completed. They then return to the normal repository migration policy: code-only deployment is allowed with `apply_migrations=false`, while `apply_migrations=true` applies pending migrations before Worker deployment.
+Subsequent ordinary deployments may skip both the four conditional migrated-D1 acceptances/benchmarks and the historical exact-zero/fence sequence only when both the v2 D1 guard and an already-open identified v2 runtime prove the previous cutover completed. Those four checks remain owned by `.github/workflows/multi-system-runtime-v2.yml` for relevant pull requests. They then return to the normal repository migration policy: code-only deployment is allowed with `apply_migrations=false`, while `apply_migrations=true` applies pending migrations before Worker deployment.
 
 Production verification during the cutover fence is non-mutating. It checks runtime build/status, guard presence, and zero-data sentinels; it does not bypass the fence to manufacture synthetic learner history.
 

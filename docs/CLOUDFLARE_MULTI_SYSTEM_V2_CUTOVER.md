@@ -45,9 +45,9 @@ An absent, legacy, malformed, or still-fenced runtime therefore re-enters the cu
 
 A D1 inspection/authentication failure or runtime-status transport failure is different from an incomplete cutover: it fails the workflow **before any Production mutation or outage fence is installed**.
 
-### Mandatory pre-fence validation
+### Conditional pre-fence validation
 
-Before Production fencing, the workflow runs:
+The workflow first detects whether the one-time v2 cutover is still required. Only when that detection reports a first or incomplete cutover does it run these four commands before Production fencing:
 
 ```sh
 npm run multi-system:d1-acceptance
@@ -56,15 +56,18 @@ npm run multi-system:benchmark
 npm run multi-system:d1-trigger-benchmark
 ```
 
+Ordinary post-cutover deployments (detection reports `required=false`) skip all four. The four checks remain owned by the specialized `.github/workflows/multi-system-runtime-v2.yml` for relevant pull requests.
+
 The first command is the direct migration-`0026` scope/guard acceptance. The second is the real workerd + fully migrated-D1 Scheduled/Free lifecycle acceptance. The third validates the JS/browser supported envelope. The fourth measures valid Active Review INSERT cost through the strict v2 D1 trigger itself at the supported scope envelope.
 
 ### Mechanically owned cutover sequence
 
-For a first or incomplete cutover:
+The workflow mechanically enforces this order. Cutover detection runs first; the four acceptances/benchmarks and then the rest of the fenced sequence run only when the cutover is required:
 
 ```text
-validate repository + both migrated-D1 acceptances + both envelope benchmarks
+validate repository
 → inspect D1 guard and deployed runtime completion state
+→ first or incomplete cutover only: both migrated-D1 acceptances + both envelope benchmarks
 → require the D1 write credential before taking learner runtime down
 → preflight exact-zero data before downtime (repeat under the fence to close the write race)
 → prove exact unauthenticated /study 303 application behavior while the control-plane Worker version remains stable
@@ -115,7 +118,7 @@ This prevents “some v2-looking runtime is reachable” from being used as proo
 
 ## Subsequent releases
 
-Only when the strict v2 D1 guard **and** an already-open identified v2 runtime prove that the historical cutover completed does the workflow skip the exact-zero/fence sequence.
+Only when the strict v2 D1 guard **and** an already-open identified v2 runtime prove that the historical cutover completed does the workflow skip the four conditional pre-fence acceptances/benchmarks and the exact-zero/fence sequence. An ordinary deployment therefore does not re-run `multi-system:d1-lifecycle-acceptance` (or the other three checks) in the deploy pipeline, including the `apply_migrations=true` path; those checks remain owned by the specialized PR workflow.
 
 Ordinary later deployments then return to the repository's normal migration policy:
 
