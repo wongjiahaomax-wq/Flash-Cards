@@ -96,8 +96,8 @@ Do not add or redesign:
 
 3. **Image inspection and reveal-position interaction**
    - Use the repository's existing Playwright/browser surface for one focused Study Review regression; do not add new test infrastructure or broaden into a large E2E suite.
-   - Activating the Study image or magnifying-glass affordance opens the larger inspection modal using the existing Study media URL and retaining the caption.
-   - The explicit close control and `Escape` close the modal. Backdrop-close behavior should also remain covered where economical in the same regression.
+   - Both clicking/tapping the Study image itself and activating the magnifying-glass control must open the larger inspection modal using the existing Study media URL and retaining the caption.
+   - The explicit close control, backdrop click, and `Escape` must each close the modal.
    - The same focused browser regression should exercise the real reveal interaction and prove it does not reset the learner to an unrelated scroll position.
    - No alternate media endpoint is introduced.
 
@@ -108,4 +108,4 @@ Do not add or redesign:
 
 Inspect the actual current repository state and follow current root/scoped `AGENTS.md` guidance with progressive retrieval. Start from the Study Review page, active Review read model, question selection path, and their existing focused tests; broaden only when evidence requires it.
 
-Use focused validation during implementation, then run repository-required final validation and report what actually ran. Keep the PR Draft until implementation and review are complete. Do not merge or mark Ready for Review.
+Use focused validation during implementation, then run repository-required final validation and report what actually ran. During final handoff, run the focused Study Review Playwright regression once and report its result explicitly, because ordinary Draft CI does not provide this browser proof. Keep the PR Draft until implementation and review are complete. Do not merge or mark Ready for Review.
