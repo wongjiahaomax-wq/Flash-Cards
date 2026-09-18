@@ -59,13 +59,15 @@ At the same time, reduce avoidable D1 round trips in the classification write pa
 
 ### 1. Classification response + local reconciliation
 
-For the normal `select-topic` operation, return an authoritative projection sufficient for the Case Library UI to reconcile the affected Case after the server commit.
+For the normal `select-topic` operation, the server response must authoritatively confirm the resulting canonical Topic so the Case Library UI can reconcile the affected Case after the commit. Do not reintroduce a complete taxonomy read solely to decorate that response; reuse data already obtained by the bounded mutation read or the page's existing server-provided taxonomy metadata where sufficient.
 
 The successful interaction must no longer wait for a full `invalidateAll()` before closing.
 
-The Case Library must immediately reflect whether the changed Case still belongs in the current filtered result set. In particular, under `system=unassigned`, assigning the Case to a Topic with a System ancestor must remove that Case from the visible list without waiting for a whole-page reload.
+The Case Library must immediately reflect whether the changed Case still belongs in the current filtered result set according to the active Topic/System filters. This must not be implemented as an `unassigned`-only special case. For example, under `system=unassigned`, assigning the Case to a Topic with a System ancestor must remove that Case from the visible list immediately; a representative named Topic or System filter must likewise gain/lose visible membership correctly when classification changes.
 
-Use the smallest existing Svelte state/callback pattern that fits the current page. Do not add a client state library or generic mutation framework.
+After that immediate local reconciliation and editor completion, trigger a non-blocking authoritative Case Library refresh where needed to reconcile server-owned pagination totals, page backfill, ordering, selection cleanup, and selector state. Do not await that refresh on the save critical path, and failure of the background refresh must not convert the already-successful mutation into a save error or reopen the editor.
+
+Use the smallest existing Svelte state/callback pattern that fits the current page. Do not add client pagination ownership, a client state library, or a generic mutation framework.
 
 ### 2. Bound the `promoteCaseTopic()` validation read model
 
@@ -83,9 +85,9 @@ Preserve the legacy-secondary promotion behavior.
 
 Inspect the current inline Case Tag mutation path and remove blocking whole-page invalidation where the server can return enough authoritative data to reconcile the affected row safely.
 
-Prioritize existing-Tag add/remove because those are unambiguously row-local.
+Prioritize existing-Tag add/remove because those are unambiguously row-local. If a successful add/remove changes whether the Case matches the currently active Tag filter, update visible membership immediately rather than leaving the Case incorrectly visible/hidden until a later navigation.
 
-For operations that create global selectable metadata, such as creating a new Tag, use the simplest correct behavior. A targeted local update is acceptable if it can keep all visible option state authoritative without new architecture; otherwise retain an authoritative refresh outside the critical interaction path.
+For operations that create global selectable metadata, such as creating a new Tag, use the simplest correct behavior. A targeted local update is acceptable if it can keep all visible option state authoritative without new architecture; otherwise retain an authoritative refresh outside the critical interaction path. As with classification, any authoritative refresh used after a successful row-local mutation must remain off the blocking save path.
 
 Do not expand this PR into a repository-wide elimination of `invalidateAll()`.
 
@@ -107,13 +109,13 @@ No production deployment or production D1 mutation is part of this PR.
 
 | Invariant | Required behavior | Required proof |
 | --- | --- | --- |
-| Classification no longer blocks on full Case Library reload | A successful `select-topic` closes/reconciles from the POST result without awaiting `invalidateAll()` | Focused executable UI/component behavior covering the real success path |
-| Filter reconciliation is correct | On `system=unassigned`, moving a Case under a System removes it from the visible result set immediately | Focused executable Case Library interaction proof |
-| Server response is authoritative | Client-visible Topic/System state comes from server-confirmed mutation data, not a speculative success assumption | Route/helper test plus UI behavior proof |
+| Classification no longer blocks on full Case Library reload | A successful `select-topic` closes/reconciles from the POST result without awaiting `invalidateAll()`; any authoritative refresh needed for totals/backfill/order/selector state runs afterward without becoming part of the save result | Focused executable UI/component behavior covering the real success path, including that refresh failure does not turn the successful save into an error |
+| Topic/System filter reconciliation is correct | The changed Case immediately remains/disappears according to the active Topic/System filters, not only the `unassigned` case | Focused executable Case Library proof for `system=unassigned` plus one representative named Topic or System filter; no exhaustive matrix required |
+| Server response is authoritative without broad reread | The POST authoritatively confirms the resulting canonical Topic; display metadata may reuse the bounded mutation result or existing page taxonomy metadata rather than a new complete-taxonomy read | Route/helper test plus UI behavior proof and the bounded-read proof below |
 | Classification semantics are preserved | Active Production Case, exactly one canonical Primary Topic, active target Topic, and legacy-secondary behavior remain correct | Existing/focused DB tests |
 | Timestamp remains best-effort | Timestamp-only failure cannot roll back or report failure for an already completed classification change | Existing/focused executable DB test |
 | Common classification read path is bounded | `promoteCaseTopic()` no longer loads the complete taxonomy merely to change one Case classification | Focused DB/read-path proof at the appropriate helper/query layer |
-| Row-local Tag edits avoid whole-page blocking reload | Existing-Tag add/remove updates the affected row without awaiting full Case Library invalidation | Focused executable inline Tag UI behavior proof |
+| Row-local Tag edits avoid whole-page blocking reload | Existing-Tag add/remove updates the affected row without awaiting full Case Library invalidation, and immediately updates visible membership when the active Tag filter is affected | Focused executable inline Tag UI behavior proof plus one filtered-Tag membership proof |
 | Global mutations remain correct | Shared taxonomy/global-option mutations still obtain authoritative page state where local reconciliation would be unsafe | Existing/focused tests for retained reload path |
 
 Static/source-regex checks may supplement these tests but must not be the only proof for interaction behavior.
@@ -125,6 +127,7 @@ Do not add:
 - schema changes or migrations;
 - cache/KV/Redis infrastructure;
 - client state-management libraries;
+- client-owned pagination/backfill architecture;
 - WebSockets or background synchronization architecture;
 - optimistic success before the server confirms the write;
 - a generic transaction abstraction;
