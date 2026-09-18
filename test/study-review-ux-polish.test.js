@@ -126,6 +126,8 @@ test('Study Review keeps diagnosis secrecy, frozen-title reveal, media reuse, an
   assert.match(reviewPage, /class="asset-modal-backdrop"/);
   assert.match(reviewPage, /onkeydown=\{handleImageDialogKeydown\}/);
   assert.match(reviewPage, /event\.target === event\.currentTarget/);
+  assert.match(reviewPage, /class="review-actions"/);
+  assert.doesNotMatch(reviewPage, /position:sticky; bottom:1rem/);
   assert.match(reviewPage, /class="run-progress"/);
   assert.doesNotMatch(reviewPage, /getTeachingImageUrl|getReviewImageUrl/);
 });
