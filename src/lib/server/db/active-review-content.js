@@ -30,7 +30,8 @@ function pickQuestions(source, questionPoolMode, rng) {
       rng,
       mode: /** @type {'automatic'|'all'|'fixed'} */ (source.case.questionSelectionMode),
       count: source.case.questionCount ?? 3,
-      groupCoverage: source.groupCoverage
+      groupCoverage: source.groupCoverage,
+      preservePoolOrder: questionPoolMode === 'core'
     });
     if (picked.length === 0) {
       throw new QuestionPoolUnavailableError(

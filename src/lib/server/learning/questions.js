@@ -117,8 +117,8 @@ export function resolveQuestionPool({ caseQuestions = [], studyConceptQuestions 
   return [...byPrompt.values()];
 }
 
-/** @template {{ questionPromptId: string, stimulusGroupId?: string | null }} T @param {T[]} pool @param {{ count?: number, mode?: 'automatic' | 'all' | 'fixed', rng?: () => number, groupCoverage?: { groupId: string, mode?: 'none' | 'minimum' | 'all', minimum?: number }[] }} [options] @returns {(T & { displayOrder: number })[]} */
-export function pickReviewQuestions(pool, { count = 3, mode = 'automatic', rng = Math.random, groupCoverage = [] } = {}) {
+/** @template {{ questionPromptId: string, stimulusGroupId?: string | null }} T @param {T[]} pool @param {{ count?: number, mode?: 'automatic' | 'all' | 'fixed', rng?: () => number, groupCoverage?: { groupId: string, mode?: 'none' | 'minimum' | 'all', minimum?: number }[], preservePoolOrder?: boolean }} [options] @returns {(T & { displayOrder: number })[]} */
+export function pickReviewQuestions(pool, { count = 3, mode = 'automatic', rng = Math.random, groupCoverage = [], preservePoolOrder = false } = {}) {
   if (!Array.isArray(pool)) throw new Error('Question pool must be an array.');
   if (typeof rng !== 'function') throw new Error('rng must be a function.');
   if (pool.length === 0) return [];
@@ -144,5 +144,9 @@ export function pickReviewQuestions(pool, { count = 3, mode = 'automatic', rng =
   const baseTarget = mode === 'all' ? pool.length : mode === 'fixed' ? Math.max(requestedCount, 1) : Math.min(Math.max(requestedCount, 1), 4);
   const target = mode === 'automatic' ? Math.min(Math.max(baseTarget, required.length), required.length > 4 ? required.length : 4, pool.length) : Math.min(Math.max(baseTarget, required.length), pool.length);
   if (required.length > target) throw new Error('The configured stimulus-specific question coverage cannot fit within the Case question count.');
-  return [...required, ...shuffled.filter((question) => !requiredIds.has(question.questionPromptId))].slice(0, target).map((question, displayOrder) => ({ ...question, displayOrder }));
+  const selected = [...required, ...shuffled.filter((question) => !requiredIds.has(question.questionPromptId))].slice(0, target);
+  const ordered = preservePoolOrder
+    ? [...selected].sort((left, right) => pool.indexOf(left) - pool.indexOf(right))
+    : selected;
+  return ordered.map((question, displayOrder) => ({ ...question, displayOrder }));
 }
