@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   assertNonSemanticSourceMap, normalizeSourceMap, parsePopplerBboxXhtml,
   planChunkRanges, sliceSourceMap, sourceMapToMarkdown,
 } from '../core.mjs';
 import {
   formatFailure, parseArgs, planChunkArtifacts, planPreparation,
-  prepareOutputDirectory, runCli, withPreparedOutput,
+  prepareOutputDirectory, runCli, runDirectEntry, withPreparedOutput,
 } from '../cli.mjs';
 
 function tempDir() { return mkdtempSync(join(tmpdir(), 'slide-prep-test-')); }
@@ -234,6 +235,20 @@ test('direct CLI invocation executes preparation and reports a supported-source 
     });
     assert.notEqual(status, 0, `direct CLI unexpectedly succeeded:\n${output}`);
     assert.match(output, /Slide preparation failed: Source file does not exist:/);
+
+    let entryOutput = '';
+    let exitCode = null;
+    const invoked = runDirectEntry({
+      argv: [sourcePath],
+      argv1: fileURLToPath(new URL('../cli.mjs', import.meta.url)),
+      writeStdout: value => { entryOutput += value; },
+      writeStderr: value => { entryOutput += value; },
+      setExitCode: value => { exitCode = value; },
+    });
+    assert.equal(invoked, true);
+    assert.equal(exitCode, 1);
+    assert.match(entryOutput, /Slide preparation failed: Source file does not exist:/);
+    assert.equal(runDirectEntry({ argv1: fileURLToPath(new URL('../core.mjs', import.meta.url)) }), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

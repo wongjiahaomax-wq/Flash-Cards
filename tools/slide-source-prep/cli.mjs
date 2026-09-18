@@ -309,5 +309,17 @@ export function runCli(argv, { writeStdout = value => process.stdout.write(Strin
   }
 }
 
-const invokedDirectly = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
-if (invokedDirectly) process.exitCode = runCli(process.argv.slice(2));
+export function runDirectEntry({
+  argv = process.argv.slice(2),
+  argv1 = process.argv[1],
+  writeStdout = value => process.stdout.write(String(value)),
+  writeStderr = value => process.stderr.write(String(value)),
+  setExitCode = value => { process.exitCode = value; },
+} = {}) {
+  const invokedDirectly = argv1 && resolve(argv1) === fileURLToPath(import.meta.url);
+  if (!invokedDirectly) return false;
+  setExitCode(runCli(argv, { writeStdout, writeStderr }));
+  return true;
+}
+
+runDirectEntry();
