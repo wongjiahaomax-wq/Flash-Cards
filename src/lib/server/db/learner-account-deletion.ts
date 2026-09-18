@@ -194,6 +194,7 @@ const FIRST_REMAINING_PHASE_SQL = `
     WHEN EXISTS (SELECT 1 FROM learner_system_aggregates WHERE user_id = ? LIMIT 1) THEN 'system_aggregates'
     WHEN EXISTS (SELECT 1 FROM learner_aggregates WHERE user_id = ? LIMIT 1) THEN 'learner_aggregates'
     WHEN EXISTS (SELECT 1 FROM learner_preferences WHERE user_id = ? LIMIT 1) THEN 'preferences'
+    WHEN EXISTS (SELECT 1 FROM learner_feedback WHERE user_id = ? LIMIT 1) THEN 'profile'
     WHEN EXISTS (SELECT 1 FROM review_questions WHERE review_id IN (SELECT id FROM reviews WHERE user_id = ?) LIMIT 1) THEN 'profile'
     WHEN EXISTS (SELECT 1 FROM review_assets WHERE review_id IN (SELECT id FROM reviews WHERE user_id = ?) LIMIT 1) THEN 'profile'
     WHEN EXISTS (SELECT 1 FROM reviews WHERE user_id = ? LIMIT 1) THEN 'profile'
@@ -204,7 +205,7 @@ const FIRST_REMAINING_PHASE_SQL = `
 
 async function firstRemainingPhase(client: D1Database, userId: string): Promise<LearnerAccountDeletionPhase> {
   const row = await client.prepare(FIRST_REMAINING_PHASE_SQL)
-    .bind(...Array(17).fill(userId))
+    .bind(...Array(18).fill(userId))
     .first<{ phase: LearnerAccountDeletionPhase }>();
   return row?.phase ?? 'identity_ready';
 }
@@ -267,6 +268,32 @@ export async function advanceLearnerAccountDeletion(input: {
   if (!descriptor) throw new Error(`Unsupported learner deletion phase: ${phase}`);
 
   if (phase === 'profile') {
+    const feedbackResult = await client.prepare(`
+      DELETE FROM learner_feedback
+      WHERE rowid IN (
+        SELECT rowid FROM learner_feedback WHERE user_id = ? LIMIT ?
+      )
+    `).bind(userId, batchSize).run();
+    const feedbackRowsDeleted = changes(feedbackResult);
+    const remainingFeedback = await client.prepare(`
+      SELECT 1 AS present FROM learner_feedback WHERE user_id = ? LIMIT 1
+    `).bind(userId).first();
+    if (feedbackRowsDeleted > 0 || remainingFeedback) {
+      await client.prepare(`
+        UPDATE learner_account_deletions
+        SET batches_completed = batches_completed + 1,
+            updated_at = ${DATABASE_NOW_MS_SQL}
+        WHERE user_id = ?
+      `).bind(userId).run();
+      return {
+        userId,
+        deleted: false,
+        readyForIdentityDelete: false,
+        rowsDeleted: feedbackRowsDeleted,
+        phase
+      };
+    }
+
     const legacyDescriptor = await readLegacyStudyDataDescriptor(client, userId);
     if (legacyDescriptor) {
       descriptor = {
