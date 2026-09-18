@@ -6,7 +6,7 @@ import {
   LOCAL_LEARNER_RUNTIME_RESET_TABLES,
   buildLocalLearnerRuntimeResetSql
 } from '../scripts/local-learner-runtime-reset.mjs';
-import { buildLocalResetSql } from '../scripts/local-replica-lib.mjs';
+import { buildLocalResetSql, CONTENT_TABLES } from '../scripts/local-replica-lib.mjs';
 import { applyCurrentSchema } from './current-schema.js';
 
 test('local learner runtime reset removes active FSRS and retired legacy Review FK/provenance blockers before content replacement', () => {
@@ -17,6 +17,7 @@ test('local learner runtime reset removes active FSRS and retired legacy Review 
     'free_review_completion_receipts',
     'active_review_questions',
     'active_review_assets',
+    'learner_feedback',
     'active_reviews',
     'review_questions',
     'review_assets',
@@ -33,6 +34,8 @@ test('local learner runtime reset removes active FSRS and retired legacy Review 
   for (const preserved of ['user', 'account', 'session', 'learner_preferences', 'learner_fsrs_profiles']) {
     assert.equal(LOCAL_LEARNER_RUNTIME_RESET_TABLES.includes(preserved), false, preserved);
   }
+
+  assert.equal(CONTENT_TABLES.some((table) => table.name === 'learner_feedback'), false);
 
   const sql = buildLocalLearnerRuntimeResetSql();
   assert.ok(sql.indexOf('DELETE FROM `scheduled_review_events`') < sql.indexOf('DELETE FROM `learner_system_monthly_buckets`'));
@@ -80,6 +83,21 @@ test('combined local learner/content reset clears retained monthly System histor
       /durable learner FSRS monthly history/
     );
 
+    // Keep a real feedback row present while the learner-runtime reset runs.
+    sqlite.exec(`
+      INSERT INTO \`cases\` (\`id\`, \`title\`, \`is_active\`)
+      VALUES ('local-case-old', 'Old Local Case', 1);
+
+      INSERT INTO \`learner_feedback\` (
+        \`id\`, \`case_id\`, \`user_id\`, \`reporter_label_snapshot\`,
+        \`case_title_snapshot\`, \`body\`
+      ) VALUES (
+        'local-feedback', 'local-case-old', 'local-learner', 'Local Learner',
+        'Old Local Case', 'Retained local feedback'
+      );
+
+    `);
+
     // The real local refresh order is learner runtime reset first, then content
     // reset. The runtime phase must remove the monthly provenance row so the old
     // System can be deleted/replaced deterministically.
@@ -89,6 +107,12 @@ test('combined local learner/content reset clears retained monthly System histor
       .get();
     assert.ok(bucketAfterRuntimeReset);
     assert.equal(bucketAfterRuntimeReset.count, 0);
+    const feedbackAfterRuntimeReset = sqlite
+      .prepare('SELECT count(*) AS count FROM learner_feedback')
+      .get();
+    assert.ok(feedbackAfterRuntimeReset);
+    assert.equal(feedbackAfterRuntimeReset.count, 0);
+
     const markerAfterRuntimeReset = sqlite
       .prepare('SELECT count(*) AS count FROM learner_study_data_deletions')
       .get();
