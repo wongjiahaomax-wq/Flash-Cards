@@ -48,7 +48,8 @@
     openCount: feedbackReports.filter((/** @type {any} */ report) => report.status === 'open').length,
     historyCount: feedbackReports.length
   });
-  function updateFeedbackReports(/** @type {any[]} */ reports) {
+  /** @param {any[]} reports */
+  function updateFeedbackReports(reports) {
     feedbackReports = reports;
   }
   const draftCoordinator = createCaseEditorCoordinator();
