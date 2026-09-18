@@ -38,7 +38,7 @@ async function mountDrawer(page) {
       window.__drawerError = null;
       try {
         const [{ mount }, { default: LearnerFeedbackDrawer }] = await Promise.all([
-          import('/node_modules/.vite/deps/svelte.js'),
+          import('/@id/svelte'),
           import('/src/lib/components/case-editor/LearnerFeedbackDrawer.svelte')
         ]);
         window.__drawer = mount(LearnerFeedbackDrawer, {
